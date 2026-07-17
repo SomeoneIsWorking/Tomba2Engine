@@ -57,8 +57,8 @@ void func_8003F174(Core*);   // still-substrate: case 0x8003C0C4 (a0=node, a1=0)
 void func_8003EF9C(Core*);   // still-substrate: case 0x8003C0D8
 void func_80039F4C(Core*);   // still-substrate: case 0x8003C0E8
 void func_800726D4(Core*);   // still-substrate: case 0x8003C138
-void func_8003C5F8(Core*);   // still-substrate: case 0x8003C168
-void func_8003C788(Core*);   // still-substrate: case 0x8003C178
+void func_8003C5F8(Core*);   // owned: billboardComposeC5F8 via override registry (case 0x8003C168)
+void func_8003C788(Core*);   // owned: billboardCompose3 via override registry (case 0x8003C178)
 void func_8003B054(Core*);   // still-substrate: case 0x8003C188's particle color/UV fill
 void func_80084660(Core*);   // still-substrate: case 0x8003C188's pool-span bracket (open)
 void func_80084690(Core*);   // still-substrate: case 0x8003C188's pool-span bracket (close)

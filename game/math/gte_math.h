@@ -49,6 +49,11 @@ public:
   uint32_t rotY(int16_t angle, uint32_t matPtr);
   uint32_t rotZ(int16_t angle, uint32_t matPtr);
 
+  // rotMatSoft(anglesPtr, outPtr): FUN_800847F0 — SOFTWARE (non-GTE) 3-Euler-angle rotation-matrix
+  //   builder. Distinct from rotmat (0x80085480, GTE/GPF): pure SIN/COS LUT + native >>12 multiplies,
+  //   no gte_op. Writes the row-major 3x3 (s16) at outPtr+0..+16. Returns outPtr via v0.
+  uint32_t rotMatSoft(uint32_t anglesPtr, uint32_t outPtr);
+
   // sqrtLzc(v): FUN_80084080 — GTE-LZC fixed-point square root (leading-sign-bit normalize + a
   //   16-bit ROM recip-sqrt table lookup @0x800a6310). Returns the isqrt-like result via v0.
   uint32_t sqrtLzc(uint32_t v);

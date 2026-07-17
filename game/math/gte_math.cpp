@@ -31,6 +31,7 @@ extern void gen_func_80085480(Core*);
 extern void gen_func_80084D10(Core*);
 extern void gen_func_80084EB0(Core*);
 extern void gen_func_80085050(Core*);
+extern void gen_func_800847F0(Core*);
 extern void gen_func_80077FB0(Core*);
 extern void gen_func_80078240(Core*);
 extern void gen_func_80084080(Core*);
@@ -296,6 +297,51 @@ uint32_t Math::rotY(int16_t angle, uint32_t matPtr) { Core* c = this->core; retu
 uint32_t Math::rotX(int16_t angle, uint32_t matPtr) { Core* c = this->core; return rotpair(c, angle, matPtr, 6, 12, +1); }   // FUN_80084D10
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
+// FUN_800847F0 — SOFTWARE (non-GTE) 3-angle rotation-matrix builder. a0 = SVECTOR* of 3 Euler angles
+// (vx@+0, vy@+2, vz@+4; s16 fixed, 4096 = one turn), a1 = MATRIX* out (row-major 3x3 s16 at +0..+16;
+// also returned in v0). DISTINCT from Math::rotmat (0x80085480, the GTE/GPF RotMatrix): this variant
+// uses ONLY the SIN/COS LUT @0x800a6490 + native 32-bit multiplies with a >>12 ARITHMETIC round and
+// NO gte_op/GPF clamping. Callers: billboard compose 0x8003C5F8, ReleaseTriggerMotion::driftReposition.
+//
+// Byte-exact by construction, mirroring the recomp register ops (generated/shard_5.c gen_func_800847F0):
+//   • trig: same LUT convention as rotpair_trig — cos = word high half (even), sin = low half made odd
+//     by the angle sign. abs index masked to 0xfff.
+//   • each element = (int32 product of two s16 trig terms) >>12; intermediates t1/t2 are kept as FULL
+//     s32 (>>12, NOT truncated to 16) before being re-multiplied — exactly as the gen keeps them in a
+//     register. mem_w16 truncates each stored element to s16. (uint64 low-32 == int32 product, so plain
+//     signed C math reproduces the gen's `(uint64)a*(uint64)b` → `(int32)lo >> 12` bit-for-bit; the trig
+//     terms are ≤4096 so no 32-bit overflow.)  m02 is the RAW sinB (no shift), as the asm stores it.
+// Verified against the gen body by scratch/re/rotmatsoft_equiv.cpp (random + edge angle triples, 0 diff).
+static inline void softTrig(Core* c, int32_t angle, int32_t* s, int32_t* co) {
+  uint32_t absidx = (angle >= 0) ? ((uint32_t)angle & 0xfffu) : ((0u - (uint32_t)angle) & 0xfffu);
+  uint32_t w = c->mem_r32(0x800a6490u + (absidx << 2));
+  *co = (int32_t)w >> 16;         // cos = high half (even → sign-independent)
+  int32_t sinv = (int16_t)w;      // sin = low half
+  if (angle < 0) sinv = -sinv;    // sin is odd
+  *s = sinv;
+}
+uint32_t Math::rotMatSoft(uint32_t anglesPtr, uint32_t out) {   // FUN_800847F0
+  Core* c = this->core;
+  int32_t sA, cA, sB, cB, sC, cC;
+  softTrig(c, (int16_t)c->mem_r16(anglesPtr + 0), &sA, &cA);
+  softTrig(c, (int16_t)c->mem_r16(anglesPtr + 2), &sB, &cB);
+  softTrig(c, (int16_t)c->mem_r16(anglesPtr + 4), &sC, &cC);
+  auto q = [](int32_t x) { return x >> 12; };      // >>12 arithmetic on the full s32 product
+  const int32_t t1 = q(-(cC * sB));                // gen's r24 (first half): (cosC·(−sinB))>>12
+  const int32_t t2 = q(-(sC * sB));                // gen's r24 (second half): (sinC·(−sinB))>>12
+  c->mem_w16(out + 0,  (uint16_t)(int16_t)q(cC * cB));                 // m00 = (cosC·cosB)>>12
+  c->mem_w16(out + 2,  (uint16_t)(int16_t)q(-(sC * cB)));              // m01 = (−(sinC·cosB))>>12
+  c->mem_w16(out + 4,  (uint16_t)(int16_t)sB);                        // m02 = sinB (raw, unshifted)
+  c->mem_w16(out + 6,  (uint16_t)(int16_t)(q(sC * cA) - q(t1 * sA))); // m10
+  c->mem_w16(out + 8,  (uint16_t)(int16_t)(q(cC * cA) + q(t2 * sA))); // m11
+  c->mem_w16(out + 10, (uint16_t)(int16_t)q(-(cB * sA)));             // m12 = (−(cosB·sinA))>>12
+  c->mem_w16(out + 12, (uint16_t)(int16_t)(q(sC * sA) + q(t1 * cA))); // m20
+  c->mem_w16(out + 14, (uint16_t)(int16_t)(q(cC * sA) - q(t2 * cA))); // m21
+  c->mem_w16(out + 16, (uint16_t)(int16_t)q(cB * cA));                // m22 = (cosB·cosA)>>12
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FUN_80084220 — MVMVA the rotation matrix already in the GTE CR regs by a vector → IR1-3 (libgte
 // ApplyMatrixLV-class). a0 = SVECTOR* in (VX,VY @+0 packed, VZ @+4 low half), a1 = VECTOR* out (3
 // sign-extended 32-bit words), returned in v0. The body: MTC2 a0 words → VXY0/VZ0, GTE MVMVA (sf=1,
@@ -447,6 +493,7 @@ static void eov_rotmat(Core* c)        { c->r[2] = mathOf(c).rotmat(c->r[4], c->
 static void eov_rotX(Core* c)          { c->r[2] = mathOf(c).rotX((int16_t)c->r[4], c->r[5]); }
 static void eov_rotY(Core* c)          { c->r[2] = mathOf(c).rotY((int16_t)c->r[4], c->r[5]); }
 static void eov_rotZ(Core* c)          { c->r[2] = mathOf(c).rotZ((int16_t)c->r[4], c->r[5]); }
+static void eov_rotMatSoft(Core* c)    { c->r[2] = mathOf(c).rotMatSoft(c->r[4], c->r[5]); }
 
 static void eov_isqrt16(Core* c)       { c->r[2] = eng_isqrt16(c->r[4]); }
 static void eov_approxDist3(Core* c)   { c->r[2] = eng_approxDist3((int32_t)c->r[4], (int32_t)c->r[5], (int32_t)c->r[6]); }
@@ -464,6 +511,7 @@ void Math::registerOverrides() {
   install(0x80084D10u, "Math::rotX",          eov_rotX,          gen_func_80084D10, shard_set_override);
   install(0x80084EB0u, "Math::rotY",          eov_rotY,          gen_func_80084EB0, shard_set_override);
   install(0x80085050u, "Math::rotZ",          eov_rotZ,          gen_func_80085050, shard_set_override);
+  install(0x800847F0u, "Math::rotMatSoft",    eov_rotMatSoft,    gen_func_800847F0, shard_set_override);
   install(0x80077FB0u, "Math::isqrt16",       eov_isqrt16,       gen_func_80077FB0, shard_set_override);
   install(0x80078240u, "Math::approxDist3",   eov_approxDist3,   gen_func_80078240, shard_set_override);
   install(0x80084080u, "Math::sqrtLzc",       eov_sqrtLzc,       gen_func_80084080, shard_set_override);

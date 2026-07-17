@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 19 verified · 5 partial · 3 n/a
+**Status:** 21 verified · 5 partial · 3 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -115,6 +115,18 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 20970
 - **gate:** SBS-full watch-cut 0-diff f20970 + combat f5970 (taps run gen bodies; push half host-only)
 - **evidence:** 77b7bcdb
+
+## render-billboard-c5f8
+- **status:** verified
+- **frames:** 360
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_PAD_REPLAY=replays/scene-transitions/hut-entry-alt.pad
+- **evidence:** ovhit 0x8003C5F8 native=8 oracle=8; A/B identical f0..f360
+
+## render-mat-847f0
+- **status:** verified
+- **frames:** 360
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_PAD_REPLAY=replays/scene-transitions/hut-entry-alt.pad
+- **evidence:** ovhit rotMatSoft oracle=8; MAT_ROTZ byte-identical f0..f360
 
 ## ScreenFade leaf tap FUN_8007E9C8
 - **status:** verified

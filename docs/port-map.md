@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 6 verified · 3 ported-unverified · 4 todo · 1 blocked
+**Status:** 8 verified · 3 ported-unverified · 2 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -77,18 +77,18 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 
 ## render-mat-847f0
 - **scope:** math leaf 0x800847F0
-- **status:** todo
+- **status:** verified
 - **order:** 41
-- **owner:** matrix-load helper
-- **notes:** node+0x54 matrix-load; ONLY blocker for C5F8; math leaf not a dispatcher (owning it is not jump-ahead)
+- **owner:** game/math/gte_math.cpp::Math::rotMatSoft
+- **notes:** SW (non-GTE) 3-Euler RotMatrix; owned via overrides::install(0x800847F0). SBS-full 0-diff f0..f360 (billboard C5F8 fed it 8x, MAT_ROTZ byte-identical).
 
 ## render-billboard-c5f8
 - **scope:** render handler 0x8003C5F8
-- **status:** todo
+- **status:** verified
 - **order:** 42
 - **deps:** render-mat-847f0
-- **owner:** perobj_billboard.cpp::billboardComposeC5F8
-- **notes:** byte-faithful compose sibling; ready AFTER 0x800847F0
+- **owner:** game/render/perobj_billboard.cpp::Render::billboardComposeC5F8
+- **notes:** 4th compose sibling = C2D4 with rotZ->rotMatSoft(node+84). SBS-full 0-diff f0..f360, ovhit C5F8 native=8/oracle=8 (equal).
 
 ## render-screenfade-726d4
 - **scope:** render handler 0x800726D4

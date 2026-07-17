@@ -93,6 +93,7 @@ extern void gen_func_8003CCA4(Core*);
 extern void gen_func_8003C2D4(Core*);
 extern void gen_func_8003C464(Core*);
 extern void gen_func_8003C788(Core*);
+extern void gen_func_8003C5F8(Core*);
 extern void gen_func_8003C8F4(Core*);
 
 // Still-substrate leaves called by these 4 (declared, called via plain guest-ABI intra-shard calls —
@@ -435,6 +436,46 @@ void Render::billboardCompose3() {
 }
 
 // ==================================================================================================
+// FUN_8003C5F8 — billboardComposeC5F8. Fourth compose sibling. STRUCTURALLY IDENTICAL to C2D4
+// (billboardCompose1): identity(MAT_A), identity(MAT_ROTZ), build a local rotation into MAT_ROTZ,
+// then matMul(MAT_ROTZ, MAT_A, MAT_OUT) and the shared CAM2 world-translate tail → billboardEmit.
+// The ONLY difference from C2D4: instead of a single-angle Z rotation (Math::rotZ on mem16(node+90)),
+// C5F8 builds a FULL 3-Euler-angle rotation from the SVECTOR at node+84 via Math::rotMatSoft
+// (FUN_800847F0, the non-GTE software RotMatrix owned this session). Frame 40, spills r16/r17/r18/
+// r19/ra like C2D4. All callees owned: Mtx::identity (0x80051794), Math::rotMatSoft (0x800847F0),
+// Math::matMul (0x80084110), billboardEmit (0x8003C8F4). See generated/shard_2.c gen_func_8003C5F8.
+void Render::billboardComposeC5F8() {
+  Core* c = mCore;
+  const uint32_t node = c->r[4];
+  if (c->mem_r32(node + 56) == 0) return;
+  withDepthTag(c, node, [](Core* c) {
+    GuestFrame frame(c, 40);
+    // Register-faithfulness (gen_func_8003C5F8 prologue): spill caller's r16..r19/ra at sp+16..+32 —
+    // same 40-byte / 5-spill shape as C2D4.
+    const uint32_t sp = c->r[29];
+    c->mem_w32(sp + 16, c->r[16]); c->mem_w32(sp + 20, c->r[17]);
+    c->mem_w32(sp + 24, c->r[18]); c->mem_w32(sp + 28, c->r[19]);
+    c->mem_w32(sp + 32, c->r[31]);
+    const uint32_t node = c->r[4];
+    mtxOf(c).identity(MAT_A);
+    mtxOf(c).identity(MAT_ROTZ);
+    mathOf(c).rotMatSoft(node + 84, MAT_ROTZ);       // MAT_ROTZ = software RotMatrix(SVECTOR @ node+84)
+    const uint32_t flag = c->mem_r8(node + 71) & 1u;
+    mathOf(c).matMul(MAT_ROTZ, MAT_A, MAT_OUT);
+    // gen's live callee-saved state at the billboardEmit (func_8003C8F4) call site: r16=MAT_OUT,
+    // r17=MAT_A, r18=flag, r19=node — identical to C2D4. billboardEmit spills these as its caller regs.
+    c->r[16] = MAT_OUT; c->r[17] = MAT_A; c->r[18] = flag; c->r[19] = node;
+    c->r[31] = 0x8003C76Cu;
+    billboardComposeTail(c, node, flag);
+    // Epilogue restore (gen_func_8003C5F8 L_8003C76C): read the caller's r16..r19/ra back from the
+    // spill slots — same anti-leak discipline as C2D4.
+    c->r[16] = c->mem_r32(sp + 16); c->r[17] = c->mem_r32(sp + 20);
+    c->r[18] = c->mem_r32(sp + 24); c->r[19] = c->mem_r32(sp + 28);
+    c->r[31] = c->mem_r32(sp + 32);
+  });
+}
+
+// ==================================================================================================
 // FUN_8003C8F4
 void Render::billboardEmit() {
   Core* c = mCore;
@@ -667,6 +708,7 @@ void ov_perObjRenderDispatch(Core* c) { rend(c)->perObjRenderDispatch(); }
 void ov_billboardCompose1(Core* c)    { rend(c)->billboardCompose1(); }
 void ov_billboardCompose2(Core* c)    { rend(c)->billboardCompose2(); }
 void ov_billboardCompose3(Core* c)    { rend(c)->billboardCompose3(); }
+void ov_billboardComposeC5F8(Core* c) { rend(c)->billboardComposeC5F8(); }
 void ov_billboardEmit(Core* c)        { rend(c)->billboardEmit(); }
 }
 
@@ -836,5 +878,6 @@ void perobj_billboard_install() {
   engine_set_override_main(0x8003C2D4u, ov_billboardCompose1,    gen_func_8003C2D4);
   engine_set_override_main(0x8003C464u, ov_billboardCompose2,    gen_func_8003C464);
   engine_set_override_main(0x8003C788u, ov_billboardCompose3,    gen_func_8003C788);
+  engine_set_override_main(0x8003C5F8u, ov_billboardComposeC5F8, gen_func_8003C5F8);
   engine_set_override_main(0x8003C8F4u, ov_billboardEmit,        gen_func_8003C8F4);
 }
