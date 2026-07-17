@@ -179,6 +179,7 @@ public:
   void renderField();            // #3 walkable field — native world (sceneNative)
   void renderHutInterior();      // #4 hut/door authored sub-scene — objects-only (fieldObjectsRender)
   void renderSopNarration();     // #5 SOP intro narration — native world (sceneNative + void-beat guard)
+  void renderAttract();          // #6 DEMO/title ATTRACT (sm[0x48]==7) — live 3D field world (sceneNative)
 
   // Dialog/prompt TEXT is produced by the FUN_8007CC00 tap (Panel::pushDialogGlyphs, game/ui/
   // panel.cpp) — fires whenever the guest dialog emitter draws, with the highlight palette the
@@ -197,6 +198,8 @@ public:
   // chrome + a page-1 menu (FUN_80106824(param1=1) -> item templates 0x90/0x91) — NOT the SOP narration.
   // Read-only producer; built from the shared data-driven menu emitter below.
   void s3MenuNative();
+  void renderCardBrowser();      // DEMO/title Load-Game memory-card browser (sm[0x48]==4) — 2D producer
+  void optionsPageNative();      // DEMO/title options page (sm[0x48]==6, page0) — 2D producer
 
   // --- shared DATA-DRIVEN menu emitter (reproduces the guest menu builders, read-only) --------------
   // menuChrome: black backdrop + the 2 logo sprites (FUN_80106690) shared by every front-end menu page.

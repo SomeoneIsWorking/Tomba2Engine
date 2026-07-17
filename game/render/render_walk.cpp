@@ -326,10 +326,24 @@ void Render::renderTitle() {
   //  · s48 == 5: `demo_frame_s5` LEAVE-DEMO — a ~2-frame task teardown (jal 0x80052078(2)) that kills the
   //    demo task and kicks the GAME load; the OT is empty, the screen holds black until GAME s48=2 (field).
   if (s48 < 2 || s48 == 5) { c->game->gpu.gpu_blank_display(); return; }
-  // Any other front-end substate (load-game browser s4, page s6, attract s7) is REAL content with NO native
-  // producer yet. Per USER (2026-07-15, restated): missing rendering CRASHES — no silent black-fill. The
-  // crash names the substate so it becomes the next rebuild item.
-  abortUnimplemented("DEMO/title front-end substate (sm[0x48] in {4,6,7,...}) — no native producer");
+  // Real front-end substates with native producers (each a read-only 2D/world pass):
+  if (s48 == 4) {   // Load-Game memory-card BROWSER
+    DisplayPassGuard displayPass(c->rsub.mode);
+    renderCardBrowser();
+    return;
+  }
+  if (s48 == 6) {   // OPTIONS page (page0)
+    DisplayPassGuard displayPass(c->rsub.mode);
+    optionsPageNative();
+    return;
+  }
+  if (s48 == 7) {   // ATTRACT — live 3D field world under the DEMO stage
+    renderAttract();   // owns its own DisplayPassGuard (world pass, like renderField)
+    return;
+  }
+  // Any OTHER front-end substate is still unbuilt: missing rendering CRASHES (no silent black-fill),
+  // and the crash names the substate so it becomes the next rebuild item.
+  abortUnimplemented("DEMO/title front-end substate (sm[0x48] not in {2,3,4,6,7}) — no native producer");
 }
 
 // #3 WALKABLE FIELD — native WORLD: terrain + entity/scene tables + objects + backdrop, real per-pixel

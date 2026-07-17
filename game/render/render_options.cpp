@@ -84,7 +84,9 @@ void Render::optionsPageNative() {
     unsigned char gg[4] = { 0, 0, 0, 0 };
     unsigned char bb[4] = { 70, 70, 70, 16 };
     c->game->activeRq().push2dQuad(RQ_BACKGROUND, /*order_2d_fg=*/0, xs, ys, uv, uv, rr, gg, bb,
-                                   0, 0, /*mode=*/3, /*raw=*/0, 0, 0, 0, 0, 0, 0, 1023, 511);
+                                   /*tp_x=*/0, /*tp_y=*/0, /*mode=*/3, /*raw=*/0, /*clut_x=*/0, /*clut_y=*/0,
+                                   /*tw_mx=*/0, /*tw_my=*/0, /*tw_ox=*/0, /*tw_oy=*/0,
+                                   /*da_x0=*/0, /*da_y0=*/0, /*da_x1=*/1023, /*da_y1=*/511);
   }
 
   // (c) CURSOR — reproduce FUN_8007E998(x = FUN_800793C4 return, y = Y[cursor]+4, attr=0), which draws
