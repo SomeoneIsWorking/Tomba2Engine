@@ -342,21 +342,9 @@ void Render::renderField() {
   cineBarsRender();     // cinematic letterbox bars (emits nothing when no cutscene bars are active)
 }
 
-// #4 HUT/DOOR INTERIOR (task-sm[0x4c]==3): OBJECTS-ONLY. The room is entity-list object 0x800FD850
-// (HEADS[1]); NPCs/props are HEADS[0..1]; Tomba is the G block — fieldObjectsRender walks them all via
-// perObjFlush -> gt3gt4 with real depth + the live interior camera. Skips the exterior terrain/scene-table/
-// backdrop (village data) — the substrate's reduced frameX pass. 2D bubble = native producer when rebuilt.
-void Render::renderHutInterior() {
-  // BREAK-FIRST (USER 2026-07-16): the authored hut interior (GAME sm[0x4c]==3) has NO native WORLD
-  // producer — only objects (fieldObjectsRender) were drawn, the room itself was never built natively,
-  // and the scene is not tier1-eligible, so fps60 could not interpolate it (it re-presented the captured
-  // queue verbatim → 30fps). Per the standing rule this file already applies to renderTitle's unported
-  // substates: an unported render path does NOT fall back to a partial/30fps draw — it crashes with its
-  // identity so the interior becomes the next native rebuild item (a real per-object interior WORLD
-  // producer that is tier1-eligible → 60fps like the field, at which point restore the object render).
-  mCore->game->fps60.mTier1EligibleCur = false;
-  abortUnimplemented("hut interior (GAME sm[0x4c]==3) — no native world producer (objects-only 30fps render removed)");
-}
+// #4 HUT/DOOR INTERIOR (task-sm[0x4c]==3): renderHutInterior() is defined in
+// game/render/render_hut_interior.cpp — a reduced OBJECTS-ONLY world producer (room 0x800FD850 + NPCs +
+// Tomba via fieldObjectsRender, real depth, live interior camera; NO exterior terrain/scene-table/backdrop).
 
 // #5 SOP INTRO NARRATION (overlay-sig 0x3C021F80 @ 0x80109450): the WORLD is native via sceneNative exactly
 // like the field (3D beats). The VOID beat (0x800BF9B4==5) has no 3D world/BG — the beat==5 guard inside

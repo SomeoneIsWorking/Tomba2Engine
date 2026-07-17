@@ -37,14 +37,19 @@ void tomba_fps60_world_pass(Core* c, float t) {
   // that pass on interp presents only (30Hz flicker of the whole layer).
   const bool voidBeat = rend(c)->worldVoidBeat();
   const bool areaInit = rend(c)->fieldAreaInit();
-  if (!voidBeat && !areaInit) rend(c)->terrainRenderAll();
+  // HUT-INTERIOR PARITY: renderHutInterior is a reduced OBJECTS-ONLY sub-scene that skips the exterior
+  // terrain/scene-table/backdrop (they still point at the VILLAGE). Mirror that gate here, or the interp
+  // presents redraw the village exterior on the in-between frames (documented interior flicker). The
+  // object walk below stays UNGATED so the interp frames draw the identical reduced object set.
+  const bool hutInterior = rend(c)->classifyScene() == Render::SceneKind::HutInterior;
+  if (!voidBeat && !areaInit && !hutInterior) rend(c)->terrainRenderAll();
   // SCENE TABLE (grass/terrain props): camera-only, same gate as terrain (mSceneTableTrusted, per the
   // present-time invariant — no tick has run since the real frame computed it).
-  if (!voidBeat && !areaInit && rend(c)->mSceneTableTrusted) rend(c)->fieldEntityRender(0x800F2418u);
+  if (!voidBeat && !areaInit && !hutInterior && rend(c)->mSceneTableTrusted) rend(c)->fieldEntityRender(0x800F2418u);
   // BACKDROP (game-logic scroll, LAYER-TRANSFORM lerp — not camera-projected): mirrors sceneNative's own
   // gate (mBackdropTrusted && the field-drawer-selector byte == 0 && bgstate == 0). The wrap moduli
   // (t4+0x30/+0x32) are static per-area config, safe to re-read directly here.
-  if (!voidBeat && rend(c)->mBackdropTrusted && c->mem_r8(0x800bf873u) == 0 && c->mem_r8(0x800bf870u) == 0) {
+  if (!voidBeat && !hutInterior && rend(c)->mBackdropTrusted && c->mem_r8(0x800bf873u) == 0 && c->mem_r8(0x800bf870u) == 0) {
     int modX = c->mem_r16(0x800ed018u + 0x30u), modY = c->mem_r16(0x800ed018u + 0x32u);
     f.mBgOverride.scrollX = wrapLerp(f.mBgPrev.scrollX, f.mBgCur.scrollX, modX, t);
     f.mBgOverride.scrollY = wrapLerp(f.mBgPrev.scrollY, f.mBgCur.scrollY, modY, t);

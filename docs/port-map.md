@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 8 verified · 3 ported-unverified · 2 todo · 1 blocked
+**Status:** 9 verified · 3 ported-unverified · 2 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -111,3 +111,9 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **deps:** render-effectmod
 - **owner:** submit.cpp shared per-cmd flush
 - **notes:** PARTIAL: own GENERIC-mode loop only; overlay-mode geomblks (0x8012/0x8013xxxx) are the SEAM — next tier, do NOT jump
+
+## render-hut-interior
+- **status:** verified
+- **order:** 46
+- **owner:** game/render/render_hut_interior.cpp::Render::renderHutInterior
+- **notes:** Reduced OBJECTS-ONLY producer (fieldObjectsRender: room 0x800FD850 + NPCs + Tomba, real depth, live interior camera). Was abortUnimplemented. VERIFIED: pc_render f410 shows room+NPCs+Tomba+props, no village leak, no crash/guest-write. fps60 flicker-gated in fps60_worldpass.cpp.

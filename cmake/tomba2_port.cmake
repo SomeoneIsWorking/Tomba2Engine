@@ -174,6 +174,7 @@ set(GAME_SRC
   game/render/cine_bars.cpp
   game/render/narration_swirl.cpp
   game/render/render_walk.cpp
+  game/render/render_hut_interior.cpp   # pc_render producer: hut/door authored sub-scene (objects-only)
   game/core/engine.cpp
   game/core/field_owned_leaves.cpp
   game/core/field_seq_scheduler.cpp
