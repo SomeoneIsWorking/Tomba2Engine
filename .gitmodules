@@ -1,0 +1,3 @@
+[submodule "external/psxport"]
+	path = external/psxport
+	url = <HOME>/repo/psxport
