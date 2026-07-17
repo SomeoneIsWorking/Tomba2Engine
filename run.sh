@@ -102,6 +102,11 @@ say "launching Tomba! 2 (native PC port)…"
 # (no intrusive window, no pad_session.pad clobber) instead of popping a window. PSXPORT_NOWINDOW keeps
 # run.sh headless.
 if [ -n "${PSXPORT_NOWINDOW:-}" ]; then export PSXPORT_VK_HEADLESS=1; else export PSXPORT_VK_WINDOW=1; fi
+# RmlUi debug/mod overlay assets (fonts + menu.rml) ship with the FRAMEWORK. Since the split they live
+# in the psxport submodule, but the overlay disk-loads them relative to PSXPORT_ASSET_DIR (the dir that
+# CONTAINS assets/). We run from the repo root, so point it at the submodule. Without this the overlay
+# loads no fonts and no menu ("[rmlui] LoadDocument … FAILED").
+export PSXPORT_ASSET_DIR="${PSXPORT_ASSET_DIR:-external/psxport}"
 # Debug server ON by default so a windowed session can be inspected/driven live (tools/dbgclient.py);
 # opt out with PSXPORT_DEBUG_SERVER=0. Window is windowed by default now (PSXPORT_FULLSCREEN=1 to override).
 #

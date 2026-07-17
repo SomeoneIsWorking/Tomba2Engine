@@ -5,11 +5,11 @@
 
 ## BACKLOG (0)
 
-## TODO (3)
+## TODO (2)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
-- **#3 RmlUi not working**  `ui`
 
 ## DOING (0)
 
-## DONE (0)
+## DONE (1)
+- **#3 RmlUi not working**  `ui`
