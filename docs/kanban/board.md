@@ -11,5 +11,6 @@
 
 ## DOING (0)
 
-## DONE (1)
+## DONE (2)
 - **#3 RmlUi not working**  `ui`
+- **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`

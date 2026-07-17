@@ -71,6 +71,12 @@ void Render::optionsPageNative() {
   if (page != 0)
     abortUnimplemented("DEMO OPTIONS sub-page (sm[0x50] != 0) — only page0 has a native producer");
 
+  // WIDESCREEN PILLARBOX: flat-black full-screen fill (equal vertex colours → STRETCHES to fill the wide
+  // FB, blacking the side margins) behind the 4:3 gradient below (non-flat → CENTERS, not stretched). 4:3: no-op.
+  { int xs[4] = { 0, 320, 0, 320 }, ys[4] = { 0, 0, 240, 240 }, z[4] = { 0, 0, 0, 0 };
+    unsigned char k[4] = { 0, 0, 0, 0 };
+    c->game->activeRq().push2dQuad(RQ_BACKGROUND, /*order_2d_fg=*/0, xs, ys, z, z, k, k, k,
+                                   0, 0, /*mode=*/3, /*raw=*/0, 0, 0, 0, 0, 0, 0, 0, 0, 1023, 511); }
   // (d) BACKGROUND — reproduce FUN_8007FC24: ONE full-screen POLY_G4 (op 0x38) Gouraud gradient quad
   // covering (0,0)-(320,240). Vertex colors (packet bytes, verbatim): TL/TR/BL = RGB(0,0,70) dark blue,
   // BR = RGB(0,0,16) — a subtle top->bottom-right darkening. Untextured (mode 3, raw 0), RQ_BACKGROUND
