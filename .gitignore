@@ -8,3 +8,4 @@ generated/
 # The framework submodule's own working-tree noise
 external/psxport/build/
 external/psxport/scratch/
+*.log

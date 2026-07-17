@@ -66,7 +66,7 @@ Task verbs decide the model tier:
      (NEVER `pkill -f`). Report SHA + files (EXCLUDE vendor/beetle-psx + generated/). Do NOT push.
 
 ## 2. Integration loop (operator, per landed commit)
-Run from the MAIN checkout `<HOME>/repo/psxport` (on `main`); subagent commits are reachable via
+Run from the MAIN checkout `<repo>` (on `main`); subagent commits are reachable via
 the shared object store.
 ```
 git cherry-pick -x <SHA>
@@ -156,7 +156,7 @@ wiped that agent's uncommitted work. Defenses:
   leaked into the working tree. Relocate stray untracked files to `scratch/stray/` (mv, don't rm) and
   `git reset --hard origin/main` before integrating.
 - Tell every source-editing agent EXPLICITLY: work only under your worktree cwd; NEVER write to
-  `<HOME>/repo/psxport/...`; copy `generated/` + `scratch/bin/tomba2/MAIN.EXE` INTO your worktree,
+  `<repo>/...`; copy `generated/` + `scratch/bin/tomba2/MAIN.EXE` INTO your worktree,
   build in your own `build2`. Absolute-path writes are the leak vector.
 - If the main checkout keeps re-dirtying after a reset, an agent is actively leaking — stop it or wait for
   it to finish before integrating.
