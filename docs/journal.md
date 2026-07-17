@@ -5001,7 +5001,7 @@ cdc.c [setmode]/[setloc]/[xa] logs (gated on PSXPORT_CDC_LOG), tomba2 PSXPORT_RE
   patches after `submodule update`, see patches/duckstation/README.md).
 - **No retail BIOS on this machine.** Using **OpenBIOS** (PCSX-Redux's open-source BIOS):
   downloaded from pcsx-redux GitHub Actions artifact "OpenBIOS" (gh api, needs auth),
-  installed to `~/.local/share/duckstation/bios/openbios.bin`. Crash Bash boots fine with
+  installed to `<data-dir>/duckstation/bios/openbios.bin`. Crash Bash boots fine with
   it (no fast-boot; menu reached ~frame 3500-4000). Keep a copy in `scratch/bios/`.
 - GPU dump pipeline verified end-to-end: `duckstation-regtest -gpudump <path>
   -gpudumpstart N -gpudumpframes M -- <chd>` → `.psxgpu.zst` → `zstd -d` →
@@ -6001,7 +6001,7 @@ submit-call-site register bug — later-122 open snag — must be nailed first).
 User correction to later-122's "no guest memory" framing: **"I might have been wrong to say no guest
 memory; but OUR writes always cause corruption — sometimes visual, sometimes worse. So we need to make
 the game able to use a different memory layout. To solve this we need much more game ownership and maybe a
-full port."** And: a sibling repo `~/repo/benefactor` (Amiga→PC) is **fully ported, runs fine, built from
+full port."** And: a sibling repo `<sibling-repo>` (Amiga→PC) is **fully ported, runs fine, built from
 the ground up** — the model to follow.
 
 **Reframed root cause (the real one):** the bug is not "we touch guest RAM" — it is that our writes
@@ -6041,7 +6041,7 @@ target for primitives. NEXT layers, in order:
   OT base/size so we know what is free and what the game reads back — the prerequisite to relocating/
   expanding engine-owned buffers safely. (benefactor did exactly this: pages `$2B3EC` row-stride/extent,
   camera clamp vars, level-data structs.)
-Reference repo: `~/repo/benefactor` (AGENTS.md, docs/codebase-layout.md, instructions/widescreen-plan.md).
+Reference repo: `<sibling-repo>` (AGENTS.md, docs/codebase-layout.md, instructions/widescreen-plan.md).
 
 ### later-124 measurement — widescreen pool/OT pressure CONFIRMED (PSXPORT_DEBUG=pool)
 Same field scene, headless, main OT (gpu_native.c `[pool]` probe):
