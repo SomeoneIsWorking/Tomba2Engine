@@ -27,8 +27,9 @@
 // OverrideFn is typedef'd in core.h. shard_set_override (generated/shard_disp.c) has C++ linkage.
 void shard_set_override(uint32_t addr, OverrideFn fn);
 
-extern void gen_func_8003C5F8(Core*);   // special-effect leaf renderers (walk types 16..19) — still substrate
-extern void gen_func_8003C788(Core*);
+extern void gen_func_8003C5F8(Core*);   // special-effect leaf renderer (walk type) — still substrate
+// (gen_func_8003C788 is now natively owned as Render::billboardCompose3 — perobj_billboard.cpp — which
+// folds the depth-tag in directly like its C2D4/C464 siblings, so the observer no longer wraps it.)
 
 static void obs_body(Core* c, void (*gen)(Core*)) {
   // PSXPORT_ORACLE: the oracle is PURE PSX — run the literal substrate body untouched, add NO host depth
@@ -48,7 +49,6 @@ static void obs_body(Core* c, void (*gen)(Core*)) {
 
 #define OBS_WRAP(genfn) static void obs_##genfn(Core* c) { obs_body(c, genfn); }
 OBS_WRAP(gen_func_8003C5F8)
-OBS_WRAP(gen_func_8003C788)
 #undef OBS_WRAP
 
 // (The ui_span observer wrap that used to sit here on 0x8007D594 was removed 2026-07-16,
@@ -62,5 +62,4 @@ void render_observer_install() {
   if (done) return;
   done = true;
   shard_set_override(0x8003C5F8u, obs_gen_func_8003C5F8);
-  shard_set_override(0x8003C788u, obs_gen_func_8003C788);
 }

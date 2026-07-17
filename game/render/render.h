@@ -339,6 +339,9 @@ public:
   // persistent camera MATRIX, transform the node's world position, then hand off to billboardEmit.
   void billboardCompose1();
   void billboardCompose2();
+  // billboardCompose3 (FUN_8003C788): a0=node. Seeds MAT_A=identity, folds the node's stored matrix
+  // (node+152) via matMul into MAT_ROTZ, runs the shared CAM2 world-translate tail on MAT_ROTZ → billboardEmit.
+  void billboardCompose3();
   // billboardEmit (FUN_8003C8F4): a0=node (r4), a1=flag (r5). Walks the node's active particle
   // sub-list, RTPT/RTPS-projects each particle's quad corners, culls off-screen, buckets into the OT
   // by averaged depth, and emits a 10-word (tag+9) GT4-style packet into the packet pool.
@@ -348,8 +351,8 @@ public:
   // renderWalk (FUN_8003C048, no args): iterates the global render-node list (head @0x800F2624, next
   // ptr @node+36), skipping dead nodes (mem8(node+1)==0) and out-of-range case indices
   // (mem8(node+11)>=33), and dispatches each live node through a 33-entry jump table (@0x800104B8) to
-  // one of: perObjRenderDispatch/billboardCompose1/billboardCompose2 (owned siblings, called
-  // natively), several still-substrate leaves (func_8003F174/EF9C/80039F4C/800726D4/C5F8/C788 +
+  // one of: perObjRenderDispatch/billboardCompose1/billboardCompose2/billboardCompose3 (owned siblings,
+  // called natively), several still-substrate leaves (func_8003F174/EF9C/80039F4C/800726D4/C5F8 +
   // rec_dispatch to 0x8012A43C/801295B4/80129114/8013DD58), a "generic particle" case (0x8003C188,
   // mode-4 direct dispatch or a func_8003B054+80084660/90+8003B320 packet-emit sequence), a fully
   // dynamic per-node dispatch through node+24 (case 0x8003C29C), and a no-op skip entry. THE point of

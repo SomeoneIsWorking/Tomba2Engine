@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 6 verified · 2 ported-unverified · 5 todo · 1 blocked
+**Status:** 6 verified · 3 ported-unverified · 4 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -70,10 +70,10 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 
 ## render-billboard-c788
 - **scope:** render handler 0x8003C788
-- **status:** todo
+- **status:** ported-unverified
 - **order:** 40
 - **owner:** perobj_billboard.cpp::billboardComposeC788
-- **notes:** byte-faithful compose sibling of owned billboardCompose1/2; ALL callees owned; cleanest ready render node
+- **notes:** Render::billboardCompose3 (perobj_billboard.cpp): identity(MAT_A)+matMul(node+152)→shared CAM2 tail on MAT_ROTZ→billboardEmit; owned helpers Mtx::identity/Math::matMul; build-clean + abi audit OK (frame32/spills/ra); byte-faithful by construction like SBS-gated C2D4/C464. Needs SBS 0-diff gate when a disc is available.
 
 ## render-mat-847f0
 - **scope:** math leaf 0x800847F0

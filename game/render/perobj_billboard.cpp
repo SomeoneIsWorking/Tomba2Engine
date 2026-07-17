@@ -92,6 +92,7 @@ void shard_set_override(uint32_t addr, OverrideFn fn);   // generated/shard_disp
 extern void gen_func_8003CCA4(Core*);
 extern void gen_func_8003C2D4(Core*);
 extern void gen_func_8003C464(Core*);
+extern void gen_func_8003C788(Core*);
 extern void gen_func_8003C8F4(Core*);
 
 // Still-substrate leaves called by these 4 (declared, called via plain guest-ABI intra-shard calls —
@@ -294,9 +295,12 @@ void Render::perObjRenderDispatch() {
 }
 
 // ==================================================================================================
-// Shared tail: compose CAM2 (camera rotation+translation) onto WORLD_POS, add it into MAT_OUT.t,
-// reload CR0-7 from MAT_OUT, then hand off to billboardEmit(node, flag).
-static void billboardComposeTail(Core* c, uint32_t node, uint32_t flag) {
+// Shared tail: compose CAM2 (camera rotation+translation) onto WORLD_POS, add it into outMat.t,
+// reload CR0-7 from outMat, then hand off to billboardEmit(node, flag).
+// outMat = the BUF slot holding the composed matrix. C2D4/C464 land it in MAT_OUT (BUF+0x40); C788
+// (billboardCompose3) composes in place in MAT_ROTZ (BUF+0x20) — its gen loads CR0-7 from BUF+0x20,
+// not BUF+0x40 — so the tail is parameterized by that slot instead of hardcoding MAT_OUT.
+static void billboardComposeTail(Core* c, uint32_t node, uint32_t flag, uint32_t outMat = MAT_OUT) {
   c->mem_w16(WORLD_POS + 0, c->mem_r16(node + 46));
   c->mem_w16(WORLD_POS + 2, c->mem_r16(node + 50));
   c->mem_w16(WORLD_POS + 4, c->mem_r16(node + 54));
@@ -308,20 +312,20 @@ static void billboardComposeTail(Core* c, uint32_t node, uint32_t flag) {
   gte_write_data(0, c->mem_r32(WORLD_POS + 0));
   gte_write_data(1, c->mem_r32(WORLD_POS + 4));
   gte_op(c, MVMVA_TRANS);
-  c->mem_w32(MAT_OUT + 0x14, gte_read_data(25));
-  c->mem_w32(MAT_OUT + 0x18, gte_read_data(26));
-  c->mem_w32(MAT_OUT + 0x1C, gte_read_data(27));
-  c->mem_w32(MAT_OUT + 0x14, c->mem_r32(MAT_OUT + 0x14) + c->mem_r32(CAM2 + 0x14));
-  c->mem_w32(MAT_OUT + 0x18, c->mem_r32(MAT_OUT + 0x18) + c->mem_r32(CAM2 + 0x18));
-  c->mem_w32(MAT_OUT + 0x1C, c->mem_r32(MAT_OUT + 0x1C) + c->mem_r32(CAM2 + 0x1C));
-  gte_write_ctrl(0, c->mem_r32(MAT_OUT + 0));
-  gte_write_ctrl(1, c->mem_r32(MAT_OUT + 4));
-  gte_write_ctrl(2, c->mem_r32(MAT_OUT + 8));
-  gte_write_ctrl(3, c->mem_r32(MAT_OUT + 12));
-  gte_write_ctrl(4, c->mem_r32(MAT_OUT + 16));
-  gte_write_ctrl(5, c->mem_r32(MAT_OUT + 0x14));
-  gte_write_ctrl(6, c->mem_r32(MAT_OUT + 0x18));
-  gte_write_ctrl(7, c->mem_r32(MAT_OUT + 0x1C));
+  c->mem_w32(outMat + 0x14, gte_read_data(25));
+  c->mem_w32(outMat + 0x18, gte_read_data(26));
+  c->mem_w32(outMat + 0x1C, gte_read_data(27));
+  c->mem_w32(outMat + 0x14, c->mem_r32(outMat + 0x14) + c->mem_r32(CAM2 + 0x14));
+  c->mem_w32(outMat + 0x18, c->mem_r32(outMat + 0x18) + c->mem_r32(CAM2 + 0x18));
+  c->mem_w32(outMat + 0x1C, c->mem_r32(outMat + 0x1C) + c->mem_r32(CAM2 + 0x1C));
+  gte_write_ctrl(0, c->mem_r32(outMat + 0));
+  gte_write_ctrl(1, c->mem_r32(outMat + 4));
+  gte_write_ctrl(2, c->mem_r32(outMat + 8));
+  gte_write_ctrl(3, c->mem_r32(outMat + 12));
+  gte_write_ctrl(4, c->mem_r32(outMat + 16));
+  gte_write_ctrl(5, c->mem_r32(outMat + 0x14));
+  gte_write_ctrl(6, c->mem_r32(outMat + 0x18));
+  gte_write_ctrl(7, c->mem_r32(outMat + 0x1C));
   c->r[4] = node; c->r[5] = flag;
   rend(c)->billboardEmit();
 }
@@ -391,6 +395,40 @@ void Render::billboardCompose2() {
     billboardComposeTail(c, node, flag);
     // Epilogue restore (gen_func_8003C464): read the caller's values back from the spill slots
     // (r16/r17/r18/ra — C464 does not save r19). Same anti-leak discipline as billboardCompose1.
+    c->r[16] = c->mem_r32(sp + 16); c->r[17] = c->mem_r32(sp + 20);
+    c->r[18] = c->mem_r32(sp + 24); c->r[31] = c->mem_r32(sp + 28);
+  });
+}
+
+// ==================================================================================================
+// FUN_8003C788 — billboardCompose3. Third compose sibling of C2D4/C464. Unlike them (which build a
+// Z-rotation LOCAL matrix), C788 seeds MAT_A = identity and folds the node's OWN stored 3x3+t matrix
+// (node+152) through it — matMul(node+152, MAT_A, MAT_ROTZ) leaves MAT_ROTZ = the node matrix — then
+// runs the SAME CAM2 world-translate tail as its siblings, but composing in place in MAT_ROTZ (BUF+0x20)
+// rather than MAT_OUT. All callees owned: Mtx::identity (0x80051794), Math::matMul (0x80084110),
+// billboardEmit (0x8003C8F4). Frame 32, spills r16/r17/r18/ra like C464 (no r19). See abi_extract
+// 0x8003C788 --contract + generated/shard_3.c.
+void Render::billboardCompose3() {
+  Core* c = mCore;
+  const uint32_t node = c->r[4];
+  if (c->mem_r32(node + 56) == 0) return;
+  withDepthTag(c, node, [](Core* c) {
+    GuestFrame frame(c, 32);
+    // Register-faithfulness (gen_func_8003C788 prologue): spill caller's r16/r17/r18/ra at
+    // sp+16/+20/+24/+28 — same 32-byte / 4-spill shape as C464.
+    const uint32_t sp = c->r[29];
+    c->mem_w32(sp + 16, c->r[16]); c->mem_w32(sp + 20, c->r[17]);
+    c->mem_w32(sp + 24, c->r[18]); c->mem_w32(sp + 28, c->r[31]);
+    const uint32_t node = c->r[4];
+    mtxOf(c).identity(MAT_A);
+    const uint32_t flag = c->mem_r8(node + 71) & 1u;
+    mathOf(c).matMul(node + 152, MAT_A, MAT_ROTZ);   // MAT_ROTZ = (node+152 matrix) x identity
+    // gen's live callee-saved state at the billboardEmit call site (abi_extract call [2]): r16=MAT_ROTZ,
+    // r17=flag, r18=node. billboardEmit spills these as its caller regs, so match gen exactly.
+    c->r[16] = MAT_ROTZ; c->r[17] = flag; c->r[18] = node;
+    c->r[31] = 0x8003C8DCu;
+    billboardComposeTail(c, node, flag, MAT_ROTZ);   // same GTE world-translate tail as C2D4/C464, on MAT_ROTZ
+    // Epilogue restore (gen_func_8003C788 L_8003C8DC): read the caller's r16/r17/r18/ra back.
     c->r[16] = c->mem_r32(sp + 16); c->r[17] = c->mem_r32(sp + 20);
     c->r[18] = c->mem_r32(sp + 24); c->r[31] = c->mem_r32(sp + 28);
   });
@@ -628,6 +666,7 @@ namespace {
 void ov_perObjRenderDispatch(Core* c) { rend(c)->perObjRenderDispatch(); }
 void ov_billboardCompose1(Core* c)    { rend(c)->billboardCompose1(); }
 void ov_billboardCompose2(Core* c)    { rend(c)->billboardCompose2(); }
+void ov_billboardCompose3(Core* c)    { rend(c)->billboardCompose3(); }
 void ov_billboardEmit(Core* c)        { rend(c)->billboardEmit(); }
 }
 
@@ -796,5 +835,6 @@ void perobj_billboard_install() {
   engine_set_override_main(0x8003CCA4u, ov_perObjRenderDispatch, gen_func_8003CCA4);
   engine_set_override_main(0x8003C2D4u, ov_billboardCompose1,    gen_func_8003C2D4);
   engine_set_override_main(0x8003C464u, ov_billboardCompose2,    gen_func_8003C464);
+  engine_set_override_main(0x8003C788u, ov_billboardCompose3,    gen_func_8003C788);
   engine_set_override_main(0x8003C8F4u, ov_billboardEmit,        gen_func_8003C8F4);
 }
