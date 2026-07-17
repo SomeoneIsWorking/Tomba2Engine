@@ -169,6 +169,11 @@ spot-check AFTER Ghidra only.
   `docs/oop.md` for the shape.
 - **No file-scope globals.** No `g_*`, no non-const file-scope statics anywhere in `game/` or
   `runtime/recomp/`. Everything a real class with a header, state on `Game`/`Engine`/subsystem.
+- **Standard code quality — no inline local `extern` decls (USER 2026-07-17).** Declare functions in
+  the owning header and `#include` it; NEVER `{ int foo(Core*); … }` local forward-declarations inside a
+  block to reach a function defined elsewhere (the codebase has legacy instances — do not add more, and
+  convert them when you touch them). Name things meaningfully — no doubled/placeholder names like
+  `gpu_gpu`. Lift repeated sub-expressions into named locals. Match the surrounding file's idiom.
 - **MIRROR THE GUEST STACK — never revert/exclude a leaf because it pushes a frame.** If the substrate
   body of a leaf you're owning descends `sp` (`addiu sp,-N` + register spills), the native port MUST
   reproduce that frame: `c->r[29] -= N` at entry, write the callee-save spills (`ra`/`s0..s3`) at their
@@ -248,6 +253,27 @@ you find yourself wanting to write guest RAM from render code, you're building t
     emulator; going off it = porting those native, long-term).
   - `tools/` — recompiler + tooling. `scratch/` — gitignored artifacts by type (**never `/tmp`**).
   - Put a new native in its SUBSYSTEM FOLDER; never a grab-bag file.
+
+## NO HEDGING — ship the code (USER directive, 2026-07-17, hard rule)
+
+When there is code to write, WRITE IT. Do not withhold, defer, gate, or ask permission for work you
+can already do. Specific bans:
+
+- **No "want me to do X?" for obvious next steps.** If X is the clear next action (implement the fix,
+  integrate the producer, publish the verified change), DO X and report it done. Asking permission for
+  work the user already asked for is hedging.
+- **No deferring a fix you understand.** "I identified the mechanism but it needs the user to…" is
+  banned when you can implement it now. Implement it, build it, verify what you can, ship it.
+- **No "I can't verify headless" excuses.** You CAN drive the game headless and screenshot (any aspect,
+  any scene) — set the config, run the replay/REPL, `shot`, and READ the PNG. If a claim is "I can't
+  see it," the real task is to make yourself see it. Never use unverifiability as a reason to stop.
+- **Batch means batch.** "Port a bunch of things" / "make the change" = do ALL of them, not one plus a
+  list of what you're leaving out. Integrate every producer, not the safe one.
+- **Publish verified work without asking.** Squash-republish (`scratch/publish-repos.sh`) after a
+  verified fix — don't ask "want me to publish?".
+- Surface a genuine BLOCKER (a real design fork only the user can resolve, a destructive irreversible
+  action) — but a blocker is rare, and "this is subtle / I'm unsure / it's a shared path" is NOT one.
+  Do the work, verify it, and let the result be the report.
 
 ## Hard rules
 

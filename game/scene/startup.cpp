@@ -65,9 +65,9 @@ void Engine::initDisplay() {
   // Widescreen: shift the projection center to the aspect center (nw/2 = 214@16:9 / 280@21:9) so the
   // GUEST GTE itself projects the wider FOV — the guest OT packets AND every native re-projection then
   // agree on one center (avoids the ~54px double-image when only the native pass is widened). Off at 4:3 /
-  // oracle (gpu_gpu_wide_engine()==0), so the substrate/SBS reference keeps the stock 160.
-  { int gpu_gpu_wide_engine(Core*), gpu_gpu_wide_engine_ofx(Core*);
-    int ofx = gpu_gpu_wide_engine(c) ? gpu_gpu_wide_engine_ofx(c) : 160;
+  // oracle (gpu_vk_wide_engine()==0), so the substrate/SBS reference keeps the stock 160.
+  { int gpu_vk_wide_engine(Core*), gpu_vk_wide_engine_ofx(Core*);
+    int ofx = gpu_vk_wide_engine(c) ? gpu_vk_wide_engine_ofx(c) : 160;
     gte_write_ctrl(24, (uint32_t)ofx << 16); }
   gte_write_ctrl(25, (uint32_t)120 << 16);
   c->mem_w16(0x801003F8, 350);          // DAT_801003f8 = projection plane H (initCamera reads this)

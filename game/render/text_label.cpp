@@ -41,8 +41,8 @@ void func_80084660(Core*);   // libgte SetRotMatrix  (CR0-4 <- MATRIX.m)
 void func_80084690(Core*);   // libgte SetTransMatrix(CR5-7 <- MATRIX.t)
 void func_8009A5B0(Core*);   // libc strcpy (substrate)
 void func_8009A490(Core*);   // libc strcat (substrate)
-int  gpu_gpu_wide_engine(Core*);     // gpu_gpu.cpp — genuine engine-wide FOV active
-int  gpu_gpu_wide_engine_w(Core*);   // gpu_gpu.cpp — the wide screen width (nw)
+int  gpu_vk_wide_engine(Core*);     // gpu_vk.cpp — genuine engine-wide FOV active
+int  gpu_vk_wide_engine_w(Core*);   // gpu_vk.cpp — the wide screen width (nw)
 
 namespace {
 constexpr uint32_t PKT_POOL_PTR = 0x800BF544u;   // packet-pool bump-allocator write pointer
@@ -119,7 +119,7 @@ void textLabelBody(Core* c) {
         const uint32_t pk = c->r[16];
         auto sx = [&](uint32_t off) { return (uint32_t)c->mem_r16(pk + off); };
         // xmax widened under the engine-wide FOV (submit_xmax precedent; SBS legs run 4:3).
-        const uint32_t xmax = gpu_gpu_wide_engine(c) ? (uint32_t)gpu_gpu_wide_engine_w(c) : 320u;
+        const uint32_t xmax = gpu_vk_wide_engine(c) ? (uint32_t)gpu_vk_wide_engine_w(c) : 320u;
         const bool xok = sx(8) < xmax || sx(16) < xmax || sx(24) < xmax || sx(32) < xmax;
         const bool yok = sx(10) < 240u || sx(18) < 240u || sx(26) < 240u || sx(34) < 240u;
         if (xok && yok) {

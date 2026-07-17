@@ -554,8 +554,8 @@ void Render::billboardEmit() {
       // genuine engine-wide FOV (OFX=nw/2, already a sanctioned wide-mode guest deviation; SBS legs
       // run 4:3 so byte-exactness is untouched) the screen extends to the wide width — the stock 320
       // gate was culling this class out of the right wide band.
-      int gpu_gpu_wide_engine(Core*), gpu_gpu_wide_engine_w(Core*);
-      const uint32_t xmax = gpu_gpu_wide_engine(c) ? (uint32_t)gpu_gpu_wide_engine_w(c) : 320u;
+      int gpu_vk_wide_engine(Core*), gpu_vk_wide_engine_w(Core*);
+      const uint32_t xmax = gpu_vk_wide_engine(c) ? (uint32_t)gpu_vk_wide_engine_w(c) : 320u;
       bool onX = (uint32_t)c->mem_r16(BUF + 8)  < xmax ||
                  (uint32_t)c->mem_r16(BUF + 16) < xmax ||
                  (uint32_t)c->mem_r16(BUF + 24) < xmax ||
@@ -686,9 +686,9 @@ void Render::billboardEmit() {
         // Diagnostic (PSXPORT_DEBUG=bbord): prove the per-particle registration carries DISTINCT ords
         // (before this change every particle of a manager node shared obj_world_ord(node)'s single ord).
         if (cfg_dbg("bbord")) {
-          int gpu_gpu_preseq_present_index(Core*);
+          int gpu_vk_preseq_present_index(Core*);
           cfg_logf("bbord", "pf=%d call=%08X it=%d part=%08X off=%d,%d nodeOrd=%.6f partOrd=%.6f span=[%08X,%08X)",
-                  gpu_gpu_preseq_present_index(c), node, bbIt, particle,
+                  gpu_vk_preseq_present_index(c), node, bbIt, particle,
                   c->mem_r8s(particle + 14), c->mem_r8s(particle + 15),
                   obj_world_ord(c, node), pord, packetLo, tail);
         }

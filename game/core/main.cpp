@@ -49,7 +49,7 @@ int main(int argc, char** argv) {
   // PSXPORT_PC_SKIP=0 to route everything through the fiber substrate (slow; audit mode).
   { const char* e = getenv("PSXPORT_PC_SKIP");
     if (e && *e && strcmp(e, "0") == 0) game->pc_skip = false; }
-  c->game->gpu_gpu.tritest();                  // PSXPORT_VK_TRITEST=1: GPU triangle-rasterizer self-test, then exit
+  c->game->gpu_vk.tritest();                  // PSXPORT_VK_TRITEST=1: GPU triangle-rasterizer self-test, then exit
   watchdog_init();            // PSXPORT_WATCHDOG=<sec>: abort+backtrace if a frame stalls
   load_exe(path, c);
   void games_tomba2_init(void);

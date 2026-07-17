@@ -193,8 +193,8 @@ void QuadRtptSubmit::submitQuad(Core* c) {
   auto sx = [&](uint32_t off) { return (uint16_t)c->mem_r16(out + off); };
   // xmax: 320 stock; the wide width under the genuine engine-wide FOV (submit.cpp submit_xmax
   // precedent — right-band content was culled out of widescreen; SBS legs run 4:3, unaffected).
-  int gpu_gpu_wide_engine(Core*), gpu_gpu_wide_engine_w(Core*);
-  const uint16_t xmax = gpu_gpu_wide_engine(c) ? (uint16_t)gpu_gpu_wide_engine_w(c) : 320;
+  int gpu_vk_wide_engine(Core*), gpu_vk_wide_engine_w(Core*);
+  const uint16_t xmax = gpu_vk_wide_engine(c) ? (uint16_t)gpu_vk_wide_engine_w(c) : 320;
   bool xok = sx(8) < xmax || sx(16) < xmax || sx(24) < xmax || sx(32) < xmax;
   if (!xok) { pop(); return; }
   bool yok = sx(10) < 240 || sx(18) < 240 || sx(26) < 240 || sx(34) < 240;
