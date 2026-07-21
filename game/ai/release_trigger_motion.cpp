@@ -75,6 +75,7 @@ extern "C" void rec_dispatch(Core*, uint32_t);
 void ReleaseTriggerMotion::hoverBobCycle(uint32_t obj) {
   Core* c = core;
   GuestFrame<24, 2> frame(c, kSpills_80123E9C);
+  Actor a(c, obj);
   uint8_t st = c->mem_r8(obj + 5);
   switch (st) {
     case 0:
@@ -82,7 +83,7 @@ void ReleaseTriggerMotion::hoverBobCycle(uint32_t obj) {
       c->r[4] = obj; c->r[5] = 0x8014C808u; c->r[6] = 3;
       eng(c).graphicsBind.setGeom();                      // FUN_80077B38
       c->mem_w16(obj + 0x40, 0x5a);
-      c->mem_w16(obj + 0x48, 0x10);
+      a.setVelX(0x10);
       c->mem_w16(obj + 0x4e, 0xfffe);
       c->mem_w16(obj + 0x64, 0);
       c->mem_w16(obj + 0x68, 0);
@@ -104,7 +105,7 @@ void ReleaseTriggerMotion::hoverBobCycle(uint32_t obj) {
       c->mem_w16(obj + 0x56, (uint16_t)ph);
       if (ph != 0x800) break;
       c->mem_w16(obj + 0x40, 0x5a);
-      c->mem_w16(obj + 0x48, 0xfff0);
+      a.setVelX(0xfff0);
       uint8_t cur = c->mem_r8(obj + 5);
       c->mem_w16(obj + 0x4e, 2);
       c->mem_w8(obj + 5, (uint8_t)(cur + 1));
@@ -118,7 +119,7 @@ void ReleaseTriggerMotion::hoverBobCycle(uint32_t obj) {
       if (v56 == 0x80) {
         c->mem_w8(obj + 5, 1);
         c->mem_w16(obj + 0x40, 0x5a);
-        c->mem_w16(obj + 0x48, 0x10);
+        a.setVelX(0x10);
         c->mem_w16(obj + 0x4e, 0xfffe);
       }
       break;
@@ -241,6 +242,7 @@ void ReleaseTriggerMotion::driftReposition(uint32_t obj, uint32_t variant) {
 void ReleaseTriggerMotion::arcSwoopMotion(uint32_t obj) {
   Core* c = core;
   GuestFrame<48, 4> frame(c, kSpills_801246B4);
+  Actor a(c, obj);
   static constexpr uint32_t TBL = 0x80109B44u;    // 5-entry i16 table, index = node[0x60] (no -2)
   uint32_t anchor = c->mem_r32(obj + 0x10);
   if (c->mem_r8(anchor + 1) == 0) return;
@@ -271,15 +273,15 @@ void ReleaseTriggerMotion::arcSwoopMotion(uint32_t obj) {
     uint8_t sub = (uint8_t)(c->mem_r8(obj + 0x46) & 3);
     c->mem_w8(obj + 5, 3);
     if (sub == 0 || sub == 2) {
-      c->mem_w16(obj + 0x4a, 0xe800);
-      c->mem_w16(obj + 0x50, 0x180);
+      a.setVelY(0xe800);
+      a.setAccelY(0x180);
       c->mem_w16(obj + 0x4c, 0);
     } else {
       uint16_t v50 = 0xfc00;
       if (sub == 1) v50 = 0x400;
       c->mem_w16(obj + 0x4c, v50);
-      c->mem_w16(obj + 0x4a, 0xf000);
-      c->mem_w16(obj + 0x50, 0x200);
+      a.setVelY(0xf000);
+      a.setAccelY(0x200);
     }
   } else if (st != 3) {
     return;
@@ -287,7 +289,7 @@ void ReleaseTriggerMotion::arcSwoopMotion(uint32_t obj) {
   {
     uint32_t vis = Actor(c, obj).boundsCull();                          // FUN_8007778C
     if (vis == 0) return;
-    c->mem_w32(obj + 0x34, c->mem_r32(obj + 0x34) + (uint32_t)(c->mem_r16s(obj + 0x4c) * 0x100));
+    a.setPosZFixed(a.posZFixed() + (uint32_t)(a.velZ() * 0x100));
     int32_t leaderZ = (int32_t)c->mem_r32(anchor + 0x34);   // compare needs the word (disas-verified)
     int32_t cur36 = c->mem_r16s(obj + 0x36);
     if (cur36 < leaderZ - 0x40) {
@@ -299,8 +301,8 @@ void ReleaseTriggerMotion::arcSwoopMotion(uint32_t obj) {
     }
   }
 tail:
-  c->mem_w32(obj + 0x30, c->mem_r32(obj + 0x30) + (uint32_t)(c->mem_r16s(obj + 0x4a) * 0x100));
-  c->mem_w16(obj + 0x4a, (uint16_t)(c->mem_r16s(obj + 0x4a) + c->mem_r16s(obj + 0x50)));
+  a.setPosYFixed(a.posYFixed() + (uint32_t)(a.velY() * 0x100));
+  a.setVelY((uint16_t)(a.velY() + a.accelY()));
   c->r[4] = obj; rec_dispatch(c, 0x80077B5Cu);
   if (c->mem_r8(obj + 0x29) == 0) return;
   c->mem_w8(obj + 5, 2);
@@ -336,6 +338,7 @@ resume:
 void ReleaseTriggerMotion::doubleArcMotion(uint32_t obj) {
   Core* c = core;
   GuestFrame<32, 2> frame(c, kSpills_801249D4);
+  Actor a(c, obj);
   static constexpr uint32_t TBL = 0x80109B50u;    // 3-entry i16 table, index = node[0x60]-2
   uint32_t anchor = c->mem_r32(obj + 0x10);
   uint8_t st = c->mem_r8(obj + 5);
@@ -358,17 +361,17 @@ void ReleaseTriggerMotion::doubleArcMotion(uint32_t obj) {
       break;
     case 1:
     case 5: {
-      c->mem_w16(obj + 0x4a, 0xe800);
+      a.setVelY(0xe800);
       uint8_t cur = c->mem_r8(obj + 5);
-      c->mem_w16(obj + 0x50, 0x400);
+      a.setAccelY(0x400);
       c->mem_w8(obj + 5, (uint8_t)(cur + 1));
       break;
     }
     case 2:
     case 4:
     case 6: {
-      c->mem_w32(obj + 0x30, c->mem_r32(obj + 0x30) + (uint32_t)(c->mem_r16s(obj + 0x4a) * 0x100));
-      c->mem_w16(obj + 0x4a, (uint16_t)(c->mem_r16s(obj + 0x4a) + c->mem_r16s(obj + 0x50)));
+      a.setPosYFixed(a.posYFixed() + (uint32_t)(a.velY() * 0x100));
+      a.setVelY((uint16_t)(a.velY() + a.accelY()));
       int32_t impulse = (c->mem_r8(obj + 0x46) == 0) ? -0x80000 : 0x80000;
       c->mem_w32(obj + 0x2c, (uint32_t)((int32_t)c->mem_r32(obj + 0x2c) + impulse));
       int32_t leaderY = (int32_t)c->mem_r32(anchor + 0x30);
@@ -390,8 +393,8 @@ void ReleaseTriggerMotion::doubleArcMotion(uint32_t obj) {
     }
     case 3:
     case 7: {
-      c->mem_w16(obj + 0x4a, 0xe000);
-      c->mem_w16(obj + 0x50, 0x200);
+      a.setVelY(0xe000);
+      a.setAccelY(0x200);
       uint8_t cur = c->mem_r8(obj + 5);
       c->mem_w8(obj + 0, 2);
       c->mem_w8(obj + 5, (uint8_t)(cur + 1));
@@ -400,8 +403,8 @@ void ReleaseTriggerMotion::doubleArcMotion(uint32_t obj) {
     case 8: {
       int32_t impulse = (c->mem_r8(obj + 0x46) == 0) ? -0x80000 : 0x80000;
       c->mem_w32(obj + 0x2c, (uint32_t)((int32_t)c->mem_r32(obj + 0x2c) + impulse));
-      c->mem_w32(obj + 0x30, c->mem_r32(obj + 0x30) + (uint32_t)(c->mem_r16s(obj + 0x4a) * 0x100));
-      c->mem_w16(obj + 0x4a, (uint16_t)(c->mem_r16s(obj + 0x4a) + c->mem_r16s(obj + 0x50)));
+      a.setPosYFixed(a.posYFixed() + (uint32_t)(a.velY() * 0x100));
+      a.setVelY((uint16_t)(a.velY() + a.accelY()));
       break;
     }
     default: break;
@@ -427,6 +430,7 @@ void ReleaseTriggerMotion::doubleArcMotion(uint32_t obj) {
 void ReleaseTriggerMotion::circleOrbitMotion(uint32_t obj) {
   Core* c = core;
   GuestFrame<48, 3> frame(c, kSpills_80124C6C);
+  Actor a(c, obj);
   static constexpr uint32_t TBL = 0x80109B7Cu;   // 3-entry-per-type (X,Y,Z) i16 table, stride 6B
   uint8_t bVar6 = (uint8_t)(c->mem_r8(obj + 0x60) - 2);
   uint32_t entryOff = (uint32_t)bVar6 * 6u;
@@ -461,15 +465,15 @@ void ReleaseTriggerMotion::circleOrbitMotion(uint32_t obj) {
   }
 
   if (Actor(c, obj).boundsCull() != 0) {                                // FUN_8007778C
-    c->mem_w32(obj + 0x2c, c->mem_r32(obj + 0x2c) + (uint32_t)(c->mem_r16s(obj + 0x48) * 0x100));
+    a.setPosXFixed(a.posXFixed() + (uint32_t)(a.velX() * 0x100));
     int16_t cur2e = c->mem_r16s(obj + 0x2e);
     if (cur2e < tblX - 0x40) {
       c->mem_w16(obj + 0x2e, (uint16_t)(tblX - 0x40));
     } else if (tblX + 0x40 < cur2e) {
       c->mem_w16(obj + 0x2e, (uint16_t)(tblX + 0x40));
     }
-    c->mem_w32(obj + 0x30, c->mem_r32(obj + 0x30) + (uint32_t)(c->mem_r16s(obj + 0x4a) * 0x100));
-    c->mem_w16(obj + 0x4a, (uint16_t)(c->mem_r16s(obj + 0x4a) + c->mem_r16s(obj + 0x50)));
+    a.setPosYFixed(a.posYFixed() + (uint32_t)(a.velY() * 0x100));
+    a.setVelY((uint16_t)(a.velY() + a.accelY()));
     c->r[4] = obj; rec_dispatch(c, 0x80077B5Cu);
     if (tblY <= c->mem_r16s(obj + 0x32)) {
       c->mem_w8(obj + 5, 1);

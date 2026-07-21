@@ -139,6 +139,31 @@ public:
   int16_t  posX() const               { return (int16_t)c->mem_r16(obj + 0x2E); }
   int16_t  posY() const               { return (int16_t)c->mem_r16(obj + 0x32); }
   int16_t  posZ() const               { return (int16_t)c->mem_r16(obj + 0x36); }
+  // ── Sub-pixel position + velocity (RE'd 2026-07-21, docs/findings/object.md) ────────────────
+  // Position is 16.16 FIXED POINT. The u32 at 0x2C/0x30/0x34 is the whole value; its HIGH halfword
+  // IS posX/posY/posZ (0x2E/0x32/0x36) by little-endian aliasing, and the low halfword is the
+  // fraction. That is why motion handlers integrate with a 32-bit read-modify-write at 0x30 and then
+  // read position as a 16-bit value at 0x32 — same field, two views.
+  //   evidence: release_trigger_motion.cpp integrates  pos32 += vel16 * 0x100  then  vel16 += accel16
+  //   on all three axes (0x2C/0x48, 0x30/0x4A/0x50, 0x34/0x4C); beh_variant_actor_sm.cpp writes
+  //   0x26DE0000 to +0x2C — integer X in the high half, zero fraction in the low half.
+  uint32_t posXFixed() const          { return c->mem_r32(obj + 0x2C); }
+  uint32_t posYFixed() const          { return c->mem_r32(obj + 0x30); }
+  uint32_t posZFixed() const          { return c->mem_r32(obj + 0x34); }
+  void     setPosXFixed(uint32_t v)   { c->mem_w32(obj + 0x2C, v); }
+  void     setPosYFixed(uint32_t v)   { c->mem_w32(obj + 0x30, v); }
+  void     setPosZFixed(uint32_t v)   { c->mem_w32(obj + 0x34, v); }
+  // Per-axis velocity (i16, in 1/256 world units per frame — hence the *0x100 when integrated into
+  // the 16.16 position) and the Y acceleration the arc/hover motions add to velY each frame.
+  int16_t  velX() const               { return c->mem_r16s(obj + 0x48); }
+  int16_t  velY() const               { return c->mem_r16s(obj + 0x4A); }
+  int16_t  velZ() const               { return c->mem_r16s(obj + 0x4C); }
+  void     setVelX(uint16_t v)        { c->mem_w16(obj + 0x48, v); }
+  void     setVelY(uint16_t v)        { c->mem_w16(obj + 0x4A, v); }
+  void     setVelZ(uint16_t v)        { c->mem_w16(obj + 0x4C, v); }
+  int16_t  accelY() const             { return c->mem_r16s(obj + 0x50); }
+  void     setAccelY(uint16_t v)      { c->mem_w16(obj + 0x50, v); }
+
   uint16_t posX_u() const             { return c->mem_r16(obj + 0x2E); }
   uint16_t posY_u() const             { return c->mem_r16(obj + 0x32); }
   uint16_t posZ_u() const             { return c->mem_r16(obj + 0x36); }
