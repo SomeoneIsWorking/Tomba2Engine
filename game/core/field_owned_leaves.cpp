@@ -11992,30 +11992,7 @@ static void leaf_8007F8F8(Core* c) {
     return;
 }
 
-static void leaf_8007FD54(Core* c) {
-    c->r[2] = (uint32_t)8064u << 16;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)408));
-    c->r[29] = c->r[29] + (uint32_t)-32;
-    c->r[2] = c->r[2] >> 2;
-    c->r[2] = c->r[2] & 1u;
-    { int _t = (c->r[2] == c->r[0]); c->mem_w32((c->r[29] + (uint32_t)24), c->r[31]); if (_t) goto L_8007FD84; }
-    c->mem_w32((c->r[29] + (uint32_t)16), c->r[0]);
-    c->r[4] = c->r[0] + (uint32_t)160;
-    c->r[5] = c->r[0] + (uint32_t)180;
-    c->r[6] = c->r[0] + c->r[0]; goto L_8007FD94;
-  L_8007FD84:;
-    c->mem_w32((c->r[29] + (uint32_t)16), c->r[0]);
-    c->r[4] = c->r[0] + (uint32_t)160;
-    c->r[5] = c->r[0] + (uint32_t)180;
-    c->r[6] = c->r[0] + (uint32_t)6;
-  L_8007FD94:;
-    c->r[7] = (uint32_t)32769u << 16;
-    c->r[31] = 0x8007FDA0u;
-    c->r[7] = c->r[7] + (uint32_t)29444; func_80079374(c);
-    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)24));
-    c->r[29] = c->r[29] + (uint32_t)32; return;
-    return;
-}
+// leaf_8007FD54 DELETED 2026-07-22 — superseded by LoadingText::draw (game/ui/loading_text.cpp).
 
 static void leaf_80022D08(Core* c) {
     c->r[2] = (uint32_t)c->mem_r16((c->r[4] + (uint32_t)382));
@@ -14900,7 +14877,8 @@ void register_field_owned_leaves() {
   install(0x8007F498u,"leaf_8007F498",leaf_8007F498,gen_func_8007F498,shard_set_override);
   install(0x8007F73Cu,"leaf_8007F73C",leaf_8007F73C,gen_func_8007F73C,shard_set_override);
   install(0x8007F8F8u,"leaf_8007F8F8",leaf_8007F8F8,gen_func_8007F8F8,shard_set_override);
-  install(0x8007FD54u,"leaf_8007FD54",leaf_8007FD54,gen_func_8007FD54,shard_set_override);
+  // 0x8007FD54 is owned by LoadingText::draw (game/ui/loading_text.cpp) — RE'd, and it carries
+  // the pc_skip fork that drops the "Loading....." blinker. Do not re-register the leaf here.
   install(0x80022D08u,"leaf_80022D08",leaf_80022D08,gen_func_80022D08,shard_set_override);
   install(0x80025744u,"leaf_80025744",leaf_80025744,gen_func_80025744,shard_set_override);
   install(0x80025934u,"leaf_80025934",leaf_80025934,gen_func_80025934,shard_set_override);
