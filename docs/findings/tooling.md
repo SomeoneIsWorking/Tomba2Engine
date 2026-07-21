@@ -566,6 +566,24 @@
   user-visible symptoms. Rename the dump artifact immediately each run — `PAD_DUMP_AT` uses a fixed
   filename and will silently overwrite the baseline (see the entry above).
 
+### ★ USE `PSXPORT_MIRROR_VERIFY=all` — the campaign already has a built-in gate (found 2026-07-22)
+The manual A/B below (port_gen a faithful body, swap the table entry, dump, diff) WORKS, but it was
+reinventing something that already exists: `PSXPORT_MIRROR_VERIFY=<addr>` runs a behaviour handler's
+native and substrate legs and compares their guest writes and registers, and `=all` surveys every
+handler in one run (`PSXPORT_MIRROR_VERIFY_CONTINUE=1` to log instead of aborting at the first hit).
+The dispatch-site comment in `game/object/behavior_dispatch.cpp` says so explicitly — it was added
+precisely because the beh_* table dispatches outside the override registry, which is how the #5
+save-sign handler sat undetected. Prefer it; the manual A/B is for when you need a full 2 MB diff.
+
+**First survey (bucket capture, 1300 frames):** ONE mismatch, at `0x80086738`
+(`Engine::installModeHandlers`) — native `v0=80102500` vs substrate `v0=80102444`, plus `v1`.
+**Benign, verified not assumed:** the only real call site (`generated/shard_1.c:16529`) overwrites
+`v0` with 1 on the very next instruction, so both values are dead. A differing scratch register at a
+call site that discards it is exactly the noise the dispatch-site comment warns rebuilds produce.
+**Caveat:** the survey run ended in SIGSEGV (rc=139) after continuing past the mismatch. Whether that
+is the harness or a genuine downstream effect is NOT established — triage that before treating
+`=all` as a routine gate.
+
 ### A/B campaign log (kanban #10) — rebuilds tested for equivalence
 Method per entry: `port_gen` the byte-faithful body, swap the behavior-table entry to it, run
 `replays/bugs/bucket-softlock.pad` with `PSXPORT_PAD_DUMP_AT=1200` both ways, diff the 2 MB dumps,
