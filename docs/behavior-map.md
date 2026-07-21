@@ -4,7 +4,7 @@ Durable ledger of SANCTIONED deviations from the byte-exact reference. Primary a
 deviation, grouped by affect. `tools/behavior.py` = view · `... <words>` = search · `... check` = gate (a canon-affecting change must be SBS-suppressed).
 
 **By affect:** 4 none · 2 non-canon · 2 full
-**By status:** 1 verified · 5 implemented · 2 planned
+**By status:** 1 verified · 4 implemented · 2 planned · 1 reverted
 
 ---
 
@@ -61,13 +61,13 @@ deviation, grouped by affect. `tools/behavior.py` = view · `... <words>` = sear
 ## loading-text-skip
 - **class:** pc_skip
 - **affect:** non-canon
-- **status:** implemented
+- **status:** reverted
 - **flag:** PSXPORT_PC_SKIP (default ON)
 - **original:** FUN_8007FD54 draws the blinking "Loading....." string at (160,180), palette alternating 6/0 on bit 2 of the frame counter 0x1F800198
 - **altered:** pc_skip ON: nothing drawn (LoadingText::drawSkip) — the host file read finishes before this could appear, so it advertises a wait that does not exist
 - **guard:** mPcSkip=false on both SBS cores, so LoadingText::drawFaithful (port_check PASS vs gen_func_8007FD54) runs under ORACLE/SBS and byte-compares clean
 - **owner:** game/ui/loading_text.cpp
-- **notes:** USER-requested 2026-07-22. Affect is one skipped GPU packet + its pool bump; nothing reads it back.
+- **notes:** REVERTED 2026-07-22 same day: this blanked the "Loading....." TEXT, but the request was to skip the loading SCREEN (the state that displays it). Blanking the string leaves the same wait with an empty screen. See kanban.
 
 ## pc-skip
 - **class:** pc_skip

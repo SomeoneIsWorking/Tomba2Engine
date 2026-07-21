@@ -5,7 +5,8 @@
 
 ## BACKLOG (0)
 
-## TODO (0)
+## TODO (1)
+- **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 
 ## DOING (1)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`

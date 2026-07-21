@@ -7,11 +7,10 @@
 // "Loading....." (0x80017304) at a fixed screen position in one of two palettes. Bit 2 of a counter
 // that ticks per frame flips every 4 frames, so the text BLINKS while the disc is being read.
 //
-// THE PC_SKIP FORK (USER 2026-07-22). On this port the "load" is a host file read that has already
-// finished by the time anything could be drawn, so the indicator advertises a wait that does not
-// exist. With pc_skip ON we therefore draw nothing; with it OFF we emit the guest's exact packet, so
-// the faithful path and SBS stay byte-identical. Per CLAUDE.md the fork is two methods each running
-// one path top-to-bottom, not an if/else inside one body.
+// NO pc_skip FORK HERE. A first pass made pc_skip draw nothing, which was a misreading of the
+// request: the point is to skip the loading SCREEN (the state that shows this), not to blank its
+// text and leave the screen sitting there. Blanking the string would just give a silent empty
+// screen for the same duration. Tracked as its own kanban item; this file only owns the drawing.
 #include "core.h"
 #include "game.h"
 #include "ui/loading_text.h"
@@ -60,13 +59,7 @@ void LoadingText::drawFaithful(Core* c) {
   c->r[29] += 32;
 }
 
-// pc_skip: nothing to indicate — the host read finished before this could be drawn.
-void LoadingText::drawSkip(Core* c) { (void)c; }
-
-void LoadingText::draw(Core* c) {
-  if (c->game && c->game->pc_skip) { drawSkip(c); return; }
-  drawFaithful(c);
-}
+void LoadingText::draw(Core* c) { drawFaithful(c); }
 
 static void ov_loading_text(Core* c) { LoadingText::draw(c); }
 
