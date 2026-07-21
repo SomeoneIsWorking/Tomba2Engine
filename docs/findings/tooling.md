@@ -446,3 +446,14 @@
   Ghidra is for READABILITY; `generated/` is for ground truth. Note overlay code (0x8011xxxx+) is NOT
   in `generated/` (MAIN.EXE only), so there the RAM-dump decompile is all there is — treat its
   completeness with suspicion and check the disassembly at the tail.
+
+## PSXPORT_WWATCH is BLIND to scratchpad (0x1F800000-0x1F8003FF) — control it before trusting a zero (2026-07-21)
+- **symptom:** `PSXPORT_WWATCH=1f800144,1f800145` over a 6680-frame replay reports ZERO writes, which
+  reads as the compelling finding "nothing ever populates this list". It is an instrument limitation.
+- **control that catches it:** watch `1f800180,1f800190` — `0x1F800182` is written on every
+  `interact_scan` call and by the aux walk, so a correct instrument cannot report zero. It reports zero.
+  WWATCH only sees main-RAM stores.
+- **rule:** a WWATCH zero on a scratchpad address means NOTHING. For scratchpad use the `.spad` sidecar
+  that `dumpram`/`PSXPORT_PAD_DUMP_AT` writes alongside the 2 MB image, or read it live over the debug
+  server. This is the same blindness CLAUDE.md already notes for main-RAM dumps ("main RAM is BLIND to
+  scratchpad"), and it applies to the write-watchpoint too.
