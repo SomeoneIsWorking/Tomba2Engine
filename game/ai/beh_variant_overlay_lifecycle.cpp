@@ -26,6 +26,7 @@
 // RAM+scratchpad vs rec_super_call) is the safety net.
 
 #include "core.h"
+#include "ui/dialog_text_stream.h"
 #include "game_ctx.h"
 #include "cfg.h"
 #include <stdio.h>
@@ -71,7 +72,11 @@ void beh_variant_overlay_lifecycle(Core* c) {
     int32_t  pos  = (int32_t)c->mem_r32(nd + 0x50) + (int32_t)(uint32_t)tv;
     c->mem_w32(nd + 0x10, (uint32_t)pos);
     c->mem_w32(nd + 0x14, (uint32_t)pos);
-    guest_leaf(c, 0x8007c0d0u, nd, 0);                       // FUN_8007C0D0(node,0)
+    // NATIVE: DialogTextStream::advanceByteGen (port_gen byte-faithful, port_check 0 FAIL; the one
+    // UNPROVABLE is the 0xF8/0xF9 jump table the recompiler emits as a call — same in the gen body
+    // this replaces, so behaviour is unchanged by the wiring itself).
+    c->r[4] = nd; c->r[5] = 0;
+    DialogTextStream::advanceByteGen(c);                    // was guest_leaf(0x8007C0D0)
     uint8_t n3 = c->mem_r8(nd + 3);
     c->mem_w8(nd + 0x46, 1);
     c->mem_w8(nd + 4, (uint8_t)(c->mem_r8(nd + 4) + 1));     // node[4] += 1  (-> 1)
