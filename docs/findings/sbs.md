@@ -1889,17 +1889,30 @@ handlers — **introduces a real SBS divergence**:
 
 The identical run on the unmodified tree is **0 divergences**, so the frames caused it. Reverted.
 
-**Why:** cull.cpp already implements the correct pattern and says so — *"Framing now lives ONLY in
-cullWrapperFlag2Framed()"*. A method reached BOTH through a guest-ABI thunk and directly from native
-code must stay unframed, with a separate `<name>Framed` wrapper carrying the frame for the guest
-entry. Framing the method itself descends `sp` on the native-call path too, where the guest never
-would — hence the divergence.
+**Why — CORRECTED 2026-07-21, my first explanation was wrong.** I initially wrote that the frame
+belonged in a `*Framed` wrapper because the method has native callers. Checking that properly, the
+only caller of `Cull::cullWrapper` is its own `eov_cullWrapper` thunk — the guest-ABI entry — so
+"shared with native callers" was never established. Do not rely on that explanation.
+
+The demonstrated cause is the **spilled `ra` VALUE**. `abi_extract 0x8007778C --contract` shows the
+frame spills exactly one register: `sp+16 <- r31`. `GuestFrame` spills whatever `r31` happens to hold
+at entry, whereas the guest spills the return address its real call chain would have left there. The
+divergence address, `0x801FE8D4`, is that spill slot. This is precisely why the existing wrapper does
+```cpp
+c->r[31] = RA_800777FC;   // 0x80077860 — the RE'd return-address constant
+```
+before delegating: so the spilled `ra` matches the guest byte for byte.
+
+**Consequence:** these four cannot be fixed mechanically. Each needs its incoming `ra` RE'd from its
+call site (ra = call site + 8) before a frame can be added, exactly as `cullWrapperFlag2Framed` did.
+A `GuestFrame` alone will spill the wrong value and CREATE a divergence — which is what happened.
 
 **Two consequences, and the second is uncomfortable:**
-1. `frame_audit` output is a worklist, not a verdict. Before adding a frame, establish HOW the native
-   is reached: guest-ABI entry only (frame goes in the body), or shared with native callers (frame
-   goes in a `*Framed` wrapper, body stays unframed). The audit now recognises an existing
-   `*Framed` sibling, but it cannot decide which shape a not-yet-fixed native needs.
+1. `frame_audit` output is a worklist, not a verdict. A frame whose spill set includes `ra` needs the
+   incoming return-address constant RE'd from the call site first; only then is the `GuestFrame`
+   mechanical. Frames that spill only callee-saved registers (`r16..r19`) are safe to add
+   mechanically, because those values are live and correct already — which is the case for all 54
+   behaviour handlers, and why they landed cleanly.
 2. **It weakens the confidence in the 54 behaviour frames already added.** They show 0 SBS
    divergences, and this case proves SBS *can* catch a wrong frame when the spill slot is live at the
    comparison point — so that clean result is real evidence, not vacuous. But it is not proof that
