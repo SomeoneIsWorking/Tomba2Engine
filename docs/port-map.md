@@ -102,7 +102,7 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** todo
 - **order:** 44
 - **owner:** perobj_dispatch EffectMod latch + submit.cpp
-- **notes:** semi/clut/tint/coloradd. TWO-STEP: byte-faithful packet-rewrite (SBS) + pc_render reads effect params for float draw. Don't fire at seaside (idx0)
+- **notes:** RE COMPLETE (docs/findings/render.md 'The secondary-effect handlers'), port pending. All 5 are the SAME shape: a post-pass (obj, lo, hi) over the render packet pool that rewrites already-emitted GP0 packets, using a shared masked-opcode stride table (0x20->0x14 0x24->0x20 0x28->0x18 0x2C->0x28 0x30->0x1C 0x34->0x28 0x38->0x24 0x3C->0x34) and touching only colour-bearing opcodes 0x24/0x2C/0x34/0x3C. F3F4=semi ON (cmd|=2), F4C4=semi OFF (cmd&=~2), F344=clut swap (u16 obj+0x5C -> pkt+0x0E), F594=flat tint (u32 obj+0x18 -> every vertex colour word + semi), D584=coloradd (per-channel bias-0x7F modulate from obj+0x18/19/1A; 0x80 = no write). Packet layout: colour at pkt+4 (R/G/B bytes), cmd at pkt+7, clut at pkt+0x0E. TWO-STEP still applies: the rewrite mutates guest memory so it must be byte-faithful + SBS-gated; pc_render reads the same params for a float draw.
 
 ## render-mesh-flush
 - **scope:** mesh-flush 0x8003F174/0x8003EF9C

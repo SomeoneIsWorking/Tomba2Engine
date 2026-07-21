@@ -2374,3 +2374,38 @@ draft was already byte-faithful.
   different mechanisms; the tile reads its level from `node+0x10 -> +0`, not from the fade class.
 - **next probe:** find what writes 8 into `node[+0x0b]` (the node constructor for the tile) and which
   scene triggers it. `PSXPORT_DEBUG=walk` on a new scenario will confirm the moment idx 8 appears.
+
+## The secondary-effect handlers (render-effectmod): 5 packet-pool post-pass walkers, RE'd
+- **status:** RE COMPLETE, not yet ported (portmap `render-effectmod`, blocks `render-mesh-flush`).
+- **what they are:** `0x8003F3F4 / 0x8003F4C4 / 0x8003F344 / 0x8003F594 / 0x8003D584` are all the SAME
+  shape — a post-pass over a range of the render PACKET POOL, rewriting already-built GP0 packets.
+  Signature is uniform: `(obj, lo, hi)` — walk `lo..hi`, and for each packet read the GP0 command byte
+  at `pkt+7`, mask `& 0xFC`, use that to find the packet's STRIDE, and modify only the colour-bearing
+  opcodes. None of them allocate; they only mutate packets already emitted.
+- **the stride table** (identical in all five — masked opcode -> packet size in bytes):
+  `0x20->0x14 · 0x24->0x20 · 0x28->0x18 · 0x2C->0x28 · 0x30->0x1C · 0x34->0x28 · 0x38->0x24 · 0x3C->0x34`
+  Colour-bearing (i.e. actually modified) opcodes are **0x24, 0x2C, 0x34, 0x3C**; the rest are stride-only.
+- **packet layout used:** colour word at `pkt+4` (bytes R=+4, G=+5, B=+6), GP0 cmd byte at `pkt+7`,
+  CLUT id (u16) at `pkt+0x0E`. Multi-vertex opcodes carry one colour word per vertex at
+  `+4, +0x10, +0x1C, +0x28`.
+- **what each one does:**
+  | fn | effect | mechanism |
+  |----|--------|-----------|
+  | `0x8003F3F4` | semi ON   | `cmd \|= 2` (set the semi-transparency bit) |
+  | `0x8003F4C4` | semi OFF  | `cmd &= ~2` |
+  | `0x8003F344` | clut swap | write u16 from `obj+0x5C` into `pkt+0x0E` |
+  | `0x8003F594` | flat tint | overwrite EVERY vertex colour word with u32 `obj+0x18`, and set semi |
+  | `0x8003D584` | coloradd  | per-channel modulate from `obj+0x18/+0x19/+0x1A` (see encoding below) |
+- **the coloradd byte encoding** (`0x8003D584`, non-obvious and asymmetric — do not "simplify" it):
+  for each channel byte `t` and pixel channel `p`:
+  `t <= 0x7F` -> `p = max(0, p + (t - 0x7F))`  (darken; 0x7F is identity)
+  `t == 0x80` -> **no write at all** (the `(t<<24) < 0` test falls through — identity)
+  `t >= 0x81` -> `p = min(255, p + t)`         (brighten)
+  So it is a signed offset around 0x7F for the low half, and a plain saturating add for the high half.
+- **porting note:** these WRITE GUEST MEMORY (the packet pool), so per the two-step plan the rewrite
+  must stay byte-faithful and SBS-gated; pc_render should read the same `obj+0x18/+0x5C` effect params
+  and do its own float draw rather than reading back the rewritten packets.
+- **tooling gotcha that hid these:** all five are reached ONLY through the per-object jump table, so
+  Ghidra auto-analysis never created Function objects for them and `decomp.sh` silently emitted
+  nothing ("wrote 0 functions", naming no address). `ghidra_decomp.py` now creates the function on
+  demand and reports both what it created and any address it still could not resolve.
