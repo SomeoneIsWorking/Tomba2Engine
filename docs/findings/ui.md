@@ -299,3 +299,19 @@ The question is the right one to ask, and the answer is that OWNED IS NOT VERIFI
   the bucket path, that divergence IS the softlock candidate.
 - **Do not** conclude from the `port_check` FAIL alone that this function is broken. It is unverified,
   which is a different and more accurate statement.
+
+## The dialog driver is EXONERATED — rebuild == faithful body, byte for byte (2026-07-22)
+- **Test:** re-derived `FUN_8007DC38` byte-faithfully (`port_gen`, `port_check` PASS) as
+  `DialogDriver::stepFaithful`, swapped the behavior-table entry at `0x8007DC38` to call it, ran
+  `replays/bugs/bucket-softlock.pad` both ways with `PSXPORT_PAD_DUMP_AT=1200`, and diffed the two
+  2 MB dumps.
+- **Result: ZERO differing bytes.** The hand-written rebuild `beh_variant_overlay_lifecycle` produces
+  identical guest state to the guest's own body on this path. It is not the softlock.
+- **Why this matters beyond the one answer:** it converts "owned but unverified" into "verified", for a
+  function `port_check` cannot touch. The faithful body is kept UNWIRED in `game/ui/dialog_driver.cpp`
+  as the equivalence reference — re-run the swap-and-diff whenever the rebuild is edited. That is a
+  reusable pattern for every hand-written `beh_*` rebuild in the tree, none of which currently has any
+  equivalence test at all.
+- **Where that leaves kanban #2:** the drawing side is owned and `port_check`-verified (5 methods), and
+  the driver is now behaviourally verified. The softlock is therefore NOT in the dialog code examined
+  so far — it is upstream, in whatever decides the box should still be up. Do not re-examine these.

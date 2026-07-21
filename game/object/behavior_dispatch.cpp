@@ -152,7 +152,7 @@ constexpr NativeBeh kTable[] = {
   { 0x8004C238u, beh_visibility_gate_dispatch, "visibility_gate_dispatch" },  // resident
   { 0x8002918Cu, beh_rand_phase_cull,          "rand_phase_cull" },           // resident
   { 0x80029B40u, beh_pos_history_trail,        "pos_history_trail" },          // resident
-  { 0x8007DC38u, beh_variant_overlay_lifecycle,"variant_overlay_lifecycle" },  // resident
+  { 0x8007DC38u, beh_variant_overlay_lifecycle,"variant_overlay_lifecycle" },  // resident  // resident
   { 0x801189E8u, beh_a06_multi_actor,           "a06_multi_actor" },            // A06 overlay
   { 0x80041098u, beh_script_interp_step,        "script_interp_step" },         // resident — cutscene script dispatch loop
   { 0x8013AA14u, beh_a06_scripted_actor,        "a06_scripted_actor" },         // A06 overlay — the caller-chain root that reaches ScriptInterp
