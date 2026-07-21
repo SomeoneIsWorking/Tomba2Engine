@@ -327,3 +327,19 @@
 - **RESTART POINT for the next session:** find which of the 105 `sb rt,0x2b(base)` sites can fire for a
   **class-4, type-0** object, working from the object's own handler chain rather than from the aux/queue
   walks. Do NOT resume the 0x800F2738 thread.
+
+### RE-DERIVED FROM A VERIFIED GRAB DUMP (2026-07-22) — the substantive facts hold
+`scratch/bin/grab_prefix_6600.bin(+.spad)`, pre-fix build, asserted `G+0x158 = 0x800FB960` before use.
+Replaces every reading taken from the overwritten `padram_6600.bin` (see tooling.md):
+- **beam 800FB960 while genuinely held: `+0x2b = 0`, `+0x29 = 0`, `+0x48 = 0`, `+0x4e = 0`,
+  `node[5] = 0`, tilt = `0xF47`** (pinned exactly at its clamp). So the central claim survives intact:
+  with Tomba hanging on it, the contact byte is unstamped and the weight field is zero.
+- **The beam IS in the class-4 list** — index 3 of 8 (`ptr 0x1F80014C`, `cnt 0x1F800152`), class 4,
+  type 0. Correct queueing confirmed. (The contaminated read said index 5 of 11; the conclusion was
+  right, the numbers were not.)
+- **Every entry in that list has `+0x2b = 0`** — not just the beam. Nothing in the scene is stamped.
+- Stamper outer-list head `0x800F2738` and tail `0x800F23A0` are both 0 here too, consistent with the
+  pool-init reading that the list starts empty (so still no reason to believe that path is the
+  mechanism).
+- Queues A/B/C all read 0 at dump phase — unchanged, and still phase-limited; the `cullq` probe remains
+  the only trustworthy sampler for those.
