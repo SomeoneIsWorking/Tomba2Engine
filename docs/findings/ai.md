@@ -245,3 +245,21 @@
   80068A94 80068E68 80068FBC 80069948 8006B1FC 8006B390 8006B494 8006C0C4`) are **all unowned
   substrate**. So the stamp is original code, not a mis-port — the defect is upstream REACHABILITY of
   those functions. That is the next place to look.
+
+### ★ THE GATE FOUND (2026-07-21): contact stamping is gated on QUEUE A, which is empty
+- `FUN_80113700` — one of the three "trio" leaves `areaSeasidePerframe` dispatches — IS the contact
+  stamper. Its whole body is wrapped in `if (_DAT_1f800144 != 0)`: **queue A's count**. Inside, it
+  walks the object list at `0x800F2738` and, for each object with `obj[0]&1` and **`obj[0x2b]==0`**,
+  walks queue A (`ptr 0x1F80013C`, `count 0x1F800144`) and dispatches per-type handlers
+  (`8002192C`/`80020F7C`/`80021150`/`80021394`/`800216B4`/`80021AB0`) — the family that contains the
+  `sb rt,0x2b` stamp sites, including the ones writing the literal 2.
+- **In the grab dump `0x1F800144 == 0`, so `FUN_80113700` returns immediately and nothing is ever
+  stamped.** That is consistent with every measurement in this entry: `+0x2b` only ever written 0.
+- **Not a dump-phase artifact:** at the SAME instant the class-4 queue holds 11 entries (`0x1F800152`)
+  while queue A (`0x1F800144`) and queue C (`0x1F80015C`) hold 0. All three are filled by the same cull
+  pass, so an empty A alongside a populated class-4 queue is a real asymmetry, not a timing window.
+- **NEXT:** find why class-2/9 objects are not being enqueued into queue A. Queue A is filled by
+  `Cull::enqueueQueueA` (FUN_80077E7C) and by `Cull::enqueueByClass` (FUN_8007703C) for `obj[0xC]` in
+  {2, 9} — BOTH NATIVELY OWNED (game/render/cull.cpp). That is the first natively-owned code on this
+  path, and therefore the first real suspect. Note WWATCH cannot watch `0x1F800144` (scratchpad) —
+  use the `.spad` sidecar or a live debug-server read.
