@@ -418,6 +418,48 @@ void Render::emitMenuFt4(int anchorX, int anchorY, uint32_t templateIdx, uint32_
   }
 }
 
+// emitMenuSprites — see render.h. Reproduces FUN_8007e6dc (generated/shard_2.c:10600): the SPRITE
+// sibling of emitMenuFt4. Template resolution is identical (idx -> ptr table -> header -> entries); the
+// per-entry decode differs — a SPRT carries ONE texture corner (u=entry[0], v=entry[1]) plus a size
+// (w=entry[10], h=entry[11]), and the guest emits a SINGLE tpage prim for the whole group from the first
+// entry's [6,7]. Read-only: reads the guest template tables, emits host-only quads.
+void Render::emitMenuSprites(int anchorX, int anchorY, uint32_t templateIdx, uint32_t attr, int layer) {
+  Core* c = mCore;
+  const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
+  const uint32_t base = c->mem_r32(0x800ECF58u);                      // template DATA base (guest-owned)
+  const uint32_t tptr = c->mem_r32(0x80017334u + templateIdx * 4u);   // (&PTR_DAT_80017334)[idx]
+  const int      hdr  = (int16_t)c->mem_r16(tptr);                    // *param_2 -> header index
+  const uint32_t psv  = base + (uint32_t)hdr * 4u;
+  const int      cnt  = (int16_t)c->mem_r16(psv);                     // entry count
+  const uint32_t data = base + c->mem_r16(psv + 2u);                  // first entry
+  const uint16_t tpage = c->mem_r16(data + 6u);                       // ONE tpage for the whole group
+  const int raw = ((attr & 0xF0u) == 0) ? 1 : 0;                      // high nibble 0 -> RAW, else modulated
+  const unsigned char col = raw ? 0x80 : (unsigned char)attr;
+  const int tp_x = (tpage & 0xF) * 64, tp_y = ((tpage >> 4) & 1) * 256, mode = (tpage >> 7) & 3;
+  // DEPTH ORDER: a sprite group is authored FRONT-FIRST — entry 0 is the topmost layer. Verified on the
+  // Controls pad diagram (template 225, 8 entries, dumped live): entry 7 is the 56x56 pad BODY and
+  // entries 0..3 are the 16x16 face-button symbols that must sit ON it, with the leader-line pieces
+  // (4..6) between. The engine owns 2D ordering, so the producer walks the group BACK-TO-FRONT (last
+  // entry first) and lets queue order be the layering — emitting 0..n-1 buries the symbols under the body.
+  const int n = (cnt < 16) ? cnt : 16;
+  for (int k = n - 1; k >= 0; k--) {
+    const uint32_t e = data + (uint32_t)k * 16u;
+    const int x0 = anchorX + (int8_t)c->mem_r8(e + 14u);
+    const int y0 = anchorY + (int8_t)c->mem_r8(e + 15u);
+    const int w  = c->mem_r8(e + 10u), h = c->mem_r8(e + 11u);
+    const int u0 = c->mem_r8(e + 0u),  v0 = c->mem_r8(e + 1u);
+    const uint16_t clut = c->mem_r16(e + 2u);
+    int xs[4] = { x0 + ox, x0 + w + ox, x0 + ox,     x0 + w + ox };
+    int ys[4] = { y0 + oy, y0 + oy,     y0 + h + oy, y0 + h + oy };
+    int us[4] = { u0, u0 + w, u0,     u0 + w };
+    int vs[4] = { v0, v0,     v0 + h, v0 + h };
+    unsigned char cc[4] = { col, col, col, col };
+    const int clut_x = (clut & 0x3F) * 16, clut_y = (clut >> 6) & 0x1FF;
+    c->game->activeRq().push2dQuad(layer, /*order_2d_fg=*/1, xs, ys, us, vs, cc, cc, cc,
+                                   tp_x, tp_y, mode, raw, clut_x, clut_y, 0, 0, 0, 0, 0, 0, 1023, 511);
+  }
+}
+
 // menuChrome — see render.h. The black backdrop + the 2 logo sprites (FUN_80106690), shared by every
 // front-end menu page. The logos are op-0x65 raw sprites (fixed layout, decoded packet constants).
 void Render::menuChrome() { Core* c = mCore;

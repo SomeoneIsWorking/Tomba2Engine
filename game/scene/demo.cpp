@@ -176,9 +176,9 @@ void Demo::s3() { Core* c = core;
 //   timer = sm[0x5a] (pre-decrement value); sm[0x5a]--; if timer==1 (just expired): return 1
 //     (outcome 1 = "attract launch", -> s7 in both callers).
 //   else (timer still running): read pad edges (0x800E7E68). cursor := 3 by default.
-//     if Down (0x20) pressed: cursor stays 3, cmp = sm[0x68] (no reassign).
-//     else: cursor := 2; if Up (0x80) pressed: cmp = sm[0x68] (no reassign).
-//       else (neither Down nor Up): if Confirm (0x4008) pressed: Sfx::trigger(0x11,0,0); return 2
+//     if Right (0x20) pressed: cursor stays 3, cmp = sm[0x68] (no reassign).
+//     else: cursor := 2; if Left (0x80) pressed: cmp = sm[0x68] (no reassign).
+//       else (neither Right nor Left): if Confirm (0x4008) pressed: Sfx::trigger(0x11,0,0); return 2
 //         (outcome 2 = "launch selected"). else if Circle/back (0x2000) pressed: Sfx::trigger(0x14,
 //         -9, 0); return 3 (outcome 3 = "back/cancel" — the s2 twin does NOT have this branch).
 //         else: return 0 (no edge — stay).
@@ -227,12 +227,12 @@ uint32_t Demo::s3SubMachine() { Core* c = core;                 // FUN_80106AC4
       uint8_t  cursor;
       uint8_t  cmp;
       bool     haveCmp = true;
-      if (edges & 0x20u) {                                                  // Down
+      if (edges & 0x20u) {                                                  // Right
         cursor = 3;
         cmp = c->mem_r8(sm + 0x68);
       } else {
         cursor = 2;
-        if (edges & 0x80u) {                                                // Up
+        if (edges & 0x80u) {                                                // Left
           cmp = c->mem_r8(sm + 0x68);
         } else if (edges & 0x4008u) {                                       // Confirm
           eng(c).sfx.trigger(0x11, 0, 0);

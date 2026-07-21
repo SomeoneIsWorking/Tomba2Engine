@@ -203,7 +203,26 @@ public:
   // Read-only producer; built from the shared data-driven menu emitter below.
   void s3MenuNative();
   void renderCardBrowser();      // DEMO/title Load-Game memory-card browser (sm[0x48]==4) — 2D producer
-  void optionsPageNative();      // DEMO/title options page (sm[0x48]==6, page0) — 2D producer
+
+  // --- DEMO/title front-end OPTIONS (sm[0x48]==6) — one producer per page of the 5-page sub-machine.
+  // The page is selected by task-sm[0x50] (written by the page controller FUN_8007B45C); each page has
+  // its own guest builder, so each gets its own producer method. All read-only (guest RAM + the menu
+  // template tables); the page TEXT arrives from the global font/icon taps. See render_options.cpp.
+  void optionsPageNative();          // dispatcher on sm[0x50]
+  void optionsSelectPage();          // page 0 "Select Options"  (FUN_8007F104)
+  void optionsMessagesPage();        // page 1 "Messages"        (FUN_8007F250)
+  void optionsSoundPage();           // page 2 "Sound"           (FUN_8007F498)
+  void optionsScreenAdjustPage();    // page 3 "Screen adjust"   (FUN_8007F73C)
+  void optionsControlsPage();        // page 4 "Controls"        (FUN_8007F8F8)
+  // optionsBackdrop: the shared full-screen dark-blue gradient (FUN_8007FC24) + widescreen pillarbox.
+  // Pages 0/1/2/4 draw it; page 3 does NOT (it composites over the live title picture instead).
+  void optionsBackdrop();
+  // optionsSolidBox: reproduces FUN_8007FCC8(x,y,w,h,flags) — one flat TILE rectangle, dark blue when
+  // the low 7 flag bits are clear, black otherwise. Used by the Screen-adjust page's value boxes.
+  void optionsSolidBox(int x, int y, int w, int h, uint32_t flags);
+  // guestStrLen: host-side NUL scan over a guest C-string (the read-only twin of FUN_80079528, which
+  // the page builders use to centre their labels). Touches no guest state at all.
+  int guestStrLen(uint32_t str);
 
   // --- shared DATA-DRIVEN menu emitter (reproduces the guest menu builders, read-only) --------------
   // menuChrome: black backdrop + the 2 logo sprites (FUN_80106690) shared by every front-end menu page.
@@ -219,6 +238,14 @@ public:
   // else modulated by (attr,attr,attr). Decoder validated field-for-field against the title's known-good
   // quads (templates 0x8e/0x8f/0x98). Retires the hand-decoded per-item constants titleNative used.
   void emitMenuFt4(int anchorX, int anchorY, uint32_t templateIdx, uint32_t attr, int layer);
+  // emitMenuSprites: reproduces FUN_8007e6dc — the SPRITE sibling of emitMenuFt4. Same template
+  // resolution (idx -> table @0x80017334 -> header -> `count` 16-byte entries), but each entry becomes
+  // one SPRT (op 0x64/0x65): u,v = entry[0,1] with the ONE texture corner, size w,h = entry[10,11],
+  // position = anchor + entry[14,15], clut = entry[2,3], and ONE tpage for the whole group taken from
+  // the FIRST entry ([6,7]). Used for sprite-template groups such as the Controls page's pad diagram
+  // (template 225); do NOT route those through emitMenuFt4, whose per-vertex UV bytes ([4,5]/[8,9]/
+  // [12,13]) are only meaningful for FT4 templates.
+  void emitMenuSprites(int anchorX, int anchorY, uint32_t templateIdx, uint32_t attr, int layer);
 
   // narrationSwirlRender: native producer for the SOP intro-narration full-screen SWIRL — the type-0x20
   // render node (0x800ED9E8) whose CUSTOM render fn (node+0x18 = 0x8010BF54, SOP overlay) the substrate

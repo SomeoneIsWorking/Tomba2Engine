@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 21 verified · 5 partial · 3 n/a
+**Status:** 22 verified · 5 partial · 1 untested · 3 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -104,6 +104,12 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **owner:** game/render/render_walk.cpp (sceneNative reads this state)
 - **notes:** covers field ENTRY + scripted-caught hold (autonav did NOT reach free-roam control); free-roam + sceneNative RENDER correctness (eyeball) still uncovered — see portmap field-world
 
+## field-world
+- **status:** verified
+- **frames:** 1800
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=1800 PSXPORT_VK_HEADLESS=1 PSXPORT_SKIP_FMV=1 PSXPORT_PAD_REPLAY=replays/boot-smoke/general-session.pad
+- **evidence:** SBS full 0-diff x3: general-session 600f (8.9s) + 1800f (22.9s), hut-entry 1200f (14.5s), all 'A/B identical', 0 DIVERGENCE
+
 ## framework-agnostic-p1.7c
 - **status:** verified
 - **frames:** 450
@@ -164,6 +170,10 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **status:** partial
 - **gate:** 2-leg 0-diff with tap registered; icon strings not exercised in autonav legs — needs an icon-showing drive + USER eyeball
 - **evidence:** 916ddfc0
+
+## render-billboard-c788
+- **status:** untested
+- **evidence:** NOT verifiable by the current replay library: PSXPORT_DEBUG=ovhit shows 0x8003C788 native=0 oracle=0 NEVER HIT across general-session and hut-entry, incl. a 4000-frame SBS run. The SBS 0-diff result for those runs is vacuous for this unit — it never executes. Needs a scenario that actually dispatches C788 before any gate means anything.
 
 ## Billboard picture dual-emit (rq_push_ft4_record @ billboardEmit/submitQuad)
 - **status:** n/a

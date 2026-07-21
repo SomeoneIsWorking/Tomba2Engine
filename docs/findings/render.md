@@ -2469,3 +2469,39 @@ bodies (one per jump-table target), not one function with internal labels — `g
 switch is empty and falls through to `rec_dispatch`. All nine targets do exist as recompiled bodies,
 so this is NOT a latent recomp gap; it just means you must read the sub-bodies (e.g.
 `gen_func_8003DC6C` for opcode 0x24) rather than the parent to see what it does.
+
+## Two of the three render "gaps" are unreachable backstops, not a backlog
+Scouted 2026-07-21 by driving the game, not by reading the dispatch and guessing.
+
+- `render_walk.cpp:293` "stage with no native producer" — **cold**. The selector is the task-0 entry
+  word `*(u32)0x801FE00C`, i.e. which STAGE overlay is resident, and the game's own START.BIN file
+  table fixes that set at exactly three (engine.cpp:2952): START/DEMO/GAME, all of which have
+  producers. Census over six replays (hut-entry-alt, hut-entry-door-freeze, save-sign-softlock,
+  dark-screen-repro, general-session, start-mash-smoke) at 3000 frames each: zero `stage=?` lines,
+  zero aborts. `native_boot.cpp:513` already prints `?` for an unknown entry — a standing monitor for
+  exactly this condition.
+- `render_walk.cpp:346` "DEMO substate not in {2,3,4,6,7}" — **cold**. `renderTitle` covers 0..7
+  exhaustively, and the DEMO overlay cannot produce ≥8: its own body bounds the index
+  (`r3 < 8` else the no-op tail) and all 14 stores to `sm+0x48` in the overlay write 0..7.
+  The GAME stage *does* allow 8, but `classifyScene` intercepts the handoff frame
+  (`mem_r16(0x801FE000)==3` → Loading) and DEMO's prologue zeroes `sm+0x48` before any rendered frame.
+
+Both aborts are correct as written and should stay. They are backstops, not TODOs.
+
+## The real one: DEMO OPTIONS sub-pages (PORTED)
+`render_options.cpp` had a producer only for page0; pages 1-4 hit `abortUnimplemented` and KILLED the
+process under pc_render. Pages are selected by `sm[0x50]`, written by the byte-faithful leaf
+`leaf_8007B45C` (field_owned_leaves.cpp:10316) on a Cross press, dispatched through the bounds-checked
+(<5) table at 0x80016E78 → FUN_8007F104 / F250 / F498 / F73C / F8F8.
+
+**The file's own banner was wrong and has been corrected:** it claimed "DEMO s6 is always page0
+(Demo::s3 seeds sm[0x50]=0)". That is true of ENTRY only — the leaf writes 1..4 on the very first
+Cross, which is exactly how the abort was reached.
+
+All five now have producers, verified visually by forcing `sm[0x48]=6` + `sm[0x50]=1..4` and reading
+the PNGs: Messages, Sound (Speakers Stereo/Monaural + BGM/S.E. level meters), Screen adjust (value
+boxes over the LIVE title picture, matching the guest), Controls (Vibration/Configuration + pad-face
+diagram). Read-only — no guest writes.
+
+**Not claimed:** natural in-game navigation to Options was not reproduced, so player reachability is
+unconfirmed. The state was forced through the REPL to exercise the producers.
