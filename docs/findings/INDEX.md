@@ -8,7 +8,7 @@ already solved or ruled out. 211 findings across 11 subsystems.
 
 - **ActorMeleeEngage::doIt — scratchpad 0x1F80009C stale-write on the "arm-directly" path (RESOLVED, 2026-07-10)** [?] — two independent frontier-convergence agents (2026-07-10) reproduced an SBS-full  ↪ docs/findings/ai.md
 - **Combat-cluster autonav coverage gap — CLOSED for 2/3 addresses; combat-leg SBS divergence RESOLVED (2026-07-10)** [?] —   ↪ docs/findings/ai.md
-- **Water-pump seesaw does not sink under Tomba's weight — the node[0x2b] contact producer never fires (kanban #8, 2026-07-21)** [A REAL PORTING DEFECT FOUND AND FIXED on the path (2026-07-21); whether it is the WHOLE] — grabbing the seaside water-pump seesaw while climbing does not tilt it; Tomba's weight has  ↪ docs/findings/ai.md
+- **Water-pump seesaw does not sink under Tomba's weight — the node[0x2b] contact producer never fires (kanban #8, 2026-07-21)** [✅ FIXED AND CONFIRMED. USER verified on the live game 2026-07-22 ("it's already working] — grabbing the seaside water-pump seesaw while climbing does not tilt it; Tomba's weight has  ↪ docs/findings/ai.md
 
 ## animation
 

@@ -52,6 +52,11 @@ public:
   //     item[2] == 0x13          → FUN_8010EA80(G, item)
   //     item[2] == 0x2F          → FUN_80020364(G, item, 2)
   //   Sub-handler leaves stay substrate. Ghidra decomp scratch/decomp/fun_801130c4.c.
+  // framePreTick (FUN_8002288C): the seaside handler's UNCONDITIONAL per-frame pre-tick on G.
+  // Clears the frame's carry-over flags (G+41, G+95/96, G+322), publishes them to the scratchpad
+  // slots the rest of the frame reads (0x1F800090/94/98/8E), and seeds G+128..134 from the anim
+  // table at 0x8009D16C indexed by the current entry. Frameless leaf, no calls.
+  void framePreTick();
   void postInteractWalk();
 
   // ----------------------------------------------------------------------------

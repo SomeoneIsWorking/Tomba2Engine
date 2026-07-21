@@ -1,7 +1,7 @@
 ---
 id: 8
 title: Water-pump seesaw: Tomba's weight doesn't pull it down when grabbed while climbing (pc_skip ON)
-status: doing
+status: done
 labels: [bug, pc-skip]
 created: 2026-07-21
 updated: 2026-07-22
@@ -44,3 +44,5 @@ updated: 2026-07-22
 **2026-07-22:** ⚠ DUMP CONTAMINATION (self-caught 2026-07-22): PSXPORT_PAD_DUMP_AT writes a FIXED filename (padram_<frame>.bin), so the post-fix run at frame 6600 silently overwrote the pre-fix GRAB dump. Both files now hold G+0x158=0 (NOT grabbed). Every analysis after that point - class-4 queue contents with the beam at index 5, node[0x2b]/+0x29/+0x48 'at the grab frame', empty aux lists, null object-list head 0x800F2738, scratchpad gate values - was read from a NOT-GRABBED dump while being described as grab-state. Those specific conclusions must be re-derived from a dump asserted to have G+0x158 != 0. STILL VALID: the whole-run WWATCH measurements (+0x2b never non-zero across a pre-fix replay that DID grab, verified visually at pad 6424), and all the RE from Ghidra/generated. Also: tools/drive_to_grab.py added - closed-loop, gates on the attach pointer instead of frame numbers, and it correctly reports that the CURRENT build never grabs with this replay (attach pointer 0 through 19381 pad frames).
 
 **2026-07-22:** RE-DERIVED from a VERIFIED grab dump (scratch/bin/grab_prefix_6600.bin, asserted G+0x158=0x800FB960 before use). The substantive facts HOLD: beam 800FB960 while genuinely held has +0x2b=0, +0x29=0, +0x48=0, +0x4e=0, node[5]=0, tilt=0xF47 pinned at its clamp. Beam IS in the class-4 list (index 3 of 8, not 5 of 11 as the contaminated read said) - queueing confirmed correct. EVERY entry in that list has +0x2b=0, so nothing in the scene is stamped, not just the beam. Stamper outer-list head/tail both 0, consistent with the pool-init reading. Only incidental numbers changed; no conclusion reversed.
+
+**2026-07-22:** ✅ USER CONFIRMED FIXED (2026-07-22): 'It's already working now' - the seesaw sinks under Tomba's weight again. The signed-16-bit read of the ride/attach pointer G+0x158 (mem_r16s instead of the guest's 32-bit unsigned lw+sltiu) was the whole bug: attached, (int16)0x800FB960 = -18080 < 2 is TRUE so FUN_8011334C fired exactly where the guest suppresses it; unattached both agree, which is why it was invisible until something was grabbed. NOTE the +0x2b/contact-stamp thread was a NON-PROBLEM - +0x2b is never stamped non-zero and that is normal; do not resume it.

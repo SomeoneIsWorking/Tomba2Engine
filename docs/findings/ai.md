@@ -170,8 +170,8 @@
 ## Water-pump seesaw does not sink under Tomba's weight — the node[0x2b] contact producer never fires (kanban #8, 2026-07-21)
 - **symptom:** grabbing the seaside water-pump seesaw while climbing does not tilt it; Tomba's weight has
   no effect. USER-reported on the live game (default config: pc_faithful + pc_render + pc_skip).
-- **status:** A REAL PORTING DEFECT FOUND AND FIXED on the path (2026-07-21); whether it is the WHOLE
-  bug is UNCONFIRMED — needs a live check by the user. See "the defect" below.
+- **status:** ✅ FIXED AND CONFIRMED. USER verified on the live game 2026-07-22 ("it's already working
+  now"). The defect was the signed-16-bit read of the ride/attach pointer — see "the defect" below.
 - **repro:** `replays/bugs/seesaw-weight.pad` (6668 frames, from boot, no memory-card load). Replay
   headless, poll `padrec` until >=6400, `pause` — Tomba is frozen mid-grab.
 - **the machinery (RE'd from a grab-state RAM dump, `PSXPORT_PAD_DUMP_AT=6600`):** the pump assembly is
@@ -225,11 +225,14 @@
   "gates the weight path"; it is a true measurement that does not support that conclusion. The fix's
   effect on the SYMPTOM is unestablished, and the pad replay cannot establish it (the fix changes
   behaviour, so the open-loop input desyncs). Only a live retest can.
-- **NOT VERIFIED:** that the beam visibly sinks. The fix changes behaviour, so the open-loop pad replay
-  diverges after it and no longer reaches the grab at the same frames; a fixed-frame visual compare is
-  meaningless. Needs a live confirmation. Also still true post-fix: `node[+0x2b]` is never stamped
-  nonzero, so the FUN_801308e0 contact path remains unexercised and the 0x48 writes are arriving by
-  another route. If the seesaw still misbehaves live, that is the next thread.
+- **CONFIRMED BY THE USER (2026-07-22):** the seesaw sinks under Tomba's weight again. The fix was the
+  whole bug. Note this closes the loop that headless testing could NOT: the fix changes behaviour, so
+  the open-loop pad replay stopped reaching the grab entirely, and no amount of replay analysis could
+  have confirmed it. `tools/drive_to_grab.py` exists for the next one.
+- **Superseded by this confirmation:** the long `+0x2b` / contact-stamp investigation below. `+0x2b` is
+  never stamped non-zero and that is evidently NORMAL — the weight arrives by another route. Do not
+  resume the "find the missing +0x2b producer" thread; it was chasing a non-problem. The RE recorded
+  there (consumer FUN_801308e0, the queues, the class-4 list) stays valid as reference.
 
 ### contact-stamp thread (2026-07-21) — queueing is fine; the value-2 stamp is unowned substrate
 - The beam is **class 4, type 0, visible**, and IS in the class-4 queue (`ptr 0x1F80014C`, `count
@@ -343,3 +346,13 @@ Replaces every reading taken from the overwritten `padram_6600.bin` (see tooling
   mechanism).
 - Queues A/B/C all read 0 at dump phase — unchanged, and still phase-limited; the `cullq` probe remains
   the only trustworthy sampler for those.
+
+### ONE DEFECT, TWO BUGS (2026-07-22)
+The signed-16-bit attach-pointer read closed BOTH kanban #8 (water-pump seesaw not sinking) and #1
+(jumping over an item picks it up without touch contact) — both USER-confirmed on the live game. That
+is consistent with the mechanism rather than a coincidence: the mis-read made `FUN_8011334C` fire in
+precisely the states the guest suppresses it, and both symptoms are "an interaction resolves when it
+should not / does not resolve when it should" while Tomba is engaged with something. Any future bug of
+that shape should look for the same class of defect (a guest 32-bit unsigned test ported as a narrower
+or signed read) BEFORE opening a fresh investigation. Kanban #2 (bucket-pickup cutscene softlock) is
+NOT fixed by it and remains open.

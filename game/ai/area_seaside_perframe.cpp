@@ -30,7 +30,7 @@
 //
 // SUB-BEHAVIOR LEAVES kept substrate (top-down: own the CONTROL FLOW here, descend into each
 // callee's own tree only after their parent (this fn) is on the live path):
-//     0x8002288C, 0x80022760, 0x80022554, 0x801130C4, 0x80113700, 0x801138E8, 0x8011334C,
+//     0x80022760, 0x80022554, 0x801130C4, 0x80113700, 0x801138E8, 0x8011334C,
 //     0x80112A60, 0x80112C0C, 0x80112F14, 0x8010E904.
 //
 // Ghidra decomp scratch/decomp/seaside_perframe_113c5c.c.
@@ -51,7 +51,6 @@ constexpr uint32_t AUX_LIST_COUNT_SPAD     = 0x1F80015Cu;   // u8 count of items
 constexpr uint32_t AUX_WALK_COUNTER_SPAD   = 0x1F800183u;   // per-frame counter DAT_1F800183
 
 // Guest addresses of sub-behavior leaves this handler dispatches.
-constexpr uint32_t LEAF_G_PRE_2288C        = 0x8002288Cu;   // pre-tick on G (unconditional)
 constexpr uint32_t LEAF_G_TOMBA_TICK_22760 = 0x80022760u;   // Tomba tick on G (default mode)
 // (LEAF_G_POST_130C4 = FUN_801130C4 → moved to ActorTomba::postInteractWalk)
 constexpr uint32_t LEAF_G_MODE2_1334C      = 0x8011334Cu;   // mode-2-only tick on G (gated by 800E7FD8<2)
@@ -92,7 +91,10 @@ inline void aux_list_walk(Core* c) {
 }  // namespace
 
 void Behaviors::areaSeasidePerframe(Core* c) {
-  gLeaf(c, LEAF_G_PRE_2288C);                              // always run the pre-tick on G
+  // Pre-tick now NATIVE (ActorTomba::framePreTick, port_check PASS vs gen_func_8002288C). The body
+  // reads its object out of r4 exactly as the guest does, so the argument is still set the same way.
+  c->r[4] = G;
+  eng(c).actorTomba.framePreTick();                       // was gLeaf(LEAF_G_PRE_2288C)
 
   const uint8_t mode = c->mem_r8(G);
   const bool defaultMode = !(mode == 0 || mode == 2 || mode == 6);
