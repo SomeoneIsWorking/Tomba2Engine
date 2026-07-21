@@ -14,7 +14,8 @@
 //
 // STATE FLOW (mode = G[0]):
 //   mode == 0 or 6            : ONLY the fixed trio + aux walk + post pair.
-//   mode == 2                 : if *0x800E7FD8 < 2 also run FUN_8011334C(G) first, then falls
+//   mode == 2                 : if *0x800E7FD8 < 2 (32-bit UNSIGNED — it is the attach ptr,
+//                               so this means "holding nothing") also run FUN_8011334C(G), then falls
 //                               through to the fixed trio + aux walk + post pair.
 //   any other value           : run FUN_80022760(G) + FUN_801130C4(G), then falls through to the
 //                               "case 2" branch (may also fire FUN_8011334C(G)) and onward.
@@ -22,8 +23,10 @@
 // AUX-LIST WALK — pull items in reverse from the shared aux render list at *0x1F800154 (max
 // count comes from *0x1F80015C, stored to DAT_1F800183 as loop counter). For each item ptr:
 //   * skip if item[0] & 2 (already-processed guard)
-//   * item[2] is the type: 0/1 → FUN_80112A60(item) (default interaction leaf),
-//     4 → the same leaf UNLESS item[3] == 1 (guarded skip), 7 → same leaf, other → skip.
+//   * item[2] is the type: 0/4/7 → FUN_80112A60(item) (default interaction leaf); type 1 →
+//     the same leaf ONLY IF item[3] == 1; any other type → skip. (The item[3] guard belongs to
+//     type 1, not type 4 — verified against the guest at LAB_80113d7c, 2026-07-21. The code below
+//     was already right; this comment was not.)
 //
 // SUB-BEHAVIOR LEAVES kept substrate (top-down: own the CONTROL FLOW here, descend into each
 // callee's own tree only after their parent (this fn) is on the live path):
@@ -100,7 +103,19 @@ void Behaviors::areaSeasidePerframe(Core* c) {
     eng(c).actorTomba.postInteractWalk();               // native FUN_801130C4 (default-mode post-tick)
     runMode2Tick = true;                                   // recomp falls through into `case 2`
   }
-  if (runMode2Tick && c->mem_r16s(0x800E7FD8u) < 2) {
+  // G+0x158 is the RIDE/ATTACH POINTER — the object Tomba is currently holding onto (written by
+  // FUN_80057a68 as `player[0x158] = FUN_80024548(player, 0)`), 0 when he is attached to nothing.
+  // The guest gate is a 32-bit UNSIGNED test (0x80113CC0: `lw v0,0x158(s1)` + `sltiu v0,v0,2`), so it
+  // asks "is the attach slot empty?" — a real object pointer (0x800Fxxxx) is a huge unsigned value
+  // and the gate is FALSE.
+  //
+  // This was ported as a SIGNED 16-BIT read, which inverts the answer exactly when Tomba is attached:
+  // (int16)0x800FB960 = -18080 < 2 is TRUE, so the sub-tick fired precisely in the state where the
+  // guest suppresses it. Unattached (slot == 0) both agree, which is why it went unnoticed — the bug
+  // is invisible until something is grabbed. Found chasing kanban #8 (the water-pump seesaw not
+  // sinking under Tomba's weight); verified against the instruction stream, not the decompiler, which
+  // rendered the operand as a pointer comparison.
+  if (runMode2Tick && c->mem_r32(0x800E7FD8u) < 2u) {
     gLeaf(c, LEAF_G_MODE2_1334C);                          // mode-2 sub-tick (gated)
   }
 

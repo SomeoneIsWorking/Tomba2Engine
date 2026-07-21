@@ -170,7 +170,8 @@
 ## Water-pump seesaw does not sink under Tomba's weight — the node[0x2b] contact producer never fires (kanban #8, 2026-07-21)
 - **symptom:** grabbing the seaside water-pump seesaw while climbing does not tilt it; Tomba's weight has
   no effect. USER-reported on the live game (default config: pc_faithful + pc_render + pc_skip).
-- **status:** MECHANISM ESTABLISHED BY MEASUREMENT, root cause NOT yet identified. Not fixed.
+- **status:** A REAL PORTING DEFECT FOUND AND FIXED on the path (2026-07-21); whether it is the WHOLE
+  bug is UNCONFIRMED — needs a live check by the user. See "the defect" below.
 - **repro:** `replays/bugs/seesaw-weight.pad` (6668 frames, from boot, no memory-card load). Replay
   headless, poll `padrec` until >=6400, `pause` — Tomba is frozen mid-grab.
 - **the machinery (RE'd from a grab-state RAM dump, `PSXPORT_PAD_DUMP_AT=6600`):** the pump assembly is
@@ -203,3 +204,22 @@
   real producer is supposed to supply, and hides the missing path.
 - **refs:** `scratch/decomp/seesaw_leaves.c`, `scratch/decomp/seesaw_tier2.c` (13+3 fns decompiled from
   `scratch/bin/padram_6600.bin`), `game/ai/beh_substate_edge_orchestrator.cpp`, kanban #8.
+
+### the defect (2026-07-21) — `Behaviors::areaSeasidePerframe` read the attach pointer as signed 16-bit
+- **guest ground truth** (instruction stream at 0x80113CC0, not the decompiler, which rendered it as a
+  pointer comparison): `lw v0,0x158(s1)` + `sltiu v0,v0,2` — a **32-bit UNSIGNED** test of G+0x158.
+- **G+0x158 is the RIDE/ATTACH POINTER** — the object Tomba is holding (written by FUN_80057a68 as
+  `player[0x158] = FUN_80024548(player,0)`), 0 when holding nothing. So the gate means "is the attach
+  slot empty?" and is FALSE whenever he is attached (a pointer like 0x800FB960 is huge unsigned).
+- **the port had `c->mem_r16s(0x800E7FD8u) < 2`** — signed 16-bit. `(int16)0x800FB960 = -18080 < 2` is
+  TRUE, so `FUN_8011334C` fired in exactly the state the guest suppresses it. Unattached (slot 0) both
+  agree — which is why it survived: the defect is invisible until something is grabbed.
+- **fix:** `c->mem_r32(0x800E7FD8u) < 2u`.
+- **A/B EVIDENCE (same replay, same binary, one line different), watching node[+0x48] (the weight):**
+  - pre-fix: **0** nonzero writes across all 12 pump nodes over 6680 frames.
+  - post-fix: **448** nonzero writes on node index 1 — the exact node G+0x158 points at.
+- **NOT VERIFIED:** that the beam visibly sinks. The fix changes behaviour, so the open-loop pad replay
+  diverges after it and no longer reaches the grab at the same frames; a fixed-frame visual compare is
+  meaningless. Needs a live confirmation. Also still true post-fix: `node[+0x2b]` is never stamped
+  nonzero, so the FUN_801308e0 contact path remains unexercised and the 0x48 writes are arriving by
+  another route. If the seesaw still misbehaves live, that is the next thread.
