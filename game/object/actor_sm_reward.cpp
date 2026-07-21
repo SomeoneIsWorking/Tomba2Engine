@@ -401,7 +401,9 @@ void ActorReward::smEventDispatch(Core* c) {
       break;
     }
     case 3:
-      c->r[R_A0] = 9; rec_dispatch(c, FN_40B48);
+      // ra mirror: gen sets a jal-site r31 before each FN_40B48 call; armBody spills it in its
+      // guest frame, so every reacher must carry the RE'd constant (gen_func_8004A3D4 evidence).
+      c->r[R_A0] = 9; c->r[31] = 0x8004A458u; rec_dispatch(c, FN_40B48);
       [[fallthrough]];
     case 1: case 2: case 4: case 6: case 7: case 8: {
       c->r[R_A0] = evt; c->r[R_A1] = 1; rec_dispatch(c, FN_D4C4);
@@ -427,18 +429,18 @@ void ActorReward::smEventDispatch(Core* c) {
     }
     case 0x2e: {
       c->r[R_A0] = evt; c->r[R_A1] = 1; rec_dispatch(c, FN_D4C4);
-      c->r[R_A0] = 0x18; rec_dispatch(c, FN_40B48);
+      c->r[R_A0] = 0x18; c->r[31] = 0x8004A664u; rec_dispatch(c, FN_40B48);
       break;
     }
     case 0x46: {
       c->r[R_A0] = evt; c->r[R_A1] = 1; rec_dispatch(c, FN_D4C4);
-      c->r[R_A0] = 0x4d; rec_dispatch(c, FN_40B48);
+      c->r[R_A0] = 0x4d; c->r[31] = 0x8004A680u; rec_dispatch(c, FN_40B48);
       break;
     }
     case 0x56: {
       c->r[R_A0] = 0x4d; c->r[R_A1] = 2; rec_dispatch(c, FN_D4F4);
       c->r[R_A0] = 0x57; c->r[R_A1] = 2; rec_dispatch(c, FN_ED0C);
-      c->r[R_A0] = 0x3e; rec_dispatch(c, FN_40B48);
+      c->r[R_A0] = 0x3e; c->r[31] = 0x8004A548u; rec_dispatch(c, FN_40B48);
       break;
     }
     case 0x69: {
@@ -471,7 +473,8 @@ void ActorReward::smEventDispatch(Core* c) {
     }
     case 0x7b: {
       c->r[R_A0] = evt; c->r[R_A1] = 1; rec_dispatch(c, FN_D4C4);
-      c->r[R_A0] = 0x50; rec_dispatch(c, FN_40B48);
+      // Shared gen tail L_8004A6CC (case 0x7b falls through, case 0x89 jumps): ra 0x8004A6D4.
+      c->r[R_A0] = 0x50; c->r[31] = 0x8004A6D4u; rec_dispatch(c, FN_40B48);
       break;
     }
     case 0x88: {
@@ -482,7 +485,7 @@ void ActorReward::smEventDispatch(Core* c) {
     case 0x89: {
       c->r[R_A0] = 0x7c; c->r[R_A1] = 3; rec_dispatch(c, FN_D4F4);
       c->r[R_A0] = 0x8a; c->r[R_A1] = 2; rec_dispatch(c, FN_ED0C);
-      c->r[R_A0] = 0x50; rec_dispatch(c, FN_40B48);
+      c->r[R_A0] = 0x50; c->r[31] = 0x8004A6D4u; rec_dispatch(c, FN_40B48);   // shared tail L_8004A6CC
       break;
     }
     case 0x90: {

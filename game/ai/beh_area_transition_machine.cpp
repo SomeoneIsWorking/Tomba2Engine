@@ -93,6 +93,7 @@ static void node6_phase(Core* c, uint32_t nd) {
     case 0:                                            // @0x801279b8 — start fade
       c->r[4] = 1; c->r[5] = 1; rec_dispatch(c, 0x80042354u);   // FUN_80042354(1,1)
       c->mem_w8(0x800BF9B5u, 3);                       // (v0=3 from the call's delay-slot store)
+      c->r[31] = 0x801279D8u;                       // ra mirror: gen jal-site (armBody spills ra)
       eng(c).sceneEvents.arm(0x42);                 // area-transition event; FUN_80040B48 (native)
       c->mem_w8(nd + 6, (uint8_t)(c->mem_r8(nd + 6) + 1));
       break;

@@ -86,7 +86,8 @@ constexpr uint32_t SPECIAL_AREA_TAG = 0x800E7E85u;   // guard on the special-are
 // The confirm helper flow (state-1 triggerSub==0 branch): arm the event; if the arm succeeded
 // (fresh arm = 1, or events gate off = -1 → both nonzero), skip to triggerSub=5. Already-armed = 0
 // means retry next tick.
-inline void confirm_or_advance(Actor& a, uint32_t arg) {
+inline void confirm_or_advance(Actor& a, uint32_t arg, uint32_t raConst) {
+  a.core()->r[31] = raConst;   // ra mirror: gen jal-site (armBody spills ra in its guest frame)
   if (eng(a.core()).sceneEvents.arm((uint8_t)arg) != 0) a.setTriggerSub(5);
 }
 
@@ -198,9 +199,9 @@ void beh_typed_init_scene_trigger(Core* c) {
         if (a.subFlag() == 3) {
           uint8_t n3 = a.type();
           a.setTriggerSub((uint8_t)(a.triggerSub() + 1));
-          if      (n3 == 0xd)  confirm_or_advance(a, 0x50);
-          else if (n3 < 0xe) { if (n3 == 0xc) confirm_or_advance(a, 0x4e); }
-          else if (n3 == 0xe)  confirm_or_advance(a, 0x4f);
+          if      (n3 == 0xd)  confirm_or_advance(a, 0x50, 0x80073F84u);
+          else if (n3 < 0xe) { if (n3 == 0xc) confirm_or_advance(a, 0x4e, 0x80073F6Cu); }
+          else if (n3 == 0xe)  confirm_or_advance(a, 0x4f, 0x80073F9Cu);
         }
         break;
       case 1: case 5: {                                          // pick scene-id → Spawn::sceneEntity(sid, 0) → sceneHandle

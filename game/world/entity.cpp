@@ -255,7 +255,10 @@ static void sm40558(Core* c) {
       // jt 0x80015338: [0]/[4]=@964, [1]=@904, [2]=@94c, [3]=@95c
       if (s5 == 1) {
         // @904
-        if (c->mem_r8(obj + 3) == 0 && c->mem_r8(0x800BFAD1u) == 0) eng(c).sceneEvents.arm(56);   // FUN_80040B48 (native)
+        if (c->mem_r8(obj + 3) == 0 && c->mem_r8(0x800BFAD1u) == 0) {
+          c->r[31] = 0x8004092Cu;   // ra mirror: gen jal-site (armBody spills ra in its guest frame)
+          eng(c).sceneEvents.arm(56);   // FUN_80040B48 (native)
+        }
         // @92c
         if (c->mem_r8(obj + 94) == 2) {
           uint32_t v1b = c->mem_r32(obj + 16);

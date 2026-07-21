@@ -301,6 +301,7 @@ void func_80133184(Core* c) {
   rec_dispatch(c, 0x80074590u);   // Sfx::trigger-shaped
 
   c->r[4] = 127;
+  c->r[31] = 0x8013325Cu;         // ra mirror: ov_a00_gen_80133184 jal-site (armBody spills ra)
   rec_dispatch(c, 0x80040B48u);   // SceneEvents::armBody-shaped
   const int32_t armResult = (int32_t)c->r[2];
 

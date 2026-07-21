@@ -239,6 +239,7 @@ void beh_typed_init_exit_poker(Core* c) {
   switch (n3) {
     case 0:                                          // st2sub0 @0x8011872c
       // FUN_80040B48 = SceneEvents::arm; caller advances only when events are enabled (r[2] >= 0).
+      c->r[31] = 0x80118734u;                       // ra mirror: gen jal-site (armBody spills ra)
       if (eng(c).sceneEvents.arm(5) >= 0) {
         inv(c).giveAndFlag(36, 1);              // FUN_8004D4C4(36, 1) [native]
         guest_leaf(c, 0x8004B0D8u, nd);                // FUN_8004B0D8(node)

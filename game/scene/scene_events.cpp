@@ -11,6 +11,7 @@
 #include "core/engine.h"
 #include "game.h"              // c->game->verify — the shared A/B verify scaffold
 #include "override_registry.h"   // overrides::install — the one native-override registry
+#include "guest_abi.h"           // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -57,7 +58,20 @@ uint32_t SceneEvents::classSize(uint8_t argKey, bool nibbleLo) {
 //     0 if the per-slot flag was already set (recomp's `addu v0, zero, zero` on the branch epilogue)
 //     1 if fresh arm (recomp's `addiu v0, zero, 1` seq at the tail — the +1 constant that also bumps
 //                     the ring write head).
+// Guest-stack frame for gen_func_80040B48 (0x80040B48) — table order matches abi_extract's
+// 'prologue spills' section exactly (program order). Regenerate if the gen body changes:
+//   python3 tools/abi_extract.py 0x80040B48 --scaffold --guestabi
+// The frame is descended UNCONDITIONALLY in gen (even on the events-gate -1 early return), so the
+// RAII frame at entry covers every path. The spilled r31 is the CALLER's jal-site constant — every
+// native reacher sets it explicitly before calling in (see the "ra mirror" sites).
+static constexpr GuestFrameSpill kSpills_80040B48[3] = {
+  { 17, 20 },
+  { 31 /*ra*/, 24 },
+  { 16, 16 },
+};
+
 uint32_t SceneEvents::armBody(Core* c) {
+  GuestFrame<32, 3> frame(c, kSpills_80040B48);
   // Full 32-bit slot index — gen_func_80040B48 indexes SLOT_STATE with r4 UNMASKED (`r3 = r17 + base;
   // lbu r3+68`). Masking to a byte here was a latent deviation, observable only if an event ID ever
   // reached >= 256 (it never does in-game, but the verify gate would have caught it). Matches the
