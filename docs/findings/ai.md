@@ -263,3 +263,27 @@
   {2, 9} — BOTH NATIVELY OWNED (game/render/cull.cpp). That is the first natively-owned code on this
   path, and therefore the first real suspect. Note WWATCH cannot watch `0x1F800144` (scratchpad) —
   use the `.spad` sidecar or a live debug-server read.
+
+### queue-A fill path is ENTIRELY ours — but the phase caveat blocks the conclusion (2026-07-21)
+- All five writers of queue A (`ptr 0x1F80013C`, `cnt 0x1F800144`) are natively owned:
+  `Render::objListWalk1` (0x8003BB50), `Cull::enqueueByClass` (0x8007703C), `Cull::decide` /
+  `performBaseCull` (0x8007712C), `Cull::enqueueQueueA` (0x80077E7C), `Pool::initTypedPools`
+  (0x800798F8). The per-frame filler is the base cull.
+- **Our queue addresses are CORRECT** — verified against the guest instruction stream:
+  `FUN_80077E7C` uses offsets 316/324 off `lui 0x1F80` (= `0x1F80013C` ptr, `0x1F800144` count, cap 24)
+  and `FUN_80077EBC` uses 328/336 (= `0x1F800148`, `0x1F800150`, cap 40), matching `CULL_QPTR`/
+  `CULL_QCNT`/`CULL_QCAP`. So `enqueueQueueA` is not mis-addressed. The separate populated 11-entry
+  class-4 list at `0x1F80014C`/`0x1F800152` is a DIFFERENT structure (the one `interact_scan` reads).
+- `Cull::decide` gates every queue assignment on `*(u32)0x1F800080 == 0`.
+- **In the grab dump: `0x1F800080 = 0x467` (nonzero) and queues A/B/C all count 0.** That would mean
+  the gate is shut and nothing is queued — but DO NOT conclude that yet.
+- **★ PHASE CAVEAT (why this is not yet a finding):** the dump is taken at pad-service phase, and these
+  scratchpad words are demonstrably reused there (`0x1F800084` reads `0x6C40`, neither a small cull
+  mode value nor an object pointer). A/B/C reading 0 is equally consistent with "reset at frame start,
+  filled and consumed inside the render window, dumped outside it". WWATCH cannot watch scratchpad
+  (see tooling.md), so the queue counts cannot be sampled that way either.
+- **THE MEASUREMENT THAT SETTLES IT:** sample `0x1F800144` (and `0x1F800080`) at the exact moment
+  `areaSeasidePerframe` dispatches `LEAF_TRIO_113700`, i.e. inside the native handler right before the
+  trio, rather than from a frame-boundary dump. If it is 0 there, the gate is genuinely shut and the
+  cull fill path is the bug; if it is non-zero, the emptiness is a phase artifact and this whole branch
+  is a dead end.
