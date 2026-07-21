@@ -10988,44 +10988,9 @@ static void leaf_8007BF20(Core* c) {
     return;
 }
 
-static void leaf_8007E8DC(Core* c) {
-    c->r[29] = c->r[29] + (uint32_t)-40;
-    c->r[7] = c->r[7] << 16;
-    c->r[2] = (uint32_t)32769u << 16;
-    c->r[2] = c->r[2] + (uint32_t)29492;
-    c->r[7] = (uint32_t)((int32_t)c->r[7] >> 14);
-    c->r[7] = c->r[7] + c->r[2];
-    c->r[2] = (uint32_t)32783u << 16;
-    c->mem_w16((c->r[29] + (uint32_t)24), (uint16_t)c->r[4]);
-    c->r[4] = c->r[29] + (uint32_t)24;
-    c->mem_w32((c->r[29] + (uint32_t)32), c->r[31]);
-    c->mem_w8((c->r[29] + (uint32_t)17), (uint8_t)c->r[6]);
-    c->mem_w8((c->r[29] + (uint32_t)16), (uint8_t)c->r[0]);
-    c->mem_w16((c->r[29] + (uint32_t)18), (uint16_t)c->r[0]);
-    c->mem_w16((c->r[29] + (uint32_t)26), (uint16_t)c->r[5]);
-    c->mem_w32((c->r[29] + (uint32_t)28), c->r[0]);
-    c->r[5] = c->mem_r32((c->r[7] + (uint32_t)0));
-    c->r[6] = c->mem_r32((c->r[2] + (uint32_t)-12456));
-    c->r[31] = 0x8007E928u;
-    c->r[7] = c->r[29] + (uint32_t)16; func_8007E1B8(c);
-    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)32));
-    c->r[29] = c->r[29] + (uint32_t)40; return;
-    return;
-}
+// leaf_8007E8DC DELETED 2026-07-22 — superseded by UiSprite (game/ui/ui_sprite.cpp).
 
-static void leaf_8007E998(Core* c) {
-    c->r[29] = c->r[29] + (uint32_t)-24;
-    c->r[4] = c->r[4] << 16;
-    c->r[5] = c->r[5] << 16;
-    c->r[4] = (uint32_t)((int32_t)c->r[4] >> 16);
-    c->r[5] = (uint32_t)((int32_t)c->r[5] >> 16);
-    c->mem_w32((c->r[29] + (uint32_t)16), c->r[31]);
-    c->r[31] = 0x8007E9B8u;
-    c->r[7] = c->r[0] + (uint32_t)152; func_8007E8DC(c);
-    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)16));
-    c->r[29] = c->r[29] + (uint32_t)24; return;
-    return;
-}
+// leaf_8007E998 DELETED 2026-07-22 — superseded by UiSprite (game/ui/ui_sprite.cpp).
 
 static void leaf_8007ED5C(Core* c) {
     c->r[29] = c->r[29] + (uint32_t)-80;
@@ -14866,8 +14831,8 @@ void register_field_owned_leaves() {
   install(0x8007B45Cu,"leaf_8007B45C",leaf_8007B45C,gen_func_8007B45C,shard_set_override);
   install(0x8007BE18u,"leaf_8007BE18",leaf_8007BE18,gen_func_8007BE18,shard_set_override);
   install(0x8007BF20u,"leaf_8007BF20",leaf_8007BF20,gen_func_8007BF20,shard_set_override);
-  install(0x8007E8DCu,"leaf_8007E8DC",leaf_8007E8DC,gen_func_8007E8DC,shard_set_override);
-  install(0x8007E998u,"leaf_8007E998",leaf_8007E998,gen_func_8007E998,shard_set_override);
+  // 0x8007E8DC is owned by UiSprite (game/ui/ui_sprite.cpp) — RE'd and named.
+  // 0x8007E998 is owned by UiSprite (game/ui/ui_sprite.cpp) — RE'd and named.
   install(0x8007ED5Cu,"leaf_8007ED5C",leaf_8007ED5C,gen_func_8007ED5C,shard_set_override);
   install(0x8007EE74u,"leaf_8007EE74",leaf_8007EE74,gen_func_8007EE74,shard_set_override);
   install(0x8007EF60u,"leaf_8007EF60",leaf_8007EF60,gen_func_8007EF60,shard_set_override);

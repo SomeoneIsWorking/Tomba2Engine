@@ -224,3 +224,23 @@ its own beyond the shared cursor-index global `DAT_800bf808`):
 - **LIVE:** `ovhit` on the bucket capture shows `LoadingText::draw native=1`. As with the backdrop, an
   ORPHAN `leaf_8007FD54` was registered at the same address and won until it was unregistered AND
   deleted — installs overwrite, so converting a leaf to readable code means removing the leaf.
+
+## 2D sprite entry points FUN_8007E8DC / FUN_8007E998 — RE'd and owned (2026-07-22)
+- **What they are:** thin marshallers, not drawers. Each builds two small structs ON ITS OWN GUEST
+  STACK FRAME — `placement {u16 x, u16 y, u32 0}` at frame+24 and `attributes {u8 0, u8 attr, u16 0}`
+  at frame+16 — then calls the shared emitter `FUN_8007E1B8` with those two pointers plus a SPRITE
+  DEFINITION from the table at `0x80017334` (`table[defIndex]`, index sign-extended from 16 bits and
+  scaled by 4) and the model-table pointer at `0x800ECF58`.
+- **`UiSprite::drawFromTable` / `UiSprite::drawFixedDef152`** (`game/ui/ui_sprite.cpp`), both
+  `port_check` PASS, both installed with the setter, both confirmed LIVE (`ovhit` native=9 each on the
+  bucket capture).
+- **Why the frames are mirrored:** the structs handed to the emitter ARE guest stack memory, so the
+  frame descent, the `ra` spill offsets and the local offsets all have to match or the emitter reads
+  the wrong addresses. This is the CLAUDE.md guest-stack rule in its most literal form.
+- **Naming honesty:** `drawFixedDef152` is `drawFromTable` with the index pinned to 152. It has
+  callers in at least four shards so it is a common helper, but what def 152 MEANS (it resolves to a
+  four-entry list at `0x80017C00`) is not established. Named for what it does; rename once
+  `FUN_8007E1B8` is RE'd and the def format is known — an invented name would be worse than a dull one.
+- **Recurring gotcha, third time now:** an ORPHAN `leaf_<addr>` registered at the same address WINS
+  over a new port, because installs overwrite. Converting a transcription means unregistering AND
+  deleting the leaf; otherwise `ovhit` shows the leaf's name and the readable code never runs.

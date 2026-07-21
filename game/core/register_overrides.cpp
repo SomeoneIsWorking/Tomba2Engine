@@ -49,12 +49,14 @@ void interact_scan_install();   // game/player/interact_scan.cpp — guest FUN_8
 void dialog_box_sm_install();   // game/ui/dialog_box_sm.cpp — guest FUN_8007D594 (dialog box SM)
 void dialog_backdrop_install(); // game/ui/dialog_backdrop.cpp — guest FUN_8007FCC8 (box backdrop)
 void loading_text_install();    // game/ui/loading_text.cpp — guest FUN_8007FD54 ("Loading.....")
+void ui_sprite_install();       // game/ui/ui_sprite.cpp — guest FUN_8007E8DC / FUN_8007E998
 
 void register_engine_overrides(Game* game) {
   interact_scan_install();   // interaction scanner: promotes an in-range object to ACTIVATED
   dialog_box_sm_install();   // dialog/message box state machine (port_check PASS vs gen_func_8007D594)
   dialog_backdrop_install(); // message-box backdrop rect — LIVE on the dialog path
-  loading_text_install();    // "Loading....." blinker — pc_skip draws nothing (USER 2026-07-22)
+  loading_text_install();    // "Loading....." blinker (RE'd; no fork — see kanban #9)
+  ui_sprite_install();       // 2D sprite entry points, LIVE on the dialog path
   Core* c = &game->core;
   // PcScheduler primitives: the framework class supplies the native handlers; the game passes the
   // generated substrate bodies + override setter (linked here, game-side) — P1.7c decoupling.
