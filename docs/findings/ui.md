@@ -280,3 +280,22 @@ Working up from the emitters that were RE'd this session:
   through direct `func_<addr>` thunks, not `rec_dispatch`, so the channel never sees them. Use `ovhit`
   (which counts thunk entries) once a candidate is installed, exactly as was done to prove
   `0x8007D594` cold.
+
+## ★ Why a dialog can softlock in code we "own" (2026-07-22)
+The question is the right one to ask, and the answer is that OWNED IS NOT VERIFIED.
+- The dialog's driver, `FUN_8007DC38`, is native — `beh_variant_overlay_lifecycle`. But it is a
+  hand-written REBUILD of a 4-phase state machine, not a byte-faithful port. **Nothing has ever tested
+  it against the guest.** Adding an `// ORACLE:` marker and running `port_check` reports FAIL, but that
+  result is not evidence of a defect: a rebuild legitimately differs in store order, and the
+  "native=0 calls" line is a parser artefact (the rebuild calls through `guest_leaf` and C++ methods,
+  not `func_XXXX(c)`). The marker was removed again for exactly that reason.
+- **So there is no gate that would have caught a logic error here.** Both bugs the USER confirmed
+  fixed today (#8 seesaw, #1 jump-pickup) were defects in owned code of just this kind — a native
+  read at the wrong width in a hand-written path. "Owned" moved them from unfindable to findable; it
+  did not make them correct.
+- **What would settle it:** re-derive `FUN_8007DC38` byte-faithfully with `tools/port_gen.py` and diff
+  its behaviour against the rebuild, exactly as was done for `advanceByte` (whose hand-written draft
+  turned out to be missing its whole guest frame). If the rebuild diverges from the faithful body on
+  the bucket path, that divergence IS the softlock candidate.
+- **Do not** conclude from the `port_check` FAIL alone that this function is broken. It is unverified,
+  which is a different and more accurate statement.

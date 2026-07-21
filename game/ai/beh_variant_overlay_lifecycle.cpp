@@ -49,6 +49,10 @@ static constexpr GuestFrameSpill kSpills_8007DC38[3] = {
   { 17, 20 },
 };   // frame=32, abi_extract --scaffold --guestabi
 
+// NOT port_check-able as it stands: this is a hand-written REBUILD, not a byte-faithful port, so an
+// // ORACLE: marker just yields a permanent FAIL (differing store order is expected of a rebuild) and
+// would drown the gate in noise. That is precisely the problem — NOTHING verifies this function
+// against the guest, and it drives the dialog box. See docs/findings/ui.md, kanban #2.
 void beh_variant_overlay_lifecycle(Core* c) {
   GuestFrame<32, 3> frame(c, kSpills_8007DC38);
   const uint32_t nd = c->r[4];
