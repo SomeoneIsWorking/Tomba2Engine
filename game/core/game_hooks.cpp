@@ -188,7 +188,12 @@ extern void tomba_fps60_bb_swap_prev(Core* c);
 // tomba_selftestCameraOracle — the camera-oracle selftest branch (game/camera/cutscene_camera_selftest.cpp),
 // called by the framework selftest harness through the hook so selftest.cpp names no game function.
 extern int run_camera_oracle(const char* exe_path);
-static int tomba_selftestCameraOracle(const char* exePath) { return run_camera_oracle(exePath); }
+extern int run_effectmod_selftest(const char* exe_path);
+static int tomba_selftestGame(const char* which, const char* exePath) {
+  if (!strcmp(which, "camera"))    return run_camera_oracle(exePath);
+  if (!strcmp(which, "effectmod")) return run_effectmod_selftest(exePath);
+  return 2;   // not ours -> selftest_run reports "unknown"
+}
 
 // registerOverrides installs ALL the game's override clusters into the process-global registry.
 // Body lives in register_overrides.cpp (moved out of framework boot.cpp); declared here so the hook
@@ -229,5 +234,5 @@ extern const GameHooks g_tomba_hooks = {
   /* schedRng           */ tomba_schedRng,
   /* fps60WorldPass     */ tomba_fps60_world_pass,
   /* fps60BbSwapPrev    */ tomba_fps60_bb_swap_prev,
-  /* selftestCameraOracle */ tomba_selftestCameraOracle,
+  /* selftestGame          */ tomba_selftestGame,
 };

@@ -102,11 +102,6 @@ extern void gen_func_8003C8F4(Core*);
 void func_800517BC(Core*);   // C464's MAT_A seed (node+122/124/126 s16 xyz)
 void func_8003B220(Core*);   // billboardEmit's quad-corner builder (writes real guest stack memory)
 void func_8003B054(Core*);   // billboardEmit's color/UV fill
-void func_8003D584(Core*);   // CCA4 special-effect leaf (case CD10)
-void func_8003F344(Core*);   // CCA4 special-effect leaf (case CD38)
-void func_8003F3F4(Core*);   // CCA4 special-effect leaf (case CD60, node+27==0)
-void func_8003F4C4(Core*);   // CCA4 special-effect leaf (case CD60, node+27!=0)
-void func_8003F594(Core*);   // CCA4 special-effect leaf (case CDA0)
 
 namespace {
 constexpr uint32_t CUR_NODE_SCR = 0x1F80028Cu;   // "current render node" scratch (obj_world_ord fallback)
@@ -254,14 +249,16 @@ void Render::perObjRenderDispatch() {
         const uint32_t pre = c->mem_r32(PKT_POOL_PTR);
         c->r[4] = node; c->r[5] = flag; c->r[31] = 0x8003CD20u; rend(c)->cmdListDispatch();
         const uint32_t post = c->mem_r32(PKT_POOL_PTR);
-        c->r[4] = node; c->r[5] = pre; c->r[6] = post; c->r[31] = 0x8003CD30u; func_8003D584(c);
+        c->r[4] = node; c->r[5] = pre; c->r[6] = post; c->r[31] = 0x8003CD30u;
+        rend(c)->effectColorAdd(node, pre, post);
         break;
       }
       case 0x8003CD38u: {
         const uint32_t pre = c->mem_r32(PKT_POOL_PTR);
         c->r[4] = node; c->r[5] = flag; c->r[31] = 0x8003CD48u; rend(c)->cmdListDispatch();
         const uint32_t post = c->mem_r32(PKT_POOL_PTR);
-        c->r[4] = node; c->r[5] = pre; c->r[6] = post; c->r[31] = 0x8003CD58u; func_8003F344(c);
+        c->r[4] = node; c->r[5] = pre; c->r[6] = post; c->r[31] = 0x8003CD58u;
+        rend(c)->effectClutSwap(node, pre, post);
         break;
       }
       case 0x8003CD60u: {
@@ -273,15 +270,16 @@ void Render::perObjRenderDispatch() {
         // tests node+27==0 -> func_8003F4C4 (the L_8003CD90 target), node+27!=0 -> func_8003F3F4 —
         // a prior draft had this INVERTED. Neither leaf fires at seaside (this file's own banner),
         // so the flip was never caught by the autonav gate; fixed here to match gen exactly.
-        if (c->mem_r8(node + 27) == 0) { c->r[31] = 0x8003CD98u; func_8003F4C4(c); }
-        else                            { c->r[31] = 0x8003CD88u; func_8003F3F4(c); }
+        if (c->mem_r8(node + 27) == 0) { c->r[31] = 0x8003CD98u; rend(c)->effectSemiOff(node, pre, post); }
+        else                            { c->r[31] = 0x8003CD88u; rend(c)->effectSemiOn (node, pre, post); }
         break;
       }
       case 0x8003CDA0u: {
         const uint32_t pre = c->mem_r32(PKT_POOL_PTR);
         c->r[4] = node; c->r[5] = flag; c->r[31] = 0x8003CDB0u; rend(c)->cmdListDispatch();
         const uint32_t post = c->mem_r32(PKT_POOL_PTR);
-        c->r[4] = node; c->r[5] = pre; c->r[6] = post; c->r[31] = 0x8003CDC0u; func_8003F594(c);
+        c->r[4] = node; c->r[5] = pre; c->r[6] = post; c->r[31] = 0x8003CDC0u;
+        rend(c)->effectFlatTint(node, pre, post);
         break;
       }
       case 0x8003CDC0u:

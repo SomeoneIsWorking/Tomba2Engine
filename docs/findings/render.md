@@ -2441,3 +2441,31 @@ loop tail. Decoded, both tables agree on the strides already recorded above.
 WITHOUT advancing the pointer — i.e. the guest spins forever. It cannot happen with valid pool data.
 A native port must not silently `break` past it (that would be a different behaviour); FAIL-FAST with a
 diagnostic instead, per the project directive.
+
+### PORTED + VERIFIED (2026-07-21) — and how the gate was proven meaningful
+`game/render/effect_mod.cpp` owns all five natively. Written with typed lenses rather than raw offset
+arithmetic (`GpuPacket` — `opcode()`/`setColour(i,rgb)`/`setChannel(i,ch,v)`; `EffectParams` —
+`tintRgb()`/`addR()`/`clut()`; `PacketShape` — stride + colour-word count per opcode), so a reader sees
+what the pass DOES instead of `c->mem_r8(p + 0xNN)` soup. One shared `walkPackets()` holds the span walk.
+
+Verified by a differential oracle test, `PSXPORT_SELFTEST=effectmod`
+(`game/render/effect_mod_selftest.cpp`), since none of the five fires in any reachable scenario:
+seed a synthetic packet pool + effect params, run the native pass, restore, run the ORIGINAL guest
+function via `rec_interp` on the real MAIN.EXE, diff the pool byte-for-byte. The sweep hits every
+opcode and deliberately drives the coloradd byte through all three regimes (`<=0x7F` / `==0x80` /
+`>=0x81`) rather than hoping random bytes land there.
+**Result: 2000 runs, 0 mismatching words, 0 oracle-skipped.**
+
+**The gate was then mutation-tested**, because a green test proves nothing until it can fail:
+- change the coloradd bias `0x7F -> 0x7E` -> caught immediately (`mine=37573d14 oracle=37563c13`).
+- reproduce the Ghidra ordering bug (read the cmd byte AFTER the colour write) -> caught, and the
+  signature is instructive: the mutant writes a CONSTANT command byte (`7f……`) because it ORs 2 onto
+  the tint's top byte, while the oracle preserves each packet's own opcode (`27……`, `37……`, `26……`).
+  That is empirical proof the RE correction above was right — had Ghidra's reading been correct, this
+  mutant would have PASSED.
+
+Note the guest fn `0x8003D584` is represented in `generated/` as a dispatcher plus NINE separate
+bodies (one per jump-table target), not one function with internal labels — `gen_func_8003D584`'s
+switch is empty and falls through to `rec_dispatch`. All nine targets do exist as recompiled bodies,
+so this is NOT a latent recomp gap; it just means you must read the sub-bodies (e.g.
+`gen_func_8003DC6C` for opcode 0x24) rather than the parent to see what it does.

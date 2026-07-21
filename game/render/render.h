@@ -353,6 +353,18 @@ public:
   // 3-Euler-angle local rotation (Math::rotMatSoft on the SVECTOR @ node+84) into MAT_ROTZ, then the
   // same matMul + CAM2 world-translate tail → billboardEmit.
   void billboardComposeC5F8();
+
+  // ── Secondary EFFECT modifiers (game/render/effect_mod.cpp) ───────────────────────────────────
+  // Five sibling post-passes over the render packet pool. perObjRenderDispatch records the pool
+  // write pointer before and after building an object's packets, then hands that [lo,hi) span to
+  // one of these to re-colour / re-blend what was just emitted. They MUTATE GUEST MEMORY (the pool
+  // itself), so each is byte-faithful to its guest body — see docs/findings/render.md.
+  //   node = the object node carrying the effect parameters; [lo,hi) = the packet span to rewrite.
+  void effectSemiOn   (uint32_t node, uint32_t lo, uint32_t hi);  // FUN_8003F3F4 — set semi bit
+  void effectSemiOff  (uint32_t node, uint32_t lo, uint32_t hi);  // FUN_8003F4C4 — clear semi bit
+  void effectClutSwap (uint32_t node, uint32_t lo, uint32_t hi);  // FUN_8003F344 — node CLUT -> packets
+  void effectFlatTint (uint32_t node, uint32_t lo, uint32_t hi);  // FUN_8003F594 — flat colour + semi
+  void effectColorAdd (uint32_t node, uint32_t lo, uint32_t hi);  // FUN_8003D584 — per-channel modulate
   // billboardEmit (FUN_8003C8F4): a0=node (r4), a1=flag (r5). Walks the node's active particle
   // sub-list, RTPT/RTPS-projects each particle's quad corners, culls off-screen, buckets into the OT
   // by averaged depth, and emits a 10-word (tag+9) GT4-style packet into the packet pool.

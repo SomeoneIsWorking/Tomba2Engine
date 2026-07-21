@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 9 verified · 5 ported-unverified · 1 todo · 1 blocked
+**Status:** 10 verified · 5 ported-unverified · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -99,10 +99,10 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 
 ## render-effectmod
 - **scope:** secondary-effect handlers 0x8003F3F4/F4C4/F344/F594/D584
-- **status:** todo
+- **status:** verified
 - **order:** 44
 - **owner:** perobj_dispatch EffectMod latch + submit.cpp
-- **notes:** RE COMPLETE (docs/findings/render.md 'The secondary-effect handlers'), port pending. All 5 are the SAME shape: a post-pass (obj, lo, hi) over the render packet pool that rewrites already-emitted GP0 packets, using a shared masked-opcode stride table (0x20->0x14 0x24->0x20 0x28->0x18 0x2C->0x28 0x30->0x1C 0x34->0x28 0x38->0x24 0x3C->0x34) and touching only colour-bearing opcodes 0x24/0x2C/0x34/0x3C. F3F4=semi ON (cmd|=2), F4C4=semi OFF (cmd&=~2), F344=clut swap (u16 obj+0x5C -> pkt+0x0E), F594=flat tint (u32 obj+0x18 -> every vertex colour word + semi), D584=coloradd (per-channel bias-0x7F modulate from obj+0x18/19/1A; 0x80 = no write). Packet layout: colour at pkt+4 (R/G/B bytes), cmd at pkt+7, clut at pkt+0x0E. TWO-STEP still applies: the rewrite mutates guest memory so it must be byte-faithful + SBS-gated; pc_render reads the same params for a float draw.
+- **notes:** PORTED + VERIFIED. game/render/effect_mod.cpp — five Render methods (effectSemiOn/SemiOff/ClutSwap/FlatTint/ColorAdd) replacing the substrate leaves FUN_8003F3F4/F4C4/F344/F594/D584; wired at the perobj_billboard CCA4 call sites. Written with typed lenses (GpuPacket, EffectParams, PacketShape) instead of raw mem_rXX(p+0xNN) soup. VERIFIED by a differential oracle test (PSXPORT_SELFTEST=effectmod, game/render/effect_mod_selftest.cpp): synthetic packet pools swept across every opcode + all three coloradd regimes, native vs rec_interp of the real MAIN.EXE, 2000 runs, 0 mismatching words, 0 oracle-skipped. Gate proven meaningful by mutation testing — a 1-bit change to the 0x7F bias and the Ghidra cmd-byte ordering bug are both caught. Unblocks render-mesh-flush.
 
 ## render-mesh-flush
 - **scope:** mesh-flush 0x8003F174/0x8003EF9C
