@@ -262,3 +262,21 @@ its own beyond the shared cursor-index global `DAT_800bf808`):
   (tag 2 words) — which is why the sprites' own tags are 4 words and the pool advances 20/12 bytes.
 - **Status:** `port_check` PASS, wired with the setter, LIVE — `ovhit` on the bucket capture reports
   `UiSprite::compose native=1018`.
+
+## The dialog CALL CHAIN, resolved (2026-07-22) — where the logic actually lives
+Working up from the emitters that were RE'd this session:
+- **backdrop** `0x8007FCC8` (`Panel::pushDialogBackdrop`) <- callers `0x80026864`, `0x80034548`,
+  `0x8007F73C`
+- **glyphs** `0x8007CC00` (`Panel::pushDialogGlyphs`) <- callers `0x8007D594`, `0x8007DC38`,
+  `0x8007DDE0`
+- `0x8007D594` being in that list is consistent with it never running: it is one of three possible
+  glyph drivers and simply is not the one this game path uses.
+- **`0x8007DC38` is ALREADY OURS** — `beh_variant_overlay_lifecycle`
+  (`game/ai/beh_variant_overlay_lifecycle.cpp:51`), the same file that calls the byte-stream advance.
+  So the dialog's driver is native code, not substrate, which is where a softlock would have to live.
+- **`0x8007DDE0` is UNOWNED and not in the codemap at all** (frame 32). It is the one remaining
+  unowned glyph driver and therefore the next port.
+- **Note on method:** `PSXPORT_DEBUG=dispatch` cannot decide between these three — they are reached
+  through direct `func_<addr>` thunks, not `rec_dispatch`, so the channel never sees them. Use `ovhit`
+  (which counts thunk entries) once a candidate is installed, exactly as was done to prove
+  `0x8007D594` cold.
