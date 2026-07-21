@@ -307,3 +307,23 @@
 - **NEXT:** walk one link further up — find the callers of those six registrars and check whether any
   is natively owned. The first owned caller that fails to reach them is the defect. If they are all
   substrate too, the question becomes why the substrate never runs them (a missing dispatch upstream).
+
+### ⚠ DOUBT CAST ON THE "CONTACT STAMPER" CONCLUSION (2026-07-21, same session)
+- `FUN_8007A810` (pool init) sets the active-list head `0x800F2738 = 0` and tail `0x800F23A0 = 0`, then
+  builds a FREE list of 4 nodes at `0x80100690` (stride 0x108, `node[0x28]=5`), free-head
+  `0x800F273C`, free-count `0x800F2410 = 4`. `FUN_8007AB44` is the UNLINK/free path (doubly linked,
+  prev `+0x20` / next `+0x24`) — it only ever REMOVES.
+- **No code anywhere writes that head except those two.** Verified with a scan that understands both
+  `lui`+store and `lui`+`addiu`-into-register forms, and `$gp`-relative stores are ruled out on range
+  ($gp = 0x800BE0D4; reaching 0x800F2738 needs a 0x34664 displacement, far past the ±32 KB limit).
+- **So the list starts empty and can only shrink — in the GUEST too.** Which means `FUN_80113700`'s
+  outer walk is a no-op on the original hardware as well, and it is NOT the mechanism that gives the
+  seesaw its weight. The earlier entry calling it "the contact stamper" identified a real code path
+  (it does contain the `+0x2b` stamp sites) but almost certainly a VESTIGIAL one.
+- **Consequence:** the branch from "FUN_80113700 is the stamper" onward is suspect, including the
+  conclusion that its null list head is "the gate that is shut". The null head is probably NORMAL.
+  What survives unharmed: the consumer RE (`FUN_801308e0` turns `node[0x2b]` into the `0xe000` weight),
+  the measurement that `+0x2b` is never stamped non-zero, and the queue/class facts.
+- **RESTART POINT for the next session:** find which of the 105 `sb rt,0x2b(base)` sites can fire for a
+  **class-4, type-0** object, working from the object's own handler chain rather than from the aux/queue
+  walks. Do NOT resume the 0x800F2738 thread.
