@@ -457,3 +457,21 @@
   that `dumpram`/`PSXPORT_PAD_DUMP_AT` writes alongside the 2 MB image, or read it live over the debug
   server. This is the same blindness CLAUDE.md already notes for main-RAM dumps ("main RAM is BLIND to
   scratchpad"), and it applies to the write-watchpoint too.
+
+## codemap was BLIND to 190 owned leaves (`leaf_<hex>` in field_owned_leaves.cpp) — fixed (2026-07-21)
+- **symptom:** `tools/codemap.py --addr <hex>` answered "NO native owner found" for addresses that ARE
+  natively owned. Found when `0x800532A0` reported unowned while `game/core/field_owned_leaves.cpp:5972`
+  defines `leaf_800532A0`. 190 leaves in that file were affected; the file contributed ZERO rows to
+  `docs/code-map.md`.
+- **cause:** `DEF_RE` only accepted names prefixed `ov_` / `native_` / `eng_` / `beh_`, and `NAMEHEX`
+  (which derives the guest address from the NAME) only accepted `ov|native|eng`. The bulk byte-faithful
+  ports use `leaf_<hex>`, matching neither.
+- **fix:** add `leaf_` to `DEF_RE` and `leaf` to `NAMEHEX`. After regenerating, all 190 appear (several
+  as ORPHAN — defined but not wired, which is itself worth seeing).
+- **why it matters beyond the count:** ownership is the FIRST question asked when triaging a divergence
+  ("is this our code or the substrate?"), and a false "unowned" silently redirects the whole
+  investigation toward the substrate. A 2026-07-21 seesaw investigation built a multi-step chain of
+  "all unowned substrate" conclusions on these answers. They were RE-CHECKED after this fix and did
+  hold — but that was luck, not method.
+- **rule:** when codemap says "NO native owner found" for something that looks like it should be owned,
+  grep the tree for the bare address before believing it.

@@ -42,7 +42,7 @@ SRC_GLOBS = ["engine/**/*.cpp", "engine/**/*.h", "game/**/*.cpp", "game/**/*.h",
 ROOTS = {"ov_game_stage_main", "ov_start_bin_stage", "native_task0_bootstrap",
          "ov_game_main", "native_boot_run"}
 
-DEF_RE  = re.compile(r'^\s*(?:static\s+)?(?:inline\s+)?[\w:*&<>]+\s+((?:ov_|native_|eng_|beh_)\w+)\s*\(\s*Core\s*\*')
+DEF_RE  = re.compile(r'^\s*(?:static\s+)?(?:inline\s+)?[\w:*&<>]+\s+((?:ov_|native_|eng_|beh_|leaf_)\w+)\s*\(\s*Core\s*\*')
 # PC-game-structure natives are C++ CLASS METHODS (e.g. `void Camera::lookAt()`), which take no Core*
 # param (they hold it as a member). Index those too; the owned guest FUN_/addr is read from a trailing
 # `// FUN_xxxx` on the def line or the comment block above (same association logic as free functions).
@@ -58,7 +58,11 @@ METHOD_RE = re.compile(r'^\s*(?:static\s+)?(?:inline\s+)?[\w:*&<>]+\s+(\w+::\w+)
 FREEFN_RE = re.compile(r'^\s*(?:static\s+)?(?:inline\s+)?[\w:*&<>]+\s+(\w+)\s*\(\s*Core\s*\*')
 ADDR_RE = re.compile(r'0x(8[0-9A-Fa-f]{7})')
 FUN_RE  = re.compile(r'FUN_(8[0-9a-fA-F]{7})')
-NAMEHEX = re.compile(r'^(?:ov|native|eng)_([0-9A-Fa-f]{6,8})$')
+# `leaf_<hex>` is the naming used by the bulk byte-faithful ports in game/core/field_owned_leaves.cpp
+# (190 of them). Without `leaf` here every one answered `--addr` with "NO native owner found", so
+# ownership questions about them were silently wrong — the exact failure that sent a 2026-07-21
+# investigation down a chain of "all unowned substrate" conclusions that were not true.
+NAMEHEX = re.compile(r'^(?:ov|native|eng|leaf)_([0-9A-Fa-f]{6,8})$')
 DEP_RE  = re.compile(r'(?:rec_dispatch|rec_super_call|super_call|call_fn|rc[0-4]|rec_coro_redirect)\s*\(\s*c\s*,\s*0x(8[0-9A-Fa-f]{7})')
 # A file-level header ("game/player/hitbox.cpp — PC-native ownership of FUN_8003B220.") tags the ONE
 # guest address the file exists to own, for files where the tag sits at the top (file/module doc
