@@ -315,3 +315,21 @@ The question is the right one to ask, and the answer is that OWNED IS NOT VERIFI
 - **Where that leaves kanban #2:** the drawing side is owned and `port_check`-verified (5 methods), and
   the driver is now behaviourally verified. The softlock is therefore NOT in the dialog code examined
   so far — it is upstream, in whatever decides the box should still be up. Do not re-examine these.
+
+## Dialog layer: FULLY ACCOUNTED FOR on the bucket path (2026-07-22) — the softlock is upstream
+Of the three possible glyph drivers, exactly one is live, and it is verified:
+| guest | native | status |
+|---|---|---|
+| `0x8007DC38` | `beh_variant_overlay_lifecycle` (rebuild) | **LIVE**, and byte-identical to its faithful body (0 diff over 2 MB) |
+| `0x8007D594` | `DialogBoxSm::step` | ported, `port_check` PASS — **measured COLD** (`ovhit` native=0 oracle=0) |
+| `0x8007DDE0` | `DialogDriver::siblingStep` | ported, `port_check` PASS — **measured COLD** |
+Drawing side, all `port_check` PASS and all live: `Panel::pushDialogBackdrop` (1556 hits),
+`UiSprite::compose` (1018), `UiSprite::drawFromTable` / `drawFixedDef152` (9 each),
+`LoadingText::draw` (1). `Panel::pushDialogGlyphs` is a render-side rebuild (37 hits).
+- **Conclusion:** every function that draws or drives the message box on this path is now owned, and
+  each is either `port_check`-verified or (for the one rebuild) proven byte-identical by A/B. The
+  bucket softlock is NOT in this layer. Look upstream — at whatever decides the box should still be
+  up — and do not re-derive any of the above.
+- **The two cold ports are kept deliberately.** They cost nothing, they are verified, and their
+  `ovhit` "NEVER HIT" lines are the standing evidence that they are not on this path — which is
+  exactly the fact that was expensively re-derived twice this session.

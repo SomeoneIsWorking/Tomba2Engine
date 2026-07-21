@@ -8,4 +8,5 @@ public:
   Core* core = nullptr;
 
   static void stepFaithful(Core* c);
+  static void siblingStep(Core* c);   // FUN_8007DDE0 — the sibling glyph driver
 };
