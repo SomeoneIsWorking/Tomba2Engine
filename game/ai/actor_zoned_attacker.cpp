@@ -124,6 +124,13 @@ inline void call1(Core* c, uint32_t node, uint32_t addr) {
 static constexpr GuestFrameSpill kSpills_80140544[4] = { {16, 16}, {17, 20}, {18, 24}, {31, 28} };   // frame=32
 static constexpr GuestFrameSpill kSpills_8014047C[2] = { {16, 16}, {31, 20} };                       // frame=24
 static constexpr GuestFrameSpill kSpills_80144928[4] = { {16, 16}, {17, 20}, {18, 24}, {31, 28} };   // frame=32
+// The three below were MISSING until 2026-07-21: their native bodies descended no frame at all while
+// the guest bodies descend sp and spill 4-5 callee-saved registers, so the guest-stack bytes could not
+// match the substrate (the "diverges at 0x801FE9xx" class CLAUDE.md's MIRROR THE GUEST STACK rule
+// names). Spill tables from `tools/abi_extract.py <addr> --scaffold --guestabi`, program order.
+static constexpr GuestFrameSpill kSpills_801409C0[5] = { {18, 24}, {16, 16}, {31, 32}, {19, 28}, {17, 20} };  // frame=40
+static constexpr GuestFrameSpill kSpills_80143A00[5] = { {16, 16}, {31, 32}, {19, 28}, {18, 24}, {17, 20} };  // frame=40
+static constexpr GuestFrameSpill kSpills_80144B50[4] = { {16, 32}, {31, 44}, {18, 40}, {17, 36} };            // frame=48
 
 }  // namespace
 
@@ -133,6 +140,7 @@ static constexpr GuestFrameSpill kSpills_80144928[4] = { {16, 16}, {17, 20}, {18
 // against FUN_80145c78(node[0x2a], node+0x2c), short-circuiting true once DAT_800e7eaa clears two
 // thresholds (2 then 0xb).
 // ----------------------------------------------------------------------------------------------
+// ORACLE: ov_a00_gen_8014047C
 void ActorZonedAttacker::gateCheck(Core* c) {
   GuestFrame<24, 2> frame(c, kSpills_8014047C);
   const uint32_t node = c->r[R_A0];
@@ -173,6 +181,7 @@ void ActorZonedAttacker::gateCheck(Core* c) {
 // (FN_800519E0), seeds a grid-resolve + facing/parity flags, resets counters, and sets default
 // range/scroll constants (matches the "per-type init; then -> epilogue" comment in the caller).
 // ----------------------------------------------------------------------------------------------
+// ORACLE: ov_a00_gen_80140544
 void ActorZonedAttacker::typeInit(Core* c) {
   GuestFrame<32, 4> frame(c, kSpills_80140544);
   const uint32_t node = c->r[R_A0];
@@ -239,7 +248,9 @@ void ActorZonedAttacker::typeInit(Core* c) {
 // recomputes the same zone internally (confirmed: Ghidra's signature for this function has no
 // live-in second parameter), so callers passing a stale/rough zone estimate is harmless.
 // ----------------------------------------------------------------------------------------------
+// ORACLE: ov_a00_gen_801409C0
 void ActorZonedAttacker::pickAttackByRange(Core* c) {
+  GuestFrame<40, 5> frame(c, kSpills_801409C0);
   const uint32_t node = c->r[R_A0];
   rec_dispatch(c, FN_8009A450);
   const uint32_t rngv = c->r[R_V0];
@@ -278,6 +289,7 @@ void ActorZonedAttacker::pickAttackByRange(Core* c) {
 // (node+0x40) after seeding a different anim cue; 5/6 run a ~30-frame countdown. Ends by advancing
 // node[0x32] (heading) by 0x10 and stepping FN_801406e4 every call.
 // ----------------------------------------------------------------------------------------------
+// ORACLE: ov_a00_gen_80144928
 void ActorZonedAttacker::approachAndFace(Core* c) {
   GuestFrame<32, 4> frame(c, kSpills_80144928);
   const uint32_t node = c->r[R_A0];
@@ -374,7 +386,9 @@ label_dispatch:
 // (FUN_8014xxxx below) stays an un-RE'd PSX leaf — only the CONTROL FLOW + node/global writes are
 // owned here, matching the "not independently RE'd" convention.
 // ----------------------------------------------------------------------------------------------
+// ORACLE: ov_a00_gen_80143A00
 void ActorZonedAttacker::defaultSubStateMachine(Core* c) {
+  GuestFrame<40, 5> frame(c, kSpills_80143A00);
   const uint32_t node = c->r[R_A0];
   uint32_t uVar6 = 0;
   uint32_t uVar7 = 0;
@@ -944,7 +958,9 @@ LAB_801448e8:
 // EXACT same tail shape as the caller's own second_cull block (both close over FN_8014047c ->
 // FN_800777FC -> FN_800518FC -> node[0xb] fold).
 // ----------------------------------------------------------------------------------------------
+// ORACLE: ov_a00_gen_80144B50
 void ActorZonedAttacker::idleTick(Core* c) {
+  GuestFrame<48, 4> frame(c, kSpills_80144B50);
   const uint32_t node = c->r[R_A0];
   const uint8_t state5 = c->mem_r8(node + 5);
 
