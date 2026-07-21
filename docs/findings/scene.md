@@ -807,7 +807,7 @@ After deduping FUN_80040B48 + FUN_80040CDC, `codemap.py --conflicts` (authoritat
 - **CORRECT FIX (batch selection, not dispatch change):** own an overlay leaf as an a00 override ONLY if its address is a valid code entry/dispatch-target in NO other overlay/module (true cross-overlay ENTRY uniqueness, verified against SOP/START/other overlays' entry tables), OR own the shared-code leaf as MAIN/shared (fired via `shard_set_override`, always resident). Shared-entry addresses stay substrate. Refs: workflow wf_340a9067-89b (journal has full designs+refutations).
 
 ## Save-sign softlock ROOT-CAUSED: the native beh_scene_ui_trigger (0x800739AC)
-- **status:** ROOT CAUSE FOUND 2026-07-21 (kanban #5). Not yet fixed — the handler itself needs RE.
+- **status:** FIXED 2026-07-21 (kanban #5). One line.
 - **symptom (USER):** inspecting the seaside save sign freezes Tomba mid-inspect, no save menu, game
   logic fully halted.
 - **the observable:** Tomba's status flags at `0x800E7E80` read **0x07** (cutscene-lock bits `&6` set)
@@ -864,3 +864,39 @@ registers (v0 controlling the caller's sub-state advance), in host-side engine s
 COUNT/ordering. The `beh_scene_ui_trigger` sub-state machine advances `obj+5` and gates on
 `obj+0x2b == 3`; comparing those two bytes per-frame between a native and a forced-substrate run is
 the next concrete step.
+
+### THE FIX: a premature clear of the confirm flag (kanban #5, closed)
+`obj+0x2b` is the CONFIRM flag. `beh_scene_ui_trigger`'s state-1 path cleared it immediately after the
+cull check, before reading the sub-state:
+
+```cpp
+if (c->r[2] == 0) { c->mem_w8(obj + 0x2b, 0); return; }   // culled -> no render
+c->mem_w8(obj + 0x2b, 0);        // <-- BUG: wipes the confirm flag
+uint8_t sub = c->mem_r8(obj + 5);
+```
+
+Case 0 then tests `if (mem_r8(obj + 0x2b) == 3)` to detect a confirm press — a test that could never
+be true, so the sub-state never advanced and the save sign latched the cutscene bits forever.
+
+The oracle does NOT clear it there. `gen_func_800739AC` reads it at L_80073B20 inside case 0
+(`r3 = mem_r8(r16+43); if (r3 != 3) goto L_80073CA4;`) and only zeroes it in the TAIL paths
+(L_80073CA4 / L_80073CC0), which `render_and_return` already mirrors. Its one pre-switch clear is in
+STATE 0's init path (L_80073A8C), which the port already had. Deleting the extra line is the whole fix.
+
+**Proof, at the frame it happens.** `PSXPORT_DEBUG=uitrig` traces the handler from the DISPATCH SITE,
+so the trace is identical in shape whichever leg runs (tracing inside the native body cannot compare:
+forcing the substrate means the native body never executes, which produced an empty diff first try).
+
+```
+                     confirm frame            next frame
+  substrate   sub=0 f2b=3 pad=2000   ->   sub=1     advanced
+  native(bad) sub=0 f2b=3 pad=2000   ->   sub=0     stuck
+  native(fix) sub=0 f2b=3 pad=2000   ->   sub=1     advanced
+```
+After the fix the native and forced-substrate traces are byte-identical over the whole replay
+(762 lines each, `diff` clean), and `0x800E7E80` reads `01` instead of `07`.
+
+**Dead ends ruled out on the way — do not re-walk these:** the missing guest frame in
+`GraphicsBind::recordInitBody` (adding it changed nothing), and any diverging guest-memory write
+(mirror-verify found only dead stack bytes). The bug was never a wrong byte — it was a correct write
+at the wrong time.

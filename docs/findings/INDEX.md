@@ -211,7 +211,7 @@ already solved or ruled out. 205 findings across 11 subsystems.
 - **Remaining codemap --conflicts candidates (2026-07-15) — TO TRIAGE next iteration** [?] —   ↪ docs/findings/scene.md
 - **Resident-aware override dispatch — REJECTED (residency gate breaks render path) [2026-07-17]** [?] — batch-owning 291 "a00-unique" leaves via `ov_a00_set_override` → boot SIGABRT (both pc_skip + SBS), 0 leaves fired before abort. 190 MAIN-range batch is fine.  ↪ docs/findings/scene.md
 - **SOP intro-cutscene cluster (0x8010AF60-0x8010BEAC) + Demo::s3SubMachine (0x80106AC4) — §9 promote pass (2026-07-10)** [SOP cluster now 6/6 promoted VERIFIED+WIRED (sopBeatAdvanceWalk 0x8010AF60,] —   ↪ docs/findings/scene.md
-- **Save-sign softlock ROOT-CAUSED: the native beh_scene_ui_trigger (0x800739AC)** [ROOT CAUSE FOUND 2026-07-21 (kanban #5). Not yet fixed — the handler itself needs RE.] —   ↪ docs/findings/scene.md
+- **Save-sign softlock ROOT-CAUSED: the native beh_scene_ui_trigger (0x800739AC)** [FIXED 2026-07-21 (kanban #5). One line.] —   ↪ docs/findings/scene.md
 - **ScriptInterp opcode cluster — §9 re-verify + frontier-tier wiring (2026-07-10)** [RESOLVED (5 opcode handlers + advanceStep + PcScheduler::tickSleepCountdown promoted] —   ↪ docs/findings/scene.md
 - **Un-owned entity-behavior cluster (0x801244E8/0x8012866C/0x8012E168/0x8013DD48) — 1 ported, 3 blocked** [?] —   ↪ docs/findings/scene.md
 - **Vortex void beat black on pc_skip — RESOLVED (2026-07-14, bug #43)** [?] — default config (pc_skip + pc_render), `newgame; run 600`: black + narration text  ↪ docs/findings/scene.md

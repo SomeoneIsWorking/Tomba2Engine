@@ -90,7 +90,12 @@ void beh_scene_ui_trigger(Core* c) {
   // ---- STATE 1: cull, then the node[5] sub-state machine ----
   Actor(c, obj).boundsCull();                        // FUN_8007778C — Actor::boundsCull (thin wrapper native)
   if (c->r[2] == 0) { c->mem_w8(obj + 0x2b, 0); return; }   // culled -> no render
-  c->mem_w8(obj + 0x2b, 0);
+  // NO clear of obj+0x2b here. It is the CONFIRM flag, and case 0 below tests it for ==3; the oracle
+  // reads it at L_80073B20 and only zeroes it in the TAIL (L_80073CA4 -> render), which
+  // render_and_return already does. Clearing it up front made the confirm test unreachable, so the
+  // sub-state never advanced and the save sign soft-locked with the cutscene bits latched
+  // (kanban #5 — see docs/findings/scene.md). The oracle's only pre-switch clear is in STATE 0's
+  // init path (gen L_80073A8C), which this port already mirrors above.
   uint8_t sub = c->mem_r8(obj + 5);
   if (sub >= 6) { render_and_return(c, obj); return; }      // sub>=6 -> ca4/render
 

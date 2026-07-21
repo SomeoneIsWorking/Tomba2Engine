@@ -199,6 +199,15 @@ void BehaviorDispatch::dispatchObj(uint32_t obj, uint32_t handler) {
   // registry, so PSXPORT_MIRROR_VERIFY=all never covered it — which is exactly how a bad handler
   // (0x800739AC, the 2026-07-21 save-sign softlock) sat undetected: no gate compared its guest writes
   // against the substrate's. Now `PSXPORT_MIRROR_VERIFY=<addr>` works on any behaviour handler.
+  // PSXPORT_DEBUG=uitrig — trace the scene-UI trigger's sub-state machine from the DISPATCH SITE, so
+  // the trace is identical in shape whether the native or the substrate leg runs. (Tracing inside the
+  // native body cannot compare the two: forcing the handler to the substrate means the native body,
+  // and its trace, never execute.)
+  if (handler == 0x800739ACu) {
+    const uint32_t o = c->r[4];
+    cfg_logf("uitrig", "obj=%08X st=%u sub=%u f2b=%u pad=%04X lock=%02X", o, c->mem_r8(o + 4),
+             c->mem_r8(o + 5), c->mem_r8(o + 0x2b), c->mem_r16(0x800E7E68u), c->mem_r8(0x800E7E80u));
+  }
   if (substrateOnly) { rec_dispatch(c, handler); return; }
   MV_CHECK(c, handler, { if (!dispatchNative(handler)) rec_dispatch(c, handler); });
 }

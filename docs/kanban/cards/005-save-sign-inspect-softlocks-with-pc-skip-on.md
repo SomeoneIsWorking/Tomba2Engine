@@ -1,7 +1,7 @@
 ---
 id: 5
 title: Save-sign inspect SOFTLOCKS with pc_skip ON
-status: doing
+status: done
 labels: [bug, pc-skip]
 created: 2026-07-18
 updated: 2026-07-21
