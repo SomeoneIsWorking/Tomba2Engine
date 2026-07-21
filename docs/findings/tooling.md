@@ -575,8 +575,9 @@ swap back. Cost is two runs (~2 min) per handler.
 |---|---|---|
 | `0x8007DC38` | `beh_variant_overlay_lifecycle` (dialog driver) | **0 differing bytes** — equivalent |
 | `0x800739AC` | `beh_scene_ui_trigger` (the #5 save-sign handler) | **0 differing bytes** — equivalent |
+| `0x800741DC` | `beh_pickup_collect_trigger` (the bucket PICKUP handler) | **0 differing bytes** — equivalent |
 
-Two down, ~56 to go. Both clean, which is worth knowing in itself: it says the rebuilds are not
+Three down, ~55 to go. Both clean, which is worth knowing in itself: it says the rebuilds are not
 casually wrong, so a divergence when one turns up is a strong signal rather than noise. Keep the temp
 faithful body OUT of the tree — generate it into `scratch/ab/`, wire it only for the two runs, and
 remove it, or the repo accumulates dead duplicates of every handler.
