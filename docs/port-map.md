@@ -122,4 +122,4 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** ported-unverified
 - **order:** 47
 - **owner:** game/render/{card_browser,render_options,render_attract}.cpp
-- **notes:** renderCardBrowser(s48==4)/optionsPageNative(s48==6)/renderAttract(s48==7) — 3 DEMO/title front-end producers replacing the abortUnimplemented. Build-clean; visual verify pending (title-menu nav). Widescreen: menu bg must not stretch (open).
+- **notes:** renderCardBrowser(s48==4)/optionsPageNative(s48==6)/renderAttract(s48==7). Build-clean. BLOCKED on verification: entering the title menu selection aborts with a rec_dispatch miss on 0x8018FA88 (kanban #6) before any substate renders, so none of the three can be visually verified yet.

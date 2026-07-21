@@ -351,3 +351,31 @@
   (`gen_func_80040AA4`), shard_4.c:4944 (`gen_func_80040B48`), shard_5.c:5496 (`gen_func_80040C00`),
   shard_7.c:1379 (`gen_func_80020364`), shard_0.c:1112/1466 (`gen_func_800205CC`/`gen_func_80022C78`),
   shard_4.c:1267 (`gen_func_800235A0`).
+
+## Title Load-Game browser aborts: rec_dispatch miss on 0x8018FA88 (overlay never recompiled)
+- **symptom:** booting headless with NO replay and selecting at the title (`tap right`, `tap x`,
+  then run ~60 frames) aborts with
+  `[recomp-MISS 0] no recompiled fn for 0x8018FA88 (caller ra=0x8007BE60, a0=0x00000000,
+  c->pc=0x8007BE18)`. A plain boot (no taps) is clean in every FMV config, and replays that never
+  touch the title menu are clean — so the trigger is entering the title menu SELECTION, not boot.
+- **status:** ROOT-CAUSED, NOT FIXED (kanban #6). Blocks visual verification of the three title
+  substate producers (`renderCardBrowser`/`optionsPageNative`/`renderAttract`) — the substate aborts
+  before anything renders, which is why they remain `ported-unverified` in portmap.
+- **call path:** `ov_demo_gen_801062E4` (DEMO stage) -> `FUN_8007BF20` (the s48==4 handler — demo.cpp
+  already documents "s4 (0x8007bf20 yields)", i.e. the LOAD-GAME browser substate) -> `FUN_8007BE18`
+  -> `rec_dispatch(0x8018FA88)`. The target is a LITERAL in MAIN (`generated/shard_4.c:11667`,
+  `c->r[4] = c->r[4] & 255u; rec_dispatch(c, 0x8018FA88u);`), so the game genuinely calls it.
+- **cause:** `0x8018FA88` is in NO modeled overlay slot — the miss diagnostic prints
+  `resident overlay for this slot = (addr not in any slot range)`. The 0x8018xxxx stage slot holds
+  OPN.BIN (13596 B @ 0x8018A000 -> ends 0x8018D51C); the target sits ~23 KB into that slot, past
+  OPN's end. All 28 extracted overlays are accounted for (STAGE START/DEMO/GAME/SOP/OPN/CRD +
+  AREA A00..A0L) and every AREA overlay recompiles at 0x8010xxxx, not 0x8018xxxx — so the code at
+  0x8018FA88 belongs to an overlay/variant that is loaded into that slot at runtime but is never
+  extracted+recompiled. It is NOT a discovery gap inside OPN (the address is outside OPN's extent).
+- **do-not-re-derive:** it is not an indirect/computed target (it is a literal), not an A00 stale
+  pointer, and not fixable by `EXTRA_SEEDS` alone — seeding an address outside every recompiled
+  module has nothing to emit from.
+- **fix direction:** identify which binary the game loads at 0x8018A000 on the title-menu path (its
+  size must be >= 0x5A88) and add it to `tools/ensure_recomp.py ALL_OVERLAYS` so it is extracted and
+  recompiled; then widen that slot's range. Probe: log overlay loads (`PSXPORT_DEBUG=ovload`) while
+  driving the title selection.
