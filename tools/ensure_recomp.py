@@ -94,7 +94,10 @@ def find_discdump():
     cand = os.environ.get("PSXPORT_DISCDUMP", "")
     if cand and os.access(cand, os.X_OK):
         return cand
-    for p in ("build/tools/discdump", "build/tools/discdump.exe"):
+    # discdump is a FRAMEWORK tool (external/psxport/tools/discdump.cpp), so after the repo split it
+    # builds into the submodule's own build tree; keep the top-level paths too for a unified configure.
+    for p in ("build/tools/discdump", "build/tools/discdump.exe",
+              "external/psxport/build/tools/discdump", "external/psxport/build/tools/discdump.exe"):
         full = os.path.join(ROOT, p)
         if os.access(full, os.X_OK):
             return full

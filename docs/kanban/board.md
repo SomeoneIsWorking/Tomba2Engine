@@ -5,14 +5,14 @@
 
 ## BACKLOG (0)
 
-## TODO (4)
+## TODO (3)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
 - **#5 Save-sign inspect SOFTLOCKS with pc_skip ON**  `bug,pc-skip`
-- **#6 Load-Game browser (DEMO s48==4) aborts: rec_dispatch miss 0x8018FA88**  `bug,recomp`
 
 ## DOING (0)
 
-## DONE (2)
+## DONE (3)
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
+- **#6 Load-Game browser (DEMO s48==4) aborts: rec_dispatch miss 0x8018FA88**  `bug,recomp`

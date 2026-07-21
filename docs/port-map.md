@@ -122,4 +122,4 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** ported-unverified
 - **order:** 47
 - **owner:** game/render/{card_browser,render_options,render_attract}.cpp
-- **notes:** renderCardBrowser(s48==4)/optionsPageNative(s48==6)/renderAttract(s48==7). Build-clean. BLOCKED on verification: entering the title menu selection aborts with a rec_dispatch miss on 0x8018FA88 (kanban #6) before any substate renders, so none of the three can be visually verified yet.
+- **notes:** renderCardBrowser(s48==4) VERIFIED: reached headless (tap x at title) and renders correctly — scratch/screenshots/card_browser.png ('Select slot' + both MEMORY CARD slot panels). renderAttract(s48==7) VERIFIED: idle ~1100 frames at title auto-enters attract, full 3D field render (substate_s7.png). optionsPageNative(s48==6) still UNVERIFIED — not reachable by title nav (s3 routes to s6 only when sm[0x68]!=2; simple right/down/up + x always land back on s48=2), likely reached from the in-game pause path. Unblocked by the CRD base fix (kanban #6).

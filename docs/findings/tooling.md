@@ -352,30 +352,40 @@
   shard_7.c:1379 (`gen_func_80020364`), shard_0.c:1112/1466 (`gen_func_800205CC`/`gen_func_80022C78`),
   shard_4.c:1267 (`gen_func_800235A0`).
 
-## Title Load-Game browser aborts: rec_dispatch miss on 0x8018FA88 (overlay never recompiled)
+## Title Load-Game browser aborts: rec_dispatch miss on 0x8018FA88 (CRD.BIN recompiled at the WRONG BASE)
 - **symptom:** booting headless with NO replay and selecting at the title (`tap right`, `tap x`,
   then run ~60 frames) aborts with
   `[recomp-MISS 0] no recompiled fn for 0x8018FA88 (caller ra=0x8007BE60, a0=0x00000000,
   c->pc=0x8007BE18)`. A plain boot (no taps) is clean in every FMV config, and replays that never
   touch the title menu are clean — so the trigger is entering the title menu SELECTION, not boot.
-- **status:** ROOT-CAUSED, NOT FIXED (kanban #6). Blocks visual verification of the three title
-  substate producers (`renderCardBrowser`/`optionsPageNative`/`renderAttract`) — the substate aborts
-  before anything renders, which is why they remain `ported-unverified` in portmap.
+- **status:** FIXED (kanban #6). `OVERLAY_BASES["CRD"]` 0x80108F9C -> 0x8018A000 in
+  `external/psxport/tools/recomp/emit.py`; regen + rebuild. The browser now runs and RENDERS
+  (`scratch/screenshots/card_browser.png` — "Select slot" + the two MEMORY CARD slot panels), and the
+  attract substate (s48==7) reaches full 3D field render.
 - **call path:** `ov_demo_gen_801062E4` (DEMO stage) -> `FUN_8007BF20` (the s48==4 handler — demo.cpp
   already documents "s4 (0x8007bf20 yields)", i.e. the LOAD-GAME browser substate) -> `FUN_8007BE18`
   -> `rec_dispatch(0x8018FA88)`. The target is a LITERAL in MAIN (`generated/shard_4.c:11667`,
   `c->r[4] = c->r[4] & 255u; rec_dispatch(c, 0x8018FA88u);`), so the game genuinely calls it.
-- **cause:** `0x8018FA88` is in NO modeled overlay slot — the miss diagnostic prints
-  `resident overlay for this slot = (addr not in any slot range)`. The 0x8018xxxx stage slot holds
-  OPN.BIN (13596 B @ 0x8018A000 -> ends 0x8018D51C); the target sits ~23 KB into that slot, past
-  OPN's end. All 28 extracted overlays are accounted for (STAGE START/DEMO/GAME/SOP/OPN/CRD +
-  AREA A00..A0L) and every AREA overlay recompiles at 0x8010xxxx, not 0x8018xxxx — so the code at
-  0x8018FA88 belongs to an overlay/variant that is loaded into that slot at runtime but is never
-  extracted+recompiled. It is NOT a discovery gap inside OPN (the address is outside OPN's extent).
-- **do-not-re-derive:** it is not an indirect/computed target (it is a literal), not an A00 stale
-  pointer, and not fixable by `EXTRA_SEEDS` alone — seeding an address outside every recompiled
-  module has nothing to emit from.
-- **fix direction:** identify which binary the game loads at 0x8018A000 on the title-menu path (its
-  size must be >= 0x5A88) and add it to `tools/ensure_recomp.py ALL_OVERLAYS` so it is extracted and
-  recompiled; then widen that slot's range. Probe: log overlay loads (`PSXPORT_DEBUG=ovload`) while
-  driving the title selection.
+- **cause:** **CRD.BIN was recompiled at the wrong base.** `OVERLAY_BASES["CRD"]` was a GUESS
+  (0x80108F9C, the MODE slot) — emit.py's own comment flagged it "UNVERIFIED ... capture its real
+  dest then and fix". CRD actually loads into the OPN slot at **0x8018A000**. `PSXPORT_DEBUG=cd`
+  while driving the title selection prints
+  `[cd] async read 6265 words (25060 B) @ LBA 1866 -> 0x8018A000`, and LBA 1866 / 25060 B is exactly
+  BIN/CRD.BIN. So the bodies were emitted ~0x80080000 low: MAIN calls into CRD by hard-coded
+  absolute (0x8018FA88 / 0x8018FBCC = CRD+0x5A88 / +0x5BCC, both `27bdffe0` = `addiu sp,-0x20`
+  prologues — verified by reading CRD.BIN at those offsets), and every such call missed.
+  **CRD = memory CARD (the save-slot browser), not "credits"** — which is why it is on the title
+  Load-Game path at all.
+- **falsified (my earlier note on this same bug, corrected):** "0x8018FA88 belongs to an overlay that
+  is never extracted+recompiled" — WRONG. All 28 overlays were extracted and CRD *was* recompiled;
+  only its base was wrong. The misleading signal was the miss diagnostic's
+  `resident overlay for this slot = (addr not in any slot range)`, which reports the address against
+  the MODELED slot ranges — so a wrong-base overlay looks identical to a missing one. Do not go
+  looking for an unextracted file: `discdump list` shows BIN/ holds exactly the 28 modeled overlays.
+- **do-not-re-derive:** the target is a literal (not indirect/computed), and no `EXTRA_SEEDS` /
+  `ALL_OVERLAYS` change was needed.
+- **generalize:** any overlay whose base is a guess has this failure mode. The base is only
+  self-validating when the overlay opens with an absolute fn-pointer table (OPN's 0x8018A348.. is how
+  its base was confirmed); CRD opens with non-pointer data, so nothing caught it until a call landed.
+  To verify any overlay base: `PSXPORT_DEBUG=cd` and match the logged `-> 0x…` dest against the
+  file's LBA+size from `discdump list`.

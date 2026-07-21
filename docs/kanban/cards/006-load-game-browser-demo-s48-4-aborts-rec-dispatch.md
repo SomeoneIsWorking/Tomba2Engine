@@ -1,8 +1,8 @@
 ---
 id: 6
 title: Load-Game browser (DEMO s48==4) aborts: rec_dispatch miss 0x8018FA88
-status: todo
-labels: [bug,recomp]
+status: done
+labels: [bug, recomp]
 created: 2026-07-21
 updated: 2026-07-21
 ---
