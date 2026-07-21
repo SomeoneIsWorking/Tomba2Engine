@@ -424,3 +424,25 @@
     playback ticks no pad frames and NO_FMV cannot shift the sequence.
 - **refs:** `runtime/recomp/pad_input.{h,cpp}` (`pumpHostInput`, the record/replay block),
   `runtime/recomp/native_boot.cpp` (pause loop), kanban #8, skill `live-session`.
+
+## Ghidra silently TRUNCATES decompiled bodies on this dump — always cross-check against `generated/` (2026-07-21)
+- **symptom:** a decompiled function looks complete and self-consistent, ends in a plausible
+  `return ...;`, and is MISSING most of its body. Seen on `FUN_80024548`: Ghidra emitted 39 lines
+  ending `return FUN_80083e80(...)`, while the function really continues for 127 lines of recompiled C.
+  Reading conclusions off the short version means reasoning about code that does not exist.
+- **cause (partly fixed):** Ghidra's non-returning-function analyzer mislabels ordinary leaf helpers
+  (trig/math tables reached via a jump) as `noreturn`. Every caller then decompiles to
+  `/* WARNING: Subroutine does not return */` with everything after the call discarded and a
+  fabricated `return 0`.
+- **fix:** `PSXPORT_CLEAR_NORETURN=all` (or a comma list of entry addresses) on `tools/decomp.sh` —
+  clears the flag before decompiling. `all` is the right default for a game RAM dump: genuine noreturn
+  is essentially absent, misanalysis is not. Verified on `FUN_80024548`: 2 flags cleared, the
+  "does not return" warning gone.
+- **BUT THE TRUNCATION SURVIVED THE FIX** on that function — the warning disappeared and the body was
+  still short. So the flag is one cause, not the only one.
+- **RULE:** for any function that matters, cross-check the decompile against `generated/`
+  (`awk '/void gen_func_<ADDR>\(/,/^}$/' generated/shard_*.c`). That is the recompiler's own
+  translation of the real instruction stream — authoritative, complete, and already in the repo.
+  Ghidra is for READABILITY; `generated/` is for ground truth. Note overlay code (0x8011xxxx+) is NOT
+  in `generated/` (MAIN.EXE only), so there the RAM-dump decompile is all there is — treat its
+  completeness with suspicion and check the disassembly at the tail.
