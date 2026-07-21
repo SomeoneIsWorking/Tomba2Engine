@@ -580,9 +580,17 @@ save-sign handler sat undetected. Prefer it; the manual A/B is for when you need
 **Benign, verified not assumed:** the only real call site (`generated/shard_1.c:16529`) overwrites
 `v0` with 1 on the very next instruction, so both values are dead. A differing scratch register at a
 call site that discards it is exactly the noise the dispatch-site comment warns rebuilds produce.
-**Caveat:** the survey run ended in SIGSEGV (rc=139) after continuing past the mismatch. Whether that
-is the harness or a genuine downstream effect is NOT established — triage that before treating
-`=all` as a routine gate.
+**Caveat, now TRIAGED (2026-07-22):** the survey ends in rc=139, and it is neither corruption nor a
+harness bug — it is the harness's own deliberate abort:
+`FATAL: yield inside a strict-check leg — this mirror is not yield-free; gate it with SBS lockstep
+instead of MV_CHECK`. A handler under strict-check performed a SCHEDULER YIELD; the backtrace is
+`gen_func_80044F58` -> `scheduler_yield` -> `PcScheduler::selfClose` -> `VerifyHarness::strictCheck`.
+MV_CHECK replays a leg, and a coroutine yield mid-replay cannot be unwound, so it refuses.
+**Consequence for the campaign:** `=all` cannot be a blanket survey while any yielding handler is in
+range — it will always die at the first one. Verify yield-free handlers individually with
+`PSXPORT_MIRROR_VERIFY=<addr>`, and gate the yielding ones (0x80044F58 and anything else that trips
+this) with SBS lockstep, exactly as the message says. The survey is still useful: it got through 65
+passes and one benign mismatch before hitting the yield.
 
 ### A/B campaign log (kanban #10) — rebuilds tested for equivalence
 Method per entry: `port_gen` the byte-faithful body, swap the behavior-table entry to it, run
