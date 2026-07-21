@@ -15,6 +15,7 @@
 #include <cstring>
 
 #include "disc.h"
+#include "cfg.h"
 
 // Catalogue: track -> (seq scan-index in TOMBA2.SND, vab scan-index, name).
 //
@@ -53,19 +54,19 @@ int MusicList::loadContainer() {
     if (mBuf) return 0;
     uint32_t lba = 0, size = 0;
     if (!disc_find_file(&core->game->disc, "\\CD\\TOMBA2.SND", &lba, &size) || size == 0) {
-        fprintf(stderr, "[music_list] disc_find_file \\CD\\TOMBA2.SND failed\n"); return -1;
+        cfg_loge("music_list", "disc_find_file \\CD\\TOMBA2.SND failed"); return -1;
     }
     uint32_t nsec = (size + 2047) / 2048;
     mBuf = (uint8_t*)malloc((size_t)nsec * 2048);
     if (!mBuf) return -1;
     for (uint32_t i = 0; i < nsec; i++) {
         if (!disc_read_sector(&core->game->disc, lba + i, mBuf + (size_t)i * 2048)) {
-            fprintf(stderr, "[music_list] disc read failed at sector %u\n", i);
+            cfg_loge("music_list", "disc read failed at sector %u", i);
             free(mBuf); mBuf = nullptr; return -1;
         }
     }
     mSize = (long)size;
-    fprintf(stderr, "[music_list] loaded \\CD\\TOMBA2.SND from disc (lba=%u, %ld bytes)\n", lba, mSize);
+    cfg_logi("music_list", "loaded \\CD\\TOMBA2.SND from disc (lba=%u, %ld bytes)", lba, mSize);
     return 0;
 }
 
@@ -83,10 +84,10 @@ int MusicList::play(int i) {
     if (i < 0 || i >= 10 || !core) return -1;
     if (loadContainer()) return -1;
     long so = seqOff(S2SV[i].seq), vo = vabOff(S2SV[i].vab);
-    if (so < 0) { fprintf(stderr, "[music_list] song %d: seq not found\n", i); return -1; }
-    if (gctx(core)->native_music.play(mBuf, so, vo)) { fprintf(stderr, "[music_list] song %d: play failed\n", i); return -1; }
+    if (so < 0) { cfg_logi("music_list", "song %d: seq not found", i); return -1; }
+    if (gctx(core)->native_music.play(mBuf, so, vo)) { cfg_loge("music_list", "song %d: play failed", i); return -1; }
     mNow = i;
-    fprintf(stderr, "[music_list] playing song %d (seq@0x%lx vab@0x%lx)\n", i, so, vo);
+    cfg_logi("music_list", "playing song %d (seq@0x%lx vab@0x%lx)", i, so, vo);
     return 0;
 }
 
@@ -104,7 +105,7 @@ int MusicList::playArea(const uint8_t* bundle, long bundle_len, int song) {
     if (!bundle || bundle_len < 0x4000 || song < 0 || song >= 10 || !core) return -1;
     // Validate this really is the bundle (SEP at 0x30, area VAB at 0x26b4) before committing.
     if (memcmp(bundle + 0x30, "pQES", 4) || memcmp(bundle + AREA_VAB_OFF, "pBAV", 4)) {
-        fprintf(stderr, "[music_list] area bundle invalid (no pQES@0x30 / pBAV@0x26b4)\n");
+        cfg_loge("music_list", "area bundle invalid (no pQES@0x30 / pBAV@0x26b4)");
         return -1;
     }
     long need = bundle_len; if (need > 0x50000) need = 0x50000;
@@ -114,10 +115,10 @@ int MusicList::playArea(const uint8_t* bundle, long bundle_len, int song) {
     gctx(core)->native_music.stop();
     free(mArea); mArea = nb; mAreaLen = need;
     long so = areaSeqOff(song);
-    if (so < 0) { fprintf(stderr, "[music_list] area song %d: seq not found\n", song); return -1; }
-    if (gctx(core)->native_music.play(mArea, so, AREA_VAB_OFF)) { fprintf(stderr, "[music_list] area song %d: play failed\n", song); return -1; }
+    if (so < 0) { cfg_logi("music_list", "area song %d: seq not found", song); return -1; }
+    if (gctx(core)->native_music.play(mArea, so, AREA_VAB_OFF)) { cfg_loge("music_list", "area song %d: play failed", song); return -1; }
     mNow = song;
-    fprintf(stderr, "[music_list] area BGM song %d (seq@0x%lx vab@0x%lx)\n", song, so, (long)AREA_VAB_OFF);
+    cfg_logi("music_list", "area BGM song %d (seq@0x%lx vab@0x%lx)", song, so, (long)AREA_VAB_OFF);
     return 0;
 }
 

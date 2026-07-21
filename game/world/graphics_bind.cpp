@@ -69,8 +69,7 @@ void GraphicsBind::recordAlloc() { Core* c = core;
   if (mTrace < 0) mTrace = getenv("PSXPORT_RECALLOC_TRACE") ? 1 : 0;
   if (mTrace) {
     void* ra = __builtin_return_address(0);
-    fprintf(stderr, "[recalloc] core=%p ra=%p cnt_before=%d stage=%08X\n",
-            (void*)c, ra, (int)c->mem_r16s(0x800ED098u), c->mem_r32(0x801fe00c));
+    cfg_logi("recalloc", "core=%p ra=%p cnt_before=%d stage=%08X", (void*)c, ra, (int)c->mem_r16s(0x800ED098u), c->mem_r32(0x801fe00c));
   }
   c->game->verify.run(&GraphicsBind::recordAllocBody, 0x8007AAE8u, "recallocverify", c->game->verify.on("recallocverify"));
 }

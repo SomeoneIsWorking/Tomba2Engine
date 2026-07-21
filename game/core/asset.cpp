@@ -74,8 +74,7 @@ void Asset::unpackGroup(uint32_t tablePtr, uint32_t anchorEnd) {
   uint32_t entry = tablePtr + 4;         // first 12-byte descriptor entry
   uint32_t src = tablePtr + 0x800;       // packed source data follows the table
   int dbg = cfg_dbg("unpack") != 0;
-  if (dbg) fprintf(stderr, "[unpack] table=0x%08X count=%d src0=0x%08X ra=0x%08X\n",
-                   tablePtr, count, src, c->r[31]);
+  if (dbg) cfg_logi("unpack", "table=0x%08X count=%d src0=0x%08X ra=0x%08X", tablePtr, count, src, c->r[31]);
   // PSXPORT_UNPACKDUMP=dir — dump the LIVE compressed input (table + 0x30000 bytes) the moment the
   // unpacker reads it, sequence-numbered, so it can be checked against the disc / oracle exactly.
   { const char* dd = cfg_str("PSXPORT_UNPACKDUMP");
@@ -84,15 +83,14 @@ void Asset::unpackGroup(uint32_t tablePtr, uint32_t anchorEnd) {
         // Dump from the staging base to the end of RAM (archives can be up to ~0x76000 from 0x8018A000).
         uint32_t off = tablePtr & 0x1FFFFF, len = 0x200000u - off;
         fwrite(&c->ram[off], 1, len, uf); fclose(uf);
-        fprintf(stderr, "[unpack] dumped live input -> %s (table=0x%08X count=%d)\n", p, tablePtr, count); } } }
+        cfg_logi("unpack", "dumped live input -> %s (table=0x%08X count=%d)", p, tablePtr, count); } } }
   for (int32_t i = 0; i < count; i++) {
     const uint32_t desc   = entry;
     const int32_t  stride = c->mem_r16s(desc + 4);
     const int32_t  field  = c->mem_r16s(desc + 6);
     const uint32_t srclen = c->mem_r32(desc + 8);
     const uint32_t dst    = anchorEnd - (uint32_t)(2 * stride * field);
-    if (dbg) fprintf(stderr, "[unpack]  e%d dst=(%d,%d) %dx%d src=0x%08X len=%u srcbytes:"
-                     " %02X %02X %02X %02X\n", i, c->mem_r16s(desc), c->mem_r16s(desc+2),
+    if (dbg) cfg_logi("unpack", " e%d dst=(%d,%d) %dx%d src=0x%08X len=%u srcbytes: %02X %02X %02X %02X", i, c->mem_r16s(desc), c->mem_r16s(desc+2),
                      stride, field, src, srclen, c->mem_r8(src), c->mem_r8(src+1), c->mem_r8(src+2), c->mem_r8(src+3));
     lzDecompress(desc, dst, src, srclen);                // native decompress into transient scratch
     src   += srclen;

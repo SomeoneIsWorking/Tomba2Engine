@@ -337,9 +337,8 @@ void Spawn::despawn(uint32_t node) {
   VerifyHarness::Check& chk = c->game->verify.check("despawnverify");
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0) {
-    if (nb++ < 40) fprintf(stderr, "[despawnverify] MISMATCH node=%08x list=%u ram@%x spad@%x sp=%x\n",
-                           node, c->mem_r8(node + 0x0au), ro, so, sp);
-  } else if (++ng % 20 == 0) fprintf(stderr, "[despawnverify] %ld matches\n", ng);
+    if (nb++ < 40) cfg_logi("despawnverify", "MISMATCH node=%08x list=%u ram@%x spad@%x sp=%x", node, c->mem_r8(node + 0x0au), ro, so, sp);
+  } else if (++ng % 20 == 0) cfg_logi("despawnverify", "%ld matches", ng);
 }
 
 uint32_t Spawn::spawnAndInit(uint32_t a0, uint32_t posSrc, uint32_t a2) {   // FUN_8003116C

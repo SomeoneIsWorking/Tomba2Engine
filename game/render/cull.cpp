@@ -262,7 +262,7 @@ void Cull::objectCull() { Core* c = core;
 
   if (mObjLog < 0) mObjLog = cfg_dbg("obj") ? 1 : 0;
   if (mObjLog)
-    fprintf(stderr, "[objlog] obj=%08x type=%02x pos=(%d,%d,%d)\n", o, c->mem_r8(o + 0x0c),
+    cfg_logi("objlog", "obj=%08x type=%02x pos=(%d,%d,%d)", o, c->mem_r8(o + 0x0c),
             (int16_t)obj_r16(c, o + 0x2e), (int16_t)obj_r16(c, o + 0x32), (int16_t)obj_r16(c, o + 0x36));
   int p2 = (int16_t)c->r[5], p3 = (int16_t)c->r[6], p4 = (int16_t)c->r[7];   // pos - camera (s16 each)
   performBaseCull();                                 // PC-native cull (byte-exact FUN_8007712C body)

@@ -119,8 +119,8 @@ void Placement::placeAreaObjects() { Core* c = core;
   VerifyHarness::Check& chk = c->game->verify.check("placeverify");
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0) {
-    if (nb++ < 40) fprintf(stderr, "[placeverify] MISMATCH area=%u sub=%u ram@%x spad@%x sp=%x\n", area, sub, ro, so, sp);
-  } else fprintf(stderr, "[placeverify] match #%ld (area=%u sub=%u)\n", ++ng, area, sub);
+    if (nb++ < 40) cfg_logi("placeverify", "MISMATCH area=%u sub=%u ram@%x spad@%x sp=%x", area, sub, ro, so, sp);
+  } else cfg_logi("placeverify", "match #%ld (area=%u sub=%u)", ++ng, area, sub);
 }
 
 // FUN_80072DDC — single-object SPAWN-WITH-PARENT helper (the 2nd dominant field-spawn caller found by
@@ -162,6 +162,6 @@ void Placement::spawnWithParent() { Core* c = core;
   VerifyHarness::Check& chk = c->game->verify.check("spawnparentverify");
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0 || v0_n != v0_o) {
-    if (nb++ < 40) fprintf(stderr, "[spawnparentverify] MISMATCH v0 n=%x o=%x ram@%x spad@%x\n", v0_n, v0_o, ro, so);
-  } else if (++ng % 20 == 0) fprintf(stderr, "[spawnparentverify] %ld matches\n", ng);
+    if (nb++ < 40) cfg_logi("spawnparentverify", "MISMATCH v0 n=%x o=%x ram@%x spad@%x", v0_n, v0_o, ro, so);
+  } else if (++ng % 20 == 0) cfg_logi("spawnparentverify", "%ld matches", ng);
 }

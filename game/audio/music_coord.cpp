@@ -233,8 +233,7 @@ void MusicCoord::tick() {
   if (cfg_str("PSXPORT_XA_DBG")) {
     uint32_t s = c->mem_r16(0x800bed80) & 0xFFFF; int a = xa_stream_is_active(&c->game->xa), l = xa_stream_is_looping(&c->game->xa);
     if (s != mPrev || a != mPa || l != mPl) {
-      fprintf(stderr, "[coord] song=%u tone=%d xa_active=%d loop=%d pending=%d\n",
-              s, dialogToneActive(), a, l, c->game->cd.pending_music);
+      cfg_logi("coord", "song=%u tone=%d xa_active=%d loop=%d pending=%d", s, dialogToneActive(), a, l, c->game->cd.pending_music);
       mPrev = s; mPa = a; mPl = l;
     }
   }

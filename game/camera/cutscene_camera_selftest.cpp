@@ -120,8 +120,7 @@ int check(Core* c, CamTestState& ts, const char* name, uint32_t addr, std::funct
       if (mine[r][i] != o) {
         bad++;
         if (ts.reported++ < 30)
-          fprintf(stderr, "[camtest] MISMATCH %-10s %s+0x%03x  mine=%08x oracle=%08x\n",
-                  name, REGIONS[r].name, i * 4, mine[r][i], o);
+          cfg_logi("camtest", "MISMATCH %-10s %s+0x%03x  mine=%08x oracle=%08x", name, REGIONS[r].name, i * 4, mine[r][i], o);
       }
     }
   return bad;
@@ -136,7 +135,7 @@ int run_camera_oracle(const char* path) {
   load_exe(path, c);
 
   const int ITERS = cfg_str("PSXPORT_SELFTEST_ITERS") ? atoi(cfg_str("PSXPORT_SELFTEST_ITERS")) : 3000;
-  fprintf(stderr, "[camtest] CutsceneCamera oracle test: %d iterations/method, seed=0x%08x\n", ITERS, ts.seed);
+  cfg_logi("camtest", "CutsceneCamera oracle test: %d iterations/method, seed=0x%08x", ITERS, ts.seed);
 
   struct Case { const char* name; uint32_t addr; int usesTarget; };
   const Case cases[] = {
@@ -173,7 +172,7 @@ int run_camera_oracle(const char* path) {
     const Case& t = cases[ci];
     int bad = 0, skip = 0, ran = 0;
     for (int it = 0; it < ITERS; it++) {
-      if (cfg_on("PSXPORT_SELFTEST_VERBOSE")) { fprintf(stderr, "[camtest]  %s iter %d seed=%08x\n", t.name, it, ts.seed); fflush(stderr); }
+      if (cfg_on("PSXPORT_SELFTEST_VERBOSE")) { cfg_logi("camtest", " %s iter %d seed=%08x", t.name, it, ts.seed); fflush(stderr); }
       seed(c, ts);
       // Driver/init depend on the render-mode byte across its FULL range (init's 21-entry jump table +
       // the mode-0/1 render dispatch reach labels the default seed() range (0..14) misses); widen it here.
@@ -218,13 +217,11 @@ int run_camera_oracle(const char* path) {
       if (m < 0) skip++; else { bad += m; ran++; }
       total_runs++;
     }
-    fprintf(stderr, "[camtest] %-12s : %s  (%d mismatching words over %d verified iters, %d oracle-skipped)\n",
-            t.name, bad ? "FAIL" : "ok", bad, ran, skip);
+    cfg_logi("camtest", "%-12s : %s  (%d mismatching words over %d verified iters, %d oracle-skipped)", t.name, bad ? "FAIL" : "ok", bad, ran, skip);
     total_bad += bad; total_skip += skip;
   }
 
-  fprintf(stderr, "[camtest] DONE: %d methods, %d runs (%d oracle-skipped), %d mismatching words total -> %s\n",
-          NC, total_runs, total_skip, total_bad, total_bad ? "FAIL" : "PASS");
+  cfg_logi("camtest", "DONE: %d methods, %d runs (%d oracle-skipped), %d mismatching words total -> %s", NC, total_runs, total_skip, total_bad, total_bad ? "FAIL" : "PASS");
   // A method that is ENTIRELY oracle-skipped verified nothing — surface that as a soft warning (not fail).
   return total_bad ? 1 : 0;
 }

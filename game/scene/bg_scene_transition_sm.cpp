@@ -214,9 +214,8 @@ void BgSceneTransitionSm::verifyBody(Core* c) {
   VerifyHarness::Check& chk = c->game->verify.check("bgscenesmverify");
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0) {
-    if (nb++ < 40) fprintf(stderr, "[bgscenesmverify] MISMATCH st=%u ram@%x (nat=%02x ora=%02x) spad@%x\n",
-                           c->mem_r8(P + 4), ro, ro >= 0 ? ramN[ro] : 0, ro >= 0 ? c->ram[ro] : 0, so);
-  } else if (++ng % 50 == 0) fprintf(stderr, "[bgscenesmverify] %ld matches\n", ng);
+    if (nb++ < 40) cfg_logi("bgscenesmverify", "MISMATCH st=%u ram@%x (nat=%02x ora=%02x) spad@%x", c->mem_r8(P + 4), ro, ro >= 0 ? ramN[ro] : 0, ro >= 0 ? c->ram[ro] : 0, so);
+  } else if (++ng % 50 == 0) cfg_logi("bgscenesmverify", "%ld matches", ng);
 }
 
 void BgSceneTransitionSm::step() { verifyBody(core); }

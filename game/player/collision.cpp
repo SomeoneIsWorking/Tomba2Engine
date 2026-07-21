@@ -90,8 +90,8 @@ void Collision::listScan(uint32_t obj) {
     rec_super_call(c, 0x80031780u);                  // memory untouched above -> oracle writes
     uint32_t r52 = c->mem_r32(a0 + 52), r56 = c->mem_r32(a0 + 56);
     static long ng = 0, nb = 0;
-    if (r52 != n52 || r56 != n56) { if (nb++ < 20) fprintf(stderr, "[listscan] MISMATCH a0=%x 52 mine=%x oracle=%x  56 mine=%x oracle=%x\n", a0, n52, r52, n56, r56); }
-    else if (++ng % 5000 == 0) fprintf(stderr, "[listscan] %ld matches\n", ng);
+    if (r52 != n52 || r56 != n56) { if (nb++ < 20) cfg_logi("listscan", "MISMATCH a0=%x 52 mine=%x oracle=%x  56 mine=%x oracle=%x", a0, n52, r52, n56, r56); }
+    else if (++ng % 5000 == 0) cfg_logi("listscan", "%ld matches", ng);
     return;                                          // keep oracle result
   }
   c->mem_w32(a0 + 52, n52); c->mem_w32(a0 + 56, n56); c->r[2] = v0;
@@ -120,9 +120,8 @@ void Collision::gridSetup(uint32_t layer) {
     uint32_t o_cc = c->mem_r32(0x1F8001CCu), o_d0 = c->mem_r32(0x1F8001D0u), o_d4 = c->mem_r32(0x1F8001D4u),
              o_d8 = c->mem_r32(0x1F8001D8u), o_dc = c->mem_r32(0x1F8001DCu);
     if (o_cc != cc || o_d0 != d0 || o_d4 != d4 || o_d8 != d8 || o_dc != dc) {
-      if (nb++ < 20) fprintf(stderr, "[gridsetup] MISMATCH a0=%x cc=%x/%x d0=%x/%x d4=%x/%x d8=%x/%x dc=%x/%x\n",
-                             a0, cc, o_cc, d0, o_d0, d4, o_d4, d8, o_d8, dc, o_dc);
-    } else if (++ng % 5000 == 0) fprintf(stderr, "[gridsetup] %ld matches\n", ng);
+      if (nb++ < 20) cfg_logi("gridsetup", "MISMATCH a0=%x cc=%x/%x d0=%x/%x d4=%x/%x d8=%x/%x dc=%x/%x", a0, cc, o_cc, d0, o_d0, d4, o_d4, d8, o_d8, dc, o_dc);
+    } else if (++ng % 5000 == 0) cfg_logi("gridsetup", "%ld matches", ng);
     return;
   }
   c->mem_w32(0x1F8001CCu, cc); c->mem_w32(0x1F8001D0u, d0); c->mem_w32(0x1F8001D4u, d4);
@@ -239,8 +238,8 @@ int Collision::gridQuery() {
   for (uint32_t a = LO; a < HI; a++) if (c->mem_r8(a) != after[a-LO]) { firstoff = (int)(a-LO); break; }
   static long ng = 0, nb = 0;
   if (firstoff >= 0 || mine != oracle) {
-    if (nb++ < 30) fprintf(stderr, "[gridquery] MISMATCH ret mine=%x oracle=%x scratchdiff@+%x\n", mine, oracle, firstoff);
-  } else if (++ng % 2000 == 0) fprintf(stderr, "[gridquery] %ld matches\n", ng);
+    if (nb++ < 30) cfg_logi("gridquery", "MISMATCH ret mine=%x oracle=%x scratchdiff@+%x", mine, oracle, firstoff);
+  } else if (++ng % 2000 == 0) cfg_logi("gridquery", "%ld matches", ng);
   (void)N;
   c->r[2] = oracle;                                            // keep oracle scratchpad state
   return (int)oracle;
@@ -300,9 +299,8 @@ int Collision::gridResolve(uint32_t obj) {
   int so = -1; for (uint32_t a = 0; a < 0x400; a++) if (c->scratch[a] != spadN[a]) { so = (int)a; break; }
   static long ng = 0, nb = 0;
   if (ro >= 0 || so >= 0 || v0_n != v0_o) {
-    if (nb++ < 40) fprintf(stderr, "[gridresolve] MISMATCH obj=%08x v0 n=%x o=%x ram@%x spad@%x sp=%x\n",
-                           obj, v0_n, v0_o, ro, so, sp);
-  } else if (++ng % 2000 == 0) fprintf(stderr, "[gridresolve] %ld matches\n", ng);
+    if (nb++ < 40) cfg_logi("gridresolve", "MISMATCH obj=%08x v0 n=%x o=%x ram@%x spad@%x sp=%x", obj, v0_n, v0_o, ro, so, sp);
+  } else if (++ng % 2000 == 0) cfg_logi("gridresolve", "%ld matches", ng);
   return (int)v0_o;
 }
 
@@ -403,8 +401,8 @@ void Collision::gridStep(uint32_t obj) {
   int so = -1; for (uint32_t a = 0; a < 0x400; a++) if (c->scratch[a] != spadN[a]) { so = (int)a; break; }
   static long ng = 0, nb = 0;
   if (ro >= 0 || so >= 0) {
-    if (nb++ < 40) fprintf(stderr, "[gridstep] MISMATCH obj=%08x ram@%x spad@%x sp=%x\n", obj, ro, so, sp);
-  } else if (++ng % 2000 == 0) fprintf(stderr, "[gridstep] %ld matches\n", ng);
+    if (nb++ < 40) cfg_logi("gridstep", "MISMATCH obj=%08x ram@%x spad@%x sp=%x", obj, ro, so, sp);
+  } else if (++ng % 2000 == 0) cfg_logi("gridstep", "%ld matches", ng);
 }
 
 // ============================================================================================

@@ -65,7 +65,7 @@ bool CutsceneCamera::trackXZ(uint32_t target) {   // FUN_8006D960
     w32(MASTER_Y, (uint32_t)e.mCamTpY << 16);
     w32(MASTER_Z, (uint32_t)e.mCamTpZ << 16);
     w32(G + 0x44, 0);                                   // master speed
-    fprintf(stderr, "[tp] Tomba -> (%d,%d,%d)\n", e.mCamTpX, e.mCamTpY, e.mCamTpZ);
+    cfg_logi("tp", "Tomba -> (%d,%d,%d)", e.mCamTpX, e.mCamTpY, e.mCamTpZ);
   }
   bool snapX = followAxis(S + 0x0C, target + 0, r16(target + 2),  r16(S + 0x0E), 6144);
   bool snapZ = followAxis(S + 0x14, target + 8, r16(target + 10), r16(S + 0x16), 6144);
@@ -617,10 +617,10 @@ void CutsceneCamera::snapFollow(uint32_t target) {   // FUN_8006E3B0
   long &nbad = chk.nMismatch, &ngood = chk.nMatch;
   int bad = 0;
   for (int i = 0; i < 64; i++) if (camM[i] != camO[i]) { bad = 1;
-    if (nbad++ < 60) fprintf(stderr, "[camverify] snapFollow cam+0x%02x mine=%08x oracle=%08x\n", i*4, camM[i], camO[i]); }
+    if (nbad++ < 60) cfg_logi("camverify", "snapFollow cam+0x%02x mine=%08x oracle=%08x", i*4, camM[i], camO[i]); }
   for (int i = 0; i < 256; i++) if (spM[i] != spO[i]) { bad = 1;
-    if (nbad++ < 60) fprintf(stderr, "[camverify] snapFollow sp+0x%03x mine=%08x oracle=%08x\n", i*4, spM[i], spO[i]); }
-  if (!bad && (ngood++ % 200) == 0) fprintf(stderr, "[camverify] snapFollow match #%d\n", (int)ngood);
+    if (nbad++ < 60) cfg_logi("camverify", "snapFollow sp+0x%03x mine=%08x oracle=%08x", i*4, spM[i], spO[i]); }
+  if (!bad && (ngood++ % 200) == 0) cfg_logi("camverify", "snapFollow match #%d", (int)ngood);
 }
 void CutsceneCamera::snapFollowA(uint32_t target) {  // FUN_8006E294 (driver mode 2 + init post-check)
   snapAccXZ(target);

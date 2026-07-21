@@ -38,10 +38,9 @@ int main(int argc, char** argv) {
   // Self-provision MAIN.EXE: anyone with just a CHD (drop-in *.chd in the repo root, or
   // PSXPORT_TOMBA2_DISC / .env) can run the binary directly — no prior ./run.sh extraction step.
   if (!Fs::exists(path)) {
-    fprintf(stderr, "[boot] %s missing — extracting from disc\n", path);
+    cfg_logw("boot", "%s missing — extracting from disc", path);
     if (!disc_extract_file(&game->disc, "\\MAIN.EXE", path)) {
-      fprintf(stderr, "[boot] extraction failed: provide a disc (PSXPORT_TOMBA2_DISC, .env, or a "
-                      "*.chd in the working directory) or run ./run.sh\n");
+      cfg_loge("boot", "extraction failed: provide a disc (PSXPORT_TOMBA2_DISC, .env, or a *.chd in the working directory) or run ./run.sh");
       return 1;
     }
   }
@@ -93,6 +92,6 @@ int main(int argc, char** argv) {
   // registering unconditionally would corrupt `ovhit`'s target selection — see docs/findings/animation.md).
   c->hooks->registerOverrides(game);   // ALL override clusters — game/core/register_overrides.cpp via the seam
   game->stub.run(path);                // stub draws SCEA, then hands off to native MAIN boot
-  fprintf(stderr, "[boot] boot stub returned\n");
+  cfg_logi("boot", "boot stub returned");
   return 0;
 }

@@ -29,7 +29,7 @@ inline void call_handler(Core* c, uint32_t node) {
     int i=0; for(; i<nh; i++) if(addr[i]==h) break;
     if(i==nh && nh<64){ addr[nh]=h; cnt[nh]=0; nh++; }
     if(i<64) cnt[i]++;
-    if((++w % 300)==0){ fprintf(stderr,"[behhist] distinct=%d handlers:\n", nh);
+    if((++w % 300)==0){ cfg_logi("behhist", "distinct=%d handlers:", nh);
       for(int j=0;j<nh;j++) fprintf(stderr,"   %08X  x%ld\n", addr[j], cnt[j]); }
   }
   eng(c).behaviors.dispatchObj(node, h);
@@ -56,7 +56,7 @@ void ObjectList::walkAll() {
 
   if (mDbg < 0) mDbg = cfg_dbg("engine") ? 1 : 0;
   if (mDbg && (mWalksAll % 300) == 0)
-    fprintf(stderr, "[engine] objwalk #%ld: %ld nodes\n", mWalksAll, nodes);
+    cfg_logi("engine", "objwalk #%ld: %ld nodes", mWalksAll, nodes);
   mWalksAll++;
 }
 
@@ -106,7 +106,7 @@ void ObjectList::walkList2() {
 
   if (mDbg < 0) mDbg = cfg_dbg("engine") ? 1 : 0;
   if (mDbg && (mWalksL2 % 300) == 0)
-    fprintf(stderr, "[engine] objwalk_l2 #%ld: %ld nodes\n", mWalksL2, nodes);
+    cfg_logi("engine", "objwalk_l2 #%ld: %ld nodes", mWalksL2, nodes);
   mWalksL2++;
 }
 

@@ -14,6 +14,7 @@
 #include "render/screen_fade.h"  // ScreenFade — tomba_renderFadeState mirrors get() into a framework FadeState
 #include "render.h"      // Render umbrella — tomba_renderBbFrameReset calls rend(c)->bbFrameReset()
 #include <stdio.h>
+#include "cfg.h"
 
 // tomba_renderFadeState — mirror the game's per-frame ScreenFade into the framework FadeState POD, so the
 // present path reads fade without naming ScreenFade. Same read the present path did directly (screenFade.get()).
@@ -72,7 +73,7 @@ static void tomba_audioSoundTestPlay(Core* c, int track) {
 // trailing task0Bootstrap depends on the scheduler-table init (0x80051e00 / 0x80051f14) + the
 // 0x1f800138 cur-task write that sit between them — the order is load-bearing.
 static void tomba_bootInit(Core* c) {
-  fprintf(stderr, "[native_boot] FUN_80050b08 override: running init prefix\n");
+  cfg_logi("native_boot", "FUN_80050b08 override: running init prefix");
 
   // --- init prefix, transcribed from FUN_80050b08 (no scheduler loop) ---
   rc0(c, 0x80089788);
@@ -115,7 +116,7 @@ static void tomba_bootInit(Core* c) {
   // callback's unmodeled interrupt-vector deref is skipped). (was rc1 0x80085bb0)
   c->game->timing.vsyncCallback();          // callback ptr arg unused (no preemptive vblank IRQ delivered)
 
-  fprintf(stderr, "[native_boot] init prefix complete\n");
+  cfg_logi("native_boot", "init prefix complete");
 
   // --- task 0 initial entry: FUN_800499e8 resolves \BIN\START.BIN and FUN_80052078(0) loads
   // the stage-0 overlay to 0x80106228 + restarts task 0 at stage 0 (0x8010649c). It yields once
@@ -125,9 +126,7 @@ static void tomba_bootInit(Core* c) {
   c->mem_w32(0x1f800138, 0x801fe000);
   eng(c).task0Bootstrap();   // PC-native: was rc0(c, 0x800499e8) — CD subtree owned top-down
   // START.BIN loaded raw to 0x80106228: [0]=manifest count (6); entry word @0x8010649c.
-  fprintf(stderr, "[native_boot] after FUN_800499e8: START.BIN count@0x80106228=%u "
-                  "entry-word@0x8010649c=0x%08X (expect 0x27BDFE38); task0 state=%u entry=0x%08X\n",
-          c->mem_r32(0x80106228), c->mem_r32(0x8010649c), c->mem_r16(0x801fe000), c->mem_r32(0x801fe00c));
+  cfg_logi("native_boot", "after FUN_800499e8: START.BIN count@0x80106228=%u entry-word@0x8010649c=0x%08X (expect 0x27BDFE38); task0 state=%u entry=0x%08X", c->mem_r32(0x80106228), c->mem_r32(0x8010649c), c->mem_r16(0x801fe000), c->mem_r32(0x801fe00c));
 }
 
 // tomba_schedFreshEntry — the fresh-task-entry native stage-body dispatch, moved out of scheduler.cpp's

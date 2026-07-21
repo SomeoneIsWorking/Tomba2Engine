@@ -144,8 +144,7 @@ void MarginRenderer::collect(Core* c, uint32_t node) {
 void MarginRenderer::flush(Core* c) {
   for (uint32_t node : nodes_) {
     if (dbg_ && gpu_frame_no(c) == 2900)
-      fprintf(stderr, "[margin]   node=%08x type=%02x cnt=%u\n",
-              node, (unsigned)c->mem_r8(node + 0xc), (unsigned)c->mem_r8(node + 8));
+      cfg_logi("margin", "  node=%08x type=%02x cnt=%u", node, (unsigned)c->mem_r8(node + 0xc), (unsigned)c->mem_r8(node + 8));
     if (c->mem_r8(node + 8) == 0 || c->mem_r8(node + 9) == 0) continue;   // no render commands (perObjFlush parity)
 
     std::vector<MarginCmdXform> xf;
@@ -172,7 +171,7 @@ void MarginRenderer::flush(Core* c) {
     }
   }
   if (dbg_ && !nodes_.empty())
-    fprintf(stderr, "[margin] f%d rendered %zu margin nodes\n", gpu_frame_no(c), nodes_.size());
+    cfg_logi("margin", "f%d rendered %zu margin nodes", gpu_frame_no(c), nodes_.size());
   nodes_.clear();
   seen_.clear();
 }

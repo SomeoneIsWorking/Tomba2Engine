@@ -254,10 +254,7 @@ static uint32_t bav_load_native(Core* c) {
       uint32_t kind = c->mem_r32(desc + 4);
       uint32_t r0_12 = c->mem_r16(s3rec + 12), r0_14 = c->mem_r16(s3rec + 14);
       uint32_t bpp = (kind < 5u) ? 4u : 8u;            // kind<5 -> <<2 (4bpp); else <<3 (8bpp)
-      fprintf(stderr,
-        "[bavload] CEL slot=%d desc=%08x kind=%u(bpp~%u) frames(clamp)=%u uv_entries=%d "
-        "vram_base_word=%05x size=%u rec0.w12=%04x rec0.w14=%04x\n",
-        slot_f, desc, kind, bpp, clamp, (int)(c->mem_r8(desc + 22) & 0xff) + 1,
+      cfg_logi("bavload", "CEL slot=%d desc=%08x kind=%u(bpp~%u) frames(clamp)=%u uv_entries=%d vram_base_word=%05x size=%u rec0.w12=%04x rec0.w14=%04x", slot_f, desc, kind, bpp, clamp, (int)(c->mem_r8(desc + 22) & 0xff) + 1,
         a0v, (unsigned)off, r0_12 & 0xffff, r0_14 & 0xffff);
 
       // Per-frame VRAM-layout dump for the OFFLINE sheet exporter (tools/tex_export). For each frame the
@@ -274,8 +271,7 @@ static uint32_t bav_load_native(Core* c) {
         cum += (hw << shf);
         uint32_t word = (a0v + cum) >> 3;        // latched cel word (matches rec[i>>1] +12/+14)
         uint32_t wa   = word << 3;               // frame VRAM word address
-        fprintf(stderr, "[bavload]   F%-2d word=%04x  vram XY=(%4u,%3u)  size_words=%u\n",
-                i, word & 0xffff, wa % 1024u, wa / 1024u, hw << shf);
+        cfg_logi("bavload", "  F%-2d word=%04x  vram XY=(%4u,%3u)  size_words=%u", i, word & 0xffff, wa % 1024u, wa / 1024u, hw << shf);
       }
     }
   }

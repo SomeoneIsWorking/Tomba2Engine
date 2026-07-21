@@ -37,8 +37,8 @@ uint32_t Bit::test7EC(int32_t idx, uint32_t sel) {
     rec_super_call(c, 0x8004D7ECu);
     VerifyHarness::Check& chk = c->game->verify.check("bitverify");
     long &ng = chk.nMatch, &nb = chk.nMismatch;
-    if ((uint32_t)c->r[2] != mine) { if (nb++ < 20) fprintf(stderr, "[bitverify] MISMATCH idx=%d sel=%x mine=%x oracle=%x\n", idx, sel, mine, (uint32_t)c->r[2]); }
-    else if (++ng % 20000 == 0) fprintf(stderr, "[bitverify] %ld matches\n", ng);
+    if ((uint32_t)c->r[2] != mine) { if (nb++ < 20) cfg_logi("bitverify", "MISMATCH idx=%d sel=%x mine=%x oracle=%x", idx, sel, mine, (uint32_t)c->r[2]); }
+    else if (++ng % 20000 == 0) cfg_logi("bitverify", "%ld matches", ng);
   }
   c->r[2] = mine;
   return mine;
@@ -61,8 +61,8 @@ uint32_t Bit::test868(int32_t idx) {
     rec_super_call(c, 0x8004D868u);
     VerifyHarness::Check& chk = c->game->verify.check("bitverify868");
     long &ng = chk.nMatch, &nb = chk.nMismatch;
-    if ((uint32_t)c->r[2] != mine) { if (nb++ < 20) fprintf(stderr, "[bitverify868] MISMATCH idx=%d mine=%x oracle=%x\n", idx, mine, (uint32_t)c->r[2]); }
-    else if (++ng % 20000 == 0) fprintf(stderr, "[bitverify868] %ld matches\n", ng);
+    if ((uint32_t)c->r[2] != mine) { if (nb++ < 20) cfg_logi("bitverify868", "MISMATCH idx=%d mine=%x oracle=%x", idx, mine, (uint32_t)c->r[2]); }
+    else if (++ng % 20000 == 0) cfg_logi("bitverify868", "%ld matches", ng);
   }
   c->r[2] = mine;
   return mine;

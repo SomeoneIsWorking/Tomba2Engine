@@ -70,9 +70,8 @@ void SceneTransition::areaMaskTrigger(uint8_t area, uint8_t sub) {
   VerifyHarness::Check& chk = c->game->verify.check("scene_transitionverify");
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0) {
-    if (nb++ < 40) fprintf(stderr, "[scene_transitionverify] MISMATCH area=%u sub=%u ram@%x spad@%x\n",
-                           area, sub, ro, so);
-  } else if (++ng % 50 == 0) fprintf(stderr, "[scene_transitionverify] %ld matches\n", ng);
+    if (nb++ < 40) cfg_logi("scene_transitionverify", "MISMATCH area=%u sub=%u ram@%x spad@%x", area, sub, ro, so);
+  } else if (++ng % 50 == 0) cfg_logi("scene_transitionverify", "%ld matches", ng);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -282,8 +281,7 @@ int SceneTransition::stepSwapWaiter(uint32_t node) {
   VerifyHarness::Check& chk = c->game->verify.check("subswapverify");
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0 || rv_n != rv_s) {
-    if (nb++ < 40) fprintf(stderr, "[subswapverify] MISMATCH node=%08x case=%u ram@%x spad@%x rv_n=%d rv_s=%d\n",
-                           node, c->mem_r8(node + 6), ro, so, rv_n, rv_s);
-  } else if (++ng % 50 == 0) fprintf(stderr, "[subswapverify] %ld matches\n", ng);
+    if (nb++ < 40) cfg_logi("subswapverify", "MISMATCH node=%08x case=%u ram@%x spad@%x rv_n=%d rv_s=%d", node, c->mem_r8(node + 6), ro, so, rv_n, rv_s);
+  } else if (++ng % 50 == 0) cfg_logi("subswapverify", "%ld matches", ng);
   return rv_n;
 }

@@ -177,8 +177,8 @@ void ObjectTable::dispatch() {
   VerifyHarness::Check& chk = c->game->verify.check("disp26c88verify");
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0) {
-    if (nb++ < 40) fprintf(stderr, "[disp26c88verify] MISMATCH ram@%x spad@%x sp=%x\n", ro, so, sp);
-  } else if (++ng % 50 == 0) fprintf(stderr, "[disp26c88verify] %ld matches\n", ng);
+    if (nb++ < 40) cfg_logi("disp26c88verify", "MISMATCH ram@%x spad@%x sp=%x", ro, so, sp);
+  } else if (++ng % 50 == 0) cfg_logi("disp26c88verify", "%ld matches", ng);
 }
 
 // ObjectTable::dispatchFaithful — byte-mirror of gen_func_80026C88 (generated/shard_2.c:1607-1637).

@@ -190,8 +190,7 @@ void NativeScenePass::terrainRender() {
       }
     }
     if (s_dbg && drawn < 4)
-      fprintf(stderr, "[terrpc] rec=%08x v0=(%.1f,%.1f z%.3f) v2=(%.1f,%.1f) tp=%04x clut=%04x semi=%d\n",
-              rec, px[0], py[0], depth[0], px[2], py[2], tp, clut, semi);
+      cfg_logi("terrpc", "rec=%08x v0=(%.1f,%.1f z%.3f) v2=(%.1f,%.1f) tp=%04x clut=%04x semi=%d", rec, px[0], py[0], depth[0], px[2], py[2], tp, clut, semi);
     // Dynamic shadow: the terrain quad's view-space verts (x=w0, y=w1, z=pz) so the ground both CASTS into
     // the shadow map (self-occlusion across hills) and RECEIVES shadows. Carried on the queued item (sv) so
     // it rebuilds per present pass from the queue — no separate shadow stream, no keep_shadow.
@@ -210,6 +209,5 @@ void NativeScenePass::terrainRender() {
     if (ctl <= 0) break;                                   // control sign marks the last record
   }
   c->rsub.diag.endObject();
-  if (s_dbg) fprintf(stderr, "[terrpc] node=%08x drew %d quads (H=%u ofx=%.1f ofy=%.1f)\n",
-                     node, drawn, (unsigned)H, ofx, ofy);
+  if (s_dbg) cfg_logi("terrpc", "node=%08x drew %d quads (H=%u ofx=%.1f ofy=%.1f)", node, drawn, (unsigned)H, ofx, ofy);
 }

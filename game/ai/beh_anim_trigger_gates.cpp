@@ -44,8 +44,7 @@ void beh_anim_trigger_gates(Core* c) {
 
   uint8_t st = c->mem_r8(obj + 4);                // node[4] = outer state
   if (getenv("PSXPORT_ANIMTG_ENTRY"))
-    fprintf(stderr, "[animtg-entry] core=%p node=%08X st=%u n3=%u stage=%08X\n",
-            (void*)c, obj, st, c->mem_r8(obj + 3), c->mem_r32(0x801fe00c));
+    cfg_logi("animtg-entry", "core=%p node=%08X st=%u n3=%u stage=%08X", (void*)c, obj, st, c->mem_r8(obj + 3), c->mem_r32(0x801fe00c));
   if (st == 1) goto Lcb0;
   if (st < 2) { if (st == 0) goto Lc50; goto Lret; }   // st<2 -> only st==0
   if (st == 2) goto Lret;

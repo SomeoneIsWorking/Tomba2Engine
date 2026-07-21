@@ -18,7 +18,7 @@ void ScreenFade::fadetrace(const char* op, uint8_t mode, uint32_t rgb, const cha
   if (mTraceOn < 0) mTraceOn = cfg_dbg("fadetrace") ? 1 : 0;
   if (!mTraceOn) return;
   const char* modeName = mode == 0 ? "NONE" : mode == 1 ? "ADDITIVE" : mode == 2 ? "SUBTRACTIVE" : "?";
-  fprintf(stderr, "[fadetrace] %s mode=%s rgb=0x%06X%s%s\n", op, modeName, rgb,
+  cfg_logi("fadetrace", "%s mode=%s rgb=0x%06X%s%s", op, modeName, rgb,
           extra && *extra ? " " : "", extra ? extra : "");
   uint32_t key = ((uint32_t)(uintptr_t)op * 0x9E37u) ^ ((uint32_t)mode << 24) ^ (rgb & 0xFFFFFFu);
   for (int i = 0; i < mSeenN; i++) if (mSeen[i] == key) return;

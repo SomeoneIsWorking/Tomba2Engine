@@ -12,6 +12,7 @@
 #include "guest_call.h"         // rc0/rc1/rc3 — rec_dispatch of the Tomba BGM / libsnd-seq guest leaves
 #include <stdio.h>
 #include <string.h>
+#include "cfg.h"
 
 bool tomba_repl_command(Core* c, const char* cmd, const char* line) {
   unsigned a = 0;
@@ -30,14 +31,14 @@ bool tomba_repl_command(Core* c, const char* cmd, const char* line) {
       inv(c).give(t, m);         // FUN_8004D4F4 give_only
       inv(c).giveAndFlag(t, m);  // FUN_8004D4C4 give_and_flag
     }
-    fprintf(stderr, "[repl] invtest: fired %d vector(s) through inventory overrides\n", n * 3);
+    cfg_logi("repl", "invtest: fired %d vector(s) through inventory overrides", n * 3);
     return true;
   }
   if (!strcmp(cmd, "bgm") && sscanf(line, "%*s %u", &a) == 1) {
-    rc1(c, 0x80074BF8u, a); fprintf(stderr, "[repl] bgm %u (song@800bed80=%04X)\n", a, c->mem_r16(0x800bed80));
+    rc1(c, 0x80074BF8u, a); cfg_logi("repl", "bgm %u (song@800bed80=%04X)", a, c->mem_r16(0x800bed80));
     return true;
   }
-  if (!strcmp(cmd, "bgmstop")) { rc0(c, 0x80074E48u); fprintf(stderr, "[repl] bgmstop\n"); return true; }
+  if (!strcmp(cmd, "bgmstop")) { rc0(c, 0x80074E48u); cfg_logi("repl", "bgmstop"); return true; }
   // seqsolo <i> — stop ALL open libsnd sequences then SsSeqPlay just sequence <i> at full vol, via the
   // GAME'S OWN sequencer. Lets each area SEP sequence be rendered in isolation (the area's field theme
   // otherwise plays continuously). SsSeqStop=0x80091AF0, SsSeqPlay(h,mode,loop)=0x80090560, SsSeqSetVol
@@ -46,7 +47,7 @@ bool tomba_repl_command(Core* c, const char* cmd, const char* line) {
     for (uint32_t i = 0; i < 14; i++) rc1(c, 0x80091AF0u, i);   // SsSeqStop(i) — silence all
     rc3(c, 0x80090560u, a, 1, 0);                                // SsSeqPlay(a, mode=1, loop=0)
     rc3(c, 0x80091F50u, a, 127, 127);                           // SsSeqSetVol(a, 127, 127)
-    fprintf(stderr, "[repl] seqsolo %u\n", a);
+    cfg_logi("repl", "seqsolo %u", a);
     return true;
   }
   // musictest <n> — play catalogued music track <n> through the NATIVE audio engine (sound test).
@@ -54,12 +55,12 @@ bool tomba_repl_command(Core* c, const char* cmd, const char* line) {
   if (!strcmp(cmd, "musictest")) {
     MusicList& ml = gctx(c)->music_list;   // music_list moved off Game onto the game-side TombaCtx
     char sub[32] = {0}; int n = -1;
-    if (sscanf(line, "%*s %31s", sub) == 1 && !strcmp(sub, "stop")) { ml.stop(); fprintf(stderr, "[repl] musictest stop\n"); }
+    if (sscanf(line, "%*s %31s", sub) == 1 && !strcmp(sub, "stop")) { ml.stop(); cfg_logi("repl", "musictest stop"); }
     else if (sscanf(line, "%*s %d", &n) == 1 && n >= 0) {
       int rc = ml.play(n);
-      fprintf(stderr, "[repl] musictest %d (%s) -> %s\n", n, ml.name(n) ? ml.name(n) : "?", rc ? "FAIL" : "ok");
+      cfg_logi("repl", "musictest %d (%s) -> %s", n, ml.name(n) ? ml.name(n) : "?", rc ? "FAIL" : "ok");
     } else {
-      fprintf(stderr, "[repl] musictest: tracks 0..%d, or 'stop'\n", ml.count()-1);
+      cfg_logi("repl", "musictest: tracks 0..%d, or 'stop'", ml.count()-1);
       for (int i = 0; i < ml.count(); i++) fprintf(stderr, "   %d: %s\n", i, ml.name(i));
     }
     return true;

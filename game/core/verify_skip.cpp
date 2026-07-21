@@ -79,8 +79,7 @@ void VerifyHarness::skipCheck(uint32_t addr, void (*skipFn)(void*), void* skipCt
       uint8_t vs = spad ? skipSpad[a & 0x3FF]      : mStrictNatRam[a & 0x1FFFFFu];
       uint8_t vo = spad ? c->scratch[a & 0x3FF]    : c->ram[a & 0x1FFFFFu];
       if (vs != vo) {
-        fprintf(stderr, "[skip-verify] 0x%08X MISMATCH [%s] @0x%08X: skip=%02X oracle=%02X\n",
-                addr, R.label, a, vs, vo); bad++;
+        cfg_logi("skip-verify", "0x%08X MISMATCH [%s] @0x%08X: skip=%02X oracle=%02X", addr, R.label, a, vs, vo); bad++;
       }
     }
   }
@@ -91,22 +90,19 @@ void VerifyHarness::skipCheck(uint32_t addr, void (*skipFn)(void*), void* skipCt
     if (po == ps && po && (po & 0x1FFFFFFFu) < 0x1FFE00u) {
       for (uint32_t o = 0; o < 0x200 && bad < 16; o++)
         if (mStrictNatRam[(po & 0x1FFFFFu) + o] != c->ram[(po & 0x1FFFFFu) + o]) {
-          fprintf(stderr, "[skip-verify] 0x%08X MISMATCH [area_fx_deref] @0x%08X: skip=%02X oracle=%02X\n",
-                  addr, po + o, mStrictNatRam[(po & 0x1FFFFFu) + o], c->ram[(po & 0x1FFFFFu) + o]); bad++;
+          cfg_logi("skip-verify", "0x%08X MISMATCH [area_fx_deref] @0x%08X: skip=%02X oracle=%02X", addr, po + o, mStrictNatRam[(po & 0x1FFFFFu) + o], c->ram[(po & 0x1FFFFFu) + o]); bad++;
         }
     }
   }
   if (memcmp(mSkipSpuA, mSkipSpuB, 524288) != 0) {
     for (uint32_t o = 0; o < 524288 && bad < 24; o++)
       if (mSkipSpuA[o] != mSkipSpuB[o]) {
-        fprintf(stderr, "[skip-verify] 0x%08X MISMATCH [SPU RAM] @0x%05X: skip=%02X oracle=%02X\n",
-                addr, o, mSkipSpuA[o], mSkipSpuB[o]); bad++;
+        cfg_logi("skip-verify", "0x%08X MISMATCH [SPU RAM] @0x%05X: skip=%02X oracle=%02X", addr, o, mSkipSpuA[o], mSkipSpuB[o]); bad++;
         o += 15;   // sample the diff shape, don't spam every byte
       }
   }
   if (bad) {
-    fprintf(stderr, "[skip-verify] 0x%08X FAILED (%d+ observable diffs) — skip leg does NOT produce "
-                    "the oracle's observable output.\n", addr, bad);
+    cfg_loge("skip-verify", "0x%08X FAILED (%d+ observable diffs) — skip leg does NOT produce the oracle's observable output.", addr, bad);
     abort();
   }
   // match: continue from the SKIP result (the real pc_skip execution path)
@@ -115,5 +111,5 @@ void VerifyHarness::skipCheck(uint32_t addr, void (*skipFn)(void*), void* skipCt
   c->game->spu.bind(); SPU_PokeRAM(mSkipSpuA);
   inCheck = false;
   Check& k = check("skip-verify");
-  if (++k.nMatch % 16 == 1) fprintf(stderr, "[skip-verify] 0x%08X OK (pass #%ld)\n", addr, k.nMatch);
+  if (++k.nMatch % 16 == 1) cfg_logi("skip-verify", "0x%08X OK (pass #%ld)", addr, k.nMatch);
 }

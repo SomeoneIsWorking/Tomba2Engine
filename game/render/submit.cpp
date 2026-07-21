@@ -240,8 +240,7 @@ void Render::submitPolyGt3Native(Core* c) {
                    (double)x.R[1][0],(double)x.R[1][1],(double)x.R[1][2],
                    (double)x.R[2][0],(double)x.R[2][1],(double)x.R[2][2],
                    (double)x.T[0],(double)x.T[1],(double)x.T[2],(double)x.H); }
-      fprintf(stderr, "[eprojv] cmd=%08x gt3 idx=%u v0=(%.2f,%.2f,%.2f) v1=(%.2f,%.2f,%.2f) v2=(%.2f,%.2f,%.2f)\n",
-        geomblk, i, (double)px[0],(double)py[0],(double)depth[0], (double)px[1],(double)py[1],(double)depth[1],
+      cfg_logi("eprojv", "cmd=%08x gt3 idx=%u v0=(%.2f,%.2f,%.2f) v1=(%.2f,%.2f,%.2f) v2=(%.2f,%.2f,%.2f)", geomblk, i, (double)px[0],(double)py[0],(double)depth[0], (double)px[1],(double)py[1],(double)depth[1],
         (double)px[2],(double)py[2],(double)depth[2]);
     }
     { char tag[32]; snprintf(tag, sizeof tag, "gt3_native@%08X", c->rsub.diag.currentGeomblk()); sil_bbox_log_verts(tag, px, py, depth, 3, cur_render_node(c), rec, r, g, b); }

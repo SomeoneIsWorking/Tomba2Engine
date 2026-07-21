@@ -228,9 +228,8 @@ void Animation::step(uint32_t node) {
   VerifyHarness::Check& chk = c->game->verify.check("animvm");
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0 || v0_n != v0_o) {
-    if (nb++ < 40) fprintf(stderr, "[animvm] MISMATCH s0=%08x v0 n=%x o=%x ram@%x spad@%x sp=%x\n",
-                           s0, v0_n, v0_o, ro, so, sp);
-  } else if (++ng % 2000 == 0) fprintf(stderr, "[animvm] %ld matches\n", ng);
+    if (nb++ < 40) cfg_logi("animvm", "MISMATCH s0=%08x v0 n=%x o=%x ram@%x spad@%x sp=%x", s0, v0_n, v0_o, ro, so, sp);
+  } else if (++ng % 2000 == 0) cfg_logi("animvm", "%ld matches", ng);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────

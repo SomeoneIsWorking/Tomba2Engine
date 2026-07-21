@@ -381,12 +381,7 @@ void Render::abortUnimplemented(const char* scene) {
   uint32_t ovsig   = c->mem_r32(0x80109450u);   // loaded MODE overlay's first instruction (scene signature)
   uint16_t sm48    = c->mem_r16(0x801FE048u);    // DEMO/front-end substate selector
   uint16_t subm4c  = sm ? c->mem_r16(sm + 0x4Cu) : 0xFFFFu;
-  fprintf(stderr,
-    "\n[FATAL] unimplemented native rendering: %s\n"
-    "        stage=0x%08X sm[0x48]=%u sm[0x4a]=%u sm[0x4c]=%u (task-sm[0x4c]=%u) overlay_sig=0x%08X\n"
-    "        pc_render has no native producer for this scene/layer. Build it (native scene render) or\n"
-    "        drive with PSXPORT_RENDER_PSX=1 (the reference renderer) to reach it. No OT-walk fallback.\n\n",
-    scene, stage, sm48, sm4a, sm4c, subm4c, ovsig);
+  cfg_logw("FATAL", "\nunimplemented native rendering: %s\n        stage=0x%08X sm[0x48]=%u sm[0x4a]=%u sm[0x4c]=%u (task-sm[0x4c]=%u) overlay_sig=0x%08X\n        pc_render has no native producer for this scene/layer. Build it (native scene render) or\n        drive with PSXPORT_RENDER_PSX=1 (the reference renderer) to reach it. No OT-walk fallback.\n", scene, stage, sm48, sm4a, sm4c, subm4c, ovsig);
   fflush(stderr);
   abort();
 }

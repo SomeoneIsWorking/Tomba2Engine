@@ -2897,12 +2897,12 @@ void Engine::task0Bootstrap() {
   Core* c = core;
   uint32_t lba = 0, size = 0;
   if (!disc_find_file(&c->game->disc, "\\BIN\\START.BIN", &lba, &size)) {
-    fprintf(stderr, "[native_boot] FATAL: cannot resolve \\BIN\\START.BIN on disc\n");
+    cfg_loge("native_boot", "FATAL: cannot resolve \\BIN\\START.BIN on disc");
     return;
   }
   c->mem_w32(STAGE_FILE_TBL, lba);                   // 0x800be1e0 = START.BIN LBA
   c->mem_w32(STAGE_FILE_TBL + 4, size);              // 0x800be1e4 = START.BIN size
-  fprintf(stderr, "[native_boot] START.BIN resolved: LBA %u, %u bytes\n", lba, size);
+  cfg_logi("native_boot", "START.BIN resolved: LBA %u, %u bytes", lba, size);
   startStage(0);
 }
 
@@ -2963,7 +2963,7 @@ static constexpr StartBinXa kStartBinXa[] = {
 static bool resolve_via_iso9660(Core* c, uint32_t name_ptr, uint32_t* lba, uint32_t* size) {
   char name[80]; read_guest_str(c, name_ptr, name, sizeof name);
   if (disc_find_file(&c->game->disc, name, lba, size)) return true;
-  fprintf(stderr, "[start.bin] not found: %s\n", name);
+  cfg_logi("start.bin", "not found: %s", name);
   return false;
 }
 
@@ -3152,7 +3152,7 @@ void Engine::startBinStageSkip() {
   c->r[28] = saved_gp;
   c->mem_w16(0x801FE070u, 0);                // close task-1 (already ran inline)
 
-  fprintf(stderr, "[start.bin] file table built (pc/iso9660); preload SM stepped across ticks\n");
+  cfg_logi("start.bin", "file table built (pc/iso9660); preload SM stepped across ticks");
 }
 
 // ── STARTBINSTAGE — pc_faithful (PSXPORT_PC_SKIP=0) ─────────────────────────────────────
@@ -3247,7 +3247,7 @@ void Engine::startBinStageFaithful() {
       rec_dispatch(c, 0x8009A730u);
     }
   }
-  fprintf(stderr, "[start.bin] pc_faithful file table built via libcd (fiber body)\n");
+  cfg_logi("start.bin", "pc_faithful file table built via libcd (fiber body)");
 
   // SM loop (L_80106744): the state constants live in the s-regs — spawnAndWait's prologue
   // spills them (s0=3, s1=2, s2=1, s3=r19 left at 5 by loop 3's exit — the RE'd live values).
