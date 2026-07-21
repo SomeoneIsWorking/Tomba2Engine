@@ -20,6 +20,9 @@ For ANY "something renders wrong" problem (water, fade, corruption, color, geome
      details). Live debug server: `scene` (on-demand `gpu_scene_dump`).
    - `debug gte` — GTE ops + lighting/fog/projection control regs.
    - live debug server `provat x y` — which prim (op/clut/texpage/node) last wrote a displayed pixel.
+     **Only under psx_render.** It tracks CPU `s_vram`, so under pc_render (the default) every probe
+     reads `<never written>` — the native overlay draws the picture and never writes guest VRAM. For
+     VK polys use `PSXPORT_PRIMAT="x,y"` (row below), not this.
    - live debug server `vkvram x y w h <path>` — read back an arbitrary VK VRAM region to a PPM (verify
      a texture/CLUT page is actually where the sampler expects it).
    - `debug fade` / `debug semi` — fade brightness / semi-transparent prim blend+bbox details.
