@@ -18,10 +18,19 @@ Guest load/store widths are taken from the MIPS opcode, so this is ground truth,
 rendering — the decompiler is exactly what hid the original bug (it printed the operand as a pointer
 comparison, which shows neither width nor signedness).
 
-LIMITS (read before trusting a clean run): an address the guest only ever forms dynamically (base
-register from a struct field, $gp-relative, or computed) will not be found, and is reported as
-"guest-unseen" rather than OK. A mismatch is not automatically a bug either — a narrow read of a
-wider field is correct when only the low bits are wanted. This tool ranks suspects; it does not judge.
+★ NEVER "FIX" A HIT WITHOUT CHECKING generated/ FIRST. ★
+This scanner resolves an address only when a `lui` that establishes the base register is close enough
+to the access. When the base was set up further back, real accesses are INVISIBLE to it — so it will
+happily report "guest uses: lbu" for an address the guest also reads `lhu` two instructions later.
+That is not hypothetical: it reported exactly that for the area id 0x800BF870, and acting on it
+produced a WRONG edit (mem_r8 where gen does mem_r16). The corpus in generated/ has the widths
+explicitly (`c->mem_r16((c->r[4] + (uint32_t)-1936))`) and is authoritative; the audit only tells you
+WHERE to look.
+
+OTHER LIMITS: an address the guest only ever forms dynamically (base register from a struct field,
+$gp-relative, or computed) is reported "guest-unseen" rather than OK. A mismatch is not automatically
+a bug either — a narrow read of a wider field is correct when only the low bits are wanted. This tool
+ranks suspects; it does not judge.
 """
 import argparse, os, re, struct, sys
 
@@ -47,7 +56,7 @@ def guest_access_widths(ram, base):
         if (w >> 26) != 0x0F:                      # LUI rX, hi
             continue
         regs = {(w >> 16) & 0x1F: (w & 0xFFFF) << 16}
-        for k in range(1, 14):
+        for k in range(1, 24):
             o2 = off + 4 * k
             if o2 + 3 >= n:
                 break
@@ -60,8 +69,17 @@ def guest_access_widths(ram, base):
             if op in OPS and rs in regs:
                 addr = (regs[rs] + imm) & 0xFFFFFFFF
                 acc.setdefault(addr, set()).add(OPS[op])
-                break
-            if op == 0x0F:
+                # DO NOT stop here. A single lui-established base is reused for MANY accesses in a row
+                # (`lui v0,0x800C` then lbu/lhu/lw at several offsets). Stopping at the first one made
+                # the audit MISS real accesses and report false WIDTH mismatches — it claimed the guest
+                # only ever read the area id with lbu when the very next instruction pair reads it lhu.
+                continue
+            if op == 0x0F:                      # a new lui redefines a base; keep scanning others
+                regs.pop((w2 >> 16) & 0x1F, None)
+                regs[(w2 >> 16) & 0x1F] = (w2 & 0xFFFF) << 16
+                continue
+            # a jump/branch ends the straight-line window this base is trustworthy in
+            if op in (0x02, 0x03) or (op == 0 and (w2 & 0x3F) in (0x08, 0x09)):
                 break
     return acc
 

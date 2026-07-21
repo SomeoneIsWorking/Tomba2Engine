@@ -513,6 +513,13 @@
   `== 0x15`, which can essentially never be true because the read also covers bf871..73, so that state
   transition NEVER FIRED under pc_skip; and it was written with `mem_w32`, zeroing three adjacent live
   bytes. Plus three `mem_r32(0x800E7FEE)` where the guest uses `lh`.
+- **★ FALSE POSITIVES ARE REAL — verify every hit against `generated/` before changing code.** The
+  scanner resolves an address only when the `lui` establishing the base register is near the access;
+  when the base was set up further back the access is invisible to it. It reported "guest uses: lbu"
+  for the area id `0x800BF870` while gen plainly does `c->mem_r16((c->r[4] + (uint32_t)-1936))` two
+  instructions later, and acting on that produced a WRONG edit (`mem_r8` where gen uses `mem_r16`),
+  caught only by going to `generated/` afterwards. The audit says WHERE to look; `generated/` says what
+  is true.
 - **limits:** an address the guest only forms dynamically (base register from a struct field, computed,
   or $gp-relative) is reported "guest-unseen", not OK. A narrow read of a wider field can be correct
   when only the low bits are wanted. It ranks suspects; it does not judge.

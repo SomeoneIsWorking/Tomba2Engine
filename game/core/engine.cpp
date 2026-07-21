@@ -1356,10 +1356,11 @@ void Engine::fieldRun() { Core* c = core;
       c->mem_w8(sm + 0x6b, 0);
       if (c->mem_r8(0x800bf89cu) == 2) { c->mem_w16(sm + 0x4e, 9); }
       else if (c->mem_r8(0x800bf870u) == 8) { d0(c, 0x80114b90u); }
-      // 0x800BF870 is the area-id BYTE (guest touches it 144x lbu / 1x sb, never wider —
-      // tools/width_audit.py). Read as r32 this compare also sees bf871..73, so it was
-      // effectively never true and this transition never fired under pc_skip.
-      else if (c->mem_r8(0x800bf870u) == 21) { c->mem_w16(sm + 0x4e, 0xb); return; }
+      // HALFWORD read, matching gen (ov_game_gen_80106B98: `mem_r16((r4 + -1936))`) and the faithful
+      // mirror above. It was `mem_r32(...) == 0x15`, which also covers bf872/73 and so was
+      // effectively never true — this transition never fired under pc_skip. (A first pass "fixed" it
+      // to mem_r8 on a bad audit hit; gen settles it: r16.)
+      else if (c->mem_r16(0x800bf870u) == 21) { c->mem_w16(sm + 0x4e, 0xb); return; }
       eng(c).pool.selectStateIndex(c->mem_r8(0x800bf870u));   // OWNED native — replaces d1(0x80074f24, area)
       break;
     case 2:
