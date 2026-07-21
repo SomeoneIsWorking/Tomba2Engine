@@ -30,8 +30,13 @@ namespace {
 constexpr uint32_t BEH_FN = 0x8011CBD0u;
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8011CBD0[2] = {
+  { 16, 16 },
+  { 31 /*ra*/, 20 },
+};   // frame=24, abi_extract --scaffold --guestabi
 
 void beh_node3_router(Core* c) {
+  GuestFrame<24, 2> frame(c, kSpills_8011CBD0);
   uint32_t nd = c->r[4];
   uint8_t st = c->mem_r8(nd + 4);
 

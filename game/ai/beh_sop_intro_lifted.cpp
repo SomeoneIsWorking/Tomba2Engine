@@ -27,6 +27,7 @@
 #include "core/engine.h"          // eng(c).spawn
 #include "render/render.h"        // rend(c)->mNodeXform.buildWithOffset (FUN_800518FC)
 #include "spawn.h"                 // eng(c).spawn.despawn (FUN_8007A624, native)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_dispatch(Core*, uint32_t);
 uint32_t native_sop_overlay_shadow_spawn(Core* c, uint32_t parent);   // FUN_8010AE30, native (sop_overlay_shadow.cpp)
 
@@ -90,8 +91,15 @@ void state_running(Core* c, uint32_t obj) {
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8010B798[4] = {
+  { 16, 16 },
+  { 31 /*ra*/, 28 },
+  { 18, 24 },
+  { 17, 20 },
+};   // frame=32, abi_extract --scaffold --guestabi
 
 void beh_sop_intro_lifted(Core* c) {
+  GuestFrame<32, 4> frame(c, kSpills_8010B798);
   const uint32_t obj = c->r[4];
   const uint8_t  st  = c->mem_r8(obj + 4);
   if (st == 1)      state_running(c, obj);

@@ -50,6 +50,7 @@
 #include "cfg.h"
 #include "core/engine.h"   // eng(c).spawn
 #include "spawn.h"          // Spawn::dispatch / despawn (FUN_8007A980 / FUN_8007A624, native)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 
 namespace {
 constexpr uint32_t SHADOW_HANDLER = 0x8010AB38u;   // this file's own per-frame tick (node+0x1C)
@@ -72,7 +73,11 @@ uint32_t native_sop_overlay_shadow_spawn(Core* c, uint32_t parent) {   // FUN_80
 }
 
 // FUN_8010AB38(node) — per-frame tick, dispatched via node+0x1C.
+static constexpr GuestFrameSpill kSpills_8010AB38[1] = {
+  { 31 /*ra*/, 16 },
+};   // frame=24, abi_extract --scaffold --guestabi
 void beh_sop_overlay_shadow(Core* c) {
+  GuestFrame<24, 1> frame(c, kSpills_8010AB38);
   const uint32_t node   = c->r[4];
   const uint8_t  state  = c->mem_r8(node + 4u);
   const uint32_t parent = c->mem_r32(node + 0x10u);

@@ -30,6 +30,7 @@
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include "graphics_bind.h"   // ov_obj_render_update (FUN_800517F8)
 #include "inventory.h"       // class Inventory — inv(c).give (FUN_8004D4F4)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -47,8 +48,15 @@ static inline uint32_t call3(Core* c, uint32_t a0, uint32_t a1, uint32_t a2, uin
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80117658[4] = {
+  { 17, 20 },
+  { 31 /*ra*/, 28 },
+  { 18, 24 },
+  { 16, 16 },
+};   // frame=32, abi_extract --scaffold --guestabi
 
 void beh_prng_velocity_machine(Core* c) {
+  GuestFrame<32, 4> frame(c, kSpills_80117658);
   uint32_t s1 = c->r[4];                        // s1 = a0 (node)
   uint32_t s0 = c->mem_r8(s1 + 4);              // s0 = node[4] = outer state
   uint32_t s2 = c->mem_r32(s1 + 0x10);          // s2 = node[0x10] (guest pointer)

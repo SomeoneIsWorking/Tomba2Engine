@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -50,8 +51,15 @@ inline void sfx_advance(Core* c, uint32_t obj) {
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_800739AC[4] = {
+  { 16, 16 },
+  { 17, 20 },
+  { 31 /*ra*/, 28 },
+  { 18, 24 },
+};   // frame=32, abi_extract --scaffold --guestabi
 
 void beh_scene_ui_trigger(Core* c) {
+  GuestFrame<32, 4> frame(c, kSpills_800739AC);
   const uint32_t obj = c->r[4];
   uint8_t st = c->mem_r8(obj + 4);
 

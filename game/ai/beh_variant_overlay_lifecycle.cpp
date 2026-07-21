@@ -42,8 +42,14 @@ constexpr uint32_t BEH_FN = 0x8007DC38u;
 constexpr uint32_t OVL_FLAG = 0x800BF822u;   // DAT_800bf822 — global overlay-flag byte; this owns bit 0x04
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8007DC38[3] = {
+  { 16, 16 },
+  { 31 /*ra*/, 24 },
+  { 17, 20 },
+};   // frame=32, abi_extract --scaffold --guestabi
 
 void beh_variant_overlay_lifecycle(Core* c) {
+  GuestFrame<32, 3> frame(c, kSpills_8007DC38);
   const uint32_t nd = c->r[4];
   uint8_t st = c->mem_r8(nd + 4);
 

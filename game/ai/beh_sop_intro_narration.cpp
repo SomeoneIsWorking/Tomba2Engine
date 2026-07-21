@@ -34,6 +34,7 @@
 #include "core/engine.h"          // eng(c).spawn
 #include "render/render.h"        // rend(c)->mNodeXform.buildWithOffset (FUN_800518FC)
 #include "spawn.h"                 // eng(c).spawn.despawn (FUN_8007A624, native)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_dispatch(Core*, uint32_t);
 
 namespace {
@@ -129,8 +130,14 @@ void state_running(Core* c, uint32_t obj) {
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8010B990[3] = {
+  { 16, 32 },
+  { 31 /*ra*/, 40 },
+  { 17, 36 },
+};   // frame=48, abi_extract --scaffold --guestabi
 
 void beh_sop_intro_narration(Core* c) {
+  GuestFrame<48, 3> frame(c, kSpills_8010B990);
   const uint32_t obj = c->r[4];
   const uint8_t  st  = c->mem_r8(obj + 4);
   if (st == 1)      state_running(c, obj);
