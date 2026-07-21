@@ -230,3 +230,18 @@
   meaningless. Needs a live confirmation. Also still true post-fix: `node[+0x2b]` is never stamped
   nonzero, so the FUN_801308e0 contact path remains unexercised and the 0x48 writes are arriving by
   another route. If the seesaw still misbehaves live, that is the next thread.
+
+### contact-stamp thread (2026-07-21) — queueing is fine; the value-2 stamp is unowned substrate
+- The beam is **class 4, type 0, visible**, and IS in the class-4 queue (`ptr 0x1F80014C`, `count
+  0x1F800152`; 11 entries, beam at index 5). Queueing is not the failure.
+- `interact_scan` legitimately skips it — its activatable-type list has no type 0. That is the
+  press-to-activate path (writes +0x2b = 3), NOT the weight path.
+- The aux walk in `areaSeasidePerframe` consumes the **class-5 queue C** (`0x1F800154`/`0x1F80015C`,
+  empty in the grab dump), so `FUN_80112A60` is not the beam's stamper. CORRECTION to an earlier note
+  in this session: `0x80077F24/F30` are inside `FUN_80077EFC` (queue C), not `FUN_80077EBC`
+  (`enqueueVisibleClass4`) — I mis-attributed them.
+- Of the 105 `sb rt,0x2b(base)` sites with a non-zero source, **22 write the literal 2** (the weight
+  case). The 13 MAIN.EXE functions containing them (`8001DC9C 8001E434 8001E860 8002313C 80023618
+  80068A94 80068E68 80068FBC 80069948 8006B1FC 8006B390 8006B494 8006C0C4`) are **all unowned
+  substrate**. So the stamp is original code, not a mis-port — the defect is upstream REACHABILITY of
+  those functions. That is the next place to look.
