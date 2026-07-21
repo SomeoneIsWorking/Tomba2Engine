@@ -11,7 +11,9 @@
 // under the name `subFlag`, which says nothing. It is an INTERACTION STATE with three known values:
 //
 //     0  none          — not a candidate
-//     1  in-range      — the player is close enough / facing it; set by the proximity pass
+//     1  in-range      — this object is offering an interaction. Set by the object's OWN handler:
+//                     there is no single proximity pass (a scan of generated/ finds 97 distinct
+//                     writers of the literal 1 into +0x2b, spread across the per-area overlays)
 //     3  ACTIVATED     — the player has just acted on it; set HERE, consumed by the object's handler
 //
 // The consuming handler tests for 3 inside its sub-state switch and clears it in its render tail.

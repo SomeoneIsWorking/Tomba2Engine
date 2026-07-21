@@ -101,7 +101,9 @@ public:
   // NAMED PROPERLY 2026-07-21 (game/player/interact_scan.cpp, RE of guest FUN_80024794). This byte is
   // the object's INTERACTION STATE, not a generic "sub flag":
   //     kInteractNone (0)      not a candidate
-  //     kInteractInRange (1)   player is close enough / facing it — set by the proximity pass
+  //     kInteractInRange (1)   this object is offering an interaction — set by the object's OWN
+  //                            handler, NOT by one central proximity pass (97 distinct writers of the
+  //                            literal 1 across the area overlays; each object type decides for itself)
   //     kInteractActivated (3) player just acted on it — set by the interaction scanner, consumed by
   //                            this object's own handler, cleared in that handler's render tail
   // The scanner also publishes WHICH activation happened at 0x800BF840 (0x84 sign/plaque family,

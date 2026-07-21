@@ -915,7 +915,11 @@ class(+0x0C)==4, an interactable type (0x0E/0x0F/0x39/0x32/0x59/0x4B/0x4F/0x66/0
 (0x84 for the sign/plaque family 0x0E/0x0F/0x39, 0x85 otherwise), then returns 1.
 
 So the byte is an interaction state, now named as such in `Actor`:
-`kInteractNone(0)` -> `kInteractInRange(1)` (proximity pass) -> `kInteractActivated(3)` (this scanner).
+`kInteractNone(0)` -> `kInteractInRange(1)` -> `kInteractActivated(3)` (this scanner).
+CORRECTION: I first wrote that 1 comes from "the proximity pass". There is no such single pass —
+generated/ contains **97 distinct writers** of the literal 1 into +0x2b, spread across the per-area
+overlays, i.e. each object type's own handler decides when it is offering an interaction. Asserted
+before checking; the scan is the evidence.
 The object's own handler consumes the 3 and clears it in its render tail. Stated that way, the
 softlock is self-evident: clearing it before the consume throws away the player's button press.
 
@@ -932,3 +936,22 @@ softlock is self-evident: clearing it before the consume throws away the player'
 
 Gated: SBS full 0-diff on the save-sign replay (1200f) and hut-entry (1800f), with `ovhit` showing
 native=1 so the runs actually exercise it.
+
+### Next RE-ready step in the interaction cluster: FUN_80024448 (decomp saved)
+Ownership now runs `interact_scan` (0x80024794, 1 -> 3). Going UP the chain, its caller is
+`0x8005D530` — 548 lines with ~10 callees, a real subsystem, not a leaf; do not start it casually.
+
+The tractable neighbour is **`FUN_80024448`** (frame 32, 3 spills, 63 gen lines), decompiled to
+`scratch/decomp/interact_sibs.c`. It is a player SURFACE PROBE:
+- probe distance 0x25 or 0x4A depending on the sign of `player+0x17E`
+- clears `player+0x17D`, then `FUN_80046A44(player, player+0x66, -(player+0x68), dist)`
+- on a hit: `player+0x17D = (scratch 0x1F8001A6 >> 11) & 3`; `FUN_80048654(player)`;
+  `player+0x140 = (i16)0x1F8001A0` (the surface angle); `player+0x56` = that angle, or
+  `(angle - 0x800) & 0xFFF` when `player+0x147 != 0` (the flipped-facing case);
+  if `hit == 2 && (player+0x17D & 1)` then `player+0x164 = 7` and `FUN_80024AF0(player)`,
+  else `player+0x164 = 4`; `player+0x15C = hit`; clears scratch `0x1F800084`. Returns 1, else 0.
+
+Porting it needs: the frame mirrored (32/3), and the jal-site ra constant set before EACH of the
+three substrate calls (80046A44 / 80048654 / 80024AF0) — its frame spills ra, so per the measured
+rule a `GuestFrame` alone would spill the wrong value. And install it WITH a setter if its callers
+use the direct thunk, or it will register and never run (that happened with the scanner).
