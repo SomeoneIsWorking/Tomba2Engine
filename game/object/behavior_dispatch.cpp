@@ -195,7 +195,12 @@ void BehaviorDispatch::dispatchObj(uint32_t obj, uint32_t handler) {
   // overrides::dispatch), PLUS the pc_skip fork rec_dispatch doesn't need (registered overrides are
   // required byte-exact even under pc_faithful; the beh_* table is not — it's an explicit shortcut).
   bool substrateOnly = c->game->psx_fallback || c->game->verify.inSubstrateLeg || !c->game->pc_skip;
-  if (substrateOnly || !dispatchNative(handler)) rec_dispatch(c, handler);
+  // MIRROR-VERIFY the native behaviour legs too. The beh_* table dispatches OUTSIDE the override
+  // registry, so PSXPORT_MIRROR_VERIFY=all never covered it — which is exactly how a bad handler
+  // (0x800739AC, the 2026-07-21 save-sign softlock) sat undetected: no gate compared its guest writes
+  // against the substrate's. Now `PSXPORT_MIRROR_VERIFY=<addr>` works on any behaviour handler.
+  if (substrateOnly) { rec_dispatch(c, handler); return; }
+  MV_CHECK(c, handler, { if (!dispatchNative(handler)) rec_dispatch(c, handler); });
 }
 
 bool BehaviorDispatch::dispatchNative(uint32_t handler) {

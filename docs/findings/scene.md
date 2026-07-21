@@ -833,3 +833,34 @@ After deduping FUN_80040B48 + FUN_80040CDC, `codemap.py --conflicts` (authoritat
 - **likely the same cause as kanban #2** (bucket-pickup cutscene softlock, also pc_skip-ON, also an
   interaction→cutscene flow). Unverified — no replay exists for #2 yet; capture one and test it with
   `PSXPORT_BEH_SUBSTRATE=800739AC` before assuming.
+
+### Narrowing the save-sign softlock further — and two things RULED OUT
+Follow-up 2026-07-21, same day. Converting more unknowns:
+
+**RULED OUT — the missing guest frame in `GraphicsBind::recordInitBody`.** Mirror-verifying the
+handler (see below) reports its first divergence in the guest stack at `0x801FE996..0x801FE99F`,
+below the handler's own frame — i.e. inside a callee's frame region. That callee is
+`recordInitBody`, the native port of `0x80051B70`, which performs NO sp descent while the guest
+descends 40 and spills r16-r19/r31. A genuine faithfulness defect, and a tempting culprit.
+
+It is NOT the cause: adding `GuestFrame<40,5>` to `recordInitBody` and re-running leaves the lock
+exactly as it was (`800E7E80` still `07`). Reverted. Worth fixing on its own merits, but chasing it
+as the softlock's cause would have been a dead end — recorded so nobody re-walks it.
+
+**RULED OUT — a diverging guest-memory write.** Every mismatch mirror-verify reported (15 bytes, one
+invocation) is in the dead guest-stack region. There is NO non-stack divergence at all. So the native
+handler's guest-visible writes match the substrate's; the lock is not produced by writing a wrong
+byte, which is where I would otherwise have looked next.
+
+**KNOWN LIMITATION — mirror-verify cannot gate this handler.** The run exits 139 (SIGSEGV). Its
+two-leg protocol snapshots and rewinds guest RAM + scratch + registers, but the native leg also
+mutates HOST-side engine state (the `GraphicsBind` record allocator and friends), which the rewind
+does not restore — so leg 2 runs against inconsistent host state and dies. Treat mirror-verify
+results on behaviour handlers that touch native engine classes as unreliable, and note the crash is
+itself evidence of host-state mutation.
+
+**Where that leaves it:** the divergence is not in guest memory writes, so it is in returned
+registers (v0 controlling the caller's sub-state advance), in host-side engine state, or in call
+COUNT/ordering. The `beh_scene_ui_trigger` sub-state machine advances `obj+5` and gates on
+`obj+0x2b == 3`; comparing those two bytes per-frame between a native and a forced-substrate run is
+the next concrete step.
