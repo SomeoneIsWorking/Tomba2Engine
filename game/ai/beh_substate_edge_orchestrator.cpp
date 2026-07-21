@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -37,8 +38,14 @@ namespace {
 constexpr uint32_t BEH_FN = 0x8012EB54u;
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8012EB54[3] = {
+  { 17, 20 },
+  { 31 /*ra*/, 24 },
+  { 16, 16 },
+};   // frame=32, abi_extract --scaffold --guestabi
 
 void beh_substate_edge_orchestrator(Core* c) {
+  GuestFrame<32, 3> frame(c, kSpills_8012EB54);
   const uint32_t obj = c->r[4];
   uint8_t st = c->mem_r8(obj + 4);                    // s0 = node[4] (state)   [0x8012EB68]
 

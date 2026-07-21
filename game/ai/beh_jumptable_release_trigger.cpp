@@ -35,6 +35,7 @@
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include "graphics_bind.h"   // ov_obj_set_geom
 #include "inventory.h"       // class Inventory — inv(c).giveAndFlag (FUN_8004D4C4)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -115,8 +116,16 @@ static void release_position_801244e8(Core* c, uint32_t obj, uint32_t mode) {
     rec_dispatch(c, 0x80124328u);                        // still-PSX leaf
   }
 }
+static constexpr GuestFrameSpill kSpills_80124E74[5] = {
+  { 18, 24 },
+  { 31 /*ra*/, 32 },
+  { 19, 28 },
+  { 17, 20 },
+  { 16, 16 },
+};   // frame=40, abi_extract --scaffold --guestabi
 
 void beh_jumptable_release_trigger(Core* c) {
+  GuestFrame<40, 5> frame(c, kSpills_80124E74);
   const uint32_t obj = c->r[4];                 // 80124E7C  move s2, a0  (s2 = obj node ptr)
   uint8_t st = c->mem_r8(obj + 4);              // 80124E90  lbu v1, 4(s2)  (state byte)
 

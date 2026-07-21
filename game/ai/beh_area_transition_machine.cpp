@@ -47,6 +47,7 @@
 #include "trig.h"    // class Trig — libgte ratan2
 #include "camera/cutscene_camera.h"   // CutsceneCamera::runInitSeedGrp (was rec_dispatch 0x8006CBA8)
 #include "render/render.h"   // rend(c)->mNodeXform (was rec_dispatch 0x80051844)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -167,8 +168,18 @@ static void node6_phase(Core* c, uint32_t nd) {
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80127798[7] = {
+  { 20, 40 },
+  { 31 /*ra*/, 48 },
+  { 21, 44 },
+  { 19, 36 },
+  { 18, 32 },
+  { 17, 28 },
+  { 16, 24 },
+};   // frame=56, abi_extract --scaffold --guestabi
 
 void beh_area_transition_machine(Core* c) {
+  GuestFrame<56, 7> frame(c, kSpills_80127798);
   const uint32_t nd = c->r[4];
   uint8_t st = c->mem_r8(nd + 4);
 

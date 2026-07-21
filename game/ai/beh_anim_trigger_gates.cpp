@@ -37,8 +37,13 @@ namespace {
 constexpr uint32_t BEH_FN = 0x80129C00u;
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80129C00[2] = {
+  { 16, 16 },
+  { 31 /*ra*/, 20 },
+};   // frame=24, abi_extract --scaffold --guestabi
 
 void beh_anim_trigger_gates(Core* c) {
+  GuestFrame<24, 2> frame(c, kSpills_80129C00);
   uint32_t obj = c->r[4];                         // s0 = a0 (node)
   uint32_t v1;
 

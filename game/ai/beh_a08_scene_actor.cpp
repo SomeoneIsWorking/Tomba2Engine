@@ -40,6 +40,7 @@
 #include "core/engine.h"
 #include "render/screen_fade.h"
 #include <cstdint>
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 
 extern "C" void rec_dispatch(Core* c, uint32_t addr);
 
@@ -670,8 +671,14 @@ int state1Run(Core* c, uint32_t obj) {
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_801280D0[3] = {
+  { 16, 24 },
+  { 31 /*ra*/, 32 },
+  { 17, 28 },
+};   // frame=40, abi_extract --scaffold --guestabi
 
 void beh_a08_scene_actor(Core* c) {
+  GuestFrame<40, 3> frame(c, kSpills_801280D0);
   const uint32_t obj = c->r[4];
   const uint8_t state = c->mem_r8(obj + O_STATE_4);
   if (state == 1) {

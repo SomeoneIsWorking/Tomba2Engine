@@ -35,6 +35,7 @@
 #include <string.h>
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include "graphics_bind.h"   // ov_obj_record_init
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -107,8 +108,14 @@ inline void gate_then_flag(Core* c, uint32_t obj, uint32_t thr) {
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8012D4EC[3] = {
+  { 16, 16 },
+  { 31 /*ra*/, 24 },
+  { 17, 20 },
+};   // frame=32, abi_extract --scaffold --guestabi
 
 void beh_jumptable_flag_gate(Core* c) {
+  GuestFrame<32, 3> frame(c, kSpills_8012D4EC);
   const uint32_t obj = c->r[4];                             // 8012D4F4 move s0,a0
   uint8_t st = c->mem_r8(obj + 4);                          // 8012D504 lbu v1,4(s0)  (state byte)
   // a1 (= 0x800E7E80) is set in the prologue delay slot (8012D510) but only read on the state-1 path.

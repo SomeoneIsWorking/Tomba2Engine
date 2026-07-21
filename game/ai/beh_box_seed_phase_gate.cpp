@@ -38,8 +38,14 @@ namespace {
 constexpr uint32_t BEH_FN = 0x8012A0B8u;
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8012A0B8[3] = {
+  { 17, 20 },
+  { 31 /*ra*/, 24 },
+  { 16, 16 },
+};   // frame=32, abi_extract --scaffold --guestabi
 
 void beh_box_seed_phase_gate(Core* c) {
+  GuestFrame<32, 3> frame(c, kSpills_8012A0B8);
   uint32_t s1 = c->r[4];                            // s1 = a0 (node)
   uint32_t s0 = c->mem_r8(s1 + 4);                  // s0 = node[4] = outer state
 
