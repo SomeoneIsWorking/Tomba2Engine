@@ -2394,7 +2394,7 @@ draft was already byte-faithful.
   | `0x8003F3F4` | semi ON   | `cmd \|= 2` (set the semi-transparency bit) |
   | `0x8003F4C4` | semi OFF  | `cmd &= ~2` |
   | `0x8003F344` | clut swap | write u16 from `obj+0x5C` into `pkt+0x0E` |
-  | `0x8003F594` | flat tint | overwrite EVERY vertex colour word with u32 `obj+0x18`, and set semi |
+  | `0x8003F594` | flat tint | write u32 `obj+0x18` over the colour word(s) — count varies, see below — and set semi |
   | `0x8003D584` | coloradd  | per-channel modulate from `obj+0x18/+0x19/+0x1A` (see encoding below) |
 - **the coloradd byte encoding** (`0x8003D584`, non-obvious and asymmetric — do not "simplify" it):
   for each channel byte `t` and pixel channel `p`:
@@ -2409,3 +2409,35 @@ draft was already byte-faithful.
   Ghidra auto-analysis never created Function objects for them and `decomp.sh` silently emitted
   nothing ("wrote 0 functions", naming no address). `ghidra_decomp.py` now creates the function on
   demand and reports both what it created and any address it still could not resolve.
+
+### CORRECTION (verified against `gen`, not Ghidra) — read the command byte BEFORE the colour write
+Two details from the first pass were Ghidra artefacts. `generated/*.c` is the byte-faithful target;
+Ghidra is only the reading aid. Both were confirmed by reading `gen_func_8003F594` / `gen_func_8003F344`
+and by decoding the real jump tables out of MAIN.EXE.
+
+1. **Ordering.** The colour write is a **u32 at `pkt+4`, which spans `pkt+4..pkt+7` and therefore
+   OVERWRITES THE COMMAND BYTE at `pkt+7`.** Every colour-bearing case in `gen` therefore does:
+   ```
+   old = mem_r8(pkt+7);          // read FIRST
+   mem_w32(pkt+4, tint);         // clobbers pkt+7 with the top byte of the tint
+   ...additional colour words...
+   mem_w8(pkt+7, old | 2);       // restore the cmd byte, semi set
+   ```
+   Ghidra rendered the 0x24 case as `*pbVar2 = *pbVar2 | 2` (a read AFTER the write), which would OR 2
+   onto the tint's top byte instead of the original opcode — a different packet. Variable reuse in the
+   decompiler hid the real order. **Do not port from the Ghidra listing for this family.**
+2. **The tint is NOT applied to every vertex** — the count is per-opcode, and it matches the vertex
+   count of the primitive:
+   `0x24 -> 1 colour word (stride 32) · 0x2C -> 1 (stride 40) · 0x34 -> 3 (stride 40) · 0x3C -> 4 (stride 52)`
+   at `pkt+4, +0x10, +0x1C, +0x28`.
+
+**The dispatch is a real jump table, not a computed stride.** Each fn indexes a 29-entry table by
+`idx = (cmd & 0xFC) - 0x20`:
+`0x8003F344 -> table @0x80015088` · `0x8003F594 -> table @0x800151F0`.
+Only multiples of 4 are reachable after the mask; the in-between entries are filler pointing at the
+loop tail. Decoded, both tables agree on the strides already recorded above.
+
+**Degenerate case:** an unrecognised opcode (`idx >= 29`, or a filler entry) branches to the loop tail
+WITHOUT advancing the pointer — i.e. the guest spins forever. It cannot happen with valid pool data.
+A native port must not silently `break` past it (that would be a different behaviour); FAIL-FAST with a
+diagnostic instead, per the project directive.
