@@ -282,8 +282,28 @@
   mode value nor an object pointer). A/B/C reading 0 is equally consistent with "reset at frame start,
   filled and consumed inside the render window, dumped outside it". WWATCH cannot watch scratchpad
   (see tooling.md), so the queue counts cannot be sampled that way either.
-- **THE MEASUREMENT THAT SETTLES IT:** sample `0x1F800144` (and `0x1F800080`) at the exact moment
-  `areaSeasidePerframe` dispatches `LEAF_TRIO_113700`, i.e. inside the native handler right before the
-  trio, rather than from a frame-boundary dump. If it is 0 there, the gate is genuinely shut and the
-  cull fill path is the bug; if it is non-zero, the emptiness is a phase artifact and this whole branch
-  is a dead end.
+- **RESOLVED — IT WAS A PHASE ARTIFACT (dead end, do not re-walk).** The `cullq` probe (registered
+  channel, samples inside `areaSeasidePerframe` immediately before the trio dispatch) shows queue A
+  holding **11-12 entries** in the overwhelming majority of 6582 samples, and the cull gate
+  `0x1F800080 == 0` (open) in 6580 of them. Queue A is filled correctly; `Cull::decide` /
+  `enqueueQueueA` are NOT the bug. The empty queues in the frame-boundary dump were exactly the
+  scratchpad-reuse artifact flagged above.
+
+### ★ THE REAL GATE (2026-07-21): the stamper's object-list head 0x800F2738 is NULL
+- `FUN_80113700` has TWO gates, and it is the second that is shut. Disassembled prologue:
+  `LH r2,0x144(0x1F80)` + `BEQ r2,r0` (queue A count — PASSES, 11-12 entries), then
+  `LW r17,0x2738(0x800F0000)` + `BEQ r17,r0,+100` — if the object-list head is null the whole body is
+  skipped. Ghidra's `pbVar1 = DAT_800f2738` is a genuine POINTER LOAD (verified in the instruction
+  stream, since its typing had already misled twice).
+- **Measured at the correct phase:** the `cullq` probe walks that head's chain (`+0x24` links) right
+  before the trio dispatch — length **0 in 6570 of 6582 samples**. So the contact stamper runs and
+  immediately returns, every frame. That is why `+0x2b` is only ever written 0, and why the beam never
+  gets its weight.
+- **Who fills that head:** `FUN_8007A810` (pool init — ZEROES it; reached from `Pool::init`, ours) and
+  `FUN_8007AB44` (the registration, 2 store sites). `FUN_8007AB44` has 6 callers —
+  `80068FBC 80069300 8006AE28 8006BB6C 8006C478 8006C59C` — **all unowned substrate**, and all in the
+  same `0x80068-0x8006C` band as the literal-2 `+0x2b` stamp functions. One coherent contact/collision
+  registration subsystem, entirely un-ported.
+- **NEXT:** walk one link further up — find the callers of those six registrars and check whether any
+  is natively owned. The first owned caller that fails to reach them is the defect. If they are all
+  substrate too, the question becomes why the substrate never runs them (a missing dispatch upstream).
