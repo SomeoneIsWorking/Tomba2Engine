@@ -522,6 +522,21 @@
   overlay code that is not in `generated/`. That took coverage from 1135 to ~5400 addresses and made
   the area-id false positive disappear — which is how the change was validated. The rule still stands:
   the audit says WHERE to look, `generated/` says what is true.
+- **CONVERGED (2026-07-22): 60 hits -> 6, all benign.** 864 accesses agree, 43 unresolved, and the 6
+  remaining are all `0x800BF80D` compared `== 0` / `!= 0` / `== 3`, where signedness cannot matter.
+  Getting there meant closing FOUR false-positive modes; each one, left in, would have invited a wrong
+  edit like the area-id one:
+  1. register map reset at every label (discarded bases a function sets once and reuses);
+  2. native WRITES compared only against guest STORES (flagged every 32-bit write of the 0x800ECF58
+     model-table pointer, which is *read* mem_r32 in ~60 places);
+  3. the address regex matching a literal inside arithmetic — `mem_w16(0x800E8040u + 2, v)` writes
+     0x800E8042, and treating it as 0x800E8040 invented three "narrow write" defects out of the
+     ordinary "set the integer half of a 16.16 field" idiom;
+  4. ignoring an explicit `(int8_t)` / `(int16_t)` cast, which is how this codebase spells a signed
+     load — that flagged correct code in engine.cpp.
+- **second real catch:** `BgSceneTransitionSm::midTransitionGate` tested `mem_r8(0x800BF80D) > 1`
+  UNSIGNED where gen does `(int8_t)mem_r8(...)` then a signed `< 2` — so for 0x80..0xFF the native
+  fired an audio-fade gate the guest suppresses. Fixed to `(int8_t)... >= 2`.
 - **two false-positive modes found and closed, both worth knowing:** (1) resetting the register map at
   every label discarded bases a function establishes once and reuses throughout — relaxed; (2)
   comparing native WRITES only against guest STORES flagged every 32-bit write of the `0x800ECF58`

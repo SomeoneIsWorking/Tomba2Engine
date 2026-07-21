@@ -35,7 +35,10 @@ ranks suspects; it does not judge.
 import argparse, os, re, struct, sys
 
 # native side: mem_rN / mem_wN against a literal guest address
-NATIVE_RE = re.compile(r'mem_(r|w)(8|16|16s|32)\s*\(\s*(0x8[0-9A-Fa-f]{7})u?', re.I)
+# The address expression must be the BARE literal: `mem_w16(0x800E8040u + 2, v)` writes 0x800E8042,
+# not 0x800E8040, and treating it as the latter invented three "narrow write" defects out of the
+# perfectly ordinary "set the integer half of a 16.16 field" idiom. Require , or ) to follow.
+NATIVE_RE = re.compile(r'(\(int8_t\)|\(int16_t\))?\s*(?:c->)?mem_(r|w)(8|16|16s|32)\s*\(\s*(0x8[0-9A-Fa-f]{7})u?\s*[,)]', re.I)
 
 # MIPS load/store opcodes -> (bits, signed, kind)
 OPS = {0x20: (8, True, 'lb'), 0x24: (8, False, 'lbu'), 0x21: (16, True, 'lh'),
@@ -182,10 +185,12 @@ def main():
                 code = line.split('//', 1)[0]
                 if not code.strip():
                     continue
-                for rw, wid, addr_s in NATIVE_RE.findall(code):
+                for cast, rw, wid, addr_s in NATIVE_RE.findall(code):
                     addr = int(addr_s, 16)
                     nbits = 32 if wid == '32' else (8 if wid == '8' else 16)
-                    nsigned = wid.endswith('s')
+                    # `(int8_t)c->mem_r8(...)` IS a signed read — the cast is how the codebase spells
+                    # lb, and ignoring it flagged correct code (engine.cpp's `(int8_t)mem_r8` sites).
+                    nsigned = wid.endswith('s') or bool(cast)
                     g = guest.get(addr)
                     if not g:
                         unseen += 1

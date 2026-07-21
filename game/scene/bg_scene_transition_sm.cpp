@@ -93,7 +93,10 @@ void BgSceneTransitionSm::audioFadeTarget(Core* c, int32_t v) {
 // each with a different arg pattern; all three fire only when 800BF80D > 1 OR 800BF839 != 0
 // (the same "we're actually mid-transition" gate the SM's state 2/3/4 use elsewhere).
 bool BgSceneTransitionSm::midTransitionGate(Core* c) {
-  return c->mem_r8(0x800BF80Du) > 1 || c->mem_r8(0x800BF839u) != 0;
+  // SIGNED byte, matching gen: `(int8_t)mem_r8(0x800BF80D)` then a signed `< 2` test, so the gate
+  // fires on v >= 2 SIGNED. Read unsigned, 0x80..0xFF also pass `> 1` and the fade fires where the
+  // guest suppresses it. (tools/width_audit.py; gen_func_80026470/80026510/800264BC all agree.)
+  return (int8_t)c->mem_r8(0x800BF80Du) >= 2 || c->mem_r8(0x800BF839u) != 0;
 }
 void BgSceneTransitionSm::audioStub26470(Core* c) { if (midTransitionGate(c)) audioFadeTarget(c, 0); }
 void BgSceneTransitionSm::audioStub26510(Core* c) { if (midTransitionGate(c)) audioFadeTarget(c, -1); }
