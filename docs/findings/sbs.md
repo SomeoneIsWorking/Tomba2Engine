@@ -1905,6 +1905,25 @@ would — hence the divergence.
    comparison point — so that clean result is real evidence, not vacuous. But it is not proof that
    every one of the 54 is placed correctly; a handler with a native caller would have the same
    problem and might simply not have been exercised. The behaviour handlers are dispatched only
-   through the guest table (no native callers found), which is why the mechanical fix was appropriate
-   there — but that property was assumed, not verified per handler, and it is the thing to check if
-   any of them ever surfaces a divergence.
+   through the guest table, which is why the mechanical fix was appropriate there.
+
+**That property is now VERIFIED, not assumed** (2026-07-21): scanning every `.cpp` in `game/` and
+`runtime/` for a direct call to each of the 54 symbols — excluding the dispatch-table row, the
+forward declaration, the definition itself and constants that merely name the address — finds
+**0 of 54** with a native call site. All 54 are reached only through the guest dispatch table, so the
+frame belongs in the body, which is where it was put. The Cull counter-example does not apply to them.
+
+Repeat that check before framing any native body: `grep` the symbol across `game/` + `runtime/`, and
+if anything other than the wiring calls it, the frame belongs in a `*Framed` wrapper instead.
+
+
+### Tooling note: strip `//` comments BEFORE classifying a line
+Four separate false-positive waves in this one task came from line classifiers, and two of them were
+the same root cause — a trailing comment defeating an end-of-line anchor:
+- `frame_audit`'s thunk detector: a body ending `...; }` and a `c->r[2] = 0;  // why` line both failed
+  `;\s*$`, so real thunks looked like real bodies (43 bogus "missing frame" hits).
+- the direct-caller check above: `void beh_x(Core* c);   // 0x8002918C` does not end with `;`, so the
+  forward-declaration filter missed every one and the check reported **54 of 54 at risk** — the exact
+  opposite of the truth.
+Strip `//…$` first, then classify. And when a checker reports *everything* or *nothing*, suspect the
+checker before believing the result.
