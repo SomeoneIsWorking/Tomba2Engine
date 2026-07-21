@@ -164,3 +164,22 @@ its own beyond the shared cursor-index global `DAT_800bf808`):
 - **the step that would settle it:** a capture (or a live session) with a message box ACTUALLY ON
   SCREEN, then `PSXPORT_DEBUG=dispatch` at that moment to see which functions run. Until then any
   further dialog porting is aimed by guesswork.
+
+## The live in-game dialog path, measured (2026-07-22) — and what is NOT on it
+- **Method:** `PSXPORT_DEBUG=dispatch` over `replays/bugs/bucket-softlock.pad`, filtered to the
+  0x8007xxxx region. A dialog genuinely renders in this capture: `Panel::pushDialogGlyphs`
+  (0x8007CC00) is dispatched 37x inside the first 800 frames, and screenshots put the bucket pickup
+  between f300 and f600.
+- **On the path (they actually run):** `0x8007CC00` (owned — `Panel::pushDialogGlyphs`, a render-side
+  REBUILD, not a byte-faithful port, so `port_check` does not apply to it), `0x8007E9C8` (owned),
+  and `0x8007E6DC / 0x8007E8DC / 0x8007E938 / 0x8007E998 / 0x8007FCC8 / 0x8007FD54` — every one of
+  which already has a byte-faithful `leaf_<addr>` port in `game/core/field_owned_leaves.cpp` sitting
+  **UNWIRED (ORPHAN)**. Wiring those is available, cheap, and behaviour-neutral.
+- **NOT on the path:** `FUN_8007D594` (never called at all — see the entry above) and the
+  `0x8007C0D0` byte-stream advance did not appear in this window either.
+- **DEAD END, do not retry as-is:** correlating functions to the frames where the dialog is up.
+  `PSXPORT_DEBUG=dispatch` stamps every line `f0`, so per-frame attribution is impossible with it;
+  differencing cumulative sets instead yields ~244 functions, i.e. all of gameplay, which is useless.
+  Fix the channel's frame stamp first if this correlation is ever needed.
+- **Still missing:** the softlock itself. This capture has the user playing normally, so the bug is not
+  in it. Everything above narrows WHERE the dialog lives, not why it locks.
