@@ -105,7 +105,7 @@ struct TaskSm {
 // sm[0x48] == 0 — area INIT: advance to running (sm[0x48]=2), reset the sub-machine state, run the per-area
 // setup fns. (GAME.BIN 0x801086e0) Verified runtime-exercised + RAM 0-diff.
 // GUEST FRAME MIRROR (abi_extract --contract, single epilogue label -> GuestFrame RAII is safe): sp-24, ra@+16.
-void Engine::s48_0() { Core* c = core;
+void Engine::stageAreaInit() { Core* c = core;
   static constexpr GuestFrameSpill kSpills[] = {{31, 16}};
   GuestFrame<24, 1> frame(c, kSpills);
   TaskSm sm(c);
@@ -122,7 +122,7 @@ void Engine::s48_0() { Core* c = core;
 // verify (later-168) does not hit sm[0x48]==1, so this handler is not yet runtime-exercised — its callee
 // FUN_8007b3f4 is synchronous like the init pair, so it is registered alongside ov_game_s48_0.
 // GUEST FRAME MIRROR (abi_extract --contract, single epilogue label -> GuestFrame RAII is safe): sp-24, ra@+16.
-void Engine::s48_1() { Core* c = core;
+void Engine::stageResumeInit() { Core* c = core;
   static constexpr GuestFrameSpill kSpills[] = {{31, 16}};
   GuestFrame<24, 1> frame(c, kSpills);
   TaskSm sm(c);
@@ -138,86 +138,27 @@ void Engine::s48_1() { Core* c = core;
   c->mem_w8 (0x1f800234u, 0);
 }
 
-// sm[0x48] == 2 — RUNNING: dispatch the running sub-mode sm[0x4a] (0..5); >=6 is a no-op. (GAME.BIN
-// 0x80108784) The engine OWNS this 6-way running-sub-mode selection. The selected sub-handler is retained
-// PSX content/system code that can YIELD DEEP (it calls resident 0x8007xxxx fns that wait across frames),
-// so it must NOT be rec_dispatch'd: that nests a rec_interp with its own CORO_SENTINEL, and the deep
-// yield's longjmp destroys that C frame -> the resume mis-reads the return as task-end and kills task 0
-// (later-168). Instead we use the cooperative-yield handshake (rec_coro_redirect, later-169): do the
-// dispatch natively, then continue the flat interp at the handler IN-CONTEXT (same task run). A deep yield
-// then longjmps to the scheduler and resumes correctly; the handler returns through the guest trampoline
-// `j 0x8010881c` -> epilogue -> the task loop, exactly as the PSX path would.
-//
-// Faithful to 0x80108784: prologue `addiu sp,-0x18; sw ra,0x10(sp)`; read sm[0x4a]; if <6, set ra to the
-// handler's guest return (the `jal handler`'s ra = jal_addr+8 = the trampoline's `j 0x8010881c`, byte-
-// identical so the handler's saved-ra on its stack matches the reference) and redirect to the handler;
-// else redirect to the guest epilogue 0x8010881c (which restores ra from 0x10(sp) and returns).
-void Engine::s48_2() { Core* c = core;
-  static const uint32_t handler[6] = {
-    0x8010882cu, 0x801088d8u, 0x80106478u, 0x80106a24u, 0x801089c4u, 0x80108a60u,
-  };
-  uint32_t ra = c->r[31];
-  c->r[29] -= 0x18; c->mem_w32(c->r[29] + 0x10, ra);   // prologue: addiu sp,-0x18; sw ra,0x10(sp)
-  uint32_t sm = c->mem_r32(0x1f800138);
-  uint16_t s4a = c->mem_r16(sm + 0x4a);
-  if (cfg_dbg("stage")) {
-    uint16_t s4c = c->mem_r16(sm + 0x4c);
-    if (s4a != mLast4a || s4c != mLast4c) {
-      cfg_logf("stage", "running: sm[0x4a]=%u sm[0x4c]=%u", s4a, s4c);
-      mLast4a = s4a; mLast4c = s4c;
-    }
-  }
-  if (s4a >= 6) { rec_coro_redirect(c, 0x8010881Cu); return; }   // out of range -> guest epilogue
-  c->r[31] = 0x801087CCu + (uint32_t)s4a * 0x10u;       // handler's guest return (`j 0x8010881c` trampoline)
-  rec_coro_redirect(c, handler[s4a]);                  // run the handler IN-CONTEXT (survives a deep yield)
-}
+// (The staged Engine::s48_2 mirror of GAME.BIN 0x80108784 — which coro-redirected each sm[0x4a]
+// sub-handler to the substrate — was never called and is deleted. Engine::stageRunning below is the
+// LIVE native dispatcher for sm[0x48]==2; it calls the owned sub-mode handlers directly. RE note kept:
+// a sub-handler that YIELDS DEEP must not be rec_dispatch'd (that nests a rec_interp whose
+// CORO_SENTINEL the yield's longjmp destroys, mis-reading the return as task-end and killing task 0,
+// later-168) — reach such a handler via rec_coro_redirect instead, as stageRunning still does for the
+// sub-modes it does not own.)
 
-// s4c() reference: sm[0x4c] == the AREA machine (the 9-state load/intro/play scene state machine, GAME.BIN,
-// reached as ov_game_s48_2's sub-mode 2, the area LOAD/TRANSITION path). STAGED, NOT REGISTERED — dead
-// code kept for the coro-redirect handshake reference/comparison. CORRECTION (this pass): the "per-state
-// bodies yield deep" claim below is FALSE — Ghidra decomp (scratch/decomp/game_all_list.c) shows
-// this guest fn has NO jal to the yield primitive FUN_80051f80 anywhere in its 9 states; it's a plain
-// synchronous pause/save/quit-menu sequencer. It is now OWNED as `Engine::areaLoadState()` (a plain
-// method, no coro-redirect needed) and wired onto the LIVE path at `Engine::s48_2_frame`'s s4a==2 branch.
-// This s4c()/state[] coro-redirect body below is retained only as the original RE reference (see
-// Engine::areaLoadState's own doc comment for the ported semantics + the walkable-Tomba spawn-hunt
-// negative result). Faithful transcription of the guest body:
-//   prologue: addiu sp,-0x18; sw ra,0x14(sp); sw s0,0x10(sp)   (s0 saved in the jal's delay slot)
-//   jal 0x80075a80  — a per-frame area update BEFORE the dispatch. It is SYNCHRONOUS (a transitive
-//     jal-graph scan over its 57 reachable fns finds no yield FUN_80051f80; and the RAM 0-diff gate would
-//     catastrophically collapse — task 0 dies — if it ever yield-crossed this nested rec_dispatch), so it
-//     is dispatched synchronously here.
-//   read sm[0x4c]; if <9 jump-table @0x8010622c -> state; else fall to the shared epilogue.
-//   each state runs then `j 0x80106a14` (shared epilogue: lw ra,0x14(sp); lw s0,0x10(sp); jr ra).
-// The states are reached by `jr v0` (computed), so they run with ra UNCHANGED (= this fn's caller ra, which
-// rec_dispatch restores) and return only via `j 0x80106a14` — so we leave r[31] alone and just redirect.
-void Engine::s4c() { Core* c = core;
-  static const uint32_t state[9] = {
-    0x801064c4u, 0x80106510u, 0x80106580u, 0x801065b8u, 0x801066b8u,
-    0x80106830u, 0x80106930u, 0x8010694cu, 0x801069b4u,
-  };
-  uint32_t ra = c->r[31];
-  if (cfg_dbg("stage")) {
-    uint32_t sm0 = c->mem_r32(0x1f800138);
-    cfg_logf("stage", "ov_game_s4c ENTER sm[0x4c]=%u (caller ra=0x%08X)",
-             c->mem_r16(sm0 + 0x4c), ra);
-  }
-  c->r[29] -= 0x18;
-  c->mem_w32(c->r[29] + 0x14, ra);              // sw ra,0x14(sp)
-  c->mem_w32(c->r[29] + 0x10, c->r[16]);        // sw s0,0x10(sp)
-  eng(c).areaSlots.updateTail();                  // 0x80075a80 NATIVE (synchronous — verified yield-free)
-  uint32_t sm = c->mem_r32(0x1f800138);
-  uint16_t s4c = c->mem_r16(sm + 0x4c);
-  if (s4c >= 9) { rec_coro_redirect(c, 0x80106a14u); return; }   // out of range -> shared epilogue
-  rec_coro_redirect(c, state[s4c]);             // run the state IN-CONTEXT (it `j`s to the epilogue itself)
-}
+// The sm[0x4c] AREA machine (9-state load/intro/play scene state machine, GAME.BIN, reached as the
+// sm[0x4a]==2 area LOAD/TRANSITION path) is OWNED as `Engine::areaLoadState()` and wired on the LIVE
+// path at `Engine::stageRunning`'s s4a==2 branch. RE note kept from the retired staging body: the guest
+// fn has NO jal to the yield primitive FUN_80051f80 in any of its 9 states — it is a plain SYNCHRONOUS
+// pause/save/quit-menu sequencer, which is why areaLoadState needs no coro-redirect. (The old staged
+// s4c()/state[] coro-redirect mirror was never registered and is deleted — see areaLoadState.)
 
 // Engine::areaLoadState — native ownership of FUN_80106478 (the RUNNING/sm[0x4a]==2 sub-mode's
-// sm[0x4c] area LOAD/TRANSITION machine; s48_2_frame's handler[2]). Verified SYNCHRONOUS: the
+// sm[0x4c] area LOAD/TRANSITION machine; stageRunning's handler[2]). Verified SYNCHRONOUS: the
 // decompiled body (Ghidra scratch/decomp/game_all_list.c) has no jal to the yield primitive
 // FUN_80051f80 anywhere in its 9 states, so it's safe to call as a plain native method (unlike
 // FUN_801088d8's FIELD area machine, which genuinely yields and stays behind rec_coro_redirect
-// via s4c() above — s4c() itself is a DIFFERENT sm[0x4c] context, reused field, not this one).
+// — that is a DIFFERENT sm[0x4c] context, reused field, not this one).
 //
 // WALKABLE-TOMBA SPAWN HUNT — NEGATIVE RESULT: none of states 0-8 spawn anything. This machine is
 // the PAUSE/SAVE/QUIT menu's confirm-dialog sequencer: state 0 arms a ~330-frame fade-out timer +
@@ -488,7 +429,7 @@ void Engine::submitPage810cFaithful() { Core* c = core;
 // not-yet-sync leaf that yields is contained by the scheduler setjmp = frame-done).
 // GUEST FRAME MIRROR (abi_extract --contract 0x80108784: single epilogue label at L_8010881C, spill
 // precedes the sm[0x4a]<6 check -> GuestFrame RAII is safe): sp-24, ra@+16.
-void Engine::s48_2_frame() { Core* c = core;
+void Engine::stageRunning() { Core* c = core;
   static const uint32_t handler[6] = {
     0x8010882cu, 0x801088d8u, 0x80106478u, 0x80106a24u, 0x801089c4u, 0x80108a60u,
   };
@@ -500,7 +441,7 @@ void Engine::s48_2_frame() { Core* c = core;
   TaskSm sm(c);
   uint16_t s4a = sm.subMode();
   if (cfg_dbg("stage") && s4a != mLast4a) {
-    cfg_logf("stage", "s48_2_frame: sm[0x4a]=%u sm[0x4c]=%u", s4a, sm.stage4c());
+    cfg_logf("stage", "stageRunning: sm[0x4a]=%u sm[0x4c]=%u", s4a, sm.stage4c());
     mLast4a = s4a;
   }
   if (s4a < 6) {
@@ -2302,13 +2243,13 @@ int Engine::frame() { Core* c = core;
       cfg_logf("gframe", "ret0 s48=2 s4a=%u unowned-submode sm@%08X", s4a, sm); return 0; // unowned running sub-mode
     }
     c->r[31] = 0x8010645Cu;                    // guest loop jal site (L_80106454)
-    eng(c).s48_2_frame();
+    eng(c).stageRunning();
   } else if (s48 == 0) {
     c->r[31] = 0x8010643Cu;                    // guest loop jal site (L_80106434)
-    c->game->ffspan.begin(); eng(c).s48_0(); c->game->ffspan.end("s48_0");
+    c->game->ffspan.begin(); eng(c).stageAreaInit(); c->game->ffspan.end("stageAreaInit");
   } else if (s48 == 1) {
     c->r[31] = 0x8010644Cu;                    // guest loop jal site (L_80106444)
-    c->game->ffspan.begin(); eng(c).s48_1(); c->game->ffspan.end("s48_1");
+    c->game->ffspan.begin(); eng(c).stageResumeInit(); c->game->ffspan.end("stageResumeInit");
   } else {
     cfg_logf("gframe", "ret0 unknown s48=%u sm@%08X", s48, sm); return 0; // unknown top state -> cooperative
   }

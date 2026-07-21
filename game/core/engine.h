@@ -66,7 +66,7 @@ public:
   void camTeleportOff() { mCamTpPending = false; }
 
   // `debug stage` change-detector for the RUNNING dispatcher's sm[0x4a]/sm[0x4c] log line (was a
-  // function-local static pair in Engine::s48_2 — per-Core so SBS's two cores log independently).
+  // function-local static pair in the stage dispatchers — per-Core so SBS's two cores log independently).
   uint16_t mLast4a = 0xffff, mLast4c = 0xffff;
 
   // ── Scene subsystem instances owned by Engine ─────────────────────────────────────
@@ -143,13 +143,11 @@ public:
   // sm[0x4c] area LOAD/TRANSITION machine. Formerly `ov_game_s48_0..2` / `ov_game_s4c` /
   // `ov_game_s48_2_frame` free statics in engine.cpp. All operate on the sm task-state
   // block at *0x1F800138 that Engine already owns.
-  void s48_0();
-  void s48_1();
-  void s48_2();
-  void s4c();
-  void s48_2_frame();
+  void stageAreaInit();
+  void stageResumeInit();
+  void stageRunning();
   // areaLoadState(): guest FUN_80106478 — the 9-state (sm[0x4c]==0..8) area LOAD/TRANSITION body
-  // that s4c() used to reach via rec_coro_redirect into the guest's own case-label addresses
+  // reached via the guest's own case-label addresses
   // (0x801064c4/106510/106580/1065b8/1066b8/106830/106930/10694c/1069b4). It is a plain
   // switch(sm[0x4c]) — Ghidra recovered it as ONE function, not 9 separate ones — so calling this
   // method fresh reaches the same case body the coro-redirect used to jump into directly (the
