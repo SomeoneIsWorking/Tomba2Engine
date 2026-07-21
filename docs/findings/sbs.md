@@ -1940,3 +1940,45 @@ the same root cause — a trailing comment defeating an end-of-line anchor:
   opposite of the truth.
 Strip `//…$` first, then classify. And when a checker reports *everything* or *nothing*, suspect the
 checker before believing the result.
+
+### frame_audit's candidate list judged by READING: 9 of 10 were already correct
+A Fable analysis pass read every candidate's real body, its oracle contract and its callers
+(2026-07-21). Result: **nine of ten were already framed**, several with RE comments citing
+`abi_extract --contract` explicitly. The audit had been flagging thunks and missing the bodies.
+
+Struck (already correct, with where the frame lives):
+- `0x80020364` stepModeInteract — hand-mirrored, actor_tomba.cpp:541-547 (r29-=40, 5 spills, restore :635)
+- `0x800205CC` type8Interact — `GuestFrame<32,4>` :645-650, comment cites the contract
+- `0x800235A0` type7Interact — `GuestFrame<32,3>` :699-704
+- `0x8006EA00` snapToMasterOffsetY200 — hand-mirrored, cutscene_camera.cpp:860-879
+- `0x8006EF38` orbitTick — hand-mirrored :886-903, frame brackets the early-return path
+- `0x8007778C / 800778E4 / 800779D0 / 80077A4C` the four Cull wrappers — ALL framed, via the shared
+  `Cull::wrapFrame(raConst)` (cull.cpp:392-401), with RE'd ra constants that match abi_extract
+  exactly (`RA_8007778C=0x800777EC` etc.).
+
+**That last one matters: the Cull wrappers were never missing a frame at all.** `wrapFrame` carries
+it. My earlier "fix" added a SECOND frame on top, which is why SBS diverged at the ra spill slot. The
+divergence was self-inflicted twice over — wrong premise, then wrong explanation.
+
+### The one genuine miss: `SceneEvents::armBody` (0x80040B48)
+`armOverride` (scene_events.cpp:110) forwards to `armBody` (:63-101), which does NO sp descent. The
+contract wants frame 32 with r17@+20, **r31@+24**, r16@+16. Not mechanical — it spills ra, and there
+is no single incoming ra: the guest has ~15 call sites with distinct return addresses. Reachers split
+three ways:
+- substrate thunk (shard_disp.c:905) — every gen caller sets r31 first, so a live-r31 spill is right;
+- native `rec_dispatch` callers that do NOT set r31: beh_cull_substate_leaves.cpp:303-304,
+  actor_sm_reward.cpp:404/430/435/441;
+- native API callers via `eng(c).sceneEvents.arm(...)`: entity.cpp:258,
+  beh_area_transition_machine.cpp:96, beh_pickup_collect_trigger.cpp:49 and :127,
+  beh_typed_init_exit_poker.cpp:242, beh_typed_init_scene_trigger.cpp:90.
+
+Fix shape: `GuestFrame<32,3> {{17,20},{31,24},{16,16}}` in `armBody`, but ONLY after each native call
+site sets `c->r[31]` to its RE'd constant (ra = call site + 8, paired against the gen counterpart —
+e.g. entity.cpp:258 `arm(56)` ↔ shard_1.c:6515 → ra `0x8004092C`). Adding the frame first reproduces
+the Cull divergence class on 7+ native paths.
+
+### Adjacent, unverified: 0x8006E918 / 0x8006D02C callee frames
+The framed camera bodies call native `initPlace()` / `lookAt()` whose guest counterparts push their
+own frames (40 and 56, both spilling ra), yet native `lookAt` (cutscene_camera.cpp:532-580) does no sp
+descent, and the caller does not set the jal-site ra constants `0x8006EA60`/`0x8006EA68`. Possibly
+reconciled already — the in-file comment claims verification — but UNCLEAR and worth its own pass.
