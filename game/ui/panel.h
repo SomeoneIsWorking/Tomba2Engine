@@ -29,6 +29,11 @@ public:
   // games_tomba2_init alongside the other *_install()/installLeafTap() wirings.
   static void install();
 
+  // pushDialogBackdrop (FUN_8007FCC8): the flat-colour rectangle behind the message box — one GP0
+  // 0x60 packet linked into the near or far OT bucket. `mode` bit 0x80 selects the far bucket; any
+  // of bits 0x7F set means "no fill" (black) instead of the panel blue. See dialog_backdrop.cpp.
+  static void pushDialogBackdrop(Core* c, int16_t x, int16_t y, int16_t w, int16_t h, uint32_t mode);
+
   // pushFill: native half of the panelFill tap (Spec 2) — one textured FT4 quad over `rectPtr`'s
   // rect (4 s16 at guest ptr: x,y,w,h), UV selected by `uvIndex` (0..4, the spec's texel table).
   static void pushFill(Core* c, uint32_t rectPtr, int32_t uvIndex, uint16_t attr, int32_t otBucket);

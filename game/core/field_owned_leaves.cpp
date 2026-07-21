@@ -14003,41 +14003,8 @@ static void leaf_8007FC24(Core* c) {
     return;
 }
 
-static void leaf_8007FCC8(Core* c) {
-    c->r[10] = c->mem_r32((c->r[29] + (uint32_t)16));
-    c->r[2] = c->r[10] & 128u;
-    { int _t = (c->r[2] == c->r[0]); c->r[9] = c->r[0] + (uint32_t)1; if (_t) goto L_8007FCE0; }
-    c->r[9] = c->r[0] + (uint32_t)2047;
-  L_8007FCE0:;
-    c->r[2] = (uint32_t)32780u << 16;
-    c->r[8] = c->mem_r32((c->r[2] + (uint32_t)-2748));
-    c->r[3] = c->r[8] + (uint32_t)16;
-    c->mem_w32((c->r[2] + (uint32_t)-2748), c->r[3]);
-    c->r[2] = c->r[10] & 127u;
-    { int _t = (c->r[2] != c->r[0]); c->r[2] = (uint32_t)70u << 16; if (_t) goto L_8007FD08; }
-    c->mem_w32((c->r[8] + (uint32_t)4), c->r[2]); goto L_8007FD0C;
-  L_8007FD08:;
-    c->mem_w32((c->r[8] + (uint32_t)4), c->r[0]);
-  L_8007FD0C:;
-    c->r[2] = c->r[0] + (uint32_t)3;
-    c->mem_w8((c->r[8] + (uint32_t)3), (uint8_t)c->r[2]);
-    c->r[2] = c->r[0] + (uint32_t)96;
-    c->mem_w8((c->r[8] + (uint32_t)7), (uint8_t)c->r[2]);
-    c->mem_w16((c->r[8] + (uint32_t)8), (uint16_t)c->r[4]);
-    c->mem_w16((c->r[8] + (uint32_t)10), (uint16_t)c->r[5]);
-    c->mem_w16((c->r[8] + (uint32_t)12), (uint16_t)c->r[6]);
-    c->mem_w16((c->r[8] + (uint32_t)14), (uint16_t)c->r[7]);
-    c->r[2] = (uint32_t)32783u << 16;
-    c->r[4] = c->mem_r32((c->r[2] + (uint32_t)-10040));
-    c->r[2] = c->r[9] << 2;
-    c->r[4] = c->r[4] + c->r[2];
-    c->r[2] = c->mem_r32((c->r[4] + (uint32_t)0));
-    c->r[3] = (uint32_t)768u << 16;
-    c->r[2] = c->r[2] | c->r[3];
-    c->mem_w32((c->r[8] + (uint32_t)0), c->r[2]);
-    c->mem_w32((c->r[4] + (uint32_t)0), c->r[8]); return;
-    return;
-}
+// leaf_8007FCC8 DELETED 2026-07-22 — superseded by Panel::pushDialogBackdrop, which is the same
+// function RE'd into named packet-layout code (game/ui/dialog_backdrop.cpp, port_check PASS).
 
 static void leaf_80045724(Core* c) {
     c->r[29] = c->r[29] + (uint32_t)-40;
@@ -14961,7 +14928,9 @@ void register_field_owned_leaves() {
   install(0x8007E6DCu,"leaf_8007E6DC",leaf_8007E6DC,gen_func_8007E6DC,shard_set_override);
   install(0x8007E938u,"leaf_8007E938",leaf_8007E938,gen_func_8007E938,shard_set_override);
   install(0x8007FC24u,"leaf_8007FC24",leaf_8007FC24,gen_func_8007FC24,shard_set_override);
-  install(0x8007FCC8u,"leaf_8007FCC8",leaf_8007FCC8,gen_func_8007FCC8,shard_set_override);
+  // 0x8007FCC8 is owned by Panel::pushDialogBackdrop (game/ui/dialog_backdrop.cpp) — an RE'd,
+  // named port with port_check PASS. The bulk transcription below is superseded; do not
+  // re-register it here or it will silently win over the readable one (install overwrites).
   install(0x80045724u,"leaf_80045724",leaf_80045724,gen_func_80045724,shard_set_override);
   install(0x800462E4u,"leaf_800462E4",leaf_800462E4,gen_func_800462E4,shard_set_override);
   install(0x80049418u,"leaf_80049418",leaf_80049418,gen_func_80049418,shard_set_override);

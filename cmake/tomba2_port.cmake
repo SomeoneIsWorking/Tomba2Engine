@@ -158,6 +158,7 @@ set(GAME_SRC
   game/input/input.cpp
   game/input/pad_edge_fence.cpp
   game/ui/menu.cpp
+  game/ui/dialog_backdrop.cpp
   game/ui/dialog_box_sm.cpp
   game/ui/dialog_advance.cpp
   game/ui/dialog_text_stream.cpp

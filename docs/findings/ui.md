@@ -183,3 +183,24 @@ its own beyond the shared cursor-index global `DAT_800bf808`):
   Fix the channel's frame stamp first if this correlation is ever needed.
 - **Still missing:** the softlock itself. This capture has the user playing normally, so the bug is not
   in it. Everything above narrows WHERE the dialog lives, not why it locks.
+
+## Dialog backdrop (FUN_8007FCC8) RE'd into readable code and made live (2026-07-22)
+- **What it is:** the flat-colour rectangle behind the message box — a single GP0 0x60 packet linked
+  into the ordering table so it draws behind the glyphs. `Panel::pushDialogBackdrop`, in
+  `game/ui/dialog_backdrop.cpp`, with the packet layout written out as named fields rather than
+  offsets: tag word (next-pointer | word-count<<24), colour+opcode word, x/y, w/h.
+- **The two things worth knowing** (both easy to get silently wrong):
+  1. `mode` is a FIFTH argument, so under the o32 ABI it comes off the CALLER'S STACK at `sp+16`,
+     not a register. Reading a register there picks up whatever happened to be in it.
+  2. The byte pokes at `+3` and `+7` are not transcription noise — they are how the guest writes the
+     tag's size field and the GP0 opcode without disturbing the pointer/colour sharing those words.
+  Mode bits: `0x80` -> far OT bucket (0x7FF) instead of near (1); any of `0x7F` set -> no fill
+  (black) instead of the panel blue `0x460000`.
+- **Verified + LIVE:** `port_check` PASS against `gen_func_8007FCC8`, and `PSXPORT_DEBUG=ovhit` on the
+  bucket capture shows `Panel::pushDialogBackdrop native=956`. Contrast `FUN_8007D594`, ported earlier
+  on the survey's word, which is never called at all.
+- **Pattern to repeat:** the address was already "owned" by `leaf_8007FCC8`, a bulk byte-faithful
+  transcription in `field_owned_leaves.cpp`. Registration OVERWRITES, so the transcription silently won
+  until it was unregistered AND deleted. When RE'ing one of these into readable code, remove the leaf —
+  leaving both means the unreadable one runs. Several more dialog-path leaves are still ORPHAN
+  (0x8007E6DC/E8DC/E938/E998, 0x8007FD54) and are the obvious next candidates.
