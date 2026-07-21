@@ -244,3 +244,21 @@ its own beyond the shared cursor-index global `DAT_800bf808`):
 - **Recurring gotcha, third time now:** an ORPHAN `leaf_<addr>` registered at the same address WINS
   over a new port, because installs overwrite. Converting a transcription means unregistering AND
   deleting the leaf; otherwise `ovhit` shows the leaf's name and the readable code never runs.
+
+## UiSprite::compose (FUN_8007E6DC) — the multi-piece 2D sprite emitter, RE'd (2026-07-22)
+- **What it is:** the function the two entry points feed, and the one that actually puts sprite packets
+  in the OT. A 2D sprite here is a RUN OF PIECES, not one quad:
+  - definition entry at `defBase + index*4`: `s16 pieceCount, s16 pieceOffset`
+  - piece, 16 bytes, walked in step: `u32 uv+clut` at +0, `u16 tpage` at +6 (read once, for the tail),
+    `u8 width` +10, `u8 height` +11, `s8 dx` +14, `s8 dy` +15
+  - the guest addresses those through a cursor at `piece+11`, hence the -1/0/+3/+4 offsets.
+- **Staging:** each packet is built in a five-word TEMPLATE in scratchpad at `0x1F800004` and then
+  block-copied into the pool packet — so the write order is template-then-pool, which is the shape of
+  the function rather than an artefact.
+- **Attributes struct:** `+0 u8 flags` (low nibble kept and written BACK; high nibble = flat shade
+  level, 0 meaning raw texture), `+1 u8 otBucket`, `+2 u16 attr` (bit 15 -> semi-transparent opcode
+  0x66 instead of 0x64; low 15 bits, if set, override the CLUT half of the uv word).
+- **Tail:** one draw-mode packet carrying the definition's tpage, linked in FRONT of the sprites
+  (tag 2 words) — which is why the sprites' own tags are 4 words and the pool advances 20/12 bytes.
+- **Status:** `port_check` PASS, wired with the setter, LIVE — `ovhit` on the bucket capture reports
+  `UiSprite::compose native=1018`.

@@ -88,13 +88,17 @@ void UiSprite::drawFixedDef152(Core* c) {
   c->r[29] += 24;
 }
 
+static void ov_compose(Core* c)          { UiSprite::compose(c); }
 static void ov_draw_from_table(Core* c)  { UiSprite::drawFromTable(c); }
 static void ov_draw_fixed_def152(Core* c) { UiSprite::drawFixedDef152(c); }
 
 void ui_sprite_install() {
+  extern void gen_func_8007E6DC(Core*);
   extern void gen_func_8007E8DC(Core*);
   extern void gen_func_8007E998(Core*);
   extern void shard_set_override(uint32_t, void (*)(Core*));
+  overrides::install(0x8007E6DCu, "UiSprite::compose", ov_compose,
+                     gen_func_8007E6DC, shard_set_override);
   overrides::install(0x8007E8DCu, "UiSprite::drawFromTable", ov_draw_from_table,
                      gen_func_8007E8DC, shard_set_override);
   overrides::install(0x8007E998u, "UiSprite::drawFixedDef152", ov_draw_fixed_def152,
