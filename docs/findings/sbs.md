@@ -1872,3 +1872,39 @@ Consequences, stated plainly:
   this defect class. What the clean runs DO prove is that adding 70 frames broke nothing.
 - A gate that could see it would have to compare the guest stack region *mid-call* — at the point of a
   nested dispatch — rather than at a frame boundary. That does not exist yet.
+
+### CORRECTION: "oracle has a frame, native doesn't" is NOT sufficient grounds to add one
+Measured 2026-07-21, and it revises the premise the 54-handler sweep was built on.
+
+`frame_audit.py` flags `Cull::cullWrapper` / `cullWrapperOffset` / `cullWrapperOffsetY` /
+`cullWrapperOffsetFlag1` (oracle frame 24, 1 spill each) as missing a frame. They genuinely have
+none. Adding `GuestFrame<24,1>` to each — the same mechanical fix applied to the 54 behaviour
+handlers — **introduces a real SBS divergence**:
+
+```
+*** DIVERGENCE at lockstep frame 108: 0x801FE8D4..0x801FE8D7 ***
+  A @0x801FE8D4: EC 16 0F      (native, frames added)
+  B @0x801FE8D4: F0 98 04      (oracle)
+```
+
+The identical run on the unmodified tree is **0 divergences**, so the frames caused it. Reverted.
+
+**Why:** cull.cpp already implements the correct pattern and says so — *"Framing now lives ONLY in
+cullWrapperFlag2Framed()"*. A method reached BOTH through a guest-ABI thunk and directly from native
+code must stay unframed, with a separate `<name>Framed` wrapper carrying the frame for the guest
+entry. Framing the method itself descends `sp` on the native-call path too, where the guest never
+would — hence the divergence.
+
+**Two consequences, and the second is uncomfortable:**
+1. `frame_audit` output is a worklist, not a verdict. Before adding a frame, establish HOW the native
+   is reached: guest-ABI entry only (frame goes in the body), or shared with native callers (frame
+   goes in a `*Framed` wrapper, body stays unframed). The audit now recognises an existing
+   `*Framed` sibling, but it cannot decide which shape a not-yet-fixed native needs.
+2. **It weakens the confidence in the 54 behaviour frames already added.** They show 0 SBS
+   divergences, and this case proves SBS *can* catch a wrong frame when the spill slot is live at the
+   comparison point — so that clean result is real evidence, not vacuous. But it is not proof that
+   every one of the 54 is placed correctly; a handler with a native caller would have the same
+   problem and might simply not have been exercised. The behaviour handlers are dispatched only
+   through the guest table (no native callers found), which is why the mechanical fix was appropriate
+   there — but that property was assumed, not verified per handler, and it is the thing to check if
+   any of them ever surfaces a divergence.
