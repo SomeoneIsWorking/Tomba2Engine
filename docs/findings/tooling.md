@@ -494,3 +494,25 @@
   in particular "`+0x2b` is never written non-zero" was measured across a pre-fix replay that DID reach
   the grab (verified visually at pad frame 6424). The RE of the code paths (from Ghidra + generated/)
   is also unaffected.
+
+## tools/width_audit.py — catch the "ported at the wrong width/signedness" defect class (2026-07-22)
+- **why:** kanban #8 + #1 were ONE defect of this class — `mem_r16s(0x800E7FD8)` where the guest does
+  `lw` + `sltiu`. It compiles, it runs, and it is byte-identical in the common case (the slot is 0
+  when nothing is held), so nothing in the build or the gates catches it; it only misbehaves in a
+  specific state, which is why it survived and produced two unrelated-looking gameplay bugs.
+- **what it does:** reads every LITERAL guest address in the native tree and compares the width/sign of
+  each `mem_r*`/`mem_w*` against how the GUEST touches that same address in the real instruction stream
+  (a RAM dump, MIPS opcodes — ground truth, not a decompiler rendering; the decompiler is what hid the
+  original bug by printing the operand as a pointer comparison).
+- **usage:** `tools/width_audit.py [--dump <ram.bin>] [--path game/] [--quiet-ok]`. Exit 1 if suspects.
+- **precision matters or it gets ignored:** SIGN is only reported when the guest is UNANIMOUS at that
+  width (an address read both `lh` and `lhu` cannot indict either choice), and line comments are
+  stripped (prose *about* an access is not an access). That took the first run from 60 noisy hits to 22.
+- **first catch (same day):** 5 real defects in `Engine::fieldRun`, the pc_skip path — `0x800BF870` is
+  the area-id BYTE (guest: 144x `lbu`, 1x `sb`, never wider) yet it was read with `mem_r32` and compared
+  `== 0x15`, which can essentially never be true because the read also covers bf871..73, so that state
+  transition NEVER FIRED under pc_skip; and it was written with `mem_w32`, zeroing three adjacent live
+  bytes. Plus three `mem_r32(0x800E7FEE)` where the guest uses `lh`.
+- **limits:** an address the guest only forms dynamically (base register from a struct field, computed,
+  or $gp-relative) is reported "guest-unseen", not OK. A narrow read of a wider field can be correct
+  when only the low bits are wanted. It ranks suspects; it does not judge.

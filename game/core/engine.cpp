@@ -1356,7 +1356,10 @@ void Engine::fieldRun() { Core* c = core;
       c->mem_w8(sm + 0x6b, 0);
       if (c->mem_r8(0x800bf89cu) == 2) { c->mem_w16(sm + 0x4e, 9); }
       else if (c->mem_r8(0x800bf870u) == 8) { d0(c, 0x80114b90u); }
-      else if (c->mem_r32(0x800bf870u) == 0x15) { c->mem_w16(sm + 0x4e, 0xb); return; }
+      // 0x800BF870 is the area-id BYTE (guest touches it 144x lbu / 1x sb, never wider —
+      // tools/width_audit.py). Read as r32 this compare also sees bf871..73, so it was
+      // effectively never true and this transition never fired under pc_skip.
+      else if (c->mem_r8(0x800bf870u) == 21) { c->mem_w16(sm + 0x4e, 0xb); return; }
       eng(c).pool.selectStateIndex(c->mem_r8(0x800bf870u));   // OWNED native — replaces d1(0x80074f24, area)
       break;
     case 2:
@@ -1384,11 +1387,11 @@ void Engine::fieldRun() { Core* c = core;
         if (c->mem_r8(0x800bf80fu) == 0) {
           eng(c).audioDispatch.settleField();     // native — was rec_dispatch 0x80074BC4
           sm = c->mem_r32(0x1f800138u);
-          if (c->mem_r32(0x800e7feeu) == 0) {   // _DAT_800e7fee (read as int per decomp)
+          if (c->mem_r16s(0x800e7feeu) == 0) {   // halfword: guest uses lh here, never lw
             c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));    // LAB_80106f48
           } else {
             c->mem_w8(0x800bf880u, 1);
-            c->mem_w32(0x1f800194u, c->mem_r32(0x800e7feeu));
+            c->mem_w16(0x1f800194u, (uint16_t)c->mem_r16(0x800e7feeu));   // halfword store, per gen
             c->mem_w16(sm + 0x4e, 0);
           }
         }
@@ -1409,12 +1412,16 @@ void Engine::fieldRun() { Core* c = core;
       eng(c).fieldFrame();
       break;
     case 6: {
-      if (c->mem_r32(0x800e7feeu) != 0) { c->mem_w8(0x800bf880u, 1); c->mem_w32(0x1f800194u, c->mem_r32(0x800e7feeu)); }
+      if (c->mem_r16s(0x800e7feeu) != 0) { c->mem_w8(0x800bf880u, 1); c->mem_w16(0x1f800194u, (uint16_t)c->mem_r16(0x800e7feeu)); }
       eng(c).audioDispatch.settleField();     // native — was rec_dispatch 0x80074BC4
       // _DAT_800bf870 = CONCAT11(...) & 0x3f1f  — the decomp's byte-swap-and-mask of *0x800bf83a into bf870
       uint16_t b83a = c->mem_r16(0x800bf83au);
       uint32_t v = (((uint32_t)(b83a & 0xff) << 8) | (b83a >> 8)) & 0x3f1f;
-      c->mem_w32(0x800bf870u, v);
+      // TWO BYTE stores, not a word: bf870 is a byte field and bf872/73 are live state a
+      // 32-bit store would zero. (Documented in fieldRunFaithful's header; confirmed by
+      // the guest only ever using sb here.)
+      c->mem_w8(0x800bf870u, (uint8_t)(v & 0xff));
+      c->mem_w8(0x800bf871u, (uint8_t)((v >> 8) & 0xff));
       if (c->mem_r8(0x800bf839u) == 7) { d0(c, 0x80114b90u); c->mem_w8(0x800bf839u, 3); }
       sm = c->mem_r32(0x1f800138u);
       if (c->mem_r8(0x800bf839u) == 3) {
@@ -1447,7 +1454,7 @@ void Engine::fieldRun() { Core* c = core;
     case 9:
       eng(c).fieldFrame();
       sm = c->mem_r32(0x1f800138u);
-      if (c->mem_r8(0x800bf89cu) == 2 && (c->mem_r32(0x800e7e68u) & 8) != 0) {
+      if (c->mem_r8(0x800bf89cu) == 2 && (c->mem_r16(0x800e7e68u) & 8) != 0) {
         c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
         c->mem_w8(0x800bf809u, 1);
         c->mem_w8(sm + 0x6e, 0x1f);
