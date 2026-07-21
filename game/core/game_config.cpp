@@ -8,6 +8,7 @@
 // Installed once at the very top of main() (boot.cpp) via tomba_install_game_config(), before any
 // Game/Core is constructed, so Core's ctor snapshots a non-null c->cfg.
 #include "game_iface.h"
+#include "overlay_table.h"   // generated: REC_MAIN_LO/HI — the game owns this, not the framework
 #include "game_ctx.h"
 
 static const GameConfig g_tomba_config = {
@@ -23,6 +24,12 @@ static const GameConfig g_tomba_config = {
   /* libcInit       */ 0x80089860u,
   /* gameMain       */ 0x80050b08u,   // FUN_80050b08 (native-overridden game-main; comment-only literal)
   /* crt0           */ 0x800896e0u,   // FUN_800896E0 (native crt0; comment-only literal)
+
+  // Recompiled MAIN .text range (physical, addr & 0x1FFFFFFF). Taken straight from the values our
+  // own recompiler run emits into generated/overlay_table.h, which is included below so these can
+  // never drift from the substrate they describe.
+  /* recMainLo      */ REC_MAIN_LO,
+  /* recMainHi      */ REC_MAIN_HI,
 
   // --- per-frame OT / packet-pool dance (native_boot.cpp native_step_frame) ---
   /* otRegionBase     */ 0x800e80a8u,
