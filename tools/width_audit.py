@@ -84,6 +84,69 @@ def guest_access_widths(ram, base):
     return acc
 
 
+# ---------------------------------------------------------------------------------------------
+# GUEST SIDE, AUTHORITATIVE: constant-propagate over the recompiled corpus.
+#
+# The RAM-dump scanner below can only resolve an address when the `lui` establishing its base is
+# near the access, which produced a false "guest uses lbu" for the area id and cost a wrong edit.
+# generated/*.c does not have that problem: it is C with the constants written out, so tracking
+# `c->r[N]` assignments through a function body resolves every access, however far back the base
+# was set up. This is the source of truth; the dump scan is kept only as a fallback.
+# ---------------------------------------------------------------------------------------------
+GEN_HI   = re.compile(r'c->r\[(\d+)\]\s*=\s*\(uint32_t\)(\d+)u?\s*<<\s*16\s*;')
+GEN_ADD  = re.compile(r'c->r\[(\d+)\]\s*=\s*c->r\[(\d+)\]\s*\+\s*\(uint32_t\)(-?\d+)\s*;')
+GEN_COPY = re.compile(r'c->r\[(\d+)\]\s*=\s*c->r\[(\d+)\]\s*\+\s*c->r\[0\]\s*;')
+GEN_ACC  = re.compile(r'(\(int16_t\)|\(int8_t\))?\s*c->mem_(r|w)(8|16|32)\(\s*\(c->r\[(\d+)\]\s*\+\s*\(uint32_t\)(-?\d+)\)')
+GEN_FN   = re.compile(r'^\s*void\s+\w*gen_\w+\(Core\* c\)\s*\{')
+GEN_LBL  = re.compile(r'^\s*L_[0-9A-Fa-f]+:')
+
+
+def guest_widths_from_gen(gen_dir):
+    """addr -> set of (bits, signed, kind), resolved by constant propagation over generated/*.c."""
+    acc = {}
+    for fn in sorted(os.listdir(gen_dir)):
+        if not fn.endswith('.c'):
+            continue
+        regs = {}
+        for line in open(os.path.join(gen_dir, fn), errors='ignore'):
+            if GEN_FN.match(line):
+                regs = {}                      # new function: nothing is known
+            # NOTE: deliberately NOT resetting at labels. Address bases here are lui'd CONSTANTS
+            # (0x800C0000 & co) that a function establishes once and reuses across its whole body,
+            # including past labels; clearing at every label made real accesses unresolvable and
+            # produced the area-id false positive that cost a wrong edit. Carrying them costs some
+            # precision on a register genuinely reassigned across a branch, which is the right
+            # trade for a tool whose hits are verified against gen anyway.
+            m = GEN_HI.search(line)
+            if m:
+                regs[int(m.group(1))] = (int(m.group(2)) << 16) & 0xFFFFFFFF
+            m = GEN_ADD.search(line)
+            if m and int(m.group(2)) in regs:
+                regs[int(m.group(1))] = (regs[int(m.group(2))] + int(m.group(3))) & 0xFFFFFFFF
+            elif m:
+                regs.pop(int(m.group(1)), None)
+            m = GEN_COPY.search(line)
+            if m:
+                if int(m.group(2)) in regs:
+                    regs[int(m.group(1))] = regs[int(m.group(2))]
+                else:
+                    regs.pop(int(m.group(1)), None)
+            for cast, rw, wid, reg, off in GEN_ACC.findall(line):
+                reg = int(reg)
+                if reg not in regs:
+                    continue
+                addr = (regs[reg] + int(off)) & 0xFFFFFFFF
+                if not (0x80000000 <= addr < 0x80200000):
+                    continue
+                bits = int(wid)
+                signed = bool(cast) and rw == 'r'
+                base = {8: 'b', 16: 'h', 32: 'w'}[bits]
+                # stores have no signedness (sb/sh/sw); only loads get the u suffix
+                kind = ('s' + base) if rw == 'w' else ('l' + base + ('' if signed or bits == 32 else 'u'))
+                acc.setdefault(addr, set()).add((bits, signed, kind))
+    return acc
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--dump', default='scratch/bin/grab_prefix_6600.bin')
@@ -94,10 +157,17 @@ def main():
     if not os.path.exists(a.dump):
         print("width_audit: no RAM dump at %s (make one with PSXPORT_PAD_DUMP_AT)" % a.dump)
         return 2
+    print("[width_audit] constant-propagating over generated/ (authoritative) ...")
+    guest = guest_widths_from_gen(os.path.join(os.path.dirname(a.path.rstrip('/')) or '.', 'generated')
+                                  if os.path.isdir('generated') else 'generated')
+    print("[width_audit] gen resolves %d distinct absolute addresses" % len(guest))
     ram = open(a.dump, 'rb').read()
-    print("[width_audit] scanning guest instruction stream (%s) ..." % a.dump)
-    guest = guest_access_widths(ram, 0x80000000)
-    print("[width_audit] guest touches %d distinct absolute addresses via lui/addiu forms" % len(guest))
+    dumped = guest_access_widths(ram, 0x80000000)
+    merged = 0
+    for addr, kinds in dumped.items():          # overlays are not in generated/ — fold them in
+        if addr not in guest:
+            guest[addr] = kinds; merged += 1
+    print("[width_audit] + %d overlay-only addresses from the RAM dump" % merged)
 
     mismatches, unseen, ok = [], 0, 0
     for root, _dirs, files in os.walk(a.path):
@@ -120,9 +190,14 @@ def main():
                     if not g:
                         unseen += 1
                         continue
-                    # compare against LOADS for reads, STORES for writes
+                    # Reads compare against LOADS. Writes compare against the UNION of loads+stores:
+                    # a field the guest LOADS as 32 bits is 32 bits wide, and a native 32-bit store to
+                    # it is right even if the guest only ever happens to poke one byte of it elsewhere.
+                    # Comparing stores against stores alone flagged every write of the 0x800ECF58 model
+                    # table pointer, which is read mem_r32 in ~60 places. That is noise, not a defect.
                     want_store = (rw == 'w')
-                    rel = [(b, s, k) for (b, s, k) in g if k.startswith('s') == want_store]
+                    rel = ([(b, sg, k) for (b, sg, k) in g] if want_store
+                           else [(b, sg, k) for (b, sg, k) in g if not k.startswith('s')])
                     if not rel:
                         unseen += 1
                         continue

@@ -513,13 +513,20 @@
   `== 0x15`, which can essentially never be true because the read also covers bf871..73, so that state
   transition NEVER FIRED under pc_skip; and it was written with `mem_w32`, zeroing three adjacent live
   bytes. Plus three `mem_r32(0x800E7FEE)` where the guest uses `lh`.
-- **★ FALSE POSITIVES ARE REAL — verify every hit against `generated/` before changing code.** The
-  scanner resolves an address only when the `lui` establishing the base register is near the access;
-  when the base was set up further back the access is invisible to it. It reported "guest uses: lbu"
-  for the area id `0x800BF870` while gen plainly does `c->mem_r16((c->r[4] + (uint32_t)-1936))` two
-  instructions later, and acting on that produced a WRONG edit (`mem_r8` where gen uses `mem_r16`),
-  caught only by going to `generated/` afterwards. The audit says WHERE to look; `generated/` says what
-  is true.
+- **★ VERIFY EVERY HIT AGAINST `generated/` BEFORE CHANGING CODE.** An early version resolved
+  addresses by scanning the RAM dump for a nearby `lui`, which missed accesses whose base was set up
+  further back: it reported "guest uses: lbu" for the area id `0x800BF870` while gen plainly does
+  `c->mem_r16((c->r[4] + (uint32_t)-1936))`, and acting on it produced a WRONG edit (`mem_r8` where gen
+  uses `mem_r16`). The guest side is now CONSTANT PROPAGATION OVER `generated/` (C with the constants
+  written out, so a base set anywhere in the function resolves), with the dump scan kept only to cover
+  overlay code that is not in `generated/`. That took coverage from 1135 to ~5400 addresses and made
+  the area-id false positive disappear — which is how the change was validated. The rule still stands:
+  the audit says WHERE to look, `generated/` says what is true.
+- **two false-positive modes found and closed, both worth knowing:** (1) resetting the register map at
+  every label discarded bases a function establishes once and reuses throughout — relaxed; (2)
+  comparing native WRITES only against guest STORES flagged every 32-bit write of the `0x800ECF58`
+  model-table pointer, which is *read* `mem_r32` in ~60 places and only byte-poked elsewhere. Writes
+  now compare against the union of loads and stores: a field the guest loads as 32 bits IS 32 bits.
 - **limits:** an address the guest only forms dynamically (base register from a struct field, computed,
   or $gp-relative) is reported "guest-unseen", not OK. A narrow read of a wider field can be correct
   when only the low bits are wanted. It ranks suspects; it does not judge.
