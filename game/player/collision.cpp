@@ -63,6 +63,56 @@ enum : uint32_t {
   GR_BEST_LINE    = 488,   // 0x1E8  chosen floor/wall line record (output)
   GR_LINE_CUR     = 492,   // 0x1EC  working line-record cursor
 };
+
+// GridRay lens — the same scratchpad addresses as the GR_* constants above, reached through named
+// fields so a reader sees WHAT is being compared rather than which byte offset. Reads come in both
+// signednesses because the guest bodies use both on the same field; keep whichever the guest used
+// (a silent sign change here is a real behaviour change, not a cosmetic one).
+struct GridRay {
+  Core* c;
+
+  int16_t  normalAngle() const      { return c->mem_r16s(GR + GR_NORMAL_ANGLE); }
+  void     setNormalAngle(uint16_t v){ c->mem_w16(GR + GR_NORMAL_ANGLE, v); }
+  void     setNormalHi(uint16_t v)  { c->mem_w16(GR + GR_NORMAL_HI, v); }
+
+  int16_t  cross() const            { return c->mem_r16s(GR + GR_CROSS); }
+  void     setCross(uint16_t v)     { c->mem_w16(GR + GR_CROSS, v); }
+  int16_t  crossZ() const           { return c->mem_r16s(GR + GR_CROSS_Z); }
+  void     setCrossZ(uint16_t v)    { c->mem_w16(GR + GR_CROSS_Z, v); }
+
+  uint16_t cellOrgX_u() const       { return c->mem_r16(GR + GR_CELL_ORG_X); }
+  int16_t  cellOrgX() const         { return c->mem_r16s(GR + GR_CELL_ORG_X); }
+  uint16_t cellOrgZ_u() const       { return c->mem_r16(GR + GR_CELL_ORG_Z); }
+  int16_t  cellOrgZ() const         { return c->mem_r16s(GR + GR_CELL_ORG_Z); }
+
+  uint16_t segX0_u() const          { return c->mem_r16(GR + GR_SEG_X0); }
+  int16_t  segX0() const            { return c->mem_r16s(GR + GR_SEG_X0); }
+  int16_t  segZ0() const            { return c->mem_r16s(GR + GR_SEG_Z0); }
+  int16_t  segX1() const            { return c->mem_r16s(GR + GR_SEG_X1); }
+  int16_t  segZ1() const            { return c->mem_r16s(GR + GR_SEG_Z1); }
+
+  uint16_t probeX_u() const         { return c->mem_r16(GR + GR_PROBE_X); }
+  int16_t  probeX() const           { return c->mem_r16s(GR + GR_PROBE_X); }
+  void     setProbeX(uint16_t v)    { c->mem_w16(GR + GR_PROBE_X, v); }
+  uint16_t probeZ_u() const         { return c->mem_r16(GR + GR_PROBE_Z); }
+  int16_t  probeZ() const           { return c->mem_r16s(GR + GR_PROBE_Z); }
+  void     setProbeZ(uint16_t v)    { c->mem_w16(GR + GR_PROBE_Z, v); }
+
+  int16_t  extent() const           { return c->mem_r16s(GR + GR_EXTENT); }
+  int16_t  localX() const           { return c->mem_r16s(GR + GR_LOCAL_X); }
+  int16_t  localZ() const           { return c->mem_r16s(GR + GR_LOCAL_Z); }
+  void     setSpan(uint16_t v)      { c->mem_w16(GR + GR_SPAN, v); }
+
+  uint32_t lineTable() const        { return c->mem_r32(GR + GR_LINE_TABLE); }
+  uint32_t lineArray() const        { return c->mem_r32(GR + GR_LINE_ARRAY); }
+  uint32_t cellRec() const          { return c->mem_r32(GR + GR_CELL_REC); }
+  void     setCellRec(uint32_t v)   { c->mem_w32(GR + GR_CELL_REC, v); }
+  uint32_t bestLine() const         { return c->mem_r32(GR + GR_BEST_LINE); }
+  void     setBestLine(uint32_t v)  { c->mem_w32(GR + GR_BEST_LINE, v); }
+  uint32_t lineCur() const          { return c->mem_r32(GR + GR_LINE_CUR); }
+  void     setLineCur(uint32_t v)   { c->mem_w32(GR + GR_LINE_CUR, v); }
+};
+
 constexpr uint32_t ACT_NORMAL_COS = 72;     // probe object + 0x48  <- rcos(angle) >> 4
 constexpr uint32_t ACT_NORMAL_SIN = 76;     // probe object + 0x4C  <- rsin(angle) >> 4
 }
@@ -137,13 +187,14 @@ void Collision::gridSetup(uint32_t layer) {
 // or 1 (resolved). Writes scratchpad ONLY (0x08C idx, 0x1A8 tag, 0x1BC/0x1C0 stepped coords,
 // 0x1E0/E4 cursor ptrs). t6=w[0x1D4], t7=u16[0x1BE], MASK=~63 (the -64 grid-snap mask).
 static uint32_t grid_query_47cbc(Core* c) {
+  GridRay gr{c};
   const uint32_t SP = 0x1F800000u, MASK = 0xFFFFFFC0u;
   // ---- phase A: initial cell from probe vs origin ----
-  int32_t t1 = (c->mem_r16s(SP+0x1BC) - c->mem_r16s(SP+0x1AA)) >> 6;  // grid Z idx (a3/t1)
+  int32_t t1 = (gr.probeX() - gr.cellOrgX()) >> 6;  // grid Z idx (a3/t1)
   int32_t a3 = t1;
   uint32_t row0 = c->mem_r32(SP+0x1CC);
   uint32_t a1   = row0 + (uint32_t)(t1 << 2);                    // &row0[t1] (4-byte stride)
-  int32_t t0   = (c->mem_r16s(SP+0x1C0) - c->mem_r16s(SP+0x1AC)) >> 6;  // grid X idx (t0)
+  int32_t t0   = (gr.probeZ() - gr.cellOrgZ()) >> 6;  // grid X idx (t0)
   uint32_t A1_0 = c->mem_r16(a1+0);
   if (t0 < (int32_t)A1_0) return 0;
   uint32_t a2 = (c->mem_r16(a1+2) + (uint32_t)t0) - A1_0;
@@ -155,7 +206,7 @@ static uint32_t grid_query_47cbc(Core* c) {
   uint32_t ptr = c->mem_r32(SP+0x1D0) + (idx << 3);
   a2 = c->mem_r16(ptr+0);
   c->mem_w32(SP+0x1E4, ptr);
-  c->mem_w32(SP+0x1E0, ptr);
+  gr.setCellRec(ptr);
   c->mem_w16(SP+0x1A8, (uint16_t)a2);
   if ((a2 & 0xc000u) != 0xc000u) c->mem_w16(SP+0x1A8, 0);
   if ((a2 & 0x8000u) == 0) return 1;
@@ -165,17 +216,17 @@ static uint32_t grid_query_47cbc(Core* c) {
   for (;;) {
     if (a2 & 0x4000u) {
       // ARM A: follow link / child list
-      uint32_t rec = c->mem_r32(SP+0x1E0);                       // original record (a1)
-      c->mem_w32(SP+0x1E0, t6 + ((uint32_t)c->mem_r16(rec+2) << 3));
+      uint32_t rec = gr.cellRec();                       // original record (a1)
+      gr.setCellRec(t6 + ((uint32_t)c->mem_r16(rec+2) << 3));
       if (a2 & 0x0001u) {
         int32_t a0 = 1;
         uint32_t cnt = c->mem_r16(rec+4);
         if (1 < (int32_t)cnt) {
           int32_t a3p = (int32_t)t7 - 32;
           for (;;) {
-            uint32_t cur = c->mem_r32(SP+0x1E0) + 8;
+            uint32_t cur = gr.cellRec() + 8;
             uint32_t iv = c->mem_r16(cur+4);
-            c->mem_w32(SP+0x1E0, cur);
+            gr.setCellRec(cur);
             uint32_t iw = c->mem_r16(cur+6);
             if (((iv - (uint32_t)a3p) & 0xffff) < iw) break;
             a0 += 1;
@@ -185,24 +236,24 @@ static uint32_t grid_query_47cbc(Core* c) {
         uint32_t t = c->mem_r16(rec+6);
         bool hit = ((uint32_t)a0 == (t & 0xff)) || ((uint32_t)a0 == (t >> 8));
         if (!hit && (uint32_t)a0 == (uint32_t)c->mem_r16(rec+4)) hit = true;
-        if (hit) c->mem_w32(SP+0x1E0, t6 + ((uint32_t)c->mem_r16(rec+2) << 3));
+        if (hit) gr.setCellRec(t6 + ((uint32_t)c->mem_r16(rec+2) << 3));
       }
-      a2 = c->mem_r16(c->mem_r32(SP+0x1E0) + 0);
+      a2 = c->mem_r16(gr.cellRec() + 0);
     } else {
       // ARM B: step one grid cell, recompute
       if (a2 & 0x0004u) {
         switch (a2 & 3u) {
-          case 1: c->mem_w16(SP+0x1BC, (uint16_t)((c->mem_r16(SP+0x1BC) + 64) & MASK)); t1++; break;
-          case 0: c->mem_w16(SP+0x1BC, (uint16_t)((c->mem_r16(SP+0x1BC) & MASK) - 1));  t1--; break;
-          case 2: c->mem_w16(SP+0x1C0, (uint16_t)((c->mem_r16(SP+0x1C0) & MASK) - 1));  t0--; break;
-          case 3: c->mem_w16(SP+0x1C0, (uint16_t)((c->mem_r16(SP+0x1C0) + 64) & MASK)); t0++; break;
+          case 1: gr.setProbeX((uint16_t)((gr.probeX_u() + 64) & MASK)); t1++; break;
+          case 0: gr.setProbeX((uint16_t)((gr.probeX_u() & MASK) - 1));  t1--; break;
+          case 2: gr.setProbeZ((uint16_t)((gr.probeZ_u() & MASK) - 1));  t0--; break;
+          case 3: gr.setProbeZ((uint16_t)((gr.probeZ_u() + 64) & MASK)); t0++; break;
         }
       } else if ((uint32_t)c->mem_r16(SP+0x1AE) < (uint32_t)c->mem_r16(SP+0x1B0)) {
-        if (a2 & 0x0002u) { c->mem_w16(SP+0x1BC, (uint16_t)((c->mem_r16(SP+0x1BC) + 64) & MASK)); t1++; }
-        else              { c->mem_w16(SP+0x1BC, (uint16_t)((c->mem_r16(SP+0x1BC) & MASK) - 1));  t1--; }
+        if (a2 & 0x0002u) { gr.setProbeX((uint16_t)((gr.probeX_u() + 64) & MASK)); t1++; }
+        else              { gr.setProbeX((uint16_t)((gr.probeX_u() & MASK) - 1));  t1--; }
       } else {
-        if (a2 & 0x0001u) { c->mem_w16(SP+0x1C0, (uint16_t)((c->mem_r16(SP+0x1C0) + 64) & MASK)); t0++; }
-        else              { c->mem_w16(SP+0x1C0, (uint16_t)((c->mem_r16(SP+0x1C0) & MASK) - 1));  t0--; }
+        if (a2 & 0x0001u) { gr.setProbeZ((uint16_t)((gr.probeZ_u() + 64) & MASK)); t0++; }
+        else              { gr.setProbeZ((uint16_t)((gr.probeZ_u() & MASK) - 1));  t0--; }
       }
       // L_f9c: recompute cell from stepped indices
       uint32_t a1b = c->mem_r32(SP+0x1CC) + (uint32_t)(((int32_t)(int16_t)t1) * 4);
@@ -216,7 +267,7 @@ static uint32_t grid_query_47cbc(Core* c) {
       a2 = c->mem_r16(ptrB+0);
       c->mem_w32(SP+0x08C, a0b);
       c->mem_w32(SP+0x1E4, ptrB);
-      c->mem_w32(SP+0x1E0, ptrB);
+      gr.setCellRec(ptrB);
       c->mem_w16(SP+0x1A8, (uint16_t)a2);
     }
     if ((a2 & 0x8000u) == 0) return 1;
@@ -326,6 +377,7 @@ int Collision::gridResolve(uint32_t obj) {
 // passes; this fn's own [sp-24, sp) stack frame + the callees' frames below sp differ harmlessly, so the
 // gate excludes [sp-0x800, sp) — same family rationale as gridresolve/scriptvm).
 static void grid_step_4798c(Core* c, uint32_t obj) {
+  GridRay gr{c};
   const uint32_t SP = 0x1F800000u;
   // ---- block 1: reload grid if the object's recorded id differs ----
   uint32_t v1 = c->mem_r8(obj + 42);
@@ -336,10 +388,10 @@ static void grid_step_4798c(Core* c, uint32_t obj) {
   uint32_t b0 = c->mem_r16(SP + 0x1B0);   // h[0x1B0] (a0)
   uint32_t test;
   if (aE < b0) {                          // sltu(a1,a0) != 0 -> Z range
-    uint32_t d = (c->mem_r16(SP + 0x1C0) - c->mem_r16(SP + 0x1AC)) & 0xffffu;
+    uint32_t d = (gr.probeZ_u() - gr.cellOrgZ_u()) & 0xffffu;
     test = (b0 < d) ? 1u : 0u;            // sltu(a0, d)
   } else {                                // X range
-    uint32_t d = (c->mem_r16(SP + 0x1BC) - c->mem_r16(SP + 0x1AA)) & 0xffffu;
+    uint32_t d = (gr.probeX_u() - gr.cellOrgX_u()) & 0xffffu;
     test = (aE < d) ? 1u : 0u;            // sltu(a1, d)
   }
   if (test != 0) { c->r[4] = obj; c->r[5] = 1; rec_dispatch(c, 0x80048fc4u); }
@@ -347,38 +399,38 @@ static void grid_step_4798c(Core* c, uint32_t obj) {
   uint32_t lo = c->mem_r16(SP + 0x1AE), hi = c->mem_r16(SP + 0x1B0);
   if (lo < hi) {
     // Z branch: clamp 0x1C0 into [0x1AC, 0x1AC + 0x1B0], then recompute 0x1BC
-    int32_t  a2 = c->mem_r16s(SP + 0x1C0);
-    int32_t  a1 = c->mem_r16s(SP + 0x1AC);
-    uint32_t v1u = c->mem_r16(SP + 0x1AC);
+    int32_t  a2 = gr.probeZ();
+    int32_t  a1 = gr.cellOrgZ();
+    uint32_t v1u = gr.cellOrgZ_u();
     if (a2 < a1) {
-      c->mem_w16(SP + 0x1C0, (uint16_t)v1u);
+      gr.setProbeZ((uint16_t)v1u);
     } else {
       uint32_t a0u = c->mem_r16(SP + 0x1B0);
-      if ((int32_t)((uint32_t)a1 + a0u) < a2) c->mem_w16(SP + 0x1C0, (uint16_t)(v1u + a0u));
+      if ((int32_t)((uint32_t)a1 + a0u) < a2) gr.setProbeZ((uint16_t)(v1u + a0u));
     }
-    int32_t  cv  = c->mem_r16s(SP + 0x1C0);
+    int32_t  cv  = gr.probeZ();
     uint32_t cb  = c->mem_r16(SP + 0x1B4);
     int32_t  pit = c->mem_r16s(SP + 0x1BA);
     int32_t  prod = (int32_t)((uint32_t)((uint32_t)cv - cb) * (uint32_t)pit);  // lo(mult)
     int32_t  v = prod >> 14;
-    c->mem_w16(SP + 0x1BC, (uint16_t)(c->mem_r16(SP + 0x1B2) + (uint32_t)v));
+    gr.setProbeX((uint16_t)(gr.segX0_u() + (uint32_t)v));
   } else {
     // X branch: clamp 0x1BC into [0x1AA, 0x1AA + 0x1AE], then recompute 0x1C0
-    int32_t  a2 = c->mem_r16s(SP + 0x1BC);
-    int32_t  a1 = c->mem_r16s(SP + 0x1AA);
-    uint32_t v1u = c->mem_r16(SP + 0x1AA);
+    int32_t  a2 = gr.probeX();
+    int32_t  a1 = gr.cellOrgX();
+    uint32_t v1u = gr.cellOrgX_u();
     if (a2 < a1) {
-      c->mem_w16(SP + 0x1BC, (uint16_t)v1u);
+      gr.setProbeX((uint16_t)v1u);
     } else {
       uint32_t a0u = c->mem_r16(SP + 0x1AE);
-      if ((int32_t)((uint32_t)a1 + a0u) < a2) c->mem_w16(SP + 0x1BC, (uint16_t)(v1u + a0u));
+      if ((int32_t)((uint32_t)a1 + a0u) < a2) gr.setProbeX((uint16_t)(v1u + a0u));
     }
-    int32_t  cv  = c->mem_r16s(SP + 0x1BC);
-    uint32_t cb  = c->mem_r16(SP + 0x1B2);
+    int32_t  cv  = gr.probeX();
+    uint32_t cb  = gr.segX0_u();
     int32_t  pit = c->mem_r16s(SP + 0x1BA);
     int32_t  prod = (int32_t)((uint32_t)((uint32_t)cv - cb) * (uint32_t)pit);  // lo(mult)
     int32_t  v = prod >> 14;
-    c->mem_w16(SP + 0x1C0, (uint16_t)(c->mem_r16(SP + 0x1B4) + (uint32_t)v));
+    gr.setProbeZ((uint16_t)(c->mem_r16(SP + 0x1B4) + (uint32_t)v));
   }
 }
 
