@@ -1846,3 +1846,29 @@ Worth stating plainly what this did and did not prove. The defect is a guest-sta
 it never crashes, and the checks above cannot see it directly — they show the game still behaves
 correctly with the frames added, i.e. the fixes did no harm and the code paths genuinely run. Proving
 the bytes now match end-to-end needs an SBS run, which is the natural next gate for this work.
+
+### What SBS can and cannot see about the guest-frame fixes (measured, 2026-07-21)
+Bounded SBS runs are cheap and clean after the sweep: 120 frames in 2.4 s, 600 frames with a gameplay
+replay in 8.8 s, **1800 frames through a scene transition in 19 s — all "A/B identical", 0 divergences**
+(`PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=<n>` plus `PSXPORT_PAD_REPLAY`; well under the
+30-second bar, so there is no reason to skip this gate in future).
+
+**But that green result does NOT verify the frame fixes, and it is worth knowing why.** Mutation test:
+remove the `GuestFrame` from `beh_anim_trigger_gates` (0x80129C00), restoring the original defect, and
+re-run the same 1800-frame SBS — **still 0 divergences**. The handler is not idle either:
+`PSXPORT_DEBUG=behhist` shows 0x80129C00 dispatched **801 times** in that replay. So the code runs, the
+frame is missing, and SBS at frame boundaries sees nothing.
+
+The reason is that these frames are POPPED before the comparison happens. SBS compares guest RAM at a
+frame boundary; by then every behaviour handler has returned, and the bytes it wrote below `sp` are
+dead scratch nobody reads. The divergence class CLAUDE.md warns about (`diverges at 0x801FE9xx`) comes
+from a NESTED call building its frame at the wrong `sp` and colliding with data that is still live —
+which needs the right call shape to surface, not merely a frameless handler.
+
+Consequences, stated plainly:
+- The fixes remain correct and required by the MIRROR THE GUEST STACK rule — a frameless handler is a
+  latent collision waiting for the right nesting, and matching the guest is the whole contract.
+- **Do not cite a clean SBS run as proof that a frame fix worked.** It is not evidence either way for
+  this defect class. What the clean runs DO prove is that adding 70 frames broke nothing.
+- A gate that could see it would have to compare the guest stack region *mid-call* — at the point of a
+  nested dispatch — rather than at a frame boundary. That does not exist yet.
