@@ -1,6 +1,18 @@
 # Findings — UI subsystem (game/ui/*)
 
-## DRAFTED (UNWIRED/UNVERIFIED): dialog/text-box byte-stream advance — 0x8007C0D0 + 0x8007D0D0 (2026-07-08)
+## DRAFTED (UNWIRED): dialog/text-box byte-stream advance — 0x8007C0D0 + 0x8007D0D0 (2026-07-08; CHECKED 2026-07-22)
+
+- **★ VERDICT 2026-07-22 — half of it is wrong; do NOT wire advanceByte.** Added `// ORACLE:` markers
+  and ran `tools/port_check.py`: `applyRenderMode` (0x8007D0D0) **PASSES**; `advanceByte` (0x8007C0D0)
+  **FAILS** — the oracle opens and closes a 32-byte guest frame and the native opens none, the native
+  makes 2 calls where the oracle makes 3, and the store-width sequence diverges from store #4 (22
+  native stores vs 14). The draft's own header claimed the guest frame was mirrored; it is not. Wiring
+  it into the dialog path — the subsystem where kanban #2 (bucket dialog softlock) lives — would most
+  likely have introduced a fresh softlock rather than fixed one. Re-derive with `tools/port_gen.py`
+  (byte-faithful by construction) rather than hand-repairing it.
+- **Lesson worth keeping:** a draft that "compiles and looks carefully RE'd" is not evidence of
+  anything. Two minutes of `port_check` separated a correct half from a wrong half that had been
+  sitting in the tree since 2026-07-08 with a confident header.
 
 - **Task**: wide-RE pass over 0x8007C000-0x8007FDB0 (docs/engine_re.md's "Wide-RE survey" flagged
   this range as the dialog/text-box renderer + pause/quit-menu widget builder). Focus this session:

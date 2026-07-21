@@ -245,6 +245,6 @@ already solved or ruled out. 212 findings across 11 subsystems.
 
 ## ui
 
-- **DRAFTED (UNWIRED/UNVERIFIED): dialog/text-box byte-stream advance — 0x8007C0D0 + 0x8007D0D0 (2026-07-08)** [?] —   ↪ docs/findings/ui.md
+- **DRAFTED (UNWIRED): dialog/text-box byte-stream advance — 0x8007C0D0 + 0x8007D0D0 (2026-07-08; CHECKED 2026-07-22)** [?] —   ↪ docs/findings/ui.md
 - **Dialog text-box PANEL emitter chain — RE'd (2026-07-14, for bug #34)** [?] —   ↪ docs/findings/ui.md
 - **MAPPED (not drafted): pause/quit-menu + options-screen widget builders — 0x8007EAE4-0x8007FDB0** [?] —   ↪ docs/findings/ui.md

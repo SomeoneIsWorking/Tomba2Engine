@@ -40,6 +40,7 @@ enum { R_A0 = 4, R_A1 = 5, R_V0 = 2 };
 
 // FUN_8007D0D0(obj a0) -- LEAF (gen_func_8007D0D0 has no `sp` descent). Cross-checked verbatim
 // against generated/shard_1.c:gen_func_8007D0D0.
+// ORACLE: gen_func_8007D0D0
 void DialogTextStream::applyRenderMode(Core* c) {
   const uint32_t obj = c->r[R_A0];
   uint8_t subtype = c->mem_r8(obj + OFF_SUBTYPE);
@@ -59,6 +60,7 @@ void DialogTextStream::applyRenderMode(Core* c) {
 
 // FUN_8007C0D0(obj a0, mode a1) -> v0. Guest frame MIRRORED per gen_func_8007C0D0: `sp-=32;
 // sw s0,0x10(sp); sw ra,0x18(sp); sw s1,0x14(sp)` on entry, symmetric restore on every return.
+// ORACLE: gen_func_8007C0D0
 void DialogTextStream::advanceByte(Core* c) {
   const uint32_t ra = c->r[31], sp = c->r[29], s0 = c->r[16], s1in = c->r[17];
   c->r[29] = sp - 32;

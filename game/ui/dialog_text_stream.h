@@ -1,4 +1,14 @@
 // game/ui/dialog_text_stream.h — WIDE-RE DRAFT (2026-07-08, worktree agent-a53f252288693983d).
+//
+// ★ DO NOT WIRE advanceByte AS IT STANDS (checked 2026-07-22). `tools/port_check.py` says:
+//     applyRenderMode (0x8007D0D0)  PASS
+//     advanceByte     (0x8007C0D0)  FAIL — oracle opens/closes a 32-byte guest frame, the native
+//                                   opens NONE; 2 calls against the oracle's 3; store-width sequence
+//                                   diverges from store #4 (native emits 22 stores, oracle 14).
+//   The "Guest frame MIRRORED" sentence further down is WRONG and is left visible rather than quietly
+//   deleted — it is what would make a future session trust this. Re-derive advanceByte with
+//   tools/port_gen.py (byte-faithful by construction) instead of repairing the draft by hand.
+//
 // UNWIRED, UNVERIFIED — compiles, not registered in any override table, no SBS run. See
 // dialog_text_stream.cpp for the RE trace and docs/engine_re.md's "Wide-RE survey:
 // 0x80070000-0x8007FFFF" section for the region assignment this continues.
