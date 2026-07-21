@@ -29,6 +29,10 @@ python3 -c "from PIL import Image; Image.open('scratch/screenshots/live.ppm').sa
 `pause` / `step N` / `play` freeze the live game — fine for a few frames of state-watching, but you
 are freezing the user's screen, so resume.
 
+**Check `paused` before concluding anything about a live session.** The `P` key toggles the pause
+(`.` single-steps), so a user can freeze the game without meaning to; the tell is `frame` standing
+still across repeated calls. A frozen game cannot perform the repro you are waiting for.
+
 ## Cut a replay out of the live session — `padrec`
 
 Every finalized pad mask is kept **in memory from frame 0**, unconditionally (`Pad::mRecLog`), so a

@@ -389,3 +389,34 @@
   its base was confirmed); CRD opens with non-pointer data, so nothing caught it until a call landed.
   To verify any overlay base: `PSXPORT_DEBUG=cd` and match the logged `-> 0x…` dest against the
   file's LBA+size from `discdump list`.
+
+## Pad captures silently corrupt across a debug-server PAUSE — the pad-frame clock kept ticking while the game was frozen (2026-07-21)
+- **symptom:** a hand-recorded `.pad` replays to the WRONG place. `replays/bugs/seesaw-weight.pad` was
+  captured from a live session with Tomba grabbing the water-pump seesaw; replayed headless at the same
+  pad-frame index he is walking on the ground somewhere else. Looks exactly like nondeterminism or an
+  exec-path difference, and both were wrongly suspected first (see the dead ends below).
+- **status:** FIXED (2026-07-21). Verified: with the game paused, `padrec` reports 5720 → 5720 across
+  6 s (it climbed ~240/s before); resuming advances it again.
+- **cause:** the debug-server pause loop (`native_boot.cpp`) called `Pad::serviceFrame()` every 15 ms
+  while frozen — and the record/replay frame index (`mRecFc`, `mRecLog`) lives INSIDE serviceFrame. The
+  loop's own comment said "do NOT advance the game — just pump host input", but the pad-frame clock
+  advanced anyway. So a session paused for N seconds records ~240·N masks against a game that never
+  ran; on replay (never paused) those masks are consumed while the game IS running, and everything
+  after the pause point is shifted. Any use of `P` (the keyboard pause toggle) during a capture
+  corrupts it from that moment on.
+- **fix:** `Pad::pumpHostInput()` — host input only (pollSdl, which also carries the P / '.' keys), no
+  frame-indexed state. The pause loop calls that instead of `serviceFrame()`. The split makes the
+  invariant explicit: the pad-frame clock advances only when the game advances a frame.
+- **consequence:** any `.pad` recorded before this fix on a session that was ever paused is unreliable
+  past the first pause. Re-record rather than trying to repair one — the junk is a run of masks that
+  looks like legitimate held input, so there is no sound way to strip it.
+- **DEAD ENDS on the way here (do not re-walk):**
+  - "Replays desync across exec paths" — a real effect was observed (pc_faithful vs `PSXPORT_GATE=1`
+    landing in different areas, `scratch/screenshots/seesaw_pc_vs_gate.png`), but the PAUSE bug is
+    sufficient to explain it and was present in that capture. Do not treat cross-path replay as proven
+    broken until it is re-tested with a clean capture.
+  - "FMV playback shifts the pad-frame index" (windowed records with FMVs, agents replay with
+    `PSXPORT_NO_FMV=1`) — FALSE. `Fmv::pace` calls `pollSdl()` only, never `serviceFrame()`, so FMV
+    playback ticks no pad frames and NO_FMV cannot shift the sequence.
+- **refs:** `runtime/recomp/pad_input.{h,cpp}` (`pumpHostInput`, the record/replay block),
+  `runtime/recomp/native_boot.cpp` (pause loop), kanban #8, skill `live-session`.
