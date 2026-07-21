@@ -35,6 +35,7 @@
 #include "game.h"
 #include "guest_abi.h"  // GuestFrame — guest-stack frame discipline for the override trampolines
 #include "spawn.h"   // Spawn::spawnAndInit (FUN_8003116C, already native)
+#include "object/actor.h"   // Actor — named-field lens over the guest object node
 #include <cstdint>
 
 void rec_dispatch(Core*, uint32_t);   // hybrid call: override if wired, else substrate
@@ -144,6 +145,7 @@ static constexpr GuestFrameSpill kSpills_80144B50[4] = { {16, 32}, {31, 44}, {18
 void ActorZonedAttacker::gateCheck(Core* c) {
   GuestFrame<24, 2> frame(c, kSpills_8014047C);
   const uint32_t node = c->r[R_A0];
+  Actor a(c, node);
   const int8_t n66 = (int8_t)c->mem_r8(node + 0x66);
   bool result;
   if (n66 == (int8_t)0x81) {
@@ -185,6 +187,7 @@ void ActorZonedAttacker::gateCheck(Core* c) {
 void ActorZonedAttacker::typeInit(Core* c) {
   GuestFrame<32, 4> frame(c, kSpills_80140544);
   const uint32_t node = c->r[R_A0];
+  Actor a(c, node);
   if (c->mem_r16s(G_800ED098) < 0x12) {
     c->mem_w8(node + 9, 0);
     c->mem_w8(node + 4, 3);
@@ -205,25 +208,25 @@ void ActorZonedAttacker::typeInit(Core* c) {
   call1(c, node, FN_80049674);
   const uint16_t v1a2 = c->mem_r16(G_1F8001A2);
   const uint16_t v1a0 = c->mem_r16(G_1F8001A0);
-  c->mem_w16(node + 0x54, 0);
-  c->mem_w16(node + 0x58, v1a2);
-  c->mem_w16(node + 0x56, v1a0);
+  a.setRotX(0);
+  a.setRotZ(v1a2);
+  a.setRotY(v1a0);
   c->mem_w16(node + 0x60, v1a0);
   c->mem_w8(node + 100, 0);
   const int32_t ix = c->mem_r16s(G_1F800160);
   const int32_t iy = c->mem_r16s(G_1F800164);
-  c->mem_w16(node + 0x62, 0);
-  const int32_t s60 = c->mem_r16s(node + 0x60);
+  a.setStateEcho(0);
+  const int32_t s60 = a.triggerParam();
   c->r[R_A0] = node + 0x2c; c->r[R_A1] = (uint32_t)ix; c->r[R_A2] = (uint32_t)iy;
   rec_dispatch(c, FN_800782B0);
   const int32_t s4 = (int32_t)(int16_t)c->r[R_V0];
-  uint16_t v62 = c->mem_r16(node + 0x62);
+  uint16_t v62 = a.stateEcho_u();
   const uint32_t val = (uint32_t)(s60 - s4 + 0x400) & 0xfffu;
   v62 = (val < 0x801u) ? (uint16_t)(v62 & 0xfffe) : (uint16_t)(v62 | 1);
-  c->mem_w16(node + 0x62, v62);
+  a.setStateEcho(v62);
   c->mem_w8(node + 0x5f, 0);
   c->mem_w8(node + 0x1b, (uint8_t)(c->mem_r8(node + 0x1b) & 0xbf));
-  c->mem_w8(node + 0x2b, 0);
+  a.setSubFlag(0);
   c->mem_w16(node + 4, 1);
   c->mem_w8(node + 0x66, c->mem_r8(node + 3));
   c->mem_w8(node + 0, 1);
@@ -252,11 +255,12 @@ void ActorZonedAttacker::typeInit(Core* c) {
 void ActorZonedAttacker::pickAttackByRange(Core* c) {
   GuestFrame<40, 5> frame(c, kSpills_801409C0);
   const uint32_t node = c->r[R_A0];
+  Actor a(c, node);
   rec_dispatch(c, FN_8009A450);
   const uint32_t rngv = c->r[R_V0];
   if (c->mem_r16(G_800E7FFE) & 0x8200) { c->r[R_V0] = 0; return; }
-  const int32_t nx = c->mem_r16s(node + 0x2e);
-  const int32_t ny = c->mem_r16s(node + 0x36);
+  const int32_t nx = a.posX();
+  const int32_t ny = a.posZ();
   const int32_t tx = c->mem_r16s(G_1F800160);
   const int32_t ty = c->mem_r16s(G_1F800164);
   c->r[R_A0] = (uint32_t)(int32_t)(int16_t)(nx - tx);
@@ -293,6 +297,7 @@ void ActorZonedAttacker::pickAttackByRange(Core* c) {
 void ActorZonedAttacker::approachAndFace(Core* c) {
   GuestFrame<32, 4> frame(c, kSpills_80144928);
   const uint32_t node = c->r[R_A0];
+  Actor a(c, node);
   uint32_t uVar4 = 0;
   const uint8_t st = c->mem_r8(node + 7);
 
@@ -303,9 +308,9 @@ label_ac8:
   goto label_caseD_7;
 
 label_caseD_2: {
-  const int32_t nx = c->mem_r16s(node + 0x2e);
-  const int32_t ny = c->mem_r16s(node + 0x32);
-  const int32_t nz = c->mem_r16s(node + 0x36);
+  const int32_t nx = a.posX();
+  const int32_t ny = a.posY();
+  const int32_t nz = a.posZ();
   const int32_t tx = c->mem_r16s(G_1F800160);
   const int32_t ty = c->mem_r16s(G_1F800162);
   const int32_t tz = c->mem_r16s(G_1F800164);
@@ -318,7 +323,7 @@ label_caseD_2: {
 }
 
 label_caseD_7:
-  c->mem_w16(node + 0x32, (uint16_t)(c->mem_r16s(node + 0x32) + 0x10));
+  a.setPosY((uint16_t)(a.posY() + 0x10));
   call1(c, node, FN_801406E4);
   c->r[R_V0] = uVar4;
   return;
@@ -336,7 +341,7 @@ label_dispatch:
         case 5:  uVar3 = 6;    break;
       }
       call2(c, node, FN_801402B8, uVar3, 0u);
-      c->mem_w16(node + 0x62, (uint16_t)(c->mem_r16(node + 0x62) & 0xfffb));
+      a.setStateEcho((uint16_t)(a.stateEcho_u() & 0xfffb));
       call1(c, node, FN_801406E4);
       c->mem_w8(node + 7, 2);
       goto label_caseD_2;
@@ -390,6 +395,7 @@ label_dispatch:
 void ActorZonedAttacker::defaultSubStateMachine(Core* c) {
   GuestFrame<40, 5> frame(c, kSpills_80143A00);
   const uint32_t node = c->r[R_A0];
+  Actor a(c, node);
   uint32_t uVar6 = 0;
   uint32_t uVar7 = 0;
   int32_t iVar5 = 0;
@@ -422,9 +428,9 @@ void ActorZonedAttacker::defaultSubStateMachine(Core* c) {
           uVar7 = 0x401u;
         } else {
           if (sVar4 != 4) return;
-          const int32_t nx = c->mem_r16s(node + 0x2e);
+          const int32_t nx = a.posX();
           const int32_t tx = c->mem_r16s(G_1F800160);
-          const int32_t nz = c->mem_r16s(node + 0x36);
+          const int32_t nz = a.posZ();
           const int32_t tz = c->mem_r16s(G_1F800164);
           c->r[R_A0] = (uint32_t)(int32_t)(int16_t)(nx - tx);
           c->r[R_A1] = (uint32_t)(int32_t)(int16_t)(nz - tz);
@@ -465,7 +471,7 @@ void ActorZonedAttacker::defaultSubStateMachine(Core* c) {
           uVar6 = 0;
           if (bVar2 != 2) return;
           if (c->mem_r8(node + 7) == 0) {
-            c->mem_w16(node + 0x62, (uint16_t)(c->mem_r16(node + 0x62) & 0xfffb));
+            a.setStateEcho((uint16_t)(a.stateEcho_u() & 0xfffb));
             call2(c, node, FN_801402B8, 0x1au, 8u);
             c->mem_w16(node + 0x4e, 0);
             c->mem_w8(node + 7, 1);
@@ -483,14 +489,14 @@ void ActorZonedAttacker::defaultSubStateMachine(Core* c) {
 LAB_80143ea0_a: {
             const uint32_t p38 = c->mem_r32(node + 0x38);
             if (c->mem_r16s(p38 + 4) != 0) {
-              c->mem_w16(node + 0x62, (uint16_t)(c->mem_r16(node + 0x62) ^ 1));
-              c->mem_w16(node + 0x56, (uint16_t)(c->mem_r16(node + 0x56) + 0x800));
+              a.setStateEcho((uint16_t)(a.stateEcho_u() ^ 1));
+              a.setRotY((uint16_t)(a.rotY_u() + 0x800));
               call2(c, node, FN_801402B8, 7u, 0u);
               c->mem_w8(node + 7, 2);
             }
           }
 LAB_80143ea0_tail_skip:
-          c->mem_w16(node + 0x32, (uint16_t)(c->mem_r16s(node + 0x32) + 0x10));
+          a.setPosY((uint16_t)(a.posY() + 0x10));
           call1(c, node, FN_801406E4);
           break;
         }
@@ -498,7 +504,7 @@ LAB_80143ea0_tail_skip:
         c->mem_w16(node + 6, 1);
       }
       if (c->mem_r8(node + 7) == 0) {
-        c->mem_w16(node + 0x62, (uint16_t)(c->mem_r16(node + 0x62) & 0xfffb));
+        a.setStateEcho((uint16_t)(a.stateEcho_u() & 0xfffb));
         call2(c, node, FN_801402B8, 5u, 8u);
         c->mem_w8(node + 7, 0x2d);
         c->mem_w16(node + 0x4e, 0);
@@ -506,7 +512,7 @@ LAB_80143ea0_tail_skip:
       {
         const uint8_t bv = c->mem_r8(node + 7);
         if (1 < bv) c->mem_w8(node + 7, (uint8_t)(bv - 1));
-        c->mem_w16(node + 0x32, (uint16_t)(c->mem_r16s(node + 0x32) + 0x10));
+        a.setPosY((uint16_t)(a.posY() + 0x10));
         call1(c, node, FN_801406E4);
         if (1 < bv) return;
         rec_dispatch(c, FN_8009A450);
@@ -523,7 +529,7 @@ LAB_80143ea0_tail_skip:
           uVar6 = 0;
           if (bVar2 != 2) return;
           if (c->mem_r8(node + 7) == 0) {
-            c->mem_w16(node + 0x62, (uint16_t)(c->mem_r16(node + 0x62) & 0xfffb));
+            a.setStateEcho((uint16_t)(a.stateEcho_u() & 0xfffb));
             call2(c, node, FN_801402B8, 0x1au, 8u);
             c->mem_w16(node + 0x4e, 0);
             c->mem_w8(node + 7, 1);
@@ -541,14 +547,14 @@ LAB_80143ea0_tail_skip:
 LAB_80143d00_a: {
             const uint32_t p38 = c->mem_r32(node + 0x38);
             if (c->mem_r16s(p38 + 4) != 0) {
-              c->mem_w16(node + 0x62, (uint16_t)(c->mem_r16(node + 0x62) ^ 1));
-              c->mem_w16(node + 0x56, (uint16_t)(c->mem_r16(node + 0x56) + 0x800));
+              a.setStateEcho((uint16_t)(a.stateEcho_u() ^ 1));
+              a.setRotY((uint16_t)(a.rotY_u() + 0x800));
               call2(c, node, FN_801402B8, 7u, 0u);
               c->mem_w8(node + 7, 2);
             }
           }
 LAB_80143d00_tail_skip:
-          c->mem_w16(node + 0x32, (uint16_t)(c->mem_r16s(node + 0x32) + 0x10));
+          a.setPosY((uint16_t)(a.posY() + 0x10));
           call1(c, node, FN_801406E4);
           break;
         }
@@ -602,8 +608,8 @@ LAB_80143c48:
           bool spawn5f;
           const uint8_t n5f = c->mem_r8(node + 0x5f);
           if (n5f == 0) spawn5f = false;
-          else if (n5f == 3) spawn5f = (c->mem_r16(node + 0x62) & 1) != 0;
-          else spawn5f = (c->mem_r16(node + 0x62) & 1) == 0;
+          else if (n5f == 3) spawn5f = (a.stateEcho_u() & 1) != 0;
+          else spawn5f = (a.stateEcho_u() & 1) == 0;
           if (!spawn5f) return;
           c->mem_w32(node + 4, 0xa01u);
           return;
@@ -615,15 +621,15 @@ LAB_80143c48:
           bool spawn5f;
           const uint8_t n5f = c->mem_r8(node + 0x5f);
           if (n5f == 0) spawn5f = false;
-          else if (n5f == 3) spawn5f = (c->mem_r16(node + 0x62) & 1) != 0;
-          else spawn5f = (c->mem_r16(node + 0x62) & 1) == 0;
+          else if (n5f == 3) spawn5f = (a.stateEcho_u() & 1) != 0;
+          else spawn5f = (a.stateEcho_u() & 1) == 0;
           if (!spawn5f) return;
           c->mem_w32(node + 4, 0xa01u);
           return;
         }
         case 5: {
           if (c->mem_r8(node + 7) == 0) {
-            c->mem_w16(node + 0x62, (uint16_t)(c->mem_r16(node + 0x62) & 0xfffb));
+            a.setStateEcho((uint16_t)(a.stateEcho_u() & 0xfffb));
             call2(c, node, FN_801402B8, 10u, 8u);
             c->mem_w8(node + 7, 0x5a);
             c->mem_w16(node + 0x4e, 0);
@@ -631,7 +637,7 @@ LAB_80143c48:
           uint8_t bv = c->mem_r8(node + 7);
           if (1 < bv) c->mem_w8(node + 7, (uint8_t)(bv - 1));
           uVar6 = (uint32_t)(1 >= bv);
-          c->mem_w16(node + 0x32, (uint16_t)(c->mem_r16s(node + 0x32) + 0x10));
+          a.setPosY((uint16_t)(a.posY() + 0x10));
           call1(c, node, FN_801406E4);
           break;
         }
@@ -649,7 +655,7 @@ LAB_80143c48:
       if (bVar2 < 3) { call1(c, node, FN_801408AC); return; }
       if (bVar2 != 3) return;
       if (c->mem_r8(node + 7) == 0) {
-        c->mem_w16(node + 0x62, (uint16_t)(c->mem_r16(node + 0x62) & 0xfffb));
+        a.setStateEcho((uint16_t)(a.stateEcho_u() & 0xfffb));
         call2(c, node, FN_801402B8, 5u, 8u);
         c->mem_w8(node + 7, 0x2d);
         c->mem_w16(node + 0x4e, 0);
@@ -657,7 +663,7 @@ LAB_80143c48:
       uint8_t bv = c->mem_r8(node + 7);
       if (1 < bv) c->mem_w8(node + 7, (uint8_t)(bv - 1));
       uVar6 = (uint32_t)(1 >= bv);
-      c->mem_w16(node + 0x32, (uint16_t)(c->mem_r16s(node + 0x32) + 0x10));
+      a.setPosY((uint16_t)(a.posY() + 0x10));
       call1(c, node, FN_801406E4);
       break;
     }
@@ -686,22 +692,22 @@ LAB_80143c48:
           bool spawn5f;
           const uint8_t n5f = c->mem_r8(node + 0x5f);
           if (n5f == 0) spawn5f = false;
-          else if (n5f == 3) spawn5f = (c->mem_r16(node + 0x62) & 1) != 0;
-          else spawn5f = (c->mem_r16(node + 0x62) & 1) == 0;
+          else if (n5f == 3) spawn5f = (a.stateEcho_u() & 1) != 0;
+          else spawn5f = (a.stateEcho_u() & 1) == 0;
           if (!spawn5f) return;
           c->mem_w32(node + 4, 0xa01u);
           return;
         }
         case 5: {
           if (c->mem_r8(node + 7) == 0) {
-            c->mem_w16(node + 0x62, (uint16_t)(c->mem_r16(node + 0x62) & 0xfffb));
+            a.setStateEcho((uint16_t)(a.stateEcho_u() & 0xfffb));
             call2(c, node, FN_801402B8, 0x1fu, 8u);
             c->mem_w8(node + 7, 0x32);
             c->mem_w16(node + 0x4e, 0);
           }
           uint8_t bv = c->mem_r8(node + 7);
           if (1 < bv) c->mem_w8(node + 7, (uint8_t)(bv - 1));
-          c->mem_w16(node + 0x32, (uint16_t)(c->mem_r16s(node + 0x32) + 0x10));
+          a.setPosY((uint16_t)(a.posY() + 0x10));
           call1(c, node, FN_801406E4);
           if (1 < bv) return;
           c->mem_w16(node + 6, 6);
@@ -709,7 +715,7 @@ LAB_80143c48:
         }
         case 6: {
           if (c->mem_r8(node + 7) == 0) {
-            c->mem_w16(node + 0x62, (uint16_t)(c->mem_r16(node + 0x62) & 0xfffb));
+            a.setStateEcho((uint16_t)(a.stateEcho_u() & 0xfffb));
             call2(c, node, FN_801402B8, 5u, 8u);
             c->mem_w8(node + 7, 0x2d);
             c->mem_w16(node + 0x4e, 0);
@@ -717,7 +723,7 @@ LAB_80143c48:
           uint8_t bv = c->mem_r8(node + 7);
           if (1 < bv) c->mem_w8(node + 7, (uint8_t)(bv - 1));
           uVar6 = (uint32_t)(1 >= bv);
-          c->mem_w16(node + 0x32, (uint16_t)(c->mem_r16s(node + 0x32) + 0x10));
+          a.setPosY((uint16_t)(a.posY() + 0x10));
           call1(c, node, FN_801406E4);
           break;
         }
@@ -746,7 +752,7 @@ LAB_80143c48:
       call1(c, node, FN_80140AF4);
       {
         const int32_t v0copy = (int32_t)(int16_t)c->r[R_V0];
-        if (c->mem_r8(node + 7) < 3) c->mem_w16(node + 0x58, 0);
+        if (c->mem_r8(node + 7) < 3) a.setRotZ(0);
         iVar5 = v0copy << 16;
       }
       goto LAB_801448e0;
@@ -767,8 +773,8 @@ LAB_80143c48:
               bool spawn5f;
               const uint8_t n5f = c->mem_r8(node + 0x5f);
               if (n5f == 0) spawn5f = false;
-              else if (n5f == 3) spawn5f = (c->mem_r16(node + 0x62) & 1) != 0;
-              else spawn5f = (c->mem_r16(node + 0x62) & 1) == 0;
+              else if (n5f == 3) spawn5f = (a.stateEcho_u() & 1) != 0;
+              else spawn5f = (a.stateEcho_u() & 1) == 0;
               if (!spawn5f) return;
               c->mem_w32(node + 4, 0xa01u);
               return;
@@ -787,8 +793,8 @@ LAB_80143c48:
               bool spawn5f;
               const uint8_t n5f = c->mem_r8(node + 0x5f);
               if (n5f == 0) spawn5f = false;
-              else if (n5f == 3) spawn5f = (c->mem_r16(node + 0x62) & 1) != 0;
-              else spawn5f = (c->mem_r16(node + 0x62) & 1) == 0;
+              else if (n5f == 3) spawn5f = (a.stateEcho_u() & 1) != 0;
+              else spawn5f = (a.stateEcho_u() & 1) == 0;
               if (!spawn5f) return;
               c->mem_w32(node + 4, 0xa01u);
               return;
@@ -800,7 +806,7 @@ LAB_80143c48:
         }
         case 4: {
           if (c->mem_r8(node + 7) == 0) {
-            c->mem_w16(node + 0x62, (uint16_t)(c->mem_r16(node + 0x62) & 0xfffb));
+            a.setStateEcho((uint16_t)(a.stateEcho_u() & 0xfffb));
             call2(c, node, FN_801402B8, 10u, 8u);
             c->mem_w8(node + 7, 0x3c);
             c->mem_w16(node + 0x4e, 0);
@@ -808,7 +814,7 @@ LAB_80143c48:
           uint8_t bv = c->mem_r8(node + 7);
           if (1 < bv) c->mem_w8(node + 7, (uint8_t)(bv - 1));
           uVar6 = (uint32_t)(1 >= bv);
-          c->mem_w16(node + 0x32, (uint16_t)(c->mem_r16s(node + 0x32) + 0x10));
+          a.setPosY((uint16_t)(a.posY() + 0x10));
           call1(c, node, FN_801406E4);
           goto LAB_801448fc;
         }
@@ -819,9 +825,9 @@ LAB_80143c48:
     case 0xc: {
       const uint8_t bVar2 = c->mem_r8(node + 6);
       if (bVar2 == 2) {
-        const int32_t nx = c->mem_r16s(node + 0x2e);
+        const int32_t nx = a.posX();
         const int32_t tx = c->mem_r16s(G_1F800160);
-        const int32_t nz = c->mem_r16s(node + 0x36);
+        const int32_t nz = a.posZ();
         const int32_t tz = c->mem_r16s(G_1F800164);
         c->r[R_A0] = (uint32_t)(int32_t)(int16_t)(nx - tx);
         c->r[R_A1] = (uint32_t)(int32_t)(int16_t)(nz - tz);
@@ -869,7 +875,7 @@ LAB_80143c48:
       if (bVar2 < 3) { call1(c, node, FN_801408AC); return; }
       if (bVar2 != 3) return;
       if (c->mem_r8(node + 7) == 0) {
-        c->mem_w16(node + 0x62, (uint16_t)(c->mem_r16(node + 0x62) & 0xfffb));
+        a.setStateEcho((uint16_t)(a.stateEcho_u() & 0xfffb));
         call2(c, node, FN_801402B8, 5u, 8u);
         c->mem_w8(node + 7, 0x2d);
         c->mem_w16(node + 0x4e, 0);
@@ -877,7 +883,7 @@ LAB_80143c48:
       uint8_t bv = c->mem_r8(node + 7);
       if (1 < bv) c->mem_w8(node + 7, (uint8_t)(bv - 1));
       uVar6 = (uint32_t)(1 >= bv);
-      c->mem_w16(node + 0x32, (uint16_t)(c->mem_r16s(node + 0x32) + 0x10));
+      a.setPosY((uint16_t)(a.posY() + 0x10));
       call1(c, node, FN_801406E4);
       break;
     }
@@ -886,7 +892,7 @@ LAB_80143c48:
       if (n6 == 0) { c->mem_w16(node + 6, 1); }
       else if (n6 != 1) { return; }
       if (c->mem_r8(node + 7) == 0) {
-        c->mem_w16(node + 0x62, (uint16_t)(c->mem_r16(node + 0x62) & 0xfffb));
+        a.setStateEcho((uint16_t)(a.stateEcho_u() & 0xfffb));
         call2(c, node, FN_801402B8, 0x2fu, 8u);
         c->mem_w8(node + 7, 0x1e);
         c->mem_w16(node + 0x4e, 0);
@@ -894,7 +900,7 @@ LAB_80143c48:
       uint8_t bv = c->mem_r8(node + 7);
       if (1 < bv) c->mem_w8(node + 7, (uint8_t)(bv - 1));
       uVar6 = (uint32_t)(1 >= bv);
-      c->mem_w16(node + 0x32, (uint16_t)(c->mem_r16s(node + 0x32) + 0x10));
+      a.setPosY((uint16_t)(a.posY() + 0x10));
       call1(c, node, FN_801406E4);
       break;
     }
@@ -903,7 +909,7 @@ LAB_80143c48:
       if (n6 == 0) { c->mem_w16(node + 6, 1); }
       else if (n6 != 1) { return; }
       if (c->mem_r8(node + 7) == 0) {
-        c->mem_w16(node + 0x62, (uint16_t)(c->mem_r16(node + 0x62) & 0xfffb));
+        a.setStateEcho((uint16_t)(a.stateEcho_u() & 0xfffb));
         call2(c, node, FN_801402B8, 0x30u, 8u);
         c->mem_w8(node + 7, 0x1e);
         c->mem_w16(node + 0x4e, 0);
@@ -911,7 +917,7 @@ LAB_80143c48:
       uint8_t bv = c->mem_r8(node + 7);
       if (1 < bv) c->mem_w8(node + 7, (uint8_t)(bv - 1));
       uVar6 = (uint32_t)(1 >= bv);
-      c->mem_w16(node + 0x32, (uint16_t)(c->mem_r16s(node + 0x32) + 0x10));
+      a.setPosY((uint16_t)(a.posY() + 0x10));
       call1(c, node, FN_801406E4);
       break;
     }
@@ -962,6 +968,7 @@ LAB_801448e8:
 void ActorZonedAttacker::idleTick(Core* c) {
   GuestFrame<48, 4> frame(c, kSpills_80144B50);
   const uint32_t node = c->r[R_A0];
+  Actor a(c, node);
   const uint8_t state5 = c->mem_r8(node + 5);
 
   switch (state5) {
@@ -1002,9 +1009,9 @@ LAB_80144bd0:
 switchD_caseD_0:
       {
         bool bVar1;
-        if (c->mem_r16s(node + 0x32) < 1) {
+        if (a.posY() < 1) {
           if ((int8_t)c->mem_r8(node + 0x66) == (int8_t)0x81) {
-            bVar1 = c->mem_r16s(node + 0x32) < -0x81;
+            bVar1 = a.posY() < -0x81;
           } else {
             bVar1 = c->mem_r8(G_800E7EAA) < 0xc;
           }
@@ -1022,17 +1029,17 @@ switchD_caseD_0:
             goto LAB_80144d20;
           } else if (bVar6 < 2) {
             if (bVar6 == 0) {
-              const uint32_t lhs = (((uint32_t)c->mem_r8(node + 0x2b) * 0x10 - 0x800) & 0xfffu);
-              const uint32_t val = (uint32_t)((int32_t)lhs - c->mem_r16s(node + 0x60) + 0x400) & 0xfffu;
-              uint16_t v62 = c->mem_r16(node + 0x62);
+              const uint32_t lhs = (((uint32_t)a.subFlag() * 0x10 - 0x800) & 0xfffu);
+              const uint32_t val = (uint32_t)((int32_t)lhs - a.triggerParam() + 0x400) & 0xfffu;
+              uint16_t v62 = a.stateEcho_u();
               v62 = (val < 0x801u) ? (uint16_t)(v62 | 1) : (uint16_t)(v62 & 0xfffe);
-              c->mem_w16(node + 0x62, v62);
+              a.setStateEcho(v62);
               c->r[R_A0] = 0x88u; c->r[R_A1] = 0; c->r[R_A2] = 0; rec_dispatch(c, FN_80074590);
               c->mem_w16(node + 6, 1);
               goto LAB_80144d20;
             }
           } else if (bVar6 == 2) {
-            c->mem_w16(node + 0x32, (uint16_t)(c->mem_r16s(node + 0x32) + 0x10));
+            a.setPosY((uint16_t)(a.posY() + 0x10));
             call1(c, node, FN_801406E4);
             uint16_t v42 = c->mem_r16(node + 0x42);
             c->mem_w16(node + 0x42, (uint16_t)(v42 - 1));
@@ -1054,7 +1061,7 @@ switchD_caseD_0:
               c->mem_w8(node + 0, 1);
               c->mem_w8(node + 0xd, (uint8_t)(c->mem_r8(node + 0xd) & 0xfd));
               c->mem_w8(node + 0x1b, (uint8_t)(c->mem_r8(node + 0x1b) & 0xbf));
-              c->mem_w8(node + 0x2b, 0);
+              a.setSubFlag(0);
               c->mem_w8(node + 3, 0);
               c->mem_w32(node + 4, 1u);
             }
@@ -1081,9 +1088,9 @@ LAB_80144d20:
               const uint32_t kind = (uint32_t)(c->mem_r16(node + 0x68) >> 8) & 0xf;
               if (kind == 1 || (kind == 2 && c->mem_r16s(node + 0x4e) > 0x500)) {
                 const uint32_t gsp = c->r[29];
-                c->mem_w16(gsp + 0x12, (uint16_t)c->mem_r16(node + 0x2e));
+                c->mem_w16(gsp + 0x12, (uint16_t)a.posX_u());
                 c->mem_w16(gsp + 0x16, (uint16_t)c->mem_r16(node + 0x6a));
-                c->mem_w16(gsp + 0x1a, (uint16_t)c->mem_r16(node + 0x36));
+                c->mem_w16(gsp + 0x1a, (uint16_t)a.posZ_u());
                 eng(c).spawn.spawnAndInit(8u, gsp + 0x10, (uint32_t)(int32_t)-0x50);
                 c->mem_w8(G_8014BF5E, 10);
               }
@@ -1092,8 +1099,8 @@ LAB_80144d20:
           }
         }
 idle_after_substate:
-        if (c->mem_r8(node + 0x2a) == 1 && c->mem_r16s(node + 0x2e) > 0x31a8) {
-          c->mem_w16(node + 0x2e, 0x31a8);
+        if (c->mem_r8(node + 0x2a) == 1 && a.posX() > 0x31a8) {
+          a.setPosX(0x31a8);
         }
         goto switchD_caseD_3;
       }
@@ -1121,13 +1128,13 @@ idle_after_substate:
 switchD_caseD_2:
   if (c->mem_r8(node + 6) == 0) {
     call2(c, node, FN_801402B8, 2u, 4u);
-    c->r[R_A0] = (uint32_t)c->mem_r8(node + 0x2b) << 4;
-    c->r[R_A1] = (uint32_t)c->mem_r16s(node + 0x60);
+    c->r[R_A0] = (uint32_t)a.subFlag() << 4;
+    c->r[R_A1] = (uint32_t)a.triggerParam();
     c->r[R_A2] = 0;
     rec_dispatch(c, FN_80077768);
-    uint16_t v62 = c->mem_r16(node + 0x62);
+    uint16_t v62 = a.stateEcho_u();
     v62 = (c->r[R_V0] == 0) ? (uint16_t)(v62 | 1) : (uint16_t)(v62 & 0xfffe);
-    c->mem_w16(node + 0x62, v62);
+    a.setStateEcho(v62);
     c->mem_w16(node + 0x4e, 0xe000);
     c->mem_w16(node + 0x50, 0xffd8);
     c->mem_w8(node + 0x29, 0);
@@ -1140,7 +1147,7 @@ switchD_caseD_2:
     }
     int32_t iVar5 = c->mem_r16s(node + 0x48) * c->mem_r16s(node + 0x4e);
     int32_t iVar7 = c->mem_r16s(node + 0x4c) * c->mem_r16s(node + 0x4e);
-    if ((c->mem_r16(node + 0x62) & 1) == 0) {
+    if ((a.stateEcho_u() & 1) == 0) {
       iVar5 = (int32_t)c->mem_r32(node + 0x2c) + iVar5;
       iVar7 = (int32_t)c->mem_r32(node + 0x34) + iVar7;
     } else {
@@ -1149,8 +1156,8 @@ switchD_caseD_2:
     }
     c->mem_w32(node + 0x2c, (uint32_t)iVar5);
     c->mem_w32(node + 0x34, (uint32_t)iVar7);
-    c->mem_w16(node + 0x32, (uint16_t)(c->mem_r16s(node + 0x32) + c->mem_r16s(node + 0x50)));
-    c->mem_w16(node + 0x58, (uint16_t)(c->mem_r16s(node + 0x58) + 0xcc));
+    a.setPosY((uint16_t)(a.posY() + c->mem_r16s(node + 0x50)));
+    a.setRotZ((uint16_t)(a.rotZ() + 0xcc));
     bool despawnNow = (c->mem_r8(node + 0x29) != 0);
     if (!despawnNow) {
       c->r[R_A0] = node; c->r[R_A1] = 0; c->r[R_A2] = 0;

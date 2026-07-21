@@ -198,6 +198,12 @@ public:
   //   per-type from a small set of magic angle presets (0x400/0xC00/0x4D0/…).
   int16_t rotX() const                { return (int16_t)c->mem_r16(obj + 0x54); }
   int16_t rotY() const                { return (int16_t)c->mem_r16(obj + 0x56); }
+  // Unsigned width-views of the SAME fields (no new semantics). Faithful bodies read some of these
+  // unsigned (`mem_r16`) and some signed (`mem_r16s`); the port must keep whichever the guest used,
+  // so the lens offers both rather than forcing a cast at the call site and risking a sign change.
+  uint16_t rotX_u() const             { return c->mem_r16(obj + 0x54); }
+  uint16_t rotY_u() const             { return c->mem_r16(obj + 0x56); }
+  uint16_t rotZ_u() const             { return c->mem_r16(obj + 0x58); }
   int16_t rotZ() const                { return (int16_t)c->mem_r16(obj + 0x58); }
   void    setRotX(uint16_t v)         { c->mem_w16(obj + 0x54, v); }
   void    setRotY(uint16_t v)         { c->mem_w16(obj + 0x56, v); }
@@ -217,6 +223,7 @@ public:
   //   likely a "ground beneath the actor" probe (test whether the ground the actor stands on would
   //   render this frame).
   int16_t triggerParam() const        { return (int16_t)c->mem_r16(obj + 0x60); }
+  uint16_t triggerParam_u() const     { return c->mem_r16(obj + 0x60); }
   void    setTriggerParam(int16_t v)  { c->mem_w16(obj + 0x60, (uint16_t)v); }
   // stateEcho (obj+0x62, u16 / i16): mirror of the state byte written by beh_typed_table_seed_gate
   //   state-1 non-triggered gate paths. Its READER is FUN_801337E4's section A — when stateEcho is
@@ -224,6 +231,7 @@ public:
   //   and re-seed oscBase from the per-type table). So the semantic is: "parent latched a
   //   not-in-scene tick; sub-behavior on next call must reset".
   int16_t  stateEcho() const          { return (int16_t)c->mem_r16(obj + 0x62); }
+  uint16_t stateEcho_u() const        { return c->mem_r16(obj + 0x62); }
   void    setStateEcho(uint16_t v)    { c->mem_w16(obj + 0x62, v); }
 
   // ── Bounding box / trigger volume (u16 × 4) ──────────────────────────────────────────────────────
