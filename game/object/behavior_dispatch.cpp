@@ -13,7 +13,10 @@
 #include "behavior_dispatch.h"
 #include "game_ctx.h"
 #include "core.h"
-#include "game.h"                 // Fps60::current_object (was g_current_object)
+#include "game.h"
+#include <cstring>
+#include <cstdio>
+#include "cfg.h"                 // Fps60::current_object (was g_current_object)
 #include "core/engine.h"         // class Engine (for Core::engine)
 #include <cstdint>
 
@@ -197,6 +200,18 @@ void BehaviorDispatch::dispatchObj(uint32_t obj, uint32_t handler) {
 
 bool BehaviorDispatch::dispatchNative(uint32_t handler) {
   Core* c = this->core;
+  // PSXPORT_BEH_SUBSTRATE=<hex,hex> — force named handlers back to the substrate without a rebuild.
+  // This exists because a single bad native handler is otherwise very hard to isolate: it does not
+  // crash, it corrupts game state (the 2026-07-21 save-sign softlock was one handler out of 65, found
+  // by bisecting this list). Diagnostic only; the default is empty and changes nothing.
+  static const char* s_forced = nullptr;
+  static bool s_init = false;
+  if (!s_init) { s_init = true; s_forced = cfg_str("PSXPORT_BEH_SUBSTRATE"); }
+  if (s_forced && *s_forced) {
+    char hex[16];
+    snprintf(hex, sizeof hex, "%08X", handler);
+    if (strcasestr(s_forced, hex)) return false;
+  }
   for (const NativeBeh& b : kTable)
     if (b.addr == handler) { b.fn(c); return true; }
   return false;

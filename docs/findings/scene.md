@@ -805,3 +805,31 @@ After deduping FUN_80040B48 + FUN_80040CDC, `codemap.py --conflicts` (authoritat
 - **Root cause (2 diagnose agents, high conf):** `overrides::dispatch()` (overlay_router.cpp:182) is address-keyed and runs BEFORE the resident-overlay routing (L234-261). During START→SOP boot, SOP is resident in the shared MODE slot (0x80108F9C+); when SOP's body `rec_dispatch(c,X)`s a numeric address that is ALSO one of the 291 a00 override addrs, dispatch() hijacks it into the a00 native leaf → leaf reads foreign RAM / re-dispatches an a00 sub-addr SOP has no entry for → `rec_dispatch_miss` abort (hle.cpp:269). "a00-unique in the DISPATCH TABLE" ≠ cross-overlay ENTRY-unique; the dispatch path is entry-table-agnostic.
 - **DEAD END — residency-gating dispatch() (both workflow designs, refuted):** gating `dispatch()` on `overlay_router_resident_name(c,addr)==owner` REGRESSES the a00 RENDER overrides. `override_registry.h:59-63` documents that dispatch interception exists PRECISELY to fire overrides *independent* of live-RAM residency (gen bodies always linked). pc_render's node walk dispatches a00 render leaves (OverlayGt3Gt4 0x801465EC/7BC, OverlayGroundGt3Gt4, TileGridLayer, WidescreenMarginQuad, ActorMeleeEngage) while SOP may still be signature-resident (the "later-275" window) or during a load-transition frame (name "none") → gate returns false → `res->disp(SOP)` at an a00 addr → abort. Do NOT add a residency gate to the crown-jewel dispatch path.
 - **CORRECT FIX (batch selection, not dispatch change):** own an overlay leaf as an a00 override ONLY if its address is a valid code entry/dispatch-target in NO other overlay/module (true cross-overlay ENTRY uniqueness, verified against SOP/START/other overlays' entry tables), OR own the shared-code leaf as MAIN/shared (fired via `shard_set_override`, always resident). Shared-entry addresses stay substrate. Refs: workflow wf_340a9067-89b (journal has full designs+refutations).
+
+## Save-sign softlock ROOT-CAUSED: the native beh_scene_ui_trigger (0x800739AC)
+- **status:** ROOT CAUSE FOUND 2026-07-21 (kanban #5). Not yet fixed — the handler itself needs RE.
+- **symptom (USER):** inspecting the seaside save sign freezes Tomba mid-inspect, no save menu, game
+  logic fully halted.
+- **the observable:** Tomba's status flags at `0x800E7E80` read **0x07** (cutscene-lock bits `&6` set)
+  where a healthy run reads **0x01**. The bits are set and never cleared.
+- **DETERMINISTIC, contrary to the earlier note on this card.** `replays/bugs/save-sign-softlock.pad`
+  reproduces it every run:
+  ```
+  default (pc_skip ON) : 800E7E80: 07 01 00 00      <- locked
+  PSXPORT_PC_SKIP=0    : 800E7E80: 01 01 00 00      <- clean
+  ```
+- **isolated to ONE handler.** pc_skip is not itself the bug; it is the switch that routes behaviour
+  handlers to native code (`behavior_dispatch.cpp:194` — with pc_skip OFF everything goes to the
+  substrate, which is why turning it off "fixes" it). Bisecting the 65-entry native table:
+  ```
+  BEH_NATIVE_MAX=3 -> 01   (clean)
+  BEH_NATIVE_MAX=4 -> 07   (locked)     index 3 = beh_scene_ui_trigger, 0x800739AC
+  PSXPORT_BEH_SUBSTRATE=800739AC -> 01  (clean, that handler alone forced to substrate)
+  ```
+  So the native `beh_scene_ui_trigger` sets the cutscene-lock bits and never clears them, while the
+  substrate body does. A save sign IS a scene UI trigger, which fits the symptom exactly.
+- **next:** RE `beh_scene_ui_trigger` against `gen_func_800739AC` and find where the two diverge on
+  the lock-clear path. Do not "fix" it by clearing the bits — that is the symptom.
+- **likely the same cause as kanban #2** (bucket-pickup cutscene softlock, also pc_skip-ON, also an
+  interaction→cutscene flow). Unverified — no replay exists for #2 yet; capture one and test it with
+  `PSXPORT_BEH_SUBSTRATE=800739AC` before assuming.
