@@ -21,6 +21,11 @@
 static constexpr uint32_t T2_ISQRT  = 0x80084080u;   // isqrt(x)      -> floor(sqrt)
 // ratan2 (0x80085690) is owned by class Trig (game/math/trig.h) — Trig::ratan2 superseded T2_RATAN2/LA_RATAN2.
 // angleCmp (0x80077768) is owned by class Trig — Trig::angleCmp superseded T2_ANGCMP.
+// rsin's SUBSTRATE entry (0x80083E80). Trig::rsin is the native for direct callers, but the guest body
+// pushes a 24-byte frame (spills ra@+16 — see trig.cpp "UNREGISTERED" note), so byte-exact contexts
+// (initPlace/orbitTick, reached on the SBS-compared leg via the snapToMasterOffsetY200/orbitTick
+// overrides) must run the substrate body with the gen's jal-site ra preloaded so the frame bytes match.
+static constexpr uint32_t T2_RSIN_SUB = 0x80083E80u;
 // lookAt's matrix helpers (NB its isqrt is a DIFFERENT entry from rotBuild's).
 static constexpr uint32_t LA_ISQRT  = 0x80077FB0u;
 static constexpr uint32_t LA_MRINIT = 0x80051794u;   // MR_init (identity)
@@ -530,6 +535,26 @@ static inline int32_t cam_idiv(Core* c, int32_t num, int32_t den) {
   return (int32_t)c->lo;
 }
 void CutsceneCamera::lookAt() {   // FUN_8006D02C
+  // gen_func_8006D02C pushes a 56-byte guest frame (r29-=56, spills s0..s7/fp/ra at +16..+52, restored
+  // symmetrically at the single exit — abi_extract 0x8006D02C). Mirrored relative to the CALLER's live
+  // c->r[29] with the LIVE register values, so the guest-stack bytes byte-match the substrate wherever
+  // this native runs on an SBS-compared leg (the snapToMasterOffsetY200/orbitTick override trees, whose
+  // callers preload r16/r17/r31 with the gen's s0/s1/jal-site values before calling in). Every callee of
+  // this body (isqrt 0x80077FB0, MR_init 0x80051794, ratan2 0x80085690, MulMatrix0 0x80084250,
+  // applyMatrixLV 0x80084470, CopyMatrix 0x800847B0) is frameless per abi_extract, so the own frame is
+  // the whole stack footprint.
+  c->r[29] -= 56;
+  const uint32_t fsp = c->r[29];
+  c->mem_w32(fsp + 16, c->r[16]);
+  c->mem_w32(fsp + 20, c->r[17]);
+  c->mem_w32(fsp + 24, c->r[18]);
+  c->mem_w32(fsp + 28, c->r[19]);
+  c->mem_w32(fsp + 32, c->r[20]);
+  c->mem_w32(fsp + 36, c->r[21]);
+  c->mem_w32(fsp + 40, c->r[22]);
+  c->mem_w32(fsp + 44, c->r[23]);
+  c->mem_w32(fsp + 48, c->r[30]);
+  c->mem_w32(fsp + 52, c->r[31]);
   int32_t dX = (int16_t)r16(S + 14) - (int16_t)r16(S + 2);
   int32_t dZ = (int16_t)r16(S + 22) - (int16_t)r16(S + 10);
   int32_t dY = (int16_t)r16(S + 18) - (int16_t)r16(S + 6);
@@ -576,6 +601,17 @@ void CutsceneCamera::lookAt() {   // FUN_8006D02C
   w16(0x1F8000C4u, (uint16_t)(0u - (uint32_t)r16(S + 10)));
   mathOf(c).applyMatrixLV((uint32_t)M, 0x1F8000C0u, 0x1F80010Cu);   // FUN_80084470 (native)
   call(LA_COPYMAT, (int32_t)M, (int32_t)(S + 72));
+  c->r[16] = c->mem_r32(fsp + 16);
+  c->r[17] = c->mem_r32(fsp + 20);
+  c->r[18] = c->mem_r32(fsp + 24);
+  c->r[19] = c->mem_r32(fsp + 28);
+  c->r[20] = c->mem_r32(fsp + 32);
+  c->r[21] = c->mem_r32(fsp + 36);
+  c->r[22] = c->mem_r32(fsp + 40);
+  c->r[23] = c->mem_r32(fsp + 44);
+  c->r[30] = c->mem_r32(fsp + 48);
+  c->r[31] = c->mem_r32(fsp + 52);
+  c->r[29] = fsp + 56;
 }
 
 // ── orchestrators (per-frame camera modes) ───────────────────────────────────────────────────────
@@ -595,9 +631,28 @@ void CutsceneCamera::snapFollow(uint32_t target) {   // FUN_8006E3B0
     memcpy(rsave, c->r, sizeof rsave);
   }
 
+  // gen_func_8006E3B0 pushes a 32-byte guest frame (r29-=32, spills s0@+16/s1@+20/ra@+24), then sets
+  // s0=a0(cam) / s1=a1(target) for the body — abi_extract 0x8006E3B0. Mirrored with live values so the
+  // stack bytes byte-match on the SBS-compared leg (reached via the orbitTick override, which preloads
+  // r16/r17/r31 with the gen's values at its 0x8006EFE0 jal site). snapAccXZ/snapAccY (0x8006D934/
+  // 0x8006D950) are frameless; lookAt mirrors its own 56-byte frame and spills the r16/r17/r31 set here.
+  c->r[29] -= 32;
+  const uint32_t fsp = c->r[29];
+  c->mem_w32(fsp + 16, c->r[16]);
+  c->mem_w32(fsp + 20, c->r[17]);
+  c->mem_w32(fsp + 24, c->r[31]);
+  c->r[16] = cam_;
+  c->r[17] = target;
+
   snapAccXZ(target);                   // snap the follow accumulators to target (no smoothing)
   snapAccY(target);
+  c->r[31] = 0x8006E3E0u;              // gen jal-site for lookAt (spilled by lookAt's frame)
   lookAt();
+
+  c->r[16] = c->mem_r32(fsp + 16);
+  c->r[17] = c->mem_r32(fsp + 20);
+  c->r[31] = c->mem_r32(fsp + 24);
+  c->r[29] = fsp + 32;
 
   if (!s_v) return;
   // `camverify` A/B: capture the native result, roll back, super-call the recomp oracle at
@@ -794,6 +849,19 @@ void CutsceneCamera::dispatchMode(uint8_t mode) {
 }
 
 void CutsceneCamera::initPlace() {   // FUN_8006E918 (init: place the camera X/Z base from the heading)
+  // gen_func_8006E918 pushes a 40-byte guest frame (r29-=40, spills s0@+16/s1@+20/s2@+24/s3@+28/ra@+32,
+  // restored at the single exit — abi_extract 0x8006E918). Mirrored with live values so the stack bytes
+  // byte-match on the SBS-compared leg (reached via the snapToMasterOffsetY200 override, which preloads
+  // r16/r17/r31 with the gen's values at its 0x8006EA60 jal site). rcos (0x80083F50) is frameless; rsin
+  // is NOT (24-byte frame, ra@+16 — the reason Trig left it unregistered, trig.cpp), so the gen's rsin
+  // call is reproduced through the substrate with its jal-site ra (0x8006E9C0) preloaded.
+  c->r[29] -= 40;
+  const uint32_t fsp = c->r[29];
+  c->mem_w32(fsp + 16, c->r[16]);
+  c->mem_w32(fsp + 20, c->r[17]);
+  c->mem_w32(fsp + 24, c->r[18]);
+  c->mem_w32(fsp + 28, c->r[19]);
+  c->mem_w32(fsp + 32, c->r[31]);
   int32_t g140 = (int16_t)r16(G + 0x140);
   uint16_t cam56 = camR16(0x56);
   // s0: cam[0x56], negated unless the scene heading G+0x140 already equals the target heading G+0x56.
@@ -803,8 +871,15 @@ void CutsceneCamera::initPlace() {   // FUN_8006E918 (init: place the camera X/Z
   int32_t angle = g140 + (int16_t)r16(cam_ + 0x52) + s0;
   int32_t cx = (int32_t)(uint16_t)r16(G + 0x2e) + (mlo(trigOf(c).rcos(angle), s1) >> 12);
   w16(S + 0x02, (uint16_t)cx);
-  int32_t cz = (int32_t)(uint16_t)r16(G + 0x36) - (mlo(trigOf(c).rsin(angle), s1) >> 12);
+  c->r[31] = 0x8006E9C0u;              // gen jal-site for rsin (spilled by rsin's own 24-byte frame)
+  int32_t cz = (int32_t)(uint16_t)r16(G + 0x36) - (mlo(call(T2_RSIN_SUB, angle), s1) >> 12);
   w16(S + 0x0a, (uint16_t)cz);
+  c->r[16] = c->mem_r32(fsp + 16);
+  c->r[17] = c->mem_r32(fsp + 20);
+  c->r[18] = c->mem_r32(fsp + 24);
+  c->r[19] = c->mem_r32(fsp + 28);
+  c->r[31] = c->mem_r32(fsp + 32);
+  c->r[29] = fsp + 40;
 }
 void CutsceneCamera::initSeedGrp(uint32_t src) {   // FUN_8006CBA8 (writes the FIXED driver cam @0x800E8008)
   w16(CAM_OBJ + 0x3a, r16(src + 2));
@@ -852,26 +927,32 @@ void CutsceneCamera::restoreMode() {   // FUN_8006E1E4
 // gen_func_8006EA00. Since this leaf is wired GLOBALLY (any rec_dispatch(c, 0x8006EA00u) caller,
 // substrate context included, per the "MIRROR THE GUEST STACK" directive), the frame is mirrored
 // relative to the CALLER's live c->r[29] (not a fixed offset): spill the live s0/s1/ra so their
-// bytes land in guest RAM exactly where the substrate would leave them, run the body (which never
-// itself needs s0/s1 as registers — CAM_OBJ is a compile-time constant here, matching the gen's
-// own hardcoded-constant s0/s1 load), then restore before returning (a nested call, e.g. lookAt's
-// LA_ISQRT rec_dispatch, can clobber the shared Core::r[] register file, so the restore is a real
-// requirement, not a formality).
+// bytes land in guest RAM exactly where the substrate would leave them. The gen then loads
+// s0=CAM_OBJ / s1=CAM_OBJ+8 for the body — those register values MUST be reproduced here, because
+// the frame-pushing callees (initPlace frame 40, lookAt frame 56 — mirrored in their own bodies)
+// spill s0/s1 into THEIR frames; likewise each frame-pushing callee gets r31 preloaded with the
+// gen's exact jal-site constant so its ra spill slot byte-matches. Restore before returning (a
+// nested call, e.g. lookAt's LA_ISQRT rec_dispatch, can clobber the shared Core::r[] register
+// file, so the restore is a real requirement, not a formality).
 void CutsceneCamera::snapToMasterOffsetY200() {   // FUN_8006EA00
   c->r[29] -= 32;
   const uint32_t sp = c->r[29];
   c->mem_w32(sp + 16, c->r[16]);
   c->mem_w32(sp + 20, c->r[17]);
   c->mem_w32(sp + 24, c->r[31]);
+  c->r[16] = CAM_OBJ;       // gen: s0 = 0x800E8008 (spilled by initPlace's/lookAt's frames)
+  c->r[17] = CAM_OBJ + 8;   // gen: s1 = 0x800E8010 (ditto)
   // cam[8]/[0xc]/[0x10] are a 32-bit (X,Y,Z) staging triple (same shape trackXZ/trackY/snapAccXZ/snapAccY
   // read as `target`); only the HIGH (integer) half is written here — the low half keeps whatever was
   // already there, exactly like the guest (never "cleaned up").
   w16(CAM_OBJ + 0x0e, (uint16_t)((int16_t)r16(MASTER_Y + 2) - 200));   // cam[0xc].hi = MASTER_Y.hi - 200
   w16(CAM_OBJ + 0x0a, r16(MASTER_X + 2));                              // cam[8].hi   = MASTER_X.hi
   w16(CAM_OBJ + 0x12, r16(MASTER_Z + 2));                              // cam[0x10].hi= MASTER_Z.hi
-  snapAccXZ(CAM_OBJ + 8);
-  snapAccY(CAM_OBJ + 8);
+  snapAccXZ(CAM_OBJ + 8);      // 0x8006D934 — frameless, no ra needed
+  snapAccY(CAM_OBJ + 8);       // 0x8006D950 — frameless
+  c->r[31] = 0x8006EA60u;      // gen jal-site for initPlace (spilled by initPlace's frame) (spilled by initPlace's frame)
   initPlace();
+  c->r[31] = 0x8006EA68u;      // gen jal-site for lookAt (spilled by lookAt's frame)
   lookAt();
   c->r[31] = c->mem_r32(sp + 24);
   c->r[17] = c->mem_r32(sp + 20);
@@ -882,7 +963,8 @@ void CutsceneCamera::snapToMasterOffsetY200() {   // FUN_8006EA00
 // UNCONDITIONALLY — even on the early-return path (the gen's branch-delay-slot spill runs before
 // the {3,4}-window check, and the early-return target is the same restore tail as the normal
 // exit) — confirmed against generated/shard_2.c gen_func_8006EF38. Mirrored the same way as
-// snapToMasterOffsetY200 above; see that method's comment for the rationale.
+// snapToMasterOffsetY200 above (own frame + gen s0/s1 register values + per-jal-site ra constants
+// for the frame-pushing callees rsin/snapFollow/lookAt); see that method's comment for the rationale.
 void CutsceneCamera::orbitTick() {   // FUN_8006EF38
   c->r[29] -= 32;
   const uint32_t sp = c->r[29];
@@ -891,10 +973,16 @@ void CutsceneCamera::orbitTick() {   // FUN_8006EF38
   c->mem_w32(sp + 24, c->r[31]);
   if ((uint8_t)(r8(0x1F800236u) - 3) < 2) {   // only during render-timing window {3,4}
     int32_t angle = (int16_t)camR16(0x70);
-    int32_t rc = trigOf(c).rcos(angle), rs = trigOf(c).rsin(angle);
+    int32_t rc = trigOf(c).rcos(angle);       // 0x80083F50 — frameless, native ok
+    c->r[31] = 0x8006EF90u;                   // gen jal-site for rsin (spilled by rsin's 24-byte frame)
+    int32_t rs = call(T2_RSIN_SUB, angle);    // substrate rsin — its gen frame must land on the stack
     w16(S + 0x02, (uint16_t)((int16_t)camR16(0x3a) + (int16_t)(mlo(rc, 500) >> 12)));
     w16(S + 0x0a, (uint16_t)((int16_t)camR16(0x42) + (int16_t)(mlo(rs, 500) >> 12)));
     camW16(0x70, (uint16_t)(angle + 8));
+    // gen: s0 = rcos*500>>12 (kept live across the body), s1 = CAM_OBJ — spilled by snapFollow's frame.
+    c->r[16] = (uint32_t)(mlo(rc, 500) >> 12);
+    c->r[17] = CAM_OBJ;
+    c->r[31] = 0x8006EFE0u;                   // gen jal-site for snapFollow (spilled by its frame)
     snapFollow(CAM_OBJ + 0x38);   // snap the camera's own position accumulators to the fixed orbit center
   }
   c->r[31] = c->mem_r32(sp + 24);

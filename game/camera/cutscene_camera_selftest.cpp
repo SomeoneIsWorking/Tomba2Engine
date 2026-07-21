@@ -91,9 +91,21 @@ void seed(Core* c, CamTestState& ts) {
 // Run one method vs the oracle; return mismatch count. `nat` invokes the native method; (addr,a0,a1) is the
 // guest function + its register args for the oracle. Inputs are snapshot before nat and restored before the
 // oracle so both run on identical state; outputs are diffed across every region.
+//
+// cmpStack: for the OVERRIDE-WIRED methods (snapToMasterOffsetY200/orbitTick — the only camera natives that
+// run on the SBS-compared leg), additionally byte-compare a window of guest stack below the live sp. Their
+// gen trees push real frames (own 32 + initPlace 40 / snapFollow 32 + lookAt 56 + rsin 24) that the natives
+// must mirror spill-for-spill (values AND ra jal-site constants). The window is RE-RANDOMIZED every iteration
+// before the native leg and restored before the oracle leg, so any byte the gen writes that the native
+// doesn't (or writes differently) mismatches instead of false-passing on a stale previous run.
+constexpr uint32_t STKW = 48;   // 192 bytes below sp — deepest mirrored write is sp-120 (lookAt under snapFollow)
 int check(Core* c, CamTestState& ts, const char* name, uint32_t addr, std::function<void()> nat,
-          uint32_t a0, uint32_t a1) {
+          uint32_t a0, uint32_t a1, bool cmpStack = false) {
   uint32_t in[NREG][MAXW], mine[NREG][MAXW], rs[32];
+  uint32_t stkIn[STKW], stkMine[STKW];
+  const uint32_t spTop = c->r[29], stkBase = spTop - STKW * 4;
+  if (cmpStack)
+    for (uint32_t i = 0; i < STKW; i++) { stkIn[i] = ts.rnd(); c->mem_w32(stkBase + i * 4, stkIn[i]); }
   snap(c, in);
   memcpy(rs, c->r, sizeof rs);
 
@@ -104,6 +116,10 @@ int check(Core* c, CamTestState& ts, const char* name, uint32_t addr, std::funct
   c->recMissTolerant = false;
   if (c->recMissed) return -1;
   snap(c, mine);
+  if (cmpStack) {
+    for (uint32_t i = 0; i < STKW; i++) stkMine[i] = c->mem_r32(stkBase + i * 4);
+    for (uint32_t i = 0; i < STKW; i++) c->mem_w32(stkBase + i * 4, stkIn[i]);   // reset for the oracle leg
+  }
 
   restore(c, in);
   memcpy(c->r, rs, sizeof rs);
@@ -121,6 +137,15 @@ int check(Core* c, CamTestState& ts, const char* name, uint32_t addr, std::funct
         bad++;
         if (ts.reported++ < 30)
           cfg_logi("camtest", "MISMATCH %-10s %s+0x%03x  mine=%08x oracle=%08x", name, REGIONS[r].name, i * 4, mine[r][i], o);
+      }
+    }
+  if (cmpStack)
+    for (uint32_t i = 0; i < STKW; i++) {
+      uint32_t o = c->mem_r32(stkBase + i * 4);
+      if (stkMine[i] != o) {
+        bad++;
+        if (ts.reported++ < 30)
+          cfg_logi("camtest", "MISMATCH %-10s stack sp-0x%02x  mine=%08x oracle=%08x", name, (STKW - i) * 4, stkMine[i], o);
       }
     }
   return bad;
@@ -164,6 +189,8 @@ int run_camera_oracle(const char* path) {
     {"init",       0x8006EA7Cu, 0},   // the mode selector (0x8006EA7C)
     {"update",     0x8006EC44u, 0},   // the per-frame driver (0x8006EC44); reads its state from RAM
     {"shakeTail",  0x8006C988u, 0},   // post-mode shake state machine (0x8006C988)
+    {"snapMasterY200", 0x8006EA00u, 0},   // override-wired (eov) — guest-stack window compared too
+    {"orbitTick",  0x8006EF38u, 0},       // override-wired (eov) — guest-stack window compared too
   };
   const int NC = sizeof(cases) / sizeof(cases[0]);
 
@@ -183,6 +210,10 @@ int run_camera_oracle(const char* path) {
         c->mem_w8(CAM + 0x64, (uint8_t)((ts.rnd() % 20) | (ts.rnd() & 0xC0)));   // mode + gate bits
       }
       if (ci == 24) c->mem_w8(CAM + 0x76, (uint8_t)(ts.rnd() % 12));   // shakeTail: sweep every state + default
+      // orbitTick's body is gated on render-timing byte 0x1F800236 ∈ {3,4}; the random seed hits that
+      // 2/256 of the time — force it 3 iterations out of 4 so the deep (rsin+snapFollow+lookAt) path
+      // is actually exercised, while keeping the early-out path covered too.
+      if (ci == 26 && (ts.rnd() & 3)) c->mem_w8(0x1F800236u, (uint8_t)(3 + (ts.rnd() & 1)));
       CutsceneCamera cam(c, CAM);
       uint32_t a1 = t.usesTarget ? TGT : 0;
       std::function<void()> nat;
@@ -212,8 +243,10 @@ int run_camera_oracle(const char* path) {
         case 22: nat = [&]{ cam.init(); }; break;
         case 23: nat = [&]{ cam.update(); }; break;
         case 24: nat = [&]{ cam.shakeTail(); }; break;
+        case 25: nat = [&]{ cam.snapToMasterOffsetY200(); }; break;
+        case 26: nat = [&]{ cam.orbitTick(); }; break;
       }
-      int m = check(c, ts, t.name, t.addr, nat, CAM, a1);
+      int m = check(c, ts, t.name, t.addr, nat, CAM, a1, /*cmpStack=*/ci >= 25);
       if (m < 0) skip++; else { bad += m; ran++; }
       total_runs++;
     }

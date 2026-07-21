@@ -1982,3 +1982,35 @@ The framed camera bodies call native `initPlace()` / `lookAt()` whose guest coun
 own frames (40 and 56, both spilling ra), yet native `lookAt` (cutscene_camera.cpp:532-580) does no sp
 descent, and the caller does not set the jal-site ra constants `0x8006EA60`/`0x8006EA68`. Possibly
 reconciled already — the in-file comment claims verification — but UNCLEAR and worth its own pass.
+
+### The camera callees WERE genuinely missing their frames — and the gate that proves it
+The adjacent item flagged earlier is real (2026-07-21). `CutsceneCamera::snapToMasterOffsetY200`
+(0x8006EA00) and `orbitTick` (0x8006EF38) are framed, but the callees they invoke natively were not,
+and nothing framed them anywhere — no shared helper, and `updateFaithful`/`dispatchModeFaithful`
+(cutscene_camera.cpp:935-1023) never reach the native siblings (they rec_dispatch the substrate).
+
+Missing frames, from the gen bodies:
+- `initPlace` (0x8006E918) frame 40, spills s0-s3/ra; its own `rsin` call (0x80083E80) pushes frame 24
+  with ra 0x8006E9C0 — the reason Trig deliberately leaves rsin unregistered (trig.cpp:88-97).
+- `lookAt` (0x8006D02C) frame 56, spills s0-s7/fp/ra; ra 0x8006EA68 from EA00, 0x8006E3E0 from snapFollow.
+- `snapFollow` (0x8006E3B0) frame 32 on the orbitTick path, ra 0x8006EFE0.
+
+**The frames alone would still have been wrong** — the gens keep live values in s0/s1 that those frames
+spill (EA00: s0=0x800E8008, s1=0x800E8010; EF38: s0=rcos·500>>12, s1=0x800E8008). Mirroring the frame
+without also reproducing those register values spills the wrong bytes: the same trap as the ra case,
+one level in.
+
+**The verification that actually counts here is NOT SBS.** Both SBS replays pass at 0 divergences, but
+they almost certainly never dispatch 0x8006EA00 / 0x8006EF38 (overlay-called), so that result is close
+to vacuous for this change — exactly the "clean run over frames that never entered the code" trap.
+The load-bearing gate is the camera oracle selftest, extended with these two override-wired methods
+(previously untested entirely) plus a randomized 192-byte guest-stack window compare per iteration:
+`[camtest] DONE: 27 methods, 8100 runs, 0 mismatching words -> PASS`.
+
+**And that gate was mutation-tested, twice, by two parties.** Changing lookAt's jal ra by 4
+(0x8006EA68 -> 0x6C) fails at precisely the right slot:
+`MISMATCH snapMasterY200 stack sp-0x24  mine=8006ea6c oracle=8006ea68`. Reverted, PASS returns.
+Note the honest negative result too: tampering *initPlace's* ra does NOT fail, because gen overwrites
+that slot with lookAt's later r30 spill — so the test is sharp where it can be and silent where the
+byte genuinely does not survive. Knowing which is which is the difference between a gate and a
+comfort blanket.
