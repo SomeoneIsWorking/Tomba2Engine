@@ -33,6 +33,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -43,8 +44,14 @@ constexpr uint32_t BEH_FN = 0x80059ED8u;
 static inline int16_t  s16(Core* c, uint32_t a) { return c->mem_r16s(a); }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80059ED8[3] = {
+  { 16, 16 },
+  { 31 /*ra*/, 24 },
+  { 17, 20 },
+};   // frame=32, from abi_extract --scaffold --guestabi
 
 void beh_camera_target_follow(Core* c) {
+  GuestFrame<32, 3> frame(c, kSpills_80059ED8);
   const uint32_t nd = c->r[4];                          // s0 = node
   const uint32_t p  = c->mem_r32(nd + 0x10);            // s1 = target (pcVar7), read unconditionally
   uint8_t st = c->mem_r8(nd + 4);

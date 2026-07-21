@@ -41,6 +41,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -59,8 +60,12 @@ static inline void ring_shift_forward(Core* c, uint32_t nd) {
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80029B40[1] = {
+  { 31 /*ra*/, 16 },
+};   // frame=24, from abi_extract --scaffold --guestabi
 
 void beh_pos_history_trail(Core* c) {
+  GuestFrame<24, 1> frame(c, kSpills_80029B40);
   uint32_t nd = c->r[4];
   uint32_t tgt = c->mem_r32(nd + 0x10);          // pcVar8 = *(char**)(node+0x10)
   uint8_t st = c->mem_r8(nd + 4);

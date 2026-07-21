@@ -33,6 +33,7 @@
 #include <string.h>
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include "collision.h"  // Collision::listScan (FUN_80031780)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -45,8 +46,13 @@ static inline uint32_t call0(Core* c, uint32_t fn) { rec_dispatch(c, fn); return
 static inline uint32_t call1(Core* c, uint32_t a0, uint32_t fn) { c->r[4] = a0; rec_dispatch(c, fn); return c->r[2]; }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8002918C[2] = {
+  { 16, 16 },
+  { 31 /*ra*/, 20 },
+};   // frame=24, from abi_extract --scaffold --guestabi
 
 void beh_rand_phase_cull(Core* c) {
+  GuestFrame<24, 2> frame(c, kSpills_8002918C);
   uint32_t nd = c->r[4];
   uint8_t  st = c->mem_r8(nd + 4);              // bVar1 = node[4] (unsigned byte)
 

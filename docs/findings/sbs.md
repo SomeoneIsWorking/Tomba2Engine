@@ -1757,3 +1757,76 @@ Adding a frame to a genuinely frameless leaf *creates* the divergence it claims 
 - **rule:** before applying a frame, confirm the method is really the port of that address by
   finding its `install(0x…, "name", native, gen)` site — do not trust an address that arrived
   attached to a method name. A marker sitting above a body does not prove the address matches it.
+
+
+## SYSTEMATIC: 54 behavior-table natives never mirror their guest stack frame
+- **status:** AUDITED 2026-07-21, fixing in batches. This is the same class as the 16 already fixed,
+  but it is systematic across the `beh_*` family rather than incidental.
+- **audit method (reproducible):** take every `{0xADDR, beh_symbol, "name"}` row of the dispatch
+  table in `game/object/behavior_dispatch.cpp`, resolve each symbol to its DEFINITION (not the
+  forward declaration — that mistake put every hit in behavior_dispatch.cpp and made the first run
+  of this audit meaningless), extract that function's own body, and flag it when
+  `abi_extract.py 0xADDR --contract` reports a non-zero frame while the body contains neither
+  `GuestFrame` nor `c->r[29]`.
+- **detector validated:** it does NOT flag `beh_pickup_collect_trigger`, `beh_typed_anim_spawn` or
+  `beh_a06_script_fades` — the three CLAUDE.md cites as correct references. They descend sp by hand
+  (`c->r[29] -= 0x30`), which the check sees. A detector that flagged those would be wrong.
+- **the 54:**
+  0x8002918C frame=24  spills=2  beh_rand_phase_cull  (game/ai/beh_rand_phase_cull.cpp)
+  0x80029B40 frame=24  spills=1  beh_pos_history_trail  (game/ai/beh_pos_history_trail.cpp)
+  0x8003AD48 frame=40  spills=5  beh_cube_text_spawn  (game/ai/beh_cube_text_spawn.cpp)
+  0x80041098 frame=40  spills=5  beh_script_interp_step  (game/scene/script_interp.cpp)
+  0x8004C238 frame=24  spills=2  beh_visibility_gate_dispatch  (game/ai/beh_visibility_gate_dispatch.cpp)
+  0x8004CE14 frame=56  spills=10 beh_record_list_scanner  (game/ai/beh_record_list_scanner.cpp)
+  0x80059ED8 frame=32  spills=3  beh_camera_target_follow  (game/ai/beh_camera_target_follow.cpp)
+  0x8006F2D0 frame=48  spills=7  beh_pad_child_linker  (game/ai/beh_pad_child_linker.cpp)
+  0x80071A3C frame=24  spills=2  beh_area_event_dispatch  (game/ai/beh_area_event_dispatch.cpp)
+  0x800739AC frame=32  spills=4  beh_scene_ui_trigger  (game/ai/beh_scene_ui_trigger.cpp)
+  0x80073CD8 frame=40  spills=5  beh_typed_init_scene_trigger  (game/ai/beh_typed_init_scene_trigger.cpp)
+  0x8007DC38 frame=32  spills=3  beh_variant_overlay_lifecycle  (game/ai/beh_variant_overlay_lifecycle.cpp)
+  0x8010AB38 frame=24  spills=1  beh_sop_overlay_shadow  (game/ai/sop_overlay_shadow.cpp)
+  0x8010ACFC frame=32  spills=3  beh_sop_intro_pilot  (game/ai/beh_sop_intro_pilot.cpp)
+  0x8010B798 frame=32  spills=4  beh_sop_intro_lifted  (game/ai/beh_sop_intro_lifted.cpp)
+  0x8010B990 frame=48  spills=3  beh_sop_intro_narration  (game/ai/beh_sop_intro_narration.cpp)
+  0x80117658 frame=32  spills=4  beh_prng_velocity_machine  (game/ai/beh_prng_velocity_machine.cpp)
+  0x8011CBD0 frame=24  spills=2  beh_node3_router  (game/ai/beh_node3_router.cpp)
+  0x8011D578 frame=32  spills=3  beh_variant_actor_sm  (game/ai/beh_variant_actor_sm.cpp)
+  0x8011D988 frame=24  spills=2  beh_actor_move_sm  (game/ai/beh_actor_move_sm.cpp)
+  0x80121978 frame=32  spills=3  beh_id_routed_dispatch  (game/ai/beh_id_routed_dispatch.cpp)
+  0x80124E74 frame=40  spills=5  beh_jumptable_release_trigger  (game/ai/beh_jumptable_release_trigger.cpp)
+  0x80125E0C frame=32  spills=3  beh_pure_substate_dispatch  (game/ai/beh_pure_substate_dispatch.cpp)
+  0x80127798 frame=56  spills=7  beh_area_transition_machine  (game/ai/beh_area_transition_machine.cpp)
+  0x801280D0 frame=40  spills=3  beh_a08_scene_actor  (game/ai/beh_a08_scene_actor.cpp)
+  0x80128760 frame=24  spills=2  beh_linked_advance_branch  (game/ai/beh_linked_advance_branch.cpp)
+  0x80129C00 frame=24  spills=2  beh_anim_trigger_gates  (game/ai/beh_anim_trigger_gates.cpp)
+  0x8012A0B8 frame=32  spills=3  beh_box_seed_phase_gate  (game/ai/beh_box_seed_phase_gate.cpp)
+  0x8012D404 frame=24  spills=2  beh_cull_tick_render  (game/ai/beh_cull_tick_render.cpp)
+  0x8012D4EC frame=32  spills=3  beh_jumptable_flag_gate  (game/ai/beh_jumptable_flag_gate.cpp)
+  0x8012EB54 frame=32  spills=3  beh_substate_edge_orchestrator  (game/ai/beh_substate_edge_orchestrator.cpp)
+  0x80131D08 frame=40  spills=5  beh_two_child_steer  (game/ai/beh_two_child_steer.cpp)
+  0x80132400 frame=32  spills=3  beh_single_child_cull  (game/ai/beh_single_child_cull.cpp)
+  0x8013259C frame=24  spills=2  beh_cull_substate_orchestrator  (game/ai/beh_cull_substate_orchestrator.cpp)
+  0x80133C14 frame=32  spills=4  beh_typed_table_seed_gate  (game/ai/beh_typed_table_seed_gate.cpp)
+  0x80133D6C frame=32  spills=4  beh_twin_record_steer  (game/ai/beh_twin_record_steer.cpp)
+  0x80134FD8 frame=40  spills=5  beh_multi_record_phase_machine  (game/ai/beh_multi_record_phase_machine.cpp)
+  0x80135D64 frame=40  spills=6  beh_quad_record_table_seed  (game/ai/beh_quad_record_table_seed.cpp)
+  0x80136158 frame=40  spills=5  beh_sine_motion_sfx  (game/ai/beh_sine_motion_sfx.cpp)
+  0x80136954 frame=40  spills=5  beh_event_record_machine  (game/ai/beh_event_record_machine.cpp)
+  0x80136D9C frame=24  spills=2  beh_pure_inner_dispatch  (game/ai/beh_pure_inner_dispatch.cpp)
+  0x80138FC8 frame=32  spills=3  beh_typed_jumptable_pair  (game/ai/beh_typed_jumptable_pair.cpp)
+  0x801395C0 frame=32  spills=4  beh_sibling_angle_track  (game/ai/beh_sibling_angle_track.cpp)
+  0x80139728 frame=24  spills=2  beh_a06_fade_flash_ramp_80139728  (game/ai/beh_a06_script_fades.cpp)
+  0x8013A330 frame=32  spills=4  beh_lift_platform  (game/ai/beh_lift_platform.cpp)
+  0x8013A900 frame=40  spills=5  beh_child_trig_motion  (game/ai/beh_child_trig_motion.cpp)
+  0x8013AA14 frame=32  spills=3  beh_a06_scripted_actor  (game/ai/beh_a06_scripted_actor.cpp)
+  0x8013ADBC frame=24  spills=2  beh_box_rearm_sub  (game/ai/beh_box_rearm_sub.cpp)
+  0x8013B178 frame=24  spills=1  beh_a06_fade_ramp_8013B178  (game/ai/beh_a06_script_fades.cpp)
+  0x8013B274 frame=24  spills=1  beh_a06_music_cue_8013B274  (game/ai/beh_a06_script_fades.cpp)
+  0x8013B2E4 frame=32  spills=3  beh_flagbit_timer_machine  (game/ai/beh_flagbit_timer_machine.cpp)
+  0x8013C3F4 frame=24  spills=2  beh_area_threshold_ptr_swap  (game/ai/beh_area_threshold_ptr_swap.cpp)
+  0x8013C538 frame=40  spills=5  beh_scatter_record_dither  (game/ai/beh_scatter_record_dither.cpp)
+  0x8013C9C0 frame=24  spills=2  beh_scatter_ramp_machine  (game/ai/beh_scatter_ramp_machine.cpp)
+- **fix per entry:** `GuestFrame<size, n> frame(c, kSpills_<ADDR>);` at the body's entry, spill table
+  from `abi_extract.py <addr> --scaffold --guestabi`. Confirm the address against the dispatch-table
+  row before applying — see the delayedTrigger near-miss above for why an address that merely arrives
+  attached to a name is not good enough.
