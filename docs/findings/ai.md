@@ -167,3 +167,39 @@
   `game/ai/beh_actor_tomba_proximity_combat.{h,cpp}`, `docs/config.md` ("ovhit" +
   "Mirror TDD gate" sections), `docs/fleet-workflow.md` §9 (autonav-coverage caveat this closes
   for 2/3 addresses).
+## Water-pump seesaw does not sink under Tomba's weight — the node[0x2b] contact producer never fires (kanban #8, 2026-07-21)
+- **symptom:** grabbing the seaside water-pump seesaw while climbing does not tilt it; Tomba's weight has
+  no effect. USER-reported on the live game (default config: pc_faithful + pc_render + pc_skip).
+- **status:** MECHANISM ESTABLISHED BY MEASUREMENT, root cause NOT yet identified. Not fixed.
+- **repro:** `replays/bugs/seesaw-weight.pad` (6668 frames, from boot, no memory-card load). Replay
+  headless, poll `padrec` until >=6400, `pause` — Tomba is frozen mid-grab.
+- **the machinery (RE'd from a grab-state RAM dump, `PSXPORT_PAD_DUMP_AT=6600`):** the pump assembly is
+  12 nodes with handler `0x8012EB54` (`beh_substate_edge_orchestrator`, native), `node[3]` = index 0..11.
+  - `FUN_8012f494` (sub-state 0, the live one) holds an ANGLE DECREMENTER: `*(u16*)(*(u32*)(node+0xC4)+8)`
+    minus 4 per frame, sign-extended past 0x800, clamped against `node+0x64`, stored masked to 0xFFF
+    (a 4096-unit angle). Gated on `node[3]==2`. That is the beam tilt.
+  - Escape from that sub-state is `FUN_80130788` returning nonzero; it dispatches on `node[0x29]` bits
+    0/2/7. With both 0 and 2 clear it ALWAYS returns 0, so the object cannot leave the tilt sub-state.
+  - `FUN_801308e0` (runs every frame) is gated entirely on **`node[0x2b]`**: if zero it returns
+    immediately; otherwise it consumes the byte into `node[0x6c]`, indexes the `node+0xC0` pointer table
+    with it, and sets **`node[0x48] = 0xe000`** (when `node[0x6c]==2`) or `0x2000` — the WEIGHT — plus
+    `node[0x4e] = ±0x80`.
+- **the measurement:** at the grab frame, all 12 nodes have `node[0x29]==0`, `node+0x44==0`,
+  `node+0x48==0`, `node+0x4e==0`, and `node[5]==0` (tilt sub-state). Node index 2's tilt field already
+  sits exactly at its clamp (`[c4]+8 = 0xF00`, limit `node+0x64 = 0xFF00`), so the decrement writes back
+  the same value every frame — pinned at an end stop. A 30-frame step with the game verified advancing
+  (other entities move) leaves all four nodes of the assembly BYTE-IDENTICAL.
+- **the decisive datum:** `PSXPORT_WWATCH=800fb858,800fc3d0` over the whole replay records 6585 writes to
+  each node's `+0x2b` — **every single one the value 0**, from clearing sites `0x80130D5C`, `0x801316CC`,
+  `0x80146348`, `0x80084A80`. Across the entire session, including the grab, NOTHING writes a nonzero
+  contact value into `node[0x2b]` for any of these objects. The consumer is healthy; the producer is
+  absent. Every `+0x2b` write in the native `game/` tree is also a clear — the sole nonzero native writer
+  is `interact_scan`'s activation (value 3), which is a different signal (activation, not contact index).
+- **NEXT:** identify the guest producer that stamps a contact INDEX into a struck object's `+0x2b`. Lead
+  (unverified): the player surface-probe cluster `FUN_80024448` / caller `0x8005D530` RE'd 2026-07-21
+  (docs/findings/scene.md) "records the hit code" — a plausible home for the writer, and NOT yet ported.
+  Confirm by watching `+0x2b` under `PSXPORT_GATE=1` for a nonzero write and its pc.
+- **do NOT** poke `node[0x2b]` or `node[0x48]` to make the beam move — that fabricates the contact the
+  real producer is supposed to supply, and hides the missing path.
+- **refs:** `scratch/decomp/seesaw_leaves.c`, `scratch/decomp/seesaw_tier2.c` (13+3 fns decompiled from
+  `scratch/bin/padram_6600.bin`), `game/ai/beh_substate_edge_orchestrator.cpp`, kanban #8.
