@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 9 verified · 4 ported-unverified · 2 todo · 1 blocked
+**Status:** 9 verified · 5 ported-unverified · 1 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -92,10 +92,10 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 
 ## render-screenfade-726d4
 - **scope:** render handler 0x800726D4
-- **status:** todo
+- **status:** ported-unverified
 - **order:** 43
-- **owner:** screen_fade.cpp overlay tap
-- **notes:** full-screen flat fade/flash tile; host-only, zero guest writes; ScreenFade model exists
+- **owner:** game/render/screen_fade.cpp::Render::fadeTileRender
+- **notes:** Native producer for the full-screen fade/flash tile (guest FUN_800726D4, render-walk case 0x8003C138): reads node+0x10->+0 signed level (negative = no tile), draws one full-screen quad R=G=B=level, semi-blended unless level==255, spanning [-margin,320+margin] so it covers the full wide screen. Read-only (guest packet/OT writes stay with the substrate body). Added an optional semi flag to RenderQueue::push2dQuad. Build-clean; RUNTIME-UNVERIFIED: case 0x8003C138 fires in neither hut-entry-alt nor general-session — needs a scenario that uses that render case (diagnostic: PSXPORT_DEBUG=fade).
 
 ## render-effectmod
 - **scope:** secondary-effect handlers 0x8003F3F4/F4C4/F344/F594/D584

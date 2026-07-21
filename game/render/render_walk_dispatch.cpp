@@ -56,7 +56,7 @@ void rec_dispatch(Core*, uint32_t);          // overlay_router.cpp — shared ch
 void func_8003F174(Core*);   // still-substrate: case 0x8003C0C4 (a0=node, a1=0)
 void func_8003EF9C(Core*);   // still-substrate: case 0x8003C0D8
 void func_80039F4C(Core*);   // still-substrate: case 0x8003C0E8
-void func_800726D4(Core*);   // still-substrate: case 0x8003C138
+void func_800726D4(Core*);   // guest packet/OT state for case 0x8003C138; the PICTURE is native (Render::fadeTileRender)
 void func_8003C5F8(Core*);   // owned: billboardComposeC5F8 via override registry (case 0x8003C168)
 void func_8003C788(Core*);   // owned: billboardCompose3 via override registry (case 0x8003C178)
 void func_8003B054(Core*);   // still-substrate: case 0x8003C188's particle color/UV fill
@@ -193,9 +193,16 @@ void Render::renderWalk() {
           case 0x8003C128u:
             c->r[4] = c->r[16]; c->r[31] = 0x8003C130u; rec_dispatch(c, 0x8013DD58u);
             break;
-          case 0x8003C138u:
-            c->r[4] = c->r[16]; c->r[31] = 0x8003C140u; func_800726D4(c);
+          case 0x8003C138u: {
+            // Full-screen FADE/FLASH tile. The substrate body still runs for its guest packet-pool +
+            // OT writes (byte-exact state pc_render must not disturb); the PICTURE is rebuilt natively
+            // from the same level halfword by fadeTileRender — otherwise the fade would not appear at
+            // all now that the renderer composites only native submits.
+            const uint32_t node = c->r[16];
+            c->r[4] = node; c->r[31] = 0x8003C140u; func_800726D4(c);
+            rend(c)->fadeTileRender(node);
             break;
+          }
           case 0x8003C148u:
             c->r[4] = c->r[16]; c->r[31] = 0x8003C150u; billboardCompose1();
             break;

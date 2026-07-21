@@ -197,3 +197,46 @@ void ScreenFade::sequence(uint32_t node) {
     }
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// Render::fadeTileRender — NATIVE pc_render producer for the full-screen FADE/FLASH tile
+// (guest FUN_800726D4, reached as render-walk case 0x8003C138 with a0 = the render node).
+//
+// What the guest body does (generated/shard_5.c gen_func_800726D4): reads the node's parameter block
+// (node+0x10) and takes its first halfword as a SIGNED level. A NEGATIVE level draws nothing (early
+// out). Otherwise it allocates a 16-byte packet from the pool tail (0x800BF544), fills a 320x240
+// monochrome rectangle at (0,0) with R=G=B=level, and picks the GP0 command by level: 0x60 (opaque)
+// when level == 255, else 0x62 (SEMI-transparent). It links that + a following draw-mode packet into
+// the OT at base+0x28.
+//
+// The native rebuild draws the same PICTURE from the same source value: one full-screen quad, colour
+// = level on all three channels, blended when level != 255. READ-ONLY — it reads the node/param
+// halfword and writes ONLY the host render queue; the guest packet-pool + OT writes stay with the
+// substrate body (they are part of the byte-exact guest state pc_render must not disturb).
+//
+// Widescreen: the 2D layers get a centering +margin in the queue's wide transform, so spanning
+// [-margin, 320+margin] here lands as [0, wide_w) — the fade covers the FULL wide screen, which a
+// fade must (a 4:3-only fade would leave the margins unfaded).
+void Render::fadeTileRender(uint32_t node) {
+  Core* c = mCore;
+  const uint32_t params = c->mem_r32(node + 0x10u);
+  if (!params) return;
+  const int16_t level = (int16_t)c->mem_r16(params + 0u);
+  if (level < 0) return;                       // guest early-out: negative level = no tile at all
+  const unsigned char v = (unsigned char)level;
+  cfg_logf("fade", "fadeTile node=%08X level=%d %s", node, (int)level, level == 255 ? "opaque" : "semi");
+
+  int gpu_vk_wide_engine(Core*), gpu_vk_wide_engine_w(Core*);
+  const int wide_w = gpu_vk_wide_engine(c) ? gpu_vk_wide_engine_w(c) : 320;
+  const int margin = (wide_w - 320) / 2;
+  const int xL = -margin, xR = 320 + margin;   // + the queue's centering margin => [0, wide_w)
+
+  int xs[4] = { xL, xR, xL, xR };
+  int ys[4] = { 0, 0, 240, 240 };
+  int z[4]  = { 0, 0, 0, 0 };
+  unsigned char rr[4] = { v, v, v, v }, gg[4] = { v, v, v, v }, bb[4] = { v, v, v, v };
+  c->game->activeRq().push2dQuad(RQ_OVERLAY, /*order_2d_fg=*/1, xs, ys, z, z, rr, gg, bb,
+                                 /*tp_x=*/0, /*tp_y=*/0, /*mode=*/3, /*raw=*/0, /*clut=*/0, 0,
+                                 /*tw=*/0, 0, 0, 0, /*da=*/0, 0, 1023, 511,
+                                 /*semi=*/level == 255 ? 0 : 1);   // guest: 0x60 opaque at 255, else 0x62
+}

@@ -180,6 +180,10 @@ public:
   void renderHutInterior();      // #4 hut/door authored sub-scene — objects-only (fieldObjectsRender)
   void renderSopNarration();     // #5 SOP intro narration — native world (sceneNative + void-beat guard)
   void renderAttract();          // #6 DEMO/title ATTRACT (sm[0x48]==7) — live 3D field world (sceneNative)
+  // fadeTileRender(node): native producer for the full-screen FADE/FLASH tile (guest FUN_800726D4,
+  // render-walk case 0x8003C138). Reads the node's level halfword (node+0x10 -> +0, signed; negative
+  // = no tile) and draws one full-screen quad, R=G=B=level, blended unless level==255. Read-only.
+  void fadeTileRender(uint32_t node);
 
   // Dialog/prompt TEXT is produced by the FUN_8007CC00 tap (Panel::pushDialogGlyphs, game/ui/
   // panel.cpp) — fires whenever the guest dialog emitter draws, with the highlight palette the
