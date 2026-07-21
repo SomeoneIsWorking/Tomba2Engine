@@ -46,9 +46,11 @@ void RegisterBehActorTombaProximityCombatOverride(Game* game);    // game/ai/beh
 void register_field_owned_leaves();                               // BYTE-FAITHFUL batch of 94 field-spine leaves
 
 void interact_scan_install();   // game/player/interact_scan.cpp — guest FUN_80024794
+void dialog_box_sm_install();   // game/ui/dialog_box_sm.cpp — guest FUN_8007D594 (dialog box SM)
 
 void register_engine_overrides(Game* game) {
   interact_scan_install();   // interaction scanner: promotes an in-range object to ACTIVATED
+  dialog_box_sm_install();   // dialog/message box state machine (port_check PASS vs gen_func_8007D594)
   Core* c = &game->core;
   // PcScheduler primitives: the framework class supplies the native handlers; the game passes the
   // generated substrate bodies + override setter (linked here, game-side) — P1.7c decoupling.
