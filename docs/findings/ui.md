@@ -144,3 +144,23 @@ its own beyond the shared cursor-index global `DAT_800bf808`):
   panel renders GATE+pc_render f1413 + default f1401 (bug34fix_*.png); free-roam no world-poly leak;
   SBS-full autonav 0-diff f67860. Signpost dialog (row 9) uses the same emitter chain — expected
   fixed, awaiting user eyeball.
+
+## FUN_8007D594 is NOT on the live in-game dialog path — measured, 2026-07-22
+- **claim being corrected:** the wide-RE survey called 0x8007D594 "the box's own state machine", and I
+  ported it (DialogBoxSm::step, port_check PASS) on the strength of that, aiming at the bucket dialog
+  softlock (kanban #2).
+- **measurement:** installed via `overrides::install` WITH the setter, then ran `PSXPORT_DEBUG=ovhit`
+  over three captures — the bucket session (1700f), the save-sign session (5200f), and 12000 frames of
+  `dark-screen-repro.pad`, a long real play session. Every run reports
+  `0x8007D594 DialogBoxSm::step : native=0 oracle=0  <-- NEVER HIT`. Note `oracle=0` too: the THUNK is
+  never entered, so the guest function is not being called at all, by anyone. This is not a wiring
+  failure — the wiring is the same shape that works for interact_scan.
+- **conclusion:** whatever renders and advances the in-game message box in real gameplay, it is not
+  this function. The 0x8007C000-0x8007FDB0 region was surveyed as "dialog/text-box renderer + pause/
+  quit-menu widget builder"; 0x8007D594 is plausibly on the PAUSE/QUIT-menu side, which those captures
+  never open. The port is correct and harmless, but it is COLD and it is not a step toward #2.
+- **what NOT to do next:** port more of 0x8007Dxxx on the assumption it is the dialog path. That
+  assumption is now measured false for the one function actually tested.
+- **the step that would settle it:** a capture (or a live session) with a message box ACTUALLY ON
+  SCREEN, then `PSXPORT_DEBUG=dispatch` at that moment to see which functions run. Until then any
+  further dialog porting is aimed by guesswork.
