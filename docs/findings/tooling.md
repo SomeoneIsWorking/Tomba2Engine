@@ -475,3 +475,22 @@
   hold — but that was luck, not method.
 - **rule:** when codemap says "NO native owner found" for something that looks like it should be owned,
   grep the tree for the bare address before believing it.
+
+## PSXPORT_PAD_DUMP_AT uses a FIXED filename — a second run silently overwrites the first (2026-07-22)
+- **symptom:** analysis described as "at the grab frame" was actually read from a dump where the player
+  was holding nothing. `PSXPORT_PAD_DUMP_AT=6600` always writes `scratch/bin/padram_6600.bin`, keyed
+  only on the frame number — so re-running the same frame under a DIFFERENT build (the whole point of
+  an A/B) clobbers the baseline with the new one, under the same name, with no warning.
+- **how it bit (kanban #8, 2026-07-21):** the pre-fix dump captured a genuine grab
+  (`G+0x158 = 0x800FB960`). A post-fix run at the same frame overwrote it; post-fix the replay diverges
+  and never grabs, so the file became a NOT-GRABBED state. Everything analysed from that file
+  afterwards — queue contents, `node[0x2b]/+0x29/+0x48`, aux-list emptiness, the null object-list head —
+  describes a scene with nothing held, and several conclusions were written up as grab-state facts.
+- **rule:** never A/B two builds through the same `PAD_DUMP_AT` frame without renaming the artifact
+  IMMEDIATELY after each run (`cp scratch/bin/padram_<N>.bin scratch/bin/<tag>_<N>.bin`), and before
+  reading any dump, ASSERT the state it is supposed to contain (here: `G+0x158 != 0` for a grab). A
+  dump that does not contain the state you are reasoning about is worse than no dump.
+- **what survived this in #8:** whole-run `PSXPORT_WWATCH` counts, which never depended on the dump —
+  in particular "`+0x2b` is never written non-zero" was measured across a pre-fix replay that DID reach
+  the grab (verified visually at pad frame 6424). The RE of the code paths (from Ghidra + generated/)
+  is also unaffected.
