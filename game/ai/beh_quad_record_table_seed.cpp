@@ -40,8 +40,17 @@ namespace {
 constexpr uint32_t BEH_FN = 0x80135D64u;
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80135D64[6] = {
+  { 18, 24 },
+  { 31 /*ra*/, 36 },
+  { 20, 32 },
+  { 19, 28 },
+  { 17, 20 },
+  { 16, 16 },
+};   // frame=40, abi_extract --scaffold --guestabi
 
 void beh_quad_record_table_seed(Core* c) {
+  GuestFrame<40, 6> frame(c, kSpills_80135D64);
   uint32_t nd = c->r[4];                          // s2 = a0 (node)
   uint32_t st = c->mem_r8(nd + 4);                // node[4] = outer state
 

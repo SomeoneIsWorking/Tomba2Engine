@@ -37,8 +37,16 @@ namespace {
 constexpr uint32_t BEH_FN = 0x80131D08u;
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80131D08[5] = {
+  { 17, 20 },
+  { 31 /*ra*/, 32 },
+  { 19, 28 },
+  { 18, 24 },
+  { 16, 16 },
+};   // frame=40, abi_extract --scaffold --guestabi
 
 void beh_two_child_steer(Core* c) {
+  GuestFrame<40, 5> frame(c, kSpills_80131D08);
   uint32_t nd = c->r[4];                          // s1 = a0 (node)
   uint32_t st = c->mem_r8(nd + 4);                // a0 = node[4] = outer state
 

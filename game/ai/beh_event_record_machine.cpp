@@ -46,8 +46,16 @@ static inline uint32_t leafr2(Core* c, uint32_t a0, uint32_t a1, uint32_t fn) {
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80136954[5] = {
+  { 18, 24 },
+  { 31 /*ra*/, 32 },
+  { 19, 28 },
+  { 17, 20 },
+  { 16, 16 },
+};   // frame=40, abi_extract --scaffold --guestabi
 
 void beh_event_record_machine(Core* c) {
+  GuestFrame<40, 5> frame(c, kSpills_80136954);
   uint32_t nd = c->r[4];
   uint8_t st = c->mem_r8(nd + 4);
 

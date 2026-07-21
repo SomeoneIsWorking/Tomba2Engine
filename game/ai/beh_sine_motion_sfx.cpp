@@ -36,6 +36,7 @@
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include "graphics_bind.h"   // ov_obj_render_update (FUN_800517F8)
 #include "math/trig.h"   // class Trig — rsin (FUN_80083E80)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -44,8 +45,16 @@ namespace {
 constexpr uint32_t BEH_FN = 0x80136158u;
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80136158[5] = {
+  { 16, 16 },
+  { 31 /*ra*/, 32 },
+  { 19, 28 },
+  { 18, 24 },
+  { 17, 20 },
+};   // frame=40, abi_extract --scaffold --guestabi
 
 void beh_sine_motion_sfx(Core* c) {
+  GuestFrame<40, 5> frame(c, kSpills_80136158);
   uint32_t nd = c->r[4];                 // s0 (node) — constant
   int32_t s1 = 0, s2 = 0, s3 = 0;
   int32_t v0, v1, a0;

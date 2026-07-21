@@ -58,8 +58,15 @@ static inline bool clamp_step(int32_t cur, uint32_t snap, int step, uint16_t* ou
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80133D6C[4] = {
+  { 18, 24 },
+  { 31 /*ra*/, 28 },
+  { 17, 20 },
+  { 16, 16 },
+};   // frame=32, abi_extract --scaffold --guestabi
 
 void beh_twin_record_steer(Core* c) {
+  GuestFrame<32, 4> frame(c, kSpills_80133D6C);
   uint32_t nd = c->r[4];                          // s2 = a0 (node)
   uint32_t st = c->mem_r8(nd + 4);                // a0 = node[4] = outer state
 

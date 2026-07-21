@@ -42,6 +42,7 @@
 #include "graphics_bind.h"   // ov_obj_record_init
 #include "trig.h"            // class Trig — libgte rsin/rcos
 #include "object/actor.h"    // class Actor — Actor::boundsCull (FUN_8007778C native)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -52,8 +53,15 @@ constexpr uint32_t BEH_FN = 0x801395C0u;
 constexpr uint32_t TD = 0x8014AA38u;   // lui 0x8015, addiu -0x55c8  (8-byte stride)
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_801395C0[4] = {
+  { 18, 24 },
+  { 31 /*ra*/, 28 },
+  { 17, 20 },
+  { 16, 16 },
+};   // frame=32, abi_extract --scaffold --guestabi
 
 void beh_sibling_angle_track(Core* c) {
+  GuestFrame<32, 4> frame(c, kSpills_801395C0);
   const uint32_t obj = c->r[4];                         // 801395C8  move s2, a0
   uint8_t st = c->mem_r8(obj + 4);                      // 801395DC  lbu v1, 4(s2)
   const uint32_t s1 = c->mem_r32(obj + 0x10);           // 801395E0  lw  s1, 0x10(s2)

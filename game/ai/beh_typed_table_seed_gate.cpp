@@ -77,6 +77,7 @@
 #include "rng.h"              // class Rng (rngOf(c).next()) — FUN_8009A450 (seed 0x80105EE8)
 #include "trig.h"             // class Trig (trigOf(c).rcos)  — FUN_80083F50 (Q12 cos LUT)
 #include "object/actor.h"     // class Actor + scene_phase / osc_base_table
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -288,8 +289,15 @@ void state_one_tick(Actor& a) {
   }
 }
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80133C14[4] = {
+  { 17, 20 },
+  { 31 /*ra*/, 28 },
+  { 18, 24 },
+  { 16, 16 },
+};   // frame=32, abi_extract --scaffold --guestabi
 
 void beh_typed_table_seed_gate(Core* c) {
+  GuestFrame<32, 4> frame(c, kSpills_80133C14);
   Actor a(c, c->r[4]);
   const Sta st = (Sta)a.state();
 

@@ -31,8 +31,13 @@ namespace {
 constexpr uint32_t BEH_FN = 0x80136D9Cu;
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80136D9C[2] = {
+  { 16, 16 },
+  { 31 /*ra*/, 20 },
+};   // frame=24, abi_extract --scaffold --guestabi
 
 void beh_pure_inner_dispatch(Core* c) {
+  GuestFrame<24, 2> frame(c, kSpills_80136D9C);
   uint32_t obj = c->r[4];                         // s0 = a0 (node)
 
   uint8_t st = c->mem_r8(obj + 4);                // node[4] = outer state

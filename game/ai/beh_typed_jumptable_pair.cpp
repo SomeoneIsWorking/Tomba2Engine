@@ -47,6 +47,7 @@
 #include <string.h>
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include "graphics_bind.h"   // ov_obj_record_init
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -60,8 +61,14 @@ constexpr uint32_t TC = 0x8014A9B8u;   // lui 0x8015, addiu -0x5648  (12-byte st
 constexpr uint32_t TD = 0x8014AA38u;   // lui 0x8015, addiu -0x55c8  ( 8-byte stride, JT1 case 2)
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80138FC8[3] = {
+  { 16, 16 },
+  { 31 /*ra*/, 24 },
+  { 17, 20 },
+};   // frame=32, abi_extract --scaffold --guestabi
 
 void beh_typed_jumptable_pair(Core* c) {
+  GuestFrame<32, 3> frame(c, kSpills_80138FC8);
   const uint32_t obj = c->r[4];                       // 80138FD0  move s0, a0
   uint8_t st = c->mem_r8(obj + 4);                    // 80138FDC  lbu v1, 4(s0)
 

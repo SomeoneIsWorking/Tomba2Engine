@@ -55,8 +55,16 @@ static inline void common_tail(Core* c, uint32_t nd) {
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80134FD8[5] = {
+  { 17, 20 },
+  { 18, 24 },
+  { 31 /*ra*/, 32 },
+  { 19, 28 },
+  { 16, 16 },
+};   // frame=40, abi_extract --scaffold --guestabi
 
 void beh_multi_record_phase_machine(Core* c) {
+  GuestFrame<40, 5> frame(c, kSpills_80134FD8);
   uint32_t nd = c->r[4];                          // s1 = a0 (node)
   uint32_t st = c->mem_r8(nd + 4);                // s0 = node[4] = outer state
 
