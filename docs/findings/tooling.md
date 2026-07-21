@@ -565,3 +565,18 @@
   highest-traffic first. Divergences are candidate bugs of the exact class already proven to produce
   user-visible symptoms. Rename the dump artifact immediately each run — `PAD_DUMP_AT` uses a fixed
   filename and will silently overwrite the baseline (see the entry above).
+
+### A/B campaign log (kanban #10) — rebuilds tested for equivalence
+Method per entry: `port_gen` the byte-faithful body, swap the behavior-table entry to it, run
+`replays/bugs/bucket-softlock.pad` with `PSXPORT_PAD_DUMP_AT=1200` both ways, diff the 2 MB dumps,
+swap back. Cost is two runs (~2 min) per handler.
+
+| guest | rebuild | result |
+|---|---|---|
+| `0x8007DC38` | `beh_variant_overlay_lifecycle` (dialog driver) | **0 differing bytes** — equivalent |
+| `0x800739AC` | `beh_scene_ui_trigger` (the #5 save-sign handler) | **0 differing bytes** — equivalent |
+
+Two down, ~56 to go. Both clean, which is worth knowing in itself: it says the rebuilds are not
+casually wrong, so a divergence when one turns up is a strong signal rather than noise. Keep the temp
+faithful body OUT of the tree — generate it into `scratch/ab/`, wire it only for the two runs, and
+remove it, or the repo accumulates dead duplicates of every handler.
