@@ -2349,3 +2349,28 @@ draft was already byte-faithful.
   expected and the ORACLE marker should be dropped/relaxed for it). Do NOT mass-fix — assess intent first.
 - **Not caused by** the 2026-07-17 abi_extract dead-code/sibling-latch fixes (those only affect post-
   return code; these FAIL mid-body).
+
+## Two distinct fade mechanisms — ScreenFade (common) vs the type-8 fade TILE (rare)
+- **symptom:** `Render::fadeTileRender` (native producer for guest `FUN_800726D4`, render-walk case
+  `0x8003C138`) sits at `ported-unverified` because its case never fires — not in
+  `hut-entry-door-freeze`, not in `general-session`, not in ~1100 frames of attract mode. That reads
+  like a broken port, and it is not.
+- **status:** UNDERSTOOD, still unverified (needs a scenario that builds a type-8 node).
+- **cause:** the game has TWO unrelated fade paths, and the one that runs constantly is NOT this one.
+  - `ScreenFade` (`game/render/screen_fade.h/.cpp`) — the port of leaf `FUN_8007E9C8`: two chained GP0
+    packets appended to an OT slot forming a full-screen semi-transparent rect. Driven by a LEAF TAP,
+    so it is active in essentially every scene (area transitions, cutscene fades). Already native.
+  - the fade/flash **TILE** — a render-list NODE, dispatched only when `node[+0x0b] == 8`. Separate
+    mechanism, separate guest fn, rare content.
+- **the dispatch table, decoded** (so nobody re-derives it): the walk indexes a 33-entry table at
+  **`0x80014DB8`** by the node's case byte `node[+0x0b]`. Read out of MAIN.EXE:
+  `idx 0 -> 0x8003C0B4 (per-object) · 1 -> C0C4 · 2 -> C0D8 · 3 -> C0F8 · 4 -> C0E8 · 5 -> C108 ·
+   6 -> C118 · 7 -> C128 · **8 -> C138 (the fade tile)** · 9..14,21..31 -> C2AC · 15 -> C0B4 ·
+   16..20 -> C148/C158/C168/C178/C188 · 32 -> C29C`.
+- **what actually fires** (`PSXPORT_DEBUG=walk`, which logs `node/idx/target` per dispatch): only
+  THREE targets across every scenario available — `C29C` (idx 32), `C0B4` (idx 0/15) and, in the hut
+  replay, `C0E8` (idx 4). So most of the 33 cases are cold in the replay library, not just idx 8.
+- **do-not-re-derive:** do not "fix" fadeTileRender by wiring it to ScreenFade state — they are
+  different mechanisms; the tile reads its level from `node+0x10 -> +0`, not from the fade class.
+- **next probe:** find what writes 8 into `node[+0x0b]` (the node constructor for the tile) and which
+  scene triggers it. `PSXPORT_DEBUG=walk` on a new scenario will confirm the moment idx 8 appears.

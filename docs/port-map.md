@@ -95,7 +95,7 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** ported-unverified
 - **order:** 43
 - **owner:** game/render/screen_fade.cpp::Render::fadeTileRender
-- **notes:** Native producer for the full-screen fade/flash tile (guest FUN_800726D4, render-walk case 0x8003C138): reads node+0x10->+0 signed level (negative = no tile), draws one full-screen quad R=G=B=level, semi-blended unless level==255, spanning [-margin,320+margin] so it covers the full wide screen. Read-only (guest packet/OT writes stay with the substrate body). Added an optional semi flag to RenderQueue::push2dQuad. Build-clean; RUNTIME-UNVERIFIED: case 0x8003C138 fires in neither hut-entry-alt nor general-session — needs a scenario that uses that render case (diagnostic: PSXPORT_DEBUG=fade).
+- **notes:** Native producer for the full-screen fade/flash tile (guest FUN_800726D4, render-walk case 0x8003C138 = node case-byte node[+0x0b]==8). Build-clean, read-only. STILL RUNTIME-UNVERIFIED, now with the reason understood: the game has TWO unrelated fade paths and this is the RARE one — ScreenFade (leaf tap FUN_8007E9C8, already native) is what runs in essentially every scene. Decoded the 33-entry walk table @0x80014DB8; PSXPORT_DEBUG=walk shows only 3 targets ever fire across the whole replay library (C29C/C0B4/C0E8), so idx 8 is cold, not broken. See docs/findings/render.md 'Two distinct fade mechanisms'. Next: find the constructor writing 8 to node[+0x0b].
 
 ## render-effectmod
 - **scope:** secondary-effect handlers 0x8003F3F4/F4C4/F344/F594/D584
