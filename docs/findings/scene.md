@@ -900,3 +900,35 @@ After the fix the native and forced-substrate traces are byte-identical over the
 `GraphicsBind::recordInitBody` (adding it changed nothing), and any diverging guest-memory write
 (mirror-verify found only dead stack bytes). The bug was never a wrong byte — it was a correct write
 at the wrong time.
+
+### What obj+0x2b ACTUALLY is: the interaction state (owner: game/player/interact_scan.cpp)
+The save-sign fix named the symptom, not the mechanism. `obj+0x2b` was carried as `subFlag` — a label
+that says nothing, and whose own doc admitted "writer still un-RE'd". So nobody could see that
+clearing it early destroys a pending activation; that is why the bug was hard, not the missing name.
+
+Owned the writer: guest `FUN_80024794` (Ghidra + gen), now `game/player/interact_scan.cpp`.
+
+**It is the INTERACTION SCANNER.** While Tomba's action state (player+0x14A) is 6 or 7, it walks the
+scratchpad candidate list and activates the first object that qualifies:
+class(+0x0C)==4, an interactable type (0x0E/0x0F/0x39/0x32/0x59/0x4B/0x4F/0x66/0x09/0x33), alive
+(bit 0 of +0), and already `+0x2b == 1`. It sets `+0x2b = 3` and publishes the VERB at 0x800BF840
+(0x84 for the sign/plaque family 0x0E/0x0F/0x39, 0x85 otherwise), then returns 1.
+
+So the byte is an interaction state, now named as such in `Actor`:
+`kInteractNone(0)` -> `kInteractInRange(1)` (proximity pass) -> `kInteractActivated(3)` (this scanner).
+The object's own handler consumes the 3 and clears it in its render tail. Stated that way, the
+softlock is self-evident: clearing it before the consume throws away the player's button press.
+
+**Two mistakes in porting it, both caught by the gate rather than by reading carefully enough:**
+1. *Registered but never run.* `overrides::install` without a `setter` is rec_dispatch-only wiring,
+   and this function's only caller uses the direct `func_80024794` thunk (shard_1.c:10437). `ovhit`
+   said "registered but unreached" while the substrate quietly kept doing the work. Pass
+   `shard_set_override`.
+2. *One indirection short.* `0x1F80014C` holds a POINTER to the candidate array, not the array.
+   Ghidra renders it `puVar4 = puRam1f80014c`, which reads like a base; gen is explicit
+   (`r5 = mem_r32(0x1F80014C); r4 = mem_r32(r5)`). My first version scanned arbitrary memory and
+   wrote the interaction state into whatever it hit — SBS caught it as a packet-pool divergence at
+   0x800BF544, and an A/B with the override disabled proved my port was the cause.
+
+Gated: SBS full 0-diff on the save-sign replay (1200f) and hut-entry (1800f), with `ovhit` showing
+native=1 so the runs actually exercise it.

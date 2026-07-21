@@ -87,8 +87,31 @@ public:
   //       (turn-direction lookup) and set targetDelta = ±256, then clear subFlag.
   //     - beh_typed_init_scene_trigger state 1 case 0: gate on the specific value 3 as a
   //       "confirm-pending" signal, then advance triggerSub and dispatch FUN_80040B48 per-type.
+  //     - beh_scene_ui_trigger state 1 case 0 (save signs / scene UI): the SAME value-3 confirm gate,
+  //       advancing triggerSub and firing the area-mask trigger. Confirmed 2026-07-21 by tracing the
+  //       pad edge (0x2000) through to the flag reaching 3.
   //   State-0 inits and various tails zero-clear it.
-  uint8_t subFlag() const             { return c->mem_r8(obj + 0x2B); }
+  //
+  //   *** WHEN YOU MAY CLEAR IT MATTERS. *** The consuming handler READS this flag inside its
+  //   sub-state switch; the guest only zeroes it in the TAIL, after that read. Clearing it earlier —
+  //   e.g. at the top of state 1, next to the cull check — makes the ==3 test unreachable, the
+  //   sub-state never advances, and the actor latches forever. That was the save-sign softlock
+  //   (kanban #5, docs/findings/scene.md): one clear, one line too early, no crash, no diverging
+  //   byte — just a correct write at the wrong time. Clear it in the render tail, nowhere else.
+  // NAMED PROPERLY 2026-07-21 (game/player/interact_scan.cpp, RE of guest FUN_80024794). This byte is
+  // the object's INTERACTION STATE, not a generic "sub flag":
+  //     kInteractNone (0)      not a candidate
+  //     kInteractInRange (1)   player is close enough / facing it — set by the proximity pass
+  //     kInteractActivated (3) player just acted on it — set by the interaction scanner, consumed by
+  //                            this object's own handler, cleared in that handler's render tail
+  // The scanner also publishes WHICH activation happened at 0x800BF840 (0x84 sign/plaque family,
+  // 0x85 otherwise). `subFlag` is kept below only as a deprecated alias for un-migrated call sites.
+  enum : uint8_t { kInteractNone = 0, kInteractInRange = 1, kInteractActivated = 3 };
+  uint8_t interactState() const       { return c->mem_r8(obj + 0x2B); }
+  void    setInteractState(uint8_t v) { c->mem_w8(obj + 0x2B, v); }
+  bool    interactActivated() const   { return interactState() == kInteractActivated; }
+
+  uint8_t subFlag() const             { return c->mem_r8(obj + 0x2B); }   // deprecated: use interactState()
   void    setSubFlag(uint8_t v)       { c->mem_w8(obj + 0x2B, v); }
   // subFlagX (legacy alias — retained for the earlier RE'd handler while callers migrate).
   uint8_t subFlagX() const            { return subFlag(); }

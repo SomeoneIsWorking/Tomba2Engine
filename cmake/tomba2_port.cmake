@@ -43,6 +43,7 @@ set(GAME_SRC
   game/math/trig.cpp
   game/render/cull.cpp
   game/player/collision.cpp
+  game/player/interact_scan.cpp
   game/player/hitbox.cpp
   game/player/grid_offset.cpp
   game/world/spawn.cpp
