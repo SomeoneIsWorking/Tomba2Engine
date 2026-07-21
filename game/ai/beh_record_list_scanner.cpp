@@ -33,6 +33,7 @@
 #include <string.h>
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include "mathlib.h"  // Bit::test7EC / test868 (FUN_8004D7EC / FUN_8004D868)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -43,8 +44,21 @@ constexpr uint32_t BEH_FN = 0x8004CE14u;
 inline uint32_t lh(Core* c, uint32_t a) { return (uint32_t)c->mem_r16s(a); }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8004CE14[10] = {
+  { 23, 44 },
+  { 21, 36 },
+  { 31 /*ra*/, 52 },
+  { 30, 48 },
+  { 22, 40 },
+  { 20, 32 },
+  { 19, 28 },
+  { 18, 24 },
+  { 17, 20 },
+  { 16, 16 },
+};   // frame=56, abi_extract --scaffold --guestabi
 
 void beh_record_list_scanner(Core* c) {
+  GuestFrame<56, 10> frame(c, kSpills_8004CE14);
   uint32_t obj = c->r[4];
   uint32_t s5  = obj + 0x60;
   uint8_t state = c->mem_r8(obj + 4);

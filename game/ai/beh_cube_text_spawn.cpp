@@ -34,6 +34,7 @@
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include "graphics_bind.h"   // ov_obj_render_update (FUN_800517F8)
 #include "ui/font.h"   // Font::measureLineWidth (FUN_80073750)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -49,8 +50,16 @@ static inline uint32_t tbl_strp(Core* c, uint32_t nd) {
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8003AD48[5] = {
+  { 18, 24 },
+  { 31 /*ra*/, 32 },
+  { 19, 28 },
+  { 17, 20 },
+  { 16, 16 },
+};   // frame=40, abi_extract --scaffold --guestabi
 
 void beh_cube_text_spawn(Core* c) {
+  GuestFrame<40, 5> frame(c, kSpills_8003AD48);
   const uint32_t nd = c->r[4];
   uint8_t st = c->mem_r8(nd + 4);
 

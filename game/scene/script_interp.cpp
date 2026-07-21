@@ -27,6 +27,7 @@
 #include "object/behavior_dispatch.h"
 #include <cstdint>
 #include <cstdio>
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 
 extern "C" void rec_dispatch(Core* c, uint32_t addr);
 extern void shard_set_override(uint32_t, void (*)(Core*));  // raw module installer — intercepts direct func_X callers
@@ -340,7 +341,15 @@ int ScriptInterp::callFnptr(uint32_t obj) {
 // C-ABI wrapper for BehaviorDispatch::kTable registration. Takes obj from a0 (c->r[4]) — matches
 // the recomp's calling convention so a native ancestor that already used dispatchObj lands here
 // transparently. The wrapper is deliberately trivial: pull obj out of a0 and forward to step().
+static constexpr GuestFrameSpill kSpills_80041098[5] = {
+  { 17, 20 },
+  { 19, 28 },
+  { 18, 24 },
+  { 31 /*ra*/, 32 },
+  { 16, 16 },
+};   // frame=40, abi_extract --scaffold --guestabi
 void beh_script_interp_step(Core* c) {
+  GuestFrame<40, 5> frame(c, kSpills_80041098);
   eng(c).script.step(c->r[4]);
 }
 

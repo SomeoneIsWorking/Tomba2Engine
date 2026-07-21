@@ -54,6 +54,7 @@
 #include "spawn.h"            // class Spawn (eng(c).spawn.despawn)
 #include "bg_scene_transition_sm.h"   // BgSceneTransitionSm::readyForProgress (FUN_80042728 native)
 #include "object/actor.h"     // class Actor + named fields
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -92,8 +93,16 @@ inline void confirm_or_advance(Actor& a, uint32_t arg) {
 // Special-area set for two paths (state-0 alive() + box override, tail sceneHandle release):
 inline bool is_special_area(uint8_t area) { return area == 2 || area == 7 || area == 0x14; }
 }  // namespace
+static constexpr GuestFrameSpill kSpills_80073CD8[5] = {
+  { 16, 16 },
+  { 31 /*ra*/, 32 },
+  { 19, 28 },
+  { 18, 24 },
+  { 17, 20 },
+};   // frame=40, abi_extract --scaffold --guestabi
 
 void beh_typed_init_scene_trigger(Core* c) {
+  GuestFrame<40, 5> frame(c, kSpills_80073CD8);
   Actor a(c, c->r[4]);
   const Sta st = (Sta)a.state();
 

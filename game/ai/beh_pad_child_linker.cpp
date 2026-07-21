@@ -41,6 +41,7 @@
 #include <string.h>
 #include "graphics_bind.h"   // ov_record_alloc_g (FUN_8007AAE8)
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -49,8 +50,18 @@ namespace {
 constexpr uint32_t BEH_FN = 0x8006F2D0u;
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8006F2D0[7] = {
+  { 18, 24 },
+  { 31 /*ra*/, 40 },
+  { 21, 36 },
+  { 20, 32 },
+  { 19, 28 },
+  { 17, 20 },
+  { 16, 16 },
+};   // frame=48, abi_extract --scaffold --guestabi
 
 void beh_pad_child_linker(Core* c) {
+  GuestFrame<48, 7> frame(c, kSpills_8006F2D0);
   uint32_t obj = c->r[4];                       // s2
   uint32_t v0, v1, p;
   uint32_t s0 = 0, s1 = 0, s4 = 0, s5 = 0;      // s-registers (callee-saved → persist as locals)

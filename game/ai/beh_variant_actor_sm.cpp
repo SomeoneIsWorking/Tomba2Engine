@@ -41,8 +41,14 @@ namespace {
 constexpr uint32_t BEH_FN = 0x8011D578u;
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8011D578[3] = {
+  { 16, 16 },
+  { 31 /*ra*/, 24 },
+  { 17, 20 },
+};   // frame=32, abi_extract --scaffold --guestabi
 
 void beh_variant_actor_sm(Core* c) {
+  GuestFrame<32, 3> frame(c, kSpills_8011D578);
   uint32_t nd = c->r[4];
   uint8_t st = c->mem_r8(nd + 4);
 

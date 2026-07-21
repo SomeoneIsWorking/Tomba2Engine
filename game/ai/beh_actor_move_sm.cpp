@@ -45,8 +45,13 @@ static inline uint32_t leafr3(Core* c, uint32_t a0, uint32_t a1, uint32_t a2, ui
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8011D988[2] = {
+  { 16, 16 },
+  { 31 /*ra*/, 20 },
+};   // frame=24, abi_extract --scaffold --guestabi
 
 void beh_actor_move_sm(Core* c) {
+  GuestFrame<24, 2> frame(c, kSpills_8011D988);
   uint32_t nd = c->r[4];
   uint8_t st = c->mem_r8(nd + 4);
 
