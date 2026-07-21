@@ -36,8 +36,33 @@ for the full index + how to record one). Replay any scenario headless or under S
 PSXPORT_PAD_REPLAY=replays/scene-transitions/hut-entry-door-freeze.pad   # the key one: surfaces the hut-entry SBS diverge @0x801FE91A
 ```
 Record a new one on a windowed run: `PSXPORT_PAD_RECORD=replays/<cat>/<name>.pad ./run.sh`,
-play the scenario, close, add a README entry. Replays start from frame 0 (fresh boot) — prefix with
+play the scenario, close, add a README entry. **If the user ALREADY has the game open on the bug, do
+not make them replay it into a chosen sink** — cut the replay straight out of the live session over
+the debug server (`padrec save`, see §Live session below and the `live-session` skill). Replays start from frame 0 (fresh boot) — prefix with
 `newgame`/AUTO_SKIP to reach free-roam first if the scenario begins there.
+
+## ⭐ LIVE SESSION — attach to the user's running window, don't relaunch
+The user's `./run.sh` window exposes the debug server on **5959** and keeps every finalized pad mask
+in memory from frame 0. So a bug they are looking at right now is fully capturable without costing
+them the route back to it:
+```
+python3 external/psxport/tools/dbgclient.py frame                                  # attached?
+python3 external/psxport/tools/dbgclient.py padrec                                 # frames captured
+python3 external/psxport/tools/dbgclient.py padrec save replays/bugs/<name>.pad    # cut the replay
+python3 external/psxport/tools/dbgclient.py padrec save replays/bugs/<name>.pad 9000  # trim the idle tail
+```
+The optional count keeps the FIRST n frames only; a suffix is never offered (replays are valid only
+from boot). `ents`/`node`/`stage`/`shot`/`provat` all work against the live window too.
+
+**Port isolation:** the user's game owns 5959. An instance you launch MUST take another port
+(`PSXPORT_DEBUG_SERVER=5960`) or its bind silently fails and your `dbgclient` commands drive the
+USER'S game instead of yours. Reach yours with `dbgclient.py --port 5960`.
+
+Fallback for a window launched before `padrec` existed (2026-07-21): a windowed run also writes
+`scratch/bin/pad_session.pad`, fflushed every frame, so it is a valid complete-so-far capture at any
+instant — just `cp` it. That sink rotates 5 deep on each windowed launch (`.pad` → `.1.pad` → … →
+`.5.pad`), so a long capture reappearing as `pad_session.1.pad` means the user relaunched, not that
+anything was lost.
 
 ## 0. Gotchas that waste time
 - **Headless runs auto-SKIP the intro FMVs and fast-forward in-game FMVs** (later-134). A field probe is

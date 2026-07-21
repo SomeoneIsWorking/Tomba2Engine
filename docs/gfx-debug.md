@@ -1,6 +1,7 @@
 # Graphics debugging — workflow + tools (Tomba!2 port)
 
-_Committed canonical copy of the `gfx-debug` skill (`.claude/` is gitignored). Keep both in sync._
+_This file IS the canonical workflow. `.claude/skills/gfx-debug/` is a thin in-repo skill that points
+here — it deliberately does not restate any of this, so there is nothing to keep in sync._
 _Read this FIRST before debugging any rendering issue._
 
 ## The methodology (2026-06-20): the engine OWNS its render — verify on the LIVE game

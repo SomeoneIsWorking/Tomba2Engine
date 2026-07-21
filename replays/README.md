@@ -55,6 +55,7 @@ Once the recorded sequence ends, input falls through to the host (so `run N` aft
 
 | file | frames | scenario | surfaces |
 |------|--------|----------|----------|
+| `seesaw-weight.pad` | 16406 | live hand-played session reaching the seaside **water pump**, with the counterweight seesaw beam | kanban #8 — grabbing the seesaw while climbing does not sink it under Tomba's weight. Cut out of the user's LIVE window with `padrec save` (see docs/driving-the-game.md § live session). Replay reaches the pump; padshots at 8000/12000/14000/15500/16350 show the beam static. |
 | `dark-screen-repro.pad` | 61030 | long session reaching a dark/wrong-screen state | the screen-fade / scene-darkening bug family (docs/findings/render.md); use under a window to eyeball. |
 
 ### boot-smoke/
