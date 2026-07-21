@@ -215,9 +215,16 @@
   TRUE, so `FUN_8011334C` fired in exactly the state the guest suppresses it. Unattached (slot 0) both
   agree — which is why it survived: the defect is invisible until something is grabbed.
 - **fix:** `c->mem_r32(0x800E7FD8u) < 2u`.
-- **A/B EVIDENCE (same replay, same binary, one line different), watching node[+0x48] (the weight):**
+- **A/B measurement (same replay, same binary, one line different), watching node[+0x48] (the weight):**
   - pre-fix: **0** nonzero writes across all 12 pump nodes over 6680 frames.
-  - post-fix: **448** nonzero writes on node index 1 — the exact node G+0x158 points at.
+  - post-fix: **448** nonzero writes on node index 1 — the node G+0x158 points at.
+- **★ WHAT THAT A/B DOES *NOT* SHOW (corrected 2026-07-21, same session):** all 448 writes fall in frames
+  **315-748**. The grab is at ~frame 6400. So they are early-session activity and say NOTHING about the
+  grabbed state. Worse, the post-fix dump at frame 6600 has `G+0x158 == 0` — the diverged replay never
+  reaches a grab in its late portion at all. I originally reported this A/B as evidence that the fix
+  "gates the weight path"; it is a true measurement that does not support that conclusion. The fix's
+  effect on the SYMPTOM is unestablished, and the pad replay cannot establish it (the fix changes
+  behaviour, so the open-loop input desyncs). Only a live retest can.
 - **NOT VERIFIED:** that the beam visibly sinks. The fix changes behaviour, so the open-loop pad replay
   diverges after it and no longer reaches the grab at the same frames; a fixed-frame visual compare is
   meaningless. Needs a live confirmation. Also still true post-fix: `node[+0x2b]` is never stamped
