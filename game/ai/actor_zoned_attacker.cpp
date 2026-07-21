@@ -238,7 +238,7 @@ void ActorZonedAttacker::typeInit(Core* c) {
   c->mem_w16(node + 0x82, 0x70);
   c->mem_w16(node + 0x84, 0x8c);
   c->mem_w16(node + 0x4e, 0);
-  c->mem_w16(node + 0x50, 0);
+  a.setAccelY(0);
   c->mem_w16(node + 0x86, 0xf0);
   c->mem_w16(node + 0x7c, 0);
   c->mem_w16(node + 0x7e, 0);
@@ -1136,7 +1136,7 @@ switchD_caseD_2:
     v62 = (c->r[R_V0] == 0) ? (uint16_t)(v62 | 1) : (uint16_t)(v62 & 0xfffe);
     a.setStateEcho(v62);
     c->mem_w16(node + 0x4e, 0xe000);
-    c->mem_w16(node + 0x50, 0xffd8);
+    a.setAccelY(0xffd8);
     c->mem_w8(node + 0x29, 0);
     c->mem_w8(node + 6, 1);
     c->r[R_A0] = 0x88u; c->r[R_A1] = 0; c->r[R_A2] = 0; rec_dispatch(c, FN_80074590);
@@ -1145,18 +1145,18 @@ switchD_caseD_2:
       c->mem_w8(node + 4, 3);
       return;
     }
-    int32_t iVar5 = c->mem_r16s(node + 0x48) * c->mem_r16s(node + 0x4e);
-    int32_t iVar7 = c->mem_r16s(node + 0x4c) * c->mem_r16s(node + 0x4e);
+    int32_t iVar5 = a.velX() * c->mem_r16s(node + 0x4e);
+    int32_t iVar7 = a.velZ() * c->mem_r16s(node + 0x4e);
     if ((a.stateEcho_u() & 1) == 0) {
-      iVar5 = (int32_t)c->mem_r32(node + 0x2c) + iVar5;
-      iVar7 = (int32_t)c->mem_r32(node + 0x34) + iVar7;
+      iVar5 = (int32_t)a.posXFixed() + iVar5;
+      iVar7 = (int32_t)a.posZFixed() + iVar7;
     } else {
-      iVar5 = (int32_t)c->mem_r32(node + 0x2c) - iVar5;
-      iVar7 = (int32_t)c->mem_r32(node + 0x34) - iVar7;
+      iVar5 = (int32_t)a.posXFixed() - iVar5;
+      iVar7 = (int32_t)a.posZFixed() - iVar7;
     }
-    c->mem_w32(node + 0x2c, (uint32_t)iVar5);
-    c->mem_w32(node + 0x34, (uint32_t)iVar7);
-    a.setPosY((uint16_t)(a.posY() + c->mem_r16s(node + 0x50)));
+    a.setPosXFixed((uint32_t)iVar5);
+    a.setPosZFixed((uint32_t)iVar7);
+    a.setPosY((uint16_t)(a.posY() + a.accelY()));
     a.setRotZ((uint16_t)(a.rotZ() + 0xcc));
     bool despawnNow = (c->mem_r8(node + 0x29) != 0);
     if (!despawnNow) {
@@ -1169,9 +1169,9 @@ switchD_caseD_2:
       c->r[R_A0] = 0x1bu; c->r[R_A1] = 0; c->r[R_A2] = 0; rec_dispatch(c, FN_80074590);
       goto LAB_801451b0;
     }
-    const int32_t sVar4 = c->mem_r16s(node + 0x50);
-    c->mem_w16(node + 0x50, (uint16_t)(sVar4 + 4));
-    if ((int16_t)(sVar4 + 4) > 0x3c) c->mem_w16(node + 0x50, 0x3c);
+    const int32_t sVar4 = a.accelY();
+    a.setAccelY((uint16_t)(sVar4 + 4));
+    if ((int16_t)(sVar4 + 4) > 0x3c) a.setAccelY(0x3c);
     goto LAB_801451a0;
   }
   goto switchD_caseD_3;
