@@ -42,8 +42,14 @@ static inline uint32_t leaf4r(Core* c, uint32_t a0, uint32_t a1, uint32_t a2, ui
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8013B2E4[3] = {
+  { 17, 20 },
+  { 31 /*ra*/, 24 },
+  { 16, 16 },
+};   // frame=32, abi_extract --scaffold --guestabi
 
 void beh_flagbit_timer_machine(Core* c) {
+  GuestFrame<32, 3> frame(c, kSpills_8013B2E4);
   uint32_t nd = c->r[4];                          // s1 = a0 (node)
   uint32_t s0 = c->mem_r8(nd + 4);                // node[4] = outer state
   if (getenv("PSXPORT_FLAGBIT_ENTRY"))

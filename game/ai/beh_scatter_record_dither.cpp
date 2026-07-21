@@ -36,6 +36,7 @@
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include "rng.h"       // class Rng (via rngOf(c).next())
 #include "collision.h"  // Collision::listScan (FUN_80031780)
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -44,8 +45,16 @@ namespace {
 constexpr uint32_t BEH_FN = 0x8013C538u;
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8013C538[5] = {
+  { 19, 28 },
+  { 31 /*ra*/, 32 },
+  { 18, 24 },
+  { 17, 20 },
+  { 16, 16 },
+};   // frame=40, abi_extract --scaffold --guestabi
 
 void beh_scatter_record_dither(Core* c) {
+  GuestFrame<40, 5> frame(c, kSpills_8013C538);
   uint32_t obj = c->r[4];                        // s3 = a0 (node)
   uint32_t v0, v1;
   int s0 = 0, s1 = 0, s2 = 0;                    // guest s0/s2 = running record ptrs, s1 = counter

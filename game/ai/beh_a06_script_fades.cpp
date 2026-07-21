@@ -30,6 +30,7 @@
 #include "core/engine.h"
 #include "render/screen_fade.h"
 #include <cstdint>
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 
 extern "C" void rec_dispatch(Core* c, uint32_t addr);
 
@@ -79,7 +80,12 @@ inline uint32_t callObj4Ret(Core* c, uint32_t a, uint32_t b, uint32_t d, uint32_
 // obj[+0x78] = state; obj[+0x40] = fade level (u16); obj[+0x42] = state-6 countdown timer.
 // Every non-terminal state ends by writing the current gray on ScreenFade (`gray << 16 | << 8 | u`)
 // and returns 0 (pause loop). State 7 returns 1 (advance) when the ramp reaches 0.
+static constexpr GuestFrameSpill kSpills_80139728[2] = {
+  { 16, 16 },
+  { 31 /*ra*/, 20 },
+};   // frame=24, abi_extract --scaffold --guestabi
 void beh_a06_fade_flash_ramp_80139728(Core* c) {
+  GuestFrame<24, 2> frame(c, kSpills_80139728);
   const uint32_t obj = c->r[4];
   const uint8_t state = c->mem_r8(obj + O_STATE_78);
   bool done = false;   // set true → jump to LAB_80139880 (advance state, then draw+return 0)
@@ -243,7 +249,11 @@ void beh_a06_spawn_subobj_8013B074(Core* c) {
 //   state 0: level = 0; advance to 1
 //   state 1: level += 0x20; if signed < 0x80: draw+pause; else advance to 2
 //   state 2: level -= 0x20; if was 0x20 → return 1 (done); else draw+pause
+static constexpr GuestFrameSpill kSpills_8013B178[1] = {
+  { 31 /*ra*/, 16 },
+};   // frame=24, abi_extract --scaffold --guestabi
 void beh_a06_fade_ramp_8013B178(Core* c) {
+  GuestFrame<24, 1> frame(c, kSpills_8013B178);
   const uint32_t obj = c->r[4];
   const uint8_t st = c->mem_r8(obj + O_STATE_78);
   int8_t goAdvance = 0;   // 1 → advance state before drawing
@@ -270,7 +280,11 @@ void beh_a06_fade_ramp_8013B178(Core* c) {
 }
 
 // ── FUN_8013B274 — one-shot music/SFX cue then advance ──────────────────────────────────────────
+static constexpr GuestFrameSpill kSpills_8013B274[1] = {
+  { 31 /*ra*/, 16 },
+};   // frame=24, abi_extract --scaffold --guestabi
 void beh_a06_music_cue_8013B274(Core* c) {
+  GuestFrame<24, 1> frame(c, kSpills_8013B274);
   const uint32_t obj = c->r[4];
   const uint32_t parent = c->mem_r32(obj + O_D0);
   callObj3(c, parent, 0xFu, 4u, 0x80051B04u);

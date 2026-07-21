@@ -1759,8 +1759,8 @@ Adding a frame to a genuinely frameless leaf *creates* the divergence it claims 
   attached to a method name. A marker sitting above a body does not prove the address matches it.
 
 
-## SYSTEMATIC: 54 behavior-table natives never mirror their guest stack frame
-- **status:** AUDITED 2026-07-21, fixing in batches. This is the same class as the 16 already fixed,
+## SYSTEMATIC: 54 behavior-table natives never mirrored their guest stack frame
+- **status:** COMPLETE 2026-07-21 — all 54 fixed; re-running the audit reports 0 remaining. This is the same class as the 16 already fixed,
   but it is systematic across the `beh_*` family rather than incidental.
 - **audit method (reproducible):** take every `{0xADDR, beh_symbol, "name"}` row of the dispatch
   table in `game/object/behavior_dispatch.cpp`, resolve each symbol to its DEFINITION (not the
@@ -1830,3 +1830,19 @@ Adding a frame to a genuinely frameless leaf *creates* the divergence it claims 
   from `abi_extract.py <addr> --scaffold --guestabi`. Confirm the address against the dispatch-table
   row before applying — see the delayedTrigger near-miss above for why an address that merely arrives
   attached to a name is not good enough.
+
+
+### Sweep complete (2026-07-21)
+All 54 are fixed, in six verified batches. Re-running the audit above now reports
+**0 behavior handlers missing a guest frame**, which is the check to repeat after adding any new
+`beh_*` handler — a new one is easy to write without a frame, since nothing in the compiler or the
+runtime complains.
+
+Verification at completion: three replays 900 frames with no dispatch misses; `startgame` and
+`narration` selftests PASS; effectmod oracle test 2000 runs / 0 mismatches; camera oracle test
+5000 runs / 0 mismatches.
+
+Worth stating plainly what this did and did not prove. The defect is a guest-stack BYTE divergence:
+it never crashes, and the checks above cannot see it directly — they show the game still behaves
+correctly with the frames added, i.e. the fixes did no harm and the code paths genuinely run. Proving
+the bytes now match end-to-end needs an SBS run, which is the natural next gate for this work.

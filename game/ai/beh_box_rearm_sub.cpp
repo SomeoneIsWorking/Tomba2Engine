@@ -36,8 +36,13 @@ static inline uint32_t leafr1(Core* c, uint32_t a0, uint32_t fn) {
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8013ADBC[2] = {
+  { 16, 16 },
+  { 31 /*ra*/, 20 },
+};   // frame=24, abi_extract --scaffold --guestabi
 
 void beh_box_rearm_sub(Core* c) {
+  GuestFrame<24, 2> frame(c, kSpills_8013ADBC);
   uint32_t nd = c->r[4];
   uint8_t st = c->mem_r8(nd + 4);
 

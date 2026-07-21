@@ -49,8 +49,15 @@ static inline void lift_sfx(Core* c, uint32_t s0) {
 }
 
 }  // namespace
+static constexpr GuestFrameSpill kSpills_8013A330[4] = {
+  { 18, 24 },
+  { 31 /*ra*/, 28 },
+  { 17, 20 },
+  { 16, 16 },
+};   // frame=32, abi_extract --scaffold --guestabi
 
 void beh_lift_platform(Core* c) {
+  GuestFrame<32, 4> frame(c, kSpills_8013A330);
   uint32_t nd = c->r[4];
   uint8_t st = c->mem_r8(nd + 4);
 

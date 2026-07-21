@@ -44,6 +44,7 @@
 #include "object/behavior_dispatch.h"
 #include "scene/script_interp.h"
 #include <cstdint>
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 
 extern "C" void rec_dispatch(Core* c, uint32_t addr);
 
@@ -472,7 +473,13 @@ void state1Run(Core* c, uint32_t obj) {
 // Entry — the per-object handler the object walker's native path invokes via BehaviorDispatch.
 // Outer state on obj[+0x04]: 0 = INIT, 1 = RUN (per-frame), 2 = no-op hold, 3 = DESPAWN via
 // substrate FUN_8007A624. a0 (c->r[4]) already holds the obj address; BehaviorDispatch set it.
+static constexpr GuestFrameSpill kSpills_8013AA14[3] = {
+  { 16, 16 },
+  { 31 /*ra*/, 24 },
+  { 17, 20 },
+};   // frame=32, abi_extract --scaffold --guestabi
 void beh_a06_scripted_actor(Core* c) {
+  GuestFrame<32, 3> frame(c, kSpills_8013AA14);
   const uint32_t obj = c->r[4];
   const uint8_t state = c->mem_r8(obj + O_STATE_04);
   switch (state) {
