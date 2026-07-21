@@ -73,11 +73,12 @@ Once the recorded sequence ends, input falls through to the host (so `run N` aft
   Active-low bits (0=pressed): 0=R 1=L 2=U 3=D 4=tri 5=cross 6=o 7=sq 8=L2 9=R2 10=L1 11=R1 … start.
 - **Determinism:** replays are bit-exact (validated by the door_freeze finding — reproduces
   frame-for-frame across runs). Safe to gate fixes on.
-- **⚠ Only within the SAME exec path.** A capture recorded on pc_faithful does NOT reproduce under
-  `PSXPORT_GATE=1` (or vice versa): the two paths consume different numbers of pad frames during
-  boot, so the sequence lands at different game moments and the run desyncs completely — measured
-  2026-07-21 on `bugs/seesaw-weight.pad`, where the same replay frame put Tomba in two different
-  areas (`scratch/screenshots/seesaw_pc_vs_gate.png`). Do not use a replay to diff pc_faithful
-  against the oracle; that is what SBS (lockstep, one input stream, two cores) is for.
+- **Cross-exec-path replay: UNKNOWN, do not assume either way.** One observation (2026-07-21,
+  `bugs/seesaw-weight.pad`) had the pc_faithful and `PSXPORT_GATE=1` legs rendering different areas at
+  the same replay frame (`scratch/screenshots/seesaw_pc_vs_gate.png`) — but nothing established that
+  the input stream was the cause rather than a real behavioural difference between the paths. An
+  earlier revision of this file asserted a desync mechanism as fact; that was unverified and is
+  withdrawn. For path comparison prefer SBS (lockstep, one input stream, two cores) until someone
+  actually measures this.
 - **Originals** also live at `scratch/bin/*.pad` (referenced by older findings); the copies here are
   the canonical, categorized home going forward.

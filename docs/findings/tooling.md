@@ -391,10 +391,9 @@
   file's LBA+size from `discdump list`.
 
 ## Pad captures silently corrupt across a debug-server PAUSE — the pad-frame clock kept ticking while the game was frozen (2026-07-21)
-- **symptom:** a hand-recorded `.pad` replays to the WRONG place. `replays/bugs/seesaw-weight.pad` was
-  captured from a live session with Tomba grabbing the water-pump seesaw; replayed headless at the same
-  pad-frame index he is walking on the ground somewhere else. Looks exactly like nondeterminism or an
-  exec-path difference, and both were wrongly suspected first (see the dead ends below).
+- **symptom:** NONE OBSERVED — see the retraction below. This entry documents a real defect found by
+  MEASUREMENT (the pad-frame counter advancing while the game is frozen), not by any reproduced
+  symptom. It was originally filed with a symptom that turned out to be my own misreading.
 - **status:** FIXED (2026-07-21). Verified: with the game paused, `padrec` reports 5720 → 5720 across
   6 s (it climbed ~240/s before); resuming advances it again.
 - **cause:** the debug-server pause loop (`native_boot.cpp`) called `Pad::serviceFrame()` every 15 ms
@@ -407,14 +406,19 @@
 - **fix:** `Pad::pumpHostInput()` — host input only (pollSdl, which also carries the P / '.' keys), no
   frame-indexed state. The pause loop calls that instead of `serviceFrame()`. The split makes the
   invariant explicit: the pad-frame clock advances only when the game advances a frame.
-- **consequence:** any `.pad` recorded before this fix on a session that was ever paused is unreliable
-  past the first pause. Re-record rather than trying to repair one — the junk is a run of masks that
-  looks like legitimate held input, so there is no sound way to strip it.
+- **★ RETRACTED (same day, USER caught it): the claim that this corrupted `seesaw-weight.pad` and that
+  the capture had to be re-recorded was WRONG.** The capture reproduces the grab correctly. I read a
+  320x240 screenshot, mistook an NPC for Tomba, concluded "he is on the ground, not grabbing", and
+  built corrupt-capture / re-record / cross-path-desync conclusions on top of that inference — then
+  wrote them into this file, the kanban card, `replays/README.md` and two commit messages as fact.
+  Zooming the same screenshot shows Tomba plainly hanging on the pump. The pause defect below is real
+  and measured; NOTHING about the capture's usability follows from it, and no capture needs
+  re-recording on this account.
 - **DEAD ENDS on the way here (do not re-walk):**
-  - "Replays desync across exec paths" — a real effect was observed (pc_faithful vs `PSXPORT_GATE=1`
-    landing in different areas, `scratch/screenshots/seesaw_pc_vs_gate.png`), but the PAUSE bug is
-    sufficient to explain it and was present in that capture. Do not treat cross-path replay as proven
-    broken until it is re-tested with a clean capture.
+  - "Replays desync across exec paths" — UNPROVEN, and asserted far too confidently. The two legs did
+    render different areas (`scratch/screenshots/seesaw_pc_vs_gate.png`), but I never established that
+    the input stream was the cause rather than a legitimate behavioural difference, and the reasoning
+    chain I used to "explain" it was built on the misread above. Treat as an open observation.
   - "FMV playback shifts the pad-frame index" (windowed records with FMVs, agents replay with
     `PSXPORT_NO_FMV=1`) — FALSE. `Fmv::pace` calls `pollSdl()` only, never `serviceFrame()`, so FMV
     playback ticks no pad frames and NO_FMV cannot shift the sequence.
