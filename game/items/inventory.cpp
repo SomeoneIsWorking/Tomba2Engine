@@ -139,9 +139,8 @@ void Inventory::abGate(Core* c, uint32_t addr, void (*native)(Core*), int exclud
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0) {  // these fns return void; v0 is dead, don't gate on it
     if (nb++ < 40)
-      fprintf(stderr, "[%s] MISMATCH a0=%08x a1=%x v0 n=%x o=%x ram@%x(n=%02x o=%02x) spad@%x sp=%x\n",
-              nm, a0, a1, v0_n, v0_o, ro, ro>=0?ramN[ro]:0, ro>=0?c->ram[ro]:0, so, sp);
-  } else if (++ng % 200 == 0) fprintf(stderr, "[%s] %ld matches (last a0=%08x a1=%x)\n", nm, ng, a0, a1);
+      cfg_logi("inventory", "[%s] MISMATCH a0=%08x a1=%x v0 n=%x o=%x ram@%x(n=%02x o=%02x) spad@%x sp=%x", nm, a0, a1, v0_n, v0_o, ro, ro>=0?ramN[ro]:0, ro>=0?c->ram[ro]:0, so, sp);
+  } else if (++ng % 200 == 0) cfg_logi("inventory", "[%s] %ld matches (last a0=%08x a1=%x)", nm, ng, a0, a1);
 }
 
 

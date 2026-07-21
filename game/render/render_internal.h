@@ -177,12 +177,13 @@ static inline void sil_bbox_log_verts(const char* tag, const float* px, const fl
     if (py[i] < miny) miny = py[i]; if (py[i] > maxy) maxy = py[i];
   }
   if (maxx < -20 || minx > 160 || maxy < 100 || miny > 200) return;
-  fprintf(stderr, "[silbbox] %s node=%08X rec=%08X bbox x=[%.1f,%.1f] y=[%.1f,%.1f] verts:",
-          tag, node, rec_addr, minx, maxx, miny, maxy);
+  CfgLine ln; cfg_line_reset(&ln);
+  cfg_line_addf(&ln, "%s node=%08X rec=%08X bbox x=[%.1f,%.1f] y=[%.1f,%.1f] verts:",
+                tag, node, rec_addr, minx, maxx, miny, maxy);
   for (int i = 0; i < n; i++) {
-    fprintf(stderr, " (%.2f,%.2f,z=%.4f", px[i], py[i], depth[i]);
-    if (r) fprintf(stderr, ",rgb=%d,%d,%d", r[i], g[i], b[i]);
-    fprintf(stderr, ")");
+    cfg_line_addf(&ln, " (%.2f,%.2f,z=%.4f", px[i], py[i], depth[i]);
+    if (r) cfg_line_addf(&ln, ",rgb=%d,%d,%d", r[i], g[i], b[i]);
+    cfg_line_addf(&ln, ")");
   }
-  fprintf(stderr, "\n");
+  cfg_line_flush(&ln, "silbbox");
 }

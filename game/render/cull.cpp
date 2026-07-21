@@ -347,12 +347,13 @@ void Cull::objectCull() { Core* c = core;
           int gpu_frame_no(Core*);
           uint32_t cmd = c->mem_r32(o + 0xc0);                       // persistent render-command ptr (later-132)
           uint32_t gb  = cmd ? c->mem_r32(cmd + 0x40) : 0;           // its geomblk
-          fprintf(stderr, "[cullobj] f%d obj=%08x type=%02x model=%04x mdata=%08x cmd=%08x geomblk=%08x x18=",
-                  gpu_frame_no(c), o, otype, obj_r16(c, o + 0x0e) & 0x3fff, c->mem_r8(o+0x38)|(c->mem_r8(o+0x39)<<8)|(c->mem_r8(o+0x3a)<<16)|(c->mem_r8(o+0x3b)<<24),
-                  cmd, gb);
-          for (int j = 0; j < 8; j++) fprintf(stderr, "%s%08x", j ? "," : "", cmd ? c->mem_r32(cmd + 0x18 + j*4) : 0);
-          fprintf(stderr, " pos=(%d,%d,%d)\n",
-                  (int16_t)obj_r16(c, o + 0x2e), (int16_t)obj_r16(c, o + 0x32), (int16_t)obj_r16(c, o + 0x36));
+          CfgLine ln; cfg_line_reset(&ln);
+          cfg_line_addf(&ln, "f%d obj=%08x type=%02x model=%04x mdata=%08x cmd=%08x geomblk=%08x x18=",
+                        gpu_frame_no(c), o, otype, obj_r16(c, o + 0x0e) & 0x3fff, c->mem_r8(o+0x38)|(c->mem_r8(o+0x39)<<8)|(c->mem_r8(o+0x3a)<<16)|(c->mem_r8(o+0x3b)<<24),
+                        cmd, gb);
+          for (int j = 0; j < 8; j++) cfg_line_addf(&ln, "%s%08x", j ? "," : "", cmd ? c->mem_r32(cmd + 0x18 + j*4) : 0);
+          cfg_line_addf(&ln, " pos=(%d,%d,%d)", (int16_t)obj_r16(c, o + 0x2e), (int16_t)obj_r16(c, o + 0x32), (int16_t)obj_r16(c, o + 0x36));
+          cfg_line_flush(&ln, "cullobj");
         }
         // MEASUREMENT (PSXPORT_DEBUG=cullinc): per-type tally of objects the wide re-include actually
         // marks visible, per frame. Distinguishes a genuinely static-safe type from a vacuous 0-diff
@@ -361,9 +362,12 @@ void Cull::objectCull() { Core* c = core;
         if (cfg_dbg("cullinc")) {
           if (gpu_frame_no(c) != s_lf && s_lf >= 0) {
             int any = 0; for (int t = 0; t < 256; t++) if (s_inc[t]) any = 1;
-            if (any) { fprintf(stderr, "[cullinc] f%d reincluded:", s_lf);
-              for (int t = 0; t < 256; t++) if (s_inc[t]) fprintf(stderr, " 0x%02x=%ld", t, s_inc[t]);
-              fprintf(stderr, "\n"); }
+            if (any) {
+              CfgLine ln; cfg_line_reset(&ln);
+              cfg_line_addf(&ln, "f%d reincluded:", s_lf);
+              for (int t = 0; t < 256; t++) if (s_inc[t]) cfg_line_addf(&ln, " 0x%02x=%ld", t, s_inc[t]);
+              cfg_line_flush(&ln, "cullinc");
+            }
             for (int t = 0; t < 256; t++) s_inc[t] = 0;
           }
           s_lf = gpu_frame_no(c); s_inc[otype & 0xff]++;

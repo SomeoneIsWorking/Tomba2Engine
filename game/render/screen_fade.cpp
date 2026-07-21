@@ -27,8 +27,8 @@ void ScreenFade::fadetrace(const char* op, uint8_t mode, uint32_t rgb, const cha
   int n = backtrace(stack, 16);
   char** syms = backtrace_symbols(stack, n);
   if (syms) {
-    fprintf(stderr, "  first-time stack for (%s, %s, 0x%06X):\n", op, modeName, rgb);
-    for (int i = 0; i < n; i++) fprintf(stderr, "    %s\n", syms[i]);
+    cfg_logi("screen_fade", "  first-time stack for (%s, %s, 0x%06X):", op, modeName, rgb);
+    for (int i = 0; i < n; i++) cfg_logi("screen_fade", "    %s", syms[i]);
     free(syms);
   }
 }

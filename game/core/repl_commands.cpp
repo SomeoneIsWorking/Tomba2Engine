@@ -61,7 +61,7 @@ bool tomba_repl_command(Core* c, const char* cmd, const char* line) {
       cfg_logi("repl", "musictest %d (%s) -> %s", n, ml.name(n) ? ml.name(n) : "?", rc ? "FAIL" : "ok");
     } else {
       cfg_logi("repl", "musictest: tracks 0..%d, or 'stop'", ml.count()-1);
-      for (int i = 0; i < ml.count(); i++) fprintf(stderr, "   %d: %s\n", i, ml.name(i));
+      for (int i = 0; i < ml.count(); i++) cfg_logi("repl_commands", "   %d: %s", i, ml.name(i));
     }
     return true;
   }

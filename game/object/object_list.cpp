@@ -30,7 +30,7 @@ inline void call_handler(Core* c, uint32_t node) {
     if(i==nh && nh<64){ addr[nh]=h; cnt[nh]=0; nh++; }
     if(i<64) cnt[i]++;
     if((++w % 300)==0){ cfg_logi("behhist", "distinct=%d handlers:", nh);
-      for(int j=0;j<nh;j++) fprintf(stderr,"   %08X  x%ld\n", addr[j], cnt[j]); }
+      for(int j=0;j<nh;j++) cfg_logi("object_list", "   %08X  x%ld", addr[j], cnt[j]); }
   }
   eng(c).behaviors.dispatchObj(node, h);
 }
