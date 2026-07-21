@@ -24,3 +24,23 @@
 - **consequence for readers:** a 32-bit write at +0x30 CHANGES posY. Anything reasoning about
   position must treat the two as one field, and any lens must expose both views (Actor now does:
   `posYFixed()` / `posY()`).
+
+### Ranking files by OFFSET alone is meaningless — the base struct decides
+After naming the 16.16 position / velocity fields in `Actor`, I ranked "files still using raw
+0x2c/0x30/0x34/0x48/0x4a/0x4c/0x50" to find more conversion targets. That ranking is worthless on its
+own, because those offsets mean different things in different records:
+
+| file | base variable | what the record actually is |
+|---|---|---|
+| `scene/demo.cpp` | `sm` | the DEMO state machine — `sm[0x48]` is the SUBSTATE INDEX, not velX |
+| `core/engine.cpp` | `sm`, `task` | state-machine / task records |
+| `object/actor_sm_reward.cpp` | `e`, `entA`, `entB`, `eA`, `eB` (30 sites) | entity records, NOT the `obj` node |
+| `ai/release_trigger_motion.cpp` | `anchor` (16 sites) | a different object than the `obj` converted there |
+
+Converting `demo.cpp`'s `sm + 0x48` with `Actor::velX()` would have been badly wrong — the same
+offset, a completely different struct, and the code would still compile and mostly still run.
+
+**Before converting any raw offset to a lens accessor, establish what the BASE VARIABLE points at.**
+The offset is not the identity; the record is. This is the same hazard as `0xC0` meaning `childPtr`
+in the scene-graph role and `renderRec` in the behaviour role — see `Actor`'s and `Node`'s headers,
+which both document it.
