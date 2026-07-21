@@ -545,3 +545,23 @@
 - **limits:** an address the guest only forms dynamically (base register from a struct field, computed,
   or $gp-relative) is reported "guest-unseen", not OK. A narrow read of a wider field can be correct
   when only the low bits are wanted. It ranks suspects; it does not judge.
+
+## ★ Most owned behavior code has NO equivalence test — quantified (2026-07-22)
+- **Measurement:** `game/ai/` holds 61 `beh_*.cpp` handlers (the behavior table dispatches 65
+  addresses). Exactly **3** carry an `// ORACLE:` marker. Running `port_check` across the directory
+  finds only 6 checkable methods at all, of which 4 FAIL — and those FAILs are not defects: they are
+  hand-written REBUILDS, which legitimately differ from the guest in store order.
+- **So ~58 owned behavior handlers have no test of any kind against the guest.** They are "owned" in
+  the sense that we can read and edit them, not in the sense that anything has confirmed they do what
+  the guest does. This is the general form of the question "if the code is owned, why does it still
+  softlock": ownership makes a bug findable, not absent. Both bugs the USER confirmed fixed on
+  2026-07-22 (#8 seesaw, #1 jump-pickup) were defects in owned hand-written code.
+- **There IS a way to test a rebuild, demonstrated on `FUN_8007DC38`:** generate the byte-faithful body
+  with `tools/port_gen.py` (which is `port_check` PASS by construction), swap the behavior-table entry
+  to call it, run a replay with `PSXPORT_PAD_DUMP_AT`, diff the 2 MB dumps against a run of the
+  rebuild, swap back. Zero diff means equivalent ON THAT PATH. It took minutes and converted the
+  dialog driver from "unverified" to "verified".
+- **The obvious next campaign** is to apply that to the rebuilds that actually run on a known replay,
+  highest-traffic first. Divergences are candidate bugs of the exact class already proven to produce
+  user-visible symptoms. Rename the dump artifact immediately each run — `PAD_DUMP_AT` uses a fixed
+  filename and will silently overwrite the baseline (see the entry above).
