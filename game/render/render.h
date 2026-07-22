@@ -392,6 +392,11 @@ public:
   void effectClutSwap (uint32_t node, uint32_t lo, uint32_t hi);  // FUN_8003F344 — node CLUT -> packets
   void effectFlatTint (uint32_t node, uint32_t lo, uint32_t hi);  // FUN_8003F594 — flat colour + semi
   void effectColorAdd (uint32_t node, uint32_t lo, uint32_t hi);  // FUN_8003D584 — per-channel modulate
+
+  // composeTintGate (FUN_8003EF9C): per-type render gate — snapshots the packet pool, emits the
+  // object's geometry, and in mode 2 colour-adds over exactly the primitives just emitted. Modes
+  // other than 0/2 draw nothing. See render/compose_tint_gate.cpp.
+  static void composeTintGate(Core* c);
   // billboardEmit (FUN_8003C8F4): a0=node (r4), a1=flag (r5). Walks the node's active particle
   // sub-list, RTPT/RTPS-projects each particle's quad corners, culls off-screen, buckets into the OT
   // by averaged depth, and emits a 10-word (tag+9) GT4-style packet into the packet pool.

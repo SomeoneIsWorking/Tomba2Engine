@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 10 verified · 6 ported-unverified · 1 blocked
+**Status:** 10 verified · 7 ported-unverified · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -129,3 +129,7 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **order:** 48
 - **owner:** game/render/render_options.cpp
 - **notes:** Five DEMO front-end OPTIONS pages, one producer each, dispatched on task sm[0x50]: page0 Select Options, 1 Messages, 2 Sound, 3 Screen adjust (draws over the LIVE title picture), 4 Controls (pad-face diagram). Previously pages 1-4 hit abortUnimplemented and KILLED the process under pc_render. Read-only: no guest writes. VISUALLY VERIFIED by forcing sm[0x48]=6 + sm[0x50]=1..4 via the REPL and reading the PNGs — all four draw correctly. Natural in-game nav to Options was NOT reproduced, so reachability by a player is unconfirmed.
+
+## render-compose-tint-gate
+- **status:** ported-unverified
+- **notes:** Render::composeTintGate (FUN_8003EF9C): per-type render gate, port_check PASS, wired via overrides::install with setter. Pool-snapshot idiom: emits geometry then colour-adds over exactly the primitives just emitted. Cold on the field/dialog replay - needs a scene that uses render mode 2.

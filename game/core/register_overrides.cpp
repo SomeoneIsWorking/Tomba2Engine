@@ -51,6 +51,7 @@ void dialog_backdrop_install(); // game/ui/dialog_backdrop.cpp — guest FUN_800
 void loading_text_install();    // game/ui/loading_text.cpp — guest FUN_8007FD54 ("Loading.....")
 void ui_sprite_install();       // game/ui/ui_sprite.cpp — guest FUN_8007E8DC / FUN_8007E998
 void dialog_sibling_install();  // game/ui/dialog_driver_sibling.cpp — guest FUN_8007DDE0
+void compose_tint_gate_install();// game/render/compose_tint_gate.cpp — guest FUN_8003EF9C
 
 void register_engine_overrides(Game* game) {
   interact_scan_install();   // interaction scanner: promotes an in-range object to ACTIVATED
@@ -59,6 +60,7 @@ void register_engine_overrides(Game* game) {
   loading_text_install();    // "Loading....." blinker (RE'd; no fork — see kanban #9)
   ui_sprite_install();       // 2D sprite entry points, LIVE on the dialog path
   dialog_sibling_install();  // sibling glyph driver — installed to measure whether it is live
+  compose_tint_gate_install();// per-type render gate (render frontier)
   Core* c = &game->core;
   // PcScheduler primitives: the framework class supplies the native handlers; the game passes the
   // generated substrate bodies + override setter (linked here, game-side) — P1.7c decoupling.

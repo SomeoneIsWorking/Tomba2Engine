@@ -219,6 +219,7 @@ set(GAME_SRC
   game/render/hud_gauge_emitter.cpp
   game/render/perobj_dispatch.cpp
   game/render/perobj_billboard.cpp
+  game/render/compose_tint_gate.cpp
   game/render/effect_mod.cpp
   game/render/effect_mod_selftest.cpp
   game/render/text_label.cpp

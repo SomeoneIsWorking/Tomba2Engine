@@ -2505,3 +2505,25 @@ diagram). Read-only — no guest writes.
 
 **Not claimed:** natural in-game navigation to Options was not reproduced, so player reachability is
 unconfirmed. The state was forced through the REPL to exercise the producers.
+
+## Render::composeTintGate (FUN_8003EF9C) — per-type render gate, ported (2026-07-22)
+- **Frontier context:** of the render frontier's per-type handler list, every entry was already LIVE
+  except `0x8003EF9C` and `0x8003F174`. This ports the first of the two.
+- **What it is, and the idiom worth learning:** a small gate in front of the geometry emitter whose
+  point is a POOL SNAPSHOT.
+  ```
+  poolBefore = *0x800BF544            // where the emitter is about to write
+  compose(node, node[0x0B] == 0x0F)   // FUN_8003F07C — emit this object's primitives
+  if (mode == 2) effectColorAdd(node, poolBefore, *0x800BF544)   // tint exactly those
+  ```
+  `effectColorAdd` (FUN_8003D584, already owned) modulates colour over a LO/HI packet RANGE, so
+  capturing the pool pointer before the emit and pairing it with the pointer after is how the guest
+  says "apply this to the primitives I just produced, and nothing earlier". Read without that framing
+  the two pool reads look incidental; they are the whole mechanism.
+- **The gate:** low nibble of `node[+0x0D]`. 0 = compose, 2 = compose then tint, **anything else draws
+  NOTHING** — worth remembering when an object silently fails to appear.
+- **Status:** `port_check` PASS, wired via `overrides::install` with the setter. `effectColorAdd` is
+  reached through `func_8003D584` (the thunk) rather than a direct C++ call, so the override registry
+  routes it — and so `port_check` can see the call, which it cannot through a method call.
+- **COLD on the field/dialog replay** (`ovhit` native=0). It needs a scene that actually uses render
+  mode 2; unverified at runtime until then, and recorded that way in the port map.
