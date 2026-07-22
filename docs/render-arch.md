@@ -112,7 +112,7 @@ There is no oracle and no diff tooling; you verify by running the PC game and ob
 - **Drive the game:** the REPL (`PSXPORT_REPL=1`, commands on stdin) — `run N`, `newgame`, `skip N`,
   `press`/`release`/`tap <btn>`, `r`/`rw`/`w` (memory), `dumpram <path>` (+ `.spad` scratchpad sidecar),
   `debug <chans|all>` (enable diagnostic channels at runtime), `stage`, `regs`, `seq`, `quit`. The live
-  TCP debug server (`PSXPORT_DEBUG_SERVER=1`, `tools/dbgclient.py`) has the same commands plus
+  TCP debug server (`PSXPORT_DEBUG_SERVER=1`, `external/psxport/tools/dbgclient.py`) has the same commands plus
   scene/provat/vkvram for inspecting a windowed run. See `docs/driving-the-game.md`.
 - **Workflow:** inspect the live PC game — REPL/debug-server state + scene dump + the user eyeballing a
   build. The engine OWNS its render; there is nothing PSX to diff against. Principle still holds: don't
