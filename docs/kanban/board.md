@@ -21,9 +21,9 @@
 - **#34 No headless repro exists for jump-over-pickup — the #1/#30 fix is RE-proven but symptom-unverified**  `verification`
 - **#36 dev-warp: cold cross-area warp self-destructs ~50 frames later, and ids >=22 are accepted but are not areas**  `bug,tooling`
 - **#37 areas 16/17/18 hang under cold warp — behaviour loop in gen_func_80040558**  `bug`
-- **#38 RmlUi warp selector is unverified on screen — no window in the agent environment**  `verification`
 - **#38 In-game Options sub-page renders without its full-screen dark-blue backdrop**  ``
 - **#39 Movement DUST CLOUDS never spawn — missing on the ORACLE too, so it is not a render gap**  `bug`
+- **#40 RmlUi warp selector is unverified on screen — no window in the agent environment**  `verification`
 
 ## DOING (1)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
