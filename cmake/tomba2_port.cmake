@@ -218,6 +218,8 @@ set(GAME_SRC
   game/render/tile_grid_layer.cpp
   game/render/widescreen_margin_quad.cpp
   game/render/hud_gauge_emitter.cpp
+  game/render/fx_sprite.cpp
+  game/render/field_hud.cpp
   game/render/perobj_dispatch.cpp
   game/render/perobj_billboard.cpp
   game/render/subpart_walk_shared.cpp

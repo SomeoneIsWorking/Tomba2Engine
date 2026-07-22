@@ -218,6 +218,8 @@ void games_tomba2_init(void) {
   str_wide_re_install();       // FUN_80079528 Str::length (generic strlen, hottest unowned leaf)
   ScreenFade::installLeafTap();   // FUN_8007E9C8 fade leaf: gen body + host-state mirror (fixes #63)
   Panel::install();               // FUN_8004FFB4/8005019C/8007CC00 panel + dialog-glyph taps
+  void fx_sprite_install();
+  fx_sprite_install();            // FUN_80027A4C scaled-sprite packet writer tap (#12 torch flame family)
   void pad_edge_fence_install();
   pad_edge_fence_install();       // FUN_800788AC per-frame input-edge fence (banked draft, §9-verified)
   void guest_memset_install();

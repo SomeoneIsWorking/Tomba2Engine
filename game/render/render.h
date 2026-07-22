@@ -254,6 +254,25 @@ public:
   // See game/render/narration_swirl.cpp for the full RE. Dispatched from fieldObjectsRender's walk.
   void narrationSwirlRender(uint32_t node);
 
+  // fieldHudRender (game/render/field_hud.cpp): native producer for the field HUD family
+  // FUN_80025D98 -> {FUN_80025744 status row, FUN_80025934 item ring, FUN_80025B78 weapon strip}
+  // (kanban #13 — the equipped-weapon strip was entirely absent under pc_render). Reads the HUD
+  // state struct 0x800ED058 + the same gate globals the guest dispatcher reads; emits RQ_HUD quads
+  // via the generalized emitUiFt4/emitUiSprites cores below. Read-only.
+  void fieldHudRender();
+  void fieldHudStatusRow();      // FUN_80025744
+  void fieldHudItemRing(int offsetMode, uint32_t bucketAttr);   // FUN_80025934
+  void fieldHudWeaponStrip();    // FUN_80025B78
+  // emitUiFt4/emitUiSprites: the GENERAL forms of FUN_8007e1b8 / FUN_8007e6dc (template ptr + data
+  // base + placement {x,y,wOverride,hOverride} + attr {mode/color byte, clut-override|semi-flag}) —
+  // the menu wrappers below keep their fixed menu bases. mode-nibble cases other than 0 (flip/rotate
+  // variants) are not yet built: those entries draw nothing and warn once (`fieldhud` channel).
+  void emitUiFt4(int x, int y, int wOv, int hOv, uint32_t templPtr, uint32_t dataBase,
+                 uint8_t attrByte, uint16_t clutSemi, int layer,
+                 int daX0 = 0, int daY0 = 0, int daX1 = 1023, int daY1 = 511);
+  void emitUiSprites(int x, int y, uint32_t templPtr, uint32_t dataBase,
+                     uint8_t attrByte, uint16_t clutSemi, int layer,
+                     int daX0 = 0, int daY0 = 0, int daX1 = 1023, int daY1 = 511);
   // cineBarsRender: native producer for the cinematic LETTERBOX bars (UI-effect manager slot type 1,
   // base 0x80100400). Reads the slot table read-only and emits the top/bottom black bars. Emits nothing
   // when disarmed. See game/render/cine_bars.cpp. Call from cutscene-capable scenes.

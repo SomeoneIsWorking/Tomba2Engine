@@ -2803,3 +2803,71 @@ are owned.**
   `subPartWalk`, `sharedTransformWalk`). So "missing renders" on the FIELD path is now a two-function
   list, and further coverage gains have to come from other paths/scenes — drive somewhere else and
   re-run this scan rather than porting down the chain blind.
+
+## Missing pc_render layers #12/#13 FIXED — FUN_80027A4C sprite-family tap + native field-HUD producer; #14/#15 not reproduced (2026-07-22)
+
+- **context (cards #12-#15):** four layers absent under pc_render, found by exec-pinned renderer diffing.
+  Since the break-first rebuild (2026-07-15) pc_render NEVER walks the guest OT — a layer is absent iff it
+  has no native producer. The cards' original "s_ot_2d_only drops untagged prims" suspect is OBSOLETE for
+  the pc leg: that filter only runs when the OT walk runs (psx_render / core B). Likewise the old **#39
+  "weapon chain + impact effect fixed via withDepthTag" finding no longer covers the pc-leg picture** —
+  withDepthTag's obj_depth tags feed the OT-walk keep rules, which pc_render no longer consults. The
+  successor mechanism for that family is the tap below.
+- **#12 torch flame — FIXED (`game/render/fx_sprite.cpp`).** RE'd the whole family (Ghidra
+  `scratch/decomp/fx_emit_leaves.c` + `fx_pkt_writer.c`, gen shard_5): FUN_80027CB4 / FUN_80027E5C /
+  FUN_800281EC project a node's world anchor (node+0x2C/0x30) through the pure camera (scratchpad
+  0x1F8000F8), publish {OT key 0x1F800080, x/y pixel scales 0x1F800084/88, screen anchor 0x1F80008C/8E,
+  DPCS cue 0x1F800090} and call **FUN_80027A4C**, the ONE packet writer: 8-byte records → 9-word
+  0x2C/0x2E quads (signed-byte corners × scale, packed u/v with flip bits 0x2000/0x1000 and the
+  asymmetric 7/6 texel insets, clut += (flags&0xF00)>>2, tpage |= (flags&6)<<4, flat grey brightness).
+  The flame = a cluster of these records (packets 0x800C9xxx, tp=(896,0) clut=(1008,192), emitter
+  0x800281EC, object node 0x800F06D8 / beh_cull_tick_render — attributed via `debug otattr` + REPL
+  `otattr`). Fix = the sanctioned leaf TAP (`overrides` registry: run gen for byte-exact guest state,
+  then re-derive the quads host-side and queue RQ_WORLD prims with flat object depth
+  proj_pz_to_ord(SZ3) — SZ3 read from the GTE at call time = the caller's own RTPS depth). Covers EVERY
+  27A4C caller (incl. the #28 grab/dust semi-quads via 27E5C and node+24 custom renderers).
+- **#13 "HUD weapon carousel" — FIXED (`game/render/field_hud.cpp`).** The spiky-ball-with-squiggle is
+  the equipped-WEAPON STRIP: FUN_80025B78 (prev/current/next weapon icons at y=0xD4 around x =
+  scroll+0xA0, clipped to the DR_AREA window {x=0x90,w=0x20,h=0xE0}; BR = TL+wh-1 per FUN_80081CF8),
+  dispatched by **FUN_80025D98** (the field-HUD gate FUN_8003F9A8 calls directly) alongside
+  FUN_80025744 (status row) and FUN_80025934 (item ring). All three draw via the shared UI template
+  leaves FUN_8007E1B8 (FT4 groups) / FUN_8007E6DC (SPRT groups), whose menu-specialized native
+  reproductions already existed. Fix = generalized cores `Render::emitUiFt4/emitUiSprites` (template
+  ptr + data base + w/h overrides + clut-override/semi attr + layout-mode nibble {0,1,2,3,5} =
+  plain/mirror-X/flip-Y(v-1)/180°/flip-Y(v+1)) + `Render::fieldHudRender` transcribing the 25D98 gate
+  1:1, called from renderField(). emitMenuFt4/emitMenuSprites now delegate to the general cores
+  (dual-ownership consolidated; menu pages pixel-identical — ab2 vs ab3 diff 0 px).
+- **verification:** GATE-vs-ORACLE exec-pinned pair at f10000 on replays/bugs/seesaw-weight.pad: strip
+  region (140,185)-(230,240) diff 563→325 px, crop pixel-identical (scratch/screenshots/gaps/
+  strip_cmp.png). Default-leg same-PROCESS A/B via the `renderpsx` REPL toggle (exec pinned, 1 frame
+  apart): flame + strip + counter disc all present under pc_render, strip region diff **0 px**, full
+  frame 589 px (1-frame animation noise) — scratch/screenshots/gaps/{ab2_pc,ab2_psx,flame_ab2}.png.
+  SBS full smoke: A/B identical through f4530 (tap + producer write no guest byte). Teleport sweep
+  (Tomba node 0x800E7E80 +0x2E, x=0x0A00/0x1200/0x2400): no further missing layers found; prompt
+  text, door arrow, torches, orbs all present both renderers.
+- **RESIDUALS / open:**
+  - Taps (this new 27A4C tap, Panel, gauge text) fire only when the native leg runs — under
+    `PSXPORT_GATE=1` (recomp_path) the whole process is the psx_fallback leg and the registry routes
+    to gen, so GATE+pc_render still lacks every tap-based layer (pre-existing class, deferred).
+    Exec-pinned GATE-vs-ORACLE diffing therefore CANNOT see tap-based fixes — verify them on the
+    default leg with the `renderpsx` same-process toggle instead (method above).
+  - FUN_80025D98's overlay-resident sub-drawers (modes 2/7 → 0x80113628/0x801140A0; task-sm[0x4C]==6
+    pages → 0x801121AC/0x8010F8CC) are unowned — nothing drawn natively there yet.
+  - Wide mode: the 27A4C tap's quads use guest 4:3 SXY anchors like the other obj-depth billboards
+    (unshifted); the weapon-strip clip window is 4:3-anchored (margin shift not applied to da rects).
+- **#14 weapon CHARGE / #15 weapon IMPACT — NOT reproduced.** Hold-square at the seaside field (land,
+  after teleport) shows NO charge effect on the psx_render reference either (newgame blackjack;
+  scratch/screenshots/gaps/chg*_pc/psx.png), and the swing/contact frames vs the apple contraption
+  show no distinct impact-flash difference (atk*_p*.png) — the effects likely need a later-game
+  weapon/scenario. What IS now covered: any charge/impact quads through the 27A4C family (this tap) or
+  billboardEmit/submitQuad (already display-pass). The remaining UNOWNED effect emitter on the field
+  path is the 40-slot effect pool 0x800EC188 (stride 0x40) walked by FUN_8003F024 → **FUN_8003D23C**
+  (per-slot 7-word textured-tri emitter: scale-matrix from rec+0xC ×5/65536, rotation from rec+0x28,
+  world pos rec+0x1E/22/26 through the scratch camera, vertex/uv template 0x8009D46C[rec+7]·0x18,
+  color rec+0x30..32|op rec+0xE — Ghidra `scratch/decomp/hud_fx_leaves.c`) — the prime candidate if
+  the user still sees missing charge/impact after this change; it wants the same display-pass
+  treatment (float re-projection through sceneCam).
+- **refs:** game/render/fx_sprite.cpp, game/render/field_hud.cpp, render_walk.cpp (delegating menu
+  wrappers + fieldHudRender call), render.h, game_tomba2.cpp (fx_sprite_install), cmake/tomba2_port.cmake;
+  decomps scratch/decomp/{fx_emit_leaves,fx_pkt_writer,f9a8_subs,hud_fx_leaves,ui_sprite_leaves,
+  drawarea_leaf,walk_b588,tomba_weapon}.c; evidence scratch/screenshots/gaps/.
