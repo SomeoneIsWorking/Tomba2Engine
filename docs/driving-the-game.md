@@ -82,6 +82,34 @@ anything was lost.
   server then dies. Run it in a persistent session (a real terminal / instance-control) if you need the
   server to stay up across agent turns.
 
+## ⭐ HEADLESS INTERACTIVE — a long-lived instance you can `pause`/`step`/`shot` over the debug server
+The trap (re-hit 2026-07-22, kanban #20): `PSXPORT_REPL=1` with no stdin BLOCKS the frame loop waiting to
+read, so the debug server times out; and if stdin reaches EOF the REPL quits and the loop exits
+("frame loop done" right after "[dbgsrv] listening"). **Do not use the REPL for this at all.** Headless +
+`PSXPORT_DEBUG_SERVER` is already the supported interactive shape: `native_boot.cpp` sets `nframes = 0`
+(run forever) exactly for that combination, so no `PSXPORT_NATIVE_FRAMES` is needed and the 120-frame
+headless cap does not apply.
+```
+nohup env PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG_SERVER=5960 PSXPORT_AUTO_SKIP=1 \
+  ./scratch/bin/tomba2_port scratch/bin/tomba2/MAIN.EXE > scratch/logs/run.log 2>&1 &
+# ~20s later it is in free-roam ("[autoskip] free-roam reached at frame N"); then, from any shell:
+python3 external/psxport/tools/dbgclient.py --port 5960 frame     # frame=NNNN paused=0
+python3 external/psxport/tools/dbgclient.py --port 5960 pause     # freeze (repaints the last real frame)
+python3 external/psxport/tools/dbgclient.py --port 5960 vkshot scratch/screenshots/x.png
+python3 external/psxport/tools/dbgclient.py --port 5960 step 1    # advance exactly one real frame
+python3 external/psxport/tools/dbgclient.py --port 5960 play
+```
+- **The client is `external/psxport/tools/dbgclient.py`**, not top-level `tools/` (it moved in the repo
+  split). `--port` comes BEFORE the command.
+- **Use your own port.** 5959 is the user's live window (see §Live session); an agent instance takes
+  5960+ or its bind silently fails and the commands drive the USER's game.
+- **Two mod configs at once:** point each instance at its own settings file with `PSXPORT_SETTINGS=` (e.g.
+  a copy with `fps60=0`) rather than editing `psxport_settings.ini`, which is the user's.
+- **Xvfb is NOT a substitute for a window.** `Xvfb` has no DRI3, so Vulkan reports "No DRI3 support
+  detected - required for presentation" and no swapchain is ever acquired — a windowed run under it
+  cannot verify anything about the presented picture. Verify present-path work headless via `vkshot`
+  (which reads the composite target the window samples).
+
 ## 1. Pad buttons (active-low 16-bit mask; a pressed button CLEARS its bit; PAD_NONE = 0xFFFF)
 | button | bit | active-low hold mask | | button | bit | active-low |
 |---|---|---|---|---|---|---|

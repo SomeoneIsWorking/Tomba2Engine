@@ -1,5 +1,57 @@
 # Findings — render / engine submit
 
+## Debug PAUSE (P) presented a BLACK screen at fps60 (kanban #20, 2026-07-22, FIXED)
+
+- **symptom (USER):** pressing `P` (the debug-server pause; `PadInput` edge-detects `SDL_SCANCODE_P` and
+  calls `DbgServer::togglePause`) while fps60 is ON shows a black screen. Reported as fps60-specific.
+- **status:** FIXED (`GpuVkState::repaint` / `GpuState::gpu_repaint`). Paused picture is now bit-identical
+  to the last real frame in BOTH fps modes; `step 1` still advances exactly one frame.
+- **PREDICTION FALSIFIED — it is NOT "pc_render is black on repaint, the user just hit it at 60".** The
+  first hypothesis (recorded on the card) was that `gpu_repaint` re-presents the PSX VRAM front buffer,
+  which under pc_render is not the picture, so 30 fps must be black too. MEASURED headless at both rates:
+  30 fps paused == running (mean 78.30 both, 76793 non-black px); 60 fps paused == fully black
+  (mean 0.00, 0 non-black px). The 30 fps path was genuinely fine. Do not re-chase "VRAM is not the
+  picture" — `present_window()` does not merely blit `s_vram`, it calls `gpu_vk_present`, which
+  RE-RENDERS: `upload_vram` + `render_geom` over the live vertex batch.
+- **actual cause — the repaint REBUILT the frame, and whether that worked was an accident of frame
+  ordering.** `render_geom` composites whatever is in the geometry batch over the uploaded VRAM; if the
+  batch is empty it takes the "no native submit -> the PC renderer shows BLACK" path and CLEARS
+  `s_vram_tex`. The pause loop sits at the TOP of the frame loop, so what is in the batch there depends
+  on where in the frame the present happens:
+  - **fps60 OFF:** `frameUpdate` (game_tomba2.cpp) presents at the TOP of the frame and
+    `drawOTag`/`rq.flush`/`emitQueue` fills the batch at the BOTTOM (native_boot.cpp `native_step_frame`),
+    so a full batch is still resident at the loop top. The re-render accidentally reproduced the picture —
+    at the cost of a FULL world re-render every 15 ms while paused.
+  - **fps60 ON:** `Fps60::frame_commit` -> `present_vk` emits, presents and `frame_end`-resets BOTH passes
+    inside `frameUpdate`, and `RenderQueue::flush` then only `rq_capture()`s (it returns before
+    `emitQueue` when `mods.fps60`). The batch is EMPTY at the loop top -> the clear fires -> black.
+- **consequence (checked on its own): `vkshot` while paused WAS lying.** The clear writes `s_vram_tex`,
+  which is exactly the texture `readback_vram`/`dump_to` download for `shot`/`vkshot`. So at fps60 every
+  paused readback returned black regardless of what the game had drawn. It is truthful now because the
+  repaint no longer writes any target. The old comment on `gpu_repaint` ("the VK readback reflects exactly
+  what's on screen") was accidentally true only because both screen and readback were the same wiped
+  target; it is now true for the right reason and says so.
+- **fix:** a pause is not a rendering question — the frame is already finished and sitting in the
+  composite target. Split the swapchain half of `GpuVkState::present` into `show_composite(cmd)` (samples
+  `s_vram_tex` at 1x / `s_ires_color` at ires>1, letterboxes, applies the live fade, records the RmlUi
+  overlay) and add `GpuVkState::repaint()` = acquire a command buffer + `show_composite`. No VRAM upload,
+  no geometry, no batch reset, no `s_frame++`. Both fps modes cost the same, and NO third present path
+  was introduced (kanban #17): building a frame still happens in exactly one place. Headless it is a
+  no-op, which is the point — nothing clobbers the readback target.
+- **verification (headless, both fps modes, `PSXPORT_AUTO_SKIP=1` free-roam):** pause; wait ~200 repaints;
+  `step 1` (one REAL frame through the normal present path); `vkshot` -> R; wait ~200 more repaints;
+  `vkshot` -> R'. `R' == R exactly (maxdiff 0, 0 changed px)` at fps60=1 AND fps60=0 — the paused picture
+  IS the last real frame, unaltered by any number of repaints. Paused mean 78.32 / 78.24 (was 0.00 at
+  fps60). `step 1` advanced the counter by exactly 1 (5036->5037, 10089->10090) and changed the picture
+  (119 / 282 px of idle animation).
+- **residual, stated honestly:** the swapchain half (`show_composite`) is a pure code move and was NOT
+  exercised on a real swapchain by this gate — the agent environment has no window, and Xvfb cannot host
+  one (no DRI3 -> Vulkan refuses presentation). What was proven is the substance of the fix (the repaint
+  no longer rebuilds/clears) plus the readback target's content; the window samples that same target.
+- **refs:** `external/psxport/runtime/recomp/gpu_vk.cpp` (`show_composite`, `repaint`),
+  `gpu_native.cpp` (`GpuState::gpu_repaint`), `native_boot.cpp` (pause loop),
+  `gpu_vk.h`/`gpu_vk_internal.h`. Harness recipe: `docs/driving-the-game.md` §HEADLESS INTERACTIVE.
+
 ## Hut-interior wall decals "z-fight the wall" (kanban #29) FIXED 2026-07-22 — coincident faces in the SAME OT bucket, not a cross-object OT problem
 
 - **symptom (USER):** in the fisherman's-hut interior the wall decorations z-fight against the wall they
