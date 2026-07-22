@@ -1,5 +1,70 @@
 # Findings — render / engine submit
 
+## Missing-layer sweep across the AREA SET — method, coverage, and what it rules out (2026-07-22)
+
+- **method that works (use this, not GATE-vs-ORACLE):** engine taps never fire under `PSXPORT_GATE=1`
+  (that whole process is the psx_fallback leg), so the old GATE-vs-ORACLE compare is BLIND to every
+  tap-based producer. Compare in ONE process on the DEFAULT leg via the `renderpsx` REPL toggle. Take
+  THREE shots, not two — A(pc, f) / B(psx, f+1) / C(pc, f+2) — and count only pixels that differ from
+  BOTH pc neighbours while the two pc neighbours AGREE (`scratch/abdiff.py`). Camera motion moves every
+  edge between consecutive frames and a naive A-vs-B diff drowns in it: on the hut capture the raw
+  A-vs-B count was 7217 px and the renderer-attributable count was 772, all of it edge speckle.
+- **`warp <area_id>` (REPL, ids 0..0x1f) is the coverage lever**, not teleporting inside one area.
+  A teleport samples one area's object set; the warp runs the game's own door transition and reloads.
+- **coverage actually sampled:** areas 1-21 and 23-27 (24 of 32); seaside replay f6000; hut exterior
+  f500/f535/f700; the dark-screen replay at 15 points f4000..f60000 (LOW VALUE — 13 of the 15 are the
+  same cliff); and provoked states at seaside f6000: 12 frames of held square, tap select/triangle/
+  circle, and the pause menu over 6 samples. Areas 28-31 unsampled; area 22 aborts (kanban #24).
+- **result: the missing-layer class is NOT distributed across places.** Every area sampled came in
+  under 100 renderer-attributable px except four scenes at 500-2100 px, and each of those, inspected
+  as a magenta overlay, is texture/dither speckle spread over the whole frame — not a layer. The
+  reported gaps that remain (#14 #15 #18 #19 #21) are all TRIGGER-gated: they need a specific action
+  (a multi-second hold-attack, a pickup, a dialog, a menu). **Do not sweep areas looking for them.**
+- **the toggle has a blind spot, and #21 is in it.** With the triangle item menu open the two legs are
+  PIXEL-IDENTICAL (0 diff) — because both lose the same layer. `PSXPORT_ORACLE=1` shows the truth: the
+  full opaque panel (`scratch/screenshots/layergap/tri_oracle.png`). When a layer is missing from the
+  in-process psx leg too, fall back to the oracle capture as the reference.
+- **dead end recorded — Panel::fillQuad is NOT the menu panel emitter.** 0x8004FFB4 logs ZERO calls
+  while the item menu is open (610 over the preceding 3000 field frames, i.e. the field's own panels).
+  A display-pass producer was added to it and changed nothing; it was reverted rather than shipped.
+  Whoever takes #19/#21 should start from what draws the menu TEXT (which does render) and walk its
+  siblings — not from panel_fill.cpp.
+- **found but not a missing layer:** area 12 (a temple interior) draws its ceiling beam band warped
+  and displaced under pc_render where psx_render draws it straight — kanban #26,
+  `scratch/screenshots/layergap/x12top_A.png` vs `x12top_B.png`.
+
+## A misread jump-table base was shredding four functions and blocking four areas (2026-07-22, FIXED)
+
+- **symptom:** `warp` into area 10, 11, 13 or 14 aborted instantly — `recomp-MISS 0x80028FA4` /
+  `0x80028FC4` / `0x80029004` / `0x80029024`, all from `c->pc=0x80028E10` (the object-template init
+  dispatcher). Four of the game's 32 areas were simply unreachable, which is also why nobody had
+  swept them for missing layers.
+- **cause (external/psxport/tools/recomp/emit.py, `_scan_jt_idiom`):** the STRICT switch-idiom scan
+  cannot model a table base built through a second register (`lui tmp,HI ; addiu base,tmp,LO`), but
+  instead of failing it kept scanning and matched the `lui` belonging to one of the OTHER base
+  candidates. MAIN 0x8003BBF8 is exactly that shape, so the base resolved to 0x80010000 (the lui
+  alone; real base 0x80014A70) and 144 "case labels" were read straight out of .text's head —
+  swallowing BOTH the genuine 22-entry area-mode stub table at 0x80010000 AND the head of
+  FUN_80028E10's own 22-case table at 0x8001021C. The cross-boundary seeder then promoted 9 of the
+  overlapping labels to function entries, truncating FUN_80028E10 at 0x80028E64 so its switch emitted
+  `default: rec_dispatch(target)` — and the 12 cases that had not been accidentally seeded aborted.
+- **fix:** strict bails on the two-register base form so the ENHANCED pass resolves the real base.
+  MAIN function set 2207 -> 2119; the 99 addresses that stop being functions are all mid-function
+  case labels, and their 10 containers now recover their own switches. The area-mode stubs
+  0x8001CB00..0x8001CB98 are seeded explicitly because `Engine::areaModeDispatchFaithful` dispatches
+  0x8001CB98 by address. RECOMP_VERSION -> 2026-07-22.1 so every machine regenerates.
+- **collateral removed:** `leaf_80024E00` / `leaf_80025744` / `leaf_80028E10` in
+  `game/core/field_owned_leaves.cpp` were register-literal transcriptions of the OLD truncated bodies
+  and carried the same `default: rec_dispatch` hole — so the abort survived the recompiler fix until
+  they were deleted. All three were ORPHANs (0x80025744 was additionally dual-owned with the real
+  `Render::fieldHudStatusRow`), so the now-correct gen bodies run instead.
+- **verification:** areas 10/11/13/14 load and render (`scratch/screenshots/layergap/y10..y14`);
+  seaside f6000 pc-vs-psx unchanged at 90 renderer-attributable px before and after the change;
+  SBS full 0-diff through f18870.
+- **do not re-chase:** a `recomp-MISS` at a mid-function address whose neighbours are 32 bytes apart
+  is a shredded switch, not a missing seed. Seeding the missed label "fixes" it while leaving the
+  container truncated — check `find_jump_tables` resolution for the containing function first.
+
 
 ## Shipping-path tag/stamp purge — packet-span registries were dead code (2026-07-22, RESOLVED)
 
