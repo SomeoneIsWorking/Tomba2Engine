@@ -1,42 +1,18 @@
 // class PauseMenu — implementation. See pause_menu.h for the architecture note, the measurement
-// that identified the missing layer, and why paint order comes from the guest's OT bucket.
+// that identified the missing layer, and ui_group_capture.h for why paint order comes from the
+// guest's OT bucket.
 #include "pause_menu.h"
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"        // eng(c) / rend(c)
 #include "engine.h"
-#include "render.h"          // Render::emitUiFt4 / emitUiSprites + rsub.mode.psxRender() gate
+#include "render.h"          // Render::emitUiFt4 / emitUiSprites
 #include "render_queue.h"    // RQ_OVERLAY
 #include "cfg.h"             // `pausemenu` diagnostic channel
-#include <algorithm>
-#include <numeric>
 
 extern void gen_func_800346BC(Core*);
 extern void gen_func_8007E1B8(Core*);
 extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-
-PauseMenu::GroupArgs PauseMenu::readGroupArgs(Core* c, bool sprite) {
-  const uint32_t placement = c->r[4], attrs = c->r[7];
-  GroupArgs a;
-  a.x        = c->mem_r16s(placement + 0u);
-  a.y        = c->mem_r16s(placement + 2u);
-  a.wOv      = c->mem_r16s(placement + 4u);
-  a.hOv      = c->mem_r16s(placement + 6u);
-  a.templPtr = c->r[5];
-  a.dataBase = c->r[6];
-  a.attrByte = c->mem_r8(attrs + 0u);
-  a.clutSemi = c->mem_r16(attrs + 2u);
-  a.otBucket = c->mem_r8(attrs + 1u);
-  a.sprite   = sprite;
-  return a;
-}
-
-void PauseMenu::collect(Core* c, const GroupArgs& a) {
-  if (c->game->oracle || c->rsub.mode.psxRender()) return;   // read-only overlay gate
-  PauseMenu& menu = eng(c).pauseMenu;
-  if (!menu.mInMenuDraw) return;              // every other caller owns its own producer
-  menu.mGroups.push_back(a);
-}
 
 // The OT bucket the guest links its full-screen subtractive dim into (see drawCollected). Everything
 // in a HIGHER bucket is painted before it and therefore dimmed.
@@ -66,7 +42,7 @@ bool PauseMenu::upThisFrame() const {
 
 void PauseMenu::drawCollected() {
   Core* c = core;
-  if (mGroups.empty()) return;
+  if (capture.empty()) return;
   mLastDrawFrame = c->mem_r32(kGuestFrameCounter);
 
   // The menu's own FULL-SCREEN BLACK BACKDROP, painted before every other menu element. The guest
@@ -79,18 +55,9 @@ void PauseMenu::drawCollected() {
   // around the panel edges.
   pushScreenQuad(0x00, /*semi=*/0, /*blend=*/0);
 
-  // Paint order = the guest's ordering table: buckets walked from the highest index down (a lower
-  // bucket is drawn in FRONT), and each bucket's list is LIFO because AddPrim prepends.
-  std::vector<int> order(mGroups.size());
-  std::iota(order.begin(), order.end(), 0);
-  std::sort(order.begin(), order.end(), [this](int i, int j) {
-    const uint8_t bi = mGroups[i].otBucket, bj = mGroups[j].otBucket;
-    return bi != bj ? bi > bj : i > j;
-  });
-
   bool dimDone = false;
-  for (int i : order) {
-    const GroupArgs& a = mGroups[i];
+  for (int i : capture.paintOrder()) {
+    const UiGroupArgs& a = capture.mGroups[i];
     // The menu's SUBTRACTIVE full-screen dim, linked at OT bucket kDimBucket ahead of that bucket's
     // own groups — so it paints over everything in higher buckets (the drop shadow, the outer frame,
     // the tab labels and the rule under them) and under everything below (the panel interior, the
@@ -102,15 +69,10 @@ void PauseMenu::drawCollected() {
     cfg_logf("pausemenu", "%s bucket=%3u templ=%08X at (%d,%d) wh=(%d,%d) attr=%02X clutSemi=%04X",
              a.sprite ? "SPR" : "FT4", a.otBucket, a.templPtr, a.x, a.y, a.wOv, a.hOv,
              a.attrByte, a.clutSemi);
-    if (a.sprite) {
-      rend(c)->emitUiSprites(a.x, a.y, a.templPtr, a.dataBase, a.attrByte, a.clutSemi, RQ_OVERLAY);
-    } else {
-      rend(c)->emitUiFt4(a.x, a.y, a.wOv, a.hOv, a.templPtr, a.dataBase, a.attrByte, a.clutSemi,
-                         RQ_OVERLAY);
-    }
+    capture.emit(c, a, RQ_OVERLAY);
   }
   if (!dimDone) pushSubtractiveDim();   // every group sat at or above kDimBucket
-  mGroups.clear();
+  capture.clear();
 }
 
 namespace {
@@ -119,20 +81,21 @@ namespace {
 // so the guest half is the untouched gen body.
 void menuTick(Core* c) {
   PauseMenu& menu = eng(c).pauseMenu;
-  const bool outer = !menu.mInMenuDraw;
-  if (outer) menu.mGroups.clear();
-  menu.mInMenuDraw = true;
+  const bool outer = !menu.capture.capturing();
+  if (outer) menu.capture.clear();
+  menu.capture.begin();
   gen_func_800346BC(c);          // byte-exact: the whole menu state machine + its packet emission
   if (!outer) return;
-  menu.mInMenuDraw = false;
+  menu.capture.end();
   menu.drawCollected();
 }
 
-// FUN_8007E1B8 — the game-wide templated POLY_FT4 group emitter.
+// FUN_8007E1B8 — the game-wide templated POLY_FT4 group emitter. This file is its ONE owner; every
+// page that paints through it gets its groups routed by UiGroupCapture::route.
 void uiFt4Tap(Core* c) {
-  const PauseMenu::GroupArgs a = PauseMenu::readGroupArgs(c, /*sprite=*/false);
+  const UiGroupArgs a = UiGroupCapture::readArgs(c, /*sprite=*/false);
   gen_func_8007E1B8(c);          // byte-exact guest packet pool / OT / scratchpad staging
-  PauseMenu::collect(c, a);
+  UiGroupCapture::route(c, a);
 }
 
 }  // namespace

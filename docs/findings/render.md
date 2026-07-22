@@ -78,12 +78,57 @@
   will silently fall back to mode 0 (0.5B + 0.5F averaging) — which reads as "too transparent" and is
   consistent with the card's own reference-image analysis.
 
-## START pause page (Options / Load data / Quit game) has no panel either (2026-07-22, observed)
+## START pause page (Options / Load data / Quit game) drew with no panel (kanban #35, 2026-07-23, FIXED)
 
-- Tapping START from free-roam draws the three option strings over the live field with no background
-  (`scratch/screenshots/uilayer/hunt/btn_start.png`). Same family as #21 but a DIFFERENT drawer — #21's
-  fix is scoped to FUN_800346BC and does not cover this page, whose text comes from FUN_8007EAE4 under
-  the same 0x8010810C page dispatcher. Worth its own card.
+- **symptom (USER):** tapping START from free-roam drew the three option strings over the live field
+  with no panel behind them. Same family as #21 but a DIFFERENT drawer.
+- **status:** FIXED (`game/ui/start_page.cpp`, `class StartPage`). Repro, both legs, no replay needed:
+  `run 300; tap start; run 90; shot …` under `PSXPORT_REPL=1 PSXPORT_AUTO_SKIP=1 PSXPORT_VK_HEADLESS=1`
+  (`run 200` is TOO EARLY — autoskip reaches free-roam at f216 and the tap is swallowed).
+  Measured over the panel bbox (106,81)-(208,145), pc leg vs the psx_render leg at the same frame:
+  pixels differing by >16 fell **3819/6695 -> 1466/6695**, mean |Δ| **20.49 -> 7.60**, and the box's
+  mean colour went `(26.4,25.0,15.4) -> (26.1,26.4,53.4)` against psx's `(26.8,27.0,53.8)` — the
+  panel's blue is now there. Shots: `scratch/screenshots/c35/{pc_before,pc_after,psx_before}.png`.
+  The residual is the two renderers' ordinary disagreement about the FIELD showing through the semi
+  panel (outside the panel box, untouched by this change, 7722/70105 px already differ by >16).
+- **cause:** the page's chrome is emitted by still-recomp **FUN_8007EAE4** (the whole page drawer,
+  under the 0x8010810C page dispatcher) through the shared FT4 leaf FUN_8007E1B8 — a nine-iteration
+  loop staging placement+attribute records on its own guest stack (attrs+1 = OT bucket 1, attrs+2 =
+  0x8000 semi) plus the cursor via FUN_8007E998 -> FUN_8007E8DC -> the same leaf. That leaf was
+  already tapped for #21, but the collector dropped every group unless the ITEM-MENU scope
+  (FUN_800346BC) was raised, so this page had no producer at all. The three strings already rendered
+  because they go through the globally-tapped font emitters FUN_800793C4/FUN_80079374.
+- **guest-data proof (no picture needed):** `PSXPORT_PRIMAT="200,132,388"` on the psx leg reports the
+  panel body `op=2F semi=1 tex=1 raw=1 mode=0 tp=(384,0) clut=(496,216) uv0=(241,46) col=(198,254,202)
+  bbox=(106,81)-(208,145)`; the same probe on the pc leg reported no such prim in the queue. `debug
+  otattr` on that frame: 12 packets `fn=0x8007E2F8 caller=0x8007EAE4` (11 semi FT4 + the op-0x2D
+  cursor) vs 26 glyph/texpage packets emitted directly by 0x8007EAE4.
+- **fix:** a SCOPE, and only a scope. `pageDraw` wraps FUN_8007EAE4 (raise capture, run the untouched
+  gen body, lower, draw). The capture itself was factored OUT of PauseMenu into the shared
+  `UiGroupCapture` (`game/ui/ui_group_capture.{h,cpp}`) — arg reader, scope, guest-OT paint order
+  (bucket desc, LIFO within a bucket) and the RQ_OVERLAY emit — and `UiGroupCapture::route` files each
+  group under whichever page scope is raised. The two shared leaves keep exactly ONE owner each
+  (0x8007E1B8 in pause_menu.cpp, 0x8007E6DC in ui_sprite.cpp).
+- **DO NOT tap FUN_8007E1B8 / FUN_8007E6DC again for a new page.** They are already owned; a second
+  `overrides::install` on one address is the invisible dual-ownership bug that broke the dialog box
+  (#28). Adding a page = one scope wrapper + one line in `UiGroupCapture::route`.
+- **DEAD END / inverted copy-paste:** reusing `PauseMenu::drawCollected` wholesale would be WRONG here.
+  This page emits **zero** GP0 0x60/0x62 full-screen tiles and no 0x404040 subtractive dim — the field
+  keeps rendering underneath (725 world packets from 0x8003F9A8 in the same otattr dump) and the panel
+  composites with its own semi bit. Copying the menu's opaque black backdrop would black out the field.
+  Likewise the field HUD is deliberately NOT stood down here (the guest keeps running its HUD
+  dispatcher while this page is up) — extending `PauseMenu::upThisFrame` to this page is a regression.
+- **regression gates, all pixel-exact (0/76800 differing px, pre-change binary vs post-change binary):**
+  plain field frame (`run 300`), triangle menu (`run 200; tap triangle; run 120`), dialog box
+  (`PSXPORT_PAD_REPLAY=replays/bugs/bucket-softlock.pad`, f1200 — opaque box, legible "This'll work for
+  carrying the Water!"). `PSXPORT_SBS_MODE=full` ran to f19020 with every checkpoint "A/B identical"
+  (boot only — that run never opens the page).
+- **STILL BROKEN, separate card:** entering "Options" from this page (`tap start; run 60; tap cross;
+  run 60`) renders without its full-screen dark-blue backdrop. The full-screen POLY_G4 gradient
+  (FUN_8007FC24, packet [2047] of that frame's walk, attributed fn=0x8010810C) has a native producer —
+  `Render::optionsBackdrop` — but it is only driven from `Render::renderTitle`'s title/demo branch, so
+  nothing invokes it under the IN-GAME 0x8010810C dispatcher. Evidence:
+  `scratch/screenshots/c35/opt_pc.png` vs `opt_psx.png` (from the #35 diagnosis session).
 
 ## Debug PAUSE (P) presented a BLACK screen at fps60 (kanban #20, 2026-07-22, FIXED)
 
