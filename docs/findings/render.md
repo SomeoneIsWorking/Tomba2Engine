@@ -235,11 +235,44 @@
   - `PSXPORT_WIDE=1` on the REPL/headless leg did not widen the shot (still 320x240); wide was not
     needed to reproduce.
 
-## Missing-layer sweep across the AREA SET (2026-07-22) — THE WHOLE SWEEP WAS pc-vs-pc; RETRACTED 2026-07-23
+## Area-set missing-layer sweep — 2026-07-22 version was pc-vs-pc (RETRACTED); RE-RUN 2026-07-23 finds real gaps
 
-**Read this before citing anything from the 2026-07-22 area sweep. Its "psx reference" never existed,
-so every renderer conclusion it produced is unsupported. What the sweep DID establish (which areas
-load, which abort) stands, because that part never needed a second renderer.**
+**Bottom line: the 2026-07-22 sweep's central conclusion ("24 of 32 areas clean, missing-layer class
+NOT distributed") is FALSIFIED. A corrected sweep with a real psx reference finds a missing far
+BACKDROP plane in four areas (10/11/14/21), a missing HUD minimap in two (2/7), and a missing effect
+in one (15). The bogus sweep missed all of them because it never had a second renderer.**
+
+### The corrected re-run (2026-07-23) — this is the authoritative result
+
+- **instrument:** `tools/warpsweep.sh <tag>` (all 22 areas by default), one process per area per leg,
+  recipe `newgame; run 3000; warp N; run 600`, psx reference from a SECOND run under
+  `PSXPORT_RENDER_PSX=1` at the same frame index (bit-deterministic replay). `tools/render_cmp.py diff`
+  for the count. Evidence: `scratch/screenshots/warpsweep/s.report` + `s*_{pc,psx}.png`.
+- **REAL pc_render gaps (foreground state identical between legs, so a genuine renderer delta):**
+  - **missing far BACKGROUND/SKY plane — areas 10, 11, 14, 21** (kanban #42). psx draws the backdrop
+    (lava-cave walls / snow night sky+stars / waterfall / blue sky); pc draws pure black there.
+    >8/255 deltas 69731 / 39303 / 68703 / 61375 vs the ~23k generic baseline. MECHANISM: the native
+    backdrop producer (`ov_bg_tilemap_native`, the 2026-06-26 finding below) is SEASIDE-SPECIFIC;
+    non-seaside backdrops have no native producer and pc_render no longer walks the guest OT since the
+    break-first rebuild, so they are drawn by nobody. Fix = a general area-keyed backdrop producer.
+  - **missing HUD minimap — areas 2, 7** (kanban #43). psx draws a bottom-right minimap; pc does not.
+    HUD-layer producer gap, sibling to #13 (weapon strip).
+  - **missing central vortex/portal effect — area 15** (kanban #44). Effect-layer gap, class of #12/#18.
+- **baseline-clean (backdrop present on both legs, only the generic ~23k native-shading delta):**
+  areas 0, 1, 5, 6, 8, 9, 12, 13, 16, 17, 18, 19, 20.
+- **cold-warp non-results (kanban #36, NOT renderer bugs):** area 3 = both legs pure black; area 4 =
+  the two legs landed at different game states (snow vs starfield, health wheel differs) — the cold
+  warp desynced the runs, so the frames are non-comparable. When an area's two legs disagree in
+  FOREGROUND state, it is a cold-warp casualty, not a render gap — check the foreground before filing.
+- **the generic baseline is real and area-independent:** ~23k px >8/255 is the native renderer's
+  shading/filtering delta vs psx, present in every clean area (area 12 = 23091, matching an un-warped
+  field frame at 23607). It is NOT a per-area bug. Anything at or below ~30k with the backdrop present
+  is baseline; a missing backdrop lands at 40k-70k.
+
+### Why the 2026-07-22 sweep was worthless as a renderer compare (retracted)
+
+**Its "psx reference" never existed. Every renderer conclusion it produced is unsupported. What it DID
+establish (which areas load, which abort) stands, because that part never needed a second renderer.**
 
 - **the defect.** `scratch/warpsweep.sh` produced its three shots as `A` = shot, `renderpsx`, `run 1`,
   `B` = shot, `renderpsx`, `run 1`, `C` = shot — using the BARE `renderpsx` command. Bare `renderpsx`
