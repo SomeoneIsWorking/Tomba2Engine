@@ -176,7 +176,23 @@
      object" safety argument does not hold: it is the same frame-global paint-order ramp the entry above
      already rules out, with the step (3.05e-5) and cap (3.9e-3) tuned until this one scene looked right.
      That is a magic constant, not a fix.
-- **WHAT THE FIX ACTUALLY NEEDS (measured, and now specific):** real per-object identity at the native
+- **THE ACTUAL ANSWER IS PORTING, NOT A RENDERER RULE (USER 2026-07-22; measured, and it invalidates the
+  plan in the bullet below).** Asked whether this is just an ownership gap, the answer is yes. `debug
+  otattr` names the frame's RTPS producers, and the two that dominate it are **not owned**:
+  `0x8003F9A8` (787 + 298 + 31 calls) and `0x80146478` (~850 calls) — `tools/codemap.py --addr` reports
+  "NO native owner found" for both. So the barrel's faces are emitted by SUBSTRATE code; the engine never
+  sees the object, only a stream of anonymous quads arriving at the OT with GTE depth. Every fix
+  considered above was an attempt to re-derive, inside the rasterizer, an identity and a draw order that
+  the emitter already has and simply is not ours to read. That is the project's own rule being broken:
+  never debug a divergence before the divergent call chain is owned end-to-end. Own `0x8003F9A8` and
+  `0x80146478` and the object identity, the face order, and the "water is drawn over the interior wall"
+  relationship all come for free — no epsilon, no bias, no constant.
+- **TRIED AND REVERTED (the shortcut for the above):** opening `diag.beginObject(node)` inside the two
+  walks already owned (`Render::subPartWalk` / `sharedTransformWalk`, which ARE handed the node) does
+  nothing for this bug — the barrel's quads still arrive `dbg_node=0`, because they never pass through
+  those walks. `0x8003F698` under them IS owned (`Render::perModeDispatch`), so the chain looked complete
+  from that direction; the geometry simply comes from the unowned emitters above instead.
+- **superseded plan, kept for the reasoning:** real per-object identity at the native
   GT3/GT4 submit site in `game/render/submit.cpp`. The scope mechanism already exists and is already used
   by the neighbours — `diag.beginObject(node)` in `perobj_dispatch.cpp:261`, `perobj_billboard.cpp:757`,
   `native_terrain.cpp:142`, `submit.cpp:398` (scene table) — it is simply not opened around the per-object
