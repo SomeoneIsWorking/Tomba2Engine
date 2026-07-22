@@ -1,7 +1,7 @@
 ---
 id: 14
 title: Weapon CHARGE effect missing under pc_render (hold attack)
-status: todo
+status: done
 labels: [render]
 created: 2026-07-22
 updated: 2026-07-23
