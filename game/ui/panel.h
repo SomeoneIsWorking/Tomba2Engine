@@ -34,6 +34,11 @@ public:
   // of bits 0x7F set means "no fill" (black) instead of the panel blue. See dialog_backdrop.cpp.
   static void pushDialogBackdrop(Core* c, int16_t x, int16_t y, int16_t w, int16_t h, uint32_t mode);
 
+  // fillQuad (FUN_8004FFB4): the 9-slice panel's fill primitive — one GP0 0x2C/0x2E textured quad
+  // from a {x,y,w,h} rect, with attr-driven CLUT, flat shading and semi-transparency, plus a 5-way
+  // UV table on the uvIndex argument. See panel_fill.cpp (byte-faithful; readability pass pending).
+  static void fillQuad(Core* c);
+
   // pushFill: native half of the panelFill tap (Spec 2) — one textured FT4 quad over `rectPtr`'s
   // rect (4 s16 at guest ptr: x,y,w,h), UV selected by `uvIndex` (0..4, the spec's texel table).
   static void pushFill(Core* c, uint32_t rectPtr, int32_t uvIndex, uint16_t attr, int32_t otBucket);

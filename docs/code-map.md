@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 912 native fns, 764 owned addresses, 707 LIVE / 205 ORPHAN.
+Totals: 914 native fns, 765 owned addresses, 709 LIVE / 205 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -282,6 +282,7 @@ Totals: 912 native fns, 764 owned addresses, 707 LIVE / 205 ORPHAN.
 | 0x8004FB4C | LIVE | `HudGaugeEmitter::emitItem` | game/render/hud_gauge_emitter.cpp:219 |  |  |
 | 0x8004FD30 | LIVE | `HudGaugeEmitter::emitFrame` | game/render/hud_gauge_emitter.cpp:171 |  |  |
 | 0x8004FE84 | LIVE | `Engine::sceneRenderListBuilder` | game/core/engine.cpp:665 |  | Native FUN_8004FE84 — a 2-phase scene/render-list builder driver (stru… |
+| 0x8004FFB4 | LIVE | `Panel::fillQuad` | game/ui/panel_fill.cpp:17 |  |  |
 | 0x8005082C | LIVE | `ModeStateArm::arm` | game/scene/mode_state_arm.cpp:10 |  | ModeStateArm::arm — native ownership of FUN_8005082C (Ghidra decomp sc… |
 | 0x80050894 | ORPHAN | `leaf_80050894` | game/core/field_owned_leaves.cpp:5735 |  |  |
 | 0x800508A8 | LIVE | `ModeStateArm::armFromAreaTable` | game/scene/mode_state_arm.cpp:29 |  | ModeStateArm::armFromAreaTable — native ownership of FUN_800508A8 (Ghi… |
