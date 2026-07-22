@@ -18,3 +18,28 @@ WHAT THE PRIOR INVESTIGATION ESTABLISHED, do not redo: that doc is about HOW THE
 RE TARGET: the movement state machine that requests the effect — ActorTomba and the walk/run state transitions (game/player/, and Engine::walkStart 0x80054D14 is already owned). Find the spawn call, then find its gate. Tools: 'debug otattr' attributes OT packets to emitting function AND caller; tools/find_refs.py <dump> <addr> --rw r finds who reads a state word; tools/decomp.sh for Ghidra. Also worth checking whether the effect family is the 8-byte-sprite-record family already tapped in game/render/fx_sprite.cpp (FUN_80027A4C and callers 27CB4/27E5C/281EC) — issue8_9_re.md line 3149 of findings/render.md associates the 27A4C caller family with grab/dust semi-quads, so the DRAW side may already be owned while the SPAWN side is not.
 
 DELIVERABLE THE USER ASKED FOR EXPLICITLY: the RE should produce the LIST of actions that spawn dust, since they do not know it themselves. Record it in the finding.
+
+---
+
+RESOLVED 2026-07-23 (see docs/findings/effects.md — full RE + evidence). The premise "missing on the
+ORACLE too, so not a render gap" is FALSIFIED by direct measurement: the dust effect DOES spawn and
+DOES render on the oracle. It is missing ONLY under pc_render, and is the SAME missing-native-producer
+class as #12/#13/#21.
+
+Evidence: temporary logging override on the dust-spawn decision FUN_80053670 / pool-spawn FUN_800534B0
+showed the emitter FIRES (seesaw-weight.pad: state 6 walk-start → SPAWN subtype 1). Screenshots at the
+spawn frame: psx_render (dust_psx_310.png) and true PSXPORT_ORACLE=1 (orsweep_320.png) BOTH show the
+white dust puff; pc_render (dust_pc_310.png) shows nothing.
+
+ACTION LIST (which movement actions spawn dust): starting to walk (state 6, FUN_8005D16C, kind 1),
+mid-walk transition (kind 2), run→walk/skid (states 5/50, FUN_8005C8A0, SFX 0x1D), turn-while-running
+(state 7, FUN_8005CDF8, SFX 0x1D, elevated spawn). Puff style = surface material (FUN_800535D4 =
+material+1); no dust on materials >9; stopping does a material-refresh only (p3=8, no spawn).
+
+ROOT CAUSE: the whole dust family (spawn FUN_80053670/800534B0 → controllers 8006AE28/8006BB6C/
+8006C478 → tick FUN_80029B40 → GTE render FUN_80029F6C) is UNOWNED substrate; pc_render no longer
+walks the guest OT (break-first rebuild 2026-07-15) so there is no native producer → invisible.
+
+FIX (scoped, not done — deferred render work in operator-owned game/render/): native producer tapping
+FUN_80029F6C, like fx_sprite.cpp taps FUN_80027A4C. Reclassify as a pc_render missing-producer bug,
+NOT an emitter bug. issue8_9_re.md is the SAME effect (pc_render bars pre-2026-07-15 → absent after).

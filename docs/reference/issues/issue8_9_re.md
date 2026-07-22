@@ -1,5 +1,14 @@
 # Issues #8 & #9 — effect-sprite "vertical bars" / striped-sampling family — RE + PC-native fix spec
 
+> **CORRECTION 2026-07-23 (kanban #39, docs/findings/effects.md):** The #8 "walking dust" analysis
+> below predates the 2026-07-15 break-first render rebuild. pc_render NO LONGER walks the guest OT, so
+> the dust prims this doc describes cannot reach the tritex sampler on the shipping path — the dust is
+> now ABSENT under pc_render, not drawn-as-bars. Measured: the dust effect DOES spawn and DOES render
+> correctly on psx_render / the true oracle (screenshots orsweep_320.png, dust_psx_310.png). The real
+> #8/#39 gap is a MISSING NATIVE PRODUCER for the dust particle renderer FUN_80029F6C (same class as
+> #12/#13/#21), not a texture-window/sampler bug. The §2-§5 texture-window analysis still correctly
+> describes what such a producer must reproduce, but it is no longer the shipping-path root cause.
+
 READ-ONLY RE (no source modified). Methodology per `docs/gfx-debug.md`: the engine OWNS its render
 PC-native; there is NO oracle. The SW rasterizer (`raster_sprite`/`sample_tex`) is the in-tree texel
 REFERENCE that the VK fragment shader (`tritex.frag`) must match — and currently DOES, which is the
