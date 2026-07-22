@@ -58,6 +58,32 @@ frames; `shot` reads back the VK image over the display region (works headless).
 | `PSXPORT_VK_HEADLESS=1` | Offscreen VK (no window/display) — deterministic; the basis of the headless screenshot. | env (run mode, not a behavior gate) |
 | **`debug otattr` + REPL `otattr`** | OT/GTE SUBMISSION ATTRIBUTION: traces every guest-submitted packet-pool store and every GTE RTPS/RTPT back to the emitting guest fn (rec_dispatch shadow stack) + world-object node (same `cur_render_node` fallback the native submit path uses). Turn the channel on BEFORE the frame you want to inspect, then run the REPL `otattr` command to re-walk the last OT read-only and print `pool= op= fn= caller= node= beh@node+1C=` per packet, plus a per-(fn,node) GTE call-count histogram. Built for bug #45 (multi-quad batching) + bug #34 (dialog-panel emitter) — see `game/render/ot_attr.h`. Blind to fully-native (non-dispatched) draw paths — see the class comment for the limitation. | `debug otattr` then REPL `otattr` |
 | **REPL `otattr watch/who/trace`** | LAST-WRITER PROVENANCE — answers "who WROTE this word" (any address, incl. scratchpad), independent of call-flow, for the staging-buffer case where `otattr`'s call-path attribution only names the batcher. `watch <addr> <len>` registers a region (8 slots, 64 KB total); `who <addr> [len]` dumps the word-granular last-writer, coalescing same-writer runs; `trace <addr>` prints the last writer + a copy-loop heuristic (does the writer's stores fan out across many 4KB pages this frame?) and points at a Ghidra follow-up when the source isn't statically determinable. Same shadow-stack signal as `otattr`, so it's ALSO blind past a plain (non-jalr/rec_dispatch) nested call — verified on bug #45's `0x8003F9A8`: last-writer matches call-path attribution exactly (no hidden RAM-copy hop), so the true emitter leaf there needs a Ghidra decompile of `0x8003F9A8`, not this tool. See `docs/config.md` `otattr` section. | `debug otattr` then REPL `otattr watch/who/trace` |
+## REAL-GAME REFERENCE CAPTURES — the arbiter when the oracle is also wrong
+
+The default render check is pc_render vs psx_render in ONE process (`renderpsx` REPL toggle, default
+leg). That assumes the oracle is right. **It is not always right** — psx_render has its own render
+bugs — and when a fault reproduces on BOTH legs the comparison returns 0 diff and reads as "nothing
+to fix". That is a false negative, and it is expensive: it retires a real bug as a non-issue.
+
+So when a symptom might be shared by both legs, get a capture of the REAL game (the user can source
+one) and treat THAT as ground truth. Store it in `docs/reference/issues/` and cite it on the card.
+
+Two things this bought on kanban #22 (health wheel "too transparent") that no amount of engine
+inspection would have:
+- **Two references beat one.** The same wheel over bright sky and over dark ground showed the
+  background genuinely modulating it — so the wheel IS semi-transparent in the real game and "make
+  it opaque" would have been the wrong fix. The direction (darker over dark, brighter over bright)
+  is the signature of averaging `0.5B+0.5F` rather than additive, which narrowed the mechanism to a
+  missing OPAQUE BACKING rather than a wrong blend equation.
+- **A reference scopes the card honestly.** The #21 triangle-menu reference showed the target is not
+  just a missing background but a whole stack — opaque fill, border, tabs, legend row, icon tiles,
+  divider, scroll arrow, help panel with portrait. "Menu is transparent" alone invites a one-quad
+  fix and a report that closes the card with half its layers still absent.
+
+**Ask for a reference** whenever a visual is wrong in a way the oracle may share, or whenever the
+correct appearance is not obvious from our own output. Cheap to get, and it is the only ground truth
+for this class.
+
 | **`PSXPORT_PRIMAT="x,y"`** | At a DISPLAY pixel, log EVERY prim covering it (point-in-triangle) with is3d/bg/billboard/per-vertex dep/op/tp/clut/col/bbox — from BOTH the gp0 OT-walk (`gpu_native.cpp` gp0_exec) AND the queue/world path (`gpu_emit_rq_item`, tagged `[primat-rq]`). USE THIS, not `provat`, for VK polys: provat tracks CPU `s_vram` and is BLIND to the VK-teed polygons. Tells you what actually contests a pixel and at what depth. The `[primat-rq]` line also carries `seq` (submission order — on PSX the HIGHER seq paints last and wins) and the full texture identity `raw/mode/tp/clut/uv[4]/xy[4]`, so "is this face losing a depth contest or sampling the wrong page?" is answerable from one line. Two prims printing the SAME `xy[4]` set are one surface submitted twice — a painter-order pair (see the barrel entry in `docs/findings/render.md`). Takes an optional third field, `"x,y,frame"`: without it the 6000-line cap is spent in the first few hundred frames and never reaches a late repro. | env or `debug`-channel cfg |
 | **`PSXPORT_PAINTFG=1`** | Force every gp0 2D-FG (HUD-band) poly to solid magenta — instantly shows how much of the frame is still flat 2D-band (un-owned) vs real-depth world geometry. (later-229: revealed the seaside field is ~99% 2D-band.) | env / cfg |
 | **`PSXPORT_PAINTER=1`** | Force PURE PSX OT painter order for EVERY prim (gp0 tee: is3d=0, no bg split) — composites exactly as the PSX ordering table would. Render the SAME scene with `=1` and `=0` and pixel-diff: differing pixels = where native per-pixel depth changes the picture (the object-occlusion bug — terrain/atlas not obeying world-depth). If `=1` makes the bug disappear, native-depth ordering is the cause. Headless start-field diff was only 39px (that view is ~99% 2D-band already, so native≈painter); run it WINDOWED where the bug shows. | env / cfg (`gpu_native.cpp` gp0_exec) |
