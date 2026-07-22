@@ -15,8 +15,8 @@
 - **#18 Score/AP-gem pickup display effect missing under pc_render**  `render`
 - **#19 Dialog text-box background missing — only the panel corners render**  `render` — 📎 docs/reference/issues/issue19_panel_fill_missing.png
 - **#20 Pause (P) at fps60 shows a black screen**  `render,fps60`
-- **#21 Triangle menu renders fully transparent — its opaque background is missing**  `render`
-- **#22 Health wheel is too transparent — reproduces on psx_render too, so the oracle is NOT the reference**  `render` — 📎 docs/reference/issues/issue22_health_wheel_reference.png,  docs/reference/issues/issue22_health_wheel_reference_dark.png
+- **#21 Triangle menu renders fully transparent — its opaque background is missing**  `render` — 📎 docs/reference/issues/issue21_triangle_menu_reference.png
+- **#22 Health wheel is too transparent — reproduces on psx_render too, so the oracle is NOT the reference**  `render` — 📎 docs/reference/issues/issue22_health_wheel_reference.png,   docs/reference/issues/issue22_health_wheel_reference_dark.png
 
 ## DOING (1)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
