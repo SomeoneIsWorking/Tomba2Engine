@@ -80,6 +80,20 @@ static inline float obj_world_ord(Core* c, uint32_t node) {
 // lack of a depth tag (#39: weapon chain + impact effect). Shared by every per-node dispatch site that
 // reaches an otherwise-untagged custom renderer (perObjRenderDispatch's CCA4 body, renderWalk's
 // 0x8003C29C RCASE_DEFAULT body).
+// ObjScope — declare "this object is drawing" for the span of a per-node dispatch, so every prim emitted
+// beneath it carries the owning node (RqItem::dbg_node) instead of arriving anonymous. Restores the
+// previous node rather than calling endObject(), which clears to 0 and would drop an enclosing scope.
+// Host-side scope state only (RenderDiag) — never guest memory, so wrapping a byte-exact walk is free.
+class ObjScope {
+public:
+  ObjScope(Core* c, uint32_t node) : mCore(c), mPrev(c->rsub.diag.currentNode()) { c->rsub.diag.beginObject(node); }
+  ~ObjScope() { mCore->rsub.diag.beginObject(mPrev); }
+  ObjScope(const ObjScope&) = delete;
+  ObjScope& operator=(const ObjScope&) = delete;
+private:
+  Core* mCore; uint32_t mPrev;
+};
+
 static inline void withDepthTag(Core* c, uint32_t node, void (*body)(Core*)) {
   if (c->game->oracle) { body(c); return; }
   c->rsub.diag.beginObject(node);

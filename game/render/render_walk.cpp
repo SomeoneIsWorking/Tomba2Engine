@@ -670,6 +670,13 @@ void Render::fieldObjectsRender() {
       if (!mesh && !pre) continue;
       c->rsub.stats.snObjs++; c->rsub.stats.snCmds += c->mem_r8(n + 8);
       c->r[4] = n;
+      // DECLARE THE OBJECT (kanban #11). This walk knows exactly whose faces are about to be submitted —
+      // it is holding the node — but never said so, and every quad the flush emitted therefore reached the
+      // render queue anonymous (dbg_node = 0). With no owner the queue can only order an object's own
+      // faces by depth, and depth is the wrong question for two near-coplanar faces the art expects to
+      // stack by paint order (the waterpump barrel's interior cap vs its water surface). Host-side scope
+      // state only — RenderDiag never touches guest memory.
+      ObjScope objScope(c, n);
       if (pre) perObjFlushPreComposed();
       else     perObjFlush();
     }
@@ -679,6 +686,7 @@ void Render::fieldObjectsRender() {
     if (c->mem_r8(g + 8) != 0 && c->mem_r8(g + 9) != 0) {
       c->rsub.stats.snObjs++; c->rsub.stats.snCmds += c->mem_r8(g + 8);
       c->r[4] = g;
+      ObjScope objScope(c, g);      // Tomba himself — same declaration as every other object above
       perObjFlush();
     }
   }
