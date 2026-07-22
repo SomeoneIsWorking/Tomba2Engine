@@ -199,6 +199,26 @@ and never build the replacement alongside the hack "to be safe": the hack's pres
 the rebuild actually works. Applies to render fallbacks, observer/registry shims, compare
 relaxations, and any "transitional" machinery a plan doc promises to retire.
 
+## NATIVE PRESENTATION — no stamping, no tagging (USER directive, 2026-07-22)
+
+The picture must come from NATIVE PRODUCERS that draw from game state. Every mechanism that instead
+recovers meaning by ANNOTATING guest packets — span stamping, depth tagging, provenance registries,
+prim fingerprint matching — is transitional debt and must be REMOVED, not extended.
+
+- **Named debt to retire:** `withDepthTag` / `gpu_obj_depth_add` / `obj_depth_lookup` (packet-span →
+  object-depth stamping), `gpu_native_cover_add` / `nativeCoverLookup` (native-cover span registry),
+  `PktSpanSession` + `ffspan` (pool-span provenance) on the SHIPPING path, and fps60's prim
+  `matchAndLerp` fingerprinting. Each exists only because some layer had no native producer.
+- **The replacement is always the same: RE and port the emitter**, then draw from the object/effect
+  state it owns. A native producer needs no tag, because identity is structural — it is the producer.
+- **Much of this is already DEAD.** Since the break-first render rebuild, pc_render does not walk the
+  guest OT at all, so tagging that exists to rescue OT-walked prims cannot fire on the field leg.
+  Delete dead mechanisms outright (no tombstones); do not leave them "in case".
+- **DIAGNOSTICS ARE EXEMPT and stay.** `OtAttr`, `PSXPORT_PRIMAT`, `debug objid`/`otattr` read guest
+  state to ANSWER QUESTIONS; they never produce the picture. The ban is on tagging the shipping path.
+- **A tap is not a tag.** Running a gen body and re-deriving quads host-side from the contract it
+  publishes is a native producer with a byte-exact source; that is the porting mechanism, not debt.
+
 ## Render — reimplement, don't transcribe
 
 `pc_render` reads scene data (camera/view, per-object transform, geomblk prims) and draws with float
