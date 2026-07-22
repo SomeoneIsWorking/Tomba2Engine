@@ -214,7 +214,11 @@
   and would drop an enclosing scope) now declares it. VERIFIED: the barrel's two contesting faces both
   carry `dbgnode=800FB858`, and the frame is pixel-identical to baseline (`dbg_node` is not yet an
   ordering input). Real per-object grouping: the barrel is 58 faces, cap = rank 30, water = rank 50.
-- **WITHIN-OBJECT PAINT ORDER: MEASURED NET-NEGATIVE, REVERTED — do not re-attempt as a blanket rule.**
+- **WITHIN-OBJECT PAINT ORDER: SHIPPED (default on, `PSXPORT_PAINTSTEP`), KNOWN-IMPERFECT — read this
+  whole entry before touching it.** It fixes the reported bug and it has measured collateral; both facts
+  below. An earlier revision of this entry said "reverted, do not re-attempt" while the code shipped the
+  rule — that contradiction was real and is corrected here (caught by a Fable review, 2026-07-22).
+- **Superseded measurement (kept — it is why the cap exists):**
   With the grouping finally real, a small camera-ward nudge per within-object submission rank does fix
   the barrel. Scored against the oracle over every pixel it changed (`PSXPORT_PAINTSTEP=3e-5`, 1263
   pixels changed):
@@ -228,6 +232,43 @@
   visible bug for many quieter ones. **The open question is no longer "how do we apply paint order" but
   "what distinguishes a layered pair from an ordinary face pair" — and note it cannot be a near-tie test:
   these two are 5.8e-4 apart, genuinely not tied.**
+- **SHIP STATE + the defect the review found (2026-07-22).** `PAINT_KMAX` was expressed in RANKS (192),
+  which at step 3e-5 permitted **5.76e-3** of drift — past the ~4.5e-3 that separates distinct objects,
+  i.e. the cap violated the budget the sizing comment claimed. A dense object could push its late faces
+  through a DIFFERENT object behind it; "scoped to one object" describes who GETS bias, not who it
+  COMPETES AGAINST, so cross-object leakage was structural. Fixed by stating the bound as a depth
+  quantity (`PAINT_MAX_DRIFT = 1.5e-3`) so the cap and the sizing argument cannot drift apart. Measured
+  effect of that one fix: changed pixels 1263 -> 492, oracle-farther 903 -> 311.
+- **The oracle metric, resolved properly.** Earlier I verified the barrel fix against psx_render and then
+  dismissed the same oracle when it showed collateral — a selective metric, correctly called out. The
+  real rule: the oracle is valid for CATEGORICAL winner flips and invalid for GRADED pixel distance.
+  Under that rule the 95-closer/6-farther barrel result stands, AND so does the collateral, because
+  pixels the ramp changes for its INTENDED reason should move toward the oracle (the oracle IS paint
+  order) — so an oracle-farther pixel is by construction an unintended flip. Current residual: **173
+  closer / 311 farther** outside the barrel. Real, not noise, and not yet fixed.
+- **WHY the residual exists (mechanism, not mystery):** submission rank is mesh storage order, which is
+  view-INDEPENDENT, while real occlusion between a concave object's own faces (a limb over a torso, a
+  doorframe over an interior wall) inverts with viewing angle. Wherever the real gap is under
+  `Δrank * step`, the later-stored face wins from BOTH sides. That is the common case for any self-
+  overlapping mesh, so this rule buys one fixed bug with a diffuse population of view-dependent flips.
+- **THE PROPER FIX (do this next; it removes the tradeoff instead of tuning it).** Group an object's
+  faces by the GAME'S OWN sort key — the OTZ-equivalent the emitter computes, whose quantum is a fixed
+  constant in code the port now owns (`Render::perObjFlush` chain) — and for faces whose keys TIE, snap
+  their test depth to one shared value. `GREATER_OR_EQUAL` + submission order then resolves the group
+  exactly, with ZERO bias, zero span budget and zero cross-object leakage; faces with distinct keys keep
+  untouched per-vertex depth. This is the doc's own "route intra-object prims to ONE shared depth so
+  they are EXACT ties" refined from per-OBJECT to per-KEY-GROUP, which removes that proposal's fatal
+  flaw (it no longer flattens a whole character's self-occlusion). A key tie is the only non-heuristic
+  definition of "the depth buffer has nothing true to say here": it means the content could not have
+  ordered these two by depth even in principle, so submission order IS the authored order.
+  **MEASURE FIRST:** dump the two barrel prims' actual OT keys on the psx_render leg (`OtAttr`) to learn
+  whether cap+water tie in one bucket or the whole object is a single bucket — that decides what the
+  discriminator recomputes. Diagnostic OT reads are fine; only shipping-path OT reads are banned.
+- **RULED OUT as discriminators (do not re-derive):** any near-tie/epsilon test (these two are 5.8e-4
+  apart, genuinely not tied); pure geometry (gap size, crossing sign, coplanarity, screen overlap — a
+  knife lying on a table crosses and nearly coincides with it, and there real depth is correct); and
+  one-shared-depth-per-OBJECT as a blanket rule (kills the intra-object real occlusion that is precisely
+  where pc_render beats PSX, and breaks interpenetration like the player standing in the water).
 - **refs:** `runtime/recomp/gpu_vk.cpp` (`gpu_zbias_unit`, `zbias_max`, `set_order`),
   `runtime/recomp/render_queue.cpp` (`primat-rq`, `emitOrQueue` `dbg_node` assignment),
   `runtime/recomp/gpu_native.cpp` (`obj_depth_add`/`obj_depth_lookup`), `runtime/recomp/ot_attr.h`.
