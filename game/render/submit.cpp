@@ -186,6 +186,64 @@ static inline void engine_shade_face(Core* c, const ProjVtx* p, int nv, uint8_t 
     r[k] = (uint8_t)(rr > 255 ? 255 : rr); g[k] = (uint8_t)(gg > 255 ? 255 : gg); b[k] = (uint8_t)(bb > 255 ? 255 : bb);
   }
 }
+// ---- GAME SORT KEY (kanban #11) ---------------------------------------------------------------------
+// The OT bucket index the GUEST submitter files a face under — recomputed natively, step-for-step from
+// the RE'd recomp bodies gen_func_8007FDB0 (GT3) / gen_func_8008007C (GT4):
+//   policy = GP0 code byte & 3:
+//     0/3 -> AVSZ3/AVSZ4: otz = Lm_D( (ZSF * ΣSZ) >> 12 )   (ZSF3 = CR29 for tris, ZSF4 = CR30 for quads)
+//     1   -> max(SZ...) >> 2
+//     2   -> min(SZ...) >> 2
+//   then the guest's log compression  b = otz>>10; k = (otz >> (b&31)) + (b<<9)
+//   then the guest's own range check (only 4 <= k < 2048 is ever linked — outside it the guest DROPS the
+//   prim from the OT, so the face carries no key), then the per-command sub-bucket shift perObjFlush
+//   applies to the bucket POINTER (otbase = base + (int8)cmd[0x3F]*4): the effective bucket is k + shift,
+//   recovered here from the otbase this submit was handed (guest r5) minus the active base *0x800ED8C8.
+// SZ comes from ProjVtx.sz — the native projection is bit-exact vs the GTE (docs/findings "native
+// projection bit-exact") — and ZSF from the frame-time capture in camview_publish (proj_zsf3/proj_zsf4),
+// so nothing here reads the GTE at submit time (same rule as the H capture above).
+// MEASURED ground truth this reproduces (psx_render leg, REPL `otwhere`, 2026-07-22): the barrel's
+// interior cap files in bucket 460 and its water surface in bucket 457 — the game's own key orders the
+// water categorically IN FRONT, which is exactly what pc_render's per-pixel depth inverts.
+static int game_sort_key(Core* c, const ProjVtx* p, int nv, uint32_t code, int zsf) {
+  int policy = (int)((code >> 24) & 3u);
+  int32_t otz;
+  if (policy == 1 || policy == 2) {
+    int32_t m = p[0].sz;
+    for (int k = 1; k < nv; k++) { int32_t s = p[k].sz; if (policy == 1 ? s > m : s < m) m = s; }
+    otz = m >> 2;
+  } else {
+    if (zsf <= 0) return -1;                       // no ZSF captured yet this run — no key
+    int64_t sum = 0; for (int k = 0; k < nv; k++) sum += p[k].sz;
+    int64_t v = ((int64_t)zsf * sum) >> 12;        // GTE AVSZ MAC0>>12 with Lm_D saturation
+    otz = v < 0 ? 0 : v > 65535 ? 65535 : (int32_t)v;
+  }
+  int32_t b = otz >> 10;
+  int32_t k = (otz >> (b & 31)) + (b << 9);
+  if ((uint32_t)(k - 4) >= 2044u) return -1;       // guest range check — prim never linked, no key
+  uint32_t base = c->mem_r32(0x800ED8C8u);         // active OT base (the same word perObjFlush reads)
+  int32_t delta = (int32_t)(c->r[5] - base);
+  if (delta & 3) return -1;                        // otbase not derived from the active base
+  int32_t shift = delta >> 2;
+  if (shift < -128 || shift > 127) return -1;      // outside the int8 cmd[0x3F] range — foreign OT
+  return k + shift;
+}
+// Map a sort key back into the SAME normalized ord scale as the per-vertex depths (proj_pz_to_ord), so
+// resolveKeyOrder can snap a face onto a value that still sits at its real distance band. The guest's
+// compression is monotone nondecreasing in otz, so its inverse is recovered by binary search (no closed
+// form is safe: sub-bucket shifts can land keys in compression gaps where a per-band inverse is
+// non-monotone). Then the AVSZ4 scale maps otz back to an average view-Z: otz = zsf4*4*avg_sz >> 12
+// => avg_sz = otz * 4096 / (4*zsf4). One canonical inversion (the quad-average policy, the dominant
+// emitter) keeps the map strictly monotone across ALL keyed faces, which is the only property the
+// ORDER resolution needs.
+static float key_to_ord(int key) {
+  int zsf = proj_zsf4(); if (zsf <= 0) return 0.0f;
+  auto fwd = [](int32_t otz) { int32_t b = otz >> 10; return (otz >> (b & 31)) + (b << 9); };
+  int lo = 0, hi = 65535;
+  while (lo < hi) { int mid = (lo + hi) >> 1; if (fwd(mid) < key) lo = mid + 1; else hi = mid; }
+  float avg_sz = (float)lo * 4096.0f / (4.0f * (float)zsf);
+  return proj_pz_to_ord(avg_sz);
+}
+
 // gen_func_8007FDB0 — POLY_GT3 (gouraud-textured triangle) submit.
 // Record = 36 bytes: {+0 rgb0|code, +4 rgb1 (rgb2 = rgb1<<4), +8 uv0|clut, +12 uv1|tpage,
 //   +16 VXY0, +20 VZ0(lo)|VZ1(hi), +24 VXY1, +28 VXY2, +32 VZ2(lo)|uv2(hi)}.
@@ -250,7 +308,9 @@ void Render::submitPolyGt3Native(Core* c) {
       // otherwise. Without this, a present-time re-render would corrupt the live queue the NEXT real frame
       // is about to build — the exact bug class the "one draw path" design forbids.
       RenderQueue& rqOut = c->game->rqRedirect ? *c->game->rqRedirect : c->game->rq;
-      rqOut.drawWorldQuad(c, px, py, depth, u, v, r, g, b, tp, clut, semi, sv); }
+      const int skey = game_sort_key(c, p, 3, code, proj_zsf3());
+      rqOut.drawWorldQuad(c, px, py, depth, u, v, r, g, b, tp, clut, semi, sv,
+                          skey, skey >= 0 ? key_to_ord(skey) : 0.0f); }
   }
   c->r[2] = rec;
 }
@@ -312,7 +372,9 @@ void Render::submitPolyGt4Native(Core* c) {
     { float vv[4][3]; const float (*sv)[3] = shadow_verts(p, 4, semi, vv);   // dynamic shadow verts (carried on the item)
       // Tier-1 capture-target redirect — see submitPolyGt3Native above.
       RenderQueue& rqOut = c->game->rqRedirect ? *c->game->rqRedirect : c->game->rq;
-      rqOut.drawWorldQuad(c, px, py, depth, u, v, r, g, b, tp, clut, semi, sv); }
+      const int skey = game_sort_key(c, p, 4, code0, proj_zsf4());
+      rqOut.drawWorldQuad(c, px, py, depth, u, v, r, g, b, tp, clut, semi, sv,
+                          skey, skey >= 0 ? key_to_ord(skey) : 0.0f); }
   }
   c->r[2] = rec;                                              // return: record pointer advanced past the array
 }

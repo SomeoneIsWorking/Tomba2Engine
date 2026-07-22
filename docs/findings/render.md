@@ -89,7 +89,7 @@
   `runtime/recomp/gpu_gpu_internal.h` (`s_depth_bias`), `game/render/render_queue.cpp` (`zfightScan` diag),
   `runtime/recomp/gte_beetle.cpp:218` (the 1/4096 depth source). Config: `PSXPORT_ZBIAS`, `PSXPORT_ZFIGHT`.
 
-## Waterpump barrel top face renders BLACK under pc_render (kanban #11) — a PAINTER-ORDER surface pair the depth buffer cannot resolve (2026-07-22, ROOT-CAUSED, fix not yet landed)
+## Waterpump barrel top face renders BLACK under pc_render (kanban #11) — a PAINTER-ORDER surface pair the depth buffer cannot resolve (2026-07-22, FIXED — game-sort-key order resolution; see the final section)
 
 - **symptom (USER 2026-07-22, two screenshots; also `docs/reference/issues/issue5_barrel.png`):** the
   seaside waterpump's blue/red barrel draws its top opening SOLID BLACK from one side and correctly
@@ -214,10 +214,12 @@
   and would drop an enclosing scope) now declares it. VERIFIED: the barrel's two contesting faces both
   carry `dbgnode=800FB858`, and the frame is pixel-identical to baseline (`dbg_node` is not yet an
   ordering input). Real per-object grouping: the barrel is 58 faces, cap = rank 30, water = rank 50.
-- **WITHIN-OBJECT PAINT ORDER: SHIPPED (default on, `PSXPORT_PAINTSTEP`), KNOWN-IMPERFECT — read this
-  whole entry before touching it.** It fixes the reported bug and it has measured collateral; both facts
-  below. An earlier revision of this entry said "reverted, do not re-attempt" while the code shipped the
-  rule — that contradiction was real and is corrected here (caught by a Fable review, 2026-07-22).
+- **WITHIN-OBJECT PAINT ORDER (rank ramp, `PSXPORT_PAINTSTEP`): SHIPPED then DELETED — replaced by the
+  game-sort-key resolution in the final section below.** Kept for the record: it fixed the reported bug
+  with measured collateral (both facts below), because submission rank is view-independent mesh storage
+  order while real intra-object occlusion inverts with viewing angle. An earlier revision of this entry
+  said "reverted, do not re-attempt" while the code shipped the rule — that contradiction was real and is
+  corrected here (caught by a Fable review, 2026-07-22).
 - **Superseded measurement (kept — it is why the cap exists):**
   With the grouping finally real, a small camera-ward nudge per within-object submission rank does fix
   the barrel. Scored against the oracle over every pixel it changed (`PSXPORT_PAINTSTEP=3e-5`, 1263
@@ -269,10 +271,48 @@
   knife lying on a table crosses and nearly coincides with it, and there real depth is correct); and
   one-shared-depth-per-OBJECT as a blanket rule (kills the intra-object real occlusion that is precisely
   where pc_render beats PSX, and breaks interpenetration like the player standing in the water).
-- **refs:** `runtime/recomp/gpu_vk.cpp` (`gpu_zbias_unit`, `zbias_max`, `set_order`),
-  `runtime/recomp/render_queue.cpp` (`primat-rq`, `emitOrQueue` `dbg_node` assignment),
-  `runtime/recomp/gpu_native.cpp` (`obj_depth_add`/`obj_depth_lookup`), `runtime/recomp/ot_attr.h`.
-  Config: `PSXPORT_PRIMAT`, `PSXPORT_ZBIAS`, `PSXPORT_ZBIAS_MAX`, `debug otattr`.
+- **FIXED (2026-07-22, third session) — GAME-SORT-KEY ORDER RESOLUTION, rank ramp deleted. The measurement
+  first (REPL `otwhere`, new, psx_render leg, f16927):** the two prims do NOT tie in one OT bucket — the
+  cap files in **bucket 460** (chainIdx 2415) and the water in **bucket 457** (chainIdx 2426), both via the
+  AVSZ4 average policy (both op 0x3C; the water quad is NOT the semi min-policy path). The OT is walked
+  descending (higher bucket earlier in the chain), so the game DECLARES the water categorically in front —
+  the "snap TIED keys" plan's premise was false; the discriminator must enforce the key's ORDER, not a tie.
+- **The RE (recomp bodies `gen_func_8007FDB0`/`gen_func_8008007C`, decoded):** per-face OT key = policy by
+  GP0 code&3 (0/3 → AVSZ3/4 `otz = ZSF*ΣSZ >> 12` with Lm_D saturation; 1 → `max(SZ)>>2`; 2 → `min(SZ)>>2`),
+  then log compression `b=otz>>10; k=(otz>>(b&31))+(b<<9)`, guest range check `4 <= k < 2048` (else the prim
+  is never linked), LIFO head-insert at `otbase[k]` where otbase may carry perObjFlush's per-command
+  sub-bucket shift `(int8)cmd[0x3F]*4`. Every constant in the native reimplementation traces to these bodies.
+- **The fix (shipped, default-on, no knob):** `submit.cpp game_sort_key()` recomputes that key natively per
+  face (SZ from `ProjVtx.sz` — projection is bit-exact vs the GTE; ZSF3/ZSF4 captured at the
+  `camview_publish` frame-time GTE-read choke, `proj_zsf3/proj_zsf4`, no present-time GTE read) and
+  `key_to_ord()` maps it into the per-vertex ord scale (binary-search inverse of the guest compression —
+  closed-form per-band inverses are non-monotone in the compression gaps a sub-bucket shift can land in).
+  The key + its ord ride on the RqItem; at flush, `RenderQueue::resolveKeyOrder` (render_queue.cpp) finds,
+  WITHIN each object, face pairs whose interpolated depth could contradict the game's key order — a sample
+  point strictly inside BOTH polygons where the farther-keyed face interpolates nearer (8×8 grid over the
+  bbox intersection, rasterizer-identical triangle split + barycentric) — and snaps both faces' test depth
+  to their key's shared ord. Equal keys are never touched (real depth = status quo); mesh-adjacent faces
+  never trigger (interiors disjoint); zero bias, zero span budget, zero tuned constant. `debug keyord`
+  logs every snap.
+- **VERIFIED native key == guest key:** on the gate leg the barrel pair logs `key=460` (cap, seq 726) and
+  `key=457` (water, seq 746) — exactly the buckets `otwhere` measured in the guest OT on the oracle leg.
+- **Gate numbers (same method as the 95/6 and 173/311 figures; `scratch/ab/score_keyfix.py`, keyfix vs
+  gate4 scored against oracle):** 173 pixels changed in total — barrel region **90 closer / 3 farther**
+  (pixel (165,92): black (8,8,16) → water (40,152,248), oracle (40,200,248) — categorical flip), rest of
+  frame **53 closer / 23 farther / 4 equal**, mean distance-to-oracle 307.7 → 131.9. Against the deleted
+  rank ramp's 492 changed with **311** outside-barrel farther: outside-barrel farther is now **23**.
+  Evidence: `scratch/screenshots/cmp/keyfix.png`, `keyfix_tri.png` (broken | fixed | oracle crops).
+- **Residual (honest):** (1) ~140 keyed faces/frame snap in this scene (props with genuinely crossing
+  authored layers — e.g. nodes 800FD118/800FE198/800FF518); a snapped face carries its authored AVSZ depth
+  instead of per-pixel depth against THIRD-party geometry, bounded by the face's own depth span — the 23
+  farther pixels above. (2) The 8×8 interior sampling can miss a sub-sample sliver contest (that pair then
+  stays on real depth — the old behavior, not a new artifact). (3) `key_to_ord` uses the quad-average
+  inversion for ALL keys (min/max-policy faces get a slightly displaced snap value; order among keyed
+  faces stays exact — the map is strictly monotone — only the alignment vs unkeyed faces shifts).
+- **refs:** `game/render/submit.cpp` (`game_sort_key`, `key_to_ord`), `runtime/recomp/render_queue.cpp`
+  (`resolveKeyOrder`, `rq_ord_at`, `primat-rq`), `runtime/recomp/proj_params.{h,cpp}` (ZSF capture),
+  `runtime/recomp/repl.cpp` (`otwhere`), `runtime/recomp/ot_attr.h`.
+  Config: `PSXPORT_PRIMAT`, `debug keyord`, `debug otattr`, REPL `otwhere`.
 ## Weapon "ball but no CHAIN" (#28 follow-up) — chain-LINK billboards already render; only a minor grab/dust semi-quad is dropped (2026-07-10, could-not-reproduce a significant chain)
 
 - **symptom (task/USER):** under the default config (pc_render), Tomba's weapon mid-swing shows the BALL
