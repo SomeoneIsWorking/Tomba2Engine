@@ -67,6 +67,14 @@ because they get STRONGER down the list, not weaker:
    NOT ground truth — it has its own render bugs, and when a fault is shared by both legs the compare
    returns 0 diff and reads as "nothing to fix". Two measured instances: the triangle menu (both legs
    pixel-identical and both wrong) and the health wheel. A clean diff is not a clean bill of health.
+   **TWO WAYS THE TOGGLE SILENTLY RETURNS A pc FRAME while you think you have psx** — both have burned a
+   session (they manufactured kanban #26): (a) a BARE `renderpsx` used to only PRINT the flag and set
+   nothing (fixed 2026-07-23 — it now toggles); (b) the flag is honoured per SCENE ENTRY, so flipping
+   it INSIDE an already-loaded area does not repaint — the next shot is bit-identical to the pc frame
+   even though the flag reads back 1 (kanban #41, not root-caused). So for any AREA/WARP compare, set
+   the reference from a SECOND run with `PSXPORT_RENDER_PSX=1` at BOOT, at the same frame index (the
+   pad replay is bit-deterministic) — `tools/warpsweep.sh` does exactly this. Never compare adjacent
+   frames, and never trust a mid-scene toggle flip.
 2. **A real-game reference capture** (USER can source one; store in `docs/reference/issues/`). The
    arbiter when 1 is compromised. Sparse — you get the screens someone happened to photograph — but
    authoritative for those, and two references of the SAME element over different backgrounds tell you
