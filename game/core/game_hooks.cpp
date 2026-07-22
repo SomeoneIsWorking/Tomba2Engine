@@ -31,6 +31,10 @@ static void        tomba_replCamTeleportOff(Core* c)                    { eng(c)
 static void        tomba_renderBbFrameReset(Core* c)                    { rend(c)->bbFrameReset(); }
 // dev-warp full area load (was native_boot.cpp game_main's eng(c).sop.transitionAreaLoad()).
 static void        tomba_devWarpAreaLoad(Core* c)                       { eng(c).sop.transitionAreaLoad(); }
+// dev-warp area index (game/core/dev_areas.cpp) — count / sourced name / "is a warp legal now".
+static int         tomba_devAreaCount(Core*)                            { return Engine::devAreaCount(); }
+static const char* tomba_devAreaName(Core*, int area)                   { return Engine::devAreaName(area); }
+static bool        tomba_devWarpAllowed(Core* c)                        { return Engine::devWarpAllowed(c); }
 // game-side REPL commands (invtest/bgm/bgmstop/seqsolo/musictest) — body in game/core/repl_commands.cpp.
 extern bool tomba_repl_command(Core* c, const char* cmd, const char* line);
 
@@ -230,6 +234,9 @@ extern const GameHooks g_tomba_hooks = {
   /* renderBbFrameReset */ tomba_renderBbFrameReset,
   /* replCommand        */ tomba_repl_command,
   /* devWarpAreaLoad    */ tomba_devWarpAreaLoad,
+  /* devAreaCount       */ tomba_devAreaCount,
+  /* devAreaName        */ tomba_devAreaName,
+  /* devWarpAllowed     */ tomba_devWarpAllowed,
   /* schedStageBody     */ tomba_schedStageBody,
   /* schedRng           */ tomba_schedRng,
   /* fps60WorldPass     */ tomba_fps60_world_pass,

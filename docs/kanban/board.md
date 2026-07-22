@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (16)
+## TODO (17)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
@@ -14,7 +14,7 @@
 - **#18 Score/AP-gem pickup display effect missing under pc_render**  `render`
 - **#22 Health wheel is too transparent — reproduces on psx_render too, so the oracle is NOT the reference**  `render` — 📎 docs/reference/issues/issue22_health_wheel_reference.png,    docs/reference/issues/issue22_health_wheel_reference_dark.png
 - **#23 Roof flames do not lerp at fps60 while the burning-rope flame does**  `render,fps60` — 📎 docs/reference/issues/issue23_flame_no_lerp.png
-- **#26 Temple interior (area 12): ceiling beam band renders warped/displaced under pc_render**  `render`
+- **#26 Ghost pig boss fight (area 12): ceiling beam band renders warped/displaced under pc_render**  `render`
 - **#31 fps60: interpolated frames and real frames appear to be built differently**  `bug,render,fps60`
 - **#32 17 guest addresses have two native owners — the class that caused #28**  `workflow`
 - **#33 fps60 unification made the world render twice per logic frame — remove the now-dead guest-time world build**  `render,fps60,perf`
@@ -22,6 +22,7 @@
 - **#35 START pause page (Options / Load data / Quit game) draws with no panel background**  ``
 - **#36 dev-warp: cold cross-area warp self-destructs ~50 frames later, and ids >=22 are accepted but are not areas**  `bug,tooling`
 - **#37 areas 16/17/18 hang under cold warp — behaviour loop in gen_func_80040558**  `bug`
+- **#38 RmlUi warp selector is unverified on screen — no window in the agent environment**  `verification`
 
 ## DOING (1)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`

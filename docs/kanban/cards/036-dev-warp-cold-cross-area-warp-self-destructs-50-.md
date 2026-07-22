@@ -4,7 +4,7 @@ title: dev-warp: cold cross-area warp self-destructs ~50 frames later, and ids >
 status: todo
 labels: [bug, tooling]
 created: 2026-07-22
-updated: 2026-07-22
+updated: 2026-07-23
 ---
 
 Two defects in the REPL/dbg 'warp <id>' dev tool, both found while closing #24. Neither is a port bug — the first reproduces IDENTICALLY on the oracle.
@@ -14,3 +14,5 @@ Two defects in the REPL/dbg 'warp <id>' dev tool, both found while closing #24. 
 (B) 'warp <id>' ACCEPTS ids 0..31 BUT ONLY 0..21 ARE AREAS. Area load is FUN_80045080(0x80108F9C, area+3) = file index area+3 into the stride-8 LBA/size table at 0x800BE118. Dumped live that table is [0]=OPN [1]=CRD [2]=SOP [3..24]=A00..A0L [25]=START [26]=DEMO [27]=GAME, then zeros. So 'warp 22' loads START.BIN (1648 bytes) into the MODE slot, 'warp 23' loads DEMO.BIN, 'warp 25+' reads a zero descriptor — hence the '[disc] LBA … out of range' lines and the garbage stage (stage=0x90144C01). Corroborated three ways: exactly 22 A0*.BIN overlays on the disc; all six per-area MAIN tables are 22 entries; GAME.BIN's nexttab (0x80108F60) has [22]=[23]=0. FIX: reject id >= 22 in the warp command with a diagnostic instead of corrupting the mode slot. Files: external/psxport/runtime/recomp/repl.cpp (the 'warp' command) + native_boot.cpp (dev-warp area load).
 
 Refs: docs/findings/scene.md (three new blocks), kanban #24.
+
+**2026-07-23:** 2026-07-23 PARTIALLY FIXED (operator). The 'warp accepts ids >= 22 and corrupts the mode slot' half is done: the REPL warp command now asks the game how many areas it has (new GameHooks::devAreaCount, backed by game/core/dev_areas.cpp) and rejects anything past the last one — 'warp: area 25 is out of range — this game has 22 areas (0..21)' — verified, with warp 12 still loading clean immediately after. STILL OPEN, the harder half: cold cross-area warp self-destructs ~50 frames later (bf870 resets to 0, then jt[0] = area 0's handler is dispatched into the resident overlay) and renders black for ~45 frames because the fade never completes. Reproduces identically under PSXPORT_GATE=1 with areaidx=0 in the miss dump, so it is a dev-tool defect and not the port. The settled recipe (newgame; skip 3000; warp N; skip 600) avoids it, and the RmlUi selector effectively always takes that path since the user warps from a running field.

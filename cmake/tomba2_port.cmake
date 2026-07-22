@@ -34,6 +34,7 @@ set(GAME_SRC
   game/core/verify_skip.cpp         # VerifyHarness pc_skip/observable half (P1.7c split)
   game/render/fps60_worldpass.cpp   # TRANSITIONAL fps60 world-pass hook body (P1.7c)
   game/core/recomp_register.cpp
+  game/core/dev_areas.cpp
   game/core/repl_commands.cpp
   game/core/register_overrides.cpp
   game/core/str.cpp

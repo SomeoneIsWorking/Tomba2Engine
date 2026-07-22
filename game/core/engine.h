@@ -66,6 +66,14 @@ public:
   void camTeleport(int x, int y, int z) { mCamTpX = x; mCamTpY = y; mCamTpZ = z; mCamTpPending = true; }
   void camTeleportOff() { mCamTpPending = false; }
 
+  // DEV WARP area index (game/core/dev_areas.cpp) — backs the RmlUi warp selector and the REPL `warp`
+  // range guard. Static: no Engine state, and the framework reaches them through GameHooks so it never
+  // learns a Tomba guest address or an area name. devAreaName returns "" for an area whose name has no
+  // source yet (see docs/areas.md — an index is a fact, a name is a claim).
+  static int         devAreaCount();
+  static const char* devAreaName(int area);
+  static bool        devWarpAllowed(Core* c);   // a warp is only legal from the field (GAME stage)
+
   // `debug stage` change-detector for the RUNNING dispatcher's sm[0x4a]/sm[0x4c] log line (was a
   // function-local static pair in the stage dispatchers — per-Core so SBS's two cores log independently).
   uint16_t mLast4a = 0xffff, mLast4c = 0xffff;
