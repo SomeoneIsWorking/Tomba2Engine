@@ -5,13 +5,13 @@
 
 ## BACKLOG (0)
 
-## TODO (3)
+## TODO (2)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
-- **#11 Barrel top face renders BLACK on the blue side (red side correct)**  `bug,render`
 
-## DOING (1)
+## DOING (2)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
+- **#11 Barrel top face renders BLACK on the blue side (red side correct)**  `bug,render`
 
 ## DONE (7)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`

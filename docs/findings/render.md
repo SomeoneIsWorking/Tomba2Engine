@@ -88,6 +88,72 @@
 - **refs:** `runtime/recomp/gpu_gpu.cpp` (`gpu_zbias_unit`/`set_order` bias, `ord3d_b`, draw_tri/tex_emit),
   `runtime/recomp/gpu_gpu_internal.h` (`s_depth_bias`), `game/render/render_queue.cpp` (`zfightScan` diag),
   `runtime/recomp/gte_beetle.cpp:218` (the 1/4096 depth source). Config: `PSXPORT_ZBIAS`, `PSXPORT_ZFIGHT`.
+
+## Waterpump barrel top face renders BLACK under pc_render (kanban #11) — a PAINTER-ORDER surface pair the depth buffer cannot resolve (2026-07-22, ROOT-CAUSED, fix not yet landed)
+
+- **symptom (USER 2026-07-22, two screenshots; also `docs/reference/issues/issue5_barrel.png`):** the
+  seaside waterpump's blue/red barrel draws its top opening SOLID BLACK from one side and correctly
+  (the blue water surface) from the other. Stable per angle, not a flicker.
+- **repro (headless, ~90 s, no live input):** the exec path must be pinned or the two legs land in
+  different places and the compare is worthless — run BOTH legs on recomp_path so only the RENDERER
+  differs:
+  ```
+  { echo newgame; echo "run 16500"; echo "press left"; echo "run 300";
+    echo "release left"; echo "press up"; echo "run 100"; echo "shot OUT.png"; echo quit; } \
+  | PSXPORT_GATE=1 PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 \
+    PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
+  ```
+  `PSXPORT_GATE=1` = pc_render leg (black), `PSXPORT_ORACLE=1` = psx_render leg (blue water); the two
+  frames are otherwise pixel-comparable. Evidence: `scratch/screenshots/cmp/barrelcmp.png`. The black
+  pixel is (165,92); the barrel is off-screen-left on the DEFAULT exec path, so use GATE.
+- **mechanism (measured, `PSXPORT_PRIMAT="165,92,16880"`):** exactly two world prims cover that pixel,
+  and they are THE SAME FOUR SCREEN VERTICES listed with different corner assignments:
+  ```
+  seq=726 col=(32,32,32) tp=(704,0) clut=(800,248) uv=[(191,93)(191,82)(186,90)(186,85)]
+          xy=[(184,91)(165,94)(162,91)(153,92)]  vdepth=[.089810 .099835 .089926]  D32=0.144987  <- WINS
+  seq=746 col=(96,96,96) tp=(640,0) clut=(800,220) uv=[(200,135)(222,135)(200,104)(222,104)]
+          xy=[(162,91)(184,91)(153,92)(165,94)]  vdepth=[.089784 .094109 .099802]  D32=0.144475
+  ```
+  So the guest paints a DARK cap (the barrel's interior/hole) and then the WATER surface over it, at the
+  same four corners. On PSX that is free — no depth buffer, later link wins. Under pc_render both carry
+  real per-vertex depth and the buffer decides, and it decides for the dark cap because:
+  1. the dark cap is GENUINELY ~3e-5 (ord) nearer at every shared vertex — a real authored offset, not
+     quantization, so no amount of depth PRECISION recovers the right answer; and
+  2. the quad is not planar and the two prims are triangulated along DIFFERENT diagonals (v1–v2 =
+     B–C, 4 px, vs A–D, 31 px), which inflates the interior gap to ~5.8e-4. That part is a pure
+     artifact of corner ORDER — the depth field of a surface must not depend on how the submitter
+     listed its corners — and it is what makes the winner flip with viewing angle (black one side,
+     correct the other).
+- **PROVED the resolver, not just the cause:** with the bias made paint-order-dominant
+  (`PSXPORT_ZBIAS=3e-5 PSXPORT_ZBIAS_MAX=0.5`, the new cap knob) the barrel top renders as the blue
+  water surface, matching psx_render exactly — `scratch/screenshots/cmp/proof.png` (pc_render | forced
+  paint order | oracle). So paint order IS the correct answer here and the engine's job is to produce it.
+- **and proved the global knob is NOT the fix:** the same run wrecks the rest of the frame (hut roof,
+  wooden ramp, stone pillar, a pot that vanishes) — `scratch/screenshots/cmp/full3.png`. Span = unit ×
+  prim count is unavoidable, so a per-FRAME emit-order bias large enough for a seq-726 contest is far
+  past genuine world separation. This closes out the PARTIAL entry above: the global bias cannot be
+  grown into the fix, at any magnitude. **Do not re-attempt a global ZBIAS tune for this class.**
+- **why the shipped bias does nothing here (worth knowing before measuring again):** `PSXPORT_ZBIAS`
+  alone is inert for any late-frame prim — at seq 726 the accumulated bias has long since saturated at
+  `ZBIAS_MAX`, so BOTH contestants get the identical clamped bias and the delta is 0. That is why the
+  first sweeps (1e-5, 1e-4) changed nothing at all. `PSXPORT_ZBIAS_MAX` was added so the knob is
+  actually steerable in a sweep.
+- **the fix (unchanged in direction, now with a measured target):** intra-object prims must share ONE
+  depth so a pair like this is an EXACT tie and `GREATER_OR_EQUAL` + submission order resolves it, as
+  `obj_depth_lookup` already does for billboards. Blocker is unchanged and concrete: these prims carry
+  `dbg_node=0`. `Render::diag.currentNode()` IS correct while the object renders (`otattr` shows
+  `fn=0x8003F9A8 node=0x800EF478` etc. for the RTPS calls), but the prims are teed from the guest OT
+  walk at DrawOTag time, long after those scopes closed. So the work is to carry object identity across
+  the OT walk — the machinery already exists (`OtAttr`'s packet-pool span→node table, and
+  `obj_depth_add`'s span registry), it is just not consulted by the 3D per-vertex-depth path.
+- **ruled out (do not re-chase):** backface/winding (both prims wind the same way — signed areas +66
+  and +22); wrong texture or CLUT on the black face (it is a legitimately dark texture, tp=(704,0),
+  and it is the one that WINS, not one that draws wrong); `Panel::fillQuad` and the 2D UI path
+  (this is world geometry, layer=1); depth precision/quantization alone (the authored offset is real).
+- **refs:** `runtime/recomp/gpu_vk.cpp` (`gpu_zbias_unit`, `zbias_max`, `set_order`),
+  `runtime/recomp/render_queue.cpp` (`primat-rq`, `emitOrQueue` `dbg_node` assignment),
+  `runtime/recomp/gpu_native.cpp` (`obj_depth_add`/`obj_depth_lookup`), `runtime/recomp/ot_attr.h`.
+  Config: `PSXPORT_PRIMAT`, `PSXPORT_ZBIAS`, `PSXPORT_ZBIAS_MAX`, `debug otattr`.
 ## Weapon "ball but no CHAIN" (#28 follow-up) — chain-LINK billboards already render; only a minor grab/dust semi-quad is dropped (2026-07-10, could-not-reproduce a significant chain)
 
 - **symptom (task/USER):** under the default config (pc_render), Tomba's weapon mid-swing shows the BALL
