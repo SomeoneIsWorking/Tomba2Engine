@@ -356,3 +356,55 @@ should not / does not resolve when it should" while Tomba is engaged with someth
 that shape should look for the same class of defect (a guest 32-bit unsigned test ported as a narrower
 or signed read) BEFORE opening a fresh investigation. Kanban #2 (bucket-pickup cutscene softlock) is
 NOT fixed by it and remains open.
+
+## Bucket-pickup cutscene softlock (kanban #2) — the delay-slot branch constant (2026-07-22)
+
+**Symptom.** Picking up the bucket under the default config (pc_skip=true) softlocks: Tomba freezes,
+scratchpad cut-mode `0x1F800137` latches at 1 and never clears. Repro
+`replays/bugs/bucket-softlock.pad` — position `0x800E7EAE` stops changing at f500 and is still frozen
+at f3000 (replay ends f1764).
+
+**Root cause (FIXED).** `beh_prng_velocity_machine` (FUN_80117658, the seaside collectible Tomba takes
+the bucket from) transcribed the wrong constant into one branch. At `0x80117be0` the guest runs
+`beq v1,v0` comparing the object's `phase` byte against **v0 = the variant byte loaded at
+0x80117ba0**, which is 1 on that path. The transcription read v0 as `3` — the value `0x80117bd4`
+loads, which is the DELAY SLOT of the *other* branch's `j 0x80117cc0` and never executes here. Effect:
+`phase` latched at 1 forever, so the `FUN_8005308C` wait never ran, the end-of-pickup script
+(`FUN_80040CDC`) never started, and cut-mode stayed 1 = the softlock.
+
+This is the same defect CLASS as the seesaw/pickup bug above (a guest register test transcribed with a
+wrong width/value). Suspect it first for any "state machine never advances" symptom.
+
+**Verified effect of the fix.** The pickup machine now walks HANDOVER -> AWAIT_PLAYER -> AWAIT_SCRIPT
+and the bucket cutscene script actually runs: `PSXPORT_DEBUG=pickup` shows the cursor advance
+`80148574 -> 8014857C -> 80148584 -> 80148594 -> 8014859C -> 801485A4`, and the script parks on op
+0x01 (`FUN_80041D60` = spawn a sub-actor and wait for its state byte to reach 2), having spawned the
+message box. **The cutscene still does not COMPLETE** — see the open residual below.
+
+**FALSIFIES the earlier card note "FUN_8007D594 is never called / DEAD END".** That measurement was
+taken on captures in which the cutscene never started (because of this very bug), so of course the
+dialog machine was cold. With the fix, `PSXPORT_DEBUG=ovhit` reports
+`0x8007D594 DialogBoxSm::step : native=963 oracle=0` on the same replay. The dialog state machine IS
+the live driver of this cutscene. Do not re-derive it as cold.
+
+**OPEN residual — where this now stops.** The message-box actor is `FUN_8007DA50` (UNOWNED, and NOT in
+the card's previously-surveyed dialog set); its state 1 calls `FUN_8007D594` = the ported
+`DialogBoxSm::step`. On the repro the box node `0x800EED90` sits at `[4]=1 [5]=2` for 1464+ frames and
+does not advance on X taps, so the script's wait for `[4]==2` never satisfies. Next step is
+`DialogBoxSm::step` under exercise (it is port_check-PASS but was never exercised until now) and
+`FUN_8007DA50` itself. Chain from the pickup down to the box is now fully owned/RE'd.
+
+**Tooling added.** `tools/find_refs.py <dump.bin> <addr> [--rw r|w]` — "who reads/writes guest address
+X", scanned straight off the instruction stream of a RAM dump (Ghidra's Reference DB misses the
+`lui`+offset absolute-global form this codebase lives on, and `decomp.sh` has no xref mode). It is
+what located the cut-mode writers and the popup-node users here. `PSXPORT_DEBUG=pickup` traces the
+collectible's script progress. **FOLLOW-UP:** the `pickup` channel still needs its one-line entry in
+`external/psxport/docs/config.md` — the edit was made and then backed out because that submodule was on
+a detached HEAD carrying another agent's in-flight change, and committing there would have moved the
+pointer under them. Add it when the submodule is quiet.
+
+**Method note.** A pad replay is only valid for the timeline it was recorded on: this capture does NOT
+reproduce under `PSXPORT_PC_SKIP=0` or under the oracle (`PSXPORT_GATE=1`), because those reach
+free-roam ~800 frames later and the same button stream drives Tomba somewhere else. Confirmed by
+running both to f4000 with a cut-mode watchpoint — the pickup never happens. Do not treat "the oracle
+does not reproduce it" as evidence about the bug.

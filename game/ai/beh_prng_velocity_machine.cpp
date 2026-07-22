@@ -339,8 +339,9 @@ void activeCommitPosition(Core* c, const PickupObj& obj) {
     return;
   }
   if (obj.variant() != CARRIED) return;
+  const bool carrierBusy = c->mem_r8(kCarrierBusy) >= 5;   // guest reads the gate before the block ptr
   const MotionBlock m = obj.motion();
-  if (c->mem_r8(kCarrierBusy) >= 5) return;                // carrier pipeline saturated — skip this frame
+  if (carrierBusy) return;                                 // carrier pipeline saturated — skip this frame
   if (call1(c, obj.a, Guest::kStepMotion) == 0) return;
   if (obj.phase() == RESTING) {
     obj.setX(c->mem_r16(kPickedUpX));
@@ -393,6 +394,11 @@ void collectCarried(Core* c, const PickupObj& obj) {
       return;
     }
     case AWAIT_SCRIPT: {
+      // PSXPORT_DEBUG=pickup — the bucket cutscene's progress: the script token the end-of-pickup
+      // script hands back, and the script cursor it is parked on.
+      cfg_logf("pickup", "obj=%08X token=%u scriptPtr=%08X flags71=%02X player=%02X/%02X cut=%u",
+               obj.a, obj.scriptToken(), c->mem_r32(obj.a + 0x6c), c->mem_r8(obj.a + 0x71),
+               c->mem_r8(0x800E7E84u), c->mem_r8(0x800E7E85u), c->mem_r8(0x1F800137u));
       if (obj.scriptToken() != kScriptTokenFree) { call1(c, obj.a, Guest::kAwaitScript); return; }
       obj.setState(RETIRE);
       return;
