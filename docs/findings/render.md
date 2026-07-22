@@ -1,5 +1,90 @@
 # Findings — render / engine submit
 
+## In-game TRIANGLE menu rendered fully transparent (kanban #21, 2026-07-22, FIXED — pixel-exact)
+
+- **symptom (USER):** the menu opened with TRIANGLE has no background — the field shows straight
+  through it. Real-game reference: `docs/reference/issues/issue21_triangle_menu_reference.png`.
+- **status:** FIXED (`game/ui/pause_menu.cpp`, `PauseMenu`). The pc_render capture is now
+  **0 differing pixels out of 76800** against the psx_render leg at the same frame
+  (`scratch/screenshots/uilayer/menu_fix8.png` vs `menu_pcexec_psxrender.png`), and psx_render matches
+  the user's real-game reference element for element (tabs, border, opaque fill, legend row with
+  button glyphs, item icon tiles, green divider, help panel with portrait).
+- **CORRECT A WRONG NOTE ON THE CARD.** The previous session recorded "the in-process `renderpsx`
+  toggle is BLIND to this one — pc and psx legs are pixel-identical with the menu open (0 diff)".
+  **That is false.** Default exec + `PSXPORT_RENDER_PSX=1` renders the menu completely and correctly.
+  The fault was never upstream of the renderer split; it was purely a missing pc_render producer, and
+  psx_render was a perfectly good reference the whole time. (What IS true is the separate observation
+  that `PSXPORT_GATE=1` at the same REPL script does not open the menu at all — different timing, not
+  a different picture.)
+- **cause:** the menu is drawn by the guest controller **FUN_800346BC** (reached from
+  `Engine::submitPage810c` -> still-recomp `FUN_801084F8`), which paints every piece of chrome through
+  the two shared UI leaves **FUN_8007E1B8** (templated POLY_FT4 group) and **FUN_8007E6DC** (SPRT
+  group). pc_render does not walk the guest OT, and nothing produced this family natively, so the
+  whole layer was absent. Guest-data proof, no picture needed: `PSXPORT_PRIMAT="160,120,323"` on the
+  psx leg reports one opaque prim over the panel centre
+  (`op=2D semi=0 raw=1 tp=(384,0) clut=(480,249) uv0=(120,120) bbox=(28,51)-(292,180)`) and the same
+  probe on the pc leg reports no menu prim at all. `debug otattr` attributes 195 op-0x2D packets that
+  frame to `fn=0x8007E2F8` (inside FUN_8007E1B8) under `caller=0x800346BC`.
+- **NOT `Panel::fillQuad` (0x8004FFB4)** — confirmed again, zero dispatches while the menu is open.
+  That address is the FIELD 9-slice fill. Do not re-chase it.
+- **fix:** a SCOPED LEAF TAP. `menuTick` wraps FUN_800346BC (raise scope, run gen, lower, draw);
+  `uiFt4Tap` wraps FUN_8007E1B8 and `ov_compose` (game/ui/ui_sprite.cpp) wraps FUN_8007E6DC — each
+  runs the untouched guest body, then records the guest-ABI group arguments. Scoping is what stops
+  the field HUD (which calls `Render::emitUiFt4` directly, kanban #13) from double-drawing.
+- **THE PART THAT IS EASY TO GET WRONG — PAINT ORDER IS NOT CALL ORDER.** Groups must be drawn in the
+  guest's ordering-table order: **descending OT bucket** (`attrs+1`; a lower PSX OT index is walked
+  later, i.e. drawn in front) and **reverse call order within a bucket** (AddPrim prepends). Emitting
+  in call order paints the black panel interior (bucket 107) over the item icons (bucket 103) and the
+  green divider (bucket 100) — measured, they vanished. The same LIFO rule applies WITHIN one group:
+  `Render::emitUiFt4` walked its entries ascending and had to be flipped to descending (matching
+  `emitUiSprites`, which already did), proven by the help-panel portrait whose four overlapping pieces
+  walk 0x800BFFD0 -> FF08 -> FEB8 -> FE68 in the psx OT. Field-HUD regression from that flip: **0 px**.
+- **two full-screen quads the menu also owns**, both read back with the REPL `rw` on the psx leg:
+  `60000000 00000000 00F00140` = opaque black 320x240, the FIRST packet in the walk (this is why the
+  real menu sits on solid black — while the menu is up the guest submits NO world geometry, all 421
+  packets that frame are menu chrome); and `E1000040` + `62404040 00000000 00F00140` = a SUBTRACTIVE
+  (blend bits = 2, B - F) 0x404040 full-screen dim linked at bucket 132, so everything in a higher
+  bucket (drop shadow, tab labels, the rule under them) comes out 0x40 darker. Omitting the dim left
+  those elements exactly 0x40 too bright on all three channels — measured at the tab glyphs.
+- **field HUD stands down while the menu is up** (`Render::fieldHudRender` early-return on
+  `PauseMenu::upThisFrame`), because the guest's HUD dispatcher does not run then either. Without it a
+  32x24 quad from the menu texpage sat on top of the help panel (the last 277 differing pixels).
+- **gate:** `{ run 230; tap triangle; run 90; shot }` headless, pc leg vs `PSXPORT_RENDER_PSX=1` leg:
+  0/76800 px. Field HUD before/after: 0/76800 px. Dialog box unchanged
+  (`replays/bugs/bucket-softlock.pad` f1200: opaque box, legible "This'll work for carrying the
+  Water!"). Diagnostic channel: `debug pausemenu`.
+
+## Health wheel "too transparent" (kanban #22, 2026-07-22, NOT REPRODUCED — dead ends recorded)
+
+- **status:** OPEN. No fix attempted, because the wheel could not be brought on screen headlessly this
+  session and guessing at a blend fix without seeing the prims would be exactly the bandaid the
+  no-bandaids rule bans.
+- **dead ends — do not repeat:**
+  - Walking left from AUTO_SKIP free-roam dead-ends at the cliff; walking right dead-ends at the
+    bucket obstacle (10 x 300-frame captures, `scratch/screenshots/uilayer/hunt/montage.png`). No
+    enemy is reachable from the start position with a single held direction.
+  - Poking the damage/invincibility word `0x800ECF54` (the one `ActorTomba::invincibilityFlashStep`,
+    FUN_80060268, reads) with 0x10 / 0x20 / 0x90 / 0xB0 does NOT raise the wheel.
+  - Forcing the field HUD ring state `0x800ED061` to 1 or 3 does not raise it either — the "item ring"
+    (FUN_80025934) is a different element.
+  - Tapping every face/shoulder button does not raise it (`select`/`l1`/`r1`/`l2`/`r2`/square/circle/
+    cross/start). START opens the *other* pause page (Options / Load data / Quit game), which has its
+    own missing-panel problem — see below.
+- **what the next session should do:** record a pad replay that takes damage (`replays/bugs/`), then
+  answer the card's question from the data, not the picture: `debug otattr` + `PSXPORT_PRIMAT` on a
+  wheel pixel, reading the semi bit and the blend bits. NOTE from #21 that is likely to matter: the
+  guest sets blend mode with a SEPARATE GP0 0xE1 draw-mode packet ahead of the prim (that is how the
+  menu's subtractive dim works). Any producer that derives `blend` only from a group's own tpage word
+  will silently fall back to mode 0 (0.5B + 0.5F averaging) — which reads as "too transparent" and is
+  consistent with the card's own reference-image analysis.
+
+## START pause page (Options / Load data / Quit game) has no panel either (2026-07-22, observed)
+
+- Tapping START from free-roam draws the three option strings over the live field with no background
+  (`scratch/screenshots/uilayer/hunt/btn_start.png`). Same family as #21 but a DIFFERENT drawer — #21's
+  fix is scoped to FUN_800346BC and does not cover this page, whose text comes from FUN_8007EAE4 under
+  the same 0x8010810C page dispatcher. Worth its own card.
+
 ## Debug PAUSE (P) presented a BLACK screen at fps60 (kanban #20, 2026-07-22, FIXED)
 
 - **symptom (USER):** pressing `P` (the debug-server pause; `PadInput` edge-detects `SDL_SCANCODE_P` and

@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 22 verified · 5 partial · 1 untested · 3 n/a
+**Status:** 22 verified · 5 partial · 1 untested · 4 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -184,6 +184,10 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **status:** n/a
 - **gate:** host-only queue push, zero guest writes; glyphEmit faithful body previously verified
 - **evidence:** 0c711055
+
+## pause-menu-chrome
+- **status:** n/a
+- **evidence:** pc_render overlay: host memory only, taps run gen and write no guest byte
 
 ## Render::dialogTextNative
 - **scope:** field/hut dialog TEXT producer (pc_render overlay)

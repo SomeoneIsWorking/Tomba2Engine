@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 10 verified · 10 ported-unverified · 1 blocked
+**Status:** 11 verified · 10 ported-unverified · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -129,6 +129,12 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **order:** 48
 - **owner:** game/render/render_options.cpp
 - **notes:** Five DEMO front-end OPTIONS pages, one producer each, dispatched on task sm[0x50]: page0 Select Options, 1 Messages, 2 Sound, 3 Screen adjust (draws over the LIVE title picture), 4 Controls (pad-face diagram). Previously pages 1-4 hit abortUnimplemented and KILLED the process under pc_render. Read-only: no guest writes. VISUALLY VERIFIED by forcing sm[0x48]=6 + sm[0x50]=1..4 via the REPL and reading the PNGs — all four draw correctly. Natural in-game nav to Options was NOT reproduced, so reachability by a player is unconfirmed.
+
+## pause-menu-chrome
+- **scope:** in-game pause/item menu display producer (FUN_800346BC controller + FUN_8007E1B8/FUN_8007E6DC UI leaves)
+- **status:** verified
+- **owner:** game/ui/pause_menu.cpp (class PauseMenu)
+- **notes:** kanban #21. Scoped leaf tap: gen bodies untouched, quads re-derived host-side at RQ_OVERLAY, ordered by the guest's own OT bucket (descending, LIFO within a bucket) rather than call order. Gate: 0/76800 differing pixels vs the psx_render leg with the menu open; 0/76800 field-HUD regression from the emitUiFt4 back-to-front flip.
 
 ## render-compose-tint-gate
 - **status:** ported-unverified

@@ -176,6 +176,7 @@ set(GAME_SRC
   game/scene/startup.cpp
   game/ui/font.cpp
   game/ui/panel.cpp
+  game/ui/pause_menu.cpp
   game/scene/level_load.cpp
   game/object/behavior_dispatch.cpp
   game/render/submit.cpp

@@ -45,6 +45,7 @@ void* tomba_ctx_create(Core* c) {
   ctx->engine.releaseTriggerMotion.core = c;  // Engine-owned release-trigger sub-motion cluster
   ctx->engine.actorMeleeEngage.core = c;      // Engine-owned melee-engage/reposition/arm leaf
   ctx->engine.meleeProximity.core = c;        // Engine-owned melee-proximity/approach-anchor leaf
+  ctx->engine.pauseMenu.core = c;         // Engine-owned in-game pause/item menu display producer
   ctx->rng.core        = c;
   ctx->trig.core       = c;
   ctx->math.core       = c;

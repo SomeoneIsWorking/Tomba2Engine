@@ -24,6 +24,7 @@
 // theirs, restore and unwind. Not doing so would hand the emitter pointers into the wrong place.
 #include "core.h"
 #include "ui/ui_sprite.h"
+#include "ui/pause_menu.h"
 #include "override_registry.h"
 
 void func_8007E1B8(Core*);   // generated/shard_disp.c — the shared 2D sprite emitter
@@ -88,7 +89,16 @@ void UiSprite::drawFixedDef152(Core* c) {
   c->r[29] += 24;
 }
 
-static void ov_compose(Core* c)          { UiSprite::compose(c); }
+// The pause/item menu paints its button glyphs, item icons and help-panel portrait through this
+// leaf, and pc_render has no other producer for them (kanban #21) — so the display half of the
+// menu's tap hangs here rather than on a second overrides::install for 0x8007E6DC (dual ownership
+// is what broke the dialog box in kanban #28). PauseMenu::pushSpriteGroup is a no-op outside the
+// menu scope and on the oracle / psx_render legs.
+static void ov_compose(Core* c) {
+  const PauseMenu::GroupArgs a = PauseMenu::readGroupArgs(c, /*sprite=*/true);
+  UiSprite::compose(c);
+  PauseMenu::collect(c, a);
+}
 static void ov_draw_from_table(Core* c)  { UiSprite::drawFromTable(c); }
 static void ov_draw_fixed_def152(Core* c) { UiSprite::drawFixedDef152(c); }
 

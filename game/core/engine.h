@@ -48,6 +48,7 @@
 #include "ai/actor_melee_engage.h"     // Engine owns the ActorMeleeEngage AI leaf (FUN_80112188)
 #include "ai/melee_proximity.h"        // Engine owns the MeleeProximity AI leaf (FUN_8001F9DC)
 #include "audio/sequencer.h"            // Engine owns the Sequencer libsnd tick wrapper (FUN_800909C0, wide-RE draft, unwired)
+#include "ui/pause_menu.h"              // Engine owns the PauseMenu in-game menu display producer (#21)
 class Core;
 
 class Engine {
@@ -104,6 +105,7 @@ public:
   ReleaseTriggerMotion releaseTriggerMotion; // release-trigger sub-motion cluster (FUN_80123E9C family)
   ActorMeleeEngage actorMeleeEngage;    // A00-overlay melee-engage/reposition/arm leaf (FUN_80112188)
   MeleeProximity   meleeProximity;      // melee-proximity/approach-anchor leaf (FUN_8001F9DC)
+  PauseMenu        pauseMenu;           // in-game pause/item menu native display producer (FUN_800346BC)
 
   // ── GAME-stage entry points (called by the scheduler each frame) ────────────────────────────
   // stagePrologue: one-time prologue that runs when the GAME task enters — task-slot setup, first

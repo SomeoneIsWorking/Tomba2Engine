@@ -28,6 +28,8 @@
 #include "game.h"
 #include "cfg.h"
 #include "render_internal.h"   // render_queue.h / cur_render_node / render.h
+#include "game_ctx.h"          // eng(c) — PauseMenu frame gate
+#include "engine.h"
 
 namespace {
 
@@ -103,7 +105,15 @@ void Render::emitUiFt4(int x, int y, int wOv, int hOv, uint32_t templPtr, uint32
   if (mode == 1 || mode == 3) du = -1;
   if (mode == 2 || mode == 3) dv = -1;
   if (mode == 5)              dv = 1;
-  for (int k = 0; k < cnt && k < 16; k++) {
+  // Entries are walked BACK-TO-FRONT, exactly like emitUiSprites: the guest links each packet into
+  // its OT bucket with AddPrim, which prepends, so the LAST entry of a group is drawn FIRST and
+  // entry 0 ends up on top. Measured on the pause menu's help-panel portrait (kanban #21): the four
+  // overlapping pieces walk 0x800BFFD0 -> FF08 -> FEB8 -> FE68 in the psx_render OT, i.e. strictly
+  // DESCENDING packet-pool address = descending k, and emitting them ascending put the wrong piece
+  // on top. Only matters where a group's entries overlap, which is why it went unnoticed on the
+  // field HUD's non-overlapping tile rows.
+  const int n = (cnt < 16) ? cnt : 16;
+  for (int k = n - 1; k >= 0; k--) {
     const uint32_t e = data + (uint32_t)k * 16u;
     int w = c->mem_r8(e + 10u), h = c->mem_r8(e + 11u);
     if (wOv > 0) w = wOv; else if (wOv < 0) w += wOv;
@@ -263,6 +273,11 @@ void Render::fieldHudWeaponStrip() {
 // ---- FUN_80025D98 — the HUD dispatcher gate (transcribed 1:1) -----------------------------------
 void Render::fieldHudRender() {
   Core* c = mCore;
+  // While the in-game pause/item menu is up the guest replaces the whole frame with menu chrome —
+  // no world, no HUD (measured: all 421 ordering-table packets that frame come from the menu
+  // controller FUN_800346BC). PauseMenu is the native producer for that frame; the field HUD stands
+  // down, exactly as the guest's own HUD dispatcher does.
+  if (eng(c).pauseMenu.upThisFrame()) return;
   const uint8_t mode = c->mem_r8(kAreaMode);
   const uint8_t sub  = c->mem_r8(kAreaSub);
   const bool subEarly = (uint8_t)(sub - 1u) <= 2u;   // guest: 2 < sub-1 means NOT early
