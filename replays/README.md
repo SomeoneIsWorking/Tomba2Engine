@@ -48,7 +48,7 @@ Once the recorded sequence ends, input falls through to the host (so `run N` aft
 
 | file | frames | scenario | surfaces |
 |------|--------|----------|----------|
-| `hut-entry-door-freeze.pad` | 934 | AUTO-NAV to free-roam, then walk right + up into the fisherman's-hut door | **SBS diverge @0x801FE91A (f389)** + a door-transition freeze (`FUN_80073328 case 3`) reaching both cores; see docs/findings/scene.md "Door/area-transition freeze" + docs/findings/sbs.md "spawn-leaf frame residual". The cleanest repro for the hut-entry diverge the live windowed session hits. |
+| `hut-entry-door-freeze.pad` | 934 | AUTO-NAV to free-roam, then walk right + up into the fisherman's-hut door | **SBS diverge @0x801FE91A (f389)** + a door-transition freeze (`FUN_80073328 case 3`) reaching both cores; see docs/findings/scene.md "Door/area-transition freeze" + docs/findings/sbs.md "spawn-leaf frame residual". The cleanest repro for the hut-entry diverge the live windowed session hits. **Also the headless way INSIDE the hut interior** (kanban #29): `run 1200` with no `newgame` lands standing in the room with the wall decorations on screen — the pad ends at f934 and the transition has completed by ~f1100; `press left` + `run 80` scrolls the camera to a second interior viewpoint, `press right` walks back out onto the field. |
 | `hut-entry-alt.pad` | 535 | alternate, shorter hut-entry capture | same hut-entry transition; a second capture for cross-checking. |
 
 ### bugs/

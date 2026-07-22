@@ -1,5 +1,58 @@
 # Findings — render / engine submit
 
+## Hut-interior wall decals "z-fight the wall" (kanban #29) FIXED 2026-07-22 — coincident faces in the SAME OT bucket, not a cross-object OT problem
+
+- **symptom (USER):** in the fisherman's-hut interior the wall decorations z-fight against the wall they
+  hang on. USER's proposed mechanism: "use OT when things have the same depth".
+- **headless repro (record this — it was the blocker):** `replays/scene-transitions/hut-entry-door-freeze.pad`,
+  NO `newgame`, `run 1200` → standing in the interior with the decorations on screen. (`hut-entry-alt.pad`
+  is too short — 535 frames — and leaves Tomba outside the door.) `press left` + `run 80` gives a second
+  interior viewpoint; `press right` walks back out to the field.
+- **PREMISE FALSIFIED — the OT cannot break these ties, and cross-object widening is irrelevant.**
+  Measured with `PSXPORT_ZFIGHT=1 PSXPORT_ZFIGHT_FRAME=1200 PSXPORT_DEBUG=zfight` at f1200. Every top
+  contesting pair is: SAME guest node (`800FD850`, the room object) — so `resolveKeyOrder`'s within-object
+  scoping was never the limiter — and SAME game sort key (408/408, 433/433, 376/376, …), i.e. the game
+  files both faces in the SAME OT bucket. The key carries zero ordering information between them.
+  Widening kanban #11's rule to cross-object pairs would have fixed nothing.
+- **actual cause:** the pairs are EXACTLY COINCIDENT quads — a decal filed on the wall quad it decorates:
+  identical four projected corners, identical four depths, different texpage UV/CLUT (`PSXPORT_PRIMAT`
+  at 243,90 confirms two distinct materials, cluts 880,245 vs 880,197) — listed with ROTATED vertex
+  order. Our quad triangulation is fixed at (0,1,2)+(1,2,3), so a rotation splits the two faces on
+  OPPOSITE diagonals; their interiors then interpolate differently and the EARLIER-submitted face wins
+  the half where its diagonal runs nearer. At f1200 that was 115 of 541 pixels on the worst pair, painted
+  against the guest's own intra-bucket order. Within a bucket the guest resolves purely by LINK order,
+  which our submission order (`RqItem::seq`) already reproduces — GREATER_OR_EQUAL hands the pixel to the
+  later face wherever the two interpolate equal, and only the diagonal split breaks that.
+- **fix** (`RenderQueue::resolveKeyOrder`, render_queue.cpp — inside `finalize`, so it reaches the
+  interpolated frame too): the `A.sort_key == B.sort_key` early-out now first tests EXACT coincidence
+  (`rq_faces_coincident`: same vertex count, and every vertex of one matching a vertex of the other in
+  screen position AND depth, order ignored). A coincident pair carries no depth information to preserve,
+  so both faces snap to their key's shared `key_ord` — depth becomes exactly equal everywhere and
+  submission order decides every pixel, which IS the guest's bucket link order. No epsilon, no tuned
+  constant; ordinary geometry cannot satisfy an exact vertex-multiset match.
+- **verification (all cited, all headless):**
+  - hut f1200: 281 pixels change; on those 281, the OLD picture matched the psx_render oracle at 0/281
+    and the NEW picture matches at 281/281. Second viewpoint (`press left`, run 80): 214 changed,
+    0/214 → 214/214. Shots `scratch/screenshots/hut29/{pc,pc_after,psx_after}.png`, crops `z_*.png`.
+  - kanban #11 barrel repro unchanged: pixel (165,92) = (40,152,248) blue water (correct).
+  - fps60 frame-kind symmetry: `PSXPORT_FPS60_TFORCE=1` + `debug fps60dump`, 10 logic frames on the
+    seesaw replay — every `*_interp.png` is 0/76800 pixels from its `*_real.png`.
+  - no general-case regression: 4 unrelated scenes (first field f3000, `warp 12`, `warp 5`, `warp 2`)
+    are pixel-IDENTICAL before vs after (0 changed px each), captured by toggling the new branch off,
+    rebuilding, and re-running the same script. The rule is a discriminator, not a re-order.
+- **DEAD ENDS / negative results worth not repeating:**
+  - A static pc-vs-psx frame diff in the hut looks CLEAN (only the animated NPCs differ) — the artifact
+    is a small wedge on a decal and drowns in animation noise. Do not conclude "no bug" from it; use the
+    changed-pixel set from the fix toggle and score it against the oracle.
+  - `zfightScan`'s inversion metric was initially unusable here: its top-2 buffer used a strict `>`,
+    so an exactly-tied pair reported the EARLIER prim as the winner — the opposite of the rasterizer's
+    GREATER_OR_EQUAL. Corrected to `>=` in the same change.
+  - Enabling `renderpsx` at REPL frame 0 (before the replay runs) produced a DIFFERENT animation phase
+    at f1200 than the default leg; only the in-run toggle (`shot`, `renderpsx on`, `run 1`, `shot`)
+    gives a comparable oracle frame.
+  - `PSXPORT_WIDE=1` on the REPL/headless leg did not widen the shot (still 320x240); wide was not
+    needed to reproduce.
+
 ## Missing-layer sweep across the AREA SET — method, coverage, and what it rules out (2026-07-22)
 
 - **method that works (use this, not GATE-vs-ORACLE):** engine taps never fire under `PSXPORT_GATE=1`
