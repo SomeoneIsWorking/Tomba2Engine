@@ -58,6 +58,35 @@ frames; `shot` reads back the VK image over the display region (works headless).
 | `PSXPORT_VK_HEADLESS=1` | Offscreen VK (no window/display) — deterministic; the basis of the headless screenshot. | env (run mode, not a behavior gate) |
 | **`debug otattr` + REPL `otattr`** | OT/GTE SUBMISSION ATTRIBUTION: traces every guest-submitted packet-pool store and every GTE RTPS/RTPT back to the emitting guest fn (rec_dispatch shadow stack) + world-object node (same `cur_render_node` fallback the native submit path uses). Turn the channel on BEFORE the frame you want to inspect, then run the REPL `otattr` command to re-walk the last OT read-only and print `pool= op= fn= caller= node= beh@node+1C=` per packet, plus a per-(fn,node) GTE call-count histogram. Built for bug #45 (multi-quad batching) + bug #34 (dialog-panel emitter) — see `game/render/ot_attr.h`. Blind to fully-native (non-dispatched) draw paths — see the class comment for the limitation. | `debug otattr` then REPL `otattr` |
 | **REPL `otattr watch/who/trace`** | LAST-WRITER PROVENANCE — answers "who WROTE this word" (any address, incl. scratchpad), independent of call-flow, for the staging-buffer case where `otattr`'s call-path attribution only names the batcher. `watch <addr> <len>` registers a region (8 slots, 64 KB total); `who <addr> [len]` dumps the word-granular last-writer, coalescing same-writer runs; `trace <addr>` prints the last writer + a copy-loop heuristic (does the writer's stores fan out across many 4KB pages this frame?) and points at a Ghidra follow-up when the source isn't statically determinable. Same shadow-stack signal as `otattr`, so it's ALSO blind past a plain (non-jalr/rec_dispatch) nested call — verified on bug #45's `0x8003F9A8`: last-writer matches call-path attribution exactly (no hidden RAM-copy hop), so the true emitter leaf there needs a Ghidra decompile of `0x8003F9A8`, not this tool. See `docs/config.md` `otattr` section. | `debug otattr` then REPL `otattr watch/who/trace` |
+## THE THREE GROUND TRUTHS — and the one we keep forgetting
+
+When a visual is wrong there are exactly three things that can settle it. Reach for them in this order,
+because they get STRONGER down the list, not weaker:
+
+1. **psx_render (the in-process `renderpsx` toggle).** Cheapest, and right most of the time. But it is
+   NOT ground truth — it has its own render bugs, and when a fault is shared by both legs the compare
+   returns 0 diff and reads as "nothing to fix". Two measured instances: the triangle menu (both legs
+   pixel-identical and both wrong) and the health wheel. A clean diff is not a clean bill of health.
+2. **A real-game reference capture** (USER can source one; store in `docs/reference/issues/`). The
+   arbiter when 1 is compromised. Sparse — you get the screens someone happened to photograph — but
+   authoritative for those, and two references of the SAME element over different backgrounds tell you
+   far more than one (see the health-wheel entry below).
+3. **THE GUEST'S OWN SUBMISSION — the one we keep forgetting, and the strongest.** The port OWNS the
+   emitters, so what a primitive is SUPPOSED to be is a fact in the data, not a matter of opinion:
+   the semi bit and blend mode the guest sets, the CLUT and texpage it selects, the sort key it
+   computes, whether an opaque slice is submitted at all. No picture required, and it works precisely
+   when both renderers are wrong — which is when 1 fails and 2 may not exist for that screen.
+   - "Is the health wheel meant to be semi-transparent?" → read the semi bit on its prims.
+   - "Is the menu's opaque fill missing or mis-drawn?" → is an opaque quad SUBMITTED for it at all.
+   - "Which face should win?" → the sort key the guest computes (this is how kanban #11 was settled).
+   Tools: `PSXPORT_PRIMAT="x,y,frame"` (every prim covering a pixel, with `raw/mode/tp/clut/uv`),
+   `debug otattr` + REPL `otattr` (which fn+node emitted a packet), `tools/find_refs.py` (who reads or
+   writes a guest address). Reading guest state to ANSWER A QUESTION is always allowed; the ban is on
+   the shipping path depending on it.
+
+An image tells you the renderers disagree with reality. The guest data tells you WHICH one is wrong and
+WHY — so when a reference is unavailable, that is the answer, not a dead end.
+
 ## REAL-GAME REFERENCE CAPTURES — the arbiter when the oracle is also wrong
 
 The default render check is pc_render vs psx_render in ONE process (`renderpsx` REPL toggle, default
