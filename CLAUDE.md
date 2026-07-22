@@ -218,6 +218,13 @@ prim fingerprint matching — is transitional debt and must be REMOVED, not exte
   state to ANSWER QUESTIONS; they never produce the picture. The ban is on tagging the shipping path.
 - **A tap is not a tag.** Running a gen body and re-deriving quads host-side from the contract it
   publishes is a native producer with a byte-exact source; that is the porting mechanism, not debt.
+- **LERP IS NATIVE TOO (USER, 2026-07-22).** fps60 interpolation is covered by this rule, with no
+  exemption for being hard. Per-prim `matchAndLerp` fingerprinting is the same banned pattern —
+  recovering identity by matching packets after the fact. Interpolate at the ACTOR-TRANSFORM tier
+  instead: lerp the per-object state the native producer already owns, then draw, with the SAME render
+  path for real and interpolated frames, one frame behind. No guest re-run, no guest writes — an
+  interpolated frame is a host-side presentation concern. Anchor/stamp special-casing is its own debt
+  and must not come back as the replacement.
 
 ## Render — reimplement, don't transcribe
 
