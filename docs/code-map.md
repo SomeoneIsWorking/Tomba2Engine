@@ -77,6 +77,7 @@ Totals: 921 native fns, 766 owned addresses, 720 LIVE / 201 ORPHAN.
 | 0x80032A44 | LIVE | `Rng::inRange` | game/math/rng.cpp:106 |  | scaled random. Disas 0x80032A44..0x80032A84 verbatim: `sra v0, 15` on … |
 | 0x80033AFC | ORPHAN | `leaf_80033AFC` | game/core/field_owned_leaves.cpp:1348 |  |  |
 | 0x800346BC | LIVE | `PauseMenu::install` | game/ui/pause_menu.cpp:103 |  |  |
+| 0x800346BC | LIVE | `PauseMenu::install` | game/ui/pause_menu.cpp:116 |  |  |
 | 0x80036DFC | LIVE | `SaveMenu::runHandler` | game/ui/save_menu.cpp:105 |  | ----------------------------------------------------------------------… |
 | 0x80036DFC | LIVE | `SaveMenu::dispatchBody` | game/ui/save_menu.cpp:137 |  | ----------------------------------------------------------------------… |
 | 0x80039F4C | LIVE | `Render::textLabelEmit` | game/render/text_label.cpp:162 |  |  |
@@ -454,6 +455,8 @@ Totals: 921 native fns, 766 owned addresses, 720 LIVE / 201 ORPHAN.
 | 0x800716B4 | ORPHAN | `leaf_800716B4` | game/core/field_owned_leaves.cpp:8892 |  |  |
 | 0x80071A3C | LIVE | `beh_area_event_dispatch` | game/ai/beh_area_event_dispatch.cpp:46 | 0x800716B4 0x80071768 0x801178E4 0x8011B79C |  |
 | 0x80072114 | ORPHAN | `leaf_80072114` | game/core/field_owned_leaves.cpp:13316 |  |  |
+| 0x80072114 | ORPHAN | `leaf_80072114` | game/core/field_owned_leaves.cpp:13479 |  |  |
+| 0x80072520 | LIVE | `ScorePopup::install` | game/render/score_popup.cpp:70 |  |  |
 | 0x800726D4 | LIVE | `Render::fadeTileRender` | game/render/screen_fade.cpp:220 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80072A78 | LIVE | `Placement::placeAreaObjects` | game/world/placement.cpp:103 | 0x80072A78 |  |
 | 0x80072DDC | LIVE | `Placement::spawnWithParent` | game/world/placement.cpp:145 | 0x80072DDC |  |
@@ -584,11 +587,14 @@ Totals: 921 native fns, 766 owned addresses, 720 LIVE / 201 ORPHAN.
 | 0x8007E1B8 | LIVE | `Render::emitMenuFt4` | game/render/render_walk.cpp:395 |  | emitMenuFt4 / emitMenuSprites — the MENU-specialized wrappers over the… |
 | 0x8007E6DC | LIVE | `Render::emitUiSprites` | game/render/field_hud.cpp:152 |  | --- emitUiSprites — general FUN_8007E6DC (SPRT template group) -------… |
 | 0x8007E6DC | LIVE | `Render::emitMenuSprites` | game/render/render_walk.cpp:401 |  |  |
-| 0x8007E6DC | LIVE | `ov_compose` | game/ui/ui_sprite.cpp:97 |  | The pause/item menu paints its button glyphs, item icons and help-pane… |
+| 0x8007E6DC | LIVE | `ov_compose` | game/ui/ui_sprite.cpp:98 |  | The pause/item menu paints its button glyphs, item icons and help-pane… |
 | 0x8007E6DC | LIVE | `UiSprite::compose` | game/ui/ui_sprite_compose.cpp:52 |  | (placement r4, indexPtr r5, defBase r6, attrs r7) |
 | 0x8007E8DC | LIVE | `UiSprite::drawFromTable` | game/ui/ui_sprite.cpp:43 |  | (x r4, y r5, attr r6, defIndex r7) |
 | 0x8007E938 | ORPHAN | `leaf_8007E938` | game/core/field_owned_leaves.cpp:13421 |  |  |
 | 0x8007E998 | LIVE | `UiSprite::drawFixedDef152` | game/ui/ui_sprite.cpp:76 |  | (x r4, y r5, attr r6) — drawFromTable with the definition index pinned… |
+| 0x8007E8DC | LIVE | `UiSprite::drawFromTable` | game/ui/ui_sprite.cpp:44 |  | (x r4, y r5, attr r6, defIndex r7) |
+| 0x8007E938 | ORPHAN | `leaf_8007E938` | game/core/field_owned_leaves.cpp:13584 |  |  |
+| 0x8007E998 | LIVE | `UiSprite::drawFixedDef152` | game/ui/ui_sprite.cpp:77 |  | (x r4, y r5, attr r6) — drawFromTable with the definition index pinned… |
 | 0x8007E9C8 | LIVE | `Engine::submitPage810cFaithful` | game/core/engine.cpp:379 | 0x8007E9C8 | pc_faithful mirror of ov_game_gen_8010810C's page-1 (pause-menu dim) b… |
 | 0x8007E9C8 | LIVE | `ScreenFade::fadetrace` | game/render/screen_fade.cpp:17 |  | `debug fadetrace` channel — logs every native-path fade call with the … |
 | 0x8007E9C8 | LIVE | `ScreenFade::installLeafTap` | game/render/screen_fade.cpp:88 |  |  |
@@ -616,6 +622,7 @@ Totals: 921 native fns, 766 owned addresses, 720 LIVE / 201 ORPHAN.
 | 0x80081218 | LIVE | `Asset::uploadImage` | game/core/asset.cpp:244 |  | PC-native CPU->VRAM upload — replaces the game's libgs-style upload li… |
 | 0x80081458 | LIVE | `Render::clearOTagR` | game/render/wide_re_libgpu_leaves.cpp:152 |  | func_80081458 (0x80081458) — ClearOTagR(OT, entries). VERIFIED & WIRED… |
 | 0x80081560 | LIVE | `Engine::drawOTag` | game/game_tomba2.cpp:143 |  | Native ownership of DrawOTag (libgpu FUN_80081560, the per-frame draw … |
+| 0x80081560 | LIVE | `Engine::drawOTag` | game/game_tomba2.cpp:144 |  | Native ownership of DrawOTag (libgpu FUN_80081560, the per-frame draw … |
 | 0x800815D0 | LIVE | `func_800815D0` | game/render/wide_re_gpu_putdrawenv.cpp:250 |  | func_800815D0 (0x800815D0) — libgpu PutDrawEnv(drawEnvPtr). DRAFT. RE'… |
 | 0x80081CF8 | LIVE | `buildDrawAreaRect` | game/render/hud_gauge_emitter.cpp:126 |  | ----------------------------------------------------------------------… |
 | 0x80081CF8 | LIVE | `emitDrawAreaAndLink` | game/render/hud_gauge_emitter.cpp:138 |  | Emit the DR_AREA packet built from the sp+rectOff rect into the packet… |

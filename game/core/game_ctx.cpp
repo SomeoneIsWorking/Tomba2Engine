@@ -47,6 +47,7 @@ void* tomba_ctx_create(Core* c) {
   ctx->engine.meleeProximity.core = c;        // Engine-owned melee-proximity/approach-anchor leaf
   ctx->engine.pauseMenu.core = c;         // Engine-owned in-game pause/item menu display producer
   ctx->engine.swingFx.core = c;           // Engine-owned weapon-charge starburst display producer
+  ctx->engine.scorePopup.core = c;        // Engine-owned score/AP-gem pickup popup display producer
   ctx->rng.core        = c;
   ctx->trig.core       = c;
   ctx->math.core       = c;

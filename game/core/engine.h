@@ -51,6 +51,7 @@
 #include "ui/pause_menu.h"              // Engine owns the PauseMenu in-game menu display producer (#21)
 #include "ui/start_page.h"              // Engine owns the StartPage in-game START page producer (#35)
 #include "render/swing_fx.h"            // Engine owns the SwingFx weapon-charge starburst producer (#14)
+#include "render/score_popup.h"         // Engine owns the ScorePopup AP-gem popup display producer (#18)
 class Core;
 
 class Engine {
@@ -118,6 +119,7 @@ public:
   PauseMenu        pauseMenu;           // in-game pause/item menu native display producer (FUN_800346BC)
   StartPage        startPage;           // in-game START page native display producer (FUN_8007EAE4)
   SwingFx          swingFx;             // weapon-charge starburst native display producer (FUN_8002A834)
+  ScorePopup       scorePopup;          // score/AP-gem pickup popup native display producer (FUN_80072520)
 
   // ── GAME-stage entry points (called by the scheduler each frame) ────────────────────────────
   // stagePrologue: one-time prologue that runs when the GAME task enters — task-slot setup, first

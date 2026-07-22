@@ -101,6 +101,8 @@ already solved or ruled out. 246 findings across 11 subsystems.
 - **Render::sharedTransformWalk (FUN_8003F07C) — the rigid-node sibling (2026-07-22)** [`port_check` PASS, wired with the setter, COLD on the field/dialog replay — as expected,] —   ↪ docs/findings/render.md
 - **Render::subPartWalk (FUN_8003F174) — sub-part walker, ported and LIVE (2026-07-22)** [?] —   ↪ docs/findings/render.md
 - **START pause page (Options / Load data / Quit game) drew with no panel (kanban #35, 2026-07-23, FIXED)** [FIXED (`game/ui/start_page.cpp`, `class StartPage`). Repro, both legs, no replay needed:] —   ↪ docs/findings/render.md
+- **START pause page (Options / Load data / Quit game) has no panel either (2026-07-22, observed)** [?] —   ↪ docs/findings/render.md
+- **Score / AP-gem pickup popup missing under pc_render — the FT4 leaf had ONE scoped tap (kanban #18, 2026-07-23, FIXED)** [FIXED — `game/render/score_popup.cpp` (+ `.h`), wired via `game/render/ui_ft4_tap.cpp`.] —   ↪ docs/findings/render.md
 - **Screen-fade transitions: SSAO/dynamic-shadows are dead stubs; FUN_8007E9C8 (fade-rect builder) only PARTIALLY native-owned** [(1)/(2) NOT YET diagnosed past ruling out SSAO/light (see below) — needs non-visual RE, not] —   ↪ docs/findings/render.md
 - **ScreenFade held-latch permanent black on default `./run.sh` free-roam (2026-07-08)** [?] —   ↪ docs/findings/render.md
 - **Shipping-path tag/stamp purge — packet-span registries were dead code (2026-07-22, RESOLVED)** [?] —   ↪ docs/findings/render.md

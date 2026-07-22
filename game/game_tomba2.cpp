@@ -30,6 +30,9 @@
 #include "ui/pause_menu.h" // PauseMenu::install — FUN_800346BC/8007E1B8 in-game menu chrome producer
 #include "ui/start_page.h" // StartPage::install — FUN_8007EAE4 in-game START page chrome producer
 #include "render/swing_fx.h" // SwingFx::install — FUN_8002A834/80027768 weapon-charge starburst producer
+#include "ui/pause_menu.h" // PauseMenu::install — FUN_800346BC in-game menu chrome producer
+#include "render/score_popup.h" // ScorePopup::install — FUN_80072520 AP-gem popup producer (#18)
+#include "render/ui_ft4_tap.h"  // UiFt4Tap::install  — FUN_8007E1B8 shared FT4 leaf, one owner
 #include "collision.h"  // PC-native collision-grid subsystem
 #include "entity.h"     // PC-native per-object entity state-machine subsystem
 #include "script_vm.h"     // PC-native per-object script-VM subsystem
@@ -221,6 +224,9 @@ void games_tomba2_init(void) {
   PauseMenu::install();           // FUN_800346BC/8007E1B8 in-game pause/item menu chrome (#21)
   StartPage::install();           // FUN_8007EAE4 in-game START page chrome (#35)
   SwingFx::install();             // FUN_8002A834/80027768 weapon-charge starburst mesh (#14)
+  PauseMenu::install();           // FUN_800346BC in-game pause/item menu chrome scope (#21)
+  ScorePopup::install();          // FUN_80072520 score/AP-gem pickup popup scope (#18)
+  UiFt4Tap::install();            // FUN_8007E1B8 shared FT4 group leaf — ONE owner, fans out to both
   void fx_sprite_install();
   fx_sprite_install();            // FUN_80027A4C scaled-sprite packet writer tap (#12 torch flame family)
   void pad_edge_fence_install();

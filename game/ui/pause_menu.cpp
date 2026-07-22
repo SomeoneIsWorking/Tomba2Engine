@@ -11,8 +11,15 @@
 #include "cfg.h"             // `pausemenu` diagnostic channel
 
 extern void gen_func_800346BC(Core*);
-extern void gen_func_8007E1B8(Core*);
 extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
+
+
+void PauseMenu::collect(Core* c, const UiGroupArgs& a) {
+  if (c->game->oracle || c->rsub.mode.psxRender()) return;   // read-only overlay gate
+  PauseMenu& menu = eng(c).pauseMenu;
+  if (!menu.mInMenuDraw) return;              // every other caller owns its own producer
+  menu.mGroups.push_back(a);
+}
 
 // The OT bucket the guest links its full-screen subtractive dim into (see drawCollected). Everything
 // in a HIGHER bucket is painted before it and therefore dimmed.
@@ -58,6 +65,8 @@ void PauseMenu::drawCollected() {
   bool dimDone = false;
   for (int i : capture.paintOrder()) {
     const UiGroupArgs& a = capture.mGroups[i];
+  for (int i : order) {
+    const UiGroupArgs& a = mGroups[i];
     // The menu's SUBTRACTIVE full-screen dim, linked at OT bucket kDimBucket ahead of that bucket's
     // own groups — so it paints over everything in higher buckets (the drop shadow, the outer frame,
     // the tab labels and the rule under them) and under everything below (the panel interior, the
@@ -97,7 +106,6 @@ void uiFt4Tap(Core* c) {
   gen_func_8007E1B8(c);          // byte-exact guest packet pool / OT / scratchpad staging
   UiGroupCapture::route(c, a);
 }
-
 }  // namespace
 
 void PauseMenu::install() {
@@ -105,5 +113,6 @@ void PauseMenu::install() {
   if (done) return;
   done = true;
   engine_set_override_main(0x800346BCu, menuTick, gen_func_800346BC);
-  engine_set_override_main(0x8007E1B8u, uiFt4Tap, gen_func_8007E1B8);
+  // The FT4 leaf FUN_8007E1B8 is installed by UiFt4Tap, which fans out to this class's collect()
+  // and to the score popup's. Installing it a second time here would silently replace that fan-out.
 }

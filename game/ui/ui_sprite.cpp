@@ -25,6 +25,8 @@
 #include "core.h"
 #include "ui/ui_sprite.h"
 #include "ui/ui_group_capture.h"
+#include "ui/pause_menu.h"
+#include "score_popup.h"
 #include "override_registry.h"
 
 void func_8007E1B8(Core*);   // generated/shard_disp.c — the shared 2D sprite emitter
@@ -98,6 +100,14 @@ static void ov_compose(Core* c) {
   const UiGroupArgs a = UiGroupCapture::readArgs(c, /*sprite=*/true);
   UiSprite::compose(c);
   UiGroupCapture::route(c, a);
+// menu's tap hangs here rather than on a second overrides::install for 0x8007E6DC (dual ownership
+// is what broke the dialog box in kanban #28). Same fan-out shape as UiFt4Tap: every scope's
+// collect() is a no-op unless its own scope is open, and on the oracle / psx_render legs.
+static void ov_compose(Core* c) {
+  const UiGroupArgs a = UiGroupArgs::read(c, /*sprite=*/true);
+  UiSprite::compose(c);
+  PauseMenu::collect(c, a);
+  ScorePopup::collect(c, a);
 }
 static void ov_draw_from_table(Core* c)  { UiSprite::drawFromTable(c); }
 static void ov_draw_fixed_def152(Core* c) { UiSprite::drawFixedDef152(c); }

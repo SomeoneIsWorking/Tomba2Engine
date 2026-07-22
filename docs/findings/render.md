@@ -2369,13 +2369,19 @@ draft was already byte-faithful.
 - **the real gap = 0x80039F4C** (UNOWNED, wrapped by obs_body): a genuine multi-element loop —
   iterates per-element object pointers (iVar7 = param+4k), reads a glyph index per element, resolves
   per-element transform at iVar7+0xC0, emits one quad each via FUN_8003F7D8 (decomp:
-  scratch/decomp/bug45.c). This is the score/AP popup / icon-strip renderer. N elements' quads land
+  scratch/decomp/bug45.c). ~~This is the score/AP popup / icon-strip renderer.~~ **FALSIFIED
+  (2026-07-23, kanban #18): 0x80039F4C is the 3D TEXT-LABEL renderer** — since owned as
+  `Render::textLabelEmit` (game/render/text_label.cpp) — and it does NOT fire for the score/AP popup.
+  The popup renderer is FUN_80071DFC through the FT4 leaf FUN_8007E1B8; see the #18 entry at the end
+  of this file. N elements' quads land
   in ONE span with ONE node identity → fps60 reprojects the strip rigidly. Natural per-element
   boundary: each loop iteration's element pointer.
 - **fix direction:** port 0x80039F4C native (full ownership) with per-element provenance
   (recordBillboardParticle-equivalent + per-element identity); port framework + port_check gate.
-- **outstanding:** live otattr confirmation of 0x80039F4C firing (needs a score/AP popup on screen —
-  collect a pickup; the evidence agent's jump-traversal never collected one). Confirm before landing.
+- ~~**outstanding:** live otattr confirmation of 0x80039F4C firing (needs a score/AP popup on screen).~~
+  **ANSWERED (2026-07-23, kanban #18):** a forced AP-gem collect was driven and traced with
+  `PSXPORT_DEBUG=dispatch` — the popup's only packet emitter is 0x8007E1B8 from inside FUN_80071DFC.
+  0x80039F4C never fires for it.
 - **refs:** issue #45; scratch/decomp/bug45.c; game/render/perobj_billboard.cpp:388,512-529;
   game/render/fps60.cpp:142-196; game/render/render_observer.cpp; ot_attr.cpp:44-49 (coalescing key).
 - **FIX LANDED (2026-07-14, 0f78384) — the node-span teleport class:** stampBillboard now
@@ -3232,9 +3238,17 @@ are owned.**
   path is the 40-slot effect pool 0x800EC188 (stride 0x40) walked by FUN_8003F024 → **FUN_8003D23C**
   (per-slot 7-word textured-tri emitter: scale-matrix from rec+0xC ×5/65536, rotation from rec+0x28,
   world pos rec+0x1E/22/26 through the scratch camera, vertex/uv template 0x8009D46C[rec+7]·0x18,
-  color rec+0x30..32|op rec+0xE — Ghidra `scratch/decomp/hud_fx_leaves.c`) — the prime candidate if
+  color rec+0x30..32|op rec+0xE — Ghidra `scratch/decomp/hud_fx_leaves.c`) — a candidate if
   the user still sees missing charge/impact after this change; it wants the same display-pass
   treatment (float re-projection through sceneCam).
+  **CORRECTION (2026-07-23, kanban #18): this paragraph is partly WRONG and is NOT a general
+  "prime candidate for short-lived pickup/impact effects".** 0x800EC188 is the 40-slot stride-0x40
+  OBJECT TABLE (owned: `ObjectTable::TABLE_BASE`, game/world/object_table.h:34), not an effect pool —
+  docs/engine_re.md:3873 already notes the effect-pool reading is a separate struct. FUN_8003D23C IS
+  owned (`leaf_8003D23C`, game/core/field_owned_leaves.cpp); codemap prints it ORPHAN only because no
+  C code calls it directly. And it plays no part in the score/AP-pickup family — that one turned out
+  to be FUN_80071DFC through FUN_8007E1B8 (see the #18 entry at the end of this file). Treat the
+  0x8003D23C lead as unproven for anything except the charge/impact effects it was actually traced on.
 - **refs:** game/render/fx_sprite.cpp, game/render/field_hud.cpp, render_walk.cpp (delegating menu
   wrappers + fieldHudRender call), render.h, game_tomba2.cpp (fx_sprite_install), cmake/tomba2_port.cmake;
   decomps scratch/decomp/{fx_emit_leaves,fx_pkt_writer,f9a8_subs,hud_fx_leaves,ui_sprite_leaves,
@@ -3368,3 +3382,84 @@ are owned.**
   decomps scratch/decomp/c14_swingfx.c + c14_27768.c; ground truth generated/shard_5.c
   gen_func_80027768; evidence scratch/screenshots/{c14fix,gate_before,gate_after}/, logs
   scratch/logs/c14_otattr*.txt.
+## Score / AP-gem pickup popup missing under pc_render — the FT4 leaf had ONE scoped tap (kanban #18, 2026-07-23, FIXED)
+
+- **symptom (USER, card #18):** collecting a score/AP gem shows the floating value ("100") on the
+  psx_render leg and NOTHING on pc_render.
+- **status:** FIXED — `game/render/score_popup.cpp` (+ `.h`), wired via `game/render/ui_ft4_tap.cpp`.
+- **repro (deterministic, headless, no source edits):** the AUTO_SKIP free-roam area has a collectible
+  node at guest `0x800EDFC0` (handler `0x8004C238` = beh_visibility_gate_dispatch, node[3]=0). Poke it
+  to AP-gem type 4 (100 pts) and force its collect transition, and the NEXT tick runs the real guest
+  chain `case4 -> Spawn::dropScoreGem -> FUN_80071B44 -> popup entity`:
+  `run 400` · `w8 800edfc3 4` · `w8 800edfc5 0` · `w8 800edfc4 2` · `run 4`×N · `shot`.
+  Spawn detector: `0x800BF83C` (live popup-entity pointer) goes 0 -> 0x800EEB70 on the next tick.
+  Add `renderpsx on` before the pokes for the reference leg. Driver kept at `scratch/card18_repro.sh`.
+- **cause:** the popup's digits are emitted by the unowned drawer **FUN_80071DFC** (and its
+  item/count sibling FUN_80072308) through the shared UI FT4 group leaf **FUN_8007E1B8**. That leaf
+  had exactly ONE native tap — `PauseMenu::uiFt4Tap` — whose `collect()` early-returns unless the
+  pause-menu scope is open. On the field the call therefore ran the gen body only; the packets landed
+  in the guest packet pool / OT, which pc_render no longer walks (break-first rebuild 2026-07-15), and
+  the layer was simply lost. Same class as #12/#13/#21: absent layer == no native producer.
+- **chain (all guest addrs):** 0x8004C238 beh_visibility_gate_dispatch (owned) -> 0x8004B3F4
+  Spawn::dropScoreGem (owned) -> 0x80071B44 popup SPAWNER (spawnWithParent(src,0x80,3,0xd); handler
+  0x80072520 at node+0x1C; node+0x44 = ASCII decimal of the value (FUN_80079634); node+0xE = digit
+  count; node+0x5C = clut 0x7C7E (<5000) / 0x7C3E (>=5000); publishes 0x800BF83C) -> **0x80072520**
+  per-frame handler (state0 seeds node+0x40 = 0x3C = 60-frame life; state1 -> FUN_80071DFC when
+  node[3]<2, FUN_80072308 when node[3]==2; state3 despawns) -> **0x80071DFC** the drawer (camera from
+  scratchpad 0x1F8000F8; anchor = player 0x800E7EAE / 0x800E7EB2-200, -0x8C when 0x800E7FF4&4 /
+  0x800E7EB6; projected by FUN_8003F7A0; per digit x-step FUN_80071C48/FUN_80071CF4, glyph index
+  FUN_8009A1F0, template ptr = *(u32*)(0x80017334 + (glyph+0x69)*4), data base = *(u32*)0x800ECF58)
+  -> **0x8007E1B8** one FT4 group per digit.
+- **fix:** `ScorePopup` — the same SCOPED-TAP shape as PauseMenu (#21). Scope is **FUN_80072520**, not
+  the drawer: one scope covers both sub-drawers and no other caller. `popupTick` raises the scope, runs
+  the untouched `gen_func_80072520`, lowers it, then `drawCollected()` re-derives the quads with
+  `Render::emitUiFt4` at **RQ_OVERLAY**, ordered by the guest's own sort key (descending OT bucket,
+  LIFO within a bucket) — never call order. Gated `if (c->game->oracle || c->rsub.mode.psxRender())
+  return;`, no guest write outside gen.
+- **the ownership trap this had to dodge:** 0x8007E1B8 already had an owner. A SECOND
+  `overrides::install` on it silently replaces the first (no build error, no SBS diff — both write the
+  same guest state), which is exactly bug #28. So the install was LIFTED out of `pause_menu.cpp` into
+  `UiFt4Tap` (game/render/ui_ft4_tap.cpp), the single owner, which runs gen once and FANS OUT to every
+  scope's `collect()`. `UiSprite`'s `ov_compose` (FUN_8007E6DC) fans out the same way. The shared
+  argument decode moved from `PauseMenu::GroupArgs` to `UiGroupArgs` (game/render/ui_group_args.h).
+- **verification (cited):** yellow glyph pixels in the popup box (rows 60..95, cols 90..140),
+  `scratch/card18_count.py`: psx leg **60**, pc leg BEFORE **0**, pc leg AFTER **60** — at f4/8/12/20/
+  30/44 of the popup's life, all six frames. Full-frame diff pc-before vs pc-after EXCLUDING the popup
+  box: **0 of 73994 px** (the only 228 changed pixels in the frame are the "100" itself), i.e. the
+  change adds a layer and touches nothing else. Images `scratch/screenshots/card18/{psx_,pcr_,fix_}*.png`.
+  Regression: dialog box at replays/bugs/bucket-softlock.pad f1200 opaque + legible; triangle menu
+  (run 200 / tap triangle / run 120) renders complete — `scratch/screenshots/card18gate/after_*.png`.
+  `tools/codemap.py --conflicts` = 18 before and after (no new duplicate-owned address).
+- **DEAD ENDS / FALSIFIED — do not re-chase:**
+  - **"0x800EC188 is a 40-slot effect pool + FUN_8003D23C is unowned + it is the prime candidate for
+    this class"** (the #14/#15 note above) is WRONG on all three counts for this card. 0x800EC188 is
+    the 40-slot stride-0x40 OBJECT TABLE, already owned as `ObjectTable::TABLE_BASE`
+    (game/world/object_table.h:34); FUN_8003D23C IS owned (`leaf_8003D23C`,
+    game/core/field_owned_leaves.cpp — codemap prints it ORPHAN only because no C code calls it
+    directly); and neither appears anywhere in the popup chain. The live `PSXPORT_DEBUG=dispatch`
+    trace over an actual pickup shows the popup's ONLY packet emitter is 0x8007E1B8, called from
+    0x800720CC inside FUN_80071DFC.
+  - **"0x80039F4C is the score/AP popup renderer"** (this file, the #45 evidence pass, and its open
+    TODO "needs a score/AP popup on screen") is FALSIFIED. 0x80039F4C is the 3D TEXT-LABEL renderer,
+    already owned as `Render::textLabelEmit` (game/render/text_label.cpp), and it does not fire for
+    the AP popup. That TODO is ANSWERED: the popup renderer is FUN_80071DFC.
+  - **No replay in `replays/` collects an AP gem** — 0x800BF874 stays 0 across bucket-softlock.pad
+    (1764f) and seesaw-weight.pad (6668f). Note 0x800BF874 is an ALIASED cell (AP total in spawn.cpp
+    vs event-stream cursor in scene_events.cpp / cube_text_ledger.cpp); 0x800BF83C is the reliable
+    popup detector. And no PLACED AP-gem objects exist to walk into: scanning both entity lists for
+    handler 0x8004C238 with node[3] in 4..11 across the AUTO_SKIP start area and warp areas 1..5
+    found zero — gems are DROPPED, not placed. Hence the poke recipe.
+  - **TOOLING DEFECT (worth a card):** the `otattr` REPL command produced NO per-packet lines here in
+    any of three configurations (pc_render default, `renderpsx on`, `PSXPORT_RENDER_PSX=1`) — only the
+    "spans=… gteBuckets=…" header and an empty GTE histogram. The recipe that solved #21 did not work
+    for this card; `PSXPORT_DEBUG=dispatch` (reading the `ra` of the 0x8007E1B8 calls) is the fallback
+    that answered it.
+  - **tool locations are NOT one command set:** `tools/dbgclient.py` actually lives at
+    `external/psxport/tools/dbgclient.py`. The debug server has `call`/`w8` but NOT `debug`, `otattr`
+    or `renderpsx`; the stdin REPL has `w8`/`otattr`/`renderpsx` but NOT `call`. Neither is a superset,
+    and `docs/driving-the-game.md` lists them together as if it were one set.
+  - `replays/README.md` frame counts are stale (seesaw-weight.pad listed 16406, actually 6668).
+- **refs:** game/render/score_popup.{h,cpp}, game/render/ui_ft4_tap.{h,cpp},
+  game/render/ui_group_args.{h,cpp}, game/ui/pause_menu.{h,cpp}, game/ui/ui_sprite.cpp,
+  game/core/engine.h, game/core/game_ctx.cpp, game/game_tomba2.cpp, cmake/tomba2_port.cmake;
+  decomps scratch/decomp/{gem_spawner,gem_popup,gem_tick,c18_drops}.c.
