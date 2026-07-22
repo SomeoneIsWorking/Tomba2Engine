@@ -104,6 +104,9 @@ workflow defects. Stop and fix them, then resume.
     `none` (host-only overlay — a guest write is a BUG) | `non-canon` (writes guest RAM but byte-matches
     at the rendezvous — pc_skip) | `full` (deliberately changes canon state — pc_enh; MUST be
     force-suppressed under ORACLE/SBS or `behavior.py check` FAILS). Register every enhancement here.
+- **Area index:** `docs/areas.md` — the 22 areas (0..21), how to reach one (cold `warp` is broken;
+  use the settled recipe), and the NAMING RULE: an area index is a fact, an area name is a claim that
+  needs a source (USER or guest data). Two cards were filed against invented names before this existed.
 - **Status & spine:** `docs/port-progress.md` — boot→gameplay execution spine, per-function status,
   current frontier (the DETAIL behind port-map). Port top-to-bottom. Update in the same commit as the work.
 - **Fleet workflow (operator + subagents):** `docs/fleet-workflow.md` — how to drive ownership at scale
