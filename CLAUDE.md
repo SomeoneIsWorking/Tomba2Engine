@@ -163,6 +163,24 @@ spot-check AFTER Ghidra only.
 - **No bandaids / no magic constant offsets.** Name the root cause; every lifted fn / patched value gets
   RE justification. Especially: **no residual RAM diverges** — no SBS diff may be waved off as
   known/expected/residual. Only exception: memory the still-recomp side never reads.
+- **WRAP THE GUEST-MEMORY SOUP — ported bodies must READ as game code (USER directive, repeated).**
+  A function full of `c->mem_r32(0x800E7FD8)` and `mem_r8(node + 0xB)` is a transcript, not a port, and
+  it actively HIDES bugs: you cannot see a state fork that never fires when every read is an opaque hex
+  address. (The seesaw bug was exactly this — a `mem_r16s` where the guest compares 32-bit unsigned —
+  and it only became findable once the surrounding code read as state.) So when you touch a body:
+  typed struct LENSES over the guest blocks (`dlg.state()`, not an offset), NAMED constants for every
+  literal address saying what it IS, enums or named constants for state-machine states, method names
+  that say what the code DOES, and ABI plumbing via `runtime/recomp/guest_abi.h` rather than open-coded
+  `r[]` juggling. Byte-exact mechanics STAY byte-exact — this is about how they read.
+  **Exemplars, match them rather than inventing a style:** `game/ui/panel_fill.cpp` (converted from a
+  `port_gen` transcription: named packet layout, decoded attribute bits, a table replacing the guest's
+  jump table) and `MusicCoord::voiceMixTick`.
+  **The checker trap that keeps bodies unreadable:** `port_check` compares STATIC store sequences, so a
+  genuine rebuild can FAIL it by construction (a table replacing an unrolled jump table has fewer store
+  sites). When that happens, prove equivalence the way panel_fill.cpp does — run the repro with the
+  native installed and with it disabled so the gen body runs, diff the 2 MB dumps, cite the result.
+  Do NOT contort readable code back into a transcription to satisfy the checker, and do NOT skip the
+  proof either.
 - **REAL C++ CLASSES, no `extern "C"` shims.** Subsystems are instance methods on Core-owned classes
   (`c->engine.foo.method(args)`), pure math/utility is static (`Math::rotmat(c, a, b)`). No `ov_*` free
   functions, no `foo_impl` helpers under `Class::foo` wrappers. When in doubt, INSTANCE. See

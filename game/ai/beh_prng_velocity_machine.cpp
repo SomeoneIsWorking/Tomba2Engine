@@ -1,25 +1,25 @@
-// game/ai/beh_prng_velocity_machine.cpp — PC-native per-object BEHAVIOR handler FUN_80117658.
+// game/ai/beh_prng_velocity_machine.cpp — PC-native per-object BEHAVIOR handler FUN_80117658:
+// the seaside WANDERING COLLECTIBLE (the actor Tomba picks the BUCKET up from).
 //
-// Overlay handler (~x1552/field-frame on seaside; ~430 instr), prologue 0x80117658; `jr ra` at
-// 0x80117CF0. Disassembled from scratch/ram/field_seaside.bin. Two-level state machine; outer
-// state = node[4] (s0); s2 = node[0x10] (a guest pointer this handler writes through):
-//   STATE 0 (init): per-node[3] (0 or 1) variant — set a block of node fields + s2[6/8/10/12/22],
-//                   call FUN_80077B38 / FUN_80051B70, then FUN_8004B354 and node[4]++.
-//   STATE 1: per node[5]/node[94]/node[3] sub-machine that drives s2[14/20/22/24/26] (velocity/
-//            timer fields), uses the PRNG FUN_8009A450 (3 draws), then a shared node[3] dispatch
-//            (L7a30): node[3]==0 -> FUN_8007778C + FUN_80077B5C + FUN_8004B374;
-//                     node[3]==1 -> reads scratchpad 0x1F800207 gate + node[0xC0] struct -> pos update.
-//   STATE 2: per node[3]/node[5] — sound/effect leaves (FUN_8004D4C4/4F4, FUN_8004ED94, FUN_8004B0D8,
-//            FUN_8004BD04/BEA8, FUN_80042354, FUN_80040CDC, FUN_8005308C) + area-flag poke 0x800BF9DC|=1.
-//   STATE 3: FUN_8007A624(node).
+// One handler, two variants selected by the object's `variant` byte:
+//   variant 0 (GROUND) — a ground collectible that idles, drifts on a re-rolled random timer, and on
+//                        collection hands over item 58 and retires.
+//   variant 1 (CARRIED) — the BUCKET carrier: it wanders under the steering helper FUN_801141C8,
+//                        rides a carrier transform (node[0xC0]), and on collection runs the full
+//                        item-get sequence: give item 40, arm cutscene mode, show the get-popup, wait
+//                        for the player to come back out of the cutscene pose, then run the end-of-
+//                        pickup script and retire.
 //
-// Ownership model (identical to the siblings): CONTROL FLOW + the direct node/s2/global WRITES owned
-// native; every sub-behavior CALL stays reachable via rec_dispatch (pure-PSX leaf; a0/a1/a2 set as the
-// guest does). The PRNG draws return via c->r[2] and advance the shared RNG in RAM — the gate rolls
-// RAM back before rec_super_call so both sides draw the same sequence. Transcribed 1:1 as a register
-// machine (locals = guest regs, goto labels = guest addresses); signed (lh/sra) vs unsigned (lhu/lbu)
-// preserved exactly. DELAY-SLOT stores before a jal execute BEFORE the callee (mirrored here). The
-// byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net. NO GTE/render.
+// The outer state is `state` (node[4]) — SPAWN → ACTIVE → COLLECTED → RETIRE; within ACTIVE and
+// COLLECTED a `phase` byte (node[5]) sequences the steps. See PickupState/ActivePhase/CollectPhase.
+//
+// FIDELITY: this reads as game code but is byte-exact against the guest. Every store keeps the guest's
+// width, signedness and ORDER (including stores the guest puts in a jal delay slot, which execute
+// BEFORE the callee — those are marked). Sub-behaviour leaves that are not yet owned are reached by
+// rec_dispatch with the guest's own a0..a2, so they see the identical interface. The handler pushes
+// the guest's 32-byte frame via GuestFrame so the guest stack bytes match too (CLAUDE.md "MIRROR THE
+// GUEST STACK"). RE: Ghidra decompile of FUN_80117658 off a live RAM dump (scratch/decomp/pickup.c);
+// equivalence proven by A/B 2 MB RAM+scratchpad dump diff on replays/bugs/bucket-softlock.pad.
 
 #include "core.h"
 #include "game_ctx.h"
@@ -27,27 +27,383 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
-#include "graphics_bind.h"   // ov_obj_render_update (FUN_800517F8)
-#include "inventory.h"       // class Inventory — inv(c).give (FUN_8004D4F4)
-#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "spawn.h"           // class Spawn (eng(c).spawn.despawn)
+#include "graphics_bind.h"   // GraphicsBind::setGeom / recordInit / renderUpdate
+#include "inventory.h"       // class Inventory — inv(c).give / giveAndFlag
+#include "guest_abi.h"       // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
 namespace {
 
-constexpr uint32_t BEH_FN = 0x80117658u;
+// ---------------------------------------------------------------------------------------------
+// Guest routines this handler drives that are not owned natively yet. Reached through rec_dispatch
+// with the guest's own argument registers, so the interface they observe is unchanged.
+namespace Guest {
+  constexpr uint32_t kPlaySfx            = 0x80074590u;  // FUN_80074590(id, 0, 0) — SFX / song router
+  constexpr uint32_t kSteerWanderer      = 0x801141C8u;  // FUN_801141C8(obj) — overlay steering; leaves a turn code in obj.steerResult
+  constexpr uint32_t kRandom             = 0x8009A450u;  // FUN_8009A450() — shared PRNG draw
+  constexpr uint32_t kStepMotion         = 0x8007778Cu;  // FUN_8007778C(obj) — integrate the motion block; 0 = not ready
+  constexpr uint32_t kCommitGroundPos    = 0x80077B5Cu;  // FUN_80077B5C(obj) — commit position for the ground variant
+  constexpr uint32_t kSyncCollectible    = 0x8004B374u;  // FUN_8004B374(obj, variant) — per-frame collectible sync
+  constexpr uint32_t kBeginCollect       = 0x8004B0D8u;  // FUN_8004B0D8(obj) — start the collection reaction
+  constexpr uint32_t kArmCollectible     = 0x8004B354u;  // FUN_8004B354(obj, variant) — finish spawn-time setup
+  constexpr uint32_t kSpawnGetPopup      = 0x8004BD04u;  // FUN_8004BD04(obj, 0, 0) — spawn the "got item" popup; returns its node
+  constexpr uint32_t kBindGetPopup       = 0x8004BEA8u;  // FUN_8004BEA8(itemId, popupNode) — publish the popup to the HUD globals
+  constexpr uint32_t kEnterCutsceneMode  = 0x80042354u;  // FUN_80042354(mode, musicSel) — sets scratchpad cut-mode 0x1F800137
+  constexpr uint32_t kPlayerLeftCutscene = 0x8005308Cu;  // FUN_8005308C() — nonzero once the player is back out of the cutscene pose
+  constexpr uint32_t kRunScript          = 0x80040CDCu;  // FUN_80040CDC(obj, 0, script) — run an event script on the object
+  constexpr uint32_t kAwaitScript        = 0x80041098u;  // FUN_80041098(obj) — pump the running script; clears obj.scriptToken when done
+}
 
-static inline uint32_t call0(Core* c, uint32_t fn) { rec_dispatch(c, fn); return c->r[2]; }
-static inline uint32_t call1(Core* c, uint32_t a0, uint32_t fn) { c->r[4] = a0; rec_dispatch(c, fn); return c->r[2]; }
-static inline uint32_t call2(Core* c, uint32_t a0, uint32_t a1, uint32_t fn) {
+// Guest globals ---------------------------------------------------------------------------------
+constexpr uint32_t kGeomTableGround = 0x800ECF80u;  // u32: geometry descriptor the ground variant binds
+constexpr uint32_t kGeomDefGround   = 0x8014C808u;  // geometry definition passed to GraphicsBind::setGeom
+constexpr uint32_t kBucketScript    = 0x80148574u;  // event script run when the bucket pickup completes
+constexpr uint32_t kAreaEventFlags  = 0x800BF9DCu;  // u8 bitfield: bit0 = "bucket collected" in this area
+constexpr uint32_t kCarrierBusy     = 0x1F800207u;  // scratchpad u8: carrier pipeline depth; >=5 stalls the carried variant
+
+// Position the motion step publishes for a collectible that has been picked up ------------------
+constexpr uint32_t kPickedUpX = 0x1F800160u;   // scratchpad u16 x3 — where a collected item snaps to
+constexpr uint32_t kPickedUpY = 0x1F800162u;
+constexpr uint32_t kPickedUpZ = 0x1F800164u;
+
+// Item ids --------------------------------------------------------------------------------------
+constexpr uint32_t kItemGroundPickup = 58;   // variant 0's reward
+constexpr uint32_t kItemBucket       = 40;   // variant 1's reward
+
+// SFX ids ---------------------------------------------------------------------------------------
+constexpr uint32_t kSfxCollect     = 45;    // played with bank 66 when the bucket is collected
+constexpr uint32_t kSfxCollectBank = 66;
+constexpr uint32_t kSfxLaunch      = 146;   // played once as the collectible launches
+
+// Angles are PSX 12-bit-per-quadrant: 4096 = 90 degrees.
+constexpr int32_t kQuarterTurn = 4096;
+constexpr int16_t kHalfQuarter = 2048;
+
+// ---------------------------------------------------------------------------------------------
+// Outer state (obj.state, node[4]).
+enum PickupState : uint8_t {
+  SPAWN     = 0,   // one-shot construction, then -> ACTIVE
+  ACTIVE    = 1,   // idling / wandering, waiting to be collected
+  COLLECTED = 2,   // the collection sequence (differs per variant)
+  RETIRE    = 3,   // despawn
+};
+
+// obj.variant (node[3]).
+enum PickupVariant : uint8_t { GROUND = 0, CARRIED = 1 };
+
+// obj.phase (node[5]) while state == ACTIVE.
+enum ActivePhase : uint8_t {
+  LAUNCH   = 0,   // first frame(s): kick the motion block, or re-roll the wander timer
+  SETTLING = 1,   // hold timer running down, then drop to the resting height
+  RESTING  = 2,   // at rest; the motion step publishes the pick-up position
+};
+
+// obj.phase (node[5]) while state == COLLECTED, CARRIED variant.
+enum CollectPhase : uint8_t {
+  HANDOVER    = 0,   // give the item, arm cutscene mode, spawn the popup
+  AWAIT_PLAYER= 1,   // wait for the player to leave the cutscene pose, then start the script
+  AWAIT_SCRIPT= 2,   // pump the script until it releases obj.scriptToken, then RETIRE
+};
+
+constexpr uint8_t kScriptTokenFree = 255;   // obj.scriptToken value meaning "no script outstanding"
+
+// The steering helper's verdict, left in obj.steerResult by Guest::kSteerWanderer.
+enum SteerResult : uint8_t { NO_TURN = 0, TURN_LEFT = 1, TURN_RIGHT = 2 };
+
+// ---------------------------------------------------------------------------------------------
+// MotionBlock — the physics/animation block the object points at through node[0x10]. FUN_8007778C
+// integrates it; this handler only seeds and steers it.
+struct MotionBlock {
+  Core* c; uint32_t a;
+  uint16_t x() const            { return c->mem_r16(a + 0); }
+  uint16_t y() const            { return c->mem_r16(a + 2); }
+  uint16_t spin() const         { return c->mem_r16(a + 12); }
+  void setAnchor(uint16_t x, uint16_t y, uint16_t z) const {   // guest order: X, Y, (…), Z
+    c->mem_w16(a + 6, x); c->mem_w16(a + 8, y); c->mem_w16(a + 10, z);
+  }
+  void setAnchorX(uint16_t v) const  { c->mem_w16(a + 6, v); }
+  void setAnchorY(uint16_t v) const  { c->mem_w16(a + 8, v); }
+  void setAnchorZ(uint16_t v) const  { c->mem_w16(a + 10, v); }
+  void setSpin(uint16_t v) const     { c->mem_w16(a + 12, v); }
+
+  int16_t  yaw() const               { return c->mem_r16s(a + 14); }
+  uint16_t yawBits() const           { return c->mem_r16(a + 14); }
+  void     setYaw(uint16_t v) const  { c->mem_w16(a + 14, v); }
+
+  int16_t  vel() const               { return c->mem_r16s(a + 20); }
+  void     setVel(int16_t v) const   { c->mem_w16(a + 20, (uint16_t)v); }
+
+  uint16_t wanderTimer() const           { return c->mem_r16(a + 22); }
+  void     setWanderTimer(uint16_t v) const { c->mem_w16(a + 22, v); }
+
+  uint16_t holdTimer() const             { return c->mem_r16(a + 24); }
+  void     setHoldTimer(uint16_t v) const { c->mem_w16(a + 24, v); }
+
+  void     setGravity(uint16_t v) const  { c->mem_w16(a + 26, v); }
+};
+
+// ---------------------------------------------------------------------------------------------
+// PickupObj — typed lens over the guest object node this handler owns.
+struct PickupObj {
+  Core* c; uint32_t a;
+
+  uint8_t  drawMode() const           { return c->mem_r8(a + 0); }
+  void     setDrawMode(uint8_t v) const { c->mem_w8(a + 0, v); }
+  uint8_t  variant() const            { return c->mem_r8(a + 3); }
+  uint8_t  state() const              { return c->mem_r8(a + 4); }
+  void     setState(uint8_t v) const  { c->mem_w8(a + 4, v); }
+  uint8_t  phase() const              { return c->mem_r8(a + 5); }
+  void     setPhase(uint8_t v) const  { c->mem_w8(a + 5, v); }
+  void     advancePhase() const       { c->mem_w8(a + 5, (uint8_t)(c->mem_r8(a + 5) + 1)); }
+
+  MotionBlock motion() const          { return MotionBlock{ c, c->mem_r32(a + 0x10) }; }
+
+  uint8_t  steerResult() const           { return c->mem_r8(a + 0x2b); }
+  void     clearSteerResult() const      { c->mem_w8(a + 0x2b, 0); }
+
+  // Position: a 16.16 fixed-point triple at +0x2C/+0x30/+0x34 whose HIGH halves (+0x2E/+0x32/+0x36)
+  // are the integer world coordinates every other system reads.
+  void     setPosXFixed(uint32_t v) const { c->mem_w32(a + 0x2c, v); }
+  void     setPosYFixed(uint32_t v) const { c->mem_w32(a + 0x30, v); }
+  void     setPosZFixed(uint32_t v) const { c->mem_w32(a + 0x34, v); }
+  uint16_t x() const                  { return c->mem_r16(a + 0x2e); }
+  uint16_t y() const                  { return c->mem_r16(a + 0x32); }
+  uint16_t z() const                  { return c->mem_r16(a + 0x36); }
+  void     setX(uint16_t v) const     { c->mem_w16(a + 0x2e, v); }
+  void     setY(uint16_t v) const     { c->mem_w16(a + 0x32, v); }
+  void     setZ(uint16_t v) const     { c->mem_w16(a + 0x36, v); }
+
+  void     setGeomPtr(uint32_t v) const { c->mem_w32(a + 0x3c, v); }
+  void     setSpriteYaw(uint16_t v) const { c->mem_w16(a + 0x58, v); }
+
+  uint8_t  spawnPhase() const            { return c->mem_r8(a + 0x5e); }
+  void     setSpawnPhase(uint8_t v) const { c->mem_w8(a + 0x5e, v); }
+
+  uint8_t  scriptToken() const           { return c->mem_r8(a + 0x70); }
+  void     setScriptToken(uint8_t v) const { c->mem_w8(a + 0x70, v); }
+
+  uint32_t carrier() const            { return c->mem_r32(a + 0xc0); }
+
+  // Collision/interaction box, 4 halfwords at +0x80.
+  void setBounds(uint16_t x0, uint16_t x1, uint16_t y0, uint16_t y1) const {
+    c->mem_w16(a + 0x80, x0); c->mem_w16(a + 0x82, x1);
+    c->mem_w16(a + 0x84, y0); c->mem_w16(a + 0x86, y1);
+  }
+};
+
+// Guest-ABI call helpers: set a0..a2, dispatch, return v0. -------------------------------------
+inline uint32_t call0(Core* c, uint32_t fn) { rec_dispatch(c, fn); return c->r[2]; }
+inline uint32_t call1(Core* c, uint32_t a0, uint32_t fn) { c->r[4] = a0; rec_dispatch(c, fn); return c->r[2]; }
+inline uint32_t call2(Core* c, uint32_t a0, uint32_t a1, uint32_t fn) {
   c->r[4] = a0; c->r[5] = a1; rec_dispatch(c, fn); return c->r[2];
 }
-static inline uint32_t call3(Core* c, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t fn) {
+inline uint32_t call3(Core* c, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t fn) {
   c->r[4] = a0; c->r[5] = a1; c->r[6] = a2; rec_dispatch(c, fn); return c->r[2];
 }
 
+// -----------------------------------------------------------------------------------------------
+// SPAWN — build the object, then hand off to ACTIVE. Returns nothing; both variants end by bumping
+// state and calling kArmCollectible with their variant number.
+void spawnGround(Core* c, const PickupObj& obj) {
+  const MotionBlock m = obj.motion();
+  c->mem_w8(obj.a + 0x0b, 16);
+  c->mem_w8(obj.a + 0x08, 248);
+  c->mem_w8(obj.a + 0x47, 0);
+  c->mem_w16(obj.a + 0x5a, 0);
+  c->mem_w8(obj.a + 0x0d, 0);
+  obj.setGeomPtr(c->mem_r32(kGeomTableGround));            // jal delay slot: stored before the callee
+  c->r[4] = obj.a; c->r[5] = kGeomDefGround; c->r[6] = 1;
+  eng(c).graphicsBind.setGeom();                           // FUN_80077B38(obj, def, 1)
+
+  obj.setPosXFixed(0x13d20000u);
+  const uint16_t spawnX = obj.x();                         // read between the two stores, as the guest does
+  obj.setPosYFixed(0xf7e00000u);
+  obj.setPosZFixed(0x15aa0000u);
+  obj.setBounds(60, 120, 80, 160);
+  obj.setDrawMode(4);
+
+  m.setAnchorX(spawnX);
+  m.setAnchorY((uint16_t)(obj.y() - 420));
+  const uint16_t spawnZ = obj.z();
+  m.setWanderTimer(30);
+  m.setAnchorZ(spawnZ);
+}
+
+// Returns false if the record is not ready yet (the guest bails out and retries next frame).
+bool spawnCarried(Core* c, const PickupObj& obj) {
+  const MotionBlock m = obj.motion();
+  obj.setDrawMode(4);
+  obj.setSpawnPhase(0);                                    // jal delay slot: stored before the callee
+  c->r[4] = obj.a; c->r[5] = 1; c->r[6] = 0;
+  eng(c).graphicsBind.recordInit();                        // FUN_80051B70(obj, 1, 0)
+  if (c->r[2] != 0) return false;
+
+  obj.setPosXFixed(0x28d20000u);
+  const uint16_t spawnX = obj.x();
+  obj.setPosYFixed(0xf9e80000u);
+  obj.setPosZFixed(0x0f800000u);
+  obj.setBounds(70, 140, 140, 140);
+
+  m.setAnchorX(spawnX);
+  m.setAnchorY((uint16_t)(obj.y() - 400));
+  const uint16_t spawnZ = obj.z();
+  m.setSpin(82);
+  m.setAnchorZ(spawnZ);
+  return true;
+}
+
+// -----------------------------------------------------------------------------------------------
+// ACTIVE / LAUNCH — the frame the collectible is kicked into motion, or (once launched) the idle
+// wander: when it has come to rest and the wander timer expires, re-roll a new timer and a new
+// upward impulse from the shared PRNG.
+void activeLaunch(Core* c, const PickupObj& obj) {
+  const MotionBlock m = obj.motion();
+  if (obj.spawnPhase() == 1) {                             // launch frame
+    call3(c, kSfxLaunch, 0, 0, Guest::kPlaySfx);
+    m.setHoldTimer(36);
+    m.setGravity(1408);
+    m.setVel(10240);
+    obj.advancePhase();
+    return;
+  }
+  if (obj.variant() == GROUND) {
+    if (m.vel() != 0) return;                              // still moving — nothing to re-roll
+    const uint16_t left = (uint16_t)(m.wanderTimer() - 1);
+    m.setWanderTimer(left);
+    if ((int16_t)left >= 0) return;
+    const uint32_t r1 = call0(c, Guest::kRandom);
+    const uint32_t r2 = call0(c, Guest::kRandom);
+    m.setWanderTimer((uint16_t)((int32_t)((r1 & 3u) * 30u) + ((int32_t)r2 >> 11) + 30));
+    const uint32_t r3 = call0(c, Guest::kRandom);
+    m.setVel((int16_t)((-(int32_t)((r3 & 7u) + 10u)) << 8));
+    return;
+  }
+  // CARRIED: the overlay steering helper decides whether to turn, and how.
+  obj.clearSteerResult();                                  // jal delay slot: stored before the callee
+  call1(c, obj.a, Guest::kSteerWanderer);
+  const uint8_t steer = obj.steerResult();
+  if (steer == NO_TURN) return;
+  if (obj.variant() == GROUND) {                           // guest re-tests; unreachable on this path
+    m.setVel(steer == TURN_RIGHT ? (int16_t)8192 : (int16_t)-8192);
+    return;
+  }
+  if (obj.variant() != CARRIED) return;
+  if (steer == TURN_RIGHT) {
+    const int16_t yaw = m.yaw();
+    m.setYaw(yaw < kHalfQuarter ? (uint16_t)(m.yawBits() - kQuarterTurn)
+                                : (uint16_t)(-(int32_t)m.yawBits()));
+    m.setVel(3072);
+  } else {
+    const int16_t yaw = m.yaw();
+    m.setYaw(yaw < -(kHalfQuarter - 1) ? (uint16_t)(-(int32_t)m.yawBits())
+                                       : (uint16_t)(m.yawBits() + kQuarterTurn));
+    m.setVel(-3072);
+  }
+}
+
+// ACTIVE / SETTLING — run the hold timer down, then drop the object to its resting height.
+void activeSettling(Core* c, const PickupObj& obj) {
+  const MotionBlock m = obj.motion();
+  const uint16_t hold = m.holdTimer();
+  if ((int16_t)hold != 0 && obj.spawnPhase() != 0) {
+    m.setHoldTimer((uint16_t)(hold - 1));
+    return;
+  }
+  m.setVel(-10240);
+  m.setGravity(512);
+  if (obj.variant() == GROUND)       obj.setZ(5520);
+  else if (obj.variant() == CARRIED) obj.setZ(3968);
+  obj.setDrawMode(1);
+  obj.setSpawnPhase(2);
+  obj.advancePhase();
+}
+
+// ACTIVE tail — integrate the motion block and publish the object's world position. Shared by every
+// ACTIVE phase (the guest falls through to it from all of them).
+void activeCommitPosition(Core* c, const PickupObj& obj) {
+  if (obj.variant() == GROUND) {
+    const MotionBlock m = obj.motion();
+    if (call1(c, obj.a, Guest::kStepMotion) == 0) return;
+    if (obj.phase() == RESTING) {
+      obj.setX(c->mem_r16(kPickedUpX));
+      obj.setY(c->mem_r16(kPickedUpY));
+      obj.setZ(c->mem_r16(kPickedUpZ));
+    } else {
+      obj.setX((uint16_t)(m.x() - 32));
+      obj.setY((uint16_t)(m.y() + 80));
+    }
+    call1(c, obj.a, Guest::kCommitGroundPos);
+    call2(c, obj.a, 0, Guest::kSyncCollectible);
+    return;
+  }
+  if (obj.variant() != CARRIED) return;
+  const MotionBlock m = obj.motion();
+  if (c->mem_r8(kCarrierBusy) >= 5) return;                // carrier pipeline saturated — skip this frame
+  if (call1(c, obj.a, Guest::kStepMotion) == 0) return;
+  if (obj.phase() == RESTING) {
+    obj.setX(c->mem_r16(kPickedUpX));
+    obj.setY(c->mem_r16(kPickedUpY));
+    obj.setZ(c->mem_r16(kPickedUpZ));
+  } else {
+    // Offset by the carrier's own sway, scaled 9/256.
+    const uint32_t carrier = obj.carrier();
+    obj.setX((uint16_t)(m.x() + (((int32_t)c->mem_r16s(carrier + 26) * 9) >> 8)));
+    obj.setY((uint16_t)(m.y() + (((int32_t)c->mem_r16s(carrier + 32) * 9) >> 8)));
+    obj.setSpriteYaw((uint16_t)(-(int32_t)m.spin()));
+  }
+  c->r[4] = obj.a; eng(c).graphicsBind.renderUpdate();     // FUN_800517F8(obj)
+  call2(c, obj.a, 1, Guest::kSyncCollectible);
+}
+
+// -----------------------------------------------------------------------------------------------
+// COLLECTED — the pick-up sequence.
+void collectGround(Core* c, const PickupObj& obj) {
+  inv(c).giveAndFlag(kItemGroundPickup, 1);                // FUN_8004D4C4(58, 1)
+  call1(c, obj.a, Guest::kBeginCollect);
+  obj.setState(RETIRE);
+}
+
+void collectCarried(Core* c, const PickupObj& obj) {
+  switch (obj.phase()) {
+    case HANDOVER: {
+      inv(c).give(kItemBucket, 1);                         // FUN_8004D4F4(40, 1)
+      call2(c, kSfxCollect, kSfxCollectBank, 0x8004ED94u);
+      call1(c, obj.a, Guest::kBeginCollect);
+      const uint32_t popup = call3(c, obj.a, 0, 0, Guest::kSpawnGetPopup);
+      if (popup != 0) {
+        call2(c, kItemBucket, popup, Guest::kBindGetPopup);
+        call2(c, 1, 1, Guest::kEnterCutsceneMode);         // cut-mode 1: parks the player, opens the get-box
+        c->mem_w8(kAreaEventFlags, (uint8_t)(c->mem_r8(kAreaEventFlags) | 1));
+      }
+      obj.advancePhase();
+      return;
+    }
+    case AWAIT_PLAYER: {
+      // The guest compares obj.phase() against obj.variant() here (both 1) — 80117be0 `beq v1,v0`,
+      // where v0 is the variant byte loaded at 80117ba0. Transcribing that as a literal 3 (the value
+      // 80117bd4 loads in the delay slot of the OTHER branch's jump, which never executes on this
+      // path) stranded phase at AWAIT_PLAYER forever: the wait below never ran, the end-of-pickup
+      // script never started, and cut-mode 0x1F800137 stayed 1 — the bucket-cutscene softlock.
+      if (call0(c, Guest::kPlayerLeftCutscene) == 0) return;
+      call3(c, obj.a, 0, kBucketScript, Guest::kRunScript);
+      obj.setScriptToken(COLLECTED);                       // guest stores the outer state byte (2)
+      obj.advancePhase();
+      return;
+    }
+    case AWAIT_SCRIPT: {
+      if (obj.scriptToken() != kScriptTokenFree) { call1(c, obj.a, Guest::kAwaitScript); return; }
+      obj.setState(RETIRE);
+      return;
+    }
+    default:
+      return;
+  }
+}
+
 }  // namespace
+
 static constexpr GuestFrameSpill kSpills_80117658[4] = {
   { 17, 20 },
   { 31 /*ra*/, 28 },
@@ -57,308 +413,39 @@ static constexpr GuestFrameSpill kSpills_80117658[4] = {
 
 void beh_prng_velocity_machine(Core* c) {
   GuestFrame<32, 4> frame(c, kSpills_80117658);
-  uint32_t s1 = c->r[4];                        // s1 = a0 (node)
-  uint32_t s0 = c->mem_r8(s1 + 4);              // s0 = node[4] = outer state
-  uint32_t s2 = c->mem_r32(s1 + 0x10);          // s2 = node[0x10] (guest pointer)
+  const PickupObj obj{ c, c->r[4] };
 
-  if (s0 == 1) goto L7814;                       // STATE 1
-  if ((int32_t)s0 < 2) { if (s0 == 0) goto L76b8; goto Lret; }  // state<2 -> only 0
-  if (s0 == 2) goto L7ba0;                        // STATE 2
-  if (s0 == 3) goto L7cd8;                        // STATE 3
-  goto Lret;
-
- // ---------------------------------------------------------------- STATE 0
- L76b8: {
-   uint32_t n3 = c->mem_r8(s1 + 3);
-   if (n3 == 0) goto L76d8;
-   if (n3 == 1) goto L7788;
-   goto Lret;
- }
- L76d8: {                                         // node[3]==0
-   c->mem_w8(s1 + 0x0b, 16);
-   c->mem_w8(s1 + 0x08, 248);
-   c->mem_w8(s1 + 0x47, 0);
-   c->mem_w16(s1 + 0x5a, 0);
-   c->mem_w8(s1 + 0x0d, 0);
-   uint32_t t = c->mem_r32(0x800ecf80u);
-   c->mem_w32(s1 + 0x3c, t);                      // node[0x3c] = mem[0x800ecf80] (jal delay slot)
-   c->r[4] = s1; c->r[5] = 0x8014c808u; c->r[6] = 1; eng(c).graphicsBind.setGeom();   // FUN_80077B38(node, 0x8014C808, 1) — native (recomp: lui 0x8015 + addiu -14328 = 0x8014C808)
-   c->mem_w32(s1 + 0x2c, 0x13d20000u);
-   uint16_t v1 = c->mem_r16(s1 + 0x2e);
-   c->mem_w32(s1 + 0x30, 0xf7e00000u);
-   c->mem_w32(s1 + 0x34, 0x15aa0000u);
-   c->mem_w16(s1 + 0x80, 60);
-   c->mem_w16(s1 + 0x82, 120);
-   c->mem_w16(s1 + 0x84, 80);
-   c->mem_w16(s1 + 0x86, 160);
-   c->mem_w8(s1 + 0, 4);
-   c->mem_w16(s2 + 6, v1);
-   uint16_t h = c->mem_r16(s1 + 0x32);
-   c->mem_w16(s2 + 8, (uint16_t)(h - 420));
-   uint16_t hv = c->mem_r16(s1 + 0x36);
-   c->mem_w16(s2 + 22, 30);
-   c->mem_w16(s2 + 10, hv);
-   c->r[5] = 0;                                   // a1 = 0 for FUN_8004B354
-   goto L7804;
- }
- L7788: {                                         // node[3]==1
-   c->mem_w8(s1 + 0, 4);
-   c->mem_w8(s1 + 0x5e, 0);                       // node[0x5e]=0 (jal delay slot, before callee)
-   c->r[4] = s1; c->r[5] = 1; c->r[6] = 0; eng(c).graphicsBind.recordInit(); uint32_t r = c->r[2];  // FUN_80051B70(node, 1, 0)
-   if (r != 0) goto Lret;
-   c->mem_w32(s1 + 0x2c, 0x28d20000u);
-   uint16_t v1 = c->mem_r16(s1 + 0x2e);
-   c->mem_w32(s1 + 0x30, 0xf9e80000u);
-   c->mem_w32(s1 + 0x34, 0x0f800000u);
-   c->mem_w16(s1 + 0x80, 70);
-   c->mem_w16(s1 + 0x82, 140);
-   c->mem_w16(s1 + 0x84, 140);
-   c->mem_w16(s1 + 0x86, 140);
-   c->mem_w16(s2 + 6, v1);
-   uint16_t h = c->mem_r16(s1 + 0x32);
-   c->mem_w16(s2 + 8, (uint16_t)(h - 400));
-   uint16_t hv = c->mem_r16(s1 + 0x36);
-   c->mem_w16(s2 + 12, 82);
-   c->mem_w16(s2 + 10, hv);
-   c->r[5] = 1;                                   // a1 = 1 for FUN_8004B354
-   goto L7804;
- }
- L7804: {                                         // shared state-0 tail (a1 preset in c->r[5])
-   uint32_t a1 = c->r[5];
-   uint32_t nv = c->mem_r8(s1 + 4) + 1;
-   c->mem_w8(s1 + 4, (uint8_t)nv);                // node[4]++ (jal delay slot, before callee)
-   call2(c, s1, a1, 0x8004b354u);                 // FUN_8004B354(node, a1)
-   goto Lret;
- }
-
- // ---------------------------------------------------------------- STATE 1
- L7814: {
-   uint32_t n5 = c->mem_r8(s1 + 5);
-   if (n5 == 0) goto L7834;
-   if (n5 == s0) goto L79ac;                       // s0 == 1
-   goto L7a30;
- }
- L7834: {                                          // node[5]==0
-   uint32_t n94 = c->mem_r8(s1 + 0x5e);
-   if (n94 != s0) goto L7874;                       // s0 == 1
-   call3(c, 146, 0, 0, 0x80074590u);               // FUN_80074590(146, 0, 0)
-   c->mem_w16(s2 + 24, 36);
-   c->mem_w16(s2 + 26, 1408);
-   c->mem_w16(s2 + 20, 10240);
-   uint32_t n5 = c->mem_r8(s1 + 5);
-   c->mem_w8(s1 + 5, (uint8_t)(n5 + 1));
-   goto L7a30;
- }
- L7874: {                                          // node[94]!=1
-   uint32_t n3 = c->mem_r8(s1 + 3);
-   if (n3 != 0) goto L78fc;
-   int16_t s20 = c->mem_r16s(s2 + 20);
-   if (s20 != 0) goto L7a30;
-   uint16_t s22 = (uint16_t)(c->mem_r16(s2 + 22) - 1);
-   c->mem_w16(s2 + 22, s22);
-   if ((int16_t)s22 >= 0) goto L7a30;
-   uint32_t r1 = call0(c, 0x8009a450u);            // PRNG draw 1
-   uint32_t r2 = call0(c, 0x8009a450u);            // PRNG draw 2
-   uint32_t rs0 = r1 & 3u;
-   int32_t v1 = (int32_t)(rs0 * 30u) + ((int32_t)r2 >> 11) + 30;
-   c->mem_w16(s2 + 22, (uint16_t)v1);
-   uint32_t r3 = call0(c, 0x8009a450u);            // PRNG draw 3
-   int32_t v0 = (-(int32_t)((r3 & 7u) + 10u)) << 8;
-   c->mem_w16(s2 + 20, (uint16_t)v0);
-   goto L7a30;
- }
- L78fc: {                                          // node[3]!=0
-   c->mem_w8(s1 + 0x2b, 0);                         // node[0x2b]=0 (jal delay slot, before callee)
-   call1(c, s1, 0x801141c8u);                       // FUN_801141C8(node)
-   uint32_t n43 = c->mem_r8(s1 + 0x2b);
-   if (n43 == 0) goto L7a30;
-   uint32_t n3 = c->mem_r8(s1 + 3);
-   if (n3 == 0) goto L7934;
-   if (n3 == s0) goto L7954;                        // s0 == 1
-   goto L7a30;
- }
- L7934: {
-   uint32_t n43 = c->mem_r8(s1 + 0x2b);
-   if (n43 != 2) { c->mem_w16(s2 + 20, (uint16_t)(int16_t)-8192); goto L7a30; }
-   c->mem_w16(s2 + 20, 8192);
-   goto L7a30;
- }
- L7954: {
-   uint32_t n43 = c->mem_r8(s1 + 0x2b);
-   if (n43 != 2) goto L7984;
-   int16_t e = c->mem_r16s(s2 + 14);
-   uint16_t eu = c->mem_r16(s2 + 14);
-   uint16_t nv = (e < 2048) ? (uint16_t)(eu - 4096) : (uint16_t)(-(int32_t)eu);
-   c->mem_w16(s2 + 14, nv);
-   c->mem_w16(s2 + 20, 3072);
-   goto L7a30;
- }
- L7984: {
-   int16_t e = c->mem_r16s(s2 + 14);
-   uint16_t eu = c->mem_r16(s2 + 14);
-   uint16_t nv = (e < -2047) ? (uint16_t)(-(int32_t)eu) : (uint16_t)(eu + 4096);
-   c->mem_w16(s2 + 14, nv);
-   c->mem_w16(s2 + 20, (uint16_t)(int16_t)-3072);
-   goto L7a30;
- }
- L79ac: {                                          // node[5]==1
-   int16_t s24 = c->mem_r16s(s2 + 24);
-   uint16_t s24u = c->mem_r16(s2 + 24);
-   if (s24 == 0) goto L79d0;                         // v0 = -10240
-   uint32_t n94 = c->mem_r8(s1 + 0x5e);
-   if (n94 != 0) { c->mem_w16(s2 + 24, (uint16_t)(s24u - 1)); goto L7a30; }
-   goto L79d0;                                       // v0 = -10240
- }
- L79d0: {
-   c->mem_w16(s2 + 20, (uint16_t)(int16_t)-10240);
-   c->mem_w16(s2 + 26, 512);
-   uint32_t n3 = c->mem_r8(s1 + 3);
-   if (n3 == 0) goto L79fc;
-   if (n3 == s0) goto L7a04;                         // s0 == 1
-   c->mem_w8(s1 + 0, 1);
-   goto L7a14;
- }
- L79fc: { c->mem_w16(s1 + 0x36, 5520); goto L7a08b; }
- L7a04: { c->mem_w16(s1 + 0x36, 3968); goto L7a08b; }
- L7a08b: {
-   c->mem_w8(s1 + 0, 1);
-   goto L7a14;
- }
- L7a14: {
-   uint32_t n5 = c->mem_r8(s1 + 5);
-   c->mem_w8(s1 + 0x5e, 2);
-   c->mem_w8(s1 + 5, (uint8_t)(n5 + 1));
-   goto L7a30;
- }
-
- // ---------------------------------------------------------------- STATE 1 shared movement dispatch
- L7a30: {
-   uint32_t n3 = c->mem_r8(s1 + 3);
-   if (n3 == 0) goto L7a50;
-   if (n3 == 1) goto L7ad4;
-   goto Lret;
- }
- L7a50: {                                          // node[3]==0
-   uint32_t lp = c->mem_r32(s1 + 0x10);
-   uint32_t r = call1(c, s1, 0x8007778cu);          // FUN_8007778C(node)
-   if (r == 0) goto Lret;
-   uint32_t n5 = c->mem_r8(s1 + 5);
-   if (n5 != 2) {                                    // L7a98
-     uint16_t a = c->mem_r16(lp + 0);
-     c->mem_w16(s1 + 0x2e, (uint16_t)(a - 32));
-     uint16_t b = c->mem_r16(lp + 2);
-     c->mem_w16(s1 + 0x32, (uint16_t)(b + 80));
-     goto L7ab8;
-   }
-   c->mem_w16(s1 + 0x2e, c->mem_r16(0x1f800160u));
-   c->mem_w16(s1 + 0x32, c->mem_r16(0x1f800162u));
-   c->mem_w16(s1 + 0x36, c->mem_r16(0x1f800164u));
-   goto L7ab8;
- }
- L7ab8: {
-   call1(c, s1, 0x80077b5cu);                        // FUN_80077B5C(node)
-   call2(c, s1, 0, 0x8004b374u);                     // FUN_8004B374(node, 0)
-   goto Lret;
- }
- L7ad4: {                                          // node[3]==1
-   uint32_t sp207 = c->mem_r8(0x1f800207u);
-   uint32_t lp = c->mem_r32(s1 + 0x10);
-   if (!(sp207 < 5)) goto Lret;
-   uint32_t r = call1(c, s1, 0x8007778cu);          // FUN_8007778C(node)
-   if (r == 0) goto Lret;
-   uint32_t n5 = c->mem_r8(s1 + 5);
-   if (n5 != 2) {                                    // L7b2c
-     uint32_t p = c->mem_r32(s1 + 0xc0);
-     int16_t e = c->mem_r16s(p + 26);
-     int32_t v1 = ((int32_t)e * 9) >> 8;
-     uint16_t a = c->mem_r16(lp + 0);
-     c->mem_w16(s1 + 0x2e, (uint16_t)(a + v1));
-     int16_t f = c->mem_r16s(p + 32);
-     int32_t v0 = ((int32_t)f * 9) >> 8;
-     uint16_t b = c->mem_r16(lp + 2);
-     c->mem_w16(s1 + 0x32, (uint16_t)(b + v0));
-     uint16_t g = c->mem_r16(lp + 12);
-     c->mem_w16(s1 + 0x58, (uint16_t)(-(int32_t)g));
-     goto L7b84;
-   }
-   c->mem_w16(s1 + 0x2e, c->mem_r16(0x1f800160u));
-   c->mem_w16(s1 + 0x32, c->mem_r16(0x1f800162u));
-   c->mem_w16(s1 + 0x36, c->mem_r16(0x1f800164u));
-   goto L7b84;
- }
- L7b84: {
-   c->r[4] = s1; eng(c).graphicsBind.renderUpdate();            // FUN_800517F8(node) — native
-   call2(c, s1, 1, 0x8004b374u);                     // FUN_8004B374(node, 1)
-   goto Lret;
- }
-
- // ---------------------------------------------------------------- STATE 2
- L7ba0: {
-   uint32_t n3 = c->mem_r8(s1 + 3);
-   if (n3 == 0) goto L7bc0;
-   if (n3 == 1) goto L7bd8;
-   goto Lret;
- }
- L7bc0: {                                          // node[3]==0
-   inv(c).giveAndFlag(58, 1);                  // FUN_8004D4C4(58, 1) [native]
-   call1(c, s1, 0x8004b0d8u);                        // FUN_8004B0D8(node)
-   c->mem_w8(s1 + 4, 3);                             // node[4]=3
-   goto Lret;
- }
- L7bd8: {                                          // node[3]==1
-   uint32_t n5 = c->mem_r8(s1 + 5);
-   if (n5 == 3) goto L7c7c;
-   if ((int32_t)n5 < 2) { if (n5 == 0) goto L7c10; goto Lret; }
-   goto L7c00;
- }
- L7c00: {
-   uint32_t n5 = c->mem_r8(s1 + 5);
-   if (n5 == s0) goto L7cb0;                         // s0 == 2
-   goto Lret;
- }
- L7cb0: {
-   uint32_t n112 = c->mem_r8(s1 + 0x70);
-   if (n112 != 255) goto L7cc8;
-   c->mem_w8(s1 + 4, 3);                             // node[4]=3 (fall-through L7cc0)
-   goto Lret;
- }
- L7cc8: {
-   call1(c, s1, 0x80041098u);                        // FUN_80041098(node)
-   goto Lret;
- }
- L7c10: {                                          // node[5]==0
-   inv(c).give(40, 1);                         // FUN_8004D4F4(40, 1) [native]
-   call2(c, 45, 66, 0x8004ed94u);                    // FUN_8004ED94(45, 66)
-   call1(c, s1, 0x8004b0d8u);                        // FUN_8004B0D8(node)
-   uint32_t r = call3(c, s1, 0, 0, 0x8004bd04u);     // FUN_8004BD04(node, 0, 0)
-   if (r == 0) goto L7c70;
-   call2(c, 40, r, 0x8004bea8u);                     // FUN_8004BEA8(40, r)
-   call2(c, 1, 1, 0x80042354u);                      // FUN_80042354(1, 1)
-   uint8_t fl = c->mem_r8(0x800bf9dcu);
-   c->mem_w8(0x800bf9dcu, (uint8_t)(fl | 1));        // area flag |= 1
-   goto L7c70;
- }
- L7c70: {
-   uint32_t n5 = c->mem_r8(s1 + 5);
-   c->mem_w8(s1 + 5, (uint8_t)(n5 + 1));
-   goto Lret;
- }
- L7c7c: {                                          // node[5]==3
-   uint32_t r = call0(c, 0x8005308cu);               // FUN_8005308C()
-   if (r == 0) goto Lret;
-   call3(c, s1, 0, 0x80148574u, 0x80040cdcu);        // FUN_80040CDC(node, 0, 0x80148574) — recomp: lui 0x8015 + addiu -31372 = 0x80148574
-   uint32_t n5 = c->mem_r8(s1 + 5);
-   c->mem_w8(s1 + 0x70, (uint8_t)s0);                // node[0x70] = s0 (== 2)
-   c->mem_w8(s1 + 5, (uint8_t)(n5 + 1));
-   goto Lret;
- }
-
- // ---------------------------------------------------------------- STATE 3
- L7cd8: {
-   eng(c).spawn.despawn(s1);                             // FUN_8007A624(node) — native
-   goto Lret;
- }
-
- Lret:
-  return;
+  switch (obj.state()) {
+    case SPAWN: {
+      if (obj.variant() == GROUND) {
+        spawnGround(c, obj);
+        c->mem_w8(obj.a + 4, (uint8_t)(obj.state() + 1));  // jal delay slot: stored before the callee
+        call2(c, obj.a, GROUND, Guest::kArmCollectible);
+      } else if (obj.variant() == CARRIED) {
+        if (!spawnCarried(c, obj)) return;
+        c->mem_w8(obj.a + 4, (uint8_t)(obj.state() + 1));  // jal delay slot: stored before the callee
+        call2(c, obj.a, CARRIED, Guest::kArmCollectible);
+      }
+      return;
+    }
+    case ACTIVE: {
+      switch (obj.phase()) {
+        case LAUNCH:   activeLaunch(c, obj);   break;
+        case SETTLING: activeSettling(c, obj); break;
+        default:       break;                              // RESTING and beyond: straight to the tail
+      }
+      activeCommitPosition(c, obj);
+      return;
+    }
+    case COLLECTED: {
+      if (obj.variant() == GROUND)       collectGround(c, obj);
+      else if (obj.variant() == CARRIED) collectCarried(c, obj);
+      return;
+    }
+    case RETIRE:
+      eng(c).spawn.despawn(obj.a);                         // FUN_8007A624(obj)
+      return;
+    default:
+      return;
+  }
 }
