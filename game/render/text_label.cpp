@@ -24,12 +24,12 @@
 // template constants, world transform = the cmd+0x18 matrix FACTORED against the scene camera —
 // render.h WqRec banner) and emitted by Render::billboardsRender through the float camera path,
 // fps60-lerped like every other world prim. Replaces the RenderObserver wrapper this address
-// carried (whose depth-tag behavior is preserved via withDepthTag below).
+// carried.
 #include "core.h"
 #include "game_ctx.h"
 #include "game.h"
 #include "render.h"
-#include "render_internal.h"   // withDepthTag / cur_render_node
+#include "render_internal.h"   // withObjScope / cur_render_node
 #include "guest_abi.h"         // GuestFrame / GuestFrameSpill / guest_call
 #include "cfg.h"
 #include <stdint.h>
@@ -161,10 +161,9 @@ void ov_textLabelEmit(Core* c) { rend(c)->textLabelEmit(); }
 
 void Render::textLabelEmit() {
   Core* c = mCore;
-  // Preserve the retired RenderObserver wrapper's behavior: oracle runs the body pure (handled by
-  // the engine_set_override_main thunk routing core B to gen); everyone else gets the packet-span
-  // depth tag + dbg_node scope around the body.
-  withDepthTag(c, c->r[4], textLabelBody);
+  // Oracle runs the body pure (the engine_set_override_main thunk routes core B to gen); everyone
+  // else gets the dbg_node diagnostic scope around the body.
+  withObjScope(c, c->r[4], textLabelBody);
 }
 
 void text_label_install() {

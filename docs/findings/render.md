@@ -1,5 +1,71 @@
 # Findings — render / engine submit
 
+
+## Shipping-path tag/stamp purge — packet-span registries were dead code (2026-07-22, RESOLVED)
+
+- **directive:** NATIVE PRESENTATION (CLAUDE.md 2026-07-22) — the picture comes from native producers;
+  span stamping / depth tagging / provenance registries / prim fingerprint matching are debt to DELETE.
+- **audit (measurement, not vibe):** seaside replay (`replays/bugs/seesaw-weight.pad`), default leg,
+  6000+ frames with temporary fire counters:
+  - `obj_depth` (withDepthTag / gpu_obj_depth_add / obj_depth_lookup): producers fired ~68 adds/frame,
+    consumers fired **0 lookups** (odHit=0 AND odMiss=0) — the lookup sites live in `gp0_exec`, reachable
+    only from the guest-OT walk, and pc_render never walks the OT. The only default-leg walks are the
+    substrate DrawOTag's DMA2 kick of a **1-node empty table** (`debug pool`: `madr=0x800EA0D8 nodes=1`
+    every frame) — zero drawable prims.
+  - `native-cover` (gpu_native_cover_add / nativeCoverLookup): **0 hits on BOTH legs** — the producer is
+    gated on `render_field_native_active()` (false under psxRender) while the consumer only runs under
+    psxRender; the registry was empty whenever anyone looked (measured ncLookup=1.1M, ncHit=0 after a
+    `renderpsx on` toggle).
+  - `ffspan`/`PktSpanSession`/`PktSpan`: sole picture-adjacent consumer was the `PSXPORT_BDTAG` block in
+    gp0_exec — cfg-gated diagnostic that also required an OT-walk drawable; structurally dead on the
+    shipping leg. The mem_w* hot path paid `pktSpan.track()` on every guest store for it.
+  - `matchAndLerp`: already deleted 2026-07-15 — grep found ZERO code references, only ~18 stale comments
+    (several claiming it "remains"/"is the match key"). Comments were confidently wrong; purged.
+- **deleted:** GpuState obj_depth/native-cover registries + gp0_exec billboard-promotion and cover-drop
+  branches (`gpu_native.cpp`); `s_ot_2d_only`/`s_ot_2d_drawn` + the `twoDOnly` walk parameter (always
+  false since the break-first rebuild); `pkt_span.{h,cpp}`, `ffspan.{h,cpp}`, `Game::ffspan`, every
+  `ffspan.begin/end` bracket + the engine.cpp `FFS` macro; `render_observer.cpp` (wrapped 0x8003C5F8
+  solely to tag); `withDepthTag` (replaced by `withObjScope` — dbg_node diagnostic scope only);
+  per-particle `gpu_obj_depth_add` + `billboardParticleOrd` in perobj_billboard.cpp (the #67 BbRec
+  native-producer capture stays); RenderStats odAdd/odHit/odMiss.
+- **verification:**
+  - default leg f6000 shot: **0/76800 pixels differ** before vs after.
+  - SBS-full smoke: first divergence IDENTICAL before and after (lockstep frame 169, 0x801FE808..0F —
+    a PRE-EXISTING Job#1 divergence on this replay, reproduced on unmodified HEAD via patch round-trip).
+    Nothing deleted wrote guest memory.
+  - fps60 endpoint gate (see next finding).
+- **side-fix (renderpsx leg):** the in-process `renderpsx on` picture used to LOSE whole objects
+  (Tomba, seesaw, barrels vanished — depth-promoted prims with flat obj_depth lost the contest against
+  the later-painted 2D band). With the promotion gone the leg composites uniformly in painter order and
+  the full scene is visible (before/after: scratch/screenshots/tagaudit/base_Bpsx.png vs after_Bpsx.png,
+  13479 px differ — all object reappearance).
+- **dead end to not re-chase:** do NOT re-add a span registry to "rescue" a missing pc_render layer; the
+  OT walk it fed no longer exists on the shipping leg. A missing layer is a missing NATIVE PRODUCER
+  (fx_sprite.cpp / field_hud.cpp / billboardsRender pattern — tap the gen body's contract, re-derive
+  host-side).
+
+## fps60 interpolation is native input-lerp — endpoint-verified (2026-07-22, VERIFIED)
+
+- **directive:** "lerp has to be native too" — prim fingerprint matching is banned for interpolation.
+- **state:** the shipping fps60 already IS the actor-transform tier (unified path, 2026-07-15):
+  the interp present re-runs the real render one frame behind under lerped INPUT chokes — camera
+  (`Fps60::sceneCam` mCamCur/mCamPrev), per-object transform (`Fps60::projObj` keyed by cmd), backdrop
+  scroll (`Fps60::bgScroll`), billboard records (BbRec swap) — into the isolated mSink, merged with the
+  captured queue's verbatim 2D. No matcher code exists; `matchAndLerp` was deleted 2026-07-15 and the
+  remaining references were stale comments (now purged).
+- **endpoint verification (fps60=1, seaside replay, `debug fps60dump`, fences 3021-3028, moving scene
+  20942-46221 px/frame real motion):**
+  - `PSXPORT_FPS60_TFORCE=1`: interp vs SAME real frame = 110-168 px (~0.2%) — the re-run reproduces the
+    real frame at the t=1 endpoint. Residual = the un-owned verbatim leftovers (has_xyf==0 records).
+  - `PSXPORT_FPS60_TFORCE=0`: interp vs PREVIOUS real frame = 516-1181 px (~1%) while it differs from the
+    current real by the full motion (20k-46k px) — the t=0 endpoint reproduces frame N-1.
+  - default t=0.5: interp differs from BOTH neighbors by ~55-70% of the neighbor-to-neighbor motion
+    (e.g. fence 3023: 9967 / 15000 vs 20942 full) — a true intermediate, no strobe, no double image.
+- **honest remainder (30Hz-step, not matched — verbatim):** RQ_WORLD items with has_xyf==0 (guest-time
+  records not yet re-derived by a display-pass producer) and screen-space HUD/2D present verbatim on both
+  frame kinds. Retiring each = porting its emitter into the display pass (the REDIRECT doctrine), the
+  same frontier as the render rebuild — NOT a matcher.
+
 ## ires (internal resolution) 2D/HUD blur (bug #55) — band split + coverage gate (2026-07-15, PARTIAL FIX)
 
 - **symptom (USER):** at ires>1 the whole picture, including HUD/menu TEXT that should be pixel-identical

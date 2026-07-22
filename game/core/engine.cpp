@@ -38,28 +38,11 @@
 #include <stdio.h>
 
 // dispatch a still-recomp leaf with up to 3 args set (helpers for the native stage machines).
-// later-238 BACKDROP ATTRIBUTION (PSXPORT_BDTAG): record each ov_field_frame call's pool-write span so the
-// gp0 OT-walk classifier (gpu_native.cpp) can attribute a DEFERRED prim (e.g. the tp(576,256) sea backdrop)
-// to the call that BUILT it — reliable where per-pass tags / WWATCH-pc / pool-node-addresses are not. The
-// span table persists across the present (which classifies the prior frame's OT) because it is reset only at
-// the TOP of the next ov_field_frame. `FfSpan::lookup(addr)` returns the builder name (latest-span-wins).
-// The span table + bracket stack live on `c->game->ffspan` (class FfSpan, game/render/ffspan.h).
-// g_pkt_track/lo/hi retired 2026-07-02 — per-Core Render::mPktTrack/mPktLo/mPktHi (reached below).
 #include "dualview_snapshot.h"    // c->rsub.dualviewSnapshot.capturePre/restorePre
 // (g_render_psx + g_dualview both retired 2026-07-02 — reach as c->rsub.mode.psxRender() / dualview())
 #include "game.h"
-#include "override_registry.h"   // overrides::install — the one native-override registry                    // class Game — c->game->ffspan (FfSpan) + Game::sbs
+#include "override_registry.h"   // overrides::install — the one native-override registry   // class Game — Game::sbs
 #include "sbs.h"                     // `sefprobe` probe below — Sbs::coreId/frame
-// FFS: nested span tracker. c must be a Core* in scope. Same shape as FfSpan::begin/end inlined.
-#define FFS(nm, call) do { \
-  FfSpan& _ff = c->game->ffspan; \
-  if (_ff.bdtagOn()) { PktSpan& _ps = c->rsub.pktSpan; \
-    PktSpan::Snapshot _outer = _ps.save(); _ps.open(); call; \
-    uint32_t _mlo, _mhi; bool _captured = _ps.current(&_mlo, &_mhi); \
-    if (_captured) _ff.record(nm, _mlo, _mhi); \
-    _ps.restoreMerge(_outer, _captured ? _mlo : 0xFFFFFFFFu, _captured ? _mhi : 0); } \
-  else { call; } } while (0)
-
 static inline void d0(Core* c, uint32_t fn) { rec_dispatch(c, fn); }
 static inline void d1(Core* c, uint32_t fn, uint32_t a0) { c->r[4]=a0; rec_dispatch(c, fn); }
 static inline void d2(Core* c, uint32_t fn, uint32_t a0, uint32_t a1) { c->r[4]=a0; c->r[5]=a1; rec_dispatch(c, fn); }
@@ -446,11 +429,11 @@ void Engine::stageRunning() { Core* c = core;
   }
   if (s4a < 6) {
     c->r[31] = jal_ra[s4a];
-    if (s4a == 0)      { c->game->ffspan.begin(); eng(c).submode0(); c->game->ffspan.end("submode0"); }
-    else if (s4a == 1) { c->game->ffspan.begin(); eng(c).submode1(); c->game->ffspan.end("submode1"); }
-    else if (s4a == 5) { c->game->ffspan.begin(); eng(c).fieldTransition(); c->game->ffspan.end("transition"); }  // native FUN_80108a60
-    else if (s4a == 2) { c->game->ffspan.begin(); eng(c).areaLoadState(); c->game->ffspan.end("areaload"); }      // native FUN_80106478
-    else               { c->game->ffspan.begin(); rec_dispatch(c, handler[s4a]); c->game->ffspan.end("s48_2_handler"); }
+    if (s4a == 0)      { eng(c).submode0(); }
+    else if (s4a == 1) { eng(c).submode1(); }
+    else if (s4a == 5) { eng(c).fieldTransition(); }  // native FUN_80108a60
+    else if (s4a == 2) { eng(c).areaLoadState(); }      // native FUN_80106478
+    else               { rec_dispatch(c, handler[s4a]); }
   }
 }
 
@@ -772,21 +755,21 @@ void Engine::fieldFrameFaithful() { Core* c = core;
   c->mem_w16(0x1f80017cu, (uint16_t)(c->mem_r16(0x1f80017cu) + 1));   // frame counter
   c->mem_w32(0x800bf878u, c->mem_r32(0x800bf878u) + 1);
   if (c->mem_r8(0x1f800136u) == 0) {            // not paused: full gameplay update
-    c->r[31] = 0x80108B50u; FFS("ff_59d28", eng(c).frameStartTick());
-    c->r[31] = 0x80108B58u; FFS("ff_69b28", eng(c).objectList.walkAux());
-    c->r[31] = 0x80108B60u; FFS("ff_26368", eng(c).array8Dispatch.tick());
-    c->r[31] = 0x80108B68u; FFS("ff_objwalk", eng(c).objectList.walkAll());
-    c->r[31] = 0x80108B70u; FFS("ff_25588", eng(c).sceneEventFifo());
-    c->r[31] = 0x80108B78u; FFS("ff_4fe84", eng(c).sceneRenderListBuilder());
-    c->r[31] = 0x80108B80u; FFS("ff_disp26c88", eng(c).objectTable.dispatch());
-    c->r[31] = 0x80108B88u; FFS("ff_22a80", eng(c).modePerFrameDispatch());
-    c->r[31] = 0x80108B90u; FFS("ff_6ec44", CutsceneCamera(c, CutsceneCamera::CAM_OBJ).update());
-    c->r[31] = 0x80108B98u; FFS("ff_50de4", eng(c).sceneStateStep());
-    c->r[31] = 0x80108BA0u; FFS("ff_1cac0", eng(c).areaModeDispatch());
+    c->r[31] = 0x80108B50u; eng(c).frameStartTick();
+    c->r[31] = 0x80108B58u; eng(c).objectList.walkAux();
+    c->r[31] = 0x80108B60u; eng(c).array8Dispatch.tick();
+    c->r[31] = 0x80108B68u; eng(c).objectList.walkAll();
+    c->r[31] = 0x80108B70u; eng(c).sceneEventFifo();
+    c->r[31] = 0x80108B78u; eng(c).sceneRenderListBuilder();
+    c->r[31] = 0x80108B80u; eng(c).objectTable.dispatch();
+    c->r[31] = 0x80108B88u; eng(c).modePerFrameDispatch();
+    c->r[31] = 0x80108B90u; CutsceneCamera(c, CutsceneCamera::CAM_OBJ).update();
+    c->r[31] = 0x80108B98u; eng(c).sceneStateStep();
+    c->r[31] = 0x80108BA0u; eng(c).areaModeDispatch();
   }
   if (c->mem_r8(0x1f800136u) < 2) { c->r[31] = 0x80108BBCu; rend(c)->frame(); }   // 0x8003F9A8 underneath
-  c->r[31] = 0x80108BC4u; FFS("ff_submit810c", eng(c).submitPage810c());
-  c->r[31] = 0x80108BCCu; FFS("ff_77d8c", eng(c).postRenderTick());
+  c->r[31] = 0x80108BC4u; eng(c).submitPage810c();
+  c->r[31] = 0x80108BCCu; eng(c).postRenderTick();
   c->r[31] = 0x80108BD4u; rec_dispatch(c, 0x80075A80u);   // audio-cmd queue tail — substrate (lib fallback)
   c->r[31] = c->mem_r32(sp + 20);
   c->r[16] = c->mem_r32(sp + 16);
@@ -804,14 +787,14 @@ void Engine::fieldFrame() { Core* c = core;
   c->mem_w16(0x1f80017cu, (uint16_t)(c->mem_r16(0x1f80017cu) + 1));   // frame counter
   c->mem_w32(0x800bf878u, c->mem_r32(0x800bf878u) + 1);
   if (c->mem_r8(0x1f800136u) == 0) {            // not paused: full gameplay update
-    FFS("ff_59d28", eng(c).frameStartTick()); FFS("ff_69b28", eng(c).objectList.walkAux());    // 0x80059d28/0x80069b28 NATIVE
-    FFS("ff_26368", eng(c).array8Dispatch.tick()); FFS("ff_objwalk", eng(c).objectList.walkAll());     // 0x80026368/0x8007a904 NATIVE
-    FFS("ff_25588", eng(c).sceneEventFifo()); FFS("ff_4fe84", eng(c).sceneRenderListBuilder());   // 0x80025588/0x8004fe84 NATIVE (Engine methods)
-    FFS("ff_disp26c88", eng(c).objectTable.dispatch());                                            // 0x80026c88 NATIVE
-    FFS("ff_22a80", eng(c).modePerFrameDispatch());                                // 0x80022a80 NATIVE (Engine::modePerFrameDispatch)
-    FFS("ff_6ec44", CutsceneCamera(c, CutsceneCamera::CAM_OBJ).update());         // 0x8006ec44 NATIVE (CutsceneCamera::update)
-    FFS("ff_50de4", eng(c).sceneStateStep());                 // 0x80050de4 NATIVE (Engine::sceneStateStep)
-    FFS("ff_1cac0", eng(c).areaModeDispatch());               // 0x8001cac0 NATIVE (Engine::areaModeDispatch)
+    eng(c).frameStartTick(); eng(c).objectList.walkAux();    // 0x80059d28/0x80069b28 NATIVE
+    eng(c).array8Dispatch.tick(); eng(c).objectList.walkAll();     // 0x80026368/0x8007a904 NATIVE
+    eng(c).sceneEventFifo(); eng(c).sceneRenderListBuilder();   // 0x80025588/0x8004fe84 NATIVE (Engine methods)
+    eng(c).objectTable.dispatch();                                            // 0x80026c88 NATIVE
+    eng(c).modePerFrameDispatch();                                // 0x80022a80 NATIVE (Engine::modePerFrameDispatch)
+    CutsceneCamera(c, CutsceneCamera::CAM_OBJ).update();         // 0x8006ec44 NATIVE (CutsceneCamera::update)
+    eng(c).sceneStateStep();                 // 0x80050de4 NATIVE (Engine::sceneStateStep)
+    eng(c).areaModeDispatch();               // 0x8001cac0 NATIVE (Engine::areaModeDispatch)
   }
   // DUAL-VIEW: snapshot the post-gameplay / pre-render state so the side-by-side PSX render pass (the
   // ACTUAL dualview feature, native_boot.cpp's mode.dualview() branch) can re-run the substrate render
@@ -849,9 +832,9 @@ void Engine::fieldFrame() { Core* c = core;
   // pc_render stays a read-only overlay: it never itself writes guest memory (drawOTag only reads OT/scene
   // data and writes host VK batches); the substrate writes above are gameplay-side (same call path
   // fieldFrameFaithful takes), not a pc_render violation.
-  FFS("ff_submit810c", eng(c).submitPage810c()); // render submit (page-1 dim-fade owned; other pages recomp)
-  FFS("ff_77d8c", eng(c).postRenderTick());   // 0x80077d8c NATIVE (Engine::postRenderTick)
-  FFS("ff_area75a80", eng(c).areaSlots.updateTail());   // 0x80075a80 NATIVE (AreaSlots::updateTail)
+  eng(c).submitPage810c(); // render submit (page-1 dim-fade owned; other pages recomp)
+  eng(c).postRenderTick();   // 0x80077d8c NATIVE (Engine::postRenderTick)
+  eng(c).areaSlots.updateTail();   // 0x80075a80 NATIVE (AreaSlots::updateTail)
 }
 
 // -- Small per-object leaves shared across many behavior handlers. Ghidra decomp:
@@ -1196,7 +1179,7 @@ void Engine::fieldRunFaithful() { Core* c = core;
       /* fallthrough */
     case 1: {                                  // L_80106D00 — the RUNNING field frame
       c->r[31] = 0x80106D08u;
-      c->game->ffspan.begin(); eng(c).fieldFrame(); c->game->ffspan.end("fieldframe");
+      eng(c).fieldFrame();
       if ((int8_t)c->mem_r8(0x800BF80Du) == 3) {
         if (c->mem_r8(0x800BF80Fu) != 0) break;
         c->r[31] = 0x80106D38u; rec_dispatch(c, 0x80074BC4u);
@@ -1382,7 +1365,7 @@ void Engine::fieldRun() { Core* c = core;
       c->mem_w16(c->mem_r32(0x1f800138u) + 0x4e, 1);
       /* fallthrough */
     case 1: {
-      c->game->ffspan.begin(); eng(c).fieldFrame(); c->game->ffspan.end("fieldframe");   // native field per-frame update (0x80108b0c)
+      eng(c).fieldFrame();   // native field per-frame update (0x80108b0c)
       sm = c->mem_r32(0x1f800138u);
       if (c->mem_r8(0x800bf80du) == 3) {        // (signed byte) special mode 3
         if (c->mem_r8(0x800bf80fu) == 0) {
@@ -1506,20 +1489,20 @@ void Engine::fieldFrameXFaithful() { Core* c = core;
   c->mem_w16(0x1f80017cu, (uint16_t)(c->mem_r16(0x1f80017cu) + 1));   // frame counter
   c->mem_w32(0x800bf878u, c->mem_r32(0x800bf878u) + 1);
   if (c->mem_r8(0x1f800136u) == 0) {            // not paused: reduced gameplay update
-    c->r[31] = 0x80108C28u; FFS("ffx_59d28",    eng(c).frameStartTick());
-    c->r[31] = 0x80108C30u; FFS("ffx_69b28",    eng(c).objectList.walkAux());
-    c->r[31] = 0x80108C38u; FFS("ffx_26368",    eng(c).array8Dispatch.tick());
-    c->r[31] = 0x80108C40u; FFS("ffx_7b04c",    eng(c).transitionState3.walkOnce());
-    c->r[31] = 0x80108C48u; FFS("ffx_25588",    eng(c).sceneEventFifo());
-    c->r[31] = 0x80108C50u; FFS("ffx_4fe84",    eng(c).sceneRenderListBuilder());
-    c->r[31] = 0x80108C58u; FFS("ffx_disp26c88",eng(c).objectTable.dispatch());
-    c->r[31] = 0x80108C60u; FFS("ffx_22a80",    eng(c).modePerFrameDispatch());
-    c->r[31] = 0x80108C68u; FFS("ffx_6ec44",    CutsceneCamera(c, CutsceneCamera::CAM_OBJ).update());
+    c->r[31] = 0x80108C28u; eng(c).frameStartTick();
+    c->r[31] = 0x80108C30u; eng(c).objectList.walkAux();
+    c->r[31] = 0x80108C38u; eng(c).array8Dispatch.tick();
+    c->r[31] = 0x80108C40u; eng(c).transitionState3.walkOnce();
+    c->r[31] = 0x80108C48u; eng(c).sceneEventFifo();
+    c->r[31] = 0x80108C50u; eng(c).sceneRenderListBuilder();
+    c->r[31] = 0x80108C58u; eng(c).objectTable.dispatch();
+    c->r[31] = 0x80108C60u; eng(c).modePerFrameDispatch();
+    c->r[31] = 0x80108C68u; CutsceneCamera(c, CutsceneCamera::CAM_OBJ).update();
   }
   if (c->mem_r8(0x1f800136u) < 2) { c->r[31] = 0x80108C84u; rend(c)->frameX(); }   // 0x8003FA44 underneath
-  c->r[31] = 0x80108C8Cu; FFS("ffx_submit810c", eng(c).submitPage810c());
-  c->r[31] = 0x80108C94u; FFS("ffx_77d8c",      eng(c).postRenderTick());
-  c->r[31] = 0x80108C9Cu; FFS("ffx_75a80",      eng(c).areaSlots.updateTail());
+  c->r[31] = 0x80108C8Cu; eng(c).submitPage810c();
+  c->r[31] = 0x80108C94u; eng(c).postRenderTick();
+  c->r[31] = 0x80108C9Cu; eng(c).areaSlots.updateTail();
   c->r[31] = c->mem_r32(sp + 20);
   c->r[16] = c->mem_r32(sp + 16);
   c->r[29] += 24;
@@ -2161,7 +2144,7 @@ void Engine::submode1Faithful() { Core* c = core;
       c->mem_w16(sm + 0x4c, next);
       break;
     }
-    case 2: c->r[31] = 0x80108974u; c->game->ffspan.begin(); eng(c).fieldRun(); c->game->ffspan.end("fieldrun"); break;
+    case 2: c->r[31] = 0x80108974u; eng(c).fieldRun(); break;
     case 3: c->r[31] = 0x80108984u; eng(c).fieldRunX(); break;
     case 4: c->r[31] = 0x80108994u; rec_dispatch(c, 0x80107230u); break;
     case 5: c->r[31] = 0x801089A4u; rec_dispatch(c, 0x8010766Cu); break;
@@ -2216,7 +2199,7 @@ void Engine::submode1() { Core* c = core;
       c->mem_w16(sm + 0x4c, next);
       break;
     }
-    case 2: c->game->ffspan.begin(); eng(c).fieldRun(); c->game->ffspan.end("fieldrun"); break;   // field RUNNING sub-machine (sm[0x4e]) — native
+    case 2: eng(c).fieldRun(); break;   // field RUNNING sub-machine (sm[0x4e]) — native
     case 3: eng(c).fieldRunX(); break;              // mid-transition running sub-machine 0x801070b4 — native
     case 4: rec_dispatch(c, 0x80107230u); break;
     case 5: rec_dispatch(c, 0x8010766cu); break;
@@ -2254,10 +2237,10 @@ int Engine::frame() { Core* c = core;
     eng(c).stageRunning();
   } else if (s48 == 0) {
     c->r[31] = 0x8010643Cu;                    // guest loop jal site (L_80106434)
-    c->game->ffspan.begin(); eng(c).stageAreaInit(); c->game->ffspan.end("stageAreaInit");
+    eng(c).stageAreaInit();
   } else if (s48 == 1) {
     c->r[31] = 0x8010644Cu;                    // guest loop jal site (L_80106444)
-    c->game->ffspan.begin(); eng(c).stageResumeInit(); c->game->ffspan.end("stageResumeInit");
+    eng(c).stageResumeInit();
   } else {
     cfg_logf("gframe", "ret0 unknown s48=%u sm@%08X", s48, sm); return 0; // unknown top state -> cooperative
   }
@@ -2314,9 +2297,7 @@ void Engine::stagePrologue() { Core* c = core;
 void Engine::stageBodyFaithful() { Core* c = core;
   stagePrologue();
   for (;;) {
-    c->game->ffspan.begin();
     int handled = frame();
-    c->game->ffspan.end("gameframe");
     if (!handled) {
       uint32_t sm = c->mem_r32(0x1f800138u);
       uint16_t s48 = c->mem_r16(sm + 0x48);

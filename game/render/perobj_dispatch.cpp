@@ -4,16 +4,10 @@
 // Ownership: address band 0x8003xxxx (this agent's exclusive band per the frontier task). Both
 // addresses confirmed unowned via tools/codemap.py before porting.
 //
-// WHY these two and not the whole 0x8003CCA4 family: 0x8003CCA4 (submit_perobj_render) already has a
-// TRANSPARENT observer wrapper installed (render_observer.cpp, g_override slot 845) that runs the
-// LITERAL gen body then tags host-side depth (obj_world_ord/gpu_obj_depth_add) for the
-// billboard-occlusion fix (issue #4 class). Replacing CCA4 wholesale would have to reproduce its 5
-// special-effect sub-cases (FUN_8003F4C4/F3F4/D584/F594/F344, none of which fire at seaside) AND fold
-// in the observer's host bookkeeping to avoid regressing that landed fix — out of scope for a focused
-// 2-address cluster. CDD8/F698 are NOT currently wrapped by anything (RenderObserver only wraps CCA4,
-// C2D4, C464, C5F8, C788, 80039F4C), so owning them here is a clean, additive, non-conflicting slice
-// of the SAME dispatch chain: CCA4's cases 0/4 (the only ones seaside objects hit) call `FUN_8003cdd8`
-// unconditionally as their entire body.
+// WHY these two and not the whole 0x8003CCA4 family: CCA4's 5 special-effect sub-cases
+// (FUN_8003F4C4/F3F4/D584/F594/F344, none of which fire at seaside) stay substrate; CCA4's cases 0/4
+// (the only ones seaside objects hit) call `FUN_8003cdd8` unconditionally as their entire body, so
+// CDD8/F698 are a clean, non-conflicting slice of the SAME dispatch chain.
 //
 // CALL-SITE MECHANISM: unlike the walk-cluster addresses the override registry's rec_dispatch
 // interception targets (rec_dispatch-only, nullptr setter), CDD8 and F698 are reached from CCA4's
@@ -21,8 +15,8 @@
 // generated/shard_5.c gen_func_8003CCA4 and generated/shard_6.c gen_func_8003CDD8).
 // overrides::dispatch only intercepts inside rec_dispatch, so it cannot see these calls; the ONLY
 // interception point is the g_override[] slot each func_XXXX wrapper
-// in shard_disp.c already checks (`if (g_override[N]) { g_override[N](c); return; }`) — the exact
-// mechanism render_observer.cpp uses. shard_set_override() is that installer.
+// in shard_disp.c already checks (`if (g_override[N]) { g_override[N](c); return; }`).
+// shard_set_override() is that installer.
 //
 // RE (Ghidra headless decompile of a live free-roam RAM dump, scratch/bin/field_ram.bin, cross-checked
 // against the ACTUAL recompiled body in generated/shard_6.c + generated/shard_4.c — the recompiler's
@@ -63,8 +57,7 @@
 #include "render.h"
 #include "cfg.h"
 #include "guest_abi.h"   // GuestFrame/guest_dispatch — perModeDispatch's demo migration (docs/port-framework.md)
-#include "render_internal.h"   // render_field_native_active / gpu_native_cover_add (REDIRECT below)
-#include "pkt_span.h"           // PktSpanSession (REDIRECT's own inner span capture)
+#include "render_internal.h"   // render_field_native_active (REDIRECT below)
 
 void rec_dispatch(Core*, uint32_t);          // overlay_router.cpp — the shared choke point for owned/substrate leaves
 void func_800803DC(Core*);                    // generated/shard_disp.c — generic GT3/GT4 packet emitter (still substrate)
@@ -224,16 +217,10 @@ void Render::cmdListDispatch() {
     // Invariant (a): the substrate GTE math below (perModeDispatch -> FUN_80146478 -> gt3/gt4) is
     // UNTOUCHED and still runs unconditionally — SBS byte-exactness is unaffected, only the PICTURE
     // decision changes.
-    // Invariant (b) NO DOUBLE-DRAW: register this cmd's own packet-pool span (captured via a nested
-    // PktSpanSession bracketing ONLY the perModeDispatch call below) into the native-cover registry,
-    // so gpu_native.cpp's field OT walk drops the substrate's now-redundant guest-OT copy instead of
-    // billboard-promoting it via obj_depth (see gpu_native_internal.h's NATIVE-COVER banner). The
-    // nested session's span still MERGES into perObjRenderDispatch's own outer withDepthTag session
-    // (pkt_span.h: nesting always merges) — harmless, since native-cover is checked BEFORE the
-    // obj_depth billboard promotion in gp0_exec.
+    // Invariant (b) NO DOUBLE-DRAW: pc_render never walks the guest OT, so the substrate's guest-OT
+    // copy of this cmd's packets can never reach the picture; only this native draw shows.
     // Invariant (c): dbg_node = the real owning node (perObjRenderDispatch's `node` — beginObject
-    // brackets ONLY this native draw, mirroring withDepthTag's own discipline) so matchAndLerp covers
-    // these prims with no matcher changes.
+    // brackets ONLY this native draw) so the prims carry real per-object identity.
     // COVERAGE (bug #48, docs/findings/render.md "Z-fight sweep 2026-07-14"; render.h banner):
     // independent of which per-mode target this cmd resolves to, if Render::perObjFlush (render_walk.
     // cpp) has ALREADY drawn this SAME node's cmd list natively this frame, the perModeDispatch call
@@ -291,22 +278,7 @@ void Render::cmdListDispatch() {
     c->r[22] = flag;
     c->r[23] = SCR;
     c->r[31] = 0x8003D07Cu;   // RE'd return-address constant (gen_func_8003CDD8, right before func_8003F698)
-    if (redirectGeneric || nodeNativeCovered) {
-      // NO DOUBLE-DRAW (invariant b, extended to the broader nodeNativeCovered case above): capture
-      // the substrate's own packet-pool span (bracketing ONLY this call, so terrain/other cmds on the
-      // SAME node aren't mis-attributed) and register it as native-covered — gpu_native.cpp's field OT
-      // walk drops it unconditionally instead of billboard-promoting it via obj_depth (checked first
-      // in gp0_exec; see the NATIVE-COVER banner in gpu_native_internal.h). This nested session's
-      // range still merges into perObjRenderDispatch's outer withDepthTag session (pkt_span.h: nesting
-      // always merges) — harmless, since native-cover wins over obj_depth regardless of which registry
-      // also holds the span.
-      PktSpanSession nativeCoverSess(c);
-      perModeDispatch();
-      uint32_t nlo, nhi;
-      if (nativeCoverSess.close(&nlo, &nhi)) gpu_native_cover_add(c, nlo, nhi);
-    } else {
-      perModeDispatch();
-    }
+    perModeDispatch();
     } // if (geomblk != 0)
     i++;
     if (!(i < (int)c->mem_r8(node + 9))) return;

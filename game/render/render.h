@@ -22,7 +22,7 @@ public:
   Core* mCore = nullptr;
 
   // ---- render-side per-Core subsystems ------------------------------------
-  // (The host-only render SUBSTRATE members — mode/diag/pktSpan/otAttr/dualviewSnapshot/stats/projprim/
+  // (The host-only render SUBSTRATE members — mode/diag/otAttr/dualviewSnapshot/stats/projprim/
   // pgxp/projParams — moved to the framework-owned `class RenderSubstrate` (runtime/recomp/
   // render_substrate.h), reached as `mCore->rsub.<member>`, so the framework no longer includes this
   // game umbrella just to reach a projection cache or compare-mode toggle. Byte-neutral host layout.)
@@ -281,8 +281,8 @@ public:
   // fieldObjectsRender: the field's OBJECT pass — walk the 3 entity lists + Tomba's G-block and flush each
   // live object's geomblk (perObjFlush → projComposeObject → gt3gt4). Factored OUT of sceneNative (which
   // mutates per-frame trust latches and can't be re-run) so Fps60's interp present can RE-RUN it under the
-  // lerped per-object transforms (mObjOverrideOn) — the SAME object walk the real frame ran, replacing the
-  // matchAndLerp output heuristic (docs/fps60-rework.md step 2b). Pure reads + queue emits, no state mutation.
+  // lerped per-object transforms (mObjOverrideOn) — the SAME object walk the real frame ran
+  // (docs/fps60-rework.md step 2b). Pure reads + queue emits, no state mutation.
   void fieldObjectsRender();
 
   // ---- BILLBOARD display-pass producer (#67 RE work — REDIRECT doctrine, USER: both frame kinds

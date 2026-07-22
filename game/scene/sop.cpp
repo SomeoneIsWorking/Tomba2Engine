@@ -383,16 +383,12 @@ void Sop::fieldUpdate() { Core* c = core;
     c->mem_w16(sm + 0x60, (uint16_t)(delay - 1));          // startup delay: just count down
   } else {
     // BG scene transition SM (native, FUN_8002655c) — the intro-cutscene fade manager.
-    c->game->ffspan.begin();
     eng(c).bgSceneTransitionSm.step();
-    c->game->ffspan.end("bgscene");
 
     // Scene cam-frustum prepass (guest FUN_8010A0E0): builds the per-frame 2D frustum triangle in
     // scene-grid space and hands it to FUN_8010A3AC (still substrate) which raster-gathers covered
     // cell ids into the SCENE_ENT_TABLE list. Top-down layer above the list-2 walk.
-    c->game->ffspan.begin();
     scenePrepass(SCENE_ENT_TABLE);
-    c->game->ffspan.end("scenePrepass");
 
     // Tomba/list-2 walk (guest FUN_8007B008): dispatches each list-2 node's +0x1c handler; Tomba
     // is one of those nodes, so this is the top-down layer immediately above Tomba's per-frame
@@ -425,9 +421,7 @@ void Sop::fieldUpdate() { Core* c = core;
     const bool bgVisible = (c->mem_r8(SCENE_BEAT) != 5);
     if (bgVisible) {
       // Parallax BG state machine (native, FUN_8010BFFC) — class ParallaxBg on Engine.
-      c->game->ffspan.begin();
       eng(c).parallaxBg.step();
-      c->game->ffspan.end("parallaxBG");
     }
     // SCENE-TABLE RENDER + OBJECT RENDER-LIST WALK — the substrate per-frame body (generated/
     // ov_sop_shard_1.c, FUN_801092xx) dispatches BOTH of these UNCONDITIONALLY, between the two
@@ -443,9 +437,7 @@ void Sop::fieldUpdate() { Core* c = core;
     if (bgVisible) {
       // BG tile scroller (substrate — emits GP0 packets; belongs to the PC-native BG renderer
       // rewrite, not a mechanical port). See "REBUILD, don't transcribe" in CLAUDE.md.
-      c->game->ffspan.begin();
       d1(c, 0x8010c26cu, PARALLAX_BG_SM);
-      c->game->ffspan.end("bgscroll");
     }
     c->mem_w8(IN_FIELD_UPDATE, 0);
   }

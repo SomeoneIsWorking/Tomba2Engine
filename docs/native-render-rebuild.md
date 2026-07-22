@@ -1,5 +1,12 @@
 # Native render rebuild — one PC-game renderer, no OT/GP0 fallback
 
+> **2026-07-22 correction (native-presentation directive):** the span registries this plan told steps to
+> "register into" (`obj_depth`, `native-cover`, `ui_span`, the `s_ot_2d_only` 2D-only walk, `ffspan`)
+> are DELETED — pc_render no longer walks the guest OT at all, so packet-span tagging could not reach
+> the picture (measured 0 lookups over 6000 default-leg frames). A missing layer is now rebuilt as a
+> NATIVE PRODUCER (fx_sprite / field_hud / billboardsRender pattern), never re-tagged. Read the step
+> tables below as history.
+
 USER directive (2026-07-15): "rebuild the renderer as I asked, one real PC game renderer, then fix your
 SBS tooling then you can work on the bugs" + "Drop the render shortcut and other fallbacks, if something
 lacks native rendering then it shouldn't be rendered at all and better yet, it should crash the game with

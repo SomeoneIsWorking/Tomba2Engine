@@ -212,7 +212,6 @@ set(GAME_SRC
   game/audio/native_audio.c
   game/audio/native_music.cpp
   game/audio/music_list.cpp
-  game/render/render_observer.cpp
   game/render/overlay_gt3gt4.cpp
   game/render/overlay_ground_gt3gt4.cpp
   game/render/tile_grid_layer.cpp

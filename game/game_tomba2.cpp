@@ -137,8 +137,7 @@ int gpu_vk_wide_engine(Core*);   // gpu_vk.c — genuine engine-wide active (PSX
 // programs the GPU linked-list DMA to walk the ordering table at a0 — which our renderer already does
 // natively in gpu_dma2_linked_list (walk OT -> decode each primitive -> rasterize). Overriding it routes
 // the draw straight through our native walk (synchronous), instead of the DMA-register emulation dance.
-// This is the engine's draw submission, owned.
-// g_render_psx retired — now Render::mode; g_ot_2d_only retired — now a param to gpu_dma2_linked_list.
+// This is the engine's draw submission, owned. (g_render_psx retired — now Render::mode.)
 void Engine::drawOTag(uint32_t otHead) {   // called directly from native_step_frame (PC-driven); NOT an override
   Core* c = this->core;
   // #7/#11 finish: while the DEMO/title front-end is still LOADING its assets (sub-SM task0+0x48 < 2, the
@@ -156,7 +155,7 @@ void Engine::drawOTag(uint32_t otHead) {   // called directly from native_step_f
   // isn't built yet (PSXPORT_RENDER_PSX=1). The pc_render path below never walks the guest OT.
   // ============================================================================================
   if (c->rsub.mode.psxRender()) {
-    gpu_dma2_linked_list(c, otHead, /*twoDOnly=*/false);
+    gpu_dma2_linked_list(c, otHead);
     if (cfg_dbg("rendernative")) rend(c)->mNativeScene.run();
     c->game->rq.flush(c);
     return;
@@ -190,8 +189,6 @@ void games_tomba2_init(void) {
   // (engine_math_register, save_register, sound_register, hud_register, actor_sm_24448_register, and
   // the beh_*_register siblings) were left as empty stubs "in case." Every stub had a zero- or single-
   // dead-line body — dead scaffolding — and got deleted. Direct-call wiring is the shape now.
-  void render_observer_install();
-  render_observer_install();   // read-only per-object depth tags at the substrate override choke point
   void perobj_dispatch_install();
   perobj_dispatch_install();   // FUN_8003CDD8/FUN_8003F698 substrate-mirror ownership (band 0x8003xxxx)
   void perobj_billboard_install();

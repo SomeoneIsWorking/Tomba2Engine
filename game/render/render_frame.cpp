@@ -47,7 +47,6 @@ static inline void d1(Core* c, uint32_t fn, uint32_t a0) { c->r[4] = a0; rec_dis
 // c048) are owned SOLELY by ov_scene_native (render_walk.cpp), which ov_draw_otag already runs every
 // field-stage frame — running them again here would double-submit every terrain/object prim. This function
 // now performs only the remaining non-walk PSX passes ov_scene_native does not cover.
-#include "game.h"      // c->game->ffspan — PSXPORT_BDTAG builder-span attribution
 // THE PSX RENDER PATH ALWAYS EXECUTES UNDERNEATH (USER 2026-07-07, issue #32): the substrate render
 // orchestrator runs in BOTH render modes, on the faithful task's own guest call path, so every guest
 // write it makes (packet pool, OT links, walk-queue cursors, node bookkeeping, stack scratch) is

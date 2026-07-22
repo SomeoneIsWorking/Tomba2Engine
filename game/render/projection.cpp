@@ -61,7 +61,7 @@ void Render::projComposeObject(uint32_t cmd, EObjXform* out) {
   // Object world rotation Robj (cmd+0x18) / position Tobj (cmd+0x2C) go through the Fps60::projObj choke
   // (docs/fps60-rework.md unified-path redesign): real frame reads them live from guest RAM and captures
   // them keyed by cmd (byte-identical to the old inline read); the interp present re-run returns the
-  // lerp(prev,cur,t) so the object interpolates through THIS same render path instead of matchAndLerp.
+  // lerp(prev,cur,t) so the object interpolates through THIS same render path.
   float Robj[3][3], Tobj[3];
   c->game->fps60.projObj(c, cmd, Robj, Tobj);
 

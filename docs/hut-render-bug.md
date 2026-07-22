@@ -53,7 +53,7 @@ delivery natively) — or restore a path so the seamless transition fade reaches
 ## NEXT STEPS (the fix)
 1. Pin the exact object-render divergence at f394: instrument the snapshot-queue driver (gen_func_8003BB50 /
    the entity walk that fills `0x1F800140`) — log the node set the native render drains vs what PSX drains.
-   (VK-level attribution: the OT scene-dump is blind to native VK geometry; use the ffspan per-pass tags /
+   (VK-level attribution: the OT scene-dump is blind to native VK geometry; use `debug otattr` /
    vkstats / a per-object-render node log.) Find why native draws village objects, PSX draws interior.
 2. Make the native object render follow the swapped sub-scene object set (the engine owns object selection
    from the current scene, not a stale snapshot/camera).

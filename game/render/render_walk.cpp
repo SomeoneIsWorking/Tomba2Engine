@@ -9,7 +9,7 @@
 // dispatcher), and the native backdrop draws the sky/parallax tilemap as RQ_BACKGROUND behind the world.
 //
 // Split out of submit.cpp (the geometry-SUBMIT subsystem) so the scene renderer is its own PC-game
-// file. Shared helpers (PktSpanSession, obj_world_ord/cur_render_node) live in render_internal.h.
+// file. Shared helpers (withObjScope/cur_render_node) live in render_internal.h.
 #include "core.h"
 #include "game_ctx.h"
 #include "render.h"

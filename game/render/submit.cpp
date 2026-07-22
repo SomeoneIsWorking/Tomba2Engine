@@ -27,7 +27,7 @@
 #include "mods.h"   // Mods (game->mods) — live PC-native lighting params (engine-native shading, not a deferred pass)
 #include "lighting.h" // PER-AREA light registry (sun / lava+torch); selected per frame in Render::shadeSelect
 #include "render_queue.h" // RQ_BACKGROUND + RenderQueue::push2dQuad — native backdrop tilemap path
-#include "render_internal.h" // shared render internals (PktSpanSession, obj_world_ord)
+#include "render_internal.h" // shared render internals (withObjScope, wq_* helpers)
 #include "gte_math.h"     // Math:: — GTE-transform cluster (matMul/applyMatlv/rotX/Y/Z/rotmat, static)
 #include "mtx.h"              // class Mtx — libgte helpers (identity, diagonal, ...)
 #include "trig.h"             // class Trig — libgte rsin/rcos
@@ -40,28 +40,6 @@
 #include <math.h>
 
 void rec_super_call(Core*, uint32_t);   // interpret the original PSX body (A/B oracle / super-call)
-
-// ---------------------------------------------------------------------------------------------------
-// NESTING-SAFE packet-pool span tracking (issue #4 — ropes/flames drew over terrain).
-//
-// Per-object depth tagging captures the address span an object's renderer writes into the packet pool
-// (g_pkt_track/g_pkt_lo/g_pkt_hi in mem.cpp), then stamps it with the object's world depth. The three
-// globals are ONE shared session, so the sessions did NOT nest. The rope/flame objects are rendered by
-// an aux walk (BCF4) whose per-type renderer (overlay fn 0x801341E8 / 0x80136748) INTERNALLY dispatches
-// the universal per-object render command 0x8003F698 (ov_render_cmd) for the SAME node. ov_render_cmd
-// opened its own session and, on exit, reset g_pkt_track=0 — so the rope's own quads, emitted by the
-// renderer AFTER that inner dispatch (via the per-quad submitter 0x8003B320 into 0x800C0xxx), were
-// written with tracking OFF. They got NO span, missed obj_depth_lookup at the OT walk, and fell to the
-// flat 2D OVERLAY band — drawing over the terrain/foliage. (Diagnosed live at tp 11647 -1597 2352:
-// idx-1 PRE track=1 -> inner ov_render_cmd -> POST track=0; 63/73 2D prims MISS.)
-//
-// Fix: a session SAVES the outer session's state on open and, on close, RESTORES it while MERGING its own
-// [lo,hi) into the outer's. The inner ov_render_cmd still publishes its own span, but tracking resumes
-// for the OUTER (rope-walk) session, so the outer's final gpu_obj_depth_add covers ALL of the object's
-// packets — the flush quads AND the rope segment quads — with the object's world depth. Nesting now works
-// for every span-tracking site (this is the general fix, not a rope special-case).
-// PktSpanSession + the nesting-safe packet-span rationale now live in render_internal.h (shared with
-// render_walk.cpp).
 
 #define COL_MASK     0xFFF0F0F0u   // low-nibble-per-byte clear applied to RGB words (matches the GPU)
 
@@ -88,24 +66,15 @@ static int submit_xmax(Core* c) { return gpu_vk_wide_engine(c) ? gpu_vk_wide_eng
 // At the field the owned path carries the world/map renderer's geometry; the 78 margin objects enqueue via
 // UN-owned submitter variants and are invisible here. Off by default; pure logging, no state change.
 int gpu_frame_no(Core*);
-void gpu_obj_depth_add(Core*, uint32_t lo, uint32_t hi, float ord);
 float proj_obj_center_ord(void);
-// PC-NATIVE object depth from real 3D placement. proj_camview_world_ord projects a WORLD point through the
-// STABLE scene camera (published once per frame at terrain draw, camview_publish); camview_valid says it's
-// known. This is the engine owning object depth from the object's spawned world position — NOT the volatile
-// live-GTE origin projection (proj_obj_center_ord reads whatever camera×object transform was composed LAST,
-// so render ORDER leaks into the depth and billboards get a wrong/too-far view-Z, losing the depth test to
-// terrain and vanishing). See obj_world_ord below.
 // class ProjParams (game/render/proj_params.h) — per-Core; the header brings in the free-function bridges
 // (proj_pz_to_ord, proj_set_H, proj_camview_world_ord, camview_valid) that used to be declared inline here.
 #include "proj_params.h"
 // g_fps60_on retired — read game->mods.fps60 (mods.h)
 // The entity node the native render walk is currently rendering (set around each per-object dispatch,
-// below). The PER-INSTANCE identity for every prim an object emits — including a 2D billboard whose quad
-// rasterizes later at the OT walk. Used both for the objid overlay (RenderQueue::emitOrQueue) and as the
-// billboard span identity (so collectables/flames are identified individually, not merged under a shared id).
-// g_dbg_render_node retired — per-Core Render::mDbgRenderNode (see render.h)
-// cur_render_node + obj_world_ord (PC-native per-object depth) now live in render_internal.h (shared).
+// below): the PER-INSTANCE identity for every prim an object emits, read by the objid overlay
+// (RenderQueue::emitOrQueue). g_dbg_render_node retired — per-Core Render::mDbgRenderNode (render.h);
+// cur_render_node lives in runtime/recomp/render_node.h.
 #define PKT_POOL_PTR  0x800BF544u
 
 // PC-native per-vertex depth (Phase 2): because we OWN the projection, we know each vertex's real
@@ -129,9 +98,9 @@ static inline const float (*shadow_verts(const ProjVtx* p, int nv, int semi, flo
     vv[k][0] = p[s].vx; vv[k][1] = p[s].vy; vv[k][2] = p[s].pz; }   // view space (x=ir1, y=ir2, z=pz)
   return vv;
 }
-// fps60 (docs/fps60-rework.md, redesign 2026-07-14): the 60fps in-between is built from the resolved
-// render-queue prims (RqItem, matched + lerped by Fps60::matchAndLerp), not from a per-quad model-vertex/
-// transform stamp here — nothing in this submit path needs to tag for fps60. See game/render/fps60.cpp.
+// fps60 (docs/fps60-rework.md, unified path): the interp present re-runs this SAME submit path under
+// lerped inputs (camera/object-transform/backdrop chokes) — nothing in this submit path needs to tag
+// for fps60. See runtime/recomp/fps60.cpp.
 
 // ENGINE-NATIVE directional lighting (user directive 2026-06-21: lighting must be engine-native, NOT a
 // screen-space deferred pass). Compute a real per-FACE normal from the prim's own view-space geometry
@@ -514,7 +483,7 @@ void Render::terrainRenderAll() {
   for (uint32_t n = c->mem_r32(0x800F2624u), g = 0; n && g < 400; g++, n = c->mem_r32(n + 36)) {
     if (c->mem_r8(n + 1) == 0) continue;
     if (c->mem_r32(n + 24) == 0x8002AB5Cu && !cfg_dbg("noterr")) {
-      c->game->ffspan.begin(); c->r[4] = n; terrain(); c->game->ffspan.end("rwT_terrain");
+      c->r[4] = n; terrain();
     }
   }
 }

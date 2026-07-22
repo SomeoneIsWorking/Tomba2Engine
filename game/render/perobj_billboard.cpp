@@ -4,14 +4,6 @@
 // same ownership mechanism (shard_set_override — these are reached as PLAIN intra-shard C calls from
 // the still-substrate walk cluster gen_func_8003BF00/etc, never through rec_dispatch).
 //
-// PRIOR STATE: all 4 addresses carried a TRANSPARENT RenderObserver wrapper (render_observer.cpp) that
-// ran the literal gen_func_* body then host-side depth-tagged the packet span it wrote
-// (obj_world_ord/gpu_obj_depth_add — the billboard-occlusion fix, issue #4 class). Owning
-// these natively must preserve that: each of the 4 methods below opens its own PktSpanSession and tags
-// on exit, exactly mirroring render_observer.cpp's obs_body. RenderObserver itself no longer installs
-// wrappers for these 4 addresses (render_observer.cpp trimmed accordingly); it still wraps the 2
-// remaining unowned siblings (0x8003C5F8, 0x8003C788) and 0x80039F4C.
-//
 // RE method: Ghidra headless decompile of a live free-roam RAM dump cross-checked against the ACTUAL
 // recompiled body in generated/shard_0.c (C2D4), shard_1.c (C464), shard_4.c (C8F4), shard_5.c (CCA4),
 // generated/shard_disp.c (g_override slot wiring) — the recompiler's gte_write_ctrl/gte_write_data/
@@ -20,7 +12,7 @@
 //
 // ==================================================================================================
 // FUN_8003CCA4 (perObjRenderDispatch, a0=node r4): stores node into the "current render node" scratch
-// (0x1F80028C — the same fallback obj_world_ord already reads), then selects one of 6 cases by
+// (0x1F80028C), then selects one of 6 cases by
 // `mem8(node+13) & 0xB` (bound-checked < 9) via a 9-slot table at 0x80014EC8. Every valid case runs
 // cmdListDispatch() (already owned, FUN_8003CDD8) then, for 4 of the 6 cases, calls one of 5
 // still-substrate "special effect" leaves (FUN_8003D584/F344/F3F4/F4C4/F594) with
@@ -75,8 +67,7 @@
 #include "game_ctx.h"
 #include "game.h"
 #include "render.h"
-#include "pkt_span.h"
-#include "render_internal.h"   // obj_world_ord / gpu_obj_depth_add / withDepthTag
+#include "render_internal.h"   // withObjScope / cur_render_node
 #include "proj_params.h"       // ProjParams::pzToOrd — billboardsRender depth normalize
 #include <unordered_map>
 
@@ -104,7 +95,7 @@ void func_8003B220(Core*);   // billboardEmit's quad-corner builder (writes real
 void func_8003B054(Core*);   // billboardEmit's color/UV fill
 
 namespace {
-constexpr uint32_t CUR_NODE_SCR = 0x1F80028Cu;   // "current render node" scratch (obj_world_ord fallback)
+constexpr uint32_t CUR_NODE_SCR = 0x1F80028Cu;   // "current render node" scratch
 constexpr uint32_t PKT_POOL_PTR = 0x800BF544u;   // packet-pool bump-allocator write pointer
 constexpr uint32_t OTBASE_PTR   = 0x800ED8C8u;   // *this = the active ordering-table base
 constexpr uint32_t BUF          = 0x1F800000u;   // SCRATCHPAD MATRIX-compose buffer (C2D4/C464/C8F4) —
@@ -166,38 +157,6 @@ struct CCA4Frame {
   }
 };
 
-// withDepthTag moved to render_internal.h (#39) so renderWalk's 0x8003C29C RCASE_DEFAULT dispatch can
-// share the exact same depth-tag discipline — see render_internal.h.
-
-// Per-particle world anchor + view-ord (render.md#56 — flame-over-wall). withDepthTag tags the WHOLE
-// billboardEmit packet span with ONE node-level ord (obj_world_ord(node): the manager node's single
-// world point), so every particle in a manager's sub-list (all flame/torch licks, all AP-gem sparkles)
-// shares one depth — when that's nearer than a real occluder's per-pixel depth, the WHOLE batch draws
-// in front of it. Each particle actually sits at its OWN world position: the node's world pos (node+
-// 46/50/54) offset by the node's own rotation applied to the particle's own planar offset
-// (particle+14/+15, s8, scaled x5 — the IDENTICAL 5x(p14,p15,0) scale func_8003B220's quad-corner
-// builder uses to place the same particle's on-screen quad, and the same anchor math the retired
-// fps60 recordBillboardParticle registry used, docs/findings/render.md "fps60 billboard anchor must be
-// PER-PARTICLE"). MAT_OUT (BUF+0x40, the composed rotation billboardComposeTail already loaded into
-// GTE CR0-7 for this node) is the node's rotation; it does not change across this loop's particles.
-// Projects through the SAME stable scene camera obj_world_ord uses, so per-particle occlusion never
-// re-derives PSX OT order — it's the engine's own world-position depth, just resolved at the correct
-// granularity.
-static float billboardParticleOrd(Core* c, uint32_t node, uint32_t particle) {
-  const float wx = (float)c->mem_r16s(node + 46);
-  const float wy = (float)c->mem_r16s(node + 50);
-  const float wz = (float)c->mem_r16s(node + 54);
-  const float ox = (float)(5 * c->mem_r8s(particle + 14));
-  const float oy = (float)(5 * c->mem_r8s(particle + 15));
-  // MAT_OUT rotation: libgte MATRIX, m[row][col] int16 4.12 fixed, row-major (row stride 6 bytes).
-  auto rot = [c](int row, int col) { return (float)(int16_t)c->mem_r16(MAT_OUT + row * 6 + col * 2); };
-  constexpr float FX = 1.0f / 4096.0f;
-  const float rx = (rot(0, 0) * ox + rot(0, 1) * oy) * FX;
-  const float ry = (rot(1, 0) * ox + rot(1, 1) * oy) * FX;
-  const float rz = (rot(2, 0) * ox + rot(2, 1) * oy) * FX;
-  if (camview_valid()) return proj_camview_world_ord(wx + rx, wy + ry, wz + rz);
-  return proj_obj_center_ord();   // same pre-scene-camera fallback obj_world_ord uses
-}
 } // namespace
 
 // ==================================================================================================
@@ -205,7 +164,7 @@ static float billboardParticleOrd(Core* c, uint32_t node, uint32_t particle) {
 void Render::perObjRenderDispatch() {
   Core* c = mCore;
   const uint32_t node = c->r[4];
-  withDepthTag(c, node, [](Core* c) {
+  withObjScope(c, node, [](Core* c) {
     CCA4Frame frame(c);
     const uint32_t node = c->r[4];
     // Register-faithfulness (2026-07-10, the f118 residual root cause — one level deeper than the
@@ -334,7 +293,7 @@ void Render::billboardCompose1() {
   Core* c = mCore;
   const uint32_t node = c->r[4];
   if (c->mem_r32(node + 56) == 0) return;
-  withDepthTag(c, node, [](Core* c) {
+  withObjScope(c, node, [](Core* c) {
     GuestFrame frame(c, 40);
     // Register-faithfulness (gen_func_8003C2D4 prologue, L4509-4514): spill the caller's
     // r16..r19/ra at sp+16..+32. The GuestFrame only allocates the frame; the spill BYTES are
@@ -369,7 +328,7 @@ void Render::billboardCompose2() {
   Core* c = mCore;
   const uint32_t node = c->r[4];
   if (c->mem_r32(node + 56) == 0) return;
-  withDepthTag(c, node, [](Core* c) {
+  withObjScope(c, node, [](Core* c) {
     GuestFrame frame(c, 32);
     // Register-faithfulness (gen_func_8003C464 prologue, L5907-5911): spill caller's
     // r16/r17/r18/ra at sp+16/+20/+24/+28. (C464's prologue does NOT spill r19 — it passes through.)
@@ -411,7 +370,7 @@ void Render::billboardCompose3() {
   Core* c = mCore;
   const uint32_t node = c->r[4];
   if (c->mem_r32(node + 56) == 0) return;
-  withDepthTag(c, node, [](Core* c) {
+  withObjScope(c, node, [](Core* c) {
     GuestFrame frame(c, 32);
     // Register-faithfulness (gen_func_8003C788 prologue): spill caller's r16/r17/r18/ra at
     // sp+16/+20/+24/+28 — same 32-byte / 4-spill shape as C464.
@@ -446,7 +405,7 @@ void Render::billboardComposeC5F8() {
   Core* c = mCore;
   const uint32_t node = c->r[4];
   if (c->mem_r32(node + 56) == 0) return;
-  withDepthTag(c, node, [](Core* c) {
+  withObjScope(c, node, [](Core* c) {
     GuestFrame frame(c, 40);
     // Register-faithfulness (gen_func_8003C5F8 prologue): spill caller's r16..r19/ra at sp+16..+32 —
     // same 40-byte / 5-spill shape as C2D4.
@@ -480,7 +439,7 @@ void Render::billboardEmit() {
   const uint32_t node = c->r[4];
   const uint32_t flag = c->r[5];
   if (c->mem_r32(node + 56) == 0) return;
-  withDepthTag(c, node, [](Core* c) {
+  withObjScope(c, node, [](Core* c) {
     GuestFrame frame(c, 96);   // real guest stack frame: func_8003B220 writes through this as a real
                                 // guest address, and callers' own frames must already be allocated
                                 // (see GuestFrame's comment) for this base to land on the same bytes
@@ -627,20 +586,8 @@ void Render::billboardEmit() {
       }
       c->mem_w32(PKT_POOL_PTR, tail);
 
-      // Per-particle depth registration (render.md#56): tag THIS particle's own packet span with its
-      // own world-view ord, instead of relying solely on withDepthTag's single whole-span registration
-      // (which only fires on function exit, from `sess.close()` AFTER this loop finishes). obj_depth_
-      // lookup scans registered spans in REGISTRATION ORDER and returns the FIRST containing match, so
-      // — since every per-particle span here is registered strictly BEFORE withDepthTag's own coarse
-      // whole-node span — a lookup for one of these packet's bytes always resolves to this particle's
-      // OWN ord, never the coarse fallback. No suppression of the outer span needed; it stays the
-      // fallback for anything this loop doesn't cover (skipped/off-screen particles emit no packet).
-      // Host-only: GpuState::obj_depth_add stores into per-Core host arrays, no guest write. Skipped on
-      // the SBS oracle core exactly like withDepthTag skips its own registration there (core B/
-      // psx_fallback must stay the untouched reference).
+      // Skipped on the SBS oracle core (core B/psx_fallback must stay the untouched reference).
       if (!c->game->oracle) {
-        const float pord = billboardParticleOrd(c, node, particle);
-        gpu_obj_depth_add(c, packetLo, tail, pord);
         // #67 (replaces the #65 DUAL-EMIT, deleted break-first): RECORD this particle for the
         // display-pass producer Render::billboardsRender instead of pushing the GTE-computed SXYs
         // verbatim. The record is pure game state resolved this tick — local corners (the ×5 ints
@@ -680,15 +627,6 @@ void Render::billboardEmit() {
           rb.wUv0 = c->mem_r32(BUF + 12); rb.wUv1 = c->mem_r32(BUF + 20);
           rb.wUv2 = c->mem_r32(BUF + 28); rb.wUv3 = c->mem_r32(BUF + 36);
           rend(c)->mBbRecs.push_back(rb);
-        }
-        // Diagnostic (PSXPORT_DEBUG=bbord): prove the per-particle registration carries DISTINCT ords
-        // (before this change every particle of a manager node shared obj_world_ord(node)'s single ord).
-        if (cfg_dbg("bbord")) {
-          int gpu_vk_preseq_present_index(Core*);
-          cfg_logf("bbord", "pf=%d call=%08X it=%d part=%08X off=%d,%d nodeOrd=%.6f partOrd=%.6f span=[%08X,%08X)",
-                  gpu_vk_preseq_present_index(c), node, bbIt, particle,
-                  c->mem_r8s(particle + 14), c->mem_r8s(particle + 15),
-                  obj_world_ord(c, node), pord, packetLo, tail);
         }
       }
     }

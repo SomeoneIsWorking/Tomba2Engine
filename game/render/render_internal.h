@@ -2,25 +2,14 @@
 // (submit.cpp: poly submitters, the render-command dispatcher, transform/matrix orchestration)
 // and the render-list WALK subsystem (render_walk.cpp: ov_scene_native + the master/snapshot/aux list
 // walks + per-object render/flush + the native backdrop) can live in separate files while sharing the
-// few helpers both need (per-object depth tagging, the nesting-safe packet-span session, and the native
-// generic GT3/GT4 submit the per-object flush calls).
+// few helpers both need (the per-object diagnostic identity scope and the native generic GT3/GT4
+// submit the per-object flush calls).
 #pragma once
 #include "core.h"
 #include "mods.h"   // g_mods
 #include "cfg.h"    // cfg_dbg
 #include <stdio.h>  // sil_bbox_log diag fprintf
 
-// --- per-object depth helpers (the engine owns object depth from the object's real world placement) ---
-void  gpu_obj_depth_add(Core*, uint32_t lo, uint32_t hi, float ord);
-// --- UI-span registry (bug #34, docs/findings/ui.md "Dialog text-box PANEL emitter chain") ---
-// Presence-only provenance: a dialog-box panel poly's packet-pool span, so the field's 2D-only OT walk
-// keeps it as RQ_HUD instead of dropping it with the redundant native-owned world polys. No depth/ord —
-// distinct from gpu_obj_depth_add's world-position billboard occlusion.
-// --- NATIVE-COVER registry (docs/fps60-rework.md REDIRECT) --- see gpu_native_internal.h for the
-// full rationale: marks a packet-pool span whose geometry was ALSO drawn through the real per-object
-// float path this frame, so the field's 2D-only OT walk drops the substrate's redundant copy instead
-// of billboard-promoting it.
-void  gpu_native_cover_add(Core*, uint32_t lo, uint32_t hi);
 float proj_obj_center_ord(void);
 // class ProjParams (game/render/proj_params.h) — per-Core; brings in camview_valid/proj_camview_world_ord etc.
 #include "proj_params.h"
@@ -31,19 +20,18 @@ float proj_obj_center_ord(void);
 // billboards rasterized later at the OT walk).
 #include "render.h"    // Render (needed for cur_render_node below)
 #include "game.h"      // c->game->oracle
-#include "pkt_span.h"  // PktSpanSession (withDepthTag below)
 #include "render_queue.h"  // RenderQueue::emitOrQueue + RQ_WORLD
 
 // cur_render_node moved to the framework header runtime/recomp/render_node.h (ot_attr.cpp, framework,
 // needs it without the rest of this game header). Included here so the game render path is unchanged.
 #include "render_node.h"
 
-// render_field_native_active: true iff pc_render's native field pass (Render::sceneNative + the
-// twoDOnly OT walk, game_tomba2.cpp Engine::drawOTag) owns THIS frame's picture — GAME stage,
+// render_field_native_active: true iff pc_render's native field pass (Render::sceneNative,
+// game_tomba2.cpp Engine::drawOTag) owns THIS frame's picture — GAME stage,
 // free-roam (not SOP intro narration), pc_render (not psx_render), not the oracle. Any OTHER
 // picture-producing addition that wants to draw real geometry natively (e.g. cmdListDispatch's
 // generic-overlay REDIRECT, perobj_dispatch.cpp) must gate on this SAME condition: outside this
-// window the guest OT's full walk (twoDOnly=false) is the sole picture source, so an extra native
+// window the guest OT's full walk (psx_render) is the sole picture source, so an extra native
 // draw would double-draw. Deliberately narrower than drawOTag's own `scenenative` diagnostic branch
 // (that debug channel stays diagnostic-only; it must not also arm new native draws).
 static inline bool render_field_native_active(Core* c) {
@@ -52,34 +40,14 @@ static inline bool render_field_native_active(Core* c) {
   if (c->mem_r32(0x80109450u) == 0x3C021F80u) return false;         // SOP intro narration overlay active
   // #51: an AUTHORED OT sub-scene (hut/door interior, sm[0x4c]==3 — the game's own fieldRunX/frameX
   // selector; see game_tomba2.cpp) is drawn ENTIRELY by the full guest-OT walk (#49), NOT the native
-  // field pass — so the native pass does NOT own the picture here. If this returned true, the #48
-  // native-cover + the cmdListDispatch REDIRECT would drop owned objects (Tomba, NPCs) from the OT walk
-  // while their native draw never runs (sceneNative is gated off) -> the objects vanish (Tomba invisible).
+  // field pass — so the native pass does NOT own the picture here. If this returned true, the
+  // cmdListDispatch REDIRECT would draw natively while the walk also draws -> double-draw (and the #48
+  // era showed the inverse failure: owned objects vanishing, Tomba invisible).
   uint32_t task_sm = c->mem_r32(0x1F800138u);
   if (task_sm && c->mem_r16(task_sm + 0x4Cu) == 3) return false;
   return true;
 }
 
-// The engine's PC-native depth for an object: project its REAL spawned WORLD position (node+0x2e/0x32/0x36)
-// through the STABLE scene camera, so render order can no longer leak into depth. Falls back to the live-GTE
-// origin projection only before the scene camera is known (first frame / no terrain in scene).
-static inline float obj_world_ord(Core* c, uint32_t node) {
-  if (node && camview_valid()) {
-    float wx = (float)c->mem_r16s(node + 0x2E);
-    float wy = (float)c->mem_r16s(node + 0x32);
-    float wz = (float)c->mem_r16s(node + 0x36);
-    return proj_camview_world_ord(wx, wy, wz);
-  }
-  return proj_obj_center_ord();
-}
-
-// Guest-transparent depth-tag wrap (RenderObserver's obs_body, folded in): PSXPORT_ORACLE runs `body`
-// pure (core B / psx_fallback stays the untouched reference), everyone else opens a nested
-// PktSpanSession around `body` and tags the packet span it emits with the object's PC-native world
-// depth — so the field tee (s_ot_2d_only) KEEPS the resulting is3d=0 prims instead of dropping them for
-// lack of a depth tag (#39: weapon chain + impact effect). Shared by every per-node dispatch site that
-// reaches an otherwise-untagged custom renderer (perObjRenderDispatch's CCA4 body, renderWalk's
-// 0x8003C29C RCASE_DEFAULT body).
 // ObjScope — declare "this object is drawing" for the span of a per-node dispatch, so every prim emitted
 // beneath it carries the owning node (RqItem::dbg_node) instead of arriving anonymous. Restores the
 // previous node rather than calling endObject(), which clears to 0 and would drop an enclosing scope.
@@ -94,17 +62,11 @@ private:
   Core* mCore; uint32_t mPrev;
 };
 
-static inline void withDepthTag(Core* c, uint32_t node, void (*body)(Core*)) {
-  if (c->game->oracle) { body(c); return; }
-  c->rsub.diag.beginObject(node);
-  uint32_t slo, shi;
-  PktSpanSession sess(c);
+// withObjScope — run a per-object draw body under ObjScope so every prim it emits carries the owning
+// node as its diagnostic identity (RqItem::dbg_node — objid overlay). Host-side RenderDiag only.
+static inline void withObjScope(Core* c, uint32_t node, void (*body)(Core*)) {
+  ObjScope scope(c, node);
   body(c);
-  if (sess.close(&slo, &shi)) {
-    float od = obj_world_ord(c, node);
-    gpu_obj_depth_add(c, slo, shi, od);
-  }
-  c->rsub.diag.endObject();
 }
 
 // ---- WqRec factorization helpers (#67 display-pass quads — render.h WqRec banner) ------------------
@@ -136,10 +98,6 @@ static inline void wq_factor_world(Core* c, const float crF[3][3], const float t
     objT[i] = s;
   }
 }
-
-// PktSpan (per-Core packet-pool store-address-span tracker) + PktSpanSession (RAII object scope) live
-// in pkt_span.h — reached as c->rsub.pktSpan. PktSpanSession is defined there; its ctor/close
-// implementation is in pkt_span.cpp.
 
 // Fully-native generic GT3/GT4 submit is Render::gt3gt4 (submit.cpp); the per-object flush in
 // the walk calls it directly. Scene-table (0x800F2418) world-coord render is Render::fieldEntityRender.

@@ -40,8 +40,8 @@ deviation, grouped by affect. `tools/behavior.py` = view · `... <words>` = sear
 - **original:** game renders at its native guest frame rate (~30fps)
 - **altered:** interpolated in-between frames on the actor-transform tier, one frame behind
 - **guard:** interpolation layer only — no guest re-run, no guest writes; reads dbg_node object identity and lerps host transforms
-- **owner:** game/render/fps60*.cpp; game/render/render_queue.cpp (Fps60::matchAndLerp)
-- **notes:** verify per-object via preseqobj / fps60chk (docs/findings render). Anchor/stamp special-casing is debt.
+- **owner:** external/psxport/runtime/recomp/fps60.{h,cpp} (input-lerp re-run: sceneCam/projObj/bgScroll chokes + tier1Render)
+- **notes:** verify per-object via preseqobj / fps60chk (docs/findings render); endpoint gate PSXPORT_FPS60_TFORCE=0|1 pixel-diffs interp vs the adjacent real frame.
 
 ## ires
 - **class:** ires
