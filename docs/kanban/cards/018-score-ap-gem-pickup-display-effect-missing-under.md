@@ -1,7 +1,7 @@
 ---
 id: 18
 title: Score/AP-gem pickup display effect missing under pc_render
-status: todo
+status: done
 labels: [render]
 created: 2026-07-22
 updated: 2026-07-23
