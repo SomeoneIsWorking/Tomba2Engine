@@ -2527,3 +2527,22 @@ unconfirmed. The state was forced through the REPL to exercise the producers.
   routes it — and so `port_check` can see the call, which it cannot through a method call.
 - **COLD on the field/dialog replay** (`ovhit` native=0). It needs a scene that actually uses render
   mode 2; unverified at runtime until then, and recorded that way in the port map.
+
+## Render::subPartWalk (FUN_8003F174) — sub-part walker, ported and LIVE (2026-07-22)
+- **Closes the render frontier's per-type handler list.** With `composeTintGate` (0x8003EF9C) the same
+  day, every entry on that list is now owned.
+- **What it is:** draws a node built from SUB-PARTS, each independently positioned. The node holds an
+  array of sub-part pointers at `+0xC0` (stride 4); per entry it loads that sub-part's own transform
+  into the GTE — 8 control words at `sub+0x18`, rotation in regs 0..4 and translation in 5..7 — then
+  submits its geometry block (`sub+0x40`) via `FUN_8003F698` with the OT base. The transform is
+  re-loaded EVERY iteration, which is the whole point: the parts move independently.
+- **Two counts, not interchangeable:** `node[+8]` is tested at the TOP of each iteration and ends the
+  walk immediately when the index reaches it; `node[+9]` is the do/while bound at the bottom. A node
+  with `[+8] == 0` draws nothing however large `[+9]` is. Collapsing them into one loop bound would
+  change behaviour wherever they differ.
+- **Status: `port_check` PASS, wired with the setter, and LIVE** — `ovhit` native=139 on the bucket
+  capture, and the frame renders identically to the pre-port capture (no corruption, no missing
+  geometry). Contrast `composeTintGate`, which is correct but cold on this path.
+- **Build note:** `gte_write_ctrl` is declared in `core.h` as `(uint32_t, uint32_t)`. Re-declaring it
+  locally with an `int` first parameter compiles and then fails at LINK with an undefined reference —
+  include the header rather than writing your own prototype.

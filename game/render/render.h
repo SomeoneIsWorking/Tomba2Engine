@@ -397,6 +397,12 @@ public:
   // object's geometry, and in mode 2 colour-adds over exactly the primitives just emitted. Modes
   // other than 0/2 draw nothing. See render/compose_tint_gate.cpp.
   static void composeTintGate(Core* c);
+
+  // subPartWalk (FUN_8003F174): draws a node built from SUB-PARTS — for each entry of the node's
+  // +0xC0 pointer array it loads that sub-part's own GTE transform (8 control words at sub+0x18)
+  // and submits its geomblk (sub+0x40). Two distinct counts: node[+8] caps the walk from the top,
+  // node[+9] is the do/while bound. See render/subpart_walk.cpp.
+  static void subPartWalk(Core* c);
   // billboardEmit (FUN_8003C8F4): a0=node (r4), a1=flag (r5). Walks the node's active particle
   // sub-list, RTPT/RTPS-projects each particle's quad corners, culls off-screen, buckets into the OT
   // by averaged depth, and emits a 10-word (tag+9) GT4-style packet into the packet pool.

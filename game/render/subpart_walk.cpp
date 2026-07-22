@@ -1,0 +1,101 @@
+// game/render/subpart_walk.cpp — Render::subPartWalk, guest FUN_8003F174.
+//
+// RE'd 2026-07-22 from gen_func_8003F174. The LAST unported entry on the render frontier's per-type
+// handler list (0x8003EF9C was the other, ported the same day as Render::composeTintGate).
+//
+// WHAT IT DOES. Draws a node that is built from SUB-PARTS, each with its own transform. The node
+// carries an array of sub-part pointers at +0xC0 (stride 4), and for each one this:
+//
+//   1. loads that sub-part's TRANSFORM into the GTE — eight control words from `sub+0x18`, which is
+//      the standard 3x3 rotation (regs 0..4, packed two shorts per word) plus translation (regs 5..7);
+//   2. submits the sub-part's geometry block (`sub+0x40`) through FUN_8003F698, along with the
+//      ordering-table base and the caller's second argument passed straight through.
+//
+// So each sub-part is positioned independently: the transform is re-loaded per iteration rather than
+// once for the whole node. That is what makes this a sub-part walker rather than a plain emitter.
+//
+// TWO SEPARATE COUNTS, and they are not interchangeable:
+//   node[+8] — checked at the TOP of every iteration; the walk returns the moment the index reaches it
+//   node[+9] — the do/while bound at the BOTTOM
+// The guest tests both, and it tests [+8] first, so a node with [+8] == 0 draws nothing even if [+9]
+// is large. Collapsing them into one loop bound would change behaviour for any node where they differ.
+#include "core.h"
+#include "render.h"
+#include "override_registry.h"
+
+void func_8003F698(Core*);   // generated/shard_disp.c — geometry-block submit
+// gte_write_ctrl is declared in core.h (uint32_t, uint32_t) — included above
+
+namespace {
+
+constexpr uint32_t OT_TABLE_PTR   = 0x800ED8C8u;  // u32 -> ordering-table base
+constexpr uint32_t SUBPART_ARRAY  = 0xC0u;        // node+0xC0: array of sub-part pointers, stride 4
+constexpr uint32_t SUB_TRANSFORM  = 0x18u;        // sub+0x18: 8 GTE control words
+constexpr uint32_t SUB_GEOMBLK    = 0x40u;        // sub+0x40: geometry block to submit
+constexpr uint32_t NODE_LIMIT     = 8u;           // checked at the top of each iteration
+constexpr uint32_t NODE_COUNT     = 9u;           // do/while bound at the bottom
+
+}  // namespace
+
+// ORACLE: gen_func_8003F174
+void Render::subPartWalk(Core* c) {
+  const uint32_t node = c->r[4];
+  const uint32_t passThrough = c->r[5];
+
+  c->r[29] -= 80;
+  const uint32_t frame = c->r[29];
+  c->mem_w32(frame + 64, c->r[18]);
+  c->mem_w32(frame + 76, c->r[31]);
+  c->mem_w32(frame + 72, c->r[20]);
+  c->mem_w32(frame + 68, c->r[19]);
+  c->mem_w32(frame + 60, c->r[17]);
+  c->mem_w32(frame + 56, c->r[16]);
+
+  if (c->mem_r8(node + NODE_LIMIT) != 0 && c->mem_r8(node + NODE_COUNT) != 0) {
+    int32_t  index  = 0;
+    uint32_t cursor = node;                 // walks the +0xC0 array, 4 bytes per sub-part
+
+    do {
+      if (index >= (int32_t)(uint32_t)c->mem_r8(node + NODE_LIMIT)) break;   // top-of-loop limit
+
+      const uint32_t sub = c->mem_r32(cursor + SUBPART_ARRAY);
+      const uint32_t xf  = sub + SUB_TRANSFORM;
+
+      // this sub-part's transform: rotation (0..4) then translation (5..7)
+      gte_write_ctrl(0, c->mem_r32(xf + 0));
+      gte_write_ctrl(1, c->mem_r32(xf + 4));
+      gte_write_ctrl(2, c->mem_r32(xf + 8));
+      gte_write_ctrl(3, c->mem_r32(xf + 12));
+      gte_write_ctrl(4, c->mem_r32(xf + 16));
+      gte_write_ctrl(5, c->mem_r32(xf + 20));
+      gte_write_ctrl(6, c->mem_r32(xf + 24));
+      gte_write_ctrl(7, c->mem_r32(xf + 28));
+
+      cursor += 4;
+      c->r[4] = c->mem_r32(sub + SUB_GEOMBLK);
+      c->r[5] = c->mem_r32(OT_TABLE_PTR);
+      c->r[31] = 0x8003F230u;               // jal-site ra
+      c->r[6] = passThrough;
+      func_8003F698(c);
+
+      index += 1;
+    } while (index < (int32_t)(uint32_t)c->mem_r8(node + NODE_COUNT));
+  }
+
+  c->r[31] = c->mem_r32(frame + 76);
+  c->r[20] = c->mem_r32(frame + 72);
+  c->r[19] = c->mem_r32(frame + 68);
+  c->r[18] = c->mem_r32(frame + 64);
+  c->r[17] = c->mem_r32(frame + 60);
+  c->r[16] = c->mem_r32(frame + 56);
+  c->r[29] += 80;
+}
+
+static void ov_subpart_walk(Core* c) { Render::subPartWalk(c); }
+
+void subpart_walk_install() {
+  extern void gen_func_8003F174(Core*);
+  extern void shard_set_override(uint32_t, void (*)(Core*));
+  overrides::install(0x8003F174u, "Render::subPartWalk", ov_subpart_walk,
+                     gen_func_8003F174, shard_set_override);
+}
