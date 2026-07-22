@@ -3,6 +3,12 @@
 // The 9-slice panel's fill primitive, and the busiest render function on the field path (505
 // dispatches per 1200 frames). RE'd 2026-07-22 from gen_func_8004FFB4.
 //
+// THIS IS THE GUEST-STATE HALF ONLY. The address is owned by `Panel::install()` (game/ui/panel.cpp),
+// whose panelFillTap calls this body and then `Panel::pushFill` for the display pass. Do NOT add a
+// second display pass here and do NOT install this on 0x8004FFB4 separately — that was done on
+// 2026-07-22, it duplicated pushFill at RQ_HUD instead of RQ_OVERLAY, and the dialog fill drew over
+// its own glyphs (kanban #28, a re-run of bug #64 whose lesson is written down in panel.cpp).
+//
 // It builds ONE textured quad — a GP0 0x2C, or 0x2E when the caller asks for semi-transparency — and
 // links it into the ordering table. Ten words off the packet pool:
 //
@@ -30,9 +36,6 @@
 // behaviour, not an oversight.
 #include "ui/panel.h"
 #include "core.h"
-#include "override_registry.h"
-#include "game.h"
-#include "render_internal.h"
 
 namespace {
 
@@ -126,45 +129,4 @@ void Panel::fillQuad(Core* c) {
   const uint32_t slot = c->mem_r32(OT_TABLE_PTR) + otBucket * 4u;
   c->mem_w32(packet, c->mem_r32(slot) | TAG_9_WORDS);
   c->mem_w32(slot, packet);
-
-  // DISPLAY PASS (kanban #19/#21). Everything above is the guest-state half — byte-identical to the
-  // guest body, and the ONLY half that existed until now. pc_render stopped walking the guest OT in the
-  // 2026-07-15 break-first rebuild, so a packet that is *only* linked into the OT is never drawn: the
-  // panel FILL vanished while the 9-slice CORNERS (which do have native producers, via
-  // Render::emitUiFt4 / emitUiSprites) kept drawing. That is exactly the reported symptom — a dialog
-  // box reduced to four corners, and a triangle menu whose frame and text render over a see-through
-  // middle. Evidence: on the default leg `ovhit` counts native=610 fillQuad dispatches with the item
-  // menu open, i.e. the emitter runs and the packets exist; the pure-oracle capture
-  // (scratch/screenshots/layergap/tri_oracle.png) shows the opaque panel those packets draw.
-  // So re-derive the SAME quad host-side from the values just computed and hand it to the render
-  // queue as a 2D foreground prim. Read-only: host memory only, no guest write beyond the block above.
-  if (c->game->oracle || c->rsub.mode.psxRender()) return;
-  const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
-  const int XL = (int16_t)x + ox, XR = (int16_t)(x + w) + ox;
-  const int YT = (int16_t)y + oy, YB = (int16_t)(y + h) + oy;
-  int xs[4] = { XL, XR, XL, XR };
-  int ys[4] = { YT, YT, YB, YB };
-  const UvSet& uv = kUvSets[uvIndex < 5 ? uvIndex : 0];
-  int us[4] = { uv.uLeft, uv.uRight, uv.uLeft, uv.uRight };
-  int vs[4] = { uv.vTop,  uv.vTop,   uv.vBottom, uv.vBottom };
-  const int raw  = (attr & ATTR_FLAT_SHADE) ? 0 : 1;   // no flat shade -> raw texel (the opcode's bit0)
-  const unsigned char col = raw ? 0x80 : FLAT_SHADE_LVL;
-  unsigned char cc[4] = { col, col, col, col };
-  const int tp_x = (TPAGE & 0xF) * 64, tp_y = ((TPAGE >> 4) & 1) * 256;
-  const int tmode = (TPAGE >> 7) & 3, blend = (TPAGE >> 5) & 3;
-  const int clut_x = (clut & 0x3F) * 16, clut_y = (clut >> 6) & 0x1FF;
-  const int semi = (attr & ATTR_SEMI) ? 1 : 0;
-  c->game->activeRq().emitOrQueue(c, /*capture=*/1, RQ_HUD, RQ_OM_2D_FG, 4, semi, raw,
-                                  xs, ys, nullptr, nullptr, us, vs, cc, cc, cc, nullptr,
-                                  tmode, tp_x, tp_y, clut_x, clut_y,
-                                  0, 0, 0, 0, 0, 0, 1023, 511, blend);
-}
-
-static void ov_panel_fill_quad(Core* c) { Panel::fillQuad(c); }
-
-void panel_fill_install() {
-  extern void gen_func_8004FFB4(Core*);
-  extern void shard_set_override(uint32_t, void (*)(Core*));
-  overrides::install(0x8004FFB4u, "Panel::fillQuad", ov_panel_fill_quad,
-                     gen_func_8004FFB4, shard_set_override);
 }

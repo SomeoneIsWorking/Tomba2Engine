@@ -182,7 +182,8 @@ void panelFillTap(Core* c) {
   const int32_t  uvIndex  = (int32_t)c->r[5];
   const uint16_t attr     = (uint16_t)c->r[6];
   const int32_t  otBucket = (int32_t)c->r[7];
-  gen_func_8004FFB4(c);   // byte-exact guest packet pool / OT / stack
+  Panel::fillQuad(c);     // guest packet pool / OT / stack — the readable rebuild in panel_fill.cpp,
+                          // proven byte-identical to gen_func_8004FFB4 by A/B dump-diff
   if (c->game->oracle || c->rsub.mode.psxRender()) return;   // read-only overlay gate
   Panel::pushFill(c, rectPtr, uvIndex, attr, otBucket);
 }
