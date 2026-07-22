@@ -201,6 +201,33 @@
   the paint-order step can be small enough (~4e-6) that a whole object's drift stays under 1e-3 — an order
   of magnitude below inter-object separation, with no constant tuned to a scene. NOTE: grouping by
   `currentGeomblk()` instead does NOT work — measured, the two contesting prims are in different geomblks.
+- **EMITTER FOUND — it was never an unowned emitter (2026-07-22, backtrace):** a native backtrace out of
+  `RenderQueue::drawWorldQuad` names the chain outright: `drawWorldQuad` <- `Render::submitPolyGt4Native`
+  <- `Render::perObjFlush` <- `Render::fieldObjectsRender` <- `tomba_fps60_world_pass` <-
+  `Fps60::tier1Render`. Entirely native, entirely owned. That is why every candidate reached by inference
+  measured negative (subPartWalk, sharedTransformWalk, objListWalk1/3/4, the 0x8003F9A8 callee set) — the
+  "unowned emitter" reading of the otattr histogram was wrong. **LESSON: backtrace the actual prim before
+  reasoning about which function must have produced it; one backtrace beat five rounds of inference.**
+- **LANDED:** `Render::fieldObjectsRender` walks the field object lists holding each node and hands it to
+  `perObjFlush` without ever declaring it, so every quad reached the queue with `dbg_node=0`. `ObjScope`
+  (RAII in `game/render/render_internal.h`; saves/restores the previous node — `endObject()` clears to 0
+  and would drop an enclosing scope) now declares it. VERIFIED: the barrel's two contesting faces both
+  carry `dbgnode=800FB858`, and the frame is pixel-identical to baseline (`dbg_node` is not yet an
+  ordering input). Real per-object grouping: the barrel is 58 faces, cap = rank 30, water = rank 50.
+- **WITHIN-OBJECT PAINT ORDER: MEASURED NET-NEGATIVE, REVERTED — do not re-attempt as a blanket rule.**
+  With the grouping finally real, a small camera-ward nudge per within-object submission rank does fix
+  the barrel. Scored against the oracle over every pixel it changed (`PSXPORT_PAINTSTEP=3e-5`, 1263
+  pixels changed):
+  - barrel top region: **95 closer, 6 farther** — correct exactly where intended;
+  - everywhere else: **338 closer, 903 farther**, mean distance-to-oracle 94 -> 165.
+  So it is locally right and globally wrong, ~2.7:1 against. The reason is now clear and is the useful
+  result: for a normal mesh, real per-vertex depth is ALREADY the right answer (better than PSX), and a
+  monotonic ramp over its faces corrupts an ordering that was correct. Only a genuine layered pair — two
+  surfaces sharing screen area with overlapping depth, like the barrel's interior cap and its water —
+  needs paint order to override real depth. A rule that cannot tell those two situations apart trades one
+  visible bug for many quieter ones. **The open question is no longer "how do we apply paint order" but
+  "what distinguishes a layered pair from an ordinary face pair" — and note it cannot be a near-tie test:
+  these two are 5.8e-4 apart, genuinely not tied.**
 - **refs:** `runtime/recomp/gpu_vk.cpp` (`gpu_zbias_unit`, `zbias_max`, `set_order`),
   `runtime/recomp/render_queue.cpp` (`primat-rq`, `emitOrQueue` `dbg_node` assignment),
   `runtime/recomp/gpu_native.cpp` (`obj_depth_add`/`obj_depth_lookup`), `runtime/recomp/ot_attr.h`.
