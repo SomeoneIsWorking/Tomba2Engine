@@ -91,22 +91,16 @@ void UiSprite::drawFixedDef152(Core* c) {
   c->r[29] += 24;
 }
 
-// The pause/item menu paints its button glyphs, item icons and help-panel portrait through this
-// leaf, and pc_render has no other producer for them (kanban #21) — so the display half of the
-// page taps hangs here rather than on a second overrides::install for 0x8007E6DC (dual ownership
-// is what broke the dialog box in kanban #28). UiGroupCapture::route files the group under whichever
-// page scope is raised, and is a no-op outside every scope and on the oracle / psx_render legs.
-static void ov_compose(Core* c) {
-  const UiGroupArgs a = UiGroupCapture::readArgs(c, /*sprite=*/true);
-  UiSprite::compose(c);
-  UiGroupCapture::route(c, a);
-// menu's tap hangs here rather than on a second overrides::install for 0x8007E6DC (dual ownership
-// is what broke the dialog box in kanban #28). Same fan-out shape as UiFt4Tap: every scope's
-// collect() is a no-op unless its own scope is open, and on the oracle / psx_render legs.
+// The pause/item menu, the START page and the score popup all paint through this leaf, and
+// pc_render has no other producer for them (#21 / #35 / #18) — so the display half of every page tap
+// hangs HERE rather than on a second overrides::install for 0x8007E6DC (dual ownership is what broke
+// the dialog box in kanban #28). One owner, fanning out: UiGroupCapture::route files the group under
+// whichever page SCOPE is raised, and ScorePopup::collect takes the popup's own groups. Both are
+// no-ops outside their scope and on the oracle / psx_render legs.
 static void ov_compose(Core* c) {
   const UiGroupArgs a = UiGroupArgs::read(c, /*sprite=*/true);
   UiSprite::compose(c);
-  PauseMenu::collect(c, a);
+  UiGroupCapture::route(c, a);
   ScorePopup::collect(c, a);
 }
 static void ov_draw_from_table(Core* c)  { UiSprite::drawFromTable(c); }

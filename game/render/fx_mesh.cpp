@@ -130,18 +130,16 @@ bool visibleDepth(Core* c, const ProjVtx p[4], int32_t sortBias) {
   return (uint32_t)(bucket - kBucketMin) < (uint32_t)kBucketSpan;
 }
 
-// FUN_80027768 — the shared effect-MESH writer. a0 = template list, a1 = clut-row selector,
-// a2 = OT sort bias (s16), a3 = per-frame U scroll added to every corner's texture column.
-void writeTap(Core* c) {
-  const uint32_t list     = c->r[4];
-  const uint32_t clutRow  = c->r[5];
-  const int32_t  sortBias = (int16_t)c->r[6];
-  const uint8_t  uScroll  = (uint8_t)c->r[7];
+}  // namespace
 
-  gen_func_80027768(c);              // byte-exact guest packet pool / OT / pool cursor
-
-  if (c->game->oracle || c->rsub.mode.psxRender()) return;   // read-only overlay gate
-  if (!eng(c).fxMesh.mScope) return;                         // another caller owns its own producer
+// FUN_80027768's re-derivation for THIS producer. The leaf itself is owned by the one tap in
+// game/render/mesh_emit_tap.cpp, which runs the guest body, applies the read-only-overlay gate and
+// then calls whichever producer's scope is up — SwingFx's (#14) or this one's. It used to be tapped
+// here directly, which collided with SwingFx doing the same on the same address: two installs, second
+// one silently wins, one effect never draws. See the banner in mesh_emit_tap.cpp.
+// a0 = template list, a1 = clut-row selector, a2 = OT sort bias (s16), a3 = per-frame U scroll added
+// to every corner's texture column.
+void FxMesh::draw(Core* c, uint32_t list, uint32_t clutRow, int32_t sortBias, uint8_t uScroll) {
   if (!list) return;
 
   const EObjXform xf = composedXform(c);
@@ -203,6 +201,8 @@ void writeTap(Core* c) {
   }
 }
 
+namespace {
+
 // FUN_800288AC — the effect-mesh CONTROLLER: composes the effect's transform from its own world
 // state and calls the shared writer. It owns no host state, so the guest half is the untouched
 // gen body; the wrapper exists only to scope the writer's tap to this caller.
@@ -216,6 +216,7 @@ void armTap(Core* c) {
 }  // namespace
 
 void FxMesh::install() {
-  engine_set_override_main(0x800288ACu, armTap,   gen_func_800288AC);
-  engine_set_override_main(0x80027768u, writeTap, gen_func_80027768);
+  engine_set_override_main(0x800288ACu, armTap, gen_func_800288AC);
+  // 0x80027768 is NOT installed here — game/render/mesh_emit_tap.cpp is its single owner and calls
+  // FxMesh::draw when this producer's scope is up. Installing it here too is what collided with #14.
 }

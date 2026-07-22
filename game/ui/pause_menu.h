@@ -54,9 +54,6 @@ public:
   // Raised for the duration of the guest menu controller FUN_800346BC (see menuTick). Only while it
   // is up do the two leaf taps record anything, so the field HUD's own emitUiFt4 callers are
   // untouched. Per-Core (never a file-scope flag) so SBS's two cores cannot see each other's scope.
-  bool mInMenuDraw = false;
-  // Groups collected during one controller run, in call order. Drained + re-ordered by drawCollected.
-  std::vector<UiGroupArgs> mGroups;
   // Guest frame counter (0x1F80017C) of the last frame the menu actually drew. While the menu is up
   // the guest submits NOTHING else — the whole ordering table that frame is menu chrome — so the
   // field HUD's native producer must stand down too, or its icons paint over the menu (measured: a
@@ -70,12 +67,6 @@ public:
   static void install();
 
 
-  // collect: record one group if the menu scope is up and this is the pc_render leg. Called by both
-  // taps. FUN_8007E6DC's address is owned by UiSprite::compose (game/ui/ui_sprite_compose.cpp — a
-  // full port, not a gen call), so ITS tap lives in ui_sprite.cpp's ov_compose and calls this; a
-  // second overrides::install on one address is the dual-ownership bug that broke the dialog box
-  // (kanban #28).
-  static void collect(Core* c, const UiGroupArgs& a);
 
   // drawCollected: sort the collected groups into the guest's paint order and push them, plus the
   // menu's own two full-screen quads, to the render queue at RQ_OVERLAY. Called once per controller

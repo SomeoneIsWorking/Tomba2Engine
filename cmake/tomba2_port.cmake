@@ -224,6 +224,7 @@ set(GAME_SRC
   game/render/hud_gauge_emitter.cpp
   game/render/fx_sprite.cpp
   game/render/fx_mesh.cpp
+  game/render/mesh_emit_tap.cpp
   game/render/field_hud.cpp
   game/render/ui_group_args.cpp
   game/render/ui_ft4_tap.cpp

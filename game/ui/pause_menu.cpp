@@ -14,13 +14,6 @@ extern void gen_func_800346BC(Core*);
 extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
 
 
-void PauseMenu::collect(Core* c, const UiGroupArgs& a) {
-  if (c->game->oracle || c->rsub.mode.psxRender()) return;   // read-only overlay gate
-  PauseMenu& menu = eng(c).pauseMenu;
-  if (!menu.mInMenuDraw) return;              // every other caller owns its own producer
-  menu.mGroups.push_back(a);
-}
-
 // The OT bucket the guest links its full-screen subtractive dim into (see drawCollected). Everything
 // in a HIGHER bucket is painted before it and therefore dimmed.
 namespace { constexpr uint8_t kDimBucket = 132; }
@@ -65,8 +58,6 @@ void PauseMenu::drawCollected() {
   bool dimDone = false;
   for (int i : capture.paintOrder()) {
     const UiGroupArgs& a = capture.mGroups[i];
-  for (int i : order) {
-    const UiGroupArgs& a = mGroups[i];
     // The menu's SUBTRACTIVE full-screen dim, linked at OT bucket kDimBucket ahead of that bucket's
     // own groups — so it paints over everything in higher buckets (the drop shadow, the outer frame,
     // the tab labels and the rule under them) and under everything below (the panel interior, the
@@ -102,7 +93,7 @@ void menuTick(Core* c) {
 // FUN_8007E1B8 — the game-wide templated POLY_FT4 group emitter. This file is its ONE owner; every
 // page that paints through it gets its groups routed by UiGroupCapture::route.
 void uiFt4Tap(Core* c) {
-  const UiGroupArgs a = UiGroupCapture::readArgs(c, /*sprite=*/false);
+  const UiGroupArgs a = UiGroupArgs::read(c, /*sprite=*/false);
   gen_func_8007E1B8(c);          // byte-exact guest packet pool / OT / scratchpad staging
   UiGroupCapture::route(c, a);
 }

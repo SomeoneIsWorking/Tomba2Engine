@@ -23,20 +23,12 @@
 #include <vector>
 class Core;
 
-// FUN_8007E1B8 / FUN_8007E6DC share one argument shape: a placement record, a template index, a
-// definition base and a little attribute struct. RE'd from gen_func_8007E1B8 (shard_2) and
-// scratch/decomp/ui_sprite_leaves.c; named here so the taps read as calls rather than as a pile of
-// mem_r16(reg + n).
-struct UiGroupArgs {
-  int      x, y;        // placement +0 / +2 — screen anchor of the group
-  int      wOv, hOv;    // placement +4 / +6 — size override: >0 replaces, <0 adds, 0 keeps
-  uint32_t templPtr;    // r5 — s16 index into the definition table at dataBase
-  uint32_t dataBase;    // r6 — definition + piece-entry base
-  uint8_t  attrByte;    // attrs +0 — low nibble = layout mode, high nibble = flat shade level
-  uint16_t clutSemi;    // attrs +2 — bit15 = semi-transparent, low 15 bits = CLUT override
-  uint8_t  otBucket;    // attrs +1 — the ordering-table bucket, i.e. the guest's own sort key
-  bool     sprite;      // false = FT4 group (FUN_8007E1B8), true = SPRT group (FUN_8007E6DC)
-};
+// The shared argument shape lives in game/render/ui_group_args.h — ONE definition. The score-popup
+// producer (#18) and the page-chrome capture here both decode the same two leaves, and each
+// originally declared its own identical `struct UiGroupArgs`; two definitions of one struct is a
+// redefinition error the moment both land, and the near-miss version of it is two decoders drifting
+// apart silently. Same lesson as the duplicate-owned guest address (kanban #28), one level up.
+#include "render/ui_group_args.h"
 
 class UiGroupCapture {
 public:
@@ -53,9 +45,9 @@ public:
   void clear() { mGroups.clear(); }
   bool empty() const { return mGroups.empty(); }
 
-  // Both leaves rewrite attrs+0 as (flags & 0x0F), so the shade nibble must be read BEFORE the guest
-  // body runs — the same reason UiSprite::compose reads its attributes up front.
-  static UiGroupArgs readArgs(Core* c, bool sprite);
+  // Decoding lives in ONE place: UiGroupArgs::read (game/render/ui_group_args.cpp). There used to be
+  // an identical readArgs here as well — two decoders of one guest argument shape, which is a silent
+  // drift waiting to happen rather than a compile error.
   // Hand one group to the raised page scope (nothing on the oracle / psx_render legs).
   static void route(Core* c, const UiGroupArgs& a);
 

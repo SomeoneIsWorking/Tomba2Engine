@@ -1,6 +1,7 @@
 // UiFt4Tap — implementation. See ui_ft4_tap.h for why this address has exactly one owner.
 #include "ui_ft4_tap.h"
 #include "ui_group_args.h"
+#include "ui/ui_group_capture.h"
 #include "core.h"
 #include "pause_menu.h"   // PauseMenu::collect  — FUN_800346BC scope (kanban #21)
 #include "score_popup.h"  // ScorePopup::collect — FUN_80072520 scope (kanban #18)
@@ -16,7 +17,11 @@ namespace {
 void uiFt4Tap(Core* c) {
   const UiGroupArgs a = UiGroupArgs::read(c, /*sprite=*/false);
   gen_func_8007E1B8(c);
-  PauseMenu::collect(c, a);
+  // Two consumers, and the FIRST is a router rather than a page: UiGroupCapture::route hands the
+  // group to whichever PAGE scope is raised (pause menu #21, START page #35, and any page added
+  // later as one line there). Calling a single page's collect() here instead is what left the START
+  // page's panel missing after the two producers were merged — its scope was never offered the group.
+  UiGroupCapture::route(c, a);
   ScorePopup::collect(c, a);
 }
 

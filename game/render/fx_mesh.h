@@ -65,4 +65,9 @@ public:
   // Capture-scope depth: non-zero only while the effect-mesh controller FUN_800288AC is running,
   // so the shared writer's other 16 callers never reach this producer.
   int mScope = 0;
+
+  // Re-derive one FUN_80027768 call's quads and submit them. Called by the leaf's SINGLE owner,
+  // game/render/mesh_emit_tap.cpp, when mScope is up — not installed as an override here, because
+  // SwingFx (#14) needs the same leaf and two installs on one address silently drop one of them.
+  static void draw(Core* c, uint32_t list, uint32_t clutRow, int32_t sortBias, uint8_t uScroll);
 };

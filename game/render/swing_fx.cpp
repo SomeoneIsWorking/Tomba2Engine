@@ -183,5 +183,7 @@ void SwingFx::meshEmitTap(Core* c) {
 
 void SwingFx::install() {
   engine_set_override_main(0x8002A834u, &SwingFx::effectDrawTick, gen_func_8002A834);
-  engine_set_override_main(0x80027768u, &SwingFx::meshEmitTap,    gen_func_80027768);
+  // 0x80027768 is NOT installed here — game/render/mesh_emit_tap.cpp is its single owner and calls
+  // SwingFx::drawMesh when mInEffectDraw is up. FxMesh (#15) needs the same leaf, and two installs on
+  // one address silently drop one of them (the #28 failure mode).
 }
