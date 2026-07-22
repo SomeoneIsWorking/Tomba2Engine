@@ -347,15 +347,72 @@ Replaces every reading taken from the overwritten `padram_6600.bin` (see tooling
 - Queues A/B/C all read 0 at dump phase — unchanged, and still phase-limited; the `cullq` probe remains
   the only trustworthy sampler for those.
 
-### ONE DEFECT, TWO BUGS (2026-07-22)
-The signed-16-bit attach-pointer read closed BOTH kanban #8 (water-pump seesaw not sinking) and #1
-(jumping over an item picks it up without touch contact) — both USER-confirmed on the live game. That
-is consistent with the mechanism rather than a coincidence: the mis-read made `FUN_8011334C` fire in
-precisely the states the guest suppresses it, and both symptoms are "an interaction resolves when it
-should not / does not resolve when it should" while Tomba is engaged with something. Any future bug of
-that shape should look for the same class of defect (a guest 32-bit unsigned test ported as a narrower
-or signed read) BEFORE opening a fresh investigation. Kanban #2 (bucket-pickup cutscene softlock) is
-NOT fixed by it and remains open.
+### ONE DEFECT, TWO BUGS (2026-07-22) — ⚠ HALF FALSIFIED THE SAME DAY, see below
+The signed-16-bit attach-pointer read closed kanban #8 (water-pump seesaw not sinking) — that half
+stands, USER-confirmed on the live game. It was ALSO credited with kanban #1 (jumping over an item
+picks it up without touch contact); **that half is WRONG.** The attach-pointer gate only differs from
+the guest while Tomba is ATTACHED to something, and a jump-over is precisely the unattached case, so
+the mechanism could never have produced #1. The real cause of #1 is a different width defect, in
+`ActorTomba::proximityCheck` — see "Jump-over pickup (kanban #1/#30)" below. #1 was reopened as #30
+the same evening. Kanban #2 (bucket-pickup cutscene softlock) is NOT fixed by either and was closed
+separately (delay-slot constant, below).
+
+The transferable lesson survives and is the reason this entry stays: for any "an interaction resolves
+when it should not / does not resolve when it should" symptom, look FIRST for a guest 16-bit quantity
+ported with the wrong signedness. Three separate bugs in this codebase have now been exactly that.
+
+## Jump-over pickup (kanban #1, reopened as #30) — a zero-extended gate ported sign-extended (2026-07-22)
+
+**Symptom.** Jumping over an item collects it; the game requires touch contact. USER-reported twice
+(#1, then #30 after #1 was closed on the wrong diagnosis above).
+
+**NOT A REGRESSION.** `game/player/actor_tomba.cpp` has carried the defect unchanged since the repo
+split (`git log -L` on the function returns only the import commit `ec7fe40`). #1 was never fixed,
+only masked — while the bucket-pickup softlock (#2) was live the pickup sequence could not complete,
+so the symptom was not visible; `f12ae00` fixed that softlock at 20:45 and the symptom came straight
+back. Neither today's recompiler jump-table fix (`external c0caeef2`) nor the
+`beh_prng_velocity_machine` rebuild (`f12ae00` / `0274c26`) is implicated: the rebuilt handler is
+byte-identical to its gen body (2 MB RAM+spad A/B on `replays/bugs/bucket-softlock.pad`,
+`PSXPORT_BEH_SUBSTRATE=80117658` vs native → `cmp -l` = 0 bytes).
+
+**Root cause.** `ActorTomba::proximityCheck` (guest `FUN_80022060`, reached
+`areaSeasidePerframe → interactWalk → proximityCheck`, which is what writes the item's
+`node[4] = 2` = COLLECTED — confirmed live with a REPL `watch` + host backtrace on the item's state
+byte). The guest's two accept gates both compare a **zero-extended** 16-bit quantity against a
+sign-extended 32-bit limit:
+
+    800220E0  andi a0, a2, 0xffff        ; isqrt XZ distance      -> slt (r_tomba + r_item), a0
+    80022118  andi v1, v1, 0xffff        ; (tY-oY) + upT + upI    -> slt (dnT + dnI), v1
+
+The port read both as `(int32_t)(int16_t)`. The vertical one is the bug: Y is DOWN-positive (measured
+— a jump takes `*(s16)0x800E7EB2` from -1032 to -1285 and back), so once Tomba clears the item by
+more than `upT + upI` the sum goes NEGATIVE. The guest's `andi` turns that into ~0xFF00 = a huge
+positive and the `slt` REJECTS the touch — that is exactly what makes the vertical window one-sided
+and stops a jump-over. Sign-extended it is a small negative that sails under the limit, so every
+sufficiently-high pass over an item consumes it. Measured window on the bucket
+(`upT+upI = 280`, `dnT+dnI = 410`): the guest accepts only `-280 <= tY-oY <= 130`, i.e. up to 280
+above / 130 below; a full jump is ~370+ and therefore must miss. The distance gate is the same shape
+— isqrt can return > 0x7FFF (XZ separation is a wrapping s16 pair, so up to 46340), and sign-extending
+that turns a very distant object into a negative "distance" that passes the cylinder gate.
+
+**Corroboration that it is the port and not the RE:** the sibling `ActorTomba::subHitboxCheck`
+(`FUN_80022190`), same file, same guest idiom, already does it right —
+`(int32_t)(uint32_t)(c->r[2] & 0xFFFF)` and `(int32_t)(uint16_t)vbandRaw`.
+
+**Fix.** Zero-extend both gates; keep the sign-extended value only for the `0x1F80008C` scratchpad
+store, which is the one place the guest itself sign-extends it (`sll`/`sra` at 0x80022134).
+
+**Verified.** (a) genuine contact still collects — `replays/bugs/bucket-softlock.pad` still reaches
+`*(0x800F16F0) == 2`; (b) the fix is inert where the defect never fired — 2 MB RAM dump at f1800 on
+that replay is byte-identical pre/post fix (`cmp -l` = 0); (c) SBS `AUTONAV=combat` to f2500 shows the
+identical pre-existing `0x801FE808..0E` stack residual from f210 with and without the change, so the
+change is SBS-neutral (that residual is a separate, older issue).
+
+**HONEST GAP.** The symptom itself was NOT reproduced headless: no route was found within this session
+that gets Tomba jumping over a ground item in the aux list (every item the seaside routes reach is
+either 800+ units above him or, like the bucket, snaps to his own position before it is ever tested).
+The cause is proven from the instruction stream + the measured jump height + the measured accept
+window, not from watching the symptom disappear. If it recurs, that is the first thing to build.
 
 ## Bucket-pickup cutscene softlock (kanban #2) — the delay-slot branch constant (2026-07-22)
 

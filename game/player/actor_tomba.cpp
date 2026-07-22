@@ -228,6 +228,17 @@ void ActorTomba::interactWalk() {
 }
 
 // FUN_80022060 — cylinder proximity + Y-band check.
+//
+// BOTH gates compare an UNSIGNED 16-bit quantity (`andi …,0xffff` at 0x800220E0 and 0x80022118)
+// against a sign-extended 32-bit limit. That is what makes the vertical gate one-sided in the way
+// the game depends on: the vertical term is Tomba-above-item PLUS both up-extents, so once Tomba
+// clears the item (jumping over it) the sum goes NEGATIVE, `andi 0xffff` turns it into ~0xFFxx =
+// a huge positive, and the `slt limit, band` rejects the touch. Sign-extending it instead makes it
+// a small negative that sails under the limit — i.e. every jump-over collects the item (kanban #1
+// / #30). The distance gate is the same shape: isqrt can return > 0x7FFF, and sign-extending that
+// turns a very distant object into a negative "distance" that passes. Keep both zero-extended.
+// The scratchpad output at +0x8C is the one place the guest DOES sign-extend it (sll/sra at
+// 0x80022134), so that store keeps its own sign-extended value.
 void ActorTomba::proximityCheck(uint32_t item) {
   Core* c = core;
   const uint32_t G = G_ADDR;
@@ -240,17 +251,18 @@ void ActorTomba::proximityCheck(uint32_t item) {
   const int32_t dz = (int32_t)(int16_t)(tomba.posZ() - other.posZ());
   c->r[4] = (uint32_t)(dx * dx + dz * dz);
   rec_dispatch(c, LEAF_ISQRT);
-  const int32_t dist = (int32_t)(int16_t)(uint16_t)c->r[2];
+  const uint16_t distBits = (uint16_t)c->r[2];
+  const int32_t  dist     = (int32_t)(uint32_t)distBits;      // `andi a0,a2,0xffff` — UNSIGNED
 
   const int32_t rxz = (int32_t)tomba.boundXZ() + (int32_t)other.boundXZ();
   if (dist > rxz) return;
 
-  const int32_t vbandRaw = (int32_t)(int16_t)(uint16_t)(
-      (tomba.posY() - other.posY()) + tomba.boundYUp() + other.boundYUp());
+  const int32_t vbandRaw = (int32_t)(uint32_t)(uint16_t)(
+      (tomba.posY() - other.posY()) + tomba.boundYUp() + other.boundYUp());  // `andi v1,v1,0xffff`
   const int32_t vbandLim = (int32_t)tomba.boundYDown() + (int32_t)other.boundYDown();
   if (vbandRaw > vbandLim) return;
 
-  c->mem_w32(OUT_DIST_SPAD, (uint32_t)dist);
+  c->mem_w32(OUT_DIST_SPAD, (uint32_t)(int32_t)(int16_t)distBits);   // sll/sra 16 — sign-extended
   c->r[4] = (uint32_t)(-dz); c->r[5] = (uint32_t)dx;
   rec_dispatch(c, LEAF_ATAN2);
   c->mem_w32(OUT_HEADING_SPAD, c->r[2]);
