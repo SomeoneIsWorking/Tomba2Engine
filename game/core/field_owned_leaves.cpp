@@ -548,37 +548,6 @@ static void leaf_800248D0(Core* c) {
     return;
 }
 
-static void leaf_80024E00(Core* c) {
-    c->r[2] = (uint32_t)32782u << 16;
-    c->r[2] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)32495));
-    c->r[29] = c->r[29] + (uint32_t)-24;
-    c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
-    c->r[16] = c->r[4] + c->r[0];
-    c->r[3] = c->r[2] + (uint32_t)-18;
-    c->r[2] = (uint32_t)(c->r[3] < (uint32_t)5);
-    { int _t = (c->r[2] == c->r[0]); c->mem_w32((c->r[29] + (uint32_t)20), c->r[31]); if (_t) goto L_80024EE4; }
-    c->r[2] = (uint32_t)32769u << 16;
-    c->r[2] = c->r[2] + (uint32_t)404;
-    c->r[3] = c->r[3] << 2;
-    c->r[3] = c->r[3] + c->r[2];
-    c->r[2] = c->mem_r32((c->r[3] + (uint32_t)0));
-    {  switch (c->r[2]) {  default: rec_dispatch(c, c->r[2]); return; } }
-    return;
-  L_80024EE4:;
-    c->r[4] = c->r[16] + c->r[0];
-    c->r[5] = (uint32_t)32769u << 16;
-    c->r[5] = c->r[5] + (uint32_t)29492;
-    c->r[31] = 0x80024EF8u;
-    c->r[6] = c->r[0] + (uint32_t)36; func_80077B38(c);
-    c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)13));
-    c->r[2] = c->r[2] & 127u;
-    c->mem_w8((c->r[16] + (uint32_t)13), (uint8_t)c->r[2]);
-    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)20));
-    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
-    c->r[29] = c->r[29] + (uint32_t)24; return;
-    return;
-}
-
 static void leaf_80024F18(Core* c) {
     c->r[29] = c->r[29] + (uint32_t)-24;
     c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
@@ -905,49 +874,6 @@ static void leaf_80025D98(Core* c) {
     c->r[31] = c->mem_r32((c->r[29] + (uint32_t)20));
     c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
     c->r[29] = c->r[29] + (uint32_t)24; return;
-    return;
-}
-
-static void leaf_80028E10(Core* c) {
-    c->r[7] = c->r[5] & 255u;
-    c->r[5] = (uint32_t)((int32_t)c->r[5] >> 8);
-    c->r[3] = c->r[5] + (uint32_t)-1;
-    c->r[2] = (uint32_t)(c->r[3] < (uint32_t)22);
-    { int _t = (c->r[2] == c->r[0]); c->r[6] = c->r[7] + c->r[0]; if (_t) goto L_80028E48; }
-    c->r[2] = (uint32_t)32769u << 16;
-    c->r[2] = c->r[2] + (uint32_t)540;
-    c->r[3] = c->r[3] << 2;
-    c->r[3] = c->r[3] + c->r[2];
-    c->r[2] = c->mem_r32((c->r[3] + (uint32_t)0));
-    {  switch (c->r[2]) {  default: rec_dispatch(c, c->r[2]); return; } }
-  L_80028E48:;
-    c->mem_w8((c->r[4] + (uint32_t)3), (uint8_t)c->r[6]);
-    c->r[3] = c->r[7] << 1;
-    c->r[3] = c->r[3] + c->r[7];
-    c->r[3] = c->r[3] << 2;
-    c->r[2] = (uint32_t)32778u << 16;
-    c->r[2] = c->r[2] + (uint32_t)8372; goto L_80029120;
-    return;
-  L_80029120:;
-    c->r[3] = c->r[3] + c->r[2];
-    c->r[2] = c->r[0] + (uint32_t)32;
-    c->mem_w8((c->r[4] + (uint32_t)11), (uint8_t)c->r[2]);
-    c->r[2] = c->mem_r32((c->r[3] + (uint32_t)0));
-    c->mem_w32((c->r[4] + (uint32_t)28), c->r[2]);
-    c->r[2] = c->mem_r32((c->r[3] + (uint32_t)4));
-    c->mem_w32((c->r[4] + (uint32_t)24), c->r[2]);
-    c->r[2] = c->mem_r32((c->r[3] + (uint32_t)8));
-    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80029184; }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)0));
-    c->mem_w16((c->r[4] + (uint32_t)68), (uint16_t)c->r[2]);
-    c->r[2] = c->mem_r32((c->r[3] + (uint32_t)8));
-    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)2));
-    c->mem_w16((c->r[4] + (uint32_t)70), (uint16_t)c->r[2]);
-    c->r[2] = c->mem_r32((c->r[3] + (uint32_t)8));
-    c->r[2] = c->r[2] + (uint32_t)4;
-    c->mem_w32((c->r[4] + (uint32_t)56), c->r[2]);
-  L_80029184:;
-     return;
     return;
 }
 
@@ -12006,104 +11932,6 @@ static void leaf_80022D08(Core* c) {
     return;
 }
 
-static void leaf_80025744(Core* c) {
-    c->r[29] = c->r[29] + (uint32_t)-56;
-    c->mem_w32((c->r[29] + (uint32_t)48), c->r[20]);
-    c->r[20] = c->r[4] + c->r[0];
-    c->mem_w32((c->r[29] + (uint32_t)40), c->r[18]);
-    c->r[18] = c->r[29] + (uint32_t)24;
-    c->r[4] = c->r[18] + c->r[0];
-    c->r[2] = c->r[0] + (uint32_t)8;
-    c->mem_w8((c->r[29] + (uint32_t)17), (uint8_t)c->r[2]);
-    c->r[2] = c->r[0] + (uint32_t)-32768;
-    c->mem_w16((c->r[29] + (uint32_t)18), (uint16_t)c->r[2]);
-    c->r[2] = c->r[0] + (uint32_t)32;
-    c->mem_w16((c->r[29] + (uint32_t)24), (uint16_t)c->r[2]);
-    c->r[2] = c->r[0] + (uint32_t)200;
-    c->mem_w32((c->r[29] + (uint32_t)52), c->r[31]);
-    c->mem_w32((c->r[29] + (uint32_t)44), c->r[19]);
-    c->mem_w32((c->r[29] + (uint32_t)36), c->r[17]);
-    c->mem_w32((c->r[29] + (uint32_t)32), c->r[16]);
-    c->mem_w8((c->r[29] + (uint32_t)16), (uint8_t)c->r[0]);
-    c->mem_w16((c->r[29] + (uint32_t)28), (uint16_t)c->r[0]);
-    c->mem_w16((c->r[29] + (uint32_t)30), (uint16_t)c->r[0]);
-    c->mem_w16((c->r[29] + (uint32_t)26), (uint16_t)c->r[2]);
-    c->r[5] = c->mem_r32((c->r[20] + (uint32_t)56));
-    c->r[6] = c->mem_r32((c->r[20] + (uint32_t)60));
-    c->r[31] = 0x800257A8u;
-    c->r[7] = c->r[29] + (uint32_t)16; func_8007E1B8(c);
-    c->r[16] = (uint32_t)32769u << 16;
-    c->r[16] = c->r[16] + (uint32_t)29492;
-    c->r[4] = c->r[18] + c->r[0];
-    c->r[2] = (uint32_t)32780u << 16;
-    c->r[19] = c->r[2] + (uint32_t)-1936;
-    c->r[5] = c->mem_r32((c->r[16] + (uint32_t)164));
-    c->r[17] = c->r[29] + (uint32_t)16;
-    c->mem_w16((c->r[29] + (uint32_t)18), (uint16_t)c->r[0]);
-    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)15));
-    c->r[3] = (uint32_t)c->mem_r16((c->r[29] + (uint32_t)24));
-    c->r[2] = c->r[2] + (uint32_t)-24;
-    c->r[3] = c->r[3] + (uint32_t)24;
-    c->mem_w16((c->r[29] + (uint32_t)28), (uint16_t)c->r[2]);
-    c->mem_w16((c->r[29] + (uint32_t)24), (uint16_t)c->r[3]);
-    c->r[6] = c->mem_r32((c->r[20] + (uint32_t)60));
-    c->r[31] = 0x800257ECu;
-    c->r[7] = c->r[17] + c->r[0]; func_8007E1B8(c);
-    c->r[5] = c->mem_r32((c->r[16] + (uint32_t)168));
-    c->r[2] = (uint32_t)c->mem_r16((c->r[29] + (uint32_t)24));
-    c->r[3] = (uint32_t)c->mem_r16((c->r[29] + (uint32_t)28));
-    c->r[4] = c->r[18] + c->r[0];
-    c->mem_w16((c->r[29] + (uint32_t)28), (uint16_t)c->r[0]);
-    c->r[2] = c->r[2] + c->r[3];
-    c->mem_w16((c->r[29] + (uint32_t)24), (uint16_t)c->r[2]);
-    c->r[6] = c->mem_r32((c->r[20] + (uint32_t)60));
-    c->r[31] = 0x80025814u;
-    c->r[7] = c->r[17] + c->r[0]; func_8007E1B8(c);
-    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)14));
-    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)50; if (_t) goto L_80025914; }
-    c->mem_w16((c->r[29] + (uint32_t)24), (uint16_t)c->r[2]);
-    c->r[2] = (uint32_t)32782u << 16;
-    c->r[3] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)14));
-    c->r[4] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)32495));
-    c->r[2] = c->r[0] + (uint32_t)204;
-    c->mem_w16((c->r[29] + (uint32_t)26), (uint16_t)c->r[2]);
-    c->mem_w16((c->r[29] + (uint32_t)28), (uint16_t)c->r[3]);
-    c->r[3] = c->r[4] + (uint32_t)-18;
-    c->r[2] = (uint32_t)(c->r[3] < (uint32_t)5);
-    { int _t = (c->r[2] == c->r[0]); c->r[5] = c->r[0] + c->r[0]; if (_t) goto L_800258D4; }
-    c->r[2] = (uint32_t)32769u << 16;
-    c->r[2] = c->r[2] + (uint32_t)428;
-    c->r[3] = c->r[3] << 2;
-    c->r[3] = c->r[3] + c->r[2];
-    c->r[2] = c->mem_r32((c->r[3] + (uint32_t)0));
-    {  switch (c->r[2]) {  default: rec_dispatch(c, c->r[2]); return; } }
-    return;
-  L_800258D4:;
-    { int _t = (c->r[5] == c->r[0]); c->r[2] = (uint32_t)8064u << 16; if (_t) goto L_800258FC; }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)380));
-    c->r[2] = c->r[2] & 3u;
-    { int _t = (c->r[2] == c->r[0]); c->r[2] = (uint32_t)32769u << 16; if (_t) goto L_800258FC; }
-    c->r[5] = c->mem_r32((c->r[2] + (uint32_t)29632));
-    c->r[4] = c->r[29] + (uint32_t)24; goto L_80025908;
-  L_800258FC:;
-    c->r[4] = c->r[29] + (uint32_t)24;
-    c->r[2] = (uint32_t)32769u << 16;
-    c->r[5] = c->mem_r32((c->r[2] + (uint32_t)29628));
-  L_80025908:;
-    c->r[6] = c->mem_r32((c->r[20] + (uint32_t)60));
-    c->r[31] = 0x80025914u;
-    c->r[7] = c->r[29] + (uint32_t)16; func_8007E1B8(c);
-  L_80025914:;
-    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)52));
-    c->r[20] = c->mem_r32((c->r[29] + (uint32_t)48));
-    c->r[19] = c->mem_r32((c->r[29] + (uint32_t)44));
-    c->r[18] = c->mem_r32((c->r[29] + (uint32_t)40));
-    c->r[17] = c->mem_r32((c->r[29] + (uint32_t)36));
-    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)32));
-    c->r[29] = c->r[29] + (uint32_t)56; return;
-    return;
-}
-
 static void leaf_80025934(Core* c) {
     c->r[29] = c->r[29] + (uint32_t)-72;
     c->mem_w32((c->r[29] + (uint32_t)48), c->r[20]);
@@ -14566,10 +14394,8 @@ void register_field_owned_leaves() {
   using overrides::install;
   install(0x80023528u,"leaf_80023528",leaf_80023528,gen_func_80023528,shard_set_override);
   install(0x800248D0u,"leaf_800248D0",leaf_800248D0,gen_func_800248D0,shard_set_override);
-  install(0x80024E00u,"leaf_80024E00",leaf_80024E00,gen_func_80024E00,shard_set_override);
   install(0x80024F18u,"leaf_80024F18",leaf_80024F18,gen_func_80024F18,shard_set_override);
   install(0x80025D98u,"leaf_80025D98",leaf_80025D98,gen_func_80025D98,shard_set_override);
-  install(0x80028E10u,"leaf_80028E10",leaf_80028E10,gen_func_80028E10,shard_set_override);
   install(0x8002AE0Cu,"leaf_8002AE0C",leaf_8002AE0C,gen_func_8002AE0C,shard_set_override);
   install(0x8002F514u,"leaf_8002F514",leaf_8002F514,gen_func_8002F514,shard_set_override);
   install(0x800317CCu,"leaf_800317CC",leaf_800317CC,gen_func_800317CC,shard_set_override);
@@ -14721,7 +14547,6 @@ void register_field_owned_leaves() {
   // 0x8007FD54 is owned by LoadingText::draw (game/ui/loading_text.cpp) — RE'd, and it carries
   // the pc_skip fork that drops the "Loading....." blinker. Do not re-register the leaf here.
   install(0x80022D08u,"leaf_80022D08",leaf_80022D08,gen_func_80022D08,shard_set_override);
-  install(0x80025744u,"leaf_80025744",leaf_80025744,gen_func_80025744,shard_set_override);
   install(0x80025934u,"leaf_80025934",leaf_80025934,gen_func_80025934,shard_set_override);
   install(0x80025B78u,"leaf_80025B78",leaf_80025B78,gen_func_80025B78,shard_set_override);
   install(0x80027768u,"leaf_80027768",leaf_80027768,gen_func_80027768,shard_set_override);
