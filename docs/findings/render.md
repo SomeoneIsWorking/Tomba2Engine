@@ -150,6 +150,41 @@
   and +22); wrong texture or CLUT on the black face (it is a legitimately dark texture, tp=(704,0),
   and it is the one that WINS, not one that draws wrong); `Panel::fillQuad` and the 2D UI path
   (this is world geometry, layer=1); depth precision/quantization alone (the authored offset is real).
+- **CORRECTION to the mechanism above (2026-07-22, second session — measured, supersedes the "same four
+  corners" claim):** the two prims are NOT literal duplicates. The integer `xy` in the `primat-rq` line is
+  ROUNDED; the float positions differ (cap corner (162.2,90.5) vs water corner (162.5,90.7)), and they
+  live in DIFFERENT geometry blocks (`geomblk=801C8F58` vs `801CA55C`). They are two distinct nearly-
+  coincident surfaces — a near-edge-on interior wall and the water plane — whose depth fields genuinely
+  cross. At the shared corners the water is the NEARER of the two (0.090101 vs 0.090051) yet the cap wins
+  the interior by 5.1e-4, which is what "black from one side" actually is. So: still a painter-order
+  problem (PSX paints the water later and hides the wall), but do not go looking for a duplicate-quad
+  detector — there is no duplicate to detect.
+- **ATTEMPTED AND REVERTED (do not re-run these two as-is):**
+  1. **Order-independent quad depth** (`flattenQuadDepth`: least-squares plane over the 4 (x,y,depth)
+     corners, so a quad's depth field stops depending on which diagonal the corner order picked). Sound in
+     principle — a surface's depth must not depend on how its corners were listed — but it moved the
+     contest by only 12% (5.8e-4 → 5.1e-4). The gap is NOT the triangulation crease; it is the two
+     surfaces genuinely crossing. Reverted as unproven and unnecessary; worth revisiting on its own
+     merits, not as a fix for this.
+  2. **Within-object paint-order rank** (`RenderQueue::paintRank`, keyed on `cur_render_node`, small
+     camera-ward step per submission within one object). This DID produce the correct picture — barrel
+     top renders as the water surface, matching the oracle, with the rest of the frame visually intact
+     (`scratch/screenshots/cmp/fixcmp3.png`). **It was still reverted, because the grouping is a lie:**
+     `cur_render_node` falls back to the guest scratchpad 0x1F80028C at the GT3/GT4 submit site, and
+     measurement shows the whole per-object pass collapses onto ONE node value (736 quads over 2 frames,
+     screen bbox x −12..340 — i.e. the entire screen, spanning ≥6 distinct geomblks). So the "within one
+     object" safety argument does not hold: it is the same frame-global paint-order ramp the entry above
+     already rules out, with the step (3.05e-5) and cap (3.9e-3) tuned until this one scene looked right.
+     That is a magic constant, not a fix.
+- **WHAT THE FIX ACTUALLY NEEDS (measured, and now specific):** real per-object identity at the native
+  GT3/GT4 submit site in `game/render/submit.cpp`. The scope mechanism already exists and is already used
+  by the neighbours — `diag.beginObject(node)` in `perobj_dispatch.cpp:261`, `perobj_billboard.cpp:757`,
+  `native_terrain.cpp:142`, `submit.cpp:398` (scene table) — it is simply not opened around the per-object
+  mesh walk that feeds `Render::gt3`/`gt4`. That single missing scope is the same root as `dbg_node==0` on
+  these prims. Once it is open, `cur_render_node` returns the real node, per-object runs become short, and
+  the paint-order step can be small enough (~4e-6) that a whole object's drift stays under 1e-3 — an order
+  of magnitude below inter-object separation, with no constant tuned to a scene. NOTE: grouping by
+  `currentGeomblk()` instead does NOT work — measured, the two contesting prims are in different geomblks.
 - **refs:** `runtime/recomp/gpu_vk.cpp` (`gpu_zbias_unit`, `zbias_max`, `set_order`),
   `runtime/recomp/render_queue.cpp` (`primat-rq`, `emitOrQueue` `dbg_node` assignment),
   `runtime/recomp/gpu_native.cpp` (`obj_depth_add`/`obj_depth_lookup`), `runtime/recomp/ot_attr.h`.
