@@ -1,0 +1,20 @@
+---
+id: 39
+title: Movement DUST CLOUDS never spawn — missing on the ORACLE too, so it is not a render gap
+status: todo
+labels: [bug]
+created: 2026-07-23
+updated: 2026-07-23
+---
+
+USER 2026-07-23: Tomba is supposed to kick up dust clouds on certain movement actions — starting to walk, turning while running, probably others the USER cannot enumerate ('RE should make it more clear'). They are missing under pc_render AND under the oracle.
+
+WHY THAT SENTENCE IS THE WHOLE DIAGNOSIS: PSXPORT_ORACLE=1 is pure recomp exec + pure PSX render. If the effect is absent there, no renderer is at fault and this is NOT the missing-native-producer class that #12/#13/#21 belonged to — the prims are never SUBMITTED, so the spawn/trigger path in guest execution never runs (or runs and immediately despawns). Do not go looking for a producer to write; find why the emitter never fires. Same reasoning that settled #11 and #21: read what the guest submits, not what the screen shows.
+
+CONTRADICTION TO RESOLVE FIRST, it is the sharpest lead available: docs/reference/issues/issue8_9_re.md (2026-07-10) is titled 'Walking dust clouds render as VERTICAL BARS' and describes the dust puffs Tomba kicks up while walking as PRESENT but drawn wrong (prims sampling beyond their texpage cell because the GP0 0xE2 texture-window confinement is not in force at draw time; an earlier commit 2a11b4f 'fixed' it by dropping u&=255, which that doc correctly calls a bandaid). Absent and drawn-wrong cannot both be true of the same effect at the same time. So EITHER (a) something regressed between 2026-07-10 and now and dust stopped spawning entirely — bisect-free: find the spawn site and check whether it still runs; OR (b) they are DIFFERENT effects — sustained-walking dust (the old report) versus start-walk / turn-while-running dust (this report) — in which case the old one may still draw as bars and only the transient ones are missing. Establish which before anything else; the answer changes the whole task.
+
+WHAT THE PRIOR INVESTIGATION ESTABLISHED, do not redo: that doc is about HOW THE DUST IS DRAWN, not how it is MADE, which is exactly the gap the USER is pointing at. Carry over only its repro intelligence — 'dust = sustained walking', 'animation-gated (not reliably headless-reachable)', and that a previous session explicitly FAILED to catch the dust prim headless: blind press-right / AUTO_WALK produced no dust sprite (scratch/screenshots/dust_w2.png, dust_w3.png, walk1.png). Assume catching it is the hard part and budget for it. Starting to walk and turning while running are TRANSIENT one-shot triggers, which may actually be easier to provoke deterministically than sustained walking was: tap a direction, or press one direction then the opposite while at run speed.
+
+RE TARGET: the movement state machine that requests the effect — ActorTomba and the walk/run state transitions (game/player/, and Engine::walkStart 0x80054D14 is already owned). Find the spawn call, then find its gate. Tools: 'debug otattr' attributes OT packets to emitting function AND caller; tools/find_refs.py <dump> <addr> --rw r finds who reads a state word; tools/decomp.sh for Ghidra. Also worth checking whether the effect family is the 8-byte-sprite-record family already tapped in game/render/fx_sprite.cpp (FUN_80027A4C and callers 27CB4/27E5C/281EC) — issue8_9_re.md line 3149 of findings/render.md associates the 27A4C caller family with grab/dust semi-quads, so the DRAW side may already be owned while the SPAWN side is not.
+
+DELIVERABLE THE USER ASKED FOR EXPLICITLY: the RE should produce the LIST of actions that spawn dust, since they do not know it themselves. Record it in the finding.

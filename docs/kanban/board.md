@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (17)
+## TODO (18)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
@@ -23,6 +23,7 @@
 - **#36 dev-warp: cold cross-area warp self-destructs ~50 frames later, and ids >=22 are accepted but are not areas**  `bug,tooling`
 - **#37 areas 16/17/18 hang under cold warp — behaviour loop in gen_func_80040558**  `bug`
 - **#38 RmlUi warp selector is unverified on screen — no window in the agent environment**  `verification`
+- **#39 Movement DUST CLOUDS never spawn — missing on the ORACLE too, so it is not a render gap**  `bug`
 
 ## DOING (1)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
