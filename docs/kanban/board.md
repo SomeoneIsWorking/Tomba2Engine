@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (19)
+## TODO (18)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#16 Sign text jitters at fps60 when the camera moves**  `render,fps60` — 📎 docs/reference/issues/issue16_sign_text_jitter.png
@@ -15,7 +15,6 @@
 - **#32 17 guest addresses have two native owners — the class that caused #28**  `workflow`
 - **#33 fps60 unification made the world render twice per logic frame — remove the now-dead guest-time world build**  `render,fps60,perf`
 - **#34 No headless repro exists for jump-over-pickup — the #1/#30 fix is RE-proven but symptom-unverified**  `verification`
-- **#35 START pause page (Options / Load data / Quit game) draws with no panel background**  ``
 - **#36 dev-warp: cold cross-area warp self-destructs ~50 frames later, and ids >=22 are accepted but are not areas**  `bug,tooling`
 - **#37 areas 16/17/18 hang under cold warp — behaviour loop in gen_func_80040558**  `bug`
 - **#38 In-game Options sub-page renders without its full-screen dark-blue backdrop**  ``
@@ -29,7 +28,7 @@
 ## DOING (1)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
 
-## DONE (24)
+## DONE (25)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -54,3 +53,4 @@
 - **#28 Dialog box background draws OVER its own text — dual ownership of 0x8004FFB4**  `bug,render`
 - **#29 Hut interior: wall decorations z-fight with the wall behind them**  `bug,render`
 - **#30 Jumping over an item picks it up again — REGRESSION of #1**  `bug,pc-skip`
+- **#35 START pause page (Options / Load data / Quit game) draws with no panel background**  ``
