@@ -11,6 +11,7 @@ native exists but no call site of any of those forms was found anywhere in the t
 is genuinely dead code until something calls it.
 
 Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
+Totals: 921 native fns, 766 owned addresses, 720 LIVE / 201 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -52,9 +53,12 @@ Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
 | 0x80026C88 | LIVE | `ObjectTable::dispatch` | game/world/object_table.cpp:141 | 0x80026C88 |  |
 | 0x80026CE0 | LIVE | `ObjectTable::dispatchFaithful` | game/world/object_table.cpp:192 |  | ObjectTable::dispatchFaithful — byte-mirror of gen_func_80026C88 (gene… |
 | 0x80027254 | LIVE | `ObjectTable::handler27254` | game/world/object_table.cpp:46 |  |  |
-| 0x80027768 | ORPHAN | `leaf_80027768` | game/core/field_owned_leaves.cpp:12215 |  |  |
+| 0x80027768 | LIVE | `SwingFx::drawMesh` | game/render/swing_fx.cpp:60 |  | Build the producer's transform from the composed GTE control registers… |
+| 0x80027768 | LIVE | `SwingFx::meshEmitTap` | game/render/swing_fx.cpp:172 |  | the shared packed-mesh quad emitter. Run the untouched guest body (pac… |
 | 0x8002918C | LIVE | `beh_rand_phase_cull` | game/ai/beh_rand_phase_cull.cpp:54 |  |  |
 | 0x80029B40 | LIVE | `beh_pos_history_trail` | game/ai/beh_pos_history_trail.cpp:67 |  |  |
+| 0x8002A834 | LIVE | `SwingFx::effectDrawTick` | game/render/swing_fx.cpp:160 |  | the charge-effect render fn. It owns no state this producer needs to c… |
+| 0x8002A834 | LIVE | `SwingFx::install` | game/render/swing_fx.cpp:184 |  |  |
 | 0x8002AB5C | LIVE | `NativeScenePass::terrainRender` | game/render/native_terrain.cpp:83 |  | gen_func_8002AB5C, rebuilt PC-native. a0(=r4) = the terrain render-lis… |
 | 0x8002AB5C | LIVE | `Render::terrain` | game/render/submit.cpp:464 |  | RETIRED 2026-07-07 (issue #32): Render::prepObjectMatrix (guest sway/I… |
 | 0x8002AE0C | ORPHAN | `leaf_8002AE0C` | game/core/field_owned_leaves.cpp:880 |  |  |
@@ -76,7 +80,7 @@ Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
 | 0x80036DFC | LIVE | `SaveMenu::runHandler` | game/ui/save_menu.cpp:105 |  | ----------------------------------------------------------------------… |
 | 0x80036DFC | LIVE | `SaveMenu::dispatchBody` | game/ui/save_menu.cpp:137 |  | ----------------------------------------------------------------------… |
 | 0x80039F4C | LIVE | `Render::textLabelEmit` | game/render/text_label.cpp:162 |  |  |
-| 0x8003A1E4 | ORPHAN | `leaf_8003A1E4` | game/core/field_owned_leaves.cpp:12379 |  |  |
+| 0x8003A1E4 | ORPHAN | `leaf_8003A1E4` | game/core/field_owned_leaves.cpp:12216 |  |  |
 | 0x8003A290 | ORPHAN | `leaf_8003A290` | game/core/field_owned_leaves.cpp:1386 |  |  |
 | 0x8003A3E8 | ORPHAN | `leaf_8003A3E8` | game/core/field_owned_leaves.cpp:1469 |  |  |
 | 0x8003A470 | ORPHAN | `leaf_8003A470` | game/core/field_owned_leaves.cpp:1505 |  |  |
@@ -102,7 +106,7 @@ Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
 | 0x8003CCA4 | LIVE | `Render::perObjRenderDispatch` | game/render/perobj_billboard.cpp:164 |  | ======================================================================… |
 | 0x8003CDD8 | LIVE | `Render::cmdListDispatch` | game/render/perobj_dispatch.cpp:127 |  | per-object cmd-list dispatch: composes the WORLD object transform (cam… |
 | 0x8003D0BC | LIVE | `Render::overlayTypeDispatch` | game/render/overlay_type_dispatch.cpp:71 | 0x8010AA20 0x8010B0B8 0x8010B5BC 0x8010BA40 0x8010C2A4 0x8011024C … |  |
-| 0x8003D23C | ORPHAN | `leaf_8003D23C` | game/core/field_owned_leaves.cpp:12418 |  |  |
+| 0x8003D23C | ORPHAN | `leaf_8003D23C` | game/core/field_owned_leaves.cpp:12255 |  |  |
 | 0x8003D584 | LIVE | `Render::effectColorAdd` | game/render/effect_mod.cpp:164 |  | modulate each colour channel by the node's per-channel amount, rather … |
 | 0x8003E030 | ORPHAN | `leaf_8003E030` | game/core/field_owned_leaves.cpp:2122 |  |  |
 | 0x8003E264 | ORPHAN | `leaf_8003E264` | game/core/field_owned_leaves.cpp:2265 |  |  |
@@ -190,14 +194,14 @@ Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
 | 0x800452C0 | LIVE | `Asset::areaDataLoadAsTask` | game/core/asset.cpp:397 | 0x8001CF2C 0x8001DC40 0x80045080 0x80045558 0x80051F80 0x80051FB4 … | Task-1 body — FAITHFUL FUN_800452C0 (the walkable-field AREA-DATA load… |
 | 0x800452C0 | LIVE | `native_area_load_bd4` | game/core/engine.cpp:1542 | 0x800452C0 | Native replacement for FUN_80044bd4(0x800452c0, area, mode, 1): seed t… |
 | 0x80045580 | LIVE | `ActorTomba::assetReady` | game/player/actor_tomba.cpp:1465 |  | assetReady — guest FUN_80045580. See actor_tomba.h for the full RE wri… |
-| 0x800455C0 | ORPHAN | `leaf_800455C0` | game/core/field_owned_leaves.cpp:12609 |  |  |
-| 0x80045724 | ORPHAN | `leaf_80045724` | game/core/field_owned_leaves.cpp:13655 |  |  |
-| 0x80045810 | ORPHAN | `leaf_80045810` | game/core/field_owned_leaves.cpp:14152 |  |  |
+| 0x800455C0 | ORPHAN | `leaf_800455C0` | game/core/field_owned_leaves.cpp:12446 |  |  |
+| 0x80045724 | ORPHAN | `leaf_80045724` | game/core/field_owned_leaves.cpp:13492 |  |  |
+| 0x80045810 | ORPHAN | `leaf_80045810` | game/core/field_owned_leaves.cpp:13989 |  |  |
 | 0x80045810 | LIVE | `Collision::lineCross` | game/player/collision.cpp:472 |  | Collision::lineCross. Per-line WALL intersection: computes the crossin… |
-| 0x800459D0 | ORPHAN | `leaf_800459D0` | game/core/field_owned_leaves.cpp:14313 |  |  |
+| 0x800459D0 | ORPHAN | `leaf_800459D0` | game/core/field_owned_leaves.cpp:14150 |  |  |
 | 0x80045CAC | ORPHAN | `leaf_80045CAC` | game/core/field_owned_leaves.cpp:3437 |  |  |
-| 0x8004602C | ORPHAN | `leaf_8004602C` | game/core/field_owned_leaves.cpp:12694 |  |  |
-| 0x800462E4 | ORPHAN | `leaf_800462E4` | game/core/field_owned_leaves.cpp:13715 |  |  |
+| 0x8004602C | ORPHAN | `leaf_8004602C` | game/core/field_owned_leaves.cpp:12531 |  |  |
+| 0x800462E4 | ORPHAN | `leaf_800462E4` | game/core/field_owned_leaves.cpp:13552 |  |  |
 | 0x800468AC | ORPHAN | `leaf_800468AC` | game/core/field_owned_leaves.cpp:3656 |  |  |
 | 0x80047778 | ORPHAN | `leaf_80047778` | game/core/field_owned_leaves.cpp:3757 |  |  |
 | 0x8004798C | LIVE | `Collision::gridStep` | game/player/collision.cpp:437 | 0x8004798C |  |
@@ -211,17 +215,17 @@ Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
 | 0x80048B30 | ORPHAN | `leaf_80048B30` | game/core/field_owned_leaves.cpp:4111 |  |  |
 | 0x80048ECC | ORPHAN | `leaf_80048ECC` | game/core/field_owned_leaves.cpp:4234 |  |  |
 | 0x80048FC4 | ORPHAN | `leaf_80048FC4` | game/core/field_owned_leaves.cpp:4297 |  |  |
-| 0x800490E4 | ORPHAN | `leaf_800490E4` | game/core/field_owned_leaves.cpp:12856 |  |  |
+| 0x800490E4 | ORPHAN | `leaf_800490E4` | game/core/field_owned_leaves.cpp:12693 |  |  |
 | 0x80049250 | ORPHAN | `leaf_80049250` | game/core/field_owned_leaves.cpp:4363 |  |  |
 | 0x80049280 | ORPHAN | `leaf_80049280` | game/core/field_owned_leaves.cpp:4377 |  |  |
-| 0x800492B0 | ORPHAN | `leaf_800492B0` | game/core/field_owned_leaves.cpp:12945 |  |  |
-| 0x800493E8 | ORPHAN | `leaf_800493E8` | game/core/field_owned_leaves.cpp:13019 |  |  |
-| 0x80049418 | ORPHAN | `leaf_80049418` | game/core/field_owned_leaves.cpp:14046 |  |  |
+| 0x800492B0 | ORPHAN | `leaf_800492B0` | game/core/field_owned_leaves.cpp:12782 |  |  |
+| 0x800493E8 | ORPHAN | `leaf_800493E8` | game/core/field_owned_leaves.cpp:12856 |  |  |
+| 0x80049418 | ORPHAN | `leaf_80049418` | game/core/field_owned_leaves.cpp:13883 |  |  |
 | 0x8004954C | ORPHAN | `leaf_8004954C` | game/core/field_owned_leaves.cpp:4391 |  |  |
 | 0x80049674 | ORPHAN | `leaf_80049674` | game/core/field_owned_leaves.cpp:4415 |  |  |
 | 0x80049760 | ORPHAN | `leaf_80049760` | game/core/field_owned_leaves.cpp:4475 |  |  |
 | 0x80049760 | LIVE | `Collision::flatNormal` | game/player/collision.cpp:979 |  | Collision::flatNormal. GR_NORMAL_ANGLE (0x1A0) = ratan2 of the segment… |
-| 0x80049800 | ORPHAN | `leaf_80049800` | game/core/field_owned_leaves.cpp:14262 |  |  |
+| 0x80049800 | ORPHAN | `leaf_80049800` | game/core/field_owned_leaves.cpp:14099 |  |  |
 | 0x800498C8 | LIVE | `Collision::gridResolve` | game/player/collision.cpp:329 | 0x800498C8 |  |
 | 0x80049968 | LIVE | `Collision::gridSetup` | game/player/collision.cpp:155 | 0x80049968 | collision-grid ROW-POINTER setup. a0 = grid/layer index (&0xff). Reads… |
 | 0x800499E8 | LIVE | `Engine::task0Bootstrap` | game/core/engine.cpp:2885 |  | resolve \BIN\START.BIN natively, record its {LBA,size}, switch task 0 … |
@@ -261,19 +265,19 @@ Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
 | 0x8004D868 | LIVE | `Bit::test868` | game/math/mathlib.cpp:50 | 0x8004D868 | sibling of FUN_8004D7EC (bit-test) against a fixed third bitmap @0x800… |
 | 0x8004D8B0 | ORPHAN | `leaf_8004D8B0` | game/core/field_owned_leaves.cpp:5076 |  |  |
 | 0x8004DAEC | ORPHAN | `leaf_8004DAEC` | game/core/field_owned_leaves.cpp:5089 |  |  |
-| 0x8004EAD0 | ORPHAN | `leaf_8004EAD0` | game/core/field_owned_leaves.cpp:13033 |  |  |
+| 0x8004EAD0 | ORPHAN | `leaf_8004EAD0` | game/core/field_owned_leaves.cpp:12870 |  |  |
 | 0x8004EB94 | LIVE | `emitSegmentLayout` | game/render/hud_gauge_emitter.cpp:163 |  | (descAddr, sign_extend16(spanBase + spanBias + bias)) call shape, shar… |
 | 0x8004ED0C | ORPHAN | `leaf_8004ED0C` | game/core/field_owned_leaves.cpp:5142 |  |  |
 | 0x8004ED0C | LIVE | `Inventory::abGate` | game/items/inventory.cpp:120 |  | Full RAM+scratchpad A/B vs rec_super_call. The pure-leaf core touches … |
 | 0x8004ED94 | LIVE | `Engine::announcerCue` | game/core/engine.cpp:880 | 0x8004FA38 | Engine::announcerCue — FUN_8004ED94. `id` sign-extended s16, then time… |
-| 0x8004EE2C | ORPHAN | `leaf_8004EE2C` | game/core/field_owned_leaves.cpp:13080 |  |  |
-| 0x8004EE50 | ORPHAN | `leaf_8004EE50` | game/core/field_owned_leaves.cpp:13092 |  |  |
+| 0x8004EE2C | ORPHAN | `leaf_8004EE2C` | game/core/field_owned_leaves.cpp:12917 |  |  |
+| 0x8004EE50 | ORPHAN | `leaf_8004EE50` | game/core/field_owned_leaves.cpp:12929 |  |  |
 | 0x8004EE88 | ORPHAN | `leaf_8004EE88` | game/core/field_owned_leaves.cpp:5176 |  |  |
 | 0x8004EF54 | ORPHAN | `leaf_8004EF54` | game/core/field_owned_leaves.cpp:5228 |  |  |
 | 0x8004EF8C | ORPHAN | `leaf_8004EF8C` | game/core/field_owned_leaves.cpp:5244 |  |  |
-| 0x8004EFC0 | ORPHAN | `leaf_8004EFC0` | game/core/field_owned_leaves.cpp:14112 |  |  |
+| 0x8004EFC0 | ORPHAN | `leaf_8004EFC0` | game/core/field_owned_leaves.cpp:13949 |  |  |
 | 0x8004F058 | ORPHAN | `leaf_8004F058` | game/core/field_owned_leaves.cpp:5259 |  |  |
-| 0x8004F184 | ORPHAN | `leaf_8004F184` | game/core/field_owned_leaves.cpp:13109 |  |  |
+| 0x8004F184 | ORPHAN | `leaf_8004F184` | game/core/field_owned_leaves.cpp:12946 |  |  |
 | 0x8004F378 | ORPHAN | `leaf_8004F378` | game/core/field_owned_leaves.cpp:5333 |  |  |
 | 0x8004F430 | ORPHAN | `leaf_8004F430` | game/core/field_owned_leaves.cpp:5380 |  |  |
 | 0x8004F474 | ORPHAN | `leaf_8004F474` | game/core/field_owned_leaves.cpp:5399 |  |  |
@@ -326,7 +330,7 @@ Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
 | 0x8005314C | ORPHAN | `leaf_8005314C` | game/core/field_owned_leaves.cpp:5860 |  |  |
 | 0x800531DC | LIVE | `ActorTomba::actionHandler800531DC` | game/player/actor_tomba_action_800531dc.cpp:16 |  |  |
 | 0x800532A0 | ORPHAN | `leaf_800532A0` | game/core/field_owned_leaves.cpp:5898 |  |  |
-| 0x800535E0 | ORPHAN | `leaf_800535E0` | game/core/field_owned_leaves.cpp:13233 |  |  |
+| 0x800535E0 | ORPHAN | `leaf_800535E0` | game/core/field_owned_leaves.cpp:13070 |  |  |
 | 0x800538E0 | ORPHAN | `leaf_800538E0` | game/core/field_owned_leaves.cpp:5987 |  |  |
 | 0x80053968 | LIVE | `ActorTomba::proximityAngleWalk` | game/player/actor_tomba.cpp:891 |  | ORACLE: gen_func_80053968 |
 | 0x80053D0C | ORPHAN | `leaf_80053D0C` | game/core/field_owned_leaves.cpp:6019 |  |  |
@@ -338,7 +342,7 @@ Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
 | 0x800543C0 | ORPHAN | `leaf_800543C0` | game/core/field_owned_leaves.cpp:6199 |  |  |
 | 0x8005444C | ORPHAN | `leaf_8005444C` | game/core/field_owned_leaves.cpp:6231 |  |  |
 | 0x80054650 | LIVE | `ActorTomba::settleStep` | game/player/actor_tomba.cpp:771 | 0x8004954C | ======================================================================… |
-| 0x80054790 | ORPHAN | `leaf_80054790` | game/core/field_owned_leaves.cpp:13267 |  |  |
+| 0x80054790 | ORPHAN | `leaf_80054790` | game/core/field_owned_leaves.cpp:13104 |  |  |
 | 0x80054790 | LIVE | `ActorTomba::limbFrameLoad` | game/player/actor_tomba.cpp:1043 |  | ORACLE: gen_func_80054790 |
 | 0x80054D14 | LIVE | `Engine::walkStart` | game/core/engine.cpp:897 |  | Engine::walkStart — FUN_80054D14. |
 | 0x80054E80 | ORPHAN | `leaf_80054E80` | game/core/field_owned_leaves.cpp:6350 |  |  |
@@ -354,10 +358,10 @@ Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
 | 0x80056C00 | ORPHAN | `leaf_80056C00` | game/core/field_owned_leaves.cpp:7250 |  |  |
 | 0x80056D44 | ORPHAN | `leaf_80056D44` | game/core/field_owned_leaves.cpp:7321 |  |  |
 | 0x80056E08 | ORPHAN | `leaf_80056E08` | game/core/field_owned_leaves.cpp:7372 |  |  |
-| 0x80056EC8 | ORPHAN | `leaf_80056EC8` | game/core/field_owned_leaves.cpp:13358 |  |  |
+| 0x80056EC8 | ORPHAN | `leaf_80056EC8` | game/core/field_owned_leaves.cpp:13195 |  |  |
 | 0x80056F3C | ORPHAN | `leaf_80056F3C` | game/core/field_owned_leaves.cpp:7415 |  |  |
 | 0x8005706C | ORPHAN | `leaf_8005706C` | game/core/field_owned_leaves.cpp:7485 |  |  |
-| 0x80057150 | ORPHAN | `leaf_80057150` | game/core/field_owned_leaves.cpp:13388 |  |  |
+| 0x80057150 | ORPHAN | `leaf_80057150` | game/core/field_owned_leaves.cpp:13225 |  |  |
 | 0x800572EC | ORPHAN | `leaf_800572EC` | game/core/field_owned_leaves.cpp:7539 |  |  |
 | 0x8005749C | ORPHAN | `leaf_8005749C` | game/core/field_owned_leaves.cpp:7634 |  |  |
 | 0x800574E0 | ORPHAN | `leaf_800574E0` | game/core/field_owned_leaves.cpp:7653 |  |  |
@@ -449,7 +453,7 @@ Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
 | 0x800708B4 | ORPHAN | `leaf_800708B4` | game/core/field_owned_leaves.cpp:8884 |  |  |
 | 0x800716B4 | ORPHAN | `leaf_800716B4` | game/core/field_owned_leaves.cpp:8892 |  |  |
 | 0x80071A3C | LIVE | `beh_area_event_dispatch` | game/ai/beh_area_event_dispatch.cpp:46 | 0x800716B4 0x80071768 0x801178E4 0x8011B79C |  |
-| 0x80072114 | ORPHAN | `leaf_80072114` | game/core/field_owned_leaves.cpp:13479 |  |  |
+| 0x80072114 | ORPHAN | `leaf_80072114` | game/core/field_owned_leaves.cpp:13316 |  |  |
 | 0x800726D4 | LIVE | `Render::fadeTileRender` | game/render/screen_fade.cpp:220 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80072A78 | LIVE | `Placement::placeAreaObjects` | game/world/placement.cpp:103 | 0x80072A78 |  |
 | 0x80072DDC | LIVE | `Placement::spawnWithParent` | game/world/placement.cpp:145 | 0x80072DDC |  |
@@ -518,8 +522,8 @@ Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
 | 0x80077B38 | LIVE | `GraphicsBind::setGeom` | game/world/graphics_bind.cpp:145 |  |  |
 | 0x80077B5C | LIVE | `Animation::advanceLinkChain` | game/object/animation.cpp:394 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80077C40 | LIVE | `Animation::attach` | game/object/animation.cpp:440 | 0x80075FF8 | ──────────────────────────────────────────────────────────────────────… |
-| 0x80077D64 | ORPHAN | `leaf_80077D64` | game/core/field_owned_leaves.cpp:13529 |  |  |
-| 0x80077E3C | ORPHAN | `leaf_80077E3C` | game/core/field_owned_leaves.cpp:13541 |  |  |
+| 0x80077D64 | ORPHAN | `leaf_80077D64` | game/core/field_owned_leaves.cpp:13366 |  |  |
+| 0x80077E3C | ORPHAN | `leaf_80077E3C` | game/core/field_owned_leaves.cpp:13378 |  |  |
 | 0x80077E7C | LIVE | `Cull::enqueueQueueA` | game/render/cull.cpp:235 |  | Cull::enqueueQueueA — PC-native FUN_80077E7C body. Manual push of `obj… |
 | 0x80077EBC | LIVE | `Cull::enqueueVisibleClass4` | game/render/cull.cpp:203 |  | Cull::enqueueVisibleClass4 — PC-native FUN_80077EBC body. Manual push … |
 | 0x80077EFC | LIVE | `Cull::enqueueQueueC` | game/render/cull.cpp:249 |  | Cull::enqueueQueueC — PC-native FUN_80077EFC body. Manual push onto qu… |
@@ -534,7 +538,7 @@ Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
 | 0x80078988 | ORPHAN | `iconGlyphTap` | game/ui/font.cpp:654 |  | iconGlyphTap — FUN_80078988, the SJIS/token ICON-GLYPH string emitter … |
 | 0x80078CA8 | LIVE | `Font::glyphQueuePush` | game/ui/font.cpp:284 |  | the font/glyph emitter drawText() tail-calls. WIDE-RE TIER DRAFT (2026… |
 | 0x80078CA8 | LIVE | `Font::glyphEmit` | game/ui/font.cpp:305 | 0x80078988 0x80083DE0 |  |
-| 0x80079324 | ORPHAN | `leaf_80079324` | game/core/field_owned_leaves.cpp:13560 |  |  |
+| 0x80079324 | ORPHAN | `leaf_80079324` | game/core/field_owned_leaves.cpp:13397 |  |  |
 | 0x80079324 | LIVE | `Font::drawTextSmall` | game/ui/font.cpp:247 |  | ORACLE: gen_func_80079324 |
 | 0x80079324 | LIVE | `ov_drawTextSmall` | game/ui/font.cpp:630 |  | ov_drawTextSmall: sibling of ov_drawText for FUN_80079324 — same guest… |
 | 0x80079374 | LIVE | `Font::drawText` | game/ui/font.cpp:222 |  | WIDE-RE TIER DRAFT (2026-07-09), UNWIRED/UNVERIFIED. See header doc fo… |
@@ -583,7 +587,7 @@ Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
 | 0x8007E6DC | LIVE | `ov_compose` | game/ui/ui_sprite.cpp:97 |  | The pause/item menu paints its button glyphs, item icons and help-pane… |
 | 0x8007E6DC | LIVE | `UiSprite::compose` | game/ui/ui_sprite_compose.cpp:52 |  | (placement r4, indexPtr r5, defBase r6, attrs r7) |
 | 0x8007E8DC | LIVE | `UiSprite::drawFromTable` | game/ui/ui_sprite.cpp:43 |  | (x r4, y r5, attr r6, defIndex r7) |
-| 0x8007E938 | ORPHAN | `leaf_8007E938` | game/core/field_owned_leaves.cpp:13584 |  |  |
+| 0x8007E938 | ORPHAN | `leaf_8007E938` | game/core/field_owned_leaves.cpp:13421 |  |  |
 | 0x8007E998 | LIVE | `UiSprite::drawFixedDef152` | game/ui/ui_sprite.cpp:76 |  | (x r4, y r5, attr r6) — drawFromTable with the definition index pinned… |
 | 0x8007E9C8 | LIVE | `Engine::submitPage810cFaithful` | game/core/engine.cpp:379 | 0x8007E9C8 | pc_faithful mirror of ov_game_gen_8010810C's page-1 (pause-menu dim) b… |
 | 0x8007E9C8 | LIVE | `ScreenFade::fadetrace` | game/render/screen_fade.cpp:17 |  | `debug fadetrace` channel — logs every native-path fade call with the … |
@@ -604,7 +608,7 @@ Totals: 919 native fns, 766 owned addresses, 717 LIVE / 202 ORPHAN.
 | 0x8007F73C | LIVE | `Render::optionsScreenAdjustPage` | game/render/render_options.cpp:189 |  | optionsScreenAdjustPage — see render.h. Page 3 "Screen adjust" (FUN_80… |
 | 0x8007F8F8 | ORPHAN | `leaf_8007F8F8` | game/core/field_owned_leaves.cpp:11683 |  |  |
 | 0x8007F8F8 | LIVE | `Render::optionsControlsPage` | game/render/render_options.cpp:206 |  | optionsControlsPage — see render.h. Page 4 "Controls" (FUN_8007F8F8): … |
-| 0x8007FC24 | ORPHAN | `leaf_8007FC24` | game/core/field_owned_leaves.cpp:13610 |  |  |
+| 0x8007FC24 | ORPHAN | `leaf_8007FC24` | game/core/field_owned_leaves.cpp:13447 |  |  |
 | 0x8007FC24 | LIVE | `Render::optionsBackdrop` | game/render/render_options.cpp:71 |  | optionsBackdrop — see render.h. Reproduces FUN_8007FC24: ONE full-scre… |
 | 0x8007FCC8 | LIVE | `Render::optionsSolidBox` | game/render/render_options.cpp:98 |  | optionsSolidBox — see render.h. Reproduces FUN_8007FCC8(a0=x, a1=y, a2… |
 | 0x8007FCC8 | LIVE | `Panel::pushDialogBackdrop` | game/ui/dialog_backdrop.cpp:55 |  | ORACLE: gen_func_8007FCC8 |

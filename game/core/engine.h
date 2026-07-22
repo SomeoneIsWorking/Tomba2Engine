@@ -50,6 +50,7 @@
 #include "audio/sequencer.h"            // Engine owns the Sequencer libsnd tick wrapper (FUN_800909C0, wide-RE draft, unwired)
 #include "ui/pause_menu.h"              // Engine owns the PauseMenu in-game menu display producer (#21)
 #include "ui/start_page.h"              // Engine owns the StartPage in-game START page producer (#35)
+#include "render/swing_fx.h"            // Engine owns the SwingFx weapon-charge starburst producer (#14)
 class Core;
 
 class Engine {
@@ -116,6 +117,7 @@ public:
   MeleeProximity   meleeProximity;      // melee-proximity/approach-anchor leaf (FUN_8001F9DC)
   PauseMenu        pauseMenu;           // in-game pause/item menu native display producer (FUN_800346BC)
   StartPage        startPage;           // in-game START page native display producer (FUN_8007EAE4)
+  SwingFx          swingFx;             // weapon-charge starburst native display producer (FUN_8002A834)
 
   // ── GAME-stage entry points (called by the scheduler each frame) ────────────────────────────
   // stagePrologue: one-time prologue that runs when the GAME task enters — task-slot setup, first

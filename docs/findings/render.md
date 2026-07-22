@@ -3221,7 +3221,9 @@ are owned.**
     pages → 0x801121AC/0x8010F8CC) are unowned — nothing drawn natively there yet.
   - Wide mode: the 27A4C tap's quads use guest 4:3 SXY anchors like the other obj-depth billboards
     (unshifted); the weapon-strip clip window is 4:3-anchored (margin shift not applied to da rects).
-- **#14 weapon CHARGE / #15 weapon IMPACT — NOT reproduced.** Hold-square at the seaside field (land,
+- **#14 weapon CHARGE / #15 weapon IMPACT — "NOT reproduced" — FALSIFIED 2026-07-23, see the #14
+  entry at the end of this file: attack is CIRCLE, not square, and psx_render DOES draw the effect.**
+  (Original text kept for provenance:) Hold-square at the seaside field (land,
   after teleport) shows NO charge effect on the psx_render reference either (newgame blackjack;
   scratch/screenshots/gaps/chg*_pc/psx.png), and the swing/contact frames vs the apple contraption
   show no distinct impact-flash difference (atk*_p*.png) — the effects likely need a later-game
@@ -3298,3 +3300,71 @@ are owned.**
   addresses. A second owner does not fail a build, does not fail SBS (both write the same guest state)
   and shows up only as a picture bug — so the tool is the only thing that finds it early. Run it when
   adding any native.
+
+## #14 weapon-CHARGE starburst FIXED — a native producer for the shared packed-mesh emitter (2026-07-23)
+
+- **symptom:** holding ATTACK makes Tomba swing the mace continuously; the psx_render leg draws a
+  bright lavender starburst of ~10 radiating spikes around the mace, and the pc_render leg draws
+  nothing there.
+- **status:** FIXED (game/render/swing_fx.cpp, class `SwingFx`).
+- **THE REPRO LINE IN THE CARD WAS WRONG, AND THAT IS THE WHOLE STORY OF THE TWO EARLIER FAILURES:
+  attack is CIRCLE (pad bit 0x2000), NOT square.** Square moves 72-160 px over 30 frames (idle
+  breathing); circle produces the multi-second swing. Every "#14 not reproduced" note before
+  2026-07-23 was a repro failure, not a result.
+- **CORRECTION to the 2026-07-22 entry above ("hold-square shows NO charge effect on the psx_render
+  reference either"): FALSE.** psx_render draws the effect plainly. That sentence sent two sessions
+  looking for a phantom.
+- **TOOLING TRAP (burned two sessions): the REPL `shot` command LAGS ONE FRAME.** With
+  `shot; renderpsx on; run 1; shot; renderpsx off; run 1; shot` the three images are off by one, so
+  the "A==C, both differ from B" discriminator sees A-vs-C ~37k px and reports ~64 discriminated px —
+  a FALSE NEGATIVE. Always `run 2` after toggling `renderpsx`.
+- **cause:** the effect object (beh FUN_8002A584, node 0x800EEA60) renders through FUN_8002A834,
+  which composes a per-particle transform into the GTE control regs and calls the SHARED packed-mesh
+  quad emitter **FUN_80027768**(model 0x8009FB0C, clutBias 0, sortBias=(s16)node+0x32, uBias 0) ten
+  times — 6 faces each = the 60 op-0x3E POLY_GT4 packets `debug otattr` attributes to fn=0x8002A834 /
+  caller=0x8003F9A8 per swing frame. pc_render does not walk the guest OT (break-first rebuild), and
+  that emitter had no native producer, so the layer was simply never drawn.
+- **fix:** `SwingFx` = a SCOPED leaf tap. `effectDrawTick` (FUN_8002A834) raises a per-Core scope
+  around the untouched gen body; `meshEmitTap` (FUN_80027768) runs the untouched gen body and then,
+  only inside that scope and only on the pc_render leg, re-derives the call's faces host-side —
+  transform read from the composed GTE CRs the caller published (CR0-4 / CR5-7 / CR24-26), model
+  corners as signed-byte*256 from the 36-byte face records, colours through the guest's own
+  DPCT/DPCS far-colour lerp (CR21-23 with IR0 = scratchpad 0x1F800090 = 0xFFF here — NOT the
+  identity the FUN_80027A4C sprite family's callers publish), the guest's own AVSZ4/OT-bucket range
+  gate for culling — and submits them to the render queue at RQ_WORLD/RQ_OM_DEPTH with real
+  per-vertex depth. No packet read-back, no OT walk, no stamping; identity is structural.
+- **THE SCOPE IS LOAD-BEARING.** FUN_80027768 has ~16 callers, one of which is the field terrain
+  (0x8002AB5C, already natively produced) — an unscoped tap double-draws terrain. The existing
+  `leaf_80027768` transcription in game/core/field_owned_leaves.cpp was DELETED (no tombstones) so
+  the address has exactly one owner; `tools/codemap.py --conflicts` stays at 18, no new duplicate.
+- **DEAD END THAT COST THE MOST TIME HERE (and the real lesson for the next producer): a
+  guest-EXECUTION-time producer must NOT submit through `RenderQueue::drawWorldQuad`.** That path
+  sets `has_xyf=1`, and `Fps60::isTier1Owned` (runtime/recomp/fps60.cpp) treats every
+  RQ_WORLD prim with `has_xyf=1` as OWNED BY the display-pass re-render — it is skipped in `mRqCur`
+  on BOTH presents and expected to come from `tier1Render`'s sink, which never re-runs this effect.
+  Measured: 60 quads submitted per frame with correct screen coords, colours and depth, and the
+  frame was BYTE-IDENTICAL to the broken one. Fixed by submitting resolved screen-space integers
+  through `emitOrQueue` (xsf == nullptr -> has_xyf = 0), the same verbatim class as the #12 torch
+  flame; it still carries real per-vertex depth. It steps at the logic rate until this effect's
+  transform joins the tier-1 re-render (the fps60 REDIRECT backlog).
+- **verification:** repro `scratch/repro14.sh` (run 300; press circle; run 120; shot; renderpsx on;
+  run 2; shot; renderpsx off; run 2; shot). Spike-pixel count in the mace crop (60,110)-(150,175),
+  blue-dominant + bright, `scratch/starburst_count.py`: pc leg **175 -> 416** px, psx_render
+  reference **381** px. Visual: scratch/screenshots/c14fix/crop_pc1.png vs crop_psx1.png — same
+  spikes, same place, same colour. Regression battery (`scratch/gates.sh`, before = the pre-change
+  binary): dialog box at replays/bugs/bucket-softlock.pad f1200, triangle menu, plain field frame at
+  f420 — **0 / 76800 px differ** on all three.
+- **NOT the emitter (ruled out again, do not re-chase):** the effect pool 0x800EC188 walked by
+  FUN_8003F024 -> FUN_8003D23C — zero packets and zero GTE calls attributed to either during the
+  swing (scratch/logs/c14_otattr2.txt). The FUN_80027A4C sprite tap cannot cover this family either
+  (different leaf, 13-word POLY_GT4 with GTE lighting, no 27A4C packets in the swing frame at all).
+- **still missing in the same frames (card #15's lead, NOT fixed here):** the weapon SWING TRAIL —
+  beh 0x80029B40 / renderer 0x80029F6C, node 0x800EE7B8, a 5-slot afterimage ring at node+0x38
+  emitting 6 op-0x3A POLY_GT3 + 3 op-0xE1 per frame at (68..104, 131..167). It does NOT go through
+  FUN_80027768, so this producer does not cover it. The mace ball itself is also absent on the pc
+  leg (visible in crop_psx1.png, not in crop_pc1.png) — same open class.
+- **refs:** game/render/swing_fx.{h,cpp}, game/core/field_owned_leaves.cpp (leaf deleted),
+  game/core/engine.h, game/core/game_ctx.cpp, game/game_tomba2.cpp, cmake/tomba2_port.cmake;
+  decomps scratch/decomp/c14_swingfx.c + c14_27768.c; ground truth generated/shard_5.c
+  gen_func_80027768; evidence scratch/screenshots/{c14fix,gate_before,gate_after}/, logs
+  scratch/logs/c14_otattr*.txt.

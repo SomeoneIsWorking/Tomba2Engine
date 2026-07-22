@@ -188,6 +188,7 @@ set(GAME_SRC
   game/render/render_frame.cpp
   game/render/cine_bars.cpp
   game/render/narration_swirl.cpp
+  game/render/swing_fx.cpp
   game/render/render_walk.cpp
   game/render/render_hut_interior.cpp   # pc_render producer: hut/door authored sub-scene (objects-only)
   game/render/card_browser.cpp          # pc_render producer: DEMO/title Load-Game card browser (s48==4)
