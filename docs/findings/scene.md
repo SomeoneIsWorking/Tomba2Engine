@@ -794,10 +794,84 @@ After deduping FUN_80040B48 + FUN_80040CDC, `codemap.py --conflicts` (authoritat
   still crashes on a **recompiler-SEEDING gap**: dispatch to `0x80109200` (from sceneEventFifo's `FUN_800251F0`)
   misses because a0l's first recompiled fn is `0x80109208` — `0x80109200` (8 bytes earlier, reached via a
   runtime fn-ptr, not a static call) was never DISCOVERED by the recompiler, so `ov_a0l` has no entry for it.
-- **NEXT STEP:** seed `0x80109200` (+ any sibling runtime-dispatched a0l fns surfaced by re-running
-  `warp 21`) into the a0l overlay's recompiler function list and regenerate ov_a0l, then re-test `warp 21`.
-  This is recompiler-seeding work (tools/ recompiler), distinct from the RE now complete. The dev-warp is
-  the reachability vehicle.
+- **RESOLVED 2026-07-22 — and NOT by hand-seeding one address.** `0x80109200` turned out to be one entry
+  of a whole FAMILY of per-area handler tables the recompiler could not see; the general discovery pass
+  is below ("The per-area handler tables live in MAIN but point into the overlay slot"). The stale claim
+  that the caller is `sceneEventFifo/FUN_800251F0` is CORRECTED there: the tables are indexed by the
+  area byte and are read from several different resident call sites.
+
+## The per-area handler tables live in resident MAIN but point into the overlay slot (2026-07-22, FIXED)
+
+- **symptom:** `warp 21` (hut interior, ov_a0l) aborted with `[recomp-MISS] no recompiled fn for
+  0x80109200 (caller ra=0x801087DC, a0=0x800ED058)`. Filed as kanban #24 "Area 22 aborts on entry" —
+  the AREA NUMBER ON THAT CARD IS WRONG; the miss reproduces on area **21**, and area 22 is not a field
+  area at all (see the next finding).
+- **cause (external/psxport/tools/recomp/emit.py):** the game keeps several parallel dispatch tables in
+  RESIDENT MAIN's data, indexed by the area byte `DAT_800BF870` — `(&TABLE)[area](args)`. Each table has
+  exactly one entry per area overlay and entry *i* is an address inside overlay *i*'s image. Six of them
+  exist: `0x8009D1D4`, `0x8009D22C`, `0x800A45B8`, `0x800A4AA0`, `0x800A4AF8`, `0x800A4B50` (22 entries
+  each; e.g. `0x800A45B8` is the one `ActorTomba::enterOuterState0` dispatches). NEITHER per-module scan
+  can see them: MAIN's `pointer_table_funcs`/`code_pointer_tables` reject the words (they point outside
+  MAIN's text) and each overlay's own scan never looks at MAIN's data. So every entry was invisible to
+  discovery and fail-fast the first time its area was entered. The project had been patching this ONE
+  ADDRESS AT A TIME — the hand-written `OVERLAY_EXTRA_SEEDS` `A00..A0L` block was literally table
+  `0x800A45B8` transcribed by hand, added over three separate sessions as misses surfaced.
+- **fix:** `area_indexed_overlay_tables()` in emit.py discovers them from the binary. A window of N
+  consecutive MAIN image words (N = number of area overlays) is an area table when word *i* is
+  word-aligned and inside overlay *i*'s image AND ≥80% of the words are a valid function entry in their
+  OWN overlay. The per-index bounds test is what makes it safe — the overlays differ in size by >10x, so
+  a coincidental run essentially never satisfies it for every index. Only entries that really are
+  function entries in their own overlay are seeded (seeding a non-entry would SPLIT a real function —
+  the exact failure `external c0caeef2` had just fixed). Acceptance includes the NULL HANDLER: a bare
+  `jr ra` at a call-table target is a do-nothing handler and matches neither of `is_func_entry`'s two
+  signals — `0x80109200` is exactly that (`jr ra; nop`, laid out right after a pointer table, so it is
+  not preceded by another function's `jr ra` either). The hand-written jt block was DELETED.
+- **evidence the fix is surgical:** the emitted function set was diffed module-by-module against the
+  pre-change generation (`scratch/genold/`). Exactly two deltas across all 28 modules —
+  `+ov_a0l gen_80109200` (the bug) and `-ov_a03 gen_801127EC` (index 3 is a stale slot duplicating
+  A04's address in EVERY one of the six tables; in A03 it points at the data word `0x000006FF`, so the
+  old hand seed was emitting a "function" out of data). Everything else byte-identical, which is also
+  the proof that the general scan reproduces the hand list.
+- **verified:** `warp 21` from a settled field run renders (`scratch/screenshots/sweep/z21.png`), 0
+  misses; area 3 unaffected (`z3.png`); areas 0–21 all load with 0 misses; boot-smoke
+  (`replays/boot-smoke/short-session.pad`, 3000 frames) clean on BOTH pc_faithful+pc_render and
+  `PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1`. `RECOMP_VERSION` 2026-07-22.2.
+
+## Tomba!2 has 22 field areas (0..21) — `warp 22`+ is out of range, not a bug (2026-07-22)
+
+- **symptom:** kanban #24 reported "area 22 aborts on entry". It does — but so do 23..31, and for a
+  reason that is not a port defect.
+- **the ground truth, three independent ways:**
+  1. The disc carries exactly 22 field-code overlays, `BIN/A00.BIN`..`A0L.BIN`.
+  2. The area load is `FUN_80045080(0x80108F9C, area+3)` — file index `area+3` into the stride-8
+     LBA/size table at `0x800BE118`. Dumped live, that table is: `[0]=OPN [1]=CRD [2]=SOP
+     [3..24]=A00..A0L [25]=START [26]=DEMO [27]=GAME`, then zeros. So `area 22 → index 25 → START.BIN`
+     (1648 bytes) gets loaded into the MODE slot, `area 23 → DEMO.BIN`, `area 25+ → a zero/garbage
+     descriptor` (hence the `[disc] LBA … out of range` lines).
+  3. All six per-area handler tables in MAIN are exactly 22 entries, and GAME.BIN's `nexttab`
+     (`0x80108F60`) has `[22]=[23]=0`.
+- **status:** NOT A PORT BUG. `warp <id>` accepts any id 0..31 and happily corrupts the mode slot with
+  a non-area file. The dev-warp should reject `id >= 22` with a diagnostic (repl.cpp / native_boot.cpp).
+- **DEAD END — do not re-chase:** there is no "missing overlay" for areas 22–31 and no recompiler gap
+  behind their aborts. Swept 22, 23, 24, 28, 29, 30, 31: every one loads a non-area file, produces
+  out-of-range CD reads, and then hangs or wanders; NONE produces a `rec_dispatch` miss.
+
+## Cold `warp <N≠cur>` (newgame → warp) breaks ~50 frames later — a WARP defect, identical on the oracle (2026-07-22)
+
+- **symptom:** `newgame; skip 60; warp N; skip 60` aborts with `recomp-MISS 0x8010AC20 (caller
+  ra=0x800587F8)` for EVERY N != current area. `0x8010AC20` is `jt[0]` of table `0x800A45B8` (A00's
+  handler) — i.e. `ActorTomba::enterOuterState0` read `DAT_800BF870 == 0` while overlay A0N was
+  resident, so an A00 address was dispatched into the wrong overlay.
+- **it is not a port bug:** `PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1` (pure recomp + PSX render) hits the
+  SAME abort at the same place, with `areaidx(800bf870)=0` in the miss state dump. The warp writes
+  `bf870=N` (logged) and the game resets it to 0 within ~50 frames.
+- **controls:** `newgame; skip 300` (no warp) is clean; `warp 0` (same area) is clean; the warp only
+  breaks when it crosses areas. Cold-warped areas also never finish their fade-in — every screenshot
+  at +40..+45 frames is black.
+- **the working vehicle (use this, not a cold warp):** settle the field first — `newgame; skip 3000;
+  warp N; skip 600; shot`. That is what the 2026-07-22 layer sweep used (`z.log` warps at f3021,
+  f3623, …) and it renders every area 0..21 cleanly. The cold-warp abort is a dev-tool defect, filed
+  separately; do not read it as an area/overlay problem.
 
 ## Resident-aware override dispatch — REJECTED (residency gate breaks render path) [2026-07-17]
 
