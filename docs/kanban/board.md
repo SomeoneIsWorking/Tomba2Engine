@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (11)
+## TODO (12)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
@@ -17,6 +17,7 @@
 - **#20 Pause (P) at fps60 shows a black screen**  `render,fps60`
 - **#21 Triangle menu renders fully transparent — its opaque background is missing**  `render` — 📎 docs/reference/issues/issue21_triangle_menu_reference.png
 - **#22 Health wheel is too transparent — reproduces on psx_render too, so the oracle is NOT the reference**  `render` — 📎 docs/reference/issues/issue22_health_wheel_reference.png,   docs/reference/issues/issue22_health_wheel_reference_dark.png
+- **#23 Roof flames do not lerp at fps60 while the burning-rope flame does**  `render,fps60` — 📎 docs/reference/issues/issue23_flame_no_lerp.png
 
 ## DOING (1)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
