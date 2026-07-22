@@ -235,38 +235,60 @@
   - `PSXPORT_WIDE=1` on the REPL/headless leg did not widen the shot (still 320x240); wide was not
     needed to reproduce.
 
-## Missing-layer sweep across the AREA SET — method, coverage, and what it rules out (2026-07-22)
+## Missing-layer sweep across the AREA SET (2026-07-22) — THE WHOLE SWEEP WAS pc-vs-pc; RETRACTED 2026-07-23
 
-- **method that works (use this, not GATE-vs-ORACLE):** engine taps never fire under `PSXPORT_GATE=1`
-  (that whole process is the psx_fallback leg), so the old GATE-vs-ORACLE compare is BLIND to every
-  tap-based producer. Compare in ONE process on the DEFAULT leg via the `renderpsx` REPL toggle. Take
-  THREE shots, not two — A(pc, f) / B(psx, f+1) / C(pc, f+2) — and count only pixels that differ from
-  BOTH pc neighbours while the two pc neighbours AGREE (`scratch/abdiff.py`). Camera motion moves every
-  edge between consecutive frames and a naive A-vs-B diff drowns in it: on the hut capture the raw
-  A-vs-B count was 7217 px and the renderer-attributable count was 772, all of it edge speckle.
-- **`warp <area_id>` (REPL, ids 0..0x1f) is the coverage lever**, not teleporting inside one area.
-  A teleport samples one area's object set; the warp runs the game's own door transition and reloads.
-- **coverage actually sampled:** areas 1-21 and 23-27 (24 of 32); seaside replay f6000; hut exterior
-  f500/f535/f700; the dark-screen replay at 15 points f4000..f60000 (LOW VALUE — 13 of the 15 are the
-  same cliff); and provoked states at seaside f6000: 12 frames of held square, tap select/triangle/
-  circle, and the pause menu over 6 samples. Areas 28-31 unsampled; area 22 aborts (kanban #24).
-- **result: the missing-layer class is NOT distributed across places.** Every area sampled came in
-  under 100 renderer-attributable px except four scenes at 500-2100 px, and each of those, inspected
-  as a magenta overlay, is texture/dither speckle spread over the whole frame — not a layer. The
-  reported gaps that remain (#14 #15 #18 #19 #21) are all TRIGGER-gated: they need a specific action
-  (a multi-second hold-attack, a pickup, a dialog, a menu). **Do not sweep areas looking for them.**
-- **the toggle has a blind spot, and #21 is in it.** With the triangle item menu open the two legs are
-  PIXEL-IDENTICAL (0 diff) — because both lose the same layer. `PSXPORT_ORACLE=1` shows the truth: the
-  full opaque panel (`scratch/screenshots/layergap/tri_oracle.png`). When a layer is missing from the
-  in-process psx leg too, fall back to the oracle capture as the reference.
+**Read this before citing anything from the 2026-07-22 area sweep. Its "psx reference" never existed,
+so every renderer conclusion it produced is unsupported. What the sweep DID establish (which areas
+load, which abort) stands, because that part never needed a second renderer.**
+
+- **the defect.** `scratch/warpsweep.sh` produced its three shots as `A` = shot, `renderpsx`, `run 1`,
+  `B` = shot, `renderpsx`, `run 1`, `C` = shot — using the BARE `renderpsx` command. Bare `renderpsx`
+  took no argument path in `repl.cpp` (`sscanf(line,"%*s %15s",st)==1` guarded the assignment): it
+  only PRINTED the flag. So B and C were `pc_render` frames f+1 and f+2. The discriminator
+  (`scratch/abdiff.py`: differs from both neighbours while the neighbours agree) was therefore
+  counting pixels where pc f and pc f+2 agree but pc f+1 differs — **one-frame animation flicker, and
+  nothing else**. It is not a weak psx signal; it is zero psx signal.
+- **magnitude, so nobody re-runs it hoping it was close.** In area 12 two consecutive pc frames differ
+  by 34680 px >8/255 of 76800 (`tools/render_cmp.py diff layergap/x12_A.png layergap/x12_B.png`),
+  while the REAL pc-vs-psx delta at the same frame is 23091. The noise floor exceeded the signal.
+- **what that retracts:** "24 of 32 areas sampled clean" (kanban #25) — no area was compared against
+  psx_render at all; "area 12 draws its ceiling band warped" (kanban #26) — false, closed; "the two
+  legs are pixel-identical with the item menu open, so both lose the same layer" (kanban #21) — the
+  two legs were the same leg, so that says nothing (the card's real evidence, the `PSXPORT_ORACLE=1`
+  capture, is independent and stands); "no charge effect on either renderer" (kanban #14) — only the
+  pc renderer was ever sampled. **"24 of 32" is wrong on a second count too: the game has 22 areas,
+  0..21 (`docs/areas.md`); ids >= 22 are not areas.**
+- **what survives, because it never used the toggle:** areas 10/11/13/14 load after the jump-table fix
+  (kanban #27) and area 21's `recomp-MISS 0x80109200` (kanban #24) — those are load/abort facts read
+  off one leg's log. #27's "seaside f6000 unchanged at 90 renderer-attributable px before and after"
+  also survives AS A REGRESSION CHECK (the same pc-only measurement gave the same number on both
+  sides of the change); it is NOT, and was never, a pc-vs-psx figure.
+- **the instrument, fixed (2026-07-23):**
+  1. `external/psxport/runtime/recomp/repl.cpp` — bare `renderpsx` now TOGGLES, which is what every
+     caller assumed. Gate: `renderpsx` x3 from the REPL logs `Render::psxRender = 1 / 0 / 1`.
+  2. `tools/render_cmp.py` — the old tool took a REPL PRELUDE as `argv[1]` and ignored `argv[2]`, so
+     calling it with two image paths silently re-ran the default scene and printed `0/76800` for
+     images that differ by tens of thousands of pixels. It now has explicit subcommands: `run
+     [prelude]` and `diff <a> <b>`, prints both an exact and a `>8/255` count, and REFUSES a `run`
+     whose prelude is an existing file. Proof it is fixed: `diff x12_A.png x12_B.png` prints
+     `57586/76800 = 74.98% (>8/255: 34680)`, matching an independent numpy count exactly, and
+     `diff x12_A.png x12_A.png` prints 0.
+  3. `tools/warpsweep.sh` — tracked, one process per area per leg, and the psx reference is a SECOND
+     RUN with `PSXPORT_RENDER_PSX=1` set AT BOOT at the same frame index (the pad replay is
+     bit-deterministic). Never adjacent frames, never the in-process toggle.
+- **why not the in-process toggle even now:** it is honoured per SCENE ENTRY. `renderpsx on` issued
+  inside a loaded area and shot one frame later returns a frame bit-identical to the pure-pc frame,
+  with the flag reading back 1 — kanban #41. Ground truth #1 in `docs/gfx-debug.md` silently lies in
+  that situation. Set the flag before the area load, or use `PSXPORT_RENDER_PSX=1` at boot.
+- **still true and worth keeping from that session:** engine taps never fire under `PSXPORT_GATE=1`
+  (that whole process is the psx_fallback leg), so a GATE-vs-ORACLE compare is BLIND to every
+  tap-based producer — that is why the compare has to happen on the DEFAULT leg. And `warp <area_id>`
+  is the coverage lever rather than teleporting inside one area, because the warp runs the game's own
+  transition and reloads the area's object set.
 - **dead end recorded — Panel::fillQuad is NOT the menu panel emitter.** 0x8004FFB4 logs ZERO calls
   while the item menu is open (610 over the preceding 3000 field frames, i.e. the field's own panels).
   A display-pass producer was added to it and changed nothing; it was reverted rather than shipped.
-  Whoever takes #19/#21 should start from what draws the menu TEXT (which does render) and walk its
-  siblings — not from panel_fill.cpp.
-- **found but not a missing layer:** area 12 (a temple interior) draws its ceiling beam band warped
-  and displaced under pc_render where psx_render draws it straight — kanban #26,
-  `scratch/screenshots/layergap/x12top_A.png` vs `x12top_B.png`.
+  (This one is instrumentation, not a renderer compare, so the retraction above does not touch it.)
 
 ## A misread jump-table base was shredding four functions and blocking four areas (2026-07-22, FIXED)
 

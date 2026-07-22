@@ -42,5 +42,6 @@ void StartPage::install() {
   static bool done = false;
   if (done) return;
   done = true;
+  cfg_logi("startpage", "install: wiring FUN_8007EAE4");
   engine_set_override_main(0x8007EAE4u, pageDraw, gen_func_8007EAE4);
 }

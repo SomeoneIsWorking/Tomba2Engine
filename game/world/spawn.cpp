@@ -408,6 +408,8 @@ uint32_t Spawn::spawnLiftPlatformChild(uint32_t owner) {   // FUN_8013A730
 extern void func_8007A980(Core*);   // generated/shard_disp.c — per-type spawn dispatcher (FUN_8007A980)
 uint32_t Spawn::spawnEffectChild(uint32_t owner, uint32_t sub) {
   Core* c = this->core;
+  cfg_logf("fxspawn", "spawnEffectChild owner=%08x type=%u state=%u sub=%u ra=%08x",
+           owner, c->mem_r8(owner + 2), c->mem_r8(owner + 4), sub, c->r[31]);
   c->r[4] = owner;
   c->r[5] = sub;
   c->r[29] = c->r[29] + (uint32_t)-32;               // addiu sp,-0x20 — descend the guest frame

@@ -20,6 +20,7 @@
 #include "core.h"
 #include "game.h"
 #include "engine.h"
+#include "game_ctx.h"        // eng(c) — the Engine accessor the producer scopes are read from
 #include "render/swing_fx.h"
 #include "render/fx_mesh.h"
 

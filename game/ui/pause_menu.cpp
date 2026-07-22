@@ -90,13 +90,6 @@ void menuTick(Core* c) {
   menu.drawCollected();
 }
 
-// FUN_8007E1B8 — the game-wide templated POLY_FT4 group emitter. This file is its ONE owner; every
-// page that paints through it gets its groups routed by UiGroupCapture::route.
-void uiFt4Tap(Core* c) {
-  const UiGroupArgs a = UiGroupArgs::read(c, /*sprite=*/false);
-  gen_func_8007E1B8(c);          // byte-exact guest packet pool / OT / scratchpad staging
-  UiGroupCapture::route(c, a);
-}
 }  // namespace
 
 void PauseMenu::install() {
@@ -104,6 +97,7 @@ void PauseMenu::install() {
   if (done) return;
   done = true;
   engine_set_override_main(0x800346BCu, menuTick, gen_func_800346BC);
-  // The FT4 leaf FUN_8007E1B8 is installed by UiFt4Tap, which fans out to this class's collect()
-  // and to the score popup's. Installing it a second time here would silently replace that fan-out.
+  // The FT4 leaf FUN_8007E1B8 is owned by UiFt4Tap (game/render/ui_ft4_tap.cpp), which routes each
+  // group through UiGroupCapture to whichever page scope is raised — this one included. Installing it
+  // here as well is the duplicate ownership that now aborts at startup by design.
 }

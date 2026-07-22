@@ -11,7 +11,6 @@
 - **#16 Sign text jitters at fps60 when the camera moves**  `render,fps60` — 📎 docs/reference/issues/issue16_sign_text_jitter.png
 - **#22 Health wheel is too transparent — reproduces on psx_render too, so the oracle is NOT the reference**  `render` — 📎 docs/reference/issues/issue22_health_wheel_reference.png,    docs/reference/issues/issue22_health_wheel_reference_dark.png
 - **#23 Roof flames do not lerp at fps60 while the burning-rope flame does**  `render,fps60` — 📎 docs/reference/issues/issue23_flame_no_lerp.png
-- **#26 Ghost pig boss fight (area 12): ceiling beam band renders warped/displaced under pc_render**  `render`
 - **#31 fps60: interpolated frames and real frames appear to be built differently**  `bug,render,fps60`
 - **#32 17 guest addresses have two native owners — the class that caused #28**  `workflow`
 - **#33 fps60 unification made the world render twice per logic frame — remove the now-dead guest-time world build**  `render,fps60,perf`
@@ -22,11 +21,12 @@
 - **#38 In-game Options sub-page renders without its full-screen dark-blue backdrop**  ``
 - **#39 Movement DUST CLOUDS never spawn — missing on the ORACLE too, so it is not a render gap**  `bug`
 - **#40 RmlUi warp selector is unverified on screen — no window in the agent environment**  `verification`
+- **#41 renderpsx REPL toggle is honoured per SCENE ENTRY, not per frame — a mid-scene flip does not repaint**  `render`
 
 ## DOING (1)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
 
-## DONE (23)
+## DONE (24)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -46,6 +46,7 @@
 - **#21 Triangle menu renders fully transparent — its opaque background is missing**  `render` — 📎 docs/reference/issues/issue21_triangle_menu_reference.png
 - **#24 Area 22 aborts on entry: rec_dispatch miss 0x80109200**  `bug,recomp`
 - **#25 pc_render area sweep: 24 of 32 areas sampled clean, coverage recorded**  `render`
+- **#26 Ghost pig boss fight (area 12): ceiling beam band renders warped/displaced under pc_render**  `render`
 - **#27 recomp: misread jump-table base blocked four areas (10/11/13/14) — FIXED**  `recomp`
 - **#28 Dialog box background draws OVER its own text — dual ownership of 0x8004FFB4**  `bug,render`
 - **#29 Hut interior: wall decorations z-fight with the wall behind them**  `bug,render`
