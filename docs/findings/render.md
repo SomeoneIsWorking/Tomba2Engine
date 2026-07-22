@@ -2546,3 +2546,18 @@ unconfirmed. The state was forced through the REPL to exercise the producers.
 - **Build note:** `gte_write_ctrl` is declared in `core.h` as `(uint32_t, uint32_t)`. Re-declaring it
   locally with an `int` first parameter compiles and then fails at LINK with an undefined reference —
   include the header rather than writing your own prototype.
+
+## Render::sharedTransformWalk (FUN_8003F07C) — the rigid-node sibling (2026-07-22)
+- **The pair is the insight.** These two functions share a node layout, two counts and a submit call,
+  and differ only in the transform:
+  | guest | native | transform |
+  |---|---|---|
+  | `0x8003F174` | `Render::subPartWalk` | per sub-part, from `sub+0x18` — ARTICULATED |
+  | `0x8003F07C` | `Render::sharedTransformWalk` | one, from scratchpad `0x1F8000F8` — RIGID |
+  So a node whose parts move independently goes through F174, and one whose parts are fixed relative
+  to each other goes through F07C under the frame's view matrix. Reading either alone, the eight
+  `gte_write_ctrl` calls look like boilerplate; side by side they are the entire distinction.
+- **A detail worth copying:** F07C tests `node[+8]` BEFORE loading the transform, so an empty node
+  costs nothing. F174 loads per-part inside the loop, so it cannot make that saving.
+- **Status:** `port_check` PASS, wired with the setter, COLD on the field/dialog replay — as expected,
+  since its caller `composeTintGate` is cold there too. `subPartWalk` by contrast is live (139 hits).

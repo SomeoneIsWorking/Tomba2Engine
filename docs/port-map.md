@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 10 verified · 8 ported-unverified · 1 blocked
+**Status:** 10 verified · 9 ported-unverified · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -137,3 +137,7 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 ## render-subpart-walk
 - **status:** ported-unverified
 - **notes:** Render::subPartWalk (FUN_8003F174): per-sub-part transform + geomblk submit; port_check PASS; wired with setter. Closes the render frontier's per-type handler list. LIVE - ovhit native=139 on the bucket capture (NOT cold, unlike composeTintGate).
+
+## render-shared-transform-walk
+- **status:** ported-unverified
+- **notes:** Render::sharedTransformWalk (FUN_8003F07C): rigid-node sibling of subPartWalk - loads ONE view transform from scratchpad 0x1F8000F8 then submits every sub-part under it. port_check PASS, wired with setter. Cold on the field/dialog replay (its caller composeTintGate is also cold there).

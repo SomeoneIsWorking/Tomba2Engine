@@ -53,6 +53,7 @@ void ui_sprite_install();       // game/ui/ui_sprite.cpp — guest FUN_8007E8DC 
 void dialog_sibling_install();  // game/ui/dialog_driver_sibling.cpp — guest FUN_8007DDE0
 void compose_tint_gate_install();// game/render/compose_tint_gate.cpp — guest FUN_8003EF9C
 void subpart_walk_install();     // game/render/subpart_walk.cpp — guest FUN_8003F174
+void shared_transform_walk_install(); // game/render/subpart_walk_shared.cpp — guest FUN_8003F07C
 
 void register_engine_overrides(Game* game) {
   interact_scan_install();   // interaction scanner: promotes an in-range object to ACTIVATED
@@ -63,6 +64,7 @@ void register_engine_overrides(Game* game) {
   dialog_sibling_install();  // sibling glyph driver — installed to measure whether it is live
   compose_tint_gate_install();// per-type render gate (render frontier)
   subpart_walk_install();     // sub-part walker (render frontier — last of the per-type list)
+  shared_transform_walk_install(); // its rigid-node sibling
   Core* c = &game->core;
   // PcScheduler primitives: the framework class supplies the native handlers; the game passes the
   // generated substrate bodies + override setter (linked here, game-side) — P1.7c decoupling.

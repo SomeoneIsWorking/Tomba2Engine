@@ -403,6 +403,11 @@ public:
   // and submits its geomblk (sub+0x40). Two distinct counts: node[+8] caps the walk from the top,
   // node[+9] is the do/while bound. See render/subpart_walk.cpp.
   static void subPartWalk(Core* c);
+
+  // sharedTransformWalk (FUN_8003F07C): the sibling of subPartWalk — loads ONE transform (the frame's
+  // view matrix from scratchpad 0x1F8000F8) and submits every sub-part under it. F174 is the
+  // articulated case, this is the rigid one. See render/subpart_walk_shared.cpp.
+  static void sharedTransformWalk(Core* c);
   // billboardEmit (FUN_8003C8F4): a0=node (r4), a1=flag (r5). Walks the node's active particle
   // sub-list, RTPT/RTPS-projects each particle's quad corners, culls off-screen, buckets into the OT
   // by averaged depth, and emits a 10-word (tag+9) GT4-style packet into the packet pool.
