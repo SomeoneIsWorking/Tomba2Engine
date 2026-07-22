@@ -2561,3 +2561,20 @@ unconfirmed. The state was forced through the REPL to exercise the producers.
   costs nothing. F174 loads per-part inside the loop, so it cannot make that saving.
 - **Status:** `port_check` PASS, wired with the setter, COLD on the field/dialog replay — as expected,
   since its caller `composeTintGate` is cold there too. `subPartWalk` by contrast is live (139 hits).
+
+## Render coverage on the field path, measured (2026-07-22) — only two unowned functions still run
+Dispatch-traced `replays/bugs/bucket-softlock.pad` (1200 frames), filtered to `0x8003xxxx`/`0x8004xxxx`,
+and cross-referenced every hit against the codemap. **74 distinct render functions execute; all but two
+are owned.**
+- `0x8004FFB4` — **505 hits**, `panelFill`: a frameless leaf emitting one GP0 0x2C textured quad
+  (0x2E when attr bit 7 is set), with CLUT from `((attr & 0x1F) + 0x1F0) * 0x40 | 0x3E/0x3F`, flat
+  shading at 0x40 when attr bit 5 is set, and the raw-texture bit otherwise. Pool advances 10 words.
+  **Before porting it, read `game/ui/panel.cpp:185`:** the existing TAP calls `gen_func_8004FFB4`
+  DIRECTLY rather than through the thunk, precisely so the guest packet bytes stay exact. A native
+  owner installed at this address therefore would NOT intercept the tap — it would only serve other
+  callers. Decide deliberately whether the tap should switch to the thunk; do not assume.
+- `0x80040AA4` — 1 hit. Low value.
+- **Everything else on this path is owned**, including the three ported today (`composeTintGate`,
+  `subPartWalk`, `sharedTransformWalk`). So "missing renders" on the FIELD path is now a two-function
+  list, and further coverage gains have to come from other paths/scenes — drive somewhere else and
+  re-run this scan rather than porting down the chain blind.
