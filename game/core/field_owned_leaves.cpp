@@ -14389,6 +14389,8 @@ void register_field_owned_leaves() {
   // 0x80027768 (the shared packed-mesh quad emitter) is owned by SwingFx::meshEmitTap
   // (game/render/swing_fx.cpp) — a scoped display tap over the gen body, which the weapon-charge
   // starburst needs as a native producer (#14). Do not re-register the transcription here.
+  // 0x80027768 is owned by FxMesh (game/render/fx_mesh.cpp) — the effect-MESH writer, tapped so
+  // pc_render gets a native producer for the quads it emits (#15). Do not re-register it here.
   install(0x8003A1E4u,"leaf_8003A1E4",leaf_8003A1E4,gen_func_8003A1E4,shard_set_override);
   install(0x8003D23Cu,"leaf_8003D23C",leaf_8003D23C,gen_func_8003D23C,shard_set_override);
   install(0x800455C0u,"leaf_800455C0",leaf_800455C0,gen_func_800455C0,shard_set_override);

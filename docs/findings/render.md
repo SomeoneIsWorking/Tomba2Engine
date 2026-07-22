@@ -3463,3 +3463,77 @@ are owned.**
   game/render/ui_group_args.{h,cpp}, game/ui/pause_menu.{h,cpp}, game/ui/ui_sprite.cpp,
   game/core/engine.h, game/core/game_ctx.cpp, game/game_tomba2.cpp, cmake/tomba2_port.cmake;
   decomps scratch/decomp/{gem_spawner,gem_popup,gem_tick,c18_drops}.c.
+## Weapon IMPACT burst: the effect has TWO emitters and only the sprite half was owned (kanban #15, 2026-07-23, FIXED)
+
+**Symptom.** Hitting the seaside bucket with the weapon (CIRCLE) produces a large radial burst under
+psx_render — a white core with pink/magenta plumes fanning up and out of the contact point. Under
+pc_render only a small pale wisp appeared at the same spot; the radial plume half was absent.
+
+**Status.** FIXED — `game/render/fx_mesh.cpp` (new). Verified on
+`replays/bugs/weapon-impact-bucket.pad`, pad frames 654/656/658 (impact burst window).
+
+**Repro (self-contained from boot, no AUTO_SKIP / newgame — it desyncs the replay):**
+```
+PSXPORT_PAD_REPLAY=replays/bugs/weapon-impact-bucket.pad PSXPORT_PAD_SHOT_AT=654,656,658 \
+PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 ./scratch/bin/tomba2_port <<< $'run 700\nquit'
+```
+Same-frame renderer A/B: run it again with `renderpsx on` as the first REPL line (exec is
+bit-identical, so frames align index-for-index).
+
+**Cause.** The swing/impact effect object (node `0x800EE9D8`, behaviour `FUN_800293F4`) alternates
+its per-node renderer between two emitters, and `FUN_80033080` is literally
+`{ FUN_80027E5C(); FUN_800288AC(node); }` — the pair:
+* `FUN_80027E5C -> FUN_80027A4C`, the scaled-SPRITE writer, already owned (`fx_sprite.cpp`, #12) —
+  its three `0x2E` prims did reach the picture.
+* `FUN_800288AC -> FUN_80027768`, the effect-MESH writer (9-word template records, gouraud-textured
+  `0x3C`/`0x3E` quads). Nothing owned it, and pc_render does not walk the guest OT, so the two
+  `0x3E` quads that ARE the radial plume never reached the picture.
+
+Measured with the guest's own submission (the strongest ground truth), `PSXPORT_PRIMAT="150,118,657"`:
+the psx leg has five effect prims over that pixel (three `0x2E` + `0x800CB9E0`/`0x800CBA14` `op=3E`,
+all `semi=1 tp=(320,256)`), the pc queue has exactly the three `0x2E` and neither `0x3E`.
+`debug otattr` attributes all of them to `fn=0x80033080 caller=0x8003F9A8 node=0x800EE9D8`.
+
+**Fix.** A SCOPED leaf tap (the `pause_menu.cpp` pattern), because `FUN_80027768` is game-wide with
+17 static callers, several already owned (`0x8002AB5C` is terrain) — an unscoped tap would
+double-draw. `armTap` overrides `FUN_800288AC` to raise a capture scope around the untouched gen
+body; `writeTap` overrides `FUN_80027768`, runs the untouched gen body, then re-derives the quads
+host-side in float from the record's own corners and the transform the controller left in the GTE
+control registers (`EObjXform::project`), with real per-vertex depth. Read-only: no guest write
+outside gen.
+
+**Two things that cost the most time here — record them:**
+1. **`drawWorldQuad` was the WRONG submit for a guest-execution-time producer.** It sets
+   `has_xyf=1`, which is exactly `fps60.cpp isTier1Owned`'s discriminator for "the display pass
+   re-renders this prim" — so every quad was submitted, appeared in the queue, and was then SKIPPED
+   at present with nothing re-emitting it. Measured: not one pixel of the picture changed. The
+   correct submit for a producer that runs inside the guest's render walk is `emitOrQueue` with
+   integer screen coords and `xsf/ysf == nullptr`, same as `fx_sprite.cpp` and
+   `perobj_billboard.cpp`.
+2. **Raw view depth is not the effect's depth.** The burst spawns a few percent BEHIND the object it
+   hits (0.0892 ord vs the bucket's 0.0968), so the depth buffer hid the plume even once it was
+   submitted — only ~200 px changed. The effect carries its own authored sort bias at `node+0x32`
+   (`-80` here), which the game adds before deciding where the quads sit. Converting it into view
+   units through the AVSZ4 scale (`bias * 4096 / (4*ZSF4)`) and applying it to the per-vertex depth
+   is what puts the plume in front, as the game intends.
+
+**Evidence.** Pad frame 656, region x∈[115,190) y∈[80,175): pixels differing from the psx_render leg
+by >60 (sum abs RGB) went 2494 → 2266; 622 pixels changed vs the pre-fix build. Frames 654/658:
+2570→2357 (482 changed) and 1858→1737 (299 changed). Whole-frame diff vs the pre-fix build is
+confined to the burst: 834 px at f656, bbox x 136-166 y 92-156 — i.e. the psx-reported prim bbox and
+nothing else in the frame moved.
+
+**Dead ends / falsified, do NOT redo:**
+* Cards #14/#15 both said "hold SQUARE". Square does nothing in free-roam; the attack button is
+  **CIRCLE**. Every prior "NOT reproduced" verdict on #14/#15 was a repro failure for this reason.
+* "Prime suspect = the 40-slot effect pool `0x800EC188` walked by `FUN_8003F024 -> FUN_8003D23C`" is
+  FALSIFIED for the impact effect: the pool reads all-zero across the whole swing window (f650-690).
+* The old #39 "weapon chain + impact fixed via withDepthTag" is obsolete — the gap was a missing
+  native producer, not a missing tag.
+* Whole-frame pixel diffs are useless on this scene: pc-vs-psx baseline noise is ~7000 px
+  (dither/texture) while the missing layer is ~1000. `PSXPORT_PRIMAT` at one pixel plus `otattr`
+  attribution is what settled it.
+
+**Refs.** `game/render/fx_mesh.{h,cpp}`, `game/render/fx_sprite.cpp` (the sprite half),
+`game/ui/pause_menu.cpp` (the scoped-tap pattern), `replays/bugs/weapon-impact-bucket.pad`,
+`generated/shard_5.c` `gen_func_80027768`/`gen_func_800288AC` (ground truth for the record layout).

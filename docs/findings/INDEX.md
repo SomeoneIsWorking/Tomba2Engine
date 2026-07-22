@@ -113,6 +113,7 @@ already solved or ruled out. 246 findings across 11 subsystems.
 - **Un-owned FUN_8007E9C8 fade callers — 3 of 3 SHIPPED (2026-07-03)** [ALL 3 native (last landing: commit 560bac0). Also solved the sibling arc — the cutscene-script INTERPRETER that dispatches the A06 pair is fully native (dd40602 + 4c331a3 + a70092a), so op-0x03E fnptr routing is live for any A06 fade fn registered as a `beh_*`.] —   ↪ docs/findings/render.md
 - **Waterpump barrel top face renders BLACK under pc_render (kanban #11) — a PAINTER-ORDER surface pair the depth buffer cannot resolve (2026-07-22, FIXED — game-sort-key order resolution; see the final section)** [?] —   ↪ docs/findings/render.md
 - **Weapon "ball but no CHAIN" (#28 follow-up) — chain-LINK billboards already render; only a minor grab/dust semi-quad is dropped (2026-07-10, could-not-reproduce a significant chain)** [?] —   ↪ docs/findings/render.md
+- **Weapon IMPACT burst: the effect has TWO emitters and only the sprite half was owned (kanban #15, 2026-07-23, FIXED)** [?] —   ↪ docs/findings/render.md
 - **Widescreen re-enabled (aspect FOV + present) — SDL_GPU Pass-1 lost the wide present + OFX (2026-07-10)** [FIXED (headless field shots at 4:3 / 16:9 / 21:9: single, centered, genuinely-wider,] —   ↪ docs/findings/render.md
 - **Widescreen: native 2D centered via ONE queue layout authority + emitter culls widened (2026-07-16, USER request)** [?] —   ↪ docs/findings/render.md
 - **Z-fight sweep 2026-07-14 — barrel fix HOLDS; new double-submission class; 2 zfight tooling defects** [?] —   ↪ docs/findings/render.md

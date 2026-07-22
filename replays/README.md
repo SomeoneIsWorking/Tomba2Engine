@@ -82,3 +82,9 @@ Once the recorded sequence ends, input falls through to the host (so `run N` aft
   actually measures this.
 - **Originals** also live at `scratch/bin/*.pad` (referenced by older findings); the copies here are
   the canonical, categorized home going forward.
+
+- `bugs/weapon-impact-bucket.pad` — 686 frames, self-contained from boot (do NOT add
+  `PSXPORT_AUTO_SKIP` or `newgame`, it desyncs). Tomba walks right along the seaside start route into
+  the bucket obstacle and swings (CIRCLE); the swing connects at pad frames 654-660, peak 656. The
+  repro for kanban #15 (weapon impact burst missing its mesh half under pc_render):
+  `PSXPORT_PAD_REPLAY=replays/bugs/weapon-impact-bucket.pad PSXPORT_PAD_SHOT_AT=654,656,658 ... run 700`
