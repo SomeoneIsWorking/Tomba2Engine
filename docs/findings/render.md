@@ -3002,3 +3002,64 @@ are owned.**
   wrappers + fieldHudRender call), render.h, game_tomba2.cpp (fx_sprite_install), cmake/tomba2_port.cmake;
   decomps scratch/decomp/{fx_emit_leaves,fx_pkt_writer,f9a8_subs,hud_fx_leaves,ui_sprite_leaves,
   drawarea_leaf,walk_b588,tomba_weapon}.c; evidence scratch/screenshots/gaps/.
+
+## fps60: the interpolated frame was FINISHED differently from the real frame (kanban #17/#31, 2026-07-22, FIXED)
+
+- **symptom (USER):** the waterpump barrel top, fixed in #11, is stable at 30 fps and FLICKERS at 60 fps.
+  Separately, and in the same breath: *"it still feels like lerp frames and regular frames are created
+  differently but that should never be the case."*
+- **root cause:** a real frame is finished by `RenderQueue::flush` — `resolveKeyOrder` then `sortQueue`.
+  The interpolated frame's re-rendered world lands in `Fps60::mSink` and was finished by `tier1Render`
+  with `sortQueue` ALONE. So #11's authored-order snap applied to every real frame and to no in-between
+  frame, and the pair reverted on every other present.
+- **NOT the cause (card #17's own first hypothesis, falsified):** the interior-sample test resolving
+  differently between frame kinds. `resolveKeyOrder` never ran on the interp frame at all, so its
+  weaknesses were never reached.
+- **measurement (the one that settles it):** `debug fps60dump` writes every present, real and interp,
+  as its own PNG. Read the disputed pixel out of the sequence — no eyeballing, no oracle needed. At the
+  barrel pixel (165,92) on the GATE leg over 12 logic frames:
+
+  | | interp present | real present |
+  |---|---|---|
+  | before | `(8,8,16)` — the black cap | `(40,152,248)` — blue water |
+  | after  | `(40,152,248)` | `(40,152,248)` |
+
+  Alternating black/blue at 60 Hz, all 12 frames, is precisely the reported flicker.
+- **fix:** `RenderQueue::finalize(core)` = `resolveKeyOrder` + `sortQueue`, and BOTH queue-finishing
+  sites call it (`flush` for the real frame, `tier1Render` for the interp world). The point is not the
+  two lines — it is that "what does a finished queue look like" now has ONE answer, so a future ordering
+  step reaches both frame kinds by construction. Added at a call site, it drifts again; that drift IS
+  this bug. `external/psxport` 32270b8e.
+- **the asymmetry that REMAINS (open, #31):** `tier1Render` re-runs only passes that have a native
+  display-pass producer (terrain, scene-table, field entities, field objects, backdrop). Everything else
+  — 2D/HUD screen-space prims and every guest-execution-time drawable (`RQ_WORLD` with `has_xyf==0`) —
+  is replayed VERBATIM on both presents, so it steps at 30 Hz beneath a world moving at 60 Hz. That is
+  the likely shared root of #16 (sign-text jitter) and #23 (roof flames don't lerp, rope flame does —
+  the rope flame has a display-pass producer, `QuadRtptSubmit`). The cure is the REDIRECT doctrine in
+  `fps60.h`: each verbatim emitter graduates as it is ported into the display pass.
+
+## Dialog box background drew OVER its own text — two owners on one guest address (kanban #19/#28, 2026-07-22, FIXED)
+
+- **symptom (USER):** the message box renders as a solid dark-green panel with a yellow border and no
+  text in it whatsoever. Earlier the same day the opposite was reported (#19: only the corners drew).
+- **root cause:** guest `FUN_8004FFB4`, the 9-slice panel FILL, had TWO owners.
+  - `Panel::install()` (`game/ui/panel.cpp`) taps it and draws via `Panel::pushFill` at **RQ_OVERLAY**,
+    one layer BELOW the glyphs' RQ_HUD. That file states why in a comment, from bug #64 (2026-07-16):
+    *"with both on RQ_HUD the fill drew over the glyphs … dimmed text behind the fill / fully empty boxes."*
+  - `game/ui/panel_fill.cpp`, landed hours earlier the same day as a readable rebuild of the same body,
+    ALSO installed on that address, with its own display pass at **RQ_HUD**.
+
+  The queue sorts `(layer, seq)`, so the duplicate composited over the text it exists to sit behind.
+- **fix:** one owner. `panel_fill.cpp` keeps the readable guest-state rebuild and neither installs nor
+  draws; `panelFillTap` calls `Panel::fillQuad(c)` where it used to call `gen_func_8004FFB4(c)`, so the
+  rebuild is the body that runs, and `pushFill` stays at RQ_OVERLAY. Verified on
+  `replays/bugs/bucket-softlock.pad` f1200: the box draws opaque with *"This'll work for carrying the
+  Water!"* legible on top.
+- **corrects #19's diagnosis:** the dialog fill never lacked a producer. It also sharpens #21 — the
+  triangle menu is STILL see-through in the same build, so the menu panel really is a different emitter,
+  confirming the sweep agent's finding rather than sharing a root with the dialog box.
+- **workflow (the reusable lesson):** `tools/codemap.py --conflicts` exists to catch exactly this and
+  was not run when `panel_fill.cpp` landed. It still reports **17** other cross-file duplicate-owned
+  addresses. A second owner does not fail a build, does not fail SBS (both write the same guest state)
+  and shows up only as a picture bug — so the tool is the only thing that finds it early. Run it when
+  adding any native.

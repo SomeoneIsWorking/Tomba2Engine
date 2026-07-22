@@ -1,0 +1,12 @@
+---
+id: 31
+title: fps60: interpolated frames and real frames appear to be built differently
+status: todo
+labels: [bug, render, fps60]
+created: 2026-07-22
+updated: 2026-07-22
+---
+
+USER 2026-07-22: 'it still feels like lerp frames and regular frames are created differently but that should never be the case'. This is the standing fps60 architecture directive stated as a symptom: ONE render path for both frame kinds, the interpolated one running a frame behind on lerped actor transforms. If the two kinds diverge structurally then that single defect is a candidate root for FOUR open cards at once — #16 sign-text jitter, #17 barrel flicker, #20 black screen when paused, #23 roof flames not lerping — which is why it is worth settling before working any of them individually. Do not fix them one at a time until this is answered: establish first whether a real frame and an interpolated frame produce the same RqItem set modulo the lerped transforms, and if not, WHERE they part company.
+
+**2026-07-22:** 2026-07-22 FIRST INSTANCE FOUND AND FIXED — see #17: the interp frame's queue was finished by sortQueue alone while the real frame got resolveKeyOrder+sortQueue, so #11's face-order snap never applied to an in-between frame. Now unified behind RenderQueue::finalize. That does NOT close this card. The architecture has a second, larger asymmetry that is by design and still open: tier1Render RE-RUNS only the passes with a native display-pass producer (terrain, scene-table, field entities, field objects, backdrop) under lerped inputs, while everything else — 2D/HUD screen-space prims and every guest-execution-time drawable (RQ_WORLD with has_xyf==0) — is replayed VERBATIM on both presents and therefore steps at 30Hz under a world moving at 60Hz. That is the likely shared root of #16 (sign text jitter: screen-space text held for two presents while the camera moves under it) and #23 (roof flames verbatim from a guest-time tap, rope flame re-rendered because QuadRtptSubmit is a display-pass producer). The cure is the REDIRECT doctrine already written down in fps60.h — each verbatim emitter graduates as it is ported into the display pass — so this card is really 'finish the redirect', and #16/#23 are its symptoms rather than independent bugs.
