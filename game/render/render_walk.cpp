@@ -79,6 +79,19 @@ void Render::perObjFlush() {
   // logic frame) — it queries Render::nativeObjDrawn, which re-derives this same node set straight
   // from guest state instead. See nativeObjDrawn's banner above.
   uint32_t otbase_ptr = c->mem_r32(OTBASE_PTR);              // *0x800ED8C8
+  // kanban #33: guest-time capture-only. The present re-renders this object from mSink under lerped inputs
+  // (both frames), so the ONLY state it reads back from the guest-time pass is mObjCur (the per-object raw
+  // transform, keyed by cmd). Capture it straight through the projObj choke — SKIP the camera×object compose
+  // (projComposeCore, which re-reads the camera per cmd) AND the per-vertex gt3gt4 submit. Pure waste
+  // otherwise: the composed+projected quads land in mRqCur tier1-owned and the merge skips every one.
+  if (c->game->fps60.mWorldCaptureOnly) {
+    for (int i = 0; i < (int)c->mem_r8(node + 8); i++) {
+      uint32_t cmd = c->mem_r32(node + 0xC0 + i * 4);
+      if (c->mem_r32(cmd + 0x40) != 0) { float Robj[3][3], Tobj[3]; c->game->fps60.projObj(c, cmd, Robj, Tobj); }
+      if (i + 1 >= (int)c->mem_r8(node + 9)) break;
+    }
+    return;
+  }
   int i = 0;
   while (i < (int)c->mem_r8(node + 8)) {
     uint32_t cmd = c->mem_r32(node + 0xC0 + i * 4);
@@ -112,6 +125,10 @@ void Render::perObjFlushPreComposed() {
   uint32_t node = c->r[4];
   if (c->mem_r8(node + 8) == 0) return;
   if (c->mem_r8(node + 9) == 0) return;
+  // kanban #33: guest-time capture-only. Pre-composed objects DON'T use projObj/mObjCur — the present
+  // re-render re-derives their transform from the cmd's pre-composed matrix (wq_read_matrix) directly, so
+  // there is nothing to capture here. Skip the whole factor+compose+submit; the present redraws from mSink.
+  if (c->game->fps60.mWorldCaptureOnly) return;
   uint32_t otbase_ptr = c->mem_r32(OTBASE_PTR);
   int i = 0;
   while (i < (int)c->mem_r8(node + 8)) {
@@ -170,6 +187,21 @@ void Render::backdropRender(uint32_t t4) {
   Core* c = mCore;
   int W = c->mem_r8(t4 + 0x10), H = c->mem_r8(t4 + 0x11);
   if (W == 0 || H == 0) return;
+  // kanban #33: guest-time capture-only. The only per-frame-varying state the present-time backdrop
+  // re-render reads back is the scroll offset (mBgCur) — everything else (tilemap/tpage/wrap moduli) is
+  // static per-area config it re-reads directly. Capture the scroll (bgScroll self-captures on a real,
+  // non-override call) and skip drawing every tile; the present re-renders the backdrop from mSink.
+  if (c->game->fps60.mWorldCaptureOnly) {
+    int sx, sy; c->game->fps60.bgScroll(c, t4, sx, sy);
+    // PRESERVE the ONE non-draw side effect: publish this frame's backdrop texpage so the guest OT-walk
+    // still drops its redundant sky/sea tiles (sprite_is_bg_texpage). Skipping the tile draw is safe (the
+    // present re-renders it) but skipping this publish is NOT — the redundant guest tiles regress to RQ_HUD
+    // and occlude the world (render.md OPEN #1). Same tp derivation as the draw path below.
+    uint16_t tpage = c->mem_r16(t4 + 0x04);
+    int tp_x = (tpage & 0xF) * 64, tp_y = ((tpage >> 4) & 1) * 256;
+    void gpu_bg_texpage_set(Core*, int, int); gpu_bg_texpage_set(c, tp_x, tp_y);
+    return;
+  }
   // TILE V-OFFSET — the FIELD backdrop drawer (FUN_80115598) samples each tile at v = (tile&0xF0)+8, but
   // the SOP NARRATION backdrop drawer (FUN_8010C26C, the seaside/cutscene beats) samples at v = (tile&0xF0)
   // with NO +8 (RE'd from ram_sea.bin, issue #60). Applying the field's +8 to the SOP backdrop shifts the
@@ -481,6 +513,14 @@ void Render::sceneNative() { Core* c = mCore;
   static const uint32_t HEADS[3] = { 0x800FB168u, 0x800F2624u, 0x800F2738u };
   uint32_t saved = c->r[4];
   c->rsub.stats.snObjs = c->rsub.stats.snCmds = 0;
+  // kanban #33: on a tier1-eligible scene under fps60, the world this walk builds into the live queue is
+  // never drawn — both presents re-render it from mSink (fps60WorldPass/tier1Render), and the merge skips
+  // every tier1-owned prim in mRqCur. So run the world leaves in CAPTURE-ONLY mode: keep the cheap capture
+  // reads (camera/object-transform/backdrop-scroll — the state the present re-render reads back) and skip
+  // their per-vertex projection+submit. Off for the non-eligible sub-scenes (whose captured world DOES
+  // present verbatim) and off under the SBS/psx-render legs. Cleared on every exit below.
+  c->game->fps60.mWorldCaptureOnly = c->game->mods.fps60 && c->game->fps60.mTier1EligibleCur
+                                     && !c->game->diff_mode && !c->rsub.mode.psxRender();
   // AREA-SCOPED CACHE trust latches (see render.h mSceneTableTrusted/mBackdropTrusted) — shared edge
   // detector, computed once per frame. Both SCENE_ENT_TABLE (0x800F2418) and PARALLAX_BG_SM
   // (0x800ED018, the backdrop tilemap struct below) go stale for a few ticks right when SOP narration
@@ -534,7 +574,7 @@ void Render::sceneNative() { Core* c = mCore;
     uint32_t bgstate = c->mem_r8(0x800bf870u);
     if (bgstate == 0) backdropRender(0x800ed018u);
   }
-  if (cfg_dbg("bgonly")) { c->r[4] = saved; return; }  // PROBE: backdrop only (test if ov_render_frame already drew the world)
+  if (cfg_dbg("bgonly")) { c->r[4] = saved; c->game->fps60.mWorldCaptureOnly = false; return; }  // PROBE: backdrop only (test if ov_render_frame already drew the world)
   // AREA-INIT SUPPRESSION (fieldAreaInit above): skip the field scene for the object-placement init frame
   // (models not yet attached — drawing overflows the queue, later-275); the backdrop above still draws.
   bool field_area_init = fieldAreaInit();
@@ -564,6 +604,7 @@ void Render::sceneNative() { Core* c = mCore;
     fieldObjectsRender();
   }
   c->r[4] = saved;
+  c->game->fps60.mWorldCaptureOnly = false;   // kanban #33: capture-only scope ends with the guest world walk
   if (cfg_dbg("scenenative")) { int gpu_seen3d_this_frame(Core*); static int f = 0; if ((f++ % 60) == 0)
     cfg_logf("scenenative", "objs=%ld cmds=%ld seen3d=%d", c->rsub.stats.snObjs, c->rsub.stats.snCmds, gpu_seen3d_this_frame(c)); }
 }
@@ -589,6 +630,9 @@ void Render::fieldObjectsRender() {
       // whose fn points into an EVICTED overlay is normal (later-275 dangling-pointer case) — skip it.
       // Other type-0x20 fns stay skipped like before (tracked by #3b's completeness gate, not a crash).
       if (type == 0x20) {
+        // kanban #33: the SOP narration swirl draws via drawWorldQuad (tier1-owned, has_xyf) and captures
+        // nothing (host compose) — the present re-renders it from mSink, so its guest-time draw is dead.
+        if (c->game->fps60.mWorldCaptureOnly) continue;
         if (c->mem_r32(n + 0x18) == 0x8010BF54u && c->mem_r32(0x80109450u) == 0x3C021F80u) {
           c->rsub.stats.snObjs++;
           rend(c)->narrationSwirlRender(n);

@@ -392,6 +392,9 @@ void rec_dispatch(Core*, uint32_t);         // interpret/run a guest fn (unowned
 // g_dbg_cur_geomblk retired — per-Core Render::mDbgCurGeomblk
 void Render::gt3gt4(uint32_t geomblk, uint32_t otbase) {   // used by render_walk.cpp
   Core* c = mCore;
+  // kanban #33: at guest time on a tier1-eligible scene, the per-object transform was already captured by
+  // projComposeObject upstream (perObjFlush) — mObjCur is filled — and the present re-render draws this
+  // geomblk from mSink on both frames, so submitting it here is pure waste. Skip the projection+submit.
   c->rsub.diag.setGeomblk(geomblk);
   uint32_t counts = c->mem_r32(geomblk + 0);
   c->r[4] = geomblk + 16; c->r[5] = otbase; c->r[6] = counts & 0xFFFFu;
@@ -415,6 +418,10 @@ void Render::gt3gt4(uint32_t geomblk, uint32_t otbase) {   // used by render_wal
 //     GT4 submit(rec = <ret>,  ot, count = (s0 >> 16) & 0xff).
 void Render::fieldEntityRender(uint32_t es) {
   Core* c = mCore;
+  // kanban #33: guest-time capture-only. Scene-table is camera-only (projComposeCamera below), so it holds
+  // no per-object state the present re-render reads back — the camera was already captured (terrainRenderAll,
+  // or an object's projComposeObject). Skip the whole entity walk + submit; the present re-renders it from mSink.
+  if (c->game->fps60.mWorldCaptureOnly) return;
   uint8_t count = c->mem_r8(es + 6);
   if (count == 0) return;
   uint32_t otbase = c->mem_r32(0x800ED8C8u);              // *this = the active ordering-table base
@@ -480,6 +487,23 @@ void Render::terrain() {
 // working from both call sites.
 void Render::terrainRenderAll() {
   Core* c = mCore;
+  // kanban #33: guest-time capture-only. terrain is camera-only (projComposeCamera → the shared sceneCam
+  // choke), so the ONLY state the present-time re-render reads back is mCamCur. Capture it once (sceneCam
+  // self-captures on a real, non-override call) and skip the whole node-walk + per-vertex terrain draw —
+  // the present re-renders terrain from mSink under the lerped camera on both frames.
+  if (c->game->fps60.mWorldCaptureOnly) {
+    // Reproduce terrain's CAMERA-LEVEL host-state side effects (native_terrain.cpp terrainRender), the
+    // state OTHER guest-time prims read back — NOT just the mCamCur capture. terrain publishes the MAIN
+    // scene camera view matrix (camview_publish → proj_camview_world_ord, the stable per-object world-Z
+    // gpu_native gives every guest-time billboard) and the projection H (proj_set_H, captures CR29/30 ZSF).
+    // Skipping these left the guest-time billboards depth-projected against a STALE camera (a ~230px
+    // regression on any area with a backdrop/props, invisible on the newgame start area which has neither).
+    float Rc[3][3], camT[3], ofx, ofy, H; c->game->fps60.sceneCam(c, Rc, camT, ofx, ofy, H);
+    float Rcam[3][3]; for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) Rcam[i][j] = Rc[i][j] / 4096.0f;
+    camview_publish(Rcam, camT);
+    proj_set_H((uint16_t)H);
+    return;
+  }
   for (uint32_t n = c->mem_r32(0x800F2624u), g = 0; n && g < 400; g++, n = c->mem_r32(n + 36)) {
     if (c->mem_r8(n + 1) == 0) continue;
     if (c->mem_r32(n + 24) == 0x8002AB5Cu && !cfg_dbg("noterr")) {

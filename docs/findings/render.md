@@ -1,5 +1,59 @@
 # Findings — render / engine submit
 
+## fps60: guest-time world rebuilt but never drawn (kanban #33, FIXED — pixel-exact, ~20% faster)
+
+- **symptom (perf):** once both fps60 presents were unified behind `Fps60::presentPass(c,t)` (real frame =
+  `presentPass(c,1.0f)`), both presents RE-RENDER the field world via `tier1Render`. The world that the
+  guest-time render walk (`Render::sceneNative`) builds into the live queue is then never drawn — the merge
+  skips every tier1-owned prim (`isTier1Owned`) because it now comes from `mSink` on both presents. So the
+  world was BUILT three times per logic frame (guest-time + two presents) and DRAWN twice. Measured cost of
+  the dead guest-time build, headless, 3000 frames from newgame: full guest world draw ≈ 6.9s of ~14s.
+- **status:** FIXED. The guest-time world DRAW is removed on tier1-eligible scenes; the cheap CAPTURE reads
+  the present-time re-render depends on are kept. Verified PIXEL-EXACT and faster.
+- **cause:** the guest-time world build's only surviving purpose is the capture side effects the two
+  present re-renders read back — camera (`sceneCam`→`mCamCur`), per-object transform (`projObj`→`mObjCur`),
+  backdrop scroll (`bgScroll`→`mBgCur`) — plus a few HOST-state publishes other prims read. Its expensive
+  half (per-vertex projection + quad submit) is pure waste.
+- **fix:** `Fps60::mWorldCaptureOnly` (fps60.h), set by `Render::sceneNative` around its world block when
+  `mods.fps60 && mTier1EligibleCur && !diff_mode && !psxRender` (cleared on every exit). The world leaves
+  run CAPTURE-ONLY: `terrainRenderAll` does one `sceneCam` + reproduces terrain's camera-level host publishes
+  (`camview_publish` + `proj_set_H` — see below); `fieldEntityRender` returns (camera already captured, no
+  per-object state); `backdropRender` does `bgScroll` + reproduces `gpu_bg_texpage_set`; `perObjFlush`
+  captures each cmd via `projObj` DIRECTLY (skipping the camera×object compose AND `gt3gt4`);
+  `perObjFlushPreComposed` + the narration-swirl branch skip entirely (they capture nothing). Both presents
+  still re-render the world identically — the picture is unchanged, ONE build instead of two.
+- **the two load-bearing host side effects (the trap):** skipping a leaf's DRAW is safe, but each leaf also
+  had a HOST-state publish that OTHER guest-time prims read, invisible on the newgame start area (no
+  backdrop/props) and only surfacing on a real village field:
+  - **terrain:** `camview_publish(Rcam, camT)` + `proj_set_H(H)` (native_terrain.cpp) — the MAIN scene
+    camera `gpu_native` uses to depth-project every guest-time billboard (`proj_camview_world_ord`).
+    Missing → billboards projected against a STALE camera → ~230px regression.
+  - **backdrop:** `gpu_bg_texpage_set(tp_x,tp_y)` — publishes the backdrop texpage so the guest OT-walk
+    drops its redundant sky/sea tiles (`sprite_is_bg_texpage`). Missing → redundant tiles regress to RQ_HUD.
+  Both are reproduced in the capture-only branch. Bisected via per-leaf A/B (only terrain diverged first;
+  backdrop was a second, separate publish).
+- **the seq/merge concern (the operator's flagged risk) — MEASURED, safe:** the non-owned prims that mix
+  with owned prims in a layer (RQ_WORLD billboards, `has_xyf==0`) are pushed during GUEST EXECUTION, BEFORE
+  `sceneNative`'s world draws, so removing the world pushes does not change their seq. Confirmed with the new
+  `fps60seq` channel: field non-owned run `seq=[0..56]` and bucket-softlock billboards `seq=[40..45]` are
+  byte-identical before/after; only removed-world seq ranges compress (relative order preserved). The merge
+  output is unchanged.
+- **verification (all cited, headless, same-binary A/B — capture-only forced off = the pre-#33 behavior):**
+  - PICTURE UNCHANGED: 232 frame-pairs, 0 differing px total, max 0 — field (newgame f400), hut interior +
+    approach (`hut-entry-door-freeze.pad` f1100+60), dialog (`bucket-softlock.pad` f1180+24), seesaw
+    (`seesaw-weight.pad` f400+20). Also confirmed against a flag-NEUTRALIZED baseline built from the same tree.
+  - FRAME-KIND SYMMETRY: `PSXPORT_FPS60_TFORCE=1` + `fps60dump`, 10 logic frames — every interp is 0/76800 vs real.
+  - BARREL #11: `PSXPORT_GATE=1` + seesaw repro, pixel (165,92) = (40,152,248) blue water on BOTH frame kinds.
+  - DIALOG + TRIANGLE MENU: bucket f1200 dialog + `AUTO_SKIP` triangle menu render (491 / 81 distinct colors)
+    and are 0-diff capture-only on/off.
+  - SPEED: 3000 frames newgame, 10.34s (capture-only) vs 12.98s (off) = ~20% faster. (Residual is the two
+    present re-renders, inherent to the unification — not removable without reintroducing the #17 two-paths bug.)
+- **DEAD END worth not repeating:** the first cut called only `sceneCam` in the terrain capture-only branch
+  (mirroring the camera capture). That LOOKED right (0-diff on newgame) but left `camview_publish`/`proj_set_H`
+  unpublished, a ~230px regression that only shows on an area with billboards. Reproduce a leaf's host-state
+  publishes, not just its capture read.
+
+
 ## In-game TRIANGLE menu rendered fully transparent (kanban #21, 2026-07-22, FIXED — pixel-exact)
 
 - **symptom (USER):** the menu opened with TRIANGLE has no background — the field shows straight
