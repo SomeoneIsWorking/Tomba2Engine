@@ -1,5 +1,5 @@
 ---
-id: 48
+id: 49
 title: area 21 sky is a GRADIENT+tilemap COMPOSITE — needs the gouraud base ported (split from #42)
 status: todo
 labels: [render]
