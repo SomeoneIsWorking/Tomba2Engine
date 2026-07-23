@@ -62,16 +62,41 @@ COPYRIGHT_PATTERNS = [
 #    literal. The "review" severity is retained only as an opt-in escape hatch: a
 #    specific per-repo pattern a maintainer deliberately downgrades. Nothing uses
 #    it by default. Tune USERNAME below (or add more) per machine.
-USERNAME = "user"          # primary account name to hunt for
-USERNAME_ALT = "user"  # secondary (full name, alt login, etc.)
+# Account names to hunt for. Resolved at RUNTIME, never baked in as a literal — a hardcoded
+# username here is self-defeating twice over: (a) a vendored copy is useless to a collaborator whose
+# login differs, and (b) if this file is ever swept by a `filter-repo --replace-text` rule that maps
+# the username to something else, the rule rewrites THIS CONFIG and the scanner starts hunting the
+# replacement. That happened: a `user==>user` scrub turned `USERNAME` into "user", after which the
+# tool flagged 4292 hits on the ordinary English word. Override with GO_PUBLIC_USERNAMES="a,b".
+def _default_usernames():
+    import getpass, os
+    names = [n for n in os.environ.get("GO_PUBLIC_USERNAMES", "").split(",") if n.strip()]
+    if names:
+        return [n.strip() for n in names]
+    out = []
+    try:
+        out.append(getpass.getuser())
+    except Exception:
+        pass
+    home = os.path.basename(os.path.expanduser("~")) or ""
+    if home and home not in out:
+        out.append(home)
+    # Never hunt a name so generic it matches prose.
+    return [n for n in out if n and n.lower() not in ("user", "root", "admin", "home")]
+
+USERNAMES = _default_usernames()
+USERNAME = USERNAMES[0] if USERNAMES else ""
+USERNAME_ALT = USERNAMES[1] if len(USERNAMES) > 1 else ""
 # absolute-path patterns use (?<![\w/]) so a real path boundary is required —
 # avoids matching "current/root/system" or "foo/home/bar" mid-word.
 FOREIGN_PATH_PATTERNS = [
     (r"(?<![\w/])/home/[A-Za-z0-9_.-]+", "unix home path", "critical"),
     (r"(?<![\w/])/Users/[A-Za-z0-9_.-]+", "macOS home path", "critical"),
     (r"(?<![\w/])/root/[A-Za-z0-9_.-]", "root home path", "critical"),
-    (r"\b" + re.escape(USERNAME) + r"\b", f"username '{USERNAME}'", "critical"),
-    (r"\b" + re.escape(USERNAME_ALT) + r"\b", f"username '{USERNAME_ALT}'", "critical"),
+    # NB: built from USERNAMES, and an EMPTY name is skipped entirely. A blank here compiles to
+    # r"\b\b", which matches at every word boundary — i.e. the whole repo "leaks". That is not
+    # hypothetical: it produced 109216 false blockers in one run.
+    *[(r"\b" + re.escape(n) + r"\b", f"username '{n}'", "critical") for n in USERNAMES if n],
     (r"(?<![\w/])/mnt/[A-Za-z0-9_.-]+", "mount path", "critical"),
     (r"(?<![\w/])/media/[A-Za-z0-9_.-]+", "media mount path", "critical"),
     # tilde home paths — blocking. ~/.local, ~/.config, ~/Library etc. all count.
@@ -493,8 +518,9 @@ def gen_rules(cwd):
         lines.append(f"{lit}==>{repl}")
     lines.append("")
     lines.append(f"# also consider bare usernames:")
-    lines.append(f"{USERNAME}==>user")
-    lines.append(f"{USERNAME_ALT}==>user")
+    for _n in USERNAMES:
+        if _n:
+            lines.append(f"{_n}==>user")
     return "\n".join(lines)
 
 
