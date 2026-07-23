@@ -366,6 +366,18 @@ public:
   // call the SAME pass, mirroring terrainRenderAll/fieldEntityRender.
   void backdropRender(uint32_t t4);
 
+  // backdropTilemapDrawer — resolve the resident field/narration backdrop drawer the guest would
+  // dispatch (gen_func_8003DF04 @0x8003DF04) and report whether it is the SHARED tilemap routine (the one
+  // that reads PARALLAX_BG_SM @0x800ED018 and emits 16x16 textured-sprite tiles) plus its baked per-tile
+  // V texel bias into `vAdd`. Every area's backdrop drawer is that same routine compiled per overlay; the
+  // only thing that varies is the V bias (seaside 0x80115598 samples (tile&0xF0)+8, every other area
+  // (tile&0xF0)), which is read straight from the resident drawer's code — ground truth per area, no
+  // scene heuristic. Returns false when the resident drawer is NOT the tilemap routine (unported backdrop
+  // kind / no backdrop for this state): the far plane then stays black, an honest missing-producer gap —
+  // area 14's backdrop is GTE scene geometry (#47), area 21's is a gradient+tilemap composite (#48), and
+  // the state>=16 areas are ones the guest itself draws no backdrop for. Read-only (no guest writes).
+  bool backdropTilemapDrawer(int& vAdd);
+
   // ---- SUBSTRATE MIRROR: per-object cmd-list dispatch (guest FUN_8003CDD8 / FUN_8003F698) --------
   // These run UNDER the render-underneath architecture (issue #32): the substrate walk cluster calls
   // them as PLAIN intra-shard C calls (func_8003CDD8/func_8003F698), never through rec_dispatch, so

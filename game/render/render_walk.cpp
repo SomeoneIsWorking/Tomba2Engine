@@ -163,6 +163,57 @@ void Render::perObjFlushPreComposed() {
 // PSX OT-walk) so the draw state is the native pass's. Gated `debug scenenative` while standing it up.
 // (g_scene_native_diag was defined here but never read; dead — removed 2026-07-02)
 // g_sn_objs/g_sn_cmds retired 2026-07-03 — Render::stats.snObjs/snCmds (RenderStats).
+// Resolve the resident backdrop tilemap drawer exactly as the guest field dispatcher does
+// (gen_func_8003DF04 @0x8003DF04) and confirm it is the SHARED tilemap routine, reporting its baked
+// per-tile V bias. See render.h for the contract. Read-only (guest RAM + resident code words only).
+bool Render::backdropTilemapDrawer(int& vAdd) {
+  Core* c = mCore;
+  constexpr uint32_t kBgGate       = 0x800BF873u;  // field dispatch gate (!=0 -> no backdrop this beat)
+  constexpr uint32_t kBgSelector   = 0x800BF870u;  // field bg-state selector (== the area's bg-state)
+  constexpr uint32_t kBgJumpTable  = 0x80014FC0u;  // 16-entry bg-state -> MAIN dispatch-stub table
+  constexpr uint32_t kBgStateCount = 16u;          // guest draws nothing for state >= this
+  constexpr uint32_t kBgStateComposite = 21u;      // wolf-ride: gradient+tilemap composite (see below)
+  constexpr uint32_t kSopSig       = 0x80109450u;  // SOP overlay first-instruction signature word
+  constexpr uint32_t kSopSigVal    = 0x3C021F80u;
+  constexpr uint32_t kSopDrawer    = 0x8010C26Cu;  // SOP narration's own tilemap drawer (V bias 0)
+  constexpr uint32_t kJalOp        = 0x03u;        // MIPS jal opcode (top 6 bits)
+  constexpr uint32_t kVDecodeAndi  = 0x30E200F0u;  // `andi r2,r7,0xF0` — the tilemap V-decode site
+  constexpr uint32_t kVAdd8Insn    = 0x24420008u;  // `addiu r2,r2,8` immediately after it (V bias 8)
+  constexpr uint32_t kDrawerScan   = 0x400u;       // drawer body size to search for the V-decode
+
+  uint32_t drawerVA;
+  if (c->mem_r32(kSopSig) == kSopSigVal) {
+    // SOP narration draws its backdrop from its OWN overlay drawer (the field jump table's state-0 slot
+    // points at 0x80115598, which is NOT resident under the SOP overlay), so resolve it directly.
+    drawerVA = kSopDrawer;
+  } else {
+    if (c->mem_r8(kBgGate) != 0) return false;
+    const uint32_t st = c->mem_r8(kBgSelector);
+    // State 21 (wolf-ride) is special-cased ahead of the table by the guest to a COMPOSITE drawer
+    // (0x8010BE30): a gouraud-gradient sky base (helper 0x8010BB64) with the tilemap as a CLOUD overlay
+    // on top. Its tilemap loop matches the shared routine's V-decode signature, but drawing that layer
+    // ALONE (opaque, no gradient base) paints a bright full sky where the real backdrop is the darker
+    // gradient — measured WORSE than leaving it black (61375 -> 64650 px >8/255). Left as an honest
+    // missing-producer gap until the gradient base + overlay are ported together (kanban #48).
+    if (st == kBgStateComposite) return false;
+    if (st >= kBgStateCount) return false;
+    const uint32_t stub = c->mem_r32(kBgJumpTable + st * 4);
+    // The dispatch stub's 2nd instruction is `jal <overlay drawer>`; the no-backdrop stub (0x8003E020)
+    // has none. Decode the jal target rather than hardcoding each overlay's drawer address.
+    const uint32_t jal = c->mem_r32(stub + 4);
+    if ((jal >> 26) != kJalOp) return false;
+    drawerVA = (stub & 0xF0000000u) | ((jal & 0x03FFFFFFu) << 2);
+  }
+  // Scan the resident drawer for the tilemap V-decode. Absent -> not the shared tilemap routine (a
+  // different, still-unported backdrop mechanism) -> no native producer, the far plane stays black.
+  for (uint32_t p = drawerVA; p < drawerVA + kDrawerScan; p += 4) {
+    if (c->mem_r32(p) != kVDecodeAndi) continue;
+    vAdd = (c->mem_r32(p + 4) == kVAdd8Insn) ? 8 : 0;
+    return true;
+  }
+  return false;
+}
+
 // NATIVE BACKDROP tilemap drawer — overlay FUN_80115598 (the seaside field's state-0 background drawer,
 // reached via 0x8003df04's 16-state jump table @0x80014fc0; state 0 → 0x8003df74 → 0x80115598). This is the
 // sky + distant parallax hills (the only thing the decoupled native scene was missing — verified by SKIPPASS
@@ -173,8 +224,9 @@ void Render::perObjFlushPreComposed() {
 // background layer; sky/hills sit behind the real-depth world). Struct @t4 (=0x800ed018 at the seaside):
 //   +0x04 hword tpage  +0x06 hword clut-base  +0x10 byte W  +0x11 byte H
 //   +0x14 word  tilemap ptr (u16[H][W])       +0x28 hword scrollX  +0x2a hword scrollY
-// Tile entry bits: [0:3]=atlas col, [4:7]=atlas row, [8:11]=clut sub-index. U=(t&0xF)<<4, V=(t&0xF0)+8 (the
-// half-tile V bias is in the source data layout — faithful), clut=clutbase+((t&0xF00)>>2). Texpage 0x0E =
+// Tile entry bits: [0:3]=atlas col, [4:7]=atlas row, [8:11]=clut sub-index. U=(t&0xF)<<4, V=(t&0xF0)+vAdd
+// (the half-tile V bias is per-DRAWER source-data layout, resolved by backdropTilemapDrawer above — 8 for
+// the seaside drawer, 0 for every other area and for SOP), clut=clutbase+((t&0xF00)>>2). Texpage 0x0E =
 // 4bpp @ VRAM(896,0) (set once via a GP0(0xE1) prim in the PSX body; applied per-quad here).
 // TIER 1 BACKDROP (docs/fps60-rework.md): scrollX/scrollY are the ONLY per-frame-varying fields this fn
 // reads (PARALLAX_BG_SM+0x28/+0x2A, computed by ParallaxBg::step from camera yaw/pitch every RUNNING
@@ -202,15 +254,16 @@ void Render::backdropRender(uint32_t t4) {
     void gpu_bg_texpage_set(Core*, int, int); gpu_bg_texpage_set(c, tp_x, tp_y);
     return;
   }
-  // TILE V-OFFSET — the FIELD backdrop drawer (FUN_80115598) samples each tile at v = (tile&0xF0)+8, but
-  // the SOP NARRATION backdrop drawer (FUN_8010C26C, the seaside/cutscene beats) samples at v = (tile&0xF0)
-  // with NO +8 (RE'd from ram_sea.bin, issue #60). Applying the field's +8 to the SOP backdrop shifts the
-  // atlas sample half a tile -> tile seams (verified: sea beat RMSE 40.2 -> 18.5 with vAdd=0). Pick the
-  // variant from the resident overlay (data-derived, not a magic constant): the SOP narration overlay's
-  // first-instruction signature @0x80109450 == 0x3C021F80. backdropRender is never called on the title, and
-  // the field overlay evicts SOP, so this reads correctly in both the field and narration contexts, and at
-  // both call sites (sceneNative real frame + Fps60 tier-1 interp re-render).
-  const int vAdd = (c->mem_r32(0x80109450u) == 0x3C021F80u) ? 0 : 8;
+  // TILE V-OFFSET — the seaside FIELD drawer (FUN_80115598) samples each tile at v = (tile&0xF0)+8; the
+  // SOP NARRATION drawer (FUN_8010C26C) and the OTHER field areas (e.g. area 10 FUN_801142EC, area 11
+  // FUN_801141B0, area 21 FUN_8010BE30) sample at v = (tile&0xF0) with NO +8 (RE'd from the per-overlay
+  // drawer bodies; applying seaside's +8 elsewhere shifts the atlas sample half a tile -> tile seams,
+  // issue #60: sea beat RMSE 40.2 -> 18.5 with vAdd=0). Read the bias from the RESIDENT drawer's own code
+  // (backdropTilemapDrawer, the same resolution the dispatch below uses) — ground truth per area, not a
+  // scene heuristic. Correct in the field and narration contexts, and at both call sites (sceneNative real
+  // frame + Fps60 tier-1 interp re-render).
+  int vAdd = 8;
+  backdropTilemapDrawer(vAdd);
   int rowstride = W * 2;                          // s0 — bytes per map row
   int mapbytes  = rowstride * H;                  // s3 — total map bytes (wrap modulus)
   int scrollX, scrollY;
@@ -555,8 +608,11 @@ void Render::sceneNative() { Core* c = mCore;
   }
   // (0) BACKDROP (sky + distant parallax hills) — the field's background drawer, dispatched natively. The
   // PSX path is 0x8003df04's 16-state jump table @0x80014fc0 keyed on mem_r8(0x800bf870), gated by
-  // mem_r8(0x800bf873)==0. Only state 0 (→ tilemap drawer 0x80115598) is owned natively so far; other
-  // fields' drawers are still-PSX and stay black here until ported (frontier). RQ_BACKGROUND → behind world.
+  // mem_r8(0x800bf873)==0. backdropTilemapDrawer resolves the resident drawer that same way and draws it
+  // whenever it is the shared tilemap routine (seaside state 0, plus areas 10 and 11 and any same-family
+  // area — kanban #42), reading each drawer's own V bias. Backdrop kinds with no native producer stay
+  // black as honest gaps: area 14 = GTE scene geometry (#47), area 21 = gradient+tilemap composite (#48),
+  // and the state>=16 areas the guest itself draws nothing for. RQ_BACKGROUND → behind world.
   // Gated on mBackdropTrusted (see above): while untrusted, PARALLAX_BG_SM's tilemap pointer is the
   // ended narration's leftover, now aliasing the just-loaded field overlay's raw bytes — drawing it
   // produced a tiled noise/atlas-grid garbage frame (the narration-end -> fisherman-cutscene loading-
@@ -570,9 +626,9 @@ void Render::sceneNative() { Core* c = mCore;
     c->game->activeRq().push2dQuad(RQ_BACKGROUND, /*order_2d_fg=*/0, xs, ys, z, z, k, k, k,
                                    0, 0, /*mode=*/3, /*raw=*/0, 0, 0, 0, 0, 0, 0, 0, 0, 1023, 511);
   }
-  if (!voidBeat && mBackdropTrusted && c->mem_r8(0x800bf873u) == 0) {
-    uint32_t bgstate = c->mem_r8(0x800bf870u);
-    if (bgstate == 0) backdropRender(0x800ed018u);
+  if (!voidBeat && mBackdropTrusted) {
+    int vAdd;   // resolved+used inside backdropRender; here only gates whether a native producer exists
+    if (backdropTilemapDrawer(vAdd)) backdropRender(0x800ed018u);
   }
   if (cfg_dbg("bgonly")) { c->r[4] = saved; c->game->fps60.mWorldCaptureOnly = false; return; }  // PROBE: backdrop only (test if ov_render_frame already drew the world)
   // AREA-INIT SUPPRESSION (fieldAreaInit above): skip the field scene for the object-placement init frame

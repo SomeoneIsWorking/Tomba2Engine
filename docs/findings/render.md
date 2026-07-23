@@ -1,5 +1,76 @@
 # Findings — render / engine submit
 
+## Missing far BACKDROP plane in non-seaside areas — the native producer was gated to bg-state 0 (kanban #42, 2026-07-23, areas 10/11 FIXED)
+
+- **symptom:** in areas 10 (lava cave), 11 (snow night), 14 (waterfall) and 21 (wolf-ride sky) pc_render
+  drew the far background plane PURE BLACK where psx_render draws a backdrop. Foreground state identical
+  on both legs, so a genuine renderer delta. >8/255 whole-frame deltas 69761 / 45719 / 68703 / 61375 vs
+  the ~23k generic native-shading baseline.
+- **status:** areas **10 and 11 FIXED** (69761 -> 18022 and 45719 -> 26580). Areas **14 and 21 REMAIN** —
+  they are genuinely DIFFERENT mechanisms, not the same cause (see the split below). Seaside proven
+  unregressed (0-diff); SBS full 0-diff through f16770.
+- **cause (RE'd from the guest dispatcher, not guessed):** the field backdrop dispatcher is
+  `gen_func_8003DF04` @`0x8003DF04`. It reads the bg-state selector `mem_r8(0x800BF870)` (which equals the
+  area id) gated by `mem_r8(0x800BF873)==0`, special-cases state 21 to `0x8010BE30`, drops state>=16, and
+  otherwise indexes the 16-entry jump table @`0x80014FC0` -> a MAIN dispatch stub whose 2nd instruction is
+  `jal <overlay drawer>` (verified in guest RAM: stub 0x8003DF74/0x8003DFD8/0x8003DFEC hold
+  `0C045566`/`0C0450BB`/`0C04506C` -> 0x80115598 / 0x801142EC / 0x801141B0). EVERY area's drawer is the
+  SAME tilemap routine compiled into that area's overlay, all called with r4=`0x800ED018` (PARALLAX_BG_SM)
+  and all reading the identical struct (W@+0x10, H@+0x11, tilemap@+0x14, tpage@+0x04, clut@+0x06,
+  scroll@+0x28/+0x2A). pc_render's native producer `Render::backdropRender` was hard-gated to
+  `bgstate == 0`, so only the seaside drawer ever fired; every other area's backdrop had no native
+  producer and (since the break-first rebuild stopped the OT walk) was drawn by nobody.
+- **the one real per-area variation — the V texel bias, and why the old heuristic was wrong:** the drawers
+  are byte-identical EXCEPT the V decode. Seaside `0x80115598` samples `v=(tile&0xF0)+8`; area 10
+  `0x801142EC`, area 11 `0x801141B0`, area 21's main loop `0x8010BE30` and the SOP narration drawer
+  `0x8010C26C` all sample `v=(tile&0xF0)` with NO +8. The old code derived this from a SCENE heuristic
+  (`0x80109450 == 0x3C021F80 ? 0 : 8` — "SOP narration vs field"), which is correct for seaside-vs-SOP but
+  gives 8 for EVERY field area, i.e. wrong for 10/11/21. The bias is a per-DRAWER baked `addiu` immediate
+  with no struct field to read it from.
+- **fix:** `Render::backdropTilemapDrawer(int& vAdd)` (game/render/render_walk.cpp) mirrors the guest
+  dispatch above to resolve the RESIDENT drawer's address (decoding the stub's `jal` at runtime rather
+  than hardcoding overlay VAs), then scans that drawer's own code for the tilemap V-decode site
+  `andi r2,r7,0xF0` (word `0x30E200F0`) and reads the bias from the following word (`addiu r2,r2,8` =
+  `0x24420008` -> 8, else 0). That is GROUND TRUTH per area — the actual constant the resident drawer
+  would use — not a scene guess. Returning false when the signature is absent means "this is not the
+  shared tilemap routine", so an unported backdrop kind stays black as an honest missing-producer gap
+  instead of being drawn wrong. Both the real-frame dispatch (`Render::sceneNative`) and the fps60
+  present-time re-render (`game/render/fps60_worldpass.cpp`, which carried its own duplicate
+  `bgstate == 0` gate) now go through this one resolver. Read-only: guest RAM + resident code words only,
+  no guest writes (it runs under DisplayPassGuard).
+- **THE FOUR AREAS ARE NOT ONE CAUSE — the honest split:**
+  - **area 10 / area 11 — SAME cause, FIXED.** Plain tilemap drawers, struct populated
+    (a10 W=40 H=72 tilemap=0x80196BA0; a11 W=40 H=72 tilemap=0x8019AA8C). a10 -> 18022 (BELOW the ~23k
+    generic baseline; the cave-wall backdrop is pixel-clean against psx, residual is foreground shading).
+    a11 -> 26580 (the blue night-sky plane now matches; the white STAR sparkles psx draws in that sky are
+    a SEPARATE effect producer still missing — a distinct gap, not this backdrop).
+  - **area 14 — NOT the tilemap family at all.** bg-state 14 indexes jump-table entry `0x8003E020`, the
+    guest's own "draw nothing" handler, and PARALLAX_BG_SM is ALL ZEROS in that area. Its waterfall
+    backdrop is GTE-projected SCENE GEOMETRY (otattr: `fn=0x80114320 node=0x800FE198 count=913` RTPS
+    calls/frame), i.e. an object/scene-layer producer gap, NOT a backdrop-tilemap gap. Unchanged at 68703.
+  - **area 21 — a COMPOSITE, deliberately left out.** bg-state 21 is special-cased ahead of the table to
+    `0x8010BE30`, which calls helper `0x8010BB64` FIRST (it builds 4 gouraud POLY_G quads = the sky
+    GRADIENT base, colours 0x00AC0606 -> 0x00EA9898 across x[0,320]) and only then runs its tilemap loop.
+    So the real backdrop is gradient-base + tilemap-as-cloud-overlay. Drawing the tilemap layer ALONE
+    (opaque, no gradient) paints a BRIGHT full sky where the reference is the darker gradient and MADE THE
+    FRAME WORSE — measured 61375 -> 64650. It is therefore excluded (`st == 21 -> return false`) and left
+    black until the gradient base + semi overlay are ported together. **Do not "fix" area 21 by routing it
+    into the plain tilemap producer — that was tried and measured worse.**
+- **verification (all cited, headless):** `tools/warpsweep.sh` (real `PSXPORT_RENDER_PSX=1` reference at
+  the same frame index, recipe `newgame; run 3000; warp N; run 600`, `replays/bugs/seesaw-weight.pad`):
+  baseline `scratch/screenshots/warpsweep/base.report` vs `fix2.report` — a10 69761->18022,
+  a11 45719->26580, a14 68703 (unchanged), a21 61375 (unchanged, excluded). Seaside NO-REGRESSION proved
+  the strict way: binary built with the change REVERTED vs with it applied, same seaside frame
+  (seesaw-weight.pad f6000), `tools/render_cmp.py diff` = **0/76800 differing pixels** — seaside resolves
+  to 0x80115598 -> bias 8, identical to the old heuristic, by construction and by measurement. SBS full
+  0-diff: 560 `A/B identical` checkpoints, 0 diverge/mismatch, through f16770. No `gte_op` in the producer
+  path (2D `push2dQuad` + guest reads only). `codemap.py --dup-installs` = 0. Dialog opaque+legible at
+  bucket-softlock f1200 and the triangle item menu renders (`scratch/screenshots/gate5_*.png`).
+- **dead end recorded:** the sweep's stated mechanism ("the native backdrop producer is seaside-SPECIFIC,
+  fix = a general area-keyed backdrop producer") was RIGHT for 10/11 and WRONG as a single explanation for
+  all four — 14 has no backdrop drawer at all and 21 is a composite. A one-size backdrop producer over all
+  four areas would have regressed 21 and done nothing for 14.
+
 ## `gte_op` count does NOT mean "not native" — the campaign #45 Tier-B misclassification (2026-07-23)
 
 - **the error:** campaign #45 (render everything natively) was scoped by grepping for `gte_op(` and

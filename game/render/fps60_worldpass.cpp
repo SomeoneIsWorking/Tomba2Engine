@@ -47,9 +47,10 @@ void tomba_fps60_world_pass(Core* c, float t) {
   // present-time invariant — no tick has run since the real frame computed it).
   if (!voidBeat && !areaInit && !hutInterior && rend(c)->mSceneTableTrusted) rend(c)->fieldEntityRender(0x800F2418u);
   // BACKDROP (game-logic scroll, LAYER-TRANSFORM lerp — not camera-projected): mirrors sceneNative's own
-  // gate (mBackdropTrusted && the field-drawer-selector byte == 0 && bgstate == 0). The wrap moduli
-  // (t4+0x30/+0x32) are static per-area config, safe to re-read directly here.
-  if (!voidBeat && !hutInterior && rend(c)->mBackdropTrusted && c->mem_r8(0x800bf873u) == 0 && c->mem_r8(0x800bf870u) == 0) {
+  // gate (mBackdropTrusted && the resident drawer is the shared tilemap routine — seaside + areas 10/11/21,
+  // kanban #42). The wrap moduli (t4+0x30/+0x32) are static per-area config, safe to re-read directly here.
+  int bgVAdd;
+  if (!voidBeat && !hutInterior && rend(c)->mBackdropTrusted && rend(c)->backdropTilemapDrawer(bgVAdd)) {
     int modX = c->mem_r16(0x800ed018u + 0x30u), modY = c->mem_r16(0x800ed018u + 0x32u);
     f.mBgOverride.scrollX = wrapLerp(f.mBgPrev.scrollX, f.mBgCur.scrollX, modX, t);
     f.mBgOverride.scrollY = wrapLerp(f.mBgPrev.scrollY, f.mBgCur.scrollY, modY, t);
