@@ -1308,7 +1308,67 @@ covered by this change and were left in place:
 `game/scene/scene_transition.{h,cpp}` (collapse deleted); logs
 `scratch/logs/{base,ctrl,final}_hotp.log`.
 
-## SEQUENCE softlock #60 — a two-actor scene-flag rendezvous DEADLOCKS on slot 55 (2026-07-23, OPEN, root-cause located)
+## SEQUENCE softlock #60 — SOLVED: our applyFlagOp wrote the scene-flag table 0x20 too low (2026-07-23, FIXED)
+
+### THE ACTUAL CAUSE (2026-07-23, fixed) — a wrong base constant in OUR native, not an ordering bug
+
+`SceneEvents::applyFlagOp` (guest `FUN_80042448`, script **op 12** = "set/OR/AND a scene flag") had
+`FLAG_TABLE_BASE = 0x800BF850`. The guest builds that base as `lui 0x800C; addiu -1936` =
+**`0x800BF870`** — the same anchor ~100 other sites in this repo already use. Ours was **0x20 low**,
+so every script-driven flag SET landed 32 bytes below its slot, while every script-driven
+test/await (op04/op06, which had the base right) read the correct slot. Writers and readers of the
+same array disagreed about where it was.
+
+That is the whole softlock. In this scene actor A's script executes `op12 slot=55 val=3` at
+`0x80148A54` to hand the cutscene to actor B, whose next entry (`0x80149DA0`) awaits 3. The 3 was
+written — to `0x800BF9CB` instead of `0x800BF9EB`:
+
+    [cw] #181 store w1 [800BF9CB]=00000003   <- op12, 0x20 low
+    [cw] #183 store w1 [800BF9EB]=00000002   <- op04, correct slot
+
+so B waited forever for a value that had been posted into a byte nobody was watching, and A then
+blocked on B. Fix: one constant, plus `game/scene/scene_flags.h` so the address has ONE definition
+(the two subsystems sharing this array each carried their own copy, which is what let one drift).
+
+**The previous "NEXT LEAD" in this entry was WRONG — do not re-chase it.** It proposed that the two
+actors being stepped from different per-frame walks (`ObjectList::walkAll` vs
+`TransitionState3::walkOnce`) dropped a handshake step. No walk ORDER can produce this state: a
+scan of all of RAM found **no op04 entry anywhere that posts 3 to slot 55** (32 op04 slot-55 entries
+exist; every one posts 0/1/2/4), so B's await could never be satisfied by any interleaving. That
+single check falsified the ordering hypothesis in one step and should have come before the
+backtrace work.
+
+**Why SBS never caught it.** Core B (oracle) runs `gen_func_80042448` and writes the right byte;
+core A ran our native and wrote the wrong one — a guaranteed divergence, but only once a script
+executes op12, and the seaside A00 scene that does so is far outside the gate's boot window. A
+green SBS run says nothing about code the run never reaches.
+
+### What made it findable — owning the interpreter's last unowned link
+
+The two actors are driven by the SUBSTRATE step loop, so `PSXPORT_DEBUG=script` printed **nothing**
+for them and the advance path was invisible. Two ports fixed that (both proven equivalent: the full
+2 MB guest RAM at f2600 is byte-identical to the pre-port run):
+
+* `ScriptInterp::op04SceneFlagRendezvous` (`FUN_8004201C`) — the rendezvous op, with a `rendez`
+  channel that logs post/meet including the value being OVERWRITTEN. A clobbered post is invisible
+  in state alone: it looks exactly like a partner that has not posted yet.
+* `ScriptInterp::loadNextEntry` (`FUN_80040E54`) — the entry advance, the last piece of this
+  interpreter still substrate-only. It decodes the opcode word's top-3 bits into +8 / +16 / branch
+  at entry+12 or +20 / stop, and returns advanceStep's index.
+
+**Wiring note that cost a run:** `gen_func_80040FA0` reaches `FUN_80040E54` by a DIRECT `jal`, which
+only the module thunk intercepts — `rec_dispatch` never sees it. Installed without a `setter` the
+native was silently never called (0 log lines, and "no output" reads identically to "no activity").
+Opcode handlers are reached by an INDIRECT call and so do route through `rec_dispatch`; the advance
+is not. Pass `shard_set_override` when the caller is a direct `jal`.
+
+**Verification.** Handshake now completes (`meet obj=800FC7D0 ... == 3`) and both scripts advance
+past the old park. The remaining stop at `op0`/`0x80148AFC` is NOT a lock: it is a dialog waiting on
+player input that `replays/bugs/sequence-softlock-2.pad` (7049 frames) no longer supplies — tapping
+circle advances A to `0x80148B6C` and then to `0x80148BF4`, with B following to `0x80149E00` and
+slot 55 cycling 1->2 again. A pad replay running past its end looks exactly like a softlock; drive
+it before calling it one.
+
 
 **symptom** — USER capture `replays/bugs/sequence-softlock-2.pad` (7049 frames). Frame loop keeps
 ticking, no crash, no recomp-MISS, but the sequence never advances and control is never returned.

@@ -44,9 +44,10 @@ import argparse, datetime, os, re, subprocess, sys, textwrap
 ROOT = os.getcwd()
 INFO = os.path.join(ROOT, "docs", "info")
 CLAIMS, INSTR = os.path.join(INFO, "claims"), os.path.join(INFO, "instruments")
-# Resolved from the environment, never a baked "~/..." literal: a tilde path references the READER's
-# home, which the publication audit blocks by rule (and rightly — it is not a portable form). Override
-# with CLAUDE_SKILLS_DIR.
+# Resolved from the environment, never a baked home-relative literal: a tilde-prefixed path names the
+# READER's home, which the publication audit blocks by rule (and rightly — it is not a portable form).
+# That rule applies to this comment too, so the pattern is described here rather than spelled out.
+# Override with CLAUDE_SKILLS_DIR.
 SKILLS = os.environ.get("CLAUDE_SKILLS_DIR") or os.path.join(os.environ.get("HOME", ""), ".claude", "skills")
 
 

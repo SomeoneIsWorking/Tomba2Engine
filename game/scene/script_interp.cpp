@@ -18,6 +18,7 @@
 // remaining 58 opcode handlers stay substrate.
 
 #include "scene/script_interp.h"
+#include "scene/scene_flags.h"
 #include "game_ctx.h"
 #include "core.h"
 #include "cfg.h"
@@ -84,6 +85,7 @@ constexpr uint32_t SCRATCH_EVENT_MASK_17C = SCRATCH_BASE + 0x17Cu;       // step
 constexpr uint16_t OP_ID_MASK        = 0x07FFu;  // low 11 bits = opcode id (0..2047, but table has 63)
 constexpr uint16_t OP_FLAG_HAS_EXTRA = 0x2000u;  // if set, entry is 16 bytes (extra block at +8)
 constexpr uint16_t OP_FLAG_INIT_MODE = 0x1000u;  // init: obj[+0x71] = 2 when this bit is set
+constexpr uint16_t OP_FLAG_COND      = 0x0800u;  // last entry of a conditional arm (see loadNextEntry)
 constexpr uint16_t OP_FLAG_INIT_BIT2 = 0x4000u;  // init: obj[+0x71] |= 4 when this bit is set
 
 // step()'s return-code convention (VERBATIM re-derivation from generated/shard_3.c:11302
@@ -161,7 +163,30 @@ namespace {
 // Shared byte-array anchors op06/op34 read/write (guest MAIN.EXE .data/.bss, resident). Purpose
 // beyond "flag storage indexed by argB" / "single-byte gate" not traced further this pass — see
 // the header banner for the honest caveat.
-constexpr uint32_t kSceneFlagTable = 0x800BF870u + 324u;  // op06: byte[argB]
+constexpr uint32_t kSceneFlagTable = scene_flags::kFlagTable;  // op04 posts/awaits, op06 tests
+
+// ---- Entry-ADVANCE decode (FUN_80040E54) ----------------------------------------------------
+// The current entry's opcode word carries, in its top 3 bits, HOW the cursor moves once the entry
+// is done. This decides whether a script walks straight on, takes a branch, or stops — and it was
+// the last unreadable link in this interpreter (see loadNextEntry below).
+constexpr uint16_t ADV_KIND_MASK = 0xE000u;
+constexpr uint16_t ADV_NEXT_8    = 0x0000u;  // cursor += 8   (plain 8-byte entry)
+constexpr uint16_t ADV_NEXT_16   = 0x2000u;  // cursor += 16  (entry carried an extra block)
+constexpr uint16_t ADV_BRANCH_12 = 0x4000u;  // kindArg==0: cursor = *(u32*)(entry+12), else += 16
+constexpr uint16_t ADV_BRANCH_20 = 0x6000u;  // kindArg==0: cursor = *(u32*)(entry+20), else += 24
+// 0x8000/0xA000/0xC000/0xE000 all mean STOP: return ADVSTEP_STOP without moving the cursor at all.
+
+// The advanceStep() table indices this function selects between (see advanceStep's own switch).
+constexpr int ADVSTEP_PLAIN   = 0;  // entry lacked OP_FLAG_VALID — advanceStep keeps running only
+                                    //   while obj[+0x70] == 2, else it stops the script
+constexpr int ADVSTEP_VALID   = 4;  // entry had OP_FLAG_VALID (0x1000) — unconditional continue
+constexpr int ADVSTEP_STOP    = 2;  // top-bit kind: terminate (progress/flags := 0xFF)
+constexpr int ADVSTEP_CONDEND = 6;  // entry had OP_FLAG_COND (0x0800) — end of a conditional arm
+
+// op04's two phases on OBJ_SCRATCH_78 (the same slot op34 uses as its claim/poll counter).
+constexpr uint8_t kRendezvousPost  = 0u;  // post postValue into the slot, then pause
+constexpr uint8_t kRendezvousAwait = 1u;  // poll the slot until it reads awaitValue
+
 constexpr uint32_t kClaimGateByte  = 0x800BF80Fu;          // op34: single-byte semaphore. §9 re-verify
                                                              // 2026-07-10: recomputed from generated/
                                                              // shard_2.c:4772 (32780<<16 + -2040 + 7,
@@ -208,6 +233,121 @@ int ScriptInterp::op06TestSceneFlag(uint32_t obj) {
     return ((tableByte & (uint8_t)argC) == 0) ? 1 : 0;
   }
   return 0;  // argA >= 3: unreachable in the guest's own byte-shape, kept for parity
+}
+
+// FUN_8004201C — the SCENE-FLAG RENDEZVOUS opcode (table index 4). 1:1 with generated/shard_6.c:5460
+// (leaf, no guest frame — 25 instructions, no control-flow ambiguity, decoded straight from the gen
+// body). This is the ops-04/06 pair's WRITE side: op06 only TESTS `kSceneFlagTable[slot]`, op04 both
+// posts to it and blocks on it, which is how two scripted actors in one scene hand a cutscene back
+// and forth. Two phases on the shared OBJ_SCRATCH_78 byte, exactly like op34ClaimGate:
+//
+//   phase 0 (POST)  — flags[slot] = postValue, then phase++ and PAUSE (always one frame minimum).
+//   phase 1 (AWAIT) — advance iff flags[slot] == awaitValue, else PAUSE and poll again next call.
+//
+// The slot index is read SIGNED (guest `lh`, not `lhu`) and added to the table base as a signed
+// 32-bit offset, so a negative argA indexes BELOW kSceneFlagTable — preserved here rather than
+// "cleaned up", since scripts do use the low-index end of this array.
+//
+// NOTE ON THE POST/AWAIT ASYMMETRY (matters for kanban #60): the post is an unconditional byte
+// STORE, not a compare-and-set. Whichever actor runs its phase 0 last wins the slot outright, so
+// the handshake is only correct while the two actors' step() calls stay in the guest's own per-frame
+// ORDER. A clobbered post is invisible here — it looks exactly like a partner that has not posted
+// yet — which is why this handler carries the `rendez` channel below rather than leaving the
+// interleaving unobservable.
+int ScriptInterp::op04SceneFlagRendezvous(uint32_t obj) {
+  Core* c = core;
+  const int16_t  slot       = (int16_t)c->mem_r16(obj + OBJ_ARG_A_72);
+  const uint8_t  postValue  = (uint8_t)c->mem_r16(obj + OBJ_FNPTR_LO_74);
+  const int16_t  awaitValue = (int16_t)c->mem_r16(obj + OBJ_FNPTR_HI_76);
+  const uint32_t flagAddr   = kSceneFlagTable + (uint32_t)(int32_t)slot;
+  const uint8_t  phase      = c->mem_r8(obj + OBJ_SCRATCH_78);
+
+  if (phase == kRendezvousPost) {
+    const uint8_t was = c->mem_r8(flagAddr);
+    c->mem_w8(flagAddr, postValue);
+    c->mem_w8(obj + OBJ_SCRATCH_78, (uint8_t)(phase + 1));
+    // PSXPORT_DEBUG=rendez — see the asymmetry note above. `was` is logged because a post that
+    // overwrites a value some OTHER actor is still waiting to observe is the deadlock signature,
+    // and it is indistinguishable from a fresh post by state alone.
+    cfg_logf("rendez", "post obj=%08X ptr=%08X slot=%d %u->%u (await %d)",
+             obj, c->mem_r32(obj + OBJ_SCRIPT_PTR), (int)slot, was, postValue, (int)awaitValue);
+    return RET_PAUSE;
+  }
+  if (phase == kRendezvousAwait) {
+    const uint8_t have = c->mem_r8(flagAddr);
+    const bool    met  = ((uint32_t)have == (uint32_t)(int32_t)awaitValue);
+    // Guest compares the zero-extended byte against the FULL sign-extended awaitValue (same shape
+    // as op06's exact-match arm) — do not truncate awaitValue to a byte.
+    if (met)
+      cfg_logf("rendez", "meet obj=%08X ptr=%08X slot=%d == %d",
+               obj, c->mem_r32(obj + OBJ_SCRIPT_PTR), (int)slot, (int)awaitValue);
+    return met ? RET_ADVANCE_0_A : RET_PAUSE;
+  }
+  return RET_PAUSE;  // phase >= 2: unreachable in the guest's own byte-shape, kept for parity
+}
+
+// FUN_80040E54 — loadNextEntry(obj, kindArg): THE ENTRY ADVANCE. 1:1 with gen_func_80040E54.
+//
+// Every other part of this interpreter was already owned and readable; this was the hole. It reads
+// the CURRENT entry's opcode word (before moving), decides where the cursor goes from the word's
+// top 3 bits, loads the new entry, and returns the index advanceStep() then uses to decide whether
+// the script keeps running. Owning it means the `script` channel finally covers scripts that are
+// stepped by the SUBSTRATE loop too, since rec_dispatch routes here regardless of the caller —
+// which is exactly what kanban #60 needed and could not see.
+//
+// GUEST FRAME MIRROR: gen descends sp by 32 and spills s0/s1/ra at +16/+20/+24. The only callee
+// (loadCurrentEntry / FUN_80040DE0) is frameless, so the loop state can live in C++ locals; the
+// SPILL SLOTS still have to be written, and s0/s1 restored, or core A's stack bytes drift.
+int ScriptInterp::loadNextEntry(uint32_t obj, uint32_t kindArg) {
+  Core* c = core;
+  const uint32_t in16 = c->r[16], in17 = c->r[17], inRa = c->r[31];
+  c->r[29] -= 32u;
+  c->mem_w32(c->r[29] + 16u, in16);
+  c->mem_w32(c->r[29] + 20u, in17);
+  c->mem_w32(c->r[29] + 24u, inRa);
+  struct Frame {
+    Core* c; uint32_t r16, r17, ra;
+    ~Frame() { c->r[16] = r16; c->r[17] = r17; c->r[31] = ra; c->r[29] += 32u; }
+  } frame{c, in16, in17, inRa};
+
+  const uint32_t cursor = c->mem_r32(obj + OBJ_SCRIPT_PTR);
+  const uint16_t opWord = c->mem_r16(cursor + 0);
+  const uint16_t kind   = (uint16_t)(opWord & ADV_KIND_MASK);
+  // An entry WITHOUT the 0x1000 bit only keeps the script alive while obj[+0x70] == 2; with it, the
+  // script continues unconditionally. Branch arms add 1 to reach advanceStep's 1/5 twins.
+  int result = (opWord & OP_FLAG_INIT_MODE) ? ADVSTEP_VALID : ADVSTEP_PLAIN;
+
+  switch (kind) {
+    case ADV_NEXT_8:
+      c->r[31] = 0x80040F1Cu;
+      loadCurrentEntry(obj, cursor + 8u);
+      break;
+    case ADV_NEXT_16:
+      c->r[31] = 0x80040F40u;
+      loadCurrentEntry(obj, cursor + 16u);
+      break;
+    case ADV_BRANCH_12:
+      if (kindArg != 0u) { c->r[31] = 0x80040F40u; loadCurrentEntry(obj, cursor + 16u); }
+      else { c->r[31] = 0x80040F5Cu; result += 1; loadCurrentEntry(obj, c->mem_r32(cursor + 12u)); }
+      break;
+    case ADV_BRANCH_20:
+      if (kindArg != 0u) { c->r[31] = 0x80040F6Cu; loadCurrentEntry(obj, cursor + 24u); }
+      else { c->r[31] = 0x80040F5Cu; result += 1; loadCurrentEntry(obj, c->mem_r32(cursor + 20u)); }
+      break;
+    default:
+      // Top bit set — the script ENDS here. The cursor is deliberately left pointing at this same
+      // entry; advanceStep's ADVSTEP_STOP arm writes 0xFF into progress/flags and step() exits.
+      cfg_logf("script", "advance obj=%08X ptr=%08X op=%04X -> STOP", obj, cursor, opWord);
+      return ADVSTEP_STOP;
+  }
+  // OP_FLAG_COND (0x0800) on the entry just executed overrides everything above: it marks the last
+  // entry of a conditional arm, and advanceStep's index-6 arm clears progress/flags — ending the
+  // script rather than falling into whatever entry follows in memory.
+  if (opWord & OP_FLAG_COND) result = ADVSTEP_CONDEND;
+
+  cfg_logf("script", "advance obj=%08X ptr=%08X op=%04X kind=%04X arg=%u -> %08X (idx %d)",
+           obj, cursor, opWord, kind, kindArg, c->mem_r32(obj + OBJ_SCRIPT_PTR), result);
+  return result;
 }
 
 // FUN_80042E10 — VERIFIED + WIRED (frontier tier, 2026-07-10; §9 re-verify caught+fixed the
@@ -1001,6 +1141,8 @@ int ScriptInterp::advanceGauge(uint32_t obj, uint32_t rec) {
 // falling to the gen_func_* body — oracle-gated (core B / psx_fallback never consults the table) —
 // so registering these 5 addresses here is the entire wiring step; step()'s loop itself is untouched.
 namespace {
+void eov_op04SceneFlagRendezvous(Core* c)      { c->r[2] = (uint32_t)eng(c).script.op04SceneFlagRendezvous(c->r[4]); }
+void eov_loadNextEntry(Core* c)                { c->r[2] = (uint32_t)eng(c).script.loadNextEntry(c->r[4], c->r[5]); }
 void eov_op05WaitFrames(Core* c)               { c->r[2] = (uint32_t)eng(c).script.op05WaitFrames(c->r[4]); }
 void eov_op06TestSceneFlag(Core* c)            { c->r[2] = (uint32_t)eng(c).script.op06TestSceneFlag(c->r[4]); }
 void eov_op34ClaimGate(Core* c)                { c->r[2] = (uint32_t)eng(c).script.op34ClaimGate(c->r[4]); }
@@ -1015,6 +1157,8 @@ void eov_mirrorGlobalStatusByte(Core* c) { c->r[2] = (uint32_t)eng(c).script.mir
 void eov_advanceGauge(Core* c) { c->r[2] = (uint32_t)eng(c).script.advanceGauge(c->r[4], c->r[5]); }
 }  // namespace
 
+extern void gen_func_80040E54(Core*);
+extern void gen_func_8004201C(Core*);
 extern void gen_func_80042090(Core*);
 extern void gen_func_800420AC(Core*);
 extern void gen_func_80042E10(Core*);
@@ -1028,6 +1172,10 @@ extern void gen_func_80073194(Core*);
 
 void ScriptInterp::registerOverrides() {
   using overrides::install;   // opcode leaves reached only via ScriptInterp::step rec_dispatch — setter omitted
+  // setter passed (unlike the opcode leaves below): gen_func_80040FA0 reaches this one by a
+  // DIRECT jal -> func_80040E54, which only the module thunk intercepts; rec_dispatch never sees it.
+  install(kAdvanceAddr, "ScriptInterp::loadNextEntry",         eov_loadNextEntry,           gen_func_80040E54, shard_set_override);
+  install(kOp04Addr, "ScriptInterp::op04SceneFlagRendezvous", eov_op04SceneFlagRendezvous, gen_func_8004201C);
   install(kOp05Addr, "ScriptInterp::op05WaitFrames",             eov_op05WaitFrames,             gen_func_80042090);
   install(kOp06Addr, "ScriptInterp::op06TestSceneFlag",          eov_op06TestSceneFlag,          gen_func_800420AC);
   install(kOp34Addr, "ScriptInterp::op34ClaimGate",              eov_op34ClaimGate,              gen_func_80042E10);

@@ -54,7 +54,7 @@ public:
   //     advances to phase 1; phase 1 latches the record's args into the global param halves per the
   //     selector's low bits, then fires (returns 1) once the arm-ready byte is set OR the dwell timer
   //     reaches 500, else keeps waiting (returns 0). Returns 0 for any other phase.
-  //   applyFlagOp   (FUN_80042448): set/OR/AND a byte in the flag table (base 0x800BF850, entry
+  //   applyFlagOp   (FUN_80042448): set/OR/AND a byte in the flag table (scene_flags::kFlagTable, entry
   //     @ +argA+324) selected by the record's op mode (0=set, 1=OR, 2=AND); always returns 1.
   static void delayedTriggerOverride(Core* c);   // FUN_80042258
   static void applyFlagOpOverride(Core* c);      // FUN_80042448

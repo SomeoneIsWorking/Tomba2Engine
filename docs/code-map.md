@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 922 native fns, 776 owned addresses, 733 LIVE / 189 ORPHAN.
+Totals: 924 native fns, 777 owned addresses, 735 LIVE / 189 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -72,14 +72,14 @@ Totals: 922 native fns, 776 owned addresses, 733 LIVE / 189 ORPHAN.
 | 0x8003116C | LIVE | `Spawn::spawnAndInitBody` | game/world/spawn.cpp:232 | 0x80028E10 | SPAWN-AND-INIT helper: spawn a type-6 object on list 1 (via the owned … |
 | 0x8003116C | LIVE | `Spawn::spawnAndInit` | game/world/spawn.cpp:344 |  |  |
 | 0x80031558 | LIVE | `Spawn::spawnEffectChild` | game/world/spawn.cpp:409 |  |  |
-| 0x80031708 | LIVE | `ScriptInterp::refreshCachedTailHi` | game/scene/script_interp.cpp:883 |  | ORACLE: gen_func_80031708 |
-| 0x80031744 | LIVE | `ScriptInterp::refreshCachedTailLo` | game/scene/script_interp.cpp:897 |  | ORACLE: gen_func_80031744 |
+| 0x80031708 | LIVE | `ScriptInterp::refreshCachedTailHi` | game/scene/script_interp.cpp:1023 |  | ORACLE: gen_func_80031708 |
+| 0x80031744 | LIVE | `ScriptInterp::refreshCachedTailLo` | game/scene/script_interp.cpp:1037 |  | ORACLE: gen_func_80031744 |
 | 0x80031780 | LIVE | `Collision::listScan` | game/player/collision.cpp:126 | 0x80031780 | list-tail resolver / reset. Walks the 8-byte-stride linked list rooted… |
 | 0x800317CC | ORPHAN | `leaf_800317CC` | game/core/field_owned_leaves.cpp:1260 |  |  |
 | 0x800329E0 | ORPHAN | `leaf_800329E0` | game/core/field_owned_leaves.cpp:1307 |  |  |
 | 0x80032A44 | LIVE | `Rng::inRange` | game/math/rng.cpp:106 |  | scaled random. Disas 0x80032A44..0x80032A84 verbatim: `sra v0, 15` on … |
 | 0x80033AFC | ORPHAN | `leaf_80033AFC` | game/core/field_owned_leaves.cpp:1335 |  |  |
-| 0x800346BC | LIVE | `PauseMenu::install` | game/ui/pause_menu.cpp:95 |  |  |
+| 0x800346BC | LIVE | `PauseMenu::install` | game/ui/pause_menu.cpp:126 |  |  |
 | 0x80036DFC | LIVE | `SaveMenu::runHandler` | game/ui/save_menu.cpp:105 |  | ----------------------------------------------------------------------… |
 | 0x80036DFC | LIVE | `SaveMenu::dispatchBody` | game/ui/save_menu.cpp:137 |  | ----------------------------------------------------------------------… |
 | 0x80039F4C | LIVE | `Render::textLabelEmit` | game/render/text_label.cpp:162 |  |  |
@@ -122,7 +122,7 @@ Totals: 922 native fns, 776 owned addresses, 733 LIVE / 189 ORPHAN.
 | 0x8003EF9C | LIVE | `Render::composeTintGate` | game/render/compose_tint_gate.cpp:49 |  | ORACLE: gen_func_8003EF9C |
 | 0x8003F024 | ORPHAN | `leaf_8003F024` | game/core/field_owned_leaves.cpp:3023 |  |  |
 | 0x8003F07C | LIVE | `Render::sharedTransformWalk` | game/render/subpart_walk_shared.cpp:39 |  | ORACLE: gen_func_8003F07C |
-| 0x8003F174 | LIVE | `Render::subPartWalk` | game/render/subpart_walk.cpp:41 |  | ORACLE: gen_func_8003F174 |
+| 0x8003F174 | LIVE | `Render::subPartWalk` | game/render/subpart_walk.cpp:42 |  | ORACLE: gen_func_8003F174 |
 | 0x8003F344 | LIVE | `Render::effectClutSwap` | game/render/effect_mod.cpp:138 |  | stamp the node's CLUT id onto every colour-bearing packet, repointing … |
 | 0x8003F3F4 | LIVE | `Render::effectSemiOn` | game/render/effect_mod.cpp:123 |  | turn semi-transparency ON for every colour-bearing packet in the span. |
 | 0x8003F4C4 | LIVE | `Render::effectSemiOff` | game/render/effect_mod.cpp:130 |  | the exact inverse: turn semi-transparency OFF. |
@@ -147,22 +147,23 @@ Totals: 922 native fns, 776 owned addresses, 733 LIVE / 189 ORPHAN.
 | 0x80040B48 | LIVE | `SceneEvents::armBody` | game/scene/scene_events.cpp:73 |  |  |
 | 0x80040B48 | LIVE | `SceneEvents::arm` | game/scene/scene_events.cpp:113 |  |  |
 | 0x80040B48 | LIVE | `SceneEvents::armOverride` | game/scene/scene_events.cpp:124 |  | override entry (guest ABI: slot in r4, ret in r2). Single canonical bo… |
-| 0x80040CDC | LIVE | `ScriptInterp::init` | game/scene/script_interp.cpp:110 |  |  |
-| 0x80040DE0 | LIVE | `ScriptInterp::loadCurrentEntry` | game/scene/script_interp.cpp:132 |  |  |
-| 0x80040E54 | LIVE | `ScriptInterp::advanceEntry` | game/scene/script_interp.cpp:150 |  |  |
-| 0x80040FA0 | LIVE | `ScriptInterp::advanceStep` | game/scene/script_interp.cpp:241 | 0x80040E54 | VERIFIED + WIRED (frontier tier, 2026-07-10; advanceEntry() now calls … |
-| 0x80041098 | LIVE | `beh_script_interp_step` | game/scene/script_interp.cpp:351 |  |  |
-| 0x80041098 | LIVE | `ScriptInterp::step` | game/scene/script_interp.cpp:356 |  |  |
-| 0x800412CC | LIVE | `ScriptInterp::callFnptr` | game/scene/script_interp.cpp:310 |  |  |
-| 0x8004139C | LIVE | `ScriptInterp::stepAngleToward` | game/scene/script_interp.cpp:467 |  | leaf angle-stepper (no guest frame). See script_interp.h for the seman… |
-| 0x80041438 | LIVE | `ScriptInterp::turnFacing` | game/scene/script_interp.cpp:494 |  | thin wrapper: turnFacing(obj, targetAngle, step) = stepAngleToward(obj… |
-| 0x80041438 | LIVE | `ScriptInterp::turnFacingFramed` | game/scene/script_interp.cpp:500 |  | Guest-ABI twin — mirrors FUN_80041438's own sp-=24 / ra-spill-at-+16 f… |
-| 0x80041468 | LIVE | `ScriptInterp::op31TurnTowardTarget` | game/scene/script_interp.cpp:727 | 0x80085690 | op31 — FUN_80041468 (opcode table index 31). See script_interp.h for t… |
+| 0x80040CDC | LIVE | `ScriptInterp::init` | game/scene/script_interp.cpp:112 |  |  |
+| 0x80040DE0 | LIVE | `ScriptInterp::loadCurrentEntry` | game/scene/script_interp.cpp:134 |  |  |
+| 0x80040E54 | LIVE | `ScriptInterp::loadNextEntry` | game/scene/script_interp.cpp:301 |  | loadNextEntry(obj, kindArg): THE ENTRY ADVANCE. 1:1 with gen_func_8004… |
+| 0x80040FA0 | LIVE | `ScriptInterp::advanceStep` | game/scene/script_interp.cpp:381 | 0x80040E54 | VERIFIED + WIRED (frontier tier, 2026-07-10; advanceEntry() now calls … |
+| 0x80041098 | LIVE | `beh_script_interp_step` | game/scene/script_interp.cpp:491 |  |  |
+| 0x80041098 | LIVE | `ScriptInterp::step` | game/scene/script_interp.cpp:496 |  |  |
+| 0x800412CC | LIVE | `ScriptInterp::callFnptr` | game/scene/script_interp.cpp:450 |  |  |
+| 0x8004139C | LIVE | `ScriptInterp::stepAngleToward` | game/scene/script_interp.cpp:607 |  | leaf angle-stepper (no guest frame). See script_interp.h for the seman… |
+| 0x80041438 | LIVE | `ScriptInterp::turnFacing` | game/scene/script_interp.cpp:634 |  | thin wrapper: turnFacing(obj, targetAngle, step) = stepAngleToward(obj… |
+| 0x80041438 | LIVE | `ScriptInterp::turnFacingFramed` | game/scene/script_interp.cpp:640 |  | Guest-ABI twin — mirrors FUN_80041438's own sp-=24 / ra-spill-at-+16 f… |
+| 0x80041468 | LIVE | `ScriptInterp::op31TurnTowardTarget` | game/scene/script_interp.cpp:867 | 0x80085690 | op31 — FUN_80041468 (opcode table index 31). See script_interp.h for t… |
 | 0x80041768 | ORPHAN | `leaf_80041768` | game/core/field_owned_leaves.cpp:3361 |  |  |
 | 0x8004190C | LIVE | `Engine::animTick` | game/core/engine.cpp:862 |  | Engine::animTick — FUN_8004190C. Ticks the animation VM (native Animat… |
-| 0x80042090 | LIVE | `ScriptInterp::op05WaitFrames` | game/scene/script_interp.cpp:182 |  | VERIFIED + WIRED (frontier tier, 2026-07-10; return-value fix 2026-07-… |
-| 0x800420AC | LIVE | `ScriptInterp::op06TestSceneFlag` | game/scene/script_interp.cpp:191 |  | VERIFIED + WIRED (frontier tier, 2026-07-10). 1:1 with generated/shard… |
-| 0x80042170 | LIVE | `ScriptInterp::matchesActiveByKind` | game/scene/script_interp.cpp:915 |  | ORACLE: gen_func_80042170 |
+| 0x8004201C | LIVE | `ScriptInterp::op04SceneFlagRendezvous` | game/scene/script_interp.cpp:257 |  | the SCENE-FLAG RENDEZVOUS opcode (table index 4). 1:1 with generated/s… |
+| 0x80042090 | LIVE | `ScriptInterp::op05WaitFrames` | game/scene/script_interp.cpp:207 |  | VERIFIED + WIRED (frontier tier, 2026-07-10; return-value fix 2026-07-… |
+| 0x800420AC | LIVE | `ScriptInterp::op06TestSceneFlag` | game/scene/script_interp.cpp:216 |  | VERIFIED + WIRED (frontier tier, 2026-07-10). 1:1 with generated/shard… |
+| 0x80042170 | LIVE | `ScriptInterp::matchesActiveByKind` | game/scene/script_interp.cpp:1055 |  | ORACLE: gen_func_80042170 |
 | 0x80042258 | LIVE | `SceneEvents::delayedTrigger` | game/scene/scene_events.cpp:128 |  | ORACLE: gen_func_80042258 |
 | 0x80042258 | LIVE | `SceneEvents::delayedTriggerOverride` | game/scene/scene_events.cpp:188 |  |  |
 | 0x80042310 | LIVE | `ActorTomba::resetLoadGate` | game/player/actor_tomba.cpp:1452 |  | resetLoadGate — guest FUN_80042310. See actor_tomba.h for the full RE … |
@@ -171,11 +172,11 @@ Totals: 922 native fns, 776 owned addresses, 733 LIVE / 189 ORPHAN.
 | 0x80042728 | LIVE | `BgSceneTransitionSm::readyForProgress` | game/scene/bg_scene_transition_sm.cpp:225 |  |  |
 | 0x80042758 | LIVE | `BgSceneTransitionSm::opSceneEventArmWait` | game/scene/bg_scene_transition_sm.cpp:238 |  | - Cutscene-script opcode leaves (adjacent to readyForProgress in the g… |
 | 0x80042884 | LIVE | `BgSceneTransitionSm::opClearSceneFlag80a` | game/scene/bg_scene_transition_sm.cpp:275 |  | opClearSceneFlag80a (FUN_80042884) — one-shot opcode leaf: clear the s… |
-| 0x80042E10 | LIVE | `ScriptInterp::op34ClaimGate` | game/scene/script_interp.cpp:216 |  | VERIFIED + WIRED (frontier tier, 2026-07-10; §9 re-verify caught+fixed… |
-| 0x80042EA4 | LIVE | `ScriptInterp::stepEventPulse` | game/scene/script_interp.cpp:515 |  | see script_interp.h for the full semantics writeup. |
-| 0x80042EA4 | LIVE | `ScriptInterp::stepEventPulseFramed` | game/scene/script_interp.cpp:543 |  | Guest-ABI twin — mirrors FUN_80042EA4's own sp-=24 / ra-spill-at-+16 f… |
-| 0x80043108 | LIVE | `ScriptInterp::op36MoveTowardScriptTarget` | game/scene/script_interp.cpp:561 | 0x80084080 0x80085690 | op36 — FUN_80043108 (opcode table index 36). See script_interp.h for t… |
-| 0x80044090 | LIVE | `ScriptInterp::mirrorGlobalStatusByte` | game/scene/script_interp.cpp:931 |  | ORACLE: gen_func_80044090 |
+| 0x80042E10 | LIVE | `ScriptInterp::op34ClaimGate` | game/scene/script_interp.cpp:356 |  | VERIFIED + WIRED (frontier tier, 2026-07-10; §9 re-verify caught+fixed… |
+| 0x80042EA4 | LIVE | `ScriptInterp::stepEventPulse` | game/scene/script_interp.cpp:655 |  | see script_interp.h for the full semantics writeup. |
+| 0x80042EA4 | LIVE | `ScriptInterp::stepEventPulseFramed` | game/scene/script_interp.cpp:683 |  | Guest-ABI twin — mirrors FUN_80042EA4's own sp-=24 / ra-spill-at-+16 f… |
+| 0x80043108 | LIVE | `ScriptInterp::op36MoveTowardScriptTarget` | game/scene/script_interp.cpp:701 | 0x80084080 0x80085690 | op36 — FUN_80043108 (opcode table index 36). See script_interp.h for t… |
+| 0x80044090 | LIVE | `ScriptInterp::mirrorGlobalStatusByte` | game/scene/script_interp.cpp:1071 |  | ORACLE: gen_func_80044090 |
 | 0x80044BD4 | LIVE | `native_area_load_bd4` | game/core/engine.cpp:1542 | 0x800452C0 | Native replacement for FUN_80044bd4(0x800452c0, area, mode, 1): seed t… |
 | 0x80044BD4 | LIVE | `Engine::submode1Faithful` | game/core/engine.cpp:2126 | 0x80044BD4 0x8005245C 0x80107230 0x8010766C 0x80107790 | pc_faithful walkable-field area machine — mirror of ov_game_gen_801088… |
 | 0x80044BD4 | LIVE | `Engine::stage0AdvanceSkip` | game/core/engine.cpp:3282 |  | ── STAGE0ADVANCE — pc_skip cadence ───────────────────────────────────… |
@@ -459,7 +460,7 @@ Totals: 922 native fns, 776 owned addresses, 733 LIVE / 189 ORPHAN.
 | 0x800726D4 | LIVE | `Render::fadeTileRender` | game/render/screen_fade.cpp:220 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80072A78 | LIVE | `Placement::placeAreaObjects` | game/world/placement.cpp:103 | 0x80072A78 |  |
 | 0x80072DDC | LIVE | `Placement::spawnWithParent` | game/world/placement.cpp:145 | 0x80072DDC |  |
-| 0x80073194 | LIVE | `ScriptInterp::advanceGauge` | game/scene/script_interp.cpp:945 |  | ORACLE: gen_func_80073194 |
+| 0x80073194 | LIVE | `ScriptInterp::advanceGauge` | game/scene/script_interp.cpp:1085 |  | ORACLE: gen_func_80073194 |
 | 0x80073260 | LIVE | `SceneTransition::resetSwap` | game/scene/scene_transition.cpp:81 |  |  |
 | 0x800732C0 | LIVE | `SceneTransition::beginSwap` | game/scene/scene_transition.cpp:114 |  |  |
 | 0x80073300 | LIVE | `SceneTransition::completeSwap` | game/scene/scene_transition.cpp:121 |  |  |
@@ -592,6 +593,7 @@ Totals: 922 native fns, 776 owned addresses, 733 LIVE / 189 ORPHAN.
 | 0x8007E9C8 | LIVE | `ScreenFade::fadetrace` | game/render/screen_fade.cpp:17 |  | `debug fadetrace` channel — logs every native-path fade call with the … |
 | 0x8007E9C8 | LIVE | `ScreenFade::installLeafTap` | game/render/screen_fade.cpp:88 |  |  |
 | 0x8007E9C8 | LIVE | `BgSceneTransitionSm::fadeRect` | game/scene/bg_scene_transition_sm.cpp:68 |  | Screen fade — same shape as the guest's FUN_8007e9c8(color, P[3], 4) l… |
+| 0x8007E9C8 | LIVE | `PauseMenu::releaseGlobalDim` | game/ui/pause_menu.cpp:56 |  | DOUBLE OWNERSHIP OF THE MENU DIM (kanban #59 — the "menu chrome too da… |
 | 0x8007EAE4 | LIVE | `StartPage::install` | game/ui/start_page.cpp:41 |  |  |
 | 0x8007ED5C | ORPHAN | `leaf_8007ED5C` | game/core/field_owned_leaves.cpp:10839 |  |  |
 | 0x8007EE74 | ORPHAN | `leaf_8007EE74` | game/core/field_owned_leaves.cpp:10912 |  |  |

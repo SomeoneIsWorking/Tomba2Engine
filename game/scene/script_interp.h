@@ -54,11 +54,12 @@ public:
   // magic hex.
   static constexpr uint32_t kInitAddr    = 0x80040CDCu;  // FUN_80040CDC — init(obj, tableA, scriptPtr)
   static constexpr uint32_t kLoadAddr    = 0x80040DE0u;  // FUN_80040DE0 — loadCurrentEntry(obj, scriptPtr)
-  static constexpr uint32_t kAdvanceAddr = 0x80040E54u;  // FUN_80040E54 — advanceEntry(obj, kindArg)
+  static constexpr uint32_t kAdvanceAddr = 0x80040E54u;  // FUN_80040E54 — loadNextEntry(obj, kindArg)
   static constexpr uint32_t kStepAddr    = 0x80041098u;  // FUN_80041098 — step(obj)
   static constexpr uint32_t kOp03EAddr   = 0x800412CCu;  // op-table[0x3E] handler — call fnptr
 
   // Verified-and-wired opcode handler addresses (frontier tier, 2026-07-10 — see registerOverrides()).
+  static constexpr uint32_t kOp04Addr = 0x8004201Cu;  // op04SceneFlagRendezvous
   static constexpr uint32_t kOp05Addr = 0x80042090u;  // op05WaitFrames
   static constexpr uint32_t kOp06Addr = 0x800420ACu;  // op06TestSceneFlag
   static constexpr uint32_t kOp34Addr = 0x80042E10u;  // op34ClaimGate
@@ -77,10 +78,10 @@ public:
   //   block at scriptPtr+8 into obj[+0x64..+0x6A]. Records scriptPtr into obj[+0x6C].
   void loadCurrentEntry(uint32_t obj, uint32_t scriptPtr);
 
-  // advanceEntry(obj, kindArg): FUN_80040E54. Advance the script pointer per the current entry's
-  //   top-3 flag bits (opcodeWord & 0xE000): 0x2000/0x4000/0x6000 = 16/24 bytes ahead, 0x8000/
-  //   0xA000/0xC000/0xE000 = follow a branch pointer stored within the entry. Then re-loads the
-  //   new current entry. Returns a small status code (0 or the entry's advance kind).
+  // advanceEntry(obj, kindArg): the post-handler advance step() runs after every non-pause return.
+  //   It owns guest FUN_80040FA0 (see advanceStep, which it calls directly) — NOT 0x80040E54; that
+  //   address is loadNextEntry's, and this method reaches it through advanceStep. The old comment
+  //   here claimed 0x80040E54 and put two owners on one address in the codemap.
   int advanceEntry(uint32_t obj, uint32_t kindArg);
 
   // step(obj): FUN_80041098 — the dispatch loop. Read the current opcode, index the handler
@@ -115,6 +116,23 @@ public:
   //   negative. No object state besides argA touched. Faithful from generated/shard_7.c:5216 (leaf,
   //   no frame).
   int op05WaitFrames(uint32_t obj);
+
+  // op04 — FUN_8004201C: the SCENE-FLAG RENDEZVOUS. op06's write-side twin: it posts a byte into the
+  //   SAME shared array op06 tests (kSceneFlagTable), then blocks until that byte reads an expected
+  //   value, which is how two scripted actors in one scene hand a cutscene back and forth. Two
+  //   phases on obj[+0x78]: 0 = post argB into flags[argA] then pause; 1 = advance once
+  //   flags[argA] == argC, else keep polling. The post is a plain STORE, not a compare-and-set, so
+  //   correctness depends on the two actors' step() calls keeping the guest's per-frame ORDER — see
+  //   the .cpp banner and kanban #60. Faithful from generated/shard_6.c:5460 (leaf, no frame).
+  int op04SceneFlagRendezvous(uint32_t obj);
+
+  // loadNextEntry(obj, kindArg): FUN_80040E54 — THE ENTRY ADVANCE, and the last piece of this
+  //   interpreter that was still substrate-only. Decodes the CURRENT entry's top-3 opcode bits into
+  //   one of: cursor += 8, cursor += 16, follow a branch pointer at entry+12 or entry+20 (only when
+  //   kindArg == 0), or STOP without moving. Returns the index advanceStep() switches on. Because
+  //   rec_dispatch routes here for substrate callers too, owning it is what makes the `script`
+  //   channel cover scripts stepped by the substrate loop — see kanban #60.
+  int loadNextEntry(uint32_t obj, uint32_t kindArg);
 
   // op06 — FUN_800420AC: "test scene-flag byte" (the COND-flagged script entries' predicate — see
   //   the 0x0800 opcode-word flag bit in the header comment above). Reads a shared byte array at
