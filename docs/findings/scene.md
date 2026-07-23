@@ -1126,3 +1126,111 @@ back outside.
 
 **refs:** kanban #47; `scratch/logs/{skip_trace,faithful_trace,gate_wav,faithful2x,cw,spudbg,exit}.log`,
 `scratch/wav/{house,exit}.wav`, `scratch/screenshots/padshot_*.ppm`.
+
+## kanban #47, part 2 — the full completion chain RE'd; ONE of the two broken links fixed (2026-07-23, PARTIAL)
+
+Continues the entry above. Every statement here is measured on `replays/bugs/house-on-the-point.pad`
+(default leg, headless). The card is **NOT closed** — see "the residual" at the end.
+
+### The completion condition (RE, end to end)
+`sm[0x4c]` is taken off 3 by exactly one store: **`gen_func_80026AD0` case 4** (`generated/shard_2.c`
+L_80026BE0 — `sm[0x4c]=2, sm[0x4e]=4, bf818=4`). Case 4 is only reachable through **case 3**
+(L_80026BBC), which does nothing but `if (bf818 != 3) return`. The sequencer's own case 1 is what
+put the game there (`sm[0x4c]=3, sm[0x4e]=0, bf818=2, slot[5]=6`).
+
+`bf818 = 3` has exactly one writer: `SceneTransition::completeSwap` (FUN_80073300), called only from
+`stepSwapWaiter` (FUN_80073328) **case 3**, whose gate is
+`door[+0x29] != 0 && G[+0x29] != 0 && *(u8*)0x800E7FFB == 0`. (The case-3 alternative branch waits
+for `bf818 == 6`, and nothing in the game ever writes 6 — confirmed again by scanning every
+`mem_w8` to 0x800BF818 across `generated/` MAIN + all overlays: values 0/1/2/3/4/7/8/9 only.)
+
+`door[+0x29]` has exactly one non-zero writer: **`gen_func_80020868`** (the Tomba x door interaction
+leaf; `ov_a00_gen_8011334C` <- `Behaviors::areaSeasidePerframe`). Host backtrace on 0x800EF9FD:
+both the entry arm (f~640, via `Engine::fieldFrame`) and the exit arm (via `Engine::fieldFrameX`)
+come from there and nowhere else. Its final gate is
+**`door[+0x5F] != G[+0x147]`** — "Tomba is FACING INTO the door" — and at the same store site it
+stamps `*(u8*)0x800BF81F = (1 - door[+0x5F]) << 4`.
+
+`stepSwapWaiter` is byte-verified against the substrate over this repro (`debug subswapverify`:
+**950+ matches, 0 mismatches** to f760), so the waiter port is NOT the bug.
+
+### Why ENTRY differs from EXIT — measured
+| frame | door[+0x5F] (0x800EFA33) | G[+0x147] (0x800E7FC7) | gate |
+|---|---|---|---|
+| f640 (swap starts) | 1 | 0 | OPEN -> door[0x29]=1, beginSwap |
+| f700..f4200 (parked) | **0** (flipped by waiter case 2) | **0** | CLOSED |
+| f4230 (after REPL `press left`) | 0 | **1** | OPEN -> completeSwap, bf818=3, sm[0x4c]->2 |
+
+`stepSwapWaiter` case 2 flips `door[+0x5F]` 1->0 (and shifts the door's extents +800). From then on
+the gate needs `G[+0x147] == 1` — **Tomba must have turned around**. `G[+0x147]` (facing, 0/1) has
+only two writers on a live run: `gen_func_80055E28` (`G[0x147] = G[0x14A] & 1`, pad direction mapped
+through the camera masks at 0x1F80016C/6E, and only while a direction is held) and `gen_func_80063158`
+(the 180-degree turn animation, Tomba state 4). Neither fires during the parked window.
+Holding RIGHT for 120 frames straight through the transition does NOT help either — the camera masks
+stay 0x0020/0x0080 for the whole run, so the held direction still yields facing 0 (verified).
+
+### THE DEFECT FIXED HERE — the area-0 transition-ENTER hook was TRUNCATED by a cooperative yield
+`Engine::fieldRunX` state 0 runs `FUN_8006C77C`, the per-area transition-ENTER hook dispatcher
+(table 0x800A4AF8; area 0 -> `ov_a00_gen_8010CB60`). That hook's TAIL is
+`FUN_80054198(G)` / **`G[5] = 36`** / `G[6] = 0` / `FUN_80074F24(area)` — and `G[5] = 36` is what
+makes `gen_func_80058918` dispatch **`gen_func_80065A54`**, the door-transit state machine whose
+sub-state 0 does `G[+0x147] = *(u8*)0x800BF81F >> 4` (the facing hand-off).
+
+Before the tail, the hook calls `FUN_80044BD4(0x8010DA70, 26, 0, flag=3)` — a cooperative
+spawn-and-wait. **Under `pc_skip` the GAME task is a FLAT setjmp task** (`PcScheduler::runGameStanza`
+wraps `Engine::frame()` in `setjmp(yield_jmp)`), so `PcScheduler::yieldPrim` -> `scheduler_yield`
+**longjmps straight back to the stanza and discards the C++ stack**. Proof, all three independent:
+* `PSXPORT_DEBUG=sched` prints `caught a GAME substate yield (a leaf not yet sync) — frontier`
+  exactly once, at f661, immediately before `slot 1 ... resume_pc=0x8010DA70`;
+* the hook's pre-spawn store `*(u8*)0x1F80019C = 3` fires at f661 (pc=8010CB60) and its
+  post-spawn partner `= 0` **never** fires;
+* a byte watch on `G[5]` (0x800E7E85) over f0..f760 shows **no** write of 36.
+So the hook never reached its tail, Tomba never entered state 36, and the facing hand-off never ran.
+
+**FIX (shipped):** `SceneTransition::areaTransitionEnterSync` + `areaEnterHookA00Sync` +
+`subSceneLoadSync` (game/scene/scene_transition.cpp) — a native port of `FUN_8006C77C` and area 0's
+`0x8010CB60`, with the cooperative bd4 collapsed to a SYNCHRONOUS call (the port's standing
+"no PSX async" rule; the same collapse `Engine::native_area_load_bd4` already applies elsewhere,
+including bd4's `forceClose(2)` and its flag!=1 RNG stamp via `PcScheduler::bd4Tail`). Wired from
+`Engine::fieldRunX`'s **pc_skip branch only** — `fieldRunXFaithful` keeps `rec_dispatch(0x8006c77c)`
+because pc_faithful runs the GAME on the stage FIBER, where the same yield parks and resumes
+correctly (this is also why the user only sees the bug on the default leg).
+Verified: after the fix `G[5] = 36` IS written at f661, `gen_func_80065A54` runs its cases 0/1/2, and
+Tomba walks through the door (z 0x0571 -> 0x03B1).
+
+### THE RESIDUAL — #47 is still open
+The transition still parks: `sm[0x4c]` stays 3 and `bf818` stays 2 for the rest of the capture.
+Reason: the facing hand-off is a NO-OP for this door. `0x800BF81F` is stamped as
+`(1 - door[+0x5F]) << 4` BEFORE the swap (door[+0x5F]==1 -> hint 0), so state 36 loads
+`G[+0x147] = 0` — which is the value `door[+0x5F]` takes AFTER the waiter flips it, i.e. the two end
+up EQUAL and the gate stays shut. Something else must turn Tomba around.
+
+**NEXT RE STEP (narrow and named):** find what puts Tomba into **state 4** (the jump-table entry at
+0x80015CC4[4] -> `gen_func_800645E0` -> ... -> `gen_func_80063158`, the 180-degree turn that is the
+only other writer of `G[+0x147]`) during a swap-key-1 door swap. Note `ov_a00_gen_8010CB60`'s
+**key==2** branch (`bf817 == 2`) explicitly rotates `G[+0x140]` by 2048 and clears the hint — i.e.
+the hook DOES contain a turn-around path, just not on the key==1 branch our door takes
+(`bf817 = door node[3] = 1`, so the key is the DOOR INDEX, not a transition type). Either the
+turn comes from the sub-scene data the 0x80045258(26,15) load pulls in, or from a second
+participant object in the re-loaded scene. Start there, not from `sm[0x4c]`.
+
+**DEAD ENDS (do not re-walk):**
+* `bf818 == 6` — no writer anywhere; the case-3 first branch is unreachable, confirmed twice.
+* Holding a direction through the transition — the camera direction masks (0x1F80016C/6E, written
+  every frame by `ActorTomba::turnBiasCompute`) never flip, so the facing never changes from input.
+* The `+0x28 & 0x80` gate in `TransitionState3::walkOnce` — the prior entry's prime suspect is
+  FALSIFIED: the door node 0x800EF9D4 has `+0x28 == 0x81`, so `walkOnce` dispatches it every frame
+  and `stepSwapWaiter` really does advance to case 3 (`node[6]` 0->1->2->3 at f640/f665/f705).
+* `stepSwapWaiter` itself — `debug subswapverify` is 0-mismatch over the repro.
+
+**Gates run on the fix (default leg, headless):** house EXIT still completes
+(`press left` at f700 -> `sm[0x4c]=2`, `bf818=0` by f820); `replays/scene-transitions/hut-entry-door-freeze.pad`
+unchanged (same pre-existing freeze, 0 aborts/misses); `replays/bugs/bucket-softlock.pad` f1200 dialog
+opaque + legible (`scratch/screenshots/bucket_f1200.png`); `replays/boot-smoke/short-session.pad`
+exit 0 with 0 recomp-MISS; `tools/codemap.py --dup-installs` = 0.
+**Gates NOT met (this is the residual, not a pass):** BGM does not resume, and the full object walk
+does not resume, because `sm[0x4c]` never leaves 3.
+
+**refs:** kanban #47; `scratch/logs/probe{1,2,3,4,5,6,7,9,11,13,14,15}.log`,
+`scratch/logs/gate_{house_exit,hut,bucket,boot}.log`; `game/scene/scene_transition.cpp`,
+`game/core/engine.cpp` (`Engine::fieldRunX`).
