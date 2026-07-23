@@ -208,21 +208,17 @@ public:
   // The page is selected by task-sm[0x50] (written by the page controller FUN_8007B45C); each page has
   // its own guest builder, so each gets its own producer method. All read-only (guest RAM + the menu
   // template tables); the page TEXT arrives from the global font/icon taps. See render_options.cpp.
-  void optionsPageNative();          // dispatcher on sm[0x50]
-  void optionsSelectPage();          // page 0 "Select Options"  (FUN_8007F104)
-  void optionsMessagesPage();        // page 1 "Messages"        (FUN_8007F250)
-  void optionsSoundPage();           // page 2 "Sound"           (FUN_8007F498)
-  void optionsScreenAdjustPage();    // page 3 "Screen adjust"   (FUN_8007F73C)
-  void optionsControlsPage();        // page 4 "Controls"        (FUN_8007F8F8)
-  // optionsBackdrop: the shared full-screen dark-blue gradient (FUN_8007FC24) + widescreen pillarbox.
-  // Pages 0/1/2/4 draw it; page 3 does NOT (it composites over the live title picture instead).
+  // optionsPageNative: the title chrome Demo::s6 composites UNDER the Screen-adjust page (sm[0x50]==3).
+  // Every other element of every page is produced at its own guest emitter under the page scope in
+  // game/ui/options_page.cpp, which is what makes ONE producer serve both the title and in-game entry
+  // points (#38).
+  void optionsPageNative();
+  // optionsBackdrop / optionsSolidBox: the DRAW halves the page's ported emitters call —
+  // FUN_8007FC24's full-screen dark-blue gradient (+ widescreen pillarbox) and FUN_8007FCC8's flat
+  // TILE rectangle (dark blue when the low 7 flag bits are clear, black otherwise). Both are pushed by
+  // OptionsPage::drawCollected, in the guest's paint order.
   void optionsBackdrop();
-  // optionsSolidBox: reproduces FUN_8007FCC8(x,y,w,h,flags) — one flat TILE rectangle, dark blue when
-  // the low 7 flag bits are clear, black otherwise. Used by the Screen-adjust page's value boxes.
   void optionsSolidBox(int x, int y, int w, int h, uint32_t flags);
-  // guestStrLen: host-side NUL scan over a guest C-string (the read-only twin of FUN_80079528, which
-  // the page builders use to centre their labels). Touches no guest state at all.
-  int guestStrLen(uint32_t str);
 
   // --- shared DATA-DRIVEN menu emitter (reproduces the guest menu builders, read-only) --------------
   // menuChrome: black backdrop + the 2 logo sprites (FUN_80106690) shared by every front-end menu page.

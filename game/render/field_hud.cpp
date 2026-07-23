@@ -49,6 +49,7 @@ constexpr uint32_t kCount87E       = 0x800BF87Eu; // u8: status-row counter valu
 constexpr uint32_t kScroll87F      = 0x800BF87Fu; // u8: status-row width scroll
 constexpr uint32_t kTaskSmPtr      = 0x1F800138u; // i32: live task state-machine ptr
 constexpr uint32_t kOverlayFlag137 = 0x1F800137u; // u8: ==1 suppresses the status row
+constexpr uint32_t kPauseLevel     = 0x1F800136u; // u8: >=2 -> the world render orchestrator is skipped
 constexpr uint32_t kFrameCounter   = 0x1F80017Cu; // u32: guest frame counter (blink phase)
 constexpr uint32_t kEquipKind      = 0x800E7EEFu; // u8: equipped-item kind (0x12..0x16 ammo classes)
 constexpr uint32_t kAmmoThreshBase = 0x800A4554u; // u8[5]: per-kind low-ammo blink thresholds
@@ -278,6 +279,13 @@ void Render::fieldHudRender() {
   // controller FUN_800346BC). PauseMenu is the native producer for that frame; the field HUD stands
   // down, exactly as the guest's own HUD dispatcher does.
   if (eng(c).pauseMenu.upThisFrame()) return;
+  // THE GUEST'S OWN GATE (kanban #38). This dispatcher lives inside the world render orchestrator
+  // 0x8003F9A8, which Engine::fieldFrame runs only while the PAUSE LEVEL is < 2 — so at level 2 the
+  // frame carries no world and no HUD at all. The in-game OPTIONS page raises the level to 2 (probed
+  // 0x1F800136 == 2 on Select Options / Messages / Sound / Controls, and == 1 on Screen adjust, which
+  // is why that one page does composite over the live field). Without this the weapon strip painted
+  // over the page's footer — the last 306 px of the #38 diff.
+  if (c->mem_r8(kPauseLevel) >= 2) return;
   const uint8_t mode = c->mem_r8(kAreaMode);
   const uint8_t sub  = c->mem_r8(kAreaSub);
   const bool subEarly = (uint8_t)(sub - 1u) <= 2u;   // guest: 2 < sub-1 means NOT early

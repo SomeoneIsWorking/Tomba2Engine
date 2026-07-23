@@ -1,5 +1,59 @@
 # Findings — UI subsystem (game/ui/*)
 
+## In-game OPTIONS page drew no backdrop — the page had a producer only on the TITLE path (kanban #38, FIXED 2026-07-23)
+
+- **symptom:** the in-game Options page (START -> "Options") rendered its text and nothing else — the
+  live field showed straight through where the full-screen dark-blue backdrop belongs. Measured on
+  `replays/bugs/ingame-options-page.pad` at frame 1160 (4:3, fps60 off): **74442/76800 px (96.9%)**
+  different from the psx_render leg at the same frame.
+- **guest data that named the emitter** (`debug otattr` on the psx leg, same frame): the frame is 83
+  ordering-table packets and **not one is world geometry** — packet `[2047] op=0x38` (POLY_G4) at
+  v0=(0,0), i.e. `FUN_8007FC24`'s 320x240 gradient, then one `op=0x2D` FT4 (the feather cursor,
+  `fn=0x8007E2F8` inside the shared group leaf `FUN_8007E1B8`) and 65 `op=0x65` glyph sprites.
+- **cause:** the five page builders `FUN_8007F104 / F250 / F498 / F73C / F8F8` are shared by BOTH entry
+  points — the title front-end (stage 0x801062E4, sm[0x48]==6) and the in-game page dispatcher
+  `FUN_8010810C` with page byte task-sm[0x6B]==3 — but the producer (kanban #7) was a HOST TWIN of the
+  page's element list (`Render::optionsSelectPage` and friends: an explicit `optionsBackdrop()`, a
+  cursor position recomputed from the label widths, an explicit pad-diagram call) driven only from
+  `Render::renderTitle`'s s48==6 branch. Nothing invoked it in-game, so the whole page except its
+  tapped text was missing. A second host twin keyed off the in-game dispatcher would have been the
+  wrong fix — two producers for one page.
+- **fix — produce each element at ITS OWN guest emitter, scoped by the page** (`game/ui/options_page.cpp`,
+  the #21/#35 template): a `UiGroupCapture` scope on each of the five builders; `FUN_8007FC24` PORTED
+  (`OptionsPage::pushBackdrop`, `port_check` PASS vs `gen_func_8007FC24`) with its picture drawn by
+  `Render::optionsBackdrop`; `FUN_8007FCC8`'s rectangles recorded from its EXISTING single owner
+  `Panel::pushDialogBackdrop` (a second `overrides::install` on that address is the kanban #28 bug);
+  cursor + pad diagram captured off the two shared 2D group leaves. The host twins in
+  `render_options.cpp` were deleted — what is left there is the two draw helpers and the title chrome
+  Demo::s6 composites UNDER the Screen-adjust page. ONE producer now serves both entry points.
+- **two things that would have broken it:**
+  - **paint order is the OT bucket, not call order.** `gen_func_8007F104` calls the cursor
+    (`func_8007E998`) BEFORE the backdrop (`func_8007FC24`) but links the backdrop deeper, so pushing
+    at emitter-call time would have painted the backdrop over the cursor. `drawCollected` orders it:
+    backdrop, then boxes newest-first (a bucket's list is LIFO), then `UiGroupCapture::paintOrder`.
+  - **the 2D-BG band sits BEHIND the 3D world by construction** (`RQ_OM_2D_BG` maps into
+    (0, NATIVE_3D_MIN]). `optionsBackdrop` used RQ_BACKGROUND + the BG band, which is fine on the title
+    path (no world) and useless in-game. It is now RQ_OVERLAY + the FG band — still one band below the
+    glyph text's RQ_HUD (bug #64 / kanban #28: a page fill at RQ_HUD paints over its own text).
+- **the last 306 px were the field HUD.** `Render::fieldHudRender` kept drawing the weapon strip over
+  the page footer. The guest's own gate is the PAUSE LEVEL: `Engine::fieldFrame` runs the world render
+  orchestrator 0x8003F9A8 — which is where the guest's HUD dispatcher lives — only while
+  `*(u8)0x1F800136 < 2`. Probed: the level is **2** on Select Options / Messages / Sound / Controls and
+  **1** on Screen adjust, which is exactly why that one page composites over the live field (and keeps
+  its HUD — verified against the psx leg). `field_hud.cpp` now stands down on `>= 2`.
+- **verified (all at a fixed frame, pc_render vs psx_render, `tools/render_cmp.py diff`):** in-game
+  Select Options 74442 px -> **0/76800**; in-game Messages / Sound / Controls **0/76800**; in-game
+  Screen adjust chrome correct over the live field (its residual is the pre-existing pc-vs-psx world
+  difference); title-path Select Options / Messages / Sound / Screen adjust / Controls all **0/76800**.
+  No regression: START page panel (#35) draws, item menu (#21) **0/76800**, bucket-softlock dialog
+  (#28) opaque and legible at f1200. `codemap --dup-installs` = 0.
+- **guest-side equivalence:** `port_check` PASS on `OptionsPage::pushBackdrop`, AND the psx_render leg —
+  which rasterizes the packet the port now writes — is **0/76800** against the pre-change build's
+  psx_render capture at the same frame.
+- **repros:** `replays/bugs/ingame-options-page.pad` (f1160 = in-game Select Options),
+  `replays/bugs/title-options-page.pad` (f1027 = title Select Options),
+  `replays/bugs/ingame-item-menu.pad` (f1120 = the triangle item menu).
+
 ## DRAFTED (UNWIRED): dialog/text-box byte-stream advance — 0x8007C0D0 + 0x8007D0D0 (2026-07-08; CHECKED 2026-07-22)
 
 - **★ VERDICT 2026-07-22 — half of it is wrong; do NOT wire advanceByte.** Added `// ORACLE:` markers

@@ -10,6 +10,9 @@
 // A group emitted with no scope raised has its own producer already (Render::fieldHudRender calls
 // emitUiFt4 directly) and is dropped here.
 //
+// Adding a page is ONE line in `route` (the pause menu #21, the START page #35 and the OPTIONS page
+// family #38 are all listed there) — never a second override on a shared leaf.
+//
 // PAINT ORDER COMES FROM THE GUEST'S ORDERING TABLE, NOT FROM CALL ORDER. `paintOrder` sorts by
 // DESCENDING OT bucket (attrs+1 — a lower PSX OT index is walked later, i.e. drawn in front) and,
 // within one bucket, in REVERSE call order (AddPrim prepends, so a bucket's list is LIFO). Emitting

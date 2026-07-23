@@ -287,6 +287,7 @@ already solved or ruled out. 253 findings across 12 subsystems.
 - **Dialog layer: FULLY ACCOUNTED FOR on the bucket path (2026-07-22) — the softlock is upstream** [?] —   ↪ docs/findings/ui.md
 - **Dialog text-box PANEL emitter chain — RE'd (2026-07-14, for bug #34)** [?] —   ↪ docs/findings/ui.md
 - **FUN_8007D594 is NOT on the live in-game dialog path — measured, 2026-07-22** [?] —   ↪ docs/findings/ui.md
+- **In-game OPTIONS page drew no backdrop — the page had a producer only on the TITLE path (kanban #38, FIXED 2026-07-23)** [?] — the in-game Options page (START -> "Options") rendered its text and nothing else — the  ↪ docs/findings/ui.md
 - **MAPPED (not drafted): pause/quit-menu + options-screen widget builders — 0x8007EAE4-0x8007FDB0** [?] —   ↪ docs/findings/ui.md
 - **The dialog CALL CHAIN, resolved (2026-07-22) — where the logic actually lives** [?] —   ↪ docs/findings/ui.md
 - **The dialog driver is EXONERATED — rebuild == faithful body, byte for byte (2026-07-22)** [?] —   ↪ docs/findings/ui.md

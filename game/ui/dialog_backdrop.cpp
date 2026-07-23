@@ -32,6 +32,7 @@
 #include "core.h"
 #include "game.h"
 #include "ui/panel.h"
+#include "ui/options_page.h"   // OptionsPage::noteBox — the Screen-adjust page's boxes (#38)
 #include "override_registry.h"
 
 namespace {
@@ -78,9 +79,17 @@ void Panel::pushDialogBackdrop(Core* c, int16_t x, int16_t y, int16_t w, int16_t
 }
 
 // Guest-ABI entry: x/y/w/h in r4-r7, mode off the caller's stack (see the ARGUMENT NOTE above).
+//
+// The OPTIONS "Screen adjust" page (kanban #38) stages its three boxes through this same emitter, and
+// pc_render has no other producer for them — so the display half hangs HERE rather than on a second
+// overrides::install for 0x8007FCC8 (dual ownership is what broke the dialog box in kanban #28).
+// OptionsPage::noteBox is a no-op unless that page's scope is raised, so the dialog path is untouched.
 static void ov_push_dialog_backdrop(Core* c) {
-  Panel::pushDialogBackdrop(c, (int16_t)c->r[4], (int16_t)c->r[5], (int16_t)c->r[6], (int16_t)c->r[7],
-                            c->mem_r32(c->r[29] + 16u));
+  const int16_t x = (int16_t)c->r[4], y = (int16_t)c->r[5];
+  const int16_t w = (int16_t)c->r[6], h = (int16_t)c->r[7];
+  const uint32_t mode = c->mem_r32(c->r[29] + 16u);
+  Panel::pushDialogBackdrop(c, x, y, w, h, mode);
+  OptionsPage::noteBox(c, x, y, w, h, mode);
 }
 
 void dialog_backdrop_install() {

@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 22 verified · 5 partial · 1 untested · 4 n/a
+**Status:** 22 verified · 6 partial · 1 untested · 4 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -170,6 +170,14 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **status:** partial
 - **gate:** 2-leg 0-diff with tap registered; icon strings not exercised in autonav legs — needs an icon-showing drive + USER eyeball
 - **evidence:** 916ddfc0
+
+## options-page-backdrop
+- **scope:** FUN_8007FC24 — the OPTIONS page's full-screen POLY_G4 backdrop packet (OptionsPage::pushBackdrop)
+- **status:** partial
+- **gate:** python3 external/psxport/tools/port_check.py game/ui/options_page.cpp
+- **evidence:** port_check PASS vs gen_func_8007FC24 (frame sizes, call sites, store-width sequence); AND the psx_render leg, which rasterizes the packet this port writes, is 0/76800 against the pre-port build at replays/bugs/ingame-options-page.pad f1160
+- **owner:** game/ui/options_page.cpp
+- **notes:** NOT yet run under SBS full — the two proofs above are static equivalence plus a pixel-exact readback of the packet through the PSX rasterizer, not a guest-RAM byte compare. Promote to verified with an SBS-full run that reaches the page.
 
 ## render-billboard-c788
 - **status:** untested

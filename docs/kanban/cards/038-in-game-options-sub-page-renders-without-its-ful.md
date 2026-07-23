@@ -1,10 +1,12 @@
 ---
 id: 38
 title: In-game Options sub-page renders without its full-screen dark-blue backdrop
-status: todo
+status: done
 labels: []
 created: 2026-07-23
 updated: 2026-07-23
 ---
 
 **2026-07-23:** 2026-07-23 (found while fixing #35; PRE-EXISTING, not caused by it). Repro: run 300; tap start; run 60; tap cross; run 60 — the 'Select Options / Messages / Sound / Screen adjust / Controls' page shows the live field through it; the psx_render leg has the backdrop. Evidence scratch/screenshots/c35/opt_pc.png vs opt_psx.png; otattr that frame (scratch/screenshots/c35/otattr2.txt) shows packet [2047] op=0x38 (POLY_G4 full-screen gradient = FUN_8007FC24) as the FIRST packet of the walk, attributed fn=0x8010810C. kanban #7 fixed exactly this for the TITLE/DEMO path only: Render::optionsPageNative + Render::optionsBackdrop (game/render/render_options.cpp) are driven from Render::renderTitle's stage-0x801062E4 / sm[0x48]==6 branch, so nothing invokes them when the same five page builders run under the IN-GAME 0x8010810C dispatcher. Text/cursor/footer glyphs come from the global Font taps and are fine; only the backdrop (and, on page 3, FUN_8007FCC8's boxes) lacks a producer on the in-game path.
+
+**2026-07-23:** FIXED 2026-07-23. Root cause: the OPTIONS page had a producer only on the TITLE path — Render::optionsSelectPage & co were a HOST TWIN of the page's element list driven from renderTitle's s48==6 branch, while the same five builders (FUN_8007F104/F250/F498/F73C/F8F8) also serve the in-game dispatcher FUN_8010810C page byte task-sm[0x6B]==3. Fix: produce each element at its own guest emitter under a page scope (game/ui/options_page.cpp, the #21/#35 template) — FUN_8007FC24 PORTED (port_check PASS) with its picture at RQ_OVERLAY in the 2D-FG band (the BG band sits behind the 3D world, which is why a title-only backdrop was useless in-game), FUN_8007FCC8's boxes recorded from their existing single owner Panel::pushDialogBackdrop, cursor/pad-diagram captured off the two shared 2D group leaves; host twins deleted. Field HUD now stands down on the guest's own gate (pause level 0x1F800136 >= 2; probed 2 on pages 0/1/2/4, 1 on Screen adjust, which is why that page keeps the live field AND its HUD). Measured pc_render vs psx_render at a fixed frame: in-game Select Options 74442/76800 -> 0/76800; Messages/Sound/Controls 0; title path all five pages 0. No regression: START page #35 panel draws, item menu #21 0/76800, bucket-softlock dialog #28 opaque+legible at f1200; codemap --dup-installs=0. Repros: replays/bugs/ingame-options-page.pad f1160, title-options-page.pad f1027, ingame-item-menu.pad f1120.

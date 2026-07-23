@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 11 verified · 10 ported-unverified · 1 blocked
+**Status:** 13 verified · 8 ported-unverified · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -119,16 +119,16 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **notes:** Reduced OBJECTS-ONLY producer (fieldObjectsRender: room 0x800FD850 + NPCs + Tomba, real depth, live interior camera). Was abortUnimplemented. VERIFIED: pc_render f410 shows room+NPCs+Tomba+props, no village leak, no crash/guest-write. fps60 flicker-gated in fps60_worldpass.cpp.
 
 ## render-title-substates
-- **status:** ported-unverified
+- **status:** verified
 - **order:** 47
 - **owner:** game/render/{card_browser,render_options,render_attract}.cpp
-- **notes:** renderCardBrowser(s48==4) VERIFIED: reached headless (tap x at title) and renders correctly — scratch/screenshots/card_browser.png ('Select slot' + both MEMORY CARD slot panels). renderAttract(s48==7) VERIFIED: idle ~1100 frames at title auto-enters attract, full 3D field render (substate_s7.png). optionsPageNative(s48==6) still UNVERIFIED — not reachable by title nav (s3 routes to s6 only when sm[0x68]!=2; simple right/down/up + x always land back on s48=2), likely reached from the in-game pause path. Unblocked by the CRD base fix (kanban #6).
+- **notes:** renderCardBrowser(s48==4) VERIFIED: reached headless (tap x at title), renders correctly (scratch/screenshots/card_browser.png). renderAttract(s48==7) VERIFIED: idle ~1100 frames at title auto-enters attract, full 3D field render (substate_s7.png). OPTIONS (s48==6) VERIFIED 2026-07-23 and the old 'not reachable by title nav' note is FALSIFIED — the route is title -> Cross (New Game menu, s48==3) -> Right (Options) -> Cross, captured as replays/bugs/title-options-page.pad (page 0 at frame 1027). All five pages are 0/76800 vs psx_render there; the page itself is produced by OptionsPage (see render-options-subpages), so renderTitle's s48==6 branch now only supplies the title chrome under the Screen-adjust page.
 
 ## render-options-subpages
-- **status:** ported-unverified
+- **status:** verified
 - **order:** 48
-- **owner:** game/render/render_options.cpp
-- **notes:** Five DEMO front-end OPTIONS pages, one producer each, dispatched on task sm[0x50]: page0 Select Options, 1 Messages, 2 Sound, 3 Screen adjust (draws over the LIVE title picture), 4 Controls (pad-face diagram). Previously pages 1-4 hit abortUnimplemented and KILLED the process under pc_render. Read-only: no guest writes. VISUALLY VERIFIED by forcing sm[0x48]=6 + sm[0x50]=1..4 via the REPL and reading the PNGs — all four draw correctly. Natural in-game nav to Options was NOT reproduced, so reachability by a player is unconfirmed.
+- **owner:** game/ui/options_page.cpp (class OptionsPage) + game/render/render_options.cpp
+- **notes:** kanban #7 then #38. ONE producer for BOTH entry points (title front-end sm[0x48]==6 and the in-game dispatcher FUN_8010810C page byte task-sm[0x6B]==3, which share the five builders FUN_8007F104/F250/F498/F73C/F8F8). Each element is produced at ITS OWN guest emitter under a page scope, not as a host twin of the page's element list: FUN_8007FC24 PORTED (OptionsPage::pushBackdrop, port_check PASS) and drawn at RQ_OVERLAY in the 2D-FG band; FUN_8007FCC8's boxes recorded from their existing single owner Panel::pushDialogBackdrop; cursor + pad diagram captured off the shared 2D group leaves via UiGroupCapture. render_options.cpp keeps only the two draw helpers + the title chrome Demo::s6 composites under the Screen-adjust page. GATE (pc_render vs psx_render, same frame, render_cmp.py): in-game Select Options 74442/76800 -> 0/76800, in-game Messages/Sound/Controls 0/76800, title-path all five pages 0/76800; psx leg unchanged vs the pre-port build (0/76800), so the ported packet is guest-equivalent. Repros: replays/bugs/ingame-options-page.pad f1160, title-options-page.pad f1027.
 
 ## pause-menu-chrome
 - **scope:** in-game pause/item menu display producer (FUN_800346BC controller + FUN_8007E1B8/FUN_8007E6DC UI leaves)

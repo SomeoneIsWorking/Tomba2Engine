@@ -179,6 +179,7 @@ set(GAME_SRC
   game/ui/panel.cpp
   game/ui/pause_menu.cpp
   game/ui/start_page.cpp
+  game/ui/options_page.cpp
   game/ui/ui_group_capture.cpp
   game/scene/level_load.cpp
   game/object/behavior_dispatch.cpp

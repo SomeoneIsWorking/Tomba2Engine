@@ -7,6 +7,7 @@
 #include "engine.h"
 #include "pause_menu.h"
 #include "start_page.h"
+#include "options_page.h"
 #include "render.h"          // Render::emitUiFt4 / emitUiSprites + rsub.mode.psxRender() gate
 #include "render_queue.h"
 #include <algorithm>
@@ -19,6 +20,7 @@ void UiGroupCapture::route(Core* c, const UiGroupArgs& a) {
   // one place, so adding a page is one line and never a second override on a shared leaf.
   if (e.pauseMenu.capture.capturing()) { e.pauseMenu.capture.mGroups.push_back(a); return; }
   if (e.startPage.capture.capturing()) { e.startPage.capture.mGroups.push_back(a); return; }
+  if (e.optionsPage.capture.capturing()) { e.optionsPage.capture.mGroups.push_back(a); return; }
   // No scope raised: this group's caller owns its own producer (the field HUD).
 }
 
