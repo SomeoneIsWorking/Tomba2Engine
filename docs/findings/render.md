@@ -1,5 +1,36 @@
 # Findings — render / engine submit
 
+## `gte_op` count does NOT mean "not native" — the campaign #45 Tier-B misclassification (2026-07-23)
+
+- **the error:** campaign #45 (render everything natively) was scoped by grepping for `gte_op(` and
+  putting every hit in "Tier B — GTE-driving transcription to retire." That conflated two unrelated
+  uses of the GTE, and the first port attempt (quad_rtpt_submit) resolved on "already native, do not
+  port," which forced the correction.
+- **the two uses a `gte_op` count cannot tell apart:**
+  1. **guest-STATE mirror (REQUIRED, keep):** a native handler drives RTPT/RTPS and bump-copies the
+     result into the guest packet pool + OT linked list, byte-for-byte, so SBS stays 0-diff. This is
+     the *render-underneath* faithful execution, NOT the pc_render picture — pc_render never walks the
+     OT. `overlay_gt3gt4.cpp` says so in its own header: *"faithful substrate mirror, NOT pc_render …
+     every GTE op / guest write below is REQUIRED, SBS gates it."* Same for `overlay_ground_gt3gt4`,
+     `rotateQuadCorners`, and perobj_dispatch's matrix compose. Retiring these would BREAK Job #1.
+  2. **already-float-native picture (DONE):** the handler records the model corners + a factored world
+     transform into `Render::mWqRecs` / `mBbRecs` (`wq_factor_world` against the scratchpad scene
+     camera), and `Render::billboardsRender` — run from `fieldObjectsRender`, which `tier1Render`
+     re-runs — re-projects each record through the float fps60-lerped `sceneCam` and component-lerps
+     against the `*Prev` slots. No `gte_op` in the picture path; it lerps. `quad_rtpt_submit` (#67),
+     `perobj_billboard`, `widescreen_margin_quad` are this.
+- **how to classify a producer correctly (do this before calling anything a port target):** grep the
+  file for `mWqRecs`/`mBbRecs`/`billboardsRender` (→ already float-native, Tier C) and for the header's
+  own "substrate mirror / render-underneath / SBS" claim (→ required state mirror, keep). Only a handler
+  that reads the substrate's projection *and draws the picture from it* (scrapes `gte_read_data` /the
+  `0x1F8000xx` projection scratchpad, then `emitOrQueue`/`drawWorldQuad` in the same body) is a real
+  scrape-tap. Across the whole render tree that was exactly ONE file: `fx_sprite` (the flame), now ported.
+- **consequence — #45 re-scoped:** the flame was the only true scrape-tap and it is done. The genuine
+  "not rendered natively" work left is the MISSING-PRODUCER gaps (#39 dust, #42 sky planes, #43
+  minimaps, #44 vortex) — geometry with no native producer at all, invisible under pc_render — not any
+  `gte_op` retirement.
+
+
 ## Torch/roof flames: tap → native producer, so they LERP at fps60 (kanban #12/#23, FIXED 2026-07-23)
 
 - **symptom:** the FUN_80027A4C "world-anchored scaled sprite" family (seaside torch + the two bright

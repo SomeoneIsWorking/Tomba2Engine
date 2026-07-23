@@ -1,7 +1,7 @@
 ---
 id: 45
 title: CAMPAIGN: render everything natively — retire the substrate-GTE projection producers to float-native
-status: todo
+status: doing
 labels: [render, campaign]
 created: 2026-07-23
 updated: 2026-07-23
@@ -30,3 +30,8 @@ METHOD per producer (the fx_sprite port is the template once it lands): RE the t
 ORDER: A (flame, in progress) proves the pattern -> then B one at a time or in a small fleet with the operator integrating, world-effect emitters (quad_rtpt = rope flame, #23's sibling) before overlay/terrain-class (bigger, geometry). Track each B producer's flip to float-native here.
 
 **2026-07-23:** 2026-07-23 TIER A DONE — the fx_sprite flame reference port landed (commit 4ba2e5e), all 5 gates pass incl. the lerp gate (interp flame at midpoint of real neighbours 275.77->276.22 interp 276.20; SBS 0-diff to f4680; no gen_func for the picture; the tap install on 0x80027A4C deleted). The type-0x20 fieldObjectsRender dispatch alongside narration_swirl is the proven template for Tier B: RE the emitter's transform, project via projComposeCamera(sceneCam) + EObjXform, emit drawWorldQuad with has_xyf=1 so tier1 re-renders it lerped. Bonus: it now renders under GATE=1 too (native producer runs on every exec leg), retiring #12's 'taps don't fire under GATE' limitation. NEXT: Tier B, quad_rtpt_submit (rope flame, the direct sibling) first.
+
+**2026-07-23:** 2026-07-23 TIER B WAS A MISCLASSIFICATION — campaign re-scoped and largely COMPLETE. The first Tier-B port attempt (quad_rtpt_submit) resolved on 'already float-native, do not port', which exposed that grepping for gte_op( conflated two unrelated GTE uses (see docs/findings/render.md 'gte_op count does NOT mean not native'):
+  (1) FAITHFUL GUEST-STATE MIRRORS — overlay_gt3gt4, overlay_ground_gt3gt4, perobj_dispatch, rotateQuadCorners: drive the GTE to bump-copy byte-exact packets into the guest pool+OT for SBS. overlay_gt3gt4's own header: 'faithful substrate mirror, NOT pc_render ... every GTE op is REQUIRED, SBS gates it.' These are Job #1 faithful execution, NOT taps — retiring them would BREAK SBS. They are NOT campaign targets. Keep.
+  (2) ALREADY FLOAT-NATIVE PICTURE PRODUCERS — quad_rtpt_submit(#67), perobj_billboard, widescreen_margin_quad: record model corners + factored world transform into Render::mWqRecs/mBbRecs; Render::billboardsRender (re-run by tier1Render from fieldObjectsRender) re-projects through the float lerped sceneCam and component-lerps vs *Prev. No gte_op in the picture path; they lerp. Already Tier C. DONE.
+The ONLY true scrape-tap in the whole render tree was fx_sprite (the flame), now ported (Tier A). So the 'retire the substrate-GTE producers' framing is CLOSED — there was nothing to retire beyond the flame. What remains of 'render everything natively' is the MISSING-PRODUCER gaps where geometry has NO native producer and is invisible: #39 (dust), #42 (sky/background planes), #43 (minimaps), #44 (vortex). Those are the real remaining work — tracked on their own cards. Re-pointing this campaign at them. Classification method for any future producer is recorded in the finding: grep mWqRecs/mBbRecs/billboardsRender + the header's substrate-mirror claim BEFORE calling anything a port target; a gte_op count alone proves nothing.
