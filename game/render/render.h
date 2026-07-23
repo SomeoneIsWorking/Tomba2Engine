@@ -279,6 +279,21 @@ public:
                          int32_t scaleX, int32_t scaleY, int32_t ir0 = 0,
                          const int32_t* farColour = nullptr);
 
+  // WORLD LINES — ropes / chains / tethers (game/render/fx_line.cpp, kanban #56 systemic + #54).
+  // pc_render had no line primitive at all, so every GP0 line the guest emits (op 0x40..0x5F) was
+  // invisible: the bucket's rope, the fisherman's line, hanging chains. worldLineDraw is the port of
+  // the shared leaf FUN_8013DD34 — the stroke between two WORLD points, projected natively (so it
+  // lerps at fps60) and expanded HERE into screen-space quads, which keeps the render queue quads-only.
+  // The three callers are ported alongside it, each reading its own object's state:
+  //   ropeAnchorRender  (FUN_8013E9D8) — a hanging object's rope up to the object at node+0x14
+  //   ropeChainRender   (FUN_8013EA64) — the 8-point chain the node carries at node+0x60
+  //   tetherLineRender  (FUN_80122974) — the 4-mode tether, mode 3 = the 8-segment fishing line
+  // Dispatched from fieldObjectsRender (type-0x20 render fn, and the type-1 object class).
+  void worldLineDraw(int ax, int ay, int az, int bx, int by, int bz);
+  void ropeAnchorRender(uint32_t node);
+  void ropeChainRender(uint32_t node);
+  void tetherLineRender(uint32_t node);
+
   // a0fVortexRender (game/render/fx_vortex.cpp): native producer for area 15's central PORTAL — the
   // type-0x20 node whose custom render fn is the A0F overlay's FUN_801143C4 (kanban #44). Three layers:
   // the node's own animated sprite at the world anchor, a rotating SPHERE of particle sprites built

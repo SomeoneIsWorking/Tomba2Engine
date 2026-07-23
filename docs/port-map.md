@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 13 verified · 8 ported-unverified · 1 blocked
+**Status:** 14 verified · 8 ported-unverified · 1 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -136,6 +136,12 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** game/ui/pause_menu.cpp (class PauseMenu)
 - **notes:** kanban #21. Scoped leaf tap: gen bodies untouched, quads re-derived host-side at RQ_OVERLAY, ordered by the guest's own OT bucket (descending, LIFO within a bucket) rather than call order. Gate: 0/76800 differing pixels vs the psx_render leg with the menu open; 0/76800 field-HUD regression from the emitUiFt4 back-to-front flip.
 
+## world-line-rope
+- **scope:** render
+- **status:** verified
+- **owner:** game/render/fx_line.cpp
+- **notes:** FUN_8013DD34 shared rope leaf + its three callers (FUN_8013E9D8 anchor rope, FUN_8013EA64 8-point chain, FUN_80122974 4-mode tether incl. the 8-segment fishing line), ported as native producers; segment->quad expansion in the producer, queue stays quads-only. Gates: stroke count parity with the lineprim census, 130px/69px A/B isolation, fps60 lerp 5/5, SBS no new divergence.
+
 ## render-compose-tint-gate
 - **status:** ported-unverified
 - **notes:** Render::composeTintGate (FUN_8003EF9C): per-type render gate, port_check PASS, wired via overrides::install with setter. Pool-snapshot idiom: emits geometry then colour-adds over exactly the primitives just emitted. Cold on the field/dialog replay - needs a scene that uses render mode 2.
@@ -151,3 +157,9 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 ## render-panel-fill
 - **status:** ported-unverified
 - **notes:** Panel::fillQuad (FUN_8004FFB4): the 9-slice panel fill quad, hottest unowned render fn on the field path. port_gen byte-faithful, port_check PASS, wired with setter, LIVE at 505 hits with the frame unchanged. READABILITY PASS PENDING - still in register form. Note game/ui/panel.cpp:185 calls gen_ directly so the existing tap is not intercepted.
+
+## world-line-ring-shadow
+- **scope:** render
+- **status:** todo
+- **deps:** world-line-rope
+- **notes:** FUN_8013E08C: op-0x4A ground ring shadow, its own GTE loop over the 16-point circle at 0x8014C780 (sliding 3-point window), grey = 0x80-((nodeY-0x14)*0x80)/200, blends 1 and 2, node matrix at node+0x2C via FUN_80084220 + a diagonal scale from nodeY<<4. BLOCKED on RE of FUN_80084110/FUN_80084220.

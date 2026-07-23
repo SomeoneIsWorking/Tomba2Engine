@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 918 native fns, 772 owned addresses, 729 LIVE / 189 ORPHAN.
+Totals: 922 native fns, 776 owned addresses, 733 LIVE / 189 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -786,6 +786,7 @@ Totals: 918 native fns, 772 owned addresses, 729 LIVE / 189 ORPHAN.
 | 0x8011D578 | LIVE | `beh_variant_actor_sm` | game/ai/beh_variant_actor_sm.cpp:50 |  |  |
 | 0x8011D988 | LIVE | `beh_actor_move_sm` | game/ai/beh_actor_move_sm.cpp:53 |  |  |
 | 0x80121978 | LIVE | `beh_id_routed_dispatch` | game/ai/beh_id_routed_dispatch.cpp:42 |  |  |
+| 0x80122974 | LIVE | `Render::tetherLineRender` | game/render/fx_line.cpp:187 |  | the TETHER: one rope from this object to an anchor chosen by node+0x47… |
 | 0x80123E9C | LIVE | `ReleaseTriggerMotion::hoverBobCycle` | game/ai/release_trigger_motion.cpp:75 | 0x80077B5C | ----------------------------------------------------------------------… |
 | 0x801241BC | LIVE | `ReleaseTriggerMotion::leaderFollowSync` | game/ai/release_trigger_motion.cpp:137 | 0x80051D90 0x80123C94 0x8012400C | ----------------------------------------------------------------------… |
 | 0x801244E8 | LIVE | `ReleaseTriggerMotion::driftReposition` | game/ai/release_trigger_motion.cpp:190 | 0x80051794 0x80077B5C 0x80084360 0x800847F0 0x80124328 | ----------------------------------------------------------------------… |
@@ -872,7 +873,10 @@ Totals: 918 native fns, 772 owned addresses, 729 LIVE / 189 ORPHAN.
 | 0x8013C538 | LIVE | `beh_scatter_record_dither` | game/ai/beh_scatter_record_dither.cpp:56 |  |  |
 | 0x8013C9C0 | LIVE | `beh_scatter_ramp_machine` | game/ai/beh_scatter_ramp_machine.cpp:52 |  |  |
 | 0x8013CDD4 | LIVE | `WidescreenMarginQuad::emit` | game/render/widescreen_margin_quad.cpp:126 |  |  |
+| 0x8013DD34 | LIVE | `Render::worldLineDraw` | game/render/fx_line.cpp:102 |  | THE rope leaf: a stroke between two world points, drawn as the project… |
 | 0x8013DD48 | ORPHAN | `sub8013DD48` | game/ai/beh_a08_scene_actor.cpp:150 | 0x80072DDC | (objAnim, subId) — allocate a spawner obj and hook its handler. |
+| 0x8013E9D8 | LIVE | `Render::ropeAnchorRender` | game/render/fx_line.cpp:155 |  | the HANGING object's rope: from the object it hangs off (node+0x14) to… |
+| 0x8013EA64 | LIVE | `Render::ropeChainRender` | game/render/fx_line.cpp:167 |  | the segmented CHAIN: 8 points the node carries, joined end to end. nod… |
 | 0x8013FB88 | LIVE | `OverlayGroundGt3Gt4::gt3` | game/render/overlay_ground_gt3gt4.cpp:138 |  | ground/scene POLY_GT3 emit. Record = 36 bytes, SAME field layout as th… |
 | 0x8013FE58 | LIVE | `OverlayGroundGt3Gt4::gt4` | game/render/overlay_ground_gt3gt4.cpp:254 |  | ground/scene POLY_GT4 emit. Record = 44 bytes: {+0 rgb0(rgb1=rgb0<<4)\|… |
 | 0x801401B8 | LIVE | `OverlayGroundGt3Gt4::entityLoop` | game/render/overlay_ground_gt3gt4.cpp:363 |  | the ground-entity render list walker. list=a0: +6 (u8) entry count, +1… |
