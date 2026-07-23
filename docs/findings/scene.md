@@ -1307,3 +1307,70 @@ covered by this change and were left in place:
 (`onFlatTask`/`runTaskInline`), `game/core/engine.cpp` (`Engine::fieldRunX`),
 `game/scene/scene_transition.{h,cpp}` (collapse deleted); logs
 `scratch/logs/{base,ctrl,final}_hotp.log`.
+
+## SEQUENCE softlock #60 — a two-actor scene-flag rendezvous DEADLOCKS on slot 55 (2026-07-23, OPEN, root-cause located)
+
+**symptom** — USER capture `replays/bugs/sequence-softlock-2.pad` (7049 frames). Frame loop keeps
+ticking, no crash, no recomp-MISS, but the sequence never advances and control is never returned.
+
+**status** — STILL REPRODUCES on current main (`c5c5e1d` + submodule `6b534de`). Root cause located
+to the exact deadlocked state below; the ordering defect that produces it is NOT yet identified and
+NO fix is landed. Do not "fix" this by poking the flag — that is the banned bandaid.
+
+**ruled out (each measured, do not re-chase)**
+* **kanban #50 truncation is NOT it.** `PSXPORT_DEBUG=sched` over the whole run: the
+  `caught a GAME substate yield` line never fires. The four `native_area_load_bd4` flag==1
+  fire-and-forget sites are not implicated.
+* **Not a renderer bug.** Identical lock under `PSXPORT_RENDER_PSX=1`.
+* **Not the beh_* rebuild class (#51).** Forcing ALL 65 `BehaviorDispatch` handlers to their gen
+  bodies (`PSXPORT_BEH_SUBSTRATE=<all>`) still locks, position byte-identical.
+* Individually force-genned with no effect: `Behaviors::areaSeasidePerframe` (0x80113C5C),
+  `beh_node3_router` (0x8011CBD0), `beh_area_event_dispatch` (0x80071A3C),
+  `ScriptInterp::init` (0x80040CDC), `ActorTomba::outerTransitionGate` (0x80053E50),
+  `mode0ActionGate`/`mode0WalkHandler` (0x8005A910/0x8005A970).
+
+**the deadlock (measured at f2500, and unchanged to f7100+)**
+The field runs normally — `sm[0x48]=2 sm[0x4a]=1 sm[0x4c]=2 sm[0x4e]=1`, Tomba's outer state
+`G+4=4` (ACTIVE_ALT) dispatching table B at `G+5=0` (the normal walk handler) every frame. What
+parks the player is the CUTSCENE MODE byte: scratchpad `0x1F800137 == 1` forever (set via
+`gen_func_80042354` from `ov_a00_gen_8011C674`; `0` in healthy free-roam, `2` while walking).
+
+Cut-mode 1 is released when the scene's script finishes. Both scripts are parked on script **op
+0x04** (handler `FUN_8004201C`), which is a two-party RENDEZVOUS on the scene-flag byte array at
+`0x800BF9B4`: phase 0 writes `flags[obj+0x72] = obj+0x74`, phase 1 spins until
+`flags[obj+0x72] == obj+0x76`. Both actors use slot **55 → `0x800BF9EB`**:
+
+| actor | handler | script cursor `+0x6c` | writes `+0x74` | awaits `+0x76` | phase `+0x78` |
+|---|---|---|---|---|---|
+| `800FC9E0` | `beh_node3_router` 0x8011CBD0 → `ov_a00_gen_8011C674` | 0x80148AF4 | 2 | **1** | 1 |
+| `800FC7D0` | `beh_area_event_dispatch` 0x80071A3C → `ov_a00_gen_80128BC0` | 0x80149DA0 | 1 | **3** | 1 |
+
+`0x800BF9EB` is stuck at **2**. A waits for 1, B waits for 3 — neither can ever fire. The handshake
+completes three times first (`cw` watch on the byte: `…2,1,2,1,2,1,2` then silence), so the scripts
+alternate correctly and then lose a step.
+
+**the lead to work next** — the two actors are stepped from DIFFERENT per-frame walks in the same
+pc_skip field frame (host backtraces):
+* A: `Engine::fieldRun → fieldFrame → ObjectList::walkAll → beh_node3_router`
+* B: `Engine::fieldRunX → fieldFrameX → TransitionState3::walkOnce → beh_area_event_dispatch`
+
+So the rendezvous is sensitive to the ORDER and the PER-FRAME COUNT of those two walks. A
+divergence there (one walk running twice, or in the opposite order to the guest) drops exactly one
+handshake step and produces this deadlock. Verify that against recomp_path before changing
+anything — note the pad replay CANNOT be used to compare legs (below).
+
+**instrument caveats found this session (all cost real time)**
+* `replays/*.pad` are frame-indexed from boot, and `recomp_path` / `PSXPORT_PC_SKIP=0` consume a
+  different number of boot frames, so the SAME pad lands in a completely different place on each
+  leg. Cross-leg comparison via a pad replay is INVALID. (Measured: at f1200 pc_skip is in a hut
+  dialog while both other legs are in the village.)
+* REPL `watch <a> <b>` takes **lo/hi**, not addr/len — `watch X 1` silently arms an empty range.
+* `PSXPORT_DEBUG=script` only logs the NATIVE `ScriptInterp::step`; `rec_dispatch(0x80041098)` runs
+  the substrate `gen_func_80041098`, which logs nothing. Script silence is NOT evidence of a
+  stopped script — read the cursor at `obj+0x6c` instead.
+* Tomba's master position `0x800E7EAC` (16.16) IS a valid movement probe (verified: it moves under
+  held input on `replays/boot-smoke/general-session.pad`), but a stationary value only means
+  "not walking" — combine it with held input to distinguish idle from locked.
+
+**refs:** kanban #60 (and #2/#58, same family); logs `scratch/logs/{sched60,flagw,cursor,obj2,
+partner,behall,fgall}.log`; repro `replays/bugs/sequence-softlock-2.pad`.

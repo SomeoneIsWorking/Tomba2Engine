@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (23)
+## TODO (22)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#16 Sign text jitters at fps60 when the camera moves**  `render,fps60` — 📎 docs/reference/issues/issue16_sign_text_jitter.png
@@ -28,12 +28,12 @@
 - **#56 SYSTEMIC: pc_render has NO line-primitive producer — every GP0 line is invisible (rope, fishing line)**  `render,bug` — 📎 docs/reference/issues/issue56_fisherman_line_missing.png
 - **#57 Hut interior wall/room decorations missing — likely occluded (possible #29 regression)**  `render,bug` — 📎 docs/reference/issues/issue57_hut_wall_decor_missing.png,  docs/reference/issues/issue57_hut_wall_decor_missing_2.png
 - **#58 Fisherman dialog SOFTLOCKS**  `bug` — 📎 docs/reference/issues/issue58_fisherman_dialog_softlock.png
-- **#60 SEQUENCE softlock (live capture) — game keeps running, sequence never advances**  `bug,pc-skip` — 📎 docs/reference/issues/issue60_sequence_softlock.png
 
-## DOING (3)
+## DOING (4)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
 - **#45 CAMPAIGN: render everything natively — retire the substrate-GTE projection producers to float-native**  `render,campaign`
 - **#47 pc_skip: entering 'House on the Point' corrupts state (music stops, camera unfollows, interior vibrates)**  `bug,pc-skip`
+- **#60 SEQUENCE softlock (live capture) — game keeps running, sequence never advances**  `bug,pc-skip` — 📎 docs/reference/issues/issue60_sequence_softlock.png
 
 ## DONE (35)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
