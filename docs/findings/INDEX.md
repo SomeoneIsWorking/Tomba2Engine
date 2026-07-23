@@ -249,6 +249,7 @@ already solved or ruled out. 253 findings across 12 subsystems.
 - **Tomba!2 has 22 field areas (0..21) — `warp 22`+ is out of range, not a bug (2026-07-22)** [NOT A PORT BUG. `warp <id>` accepts any id 0..31 and happily corrupts the mode slot with] — kanban #24 reported "area 22 aborts on entry". It does — but so do 23..31, and for a  ↪ docs/findings/scene.md
 - **Un-owned entity-behavior cluster (0x801244E8/0x8012866C/0x8012E168/0x8013DD48) — 1 ported, 3 blocked** [?] —   ↪ docs/findings/scene.md
 - **Vortex void beat black on pc_skip — RESOLVED (2026-07-14, bug #43)** [?] — default config (pc_skip + pc_render), `newgame; run 600`: black + narration text  ↪ docs/findings/scene.md
+- **kanban #47 "House on the Point" — the interior is PARKED in the mid-transition state sm[0x4c]==3 (2026-07-23, ROOT CAUSE NAMED, NOT YET FIXED)** [?] —   ↪ docs/findings/scene.md
 - **pc_skip FUN_80044BD4-collapse INCOMPLETENESS class (2026-07-15) — audit of the #53 bug family — FIXED** [?] —   ↪ docs/findings/scene.md
 - **pc_skip exec: prologue vortex backdrop missing + scene SM stalls before area load (2026-07-10, RESOLVED)** [?] —   ↪ docs/findings/scene.md
 

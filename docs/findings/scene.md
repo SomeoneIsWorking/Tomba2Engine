@@ -1029,3 +1029,100 @@ Porting it needs: the frame mirrored (32/3), and the jal-site ra constant set be
 three substrate calls (80046A44 / 80048654 / 80024AF0) — its frame spills ra, so per the measured
 rule a `GuestFrame` alone would spill the wrong value. And install it WITH a setter if its callers
 use the direct thunk, or it will register and never run (that happened with the scanner).
+
+## kanban #47 "House on the Point" — the interior is PARKED in the mid-transition state sm[0x4c]==3 (2026-07-23, ROOT CAUSE NAMED, NOT YET FIXED)
+
+**Symptom (USER, live game):** entering the House-on-the-Point interior — BGM stops, interior
+geometry vibrates, camera stops following Tomba after coming back out. Filed as a **pc_skip fork**
+bug (a collapsed multi-step init dropping end-state). **That model does not fit the evidence.**
+
+**Repro:** `replays/bugs/house-on-the-point.pad` (4134 frames). Note the pad is IDLE (0xFFFF) from
+frame ~700 to the end — the user walked in at f662 and then stood still. "Tomba is frozen after
+entry" is therefore NOT a symptom in this capture; it is just no input.
+
+### 1. The VIBRATION is fps60 interpolation, not the fork — MEASURED
+Consecutive pad-frame screenshots inside the interior (`PSXPORT_PAD_SHOT_AT=1000..1005`,
+pad completely idle, nothing in the scene moving):
+
+| config | differing pixels / 76800 |
+|---|---|
+| default (`fps60=1`) | 14360–14465 (18.70–18.83 %) every consecutive pair |
+| `PSXPORT_SETTINGS=<ini with fps60=0>` | **0 (0.00 %)** for all 5 pairs |
+
+It is not interior-specific either: a static outside window (f650–655, `fps60=1`) diffs
+19007–27385 px (24.7–35.7 %). So this symptom belongs to the known fps60 lerp debt (kanban
+#31/#33, `matchAndLerp`), NOT to a pc_skip fork and NOT to the house.
+
+### 2. The MUSIC stop is real and is a consequence of #3
+WAV capture (REPL `wav`, works headless under `PSXPORT_NOAUDIO`): RMS runs 1200–5000 up to
+t≈22 s, then is **exactly 0.0** for the remaining 48 s. t=22 s at 30 fps = pad frame ~660 — the
+exact frame `sm[0x4c]` goes 2→3. `PSXPORT_DEBUG=spu` shows it is a **fade-out**, not a kill
+(`spu_render` peak decays 10399 → 1894 over ~60 frames). SPU main vol (0x1F801D80=0x3FFF) and
+CDVOL (0x1F801DB0=0x37F0) are UNCHANGED across the transition, and the libsnd sequencer state is
+unchanged too (`seq` change-detector: open=14 playmask=0xC3FF tickmode=5 for the whole run). All
+24 SPU voice vol/pitch registers then freeze — nothing keys a note again.
+
+**Driving Tomba back out with the REPL proves nothing is permanently broken:** `press left` at
+f4140 → `sm[0x4c]` 3→2 at f4175 → **the BGM comes back** (RMS 330 → ~4000 and holds). The audio
+stack is fine; the BGM is silent purely because the game is parked in the mid-transition state.
+
+### 3. ROOT CAUSE — the screen-transition sequencer never takes sm[0x4c] off 3 on ENTRY
+`sm[0x4c] = 3` is written by **`gen_func_80026AD0`** (the screen-transition sequencer), reached
+from the area-00 object handler **`ov_a00_gen_801167AC`** via
+`Array8Dispatch::tick → BehaviorDispatch::dispatchObj`. Proven with a host-backtrace watchpoint:
+REPL `watch 0x801fe04c 0x801fe04e` + `PSXPORT_CW_BT=1` → one hit,
+`#1 store w2 [801FE04C]=00000003 interp_pc=80099490`, stack
+`gen_func_80026AD0 ← ov_a00_gen_801167AC ← BehaviorDispatch::dispatchObj ← Array8Dispatch::tick ←
+Engine::fieldFrame ← Engine::fieldRun`.
+
+`sm[0x4c]==3` routes `submode1` to `Engine::fieldRunX` (0x801070B4) and the per-frame body to
+**`Engine::fieldFrameX`** (0x80108BE4) — the *mid-TRANSITION, screen-is-faded* frame body. It
+deliberately (faithful to gen) DROPS `sceneStateStep` (0x80050DE4) and `areaModeDispatch`
+(0x8001CAC0) and replaces the full object walk (0x8007A904) with
+`TransitionState3::walkOnce` (0x8007B04C, which only dispatches objects with bit 0x80 set at
++0x28). That body is meant to run for the ~30 frames of a fade. **In this repro it runs for 3472
+frames** — `sm[0x4c]` stays 3 and `sm[0x4e]` stays 1 from f662 to the end of the capture.
+
+`fieldRunX`'s two exits never fire: `0x800BF80D` is **0**, never 3 (probed at f640/700/800/1300),
+and `0x800BF839` stays 0. The *entry* transition does otherwise complete — `0x800BF80F` runs
+2 (f630) → 1 (f662) → 0 (f695), the same shape the EXIT shows (2 at f4143 → 1 at f4175 → 0 at
+f4207) — but on exit something writes `sm[0x4c]=2` and on entry nothing does. This is exactly the
+gap already flagged in `game/core/engine.cpp`'s `fieldFrameX` comment: *"0x8007b04c — the
+per-object update that must, but currently does not, tick the screen-transition sequencer
+FUN_80026ad0 to completion"*.
+
+**NEXT RE STEP (Ghidra headless):** `gen_func_80026AD0` + `ov_a00_gen_801167AC` + `FUN_8007B04C` —
+find the completion condition that writes `sm[0x4c]` back to 2, and why the EXIT path reaches it
+while the ENTRY path does not. Prime suspect: the door object's `+0x28 & 0x80` gate, i.e. whether
+`TransitionState3::walkOnce` still dispatches the transition object at all once `fieldFrameX`
+takes over from `fieldFrame`. Do NOT patch `sm[0x4c]` — that would be a bandaid over the sequencer.
+
+### 4. Why this is NOT a pc_skip fork (and why the fork gate could not be run)
+Inside `sm[0x4c]==3` there is essentially no pc_skip fork left: `Engine::fieldRunX`'s skip and
+faithful branches are the same logic (only guest-frame/ra discipline differs), and
+`Engine::fieldFrameX`'s only skip-side difference is routing 0x80026368 to the substrate instead
+of the native `Array8Dispatch::tick` — both run the same guest work. The transition is driven by a
+content object handler, not by a collapsed init.
+
+**DEAD END — the requested "same replay on the faithful branch" gate is NOT RUNNABLE:**
+- `PSXPORT_PC_SKIP=0` and `PSXPORT_GATE=1` trace *identically to each other* and diverge from the
+  default within 200 frames. The field advances at roughly HALF the pad-frame rate on the
+  un-collapsed path: Tomba's X over f200→400 is 4685→7951 (16.3 u/frame) vs 4877→11120
+  (31.2 u/frame) on the default. Tomba never gets near the house.
+- A 2×-stretched pad (`scratch/house_2x.pad`) does not rescue it: on the faithful path Tomba stops
+  dead at X≈9550 and stays there for 1300 frames with RIGHT still held — an independent
+  pc_faithful defect on this route.
+- **Frame-indexed pad replays are not portable across the pc_skip fork.** Any replay-based
+  skip-vs-faithful comparison needs a state rendezvous, not a frame index.
+- REPL `gate on` is NOT an in-place oracle either: flipping `psx_fallback` mid-run resets the stage
+  machine (`sm[0x4a]/[0x4c]/[0x4e]` → 0) and immediately recomp-MISSes 0x80109450 (abort).
+
+### 5. The CAMERA symptom is not in the capture, but a related freeze is
+The pad is idle from f700 to the end, so "camera stops following after going back outside" never
+happens inside the recording. Driving out manually reproduces something adjacent: after the
+interior→field transition Tomba's master position (0x800E7EAC/B0/B4) latches at (14400, 4360) and
+does NOT respond to left/right/up/down for 800 frames. Needs its own capture that actually walks
+back outside.
+
+**refs:** kanban #47; `scratch/logs/{skip_trace,faithful_trace,gate_wav,faithful2x,cw,spudbg,exit}.log`,
+`scratch/wav/{house,exit}.wav`, `scratch/screenshots/padshot_*.ppm`.
