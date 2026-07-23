@@ -195,10 +195,13 @@ void BehaviorDispatch::dispatchObj(uint32_t obj, uint32_t handler) {
   // overrides::dispatch), PLUS the pc_skip fork rec_dispatch doesn't need (registered overrides are
   // required byte-exact even under pc_faithful; the beh_* table is not — it's an explicit shortcut).
   bool substrateOnly = c->game->psx_fallback || c->game->verify.inSubstrateLeg || !c->game->pc_skip;
-  // MIRROR-VERIFY the native behaviour legs too. The beh_* table dispatches OUTSIDE the override
-  // registry, so PSXPORT_MIRROR_VERIFY=all never covered it — which is exactly how a bad handler
-  // (0x800739AC, the 2026-07-21 save-sign softlock) sat undetected: no gate compared its guest writes
-  // against the substrate's. Now `PSXPORT_MIRROR_VERIFY=<addr>` works on any behaviour handler.
+  // MIRROR_VERIFY reaches the behaviour legs here too — but MEASURE BEFORE TRUSTING IT ON A REBUILD
+  // (2026-07-23, kanban #10): its strict leg-2 replay sets verify.inSubstrateLeg, which suppresses the
+  // WHOLE override registry, so every nested native engine class differs between the legs. A control
+  // run with both legs on the substrate for 0x80124E74 — beh natives off entirely — still reported
+  // 37167 mismatches (hi/lo from a multiply, ~14k object bytes). For a beh_* REBUILD the only sound
+  // gate is the end-state A/B in tools/beh_ab.sh (PSXPORT_BEH_SUBSTRATE + dumpram, nested overrides
+  // native in both runs so they cancel), with traceDispatch below to attribute what it finds.
   // PSXPORT_DEBUG=uitrig — trace the scene-UI trigger's sub-state machine from the DISPATCH SITE, so
   // the trace is identical in shape whether the native or the substrate leg runs. (Tracing inside the
   // native body cannot compare the two: forcing the handler to the substrate means the native body,
@@ -209,7 +212,37 @@ void BehaviorDispatch::dispatchObj(uint32_t obj, uint32_t handler) {
              c->mem_r8(o + 5), c->mem_r8(o + 0x2b), c->mem_r16(0x800E7E68u), c->mem_r8(0x800E7E80u));
   }
   if (substrateOnly) { rec_dispatch(c, handler); return; }
+  if (traceDispatch(obj, handler)) return;
   MV_CHECK(c, handler, { if (!dispatchNative(handler)) rec_dispatch(c, handler); });
+}
+
+// traceDispatch — the per-invocation node-delta log (see header). Same shape on both legs.
+bool BehaviorDispatch::traceDispatch(uint32_t obj, uint32_t handler) {
+  Core* c = this->core;
+  if (mTraceAddr == 0) {
+    const char* e = cfg_str("PSXPORT_BEH_TRACE");
+    mTraceAddr = (e && *e) ? ((uint32_t)strtoul(e, nullptr, 16) & 0x1FFFFFFFu) | 0x80000000u
+                           : 0xFFFFFFFFu;
+  }
+  if (handler != mTraceAddr) return false;
+
+  uint8_t before[kTraceNodeBytes];
+  for (uint32_t i = 0; i < kTraceNodeBytes; i++) before[i] = c->mem_r8(obj + i);
+  if (!dispatchNative(handler)) rec_dispatch(c, handler);
+
+  // One line per invocation, listing every node byte the handler changed. An invocation that changes
+  // nothing still prints, so the two legs' logs stay line-aligned and `diff` reports the FIRST
+  // invocation that differs rather than a shifted stream.
+  char delta[512];
+  int n = 0;
+  for (uint32_t i = 0; i < kTraceNodeBytes && n < (int)sizeof delta - 24; i++) {
+    const uint8_t now = c->mem_r8(obj + i);
+    if (now != before[i]) n += snprintf(delta + n, sizeof delta - n, " %02X:%02X->%02X", i, before[i], now);
+  }
+  delta[n] = '\0';
+  cfg_logf("behtrace", "f%u %08X obj=%08X v0=%08X%s", c->game->timing.logicFrame, handler, obj,
+           c->r[2], delta);
+  return true;
 }
 
 bool BehaviorDispatch::dispatchNative(uint32_t handler) {
@@ -227,8 +260,30 @@ bool BehaviorDispatch::dispatchNative(uint32_t handler) {
     if (strcasestr(s_forced, hex)) return false;
   }
   for (const NativeBeh& b : kTable)
-    if (b.addr == handler) { b.fn(c); return true; }
+    if (b.addr == handler) { noteNativeHit(handler, b.name); b.fn(c); return true; }
   return false;
+}
+
+// noteNativeHit — the `behcov` coverage probe (see header). Counts per handler; logs the first hit
+// and every decade after it, so one replay run yields "which handlers did this scenario reach, and
+// roughly how hard" in a greppable form.
+void BehaviorDispatch::noteNativeHit(uint32_t handler, const char* name) {
+  // Latch the channel flag once: this runs on EVERY native behaviour dispatch (thousands per frame),
+  // and cfg_dbg does a channel-table lookup per call. Same latching convention as VerifyHarness::on.
+  if (mCovOn < 0) mCovOn = cfg_dbg("behcov") ? 1 : 0;
+  if (!mCovOn) return;
+  Cov* slot = nullptr;
+  for (int i = 0; i < mNCov; i++) if (mCov[i].addr == handler) { slot = &mCov[i]; break; }
+  if (!slot) {
+    if (mNCov >= kMaxCov) return;
+    slot = &mCov[mNCov++];
+    slot->addr = handler;
+    slot->hits = 0;
+  }
+  const uint64_t n = ++slot->hits;
+  bool milestone = n == 1;
+  for (uint64_t decade = 10; decade <= 1000000 && !milestone; decade *= 10) milestone = (n == decade);
+  if (milestone) cfg_logf("behcov", "%08X %-28s hits=%llu", handler, name, (unsigned long long)n);
 }
 
 const char* BehaviorDispatch::nativeName(uint32_t handler) const {

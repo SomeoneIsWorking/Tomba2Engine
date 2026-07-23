@@ -465,3 +465,108 @@ reproduce under `PSXPORT_PC_SKIP=0` or under the oracle (`PSXPORT_GATE=1`), beca
 free-roam ~800 frames later and the same button stream drives Tomba somewhere else. Confirmed by
 running both to f4000 with a cut-mode watchpoint — the pickup never happens. Do not treat "the oracle
 does not reproduce it" as evidence about the bug.
+
+## beh_* rebuild A/B campaign (kanban #10) — coverage, the instrument, and 1 root-caused divergence (2026-07-23)
+
+- **task:** the 65-entry native behaviour table (`game/object/behavior_dispatch.cpp`) is REBUILDS, not
+  transcriptions, so `port_check` cannot gate them. Two shipped user-visible bugs came from a silent
+  rebuild divergence (#2 `beh_prng_velocity_machine`'s hardcoded 3 taken from the delay slot of the
+  other branch's `j`; #1/#30 `proximityCheck`'s sign-extend where the guest `andi` zero-extends).
+  This campaign measured coverage, then differentially A/B'd every REACHED handler.
+
+- **THE INSTRUMENT — `PSXPORT_MIRROR_VERIFY` IS NOT A VALID GATE FOR A beh_* REBUILD (measured, not
+  argued).** Its leg 2 sets `verify.inSubstrateLeg`, which suppresses the WHOLE override registry, so
+  every nested native engine class differs between the two legs. Control run on
+  `replays/bugs/bucket-softlock.pad` with BOTH legs forced to the substrate for the armed handler AND
+  every beh_* native disabled: **37167 mismatches for 0x80124E74 alone** (hi/lo from a multiply, ~14k
+  object bytes at 0x800Fxxxx). A green MIRROR_VERIFY on a beh_* means nothing; a red one is
+  unattributable. (The kanban note claiming a clean `=all` survey over this capture is falsified.)
+  Also: `strictArmed` parses its list with `strtoul(..., 0)`, so a bare `8002918C` is read as DECIMAL
+  and the run silently checks NOTHING — the address list MUST be `0x`-prefixed.
+- **The valid instrument is END-STATE comparison at a rendezvous:** run the whole scenario twice,
+  swapping only the handler under test (`PSXPORT_BEH_SUBSTRATE=<addr>`), and diff the 2 MB RAM dump
+  PLUS the `.spad` sidecar. Nested overrides are native in BOTH runs, so they cancel. Determinism of
+  the rig was verified first (two independent runs of the same config: 0 differing bytes, RAM + spad).
+  Tooling: **`tools/beh_ab.sh`** (`cov` / `base` / `one` / `sweep`) + **`PSXPORT_DEBUG=behcov`**
+  (per-handler reach counter) and **`PSXPORT_BEH_TRACE=<addr>` + `PSXPORT_DEBUG=behtrace`**
+  (per-invocation node-byte delta logged at the DISPATCH SITE, so the two legs' logs are line-aligned
+  and `diff` names the first divergent invocation/object/field).
+
+- **COVERAGE (measured, `behcov`, per replay — reached / 65 table entries):** bucket-softlock 53,
+  save-sign-softlock 54, seesaw-weight 54, weapon-impact-bucket 54, house-on-the-point 53,
+  hut-entry-door-freeze 53, boot-smoke/short-session 4. **Union: 54 reached, 11 never reached.**
+  Most reached handlers fire 1000+ times on the bucket capture (`substate_edge_orchestrator` 10000+;
+  `seaside_prox_substate` only 1).
+  **The 11 with NO scenario in the replay library** (all cutscene-script driven — the library has no
+  A06/A08 cutscene capture): `0x80041098 script_interp_step` (its BODY is exercised — `beh_sop_intro_pilot`
+  and `beh_a06_scripted_actor` call `ScriptInterp::step` directly — but the TABLE entry never dispatches,
+  so `PSXPORT_BEH_SUBSTRATE` cannot swap it; it needs a different A/B), `0x801189E8 a06_multi_actor`,
+  `0x801280D0 a08_scene_actor`, `0x8013AA14 a06_scripted_actor`, and the seven op-0x3E fade/script
+  fnptrs `0x80139728 / 0x8013AEF0 / 0x8013AFD8 / 0x8013B074 / 0x8013B178 / 0x8013B274 / 0x8013B29C`.
+  **These need an A06/A08 cutscene replay capture before they can be verified at all.**
+
+- **ROOT-CAUSED + FIXED — `ActorZonedAttacker::defaultSubStateMachine` (0x80143A00): the node[5]
+  jump-table arms were SHIFTED BY ONE.** Found because forcing `beh_id_compare_motion_dispatch`
+  (0x80145230) to its gen body changed 148 bytes of object state on the bucket capture (first at
+  f421); `PSXPORT_THUNK_FORCE_GEN` bisected the 6-address ActorZonedAttacker cluster to this one
+  address (forcing it alone reproduced the same 148 bytes; the other five were 0).
+  The real jump table (read out of the running game at **0x8010A1EC**) is
+  `[0]=80143A50 [1]=80143A68 [2]=80143BC8 [3]=80143D84 [4]=80143C78 [5]=80143C00 [6]=80143F24 ...`
+  — entry [0] is NOT an alias of entry [1]: it clears `node[0x62] &= ~4` and re-packs
+  `node[4..7] = 0x00000101` as one word, and only then falls into [1]. The rebuild collapsed the two
+  into a single `case 0`, which dropped both writes AND slid every arm below: `node[5]==1` ran entry
+  [2]'s body, `==2` ran [3], `==3` ran [4], `==4` ran [5] (arms 6..15 were never shifted). Symptom at
+  the divergence: an actor in move-id 1 called `0x801425F0` instead of `0x80142788`, so it entered a
+  different attack arm — `node[7]` 1 vs 2, cooldown `node[0x40]` 44 vs 60, heading `node[0x38]`
+  0xD374 vs 0xD3F0, which then propagated into `Animation::applyFrame` positions.
+  **Gate: `PSXPORT_THUNK_FORCE_GEN=0x80143A00` on bucket-softlock f2100 → 0 differing bytes (RAM +
+  spad), was 148.** Two further fidelity defects were found in the same body while reading it against
+  `ov_a00_gen_80143A00` and fixed in the same pass: case 0xC compared `(int16_t)v0 < 800` where the
+  guest `slti` compares the FULL 32-bit v0 (a distance in 0x8000..0xFFFF read as negative), and its
+  near branch jumped to 0x80144550 (which first tests v0) instead of the guest's 0x80144558 (the
+  unconditional `node[6] = 3` store).
+
+- **FIXED — `beh_id_compare_motion_dispatch` (0x80145230) had no guest stack frame.** `abi_extract
+  --contract` says frame=56 with s0..s4+ra spilled at sp+32..52; the native descended nothing. Not
+  bookkeeping: its SPAWN block hands `FUN_8003116C` a pointer to an arg struct built at `sp+0x10`, so
+  the struct was assembled 56 bytes high, over the CALLER's live locals, and the fields the callee
+  reads but this code does not write (+0x10/+0x14/+0x18) came from unrelated data. Mirroring the frame
+  removed ALL residual stack churn between the legs (frames 411-420 went from 5-16 differing bytes to
+  0), which is what made the remaining 148-byte object diff cleanly isolable.
+- **FIXED — `beh_actor_move_sm` (0x8011D988) called `Actor::boundsCull` instead of dispatching
+  0x8007778C.** `Actor::boundsCull` is a separate rebuild that inlines `performBaseCull` rather than
+  dispatching 0x8007712C, so the handler took a different cull path from the guest body it replaces —
+  the dispatch trace showed the gen leg making a `Cull::cullWrapper ra=8011D9F4` call this leg never
+  made. Now routed through the registry with the RE'd ra constants (`guest_fn(c, 0x8007778C,
+  0x8011D9F4/0x8011DBA4, nd)`), per CLAUDE.md's one-registry rule. (This did NOT close its end-state
+  diff — see OPEN below.)
+
+- **A/B RESULT — bucket-softlock (f2100, 54 reached handlers, RAM+spad): 52 of 54 are 0 differing
+  bytes** (final binary, after the fixes below), i.e. the rebuild is equivalent on every path that
+  capture executes. `0x80145230` went 148 -> 0 with the ActorZonedAttacker fix.
+  Residual on that capture: `0x80124E74 beh_jumptable_release_trigger` = **1 byte** at 0x800BF82C, and
+  it is NOT a rebuild slip — the store is the SAME site in both legs (`gen_func_8007074C` writing the
+  3-word block at 0x800BF824/28/2C from `gen_func_800424F0`), and the differing byte is the LOW half of
+  a `coord << 16` word that the guest's own opcode handler reads from an UNINITIALIZED stack slot
+  (0x800424F0 writes only sp+26/30/34 and then loads sp+24/28/32 as words). The value is guest stack
+  history, so it moves with any legal difference in stack churn. Watchpoint evidence:
+  `scratch/logs/beh_ab/cw_forced.log` vs `cw_native.log` (native 0x08000000, gen 0x080000C0).
+
+- **OPEN — `0x8013C9C0 beh_scatter_ramp_machine`, 100 bytes on bucket-softlock (0x800D28AE region).**
+  Localised, not root-caused: `behtrace` shows the FIRST divergent invocation is f160 on objects
+  0x800EE488/0x800EE510, where the native writes **`node[1] = 1` and the guest body does not** (every
+  other node byte in that invocation is identical). No write to `obj+1` exists in
+  `game/ai/beh_scatter_ramp_machine.cpp`, so it comes from a callee the native reaches and the gen does
+  not: the dispatch trace forks at the same point, native into
+  `leaf_80024F18` / `Engine::fieldTargetCursor` / `Animation::advanceLinkChain`, gen into two
+  `Math::isqrt16` calls. Next step is that call site.
+
+- **OPEN — 2 handlers still diverge on `replays/bugs/house-on-the-point.pad` (f4500):**
+  `0x8011D988 beh_actor_move_sm` (2071 bytes) and `0x80121978 beh_id_routed_dispatch` (30 bytes).
+  Both diverge FIRST at the graphics-record freelist cursor **0x800E7E74** and its count **0x800ED098**,
+  then in the record bytes at 0x800ED7xx — i.e. the two legs bind a DIFFERENT NUMBER of graphics
+  records. For 0x8011D988 the per-invocation node deltas are IDENTICAL across all 543 invocations
+  (`behtrace`) and, after the cull-routing fix above, the registry dispatch stream is identical too —
+  so the remaining difference is in a native that is not registry-dispatched (an inline `eng(c).*`
+  call) or in the record-allocating callee's arguments. NOT yet root-caused. Note the same replay is
+  kanban #47's state-corruption repro, so these may be the same defect seen from the other end.

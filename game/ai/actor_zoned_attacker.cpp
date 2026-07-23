@@ -403,7 +403,23 @@ void ActorZonedAttacker::defaultSubStateMachine(Core* c) {
 
   const uint8_t state5 = c->mem_r8(node + 5);
   switch (state5) {
-    case 0: {
+    // JUMP-TABLE ORDER (table @0x8010A1EC, read out of the running game — NOT the address order the
+    // labels appear in):
+    //   [0]=0x80143A50 [1]=0x80143A68 [2]=0x80143BC8 [3]=0x80143D84 [4]=0x80143C78 [5]=0x80143C00
+    //   [6]=0x80143F24 [7]=0x801440E8 [8]=0x80144504 [9]=0x80144848 [10]=0x8014487C [11]=0x801441A8
+    //   [12]=0x80144438 [13]=0x8014436C [14]=0x80144700 [15]=0x801447A4
+    // Entry [0] is NOT an alias of entry [1]: it clears the stateEcho bit, re-packs node[4..7] as one
+    // word, and only THEN falls into [1]. The rebuild collapsed the two into a single `case 0` — which
+    // dropped both writes AND shifted every arm below by one, so node[5]==1 ran entry [2]'s body,
+    // ==2 ran [3], ==3 ran [4], ==4 ran [5]. (Arms 6..15 were never shifted.) Symptom: an actor in
+    // move-id 1 called 0x801425F0 instead of 0x80142788, taking a different attack arm — node[7] 1 vs
+    // 2, cooldown node[0x40] 44 vs 60, heading node[0x38] 0xD374 vs 0xD3F0. Found 2026-07-23 by the
+    // beh_* end-state A/B (kanban #10), bisected here with PSXPORT_THUNK_FORCE_GEN.
+    case 0:
+      a.setStateEcho((uint16_t)(a.stateEcho_u() & 0xfffb));   // sh node[0x62] &= ~4    [0x80143A50]
+      c->mem_w32(node + 4, 0x101u);                           // sw 0x101,node[4..7]    [0x80143A60]
+      [[fallthrough]];                                        // into entry [1]         [0x80143A68]
+    case 1: {
       uint8_t n6 = c->mem_r8(node + 6);
       if (n6 == 0) { c->mem_w16(node + 6, 1); }
       else if (n6 != 1) { return; }
@@ -454,9 +470,7 @@ void ActorZonedAttacker::defaultSubStateMachine(Core* c) {
       }
       goto LAB_80144908;
     }
-    case 1: {
-      // (case 0 falls through into case 1 in the recompiled body — see case 0 above; this arm
-      // is reached both directly on entry with node[5]==1 and via fallthrough from case 0.)
+    case 2: {                                                 // entry [2]              [0x80143BC8]
       uint8_t n6 = c->mem_r8(node + 6);
       if (n6 == 0) { c->mem_w16(node + 6, 1); }
       else if (n6 != 1) { return; }
@@ -464,7 +478,7 @@ void ActorZonedAttacker::defaultSubStateMachine(Core* c) {
       uVar6 = (uint32_t)c->r[R_V0] << 16;
       break;
     }
-    case 2: {
+    case 3: {                                                 // entry [3]              [0x80143D84]
       uint8_t bVar2 = c->mem_r8(node + 6);
       if (bVar2 != 1) {
         if (1 < bVar2) {
@@ -522,7 +536,7 @@ LAB_80143ea0_tail_skip:
         goto LAB_80144908;
       }
     }
-    case 3: {
+    case 4: {                                                 // entry [4]              [0x80143C78]
       uint8_t bVar2 = c->mem_r8(node + 6);
       if (bVar2 != 1) {
         if (1 < bVar2) {
@@ -563,7 +577,7 @@ LAB_80143d00_tail_skip:
       }
       goto LAB_80143c48;
     }
-    case 4: {
+    case 5: {                                                 // entry [5]              [0x80143C00]
       uint8_t bVar2 = c->mem_r8(node + 6);
       if (bVar2 != 1) {
         if (1 < bVar2) {
@@ -582,8 +596,8 @@ LAB_80143d00_tail_skip:
       }
       goto LAB_80143c48;
     }
-    case 5: {
-      // (case 4's "goto LAB_80143c48" lands in case 5's own fallback block below.)
+    {   // 0x80143C48 — the shared tail entries [4] and [5] both jump to; NOT a jump-table entry
+      // (reached only by `goto LAB_80143c48` from the two arms above.)
 LAB_80143c48:
       call1(c, node, FN_801425F0);
       iVar5 = (int32_t)((uint32_t)c->r[R_V0] << 16);
@@ -832,8 +846,16 @@ LAB_80143c48:
         c->r[R_A0] = (uint32_t)(int32_t)(int16_t)(nx - tx);
         c->r[R_A1] = (uint32_t)(int32_t)(int16_t)(nz - tz);
         rec_dispatch(c, FN_800781E0);
-        iVar5 = (int32_t)(int16_t)c->r[R_V0];
-        if (iVar5 < 800) goto LAB_80144550;
+        // `slti v0,v0,800` [0x80144488] — the compare is on the FULL 32-bit v0, with NO
+        // `sll 16 / sra 16` first (unlike the range ladders elsewhere in this cluster, which do
+        // sign-extend). The rebuild sign-extended the low half, so a distance in 0x8000..0xFFFF read
+        // as negative and took the near branch the guest does not take.
+        // And the near branch jumps to 0x80144558 — the STORE — not to 0x80144550, which first tests
+        // the incoming v0. Jumping to 0x80144550 added a guest-absent `v0 == 0` early-out.
+        if ((int32_t)c->r[R_V0] < 800) {           // bnez -> 0x80144558 [0x8014448C]
+          c->mem_w16(node + 6, 3);                 // sh 3,6(s0)        [0x80144558]
+          return;
+        }
         call2(c, node, FN_80142A94, 800u, 0x1e00u);
         const int32_t sVar4 = (int32_t)(int16_t)c->r[R_V0];
         uVar7 = 0xa01u;

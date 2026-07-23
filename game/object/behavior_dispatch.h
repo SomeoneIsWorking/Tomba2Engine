@@ -47,4 +47,39 @@ public:
   //   object's logic still runs as the recomp substrate. Used by the `ents` REPL diagnostic to
   //   flag which objects are owned.
   const char* nativeName(uint32_t handler) const;
+
+  // ---- COVERAGE (`PSXPORT_DEBUG=behcov`) --------------------------------------------------------
+  // Which native behaviour handlers a given scenario/replay actually REACHES. A rebuilt beh_* body
+  // can only diverge from the guest body it replaces on a path that EXECUTES, so an equivalence A/B
+  // (PSXPORT_MIRROR_VERIFY=<addr>) over a handler this scenario never dispatches proves NOTHING.
+  // Coverage therefore has to be MEASURED before an A/B campaign, per replay — and it cannot be read
+  // out of the mirror-verify log, whose "OK (pass #N)" line is throttled 1-in-64 against a SINGLE
+  // counter shared by every armed address (verify_harness.cpp), so a rarely-reached handler can be
+  // checked dozens of times and never print.
+  // Emits one line the FIRST time each handler runs natively, then at log-scale milestones
+  // (10/100/1000/…), so the log doubles as an order-of-magnitude hit count without spamming a
+  // handler that fires for every object every frame.
+  void noteNativeHit(uint32_t handler, const char* name);
+
+  // ---- PER-INVOCATION NODE DELTA (`PSXPORT_BEH_TRACE=<hex addr>`) -------------------------------
+  // The A/B tool that ATTRIBUTES a divergence once tools/beh_ab.sh has found one. Wraps the dispatch
+  // of one handler and logs, per invocation, exactly which bytes of the object's node block the
+  // handler CHANGED (frame, object, offset, old->new). Because it sits at the DISPATCH SITE, the log
+  // has the same shape whether the native body or the substrate gen body ran — so `diff` between the
+  // native run and the PSXPORT_BEH_SUBSTRATE=<addr> run points at the first invocation, object and
+  // node field where the rebuild stops matching the guest, which is where the instruction-level slip
+  // lives. (Tracing inside the native body cannot do this: forcing the handler to the substrate
+  // means the native body, and its trace, never execute.)
+  //   Returns true when it ran the dispatch itself (handler armed); false = caller dispatches.
+  bool traceDispatch(uint32_t obj, uint32_t handler);
+
+private:
+  static constexpr uint32_t kTraceNodeBytes = 0x80;   // node block width the delta log covers
+  uint32_t mTraceAddr = 0;    // 0 = unparsed, 0xFFFFFFFF = off
+
+  static constexpr int kMaxCov = 128;
+  struct Cov { uint32_t addr; uint64_t hits; };
+  Cov mCov[kMaxCov] = {};
+  int mNCov = 0;
+  int mCovOn = -1;            // latched cfg_dbg("behcov") (-1 = not latched yet)
 };

@@ -70,7 +70,14 @@ void beh_actor_move_sm(Core* c) {
       return;
     }
     // STATE 2
-    Actor(c, nd).boundsCull();                             // FUN_8007778C — Actor::boundsCull (thin wrapper native)
+    // Route 0x8007778C through the OVERRIDE REGISTRY (guest_fn/guest_leaf -> rec_dispatch), not the
+    // local Actor::boundsCull rebuild. The two are not the same code: boundsCull inlines
+    // performBaseCull instead of dispatching 0x8007712C, so this handler was taking a different cull
+    // path from the guest body it replaces — the A/B (kanban #10, house-on-the-point) showed the gen
+    // leg allocating graphics records this leg never allocated (freelist cursor 0x800E7E74 + count
+    // 0x800ED098 + 2 KB of record bytes diverged) with the missing `Cull::cullWrapper ra=8011D9F4`
+    // call as the first difference in the dispatch trace.
+    guest_fn(c, 0x8007778Cu, 0x8011DBA4u, nd);             // FUN_8007778C          [0x8011DBA0]
     {
       uint8_t n5 = c->mem_r8(nd + 5);
       uint8_t bf809 = c->mem_r8(0x800bf809u);
@@ -97,7 +104,7 @@ void beh_actor_move_sm(Core* c) {
   }
 
   // STATE 1
-  Actor(c, nd).boundsCull();                              // FUN_8007778C — Actor::boundsCull
+  guest_fn(c, 0x8007778Cu, 0x8011D9F4u, nd);              // FUN_8007778C          [0x8011D9EC]
   if (c->mem_r8(nd + 0x2b) != 0) {
     c->mem_w8(nd + 0x2b, (uint8_t)(c->mem_r8(nd + 0x2b) - 1));
     goto Lcommon;

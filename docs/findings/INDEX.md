@@ -2,6 +2,7 @@
 
 Grep this (or `tools/findings.py <words>`) BEFORE investigating a bug — to find whether it's
 already solved or ruled out. 255 findings across 12 subsystems.
+already solved or ruled out. 253 findings across 12 subsystems.
 
 
 ## ai
@@ -11,6 +12,7 @@ already solved or ruled out. 255 findings across 12 subsystems.
 - **Combat-cluster autonav coverage gap — CLOSED for 2/3 addresses; combat-leg SBS divergence RESOLVED (2026-07-10)** [?] —   ↪ docs/findings/ai.md
 - **Jump-over pickup (kanban #1, reopened as #30) — a zero-extended gate ported sign-extended (2026-07-22)** [?] —   ↪ docs/findings/ai.md
 - **Water-pump seesaw does not sink under Tomba's weight — the node[0x2b] contact producer never fires (kanban #8, 2026-07-21)** [✅ FIXED AND CONFIRMED. USER verified on the live game 2026-07-22 ("it's already working] — grabbing the seaside water-pump seesaw while climbing does not tilt it; Tomba's weight has  ↪ docs/findings/ai.md
+- **beh_* rebuild A/B campaign (kanban #10) — coverage, the instrument, and 1 root-caused divergence (2026-07-23)** [?] —   ↪ docs/findings/ai.md
 
 ## animation
 

@@ -40,6 +40,7 @@
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include "animation.h" // Animation::step (FUN_80076D68)
 #include "rng.h"       // class Rng (via rngOf(c).next())
+#include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 
@@ -47,9 +48,26 @@ namespace {
 
 constexpr uint32_t BEH_FN = 0x80145230u;
 
+// GUEST FRAME (abi_extract 0x80145230 --contract): the guest body opens `addiu sp,-56` and spills
+// s0..s4 + ra. Mirroring it is not bookkeeping here — the SPAWN block below hands FUN_8003116C a
+// pointer to an arg struct built at sp+0x10, so without the descent the struct was assembled 56
+// bytes high, on top of the CALLER's live locals, and every field FUN_8003116C reads but this code
+// does not write (+0x10/+0x14/+0x18) came from unrelated data. Found 2026-07-23 by the beh_* A/B
+// (kanban #10): forcing this handler to its gen body changed 148 bytes of object state on
+// replays/bugs/bucket-softlock.pad, first at f420.
+constexpr GuestFrameSpill kSpills[] = {
+  { 16, 32 },   // s0
+  { 17, 36 },   // s1
+  { 18, 40 },   // s2
+  { 19, 44 },   // s3
+  { 20, 48 },   // s4
+  { 31, 52 },   // ra
+};
+
 }  // namespace
 
 void beh_id_compare_motion_dispatch(Core* c) {
+  GuestFrame<56, 6> frame(c, kSpills);
   const uint32_t obj = c->r[4];                        // s0 = a0 = node              [0x80145238]
   const uint32_t s4  = obj + 0x60;                     // s4 = node+0x60              [0x8014525C]
   uint8_t st = c->mem_r8(obj + 4);                     // v1 = node[4] (state)        [0x80145250]
