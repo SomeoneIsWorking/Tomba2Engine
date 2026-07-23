@@ -8,6 +8,7 @@
 #include "game_ctx.h"
 #include "cfg.h"
 #include "scene/scene_events.h"
+#include "scene/scene_flags.h"
 #include "core/engine.h"
 #include "game.h"              // c->game->verify — the shared A/B verify scaffold
 #include "override_registry.h"   // overrides::install — the one native-override registry
@@ -40,7 +41,6 @@ static const uint32_t CMD_PHASE   = 120u;  // u8  — phase (delayedTrigger)
 static const uint32_t LATCH_HALF_A   = 0x800E7EAEu;  // int16 param-latch half A (selector bit 0)
 static const uint32_t LATCH_HALF_B   = 0x800E7EB6u;  // int16 param-latch half B (selector bit 1)
 static const uint32_t ARM_READY_BYTE = 0x800BF80Eu;  // u8 — set once this frame's arm has fired
-static const uint32_t FLAG_TABLE_BASE= 0x800BF850u;  // flag/param table; entry byte @ +argA+324
 
 uint32_t SceneEvents::classSize(uint8_t argKey, bool nibbleLo) {
   Core* c = this->core;
@@ -167,7 +167,7 @@ uint32_t SceneEvents::applyFlagOp(Core* c) {
     // Mode 0: SET the flag byte outright.
     const uint32_t idx = (uint32_t)(int16_t)c->mem_r16(rec + CMD_ARG_A);
     const uint32_t val = c->mem_r8(rec + CMD_ARG_B);
-    c->mem_w8(FLAG_TABLE_BASE + idx + 324u, (uint8_t)val);
+    c->mem_w8(scene_flags::flagAddr((int32_t)idx), (uint8_t)val);
     return 1;
   }
 
@@ -175,10 +175,10 @@ uint32_t SceneEvents::applyFlagOp(Core* c) {
     // Mode 1: OR, mode 2: AND — read-modify-write the same flag byte.
     const uint32_t idx  = (uint32_t)(int16_t)c->mem_r16(rec + CMD_ARG_A);
     const uint32_t bits = c->mem_r8(rec + CMD_ARG_B);
-    const uint32_t addr = FLAG_TABLE_BASE + idx;
-    const uint32_t cur  = c->mem_r8(addr + 324u);
+    const uint32_t addr = scene_flags::flagAddr((int32_t)idx);
+    const uint32_t cur  = c->mem_r8(addr);
     const uint32_t val  = (mode == 1) ? (cur | bits) : (cur & bits);
-    c->mem_w8(addr + 324u, (uint8_t)val);
+    c->mem_w8(addr, (uint8_t)val);
   }
 
   // Every path (including a negative/>=3 mode) returns 1.
