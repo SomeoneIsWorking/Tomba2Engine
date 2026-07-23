@@ -22,7 +22,7 @@
 - **#43 pc_render omits the field HUD minimap (areas 2, 7)**  `render`
 - **#44 pc_render omits the central vortex/portal effect in area 15**  `render`
 - **#46 recomp-MISS 0x80028E64 latent (label not emitted as entry) — NOT reproduced on current main**  `bug,recomp`
-- **#47 Entering 'House on the Point' corrupts game state (music stops, camera stops following, interior vibrates)**  `bug`
+- **#47 Entering 'House on the Point' corrupts game state (music stops, camera stops following, interior vibrates)**  `bug,pc-skip`
 
 ## DOING (2)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
