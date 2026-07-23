@@ -2069,3 +2069,31 @@ frame-indexed replay is only a valid route for the CONFIG it was captured under.
 
 **refs:** kanban #60; override_registry.{h,cpp} (`coverage`); sbs.cpp (coverage print, `PSXPORT_SBS_CANARY`,
 `PSXPORT_SBS_PAD_REPLAY`, core-A pc_skip=false at ~1975); info-system C007 (coverage), I009 (canary).
+
+### RAISING coverage — a driven gate route works, byte-exact (2026-07-23, follow-up)
+
+The pad-replay wiring above holds lockstep but existing `.pad` captures don't help (pc_skip
+cadence). The route that DOES work is a `PSXPORT_SBS_KEYS` string authored against SBS's own
+frame axis — `replays/gate/seaside-sweep.sbskeys`. Measured, cold boot to f27500:
+
+| route | coverage | divergences |
+|---|---|---|
+| boot only, no input | 236/411 (57%) | 0 |
+| + tap through the opening cutscene | 268/411 (65%) | 0 |
+| + free-roam walk/jump/grab + item menu | **273/411 (66%)** | **0** |
+
+So driving IS the lever, and every driven frame stayed byte-exact — that field code is
+verified-correct, not merely unreached. The intro is INPUT-GATED (dialogs advance on Cross),
+so a route must tap through ~f1650..f17000 before any walking registers; free-roam starts
+~f17000 in the area-0 seaside start.
+
+The residual ~138 is the CONTENT WALL, not a routing failure: 61 are
+`game/core/field_owned_leaves.cpp` (event-triggered field leaves) and most of the rest are
+enemy/object behaviours for actors not present in the seaside start (actor_zoned_attacker,
+beh_toy_spawn_family, actor_sm_reward, …). Those need the gate driven THROUGH the game into
+other areas — a longer map-aware route, or a real `pc_skip=false` playthrough capture — not a
+denser sweep of one screen. The coverage line makes this a tracked, shrinking number instead
+of a mystery: add routes to `replays/gate/` that reach new areas and watch it climb.
+
+**refs:** replays/gate/README.md + seaside-sweep.sbskeys; PSXPORT_SBS_KEYS (64 KB buffer),
+PSXPORT_SBS_EXIT_FRAME, PSXPORT_SBS_SHOT in config.md.
