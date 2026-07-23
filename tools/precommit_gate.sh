@@ -39,6 +39,14 @@ if [ -f tools/go_public.py ]; then
   fi
 fi
 
+if [ -f tools/info.py ]; then
+  out="$(python3 tools/info.py check 2>&1)"
+  case "$out" in
+    *DISTRUSTED*|*FALSIFIED*) bad "information system flags:"; printf '%s\n' "$out" | sed 's/^/  /' ;;
+    *) say "no distrusted instruments, no falsified claims" ;;
+  esac
+fi
+
 if [ -f tools/codemap.py ]; then
   dup="$(python3 tools/codemap.py --dup-installs 2>/dev/null | tail -1)"
   case "$dup" in
