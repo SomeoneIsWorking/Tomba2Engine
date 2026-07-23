@@ -18,7 +18,7 @@ Zero-dependency CLI over greppable Markdown cards in docs/kanban/cards/. Each ca
 
 Evidence images live in docs/reference/issues/ (committed) — a card just records their paths.
 """
-import sys, os, re, glob, argparse, datetime, pathlib
+import re, sys, os, re, glob, argparse, datetime, pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CARDS = ROOT / "docs" / "kanban" / "cards"
@@ -68,7 +68,38 @@ def card_by_id(i):
 
 def path_for(i, title): return CARDS / f"{int(i):03d}-{slug(title)}.md"
 
+# ---- leak guard -------------------------------------------------------------------------------
+# Card text is written from the shell, and a card body is a COMMITTED file. Backticks inside a
+# double-quoted shell string are command-substituted BEFORE kanban.py ever sees them, so a body
+# mentioning e.g. the REPL `w` command silently arrives carrying the real `w` output — username,
+# tty, login time. That happened (card #34) and shipped; go_public.py flagged it as a blocking
+# publication leak days later, and taking it out meant rewriting the commit.
+# Reject it here, at the point of entry, where the fix is free: re-run with the body in a file
+# (--body "$(cat file)") or with single quotes so no substitution happens.
+LEAK_PATTERNS = [
+    (re.compile(r"/home/[A-Za-z0-9._-]+"),          "an absolute /home path"),
+    (re.compile(r"/Users/[A-Za-z0-9._-]+"),         "an absolute /Users path"),
+    (re.compile(r"^\s*\S+\s+tty\d", re.M),          "`w`/`who` output (tty line)"),
+    (re.compile(r"\buid=\d+\(.*?\)\s+gid=\d+"),    "`id` output"),
+    (re.compile(r"^total \d+\n[dl-][rwx-]{9}", re.M), "`ls -l` output"),
+]
+
+def check_leak(text, what):
+    """Refuse card text that carries machine-identifying data (usually shell substitution)."""
+    for rx, desc in LEAK_PATTERNS:
+        m = rx.search(text or "")
+        if m:
+            sys.exit(
+                f"kanban: refusing to write {what} — it contains {desc}:\n"
+                f"    ...{text[max(0,m.start()-40):m.end()+40].strip()}...\n"
+                f"  This is almost always shell command substitution: backticks inside a "
+                f"DOUBLE-quoted string run before kanban.py sees them.\n"
+                f"  Fix: put the text in a file and pass --body \"$(cat f.txt)\", or single-quote it."
+            )
+
+
 def cmd_add(a):
+    check_leak(a.title, "a card title"); check_leak(a.body, "a card body")
     CARDS.mkdir(parents=True, exist_ok=True)
     i = next_id()
     c = {"id": i, "title": a.title, "status": a.col, "labels": a.label or [],
@@ -101,6 +132,7 @@ def cmd_label(a):
     write_card(c); regen_board(); print(f"#{c['id']} labels: {c['labels']}")
 
 def cmd_note(a):
+    check_leak(a.text, "a card note")
     c = card_by_id(a.id); c["_body"] = c["_body"].rstrip() + f"\n\n**{today()}:** {a.text}\n"
     write_card(c); print(f"#{c['id']} note added")
 
