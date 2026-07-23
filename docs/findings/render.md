@@ -3790,3 +3790,35 @@ nothing else in the frame moved.
 **Refs.** `game/render/fx_mesh.{h,cpp}`, `game/render/fx_sprite.cpp` (the sprite half),
 `game/ui/pause_menu.cpp` (the scoped-tap pattern), `replays/bugs/weapon-impact-bucket.pad`,
 `generated/shard_5.c` `gen_func_80027768`/`gen_func_800288AC` (ground truth for the record layout).
+
+## [render] Shared machinery for effect producers: MeshQuads + EffectLerp (2026-07-23, from #39)
+
+Two pieces of duplication that the dust port (#39) removed, so the next effect producer does not
+re-derive them a third time.
+
+**`game/render/mesh_quads.{h,cpp}` — the ONE walk of the packed-mesh record format.** `FUN_80027768`'s
+36-byte records (uv0/clut, uv1/tpage + bit30 semi + bit31 last, uv2/uv3, four RGBs whose byte 3 is the
+vertex Z, and the eight signed position bytes at +28..+35) were being walked in three places. The
+float/tier1 version now lives once as `Render::meshQuadRecordsEmit(mesh, uBias, farColour, ir0)`;
+narration_swirl.cpp calls it with `ir0 = 0` (cue is the identity, record colours pass through) and
+fx_dust.cpp with `ir0 = 0xFFF` (colour is REPLACED by the far colour — that is how an effect gets
+tinted). `swing_fx.cpp` deliberately keeps its own copy: it submits at GUEST time with integer coords
+(`has_xyf = 0`) on purpose, so folding it in would change its semantics. The same header also owns the
+host-side (no guest write, no GTE) `rotmat` / `rotY` / `rotZ` / `fromGuest` / `composeScaled` builders
+that every one of these transform chains needs.
+
+**`game/render/effect_lerp.{h,cpp}` — the actor-transform tier for EFFECT nodes.** `Fps60` interpolates
+the scene camera and each render command's transform (keyed by cmd), which covers the generic object
+walk. An effect node has neither: its geometry comes from world points the effect itself keeps (a dust
+trail's position ring, a sprite effect's anchor). `EffectLerp::resolve(c, node, live)` records those
+per logic frame keyed by NODE and returns `lerp(prev, live, Fps60::mT)` — 0.5 on the in-between
+present, 1.0 on the real frame and whenever fps60 is off. Host memory only.
+
+**The trap that cost the most time here:** at guest time `Fps60::mWorldCaptureOnly` makes
+`fieldObjectsRender` SKIP the whole type-0x20 branch, so a type-0x20 producer runs ONLY from the two
+present passes. Anything that keys "am I the real frame?" off `mObjOverrideOn` therefore never sees a
+real pass at all and silently never interpolates (the symptom is an in-between that differs from its
+real neighbour by ~1 px — that residual is the camera lerp alone). Key off `Fps60::mT` instead.
+
+**Refs.** `game/render/mesh_quads.{h,cpp}`, `game/render/effect_lerp.{h,cpp}`,
+`game/render/fx_dust.cpp`, `game/render/narration_swirl.cpp`, `docs/findings/effects.md` (#39).

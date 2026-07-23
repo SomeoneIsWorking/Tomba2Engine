@@ -1,7 +1,7 @@
 ---
 id: 39
 title: Movement DUST CLOUDS never spawn — missing on the ORACLE too, so it is not a render gap
-status: todo
+status: done
 labels: [bug]
 created: 2026-07-23
 updated: 2026-07-23
@@ -43,3 +43,5 @@ walks the guest OT (break-first rebuild 2026-07-15) so there is no native produc
 FIX (scoped, not done — deferred render work in operator-owned game/render/): native producer tapping
 FUN_80029F6C, like fx_sprite.cpp taps FUN_80027A4C. Reclassify as a pc_render missing-producer bug,
 NOT an emitter bug. issue8_9_re.md is the SAME effect (pc_render bars pre-2026-07-15 → absent after).
+
+**2026-07-23:** PORTED 2026-07-23. Native producer Render::dustEffectRender (game/render/fx_dust.cpp) on render fn FUN_80029F6C, dispatched from fieldObjectsRender's type-0x20 walk (the dust visual node is stamped type 0x20 + beh FUN_80029B40 + rf FUN_80029F6C by FUN_80031558). Real port: no gen_func body and no gte_op in the picture path; transform rebuilt host-side (MeshQuads) and composed with the fps60-lerped camera. Verified vs the guest on seesaw-weight f226: all six trail quads within 2px of the guest's own submissions. Lerps at fps60 through the new EffectLerp tier (interp frame measured between its two real neighbours). Same pass added Render::fxAnimSpriteRender for the sibling FUN_800286CC/FUN_8002847C family (impact starburst). Full RE + action list + evidence in docs/findings/effects.md. Not exercised: the puff MESH layer (ring state never reaches 2/3 in any available repro) - ported-unverified.

@@ -698,6 +698,17 @@ void Render::fieldObjectsRender() {
           // project the node's own world anchor(s) natively so the flame lerps at fps60 (fx_sprite.cpp).
           c->rsub.stats.snObjs++;
           rend(c)->fxSpriteRender(n);
+        } else if (rfn == 0x800286CCu) {
+          // FUN_8002847C animated four-corner sprite family (movement DUST PUFFS + impact starburst,
+          // #39): same world anchor + depth-cue scale contract, animation-script-selected quad list.
+          c->rsub.stats.snObjs++;
+          rend(c)->fxAnimSpriteRender(n);
+        } else if (rfn == 0x80029F6Cu) {
+          // Tomba's movement DUST PUFF (#39): FUN_80031558 attaches this node with behaviour
+          // FUN_80029B40 (the position-history ring) and this render fn — additive trail + four-copy
+          // puff mesh, drawn from the ring/age state by fx_dust.cpp.
+          c->rsub.stats.snObjs++;
+          rend(c)->dustEffectRender(n);
         }
         continue;
       }

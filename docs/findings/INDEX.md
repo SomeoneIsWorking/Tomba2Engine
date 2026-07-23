@@ -2,6 +2,7 @@
 
 Grep this (or `tools/findings.py <words>`) BEFORE investigating a bug — to find whether it's
 already solved or ruled out. 257 findings across 12 subsystems.
+already solved or ruled out. 256 findings across 12 subsystems.
 
 
 ## ai
@@ -45,7 +46,7 @@ already solved or ruled out. 257 findings across 12 subsystems.
 
 ## effects
 
-- **[effects] Movement DUST CLOUDS — spawn/render RE (kanban #39)** [ROOT-CAUSED. The task's central premise — "absent on the oracle too, so not a render] —   ↪ docs/findings/effects.md
+- **[effects] Movement DUST CLOUDS — RE'd and PORTED (kanban #39)** [FIXED 2026-07-23 — native producer `Render::dustEffectRender` (game/render/fx_dust.cpp),] —   ↪ docs/findings/effects.md
 
 ## fmv-cd
 
@@ -123,6 +124,7 @@ already solved or ruled out. 257 findings across 12 subsystems.
 - **Widescreen re-enabled (aspect FOV + present) — SDL_GPU Pass-1 lost the wide present + OFX (2026-07-10)** [FIXED (headless field shots at 4:3 / 16:9 / 21:9: single, centered, genuinely-wider,] —   ↪ docs/findings/render.md
 - **Widescreen: native 2D centered via ONE queue layout authority + emitter culls widened (2026-07-16, USER request)** [?] —   ↪ docs/findings/render.md
 - **Z-fight sweep 2026-07-14 — barrel fix HOLDS; new double-submission class; 2 zfight tooling defects** [?] —   ↪ docs/findings/render.md
+- **[render] Shared machinery for effect producers: MeshQuads + EffectLerp (2026-07-23, from #39)** [?] —   ↪ docs/findings/render.md
 - **`NodeXform`'s 6 methods missing guest-stack-frame mirror — reproducible f117-class SBS residual (2026-07-08)** [?] — after owning `Render::perObjRenderDispatch`/`billboardCompose1`/`billboardCompose2`/  ↪ docs/findings/render.md
 - **`PSXPORT_MIRROR_VERIFY=all` generalization — reproduces the tracked register-faithfulness/** [?] —   ↪ docs/findings/render.md
 - **`gte_op` count does NOT mean "not native" — the campaign #45 Tier-B misclassification (2026-07-23)** [?] —   ↪ docs/findings/render.md

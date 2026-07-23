@@ -12,7 +12,8 @@
 #include "projection.h"     // EObjXform (per-Core active per-object xform lives on Render below)
 #include "render_native.h"      // class NativeScenePass — the decoupled native render subsystem
 #include "margin_render.h"    // class MarginRenderer — widescreen margin collect-and-flush
-#include "lighting.h"           // class Lighting — per-area light registry (sun / lava+torch)
+#include "lighting.h"
+#include "effect_lerp.h"      // class EffectLerp — the effect-node actor-transform interpolation tier           // class Lighting — per-area light registry (sun / lava+torch)
 #include <unordered_set>
 #include <vector>
 class Core;
@@ -259,6 +260,34 @@ public:
   // the 8-byte quad records host-side. Read-only, real depth. See game/render/fx_sprite.cpp for the full
   // RE. Dispatched from fieldObjectsRender's type-0x20 walk.
   void fxSpriteRender(uint32_t node);
+
+  // fxAnimSpriteRender: native producer for the SECOND world-anchored sprite family — emitter
+  // FUN_800286CC + packet writer FUN_8002847C (36-byte, four-corner, per-vertex-coloured quad records
+  // selected by an ANIMATION SCRIPT byte). This is Tomba's movement DUST PUFF (kanban #39) and the
+  // same family draws the impact starburst. Anchored and scaled exactly like fxSpriteRender (world
+  // anchor at node+0x2C/0x30, DQA=6 depth-cue scale) but with a per-axis scale pair at node+0x34 and
+  // the frame's record list looked up in node+0x50[script byte]. Projects natively through the
+  // fps60-lerped scene camera, so the puff interpolates. Read-only, real depth. See
+  // game/render/fx_sprite.cpp. Dispatched from fieldObjectsRender's type-0x20 walk.
+  void fxAnimSpriteRender(uint32_t node);
+
+  // meshQuadRecordsEmit (game/render/mesh_quads.cpp): the ONE host-side walk of the engine's packed-mesh
+  // quad-record format (FUN_80027768's 36-byte records). Projects every vertex through the ACTIVE object
+  // xform (projSetActive first), applies the caller's U scroll and the DPCT/DPCS depth cue toward
+  // farColour by ir0, and draws each record as a native world quad. Returns the number drawn.
+  int meshQuadRecordsEmit(uint32_t mesh, int uBias, const int32_t farColour[3], int32_t ir0);
+
+  // dustEffectRender (game/render/fx_dust.cpp): native producer for Tomba's movement DUST PUFF
+  // (kanban #39) — the type-0x20 node whose custom render fn is FUN_80029F6C. Draws the additive
+  // position-history TRAIL and the four-copy puff MESH from the node's own ring/age state, projected
+  // natively so both layers lerp at fps60. Read-only. Dispatched from fieldObjectsRender's walk.
+  void dustEffectRender(uint32_t node);
+  int  dustTrailEmit(const EffectPoints& pts, const EObjXform& cam, int sub);
+  void dustPuffEmit(uint32_t node, const EffectPoints& pts, int sub);
+
+  // The effect-node interpolation tier (game/render/effect_lerp.h): world points the effect producers
+  // own, captured on the real frame and blended on the fps60 in-between so effects lerp like the rest.
+  EffectLerp mEffectLerp;
 
   // fieldHudRender (game/render/field_hud.cpp): native producer for the field HUD family
   // FUN_80025D98 -> {FUN_80025744 status row, FUN_80025934 item ring, FUN_80025B78 weapon strip}

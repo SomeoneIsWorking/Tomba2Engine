@@ -1,6 +1,10 @@
-// game/render/fx_sprite.cpp — FxSprite: NATIVE PRODUCER for the FUN_80027A4C world-anchored
-// scaled-sprite effect family (seaside torch / hut-roof flames — kanban #12 restored the layer, #23
-// makes it LERP at fps60).
+// game/render/fx_sprite.cpp — NATIVE PRODUCERS for the WORLD-ANCHORED SCALED-SPRITE effect families.
+// Two of them live here because they share the whole anchoring/scaling contract and differ only in how
+// one frame's quads are packed:
+//   Render::fxSpriteRender      — the FUN_80027A4C family (8-byte records): torch / hut-roof flames
+//                                 (kanban #12 restored the layer, #23 makes it LERP at fps60).
+//   Render::fxAnimSpriteRender  — the FUN_8002847C family (36-byte four-corner records, animation-script
+//                                 driven): Tomba's movement DUST PUFFS + the impact starburst (kanban #39).
 //
 // WAS a leaf tap on 0x80027A4C (run the gen body, scrape the scratchpad the emitter published, re-derive
 // the quads host-side). A tap fires at GUEST time on the real frame only and re-uses the guest's own
@@ -42,6 +46,7 @@
 #include "render.h"
 #include "render_queue.h"
 #include "render_internal.h"   // ObjScope / cur_render_node / proj_pz_to_ord
+#include "effect_lerp.h"
 #include "cfg.h"
 
 namespace {
@@ -132,6 +137,76 @@ void emitSpriteRecords(Core* c, uint32_t rec0, uint32_t clutPage,
   }
 }
 
+// ===================================================================================================
+// THE ANIMATED FOUR-CORNER QUAD FAMILY — emitter FUN_800286CC, packet writer FUN_8002847C.
+//
+// RE (ground truth generated/shard_4.c gen_func_800286CC + shard_3.c gen_func_8002847C; live node
+// 0x800EE730 at seesaw-weight f748-766, type 0x20, node+0x18 = 0x800286CC, behaviour 0x800330AC).
+// The emitter is the SAME shape as the flame emitters above — pure scene camera into the GTE, DQA=6 /
+// DQB=0 so the depth-cue MAC0 becomes a per-Z pixel scale, RTPS of the node's own world anchor
+// (node+0x2C packed VX,VY / node+0x30 VZ), the same OT-bucket range gate on (SZ3>>2)+node+0x32 — with
+// two differences:
+//   * the pixel scale is PER AXIS: node+0x34 packs two 8.8 multipliers, scaleX = MAC0·(u16)lo >> 8 and
+//     scaleY = MAC0·(u16)hi >> 8 (the dust puff runs 0x0100/0x0100 = 1.0, the starburst breathes).
+//   * the quad list is chosen by an ANIMATION SCRIPT: node+0x3C points at the current script byte, its
+//     low 7 bits index the record-list table at node+0x50 (bit 7 = loop marker, which only tells the
+//     guest to rewind its node+0x40 cursor — a guest-state concern this producer does not share).
+// One record is 36 bytes and describes a genuine four-corner quad (not an axis-aligned box):
+//   +0  uv0 word: u0 | v0<<8 | clut<<16          +12 RGB0        +28 s8 x0, x1  (bytes 28,29)
+//   +4  uv1 word: u1 | v1<<8 | tpage<<16, and    +16 RGB1        +30 s8 y0, y1  (bytes 30,31)
+//       bit31 clear = another record follows     +20 RGB2        +32 s8 x2, x3  (bytes 32,33)
+//   +8  uv2 word, uv3 = (s32)uv2 >> 16           +24 RGB3        +34 s8 y2, y3  (bytes 34,35)
+// The guest runs the four colours through DPCT/DPCS, but the emitter first forces the depth-cue factor
+// IR0 (scratchpad 0x1F800090) to 0, at which the cue is the identity — so the record colours pass
+// through unchanged and no far-colour read is needed here. The GP0 op is a fixed 0x3E: every quad in
+// this family is semi-transparent.
+constexpr uint32_t kAnimScale  = 0x34u;   // packed 8.8 scale pair: scaleY (hi16) | scaleX (lo16)
+constexpr uint32_t kAnimScript = 0x3Cu;   // -> current animation-script byte
+constexpr uint32_t kAnimTable  = 0x50u;   // table of per-animation-frame record lists
+constexpr uint32_t kAnimStride = 36u;     // one four-corner record
+constexpr uint32_t kAnimDqa    = 6u;      // the depth-cue constant this emitter programs
+
+// Walk the 36-byte records at rec0, sizing each corner about the native-projected float anchor. Same
+// float-corner / drawWorldQuad treatment as emitSpriteRecords (has_xyf = 1 -> tier1-owned -> re-drawn
+// under the lerped camera at the interp present). Read-only.
+int emitAnimQuadRecords(Core* c, uint32_t rec0, float anchorXf, float anchorYf, float od,
+                        int32_t scaleX, int32_t scaleY) {
+  const float sxf = (float)scaleX / 65536.0f, syf = (float)scaleY / 65536.0f;
+  const float depth[4] = { od, od, od, od };
+  uint32_t rec = rec0;
+  int drawn = 0;
+  for (int guard = 0; guard < 256; guard++, rec += kAnimStride) {
+    const uint32_t uv0 = c->mem_r32(rec + 0u);
+    const uint32_t uv1 = c->mem_r32(rec + 4u);       // bit31 = "this is the last record" (still drawn)
+    const uint32_t uv2 = c->mem_r32(rec + 8u);
+    const uint32_t uv3 = (uint32_t)((int32_t)uv2 >> 16);
+
+    auto sb = [&](uint32_t off) { return (float)(int8_t)c->mem_r8(rec + off); };
+    float px[4] = { anchorXf + sb(28) * sxf, anchorXf + sb(29) * sxf,
+                    anchorXf + sb(32) * sxf, anchorXf + sb(33) * sxf };
+    float py[4] = { anchorYf + sb(30) * syf, anchorYf + sb(31) * syf,
+                    anchorYf + sb(34) * syf, anchorYf + sb(35) * syf };
+    int us[4] = { (int)(uv0 & 0xFFu), (int)(uv1 & 0xFFu), (int)(uv2 & 0xFFu), (int)(uv3 & 0xFFu) };
+    int vs[4] = { (int)((uv0 >> 8) & 0xFFu), (int)((uv1 >> 8) & 0xFFu),
+                  (int)((uv2 >> 8) & 0xFFu), (int)((uv3 >> 8) & 0xFFu) };
+
+    unsigned char rr[4], gg[4], bb[4];
+    for (int k = 0; k < 4; k++) {
+      const uint32_t col = c->mem_r32(rec + 12u + (uint32_t)k * 4u);   // IR0 = 0 -> cue is the identity
+      rr[k] = (unsigned char)(col & 0xFFu);
+      gg[k] = (unsigned char)((col >> 8) & 0xFFu);
+      bb[k] = (unsigned char)((col >> 16) & 0xFFu);
+    }
+    const uint16_t clut  = (uint16_t)(uv0 >> 16);
+    const uint16_t tpage = (uint16_t)((uv1 >> 16) & 0x7Fu);
+    c->game->activeRq().drawWorldQuad(c, px, py, depth, us, vs, rr, gg, bb, tpage, clut,
+                                      /*semi=*/1, nullptr);
+    drawn++;
+    if ((int32_t)uv1 <= 0) break;                    // the terminal record IS drawn, then stop
+  }
+  return drawn;
+}
+
 }  // namespace
 
 void Render::fxSpriteRender(uint32_t node) {
@@ -175,4 +250,54 @@ void Render::fxSpriteRender(uint32_t node) {
   const int numer = (rfn == FN_BYTESCALE) ? (int)(uint8_t)c->mem_r8(node + kE5cScale) : 0;
   const int shift = (rfn == FN_BYTESCALE) ? 4 : 0;
   projectEmit((int16_t)axy, (int16_t)(axy >> 16), (int16_t)az, /*dqa=*/6, numer, shift);
+}
+
+// The FUN_800286CC emitter, rebuilt: read the effect node's own animation cursor + world anchor, project
+// with the native (fps60-lerped) camera and emit this frame's quad list. Nothing here runs a gen body and
+// nothing writes guest memory — the guest still executes its own emitter underneath for state fidelity,
+// this producer simply owns the picture.
+void Render::fxAnimSpriteRender(uint32_t node) {
+  Core* c = mCore;
+  const uint32_t script = c->mem_r32(node + kAnimScript);
+  const uint32_t table  = c->mem_r32(node + kAnimTable);
+  if (!script || !table) return;                              // no animation -> the emitter emits nothing
+  const uint32_t animFrame = (uint32_t)c->mem_r8(script) & 0x7Fu;    // bit 7 = the guest's loop marker
+  const uint32_t rec0 = c->mem_r32(table + animFrame * 4u);
+  if (!rec0) return;
+
+  // The scene camera, fps60-lerped at the interp present — the reason the puff interpolates.
+  EObjXform cam; projComposeCamera(&cam);
+  const uint32_t H = (uint32_t)cam.H;
+  const int bias = (int16_t)c->mem_r16(node + kOtBias);
+  const uint32_t axy = c->mem_r32(node + kAnchorXY);
+  const uint32_t az  = c->mem_r32(node + kAnchorZ);
+
+  // The anchor through the actor-transform interpolation tier: on the fps60 in-between present it comes
+  // back blended with last frame's, so a puff that is travelling moves between the two real frames.
+  EffectPoints live;
+  live.n = 1; live.valid[0] = true;
+  live.x[0] = (int16_t)axy; live.y[0] = (int16_t)(axy >> 16); live.z[0] = (int16_t)az;
+  const EffectPoints& pts = mEffectLerp.resolve(c, node, live);
+
+  ProjVtx pv; cam.project(pts.x[0], pts.y[0], pts.z[0], &pv);
+  if (!otKeyInRange(pv.sz, bias)) return;                     // the emitter's own emit/skip decision
+
+  const int32_t mac0 = baseScale(H, pv.sz, kAnimDqa);
+  const uint32_t sc  = c->mem_r32(node + kAnimScale);
+  const int32_t scaleX = (int32_t)(((int64_t)mac0 * (int64_t)(uint16_t)sc) >> 8);
+  const int32_t scaleY = (int32_t)(((int64_t)mac0 * (int64_t)(uint16_t)(sc >> 16)) >> 8);
+
+  // DEPTH: this family authors a NEAR BIAS at node+0x32 and means it — the impact starburst carries -50
+  // and is drawn over the character it bursts on. The bias is stated in OT buckets, and the bucket key is
+  // SZ3>>2, so in view-Z units it is 4·bias; applying it here is the effect's own authored depth, not a
+  // fudge. (Without it a flat anchor-depth sprite loses its near half to whatever it is bursting on.)
+  float pz = pv.pz + (float)(4 * bias);
+  const float nearPz = proj_near_pz();
+  if (pz < nearPz) pz = nearPz;
+
+  ObjScope objScope(c, node);   // prim identity (dbg_node) = the emitting effect object
+  const int quads = emitAnimQuadRecords(c, rec0, pv.px, pv.py, proj_pz_to_ord(pz), scaleX, scaleY);
+  if (cfg_dbg("fxanim"))
+    cfg_logf("fxanim", "node=%08X frame=%u rec0=%08X anchor=(%.1f,%.1f) sz=%d scale=(%d,%d) quads=%d",
+             node, animFrame, rec0, (double)pv.px, (double)pv.py, pv.sz, scaleX, scaleY, quads);
 }
