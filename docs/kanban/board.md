@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (24)
+## TODO (25)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#16 Sign text jitters at fps60 when the camera moves**  `render,fps60` — 📎 docs/reference/issues/issue16_sign_text_jitter.png
@@ -30,6 +30,7 @@
 - **#57 Hut interior wall/room decorations missing — likely occluded (possible #29 regression)**  `render,bug` — 📎 docs/reference/issues/issue57_hut_wall_decor_missing.png,  docs/reference/issues/issue57_hut_wall_decor_missing_2.png
 - **#58 Fisherman dialog SOFTLOCKS**  `bug` — 📎 docs/reference/issues/issue58_fisherman_dialog_softlock.png
 - **#59 Item menu chrome renders TOO DARK — and psx_render shares it, so the 0/76800 gate is blind**  `render,bug` — 📎 docs/reference/issues/issue59_item_menu_too_dark.png
+- **#60 SEQUENCE softlock (live capture) — game keeps running, sequence never advances**  `bug,pc-skip` — 📎 docs/reference/issues/issue60_sequence_softlock.png
 
 ## DOING (3)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
