@@ -22,9 +22,10 @@ USAGE:
   tools/codemap.py                      # write docs/code-map.md (the committed index)
   tools/codemap.py --addr 800753d4      # look up one address: who implements it + who depends on it
                                         #   (warns ⚠ DUAL-OWNERSHIP if authoritatively owned in >=2 files)
-  tools/codemap.py --conflicts          # list every guest addr with cross-file authoritative multi-
-                                        #   ownership — the duplicate-RE smell (a 2nd native owning a
-                                        #   FUN_xxxx some other file already owns; run --addr on each)
+  tools/codemap.py --dup-installs       # guest addrs INSTALLED from 2+ files — the source twin of the
+                                        #   runtime duplicate-owner abort; expect 0, trust this for #32
+  tools/codemap.py --conflicts          # broad cross-file NAMING smell (over-reports inline helpers /
+                                        #   consumers that install nothing; use --dup-installs + --addr)
   tools/codemap.py --substrate-fallthrough  # native-owned addrs that are a DISPATCH TARGET but NOT
                                         #   override-registered — callers silently hit the emulated
                                         #   substrate (register + MIRROR_VERIFY to native-ize; --all
@@ -625,10 +626,42 @@ def main():
                   f"consolidate to one owner (delegate one body to the other).")
         return
 
+    if "--dup-installs" in args:
+        # The SOURCE-LEVEL twin of the runtime duplicate-owner abort (override_registry.cpp): an address
+        # is a real double-owner only if TWO files each INSTALL an override for it. This keys on the
+        # actual install call site — engine_set_override_<mod>(0xADDR, …) / overrides::install(0xADDR, …)
+        # / a bare install(0xADDR, …) in a register_* fn — NOT on a "// FUN_XXXX" banner or an
+        # address-named helper, which is why it agrees with the guard while --conflicts (below) does not:
+        # a host-twin like Render::guestStrLen reproduces FUN_80079528 and is CALLED inline, it does not
+        # install on the address, so it is not an owner of it. This is the check to trust for kanban #32.
+        ipat = re.compile(r'(?:engine_set_override_(?:main|a00|game)|overrides::install|shard_set_override'
+                          r'|(?<![A-Za-z_])install)\(\s*(0x[0-9A-Fa-f]+)')
+        byaddr = {}
+        for f in files:
+            if not f.endswith((".cpp", ".c")):
+                continue
+            try: s = open(f).read()
+            except OSError: continue
+            rel = os.path.relpath(f, ROOT)
+            for m in ipat.finditer(s):
+                byaddr.setdefault(m.group(1).lower(), set()).add(rel)
+        rows = sorted((a, sorted(fs)) for a, fs in byaddr.items() if len(fs) >= 2)
+        for a, fs in rows:
+            print(f"{a}: installed from {len(fs)} files")
+            for f in fs:
+                print(f"    {f}")
+        print(f"\n{len(rows)} address(es) installed from 2+ files — a REAL double-install (the runtime "
+              f"guard aborts on this). Expect 0; anything here is a bug to fix before it ships.")
+        return
+
     if "--conflicts" in args:
-        # Only AUTHORITATIVE owners (real registration / name-for-address / explicit ownership claim)
-        # count — soft comment-scan attributions (a tracer/data-head that merely mentions the address)
-        # are excluded so this is a low-false-positive signal.
+        # BROAD reference smell — every file that authoritatively NAMES the address (a registration, an
+        # address-named symbol, or an explicit ownership banner). This OVER-reports: an inline host-twin
+        # helper (Render::guestStrLen for FUN_80079528) or a producer's consumer (FxMesh::draw reading
+        # the mesh writer) carries a banner but installs nothing, so it is not a competing owner. For the
+        # signal that matches the runtime duplicate-owner abort, use `--dup-installs`. Kept because a
+        # bannered native that NOBODY installs while another file owns the address is a stale-orphan
+        # candidate (no-tombstones) — cross-check each row with `--addr` + `--dup-installs`.
         rows = []
         for a, ns in idx.items():
             auth = [n for n in ns if n.get("authoritative")]
@@ -639,9 +672,9 @@ def main():
             print(f"0x{a}: {len(cf)} files — {', '.join(syms)}")
             for f in cf:
                 print(f"    {f}")
-        print(f"\n{len(rows)} guest address(es) with CROSS-FILE authoritative multi-ownership "
-              f"(duplication smell unless a deliberate pc_skip fork — those live in ONE file). "
-              f"Run `--addr <hex>` on each.")
+        print(f"\n{len(rows)} guest address(es) with CROSS-FILE authoritative NAMING (a broad smell that "
+              f"OVER-reports helpers/consumers — use `--dup-installs` for the real double-install signal, "
+              f"and `--addr <hex>` to classify each as owner / inline-helper / stale-orphan).")
         return
 
     if "--substrate-fallthrough" in args:
