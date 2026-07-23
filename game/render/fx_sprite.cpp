@@ -1,90 +1,108 @@
-// game/render/fx_sprite.cpp — FxSprite: native display coverage for the FUN_80027A4C
-// scaled-sprite packet writer (kanban #12 — torch flame missing under pc_render).
+// game/render/fx_sprite.cpp — FxSprite: NATIVE PRODUCER for the FUN_80027A4C world-anchored
+// scaled-sprite effect family (seaside torch / hut-roof flames — kanban #12 restored the layer, #23
+// makes it LERP at fps60).
 //
-// RE (Ghidra scratch/decomp/fx_pkt_writer.c + fx_emit_leaves.c, ground truth generated/shard_5.c
-// gen_func_80027A4C): 0x80027A4C is the ONE packet writer for the "world-anchored scaled sprite"
-// effect family. Its three RE'd callers — FUN_80027CB4, FUN_80027E5C, FUN_800281EC (per-particle
-// loop) — all follow the same contract:
-//   1. load the pure camera CRs from scratchpad 0x1F8000F8, RTPS the node's world anchor
-//      (node+0x2C/+0x30), range-check the OT depth,
-//   2. publish the projection to scratchpad:
-//        0x1F800080 (i32) OT bucket key   = quantize((SZ3>>2) + node+0x32 bias)
-//        0x1F800084 (i32) X pixel scale   = IR0-derived (caller-specific modulation)
-//        0x1F800088 (i32) Y pixel scale   (== X for these callers)
-//        0x1F80008C/8E (s16,s16) screen anchor = SXY2
-//        0x1F800090 (i32) depth-cue factor for DPCS (all three RE'd callers write 0)
-//   3. call FUN_80027A4C(a0 = 8-byte record list, a1 = clut(lo16)|tpage(hi16)).
-// 0x80027A4C then walks the records, each one 0x2C/0x2E textured quad:
-//   word0 = 4 signed byte corner offsets {xL, xR, yT, yB}, scaled by the pixel scales >>16,
-//           added to the screen anchor;
-//   word1 = u(base|width) | v(base|height)<<8 | flags<<16 where flags:
-//           bit0 semi (op 0x2C -> 0x2E AND the color low bit — mirrored as-is), bits1-2
-//           tpage blend bits (<<4 into the tpage half), bits8-11 clut row offset (>>2 added
-//           to the clut half), bit12 V flip, bit13 U flip, bits14-15 record-list terminator,
-//           low byte = flat grey brightness;
-//   color = DPCS(brightness, IR0=scratch 0x1F800090) — identity for IR0==0 (every RE'd caller).
+// WAS a leaf tap on 0x80027A4C (run the gen body, scrape the scratchpad the emitter published, re-derive
+// the quads host-side). A tap fires at GUEST time on the real frame only and re-uses the guest's own
+// RTPS result, so its output can never interpolate — the interp present re-run would have to re-execute
+// the gen body under a lerped camera, which writes guest RAM. That is exactly #23: the roof flames step
+// at 30 Hz. The fix (per CLAUDE.md "LERP IS NATIVE TOO" / "NATIVE PRESENTATION") is a real port: PROJECT
+// the effect's own world state with the native camera and emit from the display pass, so tier1Render
+// re-renders it one frame behind under the lerped camera like every other native producer.
 //
-// The torch flame at the seaside hut is a cluster of these records (packet nodes 0x800C9xxx,
-// tp=(896,0) clut=(1008,192), attributed via `debug otattr` + REPL `otattr` to emitter leaf
-// 0x800281EC under object node 0x800F06D8, beh FUN_8012D404 = beh_cull_tick_render). pc_render
-// never walks the guest OT (break-first rebuild, 2026-07-15), so the family had NO native
-// producer — the whole layer was absent.
+// RE (Ghidra scratch/decomp/fx_emit_leaves.c + fx_pkt_writer.c, ground truth generated/shard_5..7.c). The
+// family has ONE packet writer (0x80027A4C) and THREE emitter render-fns; a type-0x20 render node carries
+// its emitter at node+0x18 (confirmed live at the seaside water-pump vista, HEAD 0x800F2624: six
+// FUN_80027CB4 roof-flame nodes + eight FUN_800281EC particle-flame nodes, all vis=1). Every emitter:
+//   1. loads the pure scene-camera CRs (scratchpad 0x1F8000F8..0x114) into the GTE and sets DQA=6 (or 4
+//      for the FUN_800281EC '!' variant) / DQB=0 — i.e. it REPURPOSES the GTE's depth-cue divide as a
+//      per-Z sprite scale: after RTPS, MAC0 (GTE data reg 0x18) = n·DQA with n=(H·0x20000/SZ3 + 1)/2.
+//   2. RTPS the WORLD anchor (node+0x2C packed VX,VY / node+0x30 VZ): SXY2 = screen anchor, SZ3 = depth,
+//      MAC0 = base pixel scale.
+//   3. range-checks the OT bucket key quantize((SZ3>>2)+node+0x32); out of range -> skip (no emit).
+//   4. FUN_80027A4C(a0 = 8-byte record list node+0x34, a1 = clut|tpage node+0x44) walks the records.
+// Scale per emitter:
+//   FUN_80027CB4  scaleX = MAC0                                (uniform)
+//   FUN_80027E5C  scaleX = MAC0 * (u8)node+0x6  >> 4
+//   FUN_800281EC  PER-PARTICLE: particles at node+0x50 stride 8, count (s16)node+0x4E; each = anchor
+//                 (p[0] packed VX,VY / p[1] VZ) RTPS'd individually, scaleX = MAC0 * (s16)p+0x6 >> 8.
+// The native camera projection (projComposeCamera -> EObjXform::project) reproduces the GTE RTPS in float
+// (docs tomba2-native-projection, 0-diff vs Beetle) and — crucially — reads the camera through the
+// Fps60::sceneCam choke, which returns the LERPED camera at the interp present. So projecting the anchor
+// natively gives a screen position that MOVES SMOOTHLY as the camera pans: the flame lerps for free. The
+// base scale is derived from the same native SZ3 + the emitter's own DQA constant (no ambient GTE read),
+// so it too tracks the lerped depth. The 8-byte record walk (corners = anchor + s8-offset·scale>>16, UV
+// flip rules, flat-grey brightness) is unchanged from the tap — only the anchor/scale SOURCE changed from
+// "scrape the gen body's scratchpad" to "project the world anchor natively".
 //
-// Fix shape = the sanctioned leaf tap (Panel::install / ScreenFade::installLeafTap precedent):
-// run the ORIGINAL gen body (guest packet pool / OT / pool cursor stay byte-exact for SBS), then
-// re-derive the same quads HOST-SIDE from the records + the scratchpad projection contract and
-// hand them to the render queue as world prims with the object's flat view depth (the accepted
-// #28/#39 billboard-class depth transcription: proj_pz_to_ord(SZ3), SZ3 = the caller's own RTPS
-// result, still live in the GTE at call time). Read-only: no guest write outside gen.
+// 0x80027A4C now runs its plain gen body for guest-state fidelity (SBS stays byte-exact — the guest still
+// executes it; pc_render simply no longer scrapes it). Read-only overlay: no guest write.
 #include "core.h"
 #include "game.h"
+#include "render.h"
+#include "render_queue.h"
+#include "render_internal.h"   // ObjScope / cur_render_node / proj_pz_to_ord
 #include "cfg.h"
-#include "render_internal.h"   // ObjScope / cur_render_node / proj_pz_to_ord / render_queue.h
-
-extern void gen_func_80027A4C(Core*);
-#include "override_registry.h"
 
 namespace {
 
-// Scratchpad contract published by every FUN_80027A4C caller (RE'd above).
-constexpr uint32_t kScrOtKey     = 0x1F800080u;
-constexpr uint32_t kScrScaleX    = 0x1F800084u;
-constexpr uint32_t kScrScaleY    = 0x1F800088u;
-constexpr uint32_t kScrAnchorX   = 0x1F80008Cu;
-constexpr uint32_t kScrAnchorY   = 0x1F80008Eu;
-constexpr uint32_t kScrDepthCue  = 0x1F800090u;
-constexpr uint32_t kGteSZ3       = 19u;          // GTE data reg 19 = SZ3 (the caller's RTPS depth)
+// --- node field layout (RE'd; confirmed live) ------------------------------------------------------
+constexpr uint32_t kAnchorXY = 0x2Cu;   // packed VX (lo16) | VY (hi16), world
+constexpr uint32_t kAnchorZ  = 0x30u;   // VZ in lo16, world
+constexpr uint32_t kOtBias   = 0x32u;   // s16 OT-key bias
+constexpr uint32_t kRecList  = 0x34u;   // 8-byte record list (a0 to the packet writer)
+constexpr uint32_t kClutPage = 0x44u;   // clut (lo16) | tpage (hi16) (a1)
+constexpr uint32_t kRenderFn = 0x18u;   // custom render fn = the emitter address
+constexpr uint32_t kE5cScale = 0x06u;   // u8 extra scale numerator (FUN_80027E5C)
+constexpr uint32_t kVariant3 = 0x03u;   // '!' selects DQA=4 in the FUN_800281EC variant
+constexpr uint32_t kPartCount= 0x4Eu;   // s16 particle count (FUN_800281EC)
+constexpr uint32_t kPartArray= 0x50u;   // particle array base, stride 8 (FUN_800281EC)
+constexpr uint32_t kPartScale= 0x06u;   // s16 per-particle scale numerator (particle+6)
 
-void fxSpriteTap(Core* c) {
-  const uint32_t rec0     = c->r[4];   // 8-byte record list
-  const uint32_t clutPage = c->r[5];   // clut (lo16) | tpage (hi16)
-  gen_func_80027A4C(c);                // byte-exact guest packet pool / OT / cursor
-  if (c->game->oracle || c->rsub.mode.psxRender()) return;   // read-only overlay gate
-  if (!rec0) return;
+constexpr uint32_t FN_UNIFORM   = 0x80027CB4u;   // scaleX = MAC0
+constexpr uint32_t FN_BYTESCALE = 0x80027E5Cu;   // scaleX = MAC0 * node[6] >> 4
+constexpr uint32_t FN_PARTICLE  = 0x800281ECu;   // per-particle loop
 
-  const int anchorX = (int16_t)c->mem_r16(kScrAnchorX);
-  const int anchorY = (int16_t)c->mem_r16(kScrAnchorY);
-  const int32_t scaleX = (int32_t)c->mem_r32(kScrScaleX);
-  const int32_t scaleY = (int32_t)c->mem_r32(kScrScaleY);
-  const int32_t cue    = (int32_t)c->mem_r32(kScrDepthCue);
-  const float od = proj_pz_to_ord((float)(int32_t)gte_read_data(kGteSZ3));
-  const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
+// The emitters set DQA to a small integer and DQB to 0 before RTPS, so the depth-cue MAC0 becomes a
+// per-Z sprite scale. baseScale reproduces MAC0 = n·DQA, n=(H·0x20000/SZ3 + 1)/2 (the RTPS perspective
+// divide, integer-faithful; the GTE's UNR reciprocal differs by <1 ULP and never changes a pixel here).
+int32_t baseScale(uint32_t H, int sz, int dqa) {
+  int64_t div = ((int64_t)H << 17) / sz;          // H * 0x20000 / SZ3
+  if (div > 0x1FFFF) div = 0x1FFFF;               // GTE divide saturates (also the SZ3-too-small case)
+  const int64_t n = (div + 1) >> 1;
+  return (int32_t)(n * dqa);
+}
 
-  // Whole-family flat object depth — same class as the obj_depth billboard transcription.
-  float dep[4] = { od, od, od, od };
-  ObjScope objScope(c, cur_render_node(c));   // prim identity (dbg_node) = the emitting object
+// The emitter's OT-key range gate (its emit/skip decision), reproduced on the native SZ3 so the producer
+// draws exactly the anchors the guest would. Logarithmic bucket map, valid range [4, 0x7FF].
+bool otKeyInRange(int sz, int bias) {
+  if (sz <= 0) return false;
+  int k = (sz >> 2) + bias;
+  if (k < 4) k = 4;
+  k = (k >> ((k >> 10) & 0x1f)) + (k >> 10) * 0x200;
+  return (uint32_t)(k - 4) <= 0x7FBu;
+}
 
+// Walk the 8-byte quad records at rec0 and draw each as a textured world quad, sized by (scaleX,scaleY)
+// about the native-projected float anchor (anchorXf,anchorYf) at view depth `od`. Identical record math
+// to the former tap; corners are kept in float (sub-pixel) so the quad interpolates smoothly, and the
+// draw goes through RenderQueue::drawWorldQuad (has_xyf=1 -> tier1-owned -> re-rendered under the lerped
+// camera). Read-only.
+void emitSpriteRecords(Core* c, uint32_t rec0, uint32_t clutPage,
+                       float anchorXf, float anchorYf, float od, int32_t scaleX, int32_t scaleY) {
+  const float sxf = (float)scaleX / 65536.0f, syf = (float)scaleY / 65536.0f;
+  const float depth[4] = { od, od, od, od };
   uint32_t rec = rec0;
   for (int guard = 0; guard < 256; guard++) {
     const uint32_t w0 = c->mem_r32(rec);
     const uint32_t w1 = c->mem_r32(rec + 4u);
     const uint32_t flags = w1 >> 16;
 
-    // Corners: anchor + signed byte offset * scale >> 16 (gen truncates to s16 per store).
-    const int xL = (int16_t)(anchorX + (int16_t)((uint32_t)((int32_t)(int8_t)(w0)       * scaleX) >> 16));
-    const int xR = (int16_t)(anchorX + (int16_t)((uint32_t)((int32_t)(int8_t)(w0 >> 8)  * scaleX) >> 16));
-    const int yT = (int16_t)(anchorY + (int16_t)((uint32_t)((int32_t)(int8_t)(w0 >> 16) * scaleY) >> 16));
-    const int yB = (int16_t)(anchorY + (int16_t)((int32_t)((int32_t)w0 >> 24) * scaleY >> 16));
+    // Corners: float anchor + signed-byte offset * scale (the guest's (s8*scale)>>16, kept in float).
+    const float xL = anchorXf + (float)(int8_t)(w0)       * sxf;
+    const float xR = anchorXf + (float)(int8_t)(w0 >> 8)  * sxf;
+    const float yT = anchorYf + (float)(int8_t)(w0 >> 16) * syf;
+    const float yB = anchorYf + (float)(int8_t)(w0 >> 24) * syf;
 
     // UVs with the guest's flip rules (note the asymmetric 7/6 insets — mirrored exactly).
     const uint32_t u = w1 & 0xFFu, v = (w1 >> 8) & 0xFFu;
@@ -96,42 +114,65 @@ void fxSpriteTap(Core* c) {
     if (!(flags & 0x1000u)) { v01 = vb + 1;      v23 = vb + vh + 7; }
     else                    { v01 = vb + vh + 7; v23 = vb + 1;      }
 
-    // Flat grey brightness; DPCS depth-cue is identity for cue==0 (all RE'd callers). If a caller
-    // ever publishes a non-zero cue, apply the DPCS lerp toward the GTE far color and say so once.
-    int col = (int)(flags & 0xFFu);
-    if (cue != 0) {
-      static bool warned = false;
-      if (!warned) { warned = true;
-        cfg_logw("fxspr", "non-zero DPCS depth-cue factor %d — applying far-color lerp (unverified path)", cue); }
-      const int fc = (int)((int32_t)gte_read_ctrl(21) >> 4);   // RFC (28.4) — grey packets use R for all
-      col += (int)(((int64_t)cue * (fc - col)) >> 12);
-      if (col < 0) col = 0; if (col > 255) col = 255;
-    }
-
+    // Flat grey brightness (all RE'd callers force the DPCS depth-cue to 0, so the color passes through).
+    const unsigned char col = (unsigned char)(flags & 0xFFu);
     const int semi = (int)(flags & 1u);
     const uint16_t clut  = (uint16_t)((clutPage & 0xFFFFu) + ((flags & 0xF00u) >> 2));
     const uint16_t tpage = (uint16_t)((clutPage >> 16) | ((flags & 6u) << 4));
-    const int tp_x = (tpage & 0xF) * 64, tp_y = ((tpage >> 4) & 1) * 256;
-    const int mode = (tpage >> 7) & 3, blend = (tpage >> 5) & 3;
-    const int clut_x = (clut & 0x3F) * 16, clut_y = (clut >> 6) & 0x1FF;
 
-    int xs[4] = { xL + ox, xR + ox, xL + ox, xR + ox };
-    int ys[4] = { yT + oy, yT + oy, yB + oy, yB + oy };
-    int us[4] = { u02, u13, u02, u13 };
-    int vs[4] = { v01, v01, v23, v23 };
-    unsigned char cc[4] = { (unsigned char)col, (unsigned char)col, (unsigned char)col, (unsigned char)col };
-    c->game->activeRq().emitOrQueue(c, /*capture=*/1, RQ_WORLD, RQ_OM_DEPTH, 4, semi, /*raw=*/0,
-                                    xs, ys, nullptr, nullptr, us, vs, cc, cc, cc, dep,
-                                    mode, tp_x, tp_y, clut_x, clut_y,
-                                    0, 0, 0, 0, 0, 0, 1023, 511, blend);
+    float px[4] = { xL, xR, xL, xR };
+    float py[4] = { yT, yT, yB, yB };
+    int   us[4] = { u02, u13, u02, u13 };
+    int   vs[4] = { v01, v01, v23, v23 };
+    unsigned char cc[4] = { col, col, col, col };
+    c->game->activeRq().drawWorldQuad(c, px, py, depth, us, vs, cc, cc, cc, tpage, clut, semi, nullptr);
 
     rec += 8u;
-    if (flags & 0xC000u) break;   // gen's post-condition: the terminal record IS emitted
+    if (flags & 0xC000u) break;   // the terminal record IS drawn (gen's post-condition), then stop
   }
 }
 
 }  // namespace
 
-void fx_sprite_install() {
-  engine_set_override_main(0x80027A4Cu, fxSpriteTap, gen_func_80027A4C);
+void Render::fxSpriteRender(uint32_t node) {
+  Core* c = mCore;
+  const uint32_t rec0 = c->mem_r32(node + kRecList);
+  if (!rec0) return;                                        // no record list -> the emitter emits nothing
+  const uint32_t rfn      = c->mem_r32(node + kRenderFn);
+  const uint32_t clutPage = c->mem_r32(node + kClutPage);
+  const int bias          = (int16_t)c->mem_r16(node + kOtBias);
+
+  // The scene camera, fps60-lerped at the interp present (the whole reason this producer interpolates).
+  EObjXform cam; projComposeCamera(&cam);
+  const uint32_t H = (uint32_t)cam.H;
+
+  ObjScope objScope(c, node);   // prim identity (dbg_node) = the emitting flame object
+
+  auto projectEmit = [&](int vx, int vy, int vz, int dqa, int32_t numer, int shift) {
+    ProjVtx pv; cam.project(vx, vy, vz, &pv);
+    if (!otKeyInRange(pv.sz, bias)) return;                 // same emit/skip gate the emitter applies
+    int32_t scale = baseScale(H, pv.sz, dqa);
+    if (shift) scale = (int32_t)(((int64_t)scale * numer) >> shift);   // E5C / per-particle modulation
+    emitSpriteRecords(c, rec0, clutPage, pv.px, pv.py, proj_pz_to_ord(pv.pz), scale, scale);
+  };
+
+  if (rfn == FN_PARTICLE) {
+    const int dqa   = (c->mem_r8(node + kVariant3) == '!') ? 4 : 6;
+    const int count = (int16_t)c->mem_r16(node + kPartCount);
+    for (int i = 0; i < count; i++) {
+      const uint32_t p   = node + kPartArray + (uint32_t)i * 8u;
+      const uint32_t axy = c->mem_r32(p);
+      const uint32_t az  = c->mem_r32(p + 4u);
+      const int16_t  mod = (int16_t)c->mem_r16(p + kPartScale);
+      projectEmit((int16_t)axy, (int16_t)(axy >> 16), (int16_t)az, dqa, mod, 8);
+    }
+    return;
+  }
+
+  // FN_UNIFORM / FN_BYTESCALE: one world anchor.
+  const uint32_t axy = c->mem_r32(node + kAnchorXY);
+  const uint32_t az  = c->mem_r32(node + kAnchorZ);
+  const int numer = (rfn == FN_BYTESCALE) ? (int)(uint8_t)c->mem_r8(node + kE5cScale) : 0;
+  const int shift = (rfn == FN_BYTESCALE) ? 4 : 0;
+  projectEmit((int16_t)axy, (int16_t)(axy >> 16), (int16_t)az, /*dqa=*/6, numer, shift);
 }

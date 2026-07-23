@@ -5,12 +5,11 @@
 
 ## BACKLOG (0)
 
-## TODO (18)
+## TODO (17)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#16 Sign text jitters at fps60 when the camera moves**  `render,fps60` — 📎 docs/reference/issues/issue16_sign_text_jitter.png
 - **#22 Health wheel is too transparent — reproduces on psx_render too, so the oracle is NOT the reference**  `render` — 📎 docs/reference/issues/issue22_health_wheel_reference.png,    docs/reference/issues/issue22_health_wheel_reference_dark.png
-- **#23 Roof flames do not lerp at fps60 while the burning-rope flame does**  `render,fps60` — 📎 docs/reference/issues/issue23_flame_no_lerp.png
 - **#31 fps60: interpolated frames and real frames appear to be built differently**  `bug,render,fps60`
 - **#32 17 guest addresses have two native owners — the class that caused #28**  `workflow`
 - **#34 No headless repro exists for jump-over-pickup — the #1/#30 fix is RE-proven but symptom-unverified**  `verification`
@@ -28,7 +27,7 @@
 ## DOING (1)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
 
-## DONE (26)
+## DONE (27)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -46,6 +45,7 @@
 - **#19 Dialog text-box background missing — only the panel corners render**  `render` — 📎 docs/reference/issues/issue19_panel_fill_missing.png
 - **#20 Pause (P) shows a black screen at fps60 — the pause loop RE-RENDERED the frame instead of re-showing it**  `render,fps60`
 - **#21 Triangle menu renders fully transparent — its opaque background is missing**  `render` — 📎 docs/reference/issues/issue21_triangle_menu_reference.png
+- **#23 Roof flames do not lerp at fps60 while the burning-rope flame does**  `render,fps60` — 📎 docs/reference/issues/issue23_flame_no_lerp.png
 - **#24 Area 22 aborts on entry: rec_dispatch miss 0x80109200**  `bug,recomp`
 - **#25 pc_render area sweep: 24 of 32 areas sampled clean, coverage recorded**  `render`
 - **#26 Ghost pig boss fight (area 12): ceiling beam band renders warped/displaced under pc_render**  `render`

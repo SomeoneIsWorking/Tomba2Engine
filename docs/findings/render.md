@@ -1,5 +1,47 @@
 # Findings — render / engine submit
 
+## Torch/roof flames: tap → native producer, so they LERP at fps60 (kanban #12/#23, FIXED 2026-07-23)
+
+- **symptom:** the FUN_80027A4C "world-anchored scaled sprite" family (seaside torch + the two bright
+  hut-roof flames) was restored under pc_render by a leaf TAP on 0x80027A4C (#12), but the roof flames
+  STEP at 30 Hz under fps60 while the neighbouring rope flame interpolates (#23). The tap emitted via
+  `emitOrQueue` with `xsf/ysf==nullptr` → `has_xyf==0` → `isTier1Owned` false → presented VERBATIM from
+  `mRqCur` on both frame kinds. A tap fires at GUEST time and reuses the guest's own RTPS result, so it
+  can never be re-run under a lerped camera without writing guest RAM.
+- **status:** FIXED — real port, not a matcher/stamp. Both #12 and #23 closed.
+- **cause / RE (confirmed live):** a type-0x20 render node carries its emitter at `node+0x18` ∈
+  {`0x80027CB4` uniform, `0x80027E5C` `*node[6]>>4`, `0x800281EC` per-particle}. Walked HEAD `0x800F2624`
+  at the seaside water-pump vista (seesaw-weight.pad f10000): six CB4 roof-flame nodes + eight 281EC
+  particle-flame nodes, all vis=1. Each emitter loads the pure scene-camera CRs, sets **DQA=6** (or **4**
+  for the 281EC `node[3]=='!'` variant) / **DQB=0** — repurposing the GTE depth-cue divide as a per-Z
+  sprite scale — RTPS's the WORLD anchor (`node+0x2C` packed VX,VY / `node+0x30` VZ), range-checks the OT
+  key, then walks 8-byte quad records at `node+0x34` (clut|tpage `node+0x44`). Base pixel scale = MAC0 =
+  `n·DQA`, `n=(H·0x20000/SZ3+1)/2`. 281EC loops particles at `node+0x50` (stride 8, count s16 `node+0x4E`,
+  per-particle scale s16 `p+6`, `scale=MAC0·mod>>8`); E5C `scale=MAC0·(u8)node[6]>>4`.
+- **fix:** `Render::fxSpriteRender(node)` (game/render/fx_sprite.cpp), dispatched from
+  `fieldObjectsRender`'s type-0x20 walk (render_walk.cpp) alongside the narration-swirl precedent. Projects
+  the node's own world anchor(s) with `projComposeCamera` (the fps60-lerped `sceneCam`) + `EObjXform::project`
+  — so the anchor MOVES smoothly as the camera pans — derives the scale from the native SZ3 + the emitter's
+  own DQA constant (no ambient GTE read), reproduces the emit/skip OT-key gate, and reuses the tap's 8-byte
+  record walk verbatim but emits via `drawWorldQuad` (float px/py → `has_xyf=1` → tier1-owned → re-rendered
+  under the lerped camera). Tap + its `overrides::install(0x80027A4C,…)` DELETED; 0x80027A4C runs its plain
+  gen body. No guest write (read-only overlay).
+- **verify:** (#1) at seesaw-weight.pad f10000, GATE=1 pc_render roof flames match ORACLE/psx_render to
+  <1px centroid (172 vs 174 flame px; scratch/screenshots/replay10k_port.png vs replay10k_psx.png). (#2)
+  fps60 interp flame X sits at the MIDPOINT of its two real neighbours during a camera pan (scratch/
+  framedump + scratch/lerpmeas.py: 42/43 and 18/21 moving intervals "between"; e.g. reals 275.77→276.22,
+  interp 276.20). (#3) zero gen_func in the producer path; 0x80027A4C absent from `debug ovhit`. (#4)
+  plain-field before/after byte-identical (exact 0-diff, plain_before.png vs plain_after.png). (#5)
+  SBS-full 0-diff to f4680 — no guest writes added.
+- **env note (recomp gap, unrelated to this fix):** the DEFAULT leg (pc_faithful) aborts at free-roam
+  onset in THIS checkout with `recomp-MISS 0x80028E64` (`gen_func_8003116C` jalr into a mid-body label of
+  gen_func_80028E10, the intro-narration effect family) — a recompiler function-boundary discovery gap
+  (same class as later-286's 0x80109450; needs the mid-body entries seeded + regenerate). Reached free-roam
+  and drove/verified via recomp_path (GATE=1), where the native producer runs in the pc_render walk on
+  every exec leg (so the flames also render under GATE=1 — retiring the #12 "taps don't fire under GATE"
+  limitation). The default leg could not be run to f10000 in this env to A/B the old tap directly; psx_render
+  (the same picture the tap was itself verified against) is the ground truth used for #1.
+
 ## fps60: guest-time world rebuilt but never drawn (kanban #33, FIXED — pixel-exact, ~20% faster)
 
 - **symptom (perf):** once both fps60 presents were unified behind `Fps60::presentPass(c,t)` (real frame =

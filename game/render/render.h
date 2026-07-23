@@ -254,6 +254,16 @@ public:
   // See game/render/narration_swirl.cpp for the full RE. Dispatched from fieldObjectsRender's walk.
   void narrationSwirlRender(uint32_t node);
 
+  // fxSpriteRender: native producer for the FUN_80027A4C world-anchored SCALED-SPRITE family (torch/roof
+  // flames — kanban #12/#23). The type-0x20 render node whose custom fn (node+0x18) is one of the three
+  // emitters FUN_80027CB4 (uniform scale) / FUN_80027E5C (scale*node[6]>>4) / FUN_800281EC (per-particle
+  // loop). Projects the node's WORLD anchor(s) natively through projComposeCamera (the fps60-lerped scene
+  // camera) — so the flame LERPS like every other native producer — derives the base pixel scale from the
+  // RTPS depth-cue relation the emitters set up (MAC0 = n·DQA, DQA=6/4, n=(H·0x20000/SZ3+1)/2), then walks
+  // the 8-byte quad records host-side. Read-only, real depth. See game/render/fx_sprite.cpp for the full
+  // RE. Dispatched from fieldObjectsRender's type-0x20 walk.
+  void fxSpriteRender(uint32_t node);
+
   // fieldHudRender (game/render/field_hud.cpp): native producer for the field HUD family
   // FUN_80025D98 -> {FUN_80025744 status row, FUN_80025934 item ring, FUN_80025B78 weapon strip}
   // (kanban #13 — the equipped-weapon strip was entirely absent under pc_render). Reads the HUD

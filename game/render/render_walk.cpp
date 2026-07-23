@@ -633,9 +633,15 @@ void Render::fieldObjectsRender() {
         // kanban #33: the SOP narration swirl draws via drawWorldQuad (tier1-owned, has_xyf) and captures
         // nothing (host compose) — the present re-renders it from mSink, so its guest-time draw is dead.
         if (c->game->fps60.mWorldCaptureOnly) continue;
-        if (c->mem_r32(n + 0x18) == 0x8010BF54u && c->mem_r32(0x80109450u) == 0x3C021F80u) {
+        const uint32_t rfn = c->mem_r32(n + 0x18);
+        if (rfn == 0x8010BF54u && c->mem_r32(0x80109450u) == 0x3C021F80u) {
           c->rsub.stats.snObjs++;
           rend(c)->narrationSwirlRender(n);
+        } else if (rfn == 0x80027CB4u || rfn == 0x80027E5Cu || rfn == 0x800281ECu) {
+          // FUN_80027A4C world-anchored scaled-sprite family (torch / hut-roof flames, #12/#23):
+          // project the node's own world anchor(s) natively so the flame lerps at fps60 (fx_sprite.cpp).
+          c->rsub.stats.snObjs++;
+          rend(c)->fxSpriteRender(n);
         }
         continue;
       }

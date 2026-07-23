@@ -228,8 +228,8 @@ void games_tomba2_init(void) {
   PauseMenu::install();           // FUN_800346BC in-game pause/item menu chrome scope (#21)
   ScorePopup::install();          // FUN_80072520 score/AP-gem pickup popup scope (#18)
   UiFt4Tap::install();            // FUN_8007E1B8 shared FT4 group leaf — ONE owner, fans out to both
-  void fx_sprite_install();
-  fx_sprite_install();            // FUN_80027A4C scaled-sprite packet writer tap (#12 torch flame family)
+  // FUN_80027A4C scaled-sprite family (#12/#23) is now a NATIVE PRODUCER (Render::fxSpriteRender,
+  // dispatched from the type-0x20 render walk) — no leaf tap; 0x80027A4C runs its plain gen body.
   FxMesh::install();              // FUN_800288AC effect-mesh controller scope (#15)
   { extern void mesh_emit_tap_install(); mesh_emit_tap_install(); }  // FUN_80027768 — SINGLE owner of the
                                   // shared mesh writer, dispatching to whichever of the two scopes is up
