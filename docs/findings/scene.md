@@ -1234,3 +1234,76 @@ does not resume, because `sm[0x4c]` never leaves 3.
 **refs:** kanban #47; `scratch/logs/probe{1,2,3,4,5,6,7,9,11,13,14,15}.log`,
 `scratch/logs/gate_{house_exit,hut,bucket,boot}.log`; `game/scene/scene_transition.cpp`,
 `game/core/engine.cpp` (`Engine::fieldRunX`).
+
+## kanban #50 — SYSTEMIC: a cooperative wait reached from a FLAT task was SILENTLY TRUNCATED (2026-07-23, FIXED in the scheduler)
+
+**The class defect.** A cooperative wait suspends by handing control back to the scheduler. HOW it
+hands back depends on the running task's parking mechanism, and the two mechanisms are not
+interchangeable:
+
+| task kind | who runs it | `scheduler_yield` does | a wait's tail |
+|---|---|---|---|
+| Coro fiber | pc_faithful stages, task-1 bodies, core B substrate tasks | BLOCKS the fiber thread, C stack alive | runs on the next resume |
+| FLAT setjmp task | the pc_skip DEMO / GAME / SOP / STAGE-0 per-frame dispatchers | `longjmp(yield_jmp)` to the stanza | **NEVER RUNS** — the C++ stack is discarded |
+
+So under `pc_skip`, any code reached from inside the GAME frame that parked on `FUN_80044BD4`
+(`PcScheduler::spawnAndWait`) lost everything after the wait, with no error: the stanza simply
+re-entered the per-frame dispatcher at its top next tick. That is why this family of bugs is
+pc_skip-EXCLUSIVE and why a faithful-leg compare shows nothing.
+
+**Blast radius.** kanban #47's area-0 transition-ENTER hook was ONE instance; the ENTER hooks for
+areas 1..21 go through the same `FUN_8006C77C` dispatch and carried the same truncation. Seven
+open-coded `native_area_load_bd4`-style collapses in the tree are hand-treatments of this same cause.
+
+**The fix (the general one).** `PcScheduler::spawnAndWait`'s two wait loops (the task-1 drain and
+the done-flag wait) now ask `onFlatTask()` — `in_stage && !cur_is_coro`, i.e. "the running task
+cannot suspend" — and, when true, complete the awaited task INLINE via `PcScheduler::runTaskInline`
+instead of yielding. The inline runner is the stanza's own fresh-task setup (slot's guest sp from
+`slot+0x08`, caller's gp, the `0xDEAD0000` return sentinel) driving the body **on its own Coro
+fiber**, pumped until it self-closes or returns; a body that parks mid-way is re-armed immediately
+(the sleep countdown is collapsed) rather than truncated. A slot that already ran and parked is
+RESUMED at its saved `r31`, not restarted at its entry. Two fail-fasts, no silent fallback: a body
+still parked after `kInlineTaskPumpLimit` resumes aborts (it waits on something only a frame
+boundary can provide), and a body that ends without raising the done flag aborts (the wait could
+never complete). Nothing else changes: on a Coro fiber (pc_faithful, core B) and OUTSIDE a task
+(the native boot driver, where the yield is a documented no-op) the code path is byte-identical to
+before, which is what keeps SBS 0-diff.
+
+**Proof that the general fix subsumes #47's special case.** #47 had hand-collapsed
+`FUN_8006C77C` + `ov_a00_gen_8010CB60` + its `FUN_80044BD4(0x8010DA70,26,0,flag=3)` into
+`SceneTransition::areaTransitionEnterSync` / `areaEnterHookA00Sync` / `subSceneLoadSync`, wired from
+`Engine::fieldRunX`'s pc_skip branch. **All three methods are DELETED** and `fieldRunX` dispatches
+the guest hook `0x8006c77c` again, for every area. On `replays/bugs/house-on-the-point.pad`
+(`PSXPORT_DEBUG=sched`, watch on `G[5]` = 0x800E7E85):
+
+| build | `[sched] caught a GAME substate yield` | `G[5]=0x24` (state 36) | `gen_func_80065A54` | watch hits |
+|---|---|---|---|---|
+| #47's hand-collapse (baseline) | absent | **f661** | runs | 23 |
+| collapse deleted, NO scheduler fix (control) | **present** | never | never runs | 21 |
+| collapse deleted + scheduler fix | absent | **f661** | runs | 23 |
+
+The third row also logs `[sched] inline task slot 1 start pc=0x8010DA70` at f661 — the general
+mechanism running exactly the body the hand-collapse used to inline — and `0x800E7E85`'s 16-byte
+row at f700 is byte-identical to the baseline's.
+
+**What is NOT deleted yet, and why (do not assume redundancy).** The other six collapses are NOT
+covered by this change and were left in place:
+* the four `native_area_load_bd4` sites (`Engine::transitionMain/D3c/E20/F3c`) and the
+  `transitionF3c` case-0 texgroup inline are `FUN_80044BD4(..., flag=1)` — **fire-and-forget, no
+  wait loop**, so the truncation this fix removes was never their problem. Their exposure is the
+  OTHER half of the same disease: the spawned task itself then runs FLAT in
+  `recomp_run_generic_dispatch_stanza`, and truncates there if it yields. Curing that means running
+  slot tasks on fibers under pc_skip too — a separate, larger change.
+* `Engine::submode1Case0Skip`, `Sop::fieldMode` case 0 and `demo.cpp`'s area-load collapse are
+  flag==2 waits and ARE subsumed mechanically — but they currently run the NATIVE body
+  (`Asset::areaDataLoadAsTask` / `Sop::transitionAreaLoad`), which is reached only by entry-PC
+  through `GameHooks::schedStageBody`. `runTaskInline` dispatches with `rec_coro_run`, so deleting
+  those collapses today would demote `0x800452C0` to its substrate body — routing a natively-owned
+  path back to the substrate, which is banned. The prerequisite is a game hook mapping a task ENTRY
+  PC to its native body (the `SCHED_CORO_*` table `runTask1PreloadStanza` already uses), consumed by
+  `runTaskInline`. Do that first, then delete those three with their own scenario gates.
+
+**refs:** kanban #50/#47; `external/psxport/runtime/recomp/pc_scheduler.{h,cpp}`
+(`onFlatTask`/`runTaskInline`), `game/core/engine.cpp` (`Engine::fieldRunX`),
+`game/scene/scene_transition.{h,cpp}` (collapse deleted); logs
+`scratch/logs/{base,ctrl,final}_hotp.log`.

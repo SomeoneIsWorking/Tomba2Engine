@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (20)
+## TODO (21)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#16 Sign text jitters at fps60 when the camera moves**  `render,fps60` — 📎 docs/reference/issues/issue16_sign_text_jitter.png
@@ -26,6 +26,7 @@
 - **#52 No A06/A08 cutscene replay exists — 11 beh_* script handlers are unreachable for A/B**  `verification`
 - **#53 Dust PUFF MESH layer is ported-unverified — never observed on screen (ring state 2/3 unreached)**  `verification,render`
 - **#54 Bucket's supporting POLE/ROPE invisible before pickup, visible after — state-gated missing producer**  `render,bug`
+- **#54 SBS-full is RED on main at 0x801FE808 — pre-existing, reproduces on an unmodified HEAD build**  `bug,verification`
 
 ## DOING (3)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`

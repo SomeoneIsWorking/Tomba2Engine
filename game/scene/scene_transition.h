@@ -83,25 +83,4 @@ public:
   //                          uint8_t v = node[+0x147] + 2;
   //                          node[+0x14A] = v; node[+0x149] = v; }
   void clearSwapBlock(uint32_t node);
-
-  // ── FUN_8006C77C: the per-area SCREEN-TRANSITION *ENTER* hook ───────────────────────────────
-  // `Engine::fieldRunX` state 0 runs this once, on the frame `sm[0x4c]` flips to 3 (screen faded,
-  // mid-transition). It indexes the per-area hook table at 0x800A4AF8 by the live area id
-  // (0x800BF870) and dispatches that area's hook; area 3 has none. This is the ENTER counterpart
-  // of the EXIT hook 0x8006C7C4 (table 0x800A4B50) that `Engine::fieldRun` state 4 runs.
-  //
-  // WHY IT IS OWNED (kanban #47, docs/findings/scene.md): area 0's hook parks on a COOPERATIVE
-  // spawn-and-wait (FUN_80044BD4 flag=3), and under `pc_skip` the GAME task is a FLAT setjmp
-  // task — `scheduler_yield` longjmps straight back to `PcScheduler::runGameStanza`, discarding
-  // the C++ stack, so the hook's TAIL never runs and the whole screen transition deadlocks.
-  // Owning it lets the load run SYNCHRONOUSLY (the port's standing "no PSX async" rule) so the
-  // tail executes in the same call. pc_faithful is untouched: it runs the gen bodies on the
-  // stage FIBER, where the same yield parks and resumes correctly.
-  void areaTransitionEnterSync();
-
-private:
-  // ov_a00_gen_8010CB60 — area 0's enter hook, with the cooperative sub-scene load collapsed.
-  void areaEnterHookA00Sync();
-  // FUN_80044BD4(0x8010DA70, p2, p3, flag=3) collapsed to a synchronous call (see the .cpp).
-  void subSceneLoadSync(uint32_t param2, uint32_t param3);
 };

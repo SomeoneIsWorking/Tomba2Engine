@@ -2076,12 +2076,11 @@ void Engine::fieldRunX() { Core* c = core;
   }
   if (s4e == 0) {                                // 0x80107100: init
     c->mem_w16(sm + 0x4e, 1);
-    // 0x8006c77c — the per-area transition-ENTER hook. OWNED on the pc_skip leg because area 0's
-    // hook parks on a cooperative FUN_80044BD4 spawn-and-wait that this leg's FLAT setjmp GAME
-    // task cannot resume, which silently truncated the hook and deadlocked every door transition
-    // (kanban #47; see SceneTransition::areaTransitionEnterSync). The faithful leg above keeps
-    // the substrate dispatch — it runs on the stage fiber, where the yield resumes correctly.
-    eng(c).sceneTransition.areaTransitionEnterSync();
+    // 0x8006c77c — the per-area transition-ENTER hook (every area's, 0..21). Its cooperative
+    // FUN_80044BD4 spawn-and-wait completes on this leg too: PcScheduler::spawnAndWait runs the
+    // spawned body inline when the waiting task cannot suspend (kanban #50).
+    c->r[31] = 0x80107108u;
+    rec_dispatch(c, 0x8006c77cu);
     d3(c, 0x8005082cu, 0, 0, 0);                 // input reset
     // fall through to state 1
   }
