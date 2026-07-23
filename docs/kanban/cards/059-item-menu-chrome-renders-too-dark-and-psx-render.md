@@ -1,7 +1,7 @@
 ---
 id: 59
 title: Item menu chrome renders TOO DARK — and psx_render shares it, so the 0/76800 gate is blind
-status: todo
+status: done
 labels: [render, bug]
 created: 2026-07-23
 updated: 2026-07-23

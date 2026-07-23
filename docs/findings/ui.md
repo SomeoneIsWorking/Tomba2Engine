@@ -1,5 +1,54 @@
 # Findings — UI subsystem (game/ui/*)
 
+## Item/pause menu chrome rendered 0x40 TOO DARK — the menu's dim was applied TWICE, once with no ordering (kanban #59, FIXED 2026-07-23)
+
+- **symptom:** the item/pause menu's gold frame, tab labels, help panel and item rows all rendered
+  darker than the real game. Layout/text/rows correct — a pure brightness fault. USER reference:
+  `docs/reference/issues/issue59_item_menu_too_dark.png`. Repro `replays/bugs/ingame-item-menu.pad`
+  f1120.
+- **the shape of the error is the whole diagnosis:** the presented frame was
+  `clamp(reference - 0x40)` on ALL THREE CHANNELS, everywhere — clamped, so the panel interior
+  (0x18 grey in the reference) bottomed out at pure black. A uniform clamped subtract over the whole
+  finished image is one full-screen `B - F` rect with `F = 0x404040` applied AFTER everything.
+- **NOT an exec-state fault (hypothesis tested and FALSIFIED).** The card and the operator both
+  suspected pc_faithful computed some colour state differently from recomp_path. Measured at f1120:
+  every one of the **421 ordering-table packets is byte-identical** between the two exec paths
+  (`debug otattr` to enumerate the pool addresses, then `rw <pool> <n+1>` on each — 0 differing
+  lines), including the dim pair itself at `0x800C1A04` = `62404040 00000000 00F00140` + `E1000040`.
+  The guest agrees; only the picture differed.
+- **the instrument that made it look like exec — READ THIS BEFORE TRUSTING A psx_render REFERENCE.**
+  `PSXPORT_RENDER_PSX=1` at BOOT under the DEFAULT exec path returned a frame **byte-identical**
+  (md5 `a42d99bcde4d`) to the plain pc_render frame, while logging `Render::psxRender=1`. So the
+  "psx leg" that read dark was never a psx frame. Only `PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1` (recomp
+  exec) produced a real OT-walked frame — and that one was bright, matching the USER reference. The
+  bright leg changes BOTH variables, which is what made the fault read as exec. See instrument I002
+  in `docs/info/`.
+- **cause — DOUBLE OWNERSHIP of one dim.** The guest builds the menu dim through the SHARED fade leaf
+  `FUN_8007E9C8(0x404040, 0, 4)`, which links a `0xE1`+`0x62` pair MID-OT (at `kDimBucket` 132, with
+  the outer frame, tab labels, item rows and help panel all painted AFTER it, so on PSX it darkens
+  only what sits beneath). `ScreenFade::installLeafTap` (game/render/screen_fade.cpp) owns that leaf
+  GLOBALLY and mirrors EVERY call into the frame-scoped `ScreenFade`, which the present shader / the
+  headless readback applies to the ENTIRE finished frame with no ordering. So the dim landed twice:
+  once correctly ordered (`PauseMenu::pushSubtractiveDim` at `kDimBucket`, ~4150 px) and once
+  globally over all 76800. Evidence: `debug fadewatch` at f1120 reports `mode=2 rgb=(64,64,64)` on
+  the pc_faithful leg vs `mode=0 rgb=(0,0,0)` on the recomp leg (where no native tap runs).
+- **fix (`game/ui/pause_menu.cpp`, `PauseMenu::releaseGlobalDim`):** the producer that draws the rect
+  in its OT place is the layer's owner, so it releases the global copy — `pushSubtractiveDim` pushes
+  the ordered quad and then clears the frame-scoped `ScreenFade` **only when it holds exactly this
+  page's dim** (SUBTRACTIVE 0x40/0x40/0x40, the same `kDimLevel` the rect carries), leaving a genuine
+  scene fade running underneath the menu alone.
+- **verified:** pc_render at f1120 went from **68627/76800 differing px** vs the true psx leg
+  (`PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1`) to **0/76800**; same at f1140. Gold tab row
+  (103,78,22) -> (167,138,59); left border (55,52,7) -> (100,97,24); panel interior (0,0,0) ->
+  (24,24,24) — each now identical to the psx leg, which matches the USER reference.
+  No regression: bucket-softlock dialog opaque+legible at f1200, in-game Options page f1160, title
+  page f1027, seaside field all render; `codemap --dup-installs` = 0.
+- **residual / the deeper fix that is NOT done:** the global tap is still scope-blind — ANY future
+  page whose dim/fade is a mid-OT rect reproduced by its own native producer will hit the same
+  double-application, and will have to make the same release call. The structural fix is to make
+  `ScreenFade::installLeafTap` mirror only calls whose rect no native producer reproduces (i.e. know
+  the OT slot's owner); that lives in `game/render/screen_fade.cpp`, outside this subsystem.
+
 ## In-game OPTIONS page drew no backdrop — the page had a producer only on the TITLE path (kanban #38, FIXED 2026-07-23)
 
 - **symptom:** the in-game Options page (START -> "Options") rendered its text and nothing else — the

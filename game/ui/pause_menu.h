@@ -80,4 +80,10 @@ public:
   // START page (StartPage, kanban #35) emits neither and composites over the live field.
   void pushScreenQuad(unsigned char level, int semi, int blend);
   void pushSubtractiveDim();
+
+  // releaseGlobalDim: clear the frame-scoped ScreenFade when it holds THIS page's dim. The guest routes
+  // the dim through the shared fade leaf, which ScreenFade owns globally and applies to the whole
+  // finished frame with no ordering; this producer draws the same rect in its OT place, so the global
+  // copy is a duplicate that darkens the chrome above it. See pause_menu.cpp for the measurement.
+  void releaseGlobalDim();
 };

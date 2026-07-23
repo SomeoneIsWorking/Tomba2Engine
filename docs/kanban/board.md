@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (25)
+## TODO (23)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#16 Sign text jitters at fps60 when the camera moves**  `render,fps60` — 📎 docs/reference/issues/issue16_sign_text_jitter.png
@@ -24,12 +24,10 @@
 - **#52 No A06/A08 cutscene replay exists — 11 beh_* script handlers are unreachable for A/B**  `verification`
 - **#53 Dust PUFF MESH layer is ported-unverified — never observed on screen (ring state 2/3 unreached)**  `verification,render`
 - **#54 Bucket's supporting POLE/ROPE invisible before pickup, visible after — state-gated missing producer**  `render,bug` — 📎 docs/reference/issues/issue54_bucket_pole_missing.png
-- **#54 SBS-full is RED on main at 0x801FE808 — pre-existing, reproduces on an unmodified HEAD build**  `bug,verification`
 - **#55 Stunned monsters missing their spinning stars**  `render,bug` — 📎 docs/reference/issues/issue55_stunned_stars_missing.png
 - **#56 SYSTEMIC: pc_render has NO line-primitive producer — every GP0 line is invisible (rope, fishing line)**  `render,bug` — 📎 docs/reference/issues/issue56_fisherman_line_missing.png
 - **#57 Hut interior wall/room decorations missing — likely occluded (possible #29 regression)**  `render,bug` — 📎 docs/reference/issues/issue57_hut_wall_decor_missing.png,  docs/reference/issues/issue57_hut_wall_decor_missing_2.png
 - **#58 Fisherman dialog SOFTLOCKS**  `bug` — 📎 docs/reference/issues/issue58_fisherman_dialog_softlock.png
-- **#59 Item menu chrome renders TOO DARK — and psx_render shares it, so the 0/76800 gate is blind**  `render,bug` — 📎 docs/reference/issues/issue59_item_menu_too_dark.png
 - **#60 SEQUENCE softlock (live capture) — game keeps running, sequence never advances**  `bug,pc-skip` — 📎 docs/reference/issues/issue60_sequence_softlock.png
 
 ## DOING (3)
@@ -37,7 +35,7 @@
 - **#45 CAMPAIGN: render everything natively — retire the substrate-GTE projection producers to float-native**  `render,campaign`
 - **#47 pc_skip: entering 'House on the Point' corrupts state (music stops, camera unfollows, interior vibrates)**  `bug,pc-skip`
 
-## DONE (33)
+## DONE (35)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -71,3 +69,5 @@
 - **#42 pc_render omits the far BACKGROUND/SKY plane in non-seaside areas (10, 11, 14, 21)**  `render`
 - **#43 pc_render omits the field HUD minimap (areas 2, 7)**  `render`
 - **#44 pc_render omits the central vortex/portal effect in area 15**  `render`
+- **#59 Item menu chrome renders TOO DARK — and psx_render shares it, so the 0/76800 gate is blind**  `render,bug` — 📎 docs/reference/issues/issue59_item_menu_too_dark.png
+- **#61 SBS-full is RED on main at 0x801FE808 — pre-existing, reproduces on an unmodified HEAD build**  `bug,verification`

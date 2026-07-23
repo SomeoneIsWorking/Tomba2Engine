@@ -29,6 +29,7 @@ void func_8003F698(Core*);   // generated/shard_disp.c — geometry-block submit
 namespace {
 
 constexpr uint32_t OT_TABLE_PTR   = 0x800ED8C8u;  // u32 -> ordering-table base
+constexpr uint32_t OT_PTR_PAGE    = 0x800F0000u;  // gen's s3: OT_TABLE_PTR == OT_PTR_PAGE - 10040
 constexpr uint32_t SUBPART_ARRAY  = 0xC0u;        // node+0xC0: array of sub-part pointers, stride 4
 constexpr uint32_t SUB_TRANSFORM  = 0x18u;        // sub+0x18: 8 GTE control words
 constexpr uint32_t SUB_GEOMBLK    = 0x40u;        // sub+0x40: geometry block to submit
@@ -51,12 +52,28 @@ void Render::subPartWalk(Core* c) {
   c->mem_w32(frame + 60, c->r[17]);
   c->mem_w32(frame + 56, c->r[16]);
 
+  // LIVE-REGISTER LAW (docs/findings/sbs.md) — why the loop state lives in the GUEST registers and
+  // not in C++ locals. The callee chain func_8003F698 -> func_800803DC is still substrate, and
+  // func_800803DC's prologue SPILLS its incoming s0/s1 into its own guest frame (sp+0x10 / sp+0x14 —
+  // 0x801FE808/0x801FE80C on the field leg) before reusing them. gen_func_8003F174 keeps its whole
+  // walk state in the callee-saved set for the entire loop — s0=index, s1=cursor, s2=node,
+  // s3=OT-pointer page, s4=the pass-through arg — so those registers are genuine guest-stack-visible
+  // state, not dead scratch. Holding them only in C++ locals left func_800803DC spilling whatever
+  // STALE values the previous native code had parked there: the f169 SBS-full divergence at
+  // 0x801FE808 (kanban #61 — A spilled a leftover pointer pair, B spilled index/cursor). Same class,
+  // same fix as the r16..r23 mirror in Render::cmdListDispatch (game/render/perobj_dispatch.cpp).
+  uint32_t& index  = c->r[16];
+  uint32_t& cursor = c->r[17];   // walks the +0xC0 array, 4 bytes per sub-part
+  c->r[18] = node;
+  c->r[20] = passThrough;
+
   if (c->mem_r8(node + NODE_LIMIT) != 0 && c->mem_r8(node + NODE_COUNT) != 0) {
-    int32_t  index  = 0;
-    uint32_t cursor = node;                 // walks the +0xC0 array, 4 bytes per sub-part
+    index    = 0;
+    cursor   = node;
+    c->r[19] = OT_PTR_PAGE;                 // gen addresses OT_TABLE_PTR as s3-10040
 
     do {
-      if (index >= (int32_t)(uint32_t)c->mem_r8(node + NODE_LIMIT)) break;   // top-of-loop limit
+      if ((int32_t)index >= (int32_t)(uint32_t)c->mem_r8(node + NODE_LIMIT)) break;  // top-of-loop limit
 
       const uint32_t sub = c->mem_r32(cursor + SUBPART_ARRAY);
       const uint32_t xf  = sub + SUB_TRANSFORM;
@@ -79,7 +96,7 @@ void Render::subPartWalk(Core* c) {
       func_8003F698(c);
 
       index += 1;
-    } while (index < (int32_t)(uint32_t)c->mem_r8(node + NODE_COUNT));
+    } while ((int32_t)index < (int32_t)(uint32_t)c->mem_r8(node + NODE_COUNT));
   }
 
   c->r[31] = c->mem_r32(frame + 76);
