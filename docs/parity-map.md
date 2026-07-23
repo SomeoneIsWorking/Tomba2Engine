@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 22 verified · 6 partial · 1 untested · 7 n/a
+**Status:** 23 verified · 6 partial · 1 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -139,6 +139,12 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 23850
 - **gate:** same two legs; THUNK_FORCE_GEN A/B exonerated tap; ovhit native=32 newgame->narration
 - **evidence:** 7a282422
+
+## script-interp-advance
+- **status:** verified
+- **frames:** 41280
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 ./scratch/bin/tomba2_port
+- **evidence:** 7cb7bee
 
 ## TileGridLayer scrollStep+emit (0x8011534C/0x80115598)
 - **status:** verified

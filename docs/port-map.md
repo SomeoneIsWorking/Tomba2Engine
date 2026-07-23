@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 14 verified · 8 ported-unverified · 1 todo · 1 blocked
+**Status:** 15 verified · 8 ported-unverified · 1 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -141,6 +141,12 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** verified
 - **owner:** game/render/fx_line.cpp
 - **notes:** FUN_8013DD34 shared rope leaf + its three callers (FUN_8013E9D8 anchor rope, FUN_8013EA64 8-point chain, FUN_80122974 4-mode tether incl. the 8-segment fishing line), ported as native producers; segment->quad expansion in the producer, queue stays quads-only. Gates: stroke count parity with the lineprim census, 130px/69px A/B isolation, fps60 lerp 5/5, SBS no new divergence.
+
+## script-interp-advance
+- **scope:** ScriptInterp::loadNextEntry + op04SceneFlagRendezvous (guest FUN_80040E54 / FUN_8004201C)
+- **status:** verified
+- **owner:** game/scene/script_interp.cpp
+- **notes:** The cutscene interpreter's last two unowned links. Equivalence proven before use: full 2MB guest RAM at f2600 on replays/bugs/sequence-softlock-2.pad byte-identical to the pre-port run; SBS full green to f41280. loadNextEntry MUST install with a setter (gen_func_80040FA0 reaches it by a direct jal; rec_dispatch never sees it). Owning these is what exposed kanban #60.
 
 ## render-compose-tint-gate
 - **status:** ported-unverified
