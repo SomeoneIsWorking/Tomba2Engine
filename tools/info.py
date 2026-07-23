@@ -30,7 +30,7 @@ code, reaches subagents, and survives without this tool.
 USAGE
   info.py brief <words...>      # START HERE. One query across every registry: issues, claims,
                                 # instruments, codemap, re-frontier. Replaces remembering 3 CLIs.
-  info.py claim add "<claim>" --evidence "<how proven>" [--tag t] [--expires-on <what would break it>]
+  info.py claim add "<claim>" --evidence "<how proven>" --falsified-by "<what OBSERVATION would disprove it>"
   info.py claim list [--stale] [--falsified]
   info.py claim falsify <id> --why "<what disproved it>"
   info.py claim confirm <id> --evidence "<re-proof>"
@@ -64,9 +64,19 @@ def ensure(d):
 
 
 def next_id(d, prefix):
+    """Next free sequential id, SKIPPING any already taken.
+
+    Parallel agents each compute this against their OWN worktree, so a naive max()+1 hands the same
+    number to every one of them — that produced three entries all called I003 in a single round (the
+    same collision the kanban cards hit). Scanning for the first FREE slot means the operator's
+    integration renumbers at most the genuine duplicates instead of silently overwriting one.
+    """
     ensure(d)
-    ids = [int(m.group(1)) for f in os.listdir(d) if (m := re.match(r"(\d+)-", f))]
-    return f"{prefix}{max(ids, default=0) + 1:03d}", max(ids, default=0) + 1
+    taken = {int(m.group(1)) for f in os.listdir(d) if (m := re.match(r"(\d+)-", f))}
+    n = 1
+    while n in taken:
+        n += 1
+    return f"{prefix}{n:03d}", n
 
 
 def write(path, front, body):
@@ -257,7 +267,13 @@ def main():
 
     c = sub.add_parser("claim").add_subparsers(dest="c", required=True)
     ca = c.add_parser("add"); ca.add_argument("claim"); ca.add_argument("--evidence", required=True)
-    ca.add_argument("--tag", action="append"); ca.add_argument("--expires-on")
+    ca.add_argument("--tag", action="append")
+    # --falsified-by is the real name; --expires-on is kept as an alias because the first draft used it.
+    # TWO independent agents misread "expires-on" as a DATE field (one passed a date, one thought no such
+    # flag existed and left the falsifier UNSPECIFIED) — the value is a CONDITION, not a time.
+    ca.add_argument("--falsified-by", "--expires-on", dest="expires_on", metavar="CONDITION",
+                    help="what OBSERVATION would disprove this claim (not a date) — e.g. "
+                         "'if the reference renderer shares the fault, this number proves nothing'")
     ca.set_defaults(fn=cmd_claim_add)
     cl = c.add_parser("list"); cl.add_argument("--stale", action="store_true")
     cl.add_argument("--falsified", action="store_true"); cl.set_defaults(fn=cmd_claim_list)
