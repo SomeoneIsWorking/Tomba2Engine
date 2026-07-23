@@ -237,8 +237,15 @@ prim fingerprint matching — is transitional debt and must be REMOVED, not exte
   Delete dead mechanisms outright (no tombstones); do not leave them "in case".
 - **DIAGNOSTICS ARE EXEMPT and stay.** `OtAttr`, `PSXPORT_PRIMAT`, `debug objid`/`otattr` read guest
   state to ANSWER QUESTIONS; they never produce the picture. The ban is on tagging the shipping path.
-- **A tap is not a tag.** Running a gen body and re-deriving quads host-side from the contract it
-  publishes is a native producer with a byte-exact source; that is the porting mechanism, not debt.
+- **A tap is a SCAFFOLD, not the destination (USER, 2026-07-23: "I don't want stamps, taps or
+  whatever, just do it like how it is supposed to be done, via porting").** Running a gen body and
+  re-deriving quads host-side from the scratchpad/register contract it publishes proves the RE and gets
+  a layer on screen — but the substrate is still doing the projection, so the tap is a transitional
+  render device, NOT a finished port. The finished port REIMPLEMENTS the emitter natively: it reads the
+  effect/object's own world state, projects with the native camera, and runs NO `gen_func_*` body for
+  the picture. Retire each tap into a real producer the same way stamping was retired. The gate that
+  forces this: a tap CANNOT lerp (re-running its gen body under a lerped camera would write guest RAM),
+  so any effect that must interpolate at 60fps has to be a real port by construction — see LERP below.
 - **LERP IS NATIVE TOO (USER, 2026-07-22).** fps60 interpolation is covered by this rule, with no
   exemption for being hard. Per-prim `matchAndLerp` fingerprinting is the same banned pattern —
   recovering identity by matching packets after the fact. Interpolate at the ACTOR-TRANSFORM tier
