@@ -10,8 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 911 native fns, 765 owned addresses, 722 LIVE / 189 ORPHAN.
-Totals: 916 native fns, 772 owned addresses, 727 LIVE / 189 ORPHAN.
+Totals: 915 native fns, 768 owned addresses, 726 LIVE / 189 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -580,12 +579,8 @@ Totals: 916 native fns, 772 owned addresses, 727 LIVE / 189 ORPHAN.
 | 0x8007E110 | LIVE | `Spawn::sceneEntityBody` | game/world/spawn.cpp:625 |  | SCENE-ENTITY SPAWN primitive. RE'd from disas 0x8007E110..0x8007E1B4. |
 | 0x8007E110 | LIVE | `Spawn::sceneEntity` | game/world/spawn.cpp:657 |  |  |
 | 0x8007E1B8 | LIVE | `Render::emitUiFt4` | game/render/field_hud.cpp:79 |  | --- emitUiFt4 — general FUN_8007E1B8 (POLY_FT4 template group) -------… |
-| 0x8007E1B8 | LIVE | `Render::emitMenuFt4` | game/render/render_walk.cpp:427 |  | emitMenuFt4 / emitMenuSprites — the MENU-specialized wrappers over the… |
-| 0x8007E6DC | LIVE | `Render::emitUiSprites` | game/render/field_hud.cpp:153 |  | --- emitUiSprites — general FUN_8007E6DC (SPRT template group) -------… |
-| 0x8007E6DC | LIVE | `Render::emitMenuSprites` | game/render/render_walk.cpp:433 |  |  |
-| 0x8007E1B8 | LIVE | `Render::emitUiFt4` | game/render/field_hud.cpp:78 |  | --- emitUiFt4 — general FUN_8007E1B8 (POLY_FT4 template group) -------… |
 | 0x8007E1B8 | LIVE | `Render::emitMenuFt4` | game/render/render_walk.cpp:480 |  | emitMenuFt4 / emitMenuSprites — the MENU-specialized wrappers over the… |
-| 0x8007E6DC | LIVE | `Render::emitUiSprites` | game/render/field_hud.cpp:152 |  | --- emitUiSprites — general FUN_8007E6DC (SPRT template group) -------… |
+| 0x8007E6DC | LIVE | `Render::emitUiSprites` | game/render/field_hud.cpp:153 |  | --- emitUiSprites — general FUN_8007E6DC (SPRT template group) -------… |
 | 0x8007E6DC | LIVE | `Render::emitMenuSprites` | game/render/render_walk.cpp:486 |  |  |
 | 0x8007E6DC | LIVE | `ov_compose` | game/ui/ui_sprite.cpp:100 |  | The pause/item menu, the START page and the score popup all paint thro… |
 | 0x8007E6DC | LIVE | `UiSprite::compose` | game/ui/ui_sprite_compose.cpp:52 |  | (placement r4, indexPtr r5, defBase r6, attrs r7) |
@@ -715,13 +710,9 @@ Totals: 916 native fns, 772 owned addresses, 727 LIVE / 189 ORPHAN.
 | 0x801065DC | LIVE | `demo_frame_s5` | game/scene/demo.cpp:835 |  | Substate s5 (0x801065DC) — LEAVE DEMO: the body is `jal 0x80052078(2)`… |
 | 0x801065EC | LIVE | `Demo::s6` | game/scene/demo.cpp:377 | 0x8007B45C 0x80106690 0x80106824 | s6 0x801065EC — page sub-machine 0x8007b45c(); if sm[0x50]==3 fire the… |
 | 0x80106668 | LIVE | `demo_frame_s7` | game/scene/demo.cpp:938 | 0x800452C0 0x800524B4 0x80074BC4 0x80079374 0x80079464 0x8007A8E0 … | Substate s7 (trampoline 0x80106668 -> phase machine 0x80106C24) — the … |
-| 0x80106690 | LIVE | `Render::menuChrome` | game/render/render_walk.cpp:441 |  | menuChrome — see render.h. The black backdrop + the 2 logo sprites (FU… |
-| 0x80106728 | LIVE | `native_stage0_sm` | game/core/engine.cpp:2920 |  | Stage-0 START.BIN state machine (overlay 0x80106728), PC-native. Recom… |
-| 0x80106824 | LIVE | `Render::optionsPageNative` | game/render/render_options.cpp:122 |  | optionsPageNative — see render.h. The page ITSELF is produced at its g… |
-| 0x80106824 | LIVE | `Render::menuItemsAndCursor` | game/render/render_walk.cpp:459 |  | menuItemsAndCursor — see render.h. Reproduces FUN_80106824(param1, par… |
-| 0x80106824 | LIVE | `Render::s3MenuNative` | game/render/render_walk.cpp:485 |  | s3MenuNative — see render.h. The page-1 menu (sm[0x48]==3, reached by … |
 | 0x80106690 | LIVE | `Render::menuChrome` | game/render/render_walk.cpp:494 |  | menuChrome — see render.h. The black backdrop + the 2 logo sprites (FU… |
 | 0x80106728 | LIVE | `native_stage0_sm` | game/core/engine.cpp:2925 |  | Stage-0 START.BIN state machine (overlay 0x80106728), PC-native. Recom… |
+| 0x80106824 | LIVE | `Render::optionsPageNative` | game/render/render_options.cpp:122 |  | optionsPageNative — see render.h. The page ITSELF is produced at its g… |
 | 0x80106824 | LIVE | `Render::menuItemsAndCursor` | game/render/render_walk.cpp:512 |  | menuItemsAndCursor — see render.h. Reproduces FUN_80106824(param1, par… |
 | 0x80106824 | LIVE | `Render::s3MenuNative` | game/render/render_walk.cpp:538 |  | s3MenuNative — see render.h. The page-1 menu (sm[0x48]==3, reached by … |
 | 0x8010696C | LIVE | `Demo::s2SubMachine` | game/scene/demo.cpp:280 | 0x80106690 0x80106824 | the TITLE main-menu cursor sub-machine (s2's rec_dispatch target). The… |
@@ -768,6 +759,7 @@ Totals: 916 native fns, 772 owned addresses, 727 LIVE / 189 ORPHAN.
 | 0x8010B798 | LIVE | `beh_sop_intro_lifted` | game/ai/beh_sop_intro_lifted.cpp:101 |  |  |
 | 0x8010B990 | LIVE | `beh_sop_intro_narration` | game/ai/beh_sop_intro_narration.cpp:139 |  |  |
 | 0x8010BEAC | LIVE | `beh_orbit_spark_effect` | game/ai/sop_intro_events.cpp:536 |  | ======================================================================… |
+| 0x8010CB60 | LIVE | `SceneTransition::areaEnterHookA00Sync` | game/scene/scene_transition.cpp:387 | 0x80074F24 | area 0's transition-ENTER hook (ov_a00 overlay; gen body ov_a00_gen_80… |
 | 0x8010E904 | LIVE | `ActorTomba::postFrameWaterCheck` | game/player/actor_tomba.cpp:470 |  | ======================================================================… |
 | 0x80112188 | LIVE | `ActorMeleeEngage::doIt` | game/ai/actor_melee_engage.cpp:28 | 0x80022C78 0x80055844 0x80084080 |  |
 | 0x80112188 | LIVE | `ActorMeleeEngage::registerOverrides` | game/ai/actor_melee_engage.cpp:300 |  |  |

@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (16)
+## TODO (17)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#16 Sign text jitters at fps60 when the camera moves**  `render,fps60` — 📎 docs/reference/issues/issue16_sign_text_jitter.png
@@ -22,6 +22,7 @@
 - **#46 recomp-MISS 0x80028E64 latent (label not emitted as entry) — NOT reproduced on current main**  `bug,recomp`
 - **#48 area 14 waterfall backdrop is GTE SCENE GEOMETRY with no native producer (split from #42)**  `render`
 - **#49 area 21 sky is a GRADIENT+tilemap COMPOSITE — needs the gouraud base ported (split from #42)**  `render`
+- **#50 SYSTEMIC pc_skip: cooperative FUN_80044BD4 waits inside the GAME frame are SILENTLY TRUNCATED**  `bug,pc-skip`
 
 ## DOING (3)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
