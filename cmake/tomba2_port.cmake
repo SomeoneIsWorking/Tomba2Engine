@@ -225,6 +225,7 @@ set(GAME_SRC
   game/render/hud_gauge_emitter.cpp
   game/render/fx_sprite.cpp
   game/render/fx_vortex.cpp
+  game/render/fx_line.cpp
   game/render/fx_dust.cpp
   game/render/mesh_quads.cpp
   game/render/effect_lerp.cpp

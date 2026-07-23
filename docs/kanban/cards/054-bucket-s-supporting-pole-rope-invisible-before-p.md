@@ -22,3 +22,5 @@ SAME CLASS as the torch flame (#12), dust (#39), non-seaside backdrops (#42), mi
 NOTE the bucket object cluster is well-trodden — it is also the subject of #2 (pickup softlock) and #15 (weapon impact) — so run `python3 tools/findings.py bucket` first rather than re-deriving.
 
 **2026-07-23:** 2026-07-23 SEE #56: the bucket's ROPE (as distinct from the pole) is almost certainly the systemic line-primitive gap — pc_render has no line producer at all, so every GP0 op-0x40..0x5F line is invisible. Fix #56 and the rope may return for free; the POLE (solid geometry) is likely still its own missing producer. Split the two when investigating.
+
+**2026-07-23:** 2026-07-23 THE ROPE IS FIXED (see #56); THE POLE WAS NOT REPRODUCED. Comparing pc_render against a separate psx_render boot at f443 (pre-pickup) and f1200 (post-pickup) on bucket-softlock.pad, the lashed support poles are present on BOTH legs — so the missing thing at the bucket was the rope, now drawn by the new line producer. If the user still sees a pole-less bucket it is a vantage this replay does not reach; needs a capture from that viewpoint before assuming a second missing producer.

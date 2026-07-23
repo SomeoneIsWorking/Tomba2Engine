@@ -1,5 +1,64 @@
 # Findings — render / engine submit
 
+## pc_render had NO LINE PRIMITIVE — every rope/chain/tether in the game was invisible (kanban #56 systemic, #54 the bucket rope; 2026-07-23)
+
+- **symptom:** the bucket's suspension ROPE and a fisherman's fishing LINE were missing under pc_render
+  and present under psx_render, in unrelated scenes.
+- **cause (structural, one gap):** the GP0 interpreter handles line primitives (`gpu_native.cpp`, op
+  0x40..0x5F, flat/gouraud, single AND variable-length poly-line) — which is why lines appear under
+  `PSXPORT_RENDER_PSX=1` — but the native render queue is quads-only and had no line path at all.
+  Since the break-first render rebuild pc_render does not walk the guest OT, every GP0 line was
+  simply never drawn. One missing producer, many symptoms.
+- **status:** FIXED for the whole 0x5E rope family (`game/render/fx_line.cpp`). One remaining line
+  emitter is RE'd but NOT yet ported — see the ring-shadow section below.
+- **how the emitters were identified (guest data):** new diagnostic `debug lineprim` (gpu_native.cpp's
+  line branch) logs every line packet with its vertices, colours, the GPU blend in force, and the
+  otattr store-span attribution {emitter fn, caller fn, node}. On `replays/bugs/bucket-softlock.pad`
+  frames 0..445 the whole census is **three emitters**:
+
+  | packets | op | emitter | node class | what it is |
+  |---|---|---|---|---|
+  | 554 | 0x5E gouraud semi, 4 verts | `FUN_8013E9D8` | type-0x20, rfn at node+0x18 | the bucket's ROPE |
+  |  64 | 0x5E gouraud semi, 4 verts | `FUN_80122974` | type 1/0x41/0x81, called by the walk | the TETHER / fishing line |
+  | 1064 | 0x4A mono semi, 3 verts | `FUN_8013E08C` | (its own GTE loop) | the ground RING SHADOW |
+
+- **the shared leaf — `FUN_8013DD34(A, B)` = "draw a rope between two WORLD points"** (Ghidra,
+  `scratch/decomp/lines*.c`): builds the world midpoint M=(A+B)/2, RTPTs the triple (A,M,B) in one go,
+  and emits a FOUR-point gouraud poly-line `P0, (P0+P1)/2, (P1+P2)/2, P2` — the projected chain with its
+  middle corner cut, so a rope reads as a curve rather than a kink. Colour is a 16-entry grey ramp at
+  **0x8014BD04**, indexed `(SX0+SY0)&0xF` and stepped by 4 per vertex (the woven shimmer). It emits the
+  poly-line TWICE, the second copy one screen pixel lower — that is how the guest makes a 1px line a 2px
+  stroke. Blend is **mode 3 (B + F/4)** — measured live by `lineprim`, not decoded from the DR_MODE word.
+- **its three callers, all ported:**
+  * `FUN_8013E9D8` → `Render::ropeAnchorRender` — one rope from the object at node+0x14 to the node.
+  * `FUN_8013EA64` → `Render::ropeChainRender` — the 8-point chain at node+0x60 (stride 4); node+3
+    selects whether the chain runs in X (fixed Z at node+0x36) or in Z (fixed X at node+0x2E).
+  * `FUN_80122974` → `Render::tetherLineRender` — 4 anchor modes on node+0x47: 0 = straight down 400,
+    1 = the fixed world anchor at 0x800E7EAE/B2/B6, 2 = the offset in node+0x80/0x84 (+100),
+    3 = an EIGHT-segment chain toward the tracked object at 0x800BF868 (the fishing line).
+- **the fix shape (no tap, no stamping):** `Render::worldLineDraw` projects the three points through
+  `projComposeCamera` and expands each segment into a screen-space quad **in the producer**, so the
+  render queue stays quads-only. Read-only, real per-vertex depth, `has_xyf=1`.
+- **gates (measured):** at the matched frame the native stroke count equals the guest's (guest emits its
+  packets in pairs: 2 packets = 1 stroke); A/B with the dispatch disabled isolates **130 px** (the rope,
+  bbox x205..217 y0..64) and **69 px** (the tether, bbox x140..153 y42..75) — and the added pixels are
+  exactly `dst + F/4`, e.g. (16,72,72)→(56,112,112), confirming blend 3. fps60: with fps60 ON the
+  producer prints two DISTINCT positions per logic frame, the second equal to the fps60-OFF real value
+  and the first strictly between its real neighbours (5/5 of the sampled in-betweens) — the rope lerps.
+- **DEAD END worth recording:** a raw whole-frame pc-vs-psx pixel diff is USELESS as the gate here —
+  the two legs present a ~2-frame-skewed camera, so the frame differs by ~50k px with or without the
+  fix. Use the A/B (producer on vs off) plus the coordinate match against the `lineprim` census.
+
+### STILL MISSING — the ground RING SHADOW (`FUN_8013E08C`), the same #56 gap, a second emitter
+
+RE'd but not ported. It does NOT go through `FUN_8013DD34`: it runs its own GTE loop, 7 iterations over
+a **16-point circle of radius 256 at 0x8014C780** taken as a sliding 3-point window, emitting op-0x4A
+mono semi poly-lines (3 verts) TWICE, the second copy offset (+2,+1) in screen space. Grey level is
+`0x80 - ((nodeY - 0x14) * 0x80) / 200` — it fades out as the object rises — and it alternates GPU blend
+1 (B+F) and 2 (B-F) between the two copies. It uses the node's matrix at node+0x2C via `FUN_80084220`
+and a diagonal scale matrix built from `nodeY<<4`, so porting it needs those two matrix leaves RE'd
+first — that is the reason it was not ported alongside the rope family, and it is the next step for #56.
+
 ## Missing MINIMAP (areas 2, 7) and area-15 PORTAL — two type-of-nothing gaps, both closed by porting the emitter (kanban #43 / #44, 2026-07-23)
 
 - **symptom:** under pc_render the bottom-right HUD MINIMAP was absent in areas 2 and 7, and area 15's

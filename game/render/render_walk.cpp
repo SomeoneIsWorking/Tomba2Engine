@@ -709,6 +709,16 @@ void Render::fieldObjectsRender() {
           // puff mesh, drawn from the ring/age state by fx_dust.cpp.
           c->rsub.stats.snObjs++;
           rend(c)->dustEffectRender(n);
+        } else if (rfn == 0x8013E9D8u && c->mem_r32(0x8013E9D8u) == 0x27BDFFD8u) {
+          // The hanging object's ROPE (#54/#56): FUN_8013E9D8 draws one rope from the object this node
+          // hangs off (node+0x14) down to itself, through the shared line leaf FUN_8013DD34. Overlay-
+          // resident like the vortex, so the same first-instruction signature check guards a stale node.
+          c->rsub.stats.snObjs++;
+          rend(c)->ropeAnchorRender(n);
+        } else if (rfn == 0x8013EA64u && c->mem_r32(0x8013EA64u) == 0x27BDFFC0u) {
+          // The segmented CHAIN (#56): FUN_8013EA64 joins the 8 points the node carries at node+0x60.
+          c->rsub.stats.snObjs++;
+          rend(c)->ropeChainRender(n);
         } else if (rfn == 0x801143C4u && c->mem_r32(0x801143C4u) == 0x27BDFF98u) {
           // Area 15's central PORTAL (#44): the emitter lives in the A0F OVERLAY, so the fn address is
           // only meaningful while that overlay is resident — check its first instruction (addiu sp,-104)
@@ -718,6 +728,17 @@ void Render::fieldObjectsRender() {
           rend(c)->a0fVortexRender(n);
         }
         continue;
+      }
+      // TETHER LINE (#56): the guest walk (FUN_8003BB50) draws a rope for every node of class 1 —
+      // cases 1 / 0x41 / 0x81 call FUN_80122974(node) BEFORE the object's own mesh, and independently
+      // of whether the node has render commands at all (the fishing-line node carries none). So this
+      // dispatch sits ahead of the render-command check, keyed on the node CLASS the same way the
+      // guest keys it, and guarded by the emitter's first instruction because it lives in the field
+      // overlay. Skipped on the capture-only pass like the other display-pass producers: the stroke
+      // carries float screen XY (has_xyf), so it is rebuilt by the present-time re-render.
+      if ((type == 0x01u || type == 0x41u || type == 0x81u) && c->mem_r32(0x80122974u) == 0x27BDFFC0u &&
+          !c->game->fps60.mWorldCaptureOnly) {
+        rend(c)->tetherLineRender(n);
       }
       if (c->mem_r8(n + 8) == 0 || c->mem_r8(n + 9) == 0) continue;    // no render commands
       // TYPE-CORRECT ROUTING (#67 cont.; tables RE'd from the LIVE walk jump tables — the substrate

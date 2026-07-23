@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 22 verified · 6 partial · 1 untested · 6 n/a
+**Status:** 22 verified · 6 partial · 1 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -216,3 +216,7 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **status:** n/a
 - **owner:** game/render/minimap.cpp
 - **notes:** pc_render overlay: two host 2D quads at RQ_OVERLAY, never writes guest RAM. SBS-full A/B identical through f16770.
+
+## world-line-rope
+- **status:** n/a
+- **evidence:** pc_render display-pass producer: reads guest state, writes only host memory (no guest write); SBS-full on replays/bugs/bucket-softlock.pad first divergence unchanged at 0x801FE808 f175 (pre-existing, kanban #61)
