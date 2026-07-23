@@ -8,6 +8,7 @@
 #include "engine.h"
 #include "render.h"          // Render::emitUiFt4 / emitUiSprites
 #include "render_queue.h"    // RQ_OVERLAY
+#include "screen_fade.h"     // ScreenFade — the global present-time fade this page's dim must NOT reach
 #include "cfg.h"             // `pausemenu` diagnostic channel
 
 extern void gen_func_800346BC(Core*);
@@ -16,7 +17,13 @@ extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
 
 // The OT bucket the guest links its full-screen subtractive dim into (see drawCollected). Everything
 // in a HIGHER bucket is painted before it and therefore dimmed.
-namespace { constexpr uint8_t kDimBucket = 132; }
+namespace {
+constexpr uint8_t kDimBucket = 132;
+// The dim's level on all three channels. The guest builds it with FUN_8007E9C8(0x404040, 0, 4), which
+// emits the GP0 pair `E1000040` + `62404040` — so the OT rect and the fade leaf's argument carry the
+// SAME 0x40, and that identity is what lets releaseGlobalDim() below recognise its own call.
+constexpr uint8_t kDimLevel = 0x40;
+}  // namespace
 
 // One full-screen quad, shared by the menu's opaque black backdrop and its subtractive dim.
 void PauseMenu::pushScreenQuad(unsigned char level, int semi, int blend) {
@@ -32,7 +39,31 @@ void PauseMenu::pushScreenQuad(unsigned char level, int semi, int blend) {
                                   0, 0, 0, 0, 0, 0, 1023, 511, blend);
 }
 
-void PauseMenu::pushSubtractiveDim() { pushScreenQuad(0x40, /*semi=*/1, /*blend=*/2); }
+// DOUBLE OWNERSHIP OF THE MENU DIM (kanban #59 — the "menu chrome too dark" fault). The guest builds
+// this dim through the SHARED fade leaf FUN_8007E9C8, and ScreenFade::installLeafTap owns that leaf
+// GLOBALLY: every call is mirrored into the frame-scoped ScreenFade, which the present shader (and the
+// headless readback) applies to the WHOLE finished frame. That model is only correct for a fade whose
+// OT rect is the topmost thing in the frame — a scene/area fade at OT slot 4 with nothing above it.
+// THIS rect is not: it is linked mid-OT at kDimBucket with the outer frame, the tab labels, the item
+// rows and the help panel all painted AFTER it, so on PSX it darkens only what sits beneath it. Applied
+// globally instead, it darkened every pixel of the menu by a clamped 0x40 (measured at
+// replays/bugs/ingame-item-menu.pad f1120: `debug fadewatch` reported mode=2 rgb=(64,64,64) on this
+// path against mode=0 on the recomp leg, and the presented frame was clamp(reference - 64) everywhere).
+//
+// This producer draws the rect IN ITS PLACE, so it is the layer's owner and releases the global copy.
+// Only the fade this page itself produced is released — a genuine scene fade running underneath the
+// menu carries a different value and is left alone.
+void PauseMenu::releaseGlobalDim() {
+  Core* c = core;
+  const ScreenFade::State s = fade(c).get();
+  if (s.mode == ScreenFade::SUBTRACTIVE && s.r == kDimLevel && s.g == kDimLevel && s.b == kDimLevel)
+    fade(c).set(ScreenFade::NONE, 0, 0, 0);
+}
+
+void PauseMenu::pushSubtractiveDim() {
+  pushScreenQuad(kDimLevel, /*semi=*/1, /*blend=*/2);
+  releaseGlobalDim();
+}
 
 namespace { constexpr uint32_t kGuestFrameCounter = 0x1F80017Cu; }
 
