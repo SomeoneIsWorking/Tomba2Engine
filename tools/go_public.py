@@ -47,10 +47,18 @@ import sys
 
 # A. Copyright: path globs that are copyrighted game assets / disc images.
 #    Matched against every path that ever existed in history.
+# Compiled/bytecode artifacts must never be committed: .pyc embeds the ABSOLUTE source path of the
+# file it was built from, so it is a machine-path leak that checks B/C cannot see (they scan TEXT
+# blobs only). Two committed .pyc under tools/__pycache__ carried /home/<user> straight past a
+# "clean" text audit and were published. Treated as a hard blocker in check A.
+BYTECODE_PATTERNS = ("*.pyc", "*.pyo", "*.class")
+
 COPYRIGHT_PATTERNS = [
     r"\.rvz$", r"\.iso$", r"\.gcm$", r"\.gcz$", r"\.wbfs$", r"\.ciso$",
     r"\.wia$", r"\.nkit(\.iso)?$", r"\.wad$", r"\.nds$", r"\.cia$",
     r"(^|/)rom\.rvz$", r"(^|/)rom\.iso$",
+    # bytecode — see BYTECODE_PATTERNS above: a machine-path leak the text scans are blind to
+    r"\.pyc$", r"\.pyo$", r"\.class$",
 ]
 
 # B. Foreign paths: (regex, label, severity) matched against the TEXT of every
@@ -66,7 +74,7 @@ COPYRIGHT_PATTERNS = [
 # username here is self-defeating twice over: (a) a vendored copy is useless to a collaborator whose
 # login differs, and (b) if this file is ever swept by a `filter-repo --replace-text` rule that maps
 # the username to something else, the rule rewrites THIS CONFIG and the scanner starts hunting the
-# replacement. That happened: a `user==>user` scrub turned `USERNAME` into "user", after which the
+# replacement. That happened: a <name>==>user scrub rewrote USERNAME into "user", after which the
 # tool flagged 4292 hits on the ordinary English word. Override with GO_PUBLIC_USERNAMES="a,b".
 def _default_usernames():
     import getpass, os

@@ -9,3 +9,8 @@ generated/
 external/psxport/build/
 external/psxport/scratch/
 *.log
+
+# Python bytecode — never committed (compiled .pyc embed ABSOLUTE SOURCE PATHS,
+# i.e. a machine-path leak that a TEXT-only audit cannot see: they are binary).
+__pycache__/
+*.pyc
