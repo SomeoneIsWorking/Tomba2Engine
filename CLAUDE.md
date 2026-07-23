@@ -324,8 +324,7 @@ can already do. Specific bans:
   see it," the real task is to make yourself see it. Never use unverifiability as a reason to stop.
 - **Batch means batch.** "Port a bunch of things" / "make the change" = do ALL of them, not one plus a
   list of what you're leaving out. Integrate every producer, not the safe one.
-- **Publish verified work without asking.** Squash-republish (`scratch/publish-repos.sh`) after a
-  verified fix — don't ask "want me to publish?".
+- **Publish verified work without asking** — commit and `git push`; don't ask "want me to publish?".
 - Surface a genuine BLOCKER (a real design fork only the user can resolve, a destructive irreversible
   action) — but a blocker is rare, and "this is subtle / I'm unsure / it's a shared path" is NOT one.
   Do the work, verify it, and let the result be the report.
