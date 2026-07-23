@@ -28,8 +28,14 @@ The oracle = `recomp_path` (`PSXPORT_GATE=1`, the pure substrate). Find bugs by 
 configuration against it, never by eyeballing a single run:
 
 - **PC SKIP OFF cell** → `PSXPORT_SBS_MODE=full` (core A = pc_faithful, core B = recomp_path; both
-  `mPcSkip=false`; byte-compares guest RAM every lockstep frame). This is the honest gate AS LONG AS
-  the oracle is clean (see "Oracle integrity" below).
+  `mPcSkip=false`; byte-compares guest RAM every lockstep frame). Honest AS LONG AS the oracle is
+  clean (see "Oracle integrity" below) AND the run actually REACHES the code you care about.
+  **Green means "the code this run entered matches" — NOT "the port is correct".** A boot-window run
+  reaches ~236/411 owned addresses; the ~43% it never enters are uncompared, and a guaranteed
+  divergence there stays green (that is exactly how kanban #60 hid). The gate now prints its own
+  reach at exit (`coverage: N/M … K NEVER reached`); read that line, not just the verdict. To prove
+  the gate can still detect a divergence at all, run `PSXPORT_SBS_CANARY=<frame>` and confirm it
+  trips. Full rationale: docs/findings/sbs.md "COVERAGE-limited".
 - **PC SKIP ON cell** → `PSXPORT_SBS_MODE=skip` (core A = pc_skip=true / the real `./run.sh`
   shortcut config, core B = the pure recomp oracle). **Frame-aligned as of 2026-07-10** (docs/
   findings/sbs.md "SKIP-mode frame alignment"): every collapsed-multi-step fork is meant to call

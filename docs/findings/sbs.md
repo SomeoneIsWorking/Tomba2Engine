@@ -2014,3 +2014,58 @@ Note the honest negative result too: tampering *initPlace's* ra does NOT fail, b
 that slot with lookAt's later r30 spill — so the test is sharp where it can be and silent where the
 byte genuinely does not survive. Knowing which is which is the difference between a gate and a
 comfort blanket.
+
+## SBS is COVERAGE-limited, not "unreliable" — and how to prove it still works (2026-07-23)
+
+**symptom / recurring belief** — "SBS becomes unreliable after some degree of porting; it's just
+visual verification now." This is the wrong diagnosis and it keeps getting rediscovered. Fixing that
+is the point of this entry.
+
+**what is actually true** — the per-frame byte-compare is exactly as sharp as it ever was. What
+shrinks as ownership grows is the FRACTION of owned code a boot-window run REACHES, and that limit
+is otherwise invisible: the verdict line reads "A/B identical" whether the run exercised the whole
+port or a tenth of it.
+
+- **Measured:** a boot-only SBS-full run executes **~236 of 411** owned override addresses. **~43%
+  of what we OWN is NEVER reached**, so a green run is silent about all of it. kanban #60 was a
+  GUARANTEED core-A/core-B divergence (our `applyFlagOp` wrote a shared table 0x20 low) that sat
+  behind a green 41,280-frame gate for as long as it existed — purely because those frames never
+  executed the opcode. See docs/findings/scene.md "SEQUENCE softlock #60".
+- **Now self-qualifying:** the gate prints its own reach at exit, unconditionally (survives the
+  `timeout` SIGTERM), e.g. `coverage: 236/411 owned addresses executed this run — 175 NEVER reached`.
+  `PSXPORT_DEBUG=ovhit` lists exactly which ones (the registry already tracked per-address hits; it
+  was just behind a flag nobody set). Implementation: `overrides::coverage()` in
+  override_registry.{h,cpp}; the print is in the SBS atexit/signal dump in sbs.cpp.
+
+**can the gate still SHOW a divergence? — validate the instrument, don't assume** (info-system
+INSTRUMENTS rule: "no signal" and "dead instrument" are identical). Built-in self-test:
+
+    PSXPORT_SBS_CANARY=<frame>[:<hexaddr>]   # default addr 0x800E7EAC (Tomba pos, reached every field frame)
+
+flips ONE byte on core A only at that frame; the very next `checkDivergence` MUST trip. Verified
+2026-07-23: `PSXPORT_SBS_CANARY=1500` → the gate reported the divergence THAT frame at exactly
+0x800E7EAC with both cores' last-writer. Re-run this any time — ESPECIALLY when a long-red gate
+suddenly goes green (a suspiciously clean result is the tell for a broken instrument). It writes
+guest RAM, so never enable it during a real verification run. (instrument I009)
+
+**raising coverage — the pad-replay path, and the trap in it.** SBS feeds input via
+`feedInput() -> pad.setButtons()` on BOTH cores and NEVER calls `pad.serviceFrame()`, so the ordinary
+`PSXPORT_PAD_REPLAY` (consumed inside serviceFrame) does not reach it. New:
+
+    PSXPORT_SBS_PAD_REPLAY=<path>    # drive both cores from a recorded pad, mirrored, lockstep preserved
+
+The wiring is correct and holds lockstep (verified: 0 divergences to f41070 driving from a capture).
+**BUT existing captures do NOT raise coverage, and it is important to know why before trying:** SBS
+core A is HARD-WIRED `pc_skip=false` (sbs.cpp ~1975), while every `./run.sh` capture (e.g.
+`replays/bugs/*.pad`) is recorded under `pc_skip=true`. The two boot cadences differ, so the
+frame-indexed inputs land at the WRONG game-moments and the replay does not reproduce the route —
+measured coverage came in at 230, LOWER than the no-input run's 236 (mistimed inputs stall it). A
+frame-indexed replay is only a valid route for the CONFIG it was captured under.
+
+- **To actually raise SBS coverage:** either capture a route under `pc_skip=false` (SBS's own
+  config), or drive by GAME-STATE LATCHES rather than frame-indexed input (the existing
+  drive-by-game-state principle — scene-state latches, not guessed frame numbers). The env var is
+  in place; the missing piece is a same-config route, not more wiring.
+
+**refs:** kanban #60; override_registry.{h,cpp} (`coverage`); sbs.cpp (coverage print, `PSXPORT_SBS_CANARY`,
+`PSXPORT_SBS_PAD_REPLAY`, core-A pc_skip=false at ~1975); info-system C007 (coverage), I009 (canary).
