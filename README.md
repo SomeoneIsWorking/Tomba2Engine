@@ -17,6 +17,28 @@ harness, and a Vulkan renderer.
 
 ---
 
+## Screenshots
+
+All captured from the **native renderer** (`pc_render`) running the **native engine**
+(`pc_faithful`) — i.e. the default `./run.sh` configuration, with no PSX rendering path involved in
+the picture. Shown at the PSX's native 320×240; the engine also runs at higher internal resolutions
+and in widescreen.
+
+| | |
+|---|---|
+| ![Seaside field](docs/screenshots/01-seaside-field.png) | ![Lava cave](docs/screenshots/02-lava-cave.png) |
+| Free-roam on the seaside field | Volcanic interior |
+| ![Night sky](docs/screenshots/03-night-sky.png) | ![Boss arena](docs/screenshots/04-boss-arena.png) |
+| Night sky + parallax backdrop | Boss arena interior |
+| ![Item menu](docs/screenshots/05-item-menu.png) | ![Dialog](docs/screenshots/06-dialog.png) |
+| The item menu, drawn by a native UI producer | In-world dialog box |
+
+<sub>Screenshots are illustrative captures of the game running on this engine, taken from a disc the
+author owns. No game data is redistributed here — the repository contains no assets, and the engine
+requires you to supply your own disc image.</sub>
+
+---
+
 ## How it works (the short version)
 
 Any run is one **execution path** × one **rendering path**:
