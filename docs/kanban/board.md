@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (19)
+## TODO (24)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#16 Sign text jitters at fps60 when the camera moves**  `render,fps60` — 📎 docs/reference/issues/issue16_sign_text_jitter.png
@@ -23,8 +23,13 @@
 - **#51 beh_* A/B: 3 localised divergences still open (0x8013C9C0, 0x8011D988, 0x80121978)**  `verification,bug`
 - **#52 No A06/A08 cutscene replay exists — 11 beh_* script handlers are unreachable for A/B**  `verification`
 - **#53 Dust PUFF MESH layer is ported-unverified — never observed on screen (ring state 2/3 unreached)**  `verification,render`
-- **#54 Bucket's supporting POLE/ROPE invisible before pickup, visible after — state-gated missing producer**  `render,bug`
+- **#54 Bucket's supporting POLE/ROPE invisible before pickup, visible after — state-gated missing producer**  `render,bug` — 📎 docs/reference/issues/issue54_bucket_pole_missing.png
 - **#54 SBS-full is RED on main at 0x801FE808 — pre-existing, reproduces on an unmodified HEAD build**  `bug,verification`
+- **#55 Stunned monsters missing their spinning stars**  `render,bug` — 📎 docs/reference/issues/issue55_stunned_stars_missing.png
+- **#56 SYSTEMIC: pc_render has NO line-primitive producer — every GP0 line is invisible (rope, fishing line)**  `render,bug` — 📎 docs/reference/issues/issue56_fisherman_line_missing.png
+- **#57 Hut interior wall/room decorations missing — likely occluded (possible #29 regression)**  `render,bug` — 📎 docs/reference/issues/issue57_hut_wall_decor_missing.png,  docs/reference/issues/issue57_hut_wall_decor_missing_2.png
+- **#58 Fisherman dialog SOFTLOCKS**  `bug` — 📎 docs/reference/issues/issue58_fisherman_dialog_softlock.png
+- **#59 Item menu chrome renders TOO DARK — and psx_render shares it, so the 0/76800 gate is blind**  `render,bug` — 📎 docs/reference/issues/issue59_item_menu_too_dark.png
 
 ## DOING (3)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`

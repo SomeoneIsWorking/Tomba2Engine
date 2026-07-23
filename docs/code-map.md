@@ -10,8 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 916 native fns, 769 owned addresses, 727 LIVE / 189 ORPHAN.
-Totals: 921 native fns, 774 owned addresses, 732 LIVE / 189 ORPHAN.
+Totals: 918 native fns, 772 owned addresses, 729 LIVE / 189 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|

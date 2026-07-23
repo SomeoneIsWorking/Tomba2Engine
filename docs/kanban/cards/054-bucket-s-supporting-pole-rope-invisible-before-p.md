@@ -5,6 +5,7 @@ status: todo
 labels: [render, bug]
 created: 2026-07-23
 updated: 2026-07-23
+evidence: docs/reference/issues/issue54_bucket_pole_missing.png
 ---
 
 USER 2026-07-23 with a capture: the bucket hangs in mid-air outside the seaside hut with nothing holding it. There is supposed to be a POLE (and a rope) supporting it. THE KEY OBSERVATION, and it is an unusually strong discriminator: the pole IS visible AFTER picking up the bucket, and invisible BEFORE.
@@ -19,3 +20,5 @@ READY-MADE REPRO, no new capture needed: replays/bugs/bucket-softlock.pad reache
 SAME CLASS as the torch flame (#12), dust (#39), non-seaside backdrops (#42), minimap (#43) and vortex (#44) — missing native producers under pc_render, several now fixed. Follow the proven recipe: RE the emitter and PORT it. Per the USER directive a TAP IS NOT ACCEPTABLE ("I don't want stamps, taps or whatever, just do it like how it is supposed to be done, via porting") — game/render/fx_sprite.cpp and game/render/fx_dust.cpp are the templates: read the node's own state, project with projComposeCamera(sceneCam) so it lerps, emit drawWorldQuad with has_xyf=1, dispatch from the display-pass walk.
 
 NOTE the bucket object cluster is well-trodden — it is also the subject of #2 (pickup softlock) and #15 (weapon impact) — so run `python3 tools/findings.py bucket` first rather than re-deriving.
+
+**2026-07-23:** 2026-07-23 SEE #56: the bucket's ROPE (as distinct from the pole) is almost certainly the systemic line-primitive gap — pc_render has no line producer at all, so every GP0 op-0x40..0x5F line is invisible. Fix #56 and the rope may return for free; the POLE (solid geometry) is likely still its own missing producer. Split the two when investigating.
