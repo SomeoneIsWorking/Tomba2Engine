@@ -47,7 +47,43 @@
 #include "render_queue.h"
 #include "render_internal.h"   // ObjScope / cur_render_node / proj_pz_to_ord
 #include "effect_lerp.h"
+#include "fx_sprite.h"         // SpriteAnchor — the family's shared scale / OT-gate / depth-cue relations
 #include "cfg.h"
+
+// --- the family's shared relations (fx_sprite.h) ---------------------------------------------------
+// The emitters set DQA to a small integer and DQB to 0 before RTPS, so the depth-cue MAC0 becomes a
+// per-Z sprite scale. baseScale reproduces MAC0 = n·DQA, n=(H·0x20000/SZ3 + 1)/2 (the RTPS perspective
+// divide, integer-faithful; the GTE's UNR reciprocal differs by <1 ULP and never changes a pixel here).
+int32_t SpriteAnchor::baseScale(uint32_t H, int sz, int dqa) {
+  int64_t div = ((int64_t)H << 17) / sz;          // H * 0x20000 / SZ3
+  if (div > 0x1FFFF) div = 0x1FFFF;               // GTE divide saturates (also the SZ3-too-small case)
+  const int64_t n = (div + 1) >> 1;
+  return (int32_t)(n * dqa);
+}
+
+// The emitter's OT-key range gate (its emit/skip decision), reproduced on the native SZ3 so a producer
+// draws exactly the anchors the guest would. Logarithmic bucket map, valid range [4, 0x7FF].
+bool SpriteAnchor::otKeyInRange(int sz, int bias) {
+  if (sz <= 0) return false;
+  int k = (sz >> 2) + bias;
+  if (k < 4) k = 4;
+  k = (k >> ((k >> 10) & 0x1f)) + (k >> 10) * 0x200;
+  return (uint32_t)(k - 4) <= 0x7FBu;
+}
+
+// GTE DPCS with sf=1, lm=0 (the packet writer's copFunction(2,0x780010)):
+//   MAC = comp<<16 ; IR = ((FC<<12) - MAC) >> 12 ; IR = (IR*IR0 + MAC) >> 12 ; out = IR/16 saturated.
+uint8_t SpriteAnchor::depthCue(uint8_t comp, int32_t ir0, int32_t farComp) {
+  const int64_t mac = (int64_t)comp << 16;
+  int64_t ir = (((int64_t)farComp << 12) - mac) >> 12;
+  ir = ((ir * ir0) + mac) >> 12;
+  if (ir > 32767) ir = 32767;
+  if (ir < -32768) ir = -32768;
+  int64_t out = ir / 16;
+  if (out < 0) out = 0;
+  if (out > 255) out = 255;
+  return (uint8_t)out;
+}
 
 namespace {
 
@@ -68,33 +104,19 @@ constexpr uint32_t FN_UNIFORM   = 0x80027CB4u;   // scaleX = MAC0
 constexpr uint32_t FN_BYTESCALE = 0x80027E5Cu;   // scaleX = MAC0 * node[6] >> 4
 constexpr uint32_t FN_PARTICLE  = 0x800281ECu;   // per-particle loop
 
-// The emitters set DQA to a small integer and DQB to 0 before RTPS, so the depth-cue MAC0 becomes a
-// per-Z sprite scale. baseScale reproduces MAC0 = n·DQA, n=(H·0x20000/SZ3 + 1)/2 (the RTPS perspective
-// divide, integer-faithful; the GTE's UNR reciprocal differs by <1 ULP and never changes a pixel here).
-int32_t baseScale(uint32_t H, int sz, int dqa) {
-  int64_t div = ((int64_t)H << 17) / sz;          // H * 0x20000 / SZ3
-  if (div > 0x1FFFF) div = 0x1FFFF;               // GTE divide saturates (also the SZ3-too-small case)
-  const int64_t n = (div + 1) >> 1;
-  return (int32_t)(n * dqa);
-}
-
-// The emitter's OT-key range gate (its emit/skip decision), reproduced on the native SZ3 so the producer
-// draws exactly the anchors the guest would. Logarithmic bucket map, valid range [4, 0x7FF].
-bool otKeyInRange(int sz, int bias) {
-  if (sz <= 0) return false;
-  int k = (sz >> 2) + bias;
-  if (k < 4) k = 4;
-  k = (k >> ((k >> 10) & 0x1f)) + (k >> 10) * 0x200;
-  return (uint32_t)(k - 4) <= 0x7FBu;
-}
+}  // namespace
 
 // Walk the 8-byte quad records at rec0 and draw each as a textured world quad, sized by (scaleX,scaleY)
-// about the native-projected float anchor (anchorXf,anchorYf) at view depth `od`. Identical record math
-// to the former tap; corners are kept in float (sub-pixel) so the quad interpolates smoothly, and the
-// draw goes through RenderQueue::drawWorldQuad (has_xyf=1 -> tier1-owned -> re-rendered under the lerped
-// camera). Read-only.
-void emitSpriteRecords(Core* c, uint32_t rec0, uint32_t clutPage,
-                       float anchorXf, float anchorYf, float od, int32_t scaleX, int32_t scaleY) {
+// about the native-projected float anchor (anchorXf,anchorYf) at view depth `od`. Corners are kept in
+// float (sub-pixel) so the quad interpolates smoothly, and the draw goes through
+// RenderQueue::drawWorldQuad (has_xyf=1 -> tier1-owned -> re-rendered under the lerped camera).
+// ir0/farColour reproduce the packet writer's DPCS on each record colour — 0 for the flame emitters
+// (identity cue), driven for the portal. Read-only.
+void Render::spriteRecordsEmit(uint32_t rec0, uint32_t clutPage,
+                               float anchorXf, float anchorYf, float od,
+                               int32_t scaleX, int32_t scaleY, int32_t ir0,
+                               const int32_t* farColour) {
+  Core* c = mCore;
   const float sxf = (float)scaleX / 65536.0f, syf = (float)scaleY / 65536.0f;
   const float depth[4] = { od, od, od, od };
   uint32_t rec = rec0;
@@ -119,8 +141,9 @@ void emitSpriteRecords(Core* c, uint32_t rec0, uint32_t clutPage,
     if (!(flags & 0x1000u)) { v01 = vb + 1;      v23 = vb + vh + 7; }
     else                    { v01 = vb + vh + 7; v23 = vb + 1;      }
 
-    // Flat grey brightness (all RE'd callers force the DPCS depth-cue to 0, so the color passes through).
-    const unsigned char col = (unsigned char)(flags & 0xFFu);
+    // Flat grey brightness, run through the writer's DPCS depth cue (identity when ir0 == 0, which is
+    // what the flame emitters program; the portal drives it toward its far colour).
+    const unsigned char lvl = (unsigned char)(flags & 0xFFu);
     const int semi = (int)(flags & 1u);
     const uint16_t clut  = (uint16_t)((clutPage & 0xFFFFu) + ((flags & 0xF00u) >> 2));
     const uint16_t tpage = (uint16_t)((clutPage >> 16) | ((flags & 6u) << 4));
@@ -129,13 +152,18 @@ void emitSpriteRecords(Core* c, uint32_t rec0, uint32_t clutPage,
     float py[4] = { yT, yT, yB, yB };
     int   us[4] = { u02, u13, u02, u13 };
     int   vs[4] = { v01, v01, v23, v23 };
-    unsigned char cc[4] = { col, col, col, col };
-    c->game->activeRq().drawWorldQuad(c, px, py, depth, us, vs, cc, cc, cc, tpage, clut, semi, nullptr);
+    const unsigned char cr = ir0 ? SpriteAnchor::depthCue(lvl, ir0, farColour ? farColour[0] : 0) : lvl;
+    const unsigned char cg = ir0 ? SpriteAnchor::depthCue(lvl, ir0, farColour ? farColour[1] : 0) : lvl;
+    const unsigned char cb = ir0 ? SpriteAnchor::depthCue(lvl, ir0, farColour ? farColour[2] : 0) : lvl;
+    unsigned char rr[4] = { cr, cr, cr, cr }, gg[4] = { cg, cg, cg, cg }, bb[4] = { cb, cb, cb, cb };
+    c->game->activeRq().drawWorldQuad(c, px, py, depth, us, vs, rr, gg, bb, tpage, clut, semi, nullptr);
 
     rec += 8u;
     if (flags & 0xC000u) break;   // the terminal record IS drawn (gen's post-condition), then stop
   }
 }
+
+namespace {
 
 // ===================================================================================================
 // THE ANIMATED FOUR-CORNER QUAD FAMILY — emitter FUN_800286CC, packet writer FUN_8002847C.
@@ -225,10 +253,10 @@ void Render::fxSpriteRender(uint32_t node) {
 
   auto projectEmit = [&](int vx, int vy, int vz, int dqa, int32_t numer, int shift) {
     ProjVtx pv; cam.project(vx, vy, vz, &pv);
-    if (!otKeyInRange(pv.sz, bias)) return;                 // same emit/skip gate the emitter applies
-    int32_t scale = baseScale(H, pv.sz, dqa);
+    if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) return;   // same emit/skip gate the emitter applies
+    int32_t scale = SpriteAnchor::baseScale(H, pv.sz, dqa);
     if (shift) scale = (int32_t)(((int64_t)scale * numer) >> shift);   // E5C / per-particle modulation
-    emitSpriteRecords(c, rec0, clutPage, pv.px, pv.py, proj_pz_to_ord(pv.pz), scale, scale);
+    spriteRecordsEmit(rec0, clutPage, pv.px, pv.py, proj_pz_to_ord(pv.pz), scale, scale);
   };
 
   if (rfn == FN_PARTICLE) {
@@ -280,9 +308,9 @@ void Render::fxAnimSpriteRender(uint32_t node) {
   const EffectPoints& pts = mEffectLerp.resolve(c, node, live);
 
   ProjVtx pv; cam.project(pts.x[0], pts.y[0], pts.z[0], &pv);
-  if (!otKeyInRange(pv.sz, bias)) return;                     // the emitter's own emit/skip decision
+  if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) return;       // the emitter's own emit/skip decision
 
-  const int32_t mac0 = baseScale(H, pv.sz, kAnimDqa);
+  const int32_t mac0 = SpriteAnchor::baseScale(H, pv.sz, kAnimDqa);
   const uint32_t sc  = c->mem_r32(node + kAnimScale);
   const int32_t scaleX = (int32_t)(((int64_t)mac0 * (int64_t)(uint16_t)sc) >> 8);
   const int32_t scaleY = (int32_t)(((int64_t)mac0 * (int64_t)(uint16_t)(sc >> 16)) >> 8);

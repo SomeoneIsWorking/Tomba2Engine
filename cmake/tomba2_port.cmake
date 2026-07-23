@@ -224,12 +224,14 @@ set(GAME_SRC
   game/render/widescreen_margin_quad.cpp
   game/render/hud_gauge_emitter.cpp
   game/render/fx_sprite.cpp
+  game/render/fx_vortex.cpp
   game/render/fx_dust.cpp
   game/render/mesh_quads.cpp
   game/render/effect_lerp.cpp
   game/render/fx_mesh.cpp
   game/render/mesh_emit_tap.cpp
   game/render/field_hud.cpp
+  game/render/minimap.cpp
   game/render/ui_group_args.cpp
   game/render/ui_ft4_tap.cpp
   game/render/score_popup.cpp

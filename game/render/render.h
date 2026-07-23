@@ -271,6 +271,21 @@ public:
   // game/render/fx_sprite.cpp. Dispatched from fieldObjectsRender's type-0x20 walk.
   void fxAnimSpriteRender(uint32_t node);
 
+  // spriteRecordsEmit: the ONE host-side walk of the FUN_80027A4C 8-byte quad-record format — the
+  // record list drawn about a native-projected float anchor at (scaleX,scaleY), with the writer's DPCS
+  // depth cue applied to each record colour (ir0 = 0 -> identity, as the flame emitters program it).
+  // Shared by fxSpriteRender and a0fVortexRender. Body in fx_sprite.cpp. Read-only.
+  void spriteRecordsEmit(uint32_t rec0, uint32_t clutPage, float anchorXf, float anchorYf, float od,
+                         int32_t scaleX, int32_t scaleY, int32_t ir0 = 0,
+                         const int32_t* farColour = nullptr);
+
+  // a0fVortexRender (game/render/fx_vortex.cpp): native producer for area 15's central PORTAL — the
+  // type-0x20 node whose custom render fn is the A0F overlay's FUN_801143C4 (kanban #44). Three layers:
+  // the node's own animated sprite at the world anchor, a rotating SPHERE of particle sprites built
+  // from the node's radius, and (in state 1) a three-glow lens flare along the anchor→screen-centre
+  // line. All projected with the native (fps60-lerped) camera. Read-only.
+  void a0fVortexRender(uint32_t node);
+
   // meshQuadRecordsEmit (game/render/mesh_quads.cpp): the ONE host-side walk of the engine's packed-mesh
   // quad-record format (FUN_80027768's 36-byte records). Projects every vertex through the ACTIVE object
   // xform (projSetActive first), applies the caller's U scroll and the DPCT/DPCS depth cue toward
@@ -298,6 +313,11 @@ public:
   void fieldHudStatusRow();      // FUN_80025744
   void fieldHudItemRing(int offsetMode, uint32_t bucketAttr);   // FUN_80025934
   void fieldHudWeaponStrip();    // FUN_80025B78
+  // fieldHudMinimap (game/render/minimap.cpp): native producer for the area MINIMAP the HUD dispatcher
+  // routes to the overlay-resident drawers 0x80113628 (area mode 2) / 0x801140A0 (mode 7) — kanban #43.
+  // Draws the 64x64 map image plus the blinking player dot, the dot placed by the area's own linear
+  // world->map transform. Read-only, RQ_OVERLAY.
+  void fieldHudMinimap(int areaMode);
   // emitUiFt4/emitUiSprites: the GENERAL forms of FUN_8007e1b8 / FUN_8007e6dc (template ptr + data
   // base + placement {x,y,wOverride,hOverride} + attr {mode/color byte, clut-override|semi-flag}) —
   // the menu wrappers below keep their fixed menu bases. mode-nibble cases other than 0 (flip/rotate

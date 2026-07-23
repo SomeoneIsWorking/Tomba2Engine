@@ -308,7 +308,12 @@ void Render::fieldHudRender() {
   (void)ringDrawn;
 
   if (c->mem_r8(kHudEnable) == 0 || mode == 3) goto tail;
-  if (mode == 2 || mode == 7) goto tail;   // overlay-resident drawers 0x80113628/0x801140A0 — unowned, draw nothing
+  if (mode == 2 || mode == 7) {
+    // The area MINIMAP (#43): the guest's mode-2 / mode-7 branches call the overlay-resident drawers
+    // 0x80113628 / 0x801140A0 behind these same two gates. Both are now owned natively (minimap.cpp).
+    if (c->mem_r8(kUiBusy) == 0 && c->mem_r8(kHudSuppress) == 0) fieldHudMinimap(mode);
+    goto tail;
+  }
   if (mode == 0x14) goto tail;
   if (!(c->mem_r16(kUiFlags880) & 0x600u) && !(c->mem_r16(kUiFlags880) & 0x100u) &&
       c->mem_r8(kUiBusy) == 0)

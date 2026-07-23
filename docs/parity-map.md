@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 22 verified · 6 partial · 1 untested · 4 n/a
+**Status:** 22 verified · 6 partial · 1 untested · 6 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -197,6 +197,12 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **status:** n/a
 - **evidence:** pc_render overlay: host memory only, taps run gen and write no guest byte
 
+## Render::a0fVortexRender (area 15 portal producer)
+- **scope:** render
+- **status:** n/a
+- **owner:** game/render/fx_vortex.cpp
+- **notes:** pc_render overlay: host quads only, never writes guest RAM (the guest still runs ov_a0f_gen_801143C4). SBS-full A/B identical through f16770 with it installed.
+
 ## Render::dialogTextNative
 - **scope:** field/hut dialog TEXT producer (pc_render overlay)
 - **status:** n/a
@@ -204,3 +210,9 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **evidence:** 916ddfc0
 - **owner:** game/render/render_walk.cpp
 - **notes:** read-only pc_render producer — writes ONLY host memory, never guest RAM; parity N/A by construction (DisplayPassGuard enforces). Correctness = USER eyeball, not SBS.
+
+## Render::fieldHudMinimap (areas 2/7 minimap producer)
+- **scope:** render
+- **status:** n/a
+- **owner:** game/render/minimap.cpp
+- **notes:** pc_render overlay: two host 2D quads at RQ_OVERLAY, never writes guest RAM. SBS-full A/B identical through f16770.

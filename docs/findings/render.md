@@ -1,5 +1,71 @@
 # Findings — render / engine submit
 
+## Missing MINIMAP (areas 2, 7) and area-15 PORTAL — two type-of-nothing gaps, both closed by porting the emitter (kanban #43 / #44, 2026-07-23)
+
+- **symptom:** under pc_render the bottom-right HUD MINIMAP was absent in areas 2 and 7, and area 15's
+  central swirling PORTAL was absent entirely. Same execution on both legs (identical replay + warp), so
+  a pure producer gap: geometry the guest submits into the OT that pc_render (which no longer walks the
+  OT) had no native producer for — the same class as the torch flame (#12), the dust (#39) and the
+  non-seaside backdrops (#42).
+- **status:** BOTH FIXED and ported (no tap, no gen body on the picture path).
+  * minimap: the 64x64 map rect goes 3422 -> 88 differing px (area 2) and 2220 -> 533 (area 7) vs a real
+    `PSXPORT_RENDER_PSX=1` reference at the same frame; the residual is entirely the map's TRANSPARENT
+    border pixels, where the pre-existing pc-vs-psx cave-texture dither shows through (the mask is a
+    black hole over the map's own opaque content).
+  * portal: the producer draws 6329 px, of which 2195 were previously-differing pixels that now match;
+    side-by-side the flare ring, the inner ring and the lower glow land on the reference's pixels. The
+    frame's remaining diff (37299 px) is area 15's generic native-shading delta on the room geometry,
+    untouched by this card.
+- **how each emitter was IDENTIFIED (guest data, not guesswork):**
+  * portal: `debug otattr` attributed the missing layer's packets to `fn=0x80027A4C caller=0x801143C4`
+    on node `0x800ED9E8` (behaviour `0x801140F4`) — a type-0x20 custom-render node whose render fn lives
+    in the **A0F overlay**. `fieldObjectsRender`'s type-0x20 branch knew three emitter families; this is
+    a fourth, so the node fell through and nothing drew.
+  * minimap: `debug otattr` showed `fn=0x80113628` emitting a `0x65` SPRT at (240,144) plus its DR_MODE.
+    `tools/codemap.py --addr` then named the caller: the field HUD dispatcher `leaf_80025D98`, whose
+    mode-2 / mode-7 branches call the OVERLAY-RESIDENT drawers `0x80113628` / `0x801140A0` —
+    `field_hud.cpp` already had a comment saying exactly this and bailing.
+- **what the two overlay minimap drawers are:** the SAME routine compiled into each area's overlay with
+  different data. Three packets into the near HUD bucket: a DR_MODE selecting the area's map texture page
+  (0x0F / 0x19), one RAW 64x64 textured rect (the map image), and one 8x8 colour-modulated rect (the
+  blinking player dot, `(0xFF,0x20,0x20)`/`(0x80,0x40,0x40)` on frame-counter bit 1). The dot's position
+  is the player's world position (scratchpad `0x1F800160` / `0x1F800164`, s16) through the area's own
+  linear map transform: `/0xB6` per map pixel plus a per-area origin — with area 7's map turned a quarter
+  turn (world Z drives screen X) and area 2's Y axis negated. `game/render/minimap.cpp` carries those as
+  a two-row constant table, so a third area's drawer is one row.
+- **what the portal emitter is (`ov_a0f_gen_801143C4`, Ghidra `scratch/decomp/vortex.c`):** three layers —
+  (1) a LENS FLARE while the behaviour's state byte is 1: three glow sprites at 7/8, 3/8 and 3/2 along the
+  anchor→screen-centre vector, half-extents 12/32/48 px, brightness `offscreenPenalty + rand&31 + 48/40`
+  (and the WHOLE effect is dropped when that penalty falls below -50); (2) the node's own 8-byte record
+  list at the world anchor, scaled by node+0x50/+0x54 and cued toward BLACK; (3) a rotating SPHERE of
+  particle sprites of radius node+0x4E — latitude `rcos(frame*64)>>5 + k*512`, longitude step
+  `4096/(rsin θ >> 8)` so arc spacing stays even, each point projected on its own and cued toward a BLUE
+  far colour `(0,0,1020)`, which is what makes the swirl read as dark blue-grey smoke.
+- **the DPCS the flame family had been able to ignore:** the shared packet writer `0x80027A4C` runs every
+  record colour through GTE **DPCS** (`0x780010`, sf=1 lm=0) with IR0 = `*(0x1F800090)`. The flame
+  emitters force IR0 = 0, at which the cue is the identity — so fx_sprite.cpp had simply passed colours
+  through. The portal drives IR0 hard, so the cue is now implemented once as
+  `SpriteAnchor::depthCue` (`game/render/fx_sprite.h`) and `Render::spriteRecordsEmit` takes
+  `(ir0, farColour)`. Same header now also owns `baseScale` / `otKeyInRange`, so a second producer of
+  this family cannot drift from the first.
+- **the PRNG, and why the producer does not call it:** the guest emitter consumes `FUN_8009A450` once per
+  particle for the brightness jitter. A render-time producer must not advance guest state, so
+  `fx_vortex.cpp` READS the seed at `Rng::SEED_ADDR` and iterates a HOST copy. The seed does not move
+  between a logic frame's two presents, so the interp frame gets the identical sparkle — and no guest
+  write ever happens.
+- **fps60 lerp proof (`debug vortex`, camera panning at f3401..3404):** the natively projected anchor
+  reports SIXTEEN distinct evenly-spaced values across EIGHT logic frames
+  (y = -141.77, -142.24, -142.77, -143.29, -143.89, -144.49, …), each present's value strictly between
+  its neighbours. A non-interpolating producer would print each value TWICE (a stair-step) — this is the
+  payoff of porting rather than tapping: the anchor is projected through `projComposeCamera`, which is
+  the fps60-lerped camera at the in-between present.
+- **dispatch guard:** the portal producer is keyed on `rfn == 0x801143C4` AND the first instruction word
+  at that address being `0x27BDFF98` (`addiu sp,-104`), the same overlay-signature idea narrationSwirl
+  uses — a stale node from another area cannot dispatch into whatever now occupies the overlay window.
+- **refs:** `game/render/fx_vortex.cpp`, `game/render/minimap.cpp`, `game/render/fx_sprite.{h,cpp}`,
+  `game/render/render_walk.cpp` (type-0x20 branch), `game/render/field_hud.cpp` (mode 2/7),
+  `scratch/decomp/vortex.c` + `minimap.c` + `minimap7.c`, kanban #43 / #44.
+
 ## Missing far BACKDROP plane in non-seaside areas — the native producer was gated to bg-state 0 (kanban #42, 2026-07-23, areas 10/11 FIXED)
 
 - **symptom:** in areas 10 (lava cave), 11 (snow night), 14 (waterfall) and 21 (wolf-ride sky) pc_render

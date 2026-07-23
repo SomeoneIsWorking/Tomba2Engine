@@ -709,6 +709,13 @@ void Render::fieldObjectsRender() {
           // puff mesh, drawn from the ring/age state by fx_dust.cpp.
           c->rsub.stats.snObjs++;
           rend(c)->dustEffectRender(n);
+        } else if (rfn == 0x801143C4u && c->mem_r32(0x801143C4u) == 0x27BDFF98u) {
+          // Area 15's central PORTAL (#44): the emitter lives in the A0F OVERLAY, so the fn address is
+          // only meaningful while that overlay is resident — check its first instruction (addiu sp,-104)
+          // the way the narration swirl checks its overlay signature, so a stale node from another area
+          // cannot dispatch into whatever now occupies the window. See game/render/fx_vortex.cpp.
+          c->rsub.stats.snObjs++;
+          rend(c)->a0fVortexRender(n);
         }
         continue;
       }

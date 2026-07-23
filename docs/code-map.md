@@ -11,6 +11,7 @@ native exists but no call site of any of those forms was found anywhere in the t
 is genuinely dead code until something calls it.
 
 Totals: 916 native fns, 769 owned addresses, 727 LIVE / 189 ORPHAN.
+Totals: 921 native fns, 774 owned addresses, 732 LIVE / 189 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -53,8 +54,8 @@ Totals: 916 native fns, 769 owned addresses, 727 LIVE / 189 ORPHAN.
 | 0x80027768 | LIVE | `FxMesh::draw` | game/render/fx_mesh.cpp:142 |  | 's re-derivation for THIS producer. The leaf itself is owned by the on… |
 | 0x80027768 | LIVE | `SwingFx::drawMesh` | game/render/swing_fx.cpp:60 |  | Build the producer's transform from the composed GTE control registers… |
 | 0x80027768 | LIVE | `SwingFx::meshEmitTap` | game/render/swing_fx.cpp:172 |  | the shared packed-mesh quad emitter. Run the untouched guest body (pac… |
-| 0x80027A4C | LIVE | `Render::fxSpriteRender` | game/render/fx_sprite.cpp:212 |  |  |
-| 0x800286CC | LIVE | `Render::fxAnimSpriteRender` | game/render/fx_sprite.cpp:259 |  | The FUN_800286CC emitter, rebuilt: read the effect node's own animatio… |
+| 0x80027A4C | LIVE | `Render::fxSpriteRender` | game/render/fx_sprite.cpp:240 |  |  |
+| 0x800286CC | LIVE | `Render::fxAnimSpriteRender` | game/render/fx_sprite.cpp:287 |  | The FUN_800286CC emitter, rebuilt: read the effect node's own animatio… |
 | 0x800288AC | ORPHAN | `armTap` | game/render/fx_mesh.cpp:209 |  | the effect-mesh CONTROLLER: composes the effect's transform from its o… |
 | 0x8002918C | LIVE | `beh_rand_phase_cull` | game/ai/beh_rand_phase_cull.cpp:54 |  |  |
 | 0x80029664 | LIVE | `Render::dustTrailEmit` | game/render/fx_dust.cpp:109 |  | the trail: thread the ring's first four recorded positions and lay two… |
@@ -767,7 +768,10 @@ Totals: 916 native fns, 769 owned addresses, 727 LIVE / 189 ORPHAN.
 | 0x80112A60 | LIVE | `aux_list_walk` | game/ai/area_seaside_perframe.cpp:70 |  | Walk the aux render list, dispatching FUN_80112A60(item) per item type… |
 | 0x801130C4 | LIVE | `ActorTomba::postInteractWalk` | game/player/actor_tomba.cpp:329 |  | ======================================================================… |
 | 0x801130C4 | LIVE | `ActorTomba::framePreTick` | game/player/actor_tomba_pretick.cpp:16 |  |  |
+| 0x80113628 | LIVE | `Render::fieldHudMinimap` | game/render/minimap.cpp:72 |  | (area mode 2) / FUN_801140A0 (area mode 7) — the overlay-resident mini… |
 | 0x80113C5C | LIVE | `Behaviors::areaSeasidePerframe` | game/ai/area_seaside_perframe.cpp:93 |  |  |
+| 0x801140A0 | LIVE | `Render::fieldHudMinimap` | game/render/minimap.cpp:72 |  | (area mode 2) / FUN_801140A0 (area mode 7) — the overlay-resident mini… |
+| 0x801143C4 | LIVE | `Render::a0fVortexRender` | game/render/fx_vortex.cpp:91 |  | area 15's portal render fn (A0F overlay), rebuilt natively. |
 | 0x80114E74 | LIVE | `ActorTomba::type4GuardedCheck` | game/player/actor_tomba.cpp:274 |  | type-4 guarded proximity. |
 | 0x8011534C | LIVE | `TileGridLayer::scrollStep` | game/render/tile_grid_layer.cpp:161 |  |  |
 | 0x80115598 | LIVE | `Render::backdropRender` | game/render/render_walk.cpp:238 |  | NATIVE BACKDROP tilemap drawer — overlay FUN_80115598 (the seaside fie… |

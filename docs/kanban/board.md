@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (21)
+## TODO (19)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#16 Sign text jitters at fps60 when the camera moves**  `render,fps60` — 📎 docs/reference/issues/issue16_sign_text_jitter.png
@@ -16,8 +16,6 @@
 - **#37 areas 16/17/18 hang under cold warp — behaviour loop in gen_func_80040558**  `bug`
 - **#40 RmlUi warp selector is unverified on screen — no window in the agent environment**  `verification`
 - **#41 renderpsx REPL toggle is honoured per SCENE ENTRY, not per frame — a mid-scene flip does not repaint**  `render`
-- **#43 pc_render omits the field HUD minimap (areas 2, 7)**  `render`
-- **#44 pc_render omits the central vortex/portal effect in area 15**  `render`
 - **#46 recomp-MISS 0x80028E64 latent (label not emitted as entry) — NOT reproduced on current main**  `bug,recomp`
 - **#48 area 14 waterfall backdrop is GTE SCENE GEOMETRY with no native producer (split from #42)**  `render`
 - **#49 area 21 sky is a GRADIENT+tilemap COMPOSITE — needs the gouraud base ported (split from #42)**  `render`
@@ -33,7 +31,7 @@
 - **#45 CAMPAIGN: render everything natively — retire the substrate-GTE projection producers to float-native**  `render,campaign`
 - **#47 pc_skip: entering 'House on the Point' corrupts state (music stops, camera unfollows, interior vibrates)**  `bug,pc-skip`
 
-## DONE (31)
+## DONE (33)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -65,3 +63,5 @@
 - **#38 In-game Options sub-page renders without its full-screen dark-blue backdrop**  ``
 - **#39 Movement DUST CLOUDS never spawn — missing on the ORACLE too, so it is not a render gap**  `bug`
 - **#42 pc_render omits the far BACKGROUND/SKY plane in non-seaside areas (10, 11, 14, 21)**  `render`
+- **#43 pc_render omits the field HUD minimap (areas 2, 7)**  `render`
+- **#44 pc_render omits the central vortex/portal effect in area 15**  `render`
