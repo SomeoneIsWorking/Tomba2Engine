@@ -294,12 +294,19 @@ re-runs the FIRST leg's binary reports a clean "0 pixels changed" for a producer
 That has now happened twice in one day. A build break that stops you is harmless; one that leaves a
 stale binary in place hands you a false negative that looks like a result.
 
+- **A CONCURRENT SESSION GETS ITS OWN CLONE, and the edits converge through the REMOTE (USER
+  2026-07-28).** Full `git clone` per session, commit locally, push/pull to converge on `origin`. NOT
+  a `git worktree`: a worktree shares `.git`, so `refs/stash` and the submodule's own repo under
+  `.git/modules` stay common ground — a worktree stash-pop has already grabbed another agent's stash
+  in this project, and `external/psxport` is exactly what desynced here.
 - **Land a cross-repo change FRAMEWORK-FIRST, in ONE commit.** Adding a `GameConfig` field means the
   `external/psxport` gitlink bump and the `game/` use of it go in the SAME commit. Editing the game
   side while the submodule checkout still lacks the field leaves every other session unable to build
-  (real instance: `game_config.cpp` + `bootFmv`, ~4 minutes). A private psxport clone does NOT fix
-  this — the file that breaks is in the GAME repo, which is shared too; only whole-tree isolation
-  (`isolation: 'worktree'`) does.
+  (real instance: `game_config.cpp` + `bootFmv`, ~4 minutes).
+- **NEVER do a temporary-revert A/B in a shared checkout.** Compiling out a producer, rebuilding,
+  measuring, then restoring leaves the source and `scratch/bin/tomba2_port` disagreeing for the whole
+  run — every other session in that tree is now measuring a binary that does not match what it reads.
+  That is the same defect as the non-compiling window, self-inflicted. Do A/B legs in YOUR OWN CLONE.
 - **Every A/B leg must PROVE its build succeeded and PROVE which leg it is.** Check the build exit
   status before running the leg, and gate on an in-band signal that distinguishes the legs — a
   diagnostic-channel count (`ctrl=` lines, producer emissions), not the pixels you are measuring.
