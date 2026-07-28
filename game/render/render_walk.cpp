@@ -709,6 +709,11 @@ void Render::fieldObjectsRender() {
           // 22-area nofx sweep. Overlay-resident, so the same first-instruction guard (addiu sp,-64).
           c->rsub.stats.snObjs++;
           rend(c)->fxRingSpriteRender(n);
+        } else if (rfn == 0x801110BCu && c->mem_r32(0x801110BCu) == 0x27BDFFC0u) {
+          // FUN_801110BC (A0B overlay, area 11) — the camera-following dot haze, from the 22-area
+          // nofx sweep. Overlay-resident, so the same first-instruction guard (addiu sp,-64).
+          c->rsub.stats.snObjs++;
+          rend(c)->fxDotFieldRender(n);
         } else if (rfn == 0x801113B4u && c->mem_r32(0x801113B4u) == 0x27BDFFE8u) {
           // FUN_801113B4 (A03 overlay, area 3) — the screen-space additive motion trail, from the
           // 22-area nofx sweep. Overlay-resident, so the same first-instruction guard (addiu sp,-24).

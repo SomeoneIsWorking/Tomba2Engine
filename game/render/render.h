@@ -320,6 +320,11 @@ public:
   // Body in fx_trail.cpp.
   void fxMotionTrailRender(uint32_t node);
 
+  // fxDotFieldRender (FUN_801110BC, A0B/area 11): the camera-following DOT HAZE — 513 white specks on
+  // a wrapping 2048-unit world lattice, sized 2x2 when near. NOT a sprite-family member (no DQA, own
+  // gates). Body in fx_dotfield.cpp.
+  void fxDotFieldRender(uint32_t node);
+
   // fxAnimSpriteRender: native producer for the SECOND world-anchored sprite family — emitter
   // FUN_800286CC + packet writer FUN_8002847C (36-byte, four-corner, per-vertex-coloured quad records
   // selected by an ANIMATION SCRIPT byte). This is Tomba's movement DUST PUFF (kanban #39) and the

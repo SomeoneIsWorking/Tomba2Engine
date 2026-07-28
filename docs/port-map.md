@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 19 verified · 11 ported-unverified · 6 todo · 1 blocked
+**Status:** 20 verified · 11 ported-unverified · 5 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -176,6 +176,12 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** game/render/fx_trail.cpp
 - **notes:** Render::fxMotionTrailRender (FUN_801113B4 -> FUN_80110B00, A03 overlay, area 3): screen-space ADDITIVE motion trail. 11-slot screen-position history at node+0x3C ({s16 x, s16 y}, (0,0) = unfilled), 10 joints, each drawn as 4 quads — a +/-1x core (ramp colour on the centre line, BLACK at the outer edge) inside a +/-4x halo at per-byte-halved brightness; 11-entry colour ramp at 0x80108FDC; perpendicular = ratan2(dy,dx)+1024 through rcos/rsin, (v*2+2048)>>12; joint rule keys on the LOOP COUNTER so a suppressed segment still advances the joint state; degeneracy history suppresses the segment ending at a null/duplicate point AND the next one. NOT a sprite-family member (no GTE/DQA/projection) — SpriteAnchor deliberately unused. Read-only: the guest's pool-room gate is not reproduced because this producer allocates nothing. VERIFIED ON PIXELS: area 3 warp + skip 600, ON vs producer-removed OFF leg = 4690 px differ at x[195..318] y[112..239], rendering as a coherent tapered glowing streak; 1140 emissions; 0x801113B4 dropped off the nofx census leaving only terrain + widescreen margin. Overlay guard needed and validated: 0x801113B4 exists in BOTH A03 (sp-=24, 0x27BDFFE8) and A0B (sp-=40), so the first-instruction check disambiguates them.
 
+## fx-dot-haze-1110bc
+- **scope:** render
+- **status:** verified
+- **owner:** game/render/fx_dotfield.cpp
+- **notes:** Render::fxDotFieldRender (FUN_801110BC, A0B overlay, area 11): the camera-following DOT HAZE — visually the area's ambient SNOW. 513 opaque white specks on a wrapping 2048-unit world lattice keyed to node+0x2C/2E/30, cube centred half a camera-forward step ahead of the eye; size 2x2 when SZ3 < 1536 else 1x1; LCG seed at node+0x50 (READ ONLY, never written back) with the multiplier at 0x8011C030, three steps per particle, particle 0 taking the RAW seed and one extra step whose value is never read. NOT a sprite-family member (no DQA, own two gates: GTE-FLAG/near-plane and an unsigned 0<=SX<320 screen clip with NO Y test). DELIBERATE DIVERGENCE: the guest prepends every dot into ONE fixed OT bucket (256) with no sorting; this producer gives each dot its real projected depth instead (engine owns ordering). VERIFIED ON PIXELS: area 11 warp + skip 600, ON vs producer-removed OFF = 330 px differ across x[0..319] y[12..227], drawing as snow over the night scene; 1196 emissions, 415/513 dots passing the gates; 0x801110BC dropped off the nofx census. NOTE: this was mis-scoped as the HARDEST sweep target on its callee list (matrix pipeline + raw RTPT); 0x80084660/690 are just SetRotMatrix/SetTransMatrix and the RTPS folds onto projComposeObjectHost(identity, origin) — no matrix helper and no gen body were needed.
+
 ## render-compose-tint-gate
 - **status:** ported-unverified
 - **notes:** Render::composeTintGate (FUN_8003EF9C): per-type render gate, port_check PASS, wired via overrides::install with setter. Pool-snapshot idiom: emits geometry then colour-adds over exactly the primitives just emitted. Cold on the field/dialog replay - needs a scene that uses render mode 2.
@@ -233,9 +239,3 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** todo
 - **owner:** generated (unported)
 - **notes:** FUN_80110CA4 (area 14) — one of the 22-area-sweep render targets. FULL STATIC RE + adversarial verification: docs/re/render-targets-static-re.md#80110ca4---area-14. Do NOT re-derive; do NOT port from an uncorrected reading (5 of the 6 specs were CORRECTED by their verifier, including one fatal address error).
-
-## fx-dot-haze-1110bc
-- **scope:** render
-- **status:** todo
-- **owner:** generated (unported)
-- **notes:** FUN_801110BC (area 11) — one of the 22-area-sweep render targets. FULL STATIC RE + adversarial verification: docs/re/render-targets-static-re.md#801110bc---area-11. Do NOT re-derive; do NOT port from an uncorrected reading (5 of the 6 specs were CORRECTED by their verifier, including one fatal address error).
