@@ -4266,3 +4266,31 @@ read it briefly used as a filter is now advisory only: it classifies `0x8013D454
 hidden the one real gap the tool has found.
 
 </details>
+
+## The nofx census is now EMPTY of real gaps across the whole replay library (2026-07-28)
+
+After the day's producers landed (`impactBurstRender`, the four A00 mesh scopes, `fxAltAnimSpriteRender`,
+`waterJetSpriteRender`), the full 15-replay sweep — each sized to its own pad length, headless — reports:
+
+  every run exit 0, **zero** abort / fatal / recomp-MISS, and the union of skipped type-0x20 render fns is
+
+  | fn | runs | why it is not a gap |
+  |---|---|---|
+  | `0x8002AB5C` | 15 | terrain — owned, reached by another route |
+  | `0x8013CDD4` | 14 | `WidescreenMarginQuad::emit` — owned, another route |
+  | `0x800288AC` | 3 | FxMesh controller — scoped at guest-execution time |
+  | `0x8002BC9C` | 2 | FxMesh controller — scoped |
+  | `0x8002A834` | 1 | `SwingFx::effectDrawTick` — owned |
+
+`0x8013D454` has left the list entirely. **Every fn the census reaches now has a producer.** That is
+NOT "the whitelist is complete" — `render_fns.py` still lists candidates no replay visits, and the
+library only covers the areas these 15 captures walk. It is the strongest statement the dynamic
+instrument can make, and the static one disagrees, which is exactly why both exist.
+
+**A recompiler artifact worth knowing about.** `0x801346C0` appeared in the `FUN_800328EC` caller list
+and its recompiled body is nonsense — `UNHANDLED op` markers, stray `rec_syscall`s, reads off `r0`.
+The bytes at that address in a dump where A01 is resident are `0D3A0401 240EE877 0000010E 00000000`:
+the third word is a small integer, not an instruction. The recompiler decoded DATA as code there, and
+the "call to 0x800328EC" inside it is a coincidence of the byte stream. So the family has FIVE real
+callers, not six. **Check a suspicious gen body against the dump bytes before believing its call
+list** — `generated/` is ground truth for GTE-bearing code, but only where the seeding was right.
