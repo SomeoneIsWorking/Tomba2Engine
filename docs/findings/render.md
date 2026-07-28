@@ -3997,12 +3997,19 @@ Both were found by reading the port's own source and the binary — no live driv
 - **same class as kanban #16/#23** (verbatim-presented 2D/mesh vs lerped world), and the fix is the
   one those cards already name: give the mesh half a display-pass producer so board and letters come
   from the same state and interpolate together. NOT a matcher, NOT an anchor/stamp — banned.
-- **string tables, for whoever needs them:** the 12-byte/3-word entries are `{one-line ptr,
-  two-line ptr, packed id}`. Objectives ("Find Tabby!", "Go to the Burning House!") are based at
-  `0x800A33C8` (textLabelEmit reads word +4). The QUEST-ITEM names in the banner
-  ("A Red Treasure Chest", "Adventurer's Chest", "Capture the Last Evil Pig!") are a SECOND table at
-  `0x800A3660`, whose base is materialised nowhere in a field RAM dump — its reader is
-  overlay-resident, so that emitter has still to be identified.
+- **ONE string table, and the banner is in it — corrected 2026-07-28.** An earlier pass in this
+  same session claimed the quest-item names lived in a SECOND table at `0x800A3660` with an
+  overlay-resident reader, and therefore that the banner might be a different emitter. That was
+  wrong: it started the entry grid 4 bytes off. There is ONE contiguous table based at
+  `0x800A33C8`, stride 12, `{one-line ptr @+4, two-line ptr @+8, packed id}` — exactly what
+  `textLabelEmit` reads. Walking it end to end: entry 1 `Find Tabby!`, entry 2
+  `Go to the Burning House!` (kanban #16's sign), … entry 55 `Capture the Last Evil Pig!`,
+  **entry 56 `A Red Treasure Chest`** (@`0x80013BD0` one-line / `0x80013BB8` two-line), entry 57
+  `Adventurer's Chest`. The USER's observation that the same banner appears at GAME START for
+  another quest is the confirmation — that is entry 1 of the same table.
+- **so the banner and the sign are the SAME EMITTER**, `Render::textLabelEmit` / `FUN_80039F4C`.
+  No overlay hunt is needed, and one display-pass producer for the mesh half closes kanban #16,
+  #23 and #64 together.
 
 ### (2) Why an impact/mesh effect can be missing: the mesh writer has 20 callers and 4 producers
 
