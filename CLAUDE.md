@@ -286,6 +286,27 @@ you find yourself wanting to write guest RAM from render code, you're building t
 - **Improve tools when they fall short.** Grep `docs/gfx-debug.md` + `tools/` first; extend, don't
   reinvent; update doc + skill same change.
 
+## Parallel sessions share ONE tree — never leave it non-compiling (2026-07-28)
+
+Several sessions edit this checkout at once. A window where the shared tree does not build is not just
+lost time: it CORRUPTS MEASUREMENTS. An A/B that rebuilds for its second leg, fails to build, and
+re-runs the FIRST leg's binary reports a clean "0 pixels changed" for a producer that is emitting.
+That has now happened twice in one day. A build break that stops you is harmless; one that leaves a
+stale binary in place hands you a false negative that looks like a result.
+
+- **Land a cross-repo change FRAMEWORK-FIRST, in ONE commit.** Adding a `GameConfig` field means the
+  `external/psxport` gitlink bump and the `game/` use of it go in the SAME commit. Editing the game
+  side while the submodule checkout still lacks the field leaves every other session unable to build
+  (real instance: `game_config.cpp` + `bootFmv`, ~4 minutes). A private psxport clone does NOT fix
+  this — the file that breaks is in the GAME repo, which is shared too; only whole-tree isolation
+  (`isolation: 'worktree'`) does.
+- **Every A/B leg must PROVE its build succeeded and PROVE which leg it is.** Check the build exit
+  status before running the leg, and gate on an in-band signal that distinguishes the legs — a
+  diagnostic-channel count (`ctrl=` lines, producer emissions), not the pixels you are measuring.
+  Equal pixel counts across legs are only evidence when the channel counts differ.
+- If the tree is broken by someone else's in-flight edit, do NOT revert their work. Compile your own
+  translation units from `build/compile_commands.json` to keep moving, and retry the full build later.
+
 ## Build / drive / repo
 
 - **`scratch/bin/tomba2_port` IS THE GAME** — recompiled MAIN.EXE (`generated/shard_*.c`) + native game
