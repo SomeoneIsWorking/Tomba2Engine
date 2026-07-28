@@ -27,3 +27,19 @@ Every jal 0x80027768 site in the binary, resolved to its enclosing function and 
 So any impact whose controller is not FUN_800288AC still draws nothing. The bucket repro (replays/bugs/weapon-impact-bucket.pad f654-660) went through the one owned controller, which is why it verified green while the user still sees a gap.
 
 NEXT, and it is derivable statically without triggering anything in-game: identify which of the 14 is the impact controller for the case the user hits (weapon type / target class), then port it as a producer. The full list is the render frontier's work-list — see docs/findings/render.md 'The two named render targets, reached STATICALLY'.
+
+**2026-07-28:** 2026-07-28 THE CENSUS SHARPENS — these are NODE RENDER-FN POINTERS, and that names the frontier exactly.
+
+Follow-up to this card's 20-caller census. None of the 14 unowned mesh-writer callers has a single  caller anywhere in RAM — every one is reached by FUNCTION POINTER. Checking them as pointer CONSTANTS in a field RAM dump confirms what they are: effect-node render fns installed at node+0x18, the same family Render::fieldObjectsRender already whitelists by address for type-0x20 nodes (render_walk.cpp:688+).
+
+So the real statement is not 'the mesh writer has 20 callers'. It is: THE TYPE-0x20 RENDER-FN WHITELIST IS THE PRODUCER LIST, IT HAS 5 ENTRIES, AND AT LEAST 10 MORE EFFECT RENDER FNS ARE RESIDENT AND UNOWNED. A type-0x20 node whose render fn is not on the whitelist is SKIPPED outright — pc_render does not walk the guest OT, so those effects draw nothing at all.
+
+  OWNED (on the whitelist): 0x80027CB4 / 0x80027E5C / 0x800281EC -> fxSpriteRender (torch + hut-roof flames, #12/#23), 0x800286CC -> fxAnimSpriteRender (dust puffs + impact starburst, #39), 0x80029F6C -> dustEffectRender (Tomba's movement puff).
+  UNOWNED, resident as node render-fn pointers (occurrence count in one field dump):
+    0x8002BC9C (5)   0x8002C6AC (2)   0x80028B70 (1)   0x8002CD18 (1)   0x8002D65C (1)
+    0x8002DF68 (1)   0x8002F36C (1)   0x8002FDD0 (1)   0x80030264 (1)   0x80030D68 (1)
+  (0x8002C138 and 0x8002AE0C reach the writer but appear as no pointer in THIS dump — they belong to another area/overlay's node set.)
+
+WHY THIS MATTERS FOR THIS CARD: 'the impact effect is missing' needs no repro to explain. The 2026-07-23 fix covered the impact path that flows through FUN_800288AC; whichever of the ten above is the impact renderer for the case the user hits has no producer and therefore draws nothing. Identifying it is now a bounded question — ten addresses, each a self-contained render fn to RE and port — instead of an open hunt.
+
+SUGGESTED ORDER: 0x8002BC9C first (5 resident nodes in a single field dump = the most common unowned effect), then 0x8002C6AC (2). Each one ported is a whitelist entry plus a producer, exactly like fx_sprite.cpp / fx_dust.cpp already are — and per the NATIVE PRESENTATION directive the producer draws from the node's own state, never from a tag.
