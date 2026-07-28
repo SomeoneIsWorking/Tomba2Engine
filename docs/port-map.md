@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 15 verified · 8 ported-unverified · 1 todo · 1 blocked
+**Status:** 16 verified · 7 ported-unverified · 2 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -148,13 +148,13 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** game/scene/script_interp.cpp
 - **notes:** The cutscene interpreter's last two unowned links. Equivalence proven before use: full 2MB guest RAM at f2600 on replays/bugs/sequence-softlock-2.pad byte-identical to the pre-port run; SBS full green to f41280. loadNextEntry MUST install with a setter (gen_func_80040FA0 reaches it by a direct jal; rec_dispatch never sees it). Owning these is what exposed kanban #60.
 
+## render-subpart-walk
+- **status:** verified
+- **notes:** Render::subPartWalk (FUN_8003F174): per-sub-part transform + geomblk submit; port_check PASS; wired with setter. LIVE (ovhit native=139 on the bucket capture). 2026-07-28: gained a DISPLAY-PASS half — Render::subPartCapture (subpart_capture.cpp) re-derives each sub-part's prims from its own geomblk + transform and pushes WqRecs, with Render::mSubPartDrawSuppress stopping the guest-time submit from also drawing them. That closed kanban #64: a text-label character's glyph cmd and its plank sub are the SAME pointer, that shared transform moves 10-15 units/axis every logic frame, and only the glyph half had a record — so letters lerped to the midpoint while their planks held the real-frame position. Verified 1740 same-frame glyph/plank objT pairs AGREE, 0 differ; picture-neutral at 26/76800 px on frame 240 of bucket-softlock.pad.
+
 ## render-compose-tint-gate
 - **status:** ported-unverified
 - **notes:** Render::composeTintGate (FUN_8003EF9C): per-type render gate, port_check PASS, wired via overrides::install with setter. Pool-snapshot idiom: emits geometry then colour-adds over exactly the primitives just emitted. Cold on the field/dialog replay - needs a scene that uses render mode 2.
-
-## render-subpart-walk
-- **status:** ported-unverified
-- **notes:** Render::subPartWalk (FUN_8003F174): per-sub-part transform + geomblk submit; port_check PASS; wired with setter. Closes the render frontier's per-type handler list. LIVE - ovhit native=139 on the bucket capture (NOT cold, unlike composeTintGate).
 
 ## render-shared-transform-walk
 - **status:** ported-unverified
@@ -169,3 +169,8 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** todo
 - **deps:** world-line-rope
 - **notes:** FUN_8013E08C: op-0x4A ground ring shadow, its own GTE loop over the 16-point circle at 0x8014C780 (sliding 3-point window), grey = 0x80-((nodeY-0x14)*0x80)/200, blends 1 and 2, node matrix at node+0x2C via FUN_80084220 + a diagonal scale from nodeY<<4. BLOCKED on RE of FUN_80084110/FUN_80084220.
+
+## fx-emitter-ecd8-e680
+- **scope:** The 0x8002ECD8 + 0x8002E680 effect emitter pair (type-0x20 node render fn, no producer)
+- **status:** todo
+- **notes:** RECON DONE 2026-07-28, port not started. Surfaced by PSXPORT_DEBUG=nofx (kanban #65) as a type-0x20 node whose render fn is on no whitelist — and unlike 0x80033080 (a dispatcher whose two halves are both owned) this one is a REAL gap: nothing draws it.
