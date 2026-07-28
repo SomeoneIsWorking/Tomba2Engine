@@ -83,6 +83,40 @@ static const GameConfig g_tomba_config = {
   /* padSlot1Buf     */ 0x800bf51au,
   /* padDriverFn     */ 0x80003a4cu,   // FUN_80003A4C SIO pad read (inert: driver not in MAIN.EXE; no live register)
   /* padSlotPtrTable */ 0x0000aec8u,
+
+  // --- platform HLE: the PSX hardware-sync primitives (framework: sync_overrides.cpp) ---
+  // These were hardcoded in the framework's initBuiltins() until 2026-07-28. They are facts about
+  // MAIN.EXE, so they belong here — same move the seed set and recMainLo/recMainHi already made.
+  // Values below are the ones the framework previously baked in, unchanged, so behaviour is identical.
+  /* hle */ {
+    // Two I/O / hardware-service windows, NEVER game logic. The guard on register_() keeps engine
+    // FUN_xxxx out of the HLE table (those are owned top-down via the override registry):
+    //   [0x8001C000,0x8001E000) the engine's CD/SPU I/O glue (libcd-wrapper readers, SPU-mix)
+    //   [0x80080000,0x8009E000) the SCEI library text (libgpu/libetc/libcd/libgs/libmdec) plus the
+    //                           kernel thread primitives at 0x80080xxx
+    // Game/engine LOGIC lives at [0x8001E000,0x80082000) and in the overlays (0x8010xxxx+) — both
+    // outside these windows, which is what makes the guard meaningful.
+    /* windowLo */ {0x8001C000u, 0x80080000u},
+    /* windowHi */ {0x8001E000u, 0x8009E000u},
+    // Resident-code range for the guest-backtrace heuristic (physical; overlays sit above the main
+    // text, so this is wider than recMainLo/recMainHi and must be stated explicitly).
+    /* codeScanLo */ 0x00010000u, /* codeScanHi */ 0x00120000u,
+
+    /* decDctInSync    */ 0x8009CAECu,   // libmdec DecDCTinSync
+    /* decDctOutSync   */ 0x8009CB80u,   // libmdec DecDCToutSync
+    /* cdReadSync      */ 0x8008A96Cu,   // FUN_8008a96c(mode, result)
+    /* cdDataSync      */ 0x8008B4B8u,   // FUN_8008b4b8(mode)
+    /* cdInitHandshake */ 0x8008B2D8u,   // low-level CdInit controller-ready handshake
+    /* gpuTimeoutArm   */ 0x800834A0u,   // FUN_800834a0 arm deadline
+    /* gpuTimeoutCheck */ 0x800834D4u,   // FUN_800834d4 check (not timed out)
+    /* gpuTimeoutDeadlineVar */ 0x800A5ADCu,
+    /* gpuTimeoutFlagVar     */ 0x800A5AE0u,
+    /* changeThread    */ 0x80080880u,   // ChangeThread — the universal yield/task-end primitive
+    // VSync TRAP: correct FOR THIS PORT, whose PC-native frame loop owns all timing, so nothing may
+    // reach libetc VSync in any mode. A port still running the guest's own loop on the substrate
+    // would leave this zero and register a faithful VSync instead.
+    /* vsyncTrap       */ 0x80085900u,
+  },
 };
 
 // The game's callback vtable — defined in game_hooks.cpp (thin impls reaching eng(c).*).
