@@ -90,3 +90,11 @@ WIRED. subPartCapture + mSubPartDrawSuppress are now live in subPartWalk. Verifi
   - no double-draw: the suppression scope means the sub-part is drawn once, by the display pass.
   - smoke: replays/boot-smoke/short-session.pad and replays/bugs/ingame-item-menu.pad both exit 0 with 0 fatal / 0 abort / 0 recomp-MISS.
 STILL WORTH A USER EYEBALL at 60fps on a real banner — the guest-units argument and the still-frame agreement are strong, but only the moving picture proves the letters now stay on their planks. #16 (sign text) and #23 are the same emitter and should be re-checked in the same pass.
+
+**2026-07-28:** 2026-07-28 FIX VERIFIED IN GUEST UNITS — 1740 agree / 0 differ.
+
+With the handover wired, every glyph and its own plank now carry the SAME world transform in the same frame. Measured over replays/bugs/bucket-softlock.pad with PSXPORT_DEBUG=subpartcap (2088 plank records, 1740 glyph records): comparing each glyph's objT against the plank objT emitted for the SAME cmd/sub in that frame gives AGREE 1740, DIFFER 0.
+
+That is the fix stated structurally rather than visually: both halves are now Render::WqRecs carrying one objT, so billboardsRender projects and lerps them with the same factor. They cannot drift apart on an interpolated frame any more — not 'they look aligned in a still', but 'there is no longer a mechanism by which they could separate'. Before the change only the glyph half had a record, so the letter moved to the half-way position while the plank held the real-frame position, ~half a frame of motion (the transform steps 10-15 units/axis/frame).
+
+Remaining verification is the moving picture at 60fps, which needs a USER eyeball — no headless measurement can substitute for 'do the letters sit still on their planks now'.
