@@ -26,3 +26,13 @@ REPRO (no replay needed, that is the nice part):
   tools/ab_motion.py scratch/screenshots/ab_ref scratch/screenshots/ab_pc
 
 RELATED: the same sweep found NO other missing motion anywhere on screen at this spot, and no pc-only motion — so at the start position the bird is the only missing animated thing. The sweep should be repeated at other spots/areas; that is how the next ones will be found.
+
+**2026-07-28:** 2026-07-28 follow-up, SAME SESSION — two measurements that narrow it, and one that rules out the first guess.
+
+(1) THE VISIBILITY MARKER DIVERGES BETWEEN LEGS. Node 0x800FD118 (handler 0x8011D988 beh_actor_move_sm) reads node+1 = 1 on the reference leg and node+1 = 0 on the pc leg, sampled repeatedly and consistently, with node+0 matching (02/02, then 01/01, so the legs are in comparable states). Render::fieldObjectsRender (game/render/render_walk.cpp:681) skips any node whose node+1 is 0, so on the pc leg that object is culled out of the native object pass.
+
+(2) THE NATIVE HANDLER IS WHAT CLEARS IT. Re-running the pc leg with PSXPORT_BEH_SUBSTRATE=8011D988 flips node+1 to 1 (4/4 samples). So the native beh_actor_move_sm rebuild, not the renderer, is what leaves that node unmarked. This is a NEW and much cheaper repro for kanban #51's open 0x8011D988 divergence: it reproduces at the plain PSXPORT_AUTO_SKIP start position with no replay at all, where #51 only had a 2071-byte diff on the house-on-the-point capture. #51's note says that divergence first shows at the graphics-record freelist cursor 0x800E7E74 / count 0x800ED098 — 'a different NUMBER of records bound' — which is exactly the shape of an object that never gets marked renderable.
+
+(3) BUT THAT ALONE DOES NOT PUT THE BIRD BACK. With the handler on the substrate and node+1 = 1, ab_motion still reports the same missing top-right block, and a zoomed crop still shows no bird. So either 0x800FD118 is not the bird (it is the right-of-Tomba, above-ground mover, but that was inferred from a position sweep, not confirmed on screen), or there is a SECOND gap after the marker. Do not assume the two are the same bug.
+
+NEXT (in this order): confirm the bird's identity on the REFERENCE leg — it is drawn there, so correlate node world positions against the screen region x=224..300 y=0..96 rather than guessing from a position sweep. Only then decide whether the remaining gap is a missing producer or a second exec divergence. Keep #51 updated either way: measurement (2) stands on its own.
