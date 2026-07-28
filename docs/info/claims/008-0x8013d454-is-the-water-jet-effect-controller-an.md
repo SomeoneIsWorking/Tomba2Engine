@@ -17,3 +17,5 @@ A/B on replays/bugs/walk-dust-puff.pad frames 460/470/480/490/510/520 with the f
 ## What would falsify it
 
 if the jet also renders with the four installs removed on any other replay, the attribution is wrong and the picture came from a different producer
+
+**Narrowed 2026-07-28 (same day):** 0x8013D454 has TWO branches on (s16)node+0x60. The non-zero branch goes through the mesh writer 0x80027768 and is what the scope wrappers fixed — that is the stream measured in the A/B and the pixel evidence stands. The ZERO branch emits through FUN_800328EC (see C010) and still draws nothing. Read this claim as 'the jet is restored', NOT as '0x8013D454 is fully owned'.

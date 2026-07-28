@@ -4188,3 +4188,41 @@ and libgpu/libcd callback slots that merely live at `+0x18`. Requiring the targe
 against the RECOMPILER's function boundaries in `generated/`, not Ghidra's — instrument I016 records
 that the `bucket_f470` project mis-sizes functions, and it renders four of these as mid-function
 fragments (`unaff_s0` everywhere), which would have read as "not real" and thrown away good hits.
+
+## A SECOND shared sprite writer, FUN_800328EC, is completely unowned — 6 controllers behind it (2026-07-28)
+
+Following up `render_fns.py`'s candidate list turned up something larger than any single controller.
+
+**`0x8012E868`, decoded from its recompiled body** (`generated/ov_a01_shard_1.c`, ground truth for
+GTE-bearing code): it reads the node's world position from `node+0x2E/0x32/0x36`, loads it into GTE
+data regs 0/1, calls `0x800329E0(6)` — the family's DQA=6 depth-cue-as-scale setup — then
+`0x800317CC(0)`, the RTPS + OT-key gate, and on success scales the scratchpad pixel-scale pair
+`0x1F800084`/`0x1F800088` by the two halves of `node+0x60` `>> 8`, picks a model from a table, and
+calls **`FUN_800328EC`**.
+
+That is a complete sprite emitter — and it is NOT the `FUN_80027A4C` family this codebase already
+owns, nor the `FUN_80027768` mesh writer. It is a THIRD writer, and nothing taps it.
+
+**Its callers** (`rec_dispatch(c, 0x800328ECu)` resolved to the enclosing recompiled function):
+`0x8013D454` (A00 — the water jet), `0x8012D9E8`, `0x8012E868`, `0x801346C0` (A01), `0x8013B118`
+(A04, ×2), `0x8010C1D8` (A0L), plus two MAIN.EXE sites. `codemap --addr 0x800328EC`: **no native
+owner**. Its two helpers `0x800317CC` and `0x800329E0` exist only as ORPHAN leaves with no callers.
+
+**A CORRECTION TO THE WATER-JET ENTRY ABOVE.** `0x8013D454` has two branches on `(s16)node+0x60`:
+the non-zero branch goes through the mesh writer `0x80027768` and is what the scope wrappers fixed —
+that is the stream visible in the A/B, and that result stands. The **zero branch goes through
+`FUN_800328EC` and still draws nothing**, because a scope only routes the mesh writer. So the jet is
+restored, but not every mode of it. Do not read the earlier entry as "0x8013D454 is fully owned".
+
+**NEXT, and it unlocks six controllers at once:** RE `FUN_800328EC` (+ `0x800317CC`'s OT gate and
+`0x800329E0`'s DQA setup, both already RE-able as owned orphan leaves) and build ONE native producer
+for the family, the way `fx_sprite.cpp` did for `FUN_80027A4C`. This is a better unit of work than
+any individual controller — the same argument that made `impactAnnulusDraw` a separate leaf.
+
+**Two instrument corrections landed with this.** `render_fns.py` now attributes each hit to the DUMP
+it came from: the overlay window holds different code per dump, and following the first list without
+that sent me at the wrong bytes — four "writer addresses" decoded as a nop, a `jr ra`, an `addu` and
+an `lbu`, because those hits came from `c18_a1`/`c18_a5` rather than `bucket_f470`. And the node-TYPE
+read it briefly used as a filter is now advisory only: it classifies `0x8013D454` as type 3 while
+`nofx` proves live that the node is type 0x20. A wrong hint costs one check; that filter would have
+hidden the one real gap the tool has found.

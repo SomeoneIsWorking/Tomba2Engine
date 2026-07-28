@@ -62,8 +62,51 @@ def prologue(d, a):
     return (ins >> 16) == 0x27BD and sx(ins & 0xFFFF) < 0
 
 
+NODE_TYPE = 0x0B               # the byte Render::fieldObjectsRender switches on; 0x20 = custom-fn node
+TYPE_20 = 0x20
+TYPE_WINDOW = 0x40             # how far back to look for the `sb <type>, 0x0B(rN)` on the same node
+
+
+def node_type_near(d, off, base_reg):
+    """The constant this constructor wrote to node+0x0B shortly before the store — ADVISORY ONLY.
+
+    ⚠ THIS READ IS NOT SOUND, AND IT MUST NEVER SUPPRESS A ROW. It was written to be a filter — only
+    a type-0x20 node reaches pc_render's render-fn whitelist at all, so classifying the type would
+    turn 11 candidates into 2. It was then FALSIFIED against ground truth on the first case checked:
+    it reports 0x8013D454 as type 3, while `PSXPORT_DEBUG=nofx` on a live run prints
+    "type-0x20 node 800EE9D8: render fn 0x8013D454" — and that node's effect (the faucet's water jet)
+    is real and now drawn. The heuristic picks up whatever `sb <const>, 0x0B(base)` happens to sit in
+    the preceding window, which can belong to a different construction phase, a different object
+    aliased to the same register, or a branch not taken.
+
+    So the number is printed as a HINT and nothing more: every non-whitelisted fn stays a [GAP].
+    A wrong hint costs a reader one check; a wrong filter would have silently hidden the one real
+    producer gap this tool has found so far.
+    """
+    start = max(0, off - TYPE_WINDOW)
+    ty = None
+    for o in range(start, off, 4):
+        ins = struct.unpack("<I", d[o:o + 4])[0]
+        op, rs, rt, imm = ins >> 26, (ins >> 21) & 31, (ins >> 16) & 31, ins & 0xFFFF
+        if op == 0x28 and sx(imm) == NODE_TYPE and rs == base_reg:      # sb rt, 0x0B(base)
+            # Resolve the value register back to its `li`. A type that is COMPUTED (e.g. the guest
+            # writing `v1 < 4`) legitimately stays unknown — and unknown is treated as a candidate,
+            # never dropped, so a miss here can only cost noise, not coverage.
+            ty = 0 if rt == 0 else None
+            for o2 in range(max(0, o - TYPE_WINDOW), o, 4):
+                i2 = struct.unpack("<I", d[o2:o2 + 4])[0]
+                op2, rs2, rt2 = i2 >> 26, (i2 >> 21) & 31, (i2 >> 16) & 31
+                if rt2 != rt:
+                    continue
+                if op2 in (9, 0x0D) and rs2 == 0:        # addiu/ori rt, r0, N  — the two `li` forms
+                    ty = i2 & 0xFFFF
+                elif op2 in (0x20, 0x21, 0x23, 0x24, 0x25, 0x0F) or op2 == 0:
+                    ty = None                            # loaded or computed: not a constant
+    return ty
+
+
 def scan(dump):
-    """-> {render_fn: set(writer_addr)} for one 2 MB KSEG0 image."""
+    """-> {render_fn: set((writer_addr, node_type))} for one 2 MB KSEG0 image."""
     d = open(dump, "rb").read()
     hi = {}                                     # reg -> value from the last lui/addiu chain
     out = {}
@@ -85,7 +128,7 @@ def scan(dump):
             # all three classes out — a render fn is a real function, and every one in this engine
             # opens a frame. Without this the tool reports 68 fns of which ~50 are fiction.
             if v is not None and is_code(v) and prologue(d, v):
-                out.setdefault(v, set()).add(BASE + off)
+                out.setdefault(v, set()).add((BASE + off, node_type_near(d, off, rs)))
         elif op == 3 or (op == 0 and (ins & 0x3F) in (8, 9)):
             # A CALL clobbers the caller-saved set, but the callee-saved registers survive it — and a
             # render fn is often materialised into an s-register well before the store. Clearing the
@@ -110,23 +153,40 @@ def main():
     if len(sys.argv) < 2:
         print(__doc__)
         return 1
+    # Attribute every hit to the DUMP it came from. The overlay window holds different code in
+    # different dumps, so a bare writer address is ambiguous and sends the next reader at the wrong
+    # bytes — which is exactly what happened the first time this list was followed up: four writer
+    # addresses decoded as a nop, a `jr ra`, an `addu` and an `lbu` in the dump that happened to be
+    # opened, because those hits came from c18_a1 and c18_a5 rather than bucket_f470.
     found = {}
     for dump in sys.argv[1:]:
+        tag = os.path.basename(dump)
         for fn, writers in scan(dump).items():
-            found.setdefault(fn, set()).update(writers)
+            for wr, ty in writers:
+                found.setdefault(fn, set()).add((wr, tag, ty))
     wl = whitelisted()
     print(f"{len(found)} distinct render fns installed at node+0x{NODE_RENDER_FN:02X} "
           f"across {len(sys.argv) - 1} dump(s)"
           + (f"; {len(wl)} on the pc_render whitelist" if wl is not None else ""))
     missing = 0
     for fn in sorted(found):
-        mark = "   " if wl is None else ("[ok]" if fn in wl else "[GAP]")
-        if wl is not None and fn not in wl:
+        rows = sorted(found[fn])
+        types = {t for _, _, t in rows}
+        if wl is None:
+            mark = "     "
+        elif fn in wl:
+            mark = "[ok] "
+        else:
+            mark = "[GAP]"                      # see node_type_near: the type is a hint, not a filter
             missing += 1
-        ws = " ".join(f"{w:08X}" for w in sorted(found[fn])[:4])
-        print(f"  {mark} 0x{fn:08X}   installed by {ws}")
+        tys = ",".join("?" if t is None else f"0x{t:02X}" for t in sorted(types, key=lambda t: (t is None, t)))
+        ws = "  ".join(f"{w:08X}@{tag}" for w, tag, _ in rows[:3])
+        print(f"  {mark} 0x{fn:08X}  type={tys:9s} installed by {ws}")
     if wl is not None:
         print(f"\n{missing} render fn(s) with no whitelist entry — each is a producer-gap CANDIDATE.")
+        print("type= is an ADVISORY HINT, never a filter: only a type-0x20 node reaches the whitelist,")
+        print("but the read is unsound and was falsified on 0x8013D454 (it says 3; nofx says 0x20 and")
+        print("the effect is real). Treat a non-0x20 hint as 'check this one second', not 'skip it'.")
         print("Confirm with PSXPORT_DEBUG=nofx (it names what a RUN skipped) plus the fxmesh/fxsprite")
         print("channels: several are owned by another route (a controller SCOPE at guest-execution")
         print("time), which the whitelist cannot show.")
