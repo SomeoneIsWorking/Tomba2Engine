@@ -4216,10 +4216,24 @@ run the gate, emit the model list) plus two entry points — `fxAltAnimSpriteRen
 (DQA 4, bias -64, uniform scale from `node+0x62`, model = `[0x8010A058][0]`). Both whitelisted behind
 first-instruction residency guards.
 
-**Evidence.** 228 emissions on both `walk-dust-puff` and `seesaw-weight`. A/B with the two whitelist
-entries compiled out: **419–936 px differ on 4 of 6 sampled frames**; f510/f520 are identical because
-the node is in its MESH mode there — which is itself the cross-check that the two branches are
-mutually exclusive and do not double-draw.
+**Evidence, and a correction to how it was first written.** The A/B is real: with the whitelist
+entries compiled out, **419–936 px differ on 4 of 6 sampled frames** of `walk-dust-puff`, and
+f510/f520 are identical because the node is in its MESH mode there — itself the cross-check that the
+two branches are mutually exclusive and never both draw.
+
+But the "228 emissions on both replays" this entry first cited does NOT support the family: **all 456
+of them carry `gate=-64`, i.e. every one is `waterJetSpriteRender`.** Checked afterwards by the
+producers' distinguishing gate/depth signature across the whole 15-replay library:
+`fxAltAnimSpriteRender` (`0x8012E868`) and `fxRotSpriteTailRender` (`0x8012D9E8`) emit **zero** times
+anywhere. They are RE'd and guarded, so they cost nothing while cold — but they are
+ported-UNVERIFIED and must not be cited as working. One verified producer, two cold ones.
+
+**And only the sprite TAIL of `0x8012D9E8` is ported at all.** The bulk of that function is an inline
+rotated-MESH pass — rotmat from `node+0x54`, column-scaled by the triple at `node+0x68/0x6A/0x6C`,
+composed with the scene camera, then a 36-byte-record loop that RTPTs each quad, runs AVSZ4 + the OT
+gate and links a 52-byte packet by hand. `0x8013B118` (A04) and `0x8010C1D8` (A0L) share that shape
+and are not node render fns at all — they were found as CALL SITES, not installs, so they need a
+different dispatch route entirely.
 
 **So the water jet is now complete.** The mesh branch (fx_mesh's scope, non-zero `node+0x60`) and the
 sprite branch (this producer, zero) are both drawn. Still open: the family's remaining callers

@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 17 verified · 10 ported-unverified · 1 todo · 1 blocked
+**Status:** 16 verified · 11 ported-unverified · 1 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -105,10 +105,18 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **notes:** PORTED + VERIFIED. game/render/effect_mod.cpp — five Render methods (effectSemiOn/SemiOff/ClutSwap/FlatTint/ColorAdd) replacing the substrate leaves FUN_8003F3F4/F4C4/F344/F594/D584; wired at the perobj_billboard CCA4 call sites. Written with typed lenses (GpuPacket, EffectParams, PacketShape) instead of raw mem_rXX(p+0xNN) soup. VERIFIED by a differential oracle test (PSXPORT_SELFTEST=effectmod, game/render/effect_mod_selftest.cpp): synthetic packet pools swept across every opcode + all three coloradd regimes, native vs rec_interp of the real MAIN.EXE, 2000 runs, 0 mismatching words, 0 oracle-skipped. Gate proven meaningful by mutation testing — a 1-bit change to the 0x7F bias and the Ghidra cmd-byte ordering bug are both caught. Unblocks render-mesh-flush.
 
 ## fx-sprite-writer-328ec
-- **status:** verified
+- **status:** ported-unverified
 - **order:** 44
 - **owner:** game/render/fx_sprite.cpp
-- **notes:** RESOLVED 2026-07-28, and the premise that filed it was WRONG (see falsified claim C010). FUN_800328EC is a 3-instruction wrapper — zero the depth cue at 0x1F800090, tail into FUN_8002847C — i.e. the SAME four-corner writer Render::fxAnimSpriteRender already reproduces. The gap was DISPATCH, not a producer. Its controllers carry a different node layout: anchor as three separate s16s at 0x2E/0x32/0x36, packed 8.8 scale pair at 0x60, animation-script pointer at 0x64, per-frame record table at 0x6C. Shared leaves: 0x800329E0(dqa) = scene-camera CRs + DQA/DQB, 0x800317CC(bias) = RTPS + the otKeyInRange gate publishing OT key/SXY2/MAC0 to 0x1F800080/0x1F80008C/0x1F800084 (the same contract fx_ring.cpp documents for FUN_8002ECD8, which inlines it). Ported as Render::altSpriteEmit + fxAltAnimSpriteRender (0x8012E868) + waterJetSpriteRender (0x8013D454's mode-0 branch), whitelisted behind first-instruction residency guards. VERIFIED: 228 emissions on walk-dust-puff and seesaw-weight; A/B with the two whitelist entries compiled out gives 419-936 px differing on 4 of 6 sampled frames (f510/f520 identical, the node is in its mesh mode there). The remaining callers 0x801346C0, 0x8013B118, 0x8010C1D8 and the two MAIN.EXE sites now need only a whitelist entry each plus their own scale rule.
+- **notes:** CORRECTED 2026-07-28: only ONE of the three producers is verified, so this step is ported-unverified as a whole. The earlier note read 'VERIFIED: 228 emissions on walk-dust-puff and seesaw-weight' — every one of those 228 (456 across both replays) carries gate=-64, i.e. they are ALL Render::waterJetSpriteRender. Render::fxAltAnimSpriteRender (0x8012E868) and Render::fxRotSpriteTailRender (0x8012D9E8) are COLD across the entire 15-replay library: zero emissions, checked explicitly by their distinguishing gate/depth signature, not assumed.
+
+VERIFIED — waterJetSpriteRender (0x8013D454's zero branch): A/B with its whitelist entry compiled out gives 419-936 px differing on 4 of 6 sampled frames of walk-dust-puff; f510/f520 identical because the node is in its mesh mode there, which cross-checks that the two branches never both draw.
+
+PORTED-UNVERIFIED — fxAltAnimSpriteRender and fxRotSpriteTailRender. RE'd from their recompiled bodies and guarded by first-instruction residency checks, so they cost nothing while cold, but nothing has exercised them. Do not cite them as working.
+
+STILL UNPORTED — 0x8012D9E8's inline rotated-MESH pass, the bulk of that function: rotmat from node+0x54, column-scaled by the triple at node+0x68/0x6A/0x6C, composed with the scene camera, then a 36-byte-record loop that RTPTs each quad, runs AVSZ4 + the OT gate and links a 52-byte packet by hand. Only its sprite TAIL is ported. 0x8013B118 (A04) and 0x8010C1D8 (A0L) share that rotated shape and are NOT node render fns at all — they were found as call sites, not installs, so they need a different dispatch route.
+
+FALSE CALLER: 0x801346C0 is not a function; the recompiler decoded data as code there.
 
 ## render-mesh-flush
 - **scope:** mesh-flush 0x8003F174/0x8003EF9C

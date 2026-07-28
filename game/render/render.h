@@ -279,10 +279,23 @@ public:
   //   altSpriteEmit          — the shared tail: project the anchor, gate, emit the model list.
   //   fxAltAnimSpriteRender  — FUN_8012E868, the animation-script member.
   //   waterJetSpriteRender   — FUN_8013D454's sprite branch (its mesh branch is fx_mesh's scope).
-  void altSpriteEmit(uint32_t node, int dqa, int bias, uint32_t rec0,
-                     uint32_t numerX, uint32_t numerY);
+  // One emission of the family, as data. Every field is something a controller genuinely varies —
+  // FUN_8012D9E8 alone differs in the anchor offset, the scale shift, and (separately) the gate bias
+  // and the depth bias, so a positional argument list stopped being readable at four callers.
+  struct AltSprite {
+    uint32_t node = 0;
+    uint32_t anchorX = 0;      // world anchor; Y and Z follow at +4 and +8
+    uint32_t rec0 = 0;         // the four-corner record list to emit
+    uint32_t numerX = 0, numerY = 0;
+    int dqa = 6;
+    int gateBias = 0;          // what FUN_800317CC's OT-key range gate is given
+    int depthBias = 0;         // what the controller then applies to the key (often the same, not always)
+    int shift = 8;             // scale = MAC0 * numer >> shift
+  };
+  void altSpriteEmit(const AltSprite& a);
   void fxAltAnimSpriteRender(uint32_t node);
   void waterJetSpriteRender(uint32_t node);
+  void fxRotSpriteTailRender(uint32_t node);
 
   // fxAnimSpriteRender: native producer for the SECOND world-anchored sprite family — emitter
   // FUN_800286CC + packet writer FUN_8002847C (36-byte, four-corner, per-vertex-coloured quad records

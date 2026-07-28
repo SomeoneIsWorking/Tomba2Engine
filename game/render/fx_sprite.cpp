@@ -252,6 +252,17 @@ constexpr uint32_t kJetModelTab = 0x8010A058u;  // 6 record-list pointers; the s
 constexpr int      kJetDqa      = 4;            // this one programs 4, not the family's usual 6
 constexpr int      kJetBias     = -64;
 
+// FUN_8012D9E8's sprite tail (see the producer for why each of these is a field, not a constant).
+constexpr uint32_t kRotTailAnchor    = 0x60u;        // packed VX|VY here, VZ at +0x64
+constexpr uint32_t kRotTailScale     = 0x70u;        // s16 uniform scale numerator, applied >> 11
+constexpr uint32_t kRotTailIndex     = 0x40u;        // model index = the SIGNED HIGH BYTE of this s16
+constexpr uint32_t kRotTailTableA    = 0x801387A8u;  // chosen when node+3 == 8
+constexpr uint32_t kRotTailTableB    = 0x80138790u;
+constexpr int      kRotTailTableN    = 6;            // both tables are six record-list pointers
+constexpr uint8_t  kRotTailAltSel    = 8u;
+constexpr int      kRotTailShift     = 11;
+constexpr int      kRotTailDepthBias = -100;
+
 // Walk the 36-byte records at rec0, sizing each corner about the native-projected float anchor. Same
 // float-corner / drawWorldQuad treatment as emitSpriteRecords (has_xyf = 1 -> tier1-owned -> re-drawn
 // under the lerped camera at the interp present). Read-only.
@@ -463,33 +474,35 @@ void Render::fxAnimSpriteRender(uint32_t node) {
 // fxAnimSpriteRender uses. Nothing runs a gen body; nothing writes guest memory — in particular the
 // guest's own animation-cursor store at node+0x68 stays the guest's, since its body still executes
 // underneath. Read-only.
-void Render::altSpriteEmit(uint32_t node, int dqa, int bias, uint32_t rec0,
-                           uint32_t numerX, uint32_t numerY) {
+void Render::altSpriteEmit(const AltSprite& a) {
   Core* c = mCore;
-  if (!rec0) return;
+  if (!a.rec0) return;
 
   EObjXform cam; projComposeCamera(&cam);
   ProjVtx pv;
-  cam.project((int16_t)c->mem_r16(node + kAltAnchorX), (int16_t)c->mem_r16(node + kAltAnchorY),
-              (int16_t)c->mem_r16(node + kAltAnchorZ), &pv);
-  if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) return;   // FUN_800317CC's own emit/skip decision
+  cam.project((int16_t)c->mem_r16(a.node + a.anchorX), (int16_t)c->mem_r16(a.node + a.anchorX + 4),
+              (int16_t)c->mem_r16(a.node + a.anchorX + 8), &pv);
+  if (!SpriteAnchor::otKeyInRange(pv.sz, a.gateBias)) return;   // FUN_800317CC's emit/skip decision
 
-  const int32_t mac0 = SpriteAnchor::baseScale((uint32_t)cam.H, pv.sz, dqa);
-  const int32_t sx = (int32_t)(((int64_t)mac0 * (int64_t)numerX) >> 8);
-  const int32_t sy = (int32_t)(((int64_t)mac0 * (int64_t)numerY) >> 8);
+  const int32_t mac0 = SpriteAnchor::baseScale((uint32_t)cam.H, pv.sz, a.dqa);
+  const int32_t sx = (int32_t)(((int64_t)mac0 * (int64_t)a.numerX) >> a.shift);
+  const int32_t sy = (int32_t)(((int64_t)mac0 * (int64_t)a.numerY) >> a.shift);
 
   // The authored near bias, in the same units and for the same reason as fxAnimSpriteRender: the gate
   // states it in OT buckets and the bucket key is SZ3>>2, so one unit is 4 units of view depth.
-  float pz = pv.pz + (float)(4 * bias);
+  // It is a SEPARATE number from the gate's bias because one controller (FUN_8012D9E8) gates with 0
+  // and only then subtracts 100 from the resulting key — gating and depth-biasing are two decisions.
+  float pz = pv.pz + (float)(4 * a.depthBias);
   const float nearPz = proj_near_pz();
   if (pz < nearPz) pz = nearPz;
 
-  ObjScope objScope(c, node);
-  const int quads = emitAnimQuadRecords(c, rec0, pv.px, pv.py, proj_pz_to_ord(pz), sx, sy);
+  ObjScope objScope(c, a.node);
+  const int quads = emitAnimQuadRecords(c, a.rec0, pv.px, pv.py, proj_pz_to_ord(pz), sx, sy);
   if (cfg_dbg("fxsprite"))
-    cfg_logf("fxsprite", "alt node=%08X rec0=%08X dqa=%d bias=%d anchor=(%.1f,%.1f) sz=%d "
+    cfg_logf("fxsprite", "alt node=%08X rec0=%08X dqa=%d gate=%d depth=%d anchor=(%.1f,%.1f) sz=%d "
                          "scale=(%d,%d) quads=%d",
-             node, rec0, dqa, bias, (double)pv.px, (double)pv.py, pv.sz, sx, sy, quads);
+             a.node, a.rec0, a.dqa, a.gateBias, a.depthBias,
+             (double)pv.px, (double)pv.py, pv.sz, sx, sy, quads);
 }
 
 // FUN_8012E868 (A01 overlay) — the animation-script member of the family. Same shape as
@@ -502,8 +515,11 @@ void Render::fxAltAnimSpriteRender(uint32_t node) {
   if (!script || !table) return;                      // the guest's own `if (ptr == 0) return`
   const uint32_t frame = (uint32_t)c->mem_r8(script) & 0x7Fu;   // bit 7 = the loop marker
   const uint32_t sc = c->mem_r32(node + kAltScale);
-  altSpriteEmit(node, /*dqa=*/6, /*bias=*/0, c->mem_r32(table + frame * 4u),
-                (uint16_t)sc, (uint16_t)(sc >> 16));
+  AltSprite a;
+  a.node = node; a.anchorX = kAltAnchorX; a.dqa = 6;
+  a.rec0 = c->mem_r32(table + frame * 4u);
+  a.numerX = (uint16_t)sc; a.numerY = (uint16_t)(sc >> 16);
+  altSpriteEmit(a);
 }
 
 // FUN_8013D454's SPRITE branch — the water jet's other half. fx_mesh.cpp's scope owns the mesh branch
@@ -514,5 +530,35 @@ void Render::waterJetSpriteRender(uint32_t node) {
   Core* c = mCore;
   if ((int16_t)c->mem_r16(node + kJetMode) != 0) return;        // the mesh branch: not ours
   const uint32_t numer = (uint16_t)c->mem_r16(node + kJetScale);
-  altSpriteEmit(node, kJetDqa, kJetBias, c->mem_r32(kJetModelTab), numer, numer);
+  AltSprite a;
+  a.node = node; a.anchorX = kAltAnchorX; a.dqa = kJetDqa;
+  a.gateBias = kJetBias; a.depthBias = kJetBias;
+  a.rec0 = c->mem_r32(kJetModelTab);
+  a.numerX = numer; a.numerY = numer;
+  altSpriteEmit(a);
+}
+
+// FUN_8012D9E8's SPRITE TAIL. This controller is two emitters in one function: a large inline rotated
+// MESH pass (rotmat from node+0x54, column-scaled by the triple at node+0x68/0x6A/0x6C, composed with
+// the scene camera, then a 36-byte-record loop that RTPTs each quad and links its packet by hand —
+// still unported, and the reason this entry only claims the tail), followed by this sprite.
+//
+// The tail differs from its siblings in three measurable ways, which is why AltSprite carries them as
+// fields rather than as constants: the anchor is the packed pair at node+0x60/0x64 (not the three
+// separate s16s at 0x2E), the OT key is gated with bias 0 and only THEN has 100 subtracted from it
+// (so the gate and the depth bias are genuinely different numbers), and the scale shift is 11, not 8.
+// The model comes from one of two tables chosen by node+3, indexed by the signed high byte of
+// node+0x40.
+void Render::fxRotSpriteTailRender(uint32_t node) {
+  Core* c = mCore;
+  const uint32_t table = (c->mem_r8(node + 3) == kRotTailAltSel) ? kRotTailTableA : kRotTailTableB;
+  const int idx = (int)(int16_t)c->mem_r16(node + kRotTailIndex) >> 8;   // the signed high byte
+  if (idx < 0 || idx >= kRotTailTableN) return;
+  AltSprite a;
+  a.node = node; a.anchorX = kRotTailAnchor; a.dqa = 6;
+  a.gateBias = 0; a.depthBias = kRotTailDepthBias;
+  a.shift = kRotTailShift;
+  a.rec0 = c->mem_r32(table + (uint32_t)idx * 4u);
+  a.numerX = a.numerY = (uint32_t)(uint16_t)c->mem_r16(node + kRotTailScale);
+  altSpriteEmit(a);
 }

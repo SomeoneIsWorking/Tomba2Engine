@@ -700,6 +700,11 @@ void Render::fieldObjectsRender() {
           // project the node's own world anchor(s) natively so the flame lerps at fps60 (fx_sprite.cpp).
           c->rsub.stats.snObjs++;
           rend(c)->fxSpriteRender(n);
+        } else if (rfn == 0x8012D9E8u && c->mem_r32(0x8012D9E8u) == 0x27BDFF98u) {
+          // FUN_8012D9E8's sprite tail (its inline rotated-mesh pass is still unported — see
+          // fx_sprite.cpp). Overlay-resident, so the same first-instruction guard.
+          c->rsub.stats.snObjs++;
+          rend(c)->fxRotSpriteTailRender(n);
         } else if (rfn == 0x8012E868u && c->mem_r32(0x8012E868u) == 0x27BDFFD0u) {
           // FUN_800328EC family, A01 overlay (kanban #15's static census): the animation-script
           // member. Overlay-resident, so the same first-instruction guard as the producers below.
