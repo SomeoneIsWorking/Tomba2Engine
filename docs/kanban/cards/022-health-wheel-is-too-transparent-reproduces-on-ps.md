@@ -4,8 +4,8 @@ title: Health wheel is too transparent — reproduces on psx_render too, so the 
 status: doing
 labels: [render]
 created: 2026-07-22
-updated: 2026-07-28
-evidence: docs/reference/issues/issue22_health_wheel_reference.png,        docs/reference/issues/issue22_health_wheel_reference_dark.png
+updated: 2026-07-29
+evidence: docs/reference/issues/issue22_health_wheel_reference.png,         docs/reference/issues/issue22_health_wheel_reference_dark.png
 ---
 
 USER 2026-07-22: the health display shown when taking damage is TOO TRANSPARENT, and - crucially - the user believes psx_render shows the SAME. Reference is docs/reference/issues/issue22_health_wheel_reference.png, a capture of the REAL GAME (sourced externally by the user): a near-SOLID blue/red segmented wheel with a green centre disc and a yellow numeral, over which the sky and sea barely read through at all. READ THIS BEFORE STARTING - the usual method DOES NOT APPLY HERE. Every other render card this week is verified by comparing pc_render against psx_render in one process via the renderpsx toggle, on the principle that the oracle is right and we are wrong. If this bug reproduces on BOTH legs then the oracle is WRONG TOO and that comparison will show 0 diff and read as 'nothing to fix' - a false negative. FIRST STEP is therefore to establish which it is: capture the wheel on both legs and against the reference image. If both legs match each other and neither matches the reference, the fault is UPSTREAM of the renderer split - i.e. in code both legs share. This is the documented case where psx_render is not ground truth (see the standing note that the oracle has its own render bugs; the USER's eye, or a real-game reference like this one, is the arbiter for visuals). PRIME SUSPECT given both legs agree: semi-transparency handling rather than geometry. PSX semi modes are 0.5B+0.5F, B+F, B-F, B+0.25F - selecting the wrong one, or applying semi to a primitive the guest draws opaque, yields exactly 'too transparent'. Check the semi bit and blend-mode decode on the wheel's primitives (RqItem::semi / tp_blend, the GP0 opcode's semi bit) against what the guest packet actually asks for. Repro: take damage in free-roam, shot the frames while the wheel is up.
@@ -64,3 +64,18 @@ WHY THIS MATTERS FOR THE SYMPTOM: every atlas cell is 8 PIXELS WIDE, so any glyp
 The two candidate seam mechanisms, both testable statically: (a) the glyph is 9px of ink in an 8px cell, so consecutive cells overlap by 1 — a content/atlas issue; (b) the advance should be 8 but the sprite is emitted 9 wide (or vice versa) — an emit-width issue. Neither is a blend bug.
 
 DOC FIX LANDED: hud_gauge_emitter.h/.cpp both described FUN_8004EB94 as the 'segment-layout leaf' and the emitter as making 'two segment-layout calls per active item (the individual gauge/HP segments)'. That wording is what sent this card hunting for gauge segments. Both banners now say TEXT ROW and carry the RE above.
+
+**2026-07-29:** 2026-07-28/29 (autonomous tick 3). RE'd FUN_8004EA4C, the width measurement FUN_8004EB94 centres with. THE TWO LEAVES DISAGREE ABOUT WHICH CHARACTERS OCCUPY SPACE.
+
+FUN_8004EA4C(str a0, outCountPtr a1) -> width in v0 (generated/shard_1.c:8490-8521):
+  terminates on 0xFF or 0xFA (and if a1 != 0 stores the character COUNT there);
+  0xFB adds 8 (tested before everything else);
+  every other char adds 8 ONLY IF ch < 0xC0 — chars >= 0xC0 add ZERO.
+
+FUN_8004EB94 (layout) advances 8 for every char EXCEPT the control codes 0xF0-0xF7, and terminates only on 0xFF.
+
+Enumerated all 256 codes: they disagree on FIFTY-FOUR of them — 0xC0-0xEF, 0xF8-0xFA, 0xFC-0xFE. For each such character in a HUD string the measured width UNDERCOUNTS by 8 while the row still advances 8. Since the row is centred as x = 160 - (width >> 1), every such character shifts the whole row 4px RIGHT of true centre and makes it extend 8px further right than the centring assumed. 0xFA is worse than a miscount: MEASURE STOPS THERE but LAYOUT KEEPS DRAWING, so a string containing 0xFA is measured as a prefix and drawn in full.
+
+STATUS OF THIS AS A CAUSE — BE HONEST ABOUT IT: both leaves are still-substrate and run identically on both legs, so this asymmetry is the GUEST's own behaviour and is faithful by construction. It therefore CANNOT be the bug unless the real console differs. What it IS: a concrete, exact mechanism by which a HUD text row ends up horizontally misaligned in a way BOTH legs share, which is the property #22 needs to explain. It is a candidate, not a verdict.
+
+NEXT STEP, and it is cheap and decisive: find the actual byte string the wheel/gauge row draws and check whether it contains ANY code in 0xC0-0xEF / 0xF8-0xFA / 0xFC-0xFE. If it does not, this mechanism is IRRELEVANT to #22 and should be dropped from the card rather than left as a plausible-sounding lead. If it does, the misalignment is quantifiable from the string alone (4px right per such char) and can be compared against the USER's reference image.
