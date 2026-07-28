@@ -516,6 +516,13 @@ public:
   // is only read, no c->r[] is touched, and it is skipped on the oracle leg.
   static void subPartCapture(Core* c, uint32_t node, uint32_t sub);
 
+  // Set (as a scope) around subPartWalk's per-sub-part submit while subPartCapture has taken that
+  // sub-part's prims onto the display pass. The native GT3/GT4 submitters check it and skip ONLY
+  // their drawWorldQuad — every guest-visible effect still happens, so this is a host-side handover,
+  // not a behaviour change. Without it the sub-part is drawn twice (guest-time + display pass): the
+  // copies coincide on a real frame and separate on the interpolated one, ghosting the geometry.
+  int mSubPartDrawSuppress = 0;
+
   // sharedTransformWalk (FUN_8003F07C): the sibling of subPartWalk — loads ONE transform (the frame's
   // view matrix from scratchpad 0x1F8000F8) and submits every sub-part under it. F174 is the
   // articulated case, this is the rigid one. See render/subpart_walk_shared.cpp.

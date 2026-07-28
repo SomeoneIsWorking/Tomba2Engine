@@ -51,3 +51,17 @@ WHY IT IS NOT WIRED — the A/B, on a deterministic frame. replays/bugs/bucket-s
 THE PREREQUISITE, and it is the real unit of work: capture and guest-time draw must be MUTUALLY EXCLUSIVE per prim, not additive. Render::gt3gt4 already has the pattern — it skips its own projection+submit when the transform was captured upstream (submit.cpp, the fps60 mWorldCaptureOnly / rqRedirect tier-1 path). subPartWalk's sub-parts need the same treatment before subPartCapture can be turned on. Until then the call site carries the full writeup and the producer stays compiled-but-unwired (the demo_leaf_a.cpp precedent).
 
 VERIFIED NO REGRESSION: the shipped build is pixel-IDENTICAL to the capture-disabled baseline at frame 240 (diff bbox None).
+
+**2026-07-28:** 2026-07-28 SECOND ITERATION — the handover works, and the LERP BENEFIT IS UNPROVEN. Null result, recorded so it is not re-derived.
+
+BUILT THE MISSING HALF: Render::mSubPartDrawSuppress (render.h), a scope the native GT3/GT4 submitters (submit.cpp) check to skip ONLY their drawWorldQuad — host-side handover, every guest-visible effect still happens. subPartWalk raises it around the per-sub-part submit while subPartCapture has taken those prims. That removes the double-draw the previous iteration measured.
+
+THE HANDOVER IS PICTURE-NEUTRAL: on frame 240 of bucket-softlock.pad ('Go to the Burning House!' banner), capture+suppression vs the plain guest-time draw differs by 26 of 76800 px — edge rounding only, banner fully intact, planks and letters all present. So the display-pass producer reproduces what the guest-time submitter draws.
+
+BUT IT DEMONSTRATES NO BENEFIT, and that is the finding. fps60 triple classification over the banner band (x40..288 y56..96, 249 triples, PSXPORT_DEBUG=fps60dump) is BYTE-IDENTICAL with and without the handover:
+    STATIC 4002 / BETWEEN 5518 / STALE 5 / AHEAD 2427   (both builds, to the tile)
+STALE ~0 BEFORE the change means the planks were never frozen in this repro — there was nothing for the fix to fix here. Which is consistent with #16's own wording: the artefact needs a MOVING CAMERA ('the text jitters while the camera moves'), and the camera is static while this banner is up, so this repro cannot show the artefact OR its fix.
+
+DECISION — NOT WIRED. The code stays compiled-but-unwired with the full measurement at the call site. Turning on a change that reroutes the producer for EVERY sub-part user, game-wide, on an unmeasured hypothesis is not worth the blast radius (sort order and lighting differ between emitRecQuad and the GT3/GT4 submitters; the 26px agreement at one static frame is not evidence that holds everywhere). Shipped tree verified pixel-IDENTICAL to baseline at frame 240 (diff bbox None).
+
+NEXT, precisely: capture a replay with the banner UP WHILE THE CAMERA PANS, re-measure the same band both ways, and wire this only if STALE/AHEAD actually improves. The banner is reachable at game start and the quest-update banner triggers on a quest event, so a capture that walks during the banner is the missing instrument — not more code.

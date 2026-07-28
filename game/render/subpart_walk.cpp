@@ -21,6 +21,7 @@
 // is large. Collapsing them into one loop bound would change behaviour for any node where they differ.
 #include "core.h"
 #include "render.h"
+#include "game_ctx.h"           // rend()
 #include "override_registry.h"
 
 void func_8003F698(Core*);   // generated/shard_disp.c — geometry-block submit
@@ -88,21 +89,23 @@ void Render::subPartWalk(Core* c) {
       gte_write_ctrl(6, c->mem_r32(xf + 24));
       gte_write_ctrl(7, c->mem_r32(xf + 28));
 
-      // DISPLAY-PASS capture for kanban #64/#16/#23 — WRITTEN AND MEASURED, DELIBERATELY NOT WIRED.
-      // `Render::subPartCapture(c, node, sub)` (subpart_capture.cpp) decodes this sub-part's geomblk
-      // and pushes one WqRec per prim so the signboard PLANKS interpolate like the glyphs. It works —
-      // but calling it HERE double-draws, and the A/B proves it: on replay frame 240 of
-      // replays/bugs/bucket-softlock.pad (the "Go to the Burning House!" banner), enabling the call
-      // changes exactly 26 of 76800 pixels, all inside the banner band x61..252 y66..86. ~156 extra
-      // quads that move only 26 pixels are a SECOND COPY landing on top of the first: the sub-parts
-      // are ALREADY drawn at guest time (func_8003F698 -> the native GT3/GT4 submitters), so on a real
-      // frame the two copies coincide and only edge rounding differs — and on an INTERPOLATED frame
-      // only the WqRec copy would move, ghosting the planks. That is worse than the bug.
-      // PREREQUISITE before wiring: suppress the guest-time submit for sub-parts the display pass has
-      // taken over, the way Render::gt3gt4 already skips its projection+submit when the transform was
-      // captured upstream (submit.cpp, the fps60 mWorldCaptureOnly / rqRedirect tier-1 path). Capture
-      // and guest-time draw must be mutually exclusive per prim, not additive.
-      (void)&Render::subPartCapture;
+      // DISPLAY-PASS capture for kanban #64/#16/#23 — BUILT, MEASURED, AND STILL NOT WIRED.
+      // Render::subPartCapture (subpart_capture.cpp) re-derives this sub-part's prims from its own
+      // geometry + transform and hands them to the display pass, and Render::mSubPartDrawSuppress
+      // (checked by the native GT3/GT4 submitters) stops the submit below from ALSO drawing them.
+      // That handover WORKS and is picture-neutral: on frame 240 of bucket-softlock.pad (the
+      // "Go to the Burning House!" banner) capture+suppression differs from the guest-time draw by
+      // 26 of 76800 px, edge rounding only, banner fully intact.
+      // WHAT IS NOT PROVEN — and why it stays out: the fps60 triple classification over the banner
+      // band (x40..288 y56..96, 249 triples) is BYTE-IDENTICAL with and without the handover:
+      // STATIC 4002 / BETWEEN 5518 / STALE 5 / AHEAD 2427 both ways. STALE ~0 BEFORE the change
+      // means the planks were never frozen in this repro, so it demonstrates no benefit. kanban #16
+      // says the artefact needs a MOVING CAMERA ("text jitters while the camera moves") and the
+      // camera is static while this banner is up, so the repro cannot show it either way.
+      // NEXT: get a capture with the banner up WHILE the camera pans, re-measure the same band, and
+      // only wire this if STALE/AHEAD actually improves. Wiring a renderer-wide change to every
+      // sub-part user on an unmeasured hypothesis is not worth the blast radius.
+      (void)&Render::subPartCapture;   // NOT WIRED — see the block comment above
 
       cursor += 4;
       c->r[4] = c->mem_r32(sub + SUB_GEOMBLK);
