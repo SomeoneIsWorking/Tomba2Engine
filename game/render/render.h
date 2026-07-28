@@ -306,6 +306,11 @@ public:
   // record list picked per item out of a 16-slot MAIN.EXE bank. Body in fx_sprite.cpp.
   void fxRingSpriteRender(uint32_t node);
 
+  // fxParticleFieldRender (FUN_8010C7F4, A0L/area 21): the 64-particle wind-blown field, and the only
+  // four-corner-writer member that DRIVES the depth cue — IR0 is the distance from a reference point,
+  // against a black far colour, so the field fades out with range. Body in fx_sprite.cpp.
+  void fxParticleFieldRender(uint32_t node);
+
   // fxAnimSpriteRender: native producer for the SECOND world-anchored sprite family — emitter
   // FUN_800286CC + packet writer FUN_8002847C (36-byte, four-corner, per-vertex-coloured quad records
   // selected by an ANIMATION SCRIPT byte). This is Tomba's movement DUST PUFF (kanban #39) and the

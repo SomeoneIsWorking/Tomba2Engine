@@ -709,6 +709,11 @@ void Render::fieldObjectsRender() {
           // 22-area nofx sweep. Overlay-resident, so the same first-instruction guard (addiu sp,-64).
           c->rsub.stats.snObjs++;
           rend(c)->fxRingSpriteRender(n);
+        } else if (rfn == 0x8010C7F4u && c->mem_r32(0x8010C7F4u) == 0x27BDFFB0u) {
+          // FUN_8010C7F4 (A0L overlay, area 21) — the 64-particle wind-blown field, from the 22-area
+          // nofx sweep. Overlay-resident, so the same first-instruction guard (addiu sp,-80).
+          c->rsub.stats.snObjs++;
+          rend(c)->fxParticleFieldRender(n);
         } else if (rfn == 0x8012D9E8u && c->mem_r32(0x8012D9E8u) == 0x27BDFF98u) {
           // FUN_8012D9E8's sprite tail (its inline rotated-mesh pass is still unported — see
           // fx_sprite.cpp). Overlay-resident, so the same first-instruction guard.

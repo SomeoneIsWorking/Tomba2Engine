@@ -39,6 +39,15 @@ public:
   //   Core access, kept static.
   static int32_t angleCmp(int32_t a, int32_t b, int32_t mode);
 
+  // vecLen (guest FUN_80078240): the integer 3-D length APPROXIMATION libgte-style code uses where a
+  //   real sqrt is not worth it. Takes |x|,|y|,|z|, sorts so x is the largest, then returns
+  //       x - x/16 + (y+z)/4 + (y+z)/8
+  //   i.e. max·15/16 + (mid+min)·3/8 — the octagonal-norm trick, within a few percent of the true
+  //   length and monotonic in it, which is all its callers need. Pure computation over int32 inputs,
+  //   no Core access, so static like angleCmp. First native caller: Render::fxParticleFieldRender,
+  //   which turns this distance into the GTE depth-cue factor IR0 so particles fade with range.
+  static int32_t vecLen(int32_t x, int32_t y, int32_t z);
+
   // Wire rsin/ratan2 as the guest-address overrides (0x80083E80/80085690) so the rec_dispatch/
   // guest_leaf + direct substrate func_<addr>(c) callers run these ports instead of the emulated GTE
   // leaves. These read the SAME guest tables (SIN_TAB/ATAN_TAB) as the substrate, so byte-exact;

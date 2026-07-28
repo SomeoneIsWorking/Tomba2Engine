@@ -275,8 +275,14 @@ constexpr int      kCuedCueShift = 5;
 // Walk the 36-byte records at rec0, sizing each corner about the native-projected float anchor. Same
 // float-corner / drawWorldQuad treatment as emitSpriteRecords (has_xyf = 1 -> tier1-owned -> re-drawn
 // under the lerped camera at the interp present). Read-only.
+// ir0 / farColour: the writer runs every record colour through the GTE depth cue with IR0 =
+// *(0x1F800090) and the emitter's far colour, exactly as spriteRecordsEmit does for the 8-byte format.
+// Most emitters in this family force IR0 = 0, at which the cue is the identity and the record colours
+// pass through — so those callers omit both arguments. FUN_8010C7F4's particle field is the one that
+// DRIVES it, feeding a per-particle distance so the field fades to black with range.
 int emitAnimQuadRecords(Core* c, uint32_t rec0, float anchorXf, float anchorYf, float od,
-                        int32_t scaleX, int32_t scaleY) {
+                        int32_t scaleX, int32_t scaleY,
+                        int32_t ir0 = 0, const int32_t* farColour = nullptr) {
   const float sxf = (float)scaleX / 65536.0f, syf = (float)scaleY / 65536.0f;
   const float depth[4] = { od, od, od, od };
   uint32_t rec = rec0;
@@ -299,9 +305,15 @@ int emitAnimQuadRecords(Core* c, uint32_t rec0, float anchorXf, float anchorYf, 
     unsigned char rr[4], gg[4], bb[4];
     for (int k = 0; k < 4; k++) {
       const uint32_t col = c->mem_r32(rec + 12u + (uint32_t)k * 4u);   // IR0 = 0 -> cue is the identity
-      rr[k] = (unsigned char)(col & 0xFFu);
-      gg[k] = (unsigned char)((col >> 8) & 0xFFu);
-      bb[k] = (unsigned char)((col >> 16) & 0xFFu);
+      const unsigned char cr = (unsigned char)(col & 0xFFu);
+      const unsigned char cg = (unsigned char)((col >> 8) & 0xFFu);
+      const unsigned char cb = (unsigned char)((col >> 16) & 0xFFu);
+      const int32_t fr = farColour ? farColour[0] : 0;
+      const int32_t fg = farColour ? farColour[1] : 0;
+      const int32_t fb = farColour ? farColour[2] : 0;
+      rr[k] = ir0 ? SpriteAnchor::depthCue(cr, ir0, fr) : cr;
+      gg[k] = ir0 ? SpriteAnchor::depthCue(cg, ir0, fg) : cg;
+      bb[k] = ir0 ? SpriteAnchor::depthCue(cb, ir0, fb) : cb;
     }
     const uint16_t clut  = (uint16_t)(uv0 >> 16);
     const uint16_t tpage = (uint16_t)((uv1 >> 16) & 0x7Fu);
@@ -716,5 +728,102 @@ void Render::fxRingSpriteRender(uint32_t node) {
                          "screen x[%.1f..%.1f] y[%.1f..%.1f]",
              node, (int)(int16_t)anchorX, (int)(int16_t)anchorY, (int)(int16_t)anchorZ,
              baseRadius, clutPage, drawn, kRingItems,
+             (double)minPx, (double)maxPx, (double)minPy, (double)maxPy);
+}
+
+// ── FUN_8010C7F4 (A0L overlay, area 21) — the PARTICLE FIELD ──────────────────────────────────────
+// The area Tomba rides a bird through: 64 particles scattered around a moving base point, drifting on
+// a wind angle and fading to black with distance. Also from the 22-area nofx sweep.
+//
+// RE from ov_a0l_gen_8010C7F4 (generated/ov_a0l_shard_0.c:1479). It belongs to the FOUR-CORNER writer
+// family (FUN_8002847C = emitAnimQuadRecords) rather than the 8-byte one, and it is the only member so
+// far that DRIVES the depth cue:
+//   * four record lists are copied at entry from 0x80109068 and cycled per particle by i & 3.
+//   * GTE CR21-23 (the far colour) are zeroed, so the cue fades toward BLACK.
+//   * a wind drift comes from the angle at 0x800E7ED6: rcos/rsin of it, DOUBLED, times ten times the
+//     magnitude at node+0x50, >> 12. It is added to the random X and Z before the mask, so the whole
+//     field leans with the wind instead of each particle leaning independently.
+//   * positions are an LCG (seed 0x12D687, multiplier at 0x80115894, x = x*mult + 1) stepped THREE
+//     times per particle — X takes the value before the first step, Y after the first, Z after the
+//     second — masked to 14 bits and centred: base + (rand & 0x3FFF) - 8192, base being the three
+//     s16 at 0x1F800160/62/64.
+//   * IR0 = Trig::vecLen(particle - (s16)0x1F8000D2/D6/DA) >> 3, i.e. the depth cue is the DISTANCE
+//     from a reference point, which is why the field thins out with range.
+//   * gate FUN_800317CC(0), then the published MAC0 is DOUBLED into both axis slots.
+// Read-only: the LCG is a local register in the guest too, so nothing here writes guest memory.
+constexpr uint32_t kFieldRecTable  = 0x80109068u;   // four record-list pointers, cycled by i & 3
+constexpr uint32_t kFieldWindAngle = 0x800E7ED6u;   // s16 wind angle
+constexpr uint32_t kFieldMagnitude = 0x50u;         // node+0x50, the wind magnitude
+constexpr uint32_t kFieldBaseXYZ   = 0x1F800160u;   // three s16: the field's centre
+constexpr uint32_t kFieldDistRef   = 0x1F8000D2u;   // three s16 at +0/+4/+8: the depth-cue origin
+constexpr uint32_t kFieldLcgMult   = 0x80115894u;
+constexpr uint32_t kFieldLcgSeed   = 0x0012D687u;
+constexpr int      kFieldCount     = 64;
+constexpr int      kFieldDqa       = 6;
+constexpr uint32_t kFieldSpread    = 0x3FFFu;       // 14-bit mask ...
+constexpr int32_t  kFieldCentre    = 8192;          // ... centred, so offsets run [-8192, 8191]
+
+void Render::fxParticleFieldRender(uint32_t node) {
+  Core* c = mCore;
+
+  EObjXform cam; projComposeCamera(&cam);
+  const uint32_t H = (uint32_t)cam.H;
+  const Trig& trig = trigOf(c);
+
+  // The wind drift: doubled cos/sin of the scene's wind angle against ten times the node's magnitude.
+  const int windAngle = (int16_t)c->mem_r16(kFieldWindAngle);
+  const int32_t mag10 = (int32_t)c->mem_r32(node + kFieldMagnitude) * 10;
+  const int32_t windX = (int32_t)(((int64_t)(trig.rcos(windAngle) * 2) * mag10) >> 12);
+  const int32_t windZ = (int32_t)(((int64_t)(trig.rsin(windAngle) * 2) * mag10) >> 12);
+
+  const int32_t baseX = (int16_t)c->mem_r16(kFieldBaseXYZ);
+  const int32_t baseY = (int16_t)c->mem_r16(kFieldBaseXYZ + 2u);
+  const int32_t baseZ = (int16_t)c->mem_r16(kFieldBaseXYZ + 4u);
+  const int32_t refX  = (int16_t)c->mem_r16(kFieldDistRef);
+  const int32_t refY  = (int16_t)c->mem_r16(kFieldDistRef + 4u);
+  const int32_t refZ  = (int16_t)c->mem_r16(kFieldDistRef + 8u);
+  const int32_t farBlack[3] = { 0, 0, 0 };            // the guest zeroes CR21-23 before the writer
+
+  uint32_t recList[4];
+  for (int k = 0; k < 4; k++) recList[k] = c->mem_r32(kFieldRecTable + (uint32_t)k * 4u);
+
+  const uint32_t lcgMult = c->mem_r32(kFieldLcgMult);
+  uint32_t lcg = kFieldLcgSeed;
+
+  ObjScope objScope(c, node);
+  int drawn = 0, quads = 0;
+  float minPx = 0, maxPx = 0, minPy = 0, maxPy = 0;
+  for (int i = 0; i < kFieldCount; i++) {
+    // THREE LCG steps per particle, and the axes read it at three different points in that chain —
+    // reproduced in the guest's order because the sequence is what places the field.
+    const int32_t rx = (int32_t)((lcg + (uint32_t)windX) & kFieldSpread);  lcg = lcg * lcgMult + 1u;
+    const int32_t ry = (int32_t)(lcg & kFieldSpread);                      lcg = lcg * lcgMult + 1u;
+    const int32_t rz = (int32_t)((lcg + (uint32_t)windZ) & kFieldSpread);  lcg = lcg * lcgMult + 1u;
+
+    const int16_t vx = (int16_t)(uint16_t)(baseX + rx - kFieldCentre);
+    const int16_t vy = (int16_t)(uint16_t)(baseY + ry - kFieldCentre);
+    const int16_t vz = (int16_t)(uint16_t)(baseZ + rz - kFieldCentre);
+
+    const int32_t ir0 = Trig::vecLen(vx - refX, vy - refY, vz - refZ) >> 3;
+
+    ProjVtx pv;
+    cam.project(vx, vy, vz, &pv);
+    if (!SpriteAnchor::otKeyInRange(pv.sz, 0)) continue;   // the emitter's own emit/skip decision
+
+    const int32_t scale = SpriteAnchor::baseScale(H, pv.sz, kFieldDqa) << 1;
+    quads += emitAnimQuadRecords(c, recList[i & 3], pv.px, pv.py, proj_pz_to_ord(pv.pz),
+                                 scale, scale, ir0, farBlack);
+    if (!drawn) { minPx = maxPx = pv.px; minPy = maxPy = pv.py; }
+    else {
+      if (pv.px < minPx) minPx = pv.px;  if (pv.px > maxPx) maxPx = pv.px;
+      if (pv.py < minPy) minPy = pv.py;  if (pv.py > maxPy) maxPy = pv.py;
+    }
+    drawn++;
+  }
+
+  if (cfg_dbg("fxsprite"))
+    cfg_logf("fxsprite", "field node=%08X base=(%d,%d,%d) wind=(%d,%d)@%d drawn=%d/%d quads=%d "
+                         "screen x[%.1f..%.1f] y[%.1f..%.1f]",
+             node, baseX, baseY, baseZ, windX, windZ, windAngle, drawn, kFieldCount, quads,
              (double)minPx, (double)maxPx, (double)minPy, (double)maxPy);
 }

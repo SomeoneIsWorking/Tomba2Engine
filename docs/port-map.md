@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 17 verified · 11 ported-unverified · 2 todo · 1 blocked
+**Status:** 18 verified · 11 ported-unverified · 1 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -164,6 +164,12 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** game/render/fx_sprite.cpp
 - **notes:** Render::fxRingSpriteRender (FUN_80110C14, A0D overlay, area 13): 21-item orbiting sprite ring, the 6th FUN_80027A4C-family member and the first drawing MANY sprites from ONE node. RE'd from ov_a0d_gen_80110C14 (per-item table node+0x34, angle 1024+97i, radius (phase*spread>>5)+s16 node+0x32, per-item bob rsin(phase<<4)*bob>>12, gate FUN_800317CC(-50), record list 0x8009D5FC+(phase&0xF0) from a 16-slot MAIN.EXE bank, clut 0x8009D5F8). VERIFIED ON PIXELS: area 13 warp, skip 200 -> ON vs producer-removed OFF leg = 202 px differ at x[2..75] y[151..211], matching the producer's own logged screen extent; OFF leg 0 emissions and nofx names 80110C14, ON leg 610 emissions drawn=21/21. Legs from one source revision, distinct binary md5s, object-swap relink (shared source never edited).
 
+## fx-particle-field-10c7f4
+- **scope:** render
+- **status:** verified
+- **owner:** game/render/fx_sprite.cpp
+- **notes:** Render::fxParticleFieldRender (FUN_8010C7F4, A0L overlay, area 21): 64-particle wind-blown field, the only four-corner-writer member that DRIVES the depth cue (IR0 = Trig::vecLen(particle - ref) >> 3 against a BLACK far colour, so the field fades with range). LCG seed 0x12D687, multiplier at 0x80115894, THREE steps per particle (X pre-step, Y after 1st, Z after 2nd), value & 0x3FFF - 8192 off the base at 0x1F800160/62/64; wind drift = doubled rcos/rsin of the angle at 0x800E7ED6 times 10x node+0x50 >> 12, added to X and Z before the mask; gate FUN_800317CC(0); scale = published MAC0 << 1; record list cycles i&3 over four pointers at 0x80109068. VERIFIED ON PIXELS: area 21 warp + skip 600, ON vs producer-removed OFF leg = 2069 px differ at x[67..182] y[64..193], rendering as soft grey mist wisps against the black sky; 554 emissions drawn=32/64; 0x8010C7F4 dropped off the nofx census. Dependency Trig::vecLen (FUN_80078240) ported as a static. NON-REGRESSION: emitAnimQuadRecords gained ir0/farColour with identity defaults - walk-dust-puff.pad frame is byte-identical to the pre-change binary.
+
 ## render-compose-tint-gate
 - **status:** ported-unverified
 - **notes:** Render::composeTintGate (FUN_8003EF9C): per-type render gate, port_check PASS, wired via overrides::install with setter. Pool-snapshot idiom: emits geometry then colour-adds over exactly the primitives just emitted. Cold on the field/dialog replay - needs a scene that uses render mode 2.
@@ -197,9 +203,3 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** todo
 - **deps:** world-line-rope
 - **notes:** FUN_8013E08C: op-0x4A ground ring shadow, its own GTE loop over the 16-point circle at 0x8014C780 (sliding 3-point window), grey = 0x80-((nodeY-0x14)*0x80)/200, blends 1 and 2, node matrix at node+0x2C via FUN_80084220 + a diagonal scale from nodeY<<4. BLOCKED on RE of FUN_80084110/FUN_80084220.
-
-## fx-particle-field-10c7f4
-- **scope:** render
-- **status:** todo
-- **owner:** generated/ov_a0l_shard_0.c:1479 (unported)
-- **notes:** FUN_8010C7F4 (A0L overlay, area 21) — 64-particle scatter field, next-most-tractable of the 22-area-sweep render targets. RE ALREADY DONE, do not re-derive: FUN_800329E0(6) camera; GTE CR21-23 (far colour) = 0; a wind drift from (s16)0x800E7ED6 through rcos/rsin x2 times (mem_r32(node+0x50) * 10) >> 12; then 64 iterations of an LCG (seed 0x12D687, multiplier from mem_r32(0x80115894), step x = x*mult + 1, THREE steps per particle) whose value & 16383 - 8192 offsets a base at (s16)0x1F800160/162/164 for VX/VY/VZ (the X and Z add the wind drift before masking). Distance from (s16)0x1F8000D2/D6/DA via FUN_80078240 >> 3 is written to IR0 0x1F800090, so particles fade with distance against a BLACK far colour. Gate FUN_800317CC(0), scale = published MAC0 << 1 into both axis slots, then FUN_8002847C (the four-corner writer = the existing emitAnimQuadRecords) with the record list cycling i&3 over four pointers copied at entry from 0x80109068. DEPENDENCY, also RE'd: FUN_80078240 is the integer 3-D length approximation — abs(x,y,z), sort so x is largest, return x - (x>>4) + ((y+z)>>2) + ((y+z)>>3). It has NO native owner yet; port it as a shared static math helper, not inline. Everything else it needs (Trig::rsin/rcos, SpriteAnchor::otKeyInRange, emitAnimQuadRecords) is already native.

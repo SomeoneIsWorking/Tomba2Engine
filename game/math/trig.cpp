@@ -82,6 +82,22 @@ int32_t Trig::rcos(int32_t angle) const {
   }
 }
 
+// vecLen (guest FUN_80078240) — the integer 3-D length approximation. The guest takes absolute values,
+// then bubbles the largest component into x with two conditional xor-swaps, and evaluates
+// x - (x>>4) + ((y+z)>>2) + ((y+z)>>3). Reproduced as written: the shifts are arithmetic on values that
+// are already non-negative, so the >> are ordinary integer divides here and the result cannot go
+// negative. Pure computation, no Core access, no guest stack — direct callers only (the substrate body
+// keeps running for any dispatch caller, same rule as rsin above).
+int32_t Trig::vecLen(int32_t x, int32_t y, int32_t z) {
+  if (x < 0) x = -x;
+  if (y < 0) y = -y;
+  if (z < 0) z = -z;
+  if (x < y) { const int32_t t = x; x = y; y = t; }   // largest component into x ...
+  if (x < z) { const int32_t t = x; x = z; z = t; }   // ... in the guest's two-compare order
+  const int32_t rest = y + z;
+  return x - (x >> 4) + (rest >> 2) + (rest >> 3);
+}
+
 // ── Override wiring (phase-3 fallthrough native-ize, 2026-07-15) ────────────────────────────────────
 #include "game.h"
 
