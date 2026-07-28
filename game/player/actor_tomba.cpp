@@ -1132,7 +1132,9 @@ L_80054904:;
 
 // ORACLE: gen_func_80060268
 // invincibilityFlashStep — FUN_80060268. Frameless leaf. Reads the global damage/state word at
-// mem[0x800A5354]; on the 0x10 bit sets the a0+361 "hit" bit 2; on the 0x80|0x20 bits runs the
+// mem[0x800ECF54] (the comment said 0x800A5354 until 2026-07-28; the gen body loads 32783<<16 =
+// 0x800F0000 then -12460, which is 0x800ECF54 — verified with tools/gen_annotate.py 80060268);
+// on the 0x10 bit sets the a0+361 "hit" bit 2; on the 0x80|0x20 bits runs the
 // invincibility-flash cadence — compares a0+95/327/330, bumps the frame counter at 0x800A2238, and
 // (re)arms a0+361 with the flicker mask (bit0 or bit1). Returns a small code in r2.
 void ActorTomba::invincibilityFlashStep(Core* c) {

@@ -87,7 +87,9 @@ def codemap_owner(addr):
 def find_body(addr_hex):
     """Locate the gen body for a guest address across the shards."""
     want = addr_hex.upper()
-    pat = re.compile(r"^void ((?:ov_[a-z0-9]+_)?gen_" + want + r")\(Core\* c\) \{")
+    # MAIN.EXE bodies are `gen_func_XXXX`; overlay bodies are `ov_<tag>_gen_XXXX`. Match both —
+    # matching only the overlay form made this tool silently useless on every MAIN.EXE function.
+    pat = re.compile(r"^void ((?:ov_[a-z0-9]+_)?gen_(?:func_)?" + want + r")\(Core\* c\) \{")
     for name in sorted(os.listdir(GEN)):
         if not name.endswith(".c"):
             continue
