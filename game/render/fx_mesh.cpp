@@ -12,6 +12,7 @@
 #include "override_registry.h"
 
 extern void gen_func_800288AC(Core*);
+extern void gen_func_8002BC9C(Core*);   // second effect-mesh controller (kanban #15 census)
 extern void gen_func_80027768(Core*);
 
 namespace {
@@ -213,10 +214,32 @@ void armTap(Core* c) {
   fx.mScope--;
 }
 
+// FUN_8002BC9C — a SECOND effect-mesh controller of the same family, and the most resident unowned
+// one in the render frontier's census (5 nodes carry it as their +0x18 render fn in a single field
+// dump; see kanban #15). RE (scratch/decomp/fx_bc9c.c): it reads an animation-script byte at
+// node+0x3C to pick a model from the table at node+0x50, then runs FOUR iterations that each build
+// the node's rotation from node+0x48 (Math::rotmat), apply the DAT_800A1CD4..D6 column scale,
+// compose with the scene camera, load the result into GTE CR0-7 and call the shared writer
+// FUN_80027768(model, 0, node+0x32, 0) — advancing node+0x4A by 0x400 (90 degrees) each time. Four
+// copies at 90-degree steps: the same radial plume shape FxMesh::draw already reproduces.
+//
+// It needs no new producer. FxMesh::draw takes its transform from composedXform(c) — the GTE state
+// the CALLER just set up — and mesh_emit_tap reads (model, clutBias, sortBias, uBias) straight out
+// of r4..r7, so both are controller-agnostic. All that was missing is a SCOPE around this caller;
+// without one the tap falls through and, since pc_render never walks the guest OT, the effect drew
+// nothing at all.
+void armTapBc9c(Core* c) {
+  FxMesh& fx = eng(c).fxMesh;
+  fx.mScope++;
+  gen_func_8002BC9C(c);
+  fx.mScope--;
+}
+
 }  // namespace
 
 void FxMesh::install() {
   engine_set_override_main(0x800288ACu, armTap, gen_func_800288AC);
+  engine_set_override_main(0x8002BC9Cu, armTapBc9c, gen_func_8002BC9C);
   // 0x80027768 is NOT installed here — game/render/mesh_emit_tap.cpp is its single owner and calls
   // FxMesh::draw when this producer's scope is up. Installing it here too is what collided with #14.
 }
