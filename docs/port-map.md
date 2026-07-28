@@ -178,14 +178,26 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 ## fx-emitter-ecd8-e680
 - **scope:** The 0x8002ECD8 + 0x8002E680 effect emitter pair (type-0x20 node render fn, no producer)
 - **status:** todo
-- **notes:** RE CORRECTED 2026-07-28 — the earlier note was built on a TRUNCATED decompile (see instrument I016: the bucket_f470 Ghidra project silently truncates MAIN.EXE-resident functions; re-run against `proj`).
+- **notes:** RE COMPLETE 2026-07-28 (both halves). Decompiled with the `proj` project — the bucket_f470 project truncates these, see instrument I016.
 
-WHAT 0x8002ECD8 ACTUALLY DOES. Same two modes as before (node+3 == 0x91 takes fixed scale/OT values; otherwise scene-camera + DQA=6 RTPS of the node+0x2C/+0x30 anchor with the usual OT-key range gate, publishing 0x1F800080/84/88/8C). What the truncated decompile HID is the whole tail — it computes the emit call's arguments from an ANGLE:
-    a      = (u8)node+5 << 6
-    h0     = ((rsin(a) << 5) >> 12) + 0x30
-    w0     = h0 - ((rcos(a) << 5) >> 12)
-    halve each (x - (s16)x/2), and halve AGAIN when the global (s16)0x800E7FFE is negative
+0x8002ECD8 (the CONTROLLER, 640B): two modes — node+3 == 0x91 takes fixed scale/OT values, otherwise scene-camera + DQA=6 RTPS of the node+0x2C/+0x30 anchor with the usual OT-key range gate, publishing 0x1F800080 (key) / 84 / 88 (per-Z scale) / 8C (screen anchor). Then it derives the emit args from an ANGLE:
+    a = (u8)node+5 << 6
+    h = ((rsin(a) << 5) >> 12) + 0x30 ;  w = h - ((rcos(a) << 5) >> 12)
+    halve each (x - (s16)x/2), and halve AGAIN when (s16)0x800E7FFE < 0
     FUN_8002E680(w, h, colourDim = (node+100) >> 1 & 0x7F7F7F, colourFull = node+100)
-So this is a PULSING ELLIPSE/FLASH: the animator byte node+5 drives both radii through sin/cos off a 0x30 base, and node+100 supplies a full and a half-brightness colour word. That also explains the rsin/rcos x3 inside 0x8002E680 — it steps angles to walk the ellipse outline.
 
-STILL TO DO for the port: 0x8002E680's own 1624-byte body (now decompilable via `proj`). Its dependencies are all owned already (Trig::rsin 0x80083E80, Trig::rcos 0x80083F50, the OT/DR_MODE helper 0x80083DE0), and the arg contract above is settled, so it is RE-ready with no unknowns above it.
+0x8002E680 (the EMITTER, 1624B): a 4-WAY MIRRORED GOURAUD ELLIPSE BURST.
+  * radii: rx = w * scratch[0x1F800084] >> 16, ry = h * scratch[0x1F800088] >> 16 — i.e. the caller's
+    ellipse size modulated by the per-Z scale the controller published, so it shrinks with distance.
+  * both colour words get GP0 code 0x3A (shaded quad, semi-transparent): dim = param_3 | 0x3A000000,
+    full = param_4 | 0x3A000000. Each quad is a GRADIENT between the two.
+  * angle starts at 0x66 and steps through rsin/rcos for FIVE iterations (do/while iVar16 < 5). Only
+    ONE quadrant's trig is computed per step — every vertex is written as centre +/- offset in all
+    four sign combinations (sVar7 = centre X, sVar8 = centre Y), which is why one step emits FOUR
+    9-word packets (tag 0x08000000, chained at +9/+0x12/+0x1B/+0x24) and eight colour slots.
+  * so the whole effect is 5 steps x 4 mirrored gouraud quads = 20 quads, closed with a DR_MODE
+    packet (FUN_80083DE0(..., 0x35, 0)).
+  * dependencies are ALL already owned: Trig::rsin 0x80083E80, Trig::rcos 0x80083F50, OT/DR_MODE
+    helper 0x80083DE0.
+
+REMAINING WORK is transcription, not analysis: mapping each of the ~40 s16 stores to its packet slot. Do that off the RAW instruction listing (the store offsets are unambiguous there) rather than Ghidra's output, whose rotating aliased temporaries (iVar10/17/18/19 swapped per iteration) are exactly where a subtle vertex-mapping error would come from — and a wrong ellipse draws visible garbage in the field.

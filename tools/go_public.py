@@ -393,7 +393,7 @@ def color(s, c):
     return s if not sys.stdout.isatty() else f"{c}{s}{OFF}"
 
 
-def report(findings, scope):
+def report(findings, scope, commits):
     by = {"copyright": [], "paths": [], "gitignore": []}
     for f in findings:
         by[f["check"]].append(f)
@@ -455,6 +455,21 @@ def report(findings, scope):
     hard = len(by["copyright"]) + len([f for f in by["paths"]
                                        if f.get("severity") == "critical"])
     soft = n - hard
+    # STATE THE SCAN'S REACH, ALWAYS. This walks git HISTORY, so a repo with no commits has nothing
+    # to walk — and "found nothing" printed identically to "nothing is there", producing a
+    # `clean ✓ — ready to publish` on a repo whose very next scan, after one commit, reported real
+    # findings. A publication gate that can green-light by looking at nothing is worse than no gate.
+    # `commits` is computed by the CALLER, where cwd is in scope; an earlier version recomputed it
+    # here, hit a NameError, and swallowed it into a bogus value behind `except Exception`.
+    if commits <= 0:
+        why = "has no commits" if commits == 0 else "could not be queried for history"
+        print(color(f"RESULT: NOT A VERDICT — this repository {why}, so there is no history to scan.",
+                    RED + BOLD))
+        print(color("        Commit first, then re-run. (A 'clean' result here would mean "
+                    "'looked at nothing'.)", DIM))
+        return 2
+    print(color(f"scanned {commits} commit(s) of history", DIM))
+
     if n == 0:
         print(color("RESULT: clean ✓ — ready to publish", GRN + BOLD))
     elif hard == 0:
@@ -608,7 +623,11 @@ def main(argv=None):
                           "clean": len(findings) == 0}, indent=2))
         return 1 if findings else 0
 
-    n = report(findings, scope)
+    try:
+        commits = int(run(["git", "rev-list", "--all", "--count"], cwd=cwd).strip() or "0")
+    except Fail:
+        commits = 0            # `rev-list` fails on a repo with no commits — that IS zero history
+    n = report(findings, scope, commits)
     return 1 if n else 0
 
 
