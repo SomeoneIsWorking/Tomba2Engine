@@ -264,11 +264,35 @@ int emitAnimQuadRecords(Core* c, uint32_t rec0, float anchorXf, float anchorYf, 
 
 }  // namespace
 
+// The node's own render fn IS the emitter for every plain member of the family. It stops being so for
+// a COMPOSITE dispatcher (see impactBurstRender below), which is why the emitter is a parameter of
+// fxSpriteEmit rather than something it re-reads from the node.
 void Render::fxSpriteRender(uint32_t node) {
+  fxSpriteEmit(node, mCore->mem_r32(node + kRenderFn));
+}
+
+// FUN_80033080 — the WEAPON-IMPACT burst (kanban #15), a COMPOSITE render fn: it is nothing but
+//     { FUN_80027E5C(node); FUN_800288AC(node); }
+// i.e. one node drawn by TWO different effect families at once — this file's byte-scaled sprite
+// (the white starburst flash) and fx_mesh.cpp's effect-mesh controller (the expanding radial plume).
+//
+// The mesh half already reaches the picture: 0x800288AC is scoped by fx_mesh.cpp's armTap, so the
+// shared writer's quads are captured at guest-execution time. Measured on
+// replays/bugs/weapon-impact-bucket.pad: 28 live quads over 9 animation steps, growing from a point
+// to ~70px. So "the impact effect is missing" was never a whole-effect gap — it is the SPRITE half
+// that had no producer, because pc_render's type-0x20 whitelist keys on the NODE's render fn and
+// 0x80033080 is not itself an emitter address, so neither half of the pair was recognised.
+//
+// The sprite half is the FN_BYTESCALE variant (scale = MAC0 * node[6] >> 4). Passing that emitter
+// explicitly is the whole fix — everything else in the family's contract is unchanged.
+void Render::impactBurstRender(uint32_t node) {
+  fxSpriteEmit(node, FN_BYTESCALE);
+}
+
+void Render::fxSpriteEmit(uint32_t node, uint32_t rfn) {
   Core* c = mCore;
   const uint32_t rec0 = c->mem_r32(node + kRecList);
   if (!rec0) return;                                        // no record list -> the emitter emits nothing
-  const uint32_t rfn      = c->mem_r32(node + kRenderFn);
   const uint32_t clutPage = c->mem_r32(node + kClutPage);
   const int bias          = (int16_t)c->mem_r16(node + kOtBias);
 
@@ -290,6 +314,13 @@ void Render::fxSpriteRender(uint32_t node) {
       sy = (int32_t)(((int64_t)base * (haveY ? numerY : numer)) >> shift);
     }
     spriteRecordsEmit(rec0, clutPage, pv.px, pv.py, proj_pz_to_ord(pv.pz), sx, sy);
+    // `PSXPORT_DEBUG=fxsprite` — the family's counterpart to fxmesh/fxanim. It answers the one
+    // question a whitelist change raises: did this producer fire for this node, and with what
+    // geometry? A silently-skipped emitter (record list empty, anchor behind the camera, OT key out
+    // of range) and a producer that was never dispatched look identical in the picture.
+    if (cfg_dbg("fxsprite"))
+      cfg_logf("fxsprite", "node=%08X emitter=%08X anchor=(%d,%d,%d) -> (%.1f,%.1f) sz=%d scale=%d,%d",
+               node, rfn, vx, vy, vz, (double)pv.px, (double)pv.py, pv.sz, sx, sy);
   };
 
   if (rfn == FN_PARTICLE) {

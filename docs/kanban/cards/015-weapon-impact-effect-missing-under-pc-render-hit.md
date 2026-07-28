@@ -95,3 +95,19 @@ The nine SCOPE-READY verdicts are unaffected — those write ctc2 directly and w
 SMOKE after wiring: short-session / weapon-impact-bucket / bucket-softlock all exit 0 with zero fatal / abort / recomp-MISS; the #64 banner frame at f240 is unchanged.
 
 SEPARATELY, 0x8013E08C is now triaged: 920B, composes its own transform via libgte, but calls the OT/DR_MODE helper 0x80083DE0 directly rather than the mesh writer — so it is NOT scope-able through FxMesh and needs its own producer. It sits next to the owned line producers (0x8013DD34 worldLineDraw, 0x8013E9D8 ropeAnchorRender, 0x8013EA64 ropeChainRender), so it is most likely a sibling line/rope emitter.
+
+**2026-07-28:** 2026-07-28 (later, MEASURED LIVE on replays/bugs/weapon-impact-bucket.pad, 900 frames headless): the missing half is the SPRITE, not the mesh, and the reason is the pc_render WHITELIST KEY, not a missing producer.
+
+PSXPORT_DEBUG=nofx names the impact node's render fn directly: 'type-0x20 node 800EE9D8: render fn 0x80033080 is NOT on the whitelist'. Render::fieldObjectsRender keys its type-0x20 dispatch on the NODE's render fn (node+0x18), and 0x80033080 is a COMPOSITE dispatcher — { FUN_80027E5C(node); FUN_800288AC(node); } — not itself an emitter address. So neither half was recognised by the display pass.
+
+The MESH half reaches the picture anyway, because fx_mesh.cpp's armTap scopes 0x800288AC at GUEST-execution time rather than from the display pass. Measured on the same run with PSXPORT_DEBUG=fxmesh: 28 live quads over 9 animation steps (clutRow 0..9), growing from a degenerate point at the first two frames to ~70px (xy0=(141,81) xy3=(157,158)). So the 2026-07-23 fix works and this card's remaining gap was never the mesh.
+
+The SPRITE half (FUN_80027E5C, the byte-scaled starburst flash) had NO producer at all: it is only reachable through Render::fxSpriteRender, which selects its family variant by re-reading node+0x18 — 0x80033080 for this node, which matches no FN_* constant.
+
+FIX (this session): fxSpriteRender split into fxSpriteRender(node) = fxSpriteEmit(node, node+0x18) plus fxSpriteEmit(node, emitterFn), so a composite dispatcher can name the emitter it actually calls. New Render::impactBurstRender(node) = fxSpriteEmit(node, FN_BYTESCALE), whitelisted on 0x80033080 in render_walk.cpp. game/render/fx_sprite.cpp.
+
+This also corrects the 2026-07-28 census framing above: 0x80033080 was never in the 20-caller list of the mesh writer 0x80027768 (it does not call it — its callee 0x800288AC does), so the census could not surface this gap. The nofx channel could, and did.
+
+**2026-07-28:** 2026-07-28 FIXED AND MEASURED — the sprite half now draws. A/B on replays/bugs/weapon-impact-bucket.pad at PSXPORT_PAD_SHOT_AT=656, dispatch live vs compiled out: 436 pixels differ, bbox (127,96)-(180,152), centred on the strike point where PSXPORT_DEBUG=fxsprite reports the 20 emissions and where the mesh half's quads already sat. 0x80033080 is off the nofx list; run exits 0 with no abort/miss. Full writeup: docs/findings/render.md 'The impact burst's SPRITE half: a COMPOSITE render fn defeats the type-0x20 whitelist'.
+
+LEAVING THIS CARD OPEN: the bucket repro is one impact path. The 2026-07-28 census still lists unowned mesh-writer controllers (the overlay four 0x8013D454 / 0x8013D828 / 0x8013ED08 / 0x8013EF58, plus the orphan leaf 0x8002AE0C), so an impact whose controller is one of those may still be blank. Eleven of the MAIN.EXE controllers now carry FX_CONTROLLER_SCOPE wrappers.

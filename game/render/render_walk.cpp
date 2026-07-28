@@ -700,6 +700,18 @@ void Render::fieldObjectsRender() {
           // project the node's own world anchor(s) natively so the flame lerps at fps60 (fx_sprite.cpp).
           c->rsub.stats.snObjs++;
           rend(c)->fxSpriteRender(n);
+        } else if (rfn == 0x80033080u) {
+          // The WEAPON-IMPACT burst (#15): a COMPOSITE render fn — FUN_80027E5C (this family's
+          // byte-scaled sprite) followed by FUN_800288AC (the effect mesh, already captured by
+          // fx_mesh's armTap scope). Only the sprite half needed a producer; see fx_sprite.cpp.
+          c->rsub.stats.snObjs++;
+          rend(c)->impactBurstRender(n);
+        } else if (rfn == 0x8002ECD8u) {
+          // The IMPACT ANNULUS: FUN_8002ECD8 publishes a screen centre + pixel scale and calls the
+          // shared flat-ring leaf FUN_8002E680. MAIN.EXE-resident (shard_6), so unlike the overlay
+          // producers below it needs no first-instruction guard. See game/render/fx_ring.cpp.
+          c->rsub.stats.snObjs++;
+          rend(c)->impactRingRender(n);
         } else if (rfn == 0x800286CCu) {
           // FUN_8002847C animated four-corner sprite family (movement DUST PUFFS + impact starburst,
           // #39): same world anchor + depth-cue scale contract, animation-script-selected quad list.

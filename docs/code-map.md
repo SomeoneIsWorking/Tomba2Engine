@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 926 native fns, 779 owned addresses, 737 LIVE / 189 ORPHAN.
+Totals: 930 native fns, 783 owned addresses, 741 LIVE / 189 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -50,12 +50,12 @@ Totals: 926 native fns, 779 owned addresses, 737 LIVE / 189 ORPHAN.
 | 0x80026C88 | LIVE | `ObjectTable::dispatch` | game/world/object_table.cpp:141 | 0x80026C88 |  |
 | 0x80026CE0 | LIVE | `ObjectTable::dispatchFaithful` | game/world/object_table.cpp:192 |  | ObjectTable::dispatchFaithful — byte-mirror of gen_func_80026C88 (gene… |
 | 0x80027254 | LIVE | `ObjectTable::handler27254` | game/world/object_table.cpp:46 |  |  |
-| 0x80027768 | LIVE | `FxMesh::draw` | game/render/fx_mesh.cpp:142 |  | 's re-derivation for THIS producer. The leaf itself is owned by the on… |
+| 0x80027768 | LIVE | `FxMesh::draw` | game/render/fx_mesh.cpp:157 |  | 's re-derivation for THIS producer. The leaf itself is owned by the on… |
 | 0x80027768 | LIVE | `SwingFx::drawMesh` | game/render/swing_fx.cpp:60 |  | Build the producer's transform from the composed GTE control registers… |
 | 0x80027768 | LIVE | `SwingFx::meshEmitTap` | game/render/swing_fx.cpp:172 |  | the shared packed-mesh quad emitter. Run the untouched guest body (pac… |
-| 0x80027A4C | LIVE | `Render::fxSpriteRender` | game/render/fx_sprite.cpp:240 |  |  |
-| 0x800286CC | LIVE | `Render::fxAnimSpriteRender` | game/render/fx_sprite.cpp:287 |  | The FUN_800286CC emitter, rebuilt: read the effect node's own animatio… |
-| 0x800288AC | ORPHAN | `armTap` | game/render/fx_mesh.cpp:209 |  | the effect-mesh CONTROLLER: composes the effect's transform from its o… |
+| 0x80027A4C | LIVE | `Render::fxSpriteRender` | game/render/fx_sprite.cpp:270 |  | The node's own render fn IS the emitter for every plain member of the … |
+| 0x800286CC | LIVE | `Render::fxAnimSpriteRender` | game/render/fx_sprite.cpp:383 |  | The FUN_800286CC emitter, rebuilt: read the effect node's own animatio… |
+| 0x800288AC | ORPHAN | `armTap` | game/render/fx_mesh.cpp:224 |  | the effect-mesh CONTROLLER: composes the effect's transform from its o… |
 | 0x8002918C | LIVE | `beh_rand_phase_cull` | game/ai/beh_rand_phase_cull.cpp:54 |  |  |
 | 0x80029664 | LIVE | `Render::dustTrailEmit` | game/render/fx_dust.cpp:109 |  | the trail: thread the ring's first four recorded positions and lay two… |
 | 0x80029B40 | LIVE | `beh_pos_history_trail` | game/ai/beh_pos_history_trail.cpp:67 |  |  |
@@ -63,10 +63,12 @@ Totals: 926 native fns, 779 owned addresses, 737 LIVE / 189 ORPHAN.
 | 0x8002A834 | LIVE | `SwingFx::effectDrawTick` | game/render/swing_fx.cpp:160 |  | the charge-effect render fn. It owns no state this producer needs to c… |
 | 0x8002A834 | LIVE | `SwingFx::install` | game/render/swing_fx.cpp:184 |  |  |
 | 0x8002AB5C | LIVE | `NativeScenePass::terrainRender` | game/render/native_terrain.cpp:83 |  | gen_func_8002AB5C, rebuilt PC-native. a0(=r4) = the terrain render-lis… |
-| 0x8002AB5C | LIVE | `Render::terrain` | game/render/submit.cpp:471 |  | RETIRED 2026-07-07 (issue #32): Render::prepObjectMatrix (guest sway/I… |
+| 0x8002AB5C | LIVE | `Render::terrain` | game/render/submit.cpp:477 |  | RETIRED 2026-07-07 (issue #32): Render::prepObjectMatrix (guest sway/I… |
 | 0x8002AE0C | ORPHAN | `leaf_8002AE0C` | game/core/field_owned_leaves.cpp:867 |  |  |
 | 0x8002B278 | LIVE | `Cull::coneCullBody` | game/render/cull.cpp:177 |  | standalone view-CONE cull (3.9% field hot). a0 = node. The multiply-fo… |
 | 0x8002B278 | LIVE | `Cull::coneCull2b278` | game/render/cull.cpp:196 |  |  |
+| 0x8002E680 | LIVE | `Render::impactAnnulusDraw` | game/render/fx_ring.cpp:117 |  | the shared annulus leaf, as a native producer. Centre and scale are al… |
+| 0x8002ECD8 | LIVE | `Render::impactRingRender` | game/render/fx_ring.cpp:170 |  | the node half: resolve centre/scale/depth, animate the radii, hand off… |
 | 0x8002F514 | ORPHAN | `leaf_8002F514` | game/core/field_owned_leaves.cpp:1135 |  |  |
 | 0x800310F4 | LIVE | `Engine::spawnType6Node` | game/core/spawn_type6_node.cpp:20 |  |  |
 | 0x8003116C | LIVE | `Spawn::spawnAndInitBody` | game/world/spawn.cpp:232 | 0x80028E10 | SPAWN-AND-INIT helper: spawn a type-6 object on list 1 (via the owned … |
@@ -78,11 +80,12 @@ Totals: 926 native fns, 779 owned addresses, 737 LIVE / 189 ORPHAN.
 | 0x800317CC | ORPHAN | `leaf_800317CC` | game/core/field_owned_leaves.cpp:1260 |  |  |
 | 0x800329E0 | ORPHAN | `leaf_800329E0` | game/core/field_owned_leaves.cpp:1307 |  |  |
 | 0x80032A44 | LIVE | `Rng::inRange` | game/math/rng.cpp:106 |  | scaled random. Disas 0x80032A44..0x80032A84 verbatim: `sra v0, 15` on … |
+| 0x80033080 | LIVE | `Render::impactBurstRender` | game/render/fx_sprite.cpp:288 |  | the WEAPON-IMPACT burst (kanban #15), a COMPOSITE render fn: it is not… |
 | 0x80033AFC | ORPHAN | `leaf_80033AFC` | game/core/field_owned_leaves.cpp:1335 |  |  |
 | 0x800346BC | LIVE | `PauseMenu::install` | game/ui/pause_menu.cpp:126 |  |  |
 | 0x80036DFC | LIVE | `SaveMenu::runHandler` | game/ui/save_menu.cpp:105 |  | ----------------------------------------------------------------------… |
 | 0x80036DFC | LIVE | `SaveMenu::dispatchBody` | game/ui/save_menu.cpp:137 |  | ----------------------------------------------------------------------… |
-| 0x80039F4C | LIVE | `Render::textLabelEmit` | game/render/text_label.cpp:162 |  |  |
+| 0x80039F4C | LIVE | `Render::textLabelEmit` | game/render/text_label.cpp:170 |  |  |
 | 0x8003A1E4 | ORPHAN | `leaf_8003A1E4` | game/core/field_owned_leaves.cpp:11142 |  |  |
 | 0x8003A290 | ORPHAN | `leaf_8003A290` | game/core/field_owned_leaves.cpp:1373 |  |  |
 | 0x8003A3E8 | ORPHAN | `leaf_8003A3E8` | game/core/field_owned_leaves.cpp:1456 |  |  |
@@ -122,7 +125,7 @@ Totals: 926 native fns, 779 owned addresses, 737 LIVE / 189 ORPHAN.
 | 0x8003EF9C | LIVE | `Render::composeTintGate` | game/render/compose_tint_gate.cpp:49 |  | ORACLE: gen_func_8003EF9C |
 | 0x8003F024 | ORPHAN | `leaf_8003F024` | game/core/field_owned_leaves.cpp:3023 |  |  |
 | 0x8003F07C | LIVE | `Render::sharedTransformWalk` | game/render/subpart_walk_shared.cpp:39 |  | ORACLE: gen_func_8003F07C |
-| 0x8003F174 | LIVE | `Render::subPartWalk` | game/render/subpart_walk.cpp:42 |  | ORACLE: gen_func_8003F174 |
+| 0x8003F174 | LIVE | `Render::subPartWalk` | game/render/subpart_walk.cpp:43 |  | ORACLE: gen_func_8003F174 |
 | 0x8003F344 | LIVE | `Render::effectClutSwap` | game/render/effect_mod.cpp:138 |  | stamp the node's CLUT id onto every colour-bearing packet, repointing … |
 | 0x8003F3F4 | LIVE | `Render::effectSemiOn` | game/render/effect_mod.cpp:123 |  | turn semi-transparency ON for every colour-bearing packet in the span. |
 | 0x8003F4C4 | LIVE | `Render::effectSemiOff` | game/render/effect_mod.cpp:130 |  | the exact inverse: turn semi-transparency OFF. |
@@ -695,7 +698,7 @@ Totals: 926 native fns, 779 owned addresses, 737 LIVE / 189 ORPHAN.
 | 0x800BF9B4 | LIVE | `Render::worldVoidBeat` | game/render/render_walk.cpp:551 |  | Per-frame WORLD-pass gates (render.h): one definition each, read by BO… |
 | 0x800ED058 | LIVE | `Engine::sceneEventFifoFaithful` | game/core/engine.cpp:567 |  | pc_faithful field EVENT/COMMAND-QUEUE state machine — mirror of gen_fu… |
 | 0x800EE489 | LIVE | `Cull::cullFarMult` | game/render/cull.cpp:84 |  | pc_faithful/pc_skip split (2026-07-03): pc_faithful (pc_skip=false) us… |
-| 0x800F2624 | LIVE | `Render::terrainRenderAll` | game/render/submit.cpp:488 |  | terrainRenderAll: the terrain-node enumeration (moved from render_walk… |
+| 0x800F2624 | LIVE | `Render::terrainRenderAll` | game/render/submit.cpp:494 |  | terrainRenderAll: the terrain-node enumeration (moved from render_walk… |
 | 0x80104368 | LIVE | `cdlibcd_read_into_scratch` | game/core/engine.cpp:2986 |  | Read one 2048 B disc sector into a local buffer AND into the guest-RAM… |
 | 0x80105EE8 | ORPHAN | `tomba_schedRng` | game/core/game_hooks.cpp:184 |  |  |
 | 0x801062E4 | LIVE | `Render::renderAttract` | game/render/render_attract.cpp:34 |  | #6 DEMO/TITLE ATTRACT (stage 0x801062E4, sm[0x48]==7): the live 3D fie… |
@@ -749,7 +752,7 @@ Totals: 926 native fns, 779 owned addresses, 737 LIVE / 189 ORPHAN.
 | 0x80109450 | LIVE | `Render::renderSopNarration` | game/render/render_walk.cpp:452 |  | #5 SOP INTRO NARRATION (overlay-sig 0x3C021F80 @ 0x80109450): the WORL… |
 | 0x80109450 | LIVE | `Sop::fieldMode` | game/scene/sop.cpp:463 |  | SOP FIELD-MODE MACHINE — native ownership of FUN_80109450 (decomp scra… |
 | 0x8010957C | LIVE | `ScreenFade::sequence` | game/render/screen_fade.cpp:101 | 0x8010CC68 0x8010D030 |  |
-| 0x80109FE0 | LIVE | `Render::fieldEntityRender` | game/render/submit.cpp:419 |  | FIELD ENTITY RENDER LOOP — PC-native ownership of the SOP field-overla… |
+| 0x80109FE0 | LIVE | `Render::fieldEntityRender` | game/render/submit.cpp:425 |  | FIELD ENTITY RENDER LOOP — PC-native ownership of the SOP field-overla… |
 | 0x8010A0E0 | LIVE | `Sop::scenePrepass` | game/scene/sop.cpp:315 |  | SOP scene cam-frustum prepass — native ownership of FUN_8010A0E0 (Ghid… |
 | 0x8010A3AC | LIVE | `Sop::sceneGridGather` | game/scene/sop.cpp:223 |  | sceneGridGather — native port of guest FUN_8010A3AC (Ghidra decomp scr… |
 | 0x8010AB38 | LIVE | `beh_sop_overlay_shadow` | game/ai/sop_overlay_shadow.cpp:79 |  |  |
@@ -790,7 +793,7 @@ Totals: 926 native fns, 779 owned addresses, 737 LIVE / 189 ORPHAN.
 | 0x8011D578 | LIVE | `beh_variant_actor_sm` | game/ai/beh_variant_actor_sm.cpp:50 |  |  |
 | 0x8011D988 | LIVE | `beh_actor_move_sm` | game/ai/beh_actor_move_sm.cpp:53 |  |  |
 | 0x80121978 | LIVE | `beh_id_routed_dispatch` | game/ai/beh_id_routed_dispatch.cpp:42 |  |  |
-| 0x80122974 | LIVE | `Render::tetherLineRender` | game/render/fx_line.cpp:187 |  | the TETHER: one rope from this object to an anchor chosen by node+0x47… |
+| 0x80122974 | LIVE | `Render::tetherLineRender` | game/render/fx_line.cpp:288 |  | the TETHER: one rope from this object to an anchor chosen by node+0x47… |
 | 0x80123E9C | LIVE | `ReleaseTriggerMotion::hoverBobCycle` | game/ai/release_trigger_motion.cpp:75 | 0x80077B5C | ----------------------------------------------------------------------… |
 | 0x801241BC | LIVE | `ReleaseTriggerMotion::leaderFollowSync` | game/ai/release_trigger_motion.cpp:137 | 0x80051D90 0x80123C94 0x8012400C | ----------------------------------------------------------------------… |
 | 0x801244E8 | LIVE | `ReleaseTriggerMotion::driftReposition` | game/ai/release_trigger_motion.cpp:190 | 0x80051794 0x80077B5C 0x80084360 0x800847F0 0x80124328 | ----------------------------------------------------------------------… |
@@ -877,10 +880,11 @@ Totals: 926 native fns, 779 owned addresses, 737 LIVE / 189 ORPHAN.
 | 0x8013C538 | LIVE | `beh_scatter_record_dither` | game/ai/beh_scatter_record_dither.cpp:56 |  |  |
 | 0x8013C9C0 | LIVE | `beh_scatter_ramp_machine` | game/ai/beh_scatter_ramp_machine.cpp:52 |  |  |
 | 0x8013CDD4 | LIVE | `WidescreenMarginQuad::emit` | game/render/widescreen_margin_quad.cpp:126 |  |  |
-| 0x8013DD34 | LIVE | `Render::worldLineDraw` | game/render/fx_line.cpp:102 |  | THE rope leaf: a stroke between two world points, drawn as the project… |
+| 0x8013DD34 | LIVE | `Render::worldLineDraw` | game/render/fx_line.cpp:131 |  | THE rope leaf: a stroke between two world points, drawn as the project… |
 | 0x8013DD48 | ORPHAN | `sub8013DD48` | game/ai/beh_a08_scene_actor.cpp:150 | 0x80072DDC | (objAnim, subId) — allocate a spawner obj and hook its handler. |
-| 0x8013E9D8 | LIVE | `Render::ropeAnchorRender` | game/render/fx_line.cpp:155 |  | the HANGING object's rope: from the object it hangs off (node+0x14) to… |
-| 0x8013EA64 | LIVE | `Render::ropeChainRender` | game/render/fx_line.cpp:167 |  | the segmented CHAIN: 8 points the node carries, joined end to end. nod… |
+| 0x8013E08C | LIVE | `Render::shockwaveRingRender` | game/render/fx_line.cpp:211 |  | the expanding SHOCKWAVE RING. Ported 2026-07-28; it was surfaced by |
+| 0x8013E9D8 | LIVE | `Render::ropeAnchorRender` | game/render/fx_line.cpp:256 |  | the HANGING object's rope: from the object it hangs off (node+0x14) to… |
+| 0x8013EA64 | LIVE | `Render::ropeChainRender` | game/render/fx_line.cpp:268 |  | the segmented CHAIN: 8 points the node carries, joined end to end. nod… |
 | 0x8013FB88 | LIVE | `OverlayGroundGt3Gt4::gt3` | game/render/overlay_ground_gt3gt4.cpp:138 |  | ground/scene POLY_GT3 emit. Record = 36 bytes, SAME field layout as th… |
 | 0x8013FE58 | LIVE | `OverlayGroundGt3Gt4::gt4` | game/render/overlay_ground_gt3gt4.cpp:254 |  | ground/scene POLY_GT4 emit. Record = 44 bytes: {+0 rgb0(rgb1=rgb0<<4)\|… |
 | 0x801401B8 | LIVE | `OverlayGroundGt3Gt4::entityLoop` | game/render/overlay_ground_gt3gt4.cpp:363 |  | the ground-entity render list walker. list=a0: +6 (u8) entry count, +1… |

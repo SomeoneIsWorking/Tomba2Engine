@@ -4048,3 +4048,58 @@ Both were found by reading the port's own source and the binary — no live driv
   or effect mesh emitted by one of the other 14 controllers still draws nothing. This census is the
   render frontier's next work-list — each entry is one native producer, and it is derivable
   statically, without needing to trigger the effect in-game first.
+
+## The impact burst's SPRITE half: a COMPOSITE render fn defeats the type-0x20 whitelist (kanban #15, 2026-07-28, FIXED)
+
+**Symptom.** The weapon-impact effect still looked incomplete under `pc_render` after the 2026-07-23
+mesh-half fix, and the 2026-07-28 static census (the 20-caller table above) offered no explanation:
+the impact's controller `0x800288AC` is one of the four OWNED entries.
+
+**Measured, not reasoned.** `PSXPORT_DEBUG=nofx` on `replays/bugs/weapon-impact-bucket.pad`
+(900 headless frames) names the node directly:
+
+```
+[nofx] type-0x20 node 800EE9D8: render fn 0x80033080 is NOT on the whitelist — this walk skips it
+```
+
+`Render::fieldObjectsRender` keys its type-0x20 dispatch on the NODE's render fn (`node+0x18`), and
+`0x80033080` is **not an emitter at all** — it is a COMPOSITE dispatcher:
+
+```
+FUN_80033080(node) = { FUN_80027E5C(node); FUN_800288AC(node); }
+```
+
+one node drawn by TWO different effect families at once. So the whitelist recognised **neither** half.
+
+**Why the mesh half drew anyway, and the sprite half did not.** `fx_mesh.cpp`'s `armTap` scopes
+`0x800288AC` at GUEST-EXECUTION time, not from the display pass, so the mesh reaches the picture
+without the walk ever recognising the node. Measured on the same run with `PSXPORT_DEBUG=fxmesh`:
+28 live quads over 9 animation steps (`clutRow` 0..9), growing from a degenerate point on the first
+two frames to ~70 px (`xy0=(141,81) xy3=(157,158)`). The 2026-07-23 fix works.
+The SPRITE half has no such scope — `Render::fxSpriteRender` was its only route, and that method
+selected its family variant by re-reading `node+0x18`, which for this node is `0x80033080` and
+matches no `FN_*` constant. It fell through to the uniform-scale tail with `numer=0, shift=0`, and
+was never dispatched in the first place.
+
+**Fix.** `fxSpriteRender(node)` split into `fxSpriteRender(node) = fxSpriteEmit(node, node+0x18)`
+plus `fxSpriteEmit(node, emitterFn)`, so a composite dispatcher can name the emitter it ACTUALLY
+calls; new `Render::impactBurstRender(node) = fxSpriteEmit(node, FN_BYTESCALE)` whitelisted on
+`0x80033080`. `game/render/fx_sprite.cpp` + `render_walk.cpp`.
+
+**Evidence (A/B on the same replay frame, not a vibe).** `PSXPORT_PAD_SHOT_AT=656`, captured with
+the dispatch live and with it compiled out: **436 pixels differ, bbox (127,96)-(180,152)** — centred
+on the strike point, which is exactly where `PSXPORT_DEBUG=fxsprite` reports the 20 emissions
+(`node=800EE9D8 emitter=80027E5C ... -> (146,125)`) and exactly where the mesh half's quads sit.
+Both halves now co-locate. `0x80033080` is off the `nofx` list; clean exit, no abort/miss.
+
+**The generalisable lesson.** The 20-caller census keys on the shared WRITER; it cannot see a gap
+whose node never reaches a producer, because such a node calls the writer only indirectly. A
+composite render fn is invisible to both a writer census and a "is this address owned" codemap
+query. `nofx` is the instrument that finds this class — it names what the WALK skipped, which is the
+question the whitelist actually answers. Assume more composite dispatchers exist: any type-0x20 fn
+that is a bare pair of `jal`s is one.
+
+**New channel.** `PSXPORT_DEBUG=fxsprite` — one line per sprite-family emission (node, emitter,
+world anchor, projected screen position, SZ3, scale). It distinguishes "producer not dispatched"
+from "producer dispatched and skipped by its own gate" (empty record list, anchor behind the camera,
+OT key out of range), which are identical in the picture.

@@ -264,6 +264,13 @@ public:
   // the 8-byte quad records host-side. Read-only, real depth. See game/render/fx_sprite.cpp for the full
   // RE. Dispatched from fieldObjectsRender's type-0x20 walk.
   void fxSpriteRender(uint32_t node);
+  // fxSpriteEmit: the family body, with the EMITTER given explicitly. fxSpriteRender passes the node's
+  // own render fn; a composite dispatcher (impactBurstRender) passes the emitter it actually calls.
+  void fxSpriteEmit(uint32_t node, uint32_t emitterFn);
+  // impactBurstRender (FUN_80033080, kanban #15): the weapon-impact node, whose render fn calls BOTH
+  // this family's byte-scaled sprite AND fx_mesh.cpp's mesh controller. The mesh half is already
+  // captured by fx_mesh's armTap scope; this draws the sprite half. Body in fx_sprite.cpp.
+  void impactBurstRender(uint32_t node);
 
   // fxAnimSpriteRender: native producer for the SECOND world-anchored sprite family — emitter
   // FUN_800286CC + packet writer FUN_8002847C (36-byte, four-corner, per-vertex-coloured quad records
@@ -302,6 +309,19 @@ public:
   // a doubled (+2,+1) outline stroke. See fx_line.cpp for the full RE.
   void shockwaveRingRender(uint32_t node);
   void tetherLineRender(uint32_t node);
+
+  // impactRingRender (game/render/fx_ring.cpp): native producer for the IMPACT ANNULUS — the type-0x20
+  // node whose render fn is 0x8002ECD8. It resolves the ring's screen centre + pixel scale (world
+  // anchor through the native camera, or the fixed HUD position) and animates the inner/outer radii
+  // from the single byte node+5, then draws through impactAnnulusDraw.
+  // impactAnnulusDraw is the shared leaf FUN_8002E680: a flat gouraud annulus built from 5 authored
+  // wedge angles replicated over their 8 dihedral images, with a radial half->full colour gradient and
+  // additive blend. It is kept separate because the guest leaf has ELEVEN call sites — the other ten
+  // reach it from the A01/A06/A08/A0J overlays and can be ported onto this same producer. Read-only.
+  void impactRingRender(uint32_t node);
+  void impactAnnulusDraw(float cx, float cy, float ord, float scale,
+                         int innerR, int outerR, uint32_t colInner, uint32_t colOuter,
+                         int layer, int orderMode);
 
   // a0fVortexRender (game/render/fx_vortex.cpp): native producer for area 15's central PORTAL — the
   // type-0x20 node whose custom render fn is the A0F overlay's FUN_801143C4 (kanban #44). Three layers:
