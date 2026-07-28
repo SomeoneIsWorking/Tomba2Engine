@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 17 verified · 11 ported-unverified · 1 todo · 1 blocked
+**Status:** 17 verified · 11 ported-unverified · 2 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -197,3 +197,9 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** todo
 - **deps:** world-line-rope
 - **notes:** FUN_8013E08C: op-0x4A ground ring shadow, its own GTE loop over the 16-point circle at 0x8014C780 (sliding 3-point window), grey = 0x80-((nodeY-0x14)*0x80)/200, blends 1 and 2, node matrix at node+0x2C via FUN_80084220 + a diagonal scale from nodeY<<4. BLOCKED on RE of FUN_80084110/FUN_80084220.
+
+## fx-particle-field-10c7f4
+- **scope:** render
+- **status:** todo
+- **owner:** generated/ov_a0l_shard_0.c:1479 (unported)
+- **notes:** FUN_8010C7F4 (A0L overlay, area 21) — 64-particle scatter field, next-most-tractable of the 22-area-sweep render targets. RE ALREADY DONE, do not re-derive: FUN_800329E0(6) camera; GTE CR21-23 (far colour) = 0; a wind drift from (s16)0x800E7ED6 through rcos/rsin x2 times (mem_r32(node+0x50) * 10) >> 12; then 64 iterations of an LCG (seed 0x12D687, multiplier from mem_r32(0x80115894), step x = x*mult + 1, THREE steps per particle) whose value & 16383 - 8192 offsets a base at (s16)0x1F800160/162/164 for VX/VY/VZ (the X and Z add the wind drift before masking). Distance from (s16)0x1F8000D2/D6/DA via FUN_80078240 >> 3 is written to IR0 0x1F800090, so particles fade with distance against a BLACK far colour. Gate FUN_800317CC(0), scale = published MAC0 << 1 into both axis slots, then FUN_8002847C (the four-corner writer = the existing emitAnimQuadRecords) with the record list cycling i&3 over four pointers copied at entry from 0x80109068. DEPENDENCY, also RE'd: FUN_80078240 is the integer 3-D length approximation — abs(x,y,z), sort so x is largest, return x - (x>>4) + ((y+z)>>2) + ((y+z)>>3). It has NO native owner yet; port it as a shared static math helper, not inline. Everything else it needs (Trig::rsin/rcos, SpriteAnchor::otKeyInRange, emitAnimQuadRecords) is already native.
