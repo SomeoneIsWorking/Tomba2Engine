@@ -726,6 +726,21 @@ void Render::fieldObjectsRender() {
           // cannot dispatch into whatever now occupies the window. See game/render/fx_vortex.cpp.
           c->rsub.stats.snObjs++;
           rend(c)->a0fVortexRender(n);
+        } else if (cfg_dbg("nofx")) {
+          // `PSXPORT_DEBUG=nofx` — NAME EVERY type-0x20 NODE THIS WALK HAS NO PRODUCER FOR. Such a
+          // node draws through the render fn at node+0x18, and the chain above is the whitelist of
+          // fns we own; anything reaching here falls through and gets no picture FROM THIS WALK.
+          // WORDING MATTERS: that is not the same as "the effect is blank". The substrate walk runs
+          // underneath, and a producer SCOPE on the fn (fx_mesh.cpp's FX_CONTROLLER_SCOPE family)
+          // can catch its writer calls from there — 0x8013CDD4 (WidescreenMarginQuad::emit) and
+          // 0x8002AB5C (terrain) both show up here and are owned, reached another way. So a line is
+          // a producer-gap CANDIDATE to confirm with the fxmesh/fxsprite channels, not a verdict.
+          // Why it earns its keep: the alternative was a static census over the callers of ONE
+          // shared writer (kanban #15), which cannot see effects using a different emitter and
+          // cannot tell you which ones a given scene actually reaches. See kanban #65.
+          if (rend(c)->mNofxSeen.insert(rfn).second)
+            cfg_logf("nofx", "type-0x20 node %08X: render fn 0x%08X is NOT on the whitelist — "
+                             "this walk skips it", n, rfn);
         }
         continue;
       }

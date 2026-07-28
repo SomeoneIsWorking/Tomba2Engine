@@ -81,6 +81,10 @@ public:
   // be a registry perObjFlush writes — call ordering), never a heuristic address-range/list-
   // membership guess — objects on OTHER walk lists (e.g. the Bcf4 aux list) that this test never
   // visits are simply absent from the set and stay uncovered, exactly as before. Cached per s_frame.
+  // `PSXPORT_DEBUG=nofx` dedupe set — per-Core, NOT a function-local static. Under SBS the two
+  // cores would share a static and each would silence the other's first sighting of a fn.
+  std::unordered_set<uint32_t> mNofxSeen;
+
   std::unordered_set<uint32_t> mNativeDrawnNodes;
   int mNativeDrawnFrame = -1;
   bool nativeObjDrawn(Core* c, uint32_t node);   // cmdListDispatch: will perObjFlush draw this node this frame?
