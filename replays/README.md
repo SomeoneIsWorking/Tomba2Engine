@@ -89,6 +89,18 @@ Once the recorded sequence ends, input falls through to the host (so `run N` aft
 - **Originals** also live at `scratch/bin/*.pad` (referenced by older findings); the copies here are
   the canonical, categorized home going forward.
 
+- `bugs/save-prompt-black-screen.pad` — 12500 frames, cut from a live debug-server session
+  (`padrec save`) on top of `bugs/bucket-softlock.pad`, so it replays from boot: it closes the
+  bucket-pickup dialog with CIRCLE, walks east, and DIES, landing in the GAME OVER / CONTINUE
+  screen (state machine FUN_80106478; sub-state at task 0x801FE000+0x4C = 3, menu cursor at +0x4E).
+  Confirm there with CROSS, not Circle. What it surfaces (kanban #62): on that black game-over
+  screen pc_render still draws FIELD geometry — a stray rope/vine from the top of the screen and a
+  garbled sprite cluster beside the text — while the guest emits exactly one black FILL.
+  ```
+  PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG_SERVER=5965 \
+    PSXPORT_PAD_REPLAY=replays/bugs/save-prompt-black-screen.pad ./scratch/bin/tomba2_port <MAIN.EXE>
+  # then: dbgclient --port 5965 vkshot <path>   (the prompt is up from ~f12500)
+  ```
 - `bugs/weapon-impact-bucket.pad` — 686 frames, self-contained from boot (do NOT add
   `PSXPORT_AUTO_SKIP` or `newgame`, it desyncs). Tomba walks right along the seaside start route into
   the bucket obstacle and swings (CIRCLE); the swing connects at pad frames 654-660, peak 656. The

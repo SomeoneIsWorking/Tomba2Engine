@@ -3947,3 +3947,29 @@ real neighbour by ~1 px — that residual is the camera lerp alone). Key off `Fp
 
 **Refs.** `game/render/mesh_quads.{h,cpp}`, `game/render/effect_lerp.{h,cpp}`,
 `game/render/fx_dust.cpp`, `game/render/narration_swirl.cpp`, `docs/findings/effects.md` (#39).
+
+## Two instruments for the "missing effect / bad lerp" class — and what they found first (2026-07-28)
+
+- **the problem they solve:** "an effect is missing" and "an effect does not interpolate" were both
+  eyeball-only, and the obvious instrument — a pc-vs-psx pixel diff — is distrusted (I005): different
+  rasterisers make every tile differ, so the real gap hides in the noise.
+- **`tools/ab_motion.py` — compare MOTION, never pixels.** Both legs reach free-roam at the SAME
+  frame (216) under `PSXPORT_AUTO_SKIP`, so they can be captured over the same span with no driving.
+  The tool builds a per-tile "did this change over time" map for EACH leg independently and diffs the
+  two MAPS. Self-relative, so colour/AA/dither differences cancel. A tile that moves on the reference
+  and is static under pc_render is a missing or frozen effect.
+- **first find (kanban #63):** one contiguous 22-tile block, x=224..300 y=0..96, moving 14-21 of 23
+  steps on the reference and 0 under pc_render, with ZERO pc-only tiles anywhere. A 3x crop of that
+  region shows a flying seagull on the reference and nothing under pc_render. The object exists on
+  both legs — identical 46-handler sets, node 0x800FD118 / handler 0x8011D988 `beh_actor_move_sm`
+  moving on both — so it is a pure render gap, not a spawn or exec gap.
+- **`tools/fps60_check.py` — is the in-between frame actually in between?** Walks the real/interp/real
+  triples `PSXPORT_DEBUG=fps60dump` writes and classifies each tile STATIC / BETWEEN / STALE / AHEAD.
+  STALE (interp pixel-identical to the PREVIOUS real frame while the NEXT one differs) is the
+  "did not lerp" signature, per-region.
+- **what it says about fps60 today:** walking with a moving camera measures **98.7% BETWEEN, 3 STALE
+  tiles out of 42028** over 142 triples — the camera/world lerp is healthy, so any remaining lerp bug
+  is per-effect, not systemic. An idle scene measures 100% STATIC, i.e. the tool does not invent
+  motion. Both directions validated; registered as instruments I012/I013.
+- **method note:** the legs need only cover the same SPAN of gameplay, not be frame-locked — the maps
+  are aggregates. Repeat the sweep at other spots and areas; that is how the next ones get found.

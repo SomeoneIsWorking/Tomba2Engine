@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (22)
+## TODO (24)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#16 Sign text jitters at fps60 when the camera moves**  `render,fps60` — 📎 docs/reference/issues/issue16_sign_text_jitter.png
@@ -28,6 +28,8 @@
 - **#56 SYSTEMIC: pc_render has NO line-primitive producer — every GP0 line is invisible (rope, fishing line)**  `render,bug` — 📎 docs/reference/issues/issue56_fisherman_line_missing.png
 - **#57 Hut interior wall/room decorations missing — likely occluded (possible #29 regression)**  `render,bug` — 📎 docs/reference/issues/issue57_hut_wall_decor_missing.png,  docs/reference/issues/issue57_hut_wall_decor_missing_2.png
 - **#58 Fisherman dialog SOFTLOCKS**  `bug` — 📎 docs/reference/issues/issue58_fisherman_dialog_softlock.png
+- **#62 GAME OVER screen keeps drawing field geometry — a stray rope + garbled sprite over the black**  `bug,render` — 📎 docs/reference/issues/issue62_save_prompt_black_screen.png
+- **#63 Flying BIRD in area 0 is missing entirely under pc_render**  `bug,render` — 📎 docs/reference/issues/issue63_missing_flying_bird.png
 
 ## DOING (3)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
