@@ -178,26 +178,15 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 ## fx-emitter-ecd8-e680
 - **scope:** The 0x8002ECD8 + 0x8002E680 effect emitter pair (type-0x20 node render fn, no producer)
 - **status:** todo
-- **notes:** RE COMPLETE 2026-07-28 (both halves). Decompiled with the `proj` project — the bucket_f470 project truncates these, see instrument I016.
+- **notes:** RE COMPLETE for the CONTROLLER, and the EMITTER's angular rule is now pinned — but it is NOT a uniform sweep, so do not rebuild it as one.
 
-0x8002ECD8 (the CONTROLLER, 640B): two modes — node+3 == 0x91 takes fixed scale/OT values, otherwise scene-camera + DQA=6 RTPS of the node+0x2C/+0x30 anchor with the usual OT-key range gate, publishing 0x1F800080 (key) / 84 / 88 (per-Z scale) / 8C (screen anchor). Then it derives the emit args from an ANGLE:
-    a = (u8)node+5 << 6
-    h = ((rsin(a) << 5) >> 12) + 0x30 ;  w = h - ((rcos(a) << 5) >> 12)
-    halve each (x - (s16)x/2), and halve AGAIN when (s16)0x800E7FFE < 0
-    FUN_8002E680(w, h, colourDim = (node+100) >> 1 & 0x7F7F7F, colourFull = node+100)
+0x8002ECD8 (controller, 640B) — settled. Two modes (node+3 == 0x91 -> fixed scale/OT values; else scene-camera + DQA=6 RTPS of the node+0x2C/+0x30 anchor, usual OT-key range gate, publishing 0x1F800080 key / 84 / 88 per-Z scale / 8C anchor). Emit args from an angle:
+    a = (u8)node+5 << 6 ; h = ((rsin(a) << 5) >> 12) + 0x30 ; w = h - ((rcos(a) << 5) >> 12)
+    halve each; halve AGAIN when (s16)0x800E7FFE < 0
+    FUN_8002E680(w, h, dim = (node+100) >> 1 & 0x7F7F7F, full = node+100)
 
-0x8002E680 (the EMITTER, 1624B): a 4-WAY MIRRORED GOURAUD ELLIPSE BURST.
-  * radii: rx = w * scratch[0x1F800084] >> 16, ry = h * scratch[0x1F800088] >> 16 — i.e. the caller's
-    ellipse size modulated by the per-Z scale the controller published, so it shrinks with distance.
-  * both colour words get GP0 code 0x3A (shaded quad, semi-transparent): dim = param_3 | 0x3A000000,
-    full = param_4 | 0x3A000000. Each quad is a GRADIENT between the two.
-  * angle starts at 0x66 and steps through rsin/rcos for FIVE iterations (do/while iVar16 < 5). Only
-    ONE quadrant's trig is computed per step — every vertex is written as centre +/- offset in all
-    four sign combinations (sVar7 = centre X, sVar8 = centre Y), which is why one step emits FOUR
-    9-word packets (tag 0x08000000, chained at +9/+0x12/+0x1B/+0x24) and eight colour slots.
-  * so the whole effect is 5 steps x 4 mirrored gouraud quads = 20 quads, closed with a DR_MODE
-    packet (FUN_80083DE0(..., 0x35, 0)).
-  * dependencies are ALL already owned: Trig::rsin 0x80083E80, Trig::rcos 0x80083F50, OT/DR_MODE
-    helper 0x80083DE0.
+0x8002E680 (emitter, 1624B) — structure settled: radii rx = w * scratch[0x1F800084] >> 16 and ry = h * scratch[0x1F800088] >> 16 (so the burst shrinks with distance); both colour words get GP0 code 0x3A (shaded quad, semi-transparent) and each quad is a dim->full gradient; the body emits 9-word packets chained at +9/+0x12/+0x1B/+0x24, four per step, five steps, closed with a DR_MODE packet — 20 gouraud quads, written as centre +/- offset in all four sign combinations (only one quadrant's trig is computed).
 
-REMAINING WORK is transcription, not analysis: mapping each of the ~40 s16 stores to its packet slot. Do that off the RAW instruction listing (the store offsets are unambiguous there) rather than Ghidra's output, whose rotating aliased temporaries (iVar10/17/18/19 swapped per iteration) are exactly where a subtle vertex-mapping error would come from — and a wrong ellipse draws visible garbage in the field.
+THE TRAP, and why this is not yet portable. The obvious rebuild is 'five uniform angular steps around an ellipse'. THAT IS WRONG. The loop's angle register is REPLACED BY ITS OWN COSINE each iteration — verified from raw instructions, not the decompile: at 0x8002E808  (arg = r17), then rcos at 0x8002E80C, then in the delay slot 0x8002E810  (r17 = the RETURN value). So the sequence is an ITERATED MAP a <- cos(a) seeded at 0x66, not a fixed step, and rsin/rcos here return 1.3.12 (+/-4096) values being fed back into a 0..0xFFF angle domain. Ghidra showed this correctly and I nearly dismissed it as aliasing — it is real.
+
+CONSEQUENCE: a geometric rebuild needs that map reproduced exactly, or the 20 quads land at the wrong angles and the burst draws as visible garbage. Since the effect DOES fire on replays/bugs/bucket-softlock.pad (nofx lists 0x8002ECD8 there), a port is verifiable once written — but it must reproduce the iterated map, not assume a sweep. Port when there is room to write it and check it on that replay in the same pass.
