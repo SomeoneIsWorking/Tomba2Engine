@@ -693,7 +693,8 @@ void Render::fieldObjectsRender() {
         if (rfn == 0x8010BF54u && c->mem_r32(0x80109450u) == 0x3C021F80u) {
           c->rsub.stats.snObjs++;
           rend(c)->narrationSwirlRender(n);
-        } else if (rfn == 0x80027CB4u || rfn == 0x80027E5Cu || rfn == 0x800281ECu) {
+        } else if (rfn == 0x80027CB4u || rfn == 0x80027E5Cu || rfn == 0x800281ECu ||
+                   rfn == 0x8002801Cu) {   // 8002801C = the separate-XY-scale member (kanban #65)
           // FUN_80027A4C world-anchored scaled-sprite family (torch / hut-roof flames, #12/#23):
           // project the node's own world anchor(s) natively so the flame lerps at fps60 (fx_sprite.cpp).
           c->rsub.stats.snObjs++;

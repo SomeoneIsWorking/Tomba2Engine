@@ -103,6 +103,17 @@ constexpr uint32_t kPartScale= 0x06u;   // s16 per-particle scale numerator (par
 constexpr uint32_t FN_UNIFORM   = 0x80027CB4u;   // scaleX = MAC0
 constexpr uint32_t FN_BYTESCALE = 0x80027E5Cu;   // scaleX = MAC0 * node[6] >> 4
 constexpr uint32_t FN_PARTICLE  = 0x800281ECu;   // per-particle loop
+// FOURTH member of the family, found 2026-07-28 by PSXPORT_DEBUG=nofx (kanban #65) — it reaches the
+// same writer 0x80027A4C but was on no whitelist, so its effect drew NOTHING at all (the tap this
+// producer replaced is gone, so an un-whitelisted emitter has no other path to a picture).
+// RE (scratch/decomp/fx_801c.c): identical shape to the other three — pure scene-camera CRs, DQA=6,
+// DQB=0, RTPS the world anchor at node+0x2C/+0x30, the same (SZ3>>2)+node+0x32 OT-key range gate,
+// then FUN_80027A4C(node+0x34, node+0x44). What is NEW is the scale: it is the first emitter with a
+// SEPARATE X and Y multiplier — scaleX = MAC0*(s16)node+0x48 >> 8 and scaleY = MAC0*(s16)node+0x4A
+// >> 8 (the guest writes both 0x1F800084 and 0x1F800088; the other three write only the X slot).
+constexpr uint32_t FN_XYSCALE   = 0x8002801Cu;   // scaleX/Y = MAC0 * node+0x48 / node+0x4A >> 8
+constexpr uint32_t kXScaleMul   = 0x48u;
+constexpr uint32_t kYScaleMul   = 0x4Au;
 
 }  // namespace
 
@@ -251,12 +262,18 @@ void Render::fxSpriteRender(uint32_t node) {
 
   ObjScope objScope(c, node);   // prim identity (dbg_node) = the emitting flame object
 
-  auto projectEmit = [&](int vx, int vy, int vz, int dqa, int32_t numer, int shift) {
+  // numerY defaults to numer — every emitter but FN_XYSCALE scales both axes by the same modulator.
+  auto projectEmit = [&](int vx, int vy, int vz, int dqa, int32_t numer, int shift,
+                         int32_t numerY, bool haveY = false) {
     ProjVtx pv; cam.project(vx, vy, vz, &pv);
     if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) return;   // same emit/skip gate the emitter applies
-    int32_t scale = SpriteAnchor::baseScale(H, pv.sz, dqa);
-    if (shift) scale = (int32_t)(((int64_t)scale * numer) >> shift);   // E5C / per-particle modulation
-    spriteRecordsEmit(rec0, clutPage, pv.px, pv.py, proj_pz_to_ord(pv.pz), scale, scale);
+    const int32_t base = SpriteAnchor::baseScale(H, pv.sz, dqa);
+    int32_t sx = base, sy = base;
+    if (shift) {                                            // E5C / per-particle / XY modulation
+      sx = (int32_t)(((int64_t)base * numer) >> shift);
+      sy = (int32_t)(((int64_t)base * (haveY ? numerY : numer)) >> shift);
+    }
+    spriteRecordsEmit(rec0, clutPage, pv.px, pv.py, proj_pz_to_ord(pv.pz), sx, sy);
   };
 
   if (rfn == FN_PARTICLE) {
@@ -267,17 +284,23 @@ void Render::fxSpriteRender(uint32_t node) {
       const uint32_t axy = c->mem_r32(p);
       const uint32_t az  = c->mem_r32(p + 4u);
       const int16_t  mod = (int16_t)c->mem_r16(p + kPartScale);
-      projectEmit((int16_t)axy, (int16_t)(axy >> 16), (int16_t)az, dqa, mod, 8);
+      projectEmit((int16_t)axy, (int16_t)(axy >> 16), (int16_t)az, dqa, mod, 8, 0);
     }
     return;
   }
 
-  // FN_UNIFORM / FN_BYTESCALE: one world anchor.
+  // FN_UNIFORM / FN_BYTESCALE / FN_XYSCALE: one world anchor.
   const uint32_t axy = c->mem_r32(node + kAnchorXY);
   const uint32_t az  = c->mem_r32(node + kAnchorZ);
+  if (rfn == FN_XYSCALE) {
+    const int16_t mx = (int16_t)c->mem_r16(node + kXScaleMul);
+    const int16_t my = (int16_t)c->mem_r16(node + kYScaleMul);
+    projectEmit((int16_t)axy, (int16_t)(axy >> 16), (int16_t)az, /*dqa=*/6, mx, 8, my, /*haveY=*/true);
+    return;
+  }
   const int numer = (rfn == FN_BYTESCALE) ? (int)(uint8_t)c->mem_r8(node + kE5cScale) : 0;
   const int shift = (rfn == FN_BYTESCALE) ? 4 : 0;
-  projectEmit((int16_t)axy, (int16_t)(axy >> 16), (int16_t)az, /*dqa=*/6, numer, shift);
+  projectEmit((int16_t)axy, (int16_t)(axy >> 16), (int16_t)az, /*dqa=*/6, numer, shift, 0);
 }
 
 // The FUN_800286CC emitter, rebuilt: read the effect node's own animation cursor + world anchor, project
