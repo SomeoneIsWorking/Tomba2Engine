@@ -45,6 +45,7 @@
 #include "game.h"
 #include "render.h"
 #include "render_queue.h"
+#include "mesh_quads.h"      // host-side Math::rotmat / trig for the rotated ring member
 #include "render_internal.h"   // ObjScope / cur_render_node / proj_pz_to_ord
 #include "effect_lerp.h"
 #include "fx_sprite.h"         // SpriteAnchor — the family's shared scale / OT-gate / depth-cue relations
@@ -112,6 +113,21 @@ constexpr uint32_t FN_PARTICLE  = 0x800281ECu;   // per-particle loop
 // SEPARATE X and Y multiplier — scaleX = MAC0*(s16)node+0x48 >> 8 and scaleY = MAC0*(s16)node+0x4A
 // >> 8 (the guest writes both 0x1F800084 and 0x1F800088; the other three write only the X slot).
 constexpr uint32_t FN_XYSCALE   = 0x8002801Cu;   // scaleX/Y = MAC0 * node+0x48 / node+0x4A >> 8
+// FIFTH member, ported 2026-07-28 (kanban #65 / portmap fx-sprite-emitter-b3a4). It reaches the same
+// writer 0x80027A4C but does NOT fit the scale-rule switch, because it is the only one that composes
+// a PER-NODE ROTATION instead of loading the pure scene camera: Math::rotmat from node+0x48, three
+// MVMVA column composes, then the node position through MVMVA + the camera translation. That is
+// exactly projComposeObjectHost(rotation, position), so it gets its own branch below.
+// It places FOUR sprites on a horizontal ring in the node's own rotated frame — the sweep is
+// `angle = loopCounter << 10` (verified from `sll r16, r18, 10` at 0x8002B620 with `addu r4, r16, r0`
+// in the delay slot; bound `slti r2, r18, 4` at 0x8002B770), i.e. 0/1024/2048/3072 over a 0..0xFFF
+// domain = the four cardinal directions. Radius comes from (trig * 0x19) >> 4 and the height is the
+// constant (s16)node+0x50 << 6.
+constexpr uint32_t FN_RINGROT   = 0x8002B3A4u;
+constexpr uint32_t kRingAngles  = 0x48u;   // 3 x s16 Euler angles for the node's own rotation
+constexpr uint32_t kRingHeight  = 0x50u;   // s16; << 6 gives the ring's constant Y
+constexpr int      kRingPoints  = 4;       // slti r18, 4
+constexpr int      kRingRadiusN = 0x19;    // (trig * 0x19) >> 4
 constexpr uint32_t kXScaleMul   = 0x48u;
 constexpr uint32_t kYScaleMul   = 0x4Au;
 
@@ -285,6 +301,32 @@ void Render::fxSpriteRender(uint32_t node) {
       const uint32_t az  = c->mem_r32(p + 4u);
       const int16_t  mod = (int16_t)c->mem_r16(p + kPartScale);
       projectEmit((int16_t)axy, (int16_t)(axy >> 16), (int16_t)az, dqa, mod, 8, 0);
+    }
+    return;
+  }
+
+  if (rfn == FN_RINGROT) {
+    // The node's own rotated frame, built host-side from the same LUT Math::rotmat reads.
+    int32_t M[3][3];
+    MeshQuads::rotmat(c, (int16_t)c->mem_r16(node + kRingAngles),
+                         (int16_t)c->mem_r16(node + kRingAngles + 2),
+                         (int16_t)c->mem_r16(node + kRingAngles + 4), M);
+    float Robj[3][3];
+    for (int i = 0; i < 3; i++)
+      for (int j = 0; j < 3; j++) Robj[i][j] = (float)M[i][j] / 4096.0f;
+    const uint32_t pxy = c->mem_r32(node + kAnchorXY);
+    const float Tobj[3] = { (float)(int16_t)pxy, (float)(int16_t)(pxy >> 16),
+                            (float)(int16_t)c->mem_r32(node + kAnchorZ) };
+    EObjXform ring; projComposeObjectHost(Robj, Tobj, &ring);
+    const int height = (int)(int16_t)c->mem_r16(node + kRingHeight) << 6;
+    const uint32_t ringH = (uint32_t)ring.H;
+    for (int i = 0; i < kRingPoints; i++) {
+      int sn, cs; MeshQuads::trig(c, i << 10, &sn, &cs);       // 0/1024/2048/3072 = the 4 cardinals
+      ProjVtx pv;
+      ring.project((cs * kRingRadiusN) >> 4, height, (sn * kRingRadiusN) >> 4, &pv);
+      if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) continue;  // the emitter's own per-point gate
+      const int32_t scale = SpriteAnchor::baseScale(ringH, pv.sz, /*dqa=*/6);
+      spriteRecordsEmit(rec0, clutPage, pv.px, pv.py, proj_pz_to_ord(pv.pz), scale, scale);
     }
     return;
   }

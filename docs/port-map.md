@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 16 verified · 8 ported-unverified · 3 todo · 1 blocked
+**Status:** 16 verified · 9 ported-unverified · 2 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -169,6 +169,18 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** ported-unverified
 - **notes:** PORTED 2026-07-28 as Render::shockwaveRingRender (game/render/fx_line.cpp), whitelisted in fieldObjectsRender behind the overlay first-instruction guard (0x27BDFFB8). Full RE in the file banner: uniform scale diag((s16)node+0x50 << 4), colour v = 0x80 - ((node+0x50 - 0x14)*0x80)/200 clamped, transform reduced algebraically to projComposeObjectHost(diag(scale), nodePos) so NO GTE is used, 15-point radius-256 XZ-plane ring at 0x8014C780 walked as 7 overlapping 3-point spans, each stroked TWICE with the guest's (+2,+1) offset. Two traps recorded there: the vertex loads are LWC2 (Ghidra shows them as opaque setCopReg) and the sibling 0x8002ECD8's tail is mis-rendered as a call to Trig::rsin.
 
+## fx-sprite-emitter-b3a4
+- **scope:** 0x8002B3A4 — the 5th 0x80027A4C sprite-family emitter, rotation-composed
+- **status:** ported-unverified
+- **notes:** PORTED 2026-07-28 as the FN_RINGROT branch of Render::fxSpriteRender (game/render/fx_sprite.cpp), whitelisted alongside the other sprite-family members in fieldObjectsRender.
+
+It is the fifth 0x80027A4C-family emitter but could not join the scale-rule switch: it is the only one that composes a PER-NODE ROTATION rather than loading the pure scene camera (Math::rotmat from node+0x48, three MVMVA column composes, node position through MVMVA + camera translation), which reduces to projComposeObjectHost(rotation, position). It places FOUR sprites on a horizontal ring in that rotated frame: angle = loopCounter << 10 over a 0..0xFFF domain = the four cardinals, radius (trig * 0x19) >> 4, constant height (s16)node+0x50 << 6, per-point OT-key gate, scaleX = scaleY = MAC0 at DQA=6.
+
+BOTH KEY FACTS VERIFIED FROM RAW INSTRUCTIONS, not the decompile: the sweep is  at 0x8002B620 with  in the delay slot feeding both trig calls, and the bound is  at 0x8002B770. Ghidra rendered the angle as a self-feeding , which is aliasing — and the tell was that the reading is degenerate (seeded at 0, sin(0)=0 forever, every iteration the same point).
+
+VERIFIED MECHANICALLY: 0x8002B3A4 no longer appears in the PSXPORT_DEBUG=nofx skip list on any of the three replays; weapon-impact-bucket / bucket-softlock / short-session all exit 0 with zero fatal / abort / recomp-MISS; the #64 banner frame at f240 is unchanged.
+NOT VERIFIED VISUALLY — needs a USER eyeball or a capture at a frame where it fires.
+
 ## world-line-ring-shadow
 - **scope:** render
 - **status:** todo
@@ -179,14 +191,3 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **scope:** The 0x8002ECD8 + 0x8002E680 effect emitter pair (type-0x20 node render fn, no producer)
 - **status:** todo
 - **notes:** CONTROLLER RE settled; EMITTER ANGULAR RULE IS UNRESOLVED — an earlier note in this entry claimed it is an 'iterated map a <- cos(a)'. TREAT THAT AS UNPROVEN, not as a finding.
-
-## fx-sprite-emitter-b3a4
-- **scope:** 0x8002B3A4 — the 5th 0x80027A4C sprite-family emitter, rotation-composed
-- **status:** todo
-- **notes:** RE COMPLETE 2026-07-28 (decompiled with `proj`; see instrument I016). Surfaced by PSXPORT_DEBUG=nofx on replays/bugs/weapon-impact-bucket.pad. 1036B, reaches the sprite record writer 0x80027A4C, so it is the FIFTH member of the family fxSpriteRender already owns four of — but it does NOT slot into the existing scale-rule switch, for one reason:
-
-IT COMPOSES A PER-NODE ROTATION FIRST. Unlike FN_UNIFORM / FN_BYTESCALE / FN_XYSCALE / FN_PARTICLE, which all load the PURE scene camera, this one builds a rotation from node+0x48 via Math::rotmat (0x80085480), composes it with the camera column-by-column (three MVMVA 0x49E012 ops), transforms the node position (node+0x2C/+0x30) with MVMVA 0x486012 and adds the camera translation — i.e. it is projComposeObjectHost(nodeRotation, nodePos), not projComposeCamera.
-
-THE SWEEP IS SETTLED, and this is the part worth trusting: the loop angle is  — verified from raw instructions,  at 0x8002B620 with  in the delay slot feeding both rcos @0x8002B624 and rsin @0x8002B644. With a 0..0xFFF angle domain that is 0, 1024, 2048, 3072 = the FOUR CARDINAL directions. Per step it writes x = (rcos(a) * 0x19) >> 4 into scratch 0x1F8000C0.lo and z = (rsin(a) * 0x19) >> 4 into 0x1F8000C4.lo, with 0x1F8000C0.hi = (s16)node+0x50 << 6 as a constant height, RTPSes that point, applies the usual (SZ3>>2) + node+0x32 OT-key gate, sets scaleX = scaleY = MAC0 (DQA=6), and calls FUN_80027A4C(node+0x34, node+0x44).
-
-So: four sprites placed on a horizontal ring of radius 25/16 units around the node, at a fixed height, each scaled by depth. PORT SHAPE: a new fxSpriteRender branch that uses projComposeObjectHost(rotmat(node+0x48), nodePos) instead of the camera-only transform, loops the four cardinal offsets, and reuses the existing record walk. MeshQuads::rotmat already provides the host-side rotation build.
