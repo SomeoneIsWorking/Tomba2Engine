@@ -71,3 +71,15 @@ All ten scope wrappers are generated from one FX_CONTROLLER_SCOPE macro in fx_me
 SMOKE (all with PSXPORT_DEBUG=fxmesh, 1200 frames): short-session exit 0 / 0 bad / 0 draws; bucket-softlock exit 0 / 0 bad / 74 draws; weapon-impact-bucket exit 0 / 0 bad / 10 draws; ingame-item-menu exit 0 / 0 bad / 0 draws. Zero fatal, zero abort, zero recomp-MISS across all four. The #64 banner frame at f240 is visually unchanged.
 
 WHAT IS PROVEN vs NOT: proven that these controllers now route their prims to a native producer instead of drawing nothing, and that nothing regressed on the replay set. NOT proven that each effect now looks correct — only two of the ten fire on the available replays (74 + 10 draws), and the other eight are simply unreached by any replay in the library. Those need either a scene that triggers them or a USER eyeball. Do not mark this card done on the smoke result alone.
+
+**2026-07-28:** 2026-07-28 METHOD AUDIT — the census's function-extent heuristic is unsound, but every decision it drove survives re-checking.
+
+The scans that produced this card's census sized each function as 'from its prologue to the next addiu sp,-N'. That over-runs past the function's own jr ra into whatever follows. Caught when Ghidra decompiled 0x8002ECD8 as tail-calling Trig::rsin (0x80083E80) — impossible for a sprite emitter — and the raw instructions showed the function actually ends at 0x8002EF58 with a JAL to 0x8002E680.
+
+Re-audited all 11 census functions with a sound detector (first jr ra + delay slot):
+  - MIS-SIZED: 0x80028B70 (heuristic 1564 vs real 672) and 0x80030D68 (916 vs 908). Both still write all of CR0-7 inside the CORRECT shorter extent, so their SCOPE-READY verdict is unaffected.
+  - 0x8002F36C, the one controller EXCLUDED from the batch: 424 bytes under both methods, genuinely zero ctc2 writes. The exclusion was right.
+  - The other eight: heuristic and real extents identical.
+So nothing shipped needs changing. Recorded as distrusted instrument I014 so the next census uses the jr-ra detector instead.
+
+ALSO, on 0x8002ECD8 (still unowned, next target): it is NOT a member of the 0x80027A4C sprite family. It has TWO modes — when node+3 == 0x91 it uses FIXED scale/OT values (0x200020 / 0x10000, key 4), otherwise the familiar scene-camera + DQA=6 RTPS of the node+0x2C/+0x30 anchor with scaleX = scaleY = MAC0 — and it publishes the same scratchpad block (0x1F800080 key, 84/88 scale, 8C anchor, 90 from node+0x58) before continuing into the rest of its 640-byte body. Porting it needs the emit path after that publish RE'd first (JAL 0x8002E680 near the end); do not assume the sprite-family shape.
