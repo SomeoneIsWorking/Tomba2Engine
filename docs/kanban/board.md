@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (26)
+## TODO (27)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
@@ -32,6 +32,7 @@
 - **#62 GAME OVER screen keeps drawing field geometry — a stray rope + garbled sprite over the black**  `bug,render` — 📎 docs/reference/issues/issue62_save_prompt_black_screen.png
 - **#63 Flying BIRD in area 0 is missing entirely under pc_render**  `bug,render` — 📎 docs/reference/issues/issue63_missing_flying_bird.png
 - **#64 Quest-update banner lerps its LETTERS but not the PLANKS they sit on**  `bug,render,fps60`
+- **#65 PSXPORT_DEBUG=nofx: name every type-0x20 node the native walk has no producer for**  `render,tooling`
 
 ## DOING (3)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
