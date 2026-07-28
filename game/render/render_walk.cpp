@@ -704,6 +704,11 @@ void Render::fieldObjectsRender() {
           // FUN_80113768 (A0A overlay, area 10) — found by the 22-area nofx sweep, not by any replay.
           c->rsub.stats.snObjs++;
           rend(c)->fxCuedSpriteRender(n);
+        } else if (rfn == 0x80110C14u && c->mem_r32(0x80110C14u) == 0x27BDFFC0u) {
+          // FUN_80110C14 (A0D overlay, area 13) — the 21-item orbiting sprite ring, also from the
+          // 22-area nofx sweep. Overlay-resident, so the same first-instruction guard (addiu sp,-64).
+          c->rsub.stats.snObjs++;
+          rend(c)->fxRingSpriteRender(n);
         } else if (rfn == 0x8012D9E8u && c->mem_r32(0x8012D9E8u) == 0x27BDFF98u) {
           // FUN_8012D9E8's sprite tail (its inline rotated-mesh pass is still unported — see
           // fx_sprite.cpp). Overlay-resident, so the same first-instruction guard.

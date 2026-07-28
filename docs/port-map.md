@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 16 verified · 11 ported-unverified · 1 todo · 1 blocked
+**Status:** 17 verified · 11 ported-unverified · 1 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -110,14 +110,6 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** game/render/fx_sprite.cpp
 - **notes:** CORRECTED 2026-07-28: only ONE of the three producers is verified, so this step is ported-unverified as a whole. The earlier note read 'VERIFIED: 228 emissions on walk-dust-puff and seesaw-weight' — every one of those 228 (456 across both replays) carries gate=-64, i.e. they are ALL Render::waterJetSpriteRender. Render::fxAltAnimSpriteRender (0x8012E868) and Render::fxRotSpriteTailRender (0x8012D9E8) are COLD across the entire 15-replay library: zero emissions, checked explicitly by their distinguishing gate/depth signature, not assumed.
 
-VERIFIED — waterJetSpriteRender (0x8013D454's zero branch): A/B with its whitelist entry compiled out gives 419-936 px differing on 4 of 6 sampled frames of walk-dust-puff; f510/f520 identical because the node is in its mesh mode there, which cross-checks that the two branches never both draw.
-
-PORTED-UNVERIFIED — fxAltAnimSpriteRender and fxRotSpriteTailRender. RE'd from their recompiled bodies and guarded by first-instruction residency checks, so they cost nothing while cold, but nothing has exercised them. Do not cite them as working.
-
-STILL UNPORTED — 0x8012D9E8's inline rotated-MESH pass, the bulk of that function: rotmat from node+0x54, column-scaled by the triple at node+0x68/0x6A/0x6C, composed with the scene camera, then a 36-byte-record loop that RTPTs each quad, runs AVSZ4 + the OT gate and links a 52-byte packet by hand. Only its sprite TAIL is ported. 0x8013B118 (A04) and 0x8010C1D8 (A0L) share that rotated shape and are NOT node render fns at all — they were found as call sites, not installs, so they need a different dispatch route.
-
-FALSE CALLER: 0x801346C0 is not a function; the recompiler decoded data as code there.
-
 ## render-mesh-flush
 - **scope:** mesh-flush 0x8003F174/0x8003EF9C
 - **status:** blocked
@@ -165,6 +157,12 @@ FALSE CALLER: 0x801346C0 is not a function; the recompiler decoded data as code 
 ## render-subpart-walk
 - **status:** verified
 - **notes:** Render::subPartWalk (FUN_8003F174): per-sub-part transform + geomblk submit; port_check PASS; wired with setter. LIVE (ovhit native=139 on the bucket capture). 2026-07-28: gained a DISPLAY-PASS half — Render::subPartCapture (subpart_capture.cpp) re-derives each sub-part's prims from its own geomblk + transform and pushes WqRecs, with Render::mSubPartDrawSuppress stopping the guest-time submit from also drawing them. That closed kanban #64: a text-label character's glyph cmd and its plank sub are the SAME pointer, that shared transform moves 10-15 units/axis every logic frame, and only the glyph half had a record — so letters lerped to the midpoint while their planks held the real-frame position. Verified 1740 same-frame glyph/plank objT pairs AGREE, 0 differ; picture-neutral at 26/76800 px on frame 240 of bucket-softlock.pad.
+
+## fx-ring-sprite-110c14
+- **scope:** render
+- **status:** verified
+- **owner:** game/render/fx_sprite.cpp
+- **notes:** Render::fxRingSpriteRender (FUN_80110C14, A0D overlay, area 13): 21-item orbiting sprite ring, the 6th FUN_80027A4C-family member and the first drawing MANY sprites from ONE node. RE'd from ov_a0d_gen_80110C14 (per-item table node+0x34, angle 1024+97i, radius (phase*spread>>5)+s16 node+0x32, per-item bob rsin(phase<<4)*bob>>12, gate FUN_800317CC(-50), record list 0x8009D5FC+(phase&0xF0) from a 16-slot MAIN.EXE bank, clut 0x8009D5F8). VERIFIED ON PIXELS: area 13 warp, skip 200 -> ON vs producer-removed OFF leg = 202 px differ at x[2..75] y[151..211], matching the producer's own logged screen extent; OFF leg 0 emissions and nofx names 80110C14, ON leg 610 emissions drawn=21/21. Legs from one source revision, distinct binary md5s, object-swap relink (shared source never edited).
 
 ## render-compose-tint-gate
 - **status:** ported-unverified

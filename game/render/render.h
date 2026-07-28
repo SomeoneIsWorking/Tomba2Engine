@@ -301,6 +301,11 @@ public:
   // before scaling rather than after. Found by the 22-area nofx sweep. Body in fx_sprite.cpp.
   void fxCuedSpriteRender(uint32_t node);
 
+  // fxRingSpriteRender (FUN_80110C14, A0D/area 13): the family member that draws 21 sprites from ONE
+  // node — an arc of items around the node's anchor, each with its own radius, bob phase and size,
+  // record list picked per item out of a 16-slot MAIN.EXE bank. Body in fx_sprite.cpp.
+  void fxRingSpriteRender(uint32_t node);
+
   // fxAnimSpriteRender: native producer for the SECOND world-anchored sprite family — emitter
   // FUN_800286CC + packet writer FUN_8002847C (36-byte, four-corner, per-vertex-coloured quad records
   // selected by an ANIMATION SCRIPT byte). This is Tomba's movement DUST PUFF (kanban #39) and the

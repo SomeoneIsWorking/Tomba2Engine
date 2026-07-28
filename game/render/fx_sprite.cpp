@@ -49,6 +49,8 @@
 #include "render_internal.h"   // ObjScope / cur_render_node / proj_pz_to_ord
 #include "effect_lerp.h"
 #include "fx_sprite.h"         // SpriteAnchor — the family's shared scale / OT-gate / depth-cue relations
+#include "game_ctx.h"          // trigOf(c)
+#include "trig.h"              // Trig::rsin / rcos — the ports of FUN_80083E80 / FUN_80083F50
 #include "cfg.h"
 
 // --- the family's shared relations (fx_sprite.h) ---------------------------------------------------
@@ -611,4 +613,108 @@ void Render::fxCuedSpriteRender(uint32_t node) {
   if (cfg_dbg("fxsprite"))
     cfg_logf("fxsprite", "cued node=%08X rec0=%08X anchor=(%.1f,%.1f) sz=%d scale=(%d,%d) ir0=%d",
              node, rec0, (double)pv.px, (double)pv.py, pv.sz, sx, sy, ir0);
+}
+
+// ── FUN_80110C14 (A0D overlay, area 13) — the ORBITING SPRITE RING ────────────────────────────────
+// The sixth FUN_80027A4C-family member, and the first that draws MANY sprites from ONE node: 21 items
+// ride an arc around the node's own world anchor, each with its own radius, vertical bob and size.
+// Surfaced by the 22-area nofx sweep (no replay in the library reaches it) — same provenance as
+// fxCuedSpriteRender above.
+//
+// RE from ov_a0d_gen_80110C14 (generated/ov_a0d_shard_1.c:3370). The opening is the family standard —
+// FUN_800329E0(6) for the scene camera and DQA, then *(u32*)0x1F800090 = 0 so IR0 is the identity and
+// every item's record colours pass through unchanged. What is new is the per-item table:
+//
+//   node+0x34 holds 21 four-byte items { spread, bob, phase, size }, and for item i:
+//     angle  = 1024 + 97*i                                  PSX angle units, 4096 = one turn
+//     radius = (phase * spread) >> 5 + (s16)node+0x32       node+0x32 is a base RADIUS here, not an
+//                                                           OT bias — this controller's own layout
+//     VX = node+0x2C + (rsin(angle) * radius >> 12)
+//     VZ = node+0x30 + (rcos(angle) * radius >> 12)
+//     VY = node+0x2E - (rsin(phase << 4) * bob >> 12)       each item bobs on its OWN phase, which is
+//                                                           why the ring never looks rigid
+//     FUN_800317CC(-50) gates the OT key, then the MAC0 it publishes is scaled by `size` >> 7 and
+//     written to BOTH axis slots (0x1F800084/88), so items are uniformly scaled.
+//     The record list is picked by the phase byte's HIGH NIBBLE out of a 16-slot bank in MAIN.EXE:
+//     0x8009D5FC + (phase & 0xF0), 16 bytes per slot = two 8-byte records, terminal bit on the second.
+//
+// The guest builds each anchor as three 16-bit stores and lets them wrap, so the arithmetic is done in
+// uint16_t here and read back signed — the same treatment fx_vortex.cpp's particle sphere gives its
+// ring points. Read-only: nothing here writes guest memory.
+constexpr uint32_t kRingTable     = 0x34u;        // 21 x { u8 spread, u8 bob, u8 phase, u8 size }
+constexpr uint32_t kRingItemSize  = 4u;
+constexpr int      kRingItems     = 21;
+constexpr uint32_t kRingAnchorVX  = 0x2Cu;        // three consecutive u16: VX, VY at +2, VZ at +4
+constexpr uint32_t kRingBaseRadius = 0x32u;       // s16 radius added to every item's spread
+constexpr int      kRingAngle0    = 1024;
+constexpr int      kRingAngleStep = 97;
+constexpr int      kRingGateBias  = -50;          // the emitter's authored near bias, in OT buckets
+constexpr int      kRingDqa       = 6;
+constexpr uint32_t kRingRecBank   = 0x8009D5FCu;  // MAIN.EXE-resident record bank, 16-byte slots
+constexpr uint32_t kRingClutPtr   = 0x8009D5F8u;  // -> the bank's shared clut (lo16) | tpage (hi16)
+
+void Render::fxRingSpriteRender(uint32_t node) {
+  Core* c = mCore;
+
+  EObjXform cam; projComposeCamera(&cam);
+  const uint32_t H = (uint32_t)cam.H;
+  const uint32_t clutPage = c->mem_r32(kRingClutPtr);
+  const int baseRadius = (int16_t)c->mem_r16(node + kRingBaseRadius);
+  const uint16_t anchorX = c->mem_r16(node + kRingAnchorVX);
+  const uint16_t anchorY = c->mem_r16(node + kRingAnchorVX + 2u);
+  const uint16_t anchorZ = c->mem_r16(node + kRingAnchorVX + 4u);
+  const Trig& trig = trigOf(c);
+
+  // The authored near bias, in the units the rest of this file uses: the gate states it in OT buckets
+  // and the bucket key is SZ3>>2, so one unit is four of view depth. -50 is the same value the impact
+  // starburst carries, and it means the same thing — draw the ring in front of what it surrounds.
+  const float nearPz = proj_near_pz();
+
+  ObjScope objScope(c, node);   // prim identity for the whole ring = the emitting effect object
+  int drawn = 0;
+  float minPx = 0, maxPx = 0, minPy = 0, maxPy = 0;   // screen extent of what was actually emitted
+  for (int i = 0; i < kRingItems; i++) {
+    const uint32_t item = node + kRingTable + (uint32_t)i * kRingItemSize;
+    const uint32_t spread = c->mem_r8(item + 0u);
+    const uint32_t bob    = c->mem_r8(item + 1u);
+    const uint32_t phase  = c->mem_r8(item + 2u);
+    const uint32_t size   = c->mem_r8(item + 3u);
+
+    const int angle  = (int16_t)(kRingAngle0 + kRingAngleStep * i);
+    const int radius = (int)(((int32_t)(phase * spread)) >> 5) + baseRadius;
+
+    const int32_t offX = (int32_t)(((int64_t)trig.rsin(angle) * radius) >> 12);
+    const int32_t offZ = (int32_t)(((int64_t)trig.rcos(angle) * radius) >> 12);
+    const int32_t offY = (int32_t)(((int64_t)trig.rsin((int)(phase << 4)) * (int32_t)bob) >> 12);
+
+    const int16_t vx = (int16_t)(uint16_t)(anchorX + (uint16_t)offX);
+    const int16_t vy = (int16_t)(uint16_t)(anchorY - (uint16_t)offY);
+    const int16_t vz = (int16_t)(uint16_t)(anchorZ + (uint16_t)offZ);
+
+    ProjVtx pv;
+    cam.project(vx, vy, vz, &pv);
+    if (!SpriteAnchor::otKeyInRange(pv.sz, kRingGateBias)) continue;   // the emitter's own skip
+
+    const int32_t scale = (int32_t)(((int64_t)SpriteAnchor::baseScale(H, pv.sz, kRingDqa) * size) >> 7);
+    const uint32_t recList = kRingRecBank + (phase & 0xF0u);
+
+    float pz = pv.pz + (float)(4 * kRingGateBias);
+    if (pz < nearPz) pz = nearPz;
+    spriteRecordsEmit(recList, clutPage, pv.px, pv.py, proj_pz_to_ord(pz), scale, scale, 0, nullptr);
+    if (!drawn) { minPx = maxPx = pv.px; minPy = maxPy = pv.py; }
+    else {
+      if (pv.px < minPx) minPx = pv.px;  if (pv.px > maxPx) maxPx = pv.px;
+      if (pv.py < minPy) minPy = pv.py;  if (pv.py > maxPy) maxPy = pv.py;
+    }
+    drawn++;
+  }
+
+  // Log the SCREEN extent, the way the rest of the family logs its anchor — a ring that passes the OT
+  // gate can still land wholly off-frame, and world coordinates cannot tell you which happened.
+  if (cfg_dbg("fxsprite"))
+    cfg_logf("fxsprite", "ring node=%08X world=(%d,%d,%d) baseR=%d clut=%08X drawn=%d/%d "
+                         "screen x[%.1f..%.1f] y[%.1f..%.1f]",
+             node, (int)(int16_t)anchorX, (int)(int16_t)anchorY, (int)(int16_t)anchorZ,
+             baseRadius, clutPage, drawn, kRingItems,
+             (double)minPx, (double)maxPx, (double)minPy, (double)maxPy);
 }
