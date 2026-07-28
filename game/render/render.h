@@ -296,6 +296,10 @@ public:
   void fxAltAnimSpriteRender(uint32_t node);
   void waterJetSpriteRender(uint32_t node);
   void fxRotSpriteTailRender(uint32_t node);
+  // fxCuedSpriteRender (FUN_80113768, A0A/area 10): the family member that DRIVES the writer's depth
+  // cue (IR0 = node[7] << 5, far colour black) instead of programming the identity, and shifts MAC0
+  // before scaling rather than after. Found by the 22-area nofx sweep. Body in fx_sprite.cpp.
+  void fxCuedSpriteRender(uint32_t node);
 
   // fxAnimSpriteRender: native producer for the SECOND world-anchored sprite family — emitter
   // FUN_800286CC + packet writer FUN_8002847C (36-byte, four-corner, per-vertex-coloured quad records

@@ -4308,3 +4308,56 @@ the third word is a small integer, not an instruction. The recompiler decoded DA
 the "call to 0x800328EC" inside it is a coincidence of the byte stream. So the family has FIVE real
 callers, not six. **Check a suspicious gen body against the dump bytes before believing its call
 list** — `generated/` is ground truth for GTE-bearing code, but only where the seeding was right.
+
+## The 22-AREA sweep: the coverage bridge the replay library could not be (2026-07-28)
+
+**The problem.** `nofx` names what a RUN skipped, and the 15-replay library reports a clean census —
+but every replay walks the same few areas. `render_fns.py` (the static counterpart) lists candidates
+no replay visits, and the two instruments were left disagreeing with no way to settle it.
+
+**The settled warp recipe in `docs/areas.md` settles it.** `newgame; skip 3000; warp N; skip 600`
+over all 22 areas, with `nofx,fxsprite,fxring`. Every area exits 0 with zero abort/fatal/miss, and the
+census union is:
+
+| render fn | areas | note |
+|---|---|---|
+| `0x8002AB5C`, `0x8013CDD4` | all 22 | terrain + widescreen margin, owned by another route |
+| `0x8013B118` | 4 | rotated mesh + sprite, A04 |
+| `0x801113B4` | 3 | 12 lines, tail-calls `0x80110B00` — no render leaf |
+| `0x80116904` | 8 | A08, 260 lines, no known render leaf |
+| `0x80113768` | 10 | **ported this session** — see below |
+| `0x801110BC` | 11 | A0B, 184 lines |
+| `0x80110C14` | 13 | A0D, sprite writer + gate |
+| `0x80110CA4` | 14 | A0E, 424 lines |
+| `0x8010C7F4`, `0x8010C1D8` | 21 | A0L, four-corner writer / anim-sprite wrapper |
+
+**EIGHT render fns no replay in the library has ever reached.** At most two gaps per area, so the
+whitelist is in good shape — but "the census is clean" was a statement about the replays, not the
+game, and this is the measurement that shows the difference. The dumps agree: `0x8013B118`'s node is
+`vis=1` in the area-4 capture and `0x8012D9E8`'s is `vis=1` in area 1.
+
+**A CORRECTION.** The previous entry said `0x8013B118` and `0x8010C1D8` "are not node render fns at
+all — they were found as CALL SITES, not installs, so they need a different dispatch route". That is
+wrong. Scanning the dumps for their addresses as stored words finds `0x8013B118` at `0x800EDCA8` —
+which is `node+0x18` of node `0x800EDC90`, **type 0x20, vis=1** — and the area sweep then dispatched
+it through the ordinary whitelist path. `0x8010C1D8` is absent from every captured dump but appears
+in area 21, so it is equally reachable. `render_fns.py` missed both because their install copies a
+pointer out of a table rather than materialising a constant, which is the limit that tool already
+documents. **The whitelist is the right route for all of them.**
+
+**Ported from the sweep: `FUN_80113768` (A0A, area 10).** A fifth member of the `FUN_80027A4C`
+family and the first that actually DRIVES the writer's depth cue. Three things distinguish it: its
+writer `FUN_800328BC` is itself a wrapper (`FUN_80027A4C(list, node+0x44 word)`), so
+`spriteRecordsEmit` already owned the record walk and only dispatch was missing; the scale shifts
+MAC0 **before** multiplying rather than after (same algebra, different rounding, reproduced in the
+guest's order); and IR0 = `(u8)node[7] << 5` with the far colour zeroed, so its record colours fade
+toward black under an animator. The gate's fail path (`FUN_80031780`) only advances the node's own
+record cursor — guest state, no drawing — so a skipped emit correctly draws nothing.
+
+**Evidence, and what is NOT evidence.** After the port, `0x80113768` leaves the area-10 `nofx` list
+and the producer emits 70 times at screen (160,145). The pixel A/B is **NOT DONE**: the build broke
+mid-run because a concurrent session was editing `game/core/game_config.cpp`, so leg B re-ran leg A's
+binary and reported "0 pixels changed". That zero is an artefact of the harness, not a measurement —
+recorded here because the identical failure produced a bogus all-zero result earlier today, and the
+lesson (instrument I019: attribute the emission before believing the pixels) only works if the near
+misses get written down too.

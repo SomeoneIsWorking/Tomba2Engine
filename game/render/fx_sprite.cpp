@@ -263,6 +263,13 @@ constexpr uint8_t  kRotTailAltSel    = 8u;
 constexpr int      kRotTailShift     = 11;
 constexpr int      kRotTailDepthBias = -100;
 
+// FUN_80113768's fields (the depth-cued member; see the producer for the RE).
+constexpr uint32_t kCuedRecList  = 0x34u;   // same slot as the family's kRecList, reached via 0x800328BC
+constexpr uint32_t kCuedScaleX   = 0x48u;   // s16 multipliers, applied to MAC0 >> 8
+constexpr uint32_t kCuedScaleY   = 0x4Au;
+constexpr uint32_t kCuedCueByte  = 0x07u;   // u8 -> IR0 = byte << 5, the depth-cue strength
+constexpr int      kCuedCueShift = 5;
+
 // Walk the 36-byte records at rec0, sizing each corner about the native-projected float anchor. Same
 // float-corner / drawWorldQuad treatment as emitSpriteRecords (has_xyf = 1 -> tier1-owned -> re-drawn
 // under the lerped camera at the interp present). Read-only.
@@ -561,4 +568,47 @@ void Render::fxRotSpriteTailRender(uint32_t node) {
   a.rec0 = c->mem_r32(table + (uint32_t)idx * 4u);
   a.numerX = a.numerY = (uint32_t)(uint16_t)c->mem_r16(node + kRotTailScale);
   altSpriteEmit(a);
+}
+
+// FUN_80113768 (A0A overlay, area 10) — surfaced by the 22-AREA nofx sweep, which no replay in the
+// library reaches. A fifth member of the FUN_80027A4C family, and the first one that actually DRIVES
+// the writer's depth cue instead of programming the identity.
+//
+// RE from ov_a0a_gen_80113768. Standard family opening — FUN_800329E0(6) for the scene camera and
+// DQA, the packed anchor at node+0x2C/+0x30, FUN_800317CC gated on the node's own (s16)node+0x32 —
+// then three things worth naming:
+//   * the writer is FUN_800328BC, which is itself a wrapper: FUN_80027A4C(recList, node+0x44 word).
+//     So spriteRecordsEmit already owns the record walk; only the dispatch was missing.
+//   * the scale is MAC0 >> 8 FIRST, then multiplied by (s16)node+0x48 / node+0x4A — the reverse order
+//     from FN_XSCALE's multiply-then-shift. Same algebra, different rounding, so it is reproduced in
+//     the order the guest performs it rather than folded.
+//   * IR0 = (u8)node[7] << 5 with the far colour zeroed, i.e. a REAL depth cue: this effect fades its
+//     record colours toward black under an animator, which is exactly what the ir0 parameter of
+//     spriteRecordsEmit exists for and what every other member leaves at the identity.
+// The gate's FAIL path calls FUN_80031780, which only advances the node's own record cursor at
+// node+0x38 — guest state, no drawing — so a skipped emit correctly produces no picture here.
+void Render::fxCuedSpriteRender(uint32_t node) {
+  Core* c = mCore;
+  const uint32_t rec0 = c->mem_r32(node + kCuedRecList);
+  if (!rec0) return;                                  // the guest's own `if (list == 0) return`
+
+  EObjXform cam; projComposeCamera(&cam);
+  const int bias = (int16_t)c->mem_r16(node + kOtBias);
+  const uint32_t axy = c->mem_r32(node + kAnchorXY), az = c->mem_r32(node + kAnchorZ);
+  ProjVtx pv;
+  cam.project((int16_t)axy, (int16_t)(axy >> 16), (int16_t)az, &pv);
+  if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) return;
+
+  const int32_t base = SpriteAnchor::baseScale((uint32_t)cam.H, pv.sz, 6) >> 8;   // shift, THEN scale
+  const int32_t sx = base * (int32_t)(int16_t)c->mem_r16(node + kCuedScaleX);
+  const int32_t sy = base * (int32_t)(int16_t)c->mem_r16(node + kCuedScaleY);
+  const int32_t ir0 = (int32_t)(uint32_t)c->mem_r8(node + kCuedCueByte) << kCuedCueShift;
+  const int32_t farBlack[3] = { 0, 0, 0 };            // the guest zeroes CR21-23 before the writer
+
+  ObjScope objScope(c, node);
+  spriteRecordsEmit(rec0, c->mem_r32(node + kClutPage), pv.px, pv.py, proj_pz_to_ord(pv.pz),
+                    sx, sy, ir0, farBlack);
+  if (cfg_dbg("fxsprite"))
+    cfg_logf("fxsprite", "cued node=%08X rec0=%08X anchor=(%.1f,%.1f) sz=%d scale=(%d,%d) ir0=%d",
+             node, rec0, (double)pv.px, (double)pv.py, pv.sz, sx, sy, ir0);
 }

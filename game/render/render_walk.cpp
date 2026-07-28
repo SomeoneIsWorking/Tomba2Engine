@@ -700,6 +700,10 @@ void Render::fieldObjectsRender() {
           // project the node's own world anchor(s) natively so the flame lerps at fps60 (fx_sprite.cpp).
           c->rsub.stats.snObjs++;
           rend(c)->fxSpriteRender(n);
+        } else if (rfn == 0x80113768u && c->mem_r32(0x80113768u) == 0x27BDFFD8u) {
+          // FUN_80113768 (A0A overlay, area 10) — found by the 22-area nofx sweep, not by any replay.
+          c->rsub.stats.snObjs++;
+          rend(c)->fxCuedSpriteRender(n);
         } else if (rfn == 0x8012D9E8u && c->mem_r32(0x8012D9E8u) == 0x27BDFF98u) {
           // FUN_8012D9E8's sprite tail (its inline rotated-mesh pass is still unported — see
           // fx_sprite.cpp). Overlay-resident, so the same first-instruction guard.
