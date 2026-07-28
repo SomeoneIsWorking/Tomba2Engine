@@ -88,6 +88,22 @@ void Render::subPartWalk(Core* c) {
       gte_write_ctrl(6, c->mem_r32(xf + 24));
       gte_write_ctrl(7, c->mem_r32(xf + 28));
 
+      // DISPLAY-PASS capture for kanban #64/#16/#23 — WRITTEN AND MEASURED, DELIBERATELY NOT WIRED.
+      // `Render::subPartCapture(c, node, sub)` (subpart_capture.cpp) decodes this sub-part's geomblk
+      // and pushes one WqRec per prim so the signboard PLANKS interpolate like the glyphs. It works —
+      // but calling it HERE double-draws, and the A/B proves it: on replay frame 240 of
+      // replays/bugs/bucket-softlock.pad (the "Go to the Burning House!" banner), enabling the call
+      // changes exactly 26 of 76800 pixels, all inside the banner band x61..252 y66..86. ~156 extra
+      // quads that move only 26 pixels are a SECOND COPY landing on top of the first: the sub-parts
+      // are ALREADY drawn at guest time (func_8003F698 -> the native GT3/GT4 submitters), so on a real
+      // frame the two copies coincide and only edge rounding differs — and on an INTERPOLATED frame
+      // only the WqRec copy would move, ghosting the planks. That is worse than the bug.
+      // PREREQUISITE before wiring: suppress the guest-time submit for sub-parts the display pass has
+      // taken over, the way Render::gt3gt4 already skips its projection+submit when the transform was
+      // captured upstream (submit.cpp, the fps60 mWorldCaptureOnly / rqRedirect tier-1 path). Capture
+      // and guest-time draw must be mutually exclusive per prim, not additive.
+      (void)&Render::subPartCapture;
+
       cursor += 4;
       c->r[4] = c->mem_r32(sub + SUB_GEOMBLK);
       c->r[5] = c->mem_r32(OT_TABLE_PTR);

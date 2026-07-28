@@ -505,6 +505,17 @@ public:
   // node[+9] is the do/while bound. See render/subpart_walk.cpp.
   static void subPartWalk(Core* c);
 
+  // subPartCapture: the DISPLAY-PASS half of subPartWalk (kanban #64/#16/#23). subPartWalk itself is
+  // a faithful substrate mirror — it loads each sub-part's transform into the GTE and submits its
+  // geomblk through the still-substrate func_8003F698, which produces guest packets and NOTHING the
+  // display pass can draw or interpolate. So on a text-label node the GLYPHS (which textLabelEmit
+  // captures as WqRecs) lerped at 60fps while the BOARDS they sit on stepped at 30Hz — the letters
+  // visibly drift off their planks. This decodes the sub-part's geomblk host-side and pushes one
+  // WqRec per prim, using the same corners + factored-world-transform contract the glyph pass uses,
+  // so both halves of the object come from state and interpolate together. READ-ONLY: guest memory
+  // is only read, no c->r[] is touched, and it is skipped on the oracle leg.
+  static void subPartCapture(Core* c, uint32_t node, uint32_t sub);
+
   // sharedTransformWalk (FUN_8003F07C): the sibling of subPartWalk — loads ONE transform (the frame's
   // view matrix from scratchpad 0x1F8000F8) and submits every sub-part under it. F174 is the
   // articulated case, this is the rigid one. See render/subpart_walk_shared.cpp.

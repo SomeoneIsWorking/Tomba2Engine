@@ -3997,6 +3997,23 @@ Both were found by reading the port's own source and the binary — no live driv
 - **same class as kanban #16/#23** (verbatim-presented 2D/mesh vs lerped world), and the fix is the
   one those cards already name: give the mesh half a display-pass producer so board and letters come
   from the same state and interpolate together. NOT a matcher, NOT an anchor/stamp — banned.
+- **CORRECTION + the blocker, measured 2026-07-28.** "The mesh half produces only guest packets,
+  nothing the display pass can draw" is wrong about the DRAWING: the sub-parts *are* drawn, natively,
+  at guest time (`func_8003F698` → the native GT3/GT4 submitters). What they lack is a display-pass
+  RECORD, which is why they do not lerp. This matters because it makes the obvious fix wrong:
+  `Render::subPartCapture` (game/render/subpart_capture.cpp) was written, fires on the right object
+  (`PSXPORT_DEBUG=subpartcap` → node `800FB218`, ~26 sub-parts, geomblk `8015CA04`, gt3=0 gt4=6 —
+  six quads per PLANK, ~156 for the banner), and wiring it into `subPartWalk` changes exactly
+  **26 of 76800 pixels** on replay frame 240 of `bucket-softlock.pad`, all inside the banner band
+  `x61..252 y66..86`. 156 extra quads moving 26 edge pixels is a SECOND COPY landing on the first —
+  coincident on a real frame, and on an INTERPOLATED frame only the WqRec copy would move, ghosting
+  the planks. So the producer is committed **compiled but unwired**, and the prerequisite is:
+  capture and guest-time draw must be MUTUALLY EXCLUSIVE per prim. `Render::gt3gt4` already has that
+  pattern (it skips its own projection+submit when the transform was captured upstream — the fps60
+  `mWorldCaptureOnly` / `rqRedirect` tier-1 path); subPartWalk's sub-parts need the same.
+- **the repro is deterministic and cheap:** `PSXPORT_PAD_REPLAY=replays/bugs/bucket-softlock.pad
+  PSXPORT_PAD_SHOT_AT=240` puts the "Go to the Burning House!" banner on screen at a fixed frame, so
+  any future attempt can A/B itself in one run instead of driving to a sign.
 - **ONE string table, and the banner is in it — corrected 2026-07-28.** An earlier pass in this
   same session claimed the quest-item names lived in a SECOND table at `0x800A3660` with an
   overlay-resident reader, and therefore that the banner might be a different emitter. That was
