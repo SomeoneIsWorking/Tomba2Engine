@@ -4151,3 +4151,40 @@ could contradict. Attribute the emission before believing the pixels.
 
 **This closes the kanban #15 census.** All 20 callers of `FUN_80027768` now have an owner or a scope;
 `0x8002AE0C` remains an orphan leaf with no call site.
+
+## The composite-dispatcher class has exactly ONE member — and a static render-fn scanner (2026-07-28)
+
+Two follow-ups to the `0x80033080` finding above, one a negative result and one a new tool.
+
+**NEGATIVE RESULT: there are no more composite render dispatchers.** The worry after #15 was that a
+render fn which is nothing but `{ jal A; jal B; }` is invisible to BOTH a shared-writer census and a
+codemap ownership query, so there might be several. Scanned every distinct code pointer stored
+anywhere in a field dump (3231 in MAIN.EXE, plus the overlay window) for that exact shape — a
+function that opens a frame, contains only `jal`s, and returns. Results:
+
+  MAIN.EXE   0x8001DB38 -> 0x8001D940 + 0x80051FB4   area-data load, not render
+             0x80033080 -> 0x80027E5C + 0x800288AC   THE impact burst, already fixed
+             0x80042690 -> 0x80070F00 + 0x800708B4   sound command, not render
+  overlays   0x801231B0 -> 0x8004D650 + Inventory::abGate   an item gate, not render
+             0x8013ED08, 0x8013EF58                  effect-mesh controllers, wired the same day
+
+So the class is real but has ONE render member and it is handled. **Do not go looking again** — the
+scan is cheap to re-run if the binary ever changes, but as of this commit the answer is one.
+
+**NEW TOOL: `tools/render_fns.py`.** `nofx` names the render fns a RUN skipped, which means a quiet
+`nofx` only ever says "this replay did not reach one", never "the whitelist is complete". This is the
+static counterpart: it finds every `sw <code-address>, 0x18(rN)` — every fn the game is CAPABLE of
+installing on a node. Over 8 field dumps it reports 15, of which 4 are whitelisted, 4 are known
+render fns owned by a controller SCOPE instead, 1 was the water jet (a real gap, fixed), and 6 are
+unconfirmed candidates for per-fn RE: `0x8012D9E8`, `0x8012E5F8`, `0x8012E868`, `0x8012E974`,
+`0x8013788C`, and the two SDK-band `0x800889F4` / `0x8008E410`.
+
+**Two instrument lessons paid for in this tool.** The first version cleared its register map on every
+branch and found almost nothing; clearing only the ABI's caller-saved set is what makes a fn
+materialised into an s-register visible. The second version then reported **68** fns of which about
+fifty were fiction — page-aligned `lui`-only values (`0x80100000`), unaligned words (`0x8009D85F`),
+and libgpu/libcd callback slots that merely live at `+0x18`. Requiring the target to begin with an
+`addiu sp, sp, -N` prologue removes all three classes at once. And the survivors were cross-checked
+against the RECOMPILER's function boundaries in `generated/`, not Ghidra's — instrument I016 records
+that the `bucket_f470` project mis-sizes functions, and it renders four of these as mid-function
+fragments (`unaff_s0` everywhere), which would have read as "not real" and thrown away good hits.
