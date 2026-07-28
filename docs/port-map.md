@@ -169,9 +169,6 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** ported-unverified
 - **notes:** PORTED 2026-07-28 as Render::shockwaveRingRender (game/render/fx_line.cpp), whitelisted in fieldObjectsRender behind the overlay first-instruction guard (0x27BDFFB8). Full RE in the file banner: uniform scale diag((s16)node+0x50 << 4), colour v = 0x80 - ((node+0x50 - 0x14)*0x80)/200 clamped, transform reduced algebraically to projComposeObjectHost(diag(scale), nodePos) so NO GTE is used, 15-point radius-256 XZ-plane ring at 0x8014C780 walked as 7 overlapping 3-point spans, each stroked TWICE with the guest's (+2,+1) offset. Two traps recorded there: the vertex loads are LWC2 (Ghidra shows them as opaque setCopReg) and the sibling 0x8002ECD8's tail is mis-rendered as a call to Trig::rsin.
 
-VERIFIED MECHANICALLY: 152 producer calls on replays/bugs/bucket-softlock.pad; 0x8013E08C no longer appears in the PSXPORT_DEBUG=nofx skip list; bucket-softlock / weapon-impact-bucket / short-session all exit 0 with zero fatal / abort / recomp-MISS; the #64 banner frame at f240 is unchanged.
-NOT VERIFIED VISUALLY: I could not positively identify the ring in stills around the frames where it fires (it is brief and thin, and the pickup scene is busy). Status stays ported-unverified until it is seen — either a targeted capture at a firing frame or a USER eyeball.
-
 ## world-line-ring-shadow
 - **scope:** render
 - **status:** todo
@@ -181,4 +178,14 @@ NOT VERIFIED VISUALLY: I could not positively identify the ring in stills around
 ## fx-emitter-ecd8-e680
 - **scope:** The 0x8002ECD8 + 0x8002E680 effect emitter pair (type-0x20 node render fn, no producer)
 - **status:** todo
-- **notes:** RECON DONE 2026-07-28, port not started. Surfaced by PSXPORT_DEBUG=nofx (kanban #65) as a type-0x20 node whose render fn is on no whitelist — and unlike 0x80033080 (a dispatcher whose two halves are both owned) this one is a REAL gap: nothing draws it.
+- **notes:** RE CORRECTED 2026-07-28 — the earlier note was built on a TRUNCATED decompile (see instrument I016: the bucket_f470 Ghidra project silently truncates MAIN.EXE-resident functions; re-run against `proj`).
+
+WHAT 0x8002ECD8 ACTUALLY DOES. Same two modes as before (node+3 == 0x91 takes fixed scale/OT values; otherwise scene-camera + DQA=6 RTPS of the node+0x2C/+0x30 anchor with the usual OT-key range gate, publishing 0x1F800080/84/88/8C). What the truncated decompile HID is the whole tail — it computes the emit call's arguments from an ANGLE:
+    a      = (u8)node+5 << 6
+    h0     = ((rsin(a) << 5) >> 12) + 0x30
+    w0     = h0 - ((rcos(a) << 5) >> 12)
+    halve each (x - (s16)x/2), and halve AGAIN when the global (s16)0x800E7FFE is negative
+    FUN_8002E680(w, h, colourDim = (node+100) >> 1 & 0x7F7F7F, colourFull = node+100)
+So this is a PULSING ELLIPSE/FLASH: the animator byte node+5 drives both radii through sin/cos off a 0x30 base, and node+100 supplies a full and a half-brightness colour word. That also explains the rsin/rcos x3 inside 0x8002E680 — it steps angles to walk the ellipse outline.
+
+STILL TO DO for the port: 0x8002E680's own 1624-byte body (now decompilable via `proj`). Its dependencies are all owned already (Trig::rsin 0x80083E80, Trig::rcos 0x80083F50, the OT/DR_MODE helper 0x80083DE0), and the arg contract above is settled, so it is RE-ready with no unknowns above it.
