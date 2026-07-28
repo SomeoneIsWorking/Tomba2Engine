@@ -174,13 +174,6 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** ported-unverified
 - **notes:** PORTED 2026-07-28 as the FN_RINGROT branch of Render::fxSpriteRender (game/render/fx_sprite.cpp), whitelisted alongside the other sprite-family members in fieldObjectsRender.
 
-It is the fifth 0x80027A4C-family emitter but could not join the scale-rule switch: it is the only one that composes a PER-NODE ROTATION rather than loading the pure scene camera (Math::rotmat from node+0x48, three MVMVA column composes, node position through MVMVA + camera translation), which reduces to projComposeObjectHost(rotation, position). It places FOUR sprites on a horizontal ring in that rotated frame: angle = loopCounter << 10 over a 0..0xFFF domain = the four cardinals, radius (trig * 0x19) >> 4, constant height (s16)node+0x50 << 6, per-point OT-key gate, scaleX = scaleY = MAC0 at DQA=6.
-
-BOTH KEY FACTS VERIFIED FROM RAW INSTRUCTIONS, not the decompile: the sweep is  at 0x8002B620 with  in the delay slot feeding both trig calls, and the bound is  at 0x8002B770. Ghidra rendered the angle as a self-feeding , which is aliasing — and the tell was that the reading is degenerate (seeded at 0, sin(0)=0 forever, every iteration the same point).
-
-VERIFIED MECHANICALLY: 0x8002B3A4 no longer appears in the PSXPORT_DEBUG=nofx skip list on any of the three replays; weapon-impact-bucket / bucket-softlock / short-session all exit 0 with zero fatal / abort / recomp-MISS; the #64 banner frame at f240 is unchanged.
-NOT VERIFIED VISUALLY — needs a USER eyeball or a capture at a frame where it fires.
-
 ## world-line-ring-shadow
 - **scope:** render
 - **status:** todo
@@ -190,4 +183,20 @@ NOT VERIFIED VISUALLY — needs a USER eyeball or a capture at a frame where it 
 ## fx-emitter-ecd8-e680
 - **scope:** The 0x8002ECD8 + 0x8002E680 effect emitter pair (type-0x20 node render fn, no producer)
 - **status:** todo
-- **notes:** CONTROLLER RE settled; EMITTER ANGULAR RULE IS UNRESOLVED — an earlier note in this entry claimed it is an 'iterated map a <- cos(a)'. TREAT THAT AS UNPROVEN, not as a finding.
+- **notes:** RE COMPLETE 2026-07-28 — the emitter's angular rule is SETTLED, and it is NEITHER of the two things earlier notes in this entry claimed. Both were wrong; this supersedes them.
+
+THE ANGLES ARE A TABLE LOOKUP. The loop tail at 0x8002EC28 is unambiguous:
+    lui   r2, 0x800A ; addiu r2, r2, 0x20A8   -> r2 = 0x800A20A8
+    sll   r3, r5, 1  ; addu  r3, r3, r2       -> r3 = table + i*2
+    lh    r17, 0(r3)                          -> the angle for this iteration
+    addiu r5, r5, 1  ; slti r2, r5, 5 ; bne   -> five iterations
+The five s16 entries at 0x800A20A8 are 204, 307, 409, 512, 614 — i.e. 17.9, 27.0, 35.9, 45.0 and 54.0 degrees over the 4096-per-turn domain. A fan of five authored angles between roughly 18 and 54 degrees, NOT evenly spaced and NOT derived.
+
+WHY BOTH EARLIER READINGS WERE WRONG. r17 is a REUSED general-purpose register, and tracking only its nearest def/use produced two different false conclusions:
+  * 'iterated map a <- cos(a)' — from reading  /  around the rcos call. The second is a DELAY-SLOT capture of the PREVIOUS call's return, and r17 at that point is being harvested as a trig VALUE (it is immediately a multiplicand in  at 0x8002E86C/E89C), not fed back as an angle.
+  * 'uniform sweep, angle = counter << 10' — pattern-matched from the sibling 0x8002B3A4, where that IS the rule. It is not the rule here.
+The full def-use chain settles it: r17 is defined at 0x8002E7C8 (constant 0x66, pre-loop), 0x8002E810 (trig result), 0x8002EA40 (a subtraction, then stored as a coordinate at 0x8002EA58/EBC0), and finally 0x8002EC38 — the table load that carries into the next iteration.
+
+METHOD NOTE worth generalising: for a register the compiler reuses, a 3-instruction window is not evidence. Enumerate every def and use across the whole loop body before claiming a generative rule — and treat a rule that collapses to a fixed point, or that merely matches a sibling function, as a red flag rather than a result.
+
+NOW UNBLOCKED. With the angles known the emitter is portable: 5 authored angles x 4 mirrored gouraud quads (GP0 0x3A, dim->full gradient), radii rx = w * scratch[0x1F800084] >> 16 and ry = h * scratch[0x1F800088] >> 16, 9-word packets chained at +9/+0x12/+0x1B/+0x24, closed with a DR_MODE packet. Controller args are already settled (see above). It fires on replays/bugs/bucket-softlock.pad, so a port is verifiable in the same pass.
