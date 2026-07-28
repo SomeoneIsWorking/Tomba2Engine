@@ -709,6 +709,11 @@ void Render::fieldObjectsRender() {
           // 22-area nofx sweep. Overlay-resident, so the same first-instruction guard (addiu sp,-64).
           c->rsub.stats.snObjs++;
           rend(c)->fxRingSpriteRender(n);
+        } else if (rfn == 0x801113B4u && c->mem_r32(0x801113B4u) == 0x27BDFFE8u) {
+          // FUN_801113B4 (A03 overlay, area 3) — the screen-space additive motion trail, from the
+          // 22-area nofx sweep. Overlay-resident, so the same first-instruction guard (addiu sp,-24).
+          c->rsub.stats.snObjs++;
+          rend(c)->fxMotionTrailRender(n);
         } else if (rfn == 0x8010C7F4u && c->mem_r32(0x8010C7F4u) == 0x27BDFFB0u) {
           // FUN_8010C7F4 (A0L overlay, area 21) — the 64-particle wind-blown field, from the 22-area
           // nofx sweep. Overlay-resident, so the same first-instruction guard (addiu sp,-80).

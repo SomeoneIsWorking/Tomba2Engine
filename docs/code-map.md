@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 938 native fns, 791 owned addresses, 749 LIVE / 189 ORPHAN.
+Totals: 939 native fns, 792 owned addresses, 750 LIVE / 189 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -170,7 +170,7 @@ Totals: 938 native fns, 791 owned addresses, 749 LIVE / 189 ORPHAN.
 | 0x80042170 | LIVE | `ScriptInterp::matchesActiveByKind` | game/scene/script_interp.cpp:1055 |  | ORACLE: gen_func_80042170 |
 | 0x80042258 | LIVE | `SceneEvents::delayedTrigger` | game/scene/scene_events.cpp:128 |  | ORACLE: gen_func_80042258 |
 | 0x80042258 | LIVE | `SceneEvents::delayedTriggerOverride` | game/scene/scene_events.cpp:188 |  |  |
-| 0x80042310 | LIVE | `ActorTomba::resetLoadGate` | game/player/actor_tomba.cpp:1452 |  | resetLoadGate — guest FUN_80042310. See actor_tomba.h for the full RE … |
+| 0x80042310 | LIVE | `ActorTomba::resetLoadGate` | game/player/actor_tomba.cpp:1454 |  | resetLoadGate — guest FUN_80042310. See actor_tomba.h for the full RE … |
 | 0x80042448 | LIVE | `SceneEvents::applyFlagOp` | game/scene/scene_events.cpp:162 |  | ORACLE: gen_func_80042448 |
 | 0x80042448 | LIVE | `SceneEvents::applyFlagOpOverride` | game/scene/scene_events.cpp:189 |  |  |
 | 0x80042728 | LIVE | `BgSceneTransitionSm::readyForProgress` | game/scene/bg_scene_transition_sm.cpp:225 |  |  |
@@ -202,7 +202,7 @@ Totals: 938 native fns, 791 owned addresses, 749 LIVE / 189 ORPHAN.
 | 0x80045258 | LIVE | `Asset::loadDescriptorChunk` | game/core/asset.cpp:502 |  | loadDescriptorChunk(descIdx, slot): FAITHFUL FUN_80045258 — a leaf ind… |
 | 0x800452C0 | LIVE | `Asset::areaDataLoadAsTask` | game/core/asset.cpp:397 | 0x8001CF2C 0x8001DC40 0x80045080 0x80045558 0x80051F80 0x80051FB4 … | Task-1 body — FAITHFUL FUN_800452C0 (the walkable-field AREA-DATA load… |
 | 0x800452C0 | LIVE | `native_area_load_bd4` | game/core/engine.cpp:1542 | 0x800452C0 | Native replacement for FUN_80044bd4(0x800452c0, area, mode, 1): seed t… |
-| 0x80045580 | LIVE | `ActorTomba::assetReady` | game/player/actor_tomba.cpp:1465 |  | assetReady — guest FUN_80045580. See actor_tomba.h for the full RE wri… |
+| 0x80045580 | LIVE | `ActorTomba::assetReady` | game/player/actor_tomba.cpp:1467 |  | assetReady — guest FUN_80045580. See actor_tomba.h for the full RE wri… |
 | 0x800455C0 | ORPHAN | `leaf_800455C0` | game/core/field_owned_leaves.cpp:11372 |  |  |
 | 0x80045724 | ORPHAN | `leaf_80045724` | game/core/field_owned_leaves.cpp:12266 |  |  |
 | 0x80045810 | LIVE | `Collision::lineCross` | game/player/collision.cpp:472 |  | Collision::lineCross. Per-line WALL intersection: computes the crossin… |
@@ -273,7 +273,7 @@ Totals: 938 native fns, 791 owned addresses, 749 LIVE / 189 ORPHAN.
 | 0x8004D8B0 | ORPHAN | `leaf_8004D8B0` | game/core/field_owned_leaves.cpp:5020 |  |  |
 | 0x8004DAEC | ORPHAN | `leaf_8004DAEC` | game/core/field_owned_leaves.cpp:5033 |  |  |
 | 0x8004EAD0 | ORPHAN | `leaf_8004EAD0` | game/core/field_owned_leaves.cpp:11796 |  |  |
-| 0x8004EB94 | LIVE | `emitSegmentLayout` | game/render/hud_gauge_emitter.cpp:163 |  | (descAddr, sign_extend16(spanBase + spanBias + bias)) call shape, shar… |
+| 0x8004EB94 | LIVE | `emitSegmentLayout` | game/render/hud_gauge_emitter.cpp:176 |  | (descAddr, sign_extend16(spanBase + spanBias + bias)) call shape, shar… |
 | 0x8004ED0C | ORPHAN | `leaf_8004ED0C` | game/core/field_owned_leaves.cpp:5086 |  |  |
 | 0x8004ED0C | LIVE | `Inventory::abGate` | game/items/inventory.cpp:120 |  | Full RAM+scratchpad A/B vs rec_super_call. The pure-leaf core touches … |
 | 0x8004ED94 | LIVE | `Engine::announcerCue` | game/core/engine.cpp:880 | 0x8004FA38 | Engine::announcerCue — FUN_8004ED94. `id` sign-extended s16, then time… |
@@ -293,8 +293,8 @@ Totals: 938 native fns, 791 owned addresses, 749 LIVE / 189 ORPHAN.
 | 0x8004FA38 | LIVE | `Engine::announcerCuePush` | game/core/announcer_cue_push.cpp:20 |  |  |
 | 0x8004FA38 | LIVE | `Inventory::abGate` | game/items/inventory.cpp:120 |  | Full RAM+scratchpad A/B vs rec_super_call. The pure-leaf core touches … |
 | 0x8004FB20 | LIVE | `Pool::clearBf548Region` | game/world/pool.cpp:51 |  | zero 700 bytes at 0x800BF548. Trivial memset wrapper. Every field of t… |
-| 0x8004FB4C | LIVE | `HudGaugeEmitter::emitItem` | game/render/hud_gauge_emitter.cpp:219 |  |  |
-| 0x8004FD30 | LIVE | `HudGaugeEmitter::emitFrame` | game/render/hud_gauge_emitter.cpp:171 |  |  |
+| 0x8004FB4C | LIVE | `HudGaugeEmitter::emitItem` | game/render/hud_gauge_emitter.cpp:232 |  |  |
+| 0x8004FD30 | LIVE | `HudGaugeEmitter::emitFrame` | game/render/hud_gauge_emitter.cpp:184 |  |  |
 | 0x8004FE84 | LIVE | `Engine::sceneRenderListBuilder` | game/core/engine.cpp:648 |  | Native FUN_8004FE84 — a 2-phase scene/render-list builder driver (stru… |
 | 0x8004FFB4 | LIVE | `Panel::fillQuad` | game/ui/panel_fill.cpp:79 |  | EQUIVALENCE. This is a REBUILD, not a transcription, so `port_check` c… |
 | 0x8005082C | LIVE | `ModeStateArm::arm` | game/scene/mode_state_arm.cpp:10 |  | ModeStateArm::arm — native ownership of FUN_8005082C (Ghidra decomp sc… |
@@ -342,8 +342,8 @@ Totals: 938 native fns, 791 owned addresses, 749 LIVE / 189 ORPHAN.
 | 0x80053968 | LIVE | `ActorTomba::proximityAngleWalk` | game/player/actor_tomba.cpp:891 |  | ORACLE: gen_func_80053968 |
 | 0x80053D0C | ORPHAN | `leaf_80053D0C` | game/core/field_owned_leaves.cpp:5963 |  |  |
 | 0x80053D90 | ORPHAN | `leaf_80053D90` | game/core/field_owned_leaves.cpp:5991 |  |  |
-| 0x80053E50 | LIVE | `ActorTomba::outerTransitionGate` | game/player/actor_tomba.cpp:1487 |  |  |
-| 0x80053FDC | LIVE | `ActorTomba::outerTransitionCommit` | game/player/actor_tomba.cpp:1548 |  | outerTransitionCommit — guest FUN_80053FDC(G, mode). See actor_tomba.h… |
+| 0x80053E50 | LIVE | `ActorTomba::outerTransitionGate` | game/player/actor_tomba.cpp:1489 |  |  |
+| 0x80053FDC | LIVE | `ActorTomba::outerTransitionCommit` | game/player/actor_tomba.cpp:1550 |  | outerTransitionCommit — guest FUN_80053FDC(G, mode). See actor_tomba.h… |
 | 0x80054198 | LIVE | `SceneTransition::clearSwapBlock` | game/scene/scene_transition.cpp:98 |  | small swap-block ephemeral clear. RE'd from disas 0x80054198..0x800541… |
 | 0x800541F4 | ORPHAN | `leaf_800541F4` | game/core/field_owned_leaves.cpp:6040 |  |  |
 | 0x800543C0 | ORPHAN | `leaf_800543C0` | game/core/field_owned_leaves.cpp:6143 |  |  |
@@ -375,11 +375,11 @@ Totals: 938 native fns, 791 owned addresses, 749 LIVE / 189 ORPHAN.
 | 0x80057C08 | ORPHAN | `leaf_80057C08` | game/core/field_owned_leaves.cpp:7999 |  |  |
 | 0x80057DC0 | LIVE | `ActorTomba::growthStep` | game/player/actor_tomba.cpp:429 |  | ======================================================================… |
 | 0x80058304 | LIVE | `Engine::gStateMutate` | game/core/engine.cpp:971 | 0x800310F4 | Engine::gStateMutate — native ownership of FUN_80058304 (Ghidra decomp… |
-| 0x80058648 | LIVE | `ActorTomba::enterOuterState0` | game/player/actor_tomba.cpp:2215 | 0x800519E0 0x80057DC0 0x80057FD4 0x800597AC 0x80068214 0x800682C4 | ======================================================================… |
+| 0x80058648 | LIVE | `ActorTomba::enterOuterState0` | game/player/actor_tomba.cpp:2217 | 0x800519E0 0x80057DC0 0x80057FD4 0x800597AC 0x80068214 0x800682C4 | ======================================================================… |
 | 0x800588BC | LIVE | `ActorTomba::actionHandler800588BC` | game/player/actor_tomba_action_800588bc.cpp:16 |  |  |
-| 0x80058918 | LIVE | `ActorTomba::gov_turnBiasCompute` | game/player/actor_tomba.cpp:1295 |  | Dual-wire (§9 + fleet-workflow.md "most leaves are substrate-called"):… |
-| 0x800597AC | LIVE | `ActorTomba::gov_matrixComposeAttached` | game/player/actor_tomba.cpp:1305 |  | Wiring of the two 2026-07-10 wide-RE drafts (2026-07-16): both are den… |
-| 0x800597AC | LIVE | `ActorTomba::matrixComposeAttached` | game/player/actor_tomba.cpp:1810 | 0x800517BC 0x80084110 0x80084220 0x80084250 0x80084360 0x80084470 … | ======================================================================… |
+| 0x80058918 | LIVE | `ActorTomba::gov_turnBiasCompute` | game/player/actor_tomba.cpp:1297 |  | Dual-wire (§9 + fleet-workflow.md "most leaves are substrate-called"):… |
+| 0x800597AC | LIVE | `ActorTomba::gov_matrixComposeAttached` | game/player/actor_tomba.cpp:1307 |  | Wiring of the two 2026-07-10 wide-RE drafts (2026-07-16): both are den… |
+| 0x800597AC | LIVE | `ActorTomba::matrixComposeAttached` | game/player/actor_tomba.cpp:1812 | 0x800517BC 0x80084110 0x80084220 0x80084250 0x80084360 0x80084470 … | ======================================================================… |
 | 0x80059C60 | ORPHAN | `leaf_80059C60` | game/core/field_owned_leaves.cpp:8094 |  |  |
 | 0x80059D28 | LIVE | `Engine::frameStartTick` | game/core/engine.cpp:2682 |  | Engine::frameStartTick — per-frame prologue at guest 0x80059D28 (FIRST… |
 | 0x80059D28 | LIVE | `Engine::frameStartTickFaithful` | game/core/engine.cpp:2751 | 0x8005950C 0x8009A450 0x80109024 0x8010F63C 0x8010F654 0x80112220 | Engine::frameStartTickFaithful — byte-exact mirror of gen_func_80059D2… |
@@ -391,18 +391,18 @@ Totals: 938 native fns, 791 owned addresses, 749 LIVE / 189 ORPHAN.
 | 0x8005AEE4 | LIVE | `ActorTomba::actionHandler8005AEE4` | game/player/actor_tomba_action_8005aee4.cpp:35 |  |  |
 | 0x8005EF48 | LIVE | `ActorTomba::actionHandler8005EF48` | game/player/actor_tomba_action_8005ef48.cpp:28 |  |  |
 | 0x8005F1B0 | LIVE | `ActorTomba::actionHandler8005F1B0` | game/player/actor_tomba_action_8005f1b0.cpp:26 |  |  |
-| 0x80060064 | LIVE | `ActorTomba::caseModeFsm_80060064` | game/player/actor_tomba.cpp:2794 | 0x800538E0 0x80053D90 0x80054D14 0x800551C4 0x80055844 0x80055D5C … |  |
-| 0x80060268 | LIVE | `ActorTomba::invincibilityFlashStep` | game/player/actor_tomba.cpp:1138 |  | ORACLE: gen_func_80060268 |
-| 0x80060C60 | LIVE | `ActorTomba::nestedDispatch_80060C60` | game/player/actor_tomba.cpp:3509 |  |  |
-| 0x80061A7C | LIVE | `ActorTomba::caseModeFsm_80061A7C` | game/player/actor_tomba.cpp:2648 | 0x800248D0 0x8002F514 0x80054198 0x80054D14 0x80074590 0x80076D68 |  |
-| 0x800620D0 | LIVE | `ActorTomba::caseModeFsm_800620D0` | game/player/actor_tomba.cpp:2502 | 0x80053D90 0x80054198 0x8005444C 0x80054D14 0x800551C4 0x80055D5C … |  |
-| 0x8006228C | LIVE | `ActorTomba::caseModeFsm_8006228C` | game/player/actor_tomba.cpp:2950 | 0x80053D90 0x80054198 0x8005444C 0x80054D14 0x800551C4 0x80055D5C … |  |
-| 0x800624B4 | LIVE | `ActorTomba::nestedDispatch_800624B4` | game/player/actor_tomba.cpp:3320 | 0x8001CF2C 0x800310F4 0x80044CD4 0x80053D90 0x800551C4 0x80055D5C … |  |
+| 0x80060064 | LIVE | `ActorTomba::caseModeFsm_80060064` | game/player/actor_tomba.cpp:2796 | 0x800538E0 0x80053D90 0x80054D14 0x800551C4 0x80055844 0x80055D5C … |  |
+| 0x80060268 | LIVE | `ActorTomba::invincibilityFlashStep` | game/player/actor_tomba.cpp:1140 |  | ORACLE: gen_func_80060268 |
+| 0x80060C60 | LIVE | `ActorTomba::nestedDispatch_80060C60` | game/player/actor_tomba.cpp:3511 |  |  |
+| 0x80061A7C | LIVE | `ActorTomba::caseModeFsm_80061A7C` | game/player/actor_tomba.cpp:2650 | 0x800248D0 0x8002F514 0x80054198 0x80054D14 0x80074590 0x80076D68 |  |
+| 0x800620D0 | LIVE | `ActorTomba::caseModeFsm_800620D0` | game/player/actor_tomba.cpp:2504 | 0x80053D90 0x80054198 0x8005444C 0x80054D14 0x800551C4 0x80055D5C … |  |
+| 0x8006228C | LIVE | `ActorTomba::caseModeFsm_8006228C` | game/player/actor_tomba.cpp:2952 | 0x80053D90 0x80054198 0x8005444C 0x80054D14 0x800551C4 0x80055D5C … |  |
+| 0x800624B4 | LIVE | `ActorTomba::nestedDispatch_800624B4` | game/player/actor_tomba.cpp:3322 | 0x8001CF2C 0x800310F4 0x80044CD4 0x80053D90 0x800551C4 0x80055D5C … |  |
 | 0x80062D8C | ORPHAN | `leaf_80062D8C` | game/core/field_owned_leaves.cpp:8253 |  |  |
-| 0x80063098 | LIVE | `ActorTomba::rampOffsetStep` | game/player/actor_tomba.cpp:1186 |  | ORACLE: gen_func_80063098 |
-| 0x8006506C | LIVE | `ActorTomba::caseModeFsm_8006506C` | game/player/actor_tomba.cpp:3110 | 0x80054198 0x80054D14 0x80055824 0x80055E28 0x80062D8C 0x80074590 … |  |
-| 0x80065374 | LIVE | `ActorTomba::caseAreaEntryHook_80065374` | game/player/actor_tomba.cpp:2428 | 0x8010AECC 0x80110CB8 0x80113E3C |  |
-| 0x800653F4 | LIVE | `ActorTomba::caseArea0EntryHook_800653F4` | game/player/actor_tomba.cpp:2461 | 0x80054198 0x80054D14 0x8010C780 |  |
+| 0x80063098 | LIVE | `ActorTomba::rampOffsetStep` | game/player/actor_tomba.cpp:1188 |  | ORACLE: gen_func_80063098 |
+| 0x8006506C | LIVE | `ActorTomba::caseModeFsm_8006506C` | game/player/actor_tomba.cpp:3112 | 0x80054198 0x80054D14 0x80055824 0x80055E28 0x80062D8C 0x80074590 … |  |
+| 0x80065374 | LIVE | `ActorTomba::caseAreaEntryHook_80065374` | game/player/actor_tomba.cpp:2430 | 0x8010AECC 0x80110CB8 0x80113E3C |  |
+| 0x800653F4 | LIVE | `ActorTomba::caseArea0EntryHook_800653F4` | game/player/actor_tomba.cpp:2463 | 0x80054198 0x80054D14 0x8010C780 |  |
 | 0x800660AC | LIVE | `ActorTomba::actionHandler800660AC` | game/player/actor_tomba_action_800660ac.cpp:20 |  |  |
 | 0x80067DA8 | LIVE | `Engine::uploadModeSprites` | game/core/engine.cpp:929 | 0x80081218 | Engine::uploadModeSprites — native ownership of FUN_80067DA8 (Ghidra d… |
 | 0x80067EF4 | ORPHAN | `leaf_80067EF4` | game/core/field_owned_leaves.cpp:8433 |  |  |
@@ -618,8 +618,8 @@ Totals: 938 native fns, 791 owned addresses, 749 LIVE / 189 ORPHAN.
 | 0x80081458 | LIVE | `Render::clearOTagR` | game/render/wide_re_libgpu_leaves.cpp:152 |  | func_80081458 (0x80081458) — ClearOTagR(OT, entries). VERIFIED & WIRED… |
 | 0x80081560 | LIVE | `Engine::drawOTag` | game/game_tomba2.cpp:149 |  | Native ownership of DrawOTag (libgpu FUN_80081560, the per-frame draw … |
 | 0x800815D0 | LIVE | `func_800815D0` | game/render/wide_re_gpu_putdrawenv.cpp:250 |  | func_800815D0 (0x800815D0) — libgpu PutDrawEnv(drawEnvPtr). DRAFT. RE'… |
-| 0x80081CF8 | LIVE | `buildDrawAreaRect` | game/render/hud_gauge_emitter.cpp:126 |  | ----------------------------------------------------------------------… |
-| 0x80081CF8 | LIVE | `emitDrawAreaAndLink` | game/render/hud_gauge_emitter.cpp:138 |  | Emit the DR_AREA packet built from the sp+rectOff rect into the packet… |
+| 0x80081CF8 | LIVE | `buildDrawAreaRect` | game/render/hud_gauge_emitter.cpp:139 |  | ----------------------------------------------------------------------… |
+| 0x80081CF8 | LIVE | `emitDrawAreaAndLink` | game/render/hud_gauge_emitter.cpp:151 |  | Emit the DR_AREA packet built from the sp+rectOff rect into the packet… |
 | 0x80082220 | LIVE | `func_80082220` | game/render/wide_re_gpu_putdrawenv.cpp:176 |  | func_80082220 (0x80082220) — DR_TPAGE mode-word builder. DRAFT. RE'd f… |
 | 0x80082240 | LIVE | `func_80082240` | game/render/wide_re_gpu_putdrawenv.cpp:104 |  | func_80082240 (0x80082240) — SetDrawAreaTopLeft(x,y) word builder. DRA… |
 | 0x800822D8 | LIVE | `func_800822D8` | game/render/wide_re_gpu_putdrawenv.cpp:133 |  | func_800822D8 (0x800822D8) — SetDrawAreaBottomRight(x,y) word builder.… |
@@ -773,6 +773,7 @@ Totals: 938 native fns, 791 owned addresses, 749 LIVE / 189 ORPHAN.
 | 0x8010C7F4 | LIVE | `Render::fxParticleFieldRender` | game/render/fx_sprite.cpp:766 |  |  |
 | 0x8010E904 | LIVE | `ActorTomba::postFrameWaterCheck` | game/player/actor_tomba.cpp:470 |  | ======================================================================… |
 | 0x80110C14 | LIVE | `Render::fxRingSpriteRender` | game/render/fx_sprite.cpp:668 |  |  |
+| 0x801113B4 | LIVE | `Render::fxMotionTrailRender` | game/render/fx_trail.cpp:68 |  | One joint = four quads. In all of them the two "far" vertices are BLAC… |
 | 0x80112188 | LIVE | `ActorMeleeEngage::doIt` | game/ai/actor_melee_engage.cpp:28 | 0x80022C78 0x80055844 0x80084080 |  |
 | 0x80112188 | LIVE | `ActorMeleeEngage::registerOverrides` | game/ai/actor_melee_engage.cpp:300 |  |  |
 | 0x80112A60 | LIVE | `aux_list_walk` | game/ai/area_seaside_perframe.cpp:70 |  | Walk the aux render list, dispatching FUN_80112A60(item) per item type… |

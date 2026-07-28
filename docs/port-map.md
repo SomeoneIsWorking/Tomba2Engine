@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 18 verified · 11 ported-unverified · 7 todo · 1 blocked
+**Status:** 19 verified · 11 ported-unverified · 6 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -170,6 +170,12 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** game/render/fx_sprite.cpp
 - **notes:** Render::fxParticleFieldRender (FUN_8010C7F4, A0L overlay, area 21): 64-particle wind-blown field, the only four-corner-writer member that DRIVES the depth cue (IR0 = Trig::vecLen(particle - ref) >> 3 against a BLACK far colour, so the field fades with range). LCG seed 0x12D687, multiplier at 0x80115894, THREE steps per particle (X pre-step, Y after 1st, Z after 2nd), value & 0x3FFF - 8192 off the base at 0x1F800160/62/64; wind drift = doubled rcos/rsin of the angle at 0x800E7ED6 times 10x node+0x50 >> 12, added to X and Z before the mask; gate FUN_800317CC(0); scale = published MAC0 << 1; record list cycles i&3 over four pointers at 0x80109068. VERIFIED ON PIXELS: area 21 warp + skip 600, ON vs producer-removed OFF leg = 2069 px differ at x[67..182] y[64..193], rendering as soft grey mist wisps against the black sky; 554 emissions drawn=32/64; 0x8010C7F4 dropped off the nofx census. Dependency Trig::vecLen (FUN_80078240) ported as a static. NON-REGRESSION: emitAnimQuadRecords gained ir0/farColour with identity defaults - walk-dust-puff.pad frame is byte-identical to the pre-change binary.
 
+## fx-motion-trail-1113b4
+- **scope:** render
+- **status:** verified
+- **owner:** game/render/fx_trail.cpp
+- **notes:** Render::fxMotionTrailRender (FUN_801113B4 -> FUN_80110B00, A03 overlay, area 3): screen-space ADDITIVE motion trail. 11-slot screen-position history at node+0x3C ({s16 x, s16 y}, (0,0) = unfilled), 10 joints, each drawn as 4 quads — a +/-1x core (ramp colour on the centre line, BLACK at the outer edge) inside a +/-4x halo at per-byte-halved brightness; 11-entry colour ramp at 0x80108FDC; perpendicular = ratan2(dy,dx)+1024 through rcos/rsin, (v*2+2048)>>12; joint rule keys on the LOOP COUNTER so a suppressed segment still advances the joint state; degeneracy history suppresses the segment ending at a null/duplicate point AND the next one. NOT a sprite-family member (no GTE/DQA/projection) — SpriteAnchor deliberately unused. Read-only: the guest's pool-room gate is not reproduced because this producer allocates nothing. VERIFIED ON PIXELS: area 3 warp + skip 600, ON vs producer-removed OFF leg = 4690 px differ at x[195..318] y[112..239], rendering as a coherent tapered glowing streak; 1140 emissions; 0x801113B4 dropped off the nofx census leaving only terrain + widescreen margin. Overlay guard needed and validated: 0x801113B4 exists in BOTH A03 (sp-=24, 0x27BDFFE8) and A0B (sp-=40), so the first-instruction check disambiguates them.
+
 ## render-compose-tint-gate
 - **status:** ported-unverified
 - **notes:** Render::composeTintGate (FUN_8003EF9C): per-type render gate, port_check PASS, wired via overrides::install with setter. Pool-snapshot idiom: emits geometry then colour-adds over exactly the primitives just emitted. Cold on the field/dialog replay - needs a scene that uses render mode 2.
@@ -233,9 +239,3 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** todo
 - **owner:** generated (unported)
 - **notes:** FUN_801110BC (area 11) — one of the 22-area-sweep render targets. FULL STATIC RE + adversarial verification: docs/re/render-targets-static-re.md#801110bc---area-11. Do NOT re-derive; do NOT port from an uncorrected reading (5 of the 6 specs were CORRECTED by their verifier, including one fatal address error).
-
-## fx-motion-trail-1113b4
-- **scope:** render
-- **status:** todo
-- **owner:** generated (unported)
-- **notes:** FUN_801113B4 (area 3) — one of the 22-area-sweep render targets. FULL STATIC RE + adversarial verification: docs/re/render-targets-static-re.md#801113b4---area-3. Do NOT re-derive; do NOT port from an uncorrected reading (5 of the 6 specs were CORRECTED by their verifier, including one fatal address error).

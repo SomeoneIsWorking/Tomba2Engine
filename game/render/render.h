@@ -314,6 +314,12 @@ public:
   // against a black far colour, so the field fades out with range. Body in fx_sprite.cpp.
   void fxParticleFieldRender(uint32_t node);
 
+  // fxMotionTrailRender (FUN_801113B4 -> FUN_80110B00, A03/area 3): the screen-space ADDITIVE motion
+  // trail — an 11-slot screen-position history joined into a glowing two-tier ribbon. NOT a
+  // sprite-family member: no GTE, no projection, no DQA, so SpriteAnchor does not apply.
+  // Body in fx_trail.cpp.
+  void fxMotionTrailRender(uint32_t node);
+
   // fxAnimSpriteRender: native producer for the SECOND world-anchored sprite family — emitter
   // FUN_800286CC + packet writer FUN_8002847C (36-byte, four-corner, per-vertex-coloured quad records
   // selected by an ANIMATION SCRIPT byte). This is Tomba's movement DUST PUFF (kanban #39) and the
