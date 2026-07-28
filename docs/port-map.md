@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 16 verified · 7 ported-unverified · 3 todo · 1 blocked
+**Status:** 16 verified · 8 ported-unverified · 2 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -164,6 +164,14 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** ported-unverified
 - **notes:** Panel::fillQuad (FUN_8004FFB4): the 9-slice panel fill quad, hottest unowned render fn on the field path. port_gen byte-faithful, port_check PASS, wired with setter, LIVE at 505 hits with the frame unchanged. READABILITY PASS PENDING - still in register form. Note game/ui/panel.cpp:185 calls gen_ directly so the existing tap is not intercepted.
 
+## fx-line-emitter-e08c
+- **scope:** 0x8013E08C — the unowned LINE/strip emitter beside the owned fx_line producers
+- **status:** ported-unverified
+- **notes:** PORTED 2026-07-28 as Render::shockwaveRingRender (game/render/fx_line.cpp), whitelisted in fieldObjectsRender behind the overlay first-instruction guard (0x27BDFFB8). Full RE in the file banner: uniform scale diag((s16)node+0x50 << 4), colour v = 0x80 - ((node+0x50 - 0x14)*0x80)/200 clamped, transform reduced algebraically to projComposeObjectHost(diag(scale), nodePos) so NO GTE is used, 15-point radius-256 XZ-plane ring at 0x8014C780 walked as 7 overlapping 3-point spans, each stroked TWICE with the guest's (+2,+1) offset. Two traps recorded there: the vertex loads are LWC2 (Ghidra shows them as opaque setCopReg) and the sibling 0x8002ECD8's tail is mis-rendered as a call to Trig::rsin.
+
+VERIFIED MECHANICALLY: 152 producer calls on replays/bugs/bucket-softlock.pad; 0x8013E08C no longer appears in the PSXPORT_DEBUG=nofx skip list; bucket-softlock / weapon-impact-bucket / short-session all exit 0 with zero fatal / abort / recomp-MISS; the #64 banner frame at f240 is unchanged.
+NOT VERIFIED VISUALLY: I could not positively identify the ring in stills around the frames where it fires (it is brief and thin, and the pickup scene is busy). Status stays ported-unverified until it is seen — either a targeted capture at a firing frame or a USER eyeball.
+
 ## world-line-ring-shadow
 - **scope:** render
 - **status:** todo
@@ -174,21 +182,3 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **scope:** The 0x8002ECD8 + 0x8002E680 effect emitter pair (type-0x20 node render fn, no producer)
 - **status:** todo
 - **notes:** RECON DONE 2026-07-28, port not started. Surfaced by PSXPORT_DEBUG=nofx (kanban #65) as a type-0x20 node whose render fn is on no whitelist — and unlike 0x80033080 (a dispatcher whose two halves are both owned) this one is a REAL gap: nothing draws it.
-
-## fx-line-emitter-e08c
-- **scope:** 0x8013E08C — the unowned LINE/strip emitter beside the owned fx_line producers
-- **status:** todo
-- **notes:** RE COMPLETE 2026-07-28, port not started. Surfaced by PSXPORT_DEBUG=nofx as a type-0x20 render fn on no whitelist; 920B, zero jal call sites (dispatched only as node+0x18), no unowned dependencies.
-
-MECHANISM (Ghidra scratch/decomp/fx_e08c.c + raw instructions):
- 1. Builds a UNIFORM SCALE matrix in scratchpad 0x1F800000 — the three CR-packed diagonal slots (+0x00/+0x08/+0x10) all get (s16)node+0x50 << 4; every off-diagonal slot is zeroed first.
- 2. COLOUR from the same node+0x50: v = 0x80 - ((node+0x50 - 0x14) * 0x80) / 200, then the packet colour word = 0x4A000000 | v<<16 | v<<8 | v. So the strip FADES with node+0x50, which is also its scale — one animator drives both.
- 3. matMul 0x80084110(camera 0x1F8000F8, scale, -> 0x1F800000) then 0x80084220(node+0x2C, -> 0x1F800014) for the translation, += the camera translation at 0x1F80010C/110/114.
- 4. SetRotMatrix(0x80084660) + SetTransMatrix(0x80084690) from that composed block.
- 5. Walks a FIXED vertex table at 0x8014C780, 6 words per step (three packed vertices: VXY0/VZ0, VXY1/VZ1, VXY2/VZ2), runs RTPT (copFunction 0x280030), skips on a negative flag word, then AVSZ3 (copFunction 0x158002D) for depth.
- 6. OT key = AVSZ3 + (s16)node+0x32, quantized exactly like the sprite family ((k>>10) fold, valid window 4..0x7FF) and range-gated.
- 7. Emits a 5-WORD packet at the pool cursor 0x800BF544: word1 = the colour|code word from (2), words 2-4 = SXY0/SXY1/SXY2 (GTE data regs 0xC/0xD/0xE), word5 = 0x55555555; links into OT[key] with tag 0x05000000.
-
-SO IT IS A FLAT 3-POINT LINE/STRIP PRIMITIVE, which is why it belongs in game/render/fx_line.cpp next to Render::worldLineDraw (0x8013DD34), ropeAnchorRender (0x8013E9D8) and ropeChainRender (0x8013EA64) — all already owned. Port shape: project the three table vertices with the native (fps60-lerped) camera through the same composed scale, derive the colour from node+0x50, and emit through the existing line path; then add 0x8013E08C to fieldObjectsRender's type-0x20 whitelist. No gen body, so it interpolates like the rest.
-
-WHY NOT DONE THIS SESSION: the RE is complete but the producer is a fresh ~100-line emitter, and it deserves a session with room to verify rather than the tail of a long one. Everything needed to write it cold is above.

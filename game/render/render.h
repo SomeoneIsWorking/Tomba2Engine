@@ -296,6 +296,11 @@ public:
   void worldLineDraw(int ax, int ay, int az, int bx, int by, int bz);
   void ropeAnchorRender(uint32_t node);
   void ropeChainRender(uint32_t node);
+
+  // shockwaveRingRender (FUN_8013E08C): the expanding ring — a 15-point radius-256 circle in the XZ
+  // plane, scaled and faded by the single field node+0x50, drawn as 7 overlapping 3-point spans with
+  // a doubled (+2,+1) outline stroke. See fx_line.cpp for the full RE.
+  void shockwaveRingRender(uint32_t node);
   void tetherLineRender(uint32_t node);
 
   // a0fVortexRender (game/render/fx_vortex.cpp): native producer for area 15's central PORTAL — the

@@ -720,6 +720,12 @@ void Render::fieldObjectsRender() {
           // The segmented CHAIN (#56): FUN_8013EA64 joins the 8 points the node carries at node+0x60.
           c->rsub.stats.snObjs++;
           rend(c)->ropeChainRender(n);
+        } else if (rfn == 0x8013E08Cu && c->mem_r32(0x8013E08Cu) == 0x27BDFFB8u) {
+          // The expanding SHOCKWAVE RING (kanban #65): overlay-resident like the vortex, so the same
+          // first-instruction guard (addiu sp,-72) keeps a stale node from dispatching into whatever
+          // now occupies the window. See Render::shockwaveRingRender in fx_line.cpp.
+          c->rsub.stats.snObjs++;
+          rend(c)->shockwaveRingRender(n);
         } else if (rfn == 0x801143C4u && c->mem_r32(0x801143C4u) == 0x27BDFF98u) {
           // Area 15's central PORTAL (#44): the emitter lives in the A0F OVERLAY, so the fn address is
           // only meaningful while that overlay is resident — check its first instruction (addiu sp,-104)

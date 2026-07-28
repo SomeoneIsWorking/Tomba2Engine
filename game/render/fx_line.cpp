@@ -56,6 +56,10 @@ constexpr float kStrokePx = 2.0f;
 // The rope packets are semi-transparent and the emitter's own DR_MODE selects blend mode 3 (B + F/4) —
 // confirmed live by the `lineprim` census, which reports the GPU blend in force when each line draws.
 constexpr int kRopeBlend = 3;
+// --- the shockwave ring (FUN_8013E08C) -------------------------------------------------------
+constexpr uint32_t kRingTable = 0x8014C780u;  // 15 points, 2 words each (packed VXY, then VZ)
+constexpr uint32_t kRingScale = 0x50u;        // s16: both the ring's radius scale AND its fade input
+constexpr int      kRingSpans = 7;            // 7 overlapping 3-point spans cover all 15 points
 
 // --- FUN_80122974's node fields -------------------------------------------------------------------
 constexpr uint32_t kTetherMode = 0x47u;   // anchor-mode selector
@@ -94,6 +98,31 @@ inline int div8(int n) { return (n < 0 ? n + 7 : n) >> 3; }
 
 // Every derived coordinate lands back in an s16 slot in the guest, so wrap the same way it does.
 inline int s16(int n) { return (int16_t)(uint16_t)n; }
+
+// One screen-space segment of a monochrome GPU line, drawn as the thin quad the native queue takes.
+// A GP0 line is 1px wide, so this uses a 1px stroke rather than the rope's kStrokePx.
+inline void strokeSegment(Core* c, RenderQueue& rq, const ProjVtx& a, const ProjVtx& b,
+                          float ox, float oy, unsigned char grey) {
+  const float ax = a.px + ox, ay = a.py + oy, bx = b.px + ox, by = b.py + oy;
+  const float dx = bx - ax, dy = by - ay;
+  const float len = sqrtf(dx * dx + dy * dy);
+  if (len < 1e-4f) return;                                  // degenerate: the GPU would draw nothing
+  const float nx = -dy / len * 0.5f, ny = dx / len * 0.5f;  // half of a 1px stroke
+  const float xsf[4] = { ax + nx, bx + nx, ax - nx, bx - nx };
+  const float ysf[4] = { ay + ny, by + ny, ay - ny, by - ny };
+  const float da = proj_pz_to_ord(a.pz), db = proj_pz_to_ord(b.pz);
+  const float depth[4] = { da, db, da, db };
+  int xs[4], ys[4];
+  for (int i = 0; i < 4; i++) {
+    xs[i] = (int)(xsf[i] < 0 ? xsf[i] - 0.5f : xsf[i] + 0.5f);
+    ys[i] = (int)(ysf[i] < 0 ? ysf[i] - 0.5f : ysf[i] + 0.5f);
+  }
+  const unsigned char col[4] = { grey, grey, grey, grey };
+  const int uv[4] = { 0, 0, 0, 0 };
+  rq.emitOrQueue(c, /*capture=*/1, RQ_WORLD, RQ_OM_DEPTH, /*nv=*/4, /*semi=*/1, /*raw=*/0,
+                 xs, ys, xsf, ysf, uv, uv, col, col, col, depth,
+                 /*mode=*/3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1023, 511, kRopeBlend);
+}
 
 }  // namespace
 
@@ -149,6 +178,78 @@ void Render::worldLineDraw(int ax, int ay, int az, int bx, int by, int bz) {
     cfg_logf("ropeline", "A=(%d,%d,%d) B=(%d,%d,%d) -> (%.1f,%.1f)..(%.1f,%.1f) col=%d,%d,%d,%d",
              ax, ay, az, bx, by, bz, (double)cx[0], (double)cy[0], (double)cx[3], (double)cy[3],
              col[0], col[1], col[2], col[3]);
+}
+
+// FUN_8013E08C — the expanding SHOCKWAVE RING. Ported 2026-07-28; it was surfaced by
+// PSXPORT_DEBUG=nofx (kanban #65) as a type-0x20 render fn on no whitelist, i.e. an effect nothing
+// drew at all.
+//
+// RE (Ghidra scratch/decomp/fx_e08c.c + raw LWC2/COP2 decoding — the decompile alone was NOT enough,
+// see below). The guest:
+//   * builds a UNIFORM SCALE matrix in scratchpad 0x1F800000, all three CR-packed diagonal slots =
+//     (s16)node+0x50 << 4 (1.3.12), off-diagonals cleared;
+//   * derives the stroke COLOUR from the SAME field — v = 0x80 - ((node+0x50 - 0x14) * 0x80) / 200 —
+//     so the ring fades as it grows, one animator driving both;
+//   * composes camera x scale (matMul 0x80084110) and loads it with SetRotMatrix/SetTransMatrix,
+//     with the translation = camera . nodePos + cameraTranslation. Algebraically that is just
+//     view = camera . (scale . v + nodePos) + camTrans, which is the ordinary object transform —
+//     so natively it is projComposeObjectHost(Robj = diag(scale), Tobj = nodePos). No GTE needed.
+//   * walks a FIXED 15-point vertex table at 0x8014C780 (2 words per point: packed VXY then VZ) in 7
+//     steps of stride 4 words, RTPT-ing points [2i], [2i+1], [2i+2] — 7 overlapping 3-point spans
+//     that cover the whole ring. The table is a circle of RADIUS 256 in the XZ plane sampled every
+//     24 degrees ((256,0,0), (233,0,104), ... = 256cos/256sin), which is what makes this a ring.
+//   * per span emits TWO monochrome semi-transparent poly-lines (GP0 code 0x4A, 0x55555555
+//     terminator), the second offset by (+2,+1) in screen space — a doubled outline stroke.
+//
+// TWO TRAPS worth keeping. Ghidra rendered the vertex loads as opaque `setCopReg(2, <unresolved>, ...)`
+// because they are LWC2, not MTC2 — decoding the raw opcodes gives the real mapping (d0/d1 = VXY0/VZ0
+// from the cursor, d2/d3 and d4/d5 from cursor+8 and cursor+16). And it renders the tail of the
+// SIBLING emitter 0x8002ECD8 as a call to Trig::rsin, which is impossible; trust the instructions.
+//
+// Read-only, no gen body, projects through the native (fps60-lerped) camera — so the ring
+// interpolates like the rest of this file's producers.
+void Render::shockwaveRingRender(uint32_t node) {
+  Core* c = mCore;
+  const int32_t sc = (int16_t)c->mem_r16(node + kRingScale);
+  if (sc <= 0) return;                       // not yet grown / already collapsed -> the guest emits nothing
+
+  // The fade the guest computes from the same field. Clamped because the expression goes negative
+  // once the ring outlives its window, and a negative colour byte would wrap to bright white.
+  int32_t v = 0x80 - (((int32_t)sc - 0x14) * 0x80) / 200;
+  if (v < 0) v = 0; else if (v > 0xFF) v = 0xFF;
+  const unsigned char grey = (unsigned char)v;
+
+  // Robj = diag(scale), Tobj = the node's own world position: see the algebra in the banner above.
+  const float s = (float)(sc << 4) / 4096.0f;
+  const float Robj[3][3] = { { s, 0, 0 }, { 0, s, 0 }, { 0, 0, s } };
+  const float Tobj[3] = { (float)(int16_t)c->mem_r16(node + kOwnPosX),
+                          (float)(int16_t)c->mem_r16(node + kOwnPosX + 2),
+                          (float)(int16_t)c->mem_r16(node + kOwnPosX + 4) };
+  EObjXform xf; projComposeObjectHost(Robj, Tobj, &xf);
+
+  ObjScope objScope(c, node);
+  RenderQueue& rq = c->game->activeRq();
+
+  for (int step = 0; step < kRingSpans; step++) {
+    ProjVtx p[3];
+    bool behind = false;
+    for (int k = 0; k < 3; k++) {
+      const uint32_t vp = kRingTable + (uint32_t)(step * 2 + k) * 8u;   // stride 4 words, 3 points read
+      const uint32_t vxy = c->mem_r32(vp);
+      xf.project((int16_t)vxy, (int16_t)(vxy >> 16), (int16_t)c->mem_r32(vp + 4), &p[k]);
+      if (p[k].sz <= 0) { behind = true; break; }
+    }
+    if (behind) continue;                    // the guest's own negative-flag reject
+
+    // The doubled stroke: the guest draws the span twice, the second copy at (+2,+1).
+    for (int pass = 0; pass < 2; pass++) {
+      const float ox = pass ? 2.0f : 0.0f, oy = pass ? 1.0f : 0.0f;
+      for (int seg = 0; seg + 1 < 3; seg++) strokeSegment(c, rq, p[seg], p[seg + 1], ox, oy, grey);
+    }
+  }
+  if (cfg_dbg("ropeline"))
+    cfg_logf("ropeline", "shockwave node=%08X scale=%d grey=%d pos=(%.0f,%.0f,%.0f)",
+             node, sc, grey, (double)Tobj[0], (double)Tobj[1], (double)Tobj[2]);
 }
 
 // FUN_8013E9D8 — the HANGING object's rope: from the object it hangs off (node+0x14) to itself.
