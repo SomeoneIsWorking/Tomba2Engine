@@ -5,7 +5,7 @@ status: doing
 labels: [render]
 created: 2026-07-22
 updated: 2026-07-28
-evidence: docs/reference/issues/issue22_health_wheel_reference.png,       docs/reference/issues/issue22_health_wheel_reference_dark.png
+evidence: docs/reference/issues/issue22_health_wheel_reference.png,        docs/reference/issues/issue22_health_wheel_reference_dark.png
 ---
 
 USER 2026-07-22: the health display shown when taking damage is TOO TRANSPARENT, and - crucially - the user believes psx_render shows the SAME. Reference is docs/reference/issues/issue22_health_wheel_reference.png, a capture of the REAL GAME (sourced externally by the user): a near-SOLID blue/red segmented wheel with a green centre disc and a yellow numeral, over which the sky and sea barely read through at all. READ THIS BEFORE STARTING - the usual method DOES NOT APPLY HERE. Every other render card this week is verified by comparing pc_render against psx_render in one process via the renderpsx toggle, on the principle that the oracle is right and we are wrong. If this bug reproduces on BOTH legs then the oracle is WRONG TOO and that comparison will show 0 diff and read as 'nothing to fix' - a false negative. FIRST STEP is therefore to establish which it is: capture the wheel on both legs and against the reference image. If both legs match each other and neither matches the reference, the fault is UPSTREAM of the renderer split - i.e. in code both legs share. This is the documented case where psx_render is not ground truth (see the standing note that the oracle has its own render bugs; the USER's eye, or a real-game reference like this one, is the arbiter for visuals). PRIME SUSPECT given both legs agree: semi-transparency handling rather than geometry. PSX semi modes are 0.5B+0.5F, B+F, B-F, B+0.25F - selecting the wrong one, or applying semi to a primitive the guest draws opaque, yields exactly 'too transparent'. Check the semi bit and blend-mode decode on the wheel's primitives (RqItem::semi / tp_blend, the GP0 opcode's semi bit) against what the guest packet actually asks for. Repro: take damage in free-roam, shot the frames while the wheel is up.
@@ -49,3 +49,18 @@ CONSEQUENCE FOR METHOD: stop looking for a missing/incorrect pc_render producer 
 DAMAGE-WORD PAIR (new): FUN_8005950C is NOT the damage setter — it is a SAVE/RESTORE. It reads 0x800ECF54 and 0x800E7E68 into a register pair, zeroes both, and later writes them back (a suspend/restore of Tomba's damage state, e.g. across a cutscene). So the damage word has a COMPANION at 0x800E7E68 (= G_ADDR-24) that is always manipulated with it, and the card's earlier attempts poked 0x800ECF54 ALONE.
 
 WHY THE OLD POKES WERE NO-OPS — measured: in normal field free-roam 0x800ECF54 already reads 0xC020, i.e. bit 0x20 is ALREADY SET all the time. Poking it with 0x20/0x90/0xB0 (as recorded on this card) was therefore writing a value it largely already had. Companion 0x800E7E68 reads 0x0000 in the same frame. Readers of the companion are mostly the SAME functions that read the damage word (FUN_80036DFC, FUN_800387E8, FUN_800399FC) plus FUN_800251F0 (=Engine::fieldTargetCursor), FUN_80025588 (=Engine::sceneEventFifo) and FUN_80026148 (unowned) — none of which touch the packet pool or OT, so the companion is gameplay state, NOT a render gate.
+
+**2026-07-28:** 2026-07-28 (autonomous tick 2). RE'd FUN_8004EB94 — the leaf this card's chain named as 'segment layout'. IT IS NOT SEGMENT LAYOUT. It is a CENTRED 8x8-GLYPH TEXT ROW (generated/shard_3.c:12761-12852):
+  a0 = byte string terminated by 0xFF, a1 = Y.
+  width = FUN_8004EA4C(str, 0); x = 160 - (width >> 1)  <-- an ODD width loses a half pixel, so the row sits 0.5px left of true centre. That is the GUEST's own rounding, not ours.
+  per char: emit one sprite at x, then x += 8.
+  atlas is 32 cells per row: u = (ch & 31) << 3, v = (ch >> 5) << 3, cells 8x8.
+  ch == 0xFB is skipped but still advances x by 8.
+  any ch with ((ch + 16) & 255) < 8 is a CONTROL CODE latching the palette for following glyphs; clut word = ((code & 255) + 496) << 6 | 63.
+  The emitted packet is code 117 (0x75) with X at +(-5), Y at +(-3), clut at +1, u at +(-1), v at +0 relative to the running pointer.
+
+WHY THIS MATTERS FOR THE SYMPTOM: every atlas cell is 8 PIXELS WIDE, so any glyph wider than 8px MUST be drawn as TWO ADJACENT CELLS advancing 8 apart. That is precisely the shape of the USER's 'two halves overlapped on a 1px line'. So the seam claim is checkable HERE, on the pair advance / the atlas cell width, and it is upstream of anything to do with blend. CHECK THE PAIR ADVANCE FIRST.
+
+The two candidate seam mechanisms, both testable statically: (a) the glyph is 9px of ink in an 8px cell, so consecutive cells overlap by 1 — a content/atlas issue; (b) the advance should be 8 but the sprite is emitted 9 wide (or vice versa) — an emit-width issue. Neither is a blend bug.
+
+DOC FIX LANDED: hud_gauge_emitter.h/.cpp both described FUN_8004EB94 as the 'segment-layout leaf' and the emitter as making 'two segment-layout calls per active item (the individual gauge/HP segments)'. That wording is what sent this card hunting for gauge segments. Both banners now say TEXT ROW and carry the RE above.

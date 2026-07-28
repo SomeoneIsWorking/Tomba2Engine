@@ -20,7 +20,9 @@ public:
   static void emitFrame(Core* c);
 
   // FUN_8004FB4C(record=a0) -> void. Per-item leaf: forwards two sub-descriptor fields to the
-  // still-substrate segment-layout leaf FUN_8004EB94, optionally emits a per-item DR_AREA clip
+  // still-substrate TEXT-ROW leaf FUN_8004EB94 (RE'd 2026-07-28: it is a centred 8x8-glyph string
+  // layout, NOT "segment layout" — see the banner in hud_gauge_emitter.cpp), optionally emits a
+  // per-item DR_AREA clip
   // box, then hands off to the still-substrate digit/label leaf FUN_8005019C.
   static void emitItem(Core* c);
 

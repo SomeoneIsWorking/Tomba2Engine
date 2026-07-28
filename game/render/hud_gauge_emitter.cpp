@@ -12,8 +12,21 @@
 // What it draws: a fixed 40x40-ish HUD gauge table at 0x800BF548 (flag/count header + an
 // embedded array of 0x8C-byte item records starting at +12). Each frame, IF the table's enable
 // flag is set: (1) a full-viewport DR_AREA scissor reset (320x240 at the camera's current
-// vertical scroll), (2) one DR_AREA + two segment-layout calls per active item (the individual
-// gauge/HP segments), (3) a small status-panel DR_AREA scissor (288x54, offset (16, scroll+153))
+// vertical scroll), (2) one DR_AREA + two TEXT-ROW calls per active item, (3) a small status-panel
+// DR_AREA scissor (288x54, offset (16, scroll+153))
+//
+// WHAT FUN_8004EB94 ACTUALLY IS (RE'd 2026-07-28 for kanban #22; the older wording here and in the
+// header called it "segment layout", which sent that card looking for gauge segments): it lays out a
+// CENTRED ROW OF 8x8 GLYPHS. a0 = a byte string terminated by 0xFF, a1 = Y. It calls FUN_8004EA4C to
+// measure the string, centres it with `x = 160 - (width >> 1)` (an ODD width therefore loses a half
+// pixel — the row sits 0.5px left of true centre, which is the guest's own rounding, not ours), then
+// per character emits one sprite at x, advancing x by 8 each time. The glyph atlas is 32 cells per
+// row: u = (ch & 31) << 3, v = (ch >> 5) << 3. Byte 0xFB is skipped-but-advanced, and any ch where
+// ((ch + 16) & 255) < 8 is a CONTROL CODE that latches the palette used by following glyphs
+// (clut word = ((code & 255) + 496) << 6 | 63).
+// CONSEQUENCE FOR #22: because every cell is 8 wide, a glyph WIDER than 8px must be drawn as two
+// adjacent cells — which is exactly the shape of the USER's "two halves overlapped on a 1px line".
+// Check the pair advance before looking at blend.
 // — this matches the task's description of "the HP/status gauge segments".
 //
 // Same faithful-substrate-mirror carve-out as WidescreenMarginQuad/OverlayGt3Gt4: this is the
