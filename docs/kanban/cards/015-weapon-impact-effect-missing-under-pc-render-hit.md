@@ -53,3 +53,21 @@ IT NEEDED NO NEW PRODUCER, and that is the useful part of the finding. FxMesh::d
 VERIFIED: on replays/bugs/weapon-impact-bucket.pad the fxmesh channel now reports 30 draws where it previously reported none for this controller — real quads with real transforms (list=800A1D98 clutRow=9 bias=-80, semi=1 tp=0035 clut=7E57, screen xy0=(141,81) xy3=(157,158), depth 0.10). Smoke: short-session / ingame-item-menu / bucket-softlock all exit 0 with 0 fatal / 0 abort / 0 recomp-MISS.
 
 WHAT THIS DOES NOT CLAIM: that this is THE effect the user reported missing. It is one of the ten unowned controllers and the most resident; whether it is the weapon impact for their case needs their eyeball. The remaining nine are unchanged and each is the same five-line shape IF its controller composes CR0-7 before calling the writer — which is worth checking per controller rather than assuming, since a controller that instead relies on a caller's transform would need a real producer.
+
+**2026-07-28:** 2026-07-28 NINE OF TEN CENSUS ENTRIES WIRED — and the tenth is deliberately excluded.
+
+Rather than assume the 0x8002BC9C pattern generalises, each remaining controller was checked STATICALLY for the precondition it depends on: does the controller compose its own transform into GTE control regs 0..7 (ctc2 to CR0-7) before calling the writer? FxMesh::draw reads composedXform(c) — the caller's GTE state — so a controller that does NOT set it up would have its prims drawn under a transform it does not own. Scanned each function body (prologue to next prologue) for ctc2 writes to CR0-7 plus a jal to 0x80027768:
+
+  SCOPE-READY (CR0-7 all written, calls the writer):
+    0x8002BC9C (1 call)   0x80028B70 (1)   0x8002C138 (1)   0x8002C6AC (1)
+    0x8002CD18 (3 calls)  0x8002D65C (1)   0x8002DF68 (1)   0x8002FDD0 (1)
+    0x80030264 (2 calls)  0x80030D68 (1)
+  NOT WIRED — 0x8002F36C: reaches the writer but writes NO control register at all, so it inherits
+    whatever transform its caller left set. Scoping it would draw its prims under a foreign
+    transform. It needs a real producer (or an owned caller), and is left out on purpose.
+
+All ten scope wrappers are generated from one FX_CONTROLLER_SCOPE macro in fx_mesh.cpp rather than copy-pasted, since they are three identical lines each.
+
+SMOKE (all with PSXPORT_DEBUG=fxmesh, 1200 frames): short-session exit 0 / 0 bad / 0 draws; bucket-softlock exit 0 / 0 bad / 74 draws; weapon-impact-bucket exit 0 / 0 bad / 10 draws; ingame-item-menu exit 0 / 0 bad / 0 draws. Zero fatal, zero abort, zero recomp-MISS across all four. The #64 banner frame at f240 is visually unchanged.
+
+WHAT IS PROVEN vs NOT: proven that these controllers now route their prims to a native producer instead of drawing nothing, and that nothing regressed on the replay set. NOT proven that each effect now looks correct — only two of the ten fire on the available replays (74 + 10 draws), and the other eight are simply unreached by any replay in the library. Those need either a scene that triggers them or a USER eyeball. Do not mark this card done on the smoke result alone.

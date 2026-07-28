@@ -12,7 +12,20 @@
 #include "override_registry.h"
 
 extern void gen_func_800288AC(Core*);
-extern void gen_func_8002BC9C(Core*);   // second effect-mesh controller (kanban #15 census)
+// The effect-mesh CONTROLLERS from the kanban #15 census. Each composes the node's transform into
+// GTE CR0-7 itself and then calls the shared writer FUN_80027768, so each only needs a SCOPE for
+// mesh_emit_tap to route its prims to FxMesh::draw — verified per controller by scanning for ctc2
+// writes to control regs 0..7 plus a jal to the writer, not assumed from the family.
+extern void gen_func_8002BC9C(Core*);
+extern void gen_func_80028B70(Core*);
+extern void gen_func_8002C138(Core*);
+extern void gen_func_8002C6AC(Core*);
+extern void gen_func_8002CD18(Core*);
+extern void gen_func_8002D65C(Core*);
+extern void gen_func_8002DF68(Core*);
+extern void gen_func_8002FDD0(Core*);
+extern void gen_func_80030264(Core*);
+extern void gen_func_80030D68(Core*);
 extern void gen_func_80027768(Core*);
 
 namespace {
@@ -228,18 +241,45 @@ void armTap(Core* c) {
 // of r4..r7, so both are controller-agnostic. All that was missing is a SCOPE around this caller;
 // without one the tap falls through and, since pc_render never walks the guest OT, the effect drew
 // nothing at all.
-void armTapBc9c(Core* c) {
-  FxMesh& fx = eng(c).fxMesh;
-  fx.mScope++;
-  gen_func_8002BC9C(c);
-  fx.mScope--;
-}
+// One wrapper per controller — same three lines each, so they are generated rather than copied.
+// The scope is what mesh_emit_tap tests; the gen body is left untouched so guest state stays exact.
+#define FX_CONTROLLER_SCOPE(hex)                     \
+  void armTap_##hex(Core* c) {                       \
+    FxMesh& fx = eng(c).fxMesh;                      \
+    fx.mScope++;                                     \
+    gen_func_##hex(c);                               \
+    fx.mScope--;                                     \
+  }
+FX_CONTROLLER_SCOPE(8002BC9C)   // 5 resident nodes — the most common unowned effect in a field dump
+FX_CONTROLLER_SCOPE(80028B70)
+FX_CONTROLLER_SCOPE(8002C138)
+FX_CONTROLLER_SCOPE(8002C6AC)
+FX_CONTROLLER_SCOPE(8002CD18)   // calls the writer 3x
+FX_CONTROLLER_SCOPE(8002D65C)
+FX_CONTROLLER_SCOPE(8002DF68)
+FX_CONTROLLER_SCOPE(8002FDD0)
+FX_CONTROLLER_SCOPE(80030264)   // calls the writer 2x
+FX_CONTROLLER_SCOPE(80030D68)
+#undef FX_CONTROLLER_SCOPE
+// NOT WIRED — 0x8002F36C. It reaches the writer but writes NO GTE control register at all, so it
+// inherits whatever transform its caller left set. FxMesh::draw reads composedXform(c), so scoping
+// it would draw its prims under a transform it does not own. That one needs a real producer (or an
+// owned caller), and is deliberately left out rather than batched in with the family.
 
 }  // namespace
 
 void FxMesh::install() {
   engine_set_override_main(0x800288ACu, armTap, gen_func_800288AC);
-  engine_set_override_main(0x8002BC9Cu, armTapBc9c, gen_func_8002BC9C);
+  engine_set_override_main(0x8002BC9Cu, armTap_8002BC9C, gen_func_8002BC9C);
+  engine_set_override_main(0x80028B70u, armTap_80028B70, gen_func_80028B70);
+  engine_set_override_main(0x8002C138u, armTap_8002C138, gen_func_8002C138);
+  engine_set_override_main(0x8002C6ACu, armTap_8002C6AC, gen_func_8002C6AC);
+  engine_set_override_main(0x8002CD18u, armTap_8002CD18, gen_func_8002CD18);
+  engine_set_override_main(0x8002D65Cu, armTap_8002D65C, gen_func_8002D65C);
+  engine_set_override_main(0x8002DF68u, armTap_8002DF68, gen_func_8002DF68);
+  engine_set_override_main(0x8002FDD0u, armTap_8002FDD0, gen_func_8002FDD0);
+  engine_set_override_main(0x80030264u, armTap_80030264, gen_func_80030264);
+  engine_set_override_main(0x80030D68u, armTap_80030D68, gen_func_80030D68);
   // 0x80027768 is NOT installed here — game/render/mesh_emit_tap.cpp is its single owner and calls
   // FxMesh::draw when this producer's scope is up. Installing it here too is what collided with #14.
 }
