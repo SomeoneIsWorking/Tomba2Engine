@@ -36,6 +36,11 @@ static const GameConfig g_tomba_config = {
   // can set its own key instead of silently booting with no media.
   /* discEnvVar     */ "PSXPORT_TOMBA2_DISC",
 
+  // Boot intro movies, in play order. native_boot_run used to hardcode this path; it now reads it
+  // from here so a second consumer can name its own (or none). Only LOGO.STR belongs at boot —
+  // OP.STR is the front-end's, and playing it here too caused the "FMV repeats" bug.
+  /* bootFmv        */ {"MOVIE/LOGO.STR", nullptr, nullptr, nullptr},
+
   // --- per-frame OT / packet-pool dance (native_boot.cpp native_step_frame) ---
   /* otRegionBase     */ 0x800e80a8u,
   /* otRegionStride   */ 0x00002070u,
