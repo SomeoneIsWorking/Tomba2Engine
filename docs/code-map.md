@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 924 native fns, 777 owned addresses, 735 LIVE / 189 ORPHAN.
+Totals: 926 native fns, 779 owned addresses, 737 LIVE / 189 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -574,6 +574,7 @@ Totals: 924 native fns, 777 owned addresses, 735 LIVE / 189 ORPHAN.
 | 0x8007C0D0 | LIVE | `DialogTextStream::advanceByteGen` | game/ui/dialog_advance.cpp:17 |  |  |
 | 0x8007CC00 | LIVE | `Panel::pushDialogGlyphs` | game/ui/panel.cpp:144 |  | pushDialogGlyphs — Spec 3, FUN_8007CC00 (gen shard_4.c:11855): the dia… |
 | 0x8007D0D0 | LIVE | `DialogTextStream::applyRenderMode` | game/ui/dialog_text_stream.cpp:44 |  | (obj a0) -- LEAF (gen_func_8007D0D0 has no `sp` descent). Cross-checke… |
+| 0x8007D594 | LIVE | `DialogBoxSm::step` | game/ui/dialog_box_sm.cpp:24 |  |  |
 | 0x8007DC38 | LIVE | `beh_variant_overlay_lifecycle` | game/ai/beh_variant_overlay_lifecycle.cpp:56 |  | NOT port_check-able as it stands: this is a hand-written REBUILD, not … |
 | 0x8007DDE0 | LIVE | `DialogDriver::siblingStep` | game/ui/dialog_driver_sibling.cpp:22 |  |  |
 | 0x8007E038 | LIVE | `Spawn::spawnOverlayVariantBody` | game/world/spawn.cpp:703 |  | VARIANT-OVERLAY SPAWN primitive. RE'd from disas 0x8007E038..0x8007E10… |
@@ -606,6 +607,7 @@ Totals: 924 native fns, 777 owned addresses, 735 LIVE / 189 ORPHAN.
 | 0x8007FCC8 | LIVE | `Panel::pushDialogBackdrop` | game/ui/dialog_backdrop.cpp:56 |  | ORACLE: gen_func_8007FCC8 |
 | 0x8007FCC8 | LIVE | `ov_push_dialog_backdrop` | game/ui/dialog_backdrop.cpp:87 |  | Guest-ABI entry: x/y/w/h in r4-r7, mode off the caller's stack (see th… |
 | 0x8007FCC8 | LIVE | `OptionsPage::noteBox` | game/ui/options_page.cpp:73 |  |  |
+| 0x8007FD54 | LIVE | `LoadingText::draw` | game/ui/loading_text.cpp:62 |  |  |
 | 0x80080F6C | LIVE | `Render::drawSync` | game/render/wide_re_libgpu_leaves.cpp:88 |  | func_80080F6C (0x80080F6C) — DrawSync(mode). VERIFIED & WIRED 2026-07-… |
 | 0x80081218 | LIVE | `Asset::uploadImage` | game/core/asset.cpp:244 |  | PC-native CPU->VRAM upload — replaces the game's libgs-style upload li… |
 | 0x80081458 | LIVE | `Render::clearOTagR` | game/render/wide_re_libgpu_leaves.cpp:152 |  | func_80081458 (0x80081458) — ClearOTagR(OT, entries). VERIFIED & WIRED… |

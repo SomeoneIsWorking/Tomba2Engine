@@ -211,18 +211,24 @@ def scan_decl_tags(files):
     return tags
 
 
-def load_engine_overrides():
-    """Authoritative addr->symbol map recovered from LIVE EngineOverrides registrations in the
-    CURRENT sources: `ov.register_(0xADDR, "Class::method", fn)` (runtime/recomp/engine_overrides.h).
-    The quoted second argument IS the owning symbol — the same qualified name METHOD_RE captures at
-    the DEFINITION — so a native wired ONLY via register_ (no `// FUN_xxxx` tag on its def line, and
-    absent from the faeb436^ snapshot tsv that load_override_table reads) is still attributed to its
-    guest address. Without this pass such a native reports 'NO native owner found' AND, worse, stays
+def load_installs():
+    """Authoritative addr->symbol map recovered from the LIVE override registry call sites:
+    `overrides::install(0xADDR, "Class::method", native, gen[, setter])`
+    (runtime/recomp/override_registry.h). The quoted second argument IS the owning symbol — the
+    same qualified name METHOD_RE captures at the DEFINITION — so a native wired ONLY by an install
+    (no `// FUN_xxxx` tag on its def line, no "ownership of FUN_xxxx" file header, and absent from
+    the faeb436^ snapshot tsv that load_override_table reads) is still attributed to its guest
+    address. Without this pass such a native reports 'NO native owner found' AND, worse, stays
     invisible as a SECOND owner of an address some other file already claims — which is exactly how
     cube_text_ledger.cpp's CubeTextLedger::activateSlot silently duplicated scene_events.cpp's
-    SceneEvents::armBody on FUN_80040B48 (the --conflicts dual-ownership detector depends on this)."""
+    SceneEvents::armBody on FUN_80040B48 (the --conflicts dual-ownership detector depends on this).
+
+    This keys on the CURRENT wiring idiom. It replaced the older EngineOverrides
+    `ov.register_(0xADDR, "sym", fn)` parser, which by 2026-07-28 matched ZERO call sites in the
+    tree while `DialogBoxSm::step` (installed on 0x8007D594, live at 963 hits on the bucket replay)
+    read as unowned — the exact re-derivation trap this index exists to prevent."""
     sym2addrs = {}
-    reg = re.compile(r'\.register_\s*\(\s*0x([0-9A-Fa-f]{8})u?\s*,\s*"([^"]+)"')
+    reg = re.compile(r'overrides::install\s*\(\s*0x([0-9A-Fa-f]{8})u?\s*,\s*"([^"]+)"')
     for path in collect_files():
         try:
             txt = open(path, encoding="utf-8", errors="replace").read()
@@ -283,7 +289,7 @@ def scan_dispatched_addrs():
 OVR = load_override_table()
 OVR.update(load_behavior_table())
 OVR.update(scan_decl_tags(collect_files()))
-OVR.update(load_engine_overrides())
+OVR.update(load_installs())
 
 
 def parse_file(path, natives):
