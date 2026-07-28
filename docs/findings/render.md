@@ -3973,3 +3973,54 @@ real neighbour by ~1 px — that residual is the camera lerp alone). Key off `Fp
   motion. Both directions validated; registered as instruments I012/I013.
 - **method note:** the legs need only cover the same SPAN of gameplay, not be frame-locked — the maps
   are aggregates. Repeat the sweep at other spots and areas; that is how the next ones get found.
+
+## The two named render targets, reached STATICALLY (2026-07-28)
+
+Both were found by reading the port's own source and the binary — no live driving, no replay.
+
+### (1) Quest-update banner "bad lerp" — the letters lerp, the boards they sit on do not
+
+- **the emitter is already half-owned.** `Render::textLabelEmit` (`game/render/text_label.cpp`,
+  guest `FUN_80039F4C`) draws a text-label node in TWO halves:
+  - **step (1) the MESH pass** — `func_8003F174(node, 1)` = `Render::subPartWalk`, which for each
+    sub-part loads that sub-part's own transform into the GTE and submits its geomblk through
+    `func_8003F698`. These are the WOODEN PLANKS the letters sit on.
+  - **step (4) the GLYPH pass** — per character, one quad from the fixed template
+    `V(-3,-7,-1)…(5,9,-1)`, and for each surviving glyph it pushes a `Render::WqRec`
+    (template corners + the cmd's pre-composed matrix factored against the scene camera) so the
+    letters are emitted by `Render::billboardsRender` through the float camera path.
+- **the split IS the bug.** Only the glyph half produces a display-pass record. The mesh half
+  captures nothing — it just submits guest packets. So the two halves sit on different presentation
+  tiers: at 60fps the LETTERS interpolate under the lerped camera while the BOARDS step at 30Hz.
+  That is exactly the artefact in the user's capture: the glyphs sit at inconsistent offsets on
+  their planks, letter-by-letter, instead of being fixed to them.
+- **same class as kanban #16/#23** (verbatim-presented 2D/mesh vs lerped world), and the fix is the
+  one those cards already name: give the mesh half a display-pass producer so board and letters come
+  from the same state and interpolate together. NOT a matcher, NOT an anchor/stamp — banned.
+- **string tables, for whoever needs them:** the 12-byte/3-word entries are `{one-line ptr,
+  two-line ptr, packed id}`. Objectives ("Find Tabby!", "Go to the Burning House!") are based at
+  `0x800A33C8` (textLabelEmit reads word +4). The QUEST-ITEM names in the banner
+  ("A Red Treasure Chest", "Adventurer's Chest", "Capture the Last Evil Pig!") are a SECOND table at
+  `0x800A3660`, whose base is materialised nowhere in a field RAM dump — its reader is
+  overlay-resident, so that emitter has still to be identified.
+
+### (2) Why an impact/mesh effect can be missing: the mesh writer has 20 callers and 4 producers
+
+- **the shared writer is `FUN_80027768`.** `game/render/mesh_emit_tap.cpp` is its single owner and
+  dispatches to whichever producer's SCOPE is currently up (`FxMesh::mScope`, raised only around
+  controller `FUN_800288AC`; `SwingFx::mInEffectDraw`). If no scope is up, the tap returns and
+  **nothing is drawn** — pc_render does not walk the guest OT, so the guest packets are not a
+  fallback.
+- **static census of every `jal 0x80027768` site** (20 distinct enclosing functions, cross-checked
+  with `codemap.py --addr`):
+  - OWNED / scoped — 4: `0x800288AC` (FxMesh controller), `0x80029F6C` (`Render::dustEffectRender`),
+    `0x8002A834` (`SwingFx::effectDrawTick`), `0x8002AB5C` (`NativeScenePass::terrainRender`).
+  - NO NATIVE OWNER — 14: `0x80028B70`, `0x8002BC9C`, `0x8002C138`, `0x8002C6AC`, `0x8002CD18` (x3
+    call sites), `0x8002D65C`, `0x8002DF68`, `0x8002F36C`, `0x8002FDD0`, `0x80030264` (x2),
+    `0x80030D68`, and the overlay four `0x8013D454`, `0x8013D828`, `0x8013ED08`, `0x8013EF58`.
+    Plus `0x8002AE0C`, present only as an ORPHAN leaf.
+- **so "the impact effect is missing" is the expected default, not a regression.** kanban #15 fixed
+  the ONE impact path that flows through `FUN_800288AC` (verified on the bucket capture). Any impact
+  or effect mesh emitted by one of the other 14 controllers still draws nothing. This census is the
+  render frontier's next work-list — each entry is one native producer, and it is derivable
+  statically, without needing to trigger the effect in-game first.
