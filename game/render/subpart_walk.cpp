@@ -89,23 +89,21 @@ void Render::subPartWalk(Core* c) {
       gte_write_ctrl(6, c->mem_r32(xf + 24));
       gte_write_ctrl(7, c->mem_r32(xf + 28));
 
-      // DISPLAY-PASS capture for kanban #64/#16/#23 — BUILT, MEASURED, AND STILL NOT WIRED.
-      // Render::subPartCapture (subpart_capture.cpp) re-derives this sub-part's prims from its own
-      // geometry + transform and hands them to the display pass, and Render::mSubPartDrawSuppress
-      // (checked by the native GT3/GT4 submitters) stops the submit below from ALSO drawing them.
-      // That handover WORKS and is picture-neutral: on frame 240 of bucket-softlock.pad (the
-      // "Go to the Burning House!" banner) capture+suppression differs from the guest-time draw by
-      // 26 of 76800 px, edge rounding only, banner fully intact.
-      // WHAT IS NOT PROVEN — and why it stays out: the fps60 triple classification over the banner
-      // band (x40..288 y56..96, 249 triples) is BYTE-IDENTICAL with and without the handover:
-      // STATIC 4002 / BETWEEN 5518 / STALE 5 / AHEAD 2427 both ways. STALE ~0 BEFORE the change
-      // means the planks were never frozen in this repro, so it demonstrates no benefit. kanban #16
-      // says the artefact needs a MOVING CAMERA ("text jitters while the camera moves") and the
-      // camera is static while this banner is up, so the repro cannot show it either way.
-      // NEXT: get a capture with the banner up WHILE the camera pans, re-measure the same band, and
-      // only wire this if STALE/AHEAD actually improves. Wiring a renderer-wide change to every
-      // sub-part user on an unmeasured hypothesis is not worth the blast radius.
-      (void)&Render::subPartCapture;   // NOT WIRED — see the block comment above
+      // DISPLAY-PASS capture (kanban #64/#16/#23) — WIRED 2026-07-28 on this evidence:
+      // the glyph pass's `cmd` and this walk's `sub` ARE THE SAME POINTER (measured: node 800FB218's
+      // sub-parts 800F9C64/9CA8/9D30... are exactly the cmds textLabelEmit captures glyphs from), so
+      // one transform block drives BOTH halves of a text-label character — its plank and its letter.
+      // That shared transform MOVES every logic frame (87 distinct world positions in 87 consecutive
+      // appearances, ~10-15 units/frame). With only the glyph half captured, the interpolated frame
+      // drew the LETTER at the half-way position while its PLANK stayed at the real-frame position —
+      // a per-character offset of roughly half a frame of motion, which is exactly the drift in the
+      // user's "A Red Treasure Chest" capture.
+      // subPartCapture re-derives the plank prims from the same transform and hands them to the
+      // display pass; mSubPartDrawSuppress stops the submit below from ALSO drawing them (without it
+      // the two copies coincide on a real frame and separate on the interpolated one — measured as a
+      // 26/76800 px second copy). Picture-neutral on a real frame, same 26 px, banner intact.
+      Render::subPartCapture(c, node, sub);
+      rend(c)->mSubPartDrawSuppress++;
 
       cursor += 4;
       c->r[4] = c->mem_r32(sub + SUB_GEOMBLK);
@@ -113,6 +111,7 @@ void Render::subPartWalk(Core* c) {
       c->r[31] = 0x8003F230u;               // jal-site ra
       c->r[6] = passThrough;
       func_8003F698(c);
+      rend(c)->mSubPartDrawSuppress--;
 
       index += 1;
     } while ((int32_t)index < (int32_t)(uint32_t)c->mem_r8(node + NODE_COUNT));

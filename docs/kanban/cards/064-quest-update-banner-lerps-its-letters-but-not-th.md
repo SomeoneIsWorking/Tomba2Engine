@@ -74,3 +74,19 @@ DEAD END (do not repeat): isolating the planks by COLOUR MASK (bright cream/tan,
 
 THE MEASUREMENT THAT WOULD SETTLE IT, for the next iteration: stop trying to find the planks in PIXELS and use the game's own state instead. The planks are sub-parts of node 800FB218 (subpartcap already logs node/sub/geomblk). Extend that channel to log each sub-part's transform translation (sub+0x18 word +0x14..0x1C) per logic frame. Two questions fall out immediately: (a) does a plank's transform change frame to frame at all — if not there is nothing to lerp and this card's premise is dead; (b) does it change by the SAME delta the glyph cmd+0x18 transform changes by — if the deltas match, the two halves cannot separate and the artefact must be elsewhere; if they differ, that difference IS the drift in the user's capture, measured in guest units instead of guessed from pixels.
 That is a small, targeted change to an existing diagnostic, and it answers the card without touching the renderer.
+
+**2026-07-28:** 2026-07-28 FOURTH ITERATION — PREMISE CONFIRMED FROM GAME STATE, AND THE FIX IS NOW WIRED.
+
+THE MEASUREMENT THAT SETTLED IT (state, not pixels — the pixel route was a dead end, see the previous note). Extended PSXPORT_DEBUG=subpartcap to log each half's world position, and it produced two facts:
+
+1. THE GLYPH'S cmd AND THE PLANK'S sub ARE THE SAME POINTER. textLabelEmit captures glyphs from cmd = node+0xC0[i]; subPartWalk walks sub = node+0xC0[i]. Measured on node 800FB218: the glyph log reports cmd=800F9C64 / 800F9CA8 / 800F9D30 and the plank log reports sub=800F9C64 / 800F9CA8 / 800F9CEC / 800F9D30 — identical values. So ONE transform block at +0x18 drives BOTH halves of a text-label character: its letter and the plank under it.
+
+2. THAT SHARED TRANSFORM MOVES EVERY LOGIC FRAME. Tracking one cmd across the replay: 87 appearances, 87 DISTINCT world positions, stepping ~10-15 units per axis per frame (3609.3,-1310.4,2965.5) -> (3597.5,-1323.9,2950.5) -> (3590.4,-1338.8,2942.8) -> ...
+
+Those two together ARE the bug, and they close the earlier null result. With only the glyph half captured, the interpolated frame drew the LETTER at the half-way position while its PLANK stayed at the real-frame position — a per-character offset of about half a frame of motion. That is precisely 'the glyphs sit at inconsistent offsets on their planks'. The band-level tile classification could not see it because it cannot separate the banner from the scene moving behind it; it was the wrong instrument, not a disproof.
+
+WIRED. subPartCapture + mSubPartDrawSuppress are now live in subPartWalk. Verification:
+  - frame 240 of bucket-softlock.pad: 26 of 76800 px vs the guest-time-draw baseline, all inside the banner band, edge rounding only — banner fully intact, planks and letters all present (scratch/screenshots/wired_f240.png).
+  - no double-draw: the suppression scope means the sub-part is drawn once, by the display pass.
+  - smoke: replays/boot-smoke/short-session.pad and replays/bugs/ingame-item-menu.pad both exit 0 with 0 fatal / 0 abort / 0 recomp-MISS.
+STILL WORTH A USER EYEBALL at 60fps on a real banner — the guest-units argument and the still-frame agreement are strong, but only the moving picture proves the letters now stay on their planks. #16 (sign text) and #23 are the same emitter and should be re-checked in the same pass.

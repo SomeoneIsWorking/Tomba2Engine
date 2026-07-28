@@ -141,6 +141,14 @@ void textLabelBody(Core* c) {
             float crF[3][3], tr[3];
             wq_read_matrix(c, cmd + 24u, crF, tr);
             wq_factor_world(c, crF, tr, w.objR, w.objT);
+            // GLYPH half of the kanban #64 comparison, same channel as the plank half
+            // (subpart_capture.cpp): if a glyph's world position moves by the SAME per-frame delta
+            // its plank does, the two cannot drift apart and #64's premise is dead; if the deltas
+            // differ, that difference IS the drift the user captured — in guest units, not pixels.
+            if (cfg_dbg("subpartcap"))
+              cfg_logf("subpartcap", "GLYPH node=%08X cmd=%08X ch=%u objT=(%.1f,%.1f,%.1f)",
+                       node, cmd, (unsigned)ch,
+                       (double)w.objT[0], (double)w.objT[1], (double)w.objT[2]);
             { const uint32_t col = c->mem_r32(pk + 4u);
               for (int i = 0; i < 4; i++) w.wCol[i] = col; }
             w.wUv0 = c->mem_r32(pk + 12u); w.wUv1 = c->mem_r32(pk + 20u);

@@ -141,7 +141,14 @@ void Render::subPartCapture(Core* c, uint32_t node, uint32_t sub) {
   // `PSXPORT_DEBUG=subpartcap` — does this fire at all, on which node, and how many prims did the
   // sub-part contribute? The first question any follow-up asks (a text-label node that never reaches
   // subPartWalk would make a silent no-op look like a working fix).
+  // The translation is logged too, because the question this channel exists to answer is not only
+  // "did it fire" but "does this sub-part MOVE between logic frames, and by how much" — the plank
+  // half of the kanban #64 comparison. tr = the raw guest transform translation; objT = the same
+  // after factoring the scene camera out, i.e. the world position the display pass would lerp.
   if (cfg_dbg("subpartcap"))
-    cfg_logf("subpartcap", "node=%08X sub=%08X geomblk=%08X gt3=%d gt4=%d recs=%zu",
-             node, sub, geomblk, n3, n4, r->mWqRecs.size());
+    cfg_logf("subpartcap", "node=%08X sub=%08X geomblk=%08X gt3=%d gt4=%d recs=%zu "
+             "tr=(%.1f,%.1f,%.1f) objT=(%.1f,%.1f,%.1f)",
+             node, sub, geomblk, n3, n4, r->mWqRecs.size(),
+             (double)tr[0], (double)tr[1], (double)tr[2],
+             (double)objT[0], (double)objT[1], (double)objT[2]);
 }
