@@ -580,7 +580,7 @@ void Render::fxRotSpriteTailRender(uint32_t node) {
   a.gateBias = 0; a.depthBias = kRotTailDepthBias;
   a.shift = kRotTailShift;
   a.rec0 = c->mem_r32(table + (uint32_t)idx * 4u);
-  a.numerX = a.numerY = (uint32_t)(uint16_t)c->mem_r16(node + kRotTailScale);
+  a.numerX = a.numerY = c->mem_r16s(node + kRotTailScale);   // SIGNED: gen uses lh, not lhu
   altSpriteEmit(a);
 }
 

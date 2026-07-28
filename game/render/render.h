@@ -286,7 +286,10 @@ public:
     uint32_t node = 0;
     uint32_t anchorX = 0;      // world anchor; Y and Z follow at +4 and +8
     uint32_t rec0 = 0;         // the four-corner record list to emit
-    uint32_t numerX = 0, numerY = 0;
+    // SIGNED. FUN_8012D9E8 reads its numerator with a sign-extending lh (`(int16_t)mem_r16(node+0x70)`),
+    // and a negative numerator is meaningful — it mirrors the model. Holding it unsigned turned a small
+    // negative into ~65536x the intended scale; caught 2026-07-28 by the static-RE verify pass.
+    int32_t numerX = 0, numerY = 0;
     int dqa = 6;
     int gateBias = 0;          // what FUN_800317CC's OT-key range gate is given
     int depthBias = 0;         // what the controller then applies to the key (often the same, not always)

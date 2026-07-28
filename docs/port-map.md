@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 18 verified · 11 ported-unverified · 1 todo · 1 blocked
+**Status:** 18 verified · 11 ported-unverified · 7 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -203,3 +203,39 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** todo
 - **deps:** world-line-rope
 - **notes:** FUN_8013E08C: op-0x4A ground ring shadow, its own GTE loop over the 16-point circle at 0x8014C780 (sliding 3-point window), grey = 0x80-((nodeY-0x14)*0x80)/200, blends 1 and 2, node matrix at node+0x2C via FUN_80084220 + a diagonal scale from nodeY<<4. BLOCKED on RE of FUN_80084110/FUN_80084220.
+
+## fx-jet-mesh-sprite-10c1d8
+- **scope:** render
+- **status:** todo
+- **owner:** generated (unported)
+- **notes:** FUN_8010C1D8 (area 21) — one of the 22-area-sweep render targets. FULL STATIC RE + adversarial verification: docs/re/render-targets-static-re.md#8010c1d8---area-21. Do NOT re-derive; do NOT port from an uncorrected reading (5 of the 6 specs were CORRECTED by their verifier, including one fatal address error).
+
+## fx-area4-ambient-13b118
+- **scope:** render
+- **status:** todo
+- **owner:** generated (unported)
+- **notes:** FUN_8013B118 (area 4) — one of the 22-area-sweep render targets. FULL STATIC RE + adversarial verification: docs/re/render-targets-static-re.md#8013b118---area-4. Do NOT re-derive; do NOT port from an uncorrected reading (5 of the 6 specs were CORRECTED by their verifier, including one fatal address error).
+
+## fx-rain-lines-116904
+- **scope:** render
+- **status:** todo
+- **owner:** generated (unported)
+- **notes:** FUN_80116904 (area 8) — one of the 22-area-sweep render targets. FULL STATIC RE + adversarial verification: docs/re/render-targets-static-re.md#80116904---area-8. Do NOT re-derive; do NOT port from an uncorrected reading (5 of the 6 specs were CORRECTED by their verifier, including one fatal address error).
+
+## fx-backdrop-plane-110ca4
+- **scope:** render
+- **status:** todo
+- **owner:** generated (unported)
+- **notes:** FUN_80110CA4 (area 14) — one of the 22-area-sweep render targets. FULL STATIC RE + adversarial verification: docs/re/render-targets-static-re.md#80110ca4---area-14. Do NOT re-derive; do NOT port from an uncorrected reading (5 of the 6 specs were CORRECTED by their verifier, including one fatal address error).
+
+## fx-dot-haze-1110bc
+- **scope:** render
+- **status:** todo
+- **owner:** generated (unported)
+- **notes:** FUN_801110BC (area 11) — one of the 22-area-sweep render targets. FULL STATIC RE + adversarial verification: docs/re/render-targets-static-re.md#801110bc---area-11. Do NOT re-derive; do NOT port from an uncorrected reading (5 of the 6 specs were CORRECTED by their verifier, including one fatal address error).
+
+## fx-motion-trail-1113b4
+- **scope:** render
+- **status:** todo
+- **owner:** generated (unported)
+- **notes:** FUN_801113B4 (area 3) — one of the 22-area-sweep render targets. FULL STATIC RE + adversarial verification: docs/re/render-targets-static-re.md#801113b4---area-3. Do NOT re-derive; do NOT port from an uncorrected reading (5 of the 6 specs were CORRECTED by their verifier, including one fatal address error).
