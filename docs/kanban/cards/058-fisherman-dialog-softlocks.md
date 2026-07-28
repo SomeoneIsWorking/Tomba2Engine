@@ -4,7 +4,7 @@ title: Fisherman dialog SOFTLOCKS
 status: todo
 labels: [bug]
 created: 2026-07-23
-updated: 2026-07-23
+updated: 2026-07-28
 evidence: docs/reference/issues/issue58_fisherman_dialog_softlock.png
 ---
 
@@ -23,3 +23,5 @@ DIAGNOSIS METHOD (state, not crash — the process keeps running):
 REPRO: no replay exists for the fisherman yet. The fisherman is near the seaside fishing spot. CUT ONE FROM THE USER'S LIVE SESSION — `python3 external/psxport/tools/dbgclient.py padrec save replays/bugs/fisherman-dialog-softlock.pad` while they are at/near the lock (the whole session from boot is kept in memory, so it can be cut after the fact), then add a replays/README.md entry in the same commit. That is how house-on-the-point.pad was captured.
 
 **2026-07-23:** 2026-07-23 agent: NO REPRO OBTAINED — no replay reaches the fisherman and I did not guess a fix. But #60 (worked this session) is very likely the SAME BUG: both are area-0/seaside dialog-cutscene sequences, and #60's root cause is now located — the cutscene-mode byte 0x1F800137 sticks at 1 because two actor scripts DEADLOCK on script op 0x04 (FUN_8004201C), a two-party rendezvous on the scene-flag array 0x800BF9B4 (both parked in phase 1 awaiting a value neither will write). Before cutting a fisherman replay, check that state directly: r 0x1F800137 (1 = parked), then find the two parked actors via 'ents' and read their obj+0x6c (script cursor), +0x70 (progress), +0x72 (flag slot), +0x74 (writes), +0x76 (awaits), +0x78 (phase). If it is the same deadlock, #58 closes with #60. See docs/findings/scene.md 'SEQUENCE softlock #60' — it also lists four instrument caveats (pad replays CANNOT compare legs; REPL watch takes lo/hi; PSXPORT_DEBUG=script misses the substrate script loop).
+
+**2026-07-28:** 2026-07-28: CHECK THE CONFIRM BUTTON FIRST — see kanban #2's 2026-07-28 note and docs/findings/ui.md 'The dialog box advances on CIRCLE'. The dialog box's advance out of state node[+5]==2 is gated on the PRESSED edge mask 0x800E7E68 & the confirm mask 0x1F800174 (= 0x2000 = CIRCLE, keyboard L), NOT Cross. That gate is guest data and is byte-identical on the oracle leg, so it is not a port defect. #2's 'parks forever' turned out to be exactly this: a replay with no input after f468 plus a session testing with X. Before cutting a fisherman replay, ask whether L advances it.

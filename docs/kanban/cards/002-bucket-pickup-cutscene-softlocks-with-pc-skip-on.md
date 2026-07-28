@@ -4,7 +4,7 @@ title: Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)
 status: doing
 labels: [bug, pc-skip]
 created: 2026-07-17
-updated: 2026-07-22
+updated: 2026-07-28
 ---
 
 USER live 2026-07-15: picking up a bucket initiates a cutscene that SOFTLOCKS under the default config (pc_skip=true). Likely a collapsed-init/wait fork in the cutscene trigger where the pc_skip shortcut branch fails to advance (a wait that never completes, or a phase-gate counter not bumped — cf. the pc_skip frame-counter-bump rule). Repro: replay the bucket-pickup pad capture default config, watch for the cutscene hang after bucket pickup; compare pc_skip=false (SBS Core A / MODE=skip) which should progress. Blocks gameplay progress.
@@ -46,3 +46,11 @@ WHERE IT STOPS NOW: the script parks on op 0x01 (FUN_80041D60 = spawn sub-actor,
 ALSO: beh_prng_velocity_machine.cpp converted from a register-machine transcription into readable game code (PickupObj/MotionBlock typed lenses, PickupState/ActivePhase/CollectPhase enums, named guest routines/globals/items). Equivalence proven the panel_fill way: A/B 2 MB RAM + scratchpad dumps at f470/f700/f1200 on this replay, all six IDENTICAL.
 
 TOOLING: tools/find_refs.py <dump> <addr> [--rw r|w] — "who reads/writes guest address X" straight off a RAM dump's instruction stream (Ghidra misses the lui+offset absolute-global form; decomp.sh has no xref mode). Found the cut-mode writers here. Plus PSXPORT_DEBUG=pickup (docs/config.md).
+
+**2026-07-28:** 2026-07-28: THE REMAINING 'PARK' IS NOT A SOFTLOCK — falsified on current main. The dialog box was waiting for the CONFIRM button, which is CIRCLE (keyboard L), not Cross. RE: FUN_8007D594 case node[+5]==2 advances only when mem_r16(0x800E7E68) [PRESSED edge, written by Engine::padEdgeFence] & mem_r16(0x1F800174) [confirm mask] != 0 and node[+0x46]&1 == 0. 0x1F800174 reads 0x2000 = Circle, and 0x1F800170..17F is BYTE-IDENTICAL on the oracle leg (00 80 00 40 00 20 00 10) — the guest's own {Square,Cross,Circle,Triangle} table, so this is not a pc_skip fork.
+
+MEASURED: on replays/bugs/bucket-softlock.pad, one 'tap o' over the debug server closed the box; the pickup script resumed 801485A4 -> 800A3E38 -> 800A3E60, cut-mode 0x1F800137 cleared to 0, and free-roam control returned (pos 0x800E7EAE 0x276F -> 0x27D8 holding Right). The chain pickup->script->box completes end to end.
+
+THE INSTRUMENT WAS THE BUG: tools/pad_decode.py shows the replay's LAST input at f468. The dialog opens ~f470 and every frame to f1764 is PAD_NONE. A capture that never presses confirm cannot show the box advancing — 'does not move on X taps' (the earlier note) was a true observation of the wrong button. Filed as distrusted instrument I011. The box IS visible and legible at f1200 ('This'll work for carrying the Water!', scratch/screenshots/bucket_dialog_f1200.png), so no invisible-dialog trap either.
+
+STILL OPEN: the USER's LIVE softlock report. Everything measured says the sequence completes on a confirm press. Next step is a question, not more RE: does pressing L (Circle) advance it on the live game? If yes this card closes as a false alarm; if no, the live case is a condition this replay does not contain. Do NOT re-derive the dialog layer — it is closed out (see the notes below). Same question applies to #58 (fisherman dialog softlock), which has no repro at all.

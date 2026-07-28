@@ -1,5 +1,36 @@
 # Findings — UI subsystem (game/ui/*)
 
+## The dialog box advances on CIRCLE, and `replays/bugs/bucket-softlock.pad` never presses it (kanban #2, 2026-07-28)
+
+- **falsifies the standing conclusion** that the bucket-pickup cutscene "parks forever" on current
+  main. It does not. On `replays/bugs/bucket-softlock.pad`, after the replay's input runs out, ONE
+  Circle tap closes the box, the pickup script resumes (`801485A4` → `800A3E38` → `800A3E60`),
+  cut-mode `0x1F800137` clears to 0, and the player is controllable again (pos `0x800E7EAE`
+  `0x276F` → `0x27D8` while holding Right). The engine chain is complete end-to-end.
+- **the confirm gate, RE'd:** `FUN_8007D594` (DialogBoxSm::step) case `node[+5] == 2` — the
+  "text fully streamed, waiting" state — advances only when
+  `mem_r16(0x800E7E68) & mem_r16(0x1F800174)` is non-zero and `node[+0x46] & 1` is clear. The same
+  pair gates case 1's fast-forward. `0x800E7E68` is the per-frame PRESSED edge mask written by
+  `Engine::padEdgeFence` (`cur & ~prev`); `0x1F800174` is the confirm-button mask, and it reads
+  **`0x2000` = Circle**. Verified NOT a pc_skip fork: `0x1F800170..17F` is byte-identical on the
+  oracle leg (`PSXPORT_GATE=1`) and the default leg — `00 80 00 40 00 20 00 10`, i.e. the guest's
+  own `{Square, Cross, Circle, Triangle}` table. Circle is the game's choice, not the port's.
+- **why the previous session concluded "softlock":** it tested with X. Cross does nothing in this
+  state by design, so "does not move on X taps" was a true observation of the wrong button.
+  Keyboard binding is in `external/psxport/runtime/recomp/pad_input.cpp`: Circle = **L**, Cross = K.
+- **the replay is the broken instrument.** `tools/pad_decode.py replays/bugs/bucket-softlock.pad`
+  shows the LAST input at f468; the dialog opens ~f470 and every frame from there to f1764 is
+  PAD_NONE. A capture that never presses confirm cannot show the box advancing, so "parked for
+  1464+ frames" was the instrument, not the game. See instrument I011.
+- **the box is on screen and legible** at f1200 under the default config — "This'll work for
+  carrying the Water!" with the item icon (`scratch/screenshots/bucket_dialog_f1200.png`), so a
+  player is not being softlocked by an invisible dialog either.
+- **what is still open:** the USER's LIVE report of a bucket-cutscene softlock. Everything measured
+  here says the sequence completes on a confirm press, so the live case is either (a) the confirm
+  key never being pressed, or (b) a condition this replay does not contain. Resolve it by asking
+  what happens on **L**, not by re-deriving the dialog layer — that layer is closed out (see the
+  kanban #2 notes: every glyph driver on this path is ported or measured cold).
+
 ## Item/pause menu chrome rendered 0x40 TOO DARK — the menu's dim was applied TWICE, once with no ordering (kanban #59, FIXED 2026-07-23)
 
 - **symptom:** the item/pause menu's gold frame, tab labels, help panel and item rows all rendered
