@@ -62,9 +62,14 @@ public:
   // Install both taps into the one override registry. Called once per Game.
   static void install();
 
-  // Capture-scope depth: non-zero only while the effect-mesh controller FUN_800288AC is running,
-  // so the shared writer's other 16 callers never reach this producer.
+  // Capture-scope depth: non-zero only while one of the wired effect-mesh CONTROLLERS is running,
+  // so the shared writer's unowned callers never reach this producer.
   int mScope = 0;
+  // Guest address of the controller that raised the innermost scope. Purely diagnostic — the
+  // `fxmesh` channel prints it, which is the only way to tell WHICH controller's mesh a given quad
+  // came from. Without it, wiring a new controller cannot be distinguished from an already-wired one
+  // firing more often, and "the effect now draws" degrades into a vibe.
+  uint32_t mScopeFn = 0;
 
   // Re-derive one FUN_80027768 call's quads and submit them. Called by the leaf's SINGLE owner,
   // game/render/mesh_emit_tap.cpp, when mScope is up — not installed as an override here, because

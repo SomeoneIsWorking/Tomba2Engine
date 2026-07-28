@@ -28,6 +28,14 @@ extern void gen_func_80030264(Core*);
 extern void gen_func_80030D68(Core*);
 extern void gen_func_8002F36C(Core*);
 extern void gen_func_80027768(Core*);
+// The A00-OVERLAY half of the same census — the four controllers that are not in MAIN.EXE. They
+// register through the overlay's own dispatch table (engine_set_override_a00), which is only
+// consulted while A00 is resident, so they need no first-instruction residency guard of the kind
+// fx_line.cpp's whitelist entries carry.
+extern void ov_a00_gen_8013D454(Core*);
+extern void ov_a00_gen_8013D828(Core*);
+extern void ov_a00_gen_8013ED08(Core*);
+extern void ov_a00_gen_8013EF58(Core*);
 
 namespace {
 
@@ -164,7 +172,8 @@ void FxMesh::draw(Core* c, uint32_t list, uint32_t clutRow, int32_t sortBias, ui
   RenderQueue& rq = c->game->activeRq();
   const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;   // GPU drawing-area offset
 
-  if (cfg_dbg("fxmesh")) cfg_logf("fxmesh", "list=%08X clutRow=%u bias=%d uScroll=%u cue=%d",
+  if (cfg_dbg("fxmesh")) cfg_logf("fxmesh", "ctrl=%08X list=%08X clutRow=%u bias=%d uScroll=%u cue=%d",
+                                  eng(c).fxMesh.mScopeFn,
                                   list, clutRow, sortBias, uScroll, (int32_t)c->mem_r32(kDepthCueScratch));
   MeshRecord rec{ c, list };
   for (int guard = 0; guard < 256; guard++, rec.at += kRecStride) {
@@ -223,9 +232,10 @@ namespace {
 // gen body; the wrapper exists only to scope the writer's tap to this caller.
 void armTap(Core* c) {
   FxMesh& fx = eng(c).fxMesh;
-  fx.mScope++;
+  const uint32_t outer = fx.mScopeFn;
+  fx.mScope++; fx.mScopeFn = 0x800288ACu;
   gen_func_800288AC(c);
-  fx.mScope--;
+  fx.mScope--; fx.mScopeFn = outer;
 }
 
 // FUN_8002BC9C — a SECOND effect-mesh controller of the same family, and the most resident unowned
@@ -247,9 +257,10 @@ void armTap(Core* c) {
 #define FX_CONTROLLER_SCOPE(hex)                     \
   void armTap_##hex(Core* c) {                       \
     FxMesh& fx = eng(c).fxMesh;                      \
-    fx.mScope++;                                     \
+    const uint32_t outer = fx.mScopeFn;              \
+    fx.mScope++; fx.mScopeFn = 0x##hex##u;           \
     gen_func_##hex(c);                               \
-    fx.mScope--;                                     \
+    fx.mScope--; fx.mScopeFn = outer;                \
   }
 FX_CONTROLLER_SCOPE(8002BC9C)   // 5 resident nodes — the most common unowned effect in a field dump
 FX_CONTROLLER_SCOPE(80028B70)
@@ -263,6 +274,47 @@ FX_CONTROLLER_SCOPE(80030264)   // calls the writer 2x
 FX_CONTROLLER_SCOPE(80030D68)
 FX_CONTROLLER_SCOPE(8002F36C)   // composes CR0-7 via libgte, not raw ctc2 — see below
 #undef FX_CONTROLLER_SCOPE
+
+// The A00-overlay controllers, wired 2026-07-28. Same three lines, but their gen bodies carry the
+// overlay's `ov_a00_gen_` prefix, so the macro is repeated rather than parameterised over the prefix
+// (one #define per prefix reads better than a two-argument macro whose call sites all pass the same
+// second argument). RE: scratch/decomp/fx_d454.c — all four end in a call to the shared writer
+// FUN_80027768 after composing the node's transform, exactly like the MAIN.EXE twelve:
+//   0x8013D454 — THE WATER JET (identified visually, see below). TWO modes on (s16)node+0x60: mode 0
+//                scales the scratchpad pixel-scale by
+//                (node+0x62 >> 16) >> 8 and calls a different emitter (FUN_800328EC); any other mode
+//                picks a model from the six-entry overlay pointer table at 0x8010A058 indexed by
+//                that same field and calls the writer with sortBias -0xFA. Live on
+//                replays/bugs/seesaw-weight.pad and walk-dust-puff.pad, where the nofx census names
+//                it as a type-0x20 node render fn with no producer at all.
+//   0x8013D828 — EIGHT iterations over the 4-byte record table at 0x8014BC8C, each building a
+//                per-iteration column scale from node+0x56 / node+0x5A, composing rot(node+0x48) with
+//                the scene camera, advancing node+0x4A by 0x200 (45 degrees) per step, and setting
+//                the depth-cue IR0 from node+0x55. The eight-armed sibling of 0x8002BC9C's four.
+//   0x8013ED08 — the plain one: cue off, transform from (node+0x2C, node+0x54, node+0x48), writer.
+//   0x8013EF58 — same shape with the cue driven from node+0x54 and the model at node+0x3C.
+// None of them needs a new producer: FxMesh::draw takes its transform from composedXform(c) — the GTE
+// state the caller just published — and mesh_emit_tap reads (model, clutBias, sortBias, uBias)
+// straight out of r4..r7, so both halves are controller-agnostic. All that was missing is the SCOPE.
+#define FX_A00_CONTROLLER_SCOPE(hex)                 \
+  void a00Tap_##hex(Core* c) {                       \
+    FxMesh& fx = eng(c).fxMesh;                      \
+    const uint32_t outer = fx.mScopeFn;              \
+    fx.mScope++; fx.mScopeFn = 0x##hex##u;           \
+    ov_a00_gen_##hex(c);                             \
+    fx.mScope--; fx.mScopeFn = outer;                \
+  }
+// WHAT 0x8013D454 ACTUALLY DRAWS, measured rather than guessed: the WATER JET that sprays from the
+// faucet in replays/bugs/walk-dust-puff.pad — the very effect the game announces with "Water came out
+// from the faucet!". A/B at replay frames 460/470/480/490/510/520 with the four installs compiled out:
+// 700-1367 pixels differ per frame inside a moving ~30x40 bbox, and with the installs removed the
+// stream is ENTIRELY absent from the picture. The `fxmesh` channel confirms which leg is which
+// (68 ctrl=8013D454 lists with the scopes, 0 without), so the diff cannot be a run-to-run wobble.
+FX_A00_CONTROLLER_SCOPE(8013D454)   // the water jet — live in 2 replays as an unowned node render fn
+FX_A00_CONTROLLER_SCOPE(8013D828)
+FX_A00_CONTROLLER_SCOPE(8013ED08)
+FX_A00_CONTROLLER_SCOPE(8013EF58)
+#undef FX_A00_CONTROLLER_SCOPE
 // 0x8002F36C — WIRED 2026-07-28, CORRECTING AN EARLIER EXCLUSION OF IT. It was left out of the
 // batch on the reasoning "it reaches the writer but writes NO GTE control register, so it inherits
 // whatever transform its caller left set". That reasoning was WRONG. The scan behind it looked only
@@ -289,6 +341,13 @@ void FxMesh::install() {
   engine_set_override_main(0x80030264u, armTap_80030264, gen_func_80030264);
   engine_set_override_main(0x80030D68u, armTap_80030D68, gen_func_80030D68);
   engine_set_override_main(0x8002F36Cu, armTap_8002F36C, gen_func_8002F36C);
+  // The A00-overlay four — the remainder of the kanban #15 census. engine_set_override_a00 installs
+  // into the same process-global registry, so the oracle leg still runs the pure ov_a00_gen_* body.
+  extern void engine_set_override_a00(uint32_t, OverrideFn, OverrideFn);
+  engine_set_override_a00(0x8013D454u, a00Tap_8013D454, ov_a00_gen_8013D454);
+  engine_set_override_a00(0x8013D828u, a00Tap_8013D828, ov_a00_gen_8013D828);
+  engine_set_override_a00(0x8013ED08u, a00Tap_8013ED08, ov_a00_gen_8013ED08);
+  engine_set_override_a00(0x8013EF58u, a00Tap_8013EF58, ov_a00_gen_8013EF58);
   // 0x80027768 is NOT installed here — game/render/mesh_emit_tap.cpp is its single owner and calls
   // FxMesh::draw when this producer's scope is up. Installing it here too is what collided with #14.
 }

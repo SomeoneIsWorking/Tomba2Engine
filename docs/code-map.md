@@ -50,12 +50,12 @@ Totals: 930 native fns, 783 owned addresses, 741 LIVE / 189 ORPHAN.
 | 0x80026C88 | LIVE | `ObjectTable::dispatch` | game/world/object_table.cpp:141 | 0x80026C88 |  |
 | 0x80026CE0 | LIVE | `ObjectTable::dispatchFaithful` | game/world/object_table.cpp:192 |  | ObjectTable::dispatchFaithful — byte-mirror of gen_func_80026C88 (gene… |
 | 0x80027254 | LIVE | `ObjectTable::handler27254` | game/world/object_table.cpp:46 |  |  |
-| 0x80027768 | LIVE | `FxMesh::draw` | game/render/fx_mesh.cpp:157 |  | 's re-derivation for THIS producer. The leaf itself is owned by the on… |
+| 0x80027768 | LIVE | `FxMesh::draw` | game/render/fx_mesh.cpp:165 |  | 's re-derivation for THIS producer. The leaf itself is owned by the on… |
 | 0x80027768 | LIVE | `SwingFx::drawMesh` | game/render/swing_fx.cpp:60 |  | Build the producer's transform from the composed GTE control registers… |
 | 0x80027768 | LIVE | `SwingFx::meshEmitTap` | game/render/swing_fx.cpp:172 |  | the shared packed-mesh quad emitter. Run the untouched guest body (pac… |
 | 0x80027A4C | LIVE | `Render::fxSpriteRender` | game/render/fx_sprite.cpp:270 |  | The node's own render fn IS the emitter for every plain member of the … |
 | 0x800286CC | LIVE | `Render::fxAnimSpriteRender` | game/render/fx_sprite.cpp:383 |  | The FUN_800286CC emitter, rebuilt: read the effect node's own animatio… |
-| 0x800288AC | ORPHAN | `armTap` | game/render/fx_mesh.cpp:224 |  | the effect-mesh CONTROLLER: composes the effect's transform from its o… |
+| 0x800288AC | ORPHAN | `armTap` | game/render/fx_mesh.cpp:233 |  | the effect-mesh CONTROLLER: composes the effect's transform from its o… |
 | 0x8002918C | LIVE | `beh_rand_phase_cull` | game/ai/beh_rand_phase_cull.cpp:54 |  |  |
 | 0x80029664 | LIVE | `Render::dustTrailEmit` | game/render/fx_dust.cpp:109 |  | the trail: thread the ring's first four recorded positions and lay two… |
 | 0x80029B40 | LIVE | `beh_pos_history_trail` | game/ai/beh_pos_history_trail.cpp:67 |  |  |

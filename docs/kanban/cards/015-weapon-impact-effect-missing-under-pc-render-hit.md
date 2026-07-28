@@ -111,3 +111,11 @@ This also corrects the 2026-07-28 census framing above: 0x80033080 was never in 
 **2026-07-28:** 2026-07-28 FIXED AND MEASURED — the sprite half now draws. A/B on replays/bugs/weapon-impact-bucket.pad at PSXPORT_PAD_SHOT_AT=656, dispatch live vs compiled out: 436 pixels differ, bbox (127,96)-(180,152), centred on the strike point where PSXPORT_DEBUG=fxsprite reports the 20 emissions and where the mesh half's quads already sat. 0x80033080 is off the nofx list; run exits 0 with no abort/miss. Full writeup: docs/findings/render.md 'The impact burst's SPRITE half: a COMPOSITE render fn defeats the type-0x20 whitelist'.
 
 LEAVING THIS CARD OPEN: the bucket repro is one impact path. The 2026-07-28 census still lists unowned mesh-writer controllers (the overlay four 0x8013D454 / 0x8013D828 / 0x8013ED08 / 0x8013EF58, plus the orphan leaf 0x8002AE0C), so an impact whose controller is one of those may still be blank. Eleven of the MAIN.EXE controllers now carry FX_CONTROLLER_SCOPE wrappers.
+
+**2026-07-28:** 2026-07-28 (third pass) — the 20-caller census of FUN_80027768 is now CLOSED. The four A00-overlay controllers (0x8013D454 / 0x8013D828 / 0x8013ED08 / 0x8013EF58) are wired with scope wrappers via engine_set_override_a00 in game/render/fx_mesh.cpp; 0x8002AE0C remains an orphan leaf with no call site.
+
+A library-wide nofx sweep (all 17 replays, headless, each sized to its own pad length) reduced the 14-entry static work-list to ONE gap that actually fires: 0x8013D454, on seesaw-weight and walk-dust-puff. It turns out to be the WATER JET from the faucet — the effect the game announces with 'Water came out from the faucet!' — and it was entirely absent from the picture.
+
+A/B on walk-dust-puff at replay frames 460/470/480/490/510/520 with the four installs compiled out: 700-1367 px differ per frame in a moving ~30x40 bbox; frame 500 alone matches (the jet is between pulses). Leg proven by the channel: 68 ctrl=8013D454 lists with the scopes, 0 without. New FxMesh::mScopeFn makes that attribution possible — the first A/B attempt gave a bogus all-zero result that only the ctrl= counts could contradict.
+
+docs/findings/render.md 'The A00-overlay effect-mesh controllers — and the WATER JET that was invisible'.

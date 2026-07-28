@@ -4103,3 +4103,51 @@ that is a bare pair of `jal`s is one.
 world anchor, projected screen position, SZ3, scale). It distinguishes "producer not dispatched"
 from "producer dispatched and skipped by its own gate" (empty record list, anchor behind the camera,
 OT key out of range), which are identical in the picture.
+
+## The A00-overlay effect-mesh controllers — and the WATER JET that was invisible (2026-07-28, FIXED)
+
+**How it was found.** `PSXPORT_DEBUG=nofx` run over the WHOLE replay library (17 replays, headless,
+each sized to its own pad length). Union of every type-0x20 render fn the walk skipped:
+
+| render fn | replays | verdict |
+|---|---|---|
+| `0x8002AB5C` | 16 | terrain — owned, reached by another route |
+| `0x8013CDD4` | 15 | `WidescreenMarginQuad::emit` — owned, another route |
+| `0x800288AC` | 4 | FxMesh controller — owned, scoped at guest time |
+| `0x8002BC9C` | 3 | FxMesh controller — owned, scoped |
+| **`0x8013D454`** | **2** | **NO owner at all — a real producer gap** |
+
+So the library-wide census reduces to ONE genuine gap, which is exactly what such a sweep is for: it
+converts a 14-entry static work-list into the two lines that actually fire.
+
+**What it is.** `0x8013D454` is the A00-overlay effect-mesh controller for the **water jet from the
+faucet** — the effect the game announces with "Water came out from the faucet!" It was completely
+absent from the picture under `pc_render`.
+
+**Why it drew nothing.** Same mechanism as the twelve MAIN.EXE controllers: it composes the node's
+transform and calls the shared writer `FUN_80027768`, whose single owner `mesh_emit_tap.cpp` only
+routes to `FxMesh::draw` while a producer SCOPE is up. No scope, no picture — `pc_render` does not
+walk the guest OT, so the guest packets are not a fallback.
+
+**Fix.** All four A00 controllers wired with the same scope wrapper, via `engine_set_override_a00`
+(the overlay's dispatch table, only consulted while A00 is resident — so unlike `fx_line.cpp`'s
+whitelist entries they need no first-instruction residency guard). RE in
+`scratch/decomp/fx_d454.c`, summarised in the `fx_mesh.cpp` banner:
+`0x8013D454` (two modes on `node+0x60`; a six-entry model table at `0x8010A058`),
+`0x8013D828` (eight iterations over the record table at `0x8014BC8C`, `node+0x4A` advancing 0x200 per
+step — the eight-armed sibling of `0x8002BC9C`'s four), `0x8013ED08` and `0x8013EF58` (the plain
+compose-and-write shape).
+
+**Evidence.** A/B on `replays/bugs/walk-dust-puff.pad` at replay frames 460/470/480/490/510/520 with
+the four installs compiled out: **700–1367 pixels differ per frame**, in a moving ~30×40 bbox that
+tracks the stream; frame 500 alone is identical (the jet is between pulses). The leg is proven by the
+channel itself — 68 `ctrl=8013D454` lists with the scopes, **0** without.
+
+**New diagnostic, and why it was needed.** `FxMesh::mScopeFn` carries the guest address of the
+controller that raised the innermost scope, and the `fxmesh` channel prints it as `ctrl=`. Without it
+the two legs of this A/B are indistinguishable from "an already-wired controller fired more often",
+and the first A/B attempt did in fact produce a bogus all-zero result that only the `ctrl=` counts
+could contradict. Attribute the emission before believing the pixels.
+
+**This closes the kanban #15 census.** All 20 callers of `FUN_80027768` now have an owner or a scope;
+`0x8002AE0C` remains an orphan leaf with no call site.
