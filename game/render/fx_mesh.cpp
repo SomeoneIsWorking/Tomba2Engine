@@ -26,6 +26,7 @@ extern void gen_func_8002DF68(Core*);
 extern void gen_func_8002FDD0(Core*);
 extern void gen_func_80030264(Core*);
 extern void gen_func_80030D68(Core*);
+extern void gen_func_8002F36C(Core*);
 extern void gen_func_80027768(Core*);
 
 namespace {
@@ -260,11 +261,18 @@ FX_CONTROLLER_SCOPE(8002DF68)
 FX_CONTROLLER_SCOPE(8002FDD0)
 FX_CONTROLLER_SCOPE(80030264)   // calls the writer 2x
 FX_CONTROLLER_SCOPE(80030D68)
+FX_CONTROLLER_SCOPE(8002F36C)   // composes CR0-7 via libgte, not raw ctc2 — see below
 #undef FX_CONTROLLER_SCOPE
-// NOT WIRED — 0x8002F36C. It reaches the writer but writes NO GTE control register at all, so it
-// inherits whatever transform its caller left set. FxMesh::draw reads composedXform(c), so scoping
-// it would draw its prims under a transform it does not own. That one needs a real producer (or an
-// owned caller), and is deliberately left out rather than batched in with the family.
+// 0x8002F36C — WIRED 2026-07-28, CORRECTING AN EARLIER EXCLUSION OF IT. It was left out of the
+// batch on the reasoning "it reaches the writer but writes NO GTE control register, so it inherits
+// whatever transform its caller left set". That reasoning was WRONG. The scan behind it looked only
+// for direct `ctc2` instructions, and this controller composes its transform through the libgte
+// LEAVES instead: matMul (0x80084110), Math::matColScale (0x80084520), then SetRotMatrix
+// (0x80084660 -> CR0-4) and SetTransMatrix (0x80084690 -> CR5-7), and only then the writer. That is
+// the same CR0-7 setup the others perform inline, merely routed through libgte, so composedXform(c)
+// reads exactly the transform this controller owns.
+// FOR ANY FUTURE CENSUS: detect BOTH forms. A ctc2-only scan reports a false "inherits its caller's
+// transform" for every libgte-composing emitter, which is how this one was missed.
 
 }  // namespace
 
@@ -280,6 +288,7 @@ void FxMesh::install() {
   engine_set_override_main(0x8002FDD0u, armTap_8002FDD0, gen_func_8002FDD0);
   engine_set_override_main(0x80030264u, armTap_80030264, gen_func_80030264);
   engine_set_override_main(0x80030D68u, armTap_80030D68, gen_func_80030D68);
+  engine_set_override_main(0x8002F36Cu, armTap_8002F36C, gen_func_8002F36C);
   // 0x80027768 is NOT installed here — game/render/mesh_emit_tap.cpp is its single owner and calls
   // FxMesh::draw when this producer's scope is up. Installing it here too is what collided with #14.
 }

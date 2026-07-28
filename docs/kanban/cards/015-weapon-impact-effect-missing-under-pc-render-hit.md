@@ -83,3 +83,15 @@ Re-audited all 11 census functions with a sound detector (first jr ra + delay sl
 So nothing shipped needs changing. Recorded as distrusted instrument I014 so the next census uses the jr-ra detector instead.
 
 ALSO, on 0x8002ECD8 (still unowned, next target): it is NOT a member of the 0x80027A4C sprite family. It has TWO modes — when node+3 == 0x91 it uses FIXED scale/OT values (0x200020 / 0x10000, key 4), otherwise the familiar scene-camera + DQA=6 RTPS of the node+0x2C/+0x30 anchor with scaleX = scaleY = MAC0 — and it publishes the same scratchpad block (0x1F800080 key, 84/88 scale, 8C anchor, 90 from node+0x58) before continuing into the rest of its 640-byte body. Porting it needs the emit path after that publish RE'd first (JAL 0x8002E680 near the end); do not assume the sprite-family shape.
+
+**2026-07-28:** 2026-07-28 CORRECTION — 0x8002F36C WAS WRONGLY EXCLUDED, now wired.
+
+The batch note above says it 'reaches the writer but writes NO GTE control register at all, so it inherits whatever transform its caller left set', and excluded it on that basis. THAT WAS WRONG. The scan behind it looked only for direct ctc2 instructions. 0x8002F36C composes its transform through the libgte LEAVES instead: matMul (0x80084110), Math::matColScale (0x80084520), then SetRotMatrix (0x80084660 -> CR0-4) and SetTransMatrix (0x80084690 -> CR5-7), and only then calls the mesh writer 0x80027768. That is the same CR0-7 setup the other nine perform inline, just routed through libgte — so composedXform(c) reads exactly the transform it owns, and it was scope-ready all along. Now wired with the same FX_CONTROLLER_SCOPE pattern; all ten census controllers are covered.
+
+HOW IT SURFACED: triaging the last unclassified nofx entry, 0x8013E08C, which likewise shows zero direct ctc2 yet calls SetRotMatrix/SetTransMatrix — that made the ctc2-only inference obviously unsafe and sent me back to re-check the one exclusion it had driven.
+
+The nine SCOPE-READY verdicts are unaffected — those write ctc2 directly and were re-audited under the sound extent detector earlier today. Filed as distrusted instrument I015: a correct census must test BOTH forms (direct ctc2 to CR0-7, OR a call to 0x80084660/0x80084690).
+
+SMOKE after wiring: short-session / weapon-impact-bucket / bucket-softlock all exit 0 with zero fatal / abort / recomp-MISS; the #64 banner frame at f240 is unchanged.
+
+SEPARATELY, 0x8013E08C is now triaged: 920B, composes its own transform via libgte, but calls the OT/DR_MODE helper 0x80083DE0 directly rather than the mesh writer — so it is NOT scope-able through FxMesh and needs its own producer. It sits next to the owned line producers (0x8013DD34 worldLineDraw, 0x8013E9D8 ropeAnchorRender, 0x8013EA64 ropeChainRender), so it is most likely a sibling line/rope emitter.
