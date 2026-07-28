@@ -1,0 +1,155 @@
+// Tomba!2 recompiler seeds — the GAME half of tools/recomp/emit.py's function discovery.
+//
+// emit.py seeds discovery from the binary itself (entry point + the pointer/table scans) and grows
+// the set by following direct jal targets. This file adds what those scans CANNOT see, and every
+// entry here is a fact about THIS executable — which is why it lives in the game repo and not in
+// the framework. (Before 2026-07-28 this list was hardcoded in emit.py, which made the recompiler
+// silently wrong for any other game: a foreign seed inside the new game's text splits a real
+// function at an arbitrary offset, and one outside it raises on decode.)
+//
+// JSON with `//` line comments. Addresses are hex strings.
+//
+// Add a seed here when the fail-fast boot surfaces a [recomp-MISS] — with a note on HOW the address
+// is reached, because that rationale is what makes the entry reviewable later.
+{
+  // Resident (MAIN.EXE) functions reached only indirectly — invisible to direct-jal discovery,
+  // found empirically via boot dispatch-misses.
+  //
+  // NOTE (later-254): resident fns reached ONLY via a function pointer (jalr) are now auto-seeded by
+  // pointer_table_funcs + constructed_func_pointers (data-word AND lui+addiu code-built vtable
+  // pointers). Add a manual seed ONLY for a fn those two scans can't see (e.g. a stackless leaf not
+  // preceded by `jr ra`, or a pointer built by an unusual instruction sequence).
+  //
+  // NOTE: 0x8009A8E8/ADC4/AA4C were NOT functions — they are mid-function jump-table (switch) labels
+  // inside the printf/format-parser at 0x8009A76C, surfaced as misses because computed `jr` is routed
+  // to rec_dispatch (no in-function jump-table recovery yet). The real entry is seeded instead; the
+  // parser still needs jump-table recovery OR a native printf override to work.
+  //
+  // NOTE: 0x80003A4C (per-VBlank pad read FUN_80003a4c) is intentionally NOT seeded. It lives BELOW
+  // MAIN.EXE's text [0x80010000,0x800BE800) — part of the boot-stub/resident low-text SIO driver
+  // loaded at runtime, NOT present in our recompiler input. Seeding it would fail the in-text check.
+  // The pad override must be wired differently (it cannot use rec_set_override on a
+  // not-in-input address); see pad_input.c.
+  "main": [
+    "0x8009A76C", // printf/format-parser, reached only via fn-pointer (jalr), Ghidra-missed
+
+    // Engine render functions reached ONLY via a function pointer (so direct-jal discovery misses
+    // them) — seeded to EMIT readable C for the native-engine RE/port (later-135). Seeding doesn't
+    // change execution; it makes the body available in generated/ for RE (and rec_set_override works
+    // on them by address regardless).
+    "0x8002AB5C", // field terrain/map renderer — node+24 render-fn ptr of the t32 render-list node
+    "0x80051C8C", // per-object transform builder (node+0x98 matrix from euler angles + position)
+
+    // Mid-function COROUTINE RESUME target inside the yield primitive FUN_80051F80. When a task calls
+    // FUN_80051F80 to yield, the substrate scheduler captures ra = the instruction AFTER
+    // `jal 0x80080880` inside 51F80 (i.e. 0x80051FA4). Resuming the coroutine dispatches that ra as a
+    // function entry, but it is a mid-function label — not naturally in the fn set. Surfaced by SBS
+    // gameplay-mode f0 fresh-entry rec_coro_run(0x8010649C) -> yield -> resume-miss.
+    // (Also listed in `main_reentry` — the body before it must fall THROUGH, not `return`.)
+    "0x80051FA4",
+
+    // AREA-MODE stub table (0x80010000, 22 entries): each entry is a tiny resident stub that `jal`s
+    // one overlay leaf and falls through to the shared epilogue 0x8001CB98. The guest reaches them
+    // through the `jr` in FUN_8001CAC0, so the jump-table matcher classifies them as that function's
+    // switch case labels and prunes them. Tomba2Engine's native Engine::areaModeDispatchFaithful
+    // dispatches 0x8001CB98 BY ADDRESS, and the whole family is documented/mirrored there, so they
+    // must stay real function entries.
+    "0x8001CB00", "0x8001CB10", "0x8001CB20", "0x8001CB30", "0x8001CB40", "0x8001CB50",
+    "0x8001CB60", "0x8001CB70", "0x8001CB80", "0x8001CB90", "0x8001CB98",
+
+    // Per-object RENDER sub-handlers reached ONLY via a runtime handler pointer (the perobj render
+    // dispatcher FUN_8003CCA4 `jr v0` where v0 = a node's render-cmd fn ptr, built at area-load into
+    // guest data — NOT the static table 0x80014EC8). They are ALSO jump-table case labels of the
+    // sibling FUN_8003D584's own switch, so discovery treated them as mid-function labels and did NOT
+    // emit function entries; a runtime dispatch to them then recomp-MISSes via FUN_8003CCA4's switch
+    // default. Latent until the task0 stack-leak fix (later-286) let free-roam run long enough to
+    // render the object that carries this handler.
+    "0x8003D5CC", // FUN_8003CCA4/FUN_8003D584 perobj render sub-handler (switch case target)
+    "0x8003D8AC", // ditto — the observed miss
+
+    // Native-override targets: seed so the func_<addr> wrapper exists and rec_set_override(addr,fn)
+    // reaches them (rec_set_override only works on RECOMPILED entries). libcard B0-vector I/O
+    // trampolines, overridden by memcard.c for native synchronous card file I/O. All three are
+    // already reachable via direct jal (so this is a harmless no-op today), seeded proactively so the
+    // override contract never depends on jal-discovery happening to reach them.
+    "0x8009BAF0", // _card_read   (B0:0x4E) -> memcard.c ov_card_read
+    "0x8009C600", // _card_write  (B0:0x4F) -> memcard.c ov_card_write
+    "0x8009C610"  // _card_status (B0:0x5C) -> memcard.c ov_card_status
+  ],
+
+  // Mid-function re-entry points in MAIN: an entry INSIDE another function whose body must fall
+  // THROUGH into the seed rather than `return`.
+  "main_reentry": ["0x80051FA4"],
+
+  // Per-overlay LOAD BASE. The \BIN\*.BIN overlays are read RAW to a fixed base and run in place, so
+  // a given guest address is different code depending on which overlay is resident. These bases are
+  // the EXACT load destinations observed in the CD load-log (PSXPORT_DEBUG=cd over a boot->field
+  // run) — deterministic game facts, NOT magic offsets:
+  //
+  //   STAGE slot 0x80106228 — START/DEMO/GAME.BIN (the main stage; mutually exclusive).
+  //     cd-log: "loadfile 1648 B @LBA1904->0x80106228" (START), "5372 B @LBA1879" (DEMO),
+  //     "11636 B @LBA1882" (GAME).
+  //   MODE slot 0x80108F9C — SOP.BIN, loaded RIGHT AFTER GAME.BIN (which stays resident at
+  //     0x80106228). cd-log: "async read 4415 words (17660 B) @LBA1895 -> 0x80108F9C". GAME
+  //     [0x80106228,0x80108F9C) and SOP [0x80108F9C,..) are both resident together (adjacent,
+  //     non-overlapping).
+  //   OPN.BIN — a sub-overlay loaded into the AREA slot 0x8018A000 (cd-log: "async read 13596 B
+  //     @LBA1888 -> 0x8018A000"; its header fn-ptrs (0x8018A348..) confirm that base). The big area
+  //     DATA also loads to 0x8018A000 at other times; resident-signature routing distinguishes them.
+  //   CRD.BIN — the memory-card/save-browser overlay, SAME slot as OPN (0x8018A000) — cd-log
+  //     "async read 6265 words (25060 B) @LBA1866 -> 0x8018A000". It was previously mis-based as the
+  //     MODE slot, which put its bodies ~0x80080000 off: MAIN calls into it by hard-coded absolute
+  //     (0x8018FA88 / 0x8018FBCC = CRD+0x5A88 / +0x5BCC, both `addiu sp,-0x20` prologues), so every
+  //     such call fail-fasted as a rec_dispatch miss and the Load-Game browser aborted the process.
+  "overlay_bases": {
+    "START": "0x80106228", "DEMO": "0x80106228", "GAME": "0x80106228",
+    "SOP": "0x80108F9C", "OPN": "0x8018A000", "CRD": "0x8018A000"
+  },
+
+  // A0*.BIN — the per-area FIELD CODE overlays (A00..A0L); each loads to the MODE slot 0x80108F9C
+  // (swapping out SOP), holding the field render submitters (0x8013xxxx). cd-log:
+  // "loadfile 285096 B @LBA374 -> 0x80108F9C" (A00). All A0* are interchangeable at this base.
+  "overlay_base_patterns": [["A0[0-9A-Z]", "0x80108F9C"]],
+
+  // Explicit per-overlay seeds: addresses reached NOT by a jal/pointer the scans see, but as a CLEAN
+  // RE-ENTRY POINT the runtime resumes at.
+  //
+  // The per-AREA handler tables (indexed by the area byte DAT_800BF870) are NOT listed here — they
+  // are discovered from the binary by emit.py's area_indexed_overlay_tables(). Only the addresses
+  // that are NOT members of such a table stay explicit.
+  "overlay_seeds": {
+    // GAME's cooperative task loop is re-entered each frame at its LOOP TOP 0x801063F4
+    // (native_boot.cpp: the scheduler sets resume PC = loop top after the GAME-stage SM yields). It
+    // is mid the task fn (the prologue 0x8010637C is owned natively by ov_game_stage_main), so no
+    // scan finds it — seed it so the per-frame resume dispatches to a recompiled body (the loop runs
+    // one frame then yields via ov_switch). The stage-main entries are owned NATIVELY (ov_demo/
+    // ov_game dispatchers), so the native path never dispatches them and no scan seeds them — but the
+    // FULL-PSX path (psx_fallback / SBS gameplay/both) runs each stage as a pure recompiled body from
+    // its entry, so seed them too.
+    "GAME": ["0x801063F4", "0x8010637C"],
+    "DEMO": ["0x801062E4"],
+
+    // START.BIN is the stage-0 FILE-TABLE overlay: its header is a filename string table
+    // (count@base=6), so NO scan finds code. The bootstrap FUN_800499e8 builds task0 with entry
+    // PC = base+0x274 = 0x8010649C (a `addiu sp,-0x1c8` prologue, the START stage fn). The native
+    // path owns that bootstrap (native_task0_bootstrap) so it never dispatches the recompiled body —
+    // but the FULL-PSX path (PSXPORT_SBS_MODE=both core B, psx_fallback) runs task0 under the
+    // substrate and resumes at 0x8010649C, so seed it.
+    "START": ["0x8010649C"],
+
+    // SOP field-mode machine (FUN_80109450): the SOP.BIN overlay body dispatched from GAME.BIN
+    // (caller ra 0x801088B0 in gameplay-mode SBS, full-PSX field mode). It's the sm[0x4e]-indexed
+    // sub-mode dispatcher; the scan misses it because GAME.BIN calls it by hard-coded absolute
+    // 0x80109450 into the SOP overlay slot, and cross-module discovery doesn't cross the
+    // resident->overlay boundary.
+    "SOP": ["0x80109450"],
+
+    // Area-1 handler reached via a computed pointer from resident FUN_800263C0's dispatch (a0=node)
+    // — REPL `warp 1` under PSXPORT_GATE=1 hit a miss (2026-07-10).
+    "A01": ["0x801158E0"],
+
+    // Attract-demo chain ov_a02 FUN_801122A4 dispatches it (caller ra=0x80111CAC); discovery missed
+    // it — un-driven title screen crashed the port (2026-07-10, issue #33).
+    "A02": ["0x80111A20"]
+  }
+}

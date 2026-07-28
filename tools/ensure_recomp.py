@@ -43,6 +43,13 @@ ALL_OVERLAYS = STAGE_OVERLAYS + AREA_OVERLAYS
 RECOMP_DIR = "external/psxport/tools/recomp"   # the recompiler lives in the psxport framework submodule
 RECOMP_SRCS = [f"{RECOMP_DIR}/emit.py", f"{RECOMP_DIR}/decode.py", f"{RECOMP_DIR}/psexe.py"]
 
+# Our OWN recompiler seeds (emit.py --seeds): the addresses discovery cannot see (fn-pointer targets,
+# runtime-computed re-entry points) and the per-overlay load bases. These are facts about THIS
+# executable and THIS disc, so the framework ships none and this repo owns the list — a foreign
+# game's seeds would split real functions at arbitrary offsets. It is a recomp INPUT, so editing it
+# changes the emitted C and it is hashed alongside the recompiler sources.
+SEEDS = "game/recomp_seeds.json"
+
 MAIN = "scratch/bin/tomba2/MAIN.EXE"
 STUB = "scratch/bin/tomba2/SCUS_944.54"
 OVL_DIR = "scratch/bin/overlays"
@@ -149,7 +156,7 @@ def input_hash(overlay_files):
     feed("SCUS_944.54", os.path.join(ROOT, STUB))
     for name in sorted(overlay_files):
         feed("OVL:" + name, os.path.join(ROOT, OVL_DIR, name))
-    for src in RECOMP_SRCS:
+    for src in RECOMP_SRCS + [SEEDS]:
         feed(src, os.path.join(ROOT, src))
     return h.hexdigest()
 
@@ -169,6 +176,7 @@ def run_emit():
     say("recompiling MAIN.EXE + overlays -> C (the execution substrate)…")
     cmd = [sys.executable, os.path.join(ROOT, f"{RECOMP_DIR}/emit.py"),
            os.path.join(ROOT, MAIN), os.path.join(ROOT, GEN_MAIN),
+           "--seeds", os.path.join(ROOT, SEEDS),
            "--overlays", os.path.join(ROOT, OVL_DIR),
            "--stub", os.path.join(ROOT, STUB)]
     r = subprocess.run(cmd)
