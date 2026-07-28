@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 16 verified · 8 ported-unverified · 2 todo · 1 blocked
+**Status:** 16 verified · 8 ported-unverified · 3 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -178,15 +178,15 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 ## fx-emitter-ecd8-e680
 - **scope:** The 0x8002ECD8 + 0x8002E680 effect emitter pair (type-0x20 node render fn, no producer)
 - **status:** todo
-- **notes:** RE COMPLETE for the CONTROLLER, and the EMITTER's angular rule is now pinned — but it is NOT a uniform sweep, so do not rebuild it as one.
+- **notes:** CONTROLLER RE settled; EMITTER ANGULAR RULE IS UNRESOLVED — an earlier note in this entry claimed it is an 'iterated map a <- cos(a)'. TREAT THAT AS UNPROVEN, not as a finding.
 
-0x8002ECD8 (controller, 640B) — settled. Two modes (node+3 == 0x91 -> fixed scale/OT values; else scene-camera + DQA=6 RTPS of the node+0x2C/+0x30 anchor, usual OT-key range gate, publishing 0x1F800080 key / 84 / 88 per-Z scale / 8C anchor). Emit args from an angle:
-    a = (u8)node+5 << 6 ; h = ((rsin(a) << 5) >> 12) + 0x30 ; w = h - ((rcos(a) << 5) >> 12)
-    halve each; halve AGAIN when (s16)0x800E7FFE < 0
-    FUN_8002E680(w, h, dim = (node+100) >> 1 & 0x7F7F7F, full = node+100)
+## fx-sprite-emitter-b3a4
+- **scope:** 0x8002B3A4 — the 5th 0x80027A4C sprite-family emitter, rotation-composed
+- **status:** todo
+- **notes:** RE COMPLETE 2026-07-28 (decompiled with `proj`; see instrument I016). Surfaced by PSXPORT_DEBUG=nofx on replays/bugs/weapon-impact-bucket.pad. 1036B, reaches the sprite record writer 0x80027A4C, so it is the FIFTH member of the family fxSpriteRender already owns four of — but it does NOT slot into the existing scale-rule switch, for one reason:
 
-0x8002E680 (emitter, 1624B) — structure settled: radii rx = w * scratch[0x1F800084] >> 16 and ry = h * scratch[0x1F800088] >> 16 (so the burst shrinks with distance); both colour words get GP0 code 0x3A (shaded quad, semi-transparent) and each quad is a dim->full gradient; the body emits 9-word packets chained at +9/+0x12/+0x1B/+0x24, four per step, five steps, closed with a DR_MODE packet — 20 gouraud quads, written as centre +/- offset in all four sign combinations (only one quadrant's trig is computed).
+IT COMPOSES A PER-NODE ROTATION FIRST. Unlike FN_UNIFORM / FN_BYTESCALE / FN_XYSCALE / FN_PARTICLE, which all load the PURE scene camera, this one builds a rotation from node+0x48 via Math::rotmat (0x80085480), composes it with the camera column-by-column (three MVMVA 0x49E012 ops), transforms the node position (node+0x2C/+0x30) with MVMVA 0x486012 and adds the camera translation — i.e. it is projComposeObjectHost(nodeRotation, nodePos), not projComposeCamera.
 
-THE TRAP, and why this is not yet portable. The obvious rebuild is 'five uniform angular steps around an ellipse'. THAT IS WRONG. The loop's angle register is REPLACED BY ITS OWN COSINE each iteration — verified from raw instructions, not the decompile: at 0x8002E808  (arg = r17), then rcos at 0x8002E80C, then in the delay slot 0x8002E810  (r17 = the RETURN value). So the sequence is an ITERATED MAP a <- cos(a) seeded at 0x66, not a fixed step, and rsin/rcos here return 1.3.12 (+/-4096) values being fed back into a 0..0xFFF angle domain. Ghidra showed this correctly and I nearly dismissed it as aliasing — it is real.
+THE SWEEP IS SETTLED, and this is the part worth trusting: the loop angle is  — verified from raw instructions,  at 0x8002B620 with  in the delay slot feeding both rcos @0x8002B624 and rsin @0x8002B644. With a 0..0xFFF angle domain that is 0, 1024, 2048, 3072 = the FOUR CARDINAL directions. Per step it writes x = (rcos(a) * 0x19) >> 4 into scratch 0x1F8000C0.lo and z = (rsin(a) * 0x19) >> 4 into 0x1F8000C4.lo, with 0x1F8000C0.hi = (s16)node+0x50 << 6 as a constant height, RTPSes that point, applies the usual (SZ3>>2) + node+0x32 OT-key gate, sets scaleX = scaleY = MAC0 (DQA=6), and calls FUN_80027A4C(node+0x34, node+0x44).
 
-CONSEQUENCE: a geometric rebuild needs that map reproduced exactly, or the 20 quads land at the wrong angles and the burst draws as visible garbage. Since the effect DOES fire on replays/bugs/bucket-softlock.pad (nofx lists 0x8002ECD8 there), a port is verifiable once written — but it must reproduce the iterated map, not assume a sweep. Port when there is room to write it and check it on that replay in the same pass.
+So: four sprites placed on a horizontal ring of radius 25/16 units around the node, at a fixed height, each scaled by depth. PORT SHAPE: a new fxSpriteRender branch that uses projComposeObjectHost(rotmat(node+0x48), nodePos) instead of the camera-only transform, loops the four cardinal offsets, and reuses the existing record walk. MeshQuads::rotmat already provides the host-side rotation build.
