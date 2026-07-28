@@ -700,6 +700,17 @@ void Render::fieldObjectsRender() {
           // project the node's own world anchor(s) natively so the flame lerps at fps60 (fx_sprite.cpp).
           c->rsub.stats.snObjs++;
           rend(c)->fxSpriteRender(n);
+        } else if (rfn == 0x8012E868u && c->mem_r32(0x8012E868u) == 0x27BDFFD0u) {
+          // FUN_800328EC family, A01 overlay (kanban #15's static census): the animation-script
+          // member. Overlay-resident, so the same first-instruction guard as the producers below.
+          c->rsub.stats.snObjs++;
+          rend(c)->fxAltAnimSpriteRender(n);
+        } else if (rfn == 0x8013D454u && c->mem_r32(0x8013D454u) == 0x27BDFFB8u) {
+          // The water jet's SPRITE branch. Its MESH branch is owned by fx_mesh.cpp's a00 scope at
+          // guest-execution time; the two branches are mutually exclusive on (s16)node+0x60, so this
+          // producer returns immediately for the mesh case and there is no double-draw.
+          c->rsub.stats.snObjs++;
+          rend(c)->waterJetSpriteRender(n);
         } else if (rfn == 0x80033080u) {
           // The WEAPON-IMPACT burst (#15): a COMPOSITE render fn — FUN_80027E5C (this family's
           // byte-scaled sprite) followed by FUN_800288AC (the effect mesh, already captured by

@@ -4189,7 +4189,45 @@ against the RECOMPILER's function boundaries in `generated/`, not Ghidra's — i
 that the `bucket_f470` project mis-sizes functions, and it renders four of these as mid-function
 fragments (`unaff_s0` everywhere), which would have read as "not real" and thrown away good hits.
 
-## A SECOND shared sprite writer, FUN_800328EC, is completely unowned — 6 controllers behind it (2026-07-28)
+## FUN_800328EC: a wrapper, not a writer — and both halves of the water jet now draw (2026-07-28)
+
+> ⚠ **THIS ENTRY'S ORIGINAL HEADLINE WAS WRONG** and is corrected below rather than deleted, because
+> the wrong version was committed and cited. It read "A SECOND shared sprite writer, FUN_800328EC, is
+> completely unowned — 6 controllers behind it", and filed a whole new family port. `FUN_800328EC` is
+> **three instructions**: zero the depth-cue IR0 at `0x1F800090`, then tail into `FUN_8002847C(model,
+> 0, 0)` — the SAME four-corner writer `Render::fxAnimSpriteRender` already reproduces host-side. The
+> "unowned helpers" are equally benign: `0x800329E0` loads the scene-camera CRs and sets DQA/DQB, and
+> `0x800317CC` is RTPS plus exactly `SpriteAnchor::otKeyInRange`, publishing OT key / SXY2 / MAC0 to
+> the same scratchpad slots `fx_ring.cpp` already documents for `FUN_8002ECD8` (which inlines it).
+> **The gap was DISPATCH, not a producer** — about 40 lines reusing `emitAnimQuadRecords`, not a port.
+> Claim C010 is falsified; portmap `fx-sprite-writer-328ec` is retargeted and now `verified`.
+>
+> The lesson: "no native owner" from a codemap query means *nobody has claimed this address*, which is
+> not the same as *this address does work nothing reproduces*. Read the callee before sizing the work
+> — a three-instruction wrapper and a real emitter look identical from an ownership table.
+
+**What the family actually is.** Same writer, different node layout: anchor as three separate s16s at
+`node+0x2E/0x32/0x36` (not the packed pair at `0x2C`), packed 8.8 scale pair at `node+0x60`,
+animation-script pointer at `node+0x64`, per-frame record table at `node+0x6C`.
+
+**Ported** as `Render::altSpriteEmit` (the shared tail: project the anchor with the native camera,
+run the gate, emit the model list) plus two entry points — `fxAltAnimSpriteRender` for `0x8012E868`
+(DQA 6, no bias, script-driven frame) and `waterJetSpriteRender` for `0x8013D454`'s zero branch
+(DQA 4, bias -64, uniform scale from `node+0x62`, model = `[0x8010A058][0]`). Both whitelisted behind
+first-instruction residency guards.
+
+**Evidence.** 228 emissions on both `walk-dust-puff` and `seesaw-weight`. A/B with the two whitelist
+entries compiled out: **419–936 px differ on 4 of 6 sampled frames**; f510/f520 are identical because
+the node is in its MESH mode there — which is itself the cross-check that the two branches are
+mutually exclusive and do not double-draw.
+
+**So the water jet is now complete.** The mesh branch (fx_mesh's scope, non-zero `node+0x60`) and the
+sprite branch (this producer, zero) are both drawn. Still open: the family's remaining callers
+`0x801346C0`, `0x8013B118`, `0x8010C1D8` and two MAIN.EXE sites need only a whitelist entry each plus
+their own scale rule.
+
+<details><summary>Original entry, kept for the record</summary>
+
 
 Following up `render_fns.py`'s candidate list turned up something larger than any single controller.
 
@@ -4226,3 +4264,5 @@ an `lbu`, because those hits came from `c18_a1`/`c18_a5` rather than `bucket_f47
 read it briefly used as a filter is now advisory only: it classifies `0x8013D454` as type 3 while
 `nofx` proves live that the node is type 0x20. A wrong hint costs one check; that filter would have
 hidden the one real gap the tool has found.
+
+</details>

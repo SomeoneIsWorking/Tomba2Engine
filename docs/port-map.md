@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 16 verified · 10 ported-unverified · 2 todo · 1 blocked
+**Status:** 17 verified · 10 ported-unverified · 1 todo · 1 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -105,10 +105,10 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **notes:** PORTED + VERIFIED. game/render/effect_mod.cpp — five Render methods (effectSemiOn/SemiOff/ClutSwap/FlatTint/ColorAdd) replacing the substrate leaves FUN_8003F3F4/F4C4/F344/F594/D584; wired at the perobj_billboard CCA4 call sites. Written with typed lenses (GpuPacket, EffectParams, PacketShape) instead of raw mem_rXX(p+0xNN) soup. VERIFIED by a differential oracle test (PSXPORT_SELFTEST=effectmod, game/render/effect_mod_selftest.cpp): synthetic packet pools swept across every opcode + all three coloradd regimes, native vs rec_interp of the real MAIN.EXE, 2000 runs, 0 mismatching words, 0 oracle-skipped. Gate proven meaningful by mutation testing — a 1-bit change to the 0x7F bias and the Ghidra cmd-byte ordering bug are both caught. Unblocks render-mesh-flush.
 
 ## fx-sprite-writer-328ec
-- **status:** todo
+- **status:** verified
 - **order:** 44
-- **owner:** (none yet)
-- **notes:** FUN_800328EC — a THIRD shared sprite/mesh writer, completely unowned, with 6 overlay controllers behind it: 0x8013D454 (A00, the water jet's mode-0 branch), 0x8012D9E8, 0x8012E868, 0x801346C0 (A01), 0x8013B118 (A04, x2), 0x8010C1D8 (A0L), plus two MAIN.EXE sites. Helpers 0x800317CC (RTPS + OT-key gate) and 0x800329E0 (DQA depth-cue-as-scale setup) exist as owned ORPHAN leaves already. Emitter contract decoded from ov_a01_gen_8012E868: world position at node+0x2E/0x32/0x36 -> GTE data 0/1, DQA=6, RTPS+gate, then scale the scratchpad pair 0x1F800084/0x1F800088 by the halves of node+0x60 >> 8 and call the writer with a model from a table. ONE producer for this family unlocks all six, the same way fx_sprite.cpp did for FUN_80027A4C. See docs/findings/render.md 'A SECOND shared sprite writer'.
+- **owner:** game/render/fx_sprite.cpp
+- **notes:** RESOLVED 2026-07-28, and the premise that filed it was WRONG (see falsified claim C010). FUN_800328EC is a 3-instruction wrapper — zero the depth cue at 0x1F800090, tail into FUN_8002847C — i.e. the SAME four-corner writer Render::fxAnimSpriteRender already reproduces. The gap was DISPATCH, not a producer. Its controllers carry a different node layout: anchor as three separate s16s at 0x2E/0x32/0x36, packed 8.8 scale pair at 0x60, animation-script pointer at 0x64, per-frame record table at 0x6C. Shared leaves: 0x800329E0(dqa) = scene-camera CRs + DQA/DQB, 0x800317CC(bias) = RTPS + the otKeyInRange gate publishing OT key/SXY2/MAC0 to 0x1F800080/0x1F80008C/0x1F800084 (the same contract fx_ring.cpp documents for FUN_8002ECD8, which inlines it). Ported as Render::altSpriteEmit + fxAltAnimSpriteRender (0x8012E868) + waterJetSpriteRender (0x8013D454's mode-0 branch), whitelisted behind first-instruction residency guards. VERIFIED: 228 emissions on walk-dust-puff and seesaw-weight; A/B with the two whitelist entries compiled out gives 419-936 px differing on 4 of 6 sampled frames (f510/f520 identical, the node is in its mesh mode there). The remaining callers 0x801346C0, 0x8013B118, 0x8010C1D8 and the two MAIN.EXE sites now need only a whitelist entry each plus their own scale rule.
 
 ## render-mesh-flush
 - **scope:** mesh-flush 0x8003F174/0x8003EF9C

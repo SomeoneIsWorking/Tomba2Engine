@@ -1,9 +1,10 @@
 ---
 id: C010
 kind: claim
-status: holds
+status: falsified
 created: 2026-07-28
 tags: render
+falsified_on: 2026-07-28
 ---
 
 ## Claim
@@ -17,3 +18,9 @@ codemap --addr 0x800328EC: no native owner. rec_dispatch call sites resolved to 
 ## What would falsify it
 
 if a producer scope or tap is found that already routes 0x800328EC, or if all six controllers turn out to be cold in every area
+
+## FALSIFIED 2026-07-28
+
+WRONG FRAMING. FUN_800328EC is not a writer: its whole body is three instructions — zero the depth-cue IR0 at 0x1F800090 and tail into FUN_8002847C(model, 0, 0), which is the SAME four-corner writer Render::fxAnimSpriteRender already reproduces host-side. What was actually missing was DISPATCH for its controllers, not a producer for a new family. Its two 'unowned helpers' are equally benign: 0x800329E0 loads the scene-camera CRs and sets DQA/DQB (the family's standard setup) and 0x800317CC is RTPS + the SpriteAnchor::otKeyInRange gate, publishing OT key / SXY2 / MAC0 to the same scratchpad slots fx_ring.cpp already documents. Fixed by reusing emitAnimQuadRecords through Render::altSpriteEmit — about 40 lines, not a new family port. Relied on by: the docs/findings/render.md entry 'A SECOND shared sprite writer' (corrected in place) and portmap fx-sprite-writer-328ec (retargeted).
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.

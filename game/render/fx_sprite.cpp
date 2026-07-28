@@ -221,6 +221,37 @@ constexpr uint32_t kAnimTable  = 0x50u;   // table of per-animation-frame record
 constexpr uint32_t kAnimStride = 36u;     // one four-corner record
 constexpr uint32_t kAnimDqa    = 6u;      // the depth-cue constant this emitter programs
 
+// ── The FUN_800328EC family: the SAME four-corner writer, on a different node layout ─────────────
+// FUN_800328EC is not a writer at all — it is three instructions: zero the depth-cue IR0 at
+// 0x1F800090 and tail into FUN_8002847C(model, 0, 0), i.e. the very writer fxAnimSpriteRender above
+// already reproduces. What differs is the NODE LAYOUT its controllers carry, and the fact that none
+// of them was dispatched, so nothing reached the picture.
+//
+// The family's two shared leaves are worth naming because every controller calls them in order:
+//   FUN_800329E0(dqa) — load the pure scene-camera CRs from scratchpad 0x1F8000F8 into GTE CR0-7 and
+//                       set DQA=dqa, DQB=0. The same depth-cue-as-scale trick as the 80027A4C family.
+//   FUN_800317CC(bias) — RTPS the anchor already in GTE data 0/1, run the OT-key gate on
+//                       (SZ3>>2)+bias (identical to SpriteAnchor::otKeyInRange), and on success
+//                       publish OT key -> 0x1F800080, SXY2 -> 0x1F80008C, MAC0 -> 0x1F800084.
+//                       Returns 0 on emit, 1 on skip. This is the same scratchpad contract
+//                       game/render/fx_ring.cpp documents for FUN_8002ECD8 — one publisher, and
+//                       FUN_8002ECD8 simply inlines it.
+// The controller then scales the published MAC0 into 0x1F800084/0x1F800088 and calls the wrapper.
+constexpr uint32_t kAltAnchorX = 0x2Eu;   // three SEPARATE s16s — not the packed pair at 0x2C
+constexpr uint32_t kAltAnchorY = 0x32u;
+constexpr uint32_t kAltAnchorZ = 0x36u;
+constexpr uint32_t kAltScale   = 0x60u;   // packed 8.8 pair: scaleY (hi16) | scaleX (lo16)
+constexpr uint32_t kAltScript  = 0x64u;   // -> current animation-script byte (bit 7 = loop marker)
+constexpr uint32_t kAltTable   = 0x6Cu;   // table of per-animation-frame record lists
+
+// FUN_8013D454's sprite branch. The controller has two modes on (s16)node+0x60: non-zero draws the
+// water jet's MESH through FUN_80027768 (owned by fx_mesh.cpp's scope), zero draws this sprite.
+constexpr uint32_t kJetMode     = 0x60u;        // (s16) 0 selects the sprite branch
+constexpr uint32_t kJetScale    = 0x62u;        // u16 uniform scale numerator, applied >> 8
+constexpr uint32_t kJetModelTab = 0x8010A058u;  // 6 record-list pointers; the sprite branch takes [0]
+constexpr int      kJetDqa      = 4;            // this one programs 4, not the family's usual 6
+constexpr int      kJetBias     = -64;
+
 // Walk the 36-byte records at rec0, sizing each corner about the native-projected float anchor. Same
 // float-corner / drawWorldQuad treatment as emitSpriteRecords (has_xyf = 1 -> tier1-owned -> re-drawn
 // under the lerped camera at the interp present). Read-only.
@@ -424,4 +455,64 @@ void Render::fxAnimSpriteRender(uint32_t node) {
   if (cfg_dbg("fxanim"))
     cfg_logf("fxanim", "node=%08X frame=%u rec0=%08X anchor=(%.1f,%.1f) sz=%d scale=(%d,%d) quads=%d",
              node, animFrame, rec0, (double)pv.px, (double)pv.py, pv.sz, scaleX, scaleY, quads);
+}
+
+// ── FUN_800328EC family producers ────────────────────────────────────────────────────────────────
+// Shared tail: project the node's own world anchor with the native (fps60-lerped) camera, apply the
+// emitter's own OT-key gate, and hand the model list to the SAME four-corner writer producer
+// fxAnimSpriteRender uses. Nothing runs a gen body; nothing writes guest memory — in particular the
+// guest's own animation-cursor store at node+0x68 stays the guest's, since its body still executes
+// underneath. Read-only.
+void Render::altSpriteEmit(uint32_t node, int dqa, int bias, uint32_t rec0,
+                           uint32_t numerX, uint32_t numerY) {
+  Core* c = mCore;
+  if (!rec0) return;
+
+  EObjXform cam; projComposeCamera(&cam);
+  ProjVtx pv;
+  cam.project((int16_t)c->mem_r16(node + kAltAnchorX), (int16_t)c->mem_r16(node + kAltAnchorY),
+              (int16_t)c->mem_r16(node + kAltAnchorZ), &pv);
+  if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) return;   // FUN_800317CC's own emit/skip decision
+
+  const int32_t mac0 = SpriteAnchor::baseScale((uint32_t)cam.H, pv.sz, dqa);
+  const int32_t sx = (int32_t)(((int64_t)mac0 * (int64_t)numerX) >> 8);
+  const int32_t sy = (int32_t)(((int64_t)mac0 * (int64_t)numerY) >> 8);
+
+  // The authored near bias, in the same units and for the same reason as fxAnimSpriteRender: the gate
+  // states it in OT buckets and the bucket key is SZ3>>2, so one unit is 4 units of view depth.
+  float pz = pv.pz + (float)(4 * bias);
+  const float nearPz = proj_near_pz();
+  if (pz < nearPz) pz = nearPz;
+
+  ObjScope objScope(c, node);
+  const int quads = emitAnimQuadRecords(c, rec0, pv.px, pv.py, proj_pz_to_ord(pz), sx, sy);
+  if (cfg_dbg("fxsprite"))
+    cfg_logf("fxsprite", "alt node=%08X rec0=%08X dqa=%d bias=%d anchor=(%.1f,%.1f) sz=%d "
+                         "scale=(%d,%d) quads=%d",
+             node, rec0, dqa, bias, (double)pv.px, (double)pv.py, pv.sz, sx, sy, quads);
+}
+
+// FUN_8012E868 (A01 overlay) — the animation-script member of the family. Same shape as
+// fxAnimSpriteRender, different offsets: anchor as three separate s16s, scale pair at node+0x60,
+// script pointer at node+0x64, per-frame record table at node+0x6C, DQA 6 and no OT bias.
+void Render::fxAltAnimSpriteRender(uint32_t node) {
+  Core* c = mCore;
+  const uint32_t script = c->mem_r32(node + kAltScript);
+  const uint32_t table  = c->mem_r32(node + kAltTable);
+  if (!script || !table) return;                      // the guest's own `if (ptr == 0) return`
+  const uint32_t frame = (uint32_t)c->mem_r8(script) & 0x7Fu;   // bit 7 = the loop marker
+  const uint32_t sc = c->mem_r32(node + kAltScale);
+  altSpriteEmit(node, /*dqa=*/6, /*bias=*/0, c->mem_r32(table + frame * 4u),
+                (uint16_t)sc, (uint16_t)(sc >> 16));
+}
+
+// FUN_8013D454's SPRITE branch — the water jet's other half. fx_mesh.cpp's scope owns the mesh branch
+// (non-zero node+0x60, drawn through FUN_80027768); this owns the zero branch, which emits through
+// FUN_800328EC and therefore had no producer at all even after the scope wrappers landed. The two
+// branches are mutually exclusive, so there is no double-draw.
+void Render::waterJetSpriteRender(uint32_t node) {
+  Core* c = mCore;
+  if ((int16_t)c->mem_r16(node + kJetMode) != 0) return;        // the mesh branch: not ours
+  const uint32_t numer = (uint16_t)c->mem_r16(node + kJetScale);
+  altSpriteEmit(node, kJetDqa, kJetBias, c->mem_r32(kJetModelTab), numer, numer);
 }

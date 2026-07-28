@@ -272,6 +272,18 @@ public:
   // captured by fx_mesh's armTap scope; this draws the sprite half. Body in fx_sprite.cpp.
   void impactBurstRender(uint32_t node);
 
+  // The FUN_800328EC family (game/render/fx_sprite.cpp). FUN_800328EC is a three-instruction wrapper
+  // that zeroes the depth cue and tails into FUN_8002847C — the SAME four-corner writer
+  // fxAnimSpriteRender reproduces — but its controllers carry a different node layout, and none of
+  // them was dispatched, so nothing reached the picture.
+  //   altSpriteEmit          — the shared tail: project the anchor, gate, emit the model list.
+  //   fxAltAnimSpriteRender  — FUN_8012E868, the animation-script member.
+  //   waterJetSpriteRender   — FUN_8013D454's sprite branch (its mesh branch is fx_mesh's scope).
+  void altSpriteEmit(uint32_t node, int dqa, int bias, uint32_t rec0,
+                     uint32_t numerX, uint32_t numerY);
+  void fxAltAnimSpriteRender(uint32_t node);
+  void waterJetSpriteRender(uint32_t node);
+
   // fxAnimSpriteRender: native producer for the SECOND world-anchored sprite family — emitter
   // FUN_800286CC + packet writer FUN_8002847C (36-byte, four-corner, per-vertex-coloured quad records
   // selected by an ANIMATION SCRIPT byte). This is Tomba's movement DUST PUFF (kanban #39) and the
