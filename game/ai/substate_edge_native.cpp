@@ -32,6 +32,9 @@ constexpr int32_t  kPartLimit       = 4;  // loop runs k = 2, 3
 // this body addresses the node through a guest register (r6) that must stay live across its own
 // branches — the lens is for bodies that can hold a C++ object. Same meanings, same header.
 constexpr uint32_t kNodeRole        = 3;      // < 2 = a master assembly
+constexpr uint32_t kNodePartCount   = 8;      // `cmds` in the ents dump
+constexpr uint32_t kNodeState       = 4;      // node[4], outer state
+constexpr uint32_t kNodeSubState    = 5;      // node[5], sub-state
 constexpr uint32_t kNodePendingCmd  = 122;    // 0x7A, low 2 bits = command, bit2 = extra flag
 constexpr uint32_t kNodeModeByte    = 94;     // 0x5E, bit1 selects the angle source
 constexpr uint32_t kNodeAngleSel    = 108;    // 0x6C, compared against the command
@@ -52,7 +55,7 @@ void SubstateEdgeLeaves::visibilityGate(Core* c) {
     c->mem_w32((c->r[29] + (uint32_t)40), c->r[16]);
     c->r[16] = c->r[4] + c->r[0];
     c->mem_w32((c->r[29] + (uint32_t)44), c->r[31]);
-    c->r[3] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)96));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[16] + kNodeConfig));
     c->r[2] = c->r[3] & 1u;
     { int _t = (c->r[2] == c->r[0]); c->r[2] = (uint32_t)32782u << 16; if (_t) goto L_80130CA8; }
     c->r[4] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)32426));
@@ -65,21 +68,21 @@ void SubstateEdgeLeaves::visibilityGate(Core* c) {
     c->r[6] = c->r[6] + (uint32_t)1;
     c->r[4] = c->r[6] << 2;
     c->r[4] = c->r[16] + c->r[4];
-    c->r[2] = c->mem_r32((c->r[4] + (uint32_t)192));
-    c->r[3] = c->mem_r32((c->r[16] + (uint32_t)192));
+    c->r[2] = c->mem_r32((c->r[4] + kChildTableOff));
+    c->r[3] = c->mem_r32((c->r[16] + kChildTableOff));
     c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)44));
     c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)44));
     c->r[5] = c->r[7] + c->r[5];
     c->r[2] = c->r[2] - c->r[3];
     c->mem_w16((c->r[5] + (uint32_t)0), (uint16_t)c->r[2]);
-    c->r[2] = c->mem_r32((c->r[4] + (uint32_t)192));
-    c->r[3] = c->mem_r32((c->r[16] + (uint32_t)192));
+    c->r[2] = c->mem_r32((c->r[4] + kChildTableOff));
+    c->r[3] = c->mem_r32((c->r[16] + kChildTableOff));
     c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)48));
     c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)48));
     c->r[2] = c->r[2] - c->r[3];
     c->mem_w16((c->r[5] + (uint32_t)2), (uint16_t)c->r[2]);
-    c->r[2] = c->mem_r32((c->r[4] + (uint32_t)192));
-    c->r[3] = c->mem_r32((c->r[16] + (uint32_t)192));
+    c->r[2] = c->mem_r32((c->r[4] + kChildTableOff));
+    c->r[3] = c->mem_r32((c->r[16] + kChildTableOff));
     c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)52));
     c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)52));
     c->r[2] = c->r[2] - c->r[3];
@@ -119,21 +122,21 @@ void SubstateEdgeLeaves::visibilityGate(Core* c) {
     c->r[6] = c->r[6] + (uint32_t)1;
     c->r[4] = c->r[6] << 2;
     c->r[4] = c->r[16] + c->r[4];
-    c->r[2] = c->mem_r32((c->r[4] + (uint32_t)192));
-    c->r[3] = c->mem_r32((c->r[16] + (uint32_t)192));
+    c->r[2] = c->mem_r32((c->r[4] + kChildTableOff));
+    c->r[3] = c->mem_r32((c->r[16] + kChildTableOff));
     c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)44));
     c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)44));
     c->r[5] = c->r[7] + c->r[5];
     c->r[2] = c->r[2] - c->r[3];
     c->mem_w16((c->r[5] + (uint32_t)0), (uint16_t)c->r[2]);
-    c->r[2] = c->mem_r32((c->r[4] + (uint32_t)192));
-    c->r[3] = c->mem_r32((c->r[16] + (uint32_t)192));
+    c->r[2] = c->mem_r32((c->r[4] + kChildTableOff));
+    c->r[3] = c->mem_r32((c->r[16] + kChildTableOff));
     c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)48));
     c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)48));
     c->r[2] = c->r[2] - c->r[3];
     c->mem_w16((c->r[5] + (uint32_t)2), (uint16_t)c->r[2]);
-    c->r[2] = c->mem_r32((c->r[4] + (uint32_t)192));
-    c->r[3] = c->mem_r32((c->r[16] + (uint32_t)192));
+    c->r[2] = c->mem_r32((c->r[4] + kChildTableOff));
+    c->r[3] = c->mem_r32((c->r[16] + kChildTableOff));
     c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)52));
     c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)52));
     c->r[2] = c->r[2] - c->r[3];
@@ -163,14 +166,14 @@ void SubstateEdgeLeaves::visibilityGate(Core* c) {
     c->r[2] = c->r[0] + (uint32_t)1; goto L_80130D4C;
   L_80130CD4:;
     c->r[2] = c->mem_r32((c->r[16] + (uint32_t)200));
-    c->r[3] = c->mem_r32((c->r[16] + (uint32_t)192));
+    c->r[3] = c->mem_r32((c->r[16] + kChildTableOff));
     c->r[5] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)44));
     c->r[2] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)44));
     c->r[5] = c->r[5] - c->r[2];
     c->mem_w16((c->r[29] + (uint32_t)16), (uint16_t)c->r[5]);
     c->r[5] = c->r[5] << 16;
     c->r[2] = c->mem_r32((c->r[4] + (uint32_t)200));
-    c->r[3] = c->mem_r32((c->r[4] + (uint32_t)192));
+    c->r[3] = c->mem_r32((c->r[4] + kChildTableOff));
     c->r[6] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)48));
     c->r[2] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)48));
     c->r[5] = (uint32_t)((int32_t)c->r[5] >> 16);
@@ -178,7 +181,7 @@ void SubstateEdgeLeaves::visibilityGate(Core* c) {
     c->mem_w16((c->r[29] + (uint32_t)18), (uint16_t)c->r[6]);
     c->r[6] = c->r[6] << 16;
     c->r[2] = c->mem_r32((c->r[4] + (uint32_t)200));
-    c->r[3] = c->mem_r32((c->r[4] + (uint32_t)192));
+    c->r[3] = c->mem_r32((c->r[4] + kChildTableOff));
     c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)52));
     c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)52));
     c->r[6] = (uint32_t)((int32_t)c->r[6] >> 16);
@@ -364,19 +367,19 @@ void SubstateEdgeLeaves::substate0Tick(Core* c) {
     c->r[2] = c->r[2] + (uint32_t)1;
     c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]);
   L_8012F4CC:;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)122));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + kNodePendingCmd));
     c->r[2] = c->r[2] & 2u;
     { int _t = (c->r[2] != c->r[0]); c->r[3] = c->r[0] + (uint32_t)64; if (_t) goto L_8012F5A4; }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)96));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + kNodeConfig));
     c->r[2] = c->r[2] & 240u;
     { int _t = (c->r[2] == c->r[3]); c->r[4] = c->r[16] + c->r[0]; if (_t) goto L_8012F584; }
     c->r[31] = 0x8012F4FCu;
     c->r[5] = c->r[0] + (uint32_t)1; ov_a00_func_80130788(c);
     { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_8012F510; }
-    c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[2]);
+    c->mem_w8((c->r[16] + kNodeSubState), (uint8_t)c->r[2]);
     c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]); goto L_8012F59C;
   L_8012F510:;
-    c->r[3] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)3));
+    c->r[3] = (uint32_t)c->mem_r8((c->r[16] + kNodeRole));
     c->r[2] = c->r[0] + (uint32_t)2;
     { int _t = (c->r[3] != c->r[2]);  if (_t) goto L_8012F59C; }
     c->r[5] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)100));

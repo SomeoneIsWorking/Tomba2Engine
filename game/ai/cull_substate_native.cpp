@@ -4,6 +4,26 @@
 #include "cull_substate_native.h"
 #include "override_registry.h"
 #include "ov_a00_decls.h"
+#include "assembly_node.h"
+
+namespace {
+// Node-field offsets shared by every leaf of this orchestrator. Meanings are the ones established
+// while converting the oscillator and arm paths (see game/ai/assembly_node.h, which documents each);
+// they are named here as constants because these bodies address the node through a guest register
+// that must stay live across their own branches, so they cannot hold the C++ lens object.
+constexpr uint32_t kNodeRole        = 3;      // < 2 = a master assembly
+constexpr uint32_t kNodeState       = 4;      // node[4], outer state
+constexpr uint32_t kNodeSubState    = 5;      // node[5], sub-state
+constexpr uint32_t kNodePartCount   = 8;      // `cmds` in the ents dump
+constexpr uint32_t kNodeModeByte    = 94;     // 0x5E, bit1 selects the angle source
+constexpr uint32_t kNodeConfig      = 96;     // 0x60, config word (bit1 pair mode, bit2 has-oscillators)
+constexpr uint32_t kNodeAngleSel    = 108;    // 0x6C
+constexpr uint32_t kNodeAngleParam  = 110;    // 0x6E, masked to 12 bits
+constexpr uint32_t kNodeArmDuration = 114;    // 0x72
+constexpr uint32_t kNodePendingCmd  = 122;    // 0x7A, low 2 bits = command
+constexpr uint32_t kChildTableOff   = 192;    // 0xC0, the sub-part pointer table
+}  // namespace
+
 void ov_a00_func_80133610(Core*);
 void ov_a00_func_80133700(Core*);
 void ov_a00_func_801332C4(Core*);
@@ -18,32 +38,32 @@ void CullSubstateLeaves::tickChildEulerZSwing(Core* c) {
     { int _t = (c->r[3] == c->r[2]);  if (_t) goto L_80133590; }
      goto L_801335EC;
   L_80133578:;
-    c->r[3] = c->mem_r32((c->r[5] + (uint32_t)192));
+    c->r[3] = c->mem_r32((c->r[5] + kChildTableOff));
     c->r[2] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)12));
     c->r[4] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)20));
     c->r[2] = c->r[2] + c->r[4]; goto L_801335A8;
   L_80133590:;
-    c->r[3] = c->mem_r32((c->r[5] + (uint32_t)192));
+    c->r[3] = c->mem_r32((c->r[5] + kChildTableOff));
     c->r[2] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)12));
     c->r[4] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)20));
     c->r[2] = c->r[2] - c->r[4];
   L_801335A8:;
     c->mem_w16((c->r[3] + (uint32_t)12), (uint16_t)c->r[2]);
-    c->r[3] = c->mem_r32((c->r[5] + (uint32_t)192));
+    c->r[3] = c->mem_r32((c->r[5] + kChildTableOff));
     c->r[2] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)20));
     c->r[2] = c->r[2] + (uint32_t)-8;
     c->mem_w16((c->r[3] + (uint32_t)20), (uint16_t)c->r[2]);
-    c->r[2] = c->mem_r32((c->r[5] + (uint32_t)192));
+    c->r[2] = c->mem_r32((c->r[5] + kChildTableOff));
     c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)20));
     c->r[2] = (uint32_t)((int32_t)c->r[2] < -32);
     { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_801335EC; }
-    c->r[2] = c->mem_r32((c->r[5] + (uint32_t)192));
+    c->r[2] = c->mem_r32((c->r[5] + kChildTableOff));
     c->mem_w16((c->r[5] + (uint32_t)120), (uint16_t)c->r[0]);
     c->mem_w16((c->r[2] + (uint32_t)12), (uint16_t)c->r[0]);
   L_801335EC:;
     c->r[2] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)43));
     { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80133608; }
-    c->r[2] = c->mem_r32((c->r[5] + (uint32_t)192));
+    c->r[2] = c->mem_r32((c->r[5] + kChildTableOff));
     c->mem_w16((c->r[5] + (uint32_t)120), (uint16_t)c->r[0]);
     c->mem_w16((c->r[2] + (uint32_t)12), (uint16_t)c->r[0]);
   L_80133608:;
@@ -83,14 +103,14 @@ void CullSubstateLeaves::tickChildEulerZSwingPhase(Core* c) {
     c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)98));
     c->mem_w16((c->r[16] + (uint32_t)76), (uint16_t)c->r[2]);
     { int _t = (c->r[3] == c->r[0]); c->mem_w16((c->r[16] + (uint32_t)72), (uint16_t)c->r[2]); if (_t) goto L_80132B94; }
-    c->r[4] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)3));
+    c->r[4] = (uint32_t)c->mem_r8((c->r[16] + kNodeRole));
     c->r[2] = c->r[4] & 192u;
     { int _t = (c->r[2] == c->r[0]); c->r[3] = (uint32_t)32789u << 16; if (_t) goto L_80132B3C; }
     c->r[3] = c->r[3] + (uint32_t)-22824;
     c->r[2] = c->r[4] & 63u;
     c->r[2] = c->r[2] + (uint32_t)6; goto L_80132B44;
   L_80132B3C:;
-    c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)3));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[16] + kNodeRole));
     c->r[3] = c->r[3] + (uint32_t)-22824;
   L_80132B44:;
     c->r[2] = c->r[2] << 1;
@@ -150,12 +170,12 @@ void CullSubstateLeaves::tickChildEulerZSwingPhase(Core* c) {
     c->r[2] = c->r[2] + (uint32_t)1;
     c->mem_w16((c->r[16] + (uint32_t)118), (uint16_t)c->r[2]); goto L_80132D30;
   L_80132C34:;
-    c->r[4] = c->mem_r32((c->r[16] + (uint32_t)192));
+    c->r[4] = c->mem_r32((c->r[16] + kChildTableOff));
     c->r[3] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)76));
     c->r[2] = (uint32_t)c->mem_r16((c->r[4] + (uint32_t)12));
     c->r[2] = c->r[2] + c->r[3];
     c->mem_w16((c->r[4] + (uint32_t)12), (uint16_t)c->r[2]);
-    c->r[4] = c->mem_r32((c->r[16] + (uint32_t)192));
+    c->r[4] = c->mem_r32((c->r[16] + kChildTableOff));
     c->r[6] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)72));
     c->r[3] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)72));
     c->r[5] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)12));
@@ -176,7 +196,7 @@ void CullSubstateLeaves::tickChildEulerZSwingPhase(Core* c) {
     c->r[2] = c->r[2] << 16;
     c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
     { int _t = ((int32_t)c->r[2] > 0); c->r[2] = (uint32_t)((int32_t)c->r[2] < 161); if (_t) goto L_80132CC4; }
-    c->r[2] = c->mem_r32((c->r[16] + (uint32_t)192));
+    c->r[2] = c->mem_r32((c->r[16] + kChildTableOff));
     c->mem_w16((c->r[2] + (uint32_t)12), (uint16_t)c->r[0]);
     c->mem_w16((c->r[16] + (uint32_t)118), (uint16_t)c->r[0]); goto L_80132D30;
   L_80132CC4:;
@@ -242,7 +262,7 @@ void CullSubstateLeaves::tickSubstateZero(Core* c) {
     c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)380));
     c->r[2] = c->r[2] & 15u;
     { int _t = (c->r[2] != c->r[0]); c->r[4] = (uint32_t)32789u << 16; if (_t) goto L_80132A30; }
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)122));
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodePendingCmd));
     c->r[4] = c->r[4] + (uint32_t)-22908;
     c->r[2] = c->r[3] << 1;
     c->r[2] = c->r[2] + c->r[3];
@@ -260,11 +280,11 @@ void CullSubstateLeaves::tickSubstateZero(Core* c) {
     c->r[2] = c->r[2] + c->r[3];
     c->r[2] = c->r[2] << 1;
     c->r[2] = c->r[2] + c->r[4];
-    c->r[3] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)122));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[16] + kNodePendingCmd));
     c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)4));
     c->r[3] = c->r[3] + (uint32_t)1;
     c->r[3] = c->r[3] & 7u;
-    c->mem_w16((c->r[16] + (uint32_t)122), (uint16_t)c->r[3]);
+    c->mem_w16((c->r[16] + kNodePendingCmd), (uint16_t)c->r[3]);
     c->mem_w16((c->r[16] + (uint32_t)188), (uint16_t)c->r[2]);
   L_80132A30:;
     c->r[31] = 0x80132A38u;
@@ -280,9 +300,9 @@ void CullSubstateLeaves::tickSubstateZero(Core* c) {
     c->r[31] = 0x80132A68u;
     c->r[5] = c->r[0] + c->r[0]; ov_a00_func_80133610(c);
     c->r[2] = c->r[0] + (uint32_t)3;
-    c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[2]);
+    c->mem_w8((c->r[16] + kNodeSubState), (uint8_t)c->r[2]);
     c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]);
-    c->mem_w16((c->r[16] + (uint32_t)108), (uint16_t)c->r[0]);
+    c->mem_w16((c->r[16] + kNodeAngleSel), (uint16_t)c->r[0]);
   L_80132A78:;
     c->r[31] = c->mem_r32((c->r[29] + (uint32_t)20));
     c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
