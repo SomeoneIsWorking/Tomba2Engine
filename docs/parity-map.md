@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 46 verified · 6 partial · 3 untested · 7 n/a
+**Status:** 47 verified · 7 partial · 3 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -230,6 +230,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **evidence:** 50/50 A/B-identical checkpoints, zero divergence, with the address executing 20269 times on the native leg. ovhit reports native=20269 oracle=26738; the 6469 gap is calls from already-native callers reaching Mtx::identity directly rather than through the guest fn, NOT a divergence (see the banner in mtx.cpp).
 - **owner:** game/math/mtx.cpp Mtx::identity + Mtx::registerOverrides
 
+## node-lifecycle-sm-40558
+- **scope:** 0x80040558 per-node lifecycle state machine
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical, zero divergence; ovhit native=19544 oracle=19544 balanced; port_check PASS.
+
 ## objlist-walk2-case0-3bdac
 - **scope:** 0x8003BDAC objListWalk2 jump-table case 0/15 trampoline
 - **status:** verified
@@ -355,6 +362,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **evidence:** port_check PASS vs gen_func_8007FC24 (frame sizes, call sites, store-width sequence); AND the psx_render leg, which rasterizes the packet this port writes, is 0/76800 against the pre-port build at replays/bugs/ingame-options-page.pad f1160
 - **owner:** game/ui/options_page.cpp
 - **notes:** NOT yet run under SBS full — the two proofs above are static equivalence plus a pixel-exact readback of the packet through the PSX rasterizer, not a guest-RAM byte compare. Promote to verified with an SBS-full run that reaches the page.
+
+## sequencer-voice-state-flush-931c0
+- **scope:** 0x800931C0 SPU voice-state flush
+- **status:** partial
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** SBS 50/50 A/B-identical and the address is GONE from the recdep substrate histogram, so the override is live. BUT ovhit reports only native=1 oracle=1 over 1500 frames, against a measured 12,000 substrate dispatches per 6000 frames (2/frame) before wiring. That discrepancy is UNEXPLAINED. The single execution matched, and nothing diverged, but this is NOT the 3000-execution gate the histogram implies it should be. Do not treat as verified until the counting is reconciled.
 
 ## actor-zoned-zoneclassify-145c78
 - **scope:** 0x80145C78 zone-band classifier

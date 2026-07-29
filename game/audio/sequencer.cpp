@@ -16,6 +16,12 @@
 // this pass does not second-guess it.
 
 #include "audio/sequencer.h"
+#include "override_registry.h"   // engine_set_override_main
+extern void func_8009A1D0(Core*);
+extern void func_80097E10(Core*);
+extern void func_80099970(Core*);
+extern void func_80098F90(Core*);
+extern void func_80098DB0(Core*);
 #include "game_ctx.h"
 #include "core.h"
 #include "game.h"           // MV_CHECK / VerifyHarness (frameTick trampoline strict gate)
@@ -1887,7 +1893,288 @@ static void nat_channelToneRecordCopyWide(Core* c)  { eng(c).sequencer.channelTo
 static void nat_voiceAllocateOrSteal(Core* c)       { eng(c).sequencer.voiceAllocateOrSteal(); }
 static void nat_channelNotePeriodCompute(Core* c)   { eng(c).sequencer.channelNotePeriodCompute(); }
 
+
+// FUN_800931C0 — the sound driver's per-frame SPU voice-state flush. 12,000 substrate dispatches per
+// 6000 replay frames, i.e. exactly twice a frame.
+//
+// REPLACES A DEFECTIVE DRAFT that lived in the WRONG SUBSYSTEM. game/input/input.cpp carried a
+// hand-transliterated `input_dispatch_931c0` — the address sits in the same guest band as the pad
+// leaves, so it had been filed as input dispatch. It is SPU voice state, and its sole caller is this
+// class. The draft also carried four defects, two of them guest-RAM divergences.
+// ORACLE: gen_func_800931C0
+void Sequencer::voiceStateFlush() {
+  Core* c = core;
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23468));
+    c->r[29] = c->r[29] + (uint32_t)-120;
+    c->mem_w32((c->r[29] + (uint32_t)80), c->r[16]);
+    c->mem_w32((c->r[29] + (uint32_t)112), c->r[31]);
+    c->mem_w32((c->r[29] + (uint32_t)108), c->r[23]);
+    c->mem_w32((c->r[29] + (uint32_t)104), c->r[22]);
+    c->mem_w32((c->r[29] + (uint32_t)100), c->r[21]);
+    c->mem_w32((c->r[29] + (uint32_t)96), c->r[20]);
+    c->mem_w32((c->r[29] + (uint32_t)92), c->r[19]);
+    c->mem_w32((c->r[29] + (uint32_t)88), c->r[18]);
+    c->mem_w32((c->r[29] + (uint32_t)84), c->r[17]);
+    c->r[2] = c->r[2] + (uint32_t)1;
+    c->r[2] = c->r[2] & 15u;
+    c->r[1] = (uint32_t)32784u << 16;
+    c->mem_w32((c->r[1] + (uint32_t)23468), c->r[2]);
+    c->r[2] = c->r[2] << 2;
+    c->r[1] = (uint32_t)32784u << 16;
+    c->r[1] = c->r[1] + c->r[2];
+    c->mem_w32((c->r[1] + (uint32_t)23472), c->r[0]);
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
+    c->r[3] = (uint32_t)32784u << 16;
+    c->r[3] = c->r[3] + (uint32_t)23472;
+    { int _t = ((int32_t)c->r[2] <= 0); c->r[16] = c->r[0] + c->r[0]; if (_t) goto L_800932A0; }
+    c->r[20] = c->r[3] + c->r[0];
+    c->r[19] = c->r[0] + (uint32_t)1;
+    c->r[18] = (uint32_t)32784u << 16;
+    c->r[18] = c->r[18] + (uint32_t)21710;
+    c->r[17] = c->r[0] + c->r[0];
+  L_8009323C:;
+    c->r[4] = c->r[16] + c->r[0];
+    c->r[31] = 0x80093248u;
+    c->r[5] = c->r[18] + c->r[0]; func_8009A1D0(c);
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = c->r[2] + c->r[17];
+    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21710));
+    { int _t = (c->r[2] != c->r[0]); c->r[4] = c->r[19] << (c->r[16] & 31); if (_t) goto L_80093284; }
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23468));
+    c->r[2] = c->r[2] << 2;
+    c->r[2] = c->r[2] + c->r[20];
+    c->r[3] = c->mem_r32((c->r[2] + (uint32_t)0));
+    c->r[3] = c->r[3] | c->r[4];
+    c->mem_w32((c->r[2] + (uint32_t)0), c->r[3]);
+  L_80093284:;
+    c->r[18] = c->r[18] + (uint32_t)56;
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
+    c->r[16] = c->r[16] + (uint32_t)1;
+    c->r[2] = (uint32_t)((int32_t)c->r[16] < (int32_t)c->r[2]);
+    { int _t = (c->r[2] != c->r[0]); c->r[17] = c->r[17] + (uint32_t)56; if (_t) goto L_8009323C; }
+  L_800932A0:;
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23848));
+    { int _t = (c->r[2] != c->r[0]); c->r[16] = c->r[0] + c->r[0]; if (_t) goto L_8009336C; }
+    c->r[18] = c->r[0] + (uint32_t)-1;
+    c->r[3] = (uint32_t)32784u << 16;
+    c->r[3] = c->r[3] + (uint32_t)23472;
+  L_800932C0:;
+    c->r[2] = c->mem_r32((c->r[3] + (uint32_t)0));
+    c->r[16] = c->r[16] + (uint32_t)1;
+    c->r[18] = c->r[18] & c->r[2];
+    c->r[2] = (uint32_t)((int32_t)c->r[16] < 15);
+    { int _t = (c->r[2] != c->r[0]); c->r[3] = c->r[3] + (uint32_t)4; if (_t) goto L_800932C0; }
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
+    { int _t = ((int32_t)c->r[2] <= 0); c->r[16] = c->r[0] + c->r[0]; if (_t) goto L_80093368; }
+    c->r[19] = c->r[0] + (uint32_t)1;
+    c->r[20] = c->r[0] + (uint32_t)2;
+    c->r[17] = (uint32_t)32784u << 16;
+    c->r[17] = c->r[17] + (uint32_t)21733;
+  L_800932FC:;
+    c->r[5] = c->r[19] << (c->r[16] & 31);
+    c->r[2] = c->r[18] & c->r[5];
+    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80093350; }
+    c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[17] + (uint32_t)0));
+    { int _t = (c->r[2] != c->r[20]); c->r[2] = (uint32_t)((int32_t)c->r[16] < 16); if (_t) goto L_8009334C; }
+    { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[0] + c->r[0]; if (_t) goto L_80093330; }
+    c->r[5] = c->r[0] + c->r[0];
+    c->r[2] = c->r[16] + (uint32_t)-16;
+    c->r[2] = c->r[19] << (c->r[2] & 31);
+  L_80093330:;
+    c->r[4] = c->r[0] + c->r[0];
+    c->r[2] = c->r[2] & 255u;
+    c->r[2] = c->r[2] << 16;
+    c->r[5] = c->r[5] << 16;
+    c->r[5] = (uint32_t)((int32_t)c->r[5] >> 16);
+    c->r[31] = 0x8009334Cu;
+    c->r[5] = c->r[2] | c->r[5]; func_80097E10(c);
+  L_8009334C:;
+    c->mem_w8((c->r[17] + (uint32_t)0), (uint8_t)c->r[0]);
+  L_80093350:;
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
+    c->r[16] = c->r[16] + (uint32_t)1;
+    c->r[2] = (uint32_t)((int32_t)c->r[16] < (int32_t)c->r[2]);
+    { int _t = (c->r[2] != c->r[0]); c->r[17] = c->r[17] + (uint32_t)56; if (_t) goto L_800932FC; }
+  L_80093368:;
+    c->r[16] = c->r[0] + c->r[0];
+  L_8009336C:;
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)23536));
+    c->r[3] = (uint32_t)32784u << 16;
+    c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)21688));
+    c->r[2] = ~(c->r[0] | c->r[2]);
+    c->r[3] = c->r[3] & c->r[2];
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)23538));
+    c->r[17] = c->r[0] + c->r[0];
+    c->r[1] = (uint32_t)32784u << 16;
+    c->mem_w16((c->r[1] + (uint32_t)21688), (uint16_t)c->r[3]);
+    c->r[3] = (uint32_t)32784u << 16;
+    c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)21690));
+    c->r[2] = ~(c->r[0] | c->r[2]);
+    c->r[3] = c->r[3] & c->r[2];
+    c->r[1] = (uint32_t)32784u << 16;
+    c->mem_w16((c->r[1] + (uint32_t)21690), (uint16_t)c->r[3]);
+  L_800933B0:;
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = c->r[2] + c->r[17];
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)21734));
+    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_800933DC; }
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23464));
+    c->r[31] = 0x800933DCu;
+    c->r[4] = c->r[16] + c->r[0]; rec_dispatch(c, c->r[2]);
+  L_800933DC:;
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = c->r[2] + c->r[17];
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)21746));
+    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80093408; }
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23072));
+    c->r[31] = 0x80093408u;
+    c->r[4] = c->r[16] + c->r[0]; rec_dispatch(c, c->r[2]);
+  L_80093408:;
+    c->r[16] = c->r[16] + (uint32_t)1;
+    c->r[2] = (uint32_t)((int32_t)c->r[16] < 24);
+    { int _t = (c->r[2] != c->r[0]); c->r[17] = c->r[17] + (uint32_t)56; if (_t) goto L_800933B0; }
+    c->r[16] = c->r[0] + c->r[0];
+    c->r[17] = (uint32_t)32784u << 16;
+    c->r[17] = c->r[17] + (uint32_t)23048;
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = c->r[2] + (uint32_t)23080;
+    c->r[23] = c->r[2] + (uint32_t)10;
+    c->r[22] = c->r[2] + (uint32_t)8;
+    c->r[21] = c->r[2] + (uint32_t)6;
+    c->r[20] = c->r[2] + (uint32_t)4;
+    c->r[19] = c->r[2] + (uint32_t)2;
+    c->r[18] = c->r[2] + c->r[0];
+  L_80093444:;
+    c->r[2] = c->r[0] + (uint32_t)1;
+    c->r[2] = c->r[2] << (c->r[16] & 31);
+    c->mem_w32((c->r[29] + (uint32_t)20), c->r[0]);
+    c->mem_w32((c->r[29] + (uint32_t)16), c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
+    c->r[2] = c->r[2] & 1u;
+    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)3; if (_t) goto L_80093484; }
+    c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[18] + (uint32_t)0));
+    c->mem_w16((c->r[29] + (uint32_t)24), (uint16_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[19] + (uint32_t)0));
+    c->mem_w16((c->r[29] + (uint32_t)26), (uint16_t)c->r[2]);
+  L_80093484:;
+    c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
+    c->r[2] = c->r[2] & 4u;
+    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_800934B4; }
+    c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
+    c->r[2] = c->r[2] | 16u;
+    c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[20] + (uint32_t)0));
+    c->mem_w16((c->r[29] + (uint32_t)36), (uint16_t)c->r[2]);
+  L_800934B4:;
+    c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
+    c->r[2] = c->r[2] & 8u;
+    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_800934E8; }
+    c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
+    c->r[2] = c->r[2] | 128u;
+    c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[21] + (uint32_t)0));
+    c->r[2] = c->r[2] << 3;
+    c->mem_w32((c->r[29] + (uint32_t)44), c->r[2]);
+  L_800934E8:;
+    c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
+    c->r[2] = c->r[2] & 16u;
+    { int _t = (c->r[2] == c->r[0]); c->r[3] = (uint32_t)6u << 16; if (_t) goto L_80093524; }
+    c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
+    c->r[2] = c->r[2] | c->r[3];
+    c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[22] + (uint32_t)0));
+    c->mem_w16((c->r[29] + (uint32_t)74), (uint16_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[23] + (uint32_t)0));
+    c->mem_w16((c->r[29] + (uint32_t)76), (uint16_t)c->r[2]);
+  L_80093524:;
+    c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
+    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_8009353C; }
+    c->r[31] = 0x8009353Cu;
+    c->r[4] = c->r[29] + (uint32_t)16; func_80099970(c);
+  L_8009353C:;
+    c->mem_w8((c->r[17] + (uint32_t)0), (uint8_t)c->r[0]);
+    c->r[17] = c->r[17] + (uint32_t)1;
+    c->r[23] = c->r[23] + (uint32_t)16;
+    c->r[22] = c->r[22] + (uint32_t)16;
+    c->r[21] = c->r[21] + (uint32_t)16;
+    c->r[20] = c->r[20] + (uint32_t)16;
+    c->r[19] = c->r[19] + (uint32_t)16;
+    c->r[16] = c->r[16] + (uint32_t)1;
+    c->r[2] = (uint32_t)((int32_t)c->r[16] < 24);
+    { int _t = (c->r[2] != c->r[0]); c->r[18] = c->r[18] + (uint32_t)16; if (_t) goto L_80093444; }
+    c->r[4] = c->r[0] + c->r[0];
+    c->r[5] = (uint32_t)32784u << 16;
+    c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)23538));
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)23536));
+    c->r[5] = c->r[5] << 16;
+    c->r[31] = 0x80093588u;
+    c->r[5] = c->r[5] | c->r[2]; func_80098F90(c);
+    c->r[4] = c->r[0] + (uint32_t)1;
+    c->r[5] = (uint32_t)32784u << 16;
+    c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21690));
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21688));
+    c->r[5] = c->r[5] << 16;
+    c->r[31] = 0x800935A8u;
+    c->r[5] = c->r[5] | c->r[2]; func_80098F90(c);
+    c->r[4] = c->r[0] + (uint32_t)8;
+    c->r[5] = (uint32_t)32784u << 16;
+    c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21694));
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21692));
+    c->r[5] = c->r[5] << 16;
+    c->r[31] = 0x800935C8u;
+    c->r[5] = c->r[5] | c->r[2]; func_80098DB0(c);
+    c->r[4] = c->r[0] + (uint32_t)8;
+    c->r[5] = (uint32_t)32784u << 16;
+    c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21698));
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21696));
+    c->r[5] = c->r[5] << 16;
+    c->r[31] = 0x800935E8u;
+    c->r[5] = c->r[5] | c->r[2]; func_80097E10(c);
+    c->r[1] = (uint32_t)32784u << 16;
+    c->mem_w16((c->r[1] + (uint32_t)23536), (uint16_t)c->r[0]);
+    c->r[1] = (uint32_t)32784u << 16;
+    c->mem_w16((c->r[1] + (uint32_t)23538), (uint16_t)c->r[0]);
+    c->r[1] = (uint32_t)32784u << 16;
+    c->mem_w16((c->r[1] + (uint32_t)21688), (uint16_t)c->r[0]);
+    c->r[1] = (uint32_t)32784u << 16;
+    c->mem_w16((c->r[1] + (uint32_t)21690), (uint16_t)c->r[0]);
+    c->r[1] = (uint32_t)32784u << 16;
+    c->mem_w16((c->r[1] + (uint32_t)21696), (uint16_t)c->r[0]);
+    c->r[1] = (uint32_t)32784u << 16;
+    c->mem_w16((c->r[1] + (uint32_t)21698), (uint16_t)c->r[0]);
+    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)112));
+    c->r[23] = c->mem_r32((c->r[29] + (uint32_t)108));
+    c->r[22] = c->mem_r32((c->r[29] + (uint32_t)104));
+    c->r[21] = c->mem_r32((c->r[29] + (uint32_t)100));
+    c->r[20] = c->mem_r32((c->r[29] + (uint32_t)96));
+    c->r[19] = c->mem_r32((c->r[29] + (uint32_t)92));
+    c->r[18] = c->mem_r32((c->r[29] + (uint32_t)88));
+    c->r[17] = c->mem_r32((c->r[29] + (uint32_t)84));
+    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)80));
+    c->r[29] = c->r[29] + (uint32_t)120; return;
+}
+
+static void nat_voiceStateFlush(Core* c) { eng(c).sequencer.voiceStateFlush(); }
+
 void Sequencer::registerOverrides() {
+  { extern void gen_func_800931C0(Core*);
+    engine_set_override_main(0x800931C0u, nat_voiceStateFlush, gen_func_800931C0); }
   extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
   extern void gen_func_800910F0(Core*);
   extern void gen_func_80091050(Core*);

@@ -18,6 +18,7 @@
 #include "game.h"
 #include "engine.h"
 #include "mtx.h"                   // class Mtx — libgte matrix leaves (MR_init identity, 0x80051794)
+#include "node_lifecycle_sm.h"      // class NodeLifecycleSm — per-node lifecycle SM (0x80040558)
 #include "cull_substate_native.h"  // class CullSubstateLeaves — A00 cull-substate leaf (0x80133550)
 #include "ui_ft4_layout.h"        // class UiFt4Layout — POLY_FT4 UI vertex-layout case block (0x8007E2F8)
 #include "pad_sampler.h"           // class PadSampler — port-0 button-mask sampler (0x800524B4)
@@ -120,6 +121,7 @@ void register_engine_overrides(Game* game) {
   Trig::registerOverrides(game);                     // Trig::rsin/ratan2/angleCmp fallthrough native-ize (0x80083E80/80085690/80077768)
   Mtx::registerOverrides(game);                      // MR_init identity-matrix leaf (0x80051794) — native existed since long before it was wired
   { extern void startup_overrides_install(); startup_overrides_install(); }  // Engine::allocRecordForSelector (0x8008913C)
+  NodeLifecycleSm::registerOverrides(game);           // per-node lifecycle state machine (0x80040558)
   CullSubstateLeaves::registerOverrides(game);        // A00 cull-substate orchestrator leaf (0x80133550)
   UiFt4Layout::registerOverrides(game);               // POLY_FT4 UI vertex-layout case 0 (0x8007E2F8)
   PadSampler::registerOverrides(game);                // port-0 button-mask sampler (0x800524B4)

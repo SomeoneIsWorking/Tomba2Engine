@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 964 native fns, 814 owned addresses, 779 LIVE / 185 ORPHAN.
+Totals: 962 native fns, 812 owned addresses, 780 LIVE / 182 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -145,11 +145,9 @@ Totals: 964 native fns, 814 owned addresses, 779 LIVE / 185 ORPHAN.
 | 0x8003FC00 | ORPHAN | `leaf_8003FC00` | game/core/field_owned_leaves.cpp:3176 |  |  |
 | 0x8003FC78 | ORPHAN | `leaf_8003FC78` | game/core/field_owned_leaves.cpp:3209 |  |  |
 | 0x8003FC8C | ORPHAN | `leaf_8003FC8C` | game/core/field_owned_leaves.cpp:3217 |  |  |
-| 0x8003FD10 | ORPHAN | `osc_fd10` | game/world/entity.cpp:327 |  | per-object OSCILLATE / FRAME-TOGGLE sub-behavior (one of sm40558 STATE… |
+| 0x8003FD10 | ORPHAN | `osc_fd10` | game/world/entity.cpp:48 |  | per-object OSCILLATE / FRAME-TOGGLE sub-behavior (one of sm40558 STATE… |
 | 0x8003FE00 | ORPHAN | `leaf_8003FE00` | game/core/field_owned_leaves.cpp:3250 |  |  |
 | 0x8003FED8 | ORPHAN | `leaf_8003FED8` | game/core/field_owned_leaves.cpp:3302 |  |  |
-| 0x80040410 | ORPHAN | `child_spawn_40410` | game/world/entity.cpp:46 |  | per-object CHILD-NODE SPAWN / sub-object builder (a callee of the per-… |
-| 0x80040558 | ORPHAN | `sm40558` | game/world/entity.cpp:136 | 0x8003FBC4 0x8003FC00 0x8003FC78 0x8003FC8C 0x8003FE00 0x8003FED8 … | per-object STATE-MACHINE HEAD (the dispatcher whose state-0 handler ca… |
 | 0x80040A58 | LIVE | `SceneEvents::classSize` | game/scene/scene_events.cpp:45 |  |  |
 | 0x80040B48 | LIVE | `SceneEvents::armBody` | game/scene/scene_events.cpp:73 |  |  |
 | 0x80040B48 | LIVE | `SceneEvents::arm` | game/scene/scene_events.cpp:113 |  |  |
@@ -670,28 +668,28 @@ Totals: 964 native fns, 814 owned addresses, 779 LIVE / 185 ORPHAN.
 | 0x8008B8F0 | LIVE | `LibcdNative::searchFile` | game/cd/libcd_native.cpp:22 |  |  |
 | 0x8008BBE8 | LIVE | `LibcdNative::newMedia` | game/cd/libcd_native.cpp:12 |  |  |
 | 0x8008BF50 | LIVE | `LibcdNative::cacheFile` | game/cd/libcd_native.cpp:17 |  |  |
-| 0x80090160 | LIVE | `Sequencer::channelStreamAccumulate` | game/audio/sequencer.cpp:1330 |  | channelStreamAccumulate — true leaf (no stack frame). Faithful to gen_… |
-| 0x800909C0 | LIVE | `Sequencer::frameTick` | game/audio/sequencer.cpp:112 |  | libsnd per-VBlank tick wrapper. WIDE-RE DRAFT, UNWIRED (see header). |
-| 0x80090BD0 | LIVE | `Sequencer::seqChannelDispatch` | game/audio/sequencer.cpp:202 | 0x80090E40 0x80091050 0x80091910 0x80092080 | SsSeqCalled — the per-VBlank sequence/channel scheduler. Faithful to |
-| 0x80090E40 | LIVE | `Sequencer::channelPitchSlideTick` | game/audio/sequencer.cpp:458 |  | channelPitchSlideTick — pitch-slide/portamento per-tick interpolator (… |
-| 0x80091050 | LIVE | `Sequencer::channelReleaseClear` | game/audio/sequencer.cpp:144 |  | "release"/note-off housekeeping: zeroes the per-channel status byte at… |
-| 0x800910F0 | LIVE | `Sequencer::channelPitchSelectDispatch` | game/audio/sequencer.cpp:130 |  | thin arg-repacking wrapper: sign-extend (seq,chan) to 32-bit and tail-… |
-| 0x80091810 | LIVE | `Sequencer::channelVoiceKeyOn` | game/audio/sequencer.cpp:1379 |  | channelVoiceKeyOn — true leaf (no stack frame). Faithful to gen_func_8… |
-| 0x80091910 | LIVE | `Sequencer::channelStopFlagSet` | game/audio/sequencer.cpp:176 |  | sets the per-channel status byte at +20 to 1, clears flags bit3 (value… |
-| 0x80091970 | LIVE | `Sequencer::channelNoteInit` | game/audio/sequencer.cpp:761 | 0x800931A0 | channelNoteInit — per-channel note retrigger (SsSeqCalled flags bit2 r… |
-| 0x80092080 | LIVE | `Sequencer::channelEnvelopeRampTick` | game/audio/sequencer.cpp:604 |  | channelEnvelopeRampTick — ADSR/envelope ramp (SsSeqCalled flags bit6 A… |
-| 0x80092310 | LIVE | `Sequencer::channelToneRecordCopy` | game/audio/sequencer.cpp:1445 |  | channelToneRecordCopy — stack frame present (sp-32, spill r16@16/r17@2… |
-| 0x80092420 | LIVE | `Sequencer::channelToneRecordCopyWide` | game/audio/sequencer.cpp:1507 |  | channelToneRecordCopyWide — stack frame present (sp-32, spill r16@16/r… |
-| 0x80092E3C | LIVE | `Input::setVoiceVolume` | game/input/input.cpp:361 |  | SPU voice-attribute stage: sets the volume fields of one voice slot. 6… |
-| 0x800931C0 | ORPHAN | `input_dispatch_931c0` | game/input/input.cpp:40 | 0x80097E10 0x80098DB0 0x80098F90 0x80099970 0x8009A1D0 | per-frame INPUT/controller-state processor (the heaviest un-owned resi… |
-| 0x80093650 | LIVE | `Input::voiceTableInit` | game/input/input.cpp:140 |  | ORACLE: gen_func_80093650 |
-| 0x80094150 | LIVE | `Sequencer::voiceAllocateOrSteal` | game/audio/sequencer.cpp:1625 |  | voiceAllocateOrSteal — true leaf (no stack frame). Faithful to gen_fun… |
-| 0x80094474 | LIVE | `Sequencer::channelNotePeriodCompute` | game/audio/sequencer.cpp:1780 |  | channelNotePeriodCompute — true leaf (no stack frame). Faithful to gen… |
-| 0x80094B50 | LIVE | `Sequencer::channelKeyRegisterMerge` | game/audio/sequencer.cpp:367 |  | channelKeyRegisterMerge — true leaf (no stack frame). Faithful to gen_… |
-| 0x80095530 | LIVE | `Sequencer::channelVoiceRegisterWrite` | game/audio/sequencer.cpp:905 |  | channelVoiceRegisterWrite — the "SPU voice-register write leaf" channe… |
-| 0x80095A9C | LIVE | `Sequencer::channelVolumeSnapshot` | game/audio/sequencer.cpp:340 |  | channelVolumeSnapshot — true leaf (no stack frame). Faithful to gen_fu… |
-| 0x80095B90 | LIVE | `Sequencer::channelKeyEventScan` | game/audio/sequencer.cpp:408 |  | channelKeyEventScan — stack frame present (sp-32, spill ra/s16/s17/s18… |
-| 0x800962B0 | LIVE | `Sequencer::channelVoiceSelectPrep` | game/audio/sequencer.cpp:837 |  | channelVoiceSelectPrep — called mid-loop by channelVoiceRegisterWrite(… |
+| 0x80090160 | LIVE | `Sequencer::channelStreamAccumulate` | game/audio/sequencer.cpp:1336 |  | channelStreamAccumulate — true leaf (no stack frame). Faithful to gen_… |
+| 0x800909C0 | LIVE | `Sequencer::frameTick` | game/audio/sequencer.cpp:118 |  | libsnd per-VBlank tick wrapper. WIDE-RE DRAFT, UNWIRED (see header). |
+| 0x80090BD0 | LIVE | `Sequencer::seqChannelDispatch` | game/audio/sequencer.cpp:208 | 0x80090E40 0x80091050 0x80091910 0x80092080 | SsSeqCalled — the per-VBlank sequence/channel scheduler. Faithful to |
+| 0x80090E40 | LIVE | `Sequencer::channelPitchSlideTick` | game/audio/sequencer.cpp:464 |  | channelPitchSlideTick — pitch-slide/portamento per-tick interpolator (… |
+| 0x80091050 | LIVE | `Sequencer::channelReleaseClear` | game/audio/sequencer.cpp:150 |  | "release"/note-off housekeeping: zeroes the per-channel status byte at… |
+| 0x800910F0 | LIVE | `Sequencer::channelPitchSelectDispatch` | game/audio/sequencer.cpp:136 |  | thin arg-repacking wrapper: sign-extend (seq,chan) to 32-bit and tail-… |
+| 0x80091810 | LIVE | `Sequencer::channelVoiceKeyOn` | game/audio/sequencer.cpp:1385 |  | channelVoiceKeyOn — true leaf (no stack frame). Faithful to gen_func_8… |
+| 0x80091910 | LIVE | `Sequencer::channelStopFlagSet` | game/audio/sequencer.cpp:182 |  | sets the per-channel status byte at +20 to 1, clears flags bit3 (value… |
+| 0x80091970 | LIVE | `Sequencer::channelNoteInit` | game/audio/sequencer.cpp:767 | 0x800931A0 | channelNoteInit — per-channel note retrigger (SsSeqCalled flags bit2 r… |
+| 0x80092080 | LIVE | `Sequencer::channelEnvelopeRampTick` | game/audio/sequencer.cpp:610 |  | channelEnvelopeRampTick — ADSR/envelope ramp (SsSeqCalled flags bit6 A… |
+| 0x80092310 | LIVE | `Sequencer::channelToneRecordCopy` | game/audio/sequencer.cpp:1451 |  | channelToneRecordCopy — stack frame present (sp-32, spill r16@16/r17@2… |
+| 0x80092420 | LIVE | `Sequencer::channelToneRecordCopyWide` | game/audio/sequencer.cpp:1513 |  | channelToneRecordCopyWide — stack frame present (sp-32, spill r16@16/r… |
+| 0x80092E3C | LIVE | `Input::setVoiceVolume` | game/input/input.cpp:266 |  | SPU voice-attribute stage: sets the volume fields of one voice slot. 6… |
+| 0x800931C0 | LIVE | `Sequencer::voiceStateFlush` | game/audio/sequencer.cpp:1905 |  | the sound driver's per-frame SPU voice-state flush. 12,000 substrate d… |
+| 0x80093650 | LIVE | `Input::voiceTableInit` | game/input/input.cpp:45 |  | ORACLE: gen_func_80093650 |
+| 0x80094150 | LIVE | `Sequencer::voiceAllocateOrSteal` | game/audio/sequencer.cpp:1631 |  | voiceAllocateOrSteal — true leaf (no stack frame). Faithful to gen_fun… |
+| 0x80094474 | LIVE | `Sequencer::channelNotePeriodCompute` | game/audio/sequencer.cpp:1786 |  | channelNotePeriodCompute — true leaf (no stack frame). Faithful to gen… |
+| 0x80094B50 | LIVE | `Sequencer::channelKeyRegisterMerge` | game/audio/sequencer.cpp:373 |  | channelKeyRegisterMerge — true leaf (no stack frame). Faithful to gen_… |
+| 0x80095530 | LIVE | `Sequencer::channelVoiceRegisterWrite` | game/audio/sequencer.cpp:911 |  | channelVoiceRegisterWrite — the "SPU voice-register write leaf" channe… |
+| 0x80095A9C | LIVE | `Sequencer::channelVolumeSnapshot` | game/audio/sequencer.cpp:346 |  | channelVolumeSnapshot — true leaf (no stack frame). Faithful to gen_fu… |
+| 0x80095B90 | LIVE | `Sequencer::channelKeyEventScan` | game/audio/sequencer.cpp:414 |  | channelKeyEventScan — stack frame present (sp-32, spill ra/s16/s17/s18… |
+| 0x800962B0 | LIVE | `Sequencer::channelVoiceSelectPrep` | game/audio/sequencer.cpp:843 |  | channelVoiceSelectPrep — called mid-loop by channelVoiceRegisterWrite(… |
 | 0x80096370 | LIVE | `Font::bank2Store` | game/ui/font.cpp:86 |  | font-bank2 store. `*kFontBank2Addr(sb) = bank; jr ra`. Leaf; does NOT … |
 | 0x800963A0 | LIVE | `Font::bankSelect` | game/ui/font.cpp:73 |  | font-bank selector. If ((bank-1)&0xff) < 24, store the bank byte at |
 | 0x80096878 | LIVE | `bav_cleanup_tail` | game/ui/bav_loader.cpp:88 |  | cleanup tail at 0x80096878: release lock (a0=0 path) + decrement refco… |

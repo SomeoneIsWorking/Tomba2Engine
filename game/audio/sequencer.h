@@ -221,5 +221,9 @@ public:
   // per-address wiring list / bottom-up order (leaves first, then seqChannelDispatch, then
   // frameTick) and docs/fleet-workflow.md §9 for the re-verify-before-wire discipline this pass
   // followed.
+  // FUN_800931C0 — per-frame SPU voice-state flush. Replaces a 4-defect draft that had been filed
+  // under game/input/ because the address neighbours the pad leaves.
+  void voiceStateFlush();
+
   void registerOverrides();
 };
