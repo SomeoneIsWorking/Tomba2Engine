@@ -22,4 +22,12 @@ public:
   //   generated/ — into the same symbol; recomp `gen_func_80079528` is instruction-exact ground
   //   truth and confirms only the strlen loop is reachable via the func_80079528 entry point).
   static uint32_t length(Core* c, uint32_t addr);
+
+  // copyBytes(c, dst, src, n): FUN_8009A3E0 — libc memcpy with a NULL-DESTINATION GUARD and a
+  //   SIGNED length. Long known as "the memcpy-like out-of-band primitive" and left on the
+  //   substrate (docs/engine_re.md, wide_re_gpu_putdrawenv.cpp); reading the 15-instruction body
+  //   settles it. Returns dst, except dst == 0 which returns 0 without touching anything. n <= 0
+  //   copies nothing and still returns dst — the guard is `> 0` on a SIGNED compare, so a negative
+  //   length is a no-op rather than a 4-billion-byte copy.
+  static uint32_t copyBytes(Core* c, uint32_t dst, uint32_t src, int32_t n);
 };

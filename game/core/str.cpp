@@ -23,6 +23,27 @@ uint32_t Str::length(Core* c, uint32_t addr) {
   return len;
 }
 
+// FUN_8009A3E0 — memcpy(dst, src, n). RE from generated/shard_0.c:15524 gen_func_8009A3E0, a 15
+// instruction leaf with no stack frame:
+//   if (dst == 0) { v0 = 0; return; }          // the null-destination guard, and it returns 0
+//   v1 = dst;                                   // saved so the return value survives the loop
+//   if ((int32_t)n <= 0) { v0 = v1; return; }   // SIGNED — a negative length copies nothing
+//   do { *dst++ = *src++; } while (--n > 0);    // plain byte loop, signed counter
+//   v0 = v1;                                    // returns the ORIGINAL dst, not the end cursor
+// The signedness is the only subtle part: the guest tests `n > 0` as a signed compare both before
+// and inside the loop, so a negative length is a no-op. An unsigned transcription would turn one
+// into a 4-billion-byte copy that walks off the end of guest RAM.
+uint32_t Str::copyBytes(Core* c, uint32_t dst, uint32_t src, int32_t n) {
+  if (dst == 0) { c->r[2] = 0; return 0; }
+  uint32_t d = dst;
+  while (n > 0) {
+    c->mem_w8(d, (uint8_t)c->mem_r8(src));
+    d += 1; src += 1; n -= 1;
+  }
+  c->r[2] = dst;
+  return dst;
+}
+
 // ------------------------------------------------------------------------------------------------
 // WIRING (verify pass, 2026-07-10, docs/fleet-workflow.md §9): re-diffed byte-for-byte against
 // generated/shard_2.c:10049 -- exact strlen transcription, no bugs found. Checked every call site
@@ -40,7 +61,19 @@ void ov_strLength(Core* c) {
 }
 }  // namespace
 
+// FUN_8009A3E0's own wiring note: the guest leaves its WORKING registers advanced at return —
+// r4/r5 point one past the last byte copied and r6 is 0 (or the untouched negative length). Those
+// are caller-saved argument registers, so no ABI-conforming caller reads them back, and the native
+// body below leaves them as the caller set them. Called as a plain intra-shard func_8009A3E0(c) at
+// every site as well as via rec_dispatch, so it is wired with the main-module setter like the rest.
+namespace {
+void ov_copyBytes(Core* c) {
+  Str::copyBytes(c, c->r[4], c->r[5], (int32_t)c->r[6]);
+}
+}  // namespace
+
 extern void gen_func_80079528(Core*);
+extern void gen_func_8009A3E0(Core*);
 
 void str_wide_re_install() {
   static bool done = false;
@@ -48,4 +81,5 @@ void str_wide_re_install() {
   done = true;
   extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
   engine_set_override_main(0x80079528u, ov_strLength, gen_func_80079528);
+  engine_set_override_main(0x8009A3E0u, ov_copyBytes, gen_func_8009A3E0);
 }

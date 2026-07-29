@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 947 native fns, 799 owned addresses, 759 LIVE / 188 ORPHAN.
+Totals: 949 native fns, 800 owned addresses, 761 LIVE / 188 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -690,6 +690,7 @@ Totals: 947 native fns, 799 owned addresses, 759 LIVE / 188 ORPHAN.
 | 0x80099450 | LIVE | `bav_lock_ready` | game/ui/bav_loader.cpp:79 |  | -- lock helpers (FUN_80099478 / FUN_80099450), inlined --- |
 | 0x80099450 | LIVE | `bav_lock_set` | game/ui/bav_loader.cpp:82 |  |  |
 | 0x80099478 | LIVE | `bav_lock_ready` | game/ui/bav_loader.cpp:79 |  | -- lock helpers (FUN_80099478 / FUN_80099450), inlined --- |
+| 0x8009A3E0 | LIVE | `Str::copyBytes` | game/core/str.cpp:36 |  | memcpy(dst, src, n). RE from generated/shard_0.c:15524 gen_func_8009A3… |
 | 0x8009A450 | LIVE | `prng` | game/ai/beh_typed_variant_router.cpp:47 |  |  |
 | 0x8009A450 | ORPHAN | `tomba_schedRng` | game/core/game_hooks.cpp:184 |  |  |
 | 0x800A33C8 | LIVE | `tbl_strp` | game/ai/beh_cube_text_spawn.cpp:46 |  | string-table entry pointer: mem32(0x800a33c8 + (node[0x60]*3 << 2) + 4… |
