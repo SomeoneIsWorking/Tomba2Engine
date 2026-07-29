@@ -63,8 +63,10 @@ public:
   static void substate2Tick(Core* c);
   // FUN_0x80130524 — the node[5]==3 sub-state tick
   static void substate3Tick(Core* c);
-  // FUN_0x801313C4 — clears the pending-command word and its derived fields
-  static void pendingCommandClear(Core* c);
+  // FUN_0x801313C4 — angle-limit gate; compares child[1]'s angle against node-derived limits and can
+  // reset the mode byte and sub-state. Named for mechanism only — the earlier "pendingCommandClear"
+  // was wrong (it never touches +0x7A); see the implementation banner.
+  static void angleLimitGate(Core* c);
   // FUN_0x80146348 — the assembly post-tick called after the sub-state work
   static void assemblyPostTick(Core* c);
 

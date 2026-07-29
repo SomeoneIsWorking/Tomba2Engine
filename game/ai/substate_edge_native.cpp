@@ -1983,9 +1983,20 @@ void SubstateEdgeLeaves::substate3Tick(Core* c) {
     return;
 }
 
-// FUN_0x801313C4 — clears the pending-command word and its derived fields.
+// FUN_0x801313C4 — ANGLE-LIMIT GATE. RENAMED after reading it: I had called this
+// "pendingCommandClear" from the RE spec, and it NEVER TOUCHES the pending-command word at +0x7A.
+//
+// What it demonstrably does: takes the angle at child[1]+8 (via the table slot at node+0xC4 — the
+// same +8 field Math::rotmat consumes as a Euler angle), sign-extends it into the negative range
+// when it is >= 2049, and compares values derived from node+0x64 / +0x68 against it. On the branch
+// where node+6 is zero and (config & 0xF0) == 0x40 it zeroes the mode byte and the sub-state; other
+// branches compute a difference and fall through. It makes no calls.
+//
+// The GAME-LEVEL purpose is NOT established — whether those are travel limits, a target-reached
+// test, or something else is not derivable from this body alone. The name describes the mechanism
+// (an angle compared against limits, gating a state reset) and deliberately claims no more.
 // ORACLE: ov_a00_gen_801313C4
-void SubstateEdgeLeaves::pendingCommandClear(Core* c) {
+void SubstateEdgeLeaves::angleLimitGate(Core* c) {
     c->r[2] = c->mem_r32((c->r[4] + (uint32_t)196));
     c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)8));
     c->r[5] = c->r[2] + c->r[0];
@@ -2214,7 +2225,7 @@ void SubstateEdgeLeaves::registerOverrides(Game*) {
   engine_set_override_a00(0x8012F5B4u, &SubstateEdgeLeaves::substate1Tick, ov_a00_gen_8012F5B4);
   engine_set_override_a00(0x8012FD88u, &SubstateEdgeLeaves::substate2Tick, ov_a00_gen_8012FD88);
   engine_set_override_a00(0x80130524u, &SubstateEdgeLeaves::substate3Tick, ov_a00_gen_80130524);
-  engine_set_override_a00(0x801313C4u, &SubstateEdgeLeaves::pendingCommandClear, ov_a00_gen_801313C4);
+  engine_set_override_a00(0x801313C4u, &SubstateEdgeLeaves::angleLimitGate, ov_a00_gen_801313C4);
   engine_set_override_a00(0x80146348u, &SubstateEdgeLeaves::assemblyPostTick, ov_a00_gen_80146348);
   engine_set_override_a00(0x8012F494u, &SubstateEdgeLeaves::substate0Tick, ov_a00_gen_8012F494);
   engine_set_override_a00(0x80130AC4u, &SubstateEdgeLeaves::visibilityGate,        ov_a00_gen_80130AC4);
