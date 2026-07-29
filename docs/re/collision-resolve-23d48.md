@@ -1,9 +1,10 @@
 # FUN_80023D48 — actor-vs-object CYLINDER COLLISION RESOLVE (RE, not yet ported)
 
 RE'd 2026-07-29 via Ghidra headless (`scratch/decomp/eng_23d48.c`) + `abi_extract.py --contract`
-against `generated/shard_1.c gen_func_80023D48`. **NOT PORTED, and deliberately no draft was
-written** — see the stack hazard below, which is what actually makes this a hard port rather than a
-long one. Recorded so the next session starts from the analysis instead of the disassembly.
+against `generated/shard_1.c gen_func_80023D48`. **PORTED 2026-07-29** (`game/world/collision_resolve.cpp`,
+SBS 0-diff over 1500 frames, ovhit 7397/7397, port_check PASS) — via `port_gen.py`, which emits the
+`func_XXXX` calls and so handles the stack hazard below BY CONSTRUCTION rather than by care. The
+body is still in register form; the readability pass is tracked on the port frontier.
 
 Why it matters: **29,869 substrate dispatches per 6000 frames** of `replays/bugs/seesaw-weight.pad`
 — the busiest remaining unowned function in the game once the PlatformHle-owned entries are

@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 23 verified · 12 ported-unverified · 2 todo · 3 blocked
+**Status:** 23 verified · 13 ported-unverified · 1 todo · 3 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -30,9 +30,10 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 
 ## collision-resolve-23d48
 - **scope:** FUN_80023D48 — actor-vs-object cylinder collision resolve + push-out
-- **status:** todo
+- **status:** ported-unverified
 - **order:** 20
-- **notes:** BUSIEST remaining unowned function: 29,869 dispatches per 6000 frames of seesaw-weight (after discounting PlatformHle-owned entries per I024). Fully RE'd 2026-07-29 — see docs/re/collision-resolve-23d48.md (signature, 4-valued return, field map, frame contract). NOT a free port despite all five callees being owned: Trig::rcos/rsin/ratan2/angleCmp are DELIBERATELY unregistered because their substrate bodies descend guest stack frames the natives do not mirror, so the port MUST call them through their generated func_XXXX wrappers (guest_abi.h guest_fn) rather than the Trig methods, or it diverges in dead stack scratch. Deliberately no draft banked — per C020 an unverified draft is a liability.
+- **owner:** game/world/collision_resolve.cpp CollisionResolve::cylinderResolve
+- **notes:** PORTED + SBS-gated 2026-07-29 (50/50 identical, ovhit 7397/7397 balanced, port_check PASS). Status is ported-unverified NOT because the behaviour is unproven but because the body is still in port_gen REGISTER FORM — a byte-faithful c->r[] transcript, which CLAUDE.md is explicit is a transcript rather than a port and actively hides state forks. The READABILITY PASS is outstanding: typed lenses over the actor/other/anchor blocks (field map in docs/re/collision-resolve-23d48.md), named constants for the four outcome codes, and named control flow replacing the L_8002xxxx labels. Prove equivalence after renaming with port_check.py, which already PASSes on the draft. The stack hazard is HANDLED and must stay handled: the five callees are reached through their generated func_XXXX wrappers, never the Trig methods.
 
 ## sop-narration-void-vortex (#5)
 - **scope:** SOP void beat (0x800BF9B4==5): vortex object 0x800FBA68 not rendering under pc_render

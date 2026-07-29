@@ -61,6 +61,7 @@ set(GAME_SRC
   game/world/graphics_bind.cpp
   game/world/pool.cpp
   game/world/entity.cpp
+  game/world/collision_resolve.cpp
   game/render/render_native.cpp
   game/render/scene_build.cpp
   game/render/mesh_draw.cpp

@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 949 native fns, 800 owned addresses, 761 LIVE / 188 ORPHAN.
+Totals: 950 native fns, 801 owned addresses, 762 LIVE / 188 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -30,6 +30,7 @@ Totals: 949 native fns, 800 owned addresses, 761 LIVE / 188 ORPHAN.
 | 0x80022D08 | ORPHAN | `leaf_80022D08` | game/core/field_owned_leaves.cpp:11092 |  |  |
 | 0x80023528 | ORPHAN | `leaf_80023528` | game/core/field_owned_leaves.cpp:399 |  |  |
 | 0x800235A0 | LIVE | `ActorTomba::type7Interact` | game/player/actor_tomba.cpp:711 |  | postInteractWalk case 7. |
+| 0x80023D48 | LIVE | `CollisionResolve::cylinderResolve` | game/world/collision_resolve.cpp:18 |  |  |
 | 0x80024794 | LIVE | `interact_scan` | game/player/interact_scan.cpp:69 |  | (player) -> 1 if something was activated this call, else 0. |
 | 0x800248D0 | ORPHAN | `leaf_800248D0` | game/core/field_owned_leaves.cpp:410 |  |  |
 | 0x80024F18 | ORPHAN | `leaf_80024F18` | game/core/field_owned_leaves.cpp:538 |  |  |
