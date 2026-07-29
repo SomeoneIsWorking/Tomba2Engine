@@ -27,6 +27,20 @@ constexpr uint32_t kOscSpillRa    = 24;   // r31
 constexpr uint32_t kRaAfterPartTick = 0x80131728u;
 constexpr int32_t  kFirstDrivenPart = 2;  // k starts at 2 -> slot 4 (or 3 outside pair mode)
 constexpr int32_t  kPartLimit       = 4;  // loop runs k = 2, 3
+
+// Field offsets for armPendingChildPair. Named here rather than via the AssemblyNode lens because
+// this body addresses the node through a guest register (r6) that must stay live across its own
+// branches — the lens is for bodies that can hold a C++ object. Same meanings, same header.
+constexpr uint32_t kNodeRole        = 3;      // < 2 = a master assembly
+constexpr uint32_t kNodePendingCmd  = 122;    // 0x7A, low 2 bits = command, bit2 = extra flag
+constexpr uint32_t kNodeModeByte    = 94;     // 0x5E, bit1 selects the angle source
+constexpr uint32_t kNodeAngleSel    = 108;    // 0x6C, compared against the command
+constexpr uint32_t kNodeAngleParam  = 110;    // 0x6E, masked to 12 bits
+constexpr uint32_t kNodeConfig      = 96;     // 0x60, the config word (bit1 = pair mode)
+constexpr uint32_t kNodeArmDuration = 114;    // 0x72
+constexpr uint32_t kChildTableOff   = 192;    // 0xC0, the sub-part pointer table
+constexpr uint32_t kChildStateFlags = 62;     // 0x3E on a child record
+constexpr uint32_t kChildAccum      = 12;     // 0x0C on a child record
 }  // namespace
 void ov_a00_func_801308E0(Core*);
 void ov_a00_func_80130788(Core*);
@@ -229,34 +243,48 @@ void SubstateEdgeLeaves::tickChildOscillators(Core* c) {
 }
 
 // ORACLE: ov_a00_gen_80131134
+// FUN_80131134 — ARM A PAIR OF ADJACENT SUB-PARTS from the assembly's pending command.
+//
+// Reads the 2-bit command at node+0x7A. Does nothing unless this is one of the two master assemblies
+// (roleByte < 2), a command is pending, and the commanded sub-part is idle. Then it picks an angle —
+// the node's own angleParam when modeByte bit1 is set AND angleSelector matches the command, else the
+// commanded part's oscillator accumulator — and uses whether that angle is exactly 2048 (a half turn)
+// to choose which adjacent PAIR of slots to start. Both parts of the pair get state 1; the commanded
+// part additionally gets bit1. Finally armDuration at +0x72 is set from the command (2 -> 4, 3 -> 8)
+// and bumped by 2 when the command word's bit2 is set.
+//
+// FIELD-NAMED, CONTROL FLOW NOT YET REWRITTEN. The offsets are now named (see assembly_node.h for
+// what each is); the branch structure is still the guest's labels. That is the same deliberate split
+// used on collision_resolve: the naming half is mechanical and independently gate-able, the
+// control-flow half is not, and a half-rewritten branch structure is worse than an unrewritten one.
 void SubstateEdgeLeaves::armPendingChildPair(Core* c) {
     c->r[6] = c->r[4] + c->r[0];
-    c->r[2] = (uint32_t)c->mem_r8((c->r[6] + (uint32_t)3));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[6] + kNodeRole));
     c->r[2] = (uint32_t)(c->r[2] < (uint32_t)2);
     { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_801312C4; }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)122));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + kNodePendingCmd));
     c->r[3] = c->r[2] & 3u;
     c->r[5] = c->r[3] + c->r[0];
     { int _t = (c->r[5] == c->r[0]); c->r[7] = c->r[3] + c->r[0]; if (_t) goto L_801312C4; }
     c->r[2] = c->r[5] << 2;
     c->r[2] = c->r[6] + c->r[2];
-    c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
-    c->r[2] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)62));
+    c->r[2] = c->mem_r32((c->r[2] + kChildTableOff));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[2] + kChildStateFlags));
     c->r[2] = c->r[2] & 3u;
     { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_801312C4; }
-    c->r[2] = (uint32_t)c->mem_r8((c->r[6] + (uint32_t)94));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[6] + kNodeModeByte));
     c->r[2] = c->r[2] & 2u;
     { int _t = (c->r[2] == c->r[0]); c->r[4] = c->r[3] + c->r[0]; if (_t) goto L_801311B8; }
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[6] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[6] + kNodeAngleSel));
     { int _t = (c->r[2] != c->r[5]);  if (_t) goto L_801311B8; }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)110));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + kNodeAngleParam));
     c->r[2] = c->r[2] & 4095u; goto L_801311D0;
   L_801311B8:;
     c->r[2] = c->r[4] << 16;
     c->r[2] = (uint32_t)((int32_t)c->r[2] >> 14);
     c->r[2] = c->r[6] + c->r[2];
-    c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
-    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)12));
+    c->r[2] = c->mem_r32((c->r[2] + kChildTableOff));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + kChildAccum));
   L_801311D0:;
     c->r[3] = c->r[2] << 16;
     c->r[3] = (uint32_t)((int32_t)c->r[3] >> 16);
@@ -270,7 +298,7 @@ void SubstateEdgeLeaves::armPendingChildPair(Core* c) {
     c->r[2] = (uint32_t)((int32_t)c->r[2] >> 14);
     c->r[4] = c->r[2] + (uint32_t)-4;
   L_80131204:;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)96));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + kNodeConfig));
     c->r[2] = c->r[2] & 2u;
     { int _t = (c->r[2] != c->r[0]); c->r[3] = c->r[4] << 16; if (_t) goto L_80131220; }
     c->r[4] = c->r[4] + (uint32_t)-1;
@@ -282,18 +310,18 @@ void SubstateEdgeLeaves::armPendingChildPair(Core* c) {
     c->r[4] = c->r[0] + (uint32_t)1;
     c->r[3] = c->r[3] + (uint32_t)1;
     c->r[3] = c->r[3] << 2;
-    c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
+    c->r[2] = c->mem_r32((c->r[2] + kChildTableOff));
     c->r[3] = c->r[6] + c->r[3];
-    c->mem_w8((c->r[2] + (uint32_t)62), (uint8_t)c->r[4]);
-    c->r[2] = c->mem_r32((c->r[3] + (uint32_t)192));
-    c->mem_w8((c->r[2] + (uint32_t)62), (uint8_t)c->r[4]);
+    c->mem_w8((c->r[2] + kChildStateFlags), (uint8_t)c->r[4]);
+    c->r[2] = c->mem_r32((c->r[3] + kChildTableOff));
+    c->mem_w8((c->r[2] + kChildStateFlags), (uint8_t)c->r[4]);
     c->r[2] = c->r[7] << 2;
     c->r[2] = c->r[6] + c->r[2];
-    c->r[3] = c->mem_r32((c->r[2] + (uint32_t)192));
-    c->r[2] = (uint32_t)c->mem_r8((c->r[3] + (uint32_t)62));
+    c->r[3] = c->mem_r32((c->r[2] + kChildTableOff));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[3] + kChildStateFlags));
     c->r[2] = c->r[2] | 2u;
-    c->mem_w8((c->r[3] + (uint32_t)62), (uint8_t)c->r[2]);
-    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)122));
+    c->mem_w8((c->r[3] + kChildStateFlags), (uint8_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + kNodePendingCmd));
     c->r[3] = c->r[2] & 3u;
     c->r[2] = c->r[0] + (uint32_t)2;
     { int _t = (c->r[3] == c->r[2]); c->r[2] = c->r[0] + (uint32_t)3; if (_t) goto L_80131298; }
@@ -302,14 +330,14 @@ void SubstateEdgeLeaves::armPendingChildPair(Core* c) {
   L_80131298:;
     c->r[2] = c->r[0] + (uint32_t)4;
   L_8013129C:;
-    c->mem_w16((c->r[6] + (uint32_t)114), (uint16_t)c->r[2]);
+    c->mem_w16((c->r[6] + kNodeArmDuration), (uint16_t)c->r[2]);
   L_801312A0:;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)122));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + kNodePendingCmd));
     c->r[2] = c->r[2] & 4u;
     { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_801312C4; }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)114));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + kNodeArmDuration));
     c->r[2] = c->r[2] + (uint32_t)2;
-    c->mem_w16((c->r[6] + (uint32_t)114), (uint16_t)c->r[2]);
+    c->mem_w16((c->r[6] + kNodeArmDuration), (uint16_t)c->r[2]);
   L_801312C4:;
      return;
     return;

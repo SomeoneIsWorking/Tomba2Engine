@@ -25,6 +25,28 @@
 #include <cstdint>
 #include "core.h"
 
+// One sub-part record, reached through AssemblyNode::childPtr(slot). Only the two fields the ported
+// leaves touch are named; this record is larger and the rest is not yet established.
+class AssemblyChild {
+public:
+  AssemblyChild(Core* c, uint32_t at) : mCore(c), mAt(at) {}
+  uint32_t addr() const { return mAt; }
+
+  // +0x3E is the sub-part's own state/flags byte. Low two bits are a busy/idle state the arm path
+  // requires to be zero before it will start a part; bit1 is set on the commanded part itself.
+  uint32_t stateFlags() const { return mCore->mem_r8(mAt + 0x3Eu); }
+  bool     idle()       const { return (stateFlags() & 3u) == 0; }
+  void setStateFlags(uint32_t v) const { mCore->mem_w8(mAt + 0x3Eu, (uint8_t)v); }
+
+  // +0x0C is the oscillator accumulator FUN_80130D5C drives; the arm path reads it as the fallback
+  // angle when the node's own angle selector does not match the pending command.
+  uint32_t accumulator() const { return mCore->mem_r16(mAt + 0x0Cu); }
+
+private:
+  Core*    mCore;
+  uint32_t mAt;
+};
+
 class AssemblyNode {
 public:
   AssemblyNode(Core* c, uint32_t at) : mCore(c), mAt(at) {}
@@ -52,6 +74,18 @@ public:
   bool hasOscillatingParts() const { return (configWord() & 0x4u) != 0; }  // bit2 — gates the tick entirely
   bool oscillatorPairMode()  const { return (configWord() & 0x2u) != 0; }  // bit1 — two driven slots, and
                                                                            // biases each slot index by +1
+
+  // --- fields the ARM-PENDING-PAIR leaf (FUN_80131134) works over --------------------------------
+  // Meanings below are read off that body's use, not guessed: each is described by what the code
+  // DOES with it, and anything whose role is not settled says so.
+  uint32_t roleByte()       const { return u8(0x03u); }   // < 2 selects the two "master" assemblies
+  uint32_t pendingCommand() const { return u16(0x7Au) & 3u; }  // 2-bit command; 0 = nothing pending
+  bool     pendingBit2()    const { return (u16(0x7Au) & 4u) != 0; }  // extra flag on the same word
+  uint32_t modeByte()       const { return u8(0x5Eu); }   // bit1 selects the angle source below
+  int32_t  angleSelector()  const { return s16(0x6Cu); }  // compared against the pending command
+  uint32_t angleParam()     const { return u16(0x6Eu); }  // used masked to 12 bits (a PSX angle)
+  uint32_t armDuration()    const { return u16(0x72u); }  // set from the command, then optionally +2
+  void setArmDuration(uint32_t v) const { mCore->mem_w16(mAt + 0x72u, (uint16_t)v); }
 
 protected:
   int32_t  s16(uint32_t off) const { return mCore->mem_r16s(mAt + off); }
