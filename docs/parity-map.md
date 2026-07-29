@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 40 verified · 6 partial · 2 untested · 7 n/a
+**Status:** 43 verified · 6 partial · 2 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -75,6 +75,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **gate:** same wave gate; ovhit 2247/2247; §9 n<=0 return-0 fix
 - **evidence:** 7db286a8
 
+## cull-tick-eulerz-swing-133550
+- **scope:** 0x80133550 child Euler-Z decaying swing tick
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** Batch gate: 50/50 A/B-identical, zero divergence; ovhit native=8364 oracle=8364 balanced.
+
 ## DEMO/title front-end (whole-scene)
 - **scope:** stage 0x801062E4 boot->title menu (s48 handoff + menu hold + cursor)
 - **status:** verified
@@ -98,6 +105,20 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 19590
 - **gate:** SBS-full combat f5460 + watch-cut f19590 0-diff; hut replay bubble identical via tap (panelq box=800EEA60 count=17)
 - **evidence:** 916ddfc0
+
+## engine-alloc-record-selector-8913c
+- **scope:** 0x8008913C record[0]/record[1] selector over the 0x80102500 array
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** Batch gate: 50/50 A/B-identical, zero divergence; ovhit native=1504 oracle=1504 balanced.
+
+## engine-pad-fence-tail-5229c
+- **scope:** 0x8005229C padEdgeFence tail 4-phase state machine
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** Batch gate: 50/50 A/B-identical, zero divergence; ovhit native=1500 oracle=1500 balanced.
 
 ## Engine::padEdgeFence (FUN_800788AC)
 - **status:** verified

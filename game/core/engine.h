@@ -270,6 +270,8 @@ public:
   //   `rec_dispatch(c, 0x800788ACu)` routes here via the override (pad_edge_fence_install,
   //   §9-verified against gen 2026-07-16). Full RE in game/input/pad_edge_fence.cpp.
   void padEdgeFence();
+  void padFenceTail();              // FUN_8005229C — padEdgeFence's tail; subsystem UNRESOLVED, see impl
+  void allocRecordForSelector();    // FUN_8008913C — record[0]/record[1] of the 0x80102500 array
 
   // drawOTag: PC-native DrawOTag (libgpu FUN_80081560 equivalent) — the per-frame draw kick.
   //   Called directly from native_step_frame (top-down PC-driven, NOT an override). Owns the

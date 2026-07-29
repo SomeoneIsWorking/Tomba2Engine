@@ -28,6 +28,29 @@ void rec_dispatch(Core*, uint32_t);   // run a guest fn (for the few sub-bits no
 // FUN_80050a0c — engine frame-state init: zero the vblank counter and the double-buffer / frame-pacing
 // flags the main loop reads (DAT_1f800235 = frame-rate divisor, DAT_1f800135 = buffer parity,
 // DAT_1f80019c = buffer-swap mode). Last write = FUN_8009a480(0x45) -> DAT_80105ee8 = 0x45 (a word).
+
+void func_80089160(Core*);   // generated wrapper, called by allocRecordForSelector
+
+// FUN_8008913C — returns the base of record[0] or record[1] of the 240-byte-stride, 2-entry record
+// array at 0x80102500 that Engine::initAlloc builds, selected by whether (arg & 0xF0) is nonzero.
+//
+// NAMED FOR EXACTLY THAT AND NOTHING MORE. The RE proposed "modeRecordForId"; the adversarial verify
+// pass rejected it, because the body proves the selection but proves nothing about the argument
+// being a mode or an id — that reading comes from a comment elsewhere and an xref pass did not
+// resolve it. The argument's ROLE IS UNKNOWN and is left unknown here rather than guessed.
+// ORACLE: gen_func_8008913C
+void Engine::allocRecordForSelector() {
+  Core* c = this->core;
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = c->r[2] + (uint32_t)9472;
+    c->r[4] = c->r[4] & 240u;
+    { int _t = (c->r[4] == c->r[0]);  if (_t) goto L_80089154; }
+    c->r[2] = c->r[2] + (uint32_t)240;
+  L_80089154:;
+     return;
+    func_80089160(c); return;
+}
+
 void Engine::initFrameState() {
   Core* c = this->core;
   c->mem_w16(0x800E809C, 0);     // vblank counter (sh)
@@ -294,4 +317,18 @@ uint32_t Engine::runModeEnter() {
   c->r[31] = c->mem_r32(c->r[29] + 16);                // lw ra,0x10(sp)
   c->r[29] = c->r[29] + (uint32_t)24;                  // addiu sp,+0x18 — ascend the guest frame
   return result;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// Override wiring for this file's one registered address. Installed via engine_set_override_main so
+// SBS core B keeps running the pure recompiled body while core A runs the native.
+namespace { void ov_allocRecordForSelector(Core* c) { eng(c).allocRecordForSelector(); } }
+
+void startup_overrides_install() {
+  static bool done = false;
+  if (done) return;
+  done = true;
+  extern void gen_func_8008913C(Core*);
+  extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
+  engine_set_override_main(0x8008913Cu, ov_allocRecordForSelector, gen_func_8008913C);
 }

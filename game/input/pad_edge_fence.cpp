@@ -36,6 +36,9 @@
 #include "core/engine.h"
 
 void rec_dispatch(Core*, uint32_t);
+void func_80087E2C(Core*);
+void func_80087AEC(Core*);
+void func_80087EAC(Core*);
 
 #define CUR_PREV_BASE   0x800ECF54u   // +0 = cur (u16), +2 = prev (u16)
 #define POLL_FLAG       0x1F80019Au   // scratchpad u8 — gates queue-pop vs FUN_800524B4(0) path
@@ -122,11 +125,130 @@ void Engine::padEdgeFence() {
 // Override wrapper + install (guest ABI is all-implicit — the fence takes no args, returns
 // FUN_8005229C's v0 which the gen leaves in r2; the native body preserves that by not touching
 // r2 after the tail dispatch).
+// FUN_8005229C — the tail call of Engine::padEdgeFence, and its only caller in the image.
+//
+// A once-per-frame 4-phase state machine over the record at 0x800ECF48 (+2 armed u16, +4/+5 notify
+// pair, +6 phase u8, +7 countdown u8), gated by scratchpad 0x1F80019A and the mode byte at
+// 0x800FB167, driving three leaves through the fn-ptr at 0x800ABE4C with a0 always 0.
+//
+// DELIBERATELY NOT NAMED FOR A SUBSYSTEM. The RE proposed "AudioCue::retriggerTick" in a new
+// game/audio/ class; the verifier rejected both, because whether this drives XA audio or controller
+// vibration is UNRESOLVED — the owned Engine::initAlloc calls the same table a "mode dispatch table"
+// over an allocator heap. The only thing proven about its place in the engine is that it is this
+// function's tail, so it lands here, beside its caller, under a name that claims nothing.
+//
+// NOTE A THIRD, OLDER GUESS IN THIS VERY FILE: the constant at the top is called FN_CD_SM,
+// "un-owned CD/load sub-state-machine". So the tree now holds three incompatible readings of this
+// address — CD/load, XA audio, controller vibration — none of them derived from the body. That is
+// the argument for the neutral name, not against it. Whoever resolves it should fix FN_CD_SM too.
+// ORACLE: gen_func_8005229C
+void Engine::padFenceTail() {
+  Core* c = core;
+    c->r[29] = c->r[29] + (uint32_t)-24;
+    c->r[2] = (uint32_t)32783u << 16;
+    c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
+    c->r[16] = c->r[2] + (uint32_t)-12472;
+    c->r[2] = (uint32_t)8064u << 16;
+    c->r[2] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)410));
+    c->r[4] = c->r[0] + (uint32_t)1;
+    { int _t = (c->r[2] != c->r[4]); c->mem_w32((c->r[29] + (uint32_t)20), c->r[31]); if (_t) goto L_800522C4; }
+    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]);
+  L_800522C4:;
+    c->r[2] = (uint32_t)32784u << 16;
+    c->r[2] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)-20121));
+    { int _t = (c->r[2] != c->r[0]); c->r[2] = (uint32_t)32784u << 16; if (_t) goto L_800523E4; }
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)2));
+    { int _t = (c->r[2] == c->r[0]); c->r[2] = (uint32_t)32784u << 16; if (_t) goto L_800523E4; }
+    c->r[3] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)6));
+    { int _t = (c->r[3] == c->r[4]); c->r[2] = (uint32_t)((int32_t)c->r[3] < 2); if (_t) goto L_80052378; }
+    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80052310; }
+    { int _t = (c->r[3] == c->r[0]);  if (_t) goto L_8005232C; }
+     goto L_8005244C;
+  L_80052310:;
+    c->r[2] = c->r[0] + (uint32_t)2;
+    { int _t = (c->r[3] == c->r[2]); c->r[2] = c->r[0] + (uint32_t)3; if (_t) goto L_800523A4; }
+    { int _t = (c->r[3] == c->r[2]);  if (_t) goto L_80052428; }
+     goto L_8005244C;
+  L_8005232C:;
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)4));
+    { int _t = (c->r[2] == c->r[0]); c->r[4] = c->r[0] + c->r[0]; if (_t) goto L_80052350; }
+    c->r[5] = c->r[16] + (uint32_t)4;
+    c->r[6] = c->r[0] + (uint32_t)2;
+    c->mem_w8((c->r[16] + (uint32_t)4), (uint8_t)c->r[0]);
+    c->r[31] = 0x80052350u;
+    c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[0]); func_80087EAC(c);
+  L_80052350:;
+    c->r[31] = 0x80052358u;
+    c->r[4] = c->r[0] + c->r[0]; func_80087AEC(c);
+    c->r[3] = c->r[0] + (uint32_t)6;
+    { int _t = (c->r[2] != c->r[3]); c->r[4] = c->r[0] + c->r[0]; if (_t) goto L_8005244C; }
+    c->r[5] = (uint32_t)32778u << 16;
+    c->r[31] = 0x80052370u;
+    c->r[5] = c->r[5] + (uint32_t)16280; func_80087E2C(c);
+     goto L_8005244C;
+  L_80052378:;
+    c->r[31] = 0x80052380u;
+    c->r[4] = c->r[0] + c->r[0]; func_80087AEC(c);
+    c->r[3] = c->r[0] + (uint32_t)6;
+    { int _t = (c->r[2] != c->r[3]); c->r[4] = c->r[0] + c->r[0]; if (_t) goto L_8005244C; }
+    c->r[5] = (uint32_t)32778u << 16;
+    c->r[31] = 0x80052398u;
+    c->r[5] = c->r[5] + (uint32_t)16280; func_80087E2C(c);
+    c->r[2] = c->r[0] + (uint32_t)2;
+    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]); goto L_8005244C;
+  L_800523A4:;
+    c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)7));
+    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[2] + (uint32_t)-1; if (_t) goto L_800523BC; }
+    c->mem_w8((c->r[16] + (uint32_t)7), (uint8_t)c->r[2]); goto L_8005244C;
+  L_800523BC:;
+    c->r[4] = c->r[0] + c->r[0];
+    c->r[5] = c->r[16] + (uint32_t)4;
+    c->r[6] = c->r[0] + (uint32_t)2;
+    c->mem_w8((c->r[16] + (uint32_t)4), (uint8_t)c->r[0]);
+    c->r[31] = 0x800523D4u;
+    c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[0]); func_80087EAC(c);
+    c->r[2] = c->r[0] + (uint32_t)3;
+    c->mem_w8((c->r[16] + (uint32_t)7), (uint8_t)c->r[0]);
+    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]); goto L_8005244C;
+  L_800523E4:;
+    c->r[3] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)-20121));
+    c->r[2] = c->r[0] + (uint32_t)1;
+    { int _t = (c->r[3] != c->r[2]);  if (_t) goto L_8005244C; }
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)2));
+    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_8005244C; }
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)4));
+    { int _t = (c->r[2] == c->r[0]); c->r[4] = c->r[0] + c->r[0]; if (_t) goto L_80052428; }
+    c->r[5] = c->r[16] + (uint32_t)4;
+    c->r[6] = c->r[0] + (uint32_t)2;
+    c->mem_w8((c->r[16] + (uint32_t)4), (uint8_t)c->r[0]);
+    c->r[31] = 0x80052428u;
+    c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[0]); func_80087EAC(c);
+  L_80052428:;
+    c->r[31] = 0x80052430u;
+    c->r[4] = c->r[0] + c->r[0]; func_80087AEC(c);
+    c->r[3] = c->r[0] + (uint32_t)6;
+    { int _t = (c->r[2] != c->r[3]); c->r[4] = c->r[0] + c->r[0]; if (_t) goto L_8005244C; }
+    c->r[5] = (uint32_t)32778u << 16;
+    c->r[31] = 0x80052448u;
+    c->r[5] = c->r[5] + (uint32_t)16280; func_80087E2C(c);
+    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]);
+  L_8005244C:;
+    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)20));
+    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
+    c->r[29] = c->r[29] + (uint32_t)24; return;
+    return;
+}
+
 namespace {
+
 void ov_padEdgeFence(Core* c) { eng(c).padEdgeFence(); }
+void ov_padFenceTail(Core* c) { eng(c).padFenceTail(); }
 }
 extern void gen_func_800788AC(Core*);
 void pad_edge_fence_install() {
+  { extern void gen_func_8005229C(Core*);
+    extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
+    engine_set_override_main(0x8005229Cu, ov_padFenceTail, gen_func_8005229C); }
   static bool done = false;
   if (done) return;
   done = true;
