@@ -54,6 +54,12 @@ public:
   //   no gte_op. Writes the row-major 3x3 (s16) at outPtr+0..+16. Returns outPtr via v0.
   uint32_t rotMatSoft(uint32_t anglesPtr, uint32_t outPtr);
 
+  // rotMatSoftInverse(anglesPtr, outPtr): FUN_80084A80 — rotMatSoft's SIBLING. Same LUT, same s16
+  //   row-major output, different matrix from the same three angles: its first column is what
+  //   rotMatSoft puts in its first row, with sinB negated. See the implementation banner for what is
+  //   verified versus merely observed about that relationship. Returns outPtr via v0.
+  uint32_t rotMatSoftInverse(uint32_t anglesPtr, uint32_t outPtr);
+
   // sqrtLzc(v): FUN_80084080 — GTE-LZC fixed-point square root (leading-sign-bit normalize + a
   //   16-bit ROM recip-sqrt table lookup @0x800a6310). Returns the isqrt-like result via v0.
   uint32_t sqrtLzc(uint32_t v);

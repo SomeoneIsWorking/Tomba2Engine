@@ -32,6 +32,7 @@ extern void gen_func_80084D10(Core*);
 extern void gen_func_80084EB0(Core*);
 extern void gen_func_80085050(Core*);
 extern void gen_func_800847F0(Core*);
+extern void gen_func_80084A80(Core*);
 extern void gen_func_80077FB0(Core*);
 extern void gen_func_80078240(Core*);
 extern void gen_func_80084080(Core*);
@@ -342,6 +343,49 @@ uint32_t Math::rotMatSoft(uint32_t anglesPtr, uint32_t out) {   // FUN_800847F0
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
+// FUN_80084A80 — the SOFTWARE 3-Euler-angle rotation-matrix builder that is rotMatSoft's SIBLING,
+// sharing its LUT (softTrig above, table @0x800a6490) and its s16 row-major output layout, but
+// producing a DIFFERENT matrix from the same three angles.
+//
+// WHAT IS VERIFIED, by line-diffing generated/shard_6.c gen_func_80084A80 (130 gen-C ln): the
+// element formulas and store order below, the two shared sub-products, and v0 = a1 (set at the very
+// top of the body from a1 and never reassigned — the only write to r2 anywhere in it).
+//
+// WHAT IS AN OBSERVATION, not a claim: this looks like the inverse/transpose-convention partner of
+// rotMatSoft. Its first COLUMN (cB·cC, cB·sC, −sB) is what rotMatSoft puts in its first ROW, with
+// sinB negated. But the off-diagonal terms are NOT a literal transpose of rotMatSoft's — the signs
+// differ in a way consistent with the angles being applied in the opposite order. That relationship
+// was read off the two bodies; it has NOT been confirmed against a caller, so the name says
+// "Inverse" as a mnemonic for the shape, not as an assertion about intent.
+//
+// The guest interleaves these stores oddly — +12/+14/+16 are written while the third angle's LUT
+// lookup is still in flight, before +0. Nothing observes guest memory in between, so the order is
+// not load-bearing; it is preserved anyway rather than tidied into row order.
+uint32_t Math::rotMatSoftInverse(uint32_t anglesPtr, uint32_t out) {   // FUN_80084A80
+  Core* c = this->core;
+  int32_t sA, cA, sB, cB, sC, cC;
+  softTrig(c, (int16_t)c->mem_r16(anglesPtr + 0), &sA, &cA);
+  softTrig(c, (int16_t)c->mem_r16(anglesPtr + 2), &sB, &cB);
+  softTrig(c, (int16_t)c->mem_r16(anglesPtr + 4), &sC, &cC);
+  auto q = [](int32_t x) { return x >> 12; };   // >>12 arithmetic on the full s32 product
+
+  // The two shared sub-products the guest computes once and reuses (its r24 in each half).
+  const int32_t sAsB = q(sA * sB);
+  const int32_t cAsB = q(cA * sB);
+
+  c->mem_w16(out + 12, (uint16_t)(int16_t)(-sB));                     // −sinB (raw, unshifted)
+  c->mem_w16(out + 14, (uint16_t)(int16_t)q(sA * cB));
+  c->mem_w16(out + 16, (uint16_t)(int16_t)q(cA * cB));
+  c->mem_w16(out + 0,  (uint16_t)(int16_t)q(cB * cC));
+  c->mem_w16(out + 6,  (uint16_t)(int16_t)q(sC * cB));
+  c->mem_w16(out + 2,  (uint16_t)(int16_t)(q(sAsB * cC) - q(sC * cA)));
+  c->mem_w16(out + 8,  (uint16_t)(int16_t)(q(sAsB * sC) + q(cA * cC)));
+  c->mem_w16(out + 4,  (uint16_t)(int16_t)(q(cAsB * cC) + q(sA * sC)));
+  c->mem_w16(out + 10, (uint16_t)(int16_t)(q(cAsB * sC) - q(sA * cC)));
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FUN_80084220 — MVMVA the rotation matrix already in the GTE CR regs by a vector → IR1-3 (libgte
 // ApplyMatrixLV-class). a0 = SVECTOR* in (VX,VY @+0 packed, VZ @+4 low half), a1 = VECTOR* out (3
 // sign-extended 32-bit words), returned in v0. The body: MTC2 a0 words → VXY0/VZ0, GTE MVMVA (sf=1,
@@ -502,6 +546,8 @@ static void eov_sqrtLzc(Core* c)       { c->r[2] = mathOf(c).sqrtLzc(c->r[4]); }
 static void eov_matLoadLV(Core* c)     { c->r[2] = mathOf(c).matLoadLV(c->r[4], c->r[5]); }
 static void eov_matColScale(Core* c)   { c->r[2] = mathOf(c).matColScale(c->r[4], c->r[5]); }
 
+static void eov_rotMatSoftInverse(Core* c) { c->r[2] = mathOf(c).rotMatSoftInverse(c->r[4], c->r[5]); }
+
 void Math::registerOverrides() {
   using overrides::install;
   install(0x80084110u, "Math::matMul",        eov_matMul,        gen_func_80084110, shard_set_override);
@@ -512,6 +558,7 @@ void Math::registerOverrides() {
   install(0x80084EB0u, "Math::rotY",          eov_rotY,          gen_func_80084EB0, shard_set_override);
   install(0x80085050u, "Math::rotZ",          eov_rotZ,          gen_func_80085050, shard_set_override);
   install(0x800847F0u, "Math::rotMatSoft",    eov_rotMatSoft,    gen_func_800847F0, shard_set_override);
+  install(0x80084A80u, "Math::rotMatSoftInverse", eov_rotMatSoftInverse, gen_func_80084A80, shard_set_override);
   install(0x80077FB0u, "Math::isqrt16",       eov_isqrt16,       gen_func_80077FB0, shard_set_override);
   install(0x80078240u, "Math::approxDist3",   eov_approxDist3,   gen_func_80078240, shard_set_override);
   install(0x80084080u, "Math::sqrtLzc",       eov_sqrtLzc,       gen_func_80084080, shard_set_override);

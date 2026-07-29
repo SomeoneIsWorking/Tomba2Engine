@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 946 native fns, 798 owned addresses, 758 LIVE / 188 ORPHAN.
+Totals: 947 native fns, 799 owned addresses, 759 LIVE / 188 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -636,19 +636,20 @@ Totals: 946 native fns, 798 owned addresses, 758 LIVE / 188 ORPHAN.
 | 0x80083E80 | LIVE | `Trig::rsin` | game/math/trig.cpp:4 |  |  |
 | 0x80083E80 | LIVE | `Trig::registerOverrides` | game/math/trig.cpp:114 |  | UNREGISTERED (2026-07-15): rsin/ratan2 are NOT safe as overrides. Thei… |
 | 0x80083F50 | LIVE | `Trig::rcos` | game/math/trig.cpp:69 |  |  |
-| 0x80084080 | LIVE | `Math::sqrtLzc` | game/math/gte_math.cpp:386 |  | ──────────────────────────────────────────────────────────────────────… |
-| 0x80084110 | LIVE | `Math::matMul` | game/math/gte_math.cpp:123 |  |  |
-| 0x80084220 | LIVE | `Math::applyMatlv` | game/math/gte_math.cpp:351 |  | ──────────────────────────────────────────────────────────────────────… |
+| 0x80084080 | LIVE | `Math::sqrtLzc` | game/math/gte_math.cpp:430 |  | ──────────────────────────────────────────────────────────────────────… |
+| 0x80084110 | LIVE | `Math::matMul` | game/math/gte_math.cpp:124 |  |  |
+| 0x80084220 | LIVE | `Math::applyMatlv` | game/math/gte_math.cpp:395 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80084250 | LIVE | `GteTransform3::rotate3AndPackIr` | game/math/wide_re_gte_transform3.cpp:50 |  |  |
-| 0x80084360 | LIVE | `Math::matLoadLV` | game/math/gte_math.cpp:411 |  | ──────────────────────────────────────────────────────────────────────… |
-| 0x80084470 | LIVE | `Math::applyMatrixLV` | game/math/gte_math.cpp:170 |  | ──────────────────────────────────────────────────────────────────────… |
-| 0x80084520 | LIVE | `Math::matColScale` | game/math/gte_math.cpp:456 |  | ORACLE: gen_func_80084520 |
+| 0x80084360 | LIVE | `Math::matLoadLV` | game/math/gte_math.cpp:455 |  | ──────────────────────────────────────────────────────────────────────… |
+| 0x80084470 | LIVE | `Math::applyMatrixLV` | game/math/gte_math.cpp:171 |  | ──────────────────────────────────────────────────────────────────────… |
+| 0x80084520 | LIVE | `Math::matColScale` | game/math/gte_math.cpp:500 |  | ORACLE: gen_func_80084520 |
 | 0x800847B0 | LIVE | `vertexHeaderRepack` | game/render/wide_re_libgpu_leaves.cpp:337 |  | vertexHeaderRepack (0x800847B0) — 20-byte SoA->AoS vertex-header REPAC… |
-| 0x800847F0 | LIVE | `Math::rotMatSoft` | game/math/gte_math.cpp:323 |  |  |
-| 0x80084D10 | LIVE | `Math::rotX` | game/math/gte_math.cpp:297 |  |  |
-| 0x80084EB0 | LIVE | `Math::rotY` | game/math/gte_math.cpp:296 |  |  |
-| 0x80085050 | LIVE | `Math::rotZ` | game/math/gte_math.cpp:295 |  |  |
-| 0x80085480 | LIVE | `Math::rotmat` | game/math/gte_math.cpp:220 |  |  |
+| 0x800847F0 | LIVE | `Math::rotMatSoft` | game/math/gte_math.cpp:324 |  |  |
+| 0x80084A80 | LIVE | `Math::rotMatSoftInverse` | game/math/gte_math.cpp:364 |  | ──────────────────────────────────────────────────────────────────────… |
+| 0x80084D10 | LIVE | `Math::rotX` | game/math/gte_math.cpp:298 |  |  |
+| 0x80084EB0 | LIVE | `Math::rotY` | game/math/gte_math.cpp:297 |  |  |
+| 0x80085050 | LIVE | `Math::rotZ` | game/math/gte_math.cpp:296 |  |  |
+| 0x80085480 | LIVE | `Math::rotmat` | game/math/gte_math.cpp:221 |  |  |
 | 0x80085480 | LIVE | `MeshQuads::rotmat` | game/render/mesh_quads.cpp:62 |  |  |
 | 0x80085690 | LIVE | `Trig::ratan2` | game/math/trig.cpp:23 |  |  |
 | 0x80085C9C | LIVE | `LibapiIntr::setIntrMask` | game/core/libapi_intr.cpp:31 |  |  |

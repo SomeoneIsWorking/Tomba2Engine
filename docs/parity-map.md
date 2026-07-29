@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 29 verified · 6 partial · 1 untested · 7 n/a
+**Status:** 30 verified · 6 partial · 1 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -147,6 +147,14 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
 - **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit native=11323 oracle=11323 (balanced, so the compare covers it on both legs). The gate is load-bearing for the argument correction: the draft masked a1 where the guest masks a3, which would have written a different DR_TPAGE mode word into guest packets and diverged.
 - **owner:** game/render/wide_re_libgpu_leaves.cpp libgpuSetDrawMode
+
+## math-rotmatsoftinverse-84a80
+- **scope:** software Euler rotation-matrix sibling FUN_80084A80
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
+- **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit native=14185 oracle=14185. Load-bearing: all nine matrix elements are written to GUEST memory, so any transcription error in the derived formulas diverges immediately. Frame at f1400 also byte-identical to baseline.
+- **owner:** game/math/gte_math.cpp Math::rotMatSoftInverse
 
 ## mtx-identity-51794
 - **scope:** MR_init identity-matrix leaf FUN_80051794, registry-wired
