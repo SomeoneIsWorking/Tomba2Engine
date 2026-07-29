@@ -614,9 +614,9 @@ Totals: 945 native fns, 797 owned addresses, 756 LIVE / 189 ORPHAN.
 | 0x8007FCC8 | LIVE | `ov_push_dialog_backdrop` | game/ui/dialog_backdrop.cpp:87 |  | Guest-ABI entry: x/y/w/h in r4-r7, mode off the caller's stack (see th… |
 | 0x8007FCC8 | LIVE | `OptionsPage::noteBox` | game/ui/options_page.cpp:73 |  |  |
 | 0x8007FD54 | LIVE | `LoadingText::draw` | game/ui/loading_text.cpp:62 |  |  |
-| 0x80080F6C | LIVE | `Render::drawSync` | game/render/wide_re_libgpu_leaves.cpp:88 |  | func_80080F6C (0x80080F6C) — DrawSync(mode). VERIFIED & WIRED 2026-07-… |
+| 0x80080F6C | LIVE | `Render::drawSync` | game/render/wide_re_libgpu_leaves.cpp:90 |  | func_80080F6C (0x80080F6C) — DrawSync(mode). VERIFIED & WIRED 2026-07-… |
 | 0x80081218 | LIVE | `Asset::uploadImage` | game/core/asset.cpp:244 |  | PC-native CPU->VRAM upload — replaces the game's libgs-style upload li… |
-| 0x80081458 | LIVE | `Render::clearOTagR` | game/render/wide_re_libgpu_leaves.cpp:152 |  | func_80081458 (0x80081458) — ClearOTagR(OT, entries). VERIFIED & WIRED… |
+| 0x80081458 | LIVE | `Render::clearOTagR` | game/render/wide_re_libgpu_leaves.cpp:154 |  | func_80081458 (0x80081458) — ClearOTagR(OT, entries). VERIFIED & WIRED… |
 | 0x80081560 | LIVE | `Engine::drawOTag` | game/game_tomba2.cpp:149 |  | Native ownership of DrawOTag (libgpu FUN_80081560, the per-frame draw … |
 | 0x800815D0 | LIVE | `func_800815D0` | game/render/wide_re_gpu_putdrawenv.cpp:250 |  | func_800815D0 (0x800815D0) — libgpu PutDrawEnv(drawEnvPtr). DRAFT. RE'… |
 | 0x80081CF8 | LIVE | `buildDrawAreaRect` | game/render/hud_gauge_emitter.cpp:139 |  | ----------------------------------------------------------------------… |
@@ -628,11 +628,11 @@ Totals: 945 native fns, 797 owned addresses, 756 LIVE / 189 ORPHAN.
 | 0x8008238C | LIVE | `func_8008238C` | game/render/wide_re_gpu_putdrawenv.cpp:200 |  | func_8008238C (0x8008238C) — DR_TWIN word builder. DRAFT. RE'd from ge… |
 | 0x80082424 | LIVE | `Render::gpuDmaSend` | game/render/wide_re_gpu_dma_queue.cpp:560 |  | func_80082424 (0x80082424) — GpuDmaSend(arrayPtr, count). VERIFIED & W… |
 | 0x80082734 | LIVE | `Render::gpuLoadImageStream` | game/render/wide_re_gpu_loadimage_streamer.cpp:135 |  | func_80082734 (0x80082734) — libgpu LoadImage()-internal chunked GP0-F… |
-| 0x80082C68 | LIVE | `func_80082C68` | game/render/wide_re_libgpu_leaves.cpp:245 |  | func_80082C68 (0x80082C68) — GPU-DMA status-block RESET. DRAFT. RE'd f… |
+| 0x80082C68 | LIVE | `libgpuDmaStatusReset` | game/render/wide_re_libgpu_leaves.cpp:247 |  | libgpuDmaStatusReset (0x80082C68) — GPU-DMA status-block RESET. DRAFT.… |
 | 0x80082D04 | LIVE | `Render::gpuDmaQueueEnqueue` | game/render/wide_re_gpu_dma_queue.cpp:166 |  | func_80082D04 (0x80082D04) — GpuDmaQueueEnqueue(fn, argValOrPtr, sizeB… |
 | 0x80082FB4 | LIVE | `Render::gpuDmaQueueDrain` | game/render/wide_re_gpu_dma_queue.cpp:342 |  | func_80082FB4 (0x80082FB4) — GpuDmaQueueDrain(). VERIFIED & WIRED 2026… |
 | 0x80083364 | LIVE | `Render::gpuDmaQueueSync` | game/render/wide_re_gpu_dma_queue.cpp:464 |  | func_80083364 (0x80083364) — GpuDmaQueueSync(mode). VERIFIED & WIRED 2… |
-| 0x80083DE0 | LIVE | `func_80083DE0` | game/render/wide_re_libgpu_leaves.cpp:280 |  | func_80083DE0 (0x80083DE0) — libgpu draw-mode / texture-window PACKET-… |
+| 0x80083DE0 | LIVE | `libgpuSetDrawMode` | game/render/wide_re_libgpu_leaves.cpp:284 |  | libgpuSetDrawMode (0x80083DE0) — libgpu **SetDrawMode(DR_MODE* p, int … |
 | 0x80083E80 | LIVE | `Trig::rsin` | game/math/trig.cpp:4 |  |  |
 | 0x80083E80 | LIVE | `Trig::registerOverrides` | game/math/trig.cpp:114 |  | UNREGISTERED (2026-07-15): rsin/ratan2 are NOT safe as overrides. Thei… |
 | 0x80083F50 | LIVE | `Trig::rcos` | game/math/trig.cpp:69 |  |  |
@@ -643,7 +643,7 @@ Totals: 945 native fns, 797 owned addresses, 756 LIVE / 189 ORPHAN.
 | 0x80084360 | LIVE | `Math::matLoadLV` | game/math/gte_math.cpp:411 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80084470 | LIVE | `Math::applyMatrixLV` | game/math/gte_math.cpp:170 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80084520 | LIVE | `Math::matColScale` | game/math/gte_math.cpp:456 |  | ORACLE: gen_func_80084520 |
-| 0x800847B0 | LIVE | `func_800847B0` | game/render/wide_re_libgpu_leaves.cpp:327 |  | func_800847B0 (0x800847B0) — 20-byte SoA->AoS vertex-header REPACK. DR… |
+| 0x800847B0 | LIVE | `vertexHeaderRepack` | game/render/wide_re_libgpu_leaves.cpp:329 |  | vertexHeaderRepack (0x800847B0) — 20-byte SoA->AoS vertex-header REPAC… |
 | 0x800847F0 | LIVE | `Math::rotMatSoft` | game/math/gte_math.cpp:323 |  |  |
 | 0x80084D10 | LIVE | `Math::rotX` | game/math/gte_math.cpp:297 |  |  |
 | 0x80084EB0 | LIVE | `Math::rotY` | game/math/gte_math.cpp:296 |  |  |

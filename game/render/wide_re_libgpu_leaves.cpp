@@ -48,6 +48,8 @@
 #include "game_ctx.h"
 #include "render.h"
 #include <stdint.h>
+#include "override_registry.h"  // engine_set_override_main — declared, not locally extern'd
+#include "rec_decls.h"          // the gen_func_* bodies handed to the registry
 
 extern "C" void rec_dispatch(Core* c, uint32_t addr);
 
@@ -214,26 +216,26 @@ void Render::clearOTagR() {
 // OVHIT (PSXPORT_DEBUG=ovhit, 5-frame REPL run): both FIRE with MATCHING native/oracle counts —
 // `0x80080F6C native=1045 oracle=1045`, `0x80081458 native=1020 oracle=1020` — real gate coverage,
 // not a "0-diff because never called" false positive.
-// The other 3 functions in this file (func_80082C68/80083DE0/800847B0) are OUT OF SCOPE for this
-// wiring pass — left as unwired wide-RE drafts.
+// libgpuSetDrawMode (0x80083DE0, SetDrawMode) joined them 2026-07-29, after a line-by-line re-verify against its gen
+// body corrected a wrong-argument defect the draft carried (see its banner below). libgpuDmaStatusReset and
+// vertexHeaderRepack remain unwired wide-RE drafts — neither has been re-verified.
 namespace {
 void ov_drawSync(Core* c)    { rend(c)->drawSync(); }
 void ov_clearOTagR(Core* c)  { rend(c)->clearOTagR(); }
 }  // namespace
 
-extern void gen_func_80080F6C(Core*);
-extern void gen_func_80081458(Core*);
+static void libgpuSetDrawMode(Core* c);   // SetDrawMode — defined below, wired here
 
 void gpu_libgpu_leaves_install() {
   static bool done = false;
   if (done) return;
   done = true;
-  extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_main(0x80080F6Cu, ov_drawSync,   gen_func_80080F6C);
-  engine_set_override_main(0x80081458u, ov_clearOTagR, gen_func_80081458);
+  engine_set_override_main(0x80080F6Cu, ov_drawSync,     gen_func_80080F6C);
+  engine_set_override_main(0x80081458u, ov_clearOTagR,   gen_func_80081458);
+  engine_set_override_main(0x80083DE0u, libgpuSetDrawMode,   gen_func_80083DE0);
 }
 
-// func_80082C68 (0x80082C68) — GPU-DMA status-block RESET. DRAFT. RE'd from generated/shard_2.c gen_func_80082C68
+// libgpuDmaStatusReset (0x80082C68) — GPU-DMA status-block RESET. DRAFT. RE'd from generated/shard_2.c gen_func_80082C68
 // (19 gen-C ln, no branches, no calls — fully self-contained). Not itself a GPU_SYS_TABLE entry
 // (no table dereference); writes the same status-block fields the 0x80082D04 completion-queue
 // cluster (MAPPED, not drafted — see file header) tests every call. Guest ABI: a0 = an opaque
@@ -242,7 +244,7 @@ void gpu_libgpu_leaves_install() {
 //
 // Writes: *GPU_DMA_FLAGS_PTR = (1024u<<16) | 2  (0x04000002); *GPU_DMA_ARG0_PTR = a0;
 // *GPU_DMA_ARG1_PTR = 0; *GPU_DMA_STATE_PTR = (256u<<16) | 1025  (0x01000401).
-static void func_80082C68(Core* c) {
+static void libgpuDmaStatusReset(Core* c) {
   uint32_t a0 = c->r[4];
   uint32_t flagsPtr = c->mem_r32(GPU_DMA_FLAGS_PTR);
   c->mem_w32(flagsPtr, (1024u << 16) | 2u);
@@ -254,66 +256,66 @@ static void func_80082C68(Core* c) {
   c->mem_w32(statePtr, (256u << 16) | 1025u);
 }
 
-// func_80083DE0 (0x80083DE0) — libgpu draw-mode / texture-window PACKET-HEADER builder. DRAFT. RE'd from
-// generated/shard_0.c gen_func_80083DE0 (39 gen-C ln, fully self-contained — no calls, no
-// sub-dispatch, NO stack frame — leaf, sp untouched). LOW-MEDIUM confidence on the exact SCEI name
-// (not cross-referenced against a debug string this session), but the shape is unambiguous: it
-// builds TWO raw GP0 command words matching the top-byte tags of libgpu's DR_TPAGE (0xE1) and
-// DR_TWIN (0xE2) commands — i.e. this is the "SetDrawTPage"/"SetTexWindow"-style low-level
-// packet-header packer libgpu's poly/sprite primitive setters call internally (same family as the
-// PutDrawEnv/DrawOTag cluster this file otherwise covers).
+// libgpuSetDrawMode (0x80083DE0) — libgpu **SetDrawMode(DR_MODE* p, int dfe, int dtd, int tpage,
+// RECT* tw)**. Was a DRAFT carrying a real defect; re-verified line-by-line against
+// generated/shard_0.c gen_func_80083DE0 and WIRED 2026-07-29.
 //
-// Guest ABI: a0(r4)=dst (12 B out: +3 tag byte, +4 draw-mode word, +8 texwin word), a1(r5)=rgbBitsSrc
-// (bits 0x9FF of this land in the mode word's low bits, +0x400 added when a1!=0 — NOT itself a
-// bool, the VALUE's low bits are used AND its zero-ness gates the extra bit), a2(r6)=modeFlag (bool:
-// non-zero ORs 0x200 into the mode word), a3(r7)=UNUSED by this leaf (register alias only, verified:
-// the gen body never reads r7). 5th arg = the STACK slot at incoming sp+16 (o32 ABI outgoing-arg
-// convention; this leaf never adjusts sp, so `c->r[29]+16` is the correct read) = texWinSrc pointer,
-// 0 = "no texture window" (writes +8 = 0 instead of building the DR_TWIN word).
+// THE ARGUMENTS ARE NOW PINNED, and they identify the function. The draft described a1 as
+// "rgbBitsSrc" whose own low bits land in the mode word — but gen line 12643 masks **r7**, not r5:
 //
-// dst+3 is UNCONDITIONALLY set to the constant 2 (both branch arms write it before the branch
-// decision — a delay-slot artifact, not conditional). mode = 0xE1000000 [| 0x200 if a2!=0] |
-// (a1 & 0x9FF) [| 0x400 if a1!=0], always written to dst+4. texWinSrc==0 short-circuits straight to
-// writing 0 at dst+8; otherwise builds the DR_TWIN word from texWinSrc's 4 fields (2 mask bytes @+0/
-// +2, 2 signed 16-bit offsets @+4/+6, PSX texture-window encoding: (maskX>>3)<<10 | (maskY>>3)<<15 |
-// ((-offY)<<2 & 0x3E0) | ((uint8_t)(-offX) >> 3)).
-static void func_80083DE0(Core* c) {
-  uint32_t dst = c->r[4];
-  uint32_t a1 = c->r[5];
-  uint32_t a2 = c->r[6];
-  uint32_t texWinSrc = c->mem_r32(c->r[29] + 16);  // 5th arg, o32 outgoing-arg stack slot
+//     { int _t = (c->r[5] == c->r[0]); c->r[2] = c->r[7] & 2559u; if (_t) goto L_80083E08; }
+//
+// i.e. it BRANCHES on a1 and MASKS a3. The draft used a1 for both, and its banner asserted "a3(r7) =
+// UNUSED by this leaf (register alias only, verified: the gen body never reads r7)" — which that one
+// line disproves. Wiring it as drafted would have written a texture-page field built from the wrong
+// argument into every DR_TPAGE header the guest emits. This is exactly the re-verify that the
+// wide-RE bank requires before a draft is wired, doing its job.
+//
+// Once a3 is the tpage, the whole signature is stock Sony libgpu SetDrawMode:
+//   mode = 0xE1000000 | (tpage & 0x9FF) | (dtd ? 0x200 : 0) | (dfe ? 0x400 : 0)
+// which is the documented DR_TPAGE encoding, with dfe = "draw to display area" and dtd = dither.
+// The 5th argument arrives on the stack per the o32 outgoing-arg convention; this leaf never adjusts
+// sp (abi_extract: frame_size 0), so c->r[29]+16 is the correct slot. tw == 0 means "no texture
+// window" and writes a zero word rather than a DR_TWIN.
+//
+// v0 IS REPRODUCED even though it is junk on both paths (the mode word when tw == 0, the low bits of
+// the negated X offset otherwise). It is junk that a caller could still read, and it costs one
+// assignment to be exact instead of leaving whatever the previous call left in r2.
+static void libgpuSetDrawMode(Core* c) {
+  const uint32_t p     = c->r[4];
+  const uint32_t dfe   = c->r[5];
+  const uint32_t dtd   = c->r[6];
+  const uint32_t tpage = c->r[7];
+  const uint32_t tw    = c->mem_r32(c->r[29] + 16);   // 5th arg, o32 outgoing-arg stack slot
 
-  c->mem_w8(dst + 3, 2u);  // unconditional (both branch arms write this literal before branching)
+  c->mem_w8(p + 3, 2u);   // packet length tag; unconditional (both arms write it before branching)
 
-  uint32_t mode = (57600u << 16);           // 0xE1000000 — DR_TPAGE tag
-  if (a2 != 0) mode |= 512u;
-  uint32_t rgbBits = a1 & 2559u;             // 0x9FF
-  if (a1 != 0) rgbBits |= 1024u;             // 0x400
-  mode |= rgbBits;
-  c->mem_w32(dst + 4, mode);
+  uint32_t mode = 0xE1000000u;                 // DR_TPAGE command tag
+  if (dtd != 0) mode |= 0x200u;                // dither
+  uint32_t page = tpage & 0x9FFu;              // tpage bits, from a3
+  if (dfe != 0) page |= 0x400u;                // draw-to-display-area
+  mode |= page;
+  c->mem_w32(p + 4, mode);
 
-  if (texWinSrc == 0) {
-    c->mem_w32(dst + 8, 0);
+  if (tw == 0) {
+    c->mem_w32(p + 8, 0);
+    c->r[2] = mode;                            // v0 on this path (see banner)
     return;
   }
-  uint32_t twin = (57856u << 16);           // 0xE2000000 — DR_TWIN tag
-  uint32_t maskY = c->mem_r8(texWinSrc + 2);
-  uint32_t maskX = c->mem_r8(texWinSrc + 0);
-  twin |= (maskY >> 3) << 15;
-  twin |= (maskX >> 3) << 10;
-  int32_t offY = c->mem_r16s(texWinSrc + 6);
-  int32_t offX = c->mem_r16s(texWinSrc + 4);
-  uint32_t negOffY = (uint32_t)(0 - offY);
-  negOffY = (negOffY << 2) & 992u;           // 0x3E0
-  twin |= negOffY;
-  uint32_t negOffX = (uint32_t)(0 - offX);
-  negOffX &= 255u;
-  negOffX = (uint32_t)((int32_t)negOffX >> 3);
+
+  // PSX texture-window encoding, from the RECT at `tw`: {u8 maskX@+0, u8 maskY@+2, s16 offX@+4,
+  // s16 offY@+6}. Masks are in 8-pixel units, offsets are negated.
+  uint32_t twin = 0xE2000000u;                 // DR_TWIN command tag
+  twin |= (c->mem_r8(tw + 2) >> 3) << 15;      // maskY
+  twin |= (c->mem_r8(tw + 0) >> 3) << 10;      // maskX
+  twin |= ((uint32_t)(0 - c->mem_r16s(tw + 6)) << 2) & 0x3E0u;   // offY
+  const uint32_t negOffX = (uint32_t)((int32_t)((uint32_t)(0 - c->mem_r16s(tw + 4)) & 0xFFu) >> 3);
   twin |= negOffX;
-  c->mem_w32(dst + 8, twin);
+  c->mem_w32(p + 8, twin);
+  c->r[2] = negOffX;                           // v0 on this path (see banner)
 }
 
-// func_800847B0 (0x800847B0) — 20-byte SoA->AoS vertex-header REPACK. DRAFT. RE'd from generated/shard_4.c
+// vertexHeaderRepack (0x800847B0) — 20-byte SoA->AoS vertex-header REPACK. DRAFT. RE'd from generated/shard_4.c
 // gen_func_800847B0 (18 gen-C ln, fully self-contained — no calls, no branches). LOW confidence on
 // semantic name: the shape is a fixed 5-word struct copy from a0 to a1 with fields 0/1 swapped and
 // three of the five words additionally overwritten in their LOW 16 bits by a value taken from a
@@ -324,7 +326,7 @@ static void func_80083DE0(Core* c) {
 // that family, but NOT confirmed against a caller this session (no direct caller found in
 // generated/shard_*.c; reached only via rec_dispatch, consistent with the free-roam dispatch count).
 // Guest ABI: a0=src (20 B), a1=dst (20 B); no return value read by any caller pattern seen.
-static void func_800847B0(Core* c) {
+static void vertexHeaderRepack(Core* c) {
   uint32_t src = c->r[4];
   uint32_t dst = c->r[5];
 
