@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 967 native fns, 817 owned addresses, 787 LIVE / 180 ORPHAN.
+Totals: 968 native fns, 818 owned addresses, 788 LIVE / 180 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -934,4 +934,5 @@ Totals: 967 native fns, 817 owned addresses, 787 LIVE / 180 ORPHAN.
 | 0x80146478 | LIVE | `OverlayGt3Gt4::submitBlock` | game/render/overlay_gt3gt4.cpp:113 |  |  |
 | 0x801465EC | LIVE | `OverlayGt3Gt4::gt3` | game/render/overlay_gt3gt4.cpp:159 |  | POLY_GT3 (gouraud-textured triangle) emit, GTE-driven, guest-writing. |
 | 0x801467BC | LIVE | `OverlayGt3Gt4::gt4` | game/render/overlay_gt3gt4.cpp:238 |  | POLY_GT4 (gouraud-textured quad) emit, GTE-driven, guest-writing. |
+| 0x8018C820 | LIVE | `SubstateEdgeLeaves::opnAssemblyHook` | game/ai/substate_edge_native.cpp:2077 | 0x80074590 0x80074AF0 0x801314B4 0x8013892C | FUN_0x8018C820 — the assembly's OPN-overlay hook, and the TWELFTH and … |
 | 0x801FE00C | LIVE | `Render::classifyScene` | game/render/render_walk.cpp:341 |  | --- pc_render scene DISPATCH (see render.h) --------------------------… |

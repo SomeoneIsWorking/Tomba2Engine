@@ -68,5 +68,8 @@ public:
   // FUN_0x80146348 — the assembly post-tick called after the sub-state work
   static void assemblyPostTick(Core* c);
 
+  // FUN_0x8018C820 — the OPN-overlay hook; the twelfth and last leaf of the kanban #8 chain.
+  static void opnAssemblyHook(Core* c);
+
   static void registerOverrides(Game* game);
 };

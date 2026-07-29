@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 51 verified · 7 partial · 6 untested · 7 n/a
+**Status:** 52 verified · 7 partial · 6 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -52,6 +52,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 20040
 - **gate:** port_check PASS + MIRROR_VERIFY OK + 0 sbs-div; combat 0-diff f5400 + watch-cut f20040
 - **evidence:** d4ace056
+
+## chain-opn-hook-18c820
+- **scope:** 0x8018C820 OPN-overlay assembly hook (12th chain leaf)
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical; ovhit native=31 oracle=31 balanced; port_check PASS. rec_dispatch-only interception is COMPLETE for this address, not partial — it has exactly one caller in the image and that caller uses rec_dispatch (verified by grep of generated/).
 
 ## chain-perchild-xform-12e8a8
 - **scope:** 0x8012E8A8 per-child transform propagate

@@ -2065,7 +2065,134 @@ void SubstateEdgeLeaves::assemblyPostTick(Core* c) {
     return;
 }
 
+// FUN_0x8018C820 — the assembly's OPN-overlay hook, and the TWELFTH and last leaf of the chain
+// kanban #8 names as its blocker.
+//
+// Lives in the OPN overlay, not A00, so it cannot use engine_set_override_a00. recomp_iface.h exposes
+// no OPN setter, but none is needed: the address has exactly ONE caller in the whole image and it is
+// `rec_dispatch(c, 0x8018C820u)` from the orchestrator itself (ov_a00_shard_0.c:16659), with no direct
+// ov_opn_func_8018C820(c) call site anywhere. So rec_dispatch-only interception (setter = nullptr) is
+// complete here rather than partial — verified by grep, not assumed because it was convenient.
+// ORACLE: ov_opn_gen_8018C820
+void SubstateEdgeLeaves::opnAssemblyHook(Core* c) {
+    c->r[29] = c->r[29] + (uint32_t)-40;
+    c->mem_w32((c->r[29] + (uint32_t)20), c->r[17]);
+    c->r[17] = c->r[4] + c->r[0];
+    c->mem_w32((c->r[29] + (uint32_t)32), c->r[31]);
+    c->mem_w32((c->r[29] + (uint32_t)28), c->r[19]);
+    c->mem_w32((c->r[29] + (uint32_t)24), c->r[18]);
+    c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
+    c->r[3] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)6));
+    c->r[19] = c->r[0] + (uint32_t)1;
+    { int _t = (c->r[3] == c->r[19]); c->r[2] = (uint32_t)((int32_t)c->r[3] < 2); if (_t) goto L_8018C8AC; }
+    { int _t = (c->r[2] == c->r[0]); c->r[18] = c->r[0] + (uint32_t)2; if (_t) goto L_8018C864; }
+    { int _t = (c->r[3] == c->r[0]); c->r[2] = (uint32_t)32780u << 16; if (_t) goto L_8018C87C; }
+     goto L_8018CA00;
+  L_8018C864:;
+    { int _t = (c->r[3] == c->r[18]); c->r[2] = c->r[0] + (uint32_t)3; if (_t) goto L_8018C8FC; }
+    { int _t = (c->r[3] == c->r[2]); c->r[2] = (uint32_t)32780u << 16; if (_t) goto L_8018C9CC; }
+     goto L_8018CA00;
+  L_8018C87C:;
+    c->r[2] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)-1555));
+    c->r[2] = (uint32_t)(c->r[2] < (uint32_t)70);
+    { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_8018CA00; }
+    c->r[3] = c->mem_r32((c->r[17] + (uint32_t)196));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)100));
+    c->mem_w16((c->r[3] + (uint32_t)8), (uint16_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)6));
+    c->r[2] = c->r[2] + (uint32_t)1; goto L_8018C95C;
+  L_8018C8AC:;
+    c->r[2] = (uint32_t)32780u << 16;
+    c->r[2] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)-1555));
+    c->r[2] = (uint32_t)(c->r[2] < (uint32_t)75);
+    { int _t = (c->r[2] != c->r[0]); c->r[5] = c->r[0] + c->r[0]; if (_t) goto L_8018CA00; }
+    c->r[4] = c->r[0] + (uint32_t)129;
+    c->r[6] = c->r[0] + (uint32_t)42;
+    c->r[31] = 0x8018C8D4u;
+    c->mem_w16((c->r[17] + (uint32_t)118), (uint16_t)c->r[19]); rec_dispatch(c, 0x80074590u);
+    c->r[3] = (uint32_t)32789u << 16;
+    c->mem_w32((c->r[3] + (uint32_t)-23952), c->r[2]);
+    c->r[3] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)6));
+    c->r[2] = c->r[0] + (uint32_t)256;
+    c->mem_w16((c->r[17] + (uint32_t)72), (uint16_t)c->r[2]);
+    c->mem_w16((c->r[17] + (uint32_t)78), (uint16_t)c->r[2]);
+    c->mem_w16((c->r[17] + (uint32_t)64), (uint16_t)c->r[0]);
+    c->r[3] = c->r[3] + (uint32_t)1;
+    c->mem_w8((c->r[17] + (uint32_t)6), (uint8_t)c->r[3]); goto L_8018CA00;
+  L_8018C8FC:;
+    c->r[3] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)72));
+    c->r[4] = c->mem_r32((c->r[17] + (uint32_t)196));
+    c->r[3] = c->r[3] << 16;
+    c->r[2] = (uint32_t)c->mem_r16((c->r[4] + (uint32_t)8));
+    c->r[3] = (uint32_t)((int32_t)c->r[3] >> 24);
+    c->r[2] = c->r[2] + c->r[3];
+    c->mem_w16((c->r[4] + (uint32_t)8), (uint16_t)c->r[2]);
+    c->r[4] = c->mem_r32((c->r[17] + (uint32_t)196));
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + (uint32_t)102));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)8));
+    c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[3]);
+    c->r[3] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)102));
+    { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_8018C99C; }
+    c->mem_w16((c->r[4] + (uint32_t)8), (uint16_t)c->r[3]);
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + (uint32_t)64));
+    { int _t = (c->r[2] == c->r[0]); c->r[16] = (uint32_t)32789u << 16; if (_t) goto L_8018C964; }
+    c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)6));
+    c->mem_w16((c->r[17] + (uint32_t)72), (uint16_t)c->r[0]);
+    c->mem_w16((c->r[17] + (uint32_t)78), (uint16_t)c->r[0]);
+    c->r[2] = c->r[2] + (uint32_t)1;
+  L_8018C95C:;
+    c->mem_w8((c->r[17] + (uint32_t)6), (uint8_t)c->r[2]); goto L_8018CA00;
+  L_8018C964:;
+    c->r[4] = c->mem_r32((c->r[16] + (uint32_t)-23952));
+    c->r[31] = 0x8018C970u;
+     rec_dispatch(c, 0x80074AF0u);
+    c->r[4] = c->r[0] + (uint32_t)130;
+    c->r[5] = c->r[0] + c->r[0];
+    c->r[6] = c->r[5] + c->r[0];
+    c->r[31] = 0x8018C984u;
+    c->mem_w32((c->r[16] + (uint32_t)-23952), c->r[0]); rec_dispatch(c, 0x80074590u);
+    c->r[2] = c->r[0] + (uint32_t)-2560;
+    c->mem_w16((c->r[17] + (uint32_t)72), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)512;
+    c->mem_w16((c->r[17] + (uint32_t)78), (uint16_t)c->r[2]);
+    c->mem_w16((c->r[17] + (uint32_t)118), (uint16_t)c->r[18]);
+    c->mem_w16((c->r[17] + (uint32_t)64), (uint16_t)c->r[19]);
+  L_8018C99C:;
+    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)72));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)78));
+    c->r[2] = c->r[2] + c->r[3];
+    c->mem_w16((c->r[17] + (uint32_t)72), (uint16_t)c->r[2]);
+    c->r[2] = c->r[2] << 16;
+    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
+    c->r[2] = (uint32_t)((int32_t)c->r[2] < 5633);
+    { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[0] + (uint32_t)5632; if (_t) goto L_8018CA00; }
+    c->mem_w16((c->r[17] + (uint32_t)72), (uint16_t)c->r[2]); goto L_8018CA00;
+  L_8018C9CC:;
+    c->r[2] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)-1892));
+    { int _t = (c->r[2] == c->r[18]); c->r[2] = c->r[0] + (uint32_t)240; if (_t) goto L_8018CA00; }
+    c->r[4] = c->r[17] + c->r[0];
+    c->r[3] = c->mem_r32((c->r[17] + (uint32_t)196));
+    c->mem_w16((c->r[17] + (uint32_t)118), (uint16_t)c->r[0]);
+    c->r[31] = 0x8018C9F0u;
+    c->mem_w16((c->r[3] + (uint32_t)8), (uint16_t)c->r[2]); rec_dispatch(c, 0x801314B4u);
+    c->r[31] = 0x8018C9F8u;
+    c->r[4] = c->r[17] + c->r[0]; rec_dispatch(c, 0x8013892Cu);
+    c->mem_w8((c->r[17] + (uint32_t)5), (uint8_t)c->r[0]);
+    c->mem_w8((c->r[17] + (uint32_t)6), (uint8_t)c->r[0]);
+  L_8018CA00:;
+    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)32));
+    c->r[19] = c->mem_r32((c->r[29] + (uint32_t)28));
+    c->r[18] = c->mem_r32((c->r[29] + (uint32_t)24));
+    c->r[17] = c->mem_r32((c->r[29] + (uint32_t)20));
+    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
+    c->r[29] = c->r[29] + (uint32_t)40; return;
+    return;
+}
+
 void SubstateEdgeLeaves::registerOverrides(Game*) {
+  { extern void ov_opn_gen_8018C820(Core*);
+    overrides::install(0x8018C820u, "SubstateEdgeLeaves::opnAssemblyHook",
+                       &SubstateEdgeLeaves::opnAssemblyHook, ov_opn_gen_8018C820, nullptr); }
   engine_set_override_a00(0x8012E8A8u, &SubstateEdgeLeaves::perChildTransformPropagate, ov_a00_gen_8012E8A8);
   engine_set_override_a00(0x8012ED84u, &SubstateEdgeLeaves::stateZeroInit, ov_a00_gen_8012ED84);
   engine_set_override_a00(0x8012F5B4u, &SubstateEdgeLeaves::substate1Tick, ov_a00_gen_8012F5B4);
