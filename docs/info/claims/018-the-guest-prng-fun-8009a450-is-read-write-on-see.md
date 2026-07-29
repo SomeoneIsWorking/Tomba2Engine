@@ -4,6 +4,7 @@ kind: claim
 status: holds
 created: 2026-07-29
 tags: render
+reconfirmed: 2026-07-29
 ---
 
 ## Claim
@@ -17,3 +18,7 @@ gen body of FUN_8009A450 reads mem_r32(0x80105EE8) and writes mem_w32(0x80105EE8
 ## What would falsify it
 
 a demonstration that the seed at 0x80105EE8 is never read back by guest logic that affects canon state, which would make advancing it non-observable; or a host-side mirror shown to reproduce the guest's sequence despite the substrate advancing the real seed in the same frame
+
+## Re-confirmed 2026-07-29
+
+Re-confirmed 2026-07-29 as a statement about the GUEST fn: gen_func_8009A450 reads mem_r32(0x80105EE8) and writes mem_w32(0x80105EE8), so a read-only producer still may not call it. What changed is that it is no longer a BLOCKER — Render::mRngMirror (game/render/guest_rng_mirror.h, commit 7d131b8) is a sanctioned read-only stand-in, so producers needing a jitter have a route that writes nothing.
