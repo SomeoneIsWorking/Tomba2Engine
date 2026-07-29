@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 33 verified · 6 partial · 1 untested · 7 n/a
+**Status:** 37 verified · 6 partial · 1 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -188,6 +188,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **evidence:** 50/50 A/B-identical checkpoints, zero divergence, with the address executing 20269 times on the native leg. ovhit reports native=20269 oracle=26738; the 6469 gap is calls from already-native callers reaching Mtx::identity directly rather than through the guest fn, NOT a divergence (see the banner in mtx.cpp).
 - **owner:** game/math/mtx.cpp Mtx::identity + Mtx::registerOverrides
 
+## objlist-walk2-case0-3bdac
+- **scope:** 0x8003BDAC objListWalk2 jump-table case 0/15 trampoline
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
+- **evidence:** Batch gate: 50/50 A/B-identical checkpoints, zero divergence; ovhit native=9060 oracle=9060 (balanced).
+
 ## overlay-gt3gt4-submitblock
 - **scope:** A00 field submit-block dispatcher FUN_80146478
 - **status:** verified
@@ -225,6 +232,27 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 41280
 - **gate:** PSXPORT_SBS_MODE=full PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 ./scratch/bin/tomba2_port
 - **evidence:** 7cb7bee
+
+## substate-arm-child-pair-131134
+- **scope:** 0x80131134 pending child-pair arm
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
+- **evidence:** Batch gate: 50/50 A/B-identical checkpoints, zero divergence; ovhit native=16728 oracle=16728 (balanced).
+
+## substate-tick-child-osc-1316cc
+- **scope:** 0x801316CC child-oscillator driver loop
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
+- **evidence:** Batch gate: 50/50 A/B-identical checkpoints, zero divergence; ovhit native=16728 oracle=16728 (balanced).
+
+## substate-visibility-gate-130ac4
+- **scope:** 0x80130AC4 multi-point visibility gate
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
+- **evidence:** Batch gate: 50/50 A/B-identical checkpoints, zero divergence; ovhit native=16728 oracle=16728 (balanced).
 
 ## TileGridLayer scrollStep+emit (0x8011534C/0x80115598)
 - **status:** verified

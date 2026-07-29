@@ -69,6 +69,9 @@ void shard_set_override(uint32_t addr, OverrideFn fn);   // generated/shard_disp
 extern void gen_func_8003BB50(Core*);
 extern void gen_func_8003BCF4(Core*);
 extern void gen_func_8003BED8(Core*);
+extern void gen_func_8003BDAC(Core*);
+extern void func_8003CCA4(Core*);   // perObjRenderDispatch's generated wrapper
+extern void func_8003BED8(Core*);   // objListWalk2Continue's generated wrapper
 extern void gen_func_8003BF00(Core*);
 extern void gen_func_8003EEC0(Core*);
 
@@ -421,6 +424,23 @@ void ov_objListWalk2(Core* c)         { rend(c)->objListWalk2(); }
 void ov_objListWalk2Continue(Core* c) { rend(c)->objListWalk2Continue(); }
 void ov_objListWalk3(Core* c)         { rend(c)->objListWalk3(); }
 void ov_objListWalk4(Core* c)         { rend(c)->objListWalk4(); }
+
+// 0x8003BDAC — jump-table case 0/15 of the object-type table at 0x80014CB0. NOT A FUNCTION: four
+// instructions that run INSIDE objListWalk2's 40-byte frame, pushed by objListWalk2 and popped by
+// objListWalk2Continue. It therefore touches neither sp nor any frame — wrapping it in one would
+// shift every downstream callee's sp-relative scratch. 11,435 substrate dispatches per 6000 frames.
+//
+// The ra constant is load-bearing and unconditional: entry r31 is NOT live-in here. It is the
+// caller-of-objListWalk2's ra only on the FIRST type-0/15 object of a walk; thereafter it holds
+// 0x8003BDB4 restored by perObjRenderDispatch's own epilogue, or whatever a preceding sibling case
+// left. So it is written every time rather than relied upon — a point established by the adversarial
+// verify pass over the RE spec, which had claimed entry r31 was the caller's ra.
+// ORACLE: gen_func_8003BDAC
+void ov_objListWalk2Case0(Core* c) {
+    c->r[31] = 0x8003BDB4u;
+    c->r[4] = c->r[16] + c->r[0]; func_8003CCA4(c);
+     func_8003BED8(c); return;
+}
 }
 
 // ORACLE-PURITY: installed via engine_set_override_main (never the raw shard_set_override), so SBS
@@ -436,4 +456,5 @@ void objlist_walk_install() {
   engine_set_override_main(0x8003BED8u, ov_objListWalk2Continue, gen_func_8003BED8);
   engine_set_override_main(0x8003BF00u, ov_objListWalk3, gen_func_8003BF00);
   engine_set_override_main(0x8003EEC0u, ov_objListWalk4, gen_func_8003EEC0);
+  engine_set_override_main(0x8003BDACu, ov_objListWalk2Case0, gen_func_8003BDAC);
 }

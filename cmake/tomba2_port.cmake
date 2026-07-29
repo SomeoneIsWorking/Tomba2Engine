@@ -72,6 +72,7 @@ set(GAME_SRC
   game/ai/beh_typed_init_scene_trigger.cpp
   game/ai/beh_pickup_collect_trigger.cpp
   game/ai/beh_substate_edge_orchestrator.cpp
+  game/ai/substate_edge_native.cpp
   game/ai/beh_jumptable_release_trigger.cpp
   game/ai/release_trigger_motion.cpp
   game/ai/beh_typed_table_seed_gate.cpp

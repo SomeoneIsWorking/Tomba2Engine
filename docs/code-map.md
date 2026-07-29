@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 951 native fns, 802 owned addresses, 763 LIVE / 188 ORPHAN.
+Totals: 955 native fns, 806 owned addresses, 767 LIVE / 188 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -102,10 +102,11 @@ Totals: 951 native fns, 802 owned addresses, 763 LIVE / 188 ORPHAN.
 | 0x8003B220 | ORPHAN | `hitbox_build_3b220` | game/player/hitbox.cpp:51 |  | Pure native body. Mirrors the recomp's exact in-memory load/store orde… |
 | 0x8003B320 | LIVE | `QuadRtptSubmit::submitQuad` | game/render/quad_rtpt_submit.cpp:129 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x8003B588 | ORPHAN | `leaf_8003B588` | game/core/field_owned_leaves.cpp:2024 |  |  |
-| 0x8003BB50 | LIVE | `Render::objListWalk1` | game/render/objlist_walk.cpp:115 | 0x80122974 | ======================================================================… |
-| 0x8003BCF4 | LIVE | `Render::objListWalk2` | game/render/objlist_walk.cpp:218 |  | ======================================================================… |
-| 0x8003BED8 | LIVE | `Render::objListWalk2Continue` | game/render/objlist_walk.cpp:266 |  | (Render::objListWalk2Continue) — the walk's shared "process the rest o… |
-| 0x8003BF00 | LIVE | `Render::objListWalk3` | game/render/objlist_walk.cpp:291 | 0x8010FC70 | ======================================================================… |
+| 0x8003BB50 | LIVE | `Render::objListWalk1` | game/render/objlist_walk.cpp:118 | 0x80122974 | ======================================================================… |
+| 0x8003BCF4 | LIVE | `Render::objListWalk2` | game/render/objlist_walk.cpp:221 |  | ======================================================================… |
+| 0x8003BDAC | LIVE | `ov_objListWalk2Case0` | game/render/objlist_walk.cpp:439 |  | jump-table case 0/15 of the object-type table at 0x80014CB0. NOT A FUN… |
+| 0x8003BED8 | LIVE | `Render::objListWalk2Continue` | game/render/objlist_walk.cpp:269 |  | (Render::objListWalk2Continue) — the walk's shared "process the rest o… |
+| 0x8003BF00 | LIVE | `Render::objListWalk3` | game/render/objlist_walk.cpp:294 | 0x8010FC70 | ======================================================================… |
 | 0x8003C048 | LIVE | `Render::renderWalk` | game/render/render_walk_dispatch.cpp:154 | 0x80129114 0x801295B4 0x8012A43C 0x8013DD58 |  |
 | 0x8003C2D4 | LIVE | `Render::billboardCompose1` | game/render/perobj_billboard.cpp:292 |  |  |
 | 0x8003C464 | LIVE | `Render::billboardCompose2` | game/render/perobj_billboard.cpp:327 |  |  |
@@ -124,7 +125,7 @@ Totals: 951 native fns, 802 owned addresses, 763 LIVE / 188 ORPHAN.
 | 0x8003E894 | ORPHAN | `leaf_8003E894` | game/core/field_owned_leaves.cpp:2630 |  |  |
 | 0x8003EA88 | ORPHAN | `leaf_8003EA88` | game/core/field_owned_leaves.cpp:2758 |  |  |
 | 0x8003EBE0 | ORPHAN | `leaf_8003EBE0` | game/core/field_owned_leaves.cpp:2845 |  |  |
-| 0x8003EEC0 | LIVE | `Render::objListWalk4` | game/render/objlist_walk.cpp:355 |  | ======================================================================… |
+| 0x8003EEC0 | LIVE | `Render::objListWalk4` | game/render/objlist_walk.cpp:358 |  | ======================================================================… |
 | 0x8003EF9C | LIVE | `Render::composeTintGate` | game/render/compose_tint_gate.cpp:49 |  | ORACLE: gen_func_8003EF9C |
 | 0x8003F024 | ORPHAN | `leaf_8003F024` | game/core/field_owned_leaves.cpp:3023 |  |  |
 | 0x8003F07C | LIVE | `Render::sharedTransformWalk` | game/render/subpart_walk_shared.cpp:39 |  | ORACLE: gen_func_8003F07C |
@@ -847,6 +848,9 @@ Totals: 951 native fns, 802 owned addresses, 763 LIVE / 188 ORPHAN.
 | 0x8012EB54 | LIVE | `beh_substate_edge_orchestrator` | game/ai/beh_substate_edge_orchestrator.cpp:47 | 0x8012E8A8 0x8012ED84 0x8012F494 0x8012F5B4 0x8012FD88 0x80130524 … |  |
 | 0x8012F494 | ORPHAN | `func_8012F494` | game/ai/beh_substate_edge_leaves.cpp:182 | 0x80130788 0x801308E0 0x801314B4 | func_8012F494 — DRAFT. RE'd from generated/ov_a00_shard_0.c gen_8012F4… |
 | 0x80130524 | ORPHAN | `func_80130524` | game/ai/beh_substate_edge_leaves.cpp:256 | 0x80077768 0x801308E0 | func_80130524 — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_801305… |
+| 0x80130AC4 | LIVE | `SubstateEdgeLeaves::visibilityGate` | game/ai/substate_edge_native.cpp:20 | 0x80077A4C | ORACLE: ov_a00_gen_80130AC4 |
+| 0x80131134 | LIVE | `SubstateEdgeLeaves::armPendingChildPair` | game/ai/substate_edge_native.cpp:211 |  | ORACLE: ov_a00_gen_80131134 |
+| 0x801316CC | LIVE | `SubstateEdgeLeaves::tickChildOscillators` | game/ai/substate_edge_native.cpp:172 |  | ORACLE: ov_a00_gen_801316CC |
 | 0x80131D08 | LIVE | `beh_two_child_steer` | game/ai/beh_two_child_steer.cpp:48 |  |  |
 | 0x80132400 | LIVE | `beh_single_child_cull` | game/ai/beh_single_child_cull.cpp:44 |  |  |
 | 0x8013259C | LIVE | `beh_cull_substate_orchestrator` | game/ai/beh_cull_substate_orchestrator.cpp:52 | 0x8013272C 0x80132954 0x80132A88 0x80132D58 0x80132EDC 0x80133184 … |  |

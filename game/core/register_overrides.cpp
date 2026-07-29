@@ -18,6 +18,7 @@
 #include "game.h"
 #include "engine.h"
 #include "mtx.h"                   // class Mtx — libgte matrix leaves (MR_init identity, 0x80051794)
+#include "substate_edge_native.h"   // class SubstateEdgeLeaves — A00 orchestrator leaves (0x80130AC4/801316CC/80131134)
 #include "collision_resolve.h"      // class CollisionResolve — actor-vs-object cylinder resolve (0x80023D48)
 #include "libapi_intr.h"           // class LibapiIntr — kernel interrupt-mask primitives (0x80085C9C)
 #include "gte_transform3.h"        // class GteTransform3 — GTE 3-vertex rotate+pack (0x80084250)
@@ -115,6 +116,7 @@ void register_engine_overrides(Game* game) {
   RegisterEngineAnimLeafOverrides(game);             // Engine::animTick/walkStart fallthrough native-ize (0x8004190C/80054D14)
   Trig::registerOverrides(game);                     // Trig::rsin/ratan2/angleCmp fallthrough native-ize (0x80083E80/80085690/80077768)
   Mtx::registerOverrides(game);                      // MR_init identity-matrix leaf (0x80051794) — native existed since long before it was wired
+  SubstateEdgeLeaves::registerOverrides(game);        // A00 substate-edge orchestrator leaves (45,900 dispatches/6000 frames)
   CollisionResolve::registerOverrides(game);      // actor-vs-object cylinder collision resolve (0x80023D48)
   LibapiIntr::registerOverrides(game);               // libapi SetIntrMask (0x80085C9C) — I_MASK swap through libapi's hw-pointer table
   GteTransform3::registerOverrides(game);            // GTE 3-vertex rotate+pack (0x80084250) — wide-RE draft, re-verified before wiring
