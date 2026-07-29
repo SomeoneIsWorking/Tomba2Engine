@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 950 native fns, 801 owned addresses, 762 LIVE / 188 ORPHAN.
+Totals: 951 native fns, 802 owned addresses, 763 LIVE / 188 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -30,7 +30,8 @@ Totals: 950 native fns, 801 owned addresses, 762 LIVE / 188 ORPHAN.
 | 0x80022D08 | ORPHAN | `leaf_80022D08` | game/core/field_owned_leaves.cpp:11092 |  |  |
 | 0x80023528 | ORPHAN | `leaf_80023528` | game/core/field_owned_leaves.cpp:399 |  |  |
 | 0x800235A0 | LIVE | `ActorTomba::type7Interact` | game/player/actor_tomba.cpp:711 |  | postInteractWalk case 7. |
-| 0x80023D48 | LIVE | `CollisionResolve::cylinderResolve` | game/world/collision_resolve.cpp:18 |  |  |
+| 0x80023D48 | LIVE | `CollisionResolve::cylinderResolve` | game/world/collision_resolve.cpp:64 |  | ORACLE: gen_func_80023D48 |
+| 0x8002423C | LIVE | `CollisionResolve::landOnObjectTop` | game/world/collision_resolve.cpp:323 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80024794 | LIVE | `interact_scan` | game/player/interact_scan.cpp:69 |  | (player) -> 1 if something was activated this call, else 0. |
 | 0x800248D0 | ORPHAN | `leaf_800248D0` | game/core/field_owned_leaves.cpp:410 |  |  |
 | 0x80024F18 | ORPHAN | `leaf_80024F18` | game/core/field_owned_leaves.cpp:538 |  |  |
@@ -842,10 +843,10 @@ Totals: 950 native fns, 801 owned addresses, 762 LIVE / 188 ORPHAN.
 | 0x8012D9E8 | LIVE | `Render::fxRotSpriteTailRender` | game/render/fx_sprite.cpp:573 |  | 's SPRITE TAIL. This controller is two emitters in one function: a lar… |
 | 0x8012DA04 | LIVE | `beh_typed_anim_spawn` | game/ai/beh_typed_anim_spawn.cpp:45 |  |  |
 | 0x8012E868 | LIVE | `Render::fxAltAnimSpriteRender` | game/render/fx_sprite.cpp:532 |  | (A01 overlay) — the animation-script member of the family. Same shape … |
-| 0x8012E8A8 | ORPHAN | `func_8012E8A8` | game/ai/beh_substate_edge_leaves.cpp:79 | 0x80084A80 | func_8012E8A8 — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_8012E8… |
+| 0x8012E8A8 | ORPHAN | `func_8012E8A8` | game/ai/beh_substate_edge_leaves.cpp:101 | 0x80084A80 | func_8012E8A8 — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_8012E8… |
 | 0x8012EB54 | LIVE | `beh_substate_edge_orchestrator` | game/ai/beh_substate_edge_orchestrator.cpp:47 | 0x8012E8A8 0x8012ED84 0x8012F494 0x8012F5B4 0x8012FD88 0x80130524 … |  |
-| 0x8012F494 | ORPHAN | `func_8012F494` | game/ai/beh_substate_edge_leaves.cpp:160 | 0x80130788 0x801308E0 0x801314B4 | func_8012F494 — DRAFT. RE'd from generated/ov_a00_shard_0.c gen_8012F4… |
-| 0x80130524 | ORPHAN | `func_80130524` | game/ai/beh_substate_edge_leaves.cpp:234 | 0x80077768 0x801308E0 | func_80130524 — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_801305… |
+| 0x8012F494 | ORPHAN | `func_8012F494` | game/ai/beh_substate_edge_leaves.cpp:182 | 0x80130788 0x801308E0 0x801314B4 | func_8012F494 — DRAFT. RE'd from generated/ov_a00_shard_0.c gen_8012F4… |
+| 0x80130524 | ORPHAN | `func_80130524` | game/ai/beh_substate_edge_leaves.cpp:256 | 0x80077768 0x801308E0 | func_80130524 — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_801305… |
 | 0x80131D08 | LIVE | `beh_two_child_steer` | game/ai/beh_two_child_steer.cpp:48 |  |  |
 | 0x80132400 | LIVE | `beh_single_child_cull` | game/ai/beh_single_child_cull.cpp:44 |  |  |
 | 0x8013259C | LIVE | `beh_cull_substate_orchestrator` | game/ai/beh_cull_substate_orchestrator.cpp:52 | 0x8013272C 0x80132954 0x80132A88 0x80132D58 0x80132EDC 0x80133184 … |  |

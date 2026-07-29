@@ -21,6 +21,12 @@ public:
   // write.
   static void cylinderResolve(Core* c);
 
+  // FUN_8002423C(actor = a0, other = a1) -> v0: 2 = landed (actor Y snapped onto the object's rest
+  // height, landed flag at +0x29 set), -1 = rejected by any of the three gates. v0 IS LIVE — overlay
+  // a06 tests it against 2 and zeroes a node-scan counter on a hit, so it drives guest writes, not
+  // just a register compare. See the implementation banner.
+  static void landOnObjectTop(Core* c);
+
   // WHY THIS CANNOT CALL THE Trig METHODS DIRECTLY, even though all five of its callees are owned
   // natively (Math::sqrtLzc, Trig::rcos/rsin/ratan2/angleCmp): Trig::registerOverrides is
   // deliberately an EMPTY body because those substrate bodies descend guest stack frames the native

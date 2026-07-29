@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 32 verified · 6 partial · 1 untested · 7 n/a
+**Status:** 33 verified · 6 partial · 1 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -52,6 +52,14 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 20040
 - **gate:** port_check PASS + MIRROR_VERIFY OK + 0 sbs-div; combat 0-diff f5400 + watch-cut f20040
 - **evidence:** d4ace056
+
+## collision-landing-2423c
+- **scope:** actor-vs-object vertical landing snap FUN_8002423C
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
+- **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit native=1949 oracle=1949 (balanced). port_check PASS on both methods in the file.
+- **owner:** game/world/collision_resolve.cpp CollisionResolve::landOnObjectTop
 
 ## collision-resolve-23d48
 - **scope:** actor-vs-object cylinder collision resolve FUN_80023D48
