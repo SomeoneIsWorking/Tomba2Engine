@@ -7,6 +7,28 @@
 // generated C before registering + SBS-gating. Nothing here is called from anywhere (not installed
 // in the override registry, no shard_set_override) — dead code that only needs to COMPILE.
 //
+// ══ KNOWN DEFECT, ALL FOUR DRAFTS: THE GUEST STACK SPILLS ARE MISSING (found 2026-07-29) ══
+//
+// Every draft here descends sp (`c->r[29] -= N`) and then writes NOT ONE of its callee-saved spills
+// into guest memory. There is not a single `mem_w32(c->r[29] + …)` in this file. They stash the
+// registers in C locals instead and restore them from there. What the guest bodies actually do,
+// per `abi_extract.py <addr> --contract`:
+//
+//     0x8012E8A8  frame 48   8 spills  (r16-r22, ra @ +16..+44)
+//     0x8012F494  frame 24   2 spills  (r16 @ +16, ra @ +20)
+//     0x80130524  frame 24   2 spills  (r16 @ +16, ra @ +20)
+//     0x8012ED84  frame 56  10 spills  (r16-r23, r30, ra @ +16..+52)
+//
+// That is 22 guest stack writes these drafts omit. Wiring any of them as-is is a GUARANTEED SBS
+// divergence: the native leg leaves those bytes stale while the substrate leg writes them, and the
+// byte-compare covers the stack. This is the "MIRROR THE GUEST STACK" rule in CLAUDE.md — descending
+// sp without reproducing the spills is the exact failure it names, and a C local is not a mirror.
+//
+// It is LATENT, not live: all four are unwired, so nothing is broken today. Fixing it is part of the
+// wiring pass, not a separate job — and the cheap fix is to REGENERATE each body with
+// `tools/port_gen.py`, which emits the prologue verbatim and cannot omit a spill by construction.
+// Hand-transliteration is precisely where this class of error is introduced.
+//
 // Drafted 2026-07-08: 0x8012E8A8 (162 gen-C ln), 0x8012F494 (64 ln), 0x80130524 (133 ln).
 // Drafted 2026-07-10 (dedicated wide-RE pass, near-mechanical goto-preserving transliteration —
 // same style as game/ai/beh_cull_substate_leaves.cpp's 0x80132A88/0x80132EDC, chosen specifically

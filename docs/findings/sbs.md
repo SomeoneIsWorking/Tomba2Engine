@@ -2097,3 +2097,31 @@ of a mystery: add routes to `replays/gate/` that reach new areas and watch it cl
 
 **refs:** replays/gate/README.md + seaside-sweep.sbskeys; PSXPORT_SBS_KEYS (64 KB buffer),
 PSXPORT_SBS_EXIT_FRAME, PSXPORT_SBS_SHOT in config.md.
+
+## Four banked drafts descend sp and write NONE of their guest stack spills (latent, found 2026-07-29)
+- **symptom:** would appear, if any of them were wired, as an SBS divergence in guest STACK memory
+  just below the function's entry sp — the native leg leaving stale bytes where the substrate leg
+  writes callee-saved registers. Not observable today: all four are unwired.
+- **status:** CONFIRMED for `game/ai/beh_substate_edge_leaves.cpp` (all four drafts). Documented in
+  that file's banner; not fixed, because the fix belongs to the wiring pass.
+- **cause:** hand-transliteration. Each draft reproduces `c->r[29] -= N` and `+= N` but stashes the
+  callee-saved registers in C++ locals instead of writing them to the guest stack. Per
+  `abi_extract.py <addr> --contract`: 0x8012E8A8 frame 48 / 8 spills, 0x8012F494 frame 24 / 2,
+  0x80130524 frame 24 / 2, 0x8012ED84 frame 56 / 10. That is 22 guest stack writes omitted. A C
+  local is not a mirror — this is the "MIRROR THE GUEST STACK" rule in CLAUDE.md, and descending sp
+  without reproducing the spills is exactly the failure it names.
+- **fix:** regenerate each body with `tools/port_gen.py` at wiring time. It emits the prologue
+  verbatim and cannot omit a spill by construction; hand-transliteration is where this is introduced.
+- **DO NOT REUSE THE GREP THAT FOUND IT — it does not generalise.** "descends sp but has no
+  `mem_w32(c->r[29]…)`" flags 8 further files and is WRONG about them, for two independent reasons:
+  (1) a correct port may spill through a local (`const uint32_t sp = c->r[29]; c->mem_w32(sp+16, …)`,
+  e.g. `game/camera/cutscene_camera.cpp:939`) or through the `GuestFrame` RAII helper in
+  `runtime/recomp/guest_abi.h`, neither of which the pattern sees; and (2) more fundamentally,
+  DESCENDING sp DOES NOT IMPLY THERE ARE SPILLS TO WRITE. A function may descend sp purely to make
+  room for its callees' frames and have zero callee-saved spills of its own —
+  `game/ai/beh_pickup_collect_trigger.cpp:170` does precisely that, and CLAUDE.md cites it as a
+  REFERENCE for correct guest-stack handling. `game/render/subpart_walk.cpp` likewise deliberately
+  keeps its loop state in the guest registers (see its LIVE-REGISTER LAW banner and kanban #61).
+  The only sound test is per-address: does `abi_extract --contract` report prologue spills, and does
+  the native write each one? That is what was actually done for the four confirmed above.
+- **refs:** game/ai/beh_substate_edge_leaves.cpp banner, tools/port_gen.py, docs/port-framework.md
