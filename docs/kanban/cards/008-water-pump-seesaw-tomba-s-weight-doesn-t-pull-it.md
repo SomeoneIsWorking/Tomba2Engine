@@ -4,7 +4,7 @@ title: Water-pump seesaw: Tomba's weight doesn't pull it down when grabbed while
 status: done
 labels: [bug, pc-skip]
 created: 2026-07-21
-updated: 2026-07-22
+updated: 2026-07-29
 ---
 
 **2026-07-21:** Repro captured LIVE via the new dbg-server 'padrec save': replays/bugs/seesaw-weight.pad (6668 frames, from boot, NO memory-card load - user confirmed - so it is self-contained). Live probe while the user held the seesaw grabbed: an 'ents' diff over 4s shows NOTHING on either pump assembly moving (only Tomba's idle jitter at 800EE0D0 and one unrelated mover at 800FD118). Beam is genuinely static, matching the report.
@@ -46,3 +46,5 @@ updated: 2026-07-22
 **2026-07-22:** RE-DERIVED from a VERIFIED grab dump (scratch/bin/grab_prefix_6600.bin, asserted G+0x158=0x800FB960 before use). The substantive facts HOLD: beam 800FB960 while genuinely held has +0x2b=0, +0x29=0, +0x48=0, +0x4e=0, node[5]=0, tilt=0xF47 pinned at its clamp. Beam IS in the class-4 list (index 3 of 8, not 5 of 11 as the contaminated read said) - queueing confirmed correct. EVERY entry in that list has +0x2b=0, so nothing in the scene is stamped, not just the beam. Stamper outer-list head/tail both 0, consistent with the pool-init reading. Only incidental numbers changed; no conclusion reversed.
 
 **2026-07-22:** ✅ USER CONFIRMED FIXED (2026-07-22): 'It's already working now' - the seesaw sinks under Tomba's weight again. The signed-16-bit read of the ride/attach pointer G+0x158 (mem_r16s instead of the guest's 32-bit unsigned lw+sltiu) was the whole bug: attached, (int16)0x800FB960 = -18080 < 2 is TRUE so FUN_8011334C fired exactly where the guest suppresses it; unattached both agree, which is why it was invisible until something was grabbed. NOTE the +0x2b/contact-stamp thread was a NON-PROBLEM - +0x2b is never stamped non-zero and that is normal; do not resume it.
+
+**2026-07-29:** 2026-07-29: FOUR of the twelve still-PSX leaves this card names as the blocker are now natively owned and SBS-gated: 0x8012F494 (substate0Tick), 0x80130AC4 (visibilityGate), 0x80131134 (armPendingChildPair), 0x801316CC (tickChildOscillators) — game/ai/substate_edge_native.cpp, port_gen bodies, 50/50 A/B-identical with balanced ovhit. Three REPLACED hand drafts that were defective (8, 5 and 6 defects respectively). EIGHT REMAIN: 0x8012E8A8, 0x8012ED84, 0x8012F5B4, 0x8012FD88, 0x80130524, 0x801313C4, 0x80146348, 0x8018C820. Honest note on method: these were selected off a dispatch histogram WITHOUT knowing they were this chain; the connection was made afterwards by running ents at pad frame 6424 and matching node positions (800FB858 x=5562, 800FB960 x=6678, both cmds=12) to this card's own pump coordinates. Orientation recorded in docs/findings/ai.md.

@@ -1,6 +1,25 @@
 // game/ai/substate_edge_native.h — natively-owned LEAVES of beh_substate_edge_orchestrator
 // (guest FUN_8012EB54, A00 overlay).
 //
+// WHAT THIS CLASS ANIMATES, because "substate edge orchestrator" says nothing: 0x8012EB54 is the
+// MULTI-PART ASSEMBLY driver, and its most visible instances are the two SEASIDE WATER PUMPS — a long
+// diagonal beam with a curved arm, a hanging bucket and a counterweight. Established by observation,
+// not inference: `ents` at pad frame 6424 of replays/bugs/seesaw-weight.pad shows nodes 800FB858 and
+// 800FB960 at x=5562 and x=6678 with cmds=12, matching kanban #8's independently-derived pump
+// positions, and 800FB960 is the node Tomba's attach pointer targets when he hangs on it. Four more
+// instances live elsewhere in the area with cmds=3/7 (simpler assemblies of the same class).
+// See docs/findings/ai.md and scratch/screenshots/pump_state.png.
+//
+// `cmds` is the sub-part count and the leaves below are per-frame logic over the child-record table
+// at node+0xC0. Knowing that explains shapes that look arbitrary in the gen body — visibilityGate
+// samples up to THREE offset points before culling because a beam spanning thousands of world units
+// cannot be culled from one.
+//
+// THIS CHAIN IS KANBAN #8's BLOCKER. Card #8 (water-pump seesaw does not sink under Tomba's weight)
+// says do not debug the divergence until the orchestrator's 12 leaves are owned end-to-end. Four are
+// (0x8012F494/0x80130AC4/0x80131134/0x801316CC); eight remain: 0x8012E8A8, 0x8012ED84, 0x8012F5B4,
+// 0x8012FD88, 0x80130524, 0x801313C4, 0x80146348, 0x8018C820.
+//
 // These are the orchestrator's per-frame tail and gate calls. Between them they accounted for 45,900
 // substrate dispatches per 6000 frames of replays/bugs/seesaw-weight.pad — three of the top entries
 // on the recdep histogram, all with identical counts because the orchestrator calls each exactly

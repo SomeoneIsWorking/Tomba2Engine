@@ -570,3 +570,35 @@ does not reproduce it" as evidence about the bug.
   so the remaining difference is in a native that is not registry-dispatched (an inline `eng(c).*`
   call) or in the record-allocating callee's arguments. NOT yet root-caused. Note the same replay is
   kanban #47's state-corruption repro, so these may be the same defect seen from the other end.
+
+## beh_substate_edge_orchestrator (0x8012EB54) IS the water-pump / multi-part ASSEMBLY class
+- **symptom:** none — this is orientation, recorded because four of its leaves were ported on
+  2026-07-29 by picking addresses off a dispatch histogram, with no idea what object they animate.
+- **status:** ESTABLISHED by observation, not inference. `ents` at pad frame 6424 of
+  replays/bugs/seesaw-weight.pad lists six live nodes with h=8012EB54:
+  `800FB858 pos=(5562,-460,4732) cmds=12 rf=1` · `800FB960 pos=(6678,-415,4711) cmds=12 rf=1` ·
+  `800FBA68 (7510,-687,6155) cmds=7` · `800FBB70/800FBC78/800FBD80 (~15400,-1378..-2784,~7884-8888)
+  cmds=3/3/7, all three sharing gb0=801CA104`.
+  The first two match kanban #8's independently-derived pump positions (left x~5.4-5.9k, right
+  x~6.7-7.1k) and 800FB960 is the node card #8 proved Tomba's attach pointer (G+0x158) targets.
+  scratch/screenshots/pump_state.png shows them: each is a long diagonal BEAM with a curved arm, a
+  hanging BUCKET and a counterweight — a well/pump apparatus, with Tomba hanging on one.
+- **what this means for the port:** the class is a MULTI-PART ASSEMBLY driver. `cmds` is the sub-part
+  count (12 for a pump, 3 and 7 for simpler instances), and the leaves are its per-frame sub-part
+  logic over the child-record table at node+0xC0. That explains shapes that looked arbitrary from the
+  gen body alone — e.g. 0x80130AC4 samples the node at up to THREE offset points before asking the
+  camera cull whether it is on screen, which is what a beam spanning several thousand world units
+  needs and what a single-point cull would get wrong.
+- **NOT established, do not repeat as fact:** which sub-part the 0x80130D5C oscillator
+  (accumulator@child+12, target@+16, step@+20, dwell@+56, state@+62) actually drives. Beam tilt and
+  bucket swing are both plausible from the geometry; nothing observed distinguishes them, and card #8
+  records the beam as STATIC in this state, so the oscillator ticking (16,728 calls/6000 frames) does
+  not by itself prove it moves the beam.
+- **CONSEQUENCE FOR TARGET SELECTION:** card #8 says do not debug the seesaw divergence until this
+  chain is owned end-to-end, and lists 12 still-PSX leaves. Four are now owned (0x8012F494,
+  0x80130AC4, 0x80131134, 0x801316CC — all 2026-07-29). EIGHT REMAIN: 0x8012E8A8, 0x8012ED84,
+  0x8012F5B4, 0x8012FD88, 0x80130524, 0x801313C4, 0x80146348, 0x8018C820. Those are a better next
+  batch than the next histogram entry, because finishing them unblocks a tracked USER-REPORTED bug
+  rather than only lowering a dispatch count.
+- **refs:** docs/kanban/cards/008-*, game/ai/substate_edge_native.{h,cpp},
+  game/ai/beh_substate_edge_orchestrator.cpp, scratch/screenshots/pump_state.png
