@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 24 verified · 6 partial · 1 untested · 7 n/a
+**Status:** 25 verified · 6 partial · 1 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -115,6 +115,14 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 450
 - **gate:** PSXPORT_SBS_MODE=full PSXPORT_VK_HEADLESS=1 PSXPORT_AUTO_SKIP=1 ./scratch/bin/tomba2_port
 - **evidence:** 58fc5f76
+
+## mtx-identity-51794
+- **scope:** MR_init identity-matrix leaf FUN_80051794, registry-wired
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
+- **evidence:** 50/50 A/B-identical checkpoints, zero divergence, with the address executing 20269 times on the native leg. ovhit reports native=20269 oracle=26738; the 6469 gap is calls from already-native callers reaching Mtx::identity directly rather than through the guest fn, NOT a divergence (see the banner in mtx.cpp).
+- **owner:** game/math/mtx.cpp Mtx::identity + Mtx::registerOverrides
 
 ## overlay-gt3gt4-submitblock
 - **scope:** A00 field submit-block dispatcher FUN_80146478

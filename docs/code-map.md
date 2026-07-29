@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 944 native fns, 797 owned addresses, 755 LIVE / 189 ORPHAN.
+Totals: 945 native fns, 797 owned addresses, 756 LIVE / 189 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -310,7 +310,8 @@ Totals: 944 native fns, 797 owned addresses, 755 LIVE / 189 ORPHAN.
 | 0x80051300 | LIVE | `NodeXform::propagateRotmat` | game/render/node_xform.cpp:290 |  | per-object CHILD-NODE TRANSFORM loop, rotmat-single-call variant. RE'd… |
 | 0x80051464 | LIVE | `NodeXform::propagateAxis` | game/render/node_xform.cpp:321 |  | sibling of propagateRotmat(): identical control flow, but the child's … |
 | 0x80051614 | LIVE | `NodeXform::buildFromChild` | game/render/node_xform.cpp:414 |  | RE'd from generated/shard_3.c gen_func_80051614 (ground truth; Ghidra'… |
-| 0x80051794 | LIVE | `Mtx::identity` | game/math/mtx.cpp:4 |  |  |
+| 0x80051794 | LIVE | `Mtx::identity` | game/math/mtx.cpp:7 |  |  |
+| 0x80051794 | LIVE | `Mtx::registerOverrides` | game/math/mtx.cpp:48 |  |  |
 | 0x800517BC | LIVE | `NodeXform::seedBlock` | game/render/node_xform.cpp:268 |  | trivial 8-word block seeder: {x,0,y,0,z,0,0,0}. RE'd + cross-checked v… |
 | 0x800517F8 | LIVE | `GraphicsBind::renderUpdateBody` | game/world/graphics_bind.cpp:108 | 0x80051300 | per-object RENDER-STATE UPDATE: build the object's transform, then sna… |
 | 0x800517F8 | LIVE | `GraphicsBind::renderUpdate` | game/world/graphics_bind.cpp:131 |  |  |
