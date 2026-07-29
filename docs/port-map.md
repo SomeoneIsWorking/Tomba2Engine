@@ -226,7 +226,7 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **scope:** render
 - **status:** todo
 - **owner:** generated (unported)
-- **notes:** FUN_80116904 (area 8). REACHABILITY CONFIRMED 2026-07-29: warp 8 + skip 600 with PSXPORT_DEBUG=nofx names 0x80116904 in the census, i.e. the walk DOES reach a live node carrying it, so a producer will fire and can be pixel-verified there. (Contrast FUN_8010C1D8, which is phase-gated off and therefore BLOCKED.) Full spec + verifier corrections: docs/re/render-targets-static-re.md — read the ORIGINAL algorithm alongside the CORRECTED delta.
+- **notes:** FUN_80116904 (area 8). DISPATCH REACHABILITY CONFIRMED 2026-07-29 (claim C017 FALSIFIED — this proves the walk dispatches the node, NOT that the fn's own gates let it draw; check content separately): warp 8 + skip 600 with PSXPORT_DEBUG=nofx names 0x80116904 in the census, i.e. the walk DOES reach a live node carrying it, so a producer will fire and can be pixel-verified there. (Contrast FUN_8010C1D8, which is phase-gated off and therefore BLOCKED.) Full spec + verifier corrections: docs/re/render-targets-static-re.md — read the ORIGINAL algorithm alongside the CORRECTED delta.
 
 ## fx-area4-ambient-13b118
 - **scope:** render

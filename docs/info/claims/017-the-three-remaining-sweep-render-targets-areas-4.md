@@ -1,9 +1,10 @@
 ---
 id: C017
 kind: claim
-status: holds
+status: falsified
 created: 2026-07-29
 tags: render
+falsified_on: 2026-07-29
 ---
 
 ## Claim
@@ -17,3 +18,9 @@ warp N + skip 600 with PSXPORT_DEBUG=nofx on 2026-07-29 names 0x8013B118 (a4), 0
 ## What would falsify it
 
 a producer added for one of the three that emits zero times in that area, which would mean the census named a node the display walk does not actually dispatch
+
+## FALSIFIED 2026-07-29
+
+TOO STRONG on its 'can be pixel-verified' half. Being named in the nofx census proves only that the WALK REACHES a live node carrying the fn — it says nothing about whether the fn's OWN internal gates let it draw. FUN_8013B118 (area 4) is named in the census yet draws NOTHING reachable: story phase 0x800E7EAA = 1 in two independent dumps (branch A needs >= 44; the tail needs 2/3/4) and node 0x800EDC90 fade +0x58 = 4096 skips the mesh panels. Area 14 was fine (ported, 27904 px). CORRECTED FORM: the census proves DISPATCH reachability, not CONTENT reachability; content must be checked per target before porting.
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.
