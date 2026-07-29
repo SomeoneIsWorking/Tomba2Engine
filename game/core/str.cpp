@@ -75,6 +75,36 @@ void ov_copyBytes(Core* c) {
 extern void gen_func_80079528(Core*);
 extern void gen_func_8009A3E0(Core*);
 
+// FUN_0x8009A640 — byte compare, sibling of the memcpy already owned here.
+// ORACLE: gen_func_8009A640
+void Str::compareBytes(Core* c) {
+    { int _t = (c->r[4] == c->r[0]);  if (_t) goto L_8009A650; }
+    { int _t = (c->r[5] != c->r[0]);  if (_t) goto L_8009A668; }
+  L_8009A650:;
+    { int _t = (c->r[4] == c->r[5]); c->r[2] = c->r[0] + c->r[0]; if (_t) goto L_8009A6B8; }
+    { int _t = (c->r[4] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)-1; if (_t) goto L_8009A6B8; }
+    c->r[2] = c->r[0] + (uint32_t)1; goto L_8009A6B8;
+  L_8009A668:;
+    c->r[6] = c->r[6] + (uint32_t)-1;
+    { int _t = ((int32_t)c->r[6] < 0); c->r[2] = c->r[0] + c->r[0]; if (_t) goto L_8009A6B8; }
+  L_8009A674:;
+    c->r[3] = (uint32_t)(int8_t)c->mem_r8((c->r[4] + (uint32_t)0));
+    c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[5] + (uint32_t)0));
+    { int _t = (c->r[3] != c->r[2]); c->r[5] = c->r[5] + (uint32_t)1; if (_t) goto L_8009A69C; }
+    { int _t = (c->r[3] == c->r[0]); c->r[4] = c->r[4] + (uint32_t)1; if (_t) goto L_8009A6B4; }
+    c->r[6] = c->r[6] + (uint32_t)-1;
+    { int _t = ((int32_t)c->r[6] >= 0);  if (_t) goto L_8009A674; }
+  L_8009A69C:;
+    { int _t = ((int32_t)c->r[6] < 0);  if (_t) goto L_8009A6B4; }
+    c->r[3] = (uint32_t)(int8_t)c->mem_r8((c->r[4] + (uint32_t)0));
+    c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[5] + (uint32_t)-1));
+    c->r[2] = c->r[3] - c->r[2]; goto L_8009A6B8;
+  L_8009A6B4:;
+    c->r[2] = c->r[0] + c->r[0];
+  L_8009A6B8:;
+     return;
+}
+
 void str_wide_re_install() {
   static bool done = false;
   if (done) return;
@@ -82,4 +112,6 @@ void str_wide_re_install() {
   extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
   engine_set_override_main(0x80079528u, ov_strLength, gen_func_80079528);
   engine_set_override_main(0x8009A3E0u, ov_copyBytes, gen_func_8009A3E0);
+  { extern void gen_func_8009A640(Core*);
+    engine_set_override_main(0x8009A640u, &Str::compareBytes, gen_func_8009A640); }
 }

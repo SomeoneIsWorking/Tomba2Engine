@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 968 native fns, 818 owned addresses, 788 LIVE / 180 ORPHAN.
+Totals: 975 native fns, 825 owned addresses, 795 LIVE / 180 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -593,6 +593,10 @@ Totals: 968 native fns, 818 owned addresses, 788 LIVE / 180 ORPHAN.
 | 0x8007E1B8 | LIVE | `Render::emitUiFt4` | game/render/field_hud.cpp:79 |  | --- emitUiFt4 — general FUN_8007E1B8 (POLY_FT4 template group) -------… |
 | 0x8007E1B8 | LIVE | `Render::emitMenuFt4` | game/render/render_walk.cpp:480 |  | emitMenuFt4 / emitMenuSprites — the MENU-specialized wrappers over the… |
 | 0x8007E2F8 | LIVE | `UiFt4Layout::plainQuadVerts` | game/render/ui_ft4_layout.cpp:11 |  | ORACLE: gen_func_8007E2F8 |
+| 0x8007E36C | LIVE | `UiFt4Layout::xMirroredQuadVerts` | game/render/ui_ft4_layout.cpp:52 |  | FUN_0x8007E36C — layout mode 1 — X-MIRRORED. Base XY goes to VERTEX 1 … |
+| 0x8007E410 | LIVE | `UiFt4Layout::vMirroredQuadVerts` | game/render/ui_ft4_layout.cpp:102 |  | FUN_0x8007E410 — layout mode 2. |
+| 0x8007E4A8 | LIVE | `UiFt4Layout::flipXYQuadVerts` | game/render/ui_ft4_layout.cpp:251 |  | FUN_0x8007E4A8 — layout mode 3. |
+| 0x8007E584 | LIVE | `UiFt4Layout::vMirroredPlusQuadVerts` | game/render/ui_ft4_layout.cpp:314 |  | FUN_0x8007E584 — layout mode 4. |
 | 0x8007E6DC | LIVE | `Render::emitUiSprites` | game/render/field_hud.cpp:153 |  | --- emitUiSprites — general FUN_8007E6DC (SPRT template group) -------… |
 | 0x8007E6DC | LIVE | `Render::emitMenuSprites` | game/render/render_walk.cpp:486 |  |  |
 | 0x8007E6DC | LIVE | `ov_compose` | game/ui/ui_sprite.cpp:100 |  | The pause/item menu, the START page and the score popup all paint thro… |
@@ -656,7 +660,9 @@ Totals: 968 native fns, 818 owned addresses, 788 LIVE / 180 ORPHAN.
 | 0x80085480 | LIVE | `Math::rotmat` | game/math/gte_math.cpp:221 |  |  |
 | 0x80085480 | LIVE | `MeshQuads::rotmat` | game/render/mesh_quads.cpp:62 |  |  |
 | 0x80085690 | LIVE | `Trig::ratan2` | game/math/trig.cpp:23 |  |  |
-| 0x80085C9C | LIVE | `LibapiIntr::setIntrMask` | game/core/libapi_intr.cpp:31 |  |  |
+| 0x80085C9C | LIVE | `LibapiIntr::setIntrMask` | game/core/libapi_intr.cpp:34 |  |  |
+| 0x80086230 | LIVE | `LibapiIntr::initVblankCallbacks` | game/core/libapi_intr.cpp:43 |  | FUN_0x80086230 — zeroes the 8-slot VSync callback table through the wo… |
+| 0x80086320 | LIVE | `LibapiIntr::clearWords` | game/core/libapi_intr.cpp:69 |  | FUN_0x80086320 — the word-fill helper: writes N words of a constant. |
 | 0x80086604 | LIVE | `Engine::activeModeCtx` | game/scene/startup.cpp:277 |  | Engine::activeModeCtx. Accessor: returns the active mode/draw-env cont… |
 | 0x80086620 | LIVE | `eng_init_mode_ctrl` | game/scene/startup.cpp:177 |  | engine MODE control: file-local helper (only called from Engine::initS… |
 | 0x80086738 | LIVE | `Engine::installModeHandlers` | game/scene/startup.cpp:286 |  | Engine::installModeHandlers. Installs the mode handler table at 0x8010… |
@@ -699,6 +705,7 @@ Totals: 968 native fns, 818 owned addresses, 788 LIVE / 180 ORPHAN.
 | 0x8009A3E0 | LIVE | `Str::copyBytes` | game/core/str.cpp:36 |  | memcpy(dst, src, n). RE from generated/shard_0.c:15524 gen_func_8009A3… |
 | 0x8009A450 | LIVE | `prng` | game/ai/beh_typed_variant_router.cpp:47 |  |  |
 | 0x8009A450 | ORPHAN | `tomba_schedRng` | game/core/game_hooks.cpp:184 |  |  |
+| 0x8009A640 | LIVE | `Str::compareBytes` | game/core/str.cpp:80 |  | FUN_0x8009A640 — byte compare, sibling of the memcpy already owned her… |
 | 0x800A33C8 | LIVE | `tbl_strp` | game/ai/beh_cube_text_spawn.cpp:46 |  | string-table entry pointer: mem32(0x800a33c8 + (node[0x60]*3 << 2) + 4… |
 | 0x800A6490 | LIVE | `MeshQuads::trig` | game/render/mesh_quads.cpp:53 |  |  |
 | 0x800BE0D4 | LIVE | `Engine::startBinStageSkip` | game/core/engine.cpp:3112 |  | ── STARTBINSTAGE — pc_skip (default ./run.sh) ────────────────────────… |

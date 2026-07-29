@@ -30,4 +30,7 @@ public:
   //   copies nothing and still returns dst — the guard is `> 0` on a SIGNED compare, so a negative
   //   length is a no-op rather than a 4-billion-byte copy.
   static uint32_t copyBytes(Core* c, uint32_t dst, uint32_t src, int32_t n);
+
+  // FUN_0x8009A640 — byte compare, the sibling of copyBytes above. Guest-ABI entry point.
+  static void compareBytes(Core* c);
 };

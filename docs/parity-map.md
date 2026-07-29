@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 52 verified · 7 partial · 6 untested · 7 n/a
+**Status:** 53 verified · 9 partial · 10 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -324,6 +324,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **gate:** PSXPORT_SBS_MODE=full PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 ./scratch/bin/tomba2_port
 - **evidence:** 7cb7bee
 
+## str-compare-bytes-9a640
+- **scope:** 0x8009A640 byte compare
+- **status:** verified
+- **frames:** 1500
+- **gate:** SBS full, seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical; ovhit native=520 oracle=520 balanced.
+
 ## substate-arm-child-pair-131134
 - **scope:** 0x80131134 pending child-pair arm
 - **status:** verified
@@ -390,6 +397,20 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **gate:** 2-leg 0-diff with tap registered; icon strings not exercised in autonav legs — needs an icon-showing drive + USER eyeball
 - **evidence:** 916ddfc0
 
+## libapi-clear-words-86320
+- **scope:** 0x80086320 word-fill helper
+- **status:** partial
+- **frames:** 1500
+- **gate:** SBS full, seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical; ovhit native=1 oracle=1 balanced — ONE execution (boot-time init), so correct where gated but barely exercised.
+
+## libapi-init-vblank-cbs-86230
+- **scope:** 0x80086230 VSync callback table init
+- **status:** partial
+- **frames:** 1500
+- **gate:** SBS full, seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical; ovhit native=1 oracle=1 balanced — ONE execution (boot-time init), so correct where gated but barely exercised.
+
 ## options-page-backdrop
 - **scope:** FUN_8007FC24 — the OPTIONS page's full-screen POLY_G4 backdrop packet (OptionsPage::pushBackdrop)
 - **status:** partial
@@ -433,6 +454,26 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **scope:** 0x80124328 release-trigger X-sweep cycle
 - **status:** untested
 - **evidence:** port_check PASS and build-clean, but ovhit reports native=0 oracle=0 — the seesaw-weight replay never reaches it, so the batch's 50/50 result says nothing about this address.
+
+## ui-ft4-flip-xy-8007E4A8
+- **scope:** 0x8007E4A8 POLY_FT4 UI layout case
+- **status:** untested
+- **evidence:** port_check UNPROVABLE (tail-jump, no ra on either side — same as the already-owned case 0), build-clean, but ovhit native=0 oracle=0: this replay only ever takes layout case 0 (349 hits). Needs a scene using another layout mode.
+
+## ui-ft4-v-mirrored-8007E410
+- **scope:** 0x8007E410 POLY_FT4 UI layout case
+- **status:** untested
+- **evidence:** port_check UNPROVABLE (tail-jump, no ra on either side — same as the already-owned case 0), build-clean, but ovhit native=0 oracle=0: this replay only ever takes layout case 0 (349 hits). Needs a scene using another layout mode.
+
+## ui-ft4-v-mirrored-plus-8007E584
+- **scope:** 0x8007E584 POLY_FT4 UI layout case
+- **status:** untested
+- **evidence:** port_check UNPROVABLE (tail-jump, no ra on either side — same as the already-owned case 0), build-clean, but ovhit native=0 oracle=0: this replay only ever takes layout case 0 (349 hits). Needs a scene using another layout mode.
+
+## ui-ft4-x-mirrored-8007E36C
+- **scope:** 0x8007E36C POLY_FT4 UI layout case
+- **status:** untested
+- **evidence:** port_check UNPROVABLE (tail-jump, no ra on either side — same as the already-owned case 0), build-clean, but ovhit native=0 oracle=0: this replay only ever takes layout case 0 (349 hits). Needs a scene using another layout mode.
 
 ## Billboard picture dual-emit (rq_push_ft4_record @ billboardEmit/submitQuad)
 - **status:** n/a
