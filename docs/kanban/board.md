@@ -17,7 +17,6 @@
 - **#40 RmlUi warp selector is unverified on screen — no window in the agent environment**  `verification`
 - **#41 renderpsx REPL toggle is honoured per SCENE ENTRY, not per frame — a mid-scene flip does not repaint**  `render`
 - **#46 recomp-MISS 0x80028E64 latent (label not emitted as entry) — NOT reproduced on current main**  `bug,recomp`
-- **#48 area 14 waterfall backdrop is GTE SCENE GEOMETRY with no native producer (split from #42)**  `render`
 - **#49 area 21 sky is a GRADIENT+tilemap COMPOSITE — needs the gouraud base ported (split from #42)**  `render`
 - **#50 SYSTEMIC pc_skip: cooperative FUN_80044BD4 waits inside the GAME frame are SILENTLY TRUNCATED**  `bug,pc-skip`
 - **#51 beh_* A/B: 3 localised divergences still open (0x8013C9C0, 0x8011D988, 0x80121978)**  `verification,bug`
@@ -33,6 +32,7 @@
 - **#64 Quest-update banner lerps its LETTERS but not the PLANKS they sit on**  `bug,render,fps60`
 - **#65 PSXPORT_DEBUG=nofx: name every type-0x20 node the native walk has no producer for**  `render,tooling`
 - **#66 A0L phase byte 0x800BFA55 gates the area-21 jet effect (FUN_8010C1D8) — need a scene where it reaches >= 4**  `render`
+- **#67 Area-14 backdrop: FUN_80110CA4's sprite tail 0x801104D0 (440 lines) is unported**  `render`
 
 ## DOING (4)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
@@ -40,7 +40,7 @@
 - **#45 CAMPAIGN: render everything natively — retire the substrate-GTE projection producers to float-native**  `render,campaign`
 - **#47 pc_skip: entering 'House on the Point' corrupts state (music stops, camera unfollows, interior vibrates)**  `bug,pc-skip`
 
-## DONE (35)
+## DONE (36)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -73,6 +73,7 @@
 - **#42 pc_render omits the far BACKGROUND/SKY plane in non-seaside areas (10, 11, 14, 21)**  `render`
 - **#43 pc_render omits the field HUD minimap (areas 2, 7)**  `render`
 - **#44 pc_render omits the central vortex/portal effect in area 15**  `render`
+- **#48 area 14 waterfall backdrop is GTE SCENE GEOMETRY with no native producer (split from #42)**  `render`
 - **#59 Item menu chrome renders TOO DARK — and psx_render shares it, so the 0/76800 gate is blind**  `render,bug` — 📎 docs/reference/issues/issue59_item_menu_too_dark.png
 - **#60 SEQUENCE softlock (live capture) — game keeps running, sequence never advances**  `bug,pc-skip` — 📎 docs/reference/issues/issue60_sequence_softlock.png
 - **#61 SBS-full is RED on main at 0x801FE808 — pre-existing, reproduces on an unmodified HEAD build**  `bug,verification`

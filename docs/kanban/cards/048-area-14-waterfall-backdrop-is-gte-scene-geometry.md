@@ -1,10 +1,10 @@
 ---
 id: 48
 title: area 14 waterfall backdrop is GTE SCENE GEOMETRY with no native producer (split from #42)
-status: todo
+status: done
 labels: [render]
 created: 2026-07-23
-updated: 2026-07-23
+updated: 2026-07-29
 ---
 
 **2026-07-23:** Split from #42 on 2026-07-23 after the backdrop RE proved area 14 is NOT the tilemap-backdrop family.
@@ -17,3 +17,5 @@ EVIDENCE (measured, area reached with newgame; run 3000; warp 14; run 600):
 So this is an OBJECT/SCENE-LAYER producer gap (class of #39/#44), NOT a backdrop-plane gap. Fixing it means RE'ing and porting the 0x80114320 emitter (or whichever of those nodes owns the waterfall) as a native producer that draws from the object's own state — it will NOT be fixed by any backdrop-tilemap work.
 
 Current gap: 68703 px >8/255 vs psx (unchanged by the #42 fix), whole-frame, vs the ~23k generic baseline. Evidence: scratch/screenshots/warpsweep/fix14_{pc,psx}.png + fix14_triptych.png. See docs/findings/render.md.
+
+**2026-07-29:** 2026-07-29 FIXED (the backdrop half): Render::fxBackdropPlaneRender now owns FUN_80110CA4's two grids — the waterfall wall + its mirrored reflection, and the additive glow band along the seam. Verified on pixels: area 14 warp + skip 600, ON vs producer-removed OFF = 27904 px differ at x[0..208] y[12..227]; the OFF leg is black where the waterfall belongs. CAVEAT: FUN_80110CA4 tail-calls 0x801104D0 (440 gen lines, sprite family) with the same node and THAT HALF IS STILL UNPORTED, so anything it contributes is still missing. Filed separately.

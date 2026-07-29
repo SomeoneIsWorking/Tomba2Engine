@@ -709,6 +709,11 @@ void Render::fieldObjectsRender() {
           // 22-area nofx sweep. Overlay-resident, so the same first-instruction guard (addiu sp,-64).
           c->rsub.stats.snObjs++;
           rend(c)->fxRingSpriteRender(n);
+        } else if (rfn == 0x80110CA4u && c->mem_r32(0x80110CA4u) == 0x27BDFFA8u) {
+          // FUN_80110CA4 (A0E overlay, area 14) — the backdrop plane + glow band (kanban #48).
+          // Overlay-resident, so the same first-instruction guard.
+          c->rsub.stats.snObjs++;
+          rend(c)->fxBackdropPlaneRender(n);
         } else if (rfn == 0x801110BCu && c->mem_r32(0x801110BCu) == 0x27BDFFC0u) {
           // FUN_801110BC (A0B overlay, area 11) — the camera-following dot haze, from the 22-area
           // nofx sweep. Overlay-resident, so the same first-instruction guard (addiu sp,-64).

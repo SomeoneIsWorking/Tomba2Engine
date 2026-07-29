@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 20 verified · 11 ported-unverified · 4 todo · 2 blocked
+**Status:** 21 verified · 11 ported-unverified · 3 todo · 2 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -182,6 +182,12 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** game/render/fx_dotfield.cpp
 - **notes:** Render::fxDotFieldRender (FUN_801110BC, A0B overlay, area 11): the camera-following DOT HAZE — visually the area's ambient SNOW. 513 opaque white specks on a wrapping 2048-unit world lattice keyed to node+0x2C/2E/30, cube centred half a camera-forward step ahead of the eye; size 2x2 when SZ3 < 1536 else 1x1; LCG seed at node+0x50 (READ ONLY, never written back) with the multiplier at 0x8011C030, three steps per particle, particle 0 taking the RAW seed and one extra step whose value is never read. NOT a sprite-family member (no DQA, own two gates: GTE-FLAG/near-plane and an unsigned 0<=SX<320 screen clip with NO Y test). DELIBERATE DIVERGENCE: the guest prepends every dot into ONE fixed OT bucket (256) with no sorting; this producer gives each dot its real projected depth instead (engine owns ordering). VERIFIED ON PIXELS: area 11 warp + skip 600, ON vs producer-removed OFF = 330 px differ across x[0..319] y[12..227], drawing as snow over the night scene; 1196 emissions, 415/513 dots passing the gates; 0x801110BC dropped off the nofx census. NOTE: this was mis-scoped as the HARDEST sweep target on its callee list (matrix pipeline + raw RTPT); 0x80084660/690 are just SetRotMatrix/SetTransMatrix and the RTPS folds onto projComposeObjectHost(identity, origin) — no matrix helper and no gen body were needed.
 
+## fx-backdrop-plane-110ca4
+- **scope:** render
+- **status:** verified
+- **owner:** game/render/fx_backdrop_plane.cpp
+- **notes:** Render::fxBackdropPlaneRender (FUN_80110CA4, A0E overlay, area 14): the WATERFALL BACKDROP — kanban #48. Grid A = 7 rows x 10 cols of 1200x2400 model-unit quads at local Z=0 forming a 12000x16800 wall, V MIRRORED about y=0 with the lower half tinted 0x00201000 (the reflection) and a bright 0x00DFDFDF seam row at y==0; Grid B = 10 quads on the local Y=0 plane out to Z=1200, ADDITIVE, the glow band along the seam. U/V scroll from the frame tick at 0x1F80017C (U one 64-texel tile every 2 ticks, V every 8). Transform = projComposeObjectHost(MeshQuads::rotmat(node+0x48/4A/4C), node+0x2C/2E/30). Screen gate reproduced as the guest's TWO SEPARATE 'any vertex passes' tests (X<321, Y<241) read unsigned. DELIBERATE DIVERGENCE: the guest log-compresses AVSZ4 into an OT key and adds a ROW BIAS (+30 upper / +40 lower) plus a 2045 clamp — authored painter's-algorithm order; this producer uses real projected depth instead. VERIFIED ON PIXELS: area 14 warp + skip 600, ON vs producer-removed OFF = 27904 px differ at x[0..208] y[12..227], rendering as the waterfall wall plus its reflection; 1196 emissions, gridA 33/70 and gridB 7/10 passing the gates; 0x80110CA4 dropped off the nofx census. INCOMPLETE BY DESIGN: this is HALF the guest render fn — it tail-calls 0x801104D0 (440 gen lines, sprite family) with the same node, and that half is NOT ported.
+
 ## render-compose-tint-gate
 - **status:** ported-unverified
 - **notes:** Render::composeTintGate (FUN_8003EF9C): per-type render gate, port_check PASS, wired via overrides::install with setter. Pool-snapshot idiom: emits geometry then colour-adds over exactly the primitives just emitted. Cold on the field/dialog replay - needs a scene that uses render mode 2.
@@ -227,12 +233,6 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** todo
 - **owner:** generated (unported)
 - **notes:** FUN_80116904 (area 8). REACHABILITY CONFIRMED 2026-07-29: warp 8 + skip 600 with PSXPORT_DEBUG=nofx names 0x80116904 in the census, i.e. the walk DOES reach a live node carrying it, so a producer will fire and can be pixel-verified there. (Contrast FUN_8010C1D8, which is phase-gated off and therefore BLOCKED.) Full spec + verifier corrections: docs/re/render-targets-static-re.md — read the ORIGINAL algorithm alongside the CORRECTED delta.
-
-## fx-backdrop-plane-110ca4
-- **scope:** render
-- **status:** todo
-- **owner:** generated (unported)
-- **notes:** FUN_80110CA4 (area 14). REACHABILITY CONFIRMED 2026-07-29: warp 14 + skip 600 with PSXPORT_DEBUG=nofx names 0x80110CA4 in the census, i.e. the walk DOES reach a live node carrying it, so a producer will fire and can be pixel-verified there. (Contrast FUN_8010C1D8, which is phase-gated off and therefore BLOCKED.) Full spec + verifier corrections: docs/re/render-targets-static-re.md — read the ORIGINAL algorithm alongside the CORRECTED delta.
 
 ## fx-jet-mesh-sprite-10c1d8
 - **scope:** render

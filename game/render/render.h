@@ -325,6 +325,12 @@ public:
   // gates). Body in fx_dotfield.cpp.
   void fxDotFieldRender(uint32_t node);
 
+  // fxBackdropPlaneRender (FUN_80110CA4, A0E/area 14): the backdrop PLANE + its mirrored reflection
+  // and the additive glow band along the seam (kanban #48). Scene geometry, not a sprite-family
+  // member. Only HALF the guest render fn — its 0x801104D0 sprite tail is unported.
+  // Body in fx_backdrop_plane.cpp.
+  void fxBackdropPlaneRender(uint32_t node);
+
   // fxAnimSpriteRender: native producer for the SECOND world-anchored sprite family — emitter
   // FUN_800286CC + packet writer FUN_8002847C (36-byte, four-corner, per-vertex-coloured quad records
   // selected by an ANIMATION SCRIPT byte). This is Tomba's movement DUST PUFF (kanban #39) and the

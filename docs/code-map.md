@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 940 native fns, 793 owned addresses, 751 LIVE / 189 ORPHAN.
+Totals: 941 native fns, 794 owned addresses, 752 LIVE / 189 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -773,6 +773,7 @@ Totals: 940 native fns, 793 owned addresses, 751 LIVE / 189 ORPHAN.
 | 0x8010C7F4 | LIVE | `Render::fxParticleFieldRender` | game/render/fx_sprite.cpp:766 |  |  |
 | 0x8010E904 | LIVE | `ActorTomba::postFrameWaterCheck` | game/player/actor_tomba.cpp:470 |  | ======================================================================… |
 | 0x80110C14 | LIVE | `Render::fxRingSpriteRender` | game/render/fx_sprite.cpp:668 |  |  |
+| 0x80110CA4 | LIVE | `Render::fxBackdropPlaneRender` | game/render/fx_backdrop_plane.cpp:68 |  |  |
 | 0x801110BC | LIVE | `Render::fxDotFieldRender` | game/render/fx_dotfield.cpp:55 |  |  |
 | 0x801113B4 | LIVE | `Render::fxMotionTrailRender` | game/render/fx_trail.cpp:68 |  | One joint = four quads. In all of them the two "far" vertices are BLAC… |
 | 0x80112188 | LIVE | `ActorMeleeEngage::doIt` | game/ai/actor_melee_engage.cpp:28 | 0x80022C78 0x80055844 0x80084080 |  |
