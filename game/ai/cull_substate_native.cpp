@@ -28,6 +28,10 @@ void ov_a00_func_80133610(Core*);
 void ov_a00_func_80133700(Core*);
 void ov_a00_func_801332C4(Core*);
 
+// FUN_80133550 — per-frame tick of the decaying swing on a child record's Euler Z. Profiled: NO
+// CALLS AT ALL, pure arithmetic. It writes the child's accumulator (+0x0C) twice and its step field
+// (+0x14), plus node+0x78 twice. That shape — an accumulator advanced by a step with no callees — is
+// what makes "tick a decaying swing" a description rather than a restatement of the address.
 // ORACLE: ov_a00_gen_80133550
 void CullSubstateLeaves::tickChildEulerZSwing(Core* c) {
     c->r[5] = c->r[4] + c->r[0];
