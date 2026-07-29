@@ -27,6 +27,7 @@
 #include "render_queue.h"
 #include "render_internal.h"   // ObjScope / proj_pz_to_ord
 #include "projection.h"        // EObjXform
+#include "fx_node.h"          // FxNode — the walk-owned header lens this controller extends
 #include "fx_motes.h"
 #include "cfg.h"
 #include <cstdint>
@@ -41,9 +42,21 @@ const MoteFrame* MoteStreaks::submit(Core* c, uint32_t node, const MoteFrame& li
 
 namespace {
 
-constexpr uint32_t kMoteAnchor   = 0x2Cu;        // world anchor: three s16 at +0x2C/+0x2E/+0x30
-constexpr uint32_t kMotePrevBase = 0x48u;        // last frame's cube base: three s16 at +0x48/4A/4C
-constexpr uint32_t kMoteSeed     = 0x50u;        // u32 LCG seed, READ ONLY
+// The A08 mote controller's OWN view of its node. Same reason as DotFieldNode: +0x2C is three
+// separate s16 here, +0x50 is an LCG seed, and +0x48 is a per-frame cube base that no other member
+// of the family carries at that offset.
+class MoteNode : public FxNode {
+public:
+  using FxNode::FxNode;
+  int32_t  anchorX()   const { return s16(0x2Cu); }
+  int32_t  anchorY()   const { return s16(0x2Eu); }
+  int32_t  anchorZ()   const { return s16(0x30u); }
+  int32_t  prevBaseX() const { return s16(0x48u); }   // last frame's cube base — the wrap reference
+  int32_t  prevBaseY() const { return s16(0x4Au); }
+  int32_t  prevBaseZ() const { return s16(0x4Cu); }
+  uint32_t lcgSeed()   const { return u32(0x50u); }   // READ ONLY
+};
+
 constexpr uint32_t kMoteLcgMul   = 0x801450D8u;  // A08 overlay data: the LCG multiplier
 constexpr uint32_t kCamViewRow3X = 0x1F800104u;  // third row of the scene view rotation = forward axis
 constexpr uint32_t kCamEyeX      = 0x1F8000D2u;  // camera world position X, then Y at +4, Z at +8
@@ -77,12 +90,13 @@ void Render::fxMoteStreakRender(uint32_t node) {
   const int offsY = (int16_t)(uint16_t)(c->mem_r16(kCamEyeX + 4u) - kHalfCube + h1);
   const int offsZ = (int16_t)(uint16_t)(c->mem_r16(kCamEyeX + 8u) - kHalfCube + h2);
 
-  const int baseX = c->mem_r16s(node + kMoteAnchor)      - offsX;
-  const int baseY = c->mem_r16s(node + kMoteAnchor + 2u) - offsY;
-  const int baseZ = c->mem_r16s(node + kMoteAnchor + 4u) - offsZ;
-  const int prevBaseX = c->mem_r16s(node + kMotePrevBase);
-  const int prevBaseY = c->mem_r16s(node + kMotePrevBase + 2u);
-  const int prevBaseZ = c->mem_r16s(node + kMotePrevBase + 4u);
+  const MoteNode n(c, node);
+  const int baseX = n.anchorX() - offsX;
+  const int baseY = n.anchorY() - offsY;
+  const int baseZ = n.anchorZ() - offsZ;
+  const int prevBaseX = n.prevBaseX();
+  const int prevBaseY = n.prevBaseY();
+  const int prevBaseZ = n.prevBaseZ();
 
   // camR . (V + offs) + camT — the same shape the area-11 dot field uses.
   const float Robj[3][3] = { { 4096.0f, 0.0f, 0.0f }, { 0.0f, 4096.0f, 0.0f }, { 0.0f, 0.0f, 4096.0f } };
@@ -91,7 +105,7 @@ void Render::fxMoteStreakRender(uint32_t node) {
   projComposeObjectHost(Robj, Tobj, &cam);
 
   const uint32_t mul = c->mem_r32(kMoteLcgMul);
-  uint32_t s = c->mem_r32(node + kMoteSeed);
+  uint32_t s = n.lcgSeed();
 
   MoteFrame live;
   int wrapped = 0;

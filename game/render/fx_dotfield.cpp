@@ -34,13 +34,25 @@
 #include "render_queue.h"
 #include "render_internal.h"   // ObjScope / proj_pz_to_ord
 #include "projection.h"        // EObjXform
+#include "fx_node.h"          // FxNode — the walk-owned header lens this controller extends
 #include "cfg.h"
 #include <cstdint>
 
 namespace {
 
-constexpr uint32_t kDotAnchorX   = 0x2Cu;        // three SEPARATE s16 (not the packed VX|VY pair)
-constexpr uint32_t kDotSeed      = 0x50u;        // u32 LCG seed, READ ONLY
+// The A0B dot-haze controller's OWN view of its node. Deriving from FxNode rather than adding these
+// to it is the point: +0x2C is this controller's THREE SEPARATE s16 anchor (not the sprite family's
+// packed VX|VY pair), and +0x50 is its LCG SEED where a sibling uses the same slot for a wind
+// magnitude. Naming them here keeps that per-controller meaning visible at every call site.
+class DotFieldNode : public FxNode {
+public:
+  using FxNode::FxNode;
+  int32_t  latticeX() const { return s16(0x2Cu); }   // the world lattice the cube is keyed on
+  int32_t  latticeY() const { return s16(0x2Eu); }
+  int32_t  latticeZ() const { return s16(0x30u); }
+  uint32_t lcgSeed()  const { return u32(0x50u); }   // READ ONLY — the guest never writes it back
+};
+
 constexpr uint32_t kDotLcgMulA   = 0x8011C030u;  // A0B overlay data: the LCG multiplier
 constexpr uint32_t kCamViewRow3X = 0x1F800104u;  // third row of the scene view rotation = forward axis
 constexpr uint32_t kCamEyeX      = 0x1F8000D2u;  // camera eye X, then Y at +4, Z at +8 (u16 reads)
@@ -69,9 +81,10 @@ void Render::fxDotFieldRender(uint32_t node) {
 
   // STEP 3 — the wrap deltas. local = (rand + nodeAnchor - origin) & 2047 means the cloud sits on a
   // WORLD lattice keyed to the node, so it does not swim as the camera moves — it wraps.
-  const int dx = c->mem_r16s(node + kDotAnchorX)      - originX;
-  const int dy = c->mem_r16s(node + kDotAnchorX + 2u) - originY;
-  const int dz = c->mem_r16s(node + kDotAnchorX + 4u) - originZ;
+  const DotFieldNode n(c, node);
+  const int dx = n.latticeX() - originX;
+  const int dy = n.latticeY() - originY;
+  const int dz = n.latticeZ() - originZ;
 
   // STEP 4 — the field camera: the scene camera pre-translated by the origin. Identity rotation at
   // the GTE's 4096 = 1.0 scale, translation = the origin.
@@ -85,7 +98,7 @@ void Render::fxDotFieldRender(uint32_t node) {
   // guest's software pipeline steps again before its first read. Reproduced exactly: getting this
   // sequence wrong shifts the whole pattern.
   const uint32_t mul = c->mem_r32(kDotLcgMulA);
-  uint32_t s = c->mem_r32(node + kDotSeed);
+  uint32_t s = n.lcgSeed();
   auto axis = [&s]() { return (int32_t)s >> 16; };
   auto step = [&s, mul]() { s = s * mul + 1u; };
 
