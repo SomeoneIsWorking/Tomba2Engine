@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 43 verified · 6 partial · 2 untested · 7 n/a
+**Status:** 46 verified · 6 partial · 3 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -74,6 +74,20 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 18120
 - **gate:** same wave gate; ovhit 2247/2247; §9 n<=0 return-0 fix
 - **evidence:** 7db286a8
+
+## cull-substate-zero-132954
+- **scope:** 0x80132954 sub-state-zero tick
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** Batch gate: 50/50 A/B-identical, zero divergence; ovhit native=8364 oracle=8364 balanced; port_check PASS.
+
+## cull-swing-phase-132a88
+- **scope:** 0x80132A88 phase-advancing Euler-Z swing sibling
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** Batch gate: 50/50 A/B-identical, zero divergence; ovhit native=8364 oracle=8364 balanced; port_check PASS.
 
 ## cull-tick-eulerz-swing-133550
 - **scope:** 0x80133550 child Euler-Z decaying swing tick
@@ -289,6 +303,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
 - **evidence:** Batch gate: 50/50 A/B-identical checkpoints, zero divergence; ovhit native=16728 oracle=16728 (balanced).
 
+## substate0tick-12f494
+- **scope:** 0x8012F494 orchestrator node[5]==0 sub-state tick
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** Batch gate: 50/50 A/B-identical, zero divergence; ovhit native=16680 oracle=16680 balanced; port_check PASS.
+
 ## TileGridLayer scrollStep+emit (0x8011534C/0x80115598)
 - **status:** verified
 - **frames:** 20820
@@ -343,6 +364,11 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 ## render-billboard-c788
 - **status:** untested
 - **evidence:** NOT verifiable by the current replay library: PSXPORT_DEBUG=ovhit shows 0x8003C788 native=0 oracle=0 NEVER HIT across general-session and hut-entry, incl. a 4000-frame SBS run. The SBS 0-diff result for those runs is vacuous for this unit — it never executes. Needs a scenario that actually dispatches C788 before any gate means anything.
+
+## rtm-xsweepcycle-124328
+- **scope:** 0x80124328 release-trigger X-sweep cycle
+- **status:** untested
+- **evidence:** port_check PASS and build-clean, but ovhit reports native=0 oracle=0 — the seesaw-weight replay never reaches it, so the batch's 50/50 result says nothing about this address.
 
 ## Billboard picture dual-emit (rq_push_ft4_record @ billboardEmit/submitQuad)
 - **status:** n/a

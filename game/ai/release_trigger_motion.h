@@ -70,6 +70,9 @@ public:
   void circleOrbitMotion(uint32_t obj);                    // FUN_80124C6C
 
   // Install the six addresses above in the shared override registry (called once at boot).
+  // FUN_80124328 — per-frame X-sweep cycle. No pre-existing draft.
+  void xSweepCycle(Core* c);
+
   void registerOverrides();
 };
 #endif

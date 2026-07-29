@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 963 native fns, 813 owned addresses, 775 LIVE / 188 ORPHAN.
+Totals: 964 native fns, 814 owned addresses, 779 LIVE / 185 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -304,9 +304,9 @@ Totals: 963 native fns, 813 owned addresses, 775 LIVE / 188 ORPHAN.
 | 0x80050894 | ORPHAN | `leaf_80050894` | game/core/field_owned_leaves.cpp:5605 |  |  |
 | 0x800508A8 | LIVE | `ModeStateArm::armFromAreaTable` | game/scene/mode_state_arm.cpp:29 |  | ModeStateArm::armFromAreaTable — native ownership of FUN_800508A8 (Ghi… |
 | 0x80050970 | LIVE | `BgSceneTransitionSm::bf816Dispatch` | game/scene/bg_scene_transition_sm.cpp:109 |  | tiny dispatcher on the 800BF816 mode byte: 0 = ModeStateArm::armFromAr… |
-| 0x800509B4 | LIVE | `Engine::initDisplay` | game/scene/startup.cpp:75 | 0x80050738 | engine DISPLAY + GTE-projection init, PC-native. Sets the GTE projecti… |
-| 0x80050A0C | LIVE | `Engine::initFrameState` | game/scene/startup.cpp:54 |  |  |
-| 0x80050A80 | LIVE | `Engine::initCamera` | game/scene/startup.cpp:106 |  | engine CAMERA init: identity camera-rotation matrix at scratchpad 0x1F… |
+| 0x800509B4 | LIVE | `Engine::initDisplay` | game/scene/startup.cpp:74 | 0x80050738 | engine DISPLAY + GTE-projection init, PC-native. Sets the GTE projecti… |
+| 0x80050A0C | LIVE | `Engine::initFrameState` | game/scene/startup.cpp:53 |  |  |
+| 0x80050A80 | LIVE | `Engine::initCamera` | game/scene/startup.cpp:105 |  | engine CAMERA init: identity camera-rotation matrix at scratchpad 0x1F… |
 | 0x80050DE4 | LIVE | `Engine::sceneStateStepFaithful` | game/core/engine.cpp:2436 |  | Engine::sceneStateStep — the SCENE-INIT / SCENE-RUN state machine at g… |
 | 0x80050DE4 | LIVE | `Engine::sceneStateStep` | game/core/engine.cpp:2511 |  | Engine::sceneStateStep — the SCENE-INIT / SCENE-RUN state machine at g… |
 | 0x80051128 | LIVE | `NodeXform::propagate` | game/render/node_xform.cpp:239 |  | per-object CHILD-NODE TRANSFORM loop. RE'd from disas: |
@@ -330,7 +330,7 @@ Totals: 963 native fns, 813 owned addresses, 775 LIVE / 188 ORPHAN.
 | 0x80051D90 | LIVE | `NodeXform::worldPosFromLocal` | game/render/node_xform.cpp:456 |  | RE'd from generated/shard_7.c gen_func_80051D90 (frame: addiu sp,-0x20… |
 | 0x80052078 | LIVE | `Engine::startStage` | game/core/engine.cpp:2873 | 0x80080870 0x80080890 0x800808A0 | switch task 0 to the given stage (load overlay + reset the display/BIO… |
 | 0x80052078 | LIVE | `eng_stage_transition` | game/scene/level_load.cpp:66 |  | (stageIdx) — the cooperative STAGE TRANSITION: load the next stage's o… |
-| 0x800520E0 | LIVE | `Engine::initSubsystems` | game/scene/startup.cpp:257 |  |  |
+| 0x800520E0 | LIVE | `Engine::initSubsystems` | game/scene/startup.cpp:256 |  |  |
 | 0x800521F4 | ORPHAN | `leaf_800521F4` | game/core/field_owned_leaves.cpp:5613 |  |  |
 | 0x8005229C | LIVE | `Engine::padFenceTail` | game/input/pad_edge_fence.cpp:145 |  | Override wrapper + install (guest ABI is all-implicit — the fence take… |
 | 0x8005245C | ORPHAN | `leaf_8005245C` | game/core/field_owned_leaves.cpp:5650 |  |  |
@@ -575,10 +575,10 @@ Totals: 963 native fns, 813 owned addresses, 775 LIVE / 188 ORPHAN.
 | 0x8007B04C | LIVE | `TransitionState3::walkOnce` | game/scene/transition_state3.cpp:11 |  |  |
 | 0x8007B0F0 | ORPHAN | `leaf_8007B0F0` | game/core/field_owned_leaves.cpp:10090 |  |  |
 | 0x8007B18C | LIVE | `Pool::init` | game/world/pool.cpp:110 | 0x8004FB20 0x800798F8 0x8007A810 0x8007AC14 0x8007AC40 0x8007AC6C … | top-level object-pool init. Zeroes 520 68-byte slots at 0x800F2740; bu… |
-| 0x8007B2C0 | LIVE | `Engine::seedDirectionMasks` | game/scene/startup.cpp:145 |  | direction-mask seeder. Called with 0 at boot (initEntityPool above) an… |
-| 0x8007B328 | LIVE | `Engine::initEntityPool` | game/scene/startup.cpp:126 |  | engine SUBSYSTEM init (init-prefix slot, dispatched at native_boot.cpp… |
+| 0x8007B2C0 | LIVE | `Engine::seedDirectionMasks` | game/scene/startup.cpp:144 |  | direction-mask seeder. Called with 0 at boot (initEntityPool above) an… |
+| 0x8007B328 | LIVE | `Engine::initEntityPool` | game/scene/startup.cpp:125 |  | engine SUBSYSTEM init (init-prefix slot, dispatched at native_boot.cpp… |
 | 0x8007B38C | ORPHAN | `leaf_8007B38C` | game/core/field_owned_leaves.cpp:10132 |  |  |
-| 0x8007B3F4 | LIVE | `Engine::reloadEntityPool` | game/scene/startup.cpp:162 |  | re-copy the staged per-area entity-pool control bytes onto the live he… |
+| 0x8007B3F4 | LIVE | `Engine::reloadEntityPool` | game/scene/startup.cpp:161 |  | re-copy the staged per-area entity-pool control bytes onto the live he… |
 | 0x8007B45C | ORPHAN | `leaf_8007B45C` | game/core/field_owned_leaves.cpp:10160 |  |  |
 | 0x8007BE18 | ORPHAN | `leaf_8007BE18` | game/core/field_owned_leaves.cpp:10671 | 0x8018FA88 0x8018FBCC |  |
 | 0x8007BF20 | ORPHAN | `leaf_8007BF20` | game/core/field_owned_leaves.cpp:10737 |  |  |
@@ -659,12 +659,12 @@ Totals: 963 native fns, 813 owned addresses, 775 LIVE / 188 ORPHAN.
 | 0x80085480 | LIVE | `MeshQuads::rotmat` | game/render/mesh_quads.cpp:62 |  |  |
 | 0x80085690 | LIVE | `Trig::ratan2` | game/math/trig.cpp:23 |  |  |
 | 0x80085C9C | LIVE | `LibapiIntr::setIntrMask` | game/core/libapi_intr.cpp:31 |  |  |
-| 0x80086604 | LIVE | `Engine::activeModeCtx` | game/scene/startup.cpp:278 |  | Engine::activeModeCtx. Accessor: returns the active mode/draw-env cont… |
-| 0x80086620 | LIVE | `eng_init_mode_ctrl` | game/scene/startup.cpp:178 |  | engine MODE control: file-local helper (only called from Engine::initS… |
-| 0x80086738 | LIVE | `Engine::installModeHandlers` | game/scene/startup.cpp:287 |  | Engine::installModeHandlers. Installs the mode handler table at 0x8010… |
-| 0x80086764 | LIVE | `Engine::runModeEnter` | game/scene/startup.cpp:305 |  | Engine::runModeEnter. If both bit0 flags in the mode ctx (*0x800ABE98)… |
-| 0x80087A60 | LIVE | `Engine::initInput` | game/scene/startup.cpp:197 | 0x80080890 0x800808A0 0x80085B10 0x800873F0 0x80087400 | a thin wrapper that just calls FUN_80086970; owned as initInput(). |
-| 0x80088B00 | LIVE | `Engine::initAlloc` | game/scene/startup.cpp:222 | 0x80086738 0x80089160 0x8009A340 | engine ALLOCATOR / dispatch-table init. `s1` / `s2` are the struct-spa… |
+| 0x80086604 | LIVE | `Engine::activeModeCtx` | game/scene/startup.cpp:277 |  | Engine::activeModeCtx. Accessor: returns the active mode/draw-env cont… |
+| 0x80086620 | LIVE | `eng_init_mode_ctrl` | game/scene/startup.cpp:177 |  | engine MODE control: file-local helper (only called from Engine::initS… |
+| 0x80086738 | LIVE | `Engine::installModeHandlers` | game/scene/startup.cpp:286 |  | Engine::installModeHandlers. Installs the mode handler table at 0x8010… |
+| 0x80086764 | LIVE | `Engine::runModeEnter` | game/scene/startup.cpp:304 |  | Engine::runModeEnter. If both bit0 flags in the mode ctx (*0x800ABE98)… |
+| 0x80087A60 | LIVE | `Engine::initInput` | game/scene/startup.cpp:196 | 0x80080890 0x800808A0 0x80085B10 0x800873F0 0x80087400 | a thin wrapper that just calls FUN_80086970; owned as initInput(). |
+| 0x80088B00 | LIVE | `Engine::initAlloc` | game/scene/startup.cpp:221 | 0x80086738 0x80089160 0x8009A340 | engine ALLOCATOR / dispatch-table init. `s1` / `s2` are the struct-spa… |
 | 0x8008913C | LIVE | `Engine::allocRecordForSelector` | game/scene/startup.cpp:42 |  | returns the base of record[0] or record[1] of the 240-byte-stride, 2-e… |
 | 0x8008A110 | LIVE | `LibcdNative::posToInt` | game/cd/libcd_native.cpp:29 |  |  |
 | 0x8008B8F0 | LIVE | `LibcdNative::searchFile` | game/cd/libcd_native.cpp:22 |  |  |
@@ -818,6 +818,7 @@ Totals: 963 native fns, 813 owned addresses, 775 LIVE / 188 ORPHAN.
 | 0x80122974 | LIVE | `Render::tetherLineRender` | game/render/fx_line.cpp:288 |  | the TETHER: one rope from this object to an anchor chosen by node+0x47… |
 | 0x80123E9C | LIVE | `ReleaseTriggerMotion::hoverBobCycle` | game/ai/release_trigger_motion.cpp:75 | 0x80077B5C | ----------------------------------------------------------------------… |
 | 0x801241BC | LIVE | `ReleaseTriggerMotion::leaderFollowSync` | game/ai/release_trigger_motion.cpp:137 | 0x80051D90 0x80123C94 0x8012400C | ----------------------------------------------------------------------… |
+| 0x80124328 | LIVE | `ReleaseTriggerMotion::xSweepCycle` | game/ai/release_trigger_motion.cpp:513 |  | a per-frame X-sweep cycle on the release-trigger object. 6,355 substra… |
 | 0x801244E8 | LIVE | `ReleaseTriggerMotion::driftReposition` | game/ai/release_trigger_motion.cpp:190 | 0x80051794 0x80077B5C 0x80084360 0x800847F0 0x80124328 | ----------------------------------------------------------------------… |
 | 0x801246B4 | LIVE | `ReleaseTriggerMotion::arcSwoopMotion` | game/ai/release_trigger_motion.cpp:242 | 0x80077B5C | ----------------------------------------------------------------------… |
 | 0x801249D4 | LIVE | `ReleaseTriggerMotion::doubleArcMotion` | game/ai/release_trigger_motion.cpp:338 | 0x80077B5C | ----------------------------------------------------------------------… |
@@ -849,23 +850,23 @@ Totals: 963 native fns, 813 owned addresses, 775 LIVE / 188 ORPHAN.
 | 0x8012D9E8 | LIVE | `Render::fxRotSpriteTailRender` | game/render/fx_sprite.cpp:573 |  | 's SPRITE TAIL. This controller is two emitters in one function: a lar… |
 | 0x8012DA04 | LIVE | `beh_typed_anim_spawn` | game/ai/beh_typed_anim_spawn.cpp:45 |  |  |
 | 0x8012E868 | LIVE | `Render::fxAltAnimSpriteRender` | game/render/fx_sprite.cpp:532 |  | (A01 overlay) — the animation-script member of the family. Same shape … |
-| 0x8012E8A8 | ORPHAN | `func_8012E8A8` | game/ai/beh_substate_edge_leaves.cpp:101 | 0x80084A80 | func_8012E8A8 — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_8012E8… |
+| 0x8012E8A8 | ORPHAN | `func_8012E8A8` | game/ai/beh_substate_edge_leaves.cpp:102 | 0x80084A80 | func_8012E8A8 — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_8012E8… |
 | 0x8012EB54 | LIVE | `beh_substate_edge_orchestrator` | game/ai/beh_substate_edge_orchestrator.cpp:47 | 0x8012E8A8 0x8012ED84 0x8012F494 0x8012F5B4 0x8012FD88 0x80130524 … |  |
-| 0x8012F494 | ORPHAN | `func_8012F494` | game/ai/beh_substate_edge_leaves.cpp:182 | 0x80130788 0x801308E0 0x801314B4 | func_8012F494 — DRAFT. RE'd from generated/ov_a00_shard_0.c gen_8012F4… |
-| 0x80130524 | ORPHAN | `func_80130524` | game/ai/beh_substate_edge_leaves.cpp:256 | 0x80077768 0x801308E0 | func_80130524 — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_801305… |
-| 0x80130AC4 | LIVE | `SubstateEdgeLeaves::visibilityGate` | game/ai/substate_edge_native.cpp:20 | 0x80077A4C | ORACLE: ov_a00_gen_80130AC4 |
-| 0x80131134 | LIVE | `SubstateEdgeLeaves::armPendingChildPair` | game/ai/substate_edge_native.cpp:211 |  | ORACLE: ov_a00_gen_80131134 |
-| 0x801316CC | LIVE | `SubstateEdgeLeaves::tickChildOscillators` | game/ai/substate_edge_native.cpp:172 |  | ORACLE: ov_a00_gen_801316CC |
+| 0x8012F494 | LIVE | `SubstateEdgeLeaves::substate0Tick` | game/ai/substate_edge_native.cpp:308 |  | the orchestrator's node[5]==0 sub-state tick. 14,833 substrate dispatc… |
+| 0x80130524 | ORPHAN | `func_80130524` | game/ai/beh_substate_edge_leaves.cpp:190 | 0x80077768 0x801308E0 | func_80130524 — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_801305… |
+| 0x80130AC4 | LIVE | `SubstateEdgeLeaves::visibilityGate` | game/ai/substate_edge_native.cpp:23 | 0x80077A4C | ORACLE: ov_a00_gen_80130AC4 |
+| 0x80131134 | LIVE | `SubstateEdgeLeaves::armPendingChildPair` | game/ai/substate_edge_native.cpp:214 |  | ORACLE: ov_a00_gen_80131134 |
+| 0x801316CC | LIVE | `SubstateEdgeLeaves::tickChildOscillators` | game/ai/substate_edge_native.cpp:175 |  | ORACLE: ov_a00_gen_801316CC |
 | 0x80131D08 | LIVE | `beh_two_child_steer` | game/ai/beh_two_child_steer.cpp:48 |  |  |
 | 0x80132400 | LIVE | `beh_single_child_cull` | game/ai/beh_single_child_cull.cpp:44 |  |  |
 | 0x8013259C | LIVE | `beh_cull_substate_orchestrator` | game/ai/beh_cull_substate_orchestrator.cpp:52 | 0x8013272C 0x80132954 0x80132A88 0x80132D58 0x80132EDC 0x80133184 … |  |
 | 0x8013272C | ORPHAN | `func_8013272C` | game/ai/beh_cull_substate_leaves.cpp:55 | 0x80048750 0x800518FC 0x80051B70 0x801252C0 0x80133774 | func_8013272C — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_801327… |
-| 0x80132954 | ORPHAN | `func_80132954` | game/ai/beh_cull_substate_leaves.cpp:153 | 0x801332C4 0x80133610 0x80133700 | func_80132954 — DRAFT. RE'd from generated/ov_a00_shard_0.c gen_801329… |
-| 0x80132A88 | ORPHAN | `func_80132A88` | game/ai/beh_cull_substate_leaves.cpp:362 | 0x8004CBD8 0x80074590 0x80077768 | func_80132A88 — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_80132A… |
-| 0x80132D58 | ORPHAN | `func_80132D58` | game/ai/beh_cull_substate_leaves.cpp:208 | 0x80051B04 0x80133610 0x80133700 0x80133774 | func_80132D58 — DRAFT. RE'd from generated/ov_a00_shard_0.c gen_80132D… |
-| 0x80132EDC | ORPHAN | `func_80132EDC` | game/ai/beh_cull_substate_leaves.cpp:555 | 0x80133610 0x80133700 0x80133774 | func_80132EDC — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_80132E… |
-| 0x80133184 | ORPHAN | `func_80133184` | game/ai/beh_cull_substate_leaves.cpp:283 | 0x80027144 0x80040B48 0x8004ED94 0x80074590 | func_80133184 — DRAFT. RE'd from generated/ov_a00_shard_0.c gen_801331… |
-| 0x80133550 | LIVE | `CullSubstateLeaves::tickChildEulerZSwing` | game/ai/cull_substate_native.cpp:9 |  | ORACLE: ov_a00_gen_80133550 |
+| 0x80132954 | LIVE | `CullSubstateLeaves::tickSubstateZero` | game/ai/cull_substate_native.cpp:223 |  | the orchestrator's sub-state-zero tick. 7,583 substrate dispatches per… |
+| 0x80132A88 | LIVE | `CullSubstateLeaves::tickChildEulerZSwingPhase` | game/ai/cull_substate_native.cpp:58 | 0x8004CBD8 0x80074590 0x80077768 | the phase-advancing sibling of tickChildEulerZSwing above. 7,650 subst… |
+| 0x80132D58 | ORPHAN | `func_80132D58` | game/ai/beh_cull_substate_leaves.cpp:162 | 0x80051B04 0x80133610 0x80133700 0x80133774 | func_80132D58 — DRAFT. RE'd from generated/ov_a00_shard_0.c gen_80132D… |
+| 0x80132EDC | ORPHAN | `func_80132EDC` | game/ai/beh_cull_substate_leaves.cpp:323 | 0x80133610 0x80133700 0x80133774 | func_80132EDC — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_80132E… |
+| 0x80133184 | ORPHAN | `func_80133184` | game/ai/beh_cull_substate_leaves.cpp:237 | 0x80027144 0x80040B48 0x8004ED94 0x80074590 | func_80133184 — DRAFT. RE'd from generated/ov_a00_shard_0.c gen_801331… |
+| 0x80133550 | LIVE | `CullSubstateLeaves::tickChildEulerZSwing` | game/ai/cull_substate_native.cpp:12 |  | ORACLE: ov_a00_gen_80133550 |
 | 0x80133C14 | LIVE | `beh_typed_table_seed_gate` | game/ai/beh_typed_table_seed_gate.cpp:299 |  |  |
 | 0x80133D6C | LIVE | `beh_twin_record_steer` | game/ai/beh_twin_record_steer.cpp:68 |  |  |
 | 0x80134FD8 | LIVE | `beh_multi_record_phase_machine` | game/ai/beh_multi_record_phase_machine.cpp:66 |  |  |

@@ -18,5 +18,10 @@ public:
   // second word for the same field.
   static void tickChildEulerZSwing(Core* c);
 
+  // FUN_80132A88 — phase-advancing sibling of tickChildEulerZSwing. Replaces a 5-defect draft.
+  static void tickChildEulerZSwingPhase(Core* c);
+  // FUN_80132954 — sub-state-zero tick. Replaces a 6-defect draft.
+  static void tickSubstateZero(Core* c);
+
   static void registerOverrides(Game* game);
 };

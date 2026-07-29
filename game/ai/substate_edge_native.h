@@ -31,5 +31,8 @@ public:
   // the node being one of the two masters (u8[obj+3] < 2) and the target child being idle.
   static void armPendingChildPair(Core* c);
 
+  // FUN_8012F494 — the node[5]==0 sub-state tick. Replaces a draft with eight defects.
+  static void substate0Tick(Core* c);
+
   static void registerOverrides(Game* game);
 };

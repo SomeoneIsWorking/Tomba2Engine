@@ -15,6 +15,9 @@
 #include "substate_edge_native.h"
 #include "override_registry.h"   // engine_set_override_a00
 #include "ov_a00_decls.h"        // the gen bodies the oracle leg runs
+void ov_a00_func_801308E0(Core*);
+void ov_a00_func_80130788(Core*);
+void ov_a00_func_801314B4(Core*);
 
 // ORACLE: ov_a00_gen_80130AC4
 void SubstateEdgeLeaves::visibilityGate(Core* c) {
@@ -294,7 +297,80 @@ void SubstateEdgeLeaves::armPendingChildPair(Core* c) {
     return;
 }
 
+// FUN_8012F494 — the orchestrator's node[5]==0 sub-state tick. 14,833 substrate dispatches per 6000
+// replay frames.
+//
+// REPLACES A DEFECTIVE DRAFT. game/ai/beh_substate_edge_leaves.cpp carried a hand-transliterated
+// func_8012F494 with EIGHT defects against the live extent, the whole-file one being that it descends
+// sp and writes none of its guest stack spills. This body is port_gen output, so the prologue is
+// verbatim and the spills cannot go missing.
+// ORACLE: ov_a00_gen_8012F494
+void SubstateEdgeLeaves::substate0Tick(Core* c) {
+    c->r[29] = c->r[29] + (uint32_t)-24;
+    c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
+    c->r[16] = c->r[4] + c->r[0];
+    c->mem_w32((c->r[29] + (uint32_t)20), c->r[31]);
+    c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)6));
+    { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_8012F4CC; }
+    c->r[31] = 0x8012F4BCu;
+     ov_a00_func_801314B4(c);
+    c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)6));
+    c->r[2] = c->r[2] + (uint32_t)1;
+    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]);
+  L_8012F4CC:;
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)122));
+    c->r[2] = c->r[2] & 2u;
+    { int _t = (c->r[2] != c->r[0]); c->r[3] = c->r[0] + (uint32_t)64; if (_t) goto L_8012F5A4; }
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)96));
+    c->r[2] = c->r[2] & 240u;
+    { int _t = (c->r[2] == c->r[3]); c->r[4] = c->r[16] + c->r[0]; if (_t) goto L_8012F584; }
+    c->r[31] = 0x8012F4FCu;
+    c->r[5] = c->r[0] + (uint32_t)1; ov_a00_func_80130788(c);
+    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_8012F510; }
+    c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[2]);
+    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]); goto L_8012F59C;
+  L_8012F510:;
+    c->r[3] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)3));
+    c->r[2] = c->r[0] + (uint32_t)2;
+    { int _t = (c->r[3] != c->r[2]);  if (_t) goto L_8012F59C; }
+    c->r[5] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)100));
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)84));
+    c->r[2] = c->r[5] & 4095u;
+    { int _t = (c->r[3] == c->r[2]);  if (_t) goto L_8012F59C; }
+    c->r[6] = c->mem_r32((c->r[16] + (uint32_t)196));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)8));
+    c->r[3] = c->r[2] + (uint32_t)-4;
+    c->r[2] = c->r[3] << 16;
+    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
+    c->r[2] = (uint32_t)((int32_t)c->r[2] < 2049);
+    { int _t = (c->r[2] != c->r[0]); c->r[4] = c->r[3] + c->r[0]; if (_t) goto L_8012F560; }
+    c->r[4] = c->r[3] | 61440u;
+  L_8012F560:;
+    c->r[3] = c->r[4] << 16;
+    c->r[2] = c->r[5] << 16;
+    c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[3]);
+    { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[4] & 4095u; if (_t) goto L_8012F57C; }
+    c->r[4] = c->r[5] + c->r[0];
+    c->r[2] = c->r[4] & 4095u;
+  L_8012F57C:;
+    c->mem_w16((c->r[6] + (uint32_t)8), (uint16_t)c->r[2]); goto L_8012F59C;
+  L_8012F584:;
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)120));
+    c->r[2] = c->r[2] & 2u;
+    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_8012F59C; }
+    c->mem_w16((c->r[16] + (uint32_t)120), (uint16_t)c->r[0]);
+  L_8012F59C:;
+    c->r[31] = 0x8012F5A4u;
+    c->r[4] = c->r[16] + c->r[0]; ov_a00_func_801308E0(c);
+  L_8012F5A4:;
+    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)20));
+    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
+    c->r[29] = c->r[29] + (uint32_t)24; return;
+    return;
+}
+
 void SubstateEdgeLeaves::registerOverrides(Game*) {
+  engine_set_override_a00(0x8012F494u, &SubstateEdgeLeaves::substate0Tick, ov_a00_gen_8012F494);
   engine_set_override_a00(0x80130AC4u, &SubstateEdgeLeaves::visibilityGate,        ov_a00_gen_80130AC4);
   engine_set_override_a00(0x801316CCu, &SubstateEdgeLeaves::tickChildOscillators,  ov_a00_gen_801316CC);
   engine_set_override_a00(0x80131134u, &SubstateEdgeLeaves::armPendingChildPair,   ov_a00_gen_80131134);

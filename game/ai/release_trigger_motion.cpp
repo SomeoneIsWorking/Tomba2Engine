@@ -493,6 +493,7 @@ void ReleaseTriggerMotion::circleOrbitMotion(uint32_t obj) {
 static void eov_hoverBobCycle(Core* c)    { eng(c).releaseTriggerMotion.hoverBobCycle(c->r[4]); }
 static void eov_leaderFollowSync(Core* c) { eng(c).releaseTriggerMotion.leaderFollowSync(c->r[4]); }
 static void eov_driftReposition(Core* c)  { eng(c).releaseTriggerMotion.driftReposition(c->r[4], c->r[5]); }
+static void eov_xSweepCycle(Core* c)      { eng(c).releaseTriggerMotion.xSweepCycle(c); }
 static void eov_arcSwoopMotion(Core* c)   { eng(c).releaseTriggerMotion.arcSwoopMotion(c->r[4]); }
 static void eov_doubleArcMotion(Core* c)  { eng(c).releaseTriggerMotion.doubleArcMotion(c->r[4]); }
 static void eov_circleOrbitMotion(Core* c){ eng(c).releaseTriggerMotion.circleOrbitMotion(c->r[4]); }
@@ -504,8 +505,126 @@ extern void ov_a00_gen_801246B4(Core*);
 extern void ov_a00_gen_801249D4(Core*);
 extern void ov_a00_gen_80124C6C(Core*);
 
+
+// FUN_80124328 — a per-frame X-sweep cycle on the release-trigger object. 6,355 substrate dispatches
+// per 6000 replay frames. NO pre-existing draft: this target was the exception to the batch premise,
+// confirmed three ways by the analyst and re-confirmed by the verifier.
+// ORACLE: ov_a00_gen_80124328
+void ReleaseTriggerMotion::xSweepCycle(Core* c) {
+    c->r[6] = c->r[4] + c->r[0];
+    c->r[3] = (uint32_t)c->mem_r8((c->r[6] + (uint32_t)6));
+    c->r[2] = (uint32_t)(c->r[3] < (uint32_t)5);
+    { int _t = (c->r[2] == c->r[0]); c->r[2] = (uint32_t)32785u << 16; if (_t) goto L_801244E0; }
+    c->r[2] = c->r[2] + (uint32_t)-25808;
+    c->r[3] = c->r[3] << 2;
+    c->r[3] = c->r[3] + c->r[2];
+    c->r[2] = c->mem_r32((c->r[3] + (uint32_t)0));
+    {  switch (c->r[2]) { case 0x8012435Cu: goto L_8012435C; case 0x8012439Cu: goto L_8012439C; case 0x801243E8u: goto L_801243E8; case 0x80124448u: goto L_80124448; case 0x80124488u: goto L_80124488; default: rec_dispatch(c, c->r[2]); return; } }
+  L_8012435C:;
+    c->r[2] = c->r[0] + (uint32_t)4096;
+    c->mem_w16((c->r[6] + (uint32_t)72), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)-512;
+    c->mem_w16((c->r[6] + (uint32_t)78), (uint16_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r8((c->r[6] + (uint32_t)6));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)96));
+    c->r[2] = c->r[2] + (uint32_t)1;
+    c->r[3] = c->r[3] & 1u;
+    { int _t = (c->r[3] == c->r[0]); c->mem_w8((c->r[6] + (uint32_t)6), (uint8_t)c->r[2]); if (_t) goto L_8012438C; }
+    c->r[2] = c->r[0] + (uint32_t)1024; goto L_80124390;
+  L_8012438C:;
+    c->r[2] = c->r[0] + (uint32_t)3072;
+  L_80124390:;
+    c->mem_w16((c->r[6] + (uint32_t)68), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)-64;
+    c->mem_w16((c->r[6] + (uint32_t)82), (uint16_t)c->r[2]);
+  L_8012439C:;
+    c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[6] + (uint32_t)68));
+    c->r[2] = c->mem_r32((c->r[6] + (uint32_t)44));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)68));
+    c->r[5] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)82));
+    c->r[4] = c->r[4] << 8;
+    c->r[2] = c->r[2] + c->r[4];
+    c->r[3] = c->r[3] + c->r[5];
+    c->mem_w16((c->r[6] + (uint32_t)68), (uint16_t)c->r[3]);
+    c->r[3] = c->r[3] << 16;
+    { int _t = (c->r[3] != c->r[0]); c->mem_w32((c->r[6] + (uint32_t)44), c->r[2]); if (_t) goto L_801244E0; }
+    c->r[2] = c->r[0] + (uint32_t)-3072;
+    c->mem_w16((c->r[6] + (uint32_t)68), (uint16_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r8((c->r[6] + (uint32_t)6));
+    c->r[3] = c->r[0] + (uint32_t)64;
+  L_801243D8:;
+    c->mem_w16((c->r[6] + (uint32_t)82), (uint16_t)c->r[3]);
+  L_801243DC:;
+    c->r[2] = c->r[2] + (uint32_t)1;
+    c->mem_w8((c->r[6] + (uint32_t)6), (uint8_t)c->r[2]); return;
+  L_801243E8:;
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[6] + (uint32_t)72));
+    c->r[3] = c->mem_r32((c->r[6] + (uint32_t)44));
+    c->r[4] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)78));
+    c->r[2] = c->r[2] << 8;
+    c->r[3] = c->r[3] + c->r[2];
+    c->mem_w32((c->r[6] + (uint32_t)44), c->r[3]);
+    c->r[3] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)72));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)86));
+    c->r[3] = c->r[3] + c->r[4];
+    c->r[2] = c->r[2] + (uint32_t)128;
+    c->mem_w16((c->r[6] + (uint32_t)86), (uint16_t)c->r[2]);
+    c->r[2] = c->r[2] << 16;
+    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
+    c->mem_w16((c->r[6] + (uint32_t)72), (uint16_t)c->r[3]);
+    c->r[3] = c->r[0] + (uint32_t)2048;
+    { int _t = (c->r[2] != c->r[3]); c->r[2] = c->r[0] + (uint32_t)90; if (_t) goto L_801244E0; }
+    c->mem_w16((c->r[6] + (uint32_t)64), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)-4096;
+    c->mem_w16((c->r[6] + (uint32_t)72), (uint16_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r8((c->r[6] + (uint32_t)6));
+    c->r[3] = c->r[0] + (uint32_t)512;
+    c->mem_w16((c->r[6] + (uint32_t)78), (uint16_t)c->r[3]); goto L_801243DC;
+  L_80124448:;
+    c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[6] + (uint32_t)68));
+    c->r[2] = c->mem_r32((c->r[6] + (uint32_t)44));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)68));
+    c->r[5] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)82));
+    c->r[4] = c->r[4] << 8;
+    c->r[2] = c->r[2] + c->r[4];
+    c->r[3] = c->r[3] + c->r[5];
+    c->mem_w16((c->r[6] + (uint32_t)68), (uint16_t)c->r[3]);
+    c->r[3] = c->r[3] << 16;
+    { int _t = (c->r[3] != c->r[0]); c->mem_w32((c->r[6] + (uint32_t)44), c->r[2]); if (_t) goto L_801244E0; }
+    c->r[2] = c->r[0] + (uint32_t)3072;
+    c->mem_w16((c->r[6] + (uint32_t)68), (uint16_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r8((c->r[6] + (uint32_t)6));
+    c->r[3] = c->r[0] + (uint32_t)-64; goto L_801243D8;
+  L_80124488:;
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[6] + (uint32_t)72));
+    c->r[3] = c->mem_r32((c->r[6] + (uint32_t)44));
+    c->r[4] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)78));
+    c->r[2] = c->r[2] << 8;
+    c->r[3] = c->r[3] + c->r[2];
+    c->mem_w32((c->r[6] + (uint32_t)44), c->r[3]);
+    c->r[3] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)72));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)86));
+    c->r[3] = c->r[3] + c->r[4];
+    c->r[2] = c->r[2] + (uint32_t)-128;
+    c->mem_w16((c->r[6] + (uint32_t)86), (uint16_t)c->r[2]);
+    c->r[2] = c->r[2] << 16;
+    { int _t = (c->r[2] != c->r[0]); c->mem_w16((c->r[6] + (uint32_t)72), (uint16_t)c->r[3]); if (_t) goto L_801244E0; }
+    c->r[2] = c->r[0] + (uint32_t)1;
+    c->mem_w8((c->r[6] + (uint32_t)6), (uint8_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)90;
+    c->mem_w16((c->r[6] + (uint32_t)64), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)4096;
+    c->mem_w16((c->r[6] + (uint32_t)72), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)-512;
+    c->mem_w16((c->r[6] + (uint32_t)78), (uint16_t)c->r[2]);
+  L_801244E0:;
+     return;
+}
+
 void ReleaseTriggerMotion::registerOverrides() {
   using overrides::install;   // rec_dispatch-only (A00 overlay leaves) — setter omitted
+  { extern void ov_a00_gen_80124328(Core*);
+    install(0x80124328u, "ReleaseTriggerMotion::xSweepCycle", eov_xSweepCycle, ov_a00_gen_80124328); }
   install(0x80123E9Cu, "ReleaseTriggerMotion::hoverBobCycle",    eov_hoverBobCycle,     ov_a00_gen_80123E9C);
   install(0x801241BCu, "ReleaseTriggerMotion::leaderFollowSync", eov_leaderFollowSync,  ov_a00_gen_801241BC);
   install(0x801244E8u, "ReleaseTriggerMotion::driftReposition",  eov_driftReposition,   ov_a00_gen_801244E8);

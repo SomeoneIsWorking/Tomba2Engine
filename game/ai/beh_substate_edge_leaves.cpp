@@ -7,7 +7,7 @@
 // generated C before registering + SBS-gating. Nothing here is called from anywhere (not installed
 // in the override registry, no shard_set_override) — dead code that only needs to COMPILE.
 //
-// ══ KNOWN DEFECT, ALL FOUR DRAFTS: THE GUEST STACK SPILLS ARE MISSING (found 2026-07-29) ══
+// ══ KNOWN DEFECT, THE THREE REMAINING DRAFTS: GUEST STACK SPILLS MISSING (found 2026-07-29) ══
 //
 // Every draft here descends sp (`c->r[29] -= N`) and then writes NOT ONE of its callee-saved spills
 // into guest memory. There is not a single `mem_w32(c->r[29] + …)` in this file. They stash the
@@ -15,11 +15,12 @@
 // per `abi_extract.py <addr> --contract`:
 //
 //     0x8012E8A8  frame 48   8 spills  (r16-r22, ra @ +16..+44)
-//     0x8012F494  frame 24   2 spills  (r16 @ +16, ra @ +20)
 //     0x80130524  frame 24   2 spills  (r16 @ +16, ra @ +20)
 //     0x8012ED84  frame 56  10 spills  (r16-r23, r30, ra @ +16..+52)
 //
-// That is 22 guest stack writes these drafts omit. Wiring any of them as-is is a GUARANTEED SBS
+// That is 20 guest stack writes these drafts omit. (0x8012F494 was the fourth; it has since been
+// REPLACED by a port_gen body in game/ai/substate_edge_native.cpp and deleted from here — a second
+// analysis found EIGHT defects in it, of which the missing spills were only one.) Wiring any of them as-is is a GUARANTEED SBS
 // divergence: the native leg leaves those bytes stale while the substrate leg writes them, and the
 // byte-compare covers the stack. This is the "MIRROR THE GUEST STACK" rule in CLAUDE.md — descending
 // sp without reproducing the spills is the exact failure it names, and a C local is not a mirror.
@@ -158,76 +159,9 @@ void func_8012E8A8(Core* c) {
   c->r[29] += 48;
 }
 
-// func_8012F494 — DRAFT. RE'd from generated/ov_a00_shard_0.c gen_8012F494 (0x8012F494..0x8012F5A4).
-// Called by beh_substate_edge_orchestrator's node[5]==0 sub-state case
-// (game/ai/beh_substate_edge_orchestrator.cpp:71, `rec_dispatch(c, 0x8012F494u)`). Frame -24:
-// spills r16+ra at +16/+20.
-//
-// Structure: if obj[6]==0, call the (still-unowned) counter-advance leaf 0x801314B4 and post-
-// increment obj[6]. Then a flag/type gate on obj[122]&2 (bit1) and obj[96]&0xF0 selects one of
-// three sub-paths:
-//   - obj[96]&2 clear, obj[96]&0xF0==0x40: call 0x80130788(obj,1); on nonzero result set obj[5]=v0,
-//     obj[6]=0 and skip the tail call; on ==0 result with obj[3]==2 AND
-//     (obj[100] != sx16(obj[84])&0xFFF) something: recompute a "delta-clamped" value into
-//     child(obj[196])[8] — LOW CONFIDENCE past the `r6=mem_r32(obj+196)` load (a fixed-point angle
-//     clamp against a 2049/0xF000 threshold, never confirmed against a live sample).
-//   - obj[96]&2 set (r3==64 path skipped): clear obj[120] bit1 if set.
-//   - (fallthrough / obj[96]&0xF0!=0x40, obj[96]&2 clear): call the tail leaf 0x801308E0(obj)
-//     unconditionally.
-// The tail leaf 0x801308E0(obj) is invoked in the "not already returned" paths (root branch when
-// r2==0 AND the two extra conditions fail, and the obj[96]&2-clear/!=0x40 fallthrough — see the
-// `goto L_8012F59C` labels in ground truth). Transliterated 1:1 below preserving that exact branch
-// shape (kept close to the generated C's own control flow rather than re-derived semantics, since
-// the field roles past obj[96]/[122]/[100]/[84] are NOT independently confirmed).
-void func_8012F494(Core* c) {
-  const uint32_t obj = c->r[4];
-  const uint32_t s16 = c->r[16];
-  c->r[29] -= 24;
+// (removed 70 lines: the hand-transliterated func_8012F494 draft — replaced by a port_gen body,
+//  see the commit that landed it. It carried guest-visible defects; do not resurrect it.)
 
-  if (c->mem_r8(obj + 6) == 0) {
-    c->r[4] = obj; rec_dispatch(c, 0x801314B4u);   // UNOWNED — counter-advance leaf
-    c->mem_w8(obj + 6, (uint8_t)(c->mem_r8(obj + 6) + 1));
-  }
-
-  bool callTail = true;
-  if ((c->mem_r16(obj + 122) & 2) == 0) {
-    if ((c->mem_r16(obj + 96) & 240) == 64) {
-      callTail = false;
-      c->r[4] = obj; c->r[5] = 1;
-      rec_dispatch(c, 0x80130788u);   // UNOWNED
-      uint32_t v0 = c->r[2];
-      if (v0 != 0) {
-        c->mem_w8(obj + 5, (uint8_t)v0);
-        c->mem_w8(obj + 6, 0);
-      } else if (c->mem_r8(obj + 3) == 2 &&
-                 (uint16_t)c->mem_r16(obj + 100) != (uint16_t)(c->mem_r16s(obj + 84) & 4095)) {
-        const uint32_t childPtr = c->mem_r32(obj + 196);
-        int32_t band = (int32_t)(int16_t)(c->mem_r16(childPtr + 8) - 4);
-        uint32_t clampedHi = ((uint32_t)band < 2049) ? (uint32_t)band : (uint32_t)(band | 0xF000);
-        int32_t target = (int16_t)c->mem_r16(obj + 100);
-        uint32_t result = ((int32_t)((uint32_t)target << 16) < (int32_t)(clampedHi << 16))
-                               ? (clampedHi & 4095)
-                               : ((uint32_t)target & 4095);
-        c->mem_w16(childPtr + 8, (uint16_t)result);
-        callTail = true;
-      } else {
-        callTail = true;
-      }
-    } else {
-      callTail = true;
-    }
-  } else {
-    if ((c->mem_r16(obj + 120) & 2) != 0) c->mem_w16(obj + 120, 0);
-    callTail = true;
-  }
-
-  if (callTail) {
-    c->r[4] = obj; rec_dispatch(c, 0x801308E0u);   // UNOWNED tail leaf
-  }
-
-  c->r[16] = s16;
-  c->r[29] += 24;
-}
 
 // func_80130524 — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_80130524 (0x80130524..0x80130778).
 // Called by beh_substate_edge_orchestrator's node[5]==3 sub-state case
