@@ -628,11 +628,11 @@ Totals: 945 native fns, 797 owned addresses, 756 LIVE / 189 ORPHAN.
 | 0x8008238C | LIVE | `func_8008238C` | game/render/wide_re_gpu_putdrawenv.cpp:200 |  | func_8008238C (0x8008238C) — DR_TWIN word builder. DRAFT. RE'd from ge… |
 | 0x80082424 | LIVE | `Render::gpuDmaSend` | game/render/wide_re_gpu_dma_queue.cpp:560 |  | func_80082424 (0x80082424) — GpuDmaSend(arrayPtr, count). VERIFIED & W… |
 | 0x80082734 | LIVE | `Render::gpuLoadImageStream` | game/render/wide_re_gpu_loadimage_streamer.cpp:135 |  | func_80082734 (0x80082734) — libgpu LoadImage()-internal chunked GP0-F… |
-| 0x80082C68 | LIVE | `libgpuDmaStatusReset` | game/render/wide_re_libgpu_leaves.cpp:247 |  | libgpuDmaStatusReset (0x80082C68) — GPU-DMA status-block RESET. DRAFT.… |
+| 0x80082C68 | LIVE | `libgpuDmaStatusReset` | game/render/wide_re_libgpu_leaves.cpp:254 |  | libgpuDmaStatusReset (0x80082C68) — GPU-DMA status-block RESET. RE-VER… |
 | 0x80082D04 | LIVE | `Render::gpuDmaQueueEnqueue` | game/render/wide_re_gpu_dma_queue.cpp:166 |  | func_80082D04 (0x80082D04) — GpuDmaQueueEnqueue(fn, argValOrPtr, sizeB… |
 | 0x80082FB4 | LIVE | `Render::gpuDmaQueueDrain` | game/render/wide_re_gpu_dma_queue.cpp:342 |  | func_80082FB4 (0x80082FB4) — GpuDmaQueueDrain(). VERIFIED & WIRED 2026… |
 | 0x80083364 | LIVE | `Render::gpuDmaQueueSync` | game/render/wide_re_gpu_dma_queue.cpp:464 |  | func_80083364 (0x80083364) — GpuDmaQueueSync(mode). VERIFIED & WIRED 2… |
-| 0x80083DE0 | LIVE | `libgpuSetDrawMode` | game/render/wide_re_libgpu_leaves.cpp:284 |  | libgpuSetDrawMode (0x80083DE0) — libgpu **SetDrawMode(DR_MODE* p, int … |
+| 0x80083DE0 | LIVE | `libgpuSetDrawMode` | game/render/wide_re_libgpu_leaves.cpp:292 |  | libgpuSetDrawMode (0x80083DE0) — libgpu **SetDrawMode(DR_MODE* p, int … |
 | 0x80083E80 | LIVE | `Trig::rsin` | game/math/trig.cpp:4 |  |  |
 | 0x80083E80 | LIVE | `Trig::registerOverrides` | game/math/trig.cpp:114 |  | UNREGISTERED (2026-07-15): rsin/ratan2 are NOT safe as overrides. Thei… |
 | 0x80083F50 | LIVE | `Trig::rcos` | game/math/trig.cpp:69 |  |  |
@@ -643,7 +643,7 @@ Totals: 945 native fns, 797 owned addresses, 756 LIVE / 189 ORPHAN.
 | 0x80084360 | LIVE | `Math::matLoadLV` | game/math/gte_math.cpp:411 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80084470 | LIVE | `Math::applyMatrixLV` | game/math/gte_math.cpp:170 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80084520 | LIVE | `Math::matColScale` | game/math/gte_math.cpp:456 |  | ORACLE: gen_func_80084520 |
-| 0x800847B0 | LIVE | `vertexHeaderRepack` | game/render/wide_re_libgpu_leaves.cpp:329 |  | vertexHeaderRepack (0x800847B0) — 20-byte SoA->AoS vertex-header REPAC… |
+| 0x800847B0 | LIVE | `vertexHeaderRepack` | game/render/wide_re_libgpu_leaves.cpp:337 |  | vertexHeaderRepack (0x800847B0) — 20-byte SoA->AoS vertex-header REPAC… |
 | 0x800847F0 | LIVE | `Math::rotMatSoft` | game/math/gte_math.cpp:323 |  |  |
 | 0x80084D10 | LIVE | `Math::rotX` | game/math/gte_math.cpp:297 |  |  |
 | 0x80084EB0 | LIVE | `Math::rotY` | game/math/gte_math.cpp:296 |  |  |

@@ -217,14 +217,16 @@ void Render::clearOTagR() {
 // `0x80080F6C native=1045 oracle=1045`, `0x80081458 native=1020 oracle=1020` — real gate coverage,
 // not a "0-diff because never called" false positive.
 // libgpuSetDrawMode (0x80083DE0, SetDrawMode) joined them 2026-07-29, after a line-by-line re-verify against its gen
-// body corrected a wrong-argument defect the draft carried (see its banner below). libgpuDmaStatusReset and
-// vertexHeaderRepack remain unwired wide-RE drafts — neither has been re-verified.
+// body corrected a wrong-argument defect the draft carried (see its banner below), and
+// libgpuDmaStatusReset joined on the same day after a re-verify found its draft already faithful.
+// vertexHeaderRepack remains an unwired, un-re-verified wide-RE draft.
 namespace {
 void ov_drawSync(Core* c)    { rend(c)->drawSync(); }
 void ov_clearOTagR(Core* c)  { rend(c)->clearOTagR(); }
 }  // namespace
 
-static void libgpuSetDrawMode(Core* c);   // SetDrawMode — defined below, wired here
+static void libgpuSetDrawMode(Core* c);      // SetDrawMode — defined below, wired here
+static void libgpuDmaStatusReset(Core* c);   // GPU-DMA status-block reset — ditto
 
 void gpu_libgpu_leaves_install() {
   static bool done = false;
@@ -232,10 +234,15 @@ void gpu_libgpu_leaves_install() {
   done = true;
   engine_set_override_main(0x80080F6Cu, ov_drawSync,     gen_func_80080F6C);
   engine_set_override_main(0x80081458u, ov_clearOTagR,   gen_func_80081458);
-  engine_set_override_main(0x80083DE0u, libgpuSetDrawMode,   gen_func_80083DE0);
+  engine_set_override_main(0x80083DE0u, libgpuSetDrawMode,    gen_func_80083DE0);
+  engine_set_override_main(0x80082C68u, libgpuDmaStatusReset, gen_func_80082C68);
 }
 
-// libgpuDmaStatusReset (0x80082C68) — GPU-DMA status-block RESET. DRAFT. RE'd from generated/shard_2.c gen_func_80082C68
+// libgpuDmaStatusReset (0x80082C68) — GPU-DMA status-block RESET. RE-VERIFIED + WIRED 2026-07-29
+// (line-by-line against generated/shard_2.c gen_func_80082C68:11051-11069: all four target addresses
+// 0x800A5AA8/AAC/AB0/AB4 and all four stored values matched, in store order, with only v0 missing).
+// Unlike libgpuSetDrawMode below, this draft was FAITHFUL — which is why the bank has to be checked
+// rather than assumed either way. RE'd from generated/shard_2.c gen_func_80082C68
 // (19 gen-C ln, no branches, no calls — fully self-contained). Not itself a GPU_SYS_TABLE entry
 // (no table dereference); writes the same status-block fields the 0x80082D04 completion-queue
 // cluster (MAPPED, not drafted — see file header) tests every call. Guest ABI: a0 = an opaque
@@ -254,6 +261,7 @@ static void libgpuDmaStatusReset(Core* c) {
   c->mem_w32(arg1Ptr, 0);
   uint32_t statePtr = c->mem_r32(GPU_DMA_STATE_PTR);
   c->mem_w32(statePtr, (256u << 16) | 1025u);
+  c->r[2] = statePtr;   // v0: the gen body's last pointer load is left in r2 at return
 }
 
 // libgpuSetDrawMode (0x80083DE0) — libgpu **SetDrawMode(DR_MODE* p, int dfe, int dtd, int tpage,
