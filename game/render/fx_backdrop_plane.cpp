@@ -35,6 +35,7 @@
 #include "render_queue.h"
 #include "render_internal.h"   // ObjScope / proj_pz_to_ord
 #include "projection.h"        // EObjXform
+#include "fx_node.h"          // FxNode — the walk-owned header lens this controller extends
 #include "fx_sprite.h"         // SpriteAnchor — the spark half is FUN_80027A4C family
 #include "mesh_quads.h"        // MeshQuads::rotmat — host-output 3x3 from three Euler angles
 #include "cfg.h"
@@ -42,8 +43,20 @@
 
 namespace {
 
-constexpr uint32_t kPlanePos    = 0x2Cu;        // world position: three s16 at +0x2C/+0x2E/+0x30
-constexpr uint32_t kPlaneRot    = 0x48u;        // Euler angles: three s16 at +0x48/+0x4A/+0x4C
+// The A0E backdrop controller's OWN view of its node. Note +0x48 is EULER ANGLES here, where the
+// area-8 mote controller uses the same offset for a per-frame cube base — exactly the per-controller
+// divergence FxNode refuses to paper over.
+class PlaneNode : public FxNode {
+public:
+  using FxNode::FxNode;
+  int32_t posX() const { return s16(0x2Cu); }
+  int32_t posY() const { return s16(0x2Eu); }
+  int32_t posZ() const { return s16(0x30u); }
+  int32_t rotX() const { return s16(0x48u); }   // Euler angles, NOT a cube base
+  int32_t rotY() const { return s16(0x4Au); }
+  int32_t rotZ() const { return s16(0x4Cu); }
+};
+
 constexpr uint32_t kTickWord    = 0x1F80017Cu;  // the frame tick the scroll is derived from
 constexpr int      kTpage       = 45;
 constexpr int      kClut        = 16190;        // 0x3F3E
@@ -86,16 +99,13 @@ void Render::fxBackdropPlaneRender(uint32_t node) {
   // The node's own orientation, composed with the scene camera. The guest does
   // rotmat(node+0x48) -> matMul(Rcam, Rnode) -> applyMatlv(nodePos) -> += camT, which is exactly
   // projComposeObjectHost(Rnode, nodePos).
+  const PlaneNode pn(c, node);
   int32_t M[3][3];
-  MeshQuads::rotmat(c, (int16_t)c->mem_r16(node + kPlaneRot),
-                       (int16_t)c->mem_r16(node + kPlaneRot + 2u),
-                       (int16_t)c->mem_r16(node + kPlaneRot + 4u), M);
+  MeshQuads::rotmat(c, (int16_t)pn.rotX(), (int16_t)pn.rotY(), (int16_t)pn.rotZ(), M);
   float Robj[3][3];
   for (int i = 0; i < 3; i++)
     for (int j = 0; j < 3; j++) Robj[i][j] = (float)M[i][j];
-  const float Tobj[3] = { (float)c->mem_r16s(node + kPlanePos),
-                          (float)c->mem_r16s(node + kPlanePos + 2u),
-                          (float)c->mem_r16s(node + kPlanePos + 4u) };
+  const float Tobj[3] = { (float)pn.posX(), (float)pn.posY(), (float)pn.posZ() };
   EObjXform cam;
   projComposeObjectHost(Robj, Tobj, &cam);
 

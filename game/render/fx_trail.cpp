@@ -32,6 +32,7 @@
 #include "render.h"
 #include "render_queue.h"
 #include "render_internal.h"   // ObjScope
+#include "fx_node.h"          // FxNode — the walk-owned header lens this controller extends
 #include "game_ctx.h"          // trigOf(c)
 #include "trig.h"              // Trig::ratan2 / rcos / rsin — direct calls, see the note below
 #include "cfg.h"
@@ -45,8 +46,18 @@
 
 namespace {
 
-constexpr uint32_t kTrailPoints  = 0x3Cu;        // 11 x { s16 x, s16 y }, stride 4
 constexpr int      kTrailSlots   = 11;
+
+// The A03 trail controller's OWN view of its node. The only field it owns is the history ring at
+// +0x3C — SCREEN points, not world ones, which is why nothing here goes near the family's anchor
+// slots. Naming it in a lens keeps that distinction at the call site.
+class TrailNode : public FxNode {
+public:
+  using FxNode::FxNode;
+  static constexpr uint32_t kPoints = 0x3Cu;   // 11 x { s16 x, s16 y }, stride 4
+  int32_t pointX(int i) const { return s16(kPoints + (uint32_t)i * 4u); }
+  int32_t pointY(int i) const { return s16(kPoints + (uint32_t)i * 4u + 2u); }
+};
 constexpr uint32_t kTrailRamp    = 0x80108FDCu;  // 16 u32 colour words; only [0..10] are ever read
 constexpr int      kTrailQuarter = 1024;         // a quarter turn in PSX angle units (4096 = full)
 constexpr int      kTrailWide    = 2;            // halo is 4x the core: perp << 2
@@ -70,7 +81,8 @@ void Render::fxMotionTrailRender(uint32_t node) {
   const Trig& trig = trigOf(c);
   RenderQueue& rq = c->game->activeRq();
 
-  Pt prev{ c->mem_r16s(node + kTrailPoints), c->mem_r16s(node + kTrailPoints + 2u) };
+  const TrailNode tn(c, node);
+  Pt prev{ tn.pointX(0), tn.pointY(0) };
 
   // The degeneracy history. bit0 = "this point is null or a duplicate", bit1 = the PREVIOUS
   // iteration's bit0 — so one bad point suppresses the segment ending at it AND the next one.
@@ -81,8 +93,7 @@ void Render::fxMotionTrailRender(uint32_t node) {
 
   ObjScope objScope(c, node);
   for (int i = 1; i < kTrailSlots; i++) {
-    const uint32_t slot = node + kTrailPoints + (uint32_t)i * 4u;
-    const Pt cur{ c->mem_r16s(slot), c->mem_r16s(slot + 2u) };
+    const Pt cur{ tn.pointX(i), tn.pointY(i) };
 
     hist = (hist << 1) & 3;
     if (cur.x == 0 && cur.y == 0) hist |= 1;
