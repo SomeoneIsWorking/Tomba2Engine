@@ -15,6 +15,19 @@
 #include "substate_edge_native.h"
 #include "override_registry.h"   // engine_set_override_a00
 #include "ov_a00_decls.h"        // the gen bodies the oracle leg runs
+#include "assembly_node.h"       // AssemblyNode — the typed lens over this class's node
+
+namespace {
+// tickChildOscillators' frame + loop constants. The ra value is the RE'd guest return address, not a
+// magic number: the sub-part tick is still substrate and spills whatever r31 holds.
+constexpr uint32_t kOscFrame      = 32;
+constexpr uint32_t kOscSpillSlot  = 16;   // r16
+constexpr uint32_t kOscSpillNode  = 20;   // r17
+constexpr uint32_t kOscSpillRa    = 24;   // r31
+constexpr uint32_t kRaAfterPartTick = 0x80131728u;
+constexpr int32_t  kFirstDrivenPart = 2;  // k starts at 2 -> slot 4 (or 3 outside pair mode)
+constexpr int32_t  kPartLimit       = 4;  // loop runs k = 2, 3
+}  // namespace
 void ov_a00_func_801308E0(Core*);
 void ov_a00_func_80130788(Core*);
 void ov_a00_func_801314B4(Core*);
@@ -173,41 +186,46 @@ void SubstateEdgeLeaves::visibilityGate(Core* c) {
 
 // ORACLE: ov_a00_gen_801316CC
 void SubstateEdgeLeaves::tickChildOscillators(Core* c) {
-    c->r[29] = c->r[29] + (uint32_t)-32;
-    c->mem_w32((c->r[29] + (uint32_t)20), c->r[17]);
-    c->r[17] = c->r[4] + c->r[0];
-    c->mem_w32((c->r[29] + (uint32_t)24), c->r[31]);
-    c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
-    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)96));
-    c->r[2] = c->r[2] & 4u;
-    { int _t = (c->r[2] == c->r[0]); c->r[16] = c->r[0] + (uint32_t)2; if (_t) goto L_80131754; }
-    c->r[2] = c->r[16] << 16;
-  L_801316F8:;
-    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 14);
-    c->r[3] = c->r[2] + (uint32_t)-4;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)96));
-    c->r[2] = c->r[2] & 2u;
-    { int _t = (c->r[2] != c->r[0]); c->r[5] = c->r[3] + c->r[0]; if (_t) goto L_80131718; }
-    c->r[5] = c->r[3] + (uint32_t)-1;
-  L_80131718:;
-    c->r[5] = c->r[5] << 16;
-    c->r[4] = c->r[17] + c->r[0];
-    c->r[31] = 0x80131728u;
-    c->r[5] = (uint32_t)((int32_t)c->r[5] >> 16); ov_a00_func_80130D5C(c);
-    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)96));
-    c->r[2] = c->r[2] & 2u;
-    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[16] + (uint32_t)1; if (_t) goto L_80131754; }
-    c->r[16] = c->r[2] + c->r[0];
-    c->r[2] = c->r[2] << 16;
-    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
-    c->r[2] = (uint32_t)((int32_t)c->r[2] < 4);
-    { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[16] << 16; if (_t) goto L_801316F8; }
-  L_80131754:;
-    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)24));
-    c->r[17] = c->mem_r32((c->r[29] + (uint32_t)20));
-    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
-    c->r[29] = c->r[29] + (uint32_t)32; return;
-    return;
+  // Guest frame, mirrored exactly: sp descends 32, r17/ra/r16 spill at +20/+24/+16 in that order.
+  const uint32_t sp0 = c->r[29];
+  c->r[29] = sp0 - kOscFrame;
+  c->mem_w32(c->r[29] + kOscSpillNode, c->r[17]);
+  c->r[17] = c->r[4];                       // node stays in r17 for the whole body — see below
+  c->mem_w32(c->r[29] + kOscSpillRa,   c->r[31]);
+  c->mem_w32(c->r[29] + kOscSpillSlot, c->r[16]);
+
+  // LIVE-REGISTER LAW (docs/findings/sbs.md, game/render/subpart_walk.cpp): the sub-part tick is
+  // still substrate and its prologue SPILLS its incoming r16/r17 into its own guest frame. So the
+  // loop counter and the node pointer are guest-visible state at the call, not bookkeeping — they
+  // live in the guest registers and are only NAMED here.
+  uint32_t& partIndex = c->r[16];           // the guest's k: 2, then 3
+  const AssemblyNode node(c, c->r[17]);
+
+  partIndex = kFirstDrivenPart;
+  if (node.hasOscillatingParts()) {
+    for (;;) {
+      // slot = k*4 - 4, one lower when the assembly is NOT in pair mode. The <<16 >>14 the guest
+      // writes is sext16(k) * 4; the shifts are the sign-extension, not a scale trick.
+      const int32_t k    = (int16_t)(uint16_t)partIndex;
+      const int32_t slot = k * 4 - 4 - (node.oscillatorPairMode() ? 0 : 1);
+
+      c->r[4]  = node.addr();
+      c->r[5]  = (uint32_t)(int32_t)(int16_t)(uint16_t)slot;
+      c->r[31] = kRaAfterPartTick;
+      ov_a00_func_80130D5C(c);              // the per-sub-part oscillator, still substrate
+
+      // Re-read the config word AFTER the call — the tick above can clear pair mode, and when it is
+      // clear this loop runs exactly once. Caching it across the call would change behaviour.
+      if (!node.oscillatorPairMode()) break;
+      partIndex = (uint32_t)(int32_t)(int16_t)(uint16_t)(partIndex + 1);
+      if ((int16_t)(uint16_t)partIndex >= kPartLimit) break;
+    }
+  }
+
+  c->r[31] = c->mem_r32(c->r[29] + kOscSpillRa);
+  c->r[17] = c->mem_r32(c->r[29] + kOscSpillNode);
+  c->r[16] = c->mem_r32(c->r[29] + kOscSpillSlot);
+  c->r[29] = sp0;
 }
 
 // ORACLE: ov_a00_gen_80131134
