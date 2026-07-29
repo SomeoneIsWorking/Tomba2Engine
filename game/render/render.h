@@ -14,6 +14,7 @@
 #include "margin_render.h"    // class MarginRenderer — widescreen margin collect-and-flush
 #include "lighting.h"
 #include "fx_motes.h"        // class MoteStreaks — the area-8 streak shadow
+#include "guest_rng_mirror.h" // class GuestRngMirror — read-only stand-in for the guest PRNG
 #include "effect_lerp.h"      // class EffectLerp — the effect-node actor-transform interpolation tier           // class Lighting — per-area light registry (sun / lava+torch)
 #include <unordered_set>
 #include <vector>
@@ -413,6 +414,7 @@ public:
   // The effect-node interpolation tier (game/render/effect_lerp.h): world points the effect producers
   // own, captured on the real frame and blended on the fps60 in-between so effects lerp like the rest.
   EffectLerp mEffectLerp;
+  GuestRngMirror    mRngMirror;     // read-only PRNG stand-in (claim C018) — never writes 0x80105EE8
   MoteStreaks       mMoteStreaks;   // area-8 streaks: last logic frame's projected mote positions
 
   // fieldHudRender (game/render/field_hud.cpp): native producer for the field HUD family

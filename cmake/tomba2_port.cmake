@@ -228,6 +228,7 @@ set(GAME_SRC
   game/render/fx_dotfield.cpp
   game/render/fx_backdrop_plane.cpp
   game/render/fx_motes.cpp
+  game/render/guest_rng_mirror.cpp
   game/render/fx_vortex.cpp
   game/render/fx_line.cpp
   game/render/fx_ring.cpp

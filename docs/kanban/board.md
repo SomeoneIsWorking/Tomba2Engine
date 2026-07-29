@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (29)
+## TODO (28)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
@@ -34,7 +34,6 @@
 - **#66 A0L phase byte 0x800BFA55 gates the area-21 jet effect (FUN_8010C1D8) — need a scene where it reaches >= 4**  `render`
 - **#67 Area-14 backdrop: FUN_80110CA4's sprite tail 0x801104D0 (440 lines) is unported**  `render`
 - **#68 Area-4 ambient effect FUN_8013B118 is gated off in every reachable state (phase 1, fade 4096)**  `render,verification`
-- **#69 Read-only producers cannot use the guest PRNG (FUN_8009A450 writes seed 0x80105EE8) — needs a host-side mirror design**  `render`
 
 ## DOING (4)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
@@ -42,7 +41,7 @@
 - **#45 CAMPAIGN: render everything natively — retire the substrate-GTE projection producers to float-native**  `render,campaign`
 - **#47 pc_skip: entering 'House on the Point' corrupts state (music stops, camera unfollows, interior vibrates)**  `bug,pc-skip`
 
-## DONE (36)
+## DONE (37)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -79,3 +78,4 @@
 - **#59 Item menu chrome renders TOO DARK — and psx_render shares it, so the 0/76800 gate is blind**  `render,bug` — 📎 docs/reference/issues/issue59_item_menu_too_dark.png
 - **#60 SEQUENCE softlock (live capture) — game keeps running, sequence never advances**  `bug,pc-skip` — 📎 docs/reference/issues/issue60_sequence_softlock.png
 - **#61 SBS-full is RED on main at 0x801FE808 — pre-existing, reproduces on an unmodified HEAD build**  `bug,verification`
+- **#69 Read-only producers cannot use the guest PRNG (FUN_8009A450 writes seed 0x80105EE8) — needs a host-side mirror design**  `render`
