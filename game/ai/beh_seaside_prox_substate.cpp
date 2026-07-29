@@ -154,7 +154,12 @@ void modeArm(Core* c, int32_t mode) {
   c->r[4] = sp0;
   c->r[5] = vramBase + (uint32_t)index * 0x20;
   uint32_t saveSp = c->r[29]; c->r[29] = frameSp;
-  rec_dispatch(c, 0x80081218u);                           // Asset::uploadImage / GpuState upload (EngineOverride)
+  // Runs the SUBSTRATE body, deliberately. The trailing "(EngineOverride)" this line used to carry
+  // was wrong: 0x80081218 is not registered and must not be — Asset::uploadImage is a PC-native
+  // REPLACEMENT that writes host VRAM and skips the guest's GsSortObject ring enqueue, so wiring it
+  // would make core A omit guest writes core B performs. The substrate path here does the enqueue,
+  // which is what keeps this call byte-exact. See the banner above Asset::uploadImage.
+  rec_dispatch(c, 0x80081218u);
   c->r[29] = saveSp;
   c->mem_w32(MODEARM_TABLE_PTR, ptr + 2);                 // advance the duration/index cursor
 }

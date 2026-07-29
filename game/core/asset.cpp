@@ -230,6 +230,14 @@ void Asset::loadTexgroup() {
 // (later-177): the unpack call site only ever passes a0=0 with an empty ring. DIAG: PSXPORT_DEBUG=unpacksync
 // restores the per-image super-call to prove equivalence.
 
+// DO NOT REGISTER 0x80081218 IN THE OVERRIDE REGISTRY. It surfaces near the top of every
+// `PSXPORT_DEBUG=recdep` sweep (7,558 substrate dispatches per 6000 replay frames, 2026-07-29) and
+// looks exactly like the free win that Mtx::identity was — a LIVE native whose address nobody
+// installed. It is not. The body below is a REPLACEMENT, not a mirror: it writes host VRAM directly
+// and deliberately skips the guest's GsSortObject ring enqueue that the recompiled body performs.
+// Wiring it would make core A omit guest writes core B still makes, i.e. an SBS divergence by
+// construction. The dispatches are the faithful path doing its job, not a porting gap — leave them.
+//
 // PC-native CPU->VRAM upload — replaces the game's libgs-style upload library FUN_80081218
 // (0x80081218). RE (verified empirically vs the A0 upload log, later-62/63): desc = descriptor
 // { x:s16@0, y:s16@2, w:s16@4, h:s16@6 }, src = source pixel data (w*h contiguous 16-bit pixels,

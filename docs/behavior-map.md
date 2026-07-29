@@ -3,12 +3,22 @@
 Durable ledger of SANCTIONED deviations from the byte-exact reference. Primary axis = GUEST-MEMORY AFFECT (how much canon guest state a deviation touches). One `## ` block per
 deviation, grouped by affect. `tools/behavior.py` = view · `... <words>` = search · `... check` = gate (a canon-affecting change must be SBS-suppressed).
 
-**By affect:** 4 none · 2 non-canon · 2 full
-**By status:** 1 verified · 4 implemented · 2 planned · 1 reverted
+**By affect:** 5 none · 2 non-canon · 2 full
+**By status:** 1 verified · 5 implemented · 2 planned · 1 reverted
 
 ---
 
 ### **affect: none** — pure host-side overlay, writes NO guest memory. Any guest write is a BUG (SBS catches it).
+
+## native-vram-upload
+- **class:** pc_render
+- **affect:** none
+- **status:** implemented
+- **original:** FUN_80081218 enqueues the rect into the guest's GsSortObject ring at 0x800A5AC8, DMA'd later as a GP0 0xA0 packet
+- **altered:** Asset::uploadImage writes the rect straight into native VRAM and does NOT enqueue; the later ring flush no-ops over an empty ring
+- **guard:** Reached ONLY by native callers that call the method directly. 0x80081218 is deliberately NOT in the override registry, so every guest/substrate caller still runs the recompiled body and still performs the ring enqueue — which is what keeps SBS byte-exact. Registering the address would break that by construction.
+- **owner:** game/core/asset.cpp Asset::uploadImage
+- **notes:** Recorded 2026-07-29 after the address surfaced high on a recdep sweep and looked like an unwired-native free win. It is not one; the banner in asset.cpp and the call site in beh_seaside_prox_substate.cpp both say so now.
 
 ## pc-render
 - **class:** pc_render
