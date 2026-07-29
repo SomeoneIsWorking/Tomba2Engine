@@ -443,7 +443,7 @@ void SubstateEdgeLeaves::perChildTransformPropagate(Core* c) {
     c->mem_w32((c->r[29] + (uint32_t)24), c->r[18]);
     c->r[31] = 0x8012E8DCu;
     c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]); rec_dispatch(c, 0x80085480u);
-    c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)8));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[17] + kNodePartCount));
     { int _t = (c->r[2] == c->r[0]); c->r[19] = c->r[0] + c->r[0]; if (_t) goto L_8012EB2C; }
     c->r[21] = (uint32_t)8064u << 16;
     c->r[22] = c->r[21] + (uint32_t)0;
@@ -485,7 +485,7 @@ void SubstateEdgeLeaves::perChildTransformPropagate(Core* c) {
   L_8012E990:;
     { int _t = (c->r[19] == c->r[2]); c->r[2] = c->r[0] + (uint32_t)3; if (_t) goto L_8012E9B4; }
     { int _t = (c->r[19] != c->r[2]);  if (_t) goto L_8012EA44; }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)96));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + kNodeConfig));
     c->r[2] = c->r[2] & 2u;
     { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_8012EA44; }
   L_8012E9B4:;
@@ -494,13 +494,13 @@ void SubstateEdgeLeaves::perChildTransformPropagate(Core* c) {
     c->r[5] = c->r[21] + (uint32_t)0; rec_dispatch(c, 0x80085480u);
     c->r[31] = 0x8012E9C8u;
     c->r[4] = c->r[20] + c->r[0]; rec_dispatch(c, 0x80051794u);
-    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)96));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + kNodeConfig));
     c->r[2] = c->r[2] & 1u;
     { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_8012E9E8; }
     c->r[2] = c->mem_r32((c->r[17] + (uint32_t)196));
      goto L_8012E9EC;
   L_8012E9E8:;
-    c->r[2] = c->mem_r32((c->r[17] + (uint32_t)192));
+    c->r[2] = c->mem_r32((c->r[17] + kChildTableOff));
   L_8012E9EC:;
     c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)12));
     c->r[31] = 0x8012E9FCu;
@@ -523,7 +523,7 @@ void SubstateEdgeLeaves::perChildTransformPropagate(Core* c) {
     c->r[6] = c->r[5] + (uint32_t)44; rec_dispatch(c, 0x80084470u);
     c->r[4] = c->r[18] << 16; goto L_8012EABC;
   L_8012EA44:;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)96));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + kNodeConfig));
     c->r[2] = c->r[2] & 1u;
     { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_8012EA78; }
     c->r[31] = 0x8012EA60u;
@@ -574,7 +574,7 @@ void SubstateEdgeLeaves::perChildTransformPropagate(Core* c) {
     c->r[2] = c->r[2] + c->r[3];
     c->mem_w32((c->r[5] + (uint32_t)52), c->r[2]);
   L_8012EB18:;
-    c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)8));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[17] + kNodePartCount));
     c->r[19] = c->r[19] + (uint32_t)1;
     c->r[2] = (uint32_t)((int32_t)c->r[19] < (int32_t)c->r[2]);
     { int _t = (c->r[2] != c->r[0]); c->r[16] = c->r[16] + (uint32_t)4; if (_t) goto L_8012E900; }
@@ -612,7 +612,7 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     c->mem_w32((c->r[29] + (uint32_t)20), c->r[17]);
     c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
   L_8012EDC8:;
-    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)3));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + kNodeRole));
     c->r[2] = c->r[2] + c->r[5];
     c->r[3] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)0));
     c->r[2] = c->r[3] << 2;
@@ -625,18 +625,18 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     c->mem_w16((c->r[4] + (uint32_t)96), (uint16_t)c->r[2]);
     c->r[2] = (uint32_t)((int32_t)c->r[18] < 5);
     { int _t = (c->r[2] != c->r[0]); c->r[4] = c->r[4] + (uint32_t)2; if (_t) goto L_8012EDC8; }
-    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)3));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + kNodeRole));
     { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)-170; if (_t) goto L_8012EE20; }
     c->mem_w16((c->r[19] + (uint32_t)112), (uint16_t)c->r[0]); goto L_8012EE24;
   L_8012EE20:;
     c->mem_w16((c->r[19] + (uint32_t)112), (uint16_t)c->r[2]);
   L_8012EE24:;
-    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)4));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + kNodeState));
     c->r[3] = c->r[0] + (uint32_t)1;
     c->mem_w8((c->r[19] + (uint32_t)0), (uint8_t)c->r[3]);
-    c->r[3] = (uint32_t)c->mem_r16((c->r[19] + (uint32_t)96));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[19] + kNodeConfig));
     c->r[2] = c->r[2] + (uint32_t)1;
-    c->mem_w8((c->r[19] + (uint32_t)4), (uint8_t)c->r[2]);
+    c->mem_w8((c->r[19] + kNodeState), (uint8_t)c->r[2]);
     c->r[2] = (uint32_t)32783u << 16;
     c->r[21] = c->mem_r32((c->r[2] + (uint32_t)-12372));
     c->r[2] = c->r[0] + (uint32_t)4;
@@ -650,9 +650,9 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[0] + (uint32_t)12; if (_t) goto L_8012EE78; }
     c->r[2] = c->r[0] + (uint32_t)7;
   L_8012EE78:;
-    c->mem_w8((c->r[19] + (uint32_t)8), (uint8_t)c->r[2]);
+    c->mem_w8((c->r[19] + kNodePartCount), (uint8_t)c->r[2]);
     c->r[20] = c->r[0] + c->r[0];
-    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)8));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + kNodePartCount));
     { int _t = (c->r[2] == c->r[0]); c->r[18] = c->r[20] + c->r[0]; if (_t) goto L_8012F238; }
     c->r[23] = c->r[0] + (uint32_t)3;
     c->r[2] = (uint32_t)32789u << 16;
@@ -664,7 +664,7 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
      rec_dispatch(c, 0x8007AAE8u);
     c->r[3] = c->r[2] + c->r[0];
     { int _t = (c->r[3] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)3; if (_t) goto L_8012F414; }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[19] + (uint32_t)96));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[19] + kNodeConfig));
     c->r[2] = c->r[2] & 2u;
     { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_8012EEDC; }
     { int _t = (c->r[18] != c->r[23]);  if (_t) goto L_8012EEDC; }
@@ -705,7 +705,7 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     { int _t = (c->r[20] == c->r[23]); c->r[2] = c->r[0] + (uint32_t)2048; if (_t) goto L_8012EFE0; }
      goto L_8012F01C;
   L_8012EF9C:;
-    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)96));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + kNodeConfig));
     c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[30] + (uint32_t)8));
     c->r[2] = c->r[2] >> 4;
     c->r[2] = c->r[2] << 2;
@@ -714,7 +714,7 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     c->r[2] = c->r[2] + c->r[3]; goto L_8012F02C;
   L_8012EFBC:;
     c->r[7] = c->r[7] + (uint32_t)-23938;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[19] + (uint32_t)96));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[19] + kNodeConfig));
     c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[7] + (uint32_t)8));
     c->r[2] = c->r[2] & 3840u;
     c->r[2] = c->r[2] >> 6;
@@ -727,7 +727,7 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
   L_8012EFEC:;
     c->r[2] = c->mem_r32((c->r[16] + (uint32_t)192));
     c->mem_w8((c->r[2] + (uint32_t)63), (uint8_t)c->r[23]);
-    c->r[3] = (uint32_t)c->mem_r16((c->r[19] + (uint32_t)96));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[19] + kNodeConfig));
     c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + (uint32_t)8));
     c->r[3] = c->r[3] & 4u;
     c->r[2] = c->r[2] << 2;
@@ -750,7 +750,7 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     c->r[17] = c->r[17] + (uint32_t)10;
     c->r[20] = c->r[20] + (uint32_t)1;
     c->r[2] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)9));
-    c->r[3] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)8));
+    c->r[3] = (uint32_t)c->mem_r8((c->r[19] + kNodePartCount));
     c->r[2] = c->r[2] + (uint32_t)1;
     c->r[3] = (uint32_t)((int32_t)c->r[18] < (int32_t)c->r[3]);
     { int _t = (c->r[3] != c->r[0]); c->mem_w8((c->r[19] + (uint32_t)9), (uint8_t)c->r[2]); if (_t) goto L_8012EEA4; }
@@ -760,8 +760,8 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[0] + (uint32_t)7; if (_t) goto L_8012F07C; }
     c->r[2] = c->r[0] + (uint32_t)3;
   L_8012F07C:;
-    c->mem_w8((c->r[19] + (uint32_t)8), (uint8_t)c->r[2]);
-    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)8));
+    c->mem_w8((c->r[19] + kNodePartCount), (uint8_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + kNodePartCount));
     { int _t = (c->r[2] == c->r[0]); c->r[18] = c->r[0] + c->r[0]; if (_t) goto L_8012F238; }
     c->r[2] = (uint32_t)32789u << 16;
     c->r[20] = c->r[2] + (uint32_t)-23828;
@@ -804,7 +804,7 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     { int _t = (c->r[18] == c->r[2]); c->r[4] = c->r[19] + (uint32_t)8; if (_t) goto L_8012F1C0; }
      goto L_8012F1F4;
   L_8012F168:;
-    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)96));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + kNodeConfig));
     c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[20] + (uint32_t)8));
     c->r[2] = c->r[2] >> 4;
     c->r[2] = c->r[2] << 2;
@@ -812,10 +812,10 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     c->r[3] = c->r[3] + c->r[22];
     c->r[2] = c->r[2] + c->r[3];
     c->r[2] = c->mem_r32((c->r[2] + (uint32_t)0));
-    c->r[3] = c->mem_r32((c->r[19] + (uint32_t)192));
+    c->r[3] = c->mem_r32((c->r[19] + kChildTableOff));
     c->r[2] = c->r[21] + c->r[2]; goto L_8012F210;
   L_8012F194:;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[19] + (uint32_t)96));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[19] + kNodeConfig));
     c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[20] + (uint32_t)18));
     c->r[2] = c->r[2] & 3840u;
     c->r[2] = c->r[2] >> 6;
@@ -829,7 +829,7 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     c->r[3] = c->mem_r32((c->r[4] + (uint32_t)192));
     c->r[2] = c->r[0] + (uint32_t)3;
     c->mem_w8((c->r[3] + (uint32_t)63), (uint8_t)c->r[2]);
-    c->r[3] = (uint32_t)c->mem_r16((c->r[19] + (uint32_t)96));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[19] + kNodeConfig));
     c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[23] + (uint32_t)8));
     c->r[3] = c->r[3] & 4u;
     c->r[2] = c->r[2] << 2;
@@ -851,12 +851,12 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     c->r[16] = c->r[16] + (uint32_t)4;
     c->r[18] = c->r[18] + (uint32_t)1;
     c->r[2] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)9));
-    c->r[3] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)8));
+    c->r[3] = (uint32_t)c->mem_r8((c->r[19] + kNodePartCount));
     c->r[2] = c->r[2] + (uint32_t)1;
     c->r[3] = (uint32_t)((int32_t)c->r[18] < (int32_t)c->r[3]);
     { int _t = (c->r[3] != c->r[0]); c->mem_w8((c->r[19] + (uint32_t)9), (uint8_t)c->r[2]); if (_t) goto L_8012F0A4; }
   L_8012F238:;
-    c->r[3] = (uint32_t)c->mem_r16((c->r[19] + (uint32_t)96));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[19] + kNodeConfig));
     c->r[2] = c->r[0] + (uint32_t)100;
     c->mem_w16((c->r[19] + (uint32_t)128), (uint16_t)c->r[2]);
     c->r[2] = c->r[0] + (uint32_t)200;
@@ -871,10 +871,10 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     c->r[3] = c->mem_r32((c->r[19] + (uint32_t)196));
     c->mem_w16((c->r[3] + (uint32_t)12), (uint16_t)c->r[2]); goto L_8012F288;
   L_8012F27C:;
-    c->r[3] = c->mem_r32((c->r[19] + (uint32_t)192));
+    c->r[3] = c->mem_r32((c->r[19] + kChildTableOff));
     c->mem_w16((c->r[3] + (uint32_t)12), (uint16_t)c->r[2]);
   L_8012F288:;
-    c->r[3] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)3));
+    c->r[3] = (uint32_t)c->mem_r8((c->r[19] + kNodeRole));
     c->r[2] = c->r[0] + (uint32_t)735;
     c->mem_w16((c->r[19] + (uint32_t)106), (uint16_t)c->r[2]);
     c->r[2] = c->r[0] + (uint32_t)3;
@@ -926,25 +926,25 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     c->r[31] = 0x8012F36Cu;
     c->r[4] = c->r[19] + c->r[0]; ov_a00_func_8012E8A8(c);
     c->r[4] = c->r[19] + c->r[0];
-    c->mem_w16((c->r[19] + (uint32_t)110), (uint16_t)c->r[0]);
-    c->mem_w16((c->r[19] + (uint32_t)114), (uint16_t)c->r[0]);
+    c->mem_w16((c->r[19] + kNodeAngleParam), (uint16_t)c->r[0]);
+    c->mem_w16((c->r[19] + kNodeArmDuration), (uint16_t)c->r[0]);
     c->mem_w16((c->r[19] + (uint32_t)118), (uint16_t)c->r[0]);
     c->r[31] = 0x8012F384u;
-    c->mem_w16((c->r[19] + (uint32_t)122), (uint16_t)c->r[0]); ov_a00_func_80133444(c);
-    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)3));
+    c->mem_w16((c->r[19] + kNodePendingCmd), (uint16_t)c->r[0]); ov_a00_func_80133444(c);
+    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + kNodeRole));
     c->r[2] = (uint32_t)(c->r[2] < (uint32_t)3);
     { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_8012F3F8; }
     c->r[31] = 0x8012F3A0u;
     c->r[4] = c->r[19] + c->r[0]; ov_a00_func_8013892C(c);
-    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)3));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + kNodeRole));
     c->r[2] = (uint32_t)(c->r[2] < (uint32_t)2);
     { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_8012F3F0; }
     c->r[31] = 0x8012F3BCu;
     c->r[4] = c->r[19] + c->r[0]; ov_a00_func_80125F50(c);
     c->r[18] = c->r[2] & 3u;
-    { int _t = (c->r[18] == c->r[0]); c->mem_w16((c->r[19] + (uint32_t)122), (uint16_t)c->r[2]); if (_t) goto L_8012F3F0; }
+    { int _t = (c->r[18] == c->r[0]); c->mem_w16((c->r[19] + kNodePendingCmd), (uint16_t)c->r[2]); if (_t) goto L_8012F3F0; }
     c->r[2] = c->r[2] << 4;
-    c->mem_w16((c->r[19] + (uint32_t)122), (uint16_t)c->r[2]);
+    c->mem_w16((c->r[19] + kNodePendingCmd), (uint16_t)c->r[2]);
     c->r[2] = c->r[18] << 2;
     c->r[2] = c->r[19] + c->r[2];
     c->r[3] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -955,12 +955,12 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     c->r[31] = 0x8012F3F8u;
     c->r[4] = c->r[19] + c->r[0]; ov_a00_func_801312CC(c);
   L_8012F3F8:;
-    c->r[3] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)3));
+    c->r[3] = (uint32_t)c->mem_r8((c->r[19] + kNodeRole));
     { int _t = (c->r[3] != c->r[0]); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_8012F41C; }
     c->r[4] = c->r[19] + c->r[0];
     c->r[5] = c->r[0] + c->r[0]; goto L_8012F42C;
   L_8012F414:;
-    c->mem_w8((c->r[19] + (uint32_t)4), (uint8_t)c->r[2]); goto L_8012F464;
+    c->mem_w8((c->r[19] + kNodeState), (uint8_t)c->r[2]); goto L_8012F464;
   L_8012F41C:;
     { int _t = (c->r[3] != c->r[2]); c->r[2] = (uint32_t)32780u << 16; if (_t) goto L_8012F438; }
     c->r[4] = c->r[19] + c->r[0];
@@ -973,9 +973,9 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     c->r[3] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)-1892));
     c->r[2] = c->r[0] + (uint32_t)2;
     { int _t = (c->r[3] != c->r[2]);  if (_t) goto L_8012F45C; }
-    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)3));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[19] + kNodeRole));
     { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[0] + (uint32_t)5; if (_t) goto L_8012F45C; }
-    c->mem_w8((c->r[19] + (uint32_t)5), (uint8_t)c->r[2]);
+    c->mem_w8((c->r[19] + kNodeSubState), (uint8_t)c->r[2]);
   L_8012F45C:;
     c->mem_w8((c->r[19] + (uint32_t)41), (uint8_t)c->r[0]);
     c->mem_w8((c->r[19] + (uint32_t)43), (uint8_t)c->r[0]);
@@ -1017,7 +1017,7 @@ void SubstateEdgeLeaves::substate1Tick(Core* c) {
     { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_8012FD64; }
     c->r[2] = (uint32_t)c->mem_r8((c->r[3] + (uint32_t)1));
     { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_8012FD64; }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)122));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + kNodePendingCmd));
     c->r[2] = c->r[2] & 2u;
     { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_8012FD64; }
     c->r[2] = c->mem_r32((c->r[17] + (uint32_t)196));
@@ -1117,7 +1117,7 @@ void SubstateEdgeLeaves::substate1Tick(Core* c) {
     c->r[7] = c->lo;
     { int _t = ((int32_t)c->r[7] < 0); c->r[20] = c->r[4] + c->r[0]; if (_t) goto L_8012F894; }
     c->r[16] = (uint32_t)32789u << 16;
-    c->mem_w8((c->r[17] + (uint32_t)5), (uint8_t)c->r[0]);
+    c->mem_w8((c->r[17] + kNodeSubState), (uint8_t)c->r[0]);
     c->mem_w8((c->r[17] + (uint32_t)6), (uint8_t)c->r[0]);
     c->r[4] = c->mem_r32((c->r[16] + (uint32_t)-23952));
     c->mem_w16((c->r[17] + (uint32_t)72), (uint16_t)c->r[0]);
@@ -1203,7 +1203,7 @@ void SubstateEdgeLeaves::substate1Tick(Core* c) {
     c->mem_w16((c->r[17] + (uint32_t)78), (uint16_t)c->r[2]);
     c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)6));
     c->r[3] = c->r[0] + (uint32_t)1;
-    c->mem_w8((c->r[17] + (uint32_t)94), (uint8_t)c->r[3]);
+    c->mem_w8((c->r[17] + kNodeModeByte), (uint8_t)c->r[3]);
   L_8012F9B0:;
     c->r[2] = c->r[2] + (uint32_t)1;
     c->mem_w8((c->r[17] + (uint32_t)6), (uint8_t)c->r[2]); goto L_8012FCC0;
@@ -1212,7 +1212,7 @@ void SubstateEdgeLeaves::substate1Tick(Core* c) {
     c->mem_w16((c->r[17] + (uint32_t)78), (uint16_t)c->r[0]);
     { int _t = (c->r[18] != c->r[0]); c->mem_w16((c->r[17] + (uint32_t)118), (uint16_t)c->r[0]); if (_t) goto L_8012FCC0; }
     c->mem_w16((c->r[17] + (uint32_t)120), (uint16_t)c->r[0]);
-    c->mem_w8((c->r[17] + (uint32_t)5), (uint8_t)c->r[0]); goto L_8012FCBC;
+    c->mem_w8((c->r[17] + kNodeSubState), (uint8_t)c->r[0]); goto L_8012FCBC;
   L_8012F9D8:;
     { int _t = ((int32_t)c->r[2] <= 0); c->r[4] = c->r[17] + c->r[0]; if (_t) goto L_8012FCC4; }
     c->r[2] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)120));
@@ -1227,7 +1227,7 @@ void SubstateEdgeLeaves::substate1Tick(Core* c) {
     c->mem_w16((c->r[17] + (uint32_t)78), (uint16_t)c->r[2]);
     c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)6));
     c->r[3] = c->r[0] + (uint32_t)1;
-    c->mem_w8((c->r[17] + (uint32_t)94), (uint8_t)c->r[3]);
+    c->mem_w8((c->r[17] + kNodeModeByte), (uint8_t)c->r[3]);
     c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + (uint32_t)118));
     c->r[2] = c->r[2] + (uint32_t)1;
     c->mem_w8((c->r[17] + (uint32_t)6), (uint8_t)c->r[2]);
@@ -1239,7 +1239,7 @@ void SubstateEdgeLeaves::substate1Tick(Core* c) {
     c->mem_w16((c->r[17] + (uint32_t)78), (uint16_t)c->r[0]);
     { int _t = (c->r[18] != c->r[0]); c->mem_w16((c->r[17] + (uint32_t)118), (uint16_t)c->r[0]); if (_t) goto L_8012FCC0; }
     c->mem_w16((c->r[17] + (uint32_t)120), (uint16_t)c->r[0]);
-    c->mem_w8((c->r[17] + (uint32_t)5), (uint8_t)c->r[0]); goto L_8012FCBC;
+    c->mem_w8((c->r[17] + kNodeSubState), (uint8_t)c->r[0]); goto L_8012FCBC;
   L_8012FA5C:;
     { int _t = ((int32_t)c->r[4] > 0);  if (_t) goto L_8012FA6C; }
     c->mem_w16((c->r[17] + (uint32_t)118), (uint16_t)c->r[0]); goto L_8012FCC0;
@@ -1323,10 +1323,10 @@ void SubstateEdgeLeaves::substate1Tick(Core* c) {
     c->mem_w16((c->r[17] + (uint32_t)72), (uint16_t)c->r[0]);
     c->mem_w16((c->r[17] + (uint32_t)78), (uint16_t)c->r[0]);
     c->mem_w16((c->r[17] + (uint32_t)120), (uint16_t)c->r[0]);
-    c->mem_w8((c->r[17] + (uint32_t)5), (uint8_t)c->r[0]);
+    c->mem_w8((c->r[17] + kNodeSubState), (uint8_t)c->r[0]);
     c->mem_w8((c->r[17] + (uint32_t)6), (uint8_t)c->r[0]);
   L_8012FBE0:;
-    c->mem_w8((c->r[17] + (uint32_t)94), (uint8_t)c->r[0]);
+    c->mem_w8((c->r[17] + kNodeModeByte), (uint8_t)c->r[0]);
     c->mem_w16((c->r[17] + (uint32_t)118), (uint16_t)c->r[0]); goto L_8012FCC0;
   L_8012FBEC:;
     c->r[2] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)64));
@@ -1340,7 +1340,7 @@ void SubstateEdgeLeaves::substate1Tick(Core* c) {
     c->mem_w16((c->r[17] + (uint32_t)72), (uint16_t)c->r[0]);
     c->mem_w16((c->r[17] + (uint32_t)78), (uint16_t)c->r[0]);
     c->mem_w16((c->r[17] + (uint32_t)120), (uint16_t)c->r[0]);
-    c->mem_w8((c->r[17] + (uint32_t)5), (uint8_t)c->r[0]); goto L_8012FCBC;
+    c->mem_w8((c->r[17] + kNodeSubState), (uint8_t)c->r[0]); goto L_8012FCBC;
   L_8012FC30:;
     { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[0] + (uint32_t)5632; if (_t) goto L_8012FC3C; }
     c->r[2] = c->r[0] + (uint32_t)3072;
@@ -1441,14 +1441,14 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     { int _t = (c->r[3] == c->r[2]);  if (_t) goto L_8013019C; }
      goto L_801303F8;
   L_8012FDD0:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[3] = c->mem_r32((c->r[2] + (uint32_t)192));
     c->r[2] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)12));
     c->r[2] = c->r[2] & 4095u;
     c->mem_w16((c->r[3] + (uint32_t)12), (uint16_t)c->r[2]);
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -1459,7 +1459,7 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[3] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)71));
     c->r[3] = c->r[3] & 128u;
     { int _t = (c->r[3] == c->r[0]); c->mem_w8((c->r[16] + (uint32_t)70), (uint8_t)c->r[2]); if (_t) goto L_8012FE64; }
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[5] = c->r[0] + (uint32_t)6144;
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
@@ -1472,7 +1472,7 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[3] = c->mem_r32((c->r[16] + (uint32_t)196));
     c->r[2] = c->r[0] + (uint32_t)-2; goto L_8012FE94;
   L_8012FE64:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[5] = c->r[0] + (uint32_t)2048;
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
@@ -1507,19 +1507,19 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
   L_8012FEFC:;
     c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)70));
     { int _t = (c->r[2] == c->r[0]); c->r[3] = c->r[0] + (uint32_t)3; if (_t) goto L_8012FF38; }
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
-    c->mem_w8((c->r[16] + (uint32_t)94), (uint8_t)c->r[3]);
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
+    c->mem_w8((c->r[16] + kNodeModeByte), (uint8_t)c->r[3]);
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
     c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)12));
     c->r[2] = c->r[2] + c->r[5];
-    c->mem_w16((c->r[16] + (uint32_t)110), (uint16_t)c->r[2]); goto L_8012FF80;
+    c->mem_w16((c->r[16] + kNodeAngleParam), (uint16_t)c->r[2]); goto L_8012FF80;
   L_8012FF38:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[3] = c->r[0] + (uint32_t)2;
-    c->mem_w8((c->r[16] + (uint32_t)94), (uint8_t)c->r[3]);
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->mem_w8((c->r[16] + kNodeModeByte), (uint8_t)c->r[3]);
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -1527,13 +1527,13 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)12));
     c->r[3] = c->r[16] + c->r[3];
     c->r[2] = c->r[2] - c->r[5];
-    c->mem_w16((c->r[16] + (uint32_t)110), (uint16_t)c->r[2]);
+    c->mem_w16((c->r[16] + kNodeAngleParam), (uint16_t)c->r[2]);
     c->r[3] = c->mem_r32((c->r[3] + (uint32_t)192));
     c->r[2] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)20));
     c->r[2] = c->r[0] - c->r[2];
     c->mem_w16((c->r[3] + (uint32_t)20), (uint16_t)c->r[2]);
   L_8012FF80:;
-    c->r[7] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[7] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[7] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[4] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -1560,14 +1560,14 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     { int _t = (c->r[2] == c->r[0]); c->r[4] = c->r[16] + c->r[0]; if (_t) goto L_8013002C; }
     c->r[31] = 0x80130008u;
     c->r[5] = c->r[5] + (uint32_t)1; rec_dispatch(c, 0x8004CBD8u);
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[3] = c->mem_r32((c->r[2] + (uint32_t)192));
     c->r[2] = (uint32_t)c->mem_r8((c->r[3] + (uint32_t)62));
     c->r[2] = c->r[2] | 128u; goto L_80130050;
   L_8013002C:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[3] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -1586,7 +1586,7 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[2] = c->r[2] + (uint32_t)1;
     c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]); goto L_801303F8;
   L_80130084:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[3] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -1594,24 +1594,24 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[4] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)20));
     c->r[2] = c->r[2] + c->r[4];
     c->mem_w16((c->r[3] + (uint32_t)12), (uint16_t)c->r[2]);
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[4] = c->mem_r32((c->r[2] + (uint32_t)192));
     c->r[5] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)20));
     { int _t = ((int32_t)c->r[5] <= 0);  if (_t) goto L_801300F0; }
     c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)12));
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)110));
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleParam));
     c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[3]);
     { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80130110; }
   L_801300F0:;
     { int _t = ((int32_t)c->r[5] >= 0);  if (_t) goto L_80130168; }
     c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)12));
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)110));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleParam));
     c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[3]);
     { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_80130168; }
   L_80130110:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[4] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -1623,14 +1623,14 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[3] = (uint32_t)((int32_t)c->r[3] >> 1);
     c->mem_w16((c->r[4] + (uint32_t)18), (uint16_t)c->r[3]);
     c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)6));
-    c->r[3] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)94));
+    c->r[3] = (uint32_t)c->mem_r8((c->r[16] + kNodeModeByte));
     c->mem_w16((c->r[16] + (uint32_t)116), (uint16_t)c->r[0]);
     c->r[2] = c->r[2] + (uint32_t)1;
     c->r[3] = c->r[3] | 128u;
     c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]);
-    c->mem_w8((c->r[16] + (uint32_t)94), (uint8_t)c->r[3]); goto L_801303F8;
+    c->mem_w8((c->r[16] + kNodeModeByte), (uint8_t)c->r[3]); goto L_801303F8;
   L_80130168:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[4] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -1640,7 +1640,7 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[3] = c->r[3] - c->r[2];
     c->mem_w16((c->r[4] + (uint32_t)20), (uint16_t)c->r[3]); goto L_801303F8;
   L_8013019C:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[3] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -1648,30 +1648,30 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[4] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)20));
     c->r[2] = c->r[2] + c->r[4];
     c->mem_w16((c->r[3] + (uint32_t)12), (uint16_t)c->r[2]);
-    c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)94));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[16] + kNodeModeByte));
     c->r[2] = c->r[2] & 1u;
     { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80130210; }
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)110));
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleParam));
     c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)12));
     c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[3]);
     { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_801303CC; }
      goto L_80130240;
   L_80130210:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
     c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)12));
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)110));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleParam));
     c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[3]);
     { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_801303CC; }
   L_80130240:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
-    c->r[3] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)110));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[16] + kNodeAngleParam));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -1683,14 +1683,14 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[3] = c->r[6] & 65280u;
     { int _t = (c->r[3] == c->r[2]); c->r[2] = c->r[4] & 32512u; if (_t) goto L_801302F4; }
     c->r[4] = c->r[2] >> 8;
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[0] + (uint32_t)3;
     { int _t = (c->r[3] != c->r[2]); c->r[5] = c->r[4] + c->r[0]; if (_t) goto L_80130298; }
     c->r[2] = c->r[6] & 32768u;
     { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_80130298; }
     c->r[5] = c->r[4] + (uint32_t)1;
   L_80130298:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -1711,7 +1711,7 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
   L_801302F0:;
     c->mem_w8((c->r[2] + (uint32_t)354), (uint8_t)c->r[4]);
   L_801302F4:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->mem_w16((c->r[16] + (uint32_t)118), (uint16_t)c->r[0]);
     c->mem_w16((c->r[16] + (uint32_t)120), (uint16_t)c->r[0]);
     c->mem_w16((c->r[16] + (uint32_t)72), (uint16_t)c->r[0]);
@@ -1727,8 +1727,8 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[4] = c->r[16] + c->r[0]; ov_a00_func_80127384(c);
     c->r[2] = c->r[2] << 16;
     { int _t = (c->r[2] == c->r[0]); c->r[4] = c->r[16] + c->r[0]; if (_t) goto L_80130374; }
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
-    c->mem_w16((c->r[16] + (uint32_t)122), (uint16_t)c->r[0]);
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
+    c->mem_w16((c->r[16] + kNodePendingCmd), (uint16_t)c->r[0]);
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[3] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -1736,7 +1736,7 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[2] = c->r[2] & 254u;
     c->mem_w8((c->r[3] + (uint32_t)62), (uint8_t)c->r[2]); goto L_801303B0;
   L_80130374:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[3] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -1748,15 +1748,15 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[2] = c->r[3] | 16u;
     c->mem_w8((c->r[5] + (uint32_t)62), (uint8_t)c->r[2]);
   L_801303B0:;
-    c->r[5] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[5] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[31] = 0x801303BCu;
     c->r[6] = c->r[0] + c->r[0]; ov_a00_func_80131768(c);
   L_801303BC:;
-    c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[0]);
+    c->mem_w8((c->r[16] + kNodeSubState), (uint8_t)c->r[0]);
     c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]);
-    c->mem_w8((c->r[16] + (uint32_t)94), (uint8_t)c->r[0]); goto L_801303F8;
+    c->mem_w8((c->r[16] + kNodeModeByte), (uint8_t)c->r[0]); goto L_801303F8;
   L_801303CC:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[3] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -1768,15 +1768,15 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[31] = 0x80130400u;
     c->r[4] = c->r[16] + c->r[0]; ov_a00_func_801308E0(c);
     { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_801304AC; }
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
-    c->r[3] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)110));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[16] + kNodeAngleParam));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
     c->r[3] = c->r[3] & 4095u;
     c->mem_w16((c->r[2] + (uint32_t)12), (uint16_t)c->r[3]);
     c->r[4] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)98));
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[4] & 32512u;
     c->r[6] = c->r[2] >> 8;
     c->r[2] = c->r[0] + (uint32_t)3;
@@ -1785,7 +1785,7 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_80130450; }
     c->r[5] = c->r[6] + (uint32_t)1;
   L_80130450:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
     c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
@@ -1865,7 +1865,7 @@ void SubstateEdgeLeaves::substate3Tick(Core* c) {
     c->mem_w16((c->r[3] + (uint32_t)18), (uint16_t)c->r[2]);
   L_801305B0:;
     c->mem_w16((c->r[16] + (uint32_t)64), (uint16_t)c->r[2]);
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kNodeAngleSel));
     c->r[6] = c->r[0] + c->r[0];
     c->r[2] = c->r[2] << 2;
     c->r[2] = c->r[16] + c->r[2];
@@ -1882,7 +1882,7 @@ void SubstateEdgeLeaves::substate3Tick(Core* c) {
   L_801305F8:;
     c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)6));
     c->r[3] = c->r[0] + (uint32_t)4;
-    c->mem_w8((c->r[16] + (uint32_t)94), (uint8_t)c->r[3]);
+    c->mem_w8((c->r[16] + kNodeModeByte), (uint8_t)c->r[3]);
     c->r[2] = c->r[2] + (uint32_t)1;
     c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]); goto L_80130758;
   L_80130610:;
@@ -1919,7 +1919,7 @@ void SubstateEdgeLeaves::substate3Tick(Core* c) {
     { int _t = ((int32_t)c->r[2] > 0); c->r[2] = c->r[0] + (uint32_t)10; if (_t) goto L_80130758; }
     c->r[3] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)6));
     c->mem_w16((c->r[16] + (uint32_t)64), (uint16_t)c->r[2]);
-    c->mem_w8((c->r[16] + (uint32_t)94), (uint8_t)c->r[0]);
+    c->mem_w8((c->r[16] + kNodeModeByte), (uint8_t)c->r[0]);
     c->r[3] = c->r[3] + (uint32_t)1;
     c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[3]); goto L_80130758;
   L_801306C4:;
@@ -1942,13 +1942,13 @@ void SubstateEdgeLeaves::substate3Tick(Core* c) {
     c->mem_w16((c->r[2] + (uint32_t)10), (uint16_t)c->r[3]);
     c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)120));
     { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_80130744; }
-    c->r[3] = c->mem_r32((c->r[16] + (uint32_t)192));
-    c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[2]);
+    c->r[3] = c->mem_r32((c->r[16] + kChildTableOff));
+    c->mem_w8((c->r[16] + kNodeSubState), (uint8_t)c->r[2]);
     c->r[2] = (uint32_t)c->mem_r8((c->r[3] + (uint32_t)62));
     c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]);
     c->mem_w8((c->r[3] + (uint32_t)62), (uint8_t)c->r[0]); goto L_80130758;
   L_80130744:;
-    c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[0]);
+    c->mem_w8((c->r[16] + kNodeSubState), (uint8_t)c->r[0]);
     c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]);
     c->mem_w16((c->r[16] + (uint32_t)118), (uint16_t)c->r[0]);
     c->mem_w16((c->r[16] + (uint32_t)72), (uint16_t)c->r[0]);
@@ -1979,10 +1979,10 @@ void SubstateEdgeLeaves::pendingCommandClear(Core* c) {
   L_801313E8:;
     c->r[2] = (uint32_t)c->mem_r8((c->r[4] + (uint32_t)6));
     { int _t = (c->r[2] != c->r[0]); c->r[3] = c->r[0] + (uint32_t)64; if (_t) goto L_801314AC; }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[4] + (uint32_t)96));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[4] + kNodeConfig));
     c->r[2] = c->r[2] & 240u;
-    { int _t = (c->r[2] != c->r[3]); c->mem_w8((c->r[4] + (uint32_t)94), (uint8_t)c->r[0]); if (_t) goto L_80131414; }
-    c->mem_w8((c->r[4] + (uint32_t)5), (uint8_t)c->r[0]); return;
+    { int _t = (c->r[2] != c->r[3]); c->mem_w8((c->r[4] + kNodeModeByte), (uint8_t)c->r[0]); if (_t) goto L_80131414; }
+    c->mem_w8((c->r[4] + kNodeSubState), (uint8_t)c->r[0]); return;
   L_80131414:;
     c->r[2] = (uint32_t)c->mem_r16((c->r[4] + (uint32_t)104));
     c->r[3] = c->r[2] & 32767u;
@@ -2015,7 +2015,7 @@ void SubstateEdgeLeaves::pendingCommandClear(Core* c) {
     c->r[2] = c->r[0] + (uint32_t)16;
     c->mem_w16((c->r[4] + (uint32_t)64), (uint16_t)c->r[2]);
     c->r[2] = c->r[0] + (uint32_t)1;
-    c->mem_w8((c->r[4] + (uint32_t)5), (uint8_t)c->r[2]);
+    c->mem_w8((c->r[4] + kNodeSubState), (uint8_t)c->r[2]);
     c->r[2] = c->r[0] + (uint32_t)4;
     c->mem_w8((c->r[4] + (uint32_t)6), (uint8_t)c->r[2]);
   L_801314AC:;
@@ -2177,7 +2177,7 @@ void SubstateEdgeLeaves::opnAssemblyHook(Core* c) {
     c->mem_w16((c->r[3] + (uint32_t)8), (uint16_t)c->r[2]); rec_dispatch(c, 0x801314B4u);
     c->r[31] = 0x8018C9F8u;
     c->r[4] = c->r[17] + c->r[0]; rec_dispatch(c, 0x8013892Cu);
-    c->mem_w8((c->r[17] + (uint32_t)5), (uint8_t)c->r[0]);
+    c->mem_w8((c->r[17] + kNodeSubState), (uint8_t)c->r[0]);
     c->mem_w8((c->r[17] + (uint32_t)6), (uint8_t)c->r[0]);
   L_8018CA00:;
     c->r[31] = c->mem_r32((c->r[29] + (uint32_t)32));
