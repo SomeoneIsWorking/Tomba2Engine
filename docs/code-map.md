@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 945 native fns, 797 owned addresses, 756 LIVE / 189 ORPHAN.
+Totals: 946 native fns, 798 owned addresses, 757 LIVE / 189 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -193,14 +193,14 @@ Totals: 945 native fns, 797 owned addresses, 756 LIVE / 189 ORPHAN.
 | 0x80044E84 | LIVE | `Asset::unpackGroup` | game/core/asset.cpp:71 | 0x80080F6C | PC-owned texture-group unpacker — replaces recompiled FUN_80044E84 (0x… |
 | 0x80044E84 | LIVE | `Asset::unpackGroupFaithful` | game/core/asset.cpp:113 | 0x80080F6C 0x80081218 | FAITHFUL texture-group unpacker — FUN_80044E84 with full guest-stack d… |
 | 0x80044F58 | LIVE | `Asset::loadTexgroup` | game/core/asset.cpp:185 | 0x8001DC40 | PC-native TEXTURE-GROUP LOADER — owns the asset-load ORCHESTRATION FUN… |
-| 0x80044F58 | LIVE | `Asset::preloadTexgroup` | game/core/asset.cpp:258 |  | texture-group load, synchronous. (Mirrors loadTexgroup but driven by e… |
+| 0x80044F58 | LIVE | `Asset::preloadTexgroup` | game/core/asset.cpp:266 |  | texture-group load, synchronous. (Mirrors loadTexgroup but driven by e… |
 | 0x80044F58 | LIVE | `Engine::transitionF3cFaithful` | game/core/engine.cpp:1919 | 0x8001CF2C 0x8003E264 0x8003E894 0x8003EBE0 0x8003FB94 0x80044BD4 … | Faithful mirror of ov_game_gen_80107F3C. Frame: sp-=24, r31 spill @sp+… |
 | 0x800450BC | LIVE | `native_load_overlay` | game/core/engine.cpp:2853 |  | load the stage overlay (if any) and point the task's restart entry at … |
 | 0x800450BC | LIVE | `eng_load_stage` | game/scene/level_load.cpp:27 | 0x8001DB8C 0x80080930 | load a stage's overlay off the disc and set the task's stage entry poi… |
-| 0x8004514C | LIVE | `Asset::preloadStage1` | game/core/asset.cpp:317 |  | the stage-1 callback body. SWDATA + DAT load, shared texgroup sub-load… |
-| 0x8004514C | LIVE | `Asset::preloadStage1AsTask` | game/core/asset.cpp:344 | 0x8001DC40 0x800754F4 | Task-1 body — FAITHFUL FUN_8004514C, run on a PcScheduler native fiber… |
-| 0x80045258 | LIVE | `Asset::loadDescriptorChunk` | game/core/asset.cpp:502 |  | loadDescriptorChunk(descIdx, slot): FAITHFUL FUN_80045258 — a leaf ind… |
-| 0x800452C0 | LIVE | `Asset::areaDataLoadAsTask` | game/core/asset.cpp:397 | 0x8001CF2C 0x8001DC40 0x80045080 0x80045558 0x80051F80 0x80051FB4 … | Task-1 body — FAITHFUL FUN_800452C0 (the walkable-field AREA-DATA load… |
+| 0x8004514C | LIVE | `Asset::preloadStage1` | game/core/asset.cpp:325 |  | the stage-1 callback body. SWDATA + DAT load, shared texgroup sub-load… |
+| 0x8004514C | LIVE | `Asset::preloadStage1AsTask` | game/core/asset.cpp:352 | 0x8001DC40 0x800754F4 | Task-1 body — FAITHFUL FUN_8004514C, run on a PcScheduler native fiber… |
+| 0x80045258 | LIVE | `Asset::loadDescriptorChunk` | game/core/asset.cpp:510 |  | loadDescriptorChunk(descIdx, slot): FAITHFUL FUN_80045258 — a leaf ind… |
+| 0x800452C0 | LIVE | `Asset::areaDataLoadAsTask` | game/core/asset.cpp:405 | 0x8001CF2C 0x8001DC40 0x80045080 0x80045558 0x80051F80 0x80051FB4 … | Task-1 body — FAITHFUL FUN_800452C0 (the walkable-field AREA-DATA load… |
 | 0x800452C0 | LIVE | `native_area_load_bd4` | game/core/engine.cpp:1542 | 0x800452C0 | Native replacement for FUN_80044bd4(0x800452c0, area, mode, 1): seed t… |
 | 0x80045580 | LIVE | `ActorTomba::assetReady` | game/player/actor_tomba.cpp:1467 |  | assetReady — guest FUN_80045580. See actor_tomba.h for the full RE wri… |
 | 0x800455C0 | ORPHAN | `leaf_800455C0` | game/core/field_owned_leaves.cpp:11372 |  |  |
@@ -497,7 +497,7 @@ Totals: 945 native fns, 797 owned addresses, 756 LIVE / 189 ORPHAN.
 | 0x80075240 | LIVE | `Pool::reset75240` | game/world/pool.cpp:161 | 0x80075824 0x80075D58 0x80099490 | reset the control block at 0x800BE1F8: call 0x80075D58 leaf, seed clam… |
 | 0x800752B4 | LIVE | `Font::glyphClassFill` | game/ui/font.cpp:95 |  | glyph-class table fill. Iterates i = 0..23 over the 24-entry table. Th… |
 | 0x800753AC | ORPHAN | `leaf_800753AC` | game/core/field_owned_leaves.cpp:9112 |  |  |
-| 0x800753D4 | LIVE | `preload_cel` | game/core/asset.cpp:278 | 0x80096480 0x80096980 0x80096A40 | cel-load, SYNCHRONOUS. Original: FUN_80096480 (slot alloc + BAV cel lo… |
+| 0x800753D4 | LIVE | `preload_cel` | game/core/asset.cpp:286 | 0x80096480 0x80096980 0x80096A40 | cel-load, SYNCHRONOUS. Original: FUN_80096480 (slot alloc + BAV cel lo… |
 | 0x8007566C | ORPHAN | `leaf_8007566C` | game/core/field_owned_leaves.cpp:9124 | 0x80110774 0x80116FC8 0x8011727C 0x801174AC 0x801174B0 0x80117988 … |  |
 | 0x80075824 | LIVE | `MusicCoord::voiceMixTick` | game/audio/music_coord.cpp:105 |  | Per-frame VOICE-CHANNEL VOLUME MIXER — port of FUN_80075824 (RE'd via … |
 | 0x80075A80 | LIVE | `Engine::fieldSeqSchedulerTick` | game/core/field_seq_scheduler.cpp:26 |  |  |
@@ -615,7 +615,7 @@ Totals: 945 native fns, 797 owned addresses, 756 LIVE / 189 ORPHAN.
 | 0x8007FCC8 | LIVE | `OptionsPage::noteBox` | game/ui/options_page.cpp:73 |  |  |
 | 0x8007FD54 | LIVE | `LoadingText::draw` | game/ui/loading_text.cpp:62 |  |  |
 | 0x80080F6C | LIVE | `Render::drawSync` | game/render/wide_re_libgpu_leaves.cpp:90 |  | func_80080F6C (0x80080F6C) — DrawSync(mode). VERIFIED & WIRED 2026-07-… |
-| 0x80081218 | LIVE | `Asset::uploadImage` | game/core/asset.cpp:244 |  | PC-native CPU->VRAM upload — replaces the game's libgs-style upload li… |
+| 0x80081218 | LIVE | `Asset::uploadImage` | game/core/asset.cpp:252 |  | DO NOT REGISTER 0x80081218 IN THE OVERRIDE REGISTRY. It surfaces near … |
 | 0x80081458 | LIVE | `Render::clearOTagR` | game/render/wide_re_libgpu_leaves.cpp:154 |  | func_80081458 (0x80081458) — ClearOTagR(OT, entries). VERIFIED & WIRED… |
 | 0x80081560 | LIVE | `Engine::drawOTag` | game/game_tomba2.cpp:149 |  | Native ownership of DrawOTag (libgpu FUN_80081560, the per-frame draw … |
 | 0x800815D0 | LIVE | `func_800815D0` | game/render/wide_re_gpu_putdrawenv.cpp:250 |  | func_800815D0 (0x800815D0) — libgpu PutDrawEnv(drawEnvPtr). DRAFT. RE'… |
@@ -651,6 +651,7 @@ Totals: 945 native fns, 797 owned addresses, 756 LIVE / 189 ORPHAN.
 | 0x80085480 | LIVE | `Math::rotmat` | game/math/gte_math.cpp:220 |  |  |
 | 0x80085480 | LIVE | `MeshQuads::rotmat` | game/render/mesh_quads.cpp:62 |  |  |
 | 0x80085690 | LIVE | `Trig::ratan2` | game/math/trig.cpp:23 |  |  |
+| 0x80085C9C | LIVE | `LibapiIntr::setIntrMask` | game/core/libapi_intr.cpp:31 |  |  |
 | 0x80086604 | LIVE | `Engine::activeModeCtx` | game/scene/startup.cpp:255 |  | Engine::activeModeCtx. Accessor: returns the active mode/draw-env cont… |
 | 0x80086620 | LIVE | `eng_init_mode_ctrl` | game/scene/startup.cpp:155 |  | engine MODE control: file-local helper (only called from Engine::initS… |
 | 0x80086738 | LIVE | `Engine::installModeHandlers` | game/scene/startup.cpp:264 |  | Engine::installModeHandlers. Installs the mode handler table at 0x8010… |
@@ -883,12 +884,12 @@ Totals: 945 native fns, 797 owned addresses, 756 LIVE / 189 ORPHAN.
 | 0x8013B274 | LIVE | `beh_a06_music_cue_8013B274` | game/ai/beh_a06_script_fades.cpp:286 |  |  |
 | 0x8013B29C | LIVE | `beh_a06_timer_gate_8013B29C` | game/ai/beh_a06_script_fades.cpp:298 |  | ── FUN_8013B29C — 2-state (init + counted gate) primitive ────────────… |
 | 0x8013B2E4 | LIVE | `beh_flagbit_timer_machine` | game/ai/beh_flagbit_timer_machine.cpp:51 |  |  |
-| 0x8013B70C | LIVE | `drawInit` | game/ai/beh_seaside_prox_substate.cpp:166 | 0x8013B534 | ======================================================================… |
-| 0x8013B868 | LIVE | `subA` | game/ai/beh_seaside_prox_substate.cpp:207 | 0x8006CBA8 0x8006E1C0 0x8006E1E4 | ======================================================================… |
-| 0x8013BAB0 | LIVE | `subB` | game/ai/beh_seaside_prox_substate.cpp:270 | 0x8004766C 0x80048750 | ======================================================================… |
-| 0x8013BCC8 | LIVE | `subC` | game/ai/beh_seaside_prox_substate.cpp:319 | 0x80027144 0x8003116C 0x8006E1C0 0x8006E1E4 0x8009A450 | ======================================================================… |
+| 0x8013B70C | LIVE | `drawInit` | game/ai/beh_seaside_prox_substate.cpp:171 | 0x8013B534 | ======================================================================… |
+| 0x8013B868 | LIVE | `subA` | game/ai/beh_seaside_prox_substate.cpp:212 | 0x8006CBA8 0x8006E1C0 0x8006E1E4 | ======================================================================… |
+| 0x8013BAB0 | LIVE | `subB` | game/ai/beh_seaside_prox_substate.cpp:275 | 0x8004766C 0x80048750 | ======================================================================… |
+| 0x8013BCC8 | LIVE | `subC` | game/ai/beh_seaside_prox_substate.cpp:324 | 0x80027144 0x8003116C 0x8006E1C0 0x8006E1E4 0x8009A450 | ======================================================================… |
 | 0x8013C0BC | LIVE | `modeArm` | game/ai/beh_seaside_prox_substate.cpp:126 | 0x80081218 | ======================================================================… |
-| 0x8013C1DC | LIVE | `beh_seaside_prox_substate` | game/ai/beh_seaside_prox_substate.cpp:485 |  | 's own prologue is `addiu sp,sp,-0x20` (disas-verified). modeArm/subC'… |
+| 0x8013C1DC | LIVE | `beh_seaside_prox_substate` | game/ai/beh_seaside_prox_substate.cpp:490 |  | 's own prologue is `addiu sp,sp,-0x20` (disas-verified). modeArm/subC'… |
 | 0x8013C3F4 | LIVE | `beh_area_threshold_ptr_swap` | game/ai/beh_area_threshold_ptr_swap.cpp:48 |  |  |
 | 0x8013C538 | LIVE | `beh_scatter_record_dither` | game/ai/beh_scatter_record_dither.cpp:56 |  |  |
 | 0x8013C9C0 | LIVE | `beh_scatter_ramp_machine` | game/ai/beh_scatter_ramp_machine.cpp:52 |  |  |

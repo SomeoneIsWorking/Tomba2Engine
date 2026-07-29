@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 27 verified · 6 partial · 1 untested · 7 n/a
+**Status:** 28 verified · 6 partial · 1 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -115,6 +115,14 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 450
 - **gate:** PSXPORT_SBS_MODE=full PSXPORT_VK_HEADLESS=1 PSXPORT_AUTO_SKIP=1 ./scratch/bin/tomba2_port
 - **evidence:** 58fc5f76
+
+## libapi-setintrmask-85c9c
+- **scope:** libapi SetIntrMask FUN_80085C9C (I_MASK swap via libapi's hw-pointer table)
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
+- **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit native=19594 oracle=19594 (balanced). Plus a non-SBS render check to f1400 — the scene draws correctly, which matters because this writes I_MASK and the framework has just gained real interrupt delivery.
+- **owner:** game/core/libapi_intr.cpp LibapiIntr::setIntrMask
 
 ## libgpu-dma-status-reset-82c68
 - **scope:** libgpu GPU-DMA status-block reset FUN_80082C68

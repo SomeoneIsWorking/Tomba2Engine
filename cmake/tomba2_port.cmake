@@ -27,6 +27,7 @@ set(GAME_SRC
   game/game_tomba2.cpp
   game/cd/libcd_native.cpp
   game/core/asset.cpp
+  game/core/libapi_intr.cpp
   game/core/game_config.cpp
   game/core/game_ctx.cpp
   game/core/game_hooks.cpp

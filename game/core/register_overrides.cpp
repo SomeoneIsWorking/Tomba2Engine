@@ -18,6 +18,7 @@
 #include "game.h"
 #include "engine.h"
 #include "mtx.h"                   // class Mtx — libgte matrix leaves (MR_init identity, 0x80051794)
+#include "libapi_intr.h"           // class LibapiIntr — kernel interrupt-mask primitives (0x80085C9C)
 #include "actor_sm_reward.h"       // class ActorReward — reward/tally window actor SM family
 #include "actor_zoned_attacker.h"  // class ActorZonedAttacker — 0x8014xxxx zoned-attacker sub-behavior cluster
 #include "overlay_gt3gt4.h"        // class OverlayGt3Gt4 — A00-overlay GT3/GT4 packet-emitter cluster
@@ -112,6 +113,7 @@ void register_engine_overrides(Game* game) {
   RegisterEngineAnimLeafOverrides(game);             // Engine::animTick/walkStart fallthrough native-ize (0x8004190C/80054D14)
   Trig::registerOverrides(game);                     // Trig::rsin/ratan2/angleCmp fallthrough native-ize (0x80083E80/80085690/80077768)
   Mtx::registerOverrides(game);                      // MR_init identity-matrix leaf (0x80051794) — native existed since long before it was wired
+  LibapiIntr::registerOverrides(game);               // libapi SetIntrMask (0x80085C9C) — I_MASK swap through libapi's hw-pointer table
   RegisterBehActorTombaProximityCombatOverride(game);// enemy-vs-Tomba proximity-combat FSM (0x800527C8)
   eng(c).sequencer.registerOverrides();           // libsnd SsSeqCalled cluster (0x80090BD0 etc.)
   eng(c).script.registerOverrides();              // cutscene-script opcodes 05/06/34/36/31 (0x80042090/800420AC/80042E10/80043108/80041468)
