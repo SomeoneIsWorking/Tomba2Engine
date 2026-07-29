@@ -2216,7 +2216,125 @@ void SubstateEdgeLeaves::opnAssemblyHook(Core* c) {
     return;
 }
 
+// FUN_0x801308E0 — THE CONTACT-TO-WEIGHT CONSUMER, and the reason this whole chain was worth owning.
+//
+// kanban #8 (the water-pump seesaw does not sink under Tomba's weight) established the mechanism:
+// "consumer FUN_801308e0 turns node[0x2b] (contact index) into node[0x48]=0xe000, the weight". This
+// body confirms it directly — it writes node+0x2B (the contact index, offset 43) and node+0x48 (the
+// weight, offset 72, written as a halfword) as well as the sub-state, node+6 and the mode byte, and
+// calls 0x80074590 twice.
+//
+// Card #8's measurement is what makes this interesting: +0x2B was written 6,585 times per node over
+// the whole replay and was ALWAYS ZERO, only ever by clearers — of which two, 0x801316CC and
+// 0x80146348, are now natively owned here, and both were verified to write literal zero. The
+// producer that should stamp a NONZERO contact index (FUN_80111304) never fires for the beam, which
+// is class 4. So this consumer is healthy and starved, not broken.
+//
+// Owning it does not fix that. What it does is put the whole contact->weight path in native code, so
+// the next person can read the starvation instead of inferring it through a substrate boundary.
+// ORACLE: ov_a00_gen_801308E0
+void SubstateEdgeLeaves::contactWeightApply(Core* c) {
+    c->r[29] = c->r[29] + (uint32_t)-32;
+    c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
+    c->r[16] = c->r[4] + c->r[0];
+    c->mem_w32((c->r[29] + (uint32_t)24), c->r[31]);
+    c->mem_w32((c->r[29] + (uint32_t)20), c->r[17]);
+    c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)43));
+    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + c->r[0]; if (_t) goto L_80130AB0; }
+    c->r[3] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)43));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)122));
+    c->mem_w8((c->r[16] + (uint32_t)43), (uint8_t)c->r[0]);
+    c->r[2] = c->r[2] & 2u;
+    { int _t = (c->r[2] != c->r[0]); c->mem_w16((c->r[16] + (uint32_t)108), (uint16_t)c->r[3]); if (_t) goto L_80130AAC; }
+    c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)108));
+    c->r[2] = c->r[4] << 2;
+    c->r[2] = c->r[16] + c->r[2];
+    c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)62));
+    c->r[2] = c->r[2] & 192u;
+    { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[0] + c->r[0]; if (_t) goto L_80130AB0; }
+    c->r[3] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)71));
+    c->r[2] = c->r[3] & 4u;
+    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[3] & 2u; if (_t) goto L_801309B0; }
+    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80130988; }
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)96));
+    c->r[2] = c->r[2] & 4u;
+    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)2; if (_t) goto L_80130988; }
+    c->mem_w16((c->r[16] + (uint32_t)116), (uint16_t)c->r[0]);
+    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]);
+    c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[2]); goto L_80130AA4;
+  L_80130988:;
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)120));
+    c->r[2] = c->r[0] + (uint32_t)3;
+    { int _t = (c->r[3] == c->r[0]); c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[2]); if (_t) goto L_801309A8; }
+    c->r[3] = c->mem_r32((c->r[16] + (uint32_t)192));
+    c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)6));
+    c->mem_w8((c->r[3] + (uint32_t)62), (uint8_t)c->r[2]);
+  L_801309A8:;
+    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]); goto L_80130AA4;
+  L_801309B0:;
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)120));
+    { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_80130AB0; }
+    c->r[2] = c->r[3] & 1u;
+    { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_80130AB0; }
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)96));
+    c->r[3] = c->r[0] + (uint32_t)64;
+    c->r[2] = c->r[2] & 240u;
+    { int _t = (c->r[2] == c->r[3]); c->r[2] = c->r[0] + (uint32_t)2; if (_t) goto L_80130AA4; }
+    { int _t = (c->r[4] != c->r[2]); c->r[2] = c->r[0] + (uint32_t)-8192; if (_t) goto L_801309F4; }
+    c->mem_w16((c->r[16] + (uint32_t)72), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)128; goto L_80130A00;
+  L_801309F4:;
+    c->r[2] = c->r[0] + (uint32_t)8192;
+    c->mem_w16((c->r[16] + (uint32_t)72), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)-128;
+  L_80130A00:;
+    c->mem_w16((c->r[16] + (uint32_t)78), (uint16_t)c->r[2]);
+    c->r[2] = c->mem_r32((c->r[16] + (uint32_t)196));
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)8));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)100));
+    { int _t = (c->r[3] == c->r[2]);  if (_t) goto L_80130A78; }
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)102));
+    { int _t = (c->r[3] == c->r[2]);  if (_t) goto L_80130A78; }
+    c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)1));
+    { int _t = (c->r[2] == c->r[0]); c->r[17] = (uint32_t)32789u << 16; if (_t) goto L_80130A94; }
+    c->r[2] = c->mem_r32((c->r[17] + (uint32_t)-23952));
+    { int _t = (c->r[2] != c->r[0]); c->r[2] = (uint32_t)((int32_t)c->r[3] < 2048); if (_t) goto L_80130A78; }
+    { int _t = (c->r[2] == c->r[0]); c->r[4] = c->r[0] + (uint32_t)129; if (_t) goto L_80130A64; }
+    c->r[5] = c->r[0] + c->r[0];
+    c->r[6] = c->r[0] + (uint32_t)42; goto L_80130A6C;
+  L_80130A64:;
+    c->r[5] = c->r[0] + (uint32_t)-10;
+    c->r[6] = c->r[0] + (uint32_t)-14;
+  L_80130A6C:;
+    c->r[31] = 0x80130A74u;
+     rec_dispatch(c, 0x80074590u);
+    c->mem_w32((c->r[17] + (uint32_t)-23952), c->r[2]);
+  L_80130A78:;
+    c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)1));
+    { int _t = (c->r[2] == c->r[0]); c->r[4] = c->r[0] + (uint32_t)130; if (_t) goto L_80130A94; }
+    c->r[5] = c->r[0] + c->r[0];
+    c->r[31] = 0x80130A94u;
+    c->r[6] = c->r[5] + c->r[0]; rec_dispatch(c, 0x80074590u);
+  L_80130A94:;
+    c->r[2] = c->r[0] + (uint32_t)1;
+    c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[2]);
+    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]);
+    c->mem_w8((c->r[16] + (uint32_t)94), (uint8_t)c->r[0]);
+  L_80130AA4:;
+    c->r[2] = c->r[0] + (uint32_t)1; goto L_80130AB0;
+  L_80130AAC:;
+    c->r[2] = c->r[0] + c->r[0];
+  L_80130AB0:;
+    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)24));
+    c->r[17] = c->mem_r32((c->r[29] + (uint32_t)20));
+    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
+    c->r[29] = c->r[29] + (uint32_t)32; return;
+    return;
+}
+
 void SubstateEdgeLeaves::registerOverrides(Game*) {
+  engine_set_override_a00(0x801308E0u, &SubstateEdgeLeaves::contactWeightApply, ov_a00_gen_801308E0);
   { extern void ov_opn_gen_8018C820(Core*);
     overrides::install(0x8018C820u, "SubstateEdgeLeaves::opnAssemblyHook",
                        &SubstateEdgeLeaves::opnAssemblyHook, ov_opn_gen_8018C820, nullptr); }

@@ -73,5 +73,9 @@ public:
   // FUN_0x8018C820 — the OPN-overlay hook; the twelfth and last leaf of the kanban #8 chain.
   static void opnAssemblyHook(Core* c);
 
+  // FUN_0x801308E0 — the contact-to-weight consumer: turns the contact index at node+0x2B into the
+  // weight at node+0x48. The mechanism kanban #8 is about; see the implementation banner.
+  static void contactWeightApply(Core* c);
+
   static void registerOverrides(Game* game);
 };

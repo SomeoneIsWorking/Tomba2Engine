@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 975 native fns, 825 owned addresses, 795 LIVE / 180 ORPHAN.
+Totals: 976 native fns, 826 owned addresses, 796 LIVE / 180 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -862,6 +862,7 @@ Totals: 975 native fns, 825 owned addresses, 795 LIVE / 180 ORPHAN.
 | 0x8012F5B4 | LIVE | `SubstateEdgeLeaves::substate1Tick` | game/ai/substate_edge_native.cpp:1015 | 0x80074590 0x80074AF0 0x80083E80 | FUN_0x8012F5B4 — the node[5]==1 sub-state tick. |
 | 0x8012FD88 | LIVE | `SubstateEdgeLeaves::substate2Tick` | game/ai/substate_edge_native.cpp:1445 | 0x8004CBD8 0x80074590 0x80077768 | FUN_0x8012FD88 — the node[5]==2 sub-state tick. |
 | 0x80130524 | LIVE | `SubstateEdgeLeaves::substate3Tick` | game/ai/substate_edge_native.cpp:1853 | 0x80077768 | FUN_0x80130524 — the node[5]==3 sub-state tick. |
+| 0x801308E0 | LIVE | `SubstateEdgeLeaves::contactWeightApply` | game/ai/substate_edge_native.cpp:2236 | 0x80074590 | FUN_0x801308E0 — THE CONTACT-TO-WEIGHT CONSUMER, and the reason this w… |
 | 0x80130AC4 | LIVE | `SubstateEdgeLeaves::visibilityGate` | game/ai/substate_edge_native.cpp:62 | 0x80077A4C | ORACLE: ov_a00_gen_80130AC4 |
 | 0x80131134 | LIVE | `SubstateEdgeLeaves::armPendingChildPair` | game/ai/substate_edge_native.cpp:272 |  | ORACLE: ov_a00_gen_80131134 |
 | 0x801313C4 | LIVE | `SubstateEdgeLeaves::angleLimitGate` | game/ai/substate_edge_native.cpp:1999 |  | FUN_0x801313C4 — ANGLE-LIMIT GATE. RENAMED after reading it: I had cal… |
