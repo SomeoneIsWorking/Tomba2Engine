@@ -427,7 +427,17 @@ void SubstateEdgeLeaves::substate0Tick(Core* c) {
     return;
 }
 
-// FUN_0x8012E8A8 — per-child transform propagate: walks the sub-part table and composes each part's matrix.
+// FUN_0x8012E8A8 — PER-SUB-PART TRANSFORM PROPAGATE. Verified against the body rather than taken
+// from the RE spec: it reads the sub-part count at node+8, then walks the pointer table composing a
+// rotation for each part — rec_dispatch(0x80085480) is Math::rotmat (libgte RotMatrix), fed the
+// part's Euler angles at child+8, with the two scratchpad matrices at 0x1F800000 and 0x1F800020 as
+// working space. Each part's sentinel at child+6 selects between a root composition and a
+// parent-relative one.
+//
+// NOTE FOR ANYONE NAMING OFFSETS HERE: the table base ADVANCES each iteration (r16 walks node,
+// node+4, ...), so the `+ 192` inside the loop is childTable[i], NOT childTable[0]. It is
+// deliberately left as a literal for that reason — kChildTableOff would read as the table base and
+// be subtly wrong.
 // ORACLE: ov_a00_gen_8012E8A8
 void SubstateEdgeLeaves::perChildTransformPropagate(Core* c) {
     c->r[29] = c->r[29] + (uint32_t)-48;
