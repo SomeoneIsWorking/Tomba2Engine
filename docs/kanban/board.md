@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (28)
+## TODO (29)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
@@ -34,6 +34,7 @@
 - **#66 A0L phase byte 0x800BFA55 gates the area-21 jet effect (FUN_8010C1D8) — need a scene where it reaches >= 4**  `render`
 - **#67 Area-14 backdrop: FUN_80110CA4's sprite tail 0x801104D0 (440 lines) is unported**  `render`
 - **#68 Area-4 ambient effect FUN_8013B118 is gated off in every reachable state (phase 1, fade 4096)**  `render,verification`
+- **#69 Read-only producers cannot use the guest PRNG (FUN_8009A450 writes seed 0x80105EE8) — needs a host-side mirror design**  `render`
 
 ## DOING (4)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`

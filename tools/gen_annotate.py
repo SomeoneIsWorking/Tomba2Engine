@@ -68,20 +68,34 @@ RE_DISPATCH = re.compile(r"rec_dispatch\(c, 0x([0-9A-Fa-f]+)u?\)")
 RE_CALL = re.compile(r"\b((?:ov_[a-z0-9]+_)?func_)([0-9A-Fa-f]{8})\(c\)")
 
 
+_OWNER_CACHE = {}
+
+
 def codemap_owner(addr):
-    """Ask the project's own ownership index who owns this guest address."""
+    """Ask the project's own ownership index who owns this guest address.
+
+    MEMOISED: this shells out to codemap.py, and a large body can contain dozens of dispatch sites
+    (often the same address repeatedly). Without the cache, annotating a 440-line body spawned one
+    subprocess per site and took minutes — the tool timed out on the first big function it was
+    pointed at. One lookup per DISTINCT address is plenty.
+    """
+    if addr in _OWNER_CACHE:
+        return _OWNER_CACHE[addr]
     try:
         out = subprocess.run(
             [os.path.join(REPO, "tools", "codemap.py"), "--addr", f"{addr:08X}"],
             capture_output=True, text=True, timeout=30,
         ).stdout
     except Exception:
+        _OWNER_CACHE[addr] = None
         return None
     first = out.strip().splitlines()[0] if out.strip() else ""
     if "NO native owner" in first:
-        return "NO native owner"
-    m = re.match(r"0x[0-9A-Fa-f]+:\s+(\S+)", first)
-    return m.group(1) if m else None
+        _OWNER_CACHE[addr] = "NO native owner"
+    else:
+        m = re.match(r"0x[0-9A-Fa-f]+:\s+(\S+)", first)
+        _OWNER_CACHE[addr] = m.group(1) if m else None
+    return _OWNER_CACHE[addr]
 
 
 def find_body(addr_hex):
@@ -159,7 +173,8 @@ def annotate(body):
         for mm in RE_DISPATCH.finditer(line):
             fn = int(mm.group(1), 16)
             desc = KNOWN_FN.get(fn)
-            owner = codemap_owner(fn)
+            # only pay for a codemap lookup when this is not already a named leaf
+            owner = None if desc else codemap_owner(fn)
             bits = [f"-> FUN_{fn:08X}"]
             if desc:
                 bits.append(desc)

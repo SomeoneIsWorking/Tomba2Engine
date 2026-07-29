@@ -8,3 +8,5 @@ updated: 2026-07-29
 ---
 
 Render::fxBackdropPlaneRender (fx_backdrop_plane.cpp) owns the two GRIDS of FUN_80110CA4 — the waterfall wall, its mirrored reflection and the additive seam glow — and is pixel-verified. But the guest render fn TAIL-CALLS 0x801104D0 with the same node, a 440-line sprite-family body that is not ported, so whatever that half draws is still absent from area 14. Spec context: docs/re/render-targets-static-re.md, section 0x80110CA4. Portmap step fx-backdrop-plane-110ca4 is marked verified for the grids only and says so.
+
+**2026-07-29:** 2026-07-29: BLOCKED on the shared PRNG constraint, not on its own size. ov_a0e_gen_801104D0 calls FUN_8009A450 34 times, and that fn reads AND WRITES the guest seed 0x80105EE8 — forbidden to a read-only pc_render producer. See the new card on the host-side RNG mirror; this cannot be ported faithfully until that is designed.
