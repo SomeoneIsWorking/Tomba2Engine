@@ -333,6 +333,11 @@ public:
   // Body in fx_backdrop_plane.cpp.
   void fxBackdropPlaneRender(uint32_t node);
 
+  // fxBackdropSparkRender (FUN_801104D0, A0E/area 14): the backdrop's 200-slot spark pool — the tail
+  // half FUN_80110CA4 tail-calls (kanban #67). Draw-only: the guest's own body keeps the pool
+  // simulated, so this reads slot state and emits. Body in fx_backdrop_plane.cpp.
+  void fxBackdropSparkRender(uint32_t node);
+
   // fxMoteStreakRender (FUN_80116904, A08/area 8): 32 world motes drawn as doubled-length motion
   // STREAKS from each mote's current screen position past its previous one. One-frame-differential,
   // so it carries its own host-side screen-position shadow (mMoteStreaks) — the guest's array is not

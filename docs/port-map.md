@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 22 verified · 11 ported-unverified · 1 todo · 3 blocked
+**Status:** 22 verified · 12 ported-unverified · 1 todo · 3 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -221,6 +221,12 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** ported-unverified
 - **owner:** game/render/fx_ring.cpp
 - **notes:** PORTED 2026-07-28 as Render::impactRingRender + Render::impactAnnulusDraw. The pair is fully RE'd; the vertex layout that blocked it was settled with tools/mips_trace.py. FUN_8002E680 is a screen-space ANNULUS rasteriser: 5 authored wedge angles (0x66 then the s16 table at 0x800A20A8 = 204/307/409/512, i.e. 9/18/27/36/45 degrees), each segment a gouraud quad (GP0 0x3A) with v0/v2 on the inner radius carrying a2 and v1/v3 on the outer carrying a3 (a radial half->full gradient, since the caller passes a2 = a3>>1 & 0x7F7F7F), replicated over its EIGHT dihedral images; segment 0 emits only 4 because its span is mirror-symmetric. 4 + 4*8 = 36 quads, confirmed by the guest's 0x144-word pool advance. It ends by linking a SetDrawMode tpage 0x35 prim in front, so the blend is ABR 1 = additive. FUN_8002ECD8 is the node half: centre/scale either the fixed HUD (32,32)/1.0/OT-4 when node+3==0x91, or the anchor at node+0x2C RTPS'd with DQA=6 (the family's SpriteAnchor::baseScale + otKeyInRange), and radii base=48+32*sin(a), outer=ceil(base/2), inner=ceil((base-32*cos(a))/2) from the single animator byte node+5, halved again when the s16 at 0x800E7FFE is negative. Whitelisted on rfn 0x8002ECD8 in fieldObjectsRender (MAIN.EXE-resident, no overlay guard needed). STILL RUNTIME-UNVERIFIED: it did NOT fire on replays/bugs/weapon-impact-bucket.pad (that impact uses 0x80033080), so no replay in the library reaches it yet. impactAnnulusDraw is deliberately separate from the node half because the guest leaf has ELEVEN call sites (MAIN.EXE + the A01/A06/A08/A0J overlays) — the other ten can be ported onto this same producer.
+
+## fx-backdrop-sparks-1104d0
+- **scope:** render
+- **status:** ported-unverified
+- **owner:** game/render/fx_backdrop_plane.cpp
+- **notes:** Render::fxBackdropSparkRender (FUN_801104D0, A0E overlay, area 14) — the tail half FUN_80110CA4 tail-calls (kanban #67), now called from fxBackdropPlaneRender exactly as the guest tail-calls it. A fixed 200-slot sprite-particle pool: 0x8012686C + i*4 is the slot's record list AND its live flag (non-zero = live), 0x80125BEC + i*8 is {u16 x,y,z}, 0x8012622C + i*8 is velocity, clut|tpage at 0x8011B224, gate bias -50, DQA 6, IR0 = 0. WHY THE PORT IS SMALL WHERE THE GEN BODY IS 441 LINES: that body SIMULATES AND DRAWS — it integrates pos += vel, adds 25 to vel.y for gravity, writes both back, and its bulk is the SPAWN state machine where all 34 of its PRNG draws live. A read-only producer reproduces NONE of that; the guest's own body keeps the pool simulated underneath, so this reads slot state and emits. It therefore needs no GuestRngMirror — the randomness is upstream of the state we read. STATUS ported-unverified, and the reason is measured not assumed: in the area-14 capture (warp 14 + skip 600) the pool reads live=0/200, so there is nothing to draw and the pixel delta against the grids-only build is 0. That is an EMPTY POOL, not a dead producer — the fxplane 'sparks ... live=N drawn=M/200' line distinguishes the two, which is instrument I022's lesson applied. Verify when a scene populates the pool.
 
 ## world-line-ring-shadow
 - **scope:** render

@@ -35,6 +35,7 @@
 #include "render_queue.h"
 #include "render_internal.h"   // ObjScope / proj_pz_to_ord
 #include "projection.h"        // EObjXform
+#include "fx_sprite.h"         // SpriteAnchor — the spark half is FUN_80027A4C family
 #include "mesh_quads.h"        // MeshQuads::rotmat — host-output 3x3 from three Euler angles
 #include "cfg.h"
 #include <cstdint>
@@ -51,6 +52,14 @@ constexpr int      kClut        = 16190;        // 0x3F3E
 constexpr int kRowY0 = -7200, kRowY1 = 7200, kRowStep = 2400;
 constexpr int kColX0 = -6000, kColX1 = 6000,  kColStep = 1200;
 constexpr int kBandZ = 1200;                    // grid B's depth on the local Y = 0 plane
+
+// FUN_801104D0's spark pool (A0E overlay data).
+constexpr uint32_t kSparkState    = 0x8012686Cu;  // u32 per slot: record list, non-zero = live
+constexpr uint32_t kSparkPos      = 0x80125BECu;  // {u16 x, y, z} per slot
+constexpr uint32_t kSparkClut     = 0x8011B224u;  // shared clut | tpage
+constexpr int      kSparkSlots    = 200;
+constexpr int      kSparkGateBias = -50;
+constexpr int      kSparkDqa      = 6;
 
 // The guest's screen bounding test is TWO SEPARATE "any vertex passes" tests, not a per-vertex
 // conjunction, and it reads the packed screen words UNSIGNED so a negative coordinate reads as
@@ -163,4 +172,61 @@ void Render::fxBackdropPlaneRender(uint32_t node) {
   if (cfg_dbg("fxplane"))
     cfg_logf("fxplane", "backdrop node=%08X uv=(%d,%d) gridA=%d/70 gridB=%d/10",
              node, uBase, vBase, drawnA, drawnB);
+
+  // The guest render fn TAIL-CALLS 0x801104D0 with the same node; reproduce that here so one walk
+  // dispatch owns the whole effect, exactly as the guest does.
+  fxBackdropSparkRender(node);
+}
+
+// ── FUN_801104D0 (A0E overlay, area 14) — the backdrop's SPARK/DROPLET POOL ───────────────────────
+// The tail half of FUN_80110CA4, and kanban #67. A fixed 200-slot pool of sprite particles drawn over
+// the waterfall — spray, embers or motes depending on how you read the art.
+//
+// THE KEY OBSERVATION, and why this port is small where the gen body is 441 lines: that body both
+// SIMULATES and DRAWS. Per live slot it integrates pos += vel and adds 25 to vel.y (gravity), writes
+// both back, then projects and emits; the rest of its bulk is the SPAWN state machine, which is where
+// all 34 of its PRNG draws live. A read-only producer reproduces NONE of that — the guest's own body
+// still runs underneath and keeps the pool simulated, so this producer just reads the pool's current
+// state and draws it. That is also why it needs no GuestRngMirror: the randomness is upstream of the
+// state we read.
+//
+// Pool layout, all A0E overlay data, parallel and indexed by slot:
+//   0x8012686C + i*4 : u32 record list — the slot's sprite, and NON-ZERO IS THE LIVE FLAG
+//   0x80125BEC + i*8 : {u16 x, u16 y, u16 z} the particle's world position
+//   0x8012622C + i*8 : {u16 vx, u16 vy, u16 vz} its velocity (guest-owned; we never touch it)
+//   0x8011B224       : the shared clut|tpage word
+// Gate bias is -50 and DQA is 6, both from the guest; IR0 is programmed 0, so the depth cue is the
+// identity and record colours pass through.
+void Render::fxBackdropSparkRender(uint32_t node) {
+  Core* c = mCore;
+  EObjXform cam; projComposeCamera(&cam);
+  const uint32_t H = (uint32_t)cam.H;
+  const uint32_t clutPage = c->mem_r32(kSparkClut);
+  const float nearPz = proj_near_pz();
+
+  RenderQueue& rq = c->game->activeRq();
+  (void)rq;
+  ObjScope objScope(c, node);
+  int live = 0, drawn = 0;
+  for (int i = 0; i < kSparkSlots; i++) {
+    const uint32_t rec0 = c->mem_r32(kSparkState + (uint32_t)i * 4u);
+    if (!rec0) continue;                        // free slot
+    live++;
+    const uint32_t p = kSparkPos + (uint32_t)i * 8u;
+    ProjVtx pv;
+    cam.project((int16_t)c->mem_r16(p), (int16_t)c->mem_r16(p + 2u), (int16_t)c->mem_r16(p + 4u), &pv);
+    if (!SpriteAnchor::otKeyInRange(pv.sz, kSparkGateBias)) continue;   // the emitter's own skip
+
+    // The authored near bias, in the units the rest of the family uses: the gate states it in OT
+    // buckets and the bucket key is SZ3>>2, so one unit is four of view depth.
+    float pz = pv.pz + (float)(4 * kSparkGateBias);
+    if (pz < nearPz) pz = nearPz;
+
+    const int32_t scale = SpriteAnchor::baseScale(H, pv.sz, kSparkDqa);
+    spriteRecordsEmit(rec0, clutPage, pv.px, pv.py, proj_pz_to_ord(pz), scale, scale, 0, nullptr);
+    drawn++;
+  }
+
+  if (cfg_dbg("fxplane"))
+    cfg_logf("fxplane", "sparks node=%08X live=%d drawn=%d/%d", node, live, drawn, kSparkSlots);
 }
