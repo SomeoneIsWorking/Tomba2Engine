@@ -13,6 +13,7 @@
 #include "render_native.h"      // class NativeScenePass — the decoupled native render subsystem
 #include "margin_render.h"    // class MarginRenderer — widescreen margin collect-and-flush
 #include "lighting.h"
+#include "fx_motes.h"        // class MoteStreaks — the area-8 streak shadow
 #include "effect_lerp.h"      // class EffectLerp — the effect-node actor-transform interpolation tier           // class Lighting — per-area light registry (sun / lava+torch)
 #include <unordered_set>
 #include <vector>
@@ -331,6 +332,12 @@ public:
   // Body in fx_backdrop_plane.cpp.
   void fxBackdropPlaneRender(uint32_t node);
 
+  // fxMoteStreakRender (FUN_80116904, A08/area 8): 32 world motes drawn as doubled-length motion
+  // STREAKS from each mote's current screen position past its previous one. One-frame-differential,
+  // so it carries its own host-side screen-position shadow (mMoteStreaks) — the guest's array is not
+  // safe to read. NOT a sprite-family member. Body in fx_motes.cpp.
+  void fxMoteStreakRender(uint32_t node);
+
   // fxAnimSpriteRender: native producer for the SECOND world-anchored sprite family — emitter
   // FUN_800286CC + packet writer FUN_8002847C (36-byte, four-corner, per-vertex-coloured quad records
   // selected by an ANIMATION SCRIPT byte). This is Tomba's movement DUST PUFF (kanban #39) and the
@@ -406,6 +413,7 @@ public:
   // The effect-node interpolation tier (game/render/effect_lerp.h): world points the effect producers
   // own, captured on the real frame and blended on the fps60 in-between so effects lerp like the rest.
   EffectLerp mEffectLerp;
+  MoteStreaks       mMoteStreaks;   // area-8 streaks: last logic frame's projected mote positions
 
   // fieldHudRender (game/render/field_hud.cpp): native producer for the field HUD family
   // FUN_80025D98 -> {FUN_80025744 status row, FUN_80025934 item ring, FUN_80025B78 weapon strip}

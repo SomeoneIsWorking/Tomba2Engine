@@ -709,6 +709,11 @@ void Render::fieldObjectsRender() {
           // 22-area nofx sweep. Overlay-resident, so the same first-instruction guard (addiu sp,-64).
           c->rsub.stats.snObjs++;
           rend(c)->fxRingSpriteRender(n);
+        } else if (rfn == 0x80116904u && c->mem_r32(0x80116904u) == 0x27BDFF98u) {
+          // FUN_80116904 (A08 overlay, area 8) — the 32-mote motion streaks, from the 22-area nofx
+          // sweep. Overlay-resident, so the same first-instruction guard (addiu sp,-104).
+          c->rsub.stats.snObjs++;
+          rend(c)->fxMoteStreakRender(n);
         } else if (rfn == 0x80110CA4u && c->mem_r32(0x80110CA4u) == 0x27BDFFA8u) {
           // FUN_80110CA4 (A0E overlay, area 14) — the backdrop plane + glow band (kanban #48).
           // Overlay-resident, so the same first-instruction guard.

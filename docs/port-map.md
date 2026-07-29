@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 21 verified · 11 ported-unverified · 2 todo · 3 blocked
+**Status:** 22 verified · 11 ported-unverified · 1 todo · 3 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -188,6 +188,12 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** game/render/fx_backdrop_plane.cpp
 - **notes:** Render::fxBackdropPlaneRender (FUN_80110CA4, A0E overlay, area 14): the WATERFALL BACKDROP — kanban #48. Grid A = 7 rows x 10 cols of 1200x2400 model-unit quads at local Z=0 forming a 12000x16800 wall, V MIRRORED about y=0 with the lower half tinted 0x00201000 (the reflection) and a bright 0x00DFDFDF seam row at y==0; Grid B = 10 quads on the local Y=0 plane out to Z=1200, ADDITIVE, the glow band along the seam. U/V scroll from the frame tick at 0x1F80017C (U one 64-texel tile every 2 ticks, V every 8). Transform = projComposeObjectHost(MeshQuads::rotmat(node+0x48/4A/4C), node+0x2C/2E/30). Screen gate reproduced as the guest's TWO SEPARATE 'any vertex passes' tests (X<321, Y<241) read unsigned. DELIBERATE DIVERGENCE: the guest log-compresses AVSZ4 into an OT key and adds a ROW BIAS (+30 upper / +40 lower) plus a 2045 clamp — authored painter's-algorithm order; this producer uses real projected depth instead. VERIFIED ON PIXELS: area 14 warp + skip 600, ON vs producer-removed OFF = 27904 px differ at x[0..208] y[12..227], rendering as the waterfall wall plus its reflection; 1196 emissions, gridA 33/70 and gridB 7/10 passing the gates; 0x80110CA4 dropped off the nofx census. INCOMPLETE BY DESIGN: this is HALF the guest render fn — it tail-calls 0x801104D0 (440 gen lines, sprite family) with the same node, and that half is NOT ported.
 
+## fx-rain-lines-116904
+- **scope:** render
+- **status:** verified
+- **owner:** game/render/fx_motes.cpp + fx_motes.h
+- **notes:** Render::fxMoteStreakRender (FUN_80116904, A08 overlay, area 8): 32 world motes drawn as doubled-length motion STREAKS — visually the area's RAIN. tail = 2*prev - cur, white head fading to mid-grey tail. LCG seeded at node+0x50 (never written back), multiplier 0x801450D8, THREE steps per mote with each axis reading the seed BEFORE its replacement; positions masked to 11 bits inside a 2048-unit cube re-centred each frame on (camera eye - 1024 + half the camera forward row); per-axis bit-11 XOR against last frame's cube base (node+0x48/4A/4C) suppresses the streak on the frame a mote wraps. NOT a sprite-family member, and its OT gate is NOT SpriteAnchor::otKeyInRange — same log map but WITHOUT the k<4 pre-clamp, so it REJECTS a near range otKeyInRange accepts (kGateNoPreClamp). ONE-FRAME-DIFFERENTIAL: the previous screen positions come from a HOST-SIDE shadow (class MoteStreaks, fx_motes.h) rotated once per LOGIC frame on gpu.s_frame, the EffectLerp idiom — the guest's own array at 0x801485E8 is NOT read because whether it holds this or last frame's values depends on when the substrate walk ran. VERIFIED ON PIXELS: area 8 warp + skip 600, ON vs producer-removed OFF = 1432 px differ across x[29..319] y[0..239], rendering as rain; 1196 emissions, 32/32 streaks with prev=yes, 0 wrapped; 0x80116904 dropped off the nofx census.
+
 ## render-compose-tint-gate
 - **status:** ported-unverified
 - **notes:** Render::composeTintGate (FUN_8003EF9C): per-type render gate, port_check PASS, wired via overrides::install with setter. Pool-snapshot idiom: emits geometry then colour-adds over exactly the primitives just emitted. Cold on the field/dialog replay - needs a scene that uses render mode 2.
@@ -221,12 +227,6 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** todo
 - **deps:** world-line-rope
 - **notes:** FUN_8013E08C: op-0x4A ground ring shadow, its own GTE loop over the 16-point circle at 0x8014C780 (sliding 3-point window), grey = 0x80-((nodeY-0x14)*0x80)/200, blends 1 and 2, node matrix at node+0x2C via FUN_80084220 + a diagonal scale from nodeY<<4. BLOCKED on RE of FUN_80084110/FUN_80084220.
-
-## fx-rain-lines-116904
-- **scope:** render
-- **status:** todo
-- **owner:** generated (unported)
-- **notes:** FUN_80116904 (area 8). DISPATCH REACHABILITY CONFIRMED 2026-07-29 (claim C017 FALSIFIED — this proves the walk dispatches the node, NOT that the fn's own gates let it draw; check content separately): warp 8 + skip 600 with PSXPORT_DEBUG=nofx names 0x80116904 in the census, i.e. the walk DOES reach a live node carrying it, so a producer will fire and can be pixel-verified there. (Contrast FUN_8010C1D8, which is phase-gated off and therefore BLOCKED.) Full spec + verifier corrections: docs/re/render-targets-static-re.md — read the ORIGINAL algorithm alongside the CORRECTED delta.
 
 ## fx-area4-ambient-13b118
 - **scope:** render

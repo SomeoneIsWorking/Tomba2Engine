@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 941 native fns, 794 owned addresses, 752 LIVE / 189 ORPHAN.
+Totals: 942 native fns, 795 owned addresses, 753 LIVE / 189 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -790,6 +790,7 @@ Totals: 941 native fns, 794 owned addresses, 752 LIVE / 189 ORPHAN.
 | 0x8011534C | LIVE | `TileGridLayer::scrollStep` | game/render/tile_grid_layer.cpp:161 |  |  |
 | 0x80115598 | LIVE | `Render::backdropRender` | game/render/render_walk.cpp:238 |  | NATIVE BACKDROP tilemap drawer — overlay FUN_80115598 (the seaside fie… |
 | 0x80115598 | LIVE | `TileGridLayer::emit` | game/render/tile_grid_layer.cpp:220 | 0x80083DE0 |  |
+| 0x80116904 | LIVE | `Render::fxMoteStreakRender` | game/render/fx_motes.cpp:69 |  |  |
 | 0x80117658 | LIVE | `beh_prng_velocity_machine` | game/ai/beh_prng_velocity_machine.cpp:420 |  |  |
 | 0x801178A4 | LIVE | `whiteFlashPhaseRamp` | game/ai/beh_a06_multi_actor.cpp:59 |  | the 5-phase white-flash phase ramp SM. See the file header for the pha… |
 | 0x80117AAC | LIVE | `whiteFadeHold` | game/ai/beh_a06_multi_actor.cpp:116 |  | 3-state fade-hold-fade-back companion to whiteFlashPhaseRamp. |
