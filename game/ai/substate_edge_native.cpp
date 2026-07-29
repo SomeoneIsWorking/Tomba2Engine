@@ -601,7 +601,13 @@ void SubstateEdgeLeaves::perChildTransformPropagate(Core* c) {
     return;
 }
 
-// FUN_0x8012ED84 — STATE 0 init: seeds the assembly's parameter block and builds its sub-parts.
+// FUN_0x8012ED84 — STATE 0 INIT. Verified against the body: it seeds the node's own control fields —
+// state, sub-state, part count, pending command (three writes), arm duration and angle parameter —
+// and calls GraphicsBind::recordAllocBody (0x8007AAE8) TWICE, which is what "builds its sub-parts"
+// means concretely: allocating the render records the parts draw through. It also calls
+// 0x8004CBD8, which has no owner yet (codemap: ORPHAN leaf_8004CBD8) — so one callee of this
+// initialiser is still unexamined, and that is worth knowing before trusting any claim about what
+// the finished assembly looks like after init.
 // ORACLE: ov_a00_gen_8012ED84
 void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     c->r[29] = c->r[29] + (uint32_t)-56;
