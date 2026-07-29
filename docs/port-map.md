@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 23 verified · 12 ported-unverified · 1 todo · 3 blocked
+**Status:** 23 verified · 12 ported-unverified · 2 todo · 3 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -27,6 +27,12 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **deps:** title-render — logo+menu+cursor geometry
 - **owner:** game/render/render_walk.cpp (s3MenuNative + shared menuChrome/menuItemsAndCursor/emitMenuFt4)
 - **notes:** BUILT + VERIFIED: data-driven menu emitter reproduces FUN_8007e1b8/FUN_80106824 reading guest templates; s3 menu pc-vs-psx RMSE 0.000, no crash at s48=3. Draw order: items then cursor (cursor on top in overlap).
+
+## collision-resolve-23d48
+- **scope:** FUN_80023D48 — actor-vs-object cylinder collision resolve + push-out
+- **status:** todo
+- **order:** 20
+- **notes:** BUSIEST remaining unowned function: 29,869 dispatches per 6000 frames of seesaw-weight (after discounting PlatformHle-owned entries per I024). Fully RE'd 2026-07-29 — see docs/re/collision-resolve-23d48.md (signature, 4-valued return, field map, frame contract). NOT a free port despite all five callees being owned: Trig::rcos/rsin/ratan2/angleCmp are DELIBERATELY unregistered because their substrate bodies descend guest stack frames the natives do not mirror, so the port MUST call them through their generated func_XXXX wrappers (guest_abi.h guest_fn) rather than the Trig methods, or it diverges in dead stack scratch. Deliberately no draft banked — per C020 an unverified draft is a liability.
 
 ## sop-narration-void-vortex (#5)
 - **scope:** SOP void beat (0x800BF9B4==5): vortex object 0x800FBA68 not rendering under pc_render

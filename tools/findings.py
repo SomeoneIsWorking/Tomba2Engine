@@ -83,6 +83,26 @@ def search_journal(terms):
             snip = next((l.strip() for l in b.splitlines()[1:] if l.strip()), "")
             yield title, snip[:200]
 
+def search_re_notes(terms):
+    """Raw search of docs/re/*.md — the standalone RE write-ups.
+
+    These are neither findings (symptom-keyed) nor journal entries, and until 2026-07-29 they were
+    reachable by NOTHING: a ~1300-line static-RE doc and a full collision-resolve analysis both sat
+    in docs/re/ while `findings.py <symptom>` reported "likely NOT yet investigated". A note that
+    the search tool cannot find is a note the next session re-derives. Yields (file, heading, snip).
+    """
+    for path in sorted(glob.glob(os.path.join(ROOT, "docs", "re", "*.md"))):
+        with open(path) as f:
+            text = f.read()
+        rel = os.path.relpath(path, ROOT)
+        # split on any heading level so a deep subsection is findable too
+        for b in re.split(r"(?m)^#+ +", text)[1:]:
+            title = b.splitlines()[0].strip()
+            low = b.lower()
+            if all(t in low for t in terms):
+                snip = next((l.strip() for l in b.splitlines()[1:] if l.strip()), "")
+                yield rel, title, snip[:200]
+
 def query(words):
     terms = [w.lower() for w in words]
     hits = 0
@@ -97,6 +117,12 @@ def query(words):
     # Also search the raw journal (un-promoted history) so NOTHING is unfindable. Curated registry
     # findings above are authoritative; journal hits are raw leads — promote one to docs/findings/ if
     # it's still relevant and you had to dig for it.
+    rhits = list(search_re_notes(terms))
+    if rhits:
+        print(f"\n--- {len(rhits)} RE-note hit(s) (docs/re/ — standalone analyses) ---")
+        for rel, title, snip in rhits[:12]:
+            print(f"  {rel} :: {title}\n      {snip}")
+        hits += len(rhits)
     jhits = list(search_journal(terms))
     if jhits:
         print(f"\n--- {len(jhits)} raw journal hit(s) (docs/journal.md — promote to a finding if useful) ---")
