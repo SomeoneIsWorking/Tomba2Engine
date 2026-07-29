@@ -48,7 +48,6 @@ void Engine::allocRecordForSelector() {
     c->r[2] = c->r[2] + (uint32_t)240;
   L_80089154:;
      return;
-    func_80089160(c); return;
 }
 
 void Engine::initFrameState() {
