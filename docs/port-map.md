@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 21 verified · 11 ported-unverified · 3 todo · 2 blocked
+**Status:** 21 verified · 11 ported-unverified · 2 todo · 3 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -222,17 +222,17 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **deps:** world-line-rope
 - **notes:** FUN_8013E08C: op-0x4A ground ring shadow, its own GTE loop over the 16-point circle at 0x8014C780 (sliding 3-point window), grey = 0x80-((nodeY-0x14)*0x80)/200, blends 1 and 2, node matrix at node+0x2C via FUN_80084220 + a diagonal scale from nodeY<<4. BLOCKED on RE of FUN_80084110/FUN_80084220.
 
-## fx-area4-ambient-13b118
-- **scope:** render
-- **status:** todo
-- **owner:** generated (unported)
-- **notes:** FUN_8013B118 (area 4). REACHABILITY CONFIRMED 2026-07-29: warp 4 + skip 600 with PSXPORT_DEBUG=nofx names 0x8013B118 in the census, i.e. the walk DOES reach a live node carrying it, so a producer will fire and can be pixel-verified there. (Contrast FUN_8010C1D8, which is phase-gated off and therefore BLOCKED.) Full spec + verifier corrections: docs/re/render-targets-static-re.md — read the ORIGINAL algorithm alongside the CORRECTED delta.
-
 ## fx-rain-lines-116904
 - **scope:** render
 - **status:** todo
 - **owner:** generated (unported)
 - **notes:** FUN_80116904 (area 8). REACHABILITY CONFIRMED 2026-07-29: warp 8 + skip 600 with PSXPORT_DEBUG=nofx names 0x80116904 in the census, i.e. the walk DOES reach a live node carrying it, so a producer will fire and can be pixel-verified there. (Contrast FUN_8010C1D8, which is phase-gated off and therefore BLOCKED.) Full spec + verifier corrections: docs/re/render-targets-static-re.md — read the ORIGINAL algorithm alongside the CORRECTED delta.
+
+## fx-area4-ambient-13b118
+- **scope:** render
+- **status:** blocked
+- **owner:** generated (unported)
+- **notes:** FUN_8013B118 (A04 overlay, area 4). BLOCKED — every branch is gated OFF in the only reachable area-4 state, checked 2026-07-29 BEFORE writing code (warp 4 + skip 600, cross-checked against the older scratch/raw/c18_a4.bin): story phase 0x800E7EAA = 1 in both, so branch A (the 342-point field + sprite cluster) needs >= 44 and is not taken; the common tail needs phase in {2,3,4} and is not drawn; and node 0x800EDC90's fade at +0x58 = 4096 (fully faded) takes the branch that skips the mesh panels. So the fn draws NOTHING there and a port could not be pixel-verified — the same trap as FUN_8010C1D8 (instrument I022). TWO FURTHER BLOCKERS from the spec, independent of the gating: (1) the 342-point field lives in ov_a04_func_8013AD90, a 218-line raw GP0 tile emitter with its own LCG/RTPS/pool guard and NO analogue anywhere in game/render/ — its own producer card, not part of this port; (2) the mesh IR0 cue contains an Rng::next() dither and Rng::next() WRITES the guest seed at 0x80105EE8, so a read-only producer may not call it — that needs a host-side RNG mirror or a different cue source. UNBLOCKING: find a scene where the area-4 story phase is 2/3/4 (mesh + tail) or >= 44 (branch A), and note the phase is mirrored to 0x1F800207 only at scene setup, so poking one without the other desyncs the two reads of the same fork.
 
 ## fx-jet-mesh-sprite-10c1d8
 - **scope:** render
