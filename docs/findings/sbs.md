@@ -2125,3 +2125,31 @@ PSXPORT_SBS_EXIT_FRAME, PSXPORT_SBS_SHOT in config.md.
   The only sound test is per-address: does `abi_extract --contract` report prologue spills, and does
   the native write each one? That is what was actually done for the four confirmed above.
 - **refs:** game/ai/beh_substate_edge_leaves.cpp banner, tools/port_gen.py, docs/port-framework.md
+
+## The native beh_* orchestrator "spills a stale ra" — TRUE MECHANISM, NOT A DEFECT (checked 2026-07-29)
+- **symptom (as reported):** `beh_substate_edge_orchestrator` (native, game/ai/) calls
+  `rec_dispatch(c, 0x80131134u)` and `rec_dispatch(c, 0x801316CCu)` without setting r31, while the
+  gen orchestrator sets `r31 = 0x8012EC7C` / `0x8012EC84` first (generated/ov_a00_shard_0.c:16661,
+  :16663). Both callees spill r31 into their own guest frame (abi_extract: 0x801316CC sp+24 <- r31).
+  So the native leg would spill a STALE ra where the substrate spills the RE'd constant.
+- **status:** NOT A BUG. Every mechanical leg of it is true — `rec_dispatch` never assigns r31
+  (external/psxport/runtime/recomp/overlay_router.cpp), the gen sets it, the native does not, and the
+  callees spill it — and the conclusion still does not follow.
+- **why it does not follow:** the beh_* table is not on the byte-exact path. `dispatchNative` gates on
+  `substrateOnly = psx_fallback || verify.inSubstrateLeg || !pc_skip`
+  (game/object/behavior_dispatch.cpp:197), and SBS full constructs BOTH cores with `pc_skip = false`
+  (external/psxport/runtime/recomp/sbs.cpp:1984-1985 — core A is `(mMode == M_SKIP)`, which is false in
+  M_FULL). So under SBS the native handler never executes on either leg; both run the substrate body,
+  which sets r31 correctly. The native orchestrator only runs in ordinary `pc_skip=true` play, where
+  behavior_dispatch.cpp:196 states the contract outright: "registered overrides are required
+  byte-exact even under pc_faithful; the beh_* table is not — it's an explicit shortcut".
+- **do not "fix" it.** Adding `c->r[31] = 0x8012EC84u` at the native call site is harmless and
+  pointless, and it would assert byte-exactness for a path that is deliberately not byte-exact.
+  Where the constant DOES matter is a registry-wired port of 0x801316CC / 0x80131134 — there core A
+  runs the SUBSTRATE orchestrator (beh natives suppressed under SBS), which sets r31 correctly, so
+  that case is already sound.
+- **provenance:** raised as the HEADLINE hazard by an RE agent, which had verified the gen/native
+  asymmetry but explicitly marked "rec_dispatch does not set r31" as unverified. It was right about
+  that half too. What it could not see is the oracle gate two files away — the reason a subagent
+  finding is a lead, not a result.
+- **refs:** game/object/behavior_dispatch.cpp:190-212, external/psxport/runtime/recomp/sbs.cpp:1984
