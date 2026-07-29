@@ -1010,7 +1010,14 @@ void SubstateEdgeLeaves::stateZeroInit(Core* c) {
     return;
 }
 
-// FUN_0x8012F5B4 — the node[5]==1 sub-state tick.
+// FUN_0x8012F5B4 — SUB-STATE 1 TICK: the assembly's driven phase. Profiled from the body rather
+// than described from its address: it advances the sub-state (5 writes) and the mode byte (3),
+// drives motion through Trig::rsin (three calls), and TRIGGERS SOUND — Sfx::trigger (0x80074590)
+// twice — while acking area slots via AreaSlots::ackIfMatch (0x80074AF0). It also calls the
+// still-unowned 0x80130788 twice.
+//
+// The sound calls are the useful part: this is the phase where the pump is audibly working, which
+// is what a driven sub-state on this object should look like.
 // ORACLE: ov_a00_gen_8012F5B4
 void SubstateEdgeLeaves::substate1Tick(Core* c) {
     c->r[29] = c->r[29] + (uint32_t)-48;
@@ -1440,7 +1447,11 @@ void SubstateEdgeLeaves::substate1Tick(Core* c) {
     return;
 }
 
-// FUN_0x8012FD88 — the node[5]==2 sub-state tick.
+// FUN_0x8012FD88 — SUB-STATE 2 TICK: an angle-steering phase. Writes the mode byte four times and
+// the angle parameter twice, compares angles via Trig::angleCmp (0x80077768), and triggers a sound
+// (Sfx::trigger). It also calls 0x8004CBD8, which the codemap reports as an ORPHAN leaf with no
+// owner — so one callee here is unread, and any claim about what this phase completes is limited by
+// that.
 // ORACLE: ov_a00_gen_8012FD88
 void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[29] = c->r[29] + (uint32_t)-24;
@@ -1848,7 +1859,9 @@ void SubstateEdgeLeaves::substate2Tick(Core* c) {
     return;
 }
 
-// FUN_0x80130524 — the node[5]==3 sub-state tick.
+// FUN_0x80130524 — SUB-STATE 3 TICK, and the one that reaches the weight path: it calls
+// contactWeightApply (0x801308E0), the contact-index-to-weight consumer kanban #8 is about, after
+// comparing angles via Trig::angleCmp. Writes the sub-state and the mode byte.
 // ORACLE: ov_a00_gen_80130524
 void SubstateEdgeLeaves::substate3Tick(Core* c) {
     c->r[29] = c->r[29] + (uint32_t)-24;
@@ -2049,7 +2062,9 @@ void SubstateEdgeLeaves::angleLimitGate(Core* c) {
      return;
 }
 
-// FUN_0x80146348 — the assembly post-tick called after the sub-state work.
+// FUN_0x80146348 — ASSEMBLY POST-TICK. Its one call is Placement::spawnWithParent (0x80072DDC), so
+// this is where the assembly SPAWNS a child object parented to itself — not bookkeeping, as "post
+// tick" might suggest.
 // ORACLE: ov_a00_gen_80146348
 void SubstateEdgeLeaves::assemblyPostTick(Core* c) {
     c->r[29] = c->r[29] + (uint32_t)-32;
