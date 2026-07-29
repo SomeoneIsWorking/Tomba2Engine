@@ -233,9 +233,9 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 ## node-lifecycle-sm-40558
 - **scope:** 0x80040558 per-node lifecycle state machine
 - **status:** verified
-- **frames:** 1500
-- **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
-- **evidence:** 50/50 A/B-identical, zero divergence; ovhit native=19544 oracle=19544 balanced; port_check PASS.
+- **frames:** 6000
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=6000 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** 200/200 A/B-identical checkpoints over 6000 frames, zero divergence; ovhit native=82544 oracle=82544 balanced. Strongest gate of the session by execution count.
 
 ## objlist-walk2-case0-3bdac
 - **scope:** 0x8003BDAC objListWalk2 jump-table case 0/15 trampoline
@@ -366,9 +366,9 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 ## sequencer-voice-state-flush-931c0
 - **scope:** 0x800931C0 SPU voice-state flush
 - **status:** partial
-- **frames:** 1500
-- **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
-- **evidence:** SBS 50/50 A/B-identical and the address is GONE from the recdep substrate histogram, so the override is live. BUT ovhit reports only native=1 oracle=1 over 1500 frames, against a measured 12,000 substrate dispatches per 6000 frames (2/frame) before wiring. That discrepancy is UNEXPLAINED. The single execution matched, and nothing diverged, but this is NOT the 3000-execution gate the histogram implies it should be. Do not treat as verified until the counting is reconciled.
+- **frames:** 6000
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=6000 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** SBS 200/200 A/B-identical over 6000 frames, zero divergence, ovhit native=1 oracle=1 balanced. The low count is now EXPLAINED and is not a window artefact: this function runs 12,001 times per 6000 frames on the DEFAULT pc_skip=true path, but SBS forces pc_skip=false on both cores, and on the faithful path it runs once. So the byte-exact gate covers one execution of a function that is hot in ordinary play. Still PARTIAL: correct where gated, but the hot path is ungated by this instrument.
 
 ## actor-zoned-zoneclassify-145c78
 - **scope:** 0x80145C78 zone-band classifier
