@@ -71,7 +71,16 @@ void CullSubstateLeaves::tickChildEulerZSwing(Core* c) {
     return;
 }
 
-// FUN_80132A88 — the phase-advancing sibling of tickChildEulerZSwing above. 7,650 substrate
+// FUN_80132A88 — the phase-advancing sibling of tickChildEulerZSwing. Writes far more state than its
+// sibling: node+0x4C seven times, node+0x48 four times, node+0x76 four times, node+0x52 three times,
+// node+0x5F twice and a child's accumulator (+0x0C) three times, with one Trig::angleCmp call.
+//
+// A LEAD, NOT A FACT, AND DELIBERATELY NOT ASSERTED: kanban #8 identifies +0x48 as THE WEIGHT on the
+// pump-assembly class (0x8012EB54). This body belongs to the CULL-substate orchestrator, a different
+// class, and in this tree the same offset routinely means different things on different records
+// (docs/findings/object.md). So a second writer of "the weight" is a lead worth checking if the
+// seesaw thread is picked up again — it is NOT evidence that this function touches the pump's weight,
+// and nothing here should be read as saying it does. 7,650 substrate
 // dispatches per 6000 replay frames. Replaces a hand draft that carried FIVE defects, three of them
 // guest-visible divergences.
 // ORACLE: ov_a00_gen_80132A88
@@ -237,7 +246,10 @@ void CullSubstateLeaves::tickChildEulerZSwingPhase(Core* c) {
     return;
 }
 
-// FUN_80132954 — the orchestrator's sub-state-zero tick. 7,583 substrate dispatches per 6000 replay
+// FUN_80132954 — the orchestrator's sub-state-zero tick: a DISPATCHER. It writes only node+6 (twice)
+// and the sub-state, and its work is three calls — 0x801332C4, 0x80133610 and 0x80133700, none of
+// which has a native owner yet. So this leaf is owned but most of what it DOES is still substrate,
+// which is worth knowing before treating sub-state 0 as understood. 7,583 substrate dispatches per 6000 replay
 // frames. Replaces a hand draft with SIX defects against the live extent.
 // ORACLE: ov_a00_gen_80132954
 void CullSubstateLeaves::tickSubstateZero(Core* c) {
