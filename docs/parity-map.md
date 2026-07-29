@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 47 verified · 7 partial · 3 untested · 7 n/a
+**Status:** 51 verified · 7 partial · 6 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -52,6 +52,34 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 20040
 - **gate:** port_check PASS + MIRROR_VERIFY OK + 0 sbs-div; combat 0-diff f5400 + watch-cut f20040
 - **evidence:** d4ace056
+
+## chain-perchild-xform-12e8a8
+- **scope:** 0x8012E8A8 per-child transform propagate
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical, zero divergence; ovhit native=1595 oracle=1595 balanced; port_check PASS.
+
+## chain-posttick-146348
+- **scope:** 0x80146348 assembly post-tick
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical, zero divergence; ovhit native=1394 oracle=1394 balanced; port_check PASS.
+
+## chain-state0-init-12ed84
+- **scope:** 0x8012ED84 STATE 0 init
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical, zero divergence; ovhit native=24 oracle=24 balanced; port_check PASS.
+
+## chain-substate1-12f5b4
+- **scope:** 0x8012F5B4 sub-state 1 tick
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical, zero divergence; ovhit native=17 oracle=17 balanced; port_check PASS.
 
 ## collision-landing-2423c
 - **scope:** actor-vs-object vertical landing snap FUN_8002423C
@@ -374,6 +402,21 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **scope:** 0x80145C78 zone-band classifier
 - **status:** untested
 - **evidence:** Wired and build-clean, but ovhit reports native=0 oracle=0 on the seesaw-weight replay — NEVER REACHED. The batch's 50/50 A/B-identical result says nothing whatsoever about this address. Needs a scene that drives ActorZonedAttacker::gateCheck (FUN_8014047C), its only caller.
+
+## chain-cmdclear-1313c4
+- **scope:** 0x801313C4 pending-command clear
+- **status:** untested
+- **evidence:** port_check PASS and build-clean, but ovhit native=0 oracle=0 on the seesaw-weight replay — never reached, so the 50/50 batch result says nothing about this address.
+
+## chain-substate2-12fd88
+- **scope:** 0x8012FD88 sub-state 2 tick
+- **status:** untested
+- **evidence:** port_check PASS and build-clean, but ovhit native=0 oracle=0 on the seesaw-weight replay — never reached, so the 50/50 batch result says nothing about this address.
+
+## chain-substate3-130524
+- **scope:** 0x80130524 sub-state 3 tick
+- **status:** untested
+- **evidence:** port_check PASS and build-clean, but ovhit native=0 oracle=0 on the seesaw-weight replay — never reached, so the 50/50 batch result says nothing about this address.
 
 ## render-billboard-c788
 - **status:** untested

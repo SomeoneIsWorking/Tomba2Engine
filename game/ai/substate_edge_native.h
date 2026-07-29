@@ -53,5 +53,20 @@ public:
   // FUN_8012F494 — the node[5]==0 sub-state tick. Replaces a draft with eight defects.
   static void substate0Tick(Core* c);
 
+  // FUN_0x8012E8A8 — per-child transform propagate: walks the sub-part table and composes each part's matrix
+  static void perChildTransformPropagate(Core* c);
+  // FUN_0x8012ED84 — STATE 0 init: seeds the assembly's parameter block and builds its sub-parts
+  static void stateZeroInit(Core* c);
+  // FUN_0x8012F5B4 — the node[5]==1 sub-state tick
+  static void substate1Tick(Core* c);
+  // FUN_0x8012FD88 — the node[5]==2 sub-state tick
+  static void substate2Tick(Core* c);
+  // FUN_0x80130524 — the node[5]==3 sub-state tick
+  static void substate3Tick(Core* c);
+  // FUN_0x801313C4 — clears the pending-command word and its derived fields
+  static void pendingCommandClear(Core* c);
+  // FUN_0x80146348 — the assembly post-tick called after the sub-state work
+  static void assemblyPostTick(Core* c);
+
   static void registerOverrides(Game* game);
 };
