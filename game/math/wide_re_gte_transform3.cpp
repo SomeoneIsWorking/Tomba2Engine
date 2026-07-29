@@ -1,12 +1,17 @@
 // game/math/wide_re_gte_transform3.cpp — WIDE-RE DRAFT native ownership of 0x80084250 (FUN_80084250),
 // a GTE 3-vertex rotate-and-pack utility that sits immediately after the owned Math cluster (game/math/
 // gte_math.{h,cpp}: matMul=0x80084110, applyMatlv=0x80084220 end ~0x8008424C, applyMatrixLV=
-// 0x80084470) — the "family resemblance" the task brief called out. Wide-RE tier (docs/
-// fleet-workflow.md §6): UNWIRED / UNVERIFIED, hand-transliterated 1:1 from generated/shard_0.c
-// gen_func_80084250 (66 gen-C ln) — ground truth, NOT mechanically diffed yet. Not called from
-// anywhere (no override-registry registration, no shard_set_override) — dead code that only needs to
-// COMPILE. A wiring pass MUST re-diff every line against the generated C before registering +
-// SBS-gating (per §9).
+// 0x80084470).
+//
+// RE-VERIFIED + WIRED 2026-07-29. It had sat here since the wide-RE pass as an UNWIRED, UNVERIFIED,
+// hand-transliterated draft with nothing calling it, while the guest function it mirrors took 19,767
+// substrate dispatches per 6000 frames of replays/bugs/seesaw-weight.pad. Per claim C020 (a banked
+// draft can be confidently wrong in a way its own banner denies) every line was re-diffed against
+// generated/shard_0.c gen_func_80084250 before wiring: all three vertex input blocks, the pipelined
+// "read the PREVIOUS vertex's IR before writing the next vertex's data" ordering, all five output
+// packings and the v0 = a0 return. This one was FAITHFUL — unlike libgpuSetDrawMode's draft, which
+// the same check caught using the wrong argument register. abi_extract confirms frame_size 0, so
+// there is no guest stack frame to mirror.
 //
 // Shape (MEDIUM confidence — register-flow is exact, source-struct field ROLES are inferred from
 // operand width/shift patterns only, never confirmed against a live dump):
@@ -34,11 +39,15 @@
 // plus vertex2's IR3 written whole — the exact interleaving the gen body performs, preserved 1:1
 // below. Output written back into a0[0..16] (in place).
 #include "core.h"
+#include "game.h"
+#include "gte_transform3.h"
+#include "override_registry.h"   // engine_set_override_main
+#include "rec_decls.h"           // gen_func_80084250 — the body the oracle leg runs
 #include <stdint.h>
 
 // gte_write_ctrl/gte_write_data/gte_read_data/gte_op declared in core.h.
 
-static void func_80084250(Core* c) {
+void GteTransform3::rotate3AndPackIr(Core* c) {
   uint32_t mat = c->r[4];   // in/out matrix buffer (a0)
   uint32_t src = c->r[5];   // 3-vertex source array (a1)
 
@@ -99,4 +108,8 @@ static void func_80084250(Core* c) {
   c->mem_w32(mat + 16, gte_read_data(11));  // vertex2's IR3, whole word, unpacked
 
   c->r[2] = mat;  // return value = the same buffer pointer (a0)
+}
+
+void GteTransform3::registerOverrides(Game*) {
+  engine_set_override_main(0x80084250u, &GteTransform3::rotate3AndPackIr, gen_func_80084250);
 }

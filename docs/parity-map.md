@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 28 verified · 6 partial · 1 untested · 7 n/a
+**Status:** 29 verified · 6 partial · 1 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -115,6 +115,14 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 450
 - **gate:** PSXPORT_SBS_MODE=full PSXPORT_VK_HEADLESS=1 PSXPORT_AUTO_SKIP=1 ./scratch/bin/tomba2_port
 - **evidence:** 58fc5f76
+
+## gte-transform3-84250
+- **scope:** GTE 3-vertex rotate+pack FUN_80084250
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
+- **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit native=14675 oracle=14675 (balanced). Plus a headless frame at f1400 byte-identical to the pre-change capture, which matters because this body drives the GTE and SBS does not compare COP2 state.
+- **owner:** game/math/wide_re_gte_transform3.cpp GteTransform3::rotate3AndPackIr
 
 ## libapi-setintrmask-85c9c
 - **scope:** libapi SetIntrMask FUN_80085C9C (I_MASK swap via libapi's hw-pointer table)

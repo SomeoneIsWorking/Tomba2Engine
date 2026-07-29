@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 946 native fns, 798 owned addresses, 757 LIVE / 189 ORPHAN.
+Totals: 946 native fns, 798 owned addresses, 758 LIVE / 188 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -639,7 +639,7 @@ Totals: 946 native fns, 798 owned addresses, 757 LIVE / 189 ORPHAN.
 | 0x80084080 | LIVE | `Math::sqrtLzc` | game/math/gte_math.cpp:386 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80084110 | LIVE | `Math::matMul` | game/math/gte_math.cpp:123 |  |  |
 | 0x80084220 | LIVE | `Math::applyMatlv` | game/math/gte_math.cpp:351 |  | ──────────────────────────────────────────────────────────────────────… |
-| 0x80084250 | ORPHAN | `func_80084250` | game/math/wide_re_gte_transform3.cpp:41 |  |  |
+| 0x80084250 | LIVE | `GteTransform3::rotate3AndPackIr` | game/math/wide_re_gte_transform3.cpp:50 |  |  |
 | 0x80084360 | LIVE | `Math::matLoadLV` | game/math/gte_math.cpp:411 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80084470 | LIVE | `Math::applyMatrixLV` | game/math/gte_math.cpp:170 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80084520 | LIVE | `Math::matColScale` | game/math/gte_math.cpp:456 |  | ORACLE: gen_func_80084520 |
