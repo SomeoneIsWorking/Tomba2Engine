@@ -160,6 +160,7 @@ set(GAME_SRC
   game/object/script_vm.cpp
   game/object/animation.cpp
   game/input/input.cpp
+  game/input/pad_sampler.cpp
   game/input/pad_edge_fence.cpp
   game/ui/menu.cpp
   game/ui/dialog_driver_sibling.cpp
@@ -194,6 +195,7 @@ set(GAME_SRC
   game/render/narration_swirl.cpp
   game/render/swing_fx.cpp
   game/render/render_walk.cpp
+  game/render/ui_ft4_layout.cpp
   game/render/render_hut_interior.cpp   # pc_render producer: hut/door authored sub-scene (objects-only)
   game/render/card_browser.cpp          # pc_render producer: DEMO/title Load-Game card browser (s48==4)
   game/render/render_options.cpp        # pc_render producer: DEMO/title options page (s48==6)

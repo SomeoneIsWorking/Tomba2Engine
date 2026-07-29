@@ -23,6 +23,9 @@ public:
   static void voiceTableInit(Core* c);   // guest ABI: voice-count cap (int8) in r4
 
   // registerOverrides(): install voiceTableInit by guest address into the ONE override registry.
+  // FUN_80092E3C — SPU voice-attribute stage: sets the volume fields of one voice slot.
+  static void setVoiceVolume(Core* c);
+
   static void registerOverrides(Game* game);
 };
 #endif

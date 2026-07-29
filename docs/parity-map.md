@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 37 verified · 6 partial · 1 untested · 7 n/a
+**Status:** 40 verified · 6 partial · 2 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -140,6 +140,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit native=14675 oracle=14675 (balanced). Plus a headless frame at f1400 byte-identical to the pre-change capture, which matters because this body drives the GTE and SBS does not compare COP2 state.
 - **owner:** game/math/wide_re_gte_transform3.cpp GteTransform3::rotate3AndPackIr
 
+## input-set-voice-volume-92e3c
+- **scope:** 0x80092E3C SPU voice-attribute volume stage
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** Batch gate: 50/50 A/B-identical, zero divergence; ovhit native=2327 oracle=2327 balanced.
+
 ## libapi-setintrmask-85c9c
 - **scope:** libapi SetIntrMask FUN_80085C9C (I_MASK swap via libapi's hw-pointer table)
 - **status:** verified
@@ -203,6 +210,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit 0x80146478 native=76378 oracle=76378 (and both leaves likewise) so the green gate provably COVERS this address
 - **owner:** game/render/overlay_gt3gt4.cpp OverlayGt3Gt4::submitBlock
 
+## pad-sample-button-mask-524b4
+- **scope:** 0x800524B4 port-0 controller button-mask sampler
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** Batch gate: 50/50 A/B-identical, zero divergence; ovhit native=1500 oracle=1500 balanced.
+
 ## Panel taps FUN_8004FFB4/8005019C (gen + native quad push)
 - **status:** verified
 - **frames:** 20970
@@ -260,6 +274,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **gate:** SBS-full combat 0-diff f5850 + watch-cut 0-diff f20820; ovhit native=oracle=3878 both addrs
 - **evidence:** cd278ce4
 
+## ui-ft4-plain-quad-7e2f8
+- **scope:** 0x8007E2F8 POLY_FT4 UI vertex-layout case 0
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** Batch gate: 50/50 A/B-identical, zero divergence; ovhit native=349 oracle=349 balanced.
+
 ## ActorTomba::actionHandler8005EF48 (FUN_8005EF48)
 - **status:** partial
 - **gate:** port_check equivalence (verbatim) + wired 0-diff; mode unreached by autonav — runtime-unexercised
@@ -292,6 +313,11 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **evidence:** port_check PASS vs gen_func_8007FC24 (frame sizes, call sites, store-width sequence); AND the psx_render leg, which rasterizes the packet this port writes, is 0/76800 against the pre-port build at replays/bugs/ingame-options-page.pad f1160
 - **owner:** game/ui/options_page.cpp
 - **notes:** NOT yet run under SBS full — the two proofs above are static equivalence plus a pixel-exact readback of the packet through the PSX rasterizer, not a guest-RAM byte compare. Promote to verified with an SBS-full run that reaches the page.
+
+## actor-zoned-zoneclassify-145c78
+- **scope:** 0x80145C78 zone-band classifier
+- **status:** untested
+- **evidence:** Wired and build-clean, but ovhit reports native=0 oracle=0 on the seesaw-weight replay — NEVER REACHED. The batch's 50/50 A/B-identical result says nothing whatsoever about this address. Needs a scene that drives ActorZonedAttacker::gateCheck (FUN_8014047C), its only caller.
 
 ## render-billboard-c788
 - **status:** untested

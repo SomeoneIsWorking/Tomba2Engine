@@ -1238,6 +1238,7 @@ switchD_caseD_7:;
   goto switchD_caseD_2;
 }
 
+extern void ov_a00_gen_80145C78(Core*);
 extern void ov_a00_gen_8014047C(Core*);
 extern void ov_a00_gen_80140544(Core*);
 extern void ov_a00_gen_801409C0(Core*);
@@ -1245,8 +1246,39 @@ extern void ov_a00_gen_80143A00(Core*);
 extern void ov_a00_gen_80144928(Core*);
 extern void ov_a00_gen_80144B50(Core*);
 
+// FUN_80145C78 — classifies (u8 at record+0x2A, s16 at record+0x36) into a {0,1,2} zone band.
+// 7,504 substrate dispatches per 6000 replay frames. Its only caller in the whole image is
+// FUN_8014047C, which this file already owns as ActorZonedAttacker::gateCheck.
+//
+// NAMED FOR THE MECHANISM ONLY. The RE proposed "phaseZone"; the adversarial verify pass rejected
+// that, because the body proves the classification but proves nothing about the byte being a story
+// phase — that reading comes from a comment elsewhere, not from here. zoneClassify says what is
+// demonstrable and stops.
+// ORACLE: ov_a00_gen_80145C78
+void ActorZonedAttacker::zoneClassify(Core* c) {
+    c->r[2] = (uint32_t)((int32_t)c->r[4] < 4);
+    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80145C98; }
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[5] + (uint32_t)10));
+    c->r[2] = (uint32_t)((int32_t)c->r[2] < 4700);
+    c->r[2] = c->r[2] ^ 1u; return;
+  L_80145C98:;
+    c->r[2] = c->r[0] + (uint32_t)7;
+    { int _t = (c->r[4] == c->r[2]); c->r[3] = c->r[4] + (uint32_t)-4; if (_t) goto L_80145CB8; }
+    c->r[3] = (uint32_t)(c->r[3] < (uint32_t)8);
+    { int _t = (c->r[3] != c->r[0]); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_80145CC8; }
+    c->r[2] = c->r[0] + (uint32_t)2; return;
+  L_80145CB8:;
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[5] + (uint32_t)10));
+    c->r[2] = (uint32_t)((int32_t)c->r[2] < 4700);
+    c->r[2] = c->r[2] ^ 1u;
+  L_80145CC8:;
+     return;
+    return;
+}
+
 void ActorZonedAttacker::registerOverrides(Game* /*game*/) {
   using overrides::install;
+  install(FN_80145C78, "ActorZonedAttacker::zoneClassify", &ActorZonedAttacker::zoneClassify, ov_a00_gen_80145C78);
   install(FN_8014047C, "ActorZonedAttacker::gateCheck",              ActorZonedAttacker::gateCheck,              ov_a00_gen_8014047C);
   install(0x80140544u, "ActorZonedAttacker::typeInit",               ActorZonedAttacker::typeInit,               ov_a00_gen_80140544);
   install(FN_801409C0, "ActorZonedAttacker::pickAttackByRange",      ActorZonedAttacker::pickAttackByRange,      ov_a00_gen_801409C0);

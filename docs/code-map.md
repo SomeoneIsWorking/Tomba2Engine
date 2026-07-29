@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 955 native fns, 806 owned addresses, 767 LIVE / 188 ORPHAN.
+Totals: 959 native fns, 810 owned addresses, 771 LIVE / 188 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -333,6 +333,7 @@ Totals: 955 native fns, 806 owned addresses, 767 LIVE / 188 ORPHAN.
 | 0x800520E0 | LIVE | `Engine::initSubsystems` | game/scene/startup.cpp:234 |  |  |
 | 0x800521F4 | ORPHAN | `leaf_800521F4` | game/core/field_owned_leaves.cpp:5613 |  |  |
 | 0x8005245C | ORPHAN | `leaf_8005245C` | game/core/field_owned_leaves.cpp:5650 |  |  |
+| 0x800524B4 | LIVE | `PadSampler::sampleButtonMask` | game/input/pad_sampler.cpp:13 |  | ORACLE: gen_func_800524B4 |
 | 0x800525D0 | ORPHAN | `leaf_800525D0` | game/core/field_owned_leaves.cpp:5674 |  |  |
 | 0x8005262C | ORPHAN | `leaf_8005262C` | game/core/field_owned_leaves.cpp:5700 |  |  |
 | 0x80052694 | ORPHAN | `leaf_80052694` | game/core/field_owned_leaves.cpp:5727 |  |  |
@@ -592,6 +593,7 @@ Totals: 955 native fns, 806 owned addresses, 767 LIVE / 188 ORPHAN.
 | 0x8007E110 | LIVE | `Spawn::sceneEntity` | game/world/spawn.cpp:657 |  |  |
 | 0x8007E1B8 | LIVE | `Render::emitUiFt4` | game/render/field_hud.cpp:79 |  | --- emitUiFt4 — general FUN_8007E1B8 (POLY_FT4 template group) -------… |
 | 0x8007E1B8 | LIVE | `Render::emitMenuFt4` | game/render/render_walk.cpp:480 |  | emitMenuFt4 / emitMenuSprites — the MENU-specialized wrappers over the… |
+| 0x8007E2F8 | LIVE | `UiFt4Layout::plainQuadVerts` | game/render/ui_ft4_layout.cpp:11 |  | ORACLE: gen_func_8007E2F8 |
 | 0x8007E6DC | LIVE | `Render::emitUiSprites` | game/render/field_hud.cpp:153 |  | --- emitUiSprites — general FUN_8007E6DC (SPRT template group) -------… |
 | 0x8007E6DC | LIVE | `Render::emitMenuSprites` | game/render/render_walk.cpp:486 |  |  |
 | 0x8007E6DC | LIVE | `ov_compose` | game/ui/ui_sprite.cpp:100 |  | The pause/item menu, the START page and the score popup all paint thro… |
@@ -678,8 +680,9 @@ Totals: 955 native fns, 806 owned addresses, 767 LIVE / 188 ORPHAN.
 | 0x80092080 | LIVE | `Sequencer::channelEnvelopeRampTick` | game/audio/sequencer.cpp:604 |  | channelEnvelopeRampTick — ADSR/envelope ramp (SsSeqCalled flags bit6 A… |
 | 0x80092310 | LIVE | `Sequencer::channelToneRecordCopy` | game/audio/sequencer.cpp:1445 |  | channelToneRecordCopy — stack frame present (sp-32, spill r16@16/r17@2… |
 | 0x80092420 | LIVE | `Sequencer::channelToneRecordCopyWide` | game/audio/sequencer.cpp:1507 |  | channelToneRecordCopyWide — stack frame present (sp-32, spill r16@16/r… |
-| 0x800931C0 | ORPHAN | `input_dispatch_931c0` | game/input/input.cpp:38 | 0x80097E10 0x80098DB0 0x80098F90 0x80099970 0x8009A1D0 | per-frame INPUT/controller-state processor (the heaviest un-owned resi… |
-| 0x80093650 | LIVE | `Input::voiceTableInit` | game/input/input.cpp:138 |  | ORACLE: gen_func_80093650 |
+| 0x80092E3C | LIVE | `Input::setVoiceVolume` | game/input/input.cpp:361 |  | SPU voice-attribute stage: sets the volume fields of one voice slot. 6… |
+| 0x800931C0 | ORPHAN | `input_dispatch_931c0` | game/input/input.cpp:40 | 0x80097E10 0x80098DB0 0x80098F90 0x80099970 0x8009A1D0 | per-frame INPUT/controller-state processor (the heaviest un-owned resi… |
+| 0x80093650 | LIVE | `Input::voiceTableInit` | game/input/input.cpp:140 |  | ORACLE: gen_func_80093650 |
 | 0x80094150 | LIVE | `Sequencer::voiceAllocateOrSteal` | game/audio/sequencer.cpp:1625 |  | voiceAllocateOrSteal — true leaf (no stack frame). Faithful to gen_fun… |
 | 0x80094474 | LIVE | `Sequencer::channelNotePeriodCompute` | game/audio/sequencer.cpp:1780 |  | channelNotePeriodCompute — true leaf (no stack frame). Faithful to gen… |
 | 0x80094B50 | LIVE | `Sequencer::channelKeyRegisterMerge` | game/audio/sequencer.cpp:367 |  | channelKeyRegisterMerge — true leaf (no stack frame). Faithful to gen_… |
@@ -920,6 +923,7 @@ Totals: 955 native fns, 806 owned addresses, 767 LIVE / 188 ORPHAN.
 | 0x80145230 | LIVE | `beh_id_compare_motion_dispatch` | game/ai/beh_id_compare_motion_dispatch.cpp:69 | 0x800781E0 0x8014047C 0x80140544 0x801409C0 0x80143A00 0x80144928 … |  |
 | 0x801458E0 | LIVE | `AttackOrbitSubstate::orbitTargetMotion` | game/ai/attack_orbit_substate.cpp:44 |  | node[3]==0x81 sub-behavior: 6-phase acquire/orbit machine, see header … |
 | 0x80145AF0 | LIVE | `AttackOrbitSubstate::aimAtTargetAnchor` | game/ai/attack_orbit_substate.cpp:126 |  | node[3]==0x80 sub-behavior: aim-point recompute + one-shot attack-wind… |
+| 0x80145C78 | LIVE | `ActorZonedAttacker::zoneClassify` | game/ai/actor_zoned_attacker.cpp:1258 |  | classifies (u8 at record+0x2A, s16 at record+0x36) into a {0,1,2} zone… |
 | 0x80146478 | LIVE | `OverlayGt3Gt4::submitBlock` | game/render/overlay_gt3gt4.cpp:113 |  |  |
 | 0x801465EC | LIVE | `OverlayGt3Gt4::gt3` | game/render/overlay_gt3gt4.cpp:159 |  | POLY_GT3 (gouraud-textured triangle) emit, GTE-driven, guest-writing. |
 | 0x801467BC | LIVE | `OverlayGt3Gt4::gt4` | game/render/overlay_gt3gt4.cpp:238 |  | POLY_GT4 (gouraud-textured quad) emit, GTE-driven, guest-writing. |

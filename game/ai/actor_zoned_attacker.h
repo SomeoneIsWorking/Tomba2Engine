@@ -23,5 +23,9 @@ public:
 
   // Install all six guest addresses in the shared override registry so rec_dispatch(c, addr) from
   // the (native) caller lands here, traced via the `dispatch` debug channel.
+  // FUN_80145C78 — classify (u8 record+0x2A, s16 record+0x36) into a {0,1,2} zone band. Named for
+  // the mechanism only; see the implementation banner for why "phaseZone" was rejected.
+  static void zoneClassify(Core* c);
+
   static void registerOverrides(Game* game);
 };

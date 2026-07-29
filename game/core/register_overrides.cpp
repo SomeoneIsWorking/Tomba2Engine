@@ -18,6 +18,8 @@
 #include "game.h"
 #include "engine.h"
 #include "mtx.h"                   // class Mtx — libgte matrix leaves (MR_init identity, 0x80051794)
+#include "ui_ft4_layout.h"        // class UiFt4Layout — POLY_FT4 UI vertex-layout case block (0x8007E2F8)
+#include "pad_sampler.h"           // class PadSampler — port-0 button-mask sampler (0x800524B4)
 #include "substate_edge_native.h"   // class SubstateEdgeLeaves — A00 orchestrator leaves (0x80130AC4/801316CC/80131134)
 #include "collision_resolve.h"      // class CollisionResolve — actor-vs-object cylinder resolve (0x80023D48)
 #include "libapi_intr.h"           // class LibapiIntr — kernel interrupt-mask primitives (0x80085C9C)
@@ -116,6 +118,8 @@ void register_engine_overrides(Game* game) {
   RegisterEngineAnimLeafOverrides(game);             // Engine::animTick/walkStart fallthrough native-ize (0x8004190C/80054D14)
   Trig::registerOverrides(game);                     // Trig::rsin/ratan2/angleCmp fallthrough native-ize (0x80083E80/80085690/80077768)
   Mtx::registerOverrides(game);                      // MR_init identity-matrix leaf (0x80051794) — native existed since long before it was wired
+  UiFt4Layout::registerOverrides(game);               // POLY_FT4 UI vertex-layout case 0 (0x8007E2F8)
+  PadSampler::registerOverrides(game);                // port-0 button-mask sampler (0x800524B4)
   SubstateEdgeLeaves::registerOverrides(game);        // A00 substate-edge orchestrator leaves (45,900 dispatches/6000 frames)
   CollisionResolve::registerOverrides(game);      // actor-vs-object cylinder collision resolve (0x80023D48)
   LibapiIntr::registerOverrides(game);               // libapi SetIntrMask (0x80085C9C) — I_MASK swap through libapi's hw-pointer table
