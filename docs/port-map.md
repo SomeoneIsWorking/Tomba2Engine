@@ -220,26 +220,22 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **scope:** render
 - **status:** todo
 - **owner:** generated (unported)
-- **notes:** FUN_8013B118 (area 4) — one of the 22-area-sweep render targets. FULL STATIC RE + adversarial verification: docs/re/render-targets-static-re.md#8013b118---area-4. Do NOT re-derive; do NOT port from an uncorrected reading (5 of the 6 specs were CORRECTED by their verifier, including one fatal address error).
+- **notes:** FUN_8013B118 (area 4). REACHABILITY CONFIRMED 2026-07-29: warp 4 + skip 600 with PSXPORT_DEBUG=nofx names 0x8013B118 in the census, i.e. the walk DOES reach a live node carrying it, so a producer will fire and can be pixel-verified there. (Contrast FUN_8010C1D8, which is phase-gated off and therefore BLOCKED.) Full spec + verifier corrections: docs/re/render-targets-static-re.md — read the ORIGINAL algorithm alongside the CORRECTED delta.
 
 ## fx-rain-lines-116904
 - **scope:** render
 - **status:** todo
 - **owner:** generated (unported)
-- **notes:** FUN_80116904 (area 8) — one of the 22-area-sweep render targets. FULL STATIC RE + adversarial verification: docs/re/render-targets-static-re.md#80116904---area-8. Do NOT re-derive; do NOT port from an uncorrected reading (5 of the 6 specs were CORRECTED by their verifier, including one fatal address error).
+- **notes:** FUN_80116904 (area 8). REACHABILITY CONFIRMED 2026-07-29: warp 8 + skip 600 with PSXPORT_DEBUG=nofx names 0x80116904 in the census, i.e. the walk DOES reach a live node carrying it, so a producer will fire and can be pixel-verified there. (Contrast FUN_8010C1D8, which is phase-gated off and therefore BLOCKED.) Full spec + verifier corrections: docs/re/render-targets-static-re.md — read the ORIGINAL algorithm alongside the CORRECTED delta.
 
 ## fx-backdrop-plane-110ca4
 - **scope:** render
 - **status:** todo
 - **owner:** generated (unported)
-- **notes:** FUN_80110CA4 (area 14) — one of the 22-area-sweep render targets. FULL STATIC RE + adversarial verification: docs/re/render-targets-static-re.md#80110ca4---area-14. Do NOT re-derive; do NOT port from an uncorrected reading (5 of the 6 specs were CORRECTED by their verifier, including one fatal address error).
+- **notes:** FUN_80110CA4 (area 14). REACHABILITY CONFIRMED 2026-07-29: warp 14 + skip 600 with PSXPORT_DEBUG=nofx names 0x80110CA4 in the census, i.e. the walk DOES reach a live node carrying it, so a producer will fire and can be pixel-verified there. (Contrast FUN_8010C1D8, which is phase-gated off and therefore BLOCKED.) Full spec + verifier corrections: docs/re/render-targets-static-re.md — read the ORIGINAL algorithm alongside the CORRECTED delta.
 
 ## fx-jet-mesh-sprite-10c1d8
 - **scope:** render
 - **status:** blocked
 - **owner:** generated (unported)
 - **notes:** FUN_8010C1D8 (A0L overlay, area 21). PREREQUISITES RESOLVED 2026-07-29 from a live area-21 RAM dump (scratch/raw/a21_dump.bin), BEFORE writing any code, because its verifier flagged both:
-  (1) RECORD TABLE SIZE — SETTLED. The table at 0x801154E0 holds exactly ONE 36-byte record: rec0's loop-control word [+4] = 0xC02E0000 has BOTH bit31 (terminator) and bit30 set. So the spec's 'count is data-driven and cannot be read statically, use kRecMax = 512' is unnecessary — the mesh pass is a SINGLE quad. The verifier's suspicion was correct.
-  (2) THE ENTRY GATE BLOCKS IT — this is why the step is now BLOCKED rather than todo. The function returns immediately unless the A0L phase byte is >= 4. In the area-21 capture (warp 21, skip 600) that byte reads 1, so FUN_8010C1D8 DRAWS NOTHING there. Porting it now would be unverifiable on pixels, and a 0-px A/B would be indistinguishable from a broken producer — exactly the trap recorded as instrument I022. Do NOT port this until a scene with A0L phase >= 4 is identified; then port and verify in that scene.
-  (3) The verifier's FATAL address correction is confirmed against live memory: the gate byte is 0x800BFA55 (reads 1), not the spec's 0x800BFA95 (reads 0). (32780<<16) - 1451 = 0x800BFA55.
-UNBLOCKING STEP: find what advances the A0L phase byte to >= 4 — it is written all over ov_a0l_shard_*, so a find_refs writer list on 0x800BFA55 against this dump is the next move.
