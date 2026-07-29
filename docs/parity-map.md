@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 23 verified · 6 partial · 1 untested · 7 n/a
+**Status:** 24 verified · 6 partial · 1 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -115,6 +115,14 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 450
 - **gate:** PSXPORT_SBS_MODE=full PSXPORT_VK_HEADLESS=1 PSXPORT_AUTO_SKIP=1 ./scratch/bin/tomba2_port
 - **evidence:** 58fc5f76
+
+## overlay-gt3gt4-submitblock
+- **scope:** A00 field submit-block dispatcher FUN_80146478
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
+- **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit 0x80146478 native=76378 oracle=76378 (and both leaves likewise) so the green gate provably COVERS this address
+- **owner:** game/render/overlay_gt3gt4.cpp OverlayGt3Gt4::submitBlock
 
 ## Panel taps FUN_8004FFB4/8005019C (gen + native quad push)
 - **status:** verified

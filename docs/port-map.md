@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 22 verified · 12 ported-unverified · 1 todo · 3 blocked
+**Status:** 23 verified · 12 ported-unverified · 1 todo · 3 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -81,6 +81,13 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **order:** 41
 - **owner:** game/math/gte_math.cpp::Math::rotMatSoft
 - **notes:** SW (non-GTE) 3-Euler RotMatrix; owned via overrides::install(0x800847F0). SBS-full 0-diff f0..f360 (billboard C5F8 fed it 8x, MAT_ROTZ byte-identical).
+
+## render-overlay-submitblock-146478
+- **scope:** FUN_80146478 — A00 field submit-block dispatcher (splits the packed GT3/GT4 count header, chains the two leaves through v0)
+- **status:** verified
+- **order:** 41
+- **owner:** game/render/overlay_gt3gt4.cpp OverlayGt3Gt4::submitBlock
+- **notes:** Was the busiest remaining rec_dispatch target in the game: 127,275 hits per 6000 frames of replays/bugs/seesaw-weight.pad, 4x the runner-up. Frame contract from abi_extract.py --contract (32-byte frame, s1/ra/s0 at +20/+24/+16, ra constants 0x8014649C/0x801464AC) rather than hand-derived. SBS 0-diff f1500 with ovhit proving 76378 executions on EACH leg. Leaf calls deliberately routed through the generated ov_a00_func_* wrappers so the registry hit counters stay truthful — a direct call works but makes both leaves report NEVER HIT.
 
 ## render-billboard-c5f8
 - **scope:** render handler 0x8003C5F8

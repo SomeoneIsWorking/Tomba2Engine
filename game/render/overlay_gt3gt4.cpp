@@ -11,10 +11,11 @@
 //
 // FUN_80146478(rec_header, ot_base): uVar2 = *rec_header (low16 = GT3 count, high16 = GT4 count);
 //   gt3(rec_header+16, ot_base, uVar2&0xffff) -> returns the GT4 array base; gt4(that, ot_base,
-//   uVar2>>16). A thin 2-instruction dispatcher around the two leaves below — NOT separately
-//   overridden (see overlay_gt3gt4.h): both leaves are wired directly so every call site (the
-//   busy dispatcher AND a duplicate tail-shared copy of the same sequence the recompiler folded
-//   into FUN_80147FC4) is covered uniformly.
+//   uVar2>>16). Owned natively as OverlayGt3Gt4::submitBlock since 2026-07-29 — it was left on the
+//   substrate when the two leaves were ported and was, at 127,275 hits per 6000 replay frames, the
+//   busiest remaining rec_dispatch target in the game. Wiring the leaves directly (rather than only
+//   through this dispatcher) is still what covers the OTHER call site: a duplicate tail-shared copy
+//   of the same call sequence the recompiler folded into FUN_80147FC4.
 //
 // Both leaves emit the SAME PSX GP0 packet shapes the main engine's submit.cpp targets
 // (POLY_GT3 / POLY_GT4 — gouraud-textured tri/quad), but via the GTE (RTPT + NCLIP + AVSZ3/a
@@ -25,6 +26,8 @@
 #include "core.h"
 #include "game.h"
 #include "overlay_gt3gt4.h"
+#include "override_registry.h"   // engine_set_override_a00 — declared, not locally extern'd
+#include "ov_a00_decls.h"        // the generated ov_a00_gen_* bodies this file hands to the registry
 #include "cfg.h"
 #include <stdio.h>
 
@@ -66,6 +69,84 @@ static int32_t overlay_gt_otz_index(int32_t z) {
   if (!(idx - 0x7ff < 0)) return -1;
   if (!(idx - 4 > 0)) return -1;
   return idx;
+}
+
+// ---------------------------------------------------------------------------------------------
+// FUN_80146478 — the FIELD SUBMIT BLOCK dispatcher.
+//
+// A submit block is a 16-byte header followed by a run of GT3 records (36 bytes each) and then a
+// run of GT4 records (52 bytes each), packed back to back. Only the header's first word is read
+// here: it carries BOTH run lengths, GT3 in the low half and GT4 in the high half. The GT3 leaf
+// returns the address one past the last record it consumed — which is exactly where the GT4 run
+// begins — so the two calls chain through v0 with no second length computed anywhere.
+//
+// This is the single busiest substrate-dispatch target in the game: a recdep-all histogram over
+// 6000 frames of replays/bugs/seesaw-weight.pad counted 127,275 hits, 4x the runner-up, i.e. ~21
+// per frame (one per submit block the field walker hands over). Both of its leaves have been
+// natively owned since 2026-07-08; this wrapper was the last substrate hop between the walker and
+// them.
+//
+// FAITHFUL SUBSTRATE MIRROR, like its leaves — it runs on both SBS cores and its guest writes (the
+// 32-byte stack frame below) are part of the byte-exact state, so the frame is MIRRORED rather than
+// elided: sp descends 32, s1/ra/s0 spill at +20/+24/+16 in that program order, and the two guest
+// return-address constants are live in ra across the calls. Contract confirmed by
+// `abi_extract.py 0x80146478 --contract` (frame_size 32, 3 spills, 2 direct call sites), not by hand.
+//
+// The two leaves are reached through their GENERATED ov_a00_func_* wrappers, not by calling
+// OverlayGt3Gt4::gt3/gt4 directly, even though on this leg the table resolves to exactly those two
+// natives. Calling them directly measurably works and is one indirection cheaper — but it bypasses
+// the registry's per-address hit counters, and `PSXPORT_DEBUG=ovhit` then reports the two busiest
+// render leaves in the game as "NEVER HIT (registered but unreached)". That is an instrument telling
+// a plain lie about live code, and the whole point of overrides::coverage() is that unreached-vs-
+// unhooked has to stay distinguishable. Keep the dispatch decision in the one place that counts it.
+namespace {
+constexpr uint32_t kFrameSize     = 32;
+constexpr uint32_t kSpillS0       = 16;          // sp-relative, per the extracted contract
+constexpr uint32_t kSpillS1       = 20;
+constexpr uint32_t kSpillRa       = 24;
+constexpr uint32_t kBlockCounts   = 0;           // low16 = GT3 record count, high16 = GT4 count
+constexpr uint32_t kBlockRecords  = 16;          // the records start past the 16-byte header
+constexpr uint32_t kRaAfterGt3    = 0x8014649Cu; // guest return addresses, live in ra across each
+constexpr uint32_t kRaAfterGt4    = 0x801464ACu; // call — not magic numbers, they are the RE'd PCs
+}  // namespace
+
+void OverlayGt3Gt4::submitBlock(Core* c) {
+  const uint32_t block  = c->r[4];
+  const uint32_t otBase = c->r[5];
+
+  const uint32_t sp = c->r[29] - kFrameSize;
+  c->r[29] = sp;
+  c->mem_w32(sp + kSpillS1, c->r[17]);
+  c->mem_w32(sp + kSpillRa, c->r[31]);
+  c->mem_w32(sp + kSpillS0, c->r[16]);
+
+  const uint32_t counts = c->mem_r32(block + kBlockCounts);
+  c->r[16] = counts;    // s0 — the packed pair, live across both calls
+  c->r[17] = otBase;    // s1 — the OT base, restored into a1 for the second call
+
+  c->r[4]  = block + kBlockRecords;
+  c->r[5]  = otBase;
+  c->r[6]  = counts & 0xFFFFu;
+  c->r[31] = kRaAfterGt3;
+  ov_a00_func_801465EC(c);
+
+  c->r[4]  = c->r[2];   // the GT4 run begins where the GT3 run ended
+  c->r[5]  = c->r[17];
+  c->r[6]  = counts >> 16;
+  c->r[31] = kRaAfterGt4;
+  ov_a00_func_801467BC(c);               // its v0 falls through as this function's return value
+
+  c->r[31] = c->mem_r32(sp + kSpillRa);
+  c->r[17] = c->mem_r32(sp + kSpillS1);
+  c->r[16] = c->mem_r32(sp + kSpillS0);
+  c->r[29] = sp + kFrameSize;
+
+  if (cfg_dbg("ovgt")) {
+    static long n = 0;
+    if (n++ % 512 == 0)
+      cfg_logf("ovgt", "submitBlock call#%ld block=%08X gt3=%u gt4=%u", n, block,
+               counts & 0xFFFFu, counts >> 16);
+  }
 }
 
 // FUN_801465EC — POLY_GT3 (gouraud-textured triangle) emit, GTE-driven, guest-writing.
@@ -242,9 +323,7 @@ void OverlayGt3Gt4::registerOverrides(Game*) {
   // override registry, which runs ov_a00_gen_* on the oracle leg (core B) and the native handler
   // everywhere else — NOT a raw ov_a00_set_override, since these are engine/game natives and the
   // oracle must run the pure recompiled body.
-  extern void ov_a00_gen_801465EC(Core*);
-  extern void ov_a00_gen_801467BC(Core*);
-  extern void engine_set_override_a00(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_a00(0x801465ECu, &OverlayGt3Gt4::gt3, ov_a00_gen_801465EC);
-  engine_set_override_a00(0x801467BCu, &OverlayGt3Gt4::gt4, ov_a00_gen_801467BC);
+  engine_set_override_a00(0x80146478u, &OverlayGt3Gt4::submitBlock, ov_a00_gen_80146478);
+  engine_set_override_a00(0x801465ECu, &OverlayGt3Gt4::gt3,         ov_a00_gen_801465EC);
+  engine_set_override_a00(0x801467BCu, &OverlayGt3Gt4::gt4,         ov_a00_gen_801467BC);
 }
