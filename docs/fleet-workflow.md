@@ -247,3 +247,24 @@ is the signature of shared-resource contention, not of any one task being wrong.
 - **Tell agents not to go silent.** Long silent Ghidra/SBS steps are what trip the watchdog. Brief
   them to emit something before a multi-minute step and to run the SBS gate ONCE at the end rather
   than repeatedly.
+
+
+### The SBS gate is the OPERATOR's step, not the agent's (2026-07-30, same batch)
+
+Refinement of the concurrency note above, from four more stalls. The agents did not die at random
+points — they died at the SAME point. Two reported "Build clean. Now the SBS gate" / "Running the SBS
+gate once now — this is the long step" and were killed by the watchdog mid-run. A full SBS run is
+several silent minutes, and silence is exactly what the watchdog measures.
+
+So do not brief an agent to run SBS at all. Split the gate:
+
+- **AGENT stops at:** `port_check.py <file>` PASS + `cmake --build build --target tomba2_port` clean,
+  then reports. Both are fast and chatty, and both catch the defects an agent actually introduces.
+- **OPERATOR runs:** the SBS run and the ovhit balance check, once, over the WHOLE integrated batch.
+  This is strictly better than per-agent SBS anyway — it is one run instead of N, it gates the
+  combined tree (isolated verification does not compose), and the operator is the only one who can
+  see every agent's changes at once.
+
+Recovered exactly this way: two ports whose agents died mid-SBS were finished by the operator running
+one build + one SBS, giving balanced ovhit on both addresses and 50/50 identical checkpoints. No agent
+work was lost, and the wasted wall-clock was the retry, not the port.

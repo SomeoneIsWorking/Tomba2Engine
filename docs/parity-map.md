@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 64 verified · 9 partial · 12 untested · 7 n/a
+**Status:** 66 verified · 9 partial · 12 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -88,6 +88,12 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **gate:** PSXPORT_SBS_MODE=full ... seesaw-weight.pad
 - **evidence:** 50/50 A/B-identical, zero divergence; ovhit native=17 oracle=17 balanced; port_check PASS.
 
+## collision-classify-1f40c
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** 6a80b0c (50/50 identical, ovhit 1796/1796)
+
 ## collision-landing-2423c
 - **scope:** actor-vs-object vertical landing snap FUN_8002423C
 - **status:** verified
@@ -103,6 +109,12 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
 - **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit native=7397 oracle=7397 (balanced). port_check.py PASS. RE-GATED 2026-07-30 after the readability pass (gotos -> if/else, register chains -> named locals/GuestReg, GuestFrame + guest_call): same 50/50 and same 7397/7397. The dead-stack hazard did not materialise because the port still calls the leaves through their func_XXXX wrappers, so each callee writes its own guest frame.
 - **owner:** game/world/collision_resolve.cpp CollisionResolve::cylinderResolve
+
+## collision-terrain-snap-4766c
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** 6a80b0c (50/50 identical, ovhit 3054/3054)
 
 ## contact-stamp-111304
 - **scope:** 0x80111304 contact stamp producer

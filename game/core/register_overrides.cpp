@@ -28,6 +28,7 @@
 #include "libapi_intr.h"           // class LibapiIntr — kernel interrupt-mask primitives (0x80085C9C)
 #include "libgpu_draw_env.h"       // class LibgpuDrawEnv — libgpu SetDrawEnv (0x80081FB0)
 #include "gte_transform3.h"        // class GteTransform3 — GTE 3-vertex rotate+pack (0x80084250)
+#include "fx_sprite_swarm.h"       // class FxSpriteSwarm — per-particle sprite emitter (0x800281EC)
 #include "actor_sm_reward.h"       // class ActorReward — reward/tally window actor SM family
 #include "actor_zoned_attacker.h"  // class ActorZonedAttacker — 0x8014xxxx zoned-attacker sub-behavior cluster
 #include "overlay_gt3gt4.h"        // class OverlayGt3Gt4 — A00-overlay GT3/GT4 packet-emitter cluster
@@ -35,6 +36,7 @@
 #include "overlay_ground_gt3gt4.h" // class OverlayGroundGt3Gt4 — A00-overlay GROUND/SCENE GT3/GT4 cluster
 #include "tile_grid_layer.h"       // class TileGridLayer — A00-overlay field scroll-wrap + tile-grid sprite emitter (0x8011534C/0x80115598)
 #include "widescreen_margin_quad.h" // class WidescreenMarginQuad — A00-overlay widescreen-margin OT.GT4 emitter (0x8013CDD4)
+#include "obj_model_view.h"        // class ObjModelView — shared effect-mesh model-view compose leaf (0x800318A0)
 #include "hud_gauge_emitter.h"     // class HudGaugeEmitter — self-contained HUD gauge emitter (0x8004FD30/0x8004FB4C)
 #include "quad_rtpt_submit.h"      // class QuadRtptSubmit — 0x8003xxxx rope/flame quad rotate+RTPT submit
 #include "node_xform.h"            // class NodeXform — per-object child-transform-propagate family
@@ -97,6 +99,7 @@ void register_engine_overrides(Game* game) {
   OverlayGroundGt3Gt4::registerOverrides(game);      // A00-overlay GROUND/SCENE GT3/GT4 + entity loop (0x8013FB88/8013FE58/801401B8)
   TileGridLayer::registerOverrides(game);            // A00-overlay field scroll-wrap + tile-grid sprite emitter (0x8011534C/0x80115598)
   WidescreenMarginQuad::registerOverrides(game);     // A00-overlay widescreen-margin OT.GT4 quad emitter (0x8013CDD4)
+  ObjModelView::registerOverrides(game);             // shared effect-mesh model-view compose into GTE CR0-7 (0x800318A0)
   HudGaugeEmitter::registerOverrides(game);          // self-contained HUD gauge emitter (0x8004FD30/0x8004FB4C)
   QuadRtptSubmit::registerOverrides(game);           // rope/flame quad rotate+RTPT submit (0x8003B054/8003B320)
   NodeXform::registerOverrides(game);                // seedBlock/propagateRotmat/propagateAxis/buildAxis/copyMatrixBlock/buildFromChild/worldPosFromLocal/worldPosFromComposed (0x800517BC/80051300/80051464/80051C8C/80051B34/80051614/80051D90/80051D20)
@@ -134,6 +137,7 @@ void register_engine_overrides(Game* game) {
   LibapiIntr::registerOverrides(game);               // libapi SetIntrMask (0x80085C9C) — I_MASK swap through libapi's hw-pointer table
   LibgpuDrawEnv::registerOverrides(game);            // libgpu SetDrawEnv (0x80081FB0) — DRAWENV -> DR_ENV packet compiler, 2x/frame from PutDrawEnv/DrawOTagEnv
   GteTransform3::registerOverrides(game);            // GTE 3-vertex rotate+pack (0x80084250) — wide-RE draft, re-verified before wiring
+  FxSpriteSwarm::registerOverrides(game);            // FUN_800281EC — sprite-cluster stamped once per particle (torch/roof-flame embers)
   RegisterBehActorTombaProximityCombatOverride(game);// enemy-vs-Tomba proximity-combat FSM (0x800527C8)
   eng(c).sequencer.registerOverrides();           // libsnd SsSeqCalled cluster (0x80090BD0 etc.)
   eng(c).script.registerOverrides();              // cutscene-script opcodes 05/06/34/36/31 (0x80042090/800420AC/80042E10/80043108/80041468)

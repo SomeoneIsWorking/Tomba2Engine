@@ -10,13 +10,14 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 989 native fns, 839 owned addresses, 979 LIVE / 10 ORPHAN.
+Totals: 993 native fns, 843 owned addresses, 983 LIVE / 10 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
 | 0x8001CAC0 | LIVE | `Engine::areaModeDispatchFaithful` | game/core/engine.cpp:2348 | 0x8001CB98 | Engine::areaModeDispatch — the 22-way area-mode dispatcher at guest 0x… |
 | 0x8001D364 | LIVE | `AudioDispatch::voiceFetchBits` | game/audio/audio_dispatch.cpp:56 | 0x8001D2A8 | AudioDispatch::voiceFetchBits — native ownership of FUN_8001D364 (Ghid… |
 | 0x8001D71C | LIVE | `AudioDispatch::zoneTransitionSetup` | game/audio/audio_dispatch.cpp:98 | 0x8001CF2C 0x8001D2A8 | AudioDispatch::zoneTransitionSetup — native ownership of the tiny disp… |
+| 0x8001F40C | LIVE | `CollisionResolve::classifyBodyContact` | game/world/collision_resolve.cpp:531 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x8001F9DC | LIVE | `MeleeProximity::isAtApproachAnchor` | game/ai/melee_proximity.cpp:16 | 0x80084080 |  |
 | 0x8001F9DC | LIVE | `MeleeProximity::registerOverrides` | game/ai/melee_proximity.cpp:102 |  |  |
 | 0x80020364 | LIVE | `ActorTomba::stepModeInteract` | game/player/actor_tomba.cpp:547 |  | postInteractWalk case 0xF/0x14/0x56 (mode=0) / 0x2F (mode=2). |
@@ -30,8 +31,8 @@ Totals: 989 native fns, 839 owned addresses, 979 LIVE / 10 ORPHAN.
 | 0x80022D08 | LIVE | `leaf_80022D08` | game/core/field_owned_leaves.cpp:11092 |  |  |
 | 0x80023528 | LIVE | `leaf_80023528` | game/core/field_owned_leaves.cpp:399 |  |  |
 | 0x800235A0 | LIVE | `ActorTomba::type7Interact` | game/player/actor_tomba.cpp:711 |  | postInteractWalk case 7. |
-| 0x80023D48 | LIVE | `CollisionResolve::cylinderResolve` | game/world/collision_resolve.cpp:160 |  | ORACLE: gen_func_80023D48 |
-| 0x8002423C | LIVE | `CollisionResolve::landOnObjectTop` | game/world/collision_resolve.cpp:375 |  | ──────────────────────────────────────────────────────────────────────… |
+| 0x80023D48 | LIVE | `CollisionResolve::cylinderResolve` | game/world/collision_resolve.cpp:208 |  | ORACLE: gen_func_80023D48 |
+| 0x8002423C | LIVE | `CollisionResolve::landOnObjectTop` | game/world/collision_resolve.cpp:423 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80024794 | LIVE | `interact_scan` | game/player/interact_scan.cpp:69 |  | (player) -> 1 if something was activated this call, else 0. |
 | 0x800248D0 | LIVE | `leaf_800248D0` | game/core/field_owned_leaves.cpp:410 |  |  |
 | 0x80024F18 | LIVE | `leaf_80024F18` | game/core/field_owned_leaves.cpp:538 |  |  |
@@ -56,6 +57,7 @@ Totals: 989 native fns, 839 owned addresses, 979 LIVE / 10 ORPHAN.
 | 0x80027768 | LIVE | `SwingFx::drawMesh` | game/render/swing_fx.cpp:60 |  | Build the producer's transform from the composed GTE control registers… |
 | 0x80027768 | LIVE | `SwingFx::meshEmitTap` | game/render/swing_fx.cpp:172 |  | the shared packed-mesh quad emitter. Run the untouched guest body (pac… |
 | 0x80027A4C | LIVE | `Render::fxSpriteRender` | game/render/fx_sprite.cpp:333 |  | The node's own render fn IS the emitter for every plain member of the … |
+| 0x800281EC | LIVE | `FxSpriteSwarm::emitPerParticle` | game/render/fx_sprite_swarm.cpp:155 |  | PORT_GEN: 800281EC generated/shard_2.c:1726-1880 |
 | 0x800286CC | LIVE | `Render::fxAnimSpriteRender` | game/render/fx_sprite.cpp:446 |  | The FUN_800286CC emitter, rebuilt: read the effect node's own animatio… |
 | 0x800288AC | LIVE | `armTap` | game/render/fx_mesh.cpp:233 |  | the effect-mesh CONTROLLER: composes the effect's transform from its o… |
 | 0x8002918C | LIVE | `beh_rand_phase_cull` | game/ai/beh_rand_phase_cull.cpp:54 |  |  |
@@ -78,8 +80,9 @@ Totals: 989 native fns, 839 owned addresses, 979 LIVE / 10 ORPHAN.
 | 0x80031558 | LIVE | `Spawn::spawnEffectChild` | game/world/spawn.cpp:409 |  |  |
 | 0x80031708 | LIVE | `ScriptInterp::refreshCachedTailHi` | game/scene/script_interp.cpp:1023 |  | ORACLE: gen_func_80031708 |
 | 0x80031744 | LIVE | `ScriptInterp::refreshCachedTailLo` | game/scene/script_interp.cpp:1037 |  | ORACLE: gen_func_80031744 |
-| 0x80031780 | LIVE | `Collision::listScan` | game/player/collision.cpp:126 | 0x80031780 | list-tail resolver / reset. Walks the 8-byte-stride linked list rooted… |
+| 0x80031780 | LIVE | `Collision::listScan` | game/player/collision.cpp:189 | 0x80031780 | list-tail resolver / reset. Walks the 8-byte-stride linked list rooted… |
 | 0x800317CC | LIVE | `leaf_800317CC` | game/core/field_owned_leaves.cpp:1260 |  |  |
+| 0x800318A0 | LIVE | `ObjModelView::composeIntoGte` | game/render/obj_model_view.cpp:162 |  | ORACLE: gen_func_800318A0 (tools/port_check.py equivalence-gate marker… |
 | 0x800328EC | LIVE | `Render::altSpriteEmit` | game/render/fx_sprite.cpp:498 |  | ── FUN_800328EC family producers ─────────────────────────────────────… |
 | 0x800329E0 | LIVE | `leaf_800329E0` | game/core/field_owned_leaves.cpp:1307 |  |  |
 | 0x80032A44 | LIVE | `Rng::inRange` | game/math/rng.cpp:106 |  | scaled random. Disas 0x80032A44..0x80032A84 verbatim: `sra v0, 15` on … |
@@ -207,19 +210,20 @@ Totals: 989 native fns, 839 owned addresses, 979 LIVE / 10 ORPHAN.
 | 0x80045580 | LIVE | `ActorTomba::assetReady` | game/player/actor_tomba.cpp:1467 |  | assetReady — guest FUN_80045580. See actor_tomba.h for the full RE wri… |
 | 0x800455C0 | LIVE | `leaf_800455C0` | game/core/field_owned_leaves.cpp:11372 |  |  |
 | 0x80045724 | LIVE | `leaf_80045724` | game/core/field_owned_leaves.cpp:12266 |  |  |
-| 0x80045810 | LIVE | `Collision::lineCross` | game/player/collision.cpp:472 |  | Collision::lineCross. Per-line WALL intersection: computes the crossin… |
+| 0x80045810 | LIVE | `Collision::lineCross` | game/player/collision.cpp:535 |  | Collision::lineCross. Per-line WALL intersection: computes the crossin… |
 | 0x800459D0 | LIVE | `leaf_800459D0` | game/core/field_owned_leaves.cpp:12815 |  |  |
 | 0x80045CAC | LIVE | `leaf_80045CAC` | game/core/field_owned_leaves.cpp:3424 |  |  |
 | 0x8004602C | LIVE | `leaf_8004602C` | game/core/field_owned_leaves.cpp:11457 |  |  |
 | 0x800462E4 | LIVE | `leaf_800462E4` | game/core/field_owned_leaves.cpp:12326 |  |  |
 | 0x800468AC | LIVE | `leaf_800468AC` | game/core/field_owned_leaves.cpp:3643 |  |  |
+| 0x8004766C | LIVE | `Collision::snapObjectToTerrain` | game/player/collision.cpp:1135 |  | Collision::snapObjectToTerrain. THE object-level entry point of the gr… |
 | 0x80047778 | LIVE | `leaf_80047778` | game/core/field_owned_leaves.cpp:3744 |  |  |
-| 0x8004798C | LIVE | `Collision::gridStep` | game/player/collision.cpp:437 | 0x8004798C |  |
+| 0x8004798C | LIVE | `Collision::gridStep` | game/player/collision.cpp:500 | 0x8004798C |  |
 | 0x80047B5C | LIVE | `leaf_80047B5C` | game/core/field_owned_leaves.cpp:3871 |  |  |
-| 0x80047CBC | LIVE | `Collision::gridQuery` | game/player/collision.cpp:277 | 0x80047CBC |  |
-| 0x80048034 | LIVE | `Collision::floorPick` | game/player/collision.cpp:589 |  | Collision::floorPick. Finds the lowest floor line above the probe: ite… |
-| 0x80048134 | LIVE | `Collision::slopeLocalB` | game/player/collision.cpp:656 |  | Collision::slopeLocalB. Slope-local delta (variant B): folds the probe |
-| 0x80048360 | LIVE | `Collision::slopeLocalAdvance` | game/player/collision.cpp:790 |  | Collision::slopeLocalAdvance. Same orientation fold as slopeLocalB, th… |
+| 0x80047CBC | LIVE | `Collision::gridQuery` | game/player/collision.cpp:340 | 0x80047CBC |  |
+| 0x80048034 | LIVE | `Collision::floorPick` | game/player/collision.cpp:652 |  | Collision::floorPick. Finds the lowest floor line above the probe: ite… |
+| 0x80048134 | LIVE | `Collision::slopeLocalB` | game/player/collision.cpp:719 |  | Collision::slopeLocalB. Slope-local delta (variant B): folds the probe |
+| 0x80048360 | LIVE | `Collision::slopeLocalAdvance` | game/player/collision.cpp:853 |  | Collision::slopeLocalAdvance. Same orientation fold as slopeLocalB, th… |
 | 0x80048654 | LIVE | `leaf_80048654` | game/core/field_owned_leaves.cpp:3957 |  |  |
 | 0x800489E4 | LIVE | `leaf_800489E4` | game/core/field_owned_leaves.cpp:4021 |  |  |
 | 0x80048B30 | LIVE | `leaf_80048B30` | game/core/field_owned_leaves.cpp:4098 |  |  |
@@ -233,10 +237,10 @@ Totals: 989 native fns, 839 owned addresses, 979 LIVE / 10 ORPHAN.
 | 0x80049418 | LIVE | `leaf_80049418` | game/core/field_owned_leaves.cpp:12657 |  |  |
 | 0x8004954C | LIVE | `leaf_8004954C` | game/core/field_owned_leaves.cpp:4378 |  |  |
 | 0x80049674 | LIVE | `leaf_80049674` | game/core/field_owned_leaves.cpp:4402 |  |  |
-| 0x80049760 | LIVE | `Collision::flatNormal` | game/player/collision.cpp:979 |  | Collision::flatNormal. GR_NORMAL_ANGLE (0x1A0) = ratan2 of the segment… |
+| 0x80049760 | LIVE | `Collision::flatNormal` | game/player/collision.cpp:1042 |  | Collision::flatNormal. GR_NORMAL_ANGLE (0x1A0) = ratan2 of the segment… |
 | 0x80049800 | LIVE | `leaf_80049800` | game/core/field_owned_leaves.cpp:12764 |  |  |
-| 0x800498C8 | LIVE | `Collision::gridResolve` | game/player/collision.cpp:329 | 0x800498C8 |  |
-| 0x80049968 | LIVE | `Collision::gridSetup` | game/player/collision.cpp:155 | 0x80049968 | collision-grid ROW-POINTER setup. a0 = grid/layer index (&0xff). Reads… |
+| 0x800498C8 | LIVE | `Collision::gridResolve` | game/player/collision.cpp:392 | 0x800498C8 |  |
+| 0x80049968 | LIVE | `Collision::gridSetup` | game/player/collision.cpp:218 | 0x80049968 | collision-grid ROW-POINTER setup. a0 = grid/layer index (&0xff). Reads… |
 | 0x800499E8 | LIVE | `Engine::task0Bootstrap` | game/core/engine.cpp:2889 |  | resolve \BIN\START.BIN natively, record its {LBA,size}, switch task 0 … |
 | 0x800499E8 | ORPHAN | `eng_task0_boot` | game/scene/level_load.cpp:94 | 0x8008A110 0x8008B8F0 0x8009A730 | task-0 INITIAL ENTRY (the engine's first-level bootstrap, registered a… |
 | 0x80049A60 | LIVE | `ActorReward::smWindowScroll` | game/object/actor_sm_reward.cpp:186 |  | ActorReward::smWindowScroll(c) — FUN_80049A60(obj a0, side a1). Scroll… |

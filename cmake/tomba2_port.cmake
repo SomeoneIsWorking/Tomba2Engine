@@ -231,8 +231,10 @@ set(GAME_SRC
   game/render/overlay_ground_gt3gt4.cpp
   game/render/tile_grid_layer.cpp
   game/render/widescreen_margin_quad.cpp
+  game/render/obj_model_view.cpp
   game/render/hud_gauge_emitter.cpp
   game/render/fx_sprite.cpp
+  game/render/fx_sprite_swarm.cpp        # FUN_800281EC — per-particle member of the sprite family
   game/render/fx_trail.cpp
   game/render/fx_dotfield.cpp
   game/render/fx_backdrop_plane.cpp
