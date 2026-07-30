@@ -4,6 +4,7 @@
 #include "contact_stamp.h"
 #include "override_registry.h"
 #include "ov_a00_decls.h"
+#include "cfg.h"            // cfg_dbg/cfg_logf — the one configurable logger
 
 
 void rec_dispatch(Core*, uint32_t);
@@ -20,6 +21,18 @@ void ContactStamp::stampAndSnap(Core* c) {
     c->r[6] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + (uint32_t)128));
     c->r[31] = 0x8011132Cu;
     c->r[6] = c->r[6] << 2; rec_dispatch(c, 0x8002300Cu);
+    // DIAGNOSTIC (host-only, writes no guest memory). kanban #8's open question is whether this
+    // overlap test ever passes: the producer runs ~1151 times per 1500 frames but no nonzero contact
+    // index is ever observed, so either this returns zero every time or a clearer wipes the stamp in
+    // the same frame. Counting the RETURN separates those two, which counting calls cannot.
+    if (cfg_dbg("contact")) {
+      static long calls = 0, passes = 0;
+      calls++;
+      if (c->r[2] != 0) passes++;
+      if ((calls % 500) == 0 || (c->r[2] != 0 && passes <= 5))
+        cfg_logf("contact", "overlap calls=%ld passes=%ld item=%08X G=%08X r2=%u",
+                 calls, passes, c->r[17], c->r[18], c->r[2]);
+    }
     { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_801114DC; }
     c->mem_w8((c->r[17] + (uint32_t)43), (uint8_t)c->r[2]);
     c->r[2] = (uint32_t)8064u << 16;

@@ -633,3 +633,27 @@ does not reproduce it" as evidence about the bug.
   that the reason it is silent is upstream of the class filter that was previously suspected.
 - **refs:** generated/ov_a00_shard_1.c:2994-3010, generated/ov_a00_shard_0.c:4411-4437,
   docs/kanban/cards/008-*, game/ai/substate_edge_native.cpp (contactWeightApply)
+
+## kanban #8: the contact stamp never happens because the OVERLAP TEST never passes
+- **symptom:** node[+0x2b] is never stamped nonzero, starving the weight consumer, so the pump seesaw
+  never sinks.
+- **status:** MEASURED 2026-07-30, and it eliminates two earlier explanations.
+- **what was wrong before:** (a) card #8 concluded "the producer never fires"; (b) I filed claim C023
+  saying it is skipped because the aux-list count at scratchpad 0x1F800144 is zero. The count IS zero,
+  but it gates only ONE of the producer's EIGHT callers. Wiring 0x80111304 natively and counting shows
+  it RUNS — 1,151 calls per 1500 frames under SBS, 6,000+ over the replay on the faithful path.
+- **what is actually true:** the producer writes item+0x2B = 1 only when `rec_dispatch(0x8002300C)`
+  (an overlap test) returns nonzero. A host-only counter on that RETURN, added inside the now-native
+  producer, reports **passes = 0 out of 6,000+ calls** across the whole replay, on both the default
+  pc_skip path and the faithful `PSXPORT_PC_SKIP=0` path. The overlap test never passes.
+- **so the third hypothesis is dead too:** it is NOT "a clearer wipes the stamp within the frame".
+  There is no stamp to wipe — the write is never reached.
+- **the question is now one layer down:** why does 0x8002300C return zero? Its inputs here are the
+  item's radius at +0x80 scaled by 4 (r6), plus a0/a1 from the caller. That is where the next probe
+  goes, and it is a MEASUREMENT of the inputs, not more RE of the producer.
+- **observation, not a conclusion:** every sampled report sits on the same item, 0x800FC8D8, with
+  G = 0x800E7E80. But the counter only logs every 500th call, so that is 12 samples out of 6,000 and
+  does NOT establish that the producer only ever sees one item.
+- **diagnostic:** `PSXPORT_DEBUG=contact` on game/ai/contact_stamp.cpp — host-only counters, writes no
+  guest memory.
+- **refs:** game/ai/contact_stamp.cpp, docs/kanban/cards/008-*, claim C023 (falsified)
