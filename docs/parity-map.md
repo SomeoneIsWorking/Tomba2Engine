@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 68 verified · 11 partial · 12 untested · 7 n/a
+**Status:** 68 verified · 12 partial · 12 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -477,6 +477,12 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 1500
 - **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
 - **evidence:** Batch gate: 50/50 A/B-identical, zero divergence; ovhit native=349 oracle=349 balanced.
+
+## actor-object-contact-10e258
+- **status:** partial
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** 50/50 identical, ovhit 214/214 balanced; five-mutation table rejects extra store, dropped spill, bad ra, deleted call, wrong frame. PARTIAL: 214 calls is low and the HIT branch requires the leading test to return non-negative AND the object to be phase 1 / kind 129 — a replay that never strikes a reacting object leaves the whole struck-state block (5 of the 6 byte stores) unexercised, so the 0-diff proves little about it.
 
 ## ActorTomba::actionHandler8005EF48 (FUN_8005EF48)
 - **status:** partial

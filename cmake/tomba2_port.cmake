@@ -79,6 +79,7 @@ set(GAME_SRC
   game/ai/tilt_follower.cpp             # FUN_80125FE0 — pitch at half a sub-part's tilt
   game/ai/sway_schedule.cpp             # FUN_8012D27C — rocking rate winds down over the area's event sequence
   game/ai/rope_swing.cpp                # FUN_801281B8 — hanging rope: spring swing + per-segment bend
+  game/ai/actor_object_contact.cpp      # FUN_8010E258 — actor-vs-object hit / proximity contact
   game/ai/contact_stamp.cpp
   game/ai/placed_prop_sm.cpp
   game/ai/beh_jumptable_release_trigger.cpp
