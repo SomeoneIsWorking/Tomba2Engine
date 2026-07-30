@@ -76,6 +76,7 @@ set(GAME_SRC
   game/ai/cull_substate_native.cpp
   game/ai/assembly_companion.cpp         # FUN_80138A64 idle tick (camera hold + re-arm) + FUN_801389C8 rig pose
   game/ai/assembly_rider.cpp             # FUN_80118B10 rider perched on a seaside pump's arm-end (ride/hop/fling)
+  game/ai/tilt_follower.cpp             # FUN_80125FE0 — pitch at half a sub-part's tilt
   game/ai/contact_stamp.cpp
   game/ai/placed_prop_sm.cpp
   game/ai/beh_jumptable_release_trigger.cpp

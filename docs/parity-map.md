@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 66 verified · 10 partial · 12 untested · 7 n/a
+**Status:** 67 verified · 10 partial · 12 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -458,6 +458,12 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 20820
 - **gate:** SBS-full combat 0-diff f5850 + watch-cut 0-diff f20820; ovhit native=oracle=3878 both addrs
 - **evidence:** cd278ce4
+
+## tilt-follower-125fe0
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** 50/50 identical, ovhit 2788/2788 balanced; six-mutation table confirms the gate rejects extra store, dropped spill, bad ra constant, deleted call, wrong store width and wrong frame size
 
 ## ui-ft4-plain-quad-7e2f8
 - **scope:** 0x8007E2F8 POLY_FT4 UI vertex-layout case 0
