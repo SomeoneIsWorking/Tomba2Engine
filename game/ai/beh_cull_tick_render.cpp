@@ -86,7 +86,11 @@ void beh_cull_tick_render(Core* c) {
 
   // ---- STATE 1 [0x8012D4AC]: cull, then tick + render ----
   if (Actor(c, obj).boundsCull() == 0) return;      // 8012D4AC jal 0x8007778c — Actor::boundsCull (native); cull → epilogue
-  c->r[4] = obj; rec_dispatch(c, 0x8012D27Cu);     // 8012D4BC jal 0x8012d27c (a0=s0)  per-type tick
+  // 8012D4BC jal 0x8012d27c (a0=s0) — the per-type tick, now owned as SwaySchedule::advanceRateThenSway
+  // (game/ai/sway_schedule.cpp). It MIRRORS THE GUEST STACK and so spills ra to sp+16; the guest's jal
+  // leaves 0x8012D4C4 there (the instruction after the delay slot at 0x8012D4C0), so the return-address
+  // constant has to be set here or that stack word holds a stale ra and SBS diverges on it.
+  c->r[4] = obj; guest_dispatch(c, 0x8012D4C4u, 0x8012D27Cu);
   c->r[4] = obj; eng(c).graphicsBind.renderUpdate();     // 8012D4C4 jal 0x800517f8 (a0=s0)  render-state update
   // 8012D4CC j 0x8012d4dc (epilogue)
 }

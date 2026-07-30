@@ -21,6 +21,7 @@
 #include "placed_prop_sm.h"         // class PlacedPropSm — placed scene-prop behaviour (0x80040558)
 #include "rope_swing.h"        // class RopeSwing — hanging rope swing + segment bend (0x801281B8)
 #include "tilt_follower.h"      // class TiltFollower — half-tilt follower leaf (0x80125FE0)
+#include "sway_schedule.h"      // class SwaySchedule — rocking-rate schedule + sway tick (0x8012D27C)
 #include "contact_stamp.h"          // class ContactStamp — the kanban #8 contact producer (0x80111304)
 #include "cull_substate_native.h"  // class CullSubstateLeaves — A00 cull-substate leaf (0x80133550)
 #include "assembly_companion.h"    // class AssemblyCompanion — assembly companion idle tick (0x80138A64)
@@ -136,6 +137,8 @@ void register_engine_overrides(Game* game) {
   PlacedPropSm::registerOverrides(game);              // placed scene-prop behaviour handler (0x80040558)
   RopeSwing::registerOverrides();                      // hanging rope: spring swing + per-segment bend (0x801281B8)
   TiltFollower::registerOverrides();                   // pitch at half the owner sub-part's tilt (0x80125FE0)
+  SwaySchedule::registerOverrides();                   // rocking rate winds down over the area-0 event
+                                                       // sequence, then the per-type sway (0x8012D27C)
   ContactStamp::registerOverrides(game);              // contact stamp producer (0x80111304)
   CullSubstateLeaves::registerOverrides(game);        // A00 cull-substate orchestrator leaf (0x80133550)
   AssemblyCompanion::registerOverrides();             // idle tick (0x80138A64) + rig pose (0x801389C8) of the

@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 68 verified · 10 partial · 12 untested · 7 n/a
+**Status:** 68 verified · 11 partial · 12 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -537,6 +537,12 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 6000
 - **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=6000 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
 - **evidence:** SBS 200/200 A/B-identical over 6000 frames, zero divergence, ovhit native=1 oracle=1 balanced. The low count is now EXPLAINED and is not a window artefact: this function runs 12,001 times per 6000 frames on the DEFAULT pc_skip=true path, but SBS forces pc_skip=false on both cores, and on the faithful path it runs once. So the byte-exact gate covers one execution of a function that is hot in ordinary play. Still PARTIAL: correct where gated, but the hot path is ungated by this instrument.
+
+## sway-schedule-12d27c
+- **status:** partial
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** 50/50 identical, ovhit 4805/4805 balanced. PARTIAL: the schedule is driven by the save-block event-step counter at 0x800BF9E0, which starts at 0 on a fresh newgame. This replay never advances it past 7/17, so FIVE of the six phase bodies plus the already-finished seed arm are NEVER ENTERED and a 0-diff proves nothing about them. Which of the three variant tail calls fired is separately unproven.
 
 ## actor-zoned-zoneclassify-145c78
 - **scope:** 0x80145C78 zone-band classifier

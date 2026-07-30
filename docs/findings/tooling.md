@@ -774,3 +774,19 @@ remove it, or the repo accumulates dead duplicates of every handler.
   inside what the gate can verify. Correct, just more verbose than the documented idiom.
 - **refs:** external/psxport/tools/port_check.py GUEST_CALL_RE/GUEST_DISPATCH_RE;
   runtime/recomp/guest_abi.h section 4
+
+## port_check's switch-default skip is FORMATTING-dependent — a multi-line `default:` false-FAILs
+- **status:** found 2026-07-30, not fixed (shared tool, another port was mid-flight).
+- **the defect:** both `abi_extract.py` (~:936) and `port_check.py` (~:416) skip a `rec_dispatch` only
+  when the literal text `default:` appears in the SAME `;`-delimited sub-statement. The recompiler
+  emits its whole switch on one line, so the oracle's default arm is skipped; a native that writes the
+  same arm across multiple lines is NOT, and the method fails with
+  `call count mismatch: oracle=3 native=4 … native targets=[None, …]`.
+- **so the gate depends on how you FORMAT the arm**, which is not a property of the code's behaviour.
+  Writing `default: rec_dispatch(c, target); break;` on ONE line passes; the identical arm split over
+  three lines fails. That is a booby trap for exactly the readable style this project asks for.
+- **the proper fix:** emit `switch_default_rec_dispatch` on both sides of `extract_op_sequence`, the
+  way `--contract` already does, instead of pattern-matching the source text.
+- **workaround until then:** put the whole default arm on one line and note why.
+- **related, already recorded:** the gate cannot SEE a switch-default rec_dispatch at all when it is
+  skipped, so deleting the arm entirely also passes. Two different failure modes on the same construct.
