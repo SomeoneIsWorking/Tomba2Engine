@@ -2348,29 +2348,32 @@ void SubstateEdgeLeaves::contactWeightApply(Core* c) {
     return;
 }
 
-// FUN_0x80130788 — THE DRIVE-AXIS ACCELERATION SELECTOR for the assembly, and the last substrate
-// round trip out of the sub-state ticks.
+// FUN_0x80130788 — THE ANGULAR-ACCELERATION SELECTOR for a multi-part assembly node.
 //
-// ONE WRITE in the whole body, the halfword at node+0x4E, from four sites. That +0x4E is the X
-// ACCELERATION is not an offset guess: the caller at 0x8012F894 (inside substate1Tick) immediately
-// does node[0x48] += node[0x4E], clamps node[0x48], and feeds node[0x48] >> 8 into the position
-// accumulator — and docs/findings/object.md records +0x48 as velX in 1/256 world units per frame,
-// which is exactly what that >>8 divides by. So +0x4E is accel, +0x48 is velocity.
+// ONE WRITE in the whole body: the halfword at node+0x4E, from four sites. What that field IS comes
+// from the caller, not an offset table — gen_8012F5B4 does node[0x48] += node[0x4E], clamps to
+// +/-5632, adds node[0x48] >> 8 into an accumulator, then writes that accumulator & 4095 to
+// mem_r32(node+196)+8 and feeds it to Trig::rsin (0x80083E80). A 4096-unit mask and a sin call make
+// it a PSX ANGLE, so +0x48 is an angular RATE and +0x4E its angular ACCELERATION.
 //
-// The mode byte at node+0x29 picks one of four accelerations and, with it, what "moving correctly"
-// means. The return value is the sub-state escape signal, and the 1-vs-2 distinction is LOAD-BEARING:
-// substate0Tick treats any nonzero as "leave the tilt sub-state", while substate1Tick tests for
-// EXACTLY 1. Collapsing the verdict to a bool would break the second caller silently.
+// The mode byte at node+0x29 picks one of four accelerations and defines what "moving correctly"
+// means; the 0/1/2 return is the sub-state escape signal, and 1-vs-2 is LOAD-BEARING — substate0Tick
+// treats any nonzero as "leave the tilt sub-state" while substate1Tick tests for EXACTLY 1.
 //
-// TWO GATES gagged the write, both verified against the gen body: a1 must be nonzero, AND the
-// halfword at node+0x78 must be zero (`if (node+0x78 != 0) skip`). With a1 = 0 this is a PURE QUERY
-// that writes nothing — which is exactly how substate1Tick's second call site uses it.
+// TWO GATES on the write, both re-derived from the gen body: a1 must be nonzero AND the halfword at
+// node+0x78 (loaded sign-extended, tested != 0) must be zero. With a1 = 0 this is a PURE QUERY that
+// writes nothing, which is how substate1Tick's second call site (block L_8012FA80, ra 0x8012FA8C)
+// uses it.
 //
-// VERIFIED BY HAND, NOT BY THE USUAL SECOND AGENT. Batch-5's six verify agents all died on
-// server-side 500/529 errors, so this plan reached me unchecked. I re-derived the load-bearing
-// claims from ov_a00_shard_0.c:17191-17256 myself: the mode byte at +0x29, every write targeting
-// +0x4E, and the a1/+0x78 gate. I initially suspected the plan had confused +0x48 and +0x78 — it had
-// not; +0x78 is the hold flag and the sign tests are on +0x48, each read four times.
+// Fields: +0x29 mode bits (0/2/7) · +0x44 commanded rate · +0x48 angular rate · +0x4E angular
+// acceleration (the only write) · +0x6A divisor · +0x78 suppress flag.
+//
+// I FIRST LANDED THIS BANNER CALLING +0x48 "velX" AND THE AXIS A "DRIVE AXIS", citing
+// docs/findings/object.md's "+0x48 velX, 1/256 world units per frame". That was wrong: that entry
+// describes a DIFFERENT node family, and here the caller masks the accumulator to 12 bits and feeds
+// it to a sine — an angle, not a position. I had hand-verified the mode byte, the single write and
+// the gates, and then repeated the axis claim from the RE spec without checking it. The independent
+// verifier caught it.
 // ORACLE: ov_a00_gen_80130788
 void SubstateEdgeLeaves::driveAccelSelect(Core* c) {
     c->r[3] = (uint32_t)c->mem_r8((c->r[4] + (uint32_t)41));
