@@ -793,7 +793,7 @@ Totals: 986 native fns, 836 owned addresses, 976 LIVE / 10 ORPHAN.
 | 0x80110C14 | LIVE | `Render::fxRingSpriteRender` | game/render/fx_sprite.cpp:668 |  |  |
 | 0x80110CA4 | LIVE | `Render::fxBackdropPlaneRender` | game/render/fx_backdrop_plane.cpp:90 |  |  |
 | 0x801110BC | LIVE | `Render::fxDotFieldRender` | game/render/fx_dotfield.cpp:67 |  |  |
-| 0x80111304 | LIVE | `ContactStamp::stampAndSnap` | game/ai/contact_stamp.cpp:12 | 0x8002300C 0x80083E80 0x80083F50 0x80085690 | ORACLE: ov_a00_gen_80111304 |
+| 0x80111304 | LIVE | `ContactStamp::stampAndSnap` | game/ai/contact_stamp.cpp:13 | 0x8002300C 0x80083E80 0x80083F50 0x80085690 | ORACLE: ov_a00_gen_80111304 |
 | 0x801113B4 | LIVE | `Render::fxMotionTrailRender` | game/render/fx_trail.cpp:79 |  | One joint = four quads. In all of them the two "far" vertices are BLAC… |
 | 0x80112188 | LIVE | `ActorMeleeEngage::doIt` | game/ai/actor_melee_engage.cpp:28 | 0x80022C78 0x80055844 0x80084080 |  |
 | 0x80112188 | LIVE | `ActorMeleeEngage::registerOverrides` | game/ai/actor_melee_engage.cpp:300 |  |  |
@@ -954,3 +954,21 @@ Totals: 986 native fns, 836 owned addresses, 976 LIVE / 10 ORPHAN.
 | 0x801467BC | LIVE | `OverlayGt3Gt4::gt4` | game/render/overlay_gt3gt4.cpp:238 |  | POLY_GT4 (gouraud-textured quad) emit, GTE-driven, guest-writing. |
 | 0x8018C820 | LIVE | `SubstateEdgeLeaves::opnAssemblyHook` | game/ai/substate_edge_native.cpp:2124 | 0x80074590 0x80074AF0 0x801314B4 0x8013892C | FUN_0x8018C820 — the assembly's OPN-overlay hook, and the TWELFTH and … |
 | 0x801FE00C | LIVE | `Render::classifyScene` | game/render/render_walk.cpp:341 |  | --- pc_render scene DISPATCH (see render.h) --------------------------… |
+
+## PlatformHle-owned (BIOS / hardware-sync primitives — NOT porting targets)
+
+Owned by a DIFFERENT mechanism than the table above: `PlatformHle` (`external/psxport/runtime/recomp/sync_overrides.cpp`), wired from the addresses this game states in `GameConfig::hle` (`game/core/game_config.cpp`). No native def exists for these, so the scanner above cannot see them — grepping only that table reports them as unowned. The recompiled body NEVER runs; installing an override on one is a double-install.
+
+| addr | handler | GameConfig::hle field |
+|------|---------|-----------------------|
+| 0x80080880 | `scheduler_yield` | `changeThread` |
+| 0x800834A0 | `gpu_timeout_arm` | `gpuTimeoutArm` |
+| 0x800834D4 | `gpu_timeout_chk` | `gpuTimeoutCheck` |
+| 0x80085900 | `vsync_trap` | `vsyncTrap` |
+| 0x8008A96C | `cdreadsync` | `cdReadSync` |
+| 0x8008B2D8 | `cdinit_hs` | `cdInitHandshake` |
+| 0x8008B4B8 | `cddatasync` | `cdDataSync` |
+| 0x8009CAEC | `sync_ok` | `decDctInSync` |
+| 0x8009CB80 | `sync_ok` | `decDctOutSync` |
+
+9 PlatformHle-owned address(es).

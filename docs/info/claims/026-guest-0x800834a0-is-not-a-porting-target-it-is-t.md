@@ -1,0 +1,19 @@
+---
+id: C026
+kind: claim
+status: holds
+created: 2026-07-30
+tags: port
+---
+
+## Claim
+
+Guest 0x800834A0 is NOT a porting target: it is the libgpu GPU-DMA-completion timeout ARM, already owned by PlatformHle as gpu_timeout_arm(), and its recompiled body must never run in this port.
+
+## Evidence
+
+Guest body (gen_func_800834A0, generated/shard_1.c:16121) is 12 instructions: call func_80085900(-1) = libetc VSync(-1) 'read the current VSync counter', add 240 (a ~4-second deadline at 60Hz), store to 0x800A5ADC, store 0 to 0x800A5AE0. PlatformHle installs gpu_timeout_arm on it from GameConfig::hle.gpuTimeoutArm=0x800834A0 (game/core/game_config.cpp:148) with gpuTimeoutDeadlineVar=0x800A5ADC and gpuTimeoutFlagVar=0x800A5AE0 — the same two globals the guest body writes — and arms 0x7FFFFFFF instead, because the native VK GPU runs the OT-DMA synchronously so the timeout must never fire. Porting the guest body faithfully would be BOTH a double-install AND a hang: 0x80085900 is registered as vsyncTrap and aborts with a guest backtrace on any caller in any mode (external/psxport/runtime/recomp/sync_overrides.cpp:115). Live proof on this tree: headless run (newgame; run 600) with PSXPORT_DEBUG=recdep,plat-hle logs '18 hardware-sync primitive(s) installed' and 'top substrate dispatch targets ... 0x800834A0 : 2276   <-- ALREADY OWNED by PlatformHle (not a porting target)' — scratch/logs/recdep_800834A0.log:83.
+
+## What would falsify it
+
+if the port ever stops running the GPU/OT DMA synchronously (a real async GPU queue), the far-future deadline stops being correct and the real VSync-based arm would have to come back — at which point this address becomes a genuine port target

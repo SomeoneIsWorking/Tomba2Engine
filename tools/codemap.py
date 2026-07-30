@@ -747,7 +747,14 @@ def main():
             print(f"cannot read rank file {rankfile}: {e}")
             print("expected lines of '0xADDR <hits>' — generate one with the recdep meter.")
             return
-        ranked, unowned, bad = 0, [], 0
+        # `idx` covers only natives this scanner can SEE. PlatformHle owns the BIOS/hardware-sync
+        # primitives from a different table entirely, so filtering on `idx` alone put 0x800834A0
+        # (gpuTimeoutArm) at the TOP of this queue at 33,152 hits — an address PlatformHle had owned
+        # all along. A queue whose #1 entry is already owned is worse than no queue: it dispatches a
+        # full porting session at a double-install. Exclude them, and COUNT what was excluded so the
+        # filter cannot go silently dead.
+        hle_tbl, hle_note = load_platform_hle_table()
+        ranked, unowned, bad, hle_hits = 0, [], 0, []
         for l in lines:
             p = l.split()
             if len(p) != 2 or not p[0].lower().startswith("0x"):
@@ -757,7 +764,9 @@ def main():
             a = p[0][2:].upper()
             try: hits = int(p[1])
             except ValueError: bad += 1; continue
-            if not idx.get(a):
+            if a.zfill(8) in hle_tbl:
+                hle_hits.append((a, hits, hle_tbl[a.zfill(8)][1]))
+            elif not idx.get(a):
                 unowned.append((a, hits))
         limit = 40
         if "--top" in args:
@@ -766,9 +775,20 @@ def main():
             dep_users = sorted(set(n["sym"] for n in natives if a in n["deps"]))
             note = f"   depended-on by: {', '.join(dep_users)}" if dep_users else ""
             print(f"  0x{a}  {hits:>8}{note}")
-        print(f"\n{len(unowned)} unowned of {ranked} ranked ({len(idx)} addresses owned overall)"
+        print(f"\n{len(unowned)} unowned of {ranked} ranked ({len(idx)} addresses owned overall"
+              + f", {len(hle_tbl)} more owned by PlatformHle)"
               + (f"; {bad} unparseable line(s) skipped" if bad else "")
               + f". Showing top {min(limit, len(unowned))}.")
+        # Name the excluded entries rather than dropping them silently: a hot address vanishing from
+        # the queue with no explanation reads as a bug in the meter.
+        if hle_hits:
+            print(f"Excluded {len(hle_hits)} PlatformHle-owned address(es) that the recdep meter still "
+                  f"counts (the counter sits before the g_<mod>_override[] consult — see "
+                  f"overlay_router.cpp): "
+                  + ", ".join(f"0x{a} ({h} hits, {fn})" for a, h, fn in sorted(hle_hits, key=lambda t: -t[1])))
+        if hle_note:
+            print(f"WARNING: PlatformHle-owned addresses were NOT excluded — {hle_note}. "
+                  f"Treat every entry above as UNVERIFIED ownership until that is fixed.")
         print("Hotness is one input, not the order — cross-check `portmap.py next` for the RE chain, "
               "and `--addr <hex>` before writing anything.")
         return
@@ -881,6 +901,31 @@ def main():
             desc = (n["desc"][:70] + "…") if len(n["desc"]) > 70 else n["desc"]
             desc = desc.replace("|", "\\|")
             out.append(f"| 0x{a} | {st} | `{n['sym']}` | {n['file']}:{n['line']} | {deps} | {desc} |")
+
+    # SECOND OWNING TABLE. This document is grepped directly ("is 0xADDR in code-map.md?"), so a table
+    # listing only the source-scanned natives answers "not owned" for every BIOS/hardware-sync
+    # primitive — the false negative that put 0x800834A0 at the top of the port queue at 33,152 hits
+    # when PlatformHle had owned it all along. These are NOT porting targets: their recompiled bodies
+    # deliberately never run (the arm/check pair would call libetc VSync, which this port traps).
+    hle_tbl, hle_note = load_platform_hle_table()
+    out.append("\n## PlatformHle-owned (BIOS / hardware-sync primitives — NOT porting targets)\n")
+    out.append("Owned by a DIFFERENT mechanism than the table above: `PlatformHle` "
+               f"(`{HLE_REG_SRC}`), wired from the addresses this game states in "
+               f"`GameConfig::hle` (`{HLE_CFG_SRC}`). No native def exists for these, so the scanner "
+               "above cannot see them — grepping only that table reports them as unowned. The "
+               "recompiled body NEVER runs; installing an override on one is a double-install.\n")
+    if hle_tbl:
+        out.append("| addr | handler | GameConfig::hle field |")
+        out.append("|------|---------|-----------------------|")
+        for a in sorted(hle_tbl):
+            field, fn = hle_tbl[a]
+            out.append(f"| 0x{a} | `{fn}` | `{field}` |")
+        out.append(f"\n{len(hle_tbl)} PlatformHle-owned address(es).")
+    else:
+        # Never render an empty section as "there are none" — say the join failed and why.
+        out.append(f"**TABLE UNAVAILABLE — {hle_note}.** This section is EMPTY BECAUSE THE LOOKUP "
+                   "FAILED, not because no address is PlatformHle-owned. Do not read it as "
+                   "'nothing here is owned'; fix the paths above and regenerate.")
     text = "\n".join(out) + "\n"
     if "--stdout" in args:
         sys.stdout.write(text)

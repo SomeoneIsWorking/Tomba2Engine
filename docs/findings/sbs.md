@@ -2153,3 +2153,37 @@ PSXPORT_SBS_EXIT_FRAME, PSXPORT_SBS_SHOT in config.md.
   that half too. What it could not see is the oracle gate two files away — the reason a subagent
   finding is a lead, not a result.
 - **refs:** game/object/behavior_dispatch.cpp:190-212, external/psxport/runtime/recomp/sbs.cpp:1984
+
+## The port equivalence gate was VACUOUS when given an address — and the real gate reports 20 FAILs
+- **status:** found + fixed 2026-07-30. Framework fix: psxport c2f423a6.
+- **the defect:** `port_check.py` takes FILE PATHS, but every neighbouring tool in the pipeline
+  (`abi_extract.py`, `port_gen.py`, `codemap.py --addr`) takes an ADDRESS. So `port_check.py 800834A0`
+  is the natural thing to type — and it printed `WARNING — not found, skipping` and **exited 0**. A gate
+  that read nothing certified a pass. Same hole one level down: a file with no `// ORACLE:` marker
+  printed "nothing to check" and also exited 0. Both now exit 2 and name what was and was not read.
+- **how it was found:** a porting brief (mine) mandated the address form as the acceptance gate for
+  three agents. It would have certified a port nobody examined. The brief was wrong in a second way too
+  — its target 0x800834A0 was already owned by PlatformHle (see claim C026).
+- **WHAT THE WORKING GATE ACTUALLY REPORTS — `port_check.py --all` on this tree:**
+  **101 PASS, 20 FAIL, 16 UNPROVABLE of 137 methods.** The 20 FAILs are a real debt list, not tool
+  noise, and they are NOT all the documented rebuild-false-fail mode:
+  - `game/ai/actor_zoned_attacker.cpp` — 4 methods. `defaultSubStateMachine` oracle=50 calls vs
+    native=6; `approachAndFace` 6 vs 1; `idleTick` 26 vs 13; `typeInit` 5 vs 2. A native making a
+    fraction of the guest's calls is an INCOMPLETE port, not a restructure artifact.
+  - `game/ai/release_trigger_motion.cpp` — 6 methods, same shape (`arcSwoopMotion` 9 vs 2,
+    `doubleArcMotion` 6 vs 1, `circleOrbitMotion` 4 vs 1). Note `leaderFollowSync` omits a call to
+    0x80077E7C = Cull::enqueueQueueA, i.e. it never enqueues onto cull queue A.
+  - `game/object/actor_sm_reward.cpp` — 4 methods, store-WIDTH sequence mismatches (a 16 where the
+    oracle writes 8, an extra/missing store) plus one call-order difference.
+  - `game/render/objlist_walk.cpp` — all 4 walkers, incl. `objListWalk2` frame CLOSE size oracle=[40]
+    native=[] (the native does not close the guest frame at all).
+  - `game/render/overlay_ground_gt3gt4.cpp::gt3` and `game/render/perobj_dispatch.cpp::cmdListDispatch`
+    — store-width sequence mismatches.
+- **CAVEAT, do not over-read this:** port_check compares STATIC store/call sequences, so a genuine
+  rebuild CAN fail it by construction (a table replacing an unrolled jump table has fewer store sites) —
+  that trap is documented in CLAUDE.md. Each of the 20 needs individual triage: either fix the port, or
+  prove equivalence the panel_fill.cpp way (native installed vs disabled, diff the 2 MB dumps) and cite
+  it. What is NOT defensible is leaving them unexamined now that the gate reports honestly.
+- **NOT established:** whether any of these 20 currently diverges under SBS. port_check is a static
+  gate; a FAIL here is a strong smell, not a measured runtime divergence.
+- **refs:** external/psxport/tools/port_check.py (main); instruments I029, I030; claim C026
