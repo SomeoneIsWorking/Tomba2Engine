@@ -669,3 +669,67 @@ remove it, or the repo accumulates dead duplicates of every handler.
   printed "call sites (1)" with total confidence. Any instrument that enumerates should be able to say
   what it could NOT see.
 - **refs:** external/psxport/tools/abi_extract.py COMPOUND_DELAY_RE/COMPOUND_NODELAY_RE
+
+## port_check FALSE-FAILs a correct rebuild when the guest duplicates a store across a branch
+- **symptom:** `port_check.py game/math/gte_math.cpp` on a freshly-ported leaf reports
+  `FAIL: memory-store width sequence mismatch at store #9: oracle=[16 x10] native=[16 x9]`.
+  The native is CORRECT; the oracle simply has one more STATIC store than any execution performs.
+  First hit porting guest 0x800851F0 (`Math::rotMatSoftYXZ`) on 2026-07-30.
+- **status:** OPEN — instrument defect, NOT a port defect. The port it flagged was proven
+  byte-identical by execution (see below), so treat this verdict class as UNTRUSTWORTHY until fixed.
+- **cause:** `abi_extract.extract_op_sequence` (external/psxport/tools/abi_extract.py, the loop at
+  `for _line_no, stmt in stream:`) is a **LINEAR** pass over the gen body's statements — it has no
+  CFG. It appends every `mem_w*` it sees in text order. When the recompiler duplicates one store
+  into BOTH ARMS of a conditional (very common: the store sat in a branch delay slot, so it gets
+  copied into the taken block and the fall-through block), the linear pass counts it TWICE, while
+  exactly one arm ever executes. A correct single-store rebuild then has N-1 stores and FAILs.
+  In 0x800851F0 the duplicated store is `m22` (out+16), copied into both arms of the Z-angle sign
+  test at gen L_80085320 / its fall-through. Note this is a DIFFERENT bug from the 2026-07-30
+  conditional-branch regex fix (which lost whole blocks); the regexes are now right, the
+  *sequence extractor* is still CFG-blind.
+- **do NOT do:** duplicate the store into two arms of a C++ `if` to satisfy the counter. That is the
+  contortion CLAUDE.md bans ("do NOT contort readable code back into a transcription").
+- **what to do instead:** prove equivalence by EXECUTION and cite it. For 0x800851F0 that is
+  `scratch/re/gen_rotmatsoftyxz_equiv.py` -> `rotmatsoftyxz_equiv.cpp`: it extracts BOTH bodies
+  mechanically from the tree (oracle from `generated/shard_2.c`, native from `game/math/gte_math.cpp`
+  — neither hand-typed), loads the REAL sin/cos LUT out of `MAIN.EXE`, runs 3,525,420 angle triples
+  (edge cross-product + full-turn sweeps + 3M randoms) and diffs all 9 output shorts. Result:
+  **0 differed**, with `--selftest` first proving the comparator fires (3,525,420/3,525,420 caught
+  on a perturbed element). Reuse that generator as the template — it is the same shape as the older
+  `rotmatsoft_equiv.cpp` cited in gte_math.cpp's rotMatSoft banner.
+- **proper fix (not attempted — it changes a gate every agent depends on, so it wants its own
+  session + validation against BOTH classes):** give `extract_op_sequence` the CFG that
+  `parse_contract` already builds, and match the native's store sequence as a PATH through the
+  oracle's CFG (NFA-vs-string walk) rather than against a flattened block-order list. This stays
+  sound in the failing direction: a native that OMITS a store still fails on every path.
+- **refs:** game/math/gte_math.cpp (Math::rotMatSoftYXZ banner), scratch/re/gen_rotmatsoftyxz_equiv.py
+
+## port_check's store-sequence axis is STATIC, so a store duplicated across branch arms false-FAILs
+- **status:** confirmed 2026-07-30, NOT fixed (the fix changes a verdict every agent depends on).
+- **the artifact:** the recompiler routinely COPIES a store into BOTH arms of a branch (the classic
+  branch-delay-slot duplication). `gen_func_800851F0` stores `mem_w16(out+16)` twice — once in each
+  arm of the Z-angle sign test, converging at L_8008534C — so the body has **10 static** stores but
+  only **9 execute**. `extract_op_sequence` is a purely LINEAR pass with no CFG, so it counts 10, and
+  a correct single-store rebuild reports 9 and FAILs. Verified by reading the gen body, not inferred.
+- **this is a SECOND, distinct CFG-blindness from the conditional-branch regex fix landed the same
+  day.** That one repaired branch DETECTION for `parse_contract`. This one is that
+  `extract_op_sequence` has no CFG at all, by design ("tolerant view").
+- **the sound fix, when someone does it:** match the native's sequence as a PATH through the oracle's
+  CFG (NFA-vs-string) reusing the CFG `parse_contract` already builds — not "dedupe adjacent equal
+  stores", which would mask a genuine doubled write.
+- **HYPOTHESIS TESTED AND MOSTLY FALSIFIED — do not assume this explains the standing FAILs.** It was
+  natural to guess the 20 open port_check FAILs were mostly this artifact. Checked two:
+  - `ActorReward::smBlinkB` (0x8004B208): 10 static stores, **ZERO duplicated store lines**. Its
+    native has 9 against the oracle's 10, so that is a genuinely MISSING store — a real defect.
+  - `ActorReward::smTallyTick` (0x80049E54): 9 static stores WITH one duplicated pair, but its native
+    has **more** stores than the oracle (10 vs 9), i.e. the wrong direction for this artifact.
+  So the standing FAILs are mostly REAL and still need individual triage. The artifact is real but
+  narrow.
+- **what to do when you hit it:** do NOT contort the rebuild into two arms to satisfy the counter
+  (CLAUDE.md bans it). Prove equivalence by EXECUTION, the panel_fill.cpp way. Exemplar landed with
+  this finding: `scratch/re/gen_rotmatsoftyxz_equiv.py` extracts BOTH bodies mechanically from the
+  tree (neither hand-typed), loads the real sin/cos LUT out of MAIN.EXE, and diffs all 9 outputs over
+  3,525,420 angle triples — with a `--selftest` that must report EVERY case differing on perturbed
+  input before the negative is trusted. Both classes run, both verified.
+- **refs:** external/psxport/tools/abi_extract.py extract_op_sequence; generated/shard_2.c
+  gen_func_800851F0 lines 57 + 72

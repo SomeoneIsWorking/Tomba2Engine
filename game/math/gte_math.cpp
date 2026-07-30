@@ -34,6 +34,7 @@ extern void gen_func_80084EB0(Core*);
 extern void gen_func_80085050(Core*);
 extern void gen_func_800847F0(Core*);
 extern void gen_func_80084A80(Core*);
+extern void gen_func_800851F0(Core*);
 extern void gen_func_80077FB0(Core*);
 extern void gen_func_80078240(Core*);
 extern void gen_func_80084080(Core*);
@@ -227,6 +228,21 @@ constexpr uint32_t kSVecOffY = 2;
 constexpr uint32_t kSVecOffZ = 4;
 constexpr int kMvmvaFracShift = 12;  // MVMVA sf=1 → the 44-bit accumulator is shifted right 12
 
+// The SIN/COS lookup table every SOFTWARE (non-GTE) rotation builder in this file shares. 4096
+// entries — PSX angle units, 4096 = one full turn — each a packed word { s16 sin @low half, s16 cos
+// @high half } in 12-bit fixed point (4096 = 1.0). Only |angle| indexes it; sin's odd symmetry is
+// applied by the caller (softTrig / rotpair_trig), which is why the table is a quarter the size a
+// signed index would need.
+constexpr uint32_t kSinCosTable   = 0x800a6490u;
+constexpr uint32_t kAngleMask     = 0xfffu;   // index = |angle| & this (4096 units = one turn)
+constexpr int      kTrigFracShift = 12;       // trig terms are 12-bit fixed → every product is >>12
+// Row-major 3x3 s16 ELEMENT offsets. Same 18 bytes the CR-packed kMatOffR* words cover, addressed
+// one element at a time — which is how the software builders (rotMatSoft / rotMatSoftInverse /
+// rotMatSoftYXZ) write them, via `sh`, not `sw`.
+constexpr uint32_t kMat3OffM00 = 0,  kMat3OffM01 = 2,  kMat3OffM02 = 4;
+constexpr uint32_t kMat3OffM10 = 6,  kMat3OffM11 = 8,  kMat3OffM12 = 10;
+constexpr uint32_t kMat3OffM20 = 12, kMat3OffM21 = 14, kMat3OffM22 = 16;
+
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FUN_800844C0 — libgte ApplyMatrixSV(MATRIX *m, SVECTOR *v0, SVECTOR *v1). Rotate a SHORT vector by
 // a matrix and write the result back as a SHORT vector.
@@ -322,7 +338,7 @@ static inline void rotmat_trig(Core* c, int32_t angle, int* s, int* co) {
   int32_t sign = angle >> 31;                              // 0 or 0xffffffff (arithmetic)
   uint32_t absa = (uint32_t)((angle + sign) ^ sign);       // abs(angle)
   uint32_t idx = (absa << 2) & 0x3ffcu;                    // (abs & 0xfff) * 4
-  uint32_t word = c->mem_r32(0x800a6490u + idx);
+  uint32_t word = c->mem_r32(kSinCosTable + idx);
   *co = (int)((int32_t)word >> 16);                        // cos = high half (signed), sign-independent
   uint32_t at = (word << 16);                              // sin = low half, then re-apply angle sign:
   at = at + (uint32_t)sign; at = at ^ (uint32_t)sign; at = at >> 16;
@@ -389,8 +405,8 @@ uint32_t Math::rotmat(uint32_t anglesPtr, uint32_t out) {   // FUN_80085480
 // signed int math is bit-exact. cos = LUT word high half; sin = low half, sign by (angle<0)^(posSin<0).
 static inline void rotpair_trig(Core* c, uint32_t a0, int posSin, int* s, int* co) {
   int32_t a = (int32_t)a0;
-  uint32_t absidx = (a >= 0) ? ((uint32_t)a & 0xfffu) : ((0u - (uint32_t)a) & 0xfffu);
-  uint32_t w = c->mem_r32(0x800a6490u + (absidx << 2));
+  uint32_t absidx = (a >= 0) ? ((uint32_t)a & kAngleMask) : ((0u - (uint32_t)a) & kAngleMask);
+  uint32_t w = c->mem_r32(kSinCosTable + (absidx << 2));
   *co = (int)((int32_t)w >> 16);
   int sinv = (int)(int16_t)w;
   if (a < 0) sinv = -sinv;          // sin is odd → negate for negative angle
@@ -426,8 +442,8 @@ uint32_t Math::rotX(int16_t angle, uint32_t matPtr) { Core* c = this->core; retu
 //     terms are ≤4096 so no 32-bit overflow.)  m02 is the RAW sinB (no shift), as the asm stores it.
 // Verified against the gen body by scratch/re/rotmatsoft_equiv.cpp (random + edge angle triples, 0 diff).
 static inline void softTrig(Core* c, int32_t angle, int32_t* s, int32_t* co) {
-  uint32_t absidx = (angle >= 0) ? ((uint32_t)angle & 0xfffu) : ((0u - (uint32_t)angle) & 0xfffu);
-  uint32_t w = c->mem_r32(0x800a6490u + (absidx << 2));
+  uint32_t absidx = (angle >= 0) ? ((uint32_t)angle & kAngleMask) : ((0u - (uint32_t)angle) & kAngleMask);
+  uint32_t w = c->mem_r32(kSinCosTable + (absidx << 2));
   *co = (int32_t)w >> 16;         // cos = high half (even → sign-independent)
   int32_t sinv = (int16_t)w;      // sin = low half
   if (angle < 0) sinv = -sinv;    // sin is odd
@@ -494,6 +510,98 @@ uint32_t Math::rotMatSoftInverse(uint32_t anglesPtr, uint32_t out) {   // FUN_80
   c->mem_w16(out + 8,  (uint16_t)(int16_t)(q(sAsB * sC) + q(cA * cC)));
   c->mem_w16(out + 4,  (uint16_t)(int16_t)(q(cAsB * cC) + q(sA * sC)));
   c->mem_w16(out + 10, (uint16_t)(int16_t)(q(cAsB * sC) - q(sA * cC)));
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// FUN_800851F0 — the THIRD software (non-GTE) 3-Euler rotation-matrix builder in this file, and the
+// one that composes the axes in the OPPOSITE order to rotMatSoft. a0 = SVECTOR* of 3 Euler angles
+// (vx@+0, vy@+2, vz@+4; s16, 4096 = one turn), a1 = MATRIX* out (row-major 3x3 s16 at +0..+16, also
+// returned in v0). Shares softTrig's LUT (kSinCosTable) and >>12 fixed-point convention; runs NO GTE
+// op at all, so it leaves no GTE register residue for a downstream still-PSX reader (unlike rotmat).
+//
+// WHAT IT BUILDS:  M = Rz(vz) · Rx(vx) · Ry(vy)
+// i.e. a vector is YAWED about Y first, then PITCHED about X, then ROLLED about Z — the "YXZ"
+// composition order, hence the name. That is a DIFFERENT matrix from rotmat (0x80085480) and its
+// software twin rotMatSoft (0x800847F0), both of which build Rx(vx)·Ry(vy)·Rz(vz). docs/port-
+// progress.md:1245 calls this one a "CPU RotMatrix twin (non-GTE companion to 80085480)"; that is
+// imprecise and this port corrects it — the non-GTE companion of 0x80085480 is rotMatSoft, which
+// produces the same matrix. This function does not. The tell is the middle row of the output:
+// rotMatSoft stores the RAW sinY at m02, this one stores the RAW sinX at m21, which only happens
+// when X is the MIDDLE rotation of the product.
+//
+// WHAT IT DOES IN GAME TERMS: it is the HEADING (pan) matrix in Tomba's own world transform. The one
+// caller in the main binary is ActorTomba::matrixComposeAttached (guest 0x800597AC, game/player/
+// actor_tomba.cpp), and what it does with the result is the identification evidence:
+//   * it builds the SVECTOR at scratchpad 0x1F8000C0 from Tomba's body angles G+84/86/88 and calls
+//     rotmat() → the BODY orientation matrix at 0x1F800040;
+//   * it then OVERWRITES that same SVECTOR with (0, panAngle, 0) — vx and vz forced to zero,
+//     vy = (G+375 & 1) ? G+334 : 0 — and calls THIS function → the matrix at 0x1F800020;
+//   * matMul(0x1F800020, 0x1F800000, G+152) makes that the OUTER factor of Tomba's SRT matrix
+//     (0x1F800000 holds the translate block seedBlock() just filled from G+184/186/188),
+//     and matLoadLV(0x1F800040, G+152) composes the body orientation inside it.
+// So the caller uses this leaf DEGENERATE — a single Y angle — to spin the whole actor about the
+// world vertical, on top of the body pose. It is a general 3-angle builder that this call site
+// exercises on one axis; the port is the general function, and the name says what the function is,
+// not what its one caller happens to feed it.
+//
+// IDENTIFICATION EVIDENCE (from the caller + Ghidra, NOT from the neighbouring libgte leaves):
+//   * The caller zeroes vx and vz before calling. It would not bother if the callee ignored them —
+//     that is direct evidence this reads all THREE angles, i.e. it is a 3-Euler builder and not a
+//     single-axis RotMatrixY.
+//   * Ghidra headless (scratch/decomp/rotmatsoftyxz_851F0.c, decompiled in one run together with
+//     0x80085480 and 0x800847F0 for the A/B) gives the nine element formulas below verbatim, the
+//     LUT at -0x7ff59b70 = 0x800a6490 (softTrig's table), and `return param_2`.
+//   * The composition order was DERIVED, not assumed: setting vx = 0 in the element formulas
+//     collapses them to exactly Rz(vz)·Ry(vy), and setting vy = vz = 0 collapses them to exactly
+//     Rx(vx); the full product Rz·Rx·Ry then reproduces all nine terms including the cross terms.
+//     The same test on rotmat/rotMatSoft yields Rx·Ry·Rz — which is how the two are told apart.
+//   * EXTENT: 0x800851F0..0x80085474 inclusive (`jr ra` at 0x80085470 + delay nop), 162 instructions,
+//     followed by two `nop` pads before 0x80085480 (= Math::rotmat, whose first instruction is
+//     `or v0,zero,a1`). Established three independent ways: port_gen's live-extent splitter (128 live
+//     body lines, and it TRIMS one folded-sibling tail line, `func_80085480(c)`, that belongs to the
+//     next guest function); the disassembly's own `jr ra`; and the pad before the next entry point.
+//     NOT from "the next gen function in shard_2.c", which is not an address-order test here.
+//   * abi_extract --contract (re-run after the 2026-07-30 conditional-branch CFG fix): frame_size = 0,
+//     0 spills, 0 call sites — a pure leaf, so there is NO guest stack frame to mirror. Consistent
+//     with the disassembly, which contains no `jal` anywhere in the body.
+//
+// Byte-exact by construction, mirroring the recomp register ops (generated/shard_2.c
+// gen_func_800851F0): the trig terms are ≤4096 and every intermediate is kept as a FULL s32 after
+// its >>12 (never truncated to 16) exactly as the gen keeps it in a register, so the `(uint64)a *
+// (uint64)b` → `(int32)lo >> 12` of the recomp is reproduced bit-for-bit by plain signed C. Only the
+// nine `sh` stores truncate to s16. TWO elements NEGATE BEFORE the shift (m20, m01) — that is not
+// cosmetic: `sra` rounds toward -inf, so -(p>>12) and (-p)>>12 differ whenever p is not a multiple
+// of 4096. m21 is the RAW sinX with no shift at all, as the asm stores it.
+//
+// Store order below is the GUEST's (m21, m20, m22, m11, m01, m00, m10, m02, m12), not row order: the
+// guest interleaves the first two rows' stores with the third angle's LUT lookup. Nothing observes
+// the output between stores, so the order is not load-bearing; it is preserved anyway rather than
+// tidied, so this reads against the gen body line for line.
+// ORACLE: gen_func_800851F0
+uint32_t Math::rotMatSoftYXZ(uint32_t anglesPtr, uint32_t out) {   // FUN_800851F0
+  Core* c = this->core;
+  int32_t sX, cX, sY, cY, sZ, cZ;
+  softTrig(c, (int16_t)c->mem_r16(anglesPtr + kSVecOffX), &sX, &cX);
+  softTrig(c, (int16_t)c->mem_r16(anglesPtr + kSVecOffY), &sY, &cY);
+  softTrig(c, (int16_t)c->mem_r16(anglesPtr + kSVecOffZ), &sZ, &cZ);
+  auto q = [](int32_t x) { return x >> kTrigFracShift; };   // >>12 arithmetic on the full s32 product
+
+  // The two shared sub-products the guest computes once and reuses (its r24 in each half).
+  const int32_t sXsY = q(sX * sY);
+  const int32_t sXcY = q(sX * cY);
+
+  // Third row first — it is the pure Rx·Ry part, untouched by the outer Rz, which is why sinX
+  // survives to the output raw.
+  c->mem_w16(out + kMat3OffM21, (uint16_t)(int16_t)sX);                            // sinX (raw, unshifted)
+  c->mem_w16(out + kMat3OffM20, (uint16_t)(int16_t)q(-(cX * sY)));                 // −(cosX·sinY)
+  c->mem_w16(out + kMat3OffM22, (uint16_t)(int16_t)q(cX * cY));                    //   cosX·cosY
+  c->mem_w16(out + kMat3OffM11, (uint16_t)(int16_t)q(cZ * cX));                    //   cosZ·cosX
+  c->mem_w16(out + kMat3OffM01, (uint16_t)(int16_t)q(-(sZ * cX)));                 // −(sinZ·cosX)
+  c->mem_w16(out + kMat3OffM00, (uint16_t)(int16_t)(q(cZ * cY) - q(sXsY * sZ)));
+  c->mem_w16(out + kMat3OffM10, (uint16_t)(int16_t)(q(sZ * cY) + q(sXsY * cZ)));
+  c->mem_w16(out + kMat3OffM02, (uint16_t)(int16_t)(q(cZ * sY) + q(sXcY * sZ)));
+  c->mem_w16(out + kMat3OffM12, (uint16_t)(int16_t)(q(sZ * sY) - q(sXcY * cZ)));
   return out;
 }
 
@@ -660,6 +768,7 @@ static void eov_matLoadLV(Core* c)     { c->r[2] = mathOf(c).matLoadLV(c->r[4], 
 static void eov_matColScale(Core* c)   { c->r[2] = mathOf(c).matColScale(c->r[4], c->r[5]); }
 
 static void eov_rotMatSoftInverse(Core* c) { c->r[2] = mathOf(c).rotMatSoftInverse(c->r[4], c->r[5]); }
+static void eov_rotMatSoftYXZ(Core* c)     { c->r[2] = mathOf(c).rotMatSoftYXZ(c->r[4], c->r[5]); }
 
 void Math::registerOverrides() {
   using overrides::install;
@@ -673,6 +782,7 @@ void Math::registerOverrides() {
   install(0x80085050u, "Math::rotZ",          eov_rotZ,          gen_func_80085050, shard_set_override);
   install(0x800847F0u, "Math::rotMatSoft",    eov_rotMatSoft,    gen_func_800847F0, shard_set_override);
   install(0x80084A80u, "Math::rotMatSoftInverse", eov_rotMatSoftInverse, gen_func_80084A80, shard_set_override);
+  install(0x800851F0u, "Math::rotMatSoftYXZ", eov_rotMatSoftYXZ, gen_func_800851F0, shard_set_override);
   install(0x80077FB0u, "Math::isqrt16",       eov_isqrt16,       gen_func_80077FB0, shard_set_override);
   install(0x80078240u, "Math::approxDist3",   eov_approxDist3,   gen_func_80078240, shard_set_override);
   install(0x80084080u, "Math::sqrtLzc",       eov_sqrtLzc,       gen_func_80084080, shard_set_override);

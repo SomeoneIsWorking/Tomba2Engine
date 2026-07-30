@@ -67,6 +67,13 @@ public:
   //   verified versus merely observed about that relationship. Returns outPtr via v0.
   uint32_t rotMatSoftInverse(uint32_t anglesPtr, uint32_t outPtr);
 
+  // rotMatSoftYXZ(anglesPtr, outPtr): FUN_800851F0 — the THIRD software 3-Euler builder. Same LUT
+  //   and same s16 row-major output as rotMatSoft, but the OPPOSITE composition order:
+  //   M = Rz(vz)·Rx(vx)·Ry(vy), so a vector is yawed, then pitched, then rolled. Runs no GTE op.
+  //   Its caller (ActorTomba::matrixComposeAttached) uses it with vx = vz = 0 to build Tomba's
+  //   HEADING/pan rotation, the outer factor of his world SRT matrix. Returns outPtr via v0.
+  uint32_t rotMatSoftYXZ(uint32_t anglesPtr, uint32_t outPtr);
+
   // sqrtLzc(v): FUN_80084080 — GTE-LZC fixed-point square root (leading-sign-bit normalize + a
   //   16-bit ROM recip-sqrt table lookup @0x800a6310). Returns the isqrt-like result via v0.
   uint32_t sqrtLzc(uint32_t v);
