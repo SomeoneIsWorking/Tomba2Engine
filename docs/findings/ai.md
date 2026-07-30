@@ -713,3 +713,36 @@ does not reproduce it" as evidence about the bug.
 - **refs:** game/render/cull.cpp:96-98 (queue tables), :151-169 (performBaseCull push), :214-228
   (enqueueByClass class routing), :230-247 (enqueueQueueA); generated/shard_1.c:15022-15032,
   shard_0.c:11138-11148; claim C024
+
+## Boss-fight logic: where it lives, and why it is NOT portable-and-gateable yet (recon 2026-07-30)
+- **status:** first recon. Boss logic had ZERO coverage anywhere — `findings.py boss` returned no
+  match in the registry OR the journal before this.
+- **WHERE:** the Ghost Pig boss fight is **area 12** (name is USER-sourced, docs/areas.md), so its
+  code is overlay **A0C** — `generated/ov_a0c_*`, **170 distinct functions, ZERO natively owned**.
+- **NOT on the port queue, by construction:** `codemap.py --unowned-rank` is fed by a recdep run over
+  FIELD replays, which never enter area 12. So no A0C address can ever surface there. A0C is invisible
+  to the normal target-selection path, and that is a property of the queue, not evidence A0C is cold.
+- **OVERLAY ADDRESSES COLLIDE — an address alone does NOT identify code.** A0C spans
+  0x801092D4..0x80126DCC and A00 spans 0x8010A33C..0x8014E6BC; they overlap heavily. The same address
+  is different code depending on which overlay is resident. Any tool keyed on address alone
+  (codemap --addr included) is ambiguous in that range. Check the defining module, not just the hex.
+- **THE BLOCKER IS REACHABILITY, NOT RE.** Area 12 IS reachable headless (the settled-warp recipe in
+  docs/areas.md uses it as its own example) and renders — a screenshot shows Tomba and the boss. But
+  across a 900-frame stand-in AND a 40-cycle attack run, essentially NO A0C code executed:
+  diffing the warp run against a no-warp baseline leaves 5 area-12-only addresses, of which exactly
+  ONE is A0C-defined.
+- **I checked whether the INSTRUMENT was lying before believing that negative**, because a near-zero
+  is exactly when to suspect the tool. `recdep` counts only substrate DISPATCH targets, so direct
+  intra-overlay calls would be invisible — but A0C makes **1001 rec_dispatch calls against 176 direct
+  ones**, so the meter would have seen the traffic. The code genuinely is not running.
+- **Most likely cause, already filed:** kanban #36 — cold warp is broken and "the wrong overlay's
+  handler gets dispatched". That fits exactly: the arena renders while the boss's own logic does not run.
+- **WHAT WOULD UNBLOCK IT, in order of value:**
+  1. A REPLAY that actually plays the fight (`replays/<cat>/<name>.pad`). That makes all 170 functions
+     measurable AND SBS-gateable in one step, and porting then proceeds normally.
+  2. Fixing kanban #36, which unblocks warp-based measurement for EVERY area, not just this one.
+- **DO NOT bulk-port A0C without one of those.** 170 unmeasured, un-gateable functions is precisely the
+  cardinal sin on this project — a downstream step faked before its RE is verified. There is no SBS
+  gate for area 12 today because no replay reaches it.
+- **refs:** docs/areas.md area 12; kanban #36; scratch/logs/boss_a12.log, boss_baseline.log,
+  boss_engage.log; scratch/screenshots/boss/a12.png
