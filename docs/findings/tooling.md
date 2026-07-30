@@ -641,3 +641,31 @@ remove it, or the repo accumulates dead duplicates of every handler.
   PASS / FAIL / UNPROVABLE line. Never align whitespace between `mem_wN` and `(`; align the arguments
   instead. (Same trap applies to `MEM_W_ANY_RE` in external/psxport/tools/abi_extract.py.)
 - **refs:** external/psxport/tools/port_check.py:60-64/362, abi_extract.py:199, game/ai/placed_prop_sm.h
+
+## abi_extract --contract silently dropped whole blocks: two spaces killed a conditional branch
+- **status:** found + fixed 2026-07-30 (framework 58fd3184). The highest-blast-radius instrument
+  defect found so far, and the one whose output looked most like a correct answer.
+- **cause:** `COMPOUND_DELAY_RE` / `COMPOUND_NODELAY_RE` classify a recompiled line as a CONDITIONAL
+  BRANCH. Both hardcoded exactly ONE space around the `if`. The recompiler emits
+  `);  if (_t) goto L_x; }` with TWO spaces when the delay slot is empty, so such lines were
+  classified as ORDINARY STATEMENTS. The CFG then never received the `cond_taken` edge, the branch
+  target block became UNREACHABLE, and every call site and every store inside it was dropped.
+- **how it surfaced:** the contract for 0x80027E5C listed ONE call site when the body makes TWO
+  (reported func_80031780, omitted func_80027A4C). An agent porting the SIBLING 0x80027CB4 hit the
+  same omission earlier and worked around it WITHOUT recording it — which is why it survived a second
+  encounter. Record the tool defect, not just your workaround.
+- **blast radius, measured not estimated:** 19,528 of 83,921 compound conditional lines misclassified
+  (23%), across **760 distinct gen functions**.
+- **WHAT IT DOES NOT MEAN — check this before re-verifying anything.** This is the AUTHORING aid, not
+  the equivalence gate. `port_check` uses `extract_op_sequence`, a LINEAR scan that never touches the
+  CFG, so no equivalence verdict was ever computed from a truncated body. Confirmed by running
+  `--all` across the fix: 110 PASS / 20 FAIL / 17 UNPROVABLE of 147, IDENTICAL before and after. No
+  existing verified port is invalidated.
+- **open hypothesis, NOT a claim:** ports authored against `--contract` may have worked from a short
+  call list. Worth checking against the 20 standing port_check FAILs, several of which are call-count
+  mismatches where the native makes FEWER calls than the oracle (e.g. release_trigger_motion's
+  leaderFollowSync, oracle=5 native=3). Not chased yet.
+- **the lesson that generalises:** a truncated list is indistinguishable from a complete one. The tool
+  printed "call sites (1)" with total confidence. Any instrument that enumerates should be able to say
+  what it could NOT see.
+- **refs:** external/psxport/tools/abi_extract.py COMPOUND_DELAY_RE/COMPOUND_NODELAY_RE
