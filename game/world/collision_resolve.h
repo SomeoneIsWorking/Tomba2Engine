@@ -42,6 +42,18 @@ public:
   // for the identification evidence and for the grown-state sibling FUN_8001EC3C.
   static void classifyBodyContact(Core* c);
 
+  // FUN_80023A04(actor = a0, other = a1, policy = a2) -> v0. The OBJECT-vs-OBJECT member of the
+  // family: two full object records, no separate anchor, and a POLICY index in a2 that picks which
+  // of five vertical-contact rules applies once Y turns out to be the shorter way out.
+  //   -1 = no contact, or the chosen policy refused this contact (nothing written)
+  //    0 = horizontal push-out applied (actor X/Z moved onto the contact circle)
+  //    2 = actor came to rest ON TOP of the other object
+  //    3 = actor pushed out UNDERNEATH it
+  // NOTE the return codes are NOT cylinderResolve's: there, 0 is the miss and 1 is the push-out.
+  // Here 0 IS the push-out and the miss is -1. Unlike cylinderResolve this body also does NOT set
+  // the landed flag itself — its caller does, on v0 == 2. See the .cpp banner.
+  static void resolveByContactPolicy(Core* c);
+
   // WHY THIS CANNOT CALL THE Trig METHODS DIRECTLY, even though all five of its callees are owned
   // natively (Math::sqrtLzc, Trig::rcos/rsin/ratan2/angleCmp): Trig::registerOverrides is
   // deliberately an EMPTY body because those substrate bodies descend guest stack frames the native

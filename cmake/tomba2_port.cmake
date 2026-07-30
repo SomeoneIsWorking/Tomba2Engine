@@ -74,6 +74,7 @@ set(GAME_SRC
   game/ai/beh_substate_edge_orchestrator.cpp
   game/ai/substate_edge_native.cpp
   game/ai/cull_substate_native.cpp
+  game/ai/assembly_companion.cpp         # FUN_80138A64 — assembly companion idle tick (camera hold + re-arm)
   game/ai/contact_stamp.cpp
   game/ai/placed_prop_sm.cpp
   game/ai/beh_jumptable_release_trigger.cpp

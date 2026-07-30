@@ -202,6 +202,55 @@ constexpr uint32_t kAboveResolveInXz     = 0;
 constexpr uint32_t kAboveResolveInY      = 1;
 constexpr uint32_t kBelowResolveInXz     = 2;
 constexpr uint32_t kBelowResolveInY      = 3;
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// FUN_80023A04 — resolveByContactPolicy's own tables. It walks the same two record shapes as
+// landOnObjectTop (both operands are full object records), so it reuses the kActor*/kOther* names
+// above; only the two things landOnObjectTop has no use for are new.
+constexpr uint32_t kActorContactFlags = 191;   // 0xBF — a per-object flag BYTE whose bits are
+                                               // behaviour-scoped, not global: beh_lift_platform
+                                               // toggles it, beh_seaside_prox_substate stamps 0xE0,
+                                               // scene_transition tests it non-zero for an SFX, and
+                                               // script_interp calls it a pulse gate. Policy 4 tests
+                                               // BIT 0 and nothing else, so bit 0 is the only bit
+                                               // named here — the byte's other bits are somebody
+                                               // else's claim to make.
+constexpr uint32_t kContactFlagRefusesTop = 0x01;
+
+// The second shared scratchpad output, alongside kContactAngleSlot. ActorTomba names the pair
+// OUT_DIST_SPAD / OUT_HEADING_SPAD (game/player/actor_tomba.cpp) — this body publishes both.
+constexpr uint32_t kContactDistSlot = 140;     // 0x1F80008C — the XZ separation, SIGN-EXTENDED, which
+                                               // is what the guest itself does here (sll/sra 16).
+
+// ── this function's own guest stack ──────────────────────────────────────────────────────────────
+// From `abi_extract.py 0x80023A04 --scaffold --guestabi`, program order. Not hand-derived.
+constexpr uint32_t kPolicyFrameBytes = 56;
+constexpr GuestFrameSpill kPolicySpills[10] = {
+  { 18, 24 }, { 19, 28 }, { 31 /*ra*/, 52 }, { 30, 48 }, { 23, 44 },
+  { 22, 40 }, { 21, 36 }, { 20, 32 }, { 17, 20 }, { 16, 16 },
+};
+constexpr uint32_t kRaPairDist         = 0x80023A8Cu;   // Math::sqrtLzc  0x80084080
+constexpr uint32_t kRaPairContactAngle = 0x80023B58u;   // Trig::ratan2   0x80085690
+constexpr uint32_t kRaPairPushCos      = 0x80023B8Cu;   // Trig::rcos     0x80083F50
+constexpr uint32_t kRaPairPushSin      = 0x80023BB0u;   // Trig::rsin     0x80083E80
+constexpr uint32_t kRaPairFacingCmp    = 0x80023C08u;   // Trig::angleCmp 0x80077768
+
+// ── the five contact policies ────────────────────────────────────────────────────────────────────
+// a2's low nibble indexes a FIVE-ENTRY jump table in MAIN.EXE's .rodata. The table was read out of
+// the image rather than inferred: words at 0x80010180 are 80023C44 80023C5C 80023C94 80023C6C
+// 80023CE0, and Ghidra headless independently recovers the same body as `switch (param_3 & 0xf)`
+// with cases 0..4 (scratch/decomp/objcol_23a04.c). The index -> entry mapping below is therefore a
+// fact from the ROM, not a guess from block order.
+constexpr uint32_t kPolicyTable = 0x80010180u;
+constexpr uint32_t kPolicyCount = 5;
+constexpr uint32_t kPolicySnapToNearerFace       = 0x80023C44u;  // 0
+constexpr uint32_t kPolicyRestOnTopUnlessRising  = 0x80023C5Cu;  // 1
+constexpr uint32_t kPolicySnapIntoApproachedFace = 0x80023C94u;  // 2
+constexpr uint32_t kPolicyRestOnTopAlways        = 0x80023C6Cu;  // 3
+constexpr uint32_t kPolicyRestOnTopUnlessFlagged = 0x80023CE0u;  // 4
+
+// v0 again, and DELIBERATELY not the cylinderResolve codes — 0 and -1 swap roles between the two.
+constexpr uint32_t kPairPushedOutInXz = 0;
 }  // namespace
 
 // ORACLE: gen_func_80023D48
@@ -649,9 +698,280 @@ void CollisionResolve::classifyBodyContact(Core* c) {
   c->mem_w16(actor.base() + kActorVelY, 0u);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// FUN_80023A04 — the OBJECT-vs-OBJECT contact resolve, with a per-contact POLICY.
+//
+// WHAT IT DOES, in game terms. Two things in the world have run into each other — Tomba and a crate,
+// a crate and a pushable block, an enemy and a platform. Both are cylinders with a vertical band, and
+// unlike cylinderResolve there is no separate anchor record: `other` carries its own X/Y/Z, so this
+// is a plain body-vs-body test. Two gates run first (XZ radii, then the vertical band; either miss
+// returns -1). If both say "overlapping", the two penetration depths are compared and the SHALLOWER
+// axis wins. XZ shallower -> the actor is pushed out onto the contact circle around the other object
+// and, if it is the facing-tracking type, re-aimed at the contact heading (v0 = 0). Y shallower ->
+// the POLICY in a2 decides, because "the actor is vertically inside that thing" means different
+// things for different pairs: a solid crate always stands you on top; a one-way platform only catches
+// you if you are falling; a soft contact only resolves into the face you were moving toward. Guest Y
+// grows DOWNWARD, so "resting on top" is the NEGATIVE snap, exactly as in cylinderResolve.
+//
+// HOW IT WAS IDENTIFIED — from the CALLERS and from the ROM, not from the neighbourhood. This body
+// sits directly below cylinderResolve/landOnObjectTop in the image, which is suggestive and nothing
+// more; the evidence is:
+//
+//  1. THE POLICY TABLE IS REAL DATA. a2's low nibble is bounds-checked against 5 and indexes a jump
+//     table read straight out of MAIN.EXE at 0x80010180 — five words, 80023C44 80023C5C 80023C94
+//     80023C6C 80023CE0. Ghidra headless (scratch/decomp/objcol_23a04.c) independently recovers the
+//     same function as `switch (param_3 & 0xf)` with cases 0..4 landing on those blocks, so the
+//     index -> policy mapping is not inferred from block order.
+//  2. THE CALLER IS AN OBJECT-PAIR COLLISION PASS. generated/ov_a04_shard_1.c's ov_a04_gen_8010EDB0
+//     walks a pair list out of the scratchpad (list pointer 0x1F80013C, count 0x1F800183), and for
+//     each pair switches on the two objects' TYPE bytes (+0x02) to choose which policy this contact
+//     gets — 0, 1, 3 and 4 all appear at its nine call sites. Two more callers are two-line wrappers
+//     in MAIN.EXE that hard-wire a policy: FUN_800241FC passes 0, FUN_8002421C passes 1.
+//  3. THE CALLER READS ALL FOUR OUTCOME CODES, which is what fixes them as an enumeration rather
+//     than a boolean. In that same overlay: `v0 < 0` skips the pair; `v0 == 0` means the push-out
+//     happened, so it follows up with Trig::angleCmp against the published heading and writes the
+//     object's facing byte (+0x5F); `v0 == 2` makes it write the LANDED FLAG +0x29 = 1 itself.
+//     That last one is the direct evidence for why this body — unlike cylinderResolve — never sets
+//     +0x29: for this family of contacts the flag is the CALLER's to set.
+//  4. THE FIELD MAP IS THE ONE ALREADY PROVEN IN THIS FILE. +0x2E/+0x32/+0x36, +0x80, +0x84/+0x86,
+//     the signed +0x4A, +0x0C/+0x5F/+0x60 — same offsets, same roles, same record kind as the three
+//     bodies above, which is why this one reuses their tables instead of deriving a fourth set.
+//
+// EXTENT. [0x80023A04, 0x80023D48) — MAIN.EXE's own dispatch table (generated/shard_disp.c) has
+// consecutive entries 0x80023A04 and 0x80023D48 with nothing between, the gen body's epilogue
+// (L_80023D18 + ten restores + jr/addiu) lands exactly on 0x80023D48, and Ghidra's independent
+// function boundary agrees. NOT established from "the next gen function in the shard" — the shard
+// split is not address order.
+//
+// TWO TRAPS THIS BODY SETS, both load-bearing:
+//
+//  * v0's CODES ARE NOT cylinderResolve's. There 0 is the miss and 1 the push-out; here 0 IS the
+//    push-out and -1 the miss. An out-of-range policy index also falls out as 0 — the bounds check's
+//    own sltu result is the return value — even though nothing was written. Reproduced, not tidied.
+//  * THE GATE AND THE PENETRATION READ THE SAME RADII WITH DIFFERENT SIGNEDNESS. The XZ gate sums
+//    them as s16; the penetration that decides the axis sums them as u16. The guest genuinely does
+//    both (the same split classifyBodyContact's banner records), and it matters for a negative radius.
+//
+// FOLDING RULES AND THE CALLEE AUDIT: identical to cylinderResolve's banner at the top of this file,
+// and its audit covers this body too — the five callees here are the same five (Math::sqrtLzc,
+// Trig::ratan2/rcos/rsin/angleCmp), reached through their generated func_XXXX wrappers for the
+// guest-stack reason the header banner gives.
+//
+// ORACLE: gen_func_80023A04
+void CollisionResolve::resolveByContactPolicy(Core* c) {
+  const uint32_t actorArg  = c->r[4];
+  const uint32_t otherArg  = c->r[5];
+  const uint32_t policyArg = c->r[6];
+
+  GuestFrame<kPolicyFrameBytes, 10> frame(c, kPolicySpills);
+  c->r[18] = actorArg;
+  c->r[19] = otherArg;
+
+  const Rec actor{ c, 18 };
+  const Rec other{ c, 19 };
+
+  // Values the guest keeps in callee-saved registers because they outlive a call.
+  GuestReg<23> deltaX(c);         // s7 — actor -> other, on X; live into ratan2
+  GuestReg<20> deltaZ(c);         // s4 — actor -> other, on Z; live into ratan2, then REUSED
+  GuestReg<22> xzDistance(c);     // s6 — |actor -> other| in XZ, from Math::sqrtLzc
+  GuestReg<21> xzPenetration(c);  // s5
+  GuestReg<16> yPenetration(c);   // s0 — later REUSED as the push-out X offset
+  GuestReg<17> verticalSnap(c);   // s1 — SIGNED: <= 0 rest on top, > 0 pushed out underneath
+  GuestReg<30> policy(c);         // s8 — a2
+
+  // World coordinates are stored as u16, so each delta is truncated to 16 bits and sign-extended
+  // BEFORE squaring — squaring the raw difference would square a value near 65535 instead of -1.
+  // (The trap landOnObjectTop's banner records; same records, same hazard.)
+  const uint32_t dx = actor.u16(kActorX) - other.u16(kOtherX);
+  guest_mult(c, (int16_t)dx, (int16_t)dx);
+  const uint32_t deltaXSq = c->lo;
+  const uint32_t dz = actor.u16(kActorZ) - other.u16(kOtherZ);
+  guest_mult(c, (int16_t)dz, (int16_t)dz);
+  policy  = policyArg;
+  deltaX  = dx;
+  deltaZ  = dz;
+  c->r[4] = deltaXSq + c->lo;                    // a0 = dx² + dz²
+  guest_call(c, kRaPairDist, func_80084080);
+  const uint32_t distance = c->r[2];
+  xzDistance = distance;
+
+  // ── gate 1: XZ overlap ─────────────────────────────────────────────────────────────────────────
+  // Both radii read TWICE, once signed for the gate and once unsigned for the penetration below.
+  const uint32_t radiusSumUnsigned = actor.u16(kActorHeightLo) + other.u16(kOtherRadius);
+  const int32_t  xzReach           = actor.s16(kActorHeightLo) + other.s16(kOtherRadius);
+  if (xzReach < (int32_t)(distance & 0xFFFFu)) {
+    c->r[2] = kNoContact;
+    return;
+  }
+
+  // ── gate 2: vertical band ──────────────────────────────────────────────────────────────────────
+  // restOffsetOnTop is where the actor's origin ends up when it is resting on the other's top face —
+  // the same expression landOnObjectTop calls restOffset.
+  const uint32_t deltaY = actor.u16(kActorY) - other.u16(kOtherY);
+  const uint32_t restOffsetOnTop =
+      (other.u16(kOtherExtentLo) + actor.u16(kActorExtentHi)) - actor.u16(kActorExtentLo);
+  const uint32_t bandProbe = (deltaY + restOffsetOnTop) & 0xFFFFu;
+  const int32_t  bandSpan  = actor.s16(kActorExtentHi) + other.s16(kOtherExtentHi);
+  if (bandSpan < (int32_t)bandProbe) {
+    c->r[2] = kNoContact;
+    return;
+  }
+
+  // ── which way out ──────────────────────────────────────────────────────────────────────────────
+  // Split on the sign of Δy. Guest Y grows DOWNWARD, so Δy < 0 means the actor is ABOVE the other
+  // object and the resolve is a snap UP onto its top face (a NEGATIVE offset); Δy >= 0 means it is
+  // level or below and gets pushed out underneath instead. The REACH stays positive on both sides.
+  xzPenetration = radiusSumUnsigned - distance;
+  const uint32_t otherBandThickness = other.u16(kOtherExtentHi) - other.u16(kOtherExtentLo);
+  uint32_t verticalGap;                          // t4 — |Δy|; caller-saved, and no call reads it
+  if ((int16_t)deltaY < 0) {
+    verticalGap  = 0u - deltaY;
+    yPenetration = restOffsetOnTop;
+    verticalSnap = 0u - restOffsetOnTop;
+  } else {
+    const uint32_t restOffsetUnderneath = actor.u16(kActorExtentLo) + otherBandThickness;
+    verticalGap  = deltaY;
+    yPenetration = restOffsetUnderneath;
+    verticalSnap = restOffsetUnderneath;
+  }
+
+  // The contact heading from the other object to the actor, published to the scratchpad for the
+  // caller. Z is negated because the guest's ratan2 takes (y, x) in screen-ish orientation — the
+  // same convention cylinderResolve and classifyBodyContact use.
+  c->r[4]      = (uint32_t)(0 - (int32_t)(int16_t)(uint32_t)deltaZ);   // a0
+  c->r[5]      = (uint32_t)(int32_t)(int16_t)(uint32_t)deltaX;         // a1
+  yPenetration = (uint32_t)yPenetration - verticalGap;
+  guest_call(c, kRaPairContactAngle, func_80085690);
+
+  c->r[4] = c->r[2];               // a0 = the contact heading, and gen leaves it there all the way
+                                   // into the rcos call below — so it stays on the register
+  const uint32_t contactHeading = c->r[4];
+  GuestReg<20> scratchpad(c);      // s4 — dz is consumed, and gen reuses the register as the base
+  scratchpad = kScratchpadBase;
+  c->mem_w32(kScratchpadBase + kContactDistSlot,
+             (uint32_t)(int32_t)(int16_t)(uint32_t)xzDistance);
+
+  // Resolve along whichever axis is LESS deeply penetrated — the shorter way out. Both compared as
+  // s16; gen shifts s0 left 16 in place and the contract lists that shifted value as live at every
+  // call below, so the shift is mirrored on the register rather than folded away.
+  const int32_t xzPenetrationShifted = (int32_t)((uint32_t)xzPenetration << 16);
+  yPenetration = (uint32_t)yPenetration << 16;
+  const bool xzIsShorterWayOut = xzPenetrationShifted < (int32_t)(uint32_t)yPenetration;
+  c->mem_w32(scratchpad + kContactAngleSlot, contactHeading);
+
+  if (xzIsShorterWayOut) {
+    // ── horizontal push-out: put the actor back on the contact circle around the other object ────
+    GuestReg<16> contactOffsetX(c);   // s0 — live across the rsin call
+    guest_call(c, kRaPairPushCos, func_80083F50);
+    const int32_t contactRadius = actor.s16(kActorHeightLo) + other.s16(kOtherRadius);
+    guest_mult(c, (int32_t)c->r[2], contactRadius);
+    c->r[4] = c->mem_r32(scratchpad + kContactAngleSlot);                     // a0 = the heading again
+    contactOffsetX = (uint32_t)((int32_t)c->lo >> 12);
+    guest_call(c, kRaPairPushSin, func_80083E80);
+    guest_mult(c, (int32_t)c->r[2], contactRadius);
+
+    c->mem_w16(actor.base() + kActorX, (uint16_t)(other.u16(kOtherX) + contactOffsetX));
+    const uint32_t contactOffsetZ = (uint32_t)((int32_t)c->lo >> 12);
+    c->mem_w16(actor.base() + kActorZ, (uint16_t)(other.u16(kOtherZ) - contactOffsetZ));
+
+    if (actor.u8(kActorType) == kActorTypeTracksFacing) {
+      c->r[4] = (uint32_t)(int16_t)c->mem_r16(scratchpad + kContactAngleSlot);  // a0 = the heading
+      c->r[5] = (uint32_t)actor.s16(kActorFacingRef);                           // a1 = reference
+      c->r[6] = 1u;                                                             // a2
+      guest_call(c, kRaPairFacingCmp, func_80077768);
+      c->mem_w8(actor.base() + kActorFacing, (uint8_t)(c->r[2] + 2));
+    }
+    c->r[2] = kPairPushedOutInXz;
+    return;
+  }
+
+  // ── Y is the shorter way out: hand the contact to the policy ───────────────────────────────────
+  // The guest TAIL-MERGES the policy writes — five policies, three write sites — so this snap, which
+  // policies 0 and 2 share, is ONE site here too rather than one per policy.
+  const auto snapByVerticalOffset = [&] {
+    c->mem_w16(actor.base() + kActorY, (uint16_t)(other.u16(kOtherY) + (uint32_t)verticalSnap));
+  };
+  const bool pushedOutUnderneath = (int16_t)(uint32_t)verticalSnap > 0;
+
+  const uint32_t policyIndex = (uint32_t)policy & 0xFu;
+  if (policyIndex >= kPolicyCount) {
+    // The bounds check's own sltu result is what falls out as v0 — 0, the same code a completed
+    // push-out returns, with nothing written. Reproduced, not tidied.
+    c->r[2] = 0u;
+    return;
+  }
+  switch (c->mem_r32(kPolicyTable + policyIndex * 4u)) {
+    case kPolicySnapToNearerFace:
+      // Policy 0 — resolve into whichever face the actor is already nearer, unconditionally.
+      snapByVerticalOffset();
+      c->r[2] = pushedOutUnderneath ? kSnappedInY : kLandedOnTop;
+      return;
+
+    case kPolicyRestOnTopUnlessRising:
+      // Policy 1 — a rising actor (+0x4A signed, negative means launched upward) is not caught; it
+      // passes straight through. The one-way platform rule. Otherwise policy 3's write.
+      if (actor.s16(kActorVelY) < 0) {
+        c->r[2] = kNoContact;
+        return;
+      }
+      [[fallthrough]];
+
+    case kPolicyRestOnTopAlways:
+      // Policy 3 — always stand the actor on the top face, whatever side it came from. The
+      // solid-object rule, and the same write landOnObjectTop performs.
+      c->mem_w16(actor.base() + kActorY, (uint16_t)(other.u16(kOtherY) - restOffsetOnTop));
+      c->r[2] = kLandedOnTop;
+      return;
+
+    case kPolicySnapIntoApproachedFace:
+      // Policy 2 — resolve ONLY into the face the actor is actually moving toward: falling (velY
+      // >= 0) is caught by the top face, rising (velY < 0) is stopped by the underside, and a
+      // contact against the face it is moving AWAY from is refused outright.
+      if (pushedOutUnderneath) {
+        if (actor.s16(kActorVelY) >= 0) {
+          c->r[2] = kNoContact;
+          return;
+        }
+        snapByVerticalOffset();
+        c->r[2] = kSnappedInY;
+        return;
+      }
+      if (actor.s16(kActorVelY) < 0) {
+        c->r[2] = kNoContact;
+        return;
+      }
+      snapByVerticalOffset();
+      c->r[2] = kLandedOnTop;
+      return;
+
+    case kPolicyRestOnTopUnlessFlagged:
+      // Policy 4 — policy 3, but the object itself can refuse to be stood on this frame via bit 0
+      // of its +0xBF flag byte.
+      if (actor.u8(kActorContactFlags) & kContactFlagRefusesTop) {
+        c->r[2] = kNoContact;
+        return;
+      }
+      c->mem_w16(actor.base() + kActorY, (uint16_t)(other.u16(kOtherY) - restOffsetOnTop));
+      c->r[2] = kLandedOnTop;
+      return;
+
+    default:
+      // Unreachable by construction — the table has exactly kPolicyCount entries and the bounds
+      // check above admits only those indices. Kept because the guest's `jr` IS a real indirect
+      // dispatch site and abi_extract's contract reports it as one. NOT kept to satisfy the gate:
+      // measured 2026-07-30, deleting this line still gives port_check a PASS, because its
+      // op-sequence extractor counts the five `guest_call` sites and drops the switch default on
+      // both sides. That blind spot is recorded in docs/re/collision-resolve-23d48.md.
+      rec_dispatch(c, c->mem_r32(kPolicyTable + policyIndex * 4u));
+      return;
+  }
+}
+
 void CollisionResolve::registerOverrides(Game*) {
   engine_set_override_main(0x80023D48u, &CollisionResolve::cylinderResolve, gen_func_80023D48);
   engine_set_override_main(0x8002423Cu, &CollisionResolve::landOnObjectTop, gen_func_8002423C);
   overrides::install(0x8001F40Cu, "CollisionResolve::classifyBodyContact",
                      &CollisionResolve::classifyBodyContact, gen_func_8001F40C, shard_set_override);
+  overrides::install(0x80023A04u, "CollisionResolve::resolveByContactPolicy",
+                     &CollisionResolve::resolveByContactPolicy, gen_func_80023A04, shard_set_override);
 }

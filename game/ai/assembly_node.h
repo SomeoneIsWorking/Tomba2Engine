@@ -87,6 +87,24 @@ public:
   uint32_t armDuration()    const { return u16(0x72u); }  // set from the command, then optionally +2
   void setArmDuration(uint32_t v) const { mCore->mem_w16(mAt + 0x72u, (uint16_t)v); }
 
+  // --- the two fields the assembly PUBLISHES to its spawned companion (game/ai/assembly_companion.h) ---
+  // Added when 0x80138A64 was ported: that leaf reads both across the child->parent link, so their
+  // meaning is pinned by what the assembly's own leaves write, not by the reader.
+  //
+  // strokePhase (+0x76, s16): how far through its stroke the assembly is, as a 0/1/2 tag rather than
+  //   an angle. ov_a00_gen_8012F5B4 (the sub-state leaf that drives the beam) sets it to 1 when the
+  //   swing crosses into the negative direction, and promotes 1 -> 2 on the frame the beam is clamped
+  //   at the far limit (-2560, where it also flips the step at +0x4E to +512); it stores 0 on every
+  //   path that parks the beam at rest. The init leaf ov_a00_gen_8012ED84 zeroes it alongside
+  //   angleParam/armDuration/pendingCommand. So 1 = "first half-stroke reached", which is the single
+  //   value the spawned companion arms on.
+  int32_t  strokePhase() const { return s16(0x76u); }
+  // strokeFlags (+0x78, s16 here): a flag word on the same pair — 8012F5B4 tests bit2 of it as an
+  //   inhibit before it will advance the swing, and clears it wherever it clears strokePhase. Only
+  //   its all-clear/not-clear sense is established; individual bits beyond bit2 are not, so nothing
+  //   here names them.
+  int32_t  strokeFlags() const { return s16(0x78u); }
+
 protected:
   int32_t  s16(uint32_t off) const { return mCore->mem_r16s(mAt + off); }
   uint32_t u16(uint32_t off) const { return mCore->mem_r16 (mAt + off); }
