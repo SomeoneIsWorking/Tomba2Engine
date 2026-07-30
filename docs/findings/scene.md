@@ -1498,3 +1498,31 @@ sound before/after. The change is justified on its own terms — an area entered
 run its own entry handler, and it demonstrably now does — not on a measured delta. A real A/B needs a
 recdep-all baseline built from the parent commit in a SEPARATE CLONE (never a temporary revert in the
 shared tree).
+
+### SBS warp into a DIFFERENT-overlay area: half fixed, and the remaining half named (2026-07-30)
+`PSXPORT_SBS_WARP` previously aborted for area 12 because it wrote the door record and let the game
+transition, without ever making the destination's code overlay resident — so
+ActorTomba::enterOuterState0's per-area dispatch hit "no recompiled fn for 0x8010CC28".
+
+FIXED HALF: the warp block now primes the load-task slot and runs the synchronous area load on BOTH
+cores (the same `devWarpAreaLoad` the REPL `warp` uses) before writing the door record. Null-guarded,
+identical on both legs so lockstep holds. MEASURED EFFECT: both cores now actually reach the
+destination — `WARP fired ... (curA=12 curB=12)`, where before the fix it read `curA=0 curB=0`. The
+0x8010CC28 miss is gone.
+
+REMAINING HALF, and it is a different problem: the run now aborts on
+`no recompiled fn for 0x801158E0 (caller ra=0x800263C0, a0=0x80100498)`. **0x801158E0 is an A00
+address, not A0C.** So with A0C correctly resident, a node left over from the FIELD area is still
+registered with its A00 handler and the entity walk dispatches it into the wrong overlay. This is
+exactly the caveat native_boot.cpp's warp block already states about itself — "some stale prior-area
+object state may linger, acceptable for a debug warp" — which is true for a screenshot and false for
+SBS, where the stale dispatch is fatal.
+
+So the missing piece is the OLD AREA'S OBJECT TEARDOWN. The door-record path was supposed to supply it
+(the record's trigger type 3 routes to the full area machine, which "tears down the old area's object
+tasks BEFORE swapping the overlay"), but running the synchronous load up front pre-empts that ordering.
+Whoever picks this up: either drive the teardown explicitly before the load, or let the door-record
+machine run to the point of teardown and only then force the load — do NOT just suppress the miss.
+
+NO REGRESSION: the ordinary no-warp SBS gate still reports 50/50 A/B identical, zero divergence, so
+the change is safe to leave in while the teardown half is solved.
