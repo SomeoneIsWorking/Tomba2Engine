@@ -121,3 +121,98 @@ r23@+68, r21@+60, r20@+56, r19@+52, r18@+48, r16@+40. Three s16 locals at sp+16,
 `sStack_40/38/30` of the decompile — written on BOTH entry branches but with different values, and
 read back near the exits. `abi_extract` flags those three reads as "no matching prologue spill",
 which is correct and expected: they are locals, not register saves.
+
+---
+
+# FUN_80023A04 — OBJECT-vs-OBJECT contact resolve, with a five-way POLICY
+
+RE'd 2026-07-30 via Ghidra headless (`scratch/decomp/objcol_23a04.c`) + `abi_extract.py --contract`
+against `generated/shard_0.c gen_func_80023A04`, and PORTED the same day as
+`CollisionResolve::resolveByContactPolicy` (`game/world/collision_resolve.cpp`). port_check PASS on
+all four methods in that file; build clean. **Not yet SBS-gated** — the operator runs that.
+
+3,484 recdep hits. The fourth member of the family, and the one with no separate anchor: `other`
+carries its own X/Y/Z, so it is a plain body-vs-body test between two object records.
+
+## Signature
+
+    FUN_80023A04(actor = a0, other = a1, policy = a2) -> v0
+
+| v0 | meaning |
+|----|---------|
+| -1 | no contact, or the chosen policy REFUSED this contact — nothing written |
+| 0  | HORIZONTAL push-out applied (actor X/Z moved onto the contact circle) |
+| 2  | actor came to rest ON TOP of the other object |
+| 3  | actor pushed out UNDERNEATH it |
+
+**The codes are NOT FUN_80023D48's.** There 0 is the miss and 1 the push-out; here 0 IS the push-out
+and -1 the miss. An out-of-range policy index also returns 0 with nothing written — the bounds
+check's own `sltu` result falls out as v0.
+
+**This body never sets the landed flag +0x29.** Its caller does, on `v0 == 2` — see evidence 3.
+
+## Extent
+
+`[0x80023A04, 0x80023D48)`. MAIN.EXE's dispatch table (`generated/shard_disp.c`) has consecutive
+entries 0x80023A04 and 0x80023D48 with nothing between; the gen epilogue (L_80023D18 + ten restores
++ jr/addiu) lands exactly on 0x80023D48; Ghidra's independent function boundary agrees. Established
+that way and NOT from "the next gen function in the shard" — the shard split is not address order.
+
+## The policy table is REAL DATA, not inferred from block order
+
+`a2 & 0xF` is bounds-checked against 5 and indexes a jump table read straight out of MAIN.EXE at
+**0x80010180** — five words: `80023C44 80023C5C 80023C94 80023C6C 80023CE0`. Ghidra independently
+recovers the function as `switch (param_3 & 0xf)` with cases 0..4 on those blocks.
+
+| idx | entry | rule |
+|-----|-------------|------|
+| 0 | 0x80023C44 | snap into whichever face the actor is already nearer, unconditionally |
+| 1 | 0x80023C5C | rest on top, but only if not RISING (`+0x4A` signed >= 0) — the one-way platform |
+| 2 | 0x80023C94 | resolve ONLY into the face being approached: falling → top, rising → underside, else refuse |
+| 3 | 0x80023C6C | always stand on the top face (same write as FUN_8002423C) |
+| 4 | 0x80023CE0 | policy 3, unless the object's `+0xBF` bit 0 is set — then refuse |
+
+The guest TAIL-MERGES these: five policies, **three** static write sites (0x80023C6C shared by
+policies 1 and 3, 0x80023CD8 shared by policies 0 and 2, 0x80023CE0 its own). The port keeps exactly
+three sites — a per-policy write would be four and fails port_check's static store axis.
+
+## Callers — where the identification comes from
+
+* `generated/ov_a04_shard_1.c` `ov_a04_gen_8010EDB0` — the per-frame OBJECT-PAIR collision pass. It
+  walks a pair list out of the scratchpad (list pointer at 0x1F80013C, count at 0x1F800183) and for
+  each pair switches on the two objects' TYPE bytes (`+0x02`) to choose the policy; indices 0, 1, 3
+  and 4 all appear across its nine call sites.
+* It reads ALL FOUR outcome codes, which is what makes them an enumeration rather than a boolean:
+  `v0 < 0` skips the pair; `v0 == 0` means the push-out happened, so it follows up with
+  `Trig::angleCmp` against the published heading and writes the object's facing byte `+0x5F`;
+  `v0 == 2` makes it write **the landed flag `+0x29` = 1 itself**.
+* Two more callers are two-line wrappers in MAIN.EXE that hard-wire a policy: `FUN_800241FC` passes
+  0, `FUN_8002421C` passes 1.
+
+## Scratchpad outputs
+
+Both of ActorTomba's named pair: `0x1F80008C` (OUT_DIST_SPAD) gets the XZ separation SIGN-EXTENDED
+(the guest's own `sll`/`sra` 16), `0x1F80009C` (OUT_HEADING_SPAD) gets the `ratan2` contact heading.
+FUN_80023D48 publishes only the heading.
+
+## Signedness trap
+
+The XZ **gate** sums the two `+0x80` radii as **s16**; the **penetration** that decides the axis sums
+the same two as **u16**. The guest genuinely does both — the same split recorded for FUN_8001F40C.
+
+## Own frame contract (from abi_extract, do not hand-derive)
+
+`frame_size = 56`. Ten callee-saved spills in program order: r18@+24, r19@+28, r31@+52, r30@+48,
+r23@+44, r22@+40, r21@+36, r20@+32, r17@+20, r16@+16. No sp-relative locals. Five real call sites
+(sqrtLzc / ratan2 / rcos / rsin / angleCmp, ra = 0x80023A8C / 0x80023B58 / 0x80023B8C / 0x80023BB0 /
+0x80023C08) plus the jump table's `jr`, which `abi_extract --contract` reports as a sixth
+`switch_default_rec_dispatch` site with no ra.
+
+## INSTRUMENT NOTE — port_check's blind spot on the switch default
+
+Measured 2026-07-30 with four mutations of the finished file (`scratch/re/negctl/`): an extra static
+store FAILs, a merged store FAILs, a corrupted `ra` constant FAILs, a dropped real `guest_call`
+FAILs (call count 5 vs 4). But **deleting the `default: rec_dispatch(...)` line still PASSes** — the
+op-sequence extractor counts 5 calls, not the contract's 6, on BOTH sides, so the switch-default
+dispatch site is invisible to the gate. Symmetric, so it hides no mismatch here, but do not read a
+PASS as proof that an indirect tail-dispatch was reproduced.

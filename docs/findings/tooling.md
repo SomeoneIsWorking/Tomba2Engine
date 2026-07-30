@@ -733,3 +733,27 @@ remove it, or the repo accumulates dead duplicates of every handler.
   input before the negative is trusted. Both classes run, both verified.
 - **refs:** external/psxport/tools/abi_extract.py extract_op_sequence; generated/shard_2.c
   gen_func_800851F0 lines 57 + 72
+
+## port_check is blind to a switch-default rec_dispatch — and the way to find that out is SELF-MUTATION
+- **status:** confirmed 2026-07-30. Narrow, symmetric, not fixed. The METHOD that found it matters more.
+- **the blind spot:** `port_check`'s op-sequence extractor recognises `guest_call(...)` and
+  `guest_dispatch(c, 0x..., ...)` (GUEST_DISPATCH_RE). A bare `rec_dispatch(...)` sitting in a
+  `switch` default — the guest's real indirect `jr` tail — matches NEITHER, so it is dropped from the
+  call list **on both sides**. Being symmetric it cannot hide a native-vs-oracle mismatch, so it is not
+  urgent. But it does mean: **a PASS is not evidence that an indirect tail-dispatch was reproduced.**
+  Deleting the `default: rec_dispatch(...)` line entirely still PASSes.
+- **HOW IT WAS FOUND, and this is the part to copy.** The agent did not trust its own PASS. It made
+  FIVE mutated copies of its finished port (in gitignored scratch, never the shared tree) and checked
+  the gate rejected each:
+      extra static store (un-share a write)      -> FAIL (19 vs 18 widths)   ✓ fires
+      merged store (fold two policies together)  -> FAIL (17 vs 18 widths)   ✓ fires
+      corrupted one ra constant                  -> FAIL (call[3] ra differs) ✓ fires
+      dropped a real guest_call                  -> FAIL (call count 5 vs 4)  ✓ fires
+      dropped `default: rec_dispatch(...)`       -> PASS                      <- BLIND SPOT
+  Four of five mutations proved the gate discriminates; the fifth found where it does not. This is the
+  per-port form of "a discriminator must be run against BOTH classes before you trust it", and it costs
+  minutes. Adopt it whenever a port PASSes on the first try.
+- **the right response when you hit it:** keep the `default: rec_dispatch(...)` (it is the guest's
+  real `jr`, even when unreachable given a bounds-checked table), and do NOT write a comment claiming
+  the gate requires it — it does not. State plainly that the gate cannot see it.
+- **refs:** external/psxport/tools/port_check.py GUEST_DISPATCH_RE; docs/re/collision-resolve-23d48.md

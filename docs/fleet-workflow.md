@@ -268,3 +268,18 @@ So do not brief an agent to run SBS at all. Split the gate:
 Recovered exactly this way: two ports whose agents died mid-SBS were finished by the operator running
 one build + one SBS, giving balanced ovhit on both addresses and 50/50 identical checkpoints. No agent
 work was lost, and the wasted wall-clock was the retry, not the port.
+
+
+### Mutate your own finished port to prove the gate can FAIL it (2026-07-30)
+
+A port that PASSes on the first attempt has told you nothing until you know the gate would have
+caught a mistake. The cheap check, done entirely in gitignored scratch copies so the shared tree is
+never mutated: take the finished file, break it four or five different ways, and confirm each is
+rejected.
+
+Useful mutations, each targeting a different axis of the gate: add a redundant store; merge two
+stores into one; corrupt one `ra` constant; delete a real call; delete an indirect/default dispatch.
+
+Run on `CollisionResolve::resolveByContactPolicy` this found four axes working and one blind spot
+(a switch-default `rec_dispatch` is invisible to the call list). Without it, that port's PASS would
+have been quietly over-trusted. Brief agents to do this whenever a port passes first time.
