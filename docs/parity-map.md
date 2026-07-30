@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 66 verified · 9 partial · 12 untested · 7 n/a
+**Status:** 66 verified · 10 partial · 12 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -480,6 +480,12 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **status:** partial
 - **gate:** port_check equivalence (verbatim) + wired 0-diff; mode unreached by autonav — runtime-unexercised
 - **evidence:** 58809b1c
+
+## assembly-rider-118b10
+- **status:** partial
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** 50/50 identical, ovhit 2788/2788 balanced — but PARTIAL: both riders sit in state 1 (RIDE) in every committed area-0 dump, so this run exercises INIT/RIDE and the tail only. The HOP (state 2) and FLING (state 3) branches are UNTESTED by it; a replay that actually strokes a pump is needed to promote this to verified.
 
 ## Gauge text-row tap FUN_8004EB94
 - **status:** partial
