@@ -228,3 +228,22 @@ a missing ABI-slot live value, an unmirrored stack frame, `&&`-vs-`||`. So:
   line-by-line verify above (no dataflow/CFG — a purely linear scan, so cross-branch register liveness is
   a heuristic), but it removes the bulk of the boilerplate-transcription error surface before that pass
   starts. See `docs/abi-extract.md`.
+
+
+## Fleet CONCURRENCY has a ceiling — 4 heavy port agents stalled 3 of 4 (2026-07-30)
+
+Dispatching four Opus port agents at once, each running Ghidra headless plus an SBS gate, tripped the
+harness watchdog ("no progress for 600s") on THREE of the four. They stalled at different stages —
+one right after its premise check, one while reading prior RE, one while looking for callers — which
+is the signature of shared-resource contention, not of any one task being wrong.
+
+- **Nothing was lost.** Every stalled agent had an empty worktree, because the contract already says
+  agents leave work dirty and never commit. The failure mode was wasted wall-clock, not damage.
+- **Resume beats re-dispatch.** A stalled agent can be continued with SendMessage and keeps its
+  transcript, so its RE work so far is not re-derived. A fresh agent starts from nothing.
+- **Practical ceiling: about 2 concurrent HEAVY agents** (Ghidra + a full SBS run). Light read-only
+  scouts are cheaper and can run wider. When a batch is bigger than that, hold the remainder and
+  dispatch as slots free rather than firing them all at once.
+- **Tell agents not to go silent.** Long silent Ghidra/SBS steps are what trip the watchdog. Brief
+  them to emit something before a multi-minute step and to run the SBS gate ONCE at the end rather
+  than repeatedly.
