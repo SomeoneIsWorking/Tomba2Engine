@@ -3,15 +3,13 @@
 //
 // See fx_sprite_swarm.cpp for the identification evidence and for what separates this emitter from
 // its two siblings. This header holds only the typed LENSES over the guest blocks the function
-// reads and writes, plus a named constant for every field offset and scratchpad slot, so the body
-// reads as "stamp the node's sprite once per particle" rather than as a run of mem_r32(base + 0x4E).
-//
-// The write accessors are deliberately ONE-LINERS: tools/port_check.py harvests a lens setter's
-// mem_wN width by regex, so `publish.setScaleX(v)` counts as exactly the store it performs. A setter
-// that grew a second statement or a nested brace would silently stop counting.
+// reads and writes, plus a named constant for every field offset, so the body reads as "stamp the
+// node's sprite once per particle" rather than as a run of mem_r32(base + 0x4E). The five-word
+// scratchpad handoff every member of the family shares lives in fx_sprite_publish.h.
 #pragma once
 #include <stdint.h>
 #include "core.h"
+#include "fx_sprite_publish.h"
 
 class Game;
 
@@ -59,32 +57,6 @@ struct FxSwarmParticle {
   uint32_t worldXY()  const { return mCore->mem_r32(mBase + fxswarm::kPartPosXY); }
   uint32_t worldZ()   const { return mCore->mem_r32(mBase + fxswarm::kPartPosZ); }
   int32_t  sizeMul()  const { return mCore->mem_r16s(mBase + fxswarm::kPartSizeMul); }
-};
-
-// ------------------------------------------------------------------------------------------------
-// The SCRATCHPAD HANDOFF. Every emitter in this family publishes the same five words and then calls
-// the one packet writer (FUN_80027A4C), which consumes them. They are the emitter's whole output
-// contract: where on screen this sprite sits, how big it is, which OT bucket it belongs in, and how
-// hard to depth-cue its colours.
-namespace fxpublish {
-constexpr uint32_t kOtKey    = 0x1F800080u;  // s32 — OT bucket key, or -1 = culled
-constexpr uint32_t kScaleX   = 0x1F800084u;  // s32 — horizontal pixel scale (16.16)
-constexpr uint32_t kScaleY   = 0x1F800088u;  // s32 — vertical pixel scale
-constexpr uint32_t kScreenXY = 0x1F80008Cu;  // packed screen anchor, straight from GTE SXY2
-constexpr uint32_t kDepthCue = 0x1F800090u;  // s32 — IR0 for the writer's DPCS colour cue
-}  // namespace fxpublish
-
-struct FxSpritePublish {
-  Core* mCore;
-
-  void setOtKey(int32_t v)      { mCore->mem_w32(fxpublish::kOtKey, (uint32_t)v); }
-  void setScaleX(int32_t v)     { mCore->mem_w32(fxpublish::kScaleX, (uint32_t)v); }
-  void setScaleY(int32_t v)     { mCore->mem_w32(fxpublish::kScaleY, (uint32_t)v); }
-  void setScreenXY(uint32_t v)  { mCore->mem_w32(fxpublish::kScreenXY, v); }
-  void setDepthCue(int32_t v)   { mCore->mem_w32(fxpublish::kDepthCue, (uint32_t)v); }
-
-  int32_t otKey()  const { return (int32_t)mCore->mem_r32(fxpublish::kOtKey); }
-  int32_t scaleX() const { return (int32_t)mCore->mem_r32(fxpublish::kScaleX); }
 };
 
 // ------------------------------------------------------------------------------------------------

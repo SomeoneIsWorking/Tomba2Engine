@@ -38,6 +38,13 @@ public:
   //   here (not assumed already in CR), and (b) the output is MAC1-3, not IR1-3.
   uint32_t applyMatrixLV(uint32_t mPtr, uint32_t inPtr, uint32_t outPtr);
 
+  // applyMatrixSV(mPtr, inPtr, outPtr): FUN_800844C0 — libgte ApplyMatrixSV. The SHORT-vector twin of
+  //   applyMatrixLV: same matrix load, same MVMVA, but the result is written as an SVECTOR (3 CLAMPED
+  //   s16 = IR1-3) instead of a VECTOR (3 unclamped s32 = MAC1-3). In game terms this is "take an
+  //   offset expressed in an object's OWN frame and turn it into a world-space delta" — every caller
+  //   follows it by adding the object's world position to the 3 shorts. Returns outPtr via v0.
+  uint32_t applyMatrixSV(uint32_t mPtr, uint32_t inPtr, uint32_t outPtr);
+
   // rotmat(anglesPtr, outPtr): FUN_80085480 — libgte RotMatrix. Build a 3x3 rotation matrix from
   //   3 Euler angles at anglesPtr (SVECTOR: vx/vy/vz s16); output written to outPtr in CR-packed
   //   layout (5 words). Also loads GTE leftovers a downstream reader consumes.

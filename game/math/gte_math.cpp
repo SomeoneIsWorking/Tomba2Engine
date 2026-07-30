@@ -27,6 +27,7 @@ extern void shard_set_override(uint32_t, void (*)(Core*));
 extern void gen_func_80084110(Core*);
 extern void gen_func_80084220(Core*);
 extern void gen_func_80084470(Core*);
+extern void gen_func_800844C0(Core*);
 extern void gen_func_80085480(Core*);
 extern void gen_func_80084D10(Core*);
 extern void gen_func_80084EB0(Core*);
@@ -168,6 +169,7 @@ uint32_t Math::matMul(uint32_t rPtr, uint32_t mPtr, uint32_t outPtr) {   // FUN_
 //       into a2, not the clamped IR1-3 that applyMatlv writes.
 // The MVMVA opcode itself is identical to applyMatlv (sf=1, mx=ROT, v=V0, cv=Null, lm=0).
 // Same 44-bit accumulator + >>12 as matMul. Returns outPtr in v0.
+// ORACLE: gen_func_80084470
 uint32_t Math::applyMatrixLV(uint32_t mPtr, uint32_t inPtr, uint32_t out) {   // FUN_80084470
   Core* c = this->core;
   // Load matrix into CR0-4 (faithful CTC2). Also read it as R[3][3] for the MVMVA math.
@@ -191,6 +193,116 @@ uint32_t Math::applyMatrixLV(uint32_t mPtr, uint32_t inPtr, uint32_t out) {   //
   gte_write_data(0, w0); gte_write_data(1, w1);
   gte_write_data(9,(uint32_t)(int32_t)ir[0]); gte_write_data(10,(uint32_t)(int32_t)ir[1]); gte_write_data(11,(uint32_t)(int32_t)ir[2]);
   gte_write_data(25,(uint32_t)mac[0]); gte_write_data(26,(uint32_t)mac[1]); gte_write_data(27,(uint32_t)mac[2]);
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// GTE register / struct-offset NAMES for the ApplyMatrix* pair. The recomp bodies reach these
+// registers by bare index; the constants below are those same indices, named for what the register
+// HOLDS — the names are read straight off the disassembly of 0x800844C0 (`ctc2 t0,R11R12` …
+// `ctc2 t4,R33`, `lwc2 zero,0(a1)`, `mfc2 t0,IR1` …).
+constexpr int kGteCrRotR11R12 = 0;   // CR0: rotation row0 col0 | col1<<16
+constexpr int kGteCrRotR13R21 = 1;   // CR1: row0 col2 | row1 col0<<16
+constexpr int kGteCrRotR22R23 = 2;   // CR2: row1 col1 | col2<<16
+constexpr int kGteCrRotR31R32 = 3;   // CR3: row2 col0 | col1<<16
+constexpr int kGteCrRotR33    = 4;   // CR4: row2 col2
+constexpr int kGteDrVxy0 = 0;        // DR0: MVMVA input vector V0, X | Y<<16
+constexpr int kGteDrVz0  = 1;        // DR1: MVMVA input vector V0, Z
+constexpr int kGteDrIr1  = 9;        // DR9/10/11: the CLAMPED s16 MVMVA result (what SV stores)
+constexpr int kGteDrIr2  = 10;
+constexpr int kGteDrIr3  = 11;
+constexpr int kGteDrMac1 = 25;       // DR25/26/27: the UNCLAMPED s32 accumulator (what LV stores)
+constexpr int kGteDrMac2 = 26;
+constexpr int kGteDrMac3 = 27;
+// MATRIX byte offsets — the 3x3 s16 rotation part, packed two shorts per word (libgte MATRIX layout;
+// the translation vector at +20 is NOT touched by ApplyMatrix*).
+constexpr uint32_t kMatOffR11R12 = 0;
+constexpr uint32_t kMatOffR13R21 = 4;
+constexpr uint32_t kMatOffR22R23 = 8;
+constexpr uint32_t kMatOffR31R32 = 12;
+constexpr uint32_t kMatOffR33    = 16;
+// SVECTOR byte offsets (vx,vy,vz,pad — 4 s16).
+constexpr uint32_t kSVecOffX = 0;
+constexpr uint32_t kSVecOffY = 2;
+constexpr uint32_t kSVecOffZ = 4;
+constexpr int kMvmvaFracShift = 12;  // MVMVA sf=1 → the 44-bit accumulator is shifted right 12
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// FUN_800844C0 — libgte ApplyMatrixSV(MATRIX *m, SVECTOR *v0, SVECTOR *v1). Rotate a SHORT vector by
+// a matrix and write the result back as a SHORT vector.
+//
+// WHAT IT DOES IN GAME TERMS: it converts an offset expressed in an object's OWN rotated frame into
+// a world-space delta. The guest has 28 call sites (grep `func_800844C0(c);` + `rec_dispatch(c,
+// 0x800844C0u)` over generated/, excluding the shard_disp thunk); 21 of them set a0 = <base>+24 right
+// on the call line, i.e. an object's MATRIX at +0x18. The shape is: build a small SVECTOR in the
+// scratchpad, call this with the object's matrix, then add the object's world position to the three
+// shorts that come back. THREE call sites read in full, spanning both the main binary and overlays:
+//   * ov_a00_shard_0.c:11792 (the tail of beh_id_routed_offset_point, game/ai/beh_id_routed_dispatch.cpp)
+//     rotates {0,-119,0} by the linked object's matrix and adds obj+44/48/52 → node+78/80/82, i.e.
+//     keeps a point pinned 119 units ABOVE that object no matter how it is turned.
+//   * ov_a04_shard_1.c:8428 rotates {0,±800,0} the same way into a2 = <base>+96, then adds +46/50/54.
+//   * shard_6.c:7746 (gen_func_80051D20) uses a0 = <base>+152 — a SECOND matrix in the same struct,
+//     not +24 — and adds +172/176/180. Same operation, different matrix slot: so the identity is the
+//     operation, not the +24 offset.
+// So: a body-frame offset → a world-frame offset. That is the identity, and it is taken from the
+// CALL SITES, not from the neighbouring libgte leaves.
+//
+// IDENTIFICATION EVIDENCE:
+//   * Ghidra headless (scratch/decomp/applymatsv_844C0.c, decompiled together with FUN_80084470 for
+//     the A/B): the two bodies are instruction-for-instruction the same up to the outputs —
+//     FUN_80084470 reads cop2 regs 0x19/0x1a/0x1b (MAC1-3) and returns `undefined4*`; FUN_800844C0
+//     reads 0x4800/0x5000/0x5800 (IR1-3) and returns `undefined2*`. Word out vs short out is exactly
+//     the libgte ApplyMatrixLV / ApplyMatrixSV distinction, and it fixes which of the pair this is.
+//   * Disassembly 0x800844C0..0x80084518: `ctc2 R11R12..R33` ← 5 words at a0, `lwc2 VXY0/VZ0` ← 2
+//     words at a1, `MVMVA [mx=R,v=V0,cv=0,sf]` (cop2 0x0486012 — rotation matrix, vector V0, NO
+//     translation, sf=1), `mfc2 IR1/IR2/IR3`, `sh` ×3 into a2, `addu v0,a2`.
+//   * EXTENT: 0x800844C0..0x80084518 inclusive (`jr ra` + delay nop) = 23 instructions. port_gen's
+//     live-extent splitter reports 21 live body lines and TRIMS one folded-sibling tail line
+//     (`func_80084520(c)`) that belongs to the next guest function, 0x80084520 = Math::matColScale,
+//     which this file already owns. abi_extract --contract: frame_size = 0, 0 spills, 0 call sites —
+//     a pure leaf, so there is NO guest stack frame to mirror.
+//
+// Differences from its twin Math::applyMatrixLV (FUN_80084470), which are the whole point:
+//   (a) the stores are `sh` (3 s16) not `sw` (3 s32) — an SVECTOR out, not a VECTOR out;
+//   (b) the value stored is IR1-3, the CLAMPED [-32768,32767] result, not MAC1-3, the raw
+//       accumulator. So SV SATURATES where LV wraps — a real behavioural difference for a large
+//       offset, not just a width change.
+// Everything else (the CTC2 matrix load, the MVMVA opcode, the 44-bit accumulate and >>12) is shared.
+// ORACLE: gen_func_800844C0
+uint32_t Math::applyMatrixSV(uint32_t mPtr, uint32_t inPtr, uint32_t out) {
+  Core* c = this->core;
+  // (1) CTC2 the caller's MATRIX into the GTE rotation control regs. Faithful: a later still-PSX
+  //     MVMVA (Math::applyMatlv reads CR0-4 without loading them) must see this matrix.
+  gte_write_ctrl(kGteCrRotR11R12, c->mem_r32(mPtr + kMatOffR11R12));
+  gte_write_ctrl(kGteCrRotR13R21, c->mem_r32(mPtr + kMatOffR13R21));
+  gte_write_ctrl(kGteCrRotR22R23, c->mem_r32(mPtr + kMatOffR22R23));
+  gte_write_ctrl(kGteCrRotR31R32, c->mem_r32(mPtr + kMatOffR31R32));
+  gte_write_ctrl(kGteCrRotR33,    c->mem_r32(mPtr + kMatOffR33));
+  int16_t R[3][3]; load_mat3(c, mPtr, R);          // the same 5 words, unpacked for the math below
+  // (2) the input SVECTOR: X|Y<<16 in the first word, Z in the low half of the second (the guest
+  //     reads both as full words — `lwc2 zero,0(a1)` / `lwc2 at,4(a1)` — so the pad short rides along).
+  uint32_t vxy = c->mem_r32(inPtr + kSVecOffX);
+  uint32_t vz  = c->mem_r32(inPtr + kSVecOffZ);
+  int16_t v[3] = { (int16_t)vxy, (int16_t)(vxy >> 16), (int16_t)vz };
+  // (3) MVMVA, GTE-exact: 44-bit running accumulation (A_MV), sf=1 → >>12, lm=0 → signed IR clamp.
+  int32_t mac[3]; int16_t ir[3];
+  for (int i = 0; i < 3; i++) {
+    int64_t t = 0;
+    t = sign44(t + (int32_t)R[i][0]*v[0]);
+    t = sign44(t + (int32_t)R[i][1]*v[1]);
+    t = sign44(t + (int32_t)R[i][2]*v[2]);
+    mac[i] = (int32_t)(t >> kMvmvaFracShift); ir[i] = clamp16s(mac[i]);
+  }
+  // (4) store the CLAMPED IR1-3 as an SVECTOR. This is the SV signature — applyMatrixLV writes
+  //     mac[] here as three 32-bit words instead.
+  c->mem_w16(out + kSVecOffX, (uint16_t)ir[0]);
+  c->mem_w16(out + kSVecOffY, (uint16_t)ir[1]);
+  c->mem_w16(out + kSVecOffZ, (uint16_t)ir[2]);
+  // GTE leftovers a downstream still-PSX reader could consume: VXY0/VZ0 = the vector just loaded,
+  // IR1-3 + MAC1-3 = this MVMVA's result.
+  gte_write_data(kGteDrVxy0, vxy); gte_write_data(kGteDrVz0, vz);
+  gte_write_data(kGteDrIr1,(uint32_t)(int32_t)ir[0]); gte_write_data(kGteDrIr2,(uint32_t)(int32_t)ir[1]); gte_write_data(kGteDrIr3,(uint32_t)(int32_t)ir[2]);
+  gte_write_data(kGteDrMac1,(uint32_t)mac[0]); gte_write_data(kGteDrMac2,(uint32_t)mac[1]); gte_write_data(kGteDrMac3,(uint32_t)mac[2]);
   return out;
 }
 
@@ -533,6 +645,7 @@ uint32_t Math::matColScale(uint32_t dstPtr, uint32_t facPtr) {
 static void eov_matMul(Core* c)        { c->r[2] = mathOf(c).matMul(c->r[4], c->r[5], c->r[6]); }
 static void eov_applyMatlv(Core* c)    { c->r[2] = mathOf(c).applyMatlv(c->r[4], c->r[5]); }
 static void eov_applyMatrixLV(Core* c) { c->r[2] = mathOf(c).applyMatrixLV(c->r[4], c->r[5], c->r[6]); }
+static void eov_applyMatrixSV(Core* c) { c->r[2] = mathOf(c).applyMatrixSV(c->r[4], c->r[5], c->r[6]); }
 static void eov_rotmat(Core* c)        { c->r[2] = mathOf(c).rotmat(c->r[4], c->r[5]); }
 static void eov_rotX(Core* c)          { c->r[2] = mathOf(c).rotX((int16_t)c->r[4], c->r[5]); }
 static void eov_rotY(Core* c)          { c->r[2] = mathOf(c).rotY((int16_t)c->r[4], c->r[5]); }
@@ -553,6 +666,7 @@ void Math::registerOverrides() {
   install(0x80084110u, "Math::matMul",        eov_matMul,        gen_func_80084110, shard_set_override);
   install(0x80084220u, "Math::applyMatlv",    eov_applyMatlv,    gen_func_80084220, shard_set_override);
   install(0x80084470u, "Math::applyMatrixLV", eov_applyMatrixLV, gen_func_80084470, shard_set_override);
+  install(0x800844C0u, "Math::applyMatrixSV", eov_applyMatrixSV, gen_func_800844C0, shard_set_override);
   install(0x80085480u, "Math::rotmat",        eov_rotmat,        gen_func_80085480, shard_set_override);
   install(0x80084D10u, "Math::rotX",          eov_rotX,          gen_func_80084D10, shard_set_override);
   install(0x80084EB0u, "Math::rotY",          eov_rotY,          gen_func_80084EB0, shard_set_override);

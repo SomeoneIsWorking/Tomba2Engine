@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 993 native fns, 843 owned addresses, 983 LIVE / 10 ORPHAN.
+Totals: 995 native fns, 845 owned addresses, 985 LIVE / 10 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -57,6 +57,7 @@ Totals: 993 native fns, 843 owned addresses, 983 LIVE / 10 ORPHAN.
 | 0x80027768 | LIVE | `SwingFx::drawMesh` | game/render/swing_fx.cpp:60 |  | Build the producer's transform from the composed GTE control registers… |
 | 0x80027768 | LIVE | `SwingFx::meshEmitTap` | game/render/swing_fx.cpp:172 |  | the shared packed-mesh quad emitter. Run the untouched guest body (pac… |
 | 0x80027A4C | LIVE | `Render::fxSpriteRender` | game/render/fx_sprite.cpp:333 |  | The node's own render fn IS the emitter for every plain member of the … |
+| 0x80027CB4 | LIVE | `FxSpriteAnchored::emitUniformScale` | game/render/fx_sprite_anchored.cpp:145 |  | PORT_GEN: 80027CB4 generated/shard_7.c:1966-2062 |
 | 0x800281EC | LIVE | `FxSpriteSwarm::emitPerParticle` | game/render/fx_sprite_swarm.cpp:155 |  | PORT_GEN: 800281EC generated/shard_2.c:1726-1880 |
 | 0x800286CC | LIVE | `Render::fxAnimSpriteRender` | game/render/fx_sprite.cpp:446 |  | The FUN_800286CC emitter, rebuilt: read the effect node's own animatio… |
 | 0x800288AC | LIVE | `armTap` | game/render/fx_mesh.cpp:233 |  | the effect-mesh CONTROLLER: composes the effect's transform from its o… |
@@ -82,7 +83,7 @@ Totals: 993 native fns, 843 owned addresses, 983 LIVE / 10 ORPHAN.
 | 0x80031744 | LIVE | `ScriptInterp::refreshCachedTailLo` | game/scene/script_interp.cpp:1037 |  | ORACLE: gen_func_80031744 |
 | 0x80031780 | LIVE | `Collision::listScan` | game/player/collision.cpp:189 | 0x80031780 | list-tail resolver / reset. Walks the 8-byte-stride linked list rooted… |
 | 0x800317CC | LIVE | `leaf_800317CC` | game/core/field_owned_leaves.cpp:1260 |  |  |
-| 0x800318A0 | LIVE | `ObjModelView::composeIntoGte` | game/render/obj_model_view.cpp:162 |  | ORACLE: gen_func_800318A0 (tools/port_check.py equivalence-gate marker… |
+| 0x800318A0 | LIVE | `ObjModelView::composeIntoGte` | game/render/obj_model_view.cpp:154 |  | ORACLE: gen_func_800318A0 (tools/port_check.py equivalence-gate marker… |
 | 0x800328EC | LIVE | `Render::altSpriteEmit` | game/render/fx_sprite.cpp:498 |  | ── FUN_800328EC family producers ─────────────────────────────────────… |
 | 0x800329E0 | LIVE | `leaf_800329E0` | game/core/field_owned_leaves.cpp:1307 |  |  |
 | 0x80032A44 | LIVE | `Rng::inRange` | game/math/rng.cpp:106 |  | scaled random. Disas 0x80032A44..0x80032A84 verbatim: `sra v0, 15` on … |
@@ -650,20 +651,21 @@ Totals: 993 native fns, 843 owned addresses, 983 LIVE / 10 ORPHAN.
 | 0x80083E80 | LIVE | `Trig::rsin` | game/math/trig.cpp:4 |  |  |
 | 0x80083E80 | LIVE | `Trig::registerOverrides` | game/math/trig.cpp:114 |  | UNREGISTERED (2026-07-15): rsin/ratan2 are NOT safe as overrides. Thei… |
 | 0x80083F50 | LIVE | `Trig::rcos` | game/math/trig.cpp:69 |  |  |
-| 0x80084080 | LIVE | `Math::sqrtLzc` | game/math/gte_math.cpp:430 |  | ──────────────────────────────────────────────────────────────────────… |
-| 0x80084110 | LIVE | `Math::matMul` | game/math/gte_math.cpp:124 |  |  |
-| 0x80084220 | LIVE | `Math::applyMatlv` | game/math/gte_math.cpp:395 |  | ──────────────────────────────────────────────────────────────────────… |
+| 0x80084080 | LIVE | `Math::sqrtLzc` | game/math/gte_math.cpp:541 |  | ──────────────────────────────────────────────────────────────────────… |
+| 0x80084110 | LIVE | `Math::matMul` | game/math/gte_math.cpp:125 |  |  |
+| 0x80084220 | LIVE | `Math::applyMatlv` | game/math/gte_math.cpp:506 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80084250 | LIVE | `GteTransform3::rotate3AndPackIr` | game/math/wide_re_gte_transform3.cpp:50 |  |  |
-| 0x80084360 | LIVE | `Math::matLoadLV` | game/math/gte_math.cpp:455 |  | ──────────────────────────────────────────────────────────────────────… |
-| 0x80084470 | LIVE | `Math::applyMatrixLV` | game/math/gte_math.cpp:171 |  | ──────────────────────────────────────────────────────────────────────… |
-| 0x80084520 | LIVE | `Math::matColScale` | game/math/gte_math.cpp:500 |  | ORACLE: gen_func_80084520 |
+| 0x80084360 | LIVE | `Math::matLoadLV` | game/math/gte_math.cpp:566 |  | ──────────────────────────────────────────────────────────────────────… |
+| 0x80084470 | LIVE | `Math::applyMatrixLV` | game/math/gte_math.cpp:172 |  | ──────────────────────────────────────────────────────────────────────… |
+| 0x800844C0 | LIVE | `Math::applyMatrixSV` | game/math/gte_math.cpp:271 |  | ──────────────────────────────────────────────────────────────────────… |
+| 0x80084520 | LIVE | `Math::matColScale` | game/math/gte_math.cpp:611 |  | ORACLE: gen_func_80084520 |
 | 0x800847B0 | LIVE | `vertexHeaderRepack` | game/render/wide_re_libgpu_leaves.cpp:337 |  | vertexHeaderRepack (0x800847B0) — 20-byte SoA->AoS vertex-header REPAC… |
-| 0x800847F0 | LIVE | `Math::rotMatSoft` | game/math/gte_math.cpp:324 |  |  |
-| 0x80084A80 | LIVE | `Math::rotMatSoftInverse` | game/math/gte_math.cpp:364 |  | ──────────────────────────────────────────────────────────────────────… |
-| 0x80084D10 | LIVE | `Math::rotX` | game/math/gte_math.cpp:298 |  |  |
-| 0x80084EB0 | LIVE | `Math::rotY` | game/math/gte_math.cpp:297 |  |  |
-| 0x80085050 | LIVE | `Math::rotZ` | game/math/gte_math.cpp:296 |  |  |
-| 0x80085480 | LIVE | `Math::rotmat` | game/math/gte_math.cpp:221 |  |  |
+| 0x800847F0 | LIVE | `Math::rotMatSoft` | game/math/gte_math.cpp:435 |  |  |
+| 0x80084A80 | LIVE | `Math::rotMatSoftInverse` | game/math/gte_math.cpp:475 |  | ──────────────────────────────────────────────────────────────────────… |
+| 0x80084D10 | LIVE | `Math::rotX` | game/math/gte_math.cpp:409 |  |  |
+| 0x80084EB0 | LIVE | `Math::rotY` | game/math/gte_math.cpp:408 |  |  |
+| 0x80085050 | LIVE | `Math::rotZ` | game/math/gte_math.cpp:407 |  |  |
+| 0x80085480 | LIVE | `Math::rotmat` | game/math/gte_math.cpp:332 |  |  |
 | 0x80085480 | LIVE | `MeshQuads::rotmat` | game/render/mesh_quads.cpp:62 |  |  |
 | 0x80085690 | LIVE | `Trig::ratan2` | game/math/trig.cpp:23 |  |  |
 | 0x80085C9C | LIVE | `LibapiIntr::setIntrMask` | game/core/libapi_intr.cpp:115 |  |  |

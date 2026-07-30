@@ -45,7 +45,7 @@ Two execution paths and two rendering paths. Any run is one exec × one render.
 
 - **pc_enh** = `PSXPORT_ENH=<name,name|all>` — deliberate, MEANINGFUL guest-state changes on top of
   the faithful engine (planned: expanded object load/unload, faster fades/transitions). One name per
-  enhancement + `all` umbrella, gated via `cfg_enh("name")` and registered in `docs/config.md`.
+  enhancement + `all` umbrella, gated via `cfg_enh("name")` and registered in `external/psxport/docs/config.md`.
   Force-suppressed under `PSXPORT_ORACLE`/SBS inside `cfg.c`, so byte-compares stay enhancement-free
   by construction. Contrast: pc_render never writes guest memory; pc_skip changes no meaningful
   end-state; pc_enh is the only class allowed to change what the game does.
@@ -115,7 +115,7 @@ workflow defects. Stop and fix them, then resume.
 - **Reference docs:** `docs/faithful-execution.md` (HOW pc_faithful achieves byte-exactness — guest-stack
   residency, native fibers, ported scheduler primitives; read before touching any faithful path),
   `docs/engine_re.md` (engine RE), `docs/render-arch.md` (VK renderer), `docs/gfx-
-  debug.md` + skill `gfx-debug` (render bugs), `docs/config.md` (cfg module — no raw getenv), `docs/
+  debug.md` + skill `gfx-debug` (render bugs), `external/psxport/docs/config.md` (cfg module — no raw getenv), `docs/
   driving-the-game.md` (REPL + scenario replays), `replays/` (deterministic pad-capture library —
   reproduce bugs/scenarios headless without live input; see `replays/README.md`), `docs/project-map.md` (build).
 - **Self-governance:** improve doc/tool/workflow when it falls short, same session.
@@ -136,7 +136,7 @@ spot-check AFTER Ghidra only.
 - **ONE behavior, no env-gate.** Do NOT add a PSXPORT_* toggle to A/B a new native path against the old
   one. Make the new path THE path. Legacy `*_RECOMP` / `FAITHFUL` behavior-flags are scaffolding to
   retire. Diagnostics (`PSXPORT_DEBUG=chan,chan`) are fine — but every channel is registered in `cfg`
-  and documented in `docs/config.md`; never raw `getenv`.
+  and documented in `external/psxport/docs/config.md`; never raw `getenv`.
 - **Engine owns the game; NO PSX intricacies leak in.** Own the world, objects, camera, projection, and
   render ordering. Never read/honor/reproduce OT / draw order / GTE output / GP0 packets / disp-env. If
   reasoning about GP0 to explain something, STOP — rebuild from GAME STATE.

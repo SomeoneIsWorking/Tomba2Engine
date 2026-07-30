@@ -29,6 +29,7 @@
 #include "libgpu_draw_env.h"       // class LibgpuDrawEnv — libgpu SetDrawEnv (0x80081FB0)
 #include "gte_transform3.h"        // class GteTransform3 — GTE 3-vertex rotate+pack (0x80084250)
 #include "fx_sprite_swarm.h"       // class FxSpriteSwarm — per-particle sprite emitter (0x800281EC)
+#include "fx_sprite_anchored.h"    // class FxSpriteAnchored — single-anchor sprite emitter (0x80027CB4)
 #include "actor_sm_reward.h"       // class ActorReward — reward/tally window actor SM family
 #include "actor_zoned_attacker.h"  // class ActorZonedAttacker — 0x8014xxxx zoned-attacker sub-behavior cluster
 #include "overlay_gt3gt4.h"        // class OverlayGt3Gt4 — A00-overlay GT3/GT4 packet-emitter cluster
@@ -138,6 +139,7 @@ void register_engine_overrides(Game* game) {
   LibgpuDrawEnv::registerOverrides(game);            // libgpu SetDrawEnv (0x80081FB0) — DRAWENV -> DR_ENV packet compiler, 2x/frame from PutDrawEnv/DrawOTagEnv
   GteTransform3::registerOverrides(game);            // GTE 3-vertex rotate+pack (0x80084250) — wide-RE draft, re-verified before wiring
   FxSpriteSwarm::registerOverrides(game);            // FUN_800281EC — sprite-cluster stamped once per particle (torch/roof-flame embers)
+  FxSpriteAnchored::registerOverrides(game);         // FUN_80027CB4 — sprite-cluster stamped once at the node's own anchor, uniform depth scale (hut-roof flames)
   RegisterBehActorTombaProximityCombatOverride(game);// enemy-vs-Tomba proximity-combat FSM (0x800527C8)
   eng(c).sequencer.registerOverrides();           // libsnd SsSeqCalled cluster (0x80090BD0 etc.)
   eng(c).script.registerOverrides();              // cutscene-script opcodes 05/06/34/36/31 (0x80042090/800420AC/80042E10/80043108/80041468)

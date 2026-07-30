@@ -235,6 +235,7 @@ set(GAME_SRC
   game/render/hud_gauge_emitter.cpp
   game/render/fx_sprite.cpp
   game/render/fx_sprite_swarm.cpp        # FUN_800281EC — per-particle member of the sprite family
+  game/render/fx_sprite_anchored.cpp     # FUN_80027CB4 — single-anchor uniform-scale member
   game/render/fx_trail.cpp
   game/render/fx_dotfield.cpp
   game/render/fx_backdrop_plane.cpp
