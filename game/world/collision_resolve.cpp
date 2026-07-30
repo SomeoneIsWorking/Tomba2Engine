@@ -154,6 +154,54 @@ constexpr uint32_t kLandFrameBytes = 32;
 constexpr GuestFrameSpill kLandSpills[3] = { { 16, 16 }, { 31 /*ra*/, 24 }, { 17, 20 } };
 constexpr uint32_t kRaLandDist   = 0x800242A8u;     // Math::sqrtLzc 0x80084080
 constexpr uint32_t kLandRejected = 0xFFFFFFFFu;     // v0 = -1
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// FUN_8001F40C — classifyBodyContact's own tables. Two more actor fields than the pair above needs,
+// both already named elsewhere in the port; the citations are what make them claims with a source.
+constexpr uint32_t kActorStateFlags   = 382;   // 0x17E — game/player/actor_tomba.h's "G+0x17E"
+constexpr uint32_t kActorPausedBit    = 0x200; // the same bit ActorTomba::interactWalk early-outs on
+constexpr uint32_t kActorWalkState    = 325;   // 0x145 — the walk/jump state byte ActorTomba::
+                                               // growthYSnap and type8Interact clear together with
+                                               // +0x4A/+0x50/+0x148. Only `== 1` is tested here.
+
+// Two more shared scratchpad words, alongside kContactAngleSlot above.
+constexpr uint32_t kContactLockSlot = 152;     // 0x1F800098 — the "current lock owner" word
+                                               // ActorMeleeEngage::doIt compares against 1 and
+                                               // ActorTomba::framePreTick republishes every frame
+                                               // from the actor's landed flag (+0x29). Non-zero =
+                                               // some other interaction owns the actor this frame.
+constexpr uint32_t kContactKindSlot = 595;     // 0x1F800253 — a per-frame contact-kind byte.
+                                               // OBSERVED, not sourced: ActorTomba::framePreTick
+                                               // (gen_func_8002288C) masks it `&= 3` once per frame,
+                                               // FUN_800541F4 writes 1/3 there, and its readers
+                                               // (e.g. gen_func_80060C60) gate on `< 2`. Writing 4
+                                               // therefore parks it outside every `< 2` reader for
+                                               // the rest of the frame. No source names this slot,
+                                               // so the constant is named for what this body does
+                                               // with it and nothing more.
+constexpr uint32_t kContactKindUndersideBump = 4;
+
+// ── this function's own guest stack ──────────────────────────────────────────────────────────────
+// From `abi_extract.py 0x8001F40C --scaffold --guestabi`, program order. Not hand-derived.
+constexpr uint32_t kClassifyFrameBytes = 56;
+constexpr GuestFrameSpill kClassifySpills[10] = {
+  { 17, 20 }, { 20, 32 }, { 31 /*ra*/, 52 }, { 30, 48 }, { 23, 44 },
+  { 22, 40 }, { 21, 36 }, { 19, 28 }, { 18, 24 }, { 16, 16 },
+};
+constexpr uint32_t kRaBodyDist         = 0x8001F48Cu;   // Math::sqrtLzc 0x80084080
+constexpr uint32_t kRaBodyContactAngle = 0x8001F500u;   // Trig::ratan2  0x80085690
+
+// v0 is a two-bit classification, and BOTH bits are read by callers:
+//   bit 0 — WHICH AXIS is the shorter way out: 0 = push apart in XZ, 1 = resolve in Y.
+//           ActorTomba::type8Interact switches on exactly `v0 & 1`.
+//   bit 1 — WHICH SIDE the actor is on: clear = clearly above the other body, set = level or below.
+//           ActorTomba::stepModeInteract's "just transitioned" branch tests exactly `v0 < 2`.
+// -1 is the miss, and every caller tests it as `(int32_t)v0 < 0` before looking at the bits.
+constexpr uint32_t kNoContact            = 0xFFFFFFFFu;
+constexpr uint32_t kAboveResolveInXz     = 0;
+constexpr uint32_t kAboveResolveInY      = 1;
+constexpr uint32_t kBelowResolveInXz     = 2;
+constexpr uint32_t kBelowResolveInY      = 3;
 }  // namespace
 
 // ORACLE: gen_func_80023D48
@@ -419,7 +467,191 @@ void CollisionResolve::landOnObjectTop(Core* c) {
   c->r[2] = kLandedOnTop;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// FUN_8001F40C — the actor-vs-BODY CONTACT CLASSIFIER. The third member of this family, and the one
+// the other two are not: it decides HOW a contact should be resolved and hands the answer back, it
+// does not (mostly) resolve it. 4,275 substrate dispatches per replays/bugs/seesaw-weight.pad run.
+//
+// WHAT IT DOES, in game terms. Tomba walks into a solid thing — a crate, a block, an enemy's body.
+// Both are cylinders with a vertical band. This asks three questions in order: are they overlapping
+// at all (XZ radii, then vertical band — either miss returns -1); which way is the SHORTER way out
+// (compare the XZ penetration against the Y penetration); and which SIDE of the thing he is on (is
+// he clearly above its middle, or level with / under it). The answer is packed into v0's two bits
+// and the contact HEADING is published to the shared scratchpad word 0x1F80009C, because the caller
+// is the one that performs the horizontal push — it reads that heading back through Trig::rsin/rcos
+// and rotates the two apart itself (ActorTomba::stepModeInteract and ::type8Interact both do exactly
+// that, and game/player/actor_tomba.h documents the shape).
+//
+// The ONE resolve it does perform itself is the one the caller cannot express: when he is level or
+// below and Y is the shorter way out, he has BUMPED HIS HEAD on the thing's underside — his Y is
+// snapped to rest against that underside and, if he was still travelling upward (+0x4A signed, < 0
+// means rising), that upward velocity is cancelled. Jump into the bottom of a platform, stop dead.
+// That snap is skipped entirely when a2 is non-zero, when he is paused, or when another interaction
+// already owns him this frame (the 0x1F800098 lock word) — the classification is still returned.
+//
+// HOW IT WAS IDENTIFIED — from the CALLERS and from a sibling, not from the shape. A distance test
+// against two radii could be almost anything:
+//
+//  1. THE GROWN-STATE SIBLING, FUN_8001EC3C. game/player/actor_tomba.h already records that
+//     ActorTomba::type8Interact picks FUN_8001EC3C when Tomba is GROWN (+0x17E bit 0x8000) and
+//     FUN_8001F40C when he is not. Ghidra headless on both together (scratch/decomp/
+//     prox_class_1f40c.c) shows them running the SAME two gates against the SAME field offsets and
+//     publishing to the SAME 0x1F80009C — except 8001EC3C then calls rcos/rsin itself, writes the
+//     actor's +0x2E/+0x36, and returns 1. So the pair is one mechanism with the push-out inlined on
+//     one side and delegated to the caller on the other. That is what fixes 0x1F80009C's role here
+//     as an OUTPUT the caller consumes, rather than incidental scratch.
+//  2. THE CALLERS AGREE WITH THE BIT LAYOUT. FUN_800205CC (ActorTomba::type8Interact) branches on
+//     `v0 & 1` — even = rotate the two apart along the published heading, odd = the standing/landing
+//     path. FUN_80020364 (::stepModeInteract) gates its "just transitioned" branch on `v0 < 2`.
+//     FUN_80023548 is a two-line wrapper: classify, and on any non-negative code forward the code
+//     itself to FUN_8001FF7C. Three independent callers, three different bits, all consistent.
+//  3. THE FIELD MAP IS THE ONE ALREADY PROVEN HERE. +0x2E/+0x32/+0x36, +0x80, +0x84/+0x86 and the
+//     signed +0x4A are the same offsets cylinderResolve and landOnObjectTop above use, in the same
+//     roles, on the same kind of record — which is why this body reuses their tables rather than
+//     re-deriving a third set.
+//
+// WHY THIS IS AN ORDINARY PORT AND NOT PlatformHle: no MMIO, no completion-flag poll, no spin, no
+// IRQ wait. Two calls, both to already-owned pure math leaves. It is arithmetic over guest records.
+//
+// EXTENT, established before anything was diffed. MAIN.EXE's own dispatch table
+// (generated/shard_disp.c) has consecutive entries 0x8001F40C and 0x8001F650 with nothing between,
+// so the body is [0x8001F40C, 0x8001F650) — 145 instructions, one entry, no jump table. Ghidra's
+// independent function boundary agrees. Do NOT be misled by generated/shard_3.c, which contains a
+// second copy of this body's tail (labels L_8001F58C / L_8001F620) inside gen_func_80010A08: that
+// is linear-sweep output over a DATA region — the block ahead of it is `/* UNHANDLED special */`
+// garbage ending in `rec_dispatch(c, r0); return;`, and nothing branches to those labels. It is
+// dead emitted code, not a folded sibling entry point.
+//
+// FOLDING RULES: identical to cylinderResolve's banner at the top of this file, and the callee audit
+// it cites covers this body too — the only two callees here are Math::sqrtLzc (0x80084080) and
+// Trig::ratan2 (0x80085690), both of which descend NO frame and write NO memory, so no t-register
+// value of ours is observable and the pure scratch becomes ordinary locals.
+//
+// ORACLE: gen_func_8001F40C
+void CollisionResolve::classifyBodyContact(Core* c) {
+  const uint32_t actorArg        = c->r[4];
+  const uint32_t otherArg        = c->r[5];
+  const uint32_t suppressSnapArg = c->r[6];
+
+  GuestFrame<kClassifyFrameBytes, 10> frame(c, kClassifySpills);
+  c->r[17] = actorArg;
+  c->r[20] = otherArg;
+  // gen loads a2 into s8 further down, between the second mult and the sqrt call. Hoisted to here
+  // because nothing in between reads s8 and no call happens in between; it must simply be live by
+  // the sqrt call, which abi_extract's call-site report confirms.
+  c->r[30] = suppressSnapArg;
+
+  const Rec actor{ c, 17 };
+  const Rec other{ c, 20 };
+
+  // Values the guest keeps in callee-saved registers because they outlive a call.
+  GuestReg<19> deltaX(c);         // s3 — actor -> other, on X; live into ratan2
+  GuestReg<18> deltaZ(c);         // s2 — actor -> other, on Z; live into ratan2
+  GuestReg<22> xzDistance(c);     // s6 — |actor -> other| in XZ, from Math::sqrtLzc
+  GuestReg<16> deltaY(c);         // s0
+  GuestReg<21> verticalReach(c);  // s5 — how far apart the two bands may be and still touch
+  GuestReg<23> verticalGap(c);    // s7 — |Δy|
+  GuestReg<30> suppressSnap(c);   // s8 — a2: classify only, do not touch the actor
+
+  // World coordinates are stored as u16, so each delta is truncated to 16 bits and sign-extended
+  // BEFORE squaring — squaring the raw difference would square a value near 65535 instead of -1.
+  // (The same trap the landOnObjectTop banner records; it is the reason both bodies came from
+  // port_gen rather than from anyone re-typing the arithmetic.)
+  deltaX = (uint32_t)(int32_t)(int16_t)(actor.u16(kActorX) - other.u16(kOtherX));
+  guest_mult(c, (int32_t)(uint32_t)deltaX, (int32_t)(uint32_t)deltaX);
+  const uint32_t deltaXSq = c->lo;
+  deltaZ = (uint32_t)(int32_t)(int16_t)(actor.u16(kActorZ) - other.u16(kOtherZ));
+  guest_mult(c, (int32_t)(uint32_t)deltaZ, (int32_t)(uint32_t)deltaZ);
+  c->r[4] = deltaXSq + c->lo;                    // a0 = dx² + dz²
+  guest_call(c, kRaBodyDist, func_80084080);
+  xzDistance = c->r[2];
+
+  // ── gate 1: XZ overlap ─────────────────────────────────────────────────────────────────────────
+  const int32_t xzReach = actor.s16(kActorHeightLo) + other.s16(kOtherRadius);
+  if (xzReach < (int32_t)((uint32_t)xzDistance & 0xFFFFu)) {
+    c->r[2] = kNoContact;
+    return;
+  }
+
+  // ── gate 2: vertical band ──────────────────────────────────────────────────────────────────────
+  // restOffsetUnder is the band separation to use while the actor is at or below the other body;
+  // the "above" case replaces it below, once the sign of Δy is known.
+  deltaY = actor.u16(kActorY) - other.u16(kOtherY);
+  const uint32_t restOffsetUnder = other.u16(kOtherExtentLo) + actor.u16(kActorExtentLo);
+  verticalReach = restOffsetUnder;
+  const uint32_t bandProbe = ((uint32_t)deltaY + restOffsetUnder) & 0xFFFFu;
+  const int32_t  bandSpan  = actor.s16(kActorExtentHi) + other.s16(kOtherExtentHi);
+  verticalGap = deltaY;            // gen sets s7 in the branch delay slot, i.e. unconditionally
+  if (bandSpan < (int32_t)bandProbe) {
+    c->r[2] = kNoContact;
+    return;
+  }
+
+  // ── the contact heading, published for the caller to push along ────────────────────────────────
+  // Z is negated because the guest's ratan2 takes (y, x) in screen-ish orientation — same convention
+  // as cylinderResolve's own contact-angle call.
+  c->r[4] = 0u - (uint32_t)deltaZ;               // a0
+  c->r[5] = (uint32_t)deltaX;                    // a1
+  guest_call(c, kRaBodyContactAngle, func_80085690);
+  c->mem_w32(kScratchpadBase + kContactAngleSlot, c->r[2]);
+
+  // Note the UNSIGNED reads here: gate 1 compared the radii as s16, the penetration uses them as
+  // u16. gen genuinely does both, and the difference matters for a negative radius.
+  const uint32_t radiusSum      = actor.u16(kActorHeightLo) + other.u16(kOtherRadius);
+  const uint32_t xzPenetration  = radiusSum - (uint32_t)xzDistance;
+  const int32_t  deltaYs16      = (int16_t)(uint32_t)deltaY;
+
+  if (deltaYs16 < 0) {
+    // Guest Y grows DOWNWARD, so Δy < 0 is the actor ABOVE the other body.
+    verticalGap = 0u - (uint32_t)deltaY;
+  } else {
+    verticalReach = (other.u16(kOtherExtentHi) - other.u16(kOtherExtentLo))
+                  + (actor.u16(kActorExtentHi) - actor.u16(kActorExtentLo));
+  }
+
+  // ── which side, and which way out ──────────────────────────────────────────────────────────────
+  // "Clearly above" is not simply Δy < 0: the guest allows the actor to sink half its own lower
+  // extent into the other body before it stops counting as an approach from above. The halving is a
+  // signed divide by two rounding toward zero, which is why the sign bit is added back in first.
+  const uint32_t actorExtentLo = actor.u16(kActorExtentLo);
+  const uint32_t extentLoSign  = (actorExtentLo << 16) >> 31;
+  const int32_t  halfExtentLo  = ((int32_t)(int16_t)actorExtentLo + (int32_t)extentLoSign) >> 1;
+  const uint32_t yPenetration  = (uint32_t)verticalReach - (uint32_t)verticalGap;
+  const bool xzIsShorterWayOut = (int16_t)xzPenetration < (int16_t)yPenetration;
+
+  if (deltaYs16 < -halfExtentLo) {
+    c->r[2] = xzIsShorterWayOut ? kAboveResolveInXz : kAboveResolveInY;
+    return;
+  }
+  if (xzIsShorterWayOut) {
+    c->r[2] = kBelowResolveInXz;
+    return;
+  }
+
+  // ── the underside bump: level-or-below, and Y is the shorter way out ───────────────────────────
+  // Three ways to be told "classify only, don't touch him": he is paused, another interaction holds
+  // the lock word this frame, or the caller passed a2 != 0. All three still return the code.
+  c->r[2] = kBelowResolveInY;
+  if (actor.u16(kActorStateFlags) & kActorPausedBit)          return;
+  if (c->mem_r32(kScratchpadBase + kContactLockSlot) != 0)    return;
+  if ((uint32_t)suppressSnap != 0)                            return;
+
+  c->mem_w8(kScratchpadBase + kContactKindSlot, kContactKindUndersideBump);
+  c->mem_w16(actor.base() + kActorY,
+             (uint16_t)(other.u16(kOtherY)
+                        + (other.u16(kOtherExtentHi) - other.u16(kOtherExtentLo))
+                        + (actor.u16(kActorExtentHi) - actorExtentLo)));
+
+  // Cancel a RISING velocity only — +0x4A is signed and negative means launched upward. A falling
+  // actor keeps its velocity, because it is landing on something, not hitting his head on it.
+  if (actor.u8(kActorWalkState) != 1) return;
+  if (actor.s16(kActorVelY) >= 0)     return;
+  c->mem_w16(actor.base() + kActorVelY, 0u);
+}
+
 void CollisionResolve::registerOverrides(Game*) {
   engine_set_override_main(0x80023D48u, &CollisionResolve::cylinderResolve, gen_func_80023D48);
   engine_set_override_main(0x8002423Cu, &CollisionResolve::landOnObjectTop, gen_func_8002423C);
+  overrides::install(0x8001F40Cu, "CollisionResolve::classifyBodyContact",
+                     &CollisionResolve::classifyBodyContact, gen_func_8001F40C, shard_set_override);
 }

@@ -27,6 +27,15 @@ extern void gen_func_80048034(Core*);
 extern void gen_func_80048134(Core*);
 extern void gen_func_80048360(Core*);
 extern void gen_func_80049760(Core*);
+extern void gen_func_8004766C(Core*);
+// snapObjectToTerrain's five guest sub-calls, reached through the shard dispatch thunks so the ONE
+// override registry picks the right leg: FUN_80047778 is still substrate; the other four are owned
+// right here (gridSetup / gridQuery / slopeLocalB / floorPick) and resolve to those natives.
+void func_80047778(Core*);   // path-sector clamp + companion-coord recompute (substrate)
+void func_80049968(Core*);   // -> Collision::gridSetup
+void func_80047CBC(Core*);   // -> Collision::gridQuery
+void func_80048134(Core*);   // -> Collision::slopeLocalB
+void func_80048034(Core*);   // -> Collision::floorPick
 // flatNormal's guest sub-calls: ratan2 / rcos / rsin trig leaves (generated/shard_disp.c).
 // 0x80085690 (ratan2) and 0x80083E80 (rsin) are themselves owned by Trig via the same registry, so
 // these func_X(c) sites route to native on the port leg and gen on the oracle leg automatically.
@@ -52,7 +61,13 @@ enum : uint32_t {
   GR_SEG_X1       = 438,   // 0x1B6  segment endpoint 1 X
   GR_SEG_Z1       = 440,   // 0x1B8  segment endpoint 1 Z
   GR_PROBE_X      = 444,   // 0x1BC  working probe X
-  GR_EXTENT       = 446,   // 0x1BE  grid extent / probe-hi bound
+  // 0x1BE was previously named "GR_EXTENT" (grid extent / probe-hi bound). That was wrong. It is the
+  // probe's HEIGHT (Y). Two independent proofs: (a) snapObjectToTerrain and its sibling FUN_80048750
+  // seed 0x1BC/0x1BE/0x1C0 from the probe object's ACT_WORLD_X/ACT_WORLD_Y/ACT_WORLD_Z triple, so the
+  // middle field is Y by construction; (b) floorPick compares each candidate floor line's top edge
+  // + 128 against this field to pick the line just under the probe — a height comparison. The grid's
+  // real extents are the separate 0x1AE/0x1B0 pair that gridStep clamps against.
+  GR_PROBE_Y      = 446,   // 0x1BE  working probe Y (height)
   GR_PROBE_Z      = 448,   // 0x1C0  working probe Z
   GR_LOCAL_X      = 450,   // 0x1C2  slope-local X delta
   GR_SPAN         = 452,   // 0x1C4  cross-span scratch (cross - extent)
@@ -62,6 +77,25 @@ enum : uint32_t {
   GR_CELL_REC     = 480,   // 0x1E0  current cell record (line-list idx@+2, count@+4)
   GR_BEST_LINE    = 488,   // 0x1E8  chosen floor/wall line record (output)
   GR_LINE_CUR     = 492,   // 0x1EC  working line-record cursor
+};
+
+// --- collision-CELL record layout (the 8-byte records the query walks; GR_CELL_REC points at one) ---
+enum : uint32_t {
+  CELL_TAG = 0,            // halfword: the cell's tag/flag word
+};
+enum : uint16_t {
+  CELL_SECTOR_LINK = 0x4000u,  // this cell hands the object over to the sector named in the tag's low byte
+};
+
+// --- probe-OBJECT layout (the actor whose position is being resolved; a0 of the grid entry points) ---
+// The world position is three 32-bit fixed-point coords at +0x2C/+0x30/+0x34; the grid works in whole
+// units, so it reads and writes only their INTEGER halves at +0x2E/+0x32/+0x36 and leaves the
+// fractions alone.
+enum : uint32_t {
+  ACT_SECTOR_ID = 42,      // 0x2A (u8)  the path sector this actor is currently standing in
+  ACT_WORLD_X   = 46,      // 0x2E (u16) world X, integer half of the fixed coord at 0x2C
+  ACT_WORLD_Y   = 50,      // 0x32 (u16) world Y, integer half of the fixed coord at 0x30
+  ACT_WORLD_Z   = 54,      // 0x36 (u16) world Z, integer half of the fixed coord at 0x34
 };
 
 // GridRay lens — the same scratchpad addresses as the GR_* constants above, reached through named
@@ -98,10 +132,20 @@ struct GridRay {
   int16_t  probeZ() const           { return c->mem_r16s(GR + GR_PROBE_Z); }
   void     setProbeZ(uint16_t v)    { c->mem_w16(GR + GR_PROBE_Z, v); }
 
-  int16_t  extent() const           { return c->mem_r16s(GR + GR_EXTENT); }
+  int16_t  probeY() const           { return c->mem_r16s(GR + GR_PROBE_Y); }
+  void     setProbeY(uint16_t v)    { c->mem_w16(GR + GR_PROBE_Y, v); }
+
   int16_t  localX() const           { return c->mem_r16s(GR + GR_LOCAL_X); }
+  uint16_t localX_u() const         { return c->mem_r16(GR + GR_LOCAL_X); }
   int16_t  localZ() const           { return c->mem_r16s(GR + GR_LOCAL_Z); }
+  uint16_t localZ_u() const         { return c->mem_r16(GR + GR_LOCAL_Z); }
   void     setSpan(uint16_t v)      { c->mem_w16(GR + GR_SPAN, v); }
+
+  // The cell record the query latched (GR_CELL_REC): its first halfword is the cell TAG.
+  uint16_t cellTag(uint32_t rec) const      { return c->mem_r16(rec + CELL_TAG); }
+  // A CELL_SECTOR_LINK cell hands the object over to another path sector; the tag's LOW BYTE is that
+  // sector's id (little-endian, so the guest re-reads the same address as a byte to get it).
+  uint8_t  cellLinkSector(uint32_t rec) const { return (uint8_t)c->mem_r8(rec + CELL_TAG); }
 
   uint32_t lineTable() const        { return c->mem_r32(GR + GR_LINE_TABLE); }
   uint32_t lineArray() const        { return c->mem_r32(GR + GR_LINE_ARRAY); }
@@ -115,6 +159,25 @@ struct GridRay {
 
 constexpr uint32_t ACT_NORMAL_COS = 72;     // probe object + 0x48  <- rcos(angle) >> 4
 constexpr uint32_t ACT_NORMAL_SIN = 76;     // probe object + 0x4C  <- rsin(angle) >> 4
+
+// ProbeActor lens — the probe object's grid-visible fields by name instead of by raw offset.
+struct ProbeActor {
+  Core*    c;
+  uint32_t obj;
+  uint8_t  sectorId() const          { return (uint8_t)c->mem_r8(obj + ACT_SECTOR_ID); }
+  uint16_t worldX() const            { return c->mem_r16(obj + ACT_WORLD_X); }
+  uint16_t worldY() const            { return c->mem_r16(obj + ACT_WORLD_Y); }
+  uint16_t worldZ() const            { return c->mem_r16(obj + ACT_WORLD_Z); }
+};
+
+// Guest stack-frame slot offsets for the 32-byte frame FUN_8004766C opens (tools/abi_extract.py
+// --contract 8004766C). The port MIRRORS this frame — see snapObjectToTerrain.
+enum : uint32_t {
+  FR_S0 = 16,   // sp+0x10  s0 (r16)
+  FR_S1 = 20,   // sp+0x14  s1 (r17)
+  FR_S2 = 24,   // sp+0x18  s2 (r18)
+  FR_RA = 28,   // sp+0x1C  ra (r31)
+};
 }
 
 // FUN_80031780 — list-tail resolver / reset. Walks the 8-byte-stride linked list rooted at
@@ -522,8 +585,8 @@ L_800458D8:;
   c->r[3] = GR;
   c->r[8] = GR;
   c->r[5] = (uint32_t)(int16_t)c->mem_r16((c->r[8] + GR_CROSS));
-  c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[3] + GR_EXTENT));
-  c->r[7] = (uint32_t)c->mem_r16((c->r[3] + GR_EXTENT));
+  c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[3] + GR_PROBE_Y));
+  c->r[7] = (uint32_t)c->mem_r16((c->r[3] + GR_PROBE_Y));
   c->r[6] = (uint32_t)c->mem_r16((c->r[8] + GR_CROSS));
   c->r[2] = c->r[5] + (uint32_t)128;
   c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[4]);
@@ -604,7 +667,7 @@ void Collision::floorPick() {
   c->r[9] = c->r[5] + c->r[0];
   c->r[11] = GR;
   c->r[2] = GR;
-  c->r[12] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + GR_EXTENT));
+  c->r[12] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + GR_PROBE_Y));
   c->r[2] = GR;
   c->r[7] = c->mem_r32((c->r[2] + GR_LINE_ARRAY));
 L_80048084:;
@@ -1020,12 +1083,141 @@ void Collision::flatNormal(uint32_t obj) {
   c->r[29] = c->r[29] + (uint32_t)32; return;        // addiu sp,0x20 — ascend the guest frame
 }
 
+// ============================================================================================
+
+// FUN_8004766C — Collision::snapObjectToTerrain. THE object-level entry point of the grid family:
+// "put this actor down on the ground where it is standing."
+//
+// WHAT IT DOES IN GAME TERMS. Tomba! 2's field levels are 2.5D: the world is 3D, but everything that
+// walks is constrained to a chain of PATH SECTORS, each a strip of collision cells with a gradient.
+// This function takes an actor's current world position, drops it onto that path, and writes the
+// corrected position back into the actor:
+//   1. Seed the shared grid probe (GR_PROBE_X/Y/Z) from the actor's world position.
+//   2. Clamp the probe onto the actor's current path sector (FUN_80047778) — that call also switches
+//      the actor to a neighbouring sector, or picks a sector from scratch, when the probe has walked
+//      off the end of the current one.
+//   3. Load that sector's cell rows (gridSetup) and find the cell under the probe (gridQuery). If the
+//      query finds nothing the actor is off the grid: RETURN 0 AND LEAVE ITS POSITION UNTOUCHED.
+//   4. If the resolved cell is tagged CELL_SECTOR_LINK it is a hand-off cell: adopt the sector named
+//      in the tag's low byte and go round again. This is how an actor walks between sectors.
+//   5. On a terminal cell: fold the probe into slope-local deltas (slopeLocalB) and pick the floor
+//      line under it (floorPick, which latches GR_BEST_LINE for the caller).
+//   6. Displace the probe by that slope-local correction and store the result BOTH back into the
+//      scratchpad probe and into the actor's world X/Z. Y is left alone — this call resolves the
+//      GROUND PLANE position; height is applied by whoever consumes GR_BEST_LINE.
+// Returns FUN_80047778's status (nonzero = the clamp settled), or 0 when the query found no cell.
+//
+// IDENTIFICATION EVIDENCE (why this name, not a guess about shape):
+//   * Callers. Object-spawn inits call it as the "stand this thing on the ground" step, always on a
+//     freshly positioned node and always paired with FUN_80048750: beh_sine_motion_sfx
+//     (node[0x29]=0, node[0]|=1, FUN_8004766C(node), FUN_80048750(node)), beh_pad_child_linker,
+//     beh_seaside_prox_substate::subB, beh_a08_scene_actor state-0 case-0xA, actor_zoned_attacker.
+//   * The sibling. Ghidra headless (tools/decomp.sh, scratch/decomp/grid_766c.c) shows FUN_80048750
+//     is this function with the same seed + same resolve loop, but a different tail: it computes the
+//     surface NORMAL of the picked line (ratan2/sqrt into 0x1F8001A0/A2). So the pair is
+//     "snap onto the ground" + "read the ground's slope" — which is exactly what a spawn init needs.
+//   * The sector machinery. FUN_80047778's own callees (decompiled likewise) name themselves:
+//     FUN_800490E4 scans every sector in the table at 0x1F8001C8 for the one whose X/Z bounds contain
+//     the probe and writes its index to ACT_SECTOR_ID; FUN_80048FC4 hands off to the previous/next
+//     sector link (0x1F8001FC/FD) when the probe runs past a segment endpoint. ACT_SECTOR_ID is a
+//     path-sector id, not a "tile type".
+//   * Not PlatformHle material: no IRQ spin, no completion-flag poll, no hardware register — pure
+//     control flow over scratchpad + object memory (checked against game/core/libapi_intr.cpp's
+//     banner criteria before porting).
+//
+// READY-FRAME function: the gen body descends sp by 32 and spills s0/s1/ra/s2 (r16/r17/r31/r18) at
+// sp+16/+20/+28/+24 with their LIVE incoming values, restoring them before return. The port MIRRORS
+// that guest frame exactly — the spilled bytes are guest state that SBS compares (see
+// docs/faithful-execution.md and Collision::flatNormal above). The five `c->r[31] = 0x800476..u`
+// stores are the guest return-address constants the callees spill into their OWN frames, so they
+// stay literals (that is also what tools/port_check.py matches on).
+// ORACLE: gen_func_8004766C
+uint32_t Collision::snapObjectToTerrain(uint32_t obj) {
+  Core* c = this->core;
+  GridRay gr{c};
+  ProbeActor act{c, obj};
+  c->r[4] = obj;                                          // a0 = the probe actor (guest ABI)
+
+  // --- open + populate the mirrored guest frame (32 bytes; abi_extract --contract 8004766C) ---
+  c->r[29] = c->r[29] + (uint32_t)-32;                    // addiu sp,-0x20
+  c->mem_w32(c->r[29] + FR_S0, c->r[16]);                 // sw s0,0x10(sp) — LIVE incoming s0
+  c->r[16] = obj;                                         // s0 = the probe actor, live across the calls
+  c->mem_w32(c->r[29] + FR_S1, c->r[17]);                 // sw s1,0x14(sp) — LIVE incoming s1
+  c->r[17] = GR;                                          // s1 = GridRay base, live across the calls
+  c->mem_w32(c->r[29] + FR_RA, c->r[31]);                 // sw ra,0x1c(sp)
+  c->mem_w32(c->r[29] + FR_S2, c->r[18]);                 // sw s2,0x18(sp) — LIVE incoming s2
+
+  // --- 1. seed the shared probe from the actor's world position ---
+  // NB the STORES below are spelled as explicit guest-memory writes against the named GR_* offsets
+  // rather than through GridRay's setters, matching the other five gated methods in this file:
+  // tools/port_check.py compares the method body's guest-store sequence TEXTUALLY, so a store hidden
+  // behind a lens setter is invisible to it and the method fails the gate for a reason that has
+  // nothing to do with its behaviour. Reads stay on the lens. (Tooling limitation, reported with
+  // this port — not a code smell.)
+  c->mem_w16(GR + GR_PROBE_X, act.worldX());
+  c->mem_w16(GR + GR_PROBE_Y, act.worldY());
+  c->mem_w16(GR + GR_PROBE_Z, act.worldZ());
+
+  uint32_t stepStatus = 0;   // s2 — FUN_80047778's status; the return value once a cell resolves
+  bool onGrid = false;       // did the walk settle on a terminal cell?
+  for (;;) {
+    // --- 2. clamp the probe onto the actor's current path sector ---
+    c->r[31] = 0x800476B4u;                               // ra for FUN_80047778's own frame
+    c->r[4] = obj;
+    func_80047778(c);
+    const uint32_t clampStatus = c->r[2];
+
+    // --- 3. load that sector's cell rows, then find the cell under the probe ---
+    c->r[4] = act.sectorId();                             // a0 = sector id (re-read: step 2 may move it)
+    c->r[31] = 0x800476C0u;                               // ra for FUN_80049968
+    c->r[18] = clampStatus;                               // s2 holds the status across both calls
+    func_80049968(c);                                     // Collision::gridSetup(sectorId)
+    stepStatus = clampStatus;
+    c->r[31] = 0x800476C8u;                               // ra for FUN_80047CBC
+    func_80047CBC(c);                                     // Collision::gridQuery()
+    if (c->r[2] == 0) break;                              // off grid — actor position stays untouched
+
+    // --- 4. a hand-off cell moves the actor to another sector; re-resolve there ---
+    const uint32_t cellRec = gr.cellRec();
+    if ((gr.cellTag(cellRec) & CELL_SECTOR_LINK) == 0) { onGrid = true; break; }
+    c->mem_w8(obj + ACT_SECTOR_ID, gr.cellLinkSector(cellRec));
+    // The guest re-loads the cursor and re-tests the same bit here. Nothing between can have changed
+    // it, so this second test always agrees with the first — kept because it is the guest's shape.
+    if ((gr.cellTag(gr.cellRec()) & CELL_SECTOR_LINK) == 0) { onGrid = true; break; }
+  }
+
+  if (onGrid) {
+    // --- 5. fold the probe into slope-local deltas, then pick the floor line under it ---
+    c->r[31] = 0x8004771Cu;                               // ra for FUN_80048134
+    func_80048134(c);                                     // Collision::slopeLocalB()
+    c->r[31] = 0x80047724u;                               // ra for FUN_80048034
+    func_80048034(c);                                     // Collision::floorPick()
+
+    // --- 6. displace the probe by the slope-local correction; publish it to probe AND actor ---
+    const uint16_t snappedX = (uint16_t)(gr.probeX_u() + gr.localX_u());
+    const uint16_t snappedZ = (uint16_t)(gr.probeZ_u() + gr.localZ_u());
+    c->mem_w16(GR + GR_PROBE_X, snappedX);
+    c->mem_w16(GR + GR_PROBE_Z, snappedZ);
+    c->mem_w16(obj + ACT_WORLD_X, snappedX);
+    c->mem_w16(obj + ACT_WORLD_Z, snappedZ);
+  }
+
+  // --- close the mirrored guest frame ---
+  c->r[31] = c->mem_r32(c->r[29] + FR_RA);                // lw ra,0x1c(sp)
+  c->r[18] = c->mem_r32(c->r[29] + FR_S2);                // lw s2,0x18(sp)
+  c->r[17] = c->mem_r32(c->r[29] + FR_S1);                // lw s1,0x14(sp)
+  c->r[16] = c->mem_r32(c->r[29] + FR_S0);                // lw s0,0x10(sp)
+  c->r[29] = c->r[29] + (uint32_t)32;                     // addiu sp,0x20
+  return onGrid ? stepStatus : 0u;
+}
+
 // eov_* wrappers — guest-ABI adapters (args in c->r[4..], return in c->r[2]). One per leaf.
 static void eov_collisionLineCross(Core* c)           { eng(c).collision.lineCross(c->r[4]); }
 static void eov_collisionFloorPick(Core* c)           { eng(c).collision.floorPick(); }
 static void eov_collisionSlopeLocalB(Core* c)         { eng(c).collision.slopeLocalB(); }
 static void eov_collisionSlopeLocalAdvance(Core* c)   { eng(c).collision.slopeLocalAdvance(); }
 static void eov_collisionFlatNormal(Core* c)          { eng(c).collision.flatNormal(c->r[4]); }
+static void eov_collisionSnapObjectToTerrain(Core* c) { c->r[2] = eng(c).collision.snapObjectToTerrain(c->r[4]); }
 
 void Collision::registerOverrides() {
   using overrides::install;
@@ -1034,4 +1226,5 @@ void Collision::registerOverrides() {
   install(0x80048134u, "Collision::slopeLocalB",        eov_collisionSlopeLocalB,       gen_func_80048134, shard_set_override);
   install(0x80048360u, "Collision::slopeLocalAdvance",  eov_collisionSlopeLocalAdvance, gen_func_80048360, shard_set_override);
   install(0x80049760u, "Collision::flatNormal",         eov_collisionFlatNormal,        gen_func_80049760, shard_set_override);
+  install(0x8004766Cu, "Collision::snapObjectToTerrain", eov_collisionSnapObjectToTerrain, gen_func_8004766C, shard_set_override);
 }

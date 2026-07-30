@@ -61,7 +61,15 @@ public:
   //   rcos/rsin>>4 into obj+0x48/+0x4C. Ready-FRAME leaf (mirrors the 32-byte guest stack frame).
   void flatNormal(uint32_t obj);
 
-  // registerOverrides(): install the five field-collision leaves by guest address into the ONE
+  // snapObjectToTerrain(obj): FUN_8004766C — the OBJECT-LEVEL entry point of the grid family.
+  //   Seeds the shared probe from the actor's world position, clamps it onto the actor's path
+  //   sector, follows CELL_SECTOR_LINK hand-off cells between sectors, picks the floor line under
+  //   it (latched in GR_BEST_LINE), and writes the ground-corrected world X/Z back to the actor.
+  //   Y is untouched. Returns 0 when the actor is off the grid — position then stays unchanged.
+  //   Ready-FRAME function (mirrors the 32-byte guest stack frame).
+  uint32_t snapObjectToTerrain(uint32_t obj);
+
+  // registerOverrides(): install the field-collision leaves by guest address into the ONE
   //   override registry (overrides::install), so every caller — substrate included — reaches native.
   void registerOverrides();
 };

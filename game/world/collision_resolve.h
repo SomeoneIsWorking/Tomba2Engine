@@ -27,6 +27,21 @@ public:
   // just a register compare. See the implementation banner.
   static void landOnObjectTop(Core* c);
 
+  // FUN_8001F40C(actor = a0, other = a1, suppressSnap = a2) -> v0. The CLASSIFIER of the family:
+  // it answers how a body-vs-body contact should be resolved and lets the CALLER do the horizontal
+  // push, publishing the contact heading to the shared scratchpad word 0x1F80009C for it to use.
+  //   -1 = no contact (either the XZ or the vertical gate rejected; nothing written)
+  //    0 = actor is above the other body, XZ is the shorter way out -> caller pushes them apart
+  //    1 = actor is above, Y is the shorter way out                 -> caller resolves vertically
+  //    2 = actor is level or below, XZ is the shorter way out       -> caller pushes them apart
+  //    3 = actor is level or below, Y is the shorter way out        -> UNDERSIDE BUMP: this body
+  //        snaps the actor to rest under the other and cancels a rising +0x4A, unless a2 != 0, the
+  //        actor is paused (+0x17E & 0x200), or the 0x1F800098 interaction lock is held.
+  // Bit 0 is the axis and bit 1 is the side, and callers read them separately — ActorTomba::
+  // type8Interact switches on `v0 & 1`, ::stepModeInteract gates on `v0 < 2`. See the .cpp banner
+  // for the identification evidence and for the grown-state sibling FUN_8001EC3C.
+  static void classifyBodyContact(Core* c);
+
   // WHY THIS CANNOT CALL THE Trig METHODS DIRECTLY, even though all five of its callees are owned
   // natively (Math::sqrtLzc, Trig::rcos/rsin/ratan2/angleCmp): Trig::registerOverrides is
   // deliberately an EMPTY body because those substrate bodies descend guest stack frames the native
