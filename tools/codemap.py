@@ -537,9 +537,30 @@ def build(natives, files):
             if cal != n["sym"]:
                 callers[cal].add(n["sym"])
 
+    # REGISTRY-WIRED NATIVES ARE LIVE (added 2026-07-30). A native handed to the override registry —
+    # `install(0xADDR, "name", SYMBOL, gen, setter)` or `engine_set_override_<mod>(0xADDR, SYMBOL, gen)`
+    # — is invoked by GUEST dispatch through g_<mod>_override[], never by a C++ call anywhere in the
+    # tree. find_callees() therefore cannot see it, and the symbol was reported ORPHAN, which this
+    # file's own legend defines as "genuinely dead code until something calls it".
+    #
+    # That was wrong for 170 of the 181 ORPHAN rows — 94% — measured before this fix. The beh_* case
+    # was already special-cased above for exactly this reason (a pointer-table registration read as a
+    # value, not a call); this generalises it to the registry, which the beh_ prefix rule misses for
+    # any symbol not matching a known prefix, e.g. every `leaf_<addr>` in field_owned_leaves.cpp.
+    registry_wired = set()
+    for f in files:
+        try:
+            txt = open(f, errors='replace').read()
+        except OSError:
+            continue
+        for m in re.finditer(r'\binstall\s*\(\s*(?:0x[0-9A-Fa-f]+u?|\w+)\s*,\s*"[^"]*"\s*,\s*&?([A-Za-z_][\w:]*)', txt):
+            registry_wired.add(m.group(1).split('::')[-1] if '::' not in m.group(1) else m.group(1))
+        for m in re.finditer(r'\bengine_set_override_\w+\s*\(\s*(?:0x[0-9A-Fa-f]+u?|\w+)\s*,\s*&?([A-Za-z_][\w:]*)', txt):
+            registry_wired.add(m.group(1))
+
     # reachability from ROOTS via the native-to-native graph
     live = set()
-    stack = [r for r in ROOTS if r in sym_set]
+    stack = [r for r in ROOTS if r in sym_set] + [w for w in registry_wired if w in sym_set]
     while stack:
         s = stack.pop()
         if s in live:

@@ -1449,9 +1449,14 @@ void SubstateEdgeLeaves::substate1Tick(Core* c) {
 
 // FUN_0x8012FD88 — SUB-STATE 2 TICK: an angle-steering phase. Writes the mode byte four times and
 // the angle parameter twice, compares angles via Trig::angleCmp (0x80077768), and triggers a sound
-// (Sfx::trigger). It also calls 0x8004CBD8, which the codemap reports as an ORPHAN leaf with no
-// owner — so one callee here is unread, and any claim about what this phase completes is limited by
-// that.
+// (Sfx::trigger). It also calls 0x8004CBD8, which IS owned — leaf_8004CBD8 in
+// game/core/field_owned_leaves.cpp, registered through the override registry.
+//
+// CORRECTION: this banner previously said 0x8004CBD8 had "no owner", on the strength of the codemap
+// showing it ORPHAN. That was a misreading of the label, not a fact about the code. ORPHAN meant
+// "no C++ call site found", and a registry-wired native is reached by GUEST dispatch, so it could
+// never have one. 170 of the 181 ORPHAN rows were live natives. codemap.py now counts registry
+// registration as a liveness source and the count is 10.
 // ORACLE: ov_a00_gen_8012FD88
 void SubstateEdgeLeaves::substate2Tick(Core* c) {
     c->r[29] = c->r[29] + (uint32_t)-24;
