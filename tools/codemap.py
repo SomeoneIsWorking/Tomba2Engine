@@ -30,6 +30,10 @@ USAGE:
                                         #   override-registered — callers silently hit the emulated
                                         #   substrate (register + MIRROR_VERIFY to native-ize; --all
                                         #   includes soft-attributed owners)
+  tools/codemap.py --unowned-rank [f]   # THE PORT TARGET QUEUE: still-unowned guest fns ranked by
+                                        #   recdep hotness (default f = scratch/logs/recdep_rank.txt),
+                                        #   resolved through the same index --addr uses. `--top N`.
+                                        #   Hotness is ONE input — cross-check `portmap.py next`.
   tools/codemap.py --orphans            # list owned addresses whose native is currently ORPHANED
   tools/codemap.py --stdout             # print the full markdown to stdout instead of writing the file
 """
@@ -141,6 +145,54 @@ def load_behavior_table():
         for m in re.finditer(r'\{\s*0x([0-9A-Fa-f]{8})u\s*,\s*(beh_\w+)\s*,', open(path, encoding="utf-8").read()):
             sym2addrs.setdefault(m.group(2), []).append(m.group(1).upper())
     return sym2addrs
+
+
+# --- PlatformHle ownership (the SECOND owning table, invisible to the source scan) -----------------
+#
+# This scanner only sees natives in game/ + runtime/. The BIOS/hardware-sync primitives are owned by
+# a different mechanism entirely: PlatformHle (external/psxport/runtime/recomp/sync_overrides.cpp),
+# wired from addresses the GAME states in GameConfig::hle (game/core/game_config.cpp). Nothing about
+# that ownership appears as a native def in the scanned corpus, so `--addr` used to answer
+# "NO native owner found" for every one of them — a FALSE NEGATIVE that reads as "free to port".
+#
+# That false negative has real cost: 0x800834A0 (gpuTimeoutArm) sat at the top of the `recdep`
+# histogram at 33,152 calls while PlatformHle had owned it all along, and both `--addr` and the
+# histogram said "port this". Porting it would have been a double-install of a primitive whose whole
+# point is to NOT run the guest body (that body calls libetc VSync, which this port traps+aborts).
+# overlay_router.cpp's recdep dump now annotates the same fact; this is its `--addr` counterpart.
+#
+# Both halves are parsed from source, never hardcoded, so a re-wiring of either file stays honest.
+HLE_CFG_SRC = "game/core/game_config.cpp"
+HLE_REG_SRC = "external/psxport/runtime/recomp/sync_overrides.cpp"
+
+
+def load_platform_hle_table():
+    """addr -> (config field, handler fn) for every entry PlatformHle::initBuiltins() installs.
+
+    Joins two source files: `reg(h.<field>, <handler>);` in sync_overrides.cpp gives field->handler,
+    `.<field> = 0x<hex>u` in game_config.cpp gives field->addr. A field wired but left 0 in the
+    config is NOT installed (initBuiltins skips it) and is deliberately absent here.
+
+    Returns (table, note). `note` is non-empty when the join could not be performed — an empty table
+    from a moved/renamed source must NOT be reported as "nothing is HLE-owned"."""
+    table, missing = {}, []
+    reg_path, cfg_path = os.path.join(ROOT, HLE_REG_SRC), os.path.join(ROOT, HLE_CFG_SRC)
+    for label, p in (("registrar " + HLE_REG_SRC, reg_path), ("config " + HLE_CFG_SRC, cfg_path)):
+        if not os.path.exists(p):
+            missing.append(label)
+    if missing:
+        return {}, "could not read " + " and ".join(missing)
+    field2fn = dict(re.findall(r'\breg\(\s*h\.(\w+)\s*,\s*(\w+)\s*\)', open(reg_path, encoding="utf-8").read()))
+    cfg_txt = open(cfg_path, encoding="utf-8").read()
+    for field, fn in field2fn.items():
+        m = re.search(r'\.' + field + r'\s*=\s*0x([0-9A-Fa-f]+)u?\s*,', cfg_txt)
+        if m and int(m.group(1), 16):
+            table[m.group(1).upper().zfill(8)] = (field, fn)
+    if not field2fn:
+        return {}, f"no `reg(h.<field>, …)` entries parsed from {HLE_REG_SRC} (registrar shape changed?)"
+    if not table:
+        return {}, f"{len(field2fn)} registrar entries found, but none resolved to an address in {HLE_CFG_SRC}"
+    return table, ""
 
 
 def collect_files():
@@ -631,8 +683,26 @@ def main():
     if "--addr" in args:
         a = args[args.index("--addr") + 1].upper().replace("0X", "")
         owners = idx.get(a, [])
-        if not owners:
+        # PlatformHle owns BIOS/hardware-sync primitives outside this scanner's corpus — report that
+        # BEFORE the "no owner" line, which would otherwise read as "free to port" (see the table's
+        # comment: 0x800834A0 / gpuTimeoutArm).
+        hle_tbl, hle_note = load_platform_hle_table()
+        hle = hle_tbl.get(a.zfill(8))
+        if hle:
+            print(f"0x{a}: OWNED by PlatformHle as `{hle[1]}()`  [{HLE_REG_SRC}]")
+            print(f"    wired from GameConfig::hle.{hle[0]} ({HLE_CFG_SRC}) — a BIOS/libgpu/libetc/libcd/"
+                  f"libmdec primitive, NOT a porting target.")
+            print(f"    The recompiled body never runs; do NOT install a second override on this address.")
+        if not owners and not hle:
             print(f"0x{a}: NO native owner found.")
+            # State the reach of that negative: which tables were actually consulted, and any that
+            # could not be. A bare "NO native owner" from a scan that silently saw nothing is a lie.
+            print(f"    (searched: {len(natives)} scanned natives in game/+runtime/, "
+                  f"{len(hle_tbl)} PlatformHle entries"
+                  + (f" — WARNING: PlatformHle table UNAVAILABLE, {hle_note}" if hle_note else "")
+                  + f". Blind to: overlay/interpreted-only code with no native def.)")
+        elif hle_note:
+            print(f"    WARNING: PlatformHle ownership NOT checked — {hle_note}")
         for n in owners:
             st = "LIVE" if n["sym"] in live else "ORPHAN"
             print(f"0x{a}: {n['sym']}  [{st}]  {n['file']}:{n['line']}")
@@ -651,6 +721,56 @@ def main():
                   f"({', '.join(cf)}). Two natives claiming one guest address is a DUPLICATION bug "
                   f"unless it is a deliberate same-class pc_skip doSkip()/doFaithful() fork — "
                   f"consolidate to one owner (delegate one body to the other).")
+        return
+
+    if "--unowned-rank" in args:
+        # THE PORT TARGET QUEUE: rank the still-unowned guest functions by how hot they are, so a
+        # porting batch picks its targets from the tool instead of hand-greping docs/code-map.md.
+        # Resolve ownership through `idx` — the SAME index `--addr` answers from — so this command and
+        # `--addr` can never disagree. That is the whole reason it lives here rather than in a shell
+        # one-liner: a `^| 0xADDR |` grep over docs/code-map.md is a SEPARATE oracle that can drift from
+        # the real one, and ownership is not expressed only by that table (registry seeding, leaf tags
+        # and method tags all feed `idx` too). The grep happens to agree on the current tree — both see
+        # 836 addresses — but agreeing today is not a guarantee, and a target queue that silently lists
+        # an already-owned function sends someone to duplicate a port.
+        #
+        # Input is a rank file of "0xADDR<space>HITS" lines — scratch/logs/recdep_rank.txt by default,
+        # produced by the recdep meter. Hits are a HOTNESS signal, not a correctness one: a cold
+        # function is not necessarily a bad target (it may be the next step on the RE dependency
+        # chain), so treat this as ONE input alongside `portmap.py next`, never as the sole order.
+        i = args.index("--unowned-rank")
+        rankfile = args[i + 1] if i + 1 < len(args) and not args[i + 1].startswith("-") \
+                   else os.path.join(ROOT, "scratch/logs/recdep_rank.txt")
+        try:
+            lines = open(rankfile).read().splitlines()
+        except OSError as e:
+            print(f"cannot read rank file {rankfile}: {e}")
+            print("expected lines of '0xADDR <hits>' — generate one with the recdep meter.")
+            return
+        ranked, unowned, bad = 0, [], 0
+        for l in lines:
+            p = l.split()
+            if len(p) != 2 or not p[0].lower().startswith("0x"):
+                bad += 1
+                continue
+            ranked += 1
+            a = p[0][2:].upper()
+            try: hits = int(p[1])
+            except ValueError: bad += 1; continue
+            if not idx.get(a):
+                unowned.append((a, hits))
+        limit = 40
+        if "--top" in args:
+            limit = int(args[args.index("--top") + 1])
+        for a, hits in unowned[:limit]:
+            dep_users = sorted(set(n["sym"] for n in natives if a in n["deps"]))
+            note = f"   depended-on by: {', '.join(dep_users)}" if dep_users else ""
+            print(f"  0x{a}  {hits:>8}{note}")
+        print(f"\n{len(unowned)} unowned of {ranked} ranked ({len(idx)} addresses owned overall)"
+              + (f"; {bad} unparseable line(s) skipped" if bad else "")
+              + f". Showing top {min(limit, len(unowned))}.")
+        print("Hotness is one input, not the order — cross-check `portmap.py next` for the RE chain, "
+              "and `--addr <hex>` before writing anything.")
         return
 
     if "--dup-installs" in args:
