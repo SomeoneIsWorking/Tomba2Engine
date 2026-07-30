@@ -50,7 +50,15 @@
 // func_8009A3E0 — caches the DRAWENV as the "current" env for later reference (classic libgpu
 // PutDrawEnv semantic: remembers the last env set).
 //
-// MAPPED, NOT DRAFTED this session: **func_80081FB0** (0x80081FB0). RE'd its full structure from
+// SUPERSEDED (2026-07-30): func_80081FB0 IS NOW PORTED — game/render/libgpu_draw_env.cpp, class
+// LibgpuDrawEnv, identified as libgpu SetDrawEnv from this very caller. The map below is accurate
+// EXCEPT for two details it got wrong, corrected there: (a) the no-clear tag length byte is 6, not
+// "6-1 = 5" (the guest tracks count+1 in r8 and stores r8-1 = 6 for the six state words); (b) the
+// "two different word-index layouts" are NOT different layouts — both arms write the same three
+// words at +28/+32/+36; what differs is the GP0 command (0x02 VRAM fill vs 0x60 flat rect) and,
+// with it, the coordinate space (absolute vs drawing-offset-relative).
+//
+// MAPPED, NOT DRAFTED at the time this file was written: **func_80081FB0** (0x80081FB0). RE'd its full structure from
 // generated/shard_4.c:12768 (147 gen-C lines, frame -40, spills ra/s0/s1 == r16/r17):
 //   - Calls the 4 leaves DRAFTED in this file below, in order: func_80082240(x0,y0)->*(dst+4)
 //     [SetDrawAreaTopLeft], func_800822D8(x1,y1)->*(dst+8) [SetDrawAreaBottomRight, x1/y1 computed as

@@ -2519,9 +2519,10 @@ draft was already byte-faithful.
   mirroring was needed.
 - **PutDrawEnv's 4 leaf DRAWENV-field builders (0x80082240/800822D8/80082370/80082220/8008238C)
   — clean, no bugs found** beyond the shared bug #1 above (which lives in PutDrawEnv itself, not
-  the leaves). `func_80081FB0` (the DRAWENV packet packer PutDrawEnv calls) stays MAPPED-not-
-  drafted/substrate as the prior session left it — PutDrawEnv reaches it via `rec_dispatch`,
-  correct either way.
+  the leaves). `func_80081FB0` (the DRAWENV packet packer PutDrawEnv calls) was MAPPED-not-
+  drafted/substrate at the time — PutDrawEnv reaches it via `rec_dispatch`, correct either way.
+  It is now PORTED (2026-07-30) as libgpu `SetDrawEnv`: `LibgpuDrawEnv::setDrawEnv`,
+  game/render/libgpu_draw_env.cpp.
 - **ovhit (PSXPORT_DEBUG=ovhit, 5-frame REPL+SBS-full run, before any melee encounter):** all
   wired addresses except Str::length fired with MATCHING native/oracle counts — real gate
   coverage: `0x800815D0` 1020/1020, `0x80082240` 2100/2100, `0x800822D8` 2100/2100, `0x80082370`

@@ -75,7 +75,7 @@ set(GAME_SRC
   game/ai/substate_edge_native.cpp
   game/ai/cull_substate_native.cpp
   game/ai/contact_stamp.cpp
-  game/ai/node_lifecycle_sm.cpp
+  game/ai/placed_prop_sm.cpp
   game/ai/beh_jumptable_release_trigger.cpp
   game/ai/release_trigger_motion.cpp
   game/ai/beh_typed_table_seed_gate.cpp
@@ -219,6 +219,7 @@ set(GAME_SRC
   game/render/wide_re_gpu_dma_queue.cpp
   game/render/wide_re_gpu_loadimage_streamer.cpp
   game/render/wide_re_gpu_putdrawenv.cpp
+  game/render/libgpu_draw_env.cpp        # libgpu SetDrawEnv (0x80081FB0) — DRAWENV -> DR_ENV packet
   game/render/native_terrain.cpp
   game/render/screen_fade.cpp
   game/render/margin_render.cpp

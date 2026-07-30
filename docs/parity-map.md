@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 62 verified · 9 partial · 12 untested · 7 n/a
+**Status:** 64 verified · 9 partial · 12 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -274,6 +274,15 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit native=19594 oracle=19594 (balanced). Plus a non-SBS render check to f1400 — the scene draws correctly, which matters because this writes I_MASK and the framework has just gained real interrupt delivery.
 - **owner:** game/core/libapi_intr.cpp LibapiIntr::setIntrMask
 
+## LibapiIntr::runVblankCallbacks (FUN_80086288)
+- **scope:** game/core/libapi_intr.cpp
+- **status:** verified
+- **frames:** 400
+- **gate:** PSXPORT_MIRROR_VERIFY=0x80086288 PSXPORT_DEBUG=mirror-verify PSXPORT_NOAUDIO=1 PSXPORT_VK_HEADLESS=1 PSXPORT_REPL=1 ./scratch/bin/tomba2_port scratch/bin/tomba2/MAIN.EXE (repl: run 400)
+- **evidence:** scratch/logs/mv_86288.log — 800 invocations, 0 mismatches (RAM touched-byte union + full scratchpad + v0/v1/s0-s7/gp/sp/fp/ra + hi/lo). Instrument validated in BOTH directions: an r16/r17 spill-swap built in an isolated copy MISMATCHes at invocation #1 on the sp+16/sp+20 stack bytes (scratch/logs/mv_negctl.log).
+- **owner:** libapi/VBlank
+- **notes:** Per-invocation mirror gate, NOT an SBS run: verified over the boot+title window this run reaches. The 8 callback slots at 0x800ABDC0 are all NULL in that window, so the indirect dispatch arm is UNEXERCISED — the counter bump, the 8-slot walk, the frame spills and the register/stack state are what 800 passes prove.
+
 ## libc-memcpy-9a3e0
 - **scope:** libc memcpy FUN_8009A3E0 (null-dst guard, signed length)
 - **status:** verified
@@ -289,6 +298,15 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
 - **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit native=1500 oracle=1500 (balanced — once per frame, as expected for a per-frame DMA status reset).
 - **owner:** game/render/wide_re_libgpu_leaves.cpp libgpuDmaStatusReset
+
+## libgpu-setdrawenv-81fb0
+- **scope:** render
+- **status:** verified
+- **frames:** 1800
+- **gate:** printf 'run 300\nquit\n' | PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 PSXPORT_SBS_MODE=full PSXPORT_DEBUG=ovhit ./scratch/bin/tomba2_port
+- **evidence:** scratch/logs/sdenv_sbs.log + sdenv_sbs_psxr.log: [sbs] A/B identical at every 30-frame checkpoint f0..f1800, both with pc_render and with PSXPORT_RENDER_PSX=1. Override provably ACTIVE: single-core psx_render run (scratch/logs/sdenv_native.log, exit 0) shows [ovhit] 0x80081FB0 LibgpuDrawEnv::setDrawEnv native=300 oracle=0 over 300 frames, i.e. it fires once per frame. CAVEAT: the SBS runs end at f1800 in an UNRELATED pre-existing pc_render crash (Render::fieldObjectsRender, game/render/render_walk.cpp, unmapped read8 @0x07035D41 from a stale node link off head 0x800FB168/0x800F2624/0x800F2738 during renderAttract), so the SBS ovhit table never printed — the matched-count evidence is from the single-core run, the 0-diff evidence from the SBS runs.
+- **owner:** LibgpuDrawEnv::setDrawEnv (game/render/libgpu_draw_env.cpp)
+- **notes:** port_check PASS. The crash cannot be attributable to this port: core B runs the pure gen_func_80081FB0 and A/B guest RAM was byte-identical through the crash frame, so the pointer fieldObjectsRender chases is the substrate's own.
 
 ## libgpu-setdrawmode-83de0
 - **scope:** libgpu SetDrawMode FUN_80083DE0 (DR_TPAGE/DR_TWIN header builder)
@@ -315,11 +333,12 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **owner:** game/math/mtx.cpp Mtx::identity + Mtx::registerOverrides
 
 ## node-lifecycle-sm-40558
-- **scope:** 0x80040558 per-node lifecycle state machine
+- **scope:** 0x80040558 placed scene-prop behaviour handler (RENAMED: was 'per-node lifecycle state machine'; owner is now PlacedPropSm::step)
 - **status:** verified
 - **frames:** 6000
-- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=6000 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
-- **evidence:** 200/200 A/B-identical checkpoints over 6000 frames, zero divergence; ovhit native=82544 oracle=82544 balanced. Strongest gate of the session by execution count.
+- **gate:** PSXPORT_NOWINDOW=1 PSXPORT_VK_HEADLESS=1 PSXPORT_SBS_MODE=full PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=6000 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
+- **evidence:** RE-RUN 2026-07-30 against the REBUILT body (the previous verified run gated the retired port_gen transcript, so that evidence did not carry over): 200/200 A/B-identical checkpoints over 6000 frames, zero RAM+scratchpad divergence, exit 0; ovhit native=82544 oracle=82544 balanced — the same execution count the transcript recorded. Also port_check PASS (frame 24/24, all 32 call sites' ra constants + targets, full 24-store width sequence). scratch/logs/pp_sbs.log
+- **owner:** game/ai/placed_prop_sm.cpp PlacedPropSm::step + PlacedPropSm::registerOverrides
 
 ## objlist-walk2-case0-3bdac
 - **scope:** 0x8003BDAC objListWalk2 jump-table case 0/15 trampoline

@@ -16,11 +16,62 @@
 // Note the 16-bit read is UNSIGNED (lhu) while the pointer load is a full word — mem_r16 and
 // mem_r32 respectively. Using mem_r16s here would sign-extend a mask with bit 15 set into a
 // 0xFFFFxxxx return value.
+//
+// ---------------------------------------------------------------------------------------------
+// FUN_80086288 = runVblankCallbacks() — libapi's VBLANK INTERRUPT HANDLER (added 2026-07-30).
+//
+// WHAT IT DOES, in game terms: once per vertical blank it bumps the libetc VSync tick counter the
+// whole game paces off (0x800ABDE0 — the very counter libetc's VSync(mode) returns, and the one
+// Timing::frameTick mirrors natively) and then runs every VSyncCallback the game has installed, by
+// walking libapi's 8-slot function-pointer table at 0x800ABDC0 and calling each non-null entry.
+// It is the "chain" half of the VSyncCallback API: register a callback -> it lands in a table slot
+// -> this handler is what actually calls it, every frame.
+//
+// HOW IT WAS IDENTIFIED — from the CALL SITES, not the shape (a counter bump plus a table walk
+// could be almost anything):
+//   1. Ghidra headless (scratch/decomp/vsync_cb_chain_86288.c, FUN_80086230 / FUN_80086288 /
+//      FUN_800909c0 decompiled together) shows FUN_80086230 — the initVblankCallbacks() already
+//      owned in this file — ending with `func_0x80085b50(0, 0x80086288)`. 0x80085B50 is libapi's
+//      InterruptCallback(irq, handler); irq 0 is VBLANK. So this address is REGISTERED AS THE
+//      VBLANK IRQ HANDLER by its own immediate neighbour, right after that same neighbour zeroes
+//      the very table (0x800ABDC0, 8 words via clearWords) and the very counter (0x800ABDE0) this
+//      body walks and increments. Producer and consumer are two functions apart.
+//   2. Ghidra on FUN_80086288 itself: `iRam800abde0 = iRam800abde0 + 1;` then a do-while over
+//      `puVar1 = (undefined4*)0x800abdc0`, `if (*puVar1 != 0) (*(code*)*puVar1)();`, 8 iterations.
+//      That is the VSyncCallback chain, unambiguously.
+//   3. It is REACHED, 12k+ times a run, and we know exactly from where: libsnd's SsSetTickMode
+//      parks it in the "user callback" slot DAT_0x800AC430 (live REPL read, docs/journal.md
+//      2026-06-15 "later 54"), and Sequencer::frameTick() (0x800909C0, game/audio/sequencer.cpp)
+//      rec_dispatch()es that slot once per native frame. Ghidra on FUN_800909c0 confirms the
+//      trampoline: `if (pcRam800ac430) (*pcRam800ac430)(); (*pcRam800ac42c)();`.
+//
+// WHY THIS IS AN ORDINARY PORT AND NOT PlatformHle (the gate in the header banner above): the
+// PlatformHle bar is a body that BUSY-SPINS on a hardware IRQ this no-IRQ runtime never raises and
+// therefore cannot be reproduced, only replaced. This body does the opposite — it IS the handler,
+// not a waiter. It has no spin, no completion-flag poll, no MMIO read, no call to the trapped
+// libetc VSync 0x80085900 (its only call is the indirect dispatch through a table slot), and its
+// loop is a bounded 8 iterations. The decisive evidence is empirical: the recompiled body already
+// executes ~12k times per run through Sequencer::frameTick without ever reaching a trap, so the
+// native body runs in exactly the same place with exactly the same reachability. Nothing here
+// needs replacing; it needs porting.
+//
+// TRAP, worth stating: the counter at 0x800ABDE0 has TWO writers in this port. Timing::frameTick()
+// STORES its own mirror there once per native frame, while this handler READ-MODIFY-WRITES it
+// (+1). That interleaving is pre-existing substrate behaviour and the port reproduces it exactly —
+// do not "fix" it here; a change would be a guest-state divergence, not a cleanup.
+//
+// LIVE-REGISTER LAW: the walk state lives in the GUEST registers, not in C++ locals. r16 is the
+// table cursor and r17 the slot index, and both stay live across the callback dispatch — a
+// callback that spills its caller's callee-saved registers must spill the cursor/index the
+// substrate would have spilled, not whatever the previous native code parked there. Hence
+// GuestReg<16>/<17> rather than a `for (int i...)`.
 #include "core.h"
 #include "game.h"
+#include "guest_abi.h"           // GuestFrame / GuestReg / guest_dispatch — the ABI vocabulary
 #include "libapi_intr.h"
-#include "override_registry.h"   // engine_set_override_main
+#include "override_registry.h"   // engine_set_override_main / overrides::install
 #include "rec_decls.h"
+#include "recomp_iface.h"        // psxport_recomp()->shard_set_override
 extern void func_80086320(Core*);
 extern void func_80085B50(Core*);   // callees of initVblankCallbacks, reached through their
                                     // generated wrappers so each keeps its own guest frame
@@ -29,6 +80,36 @@ namespace {
 // libapi's hardware-register pointer table. Entry 0 is I_MASK (0x1F801074); entry 1 is DPCR
 // (0x1F8010F0). Only entry 0 is reached from here.
 constexpr uint32_t kLibapiHwPtrTable = 0x800ABDA8u;
+
+// The `lui at,0x800b` base every libapi VBlank datum below is built from (each offset the gen
+// bodies add is NEGATIVE, so the base is one 64K page above the data itself).
+constexpr uint32_t kLibapiDataBase = 0x800B0000u;
+
+// libapi's VSyncCallback table: 8 function-pointer slots, zeroed by initVblankCallbacks() (which
+// calls clearWords(table, 8)) and walked by runVblankCallbacks().
+constexpr uint32_t kVsyncCallbackTable = kLibapiDataBase - 16960u;   // 0x800ABDC0
+constexpr uint32_t kVsyncCallbackSlots = 8;
+
+// The libetc VSync tick counter: zeroed by initVblankCallbacks(), +1 per VBlank by
+// runVblankCallbacks(). This is DAT_800abde0 — the value libetc's VSync(-1) query returns.
+constexpr uint32_t kVblankTickCount = kLibapiDataBase - 16928u;      // 0x800ABDE0
+
+// A pointer slot immediately above the counter, in the same family as kLibapiHwPtrTable: a live
+// headless read after 400 frames shows [0x800ABDE4] = 0x1F801114, the root-counter 1 (Timer 1)
+// MODE register. initVblankCallbacks() writes 0x100 through it — bit 8 is Timer 1's clock-source
+// select, i.e. count HBLANKs, which is the counter libetc's VSync(1) "hblank delta" query reads.
+constexpr uint32_t kTimer1ModePtrSlot = kLibapiDataBase - 16924u;    // 0x800ABDE4 -> 0x1F801114
+constexpr uint32_t kTimer1ModeHblankSource = 0x100;
+
+// Guest code addresses this file names.
+constexpr uint32_t kVblankHandler = 0x80086288u;   // runVblankCallbacks — the handler installed...
+constexpr uint32_t kIrqVblank = 0;                 // ...for IRQ 0 (VBLANK)...
+constexpr uint32_t kInitVblankRetValue = 0x800862F4u;  // ...and initVblankCallbacks' own v0.
+
+// jal-site return addresses (the r31 constants the gen bodies load before each call).
+constexpr uint32_t kRaClearWords = 0x80086260u;
+constexpr uint32_t kRaInterruptCallback = 0x80086270u;
+constexpr uint32_t kRaCallbackSlot = 0x800862D0u;
 }  // namespace
 
 void LibapiIntr::setIntrMask(Core* c) {
@@ -38,30 +119,56 @@ void LibapiIntr::setIntrMask(Core* c) {
   c->r[2] = previous;
 }
 
-// FUN_0x80086230 — zeroes the 8-slot VSync callback table through the word-fill helper below.
+// FUN_0x80086230 — VBlank-callback subsystem init: clear the 8-slot VSyncCallback table and its
+// tick counter, then install runVblankCallbacks() below as the IRQ-0 (VBLANK) handler.
 // ORACLE: gen_func_80086230
 void LibapiIntr::initVblankCallbacks(Core* c) {
-    c->r[29] = c->r[29] + (uint32_t)-24;
-    c->r[4] = (uint32_t)32779u << 16;
-    c->r[4] = c->r[4] + (uint32_t)-16960;
-    c->r[3] = (uint32_t)32779u << 16;
-    c->r[3] = c->mem_r32((c->r[3] + (uint32_t)-16924));
-    c->r[2] = c->r[0] + (uint32_t)256;
-    c->mem_w32((c->r[29] + (uint32_t)16), c->r[31]);
-    c->mem_w32((c->r[3] + (uint32_t)0), c->r[2]);
-    c->r[1] = (uint32_t)32779u << 16;
-    c->mem_w32((c->r[1] + (uint32_t)-16928), c->r[0]);
-    c->r[31] = 0x80086260u;
-    c->r[5] = c->r[0] + (uint32_t)8; func_80086320(c);
-    c->r[5] = (uint32_t)32776u << 16;
-    c->r[5] = c->r[5] + (uint32_t)25224;
-    c->r[31] = 0x80086270u;
-    c->r[4] = c->r[0] + c->r[0]; func_80085B50(c);
-    c->r[2] = (uint32_t)32776u << 16;
-    c->r[2] = c->r[2] + (uint32_t)25332;
-    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)16));
-    c->r[29] = c->r[29] + (uint32_t)24;
-     return;
+  static constexpr GuestFrameSpill kSpills[] = {{31 /*ra*/, 16}};   // -24, abi_extract-verified
+  GuestFrame<24, 1> frame(c, kSpills);
+
+  c->r[4] = kVsyncCallbackTable;   // a0 for the clearWords() call below — set early, kept live
+  c->mem_w32(c->mem_r32(kTimer1ModePtrSlot), kTimer1ModeHblankSource);
+  c->r[1] = kLibapiDataBase;       // $at, see kLibapiDataBase
+  c->mem_w32(kVblankTickCount, 0);
+
+  c->r[5] = kVsyncCallbackSlots;
+  guest_call(c, kRaClearWords, func_80086320);          // clearWords(table, 8)
+
+  c->r[5] = kVblankHandler;
+  c->r[4] = kIrqVblank;
+  guest_call(c, kRaInterruptCallback, func_80085B50);   // InterruptCallback(IRQ_VBLANK, handler)
+
+  c->r[2] = kInitVblankRetValue;
+}
+
+// FUN_0x80086288 — the VBlank handler itself: bump the tick counter, then call every VSyncCallback
+// registered in the 8-slot table. See this file's second banner for the identification, the
+// PlatformHle determination and the LIVE-REGISTER note.
+// ORACLE: gen_func_80086288
+void LibapiIntr::runVblankCallbacks(Core* c) {
+  // Read before the frame descends sp, exactly as the gen body does (lw into v0, then addiu sp).
+  const uint32_t ticks = c->mem_r32(kVblankTickCount);
+
+  static constexpr GuestFrameSpill kSpills[] = {{17, 20}, {16, 16}, {31 /*ra*/, 24}};
+  GuestFrame<32, 3> frame(c, kSpills);   // -32, abi_extract-verified (program order preserved)
+
+  GuestReg<17> slotIndex(c);   // s1 — 0..7, live across every callback dispatch
+  GuestReg<16> slotAddr(c);    // s0 — &table[slotIndex], live across every callback dispatch
+  GuestReg<2>  v0(c);          // v0 — the loaded handler, then the loop condition (0 on return)
+
+  slotIndex = 0;
+  slotAddr = kVsyncCallbackTable;
+  c->r[1] = kLibapiDataBase;   // $at, see kLibapiDataBase
+  c->mem_w32(kVblankTickCount, ticks + 1u);
+
+  // do-while: all 8 slots are visited unconditionally; the null test is per-slot, inside the loop.
+  do {
+    v0 = c->mem_r32(slotAddr);
+    if (v0 != 0u) guest_dispatch(c, kRaCallbackSlot, v0);
+    slotIndex += 1u;
+    v0 = (uint32_t)((int32_t)(uint32_t)slotIndex < (int32_t)kVsyncCallbackSlots);
+    slotAddr += 4u;            // branch-delay slot — advanced on every iteration, taken or not
+  } while (v0 != 0u);
 }
 
 // FUN_0x80086320 — the word-fill helper: writes N words of a constant.
@@ -81,4 +188,8 @@ void LibapiIntr::registerOverrides(Game*) {
   engine_set_override_main(0x80085C9Cu, &LibapiIntr::setIntrMask, gen_func_80085C9C);
   engine_set_override_main(0x80086320u, &LibapiIntr::clearWords, gen_func_80086320);
   engine_set_override_main(0x80086230u, &LibapiIntr::initVblankCallbacks, gen_func_80086230);
+  // Named install so PSXPORT_DEBUG=ovhit reports this one in game terms rather than as a bare
+  // address — it is the hottest thing in this file (~2 hits per frame, forever).
+  overrides::install(kVblankHandler, "LibapiIntr::runVblankCallbacks", &LibapiIntr::runVblankCallbacks,
+                     gen_func_80086288, psxport_recomp()->shard_set_override);
 }

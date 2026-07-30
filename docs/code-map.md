@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 986 native fns, 836 owned addresses, 976 LIVE / 10 ORPHAN.
+Totals: 989 native fns, 839 owned addresses, 979 LIVE / 10 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -30,8 +30,8 @@ Totals: 986 native fns, 836 owned addresses, 976 LIVE / 10 ORPHAN.
 | 0x80022D08 | LIVE | `leaf_80022D08` | game/core/field_owned_leaves.cpp:11092 |  |  |
 | 0x80023528 | LIVE | `leaf_80023528` | game/core/field_owned_leaves.cpp:399 |  |  |
 | 0x800235A0 | LIVE | `ActorTomba::type7Interact` | game/player/actor_tomba.cpp:711 |  | postInteractWalk case 7. |
-| 0x80023D48 | LIVE | `CollisionResolve::cylinderResolve` | game/world/collision_resolve.cpp:64 |  | ORACLE: gen_func_80023D48 |
-| 0x8002423C | LIVE | `CollisionResolve::landOnObjectTop` | game/world/collision_resolve.cpp:323 |  | ──────────────────────────────────────────────────────────────────────… |
+| 0x80023D48 | LIVE | `CollisionResolve::cylinderResolve` | game/world/collision_resolve.cpp:160 |  | ORACLE: gen_func_80023D48 |
+| 0x8002423C | LIVE | `CollisionResolve::landOnObjectTop` | game/world/collision_resolve.cpp:375 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80024794 | LIVE | `interact_scan` | game/player/interact_scan.cpp:69 |  | (player) -> 1 if something was activated this call, else 0. |
 | 0x800248D0 | LIVE | `leaf_800248D0` | game/core/field_owned_leaves.cpp:410 |  |  |
 | 0x80024F18 | LIVE | `leaf_80024F18` | game/core/field_owned_leaves.cpp:538 |  |  |
@@ -145,9 +145,10 @@ Totals: 986 native fns, 836 owned addresses, 976 LIVE / 10 ORPHAN.
 | 0x8003FC00 | LIVE | `leaf_8003FC00` | game/core/field_owned_leaves.cpp:3176 |  |  |
 | 0x8003FC78 | LIVE | `leaf_8003FC78` | game/core/field_owned_leaves.cpp:3209 |  |  |
 | 0x8003FC8C | LIVE | `leaf_8003FC8C` | game/core/field_owned_leaves.cpp:3217 |  |  |
-| 0x8003FD10 | ORPHAN | `osc_fd10` | game/world/entity.cpp:48 |  | per-object OSCILLATE / FRAME-TOGGLE sub-behavior (one of sm40558 STATE… |
+| 0x8003FD10 | ORPHAN | `osc_fd10` | game/world/entity.cpp:49 |  | per-object OSCILLATE / FRAME-TOGGLE sub-behavior (PlacedPropSm STATE-1… |
 | 0x8003FE00 | LIVE | `leaf_8003FE00` | game/core/field_owned_leaves.cpp:3250 |  |  |
 | 0x8003FED8 | LIVE | `leaf_8003FED8` | game/core/field_owned_leaves.cpp:3302 |  |  |
+| 0x80040558 | LIVE | `PlacedPropSm::step` | game/ai/placed_prop_sm.cpp:157 |  | ORACLE: gen_func_80040558 |
 | 0x80040A58 | LIVE | `SceneEvents::classSize` | game/scene/scene_events.cpp:45 |  |  |
 | 0x80040B48 | LIVE | `SceneEvents::armBody` | game/scene/scene_events.cpp:73 |  |  |
 | 0x80040B48 | LIVE | `SceneEvents::arm` | game/scene/scene_events.cpp:113 |  |  |
@@ -626,14 +627,15 @@ Totals: 986 native fns, 836 owned addresses, 976 LIVE / 10 ORPHAN.
 | 0x80081218 | LIVE | `Asset::uploadImage` | game/core/asset.cpp:252 |  | DO NOT REGISTER 0x80081218 IN THE OVERRIDE REGISTRY. It surfaces near … |
 | 0x80081458 | LIVE | `Render::clearOTagR` | game/render/wide_re_libgpu_leaves.cpp:154 |  | func_80081458 (0x80081458) — ClearOTagR(OT, entries). VERIFIED & WIRED… |
 | 0x80081560 | LIVE | `Engine::drawOTag` | game/game_tomba2.cpp:149 |  | Native ownership of DrawOTag (libgpu FUN_80081560, the per-frame draw … |
-| 0x800815D0 | LIVE | `func_800815D0` | game/render/wide_re_gpu_putdrawenv.cpp:250 |  | func_800815D0 (0x800815D0) — libgpu PutDrawEnv(drawEnvPtr). DRAFT. RE'… |
+| 0x800815D0 | LIVE | `func_800815D0` | game/render/wide_re_gpu_putdrawenv.cpp:258 |  | func_800815D0 (0x800815D0) — libgpu PutDrawEnv(drawEnvPtr). DRAFT. RE'… |
 | 0x80081CF8 | LIVE | `buildDrawAreaRect` | game/render/hud_gauge_emitter.cpp:139 |  | ----------------------------------------------------------------------… |
 | 0x80081CF8 | LIVE | `emitDrawAreaAndLink` | game/render/hud_gauge_emitter.cpp:151 |  | Emit the DR_AREA packet built from the sp+rectOff rect into the packet… |
-| 0x80082220 | LIVE | `func_80082220` | game/render/wide_re_gpu_putdrawenv.cpp:176 |  | func_80082220 (0x80082220) — DR_TPAGE mode-word builder. DRAFT. RE'd f… |
-| 0x80082240 | LIVE | `func_80082240` | game/render/wide_re_gpu_putdrawenv.cpp:104 |  | func_80082240 (0x80082240) — SetDrawAreaTopLeft(x,y) word builder. DRA… |
-| 0x800822D8 | LIVE | `func_800822D8` | game/render/wide_re_gpu_putdrawenv.cpp:133 |  | func_800822D8 (0x800822D8) — SetDrawAreaBottomRight(x,y) word builder.… |
-| 0x80082370 | LIVE | `func_80082370` | game/render/wide_re_gpu_putdrawenv.cpp:162 |  | func_80082370 (0x80082370) — SetDrawingOffset(x,y) word builder. DRAFT… |
-| 0x8008238C | LIVE | `func_8008238C` | game/render/wide_re_gpu_putdrawenv.cpp:200 |  | func_8008238C (0x8008238C) — DR_TWIN word builder. DRAFT. RE'd from ge… |
+| 0x80081FB0 | LIVE | `LibgpuDrawEnv::setDrawEnv` | game/render/libgpu_draw_env.cpp:104 |  | PORT_GEN: 80081FB0 generated/shard_4.c:12834-12980 |
+| 0x80082220 | LIVE | `func_80082220` | game/render/wide_re_gpu_putdrawenv.cpp:184 |  | func_80082220 (0x80082220) — DR_TPAGE mode-word builder. DRAFT. RE'd f… |
+| 0x80082240 | LIVE | `func_80082240` | game/render/wide_re_gpu_putdrawenv.cpp:112 |  | func_80082240 (0x80082240) — SetDrawAreaTopLeft(x,y) word builder. DRA… |
+| 0x800822D8 | LIVE | `func_800822D8` | game/render/wide_re_gpu_putdrawenv.cpp:141 |  | func_800822D8 (0x800822D8) — SetDrawAreaBottomRight(x,y) word builder.… |
+| 0x80082370 | LIVE | `func_80082370` | game/render/wide_re_gpu_putdrawenv.cpp:170 |  | func_80082370 (0x80082370) — SetDrawingOffset(x,y) word builder. DRAFT… |
+| 0x8008238C | LIVE | `func_8008238C` | game/render/wide_re_gpu_putdrawenv.cpp:208 |  | func_8008238C (0x8008238C) — DR_TWIN word builder. DRAFT. RE'd from ge… |
 | 0x80082424 | LIVE | `Render::gpuDmaSend` | game/render/wide_re_gpu_dma_queue.cpp:560 |  | func_80082424 (0x80082424) — GpuDmaSend(arrayPtr, count). VERIFIED & W… |
 | 0x80082734 | LIVE | `Render::gpuLoadImageStream` | game/render/wide_re_gpu_loadimage_streamer.cpp:135 |  | func_80082734 (0x80082734) — libgpu LoadImage()-internal chunked GP0-F… |
 | 0x80082C68 | LIVE | `libgpuDmaStatusReset` | game/render/wide_re_libgpu_leaves.cpp:254 |  | libgpuDmaStatusReset (0x80082C68) — GPU-DMA status-block RESET. RE-VER… |
@@ -660,9 +662,10 @@ Totals: 986 native fns, 836 owned addresses, 976 LIVE / 10 ORPHAN.
 | 0x80085480 | LIVE | `Math::rotmat` | game/math/gte_math.cpp:221 |  |  |
 | 0x80085480 | LIVE | `MeshQuads::rotmat` | game/render/mesh_quads.cpp:62 |  |  |
 | 0x80085690 | LIVE | `Trig::ratan2` | game/math/trig.cpp:23 |  |  |
-| 0x80085C9C | LIVE | `LibapiIntr::setIntrMask` | game/core/libapi_intr.cpp:34 |  |  |
-| 0x80086230 | LIVE | `LibapiIntr::initVblankCallbacks` | game/core/libapi_intr.cpp:43 |  | FUN_0x80086230 — zeroes the 8-slot VSync callback table through the wo… |
-| 0x80086320 | LIVE | `LibapiIntr::clearWords` | game/core/libapi_intr.cpp:69 |  | FUN_0x80086320 — the word-fill helper: writes N words of a constant. |
+| 0x80085C9C | LIVE | `LibapiIntr::setIntrMask` | game/core/libapi_intr.cpp:115 |  |  |
+| 0x80086230 | LIVE | `LibapiIntr::initVblankCallbacks` | game/core/libapi_intr.cpp:125 |  | FUN_0x80086230 — VBlank-callback subsystem init: clear the 8-slot VSyn… |
+| 0x80086288 | LIVE | `LibapiIntr::runVblankCallbacks` | game/core/libapi_intr.cpp:148 |  | FUN_0x80086288 — the VBlank handler itself: bump the tick counter, the… |
+| 0x80086320 | LIVE | `LibapiIntr::clearWords` | game/core/libapi_intr.cpp:176 |  | FUN_0x80086320 — the word-fill helper: writes N words of a constant. |
 | 0x80086604 | LIVE | `Engine::activeModeCtx` | game/scene/startup.cpp:277 |  | Engine::activeModeCtx. Accessor: returns the active mode/draw-env cont… |
 | 0x80086620 | LIVE | `eng_init_mode_ctrl` | game/scene/startup.cpp:177 |  | engine MODE control: file-local helper (only called from Engine::initS… |
 | 0x80086738 | LIVE | `Engine::installModeHandlers` | game/scene/startup.cpp:286 |  | Engine::installModeHandlers. Installs the mode handler table at 0x8010… |

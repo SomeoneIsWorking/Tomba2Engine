@@ -18,7 +18,7 @@
 #include "game.h"
 #include "engine.h"
 #include "mtx.h"                   // class Mtx — libgte matrix leaves (MR_init identity, 0x80051794)
-#include "node_lifecycle_sm.h"      // class NodeLifecycleSm — per-node lifecycle SM (0x80040558)
+#include "placed_prop_sm.h"         // class PlacedPropSm — placed scene-prop behaviour (0x80040558)
 #include "contact_stamp.h"          // class ContactStamp — the kanban #8 contact producer (0x80111304)
 #include "cull_substate_native.h"  // class CullSubstateLeaves — A00 cull-substate leaf (0x80133550)
 #include "ui_ft4_layout.h"        // class UiFt4Layout — POLY_FT4 UI vertex-layout case block (0x8007E2F8)
@@ -26,6 +26,7 @@
 #include "substate_edge_native.h"   // class SubstateEdgeLeaves — A00 orchestrator leaves (0x80130AC4/801316CC/80131134)
 #include "collision_resolve.h"      // class CollisionResolve — actor-vs-object cylinder resolve (0x80023D48)
 #include "libapi_intr.h"           // class LibapiIntr — kernel interrupt-mask primitives (0x80085C9C)
+#include "libgpu_draw_env.h"       // class LibgpuDrawEnv — libgpu SetDrawEnv (0x80081FB0)
 #include "gte_transform3.h"        // class GteTransform3 — GTE 3-vertex rotate+pack (0x80084250)
 #include "actor_sm_reward.h"       // class ActorReward — reward/tally window actor SM family
 #include "actor_zoned_attacker.h"  // class ActorZonedAttacker — 0x8014xxxx zoned-attacker sub-behavior cluster
@@ -123,7 +124,7 @@ void register_engine_overrides(Game* game) {
   Mtx::registerOverrides(game);                      // MR_init identity-matrix leaf (0x80051794) — native existed since long before it was wired
   { extern void startup_overrides_install(); startup_overrides_install(); }  // Engine::allocRecordForSelector (0x8008913C)
   { extern void id_routed_leaves_install(); id_routed_leaves_install(); }  // id-routed state-1 common tail (0x80122BF4)
-  NodeLifecycleSm::registerOverrides(game);           // per-node lifecycle state machine (0x80040558)
+  PlacedPropSm::registerOverrides(game);              // placed scene-prop behaviour handler (0x80040558)
   ContactStamp::registerOverrides(game);              // contact stamp producer (0x80111304)
   CullSubstateLeaves::registerOverrides(game);        // A00 cull-substate orchestrator leaf (0x80133550)
   UiFt4Layout::registerOverrides(game);               // POLY_FT4 UI vertex-layout case 0 (0x8007E2F8)
@@ -131,6 +132,7 @@ void register_engine_overrides(Game* game) {
   SubstateEdgeLeaves::registerOverrides(game);        // A00 substate-edge orchestrator leaves (45,900 dispatches/6000 frames)
   CollisionResolve::registerOverrides(game);      // actor-vs-object cylinder collision resolve (0x80023D48)
   LibapiIntr::registerOverrides(game);               // libapi SetIntrMask (0x80085C9C) — I_MASK swap through libapi's hw-pointer table
+  LibgpuDrawEnv::registerOverrides(game);            // libgpu SetDrawEnv (0x80081FB0) — DRAWENV -> DR_ENV packet compiler, 2x/frame from PutDrawEnv/DrawOTagEnv
   GteTransform3::registerOverrides(game);            // GTE 3-vertex rotate+pack (0x80084250) — wide-RE draft, re-verified before wiring
   RegisterBehActorTombaProximityCombatOverride(game);// enemy-vs-Tomba proximity-combat FSM (0x800527C8)
   eng(c).sequencer.registerOverrides();           // libsnd SsSeqCalled cluster (0x80090BD0 etc.)

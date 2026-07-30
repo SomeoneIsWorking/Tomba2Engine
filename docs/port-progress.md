@@ -1443,8 +1443,7 @@ re-verify required at wiring): libgpu (DrawSync/ClearOTagR/GPU-DMA ring/LoadImag
 PutDrawEnv chain), libsnd (SsSeqCalled + channel leaves + voice-register write), script-interp
 (op5/6/34/36/31 + advanceStep), SOP-intro sub-ticks, ActorTomba enterOuterState0 +
 matrixComposeAttached (+ mode-N table maps, 46+55 case targets), cull-orchestrator tails, pad edge
-fence, Str::length/Font::drawText/glyphEmit, Core::guestMemset, Timing::vsyncCallbackDispatch,
-Sequencer::frameTick. **Next frontier: wire the banked drafts one cluster at a time (line-by-line
+fence, Str::length/Font::drawText/glyphEmit, Core::guestMemset, Sequencer::frameTick. **Next frontier: wire the banked drafts one cluster at a time (line-by-line
 gen re-verify per §9, oracle-gated thunks, ovhit + 0-diff gate each), and extend autonav coverage
 past the intro area so unfired leaves actually gate.**
 
@@ -2550,8 +2549,10 @@ themselves are LIVE but dispatch out to substrate for every case body.
   dispatch-count-ordered band: 0x80086288(1254) 0x80090BD0(1254) 0x800909C0(1254) 0x8008913C(627)
   0x80099490(581) 0x800998E4(579) 0x8009A420(521) — all confirmed unowned via `codemap.py --addr`,
   right at the psyq libc/libsnd boundary (`rand`=0x8009A450). 3 DRAFTED (compile+link-only, unwired,
-  unverified, no SBS run): `Timing::vsyncCallbackDispatch()` (0x80086288, BIOS VSyncCallback chain
-  invoker, runtime/recomp/timing.cpp), `Sequencer::frameTick()` (0x800909C0, libsnd per-VBlank tick
+  unverified, no SBS run): `LibapiIntr::runVblankCallbacks()` (0x80086288, libapi's VBlank interrupt
+  handler — SINCE WIRED + VERIFIED 2026-07-30 in game/core/libapi_intr.cpp, see docs/engine_re.md;
+  the draft this line described lived in the game-agnostic framework with its two data addresses
+  0x4000 too high and its r16/r17 spills swapped, and has been deleted), `Sequencer::frameTick()` (0x800909C0, libsnd per-VBlank tick
   wrapper, new game/audio/sequencer.h/.cpp, wired onto `Engine::sequencer`), `Core::guestMemset()`
   (0x8009A420, confirmed psyq libc `memset`, runtime/recomp/mem.cpp — has an existing still-substrate
   call site in `game/world/pool.cpp` `Pool::resetControlBlock`/`init` ready for a follow-up direct-
@@ -2776,8 +2777,11 @@ themselves are LIVE but dispatch out to substrate for every case body.
   across dispatches for callee-frame fidelity, HIGH confidence) plus 4 of its 5 unowned callees
   (0x80082240/0x800822D8 SetDrawArea TL/BR, 0x80082370 SetDrawingOffset, 0x80082220 DR_TPAGE,
   0x8008238C DR_TWIN — all HIGH confidence true leaves) in `game/render/wide_re_gpu_putdrawenv.cpp`.
-  MAPPED not drafted: 0x80081FB0 (the DRAWENV packer — 147 gen-C lines; 6-word header path fully
-  RE'd, FillRect tail's two scratch-word sources untraced — §9 bug-farm shape, deferred honestly);
+  0x80081FB0 (the DRAWENV packer) is now PORTED as libgpu `SetDrawEnv` — `LibgpuDrawEnv::setDrawEnv`,
+  game/render/libgpu_draw_env.cpp, 2026-07-30, port_check PASS + SBS full 0-diff f0..f1800
+  (docs/parity-map.md `libgpu-setdrawenv-81fb0`); the "untraced
+  scratch words" were the clip RECT (raw x/y + framebuffer-clamped w/h) and the two tail arms are
+  GP0(0x02) fill-VRAM vs GP0(0x60) flat rect, not two word layouts. Still substrate:
   0x8009A3E0 (memcpy-like, out of band). ALSO FIXED two real bugs found in the already-committed
   `wide_re_libgpu_leaves.cpp` drafts (inverted boot-flag hook polarity in DrawSync AND ClearOTagR;
   ClearOTagR dummy-tail constants off by 0xC0) plus address corrections to prior prose (clip pair =
@@ -2923,7 +2927,8 @@ themselves are LIVE but dispatch out to substrate for every case body.
   corrupting it whenever nonzero — traced from every one of ~15 call sites across
   `generated/shard_*.c`, none of which pass a 6th value. `glyphEmit`, `Str::length`, and the 4
   DRAWENV leaf builders were byte-exact on re-verify, no bugs found. `func_80081FB0` (the DRAWENV
-  packet packer) stays MAPPED-not-drafted/substrate; `PutDrawEnv` reaches it via `rec_dispatch`.
+  packet packer) was MAPPED-not-drafted/substrate at the time; it is PORTED as of 2026-07-30
+  (`LibgpuDrawEnv::setDrawEnv` = libgpu SetDrawEnv, game/render/libgpu_draw_env.cpp).
   ovhit (5-frame REPL+SBS-full window): 8/9 addresses fire with matching native/oracle counts;
   `Str::length` shows `0/0` in that short window (not exercised — its heavier call sites are
   UI/menu text), so its correctness rests on the RE re-verify, not gate coverage, honestly noted.

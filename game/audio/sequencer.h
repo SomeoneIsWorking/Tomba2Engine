@@ -9,8 +9,8 @@
 // SsSetTickMode as the IRQ-driven "user cb". Runtime globals (confirmed live via REPL dump):
 //   tick mode        DAT_800ac424 = 5
 //   SsSeqCalled ptr   DAT_800ac42c = 0x80090BD0   (the sequencer engine itself)
-//   user callback     DAT_800ac430 = 0x80086288   (Timing::vsyncCallbackDispatch — see timing.h;
-//                                                   also unwired/unowned by us)
+//   user callback     DAT_800ac430 = 0x80086288   (LibapiIntr::runVblankCallbacks, the libapi
+//                                                   VBlank handler — game/core/libapi_intr.cpp)
 // The wrapper itself (FUN_800909c0) is a 2-call trampoline: run the user cb if installed, then
 // unconditionally run *SsSeqCalled(). NEITHER 0x800909c0 nor 0x80090bd0 is reached by a direct
 // `jal` anywhere in MAIN.EXE (only ever fired through the IRQ callback pointer), so the static

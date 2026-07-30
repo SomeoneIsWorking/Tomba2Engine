@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 23 verified · 13 ported-unverified · 1 todo · 3 blocked
+**Status:** 24 verified · 13 ported-unverified · 1 todo · 3 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -207,6 +207,12 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** verified
 - **owner:** game/render/fx_motes.cpp + fx_motes.h
 - **notes:** Render::fxMoteStreakRender (FUN_80116904, A08 overlay, area 8): 32 world motes drawn as doubled-length motion STREAKS — visually the area's RAIN. tail = 2*prev - cur, white head fading to mid-grey tail. LCG seeded at node+0x50 (never written back), multiplier 0x801450D8, THREE steps per mote with each axis reading the seed BEFORE its replacement; positions masked to 11 bits inside a 2048-unit cube re-centred each frame on (camera eye - 1024 + half the camera forward row); per-axis bit-11 XOR against last frame's cube base (node+0x48/4A/4C) suppresses the streak on the frame a mote wraps. NOT a sprite-family member, and its OT gate is NOT SpriteAnchor::otKeyInRange — same log map but WITHOUT the k<4 pre-clamp, so it REJECTS a near range otKeyInRange accepts (kGateNoPreClamp). ONE-FRAME-DIFFERENTIAL: the previous screen positions come from a HOST-SIDE shadow (class MoteStreaks, fx_motes.h) rotated once per LOGIC frame on gpu.s_frame, the EffectLerp idiom — the guest's own array at 0x801485E8 is NOT read because whether it holds this or last frame's values depends on when the substrate walk ran. VERIFIED ON PIXELS: area 8 warp + skip 600, ON vs producer-removed OFF = 1432 px differ across x[29..319] y[0..239], rendering as rain; 1196 emissions, 32/32 streaks with prev=yes, 0 wrapped; 0x80116904 dropped off the nofx census.
+
+## libgpu-setdrawenv-81fb0
+- **scope:** render
+- **status:** verified
+- **owner:** LibgpuDrawEnv::setDrawEnv (game/render/libgpu_draw_env.cpp)
+- **notes:** libgpu SetDrawEnv(DR_ENV*, DRAWENV*) at 0x80081FB0 — compiles the frame's drawing environment into the 6-or-9-word GP0 packet PutDrawEnv (0x800815D0) / DrawOTagEnv (0x800816A0) send to the GPU DMA; ~6000 dispatches, 2x/frame. Identity from the callers (Ghidra scratch/decomp/setdrawenv_81fb0.c) + the five already-owned word builders (0xE3/0xE4/0xE5/0xE1/0xE2). True extent [0x80081FB0,0x80082220), 156 instr, confirmed three ways (disas jr-ra at 0x80082218 + delay slot; 0x80082220 is a call target of this function; port_gen live extent 12834-12980 of shard_4.c with no folded sibling). GATED: port_check PASS, build clean, SBS full 0-diff f0..f1800, ovhit native=300/300 frames single-core. See docs/parity-map.md libgpu-setdrawenv-81fb0.
 
 ## render-compose-tint-gate
 - **status:** ported-unverified

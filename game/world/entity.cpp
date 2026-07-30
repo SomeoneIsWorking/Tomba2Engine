@@ -1,7 +1,8 @@
 // game/world/entity.cpp — PC-native per-object ENTITY STATE-MACHINE subsystem.
 // The per-object behavior cluster that drives each entity's logic: the child-node spawn / sub-object
-// builder (FUN_80040410), the per-object dispatcher loop over the 0x800ec188 table (FUN_80026C88), the
-// state-machine head (FUN_80040558), and the oscillate / frame-toggle sub-behavior (FUN_8003FD10).
+// builder (FUN_80040410), the per-object dispatcher loop over the 0x800ec188 table (FUN_80026C88), and
+// the oscillate / frame-toggle sub-behavior (FUN_8003FD10). The placed-prop state-machine head that
+// drives them now lives in game/ai/placed_prop_sm.cpp (PlacedPropSm::step).
 // Control flow + object memory owned native; the per-state sub-behaviors stay reachable by address via
 // rec_dispatch (each honors its own override identically). NO GTE, NO render packets. Extracted verbatim
 // from game_tomba2.cpp (one behavior, byte-identical) into its own module for PC-game code structure.
@@ -25,12 +26,12 @@ void rec_dispatch(Core*, uint32_t);
 //  reached from the new port through its generated func_80040410 wrapper.)
 
 
-// (removed 231 lines: the hand-transliterated sm40558 draft for 0x80040558 — REPLACED by NodeLifecycleSm::step
-//  (game/ai/node_lifecycle_sm.cpp). It had five defects, one a MISSING GUEST WRITE of node[95]=0
+// (removed 231 lines: the hand-transliterated sm40558 draft for 0x80040558 — REPLACED by PlacedPropSm::step
+//  (game/ai/placed_prop_sm.cpp). It had five defects, one a MISSING GUEST WRITE of node[95]=0
 //  on every state-1 exit. Do not resurrect it.)
 
 
-// FUN_8003FD10 — per-object OSCILLATE / FRAME-TOGGLE sub-behavior (one of sm40558 STATE-1's obj[5] jump-table
+// FUN_8003FD10 — per-object OSCILLATE / FRAME-TOGGLE sub-behavior (PlacedPropSm STATE-1's node[5] jump-table
 // handlers JT1[0], reached ~thousands×/run from the hot active-behavior path). a0 = obj. NO GTE, NO render
 // packets — pure object/scratchpad memory ops + ONE dispatched callee (0x8009A450 = ov_rand, owned). A
 // 3-way micro state-machine on the phase byte obj[6]:

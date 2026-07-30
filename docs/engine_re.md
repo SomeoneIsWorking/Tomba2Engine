@@ -2997,15 +2997,29 @@ via `tools/codemap.py --addr`. This region sits right at the psyq libc/libsnd bl
 
 ### Drafted (UNWIRED, compiles+links)
 
-- **0x80086288 → `Timing::vsyncCallbackDispatch()`** (runtime/recomp/timing.cpp/.h). BIOS intr.c
-  VSyncCallback CHAIN invoker — the real retail BIOS's fixed 8-slot callback array
-  (table `0x800AFDC0`, tick counter `0x800AFDE0`). 1:1 with `gen_func_80086288`
-  (generated/shard_4.c:13351): bump the counter, walk 8 slots, `rec_dispatch()` any non-null one.
-  Guest-stack frame mirrored (sp-32, s0/s1/ra spilled at the RE'd offsets) per CLAUDE.md, even
-  though no static caller was found — it's only ever reached through an IRQ vector we don't model
-  (same as `Timing::vsyncCallback()`/`vsync()` above it, already documented as no-op/unreachable).
-  Confidence: HIGH (control flow is trivial, addresses cross-checked byte-for-byte against the
-  generated C's `32779u<<16 + offset` immediates).
+- **0x80086288 → `LibapiIntr::runVblankCallbacks()`** — WIRED + VERIFIED 2026-07-30, in the GAME
+  repo (`game/core/libapi_intr.cpp`, alongside its own installer 0x80086230 and the word-fill helper
+  0x80086320). libapi's VBlank INTERRUPT HANDLER: bump the libetc VSync tick counter
+  (`0x800ABDE0`), then walk the 8-slot VSyncCallback fn-ptr table (`0x800ABDC0`) and call every
+  non-null entry.
+  - IDENTIFIED FROM THE CALL SITES, not the shape. Ghidra headless
+    (`scratch/decomp/vsync_cb_chain_86288.c`) shows FUN_80086230 ending in
+    `func_0x80085b50(0, 0x80086288)` = `InterruptCallback(IRQ_VBLANK, handler)`, immediately after
+    that same function zeroes the very table and counter this body walks and increments. It is
+    REACHED ~2x/frame because libsnd's `SsSetTickMode` also parks it in the user-callback slot
+    `DAT_800AC430`, which `Sequencer::frameTick()` (0x800909C0) dispatches per frame — confirmed
+    live: the mirror gate reports entry `ra=0x800909EC`, the jal site inside `gen_func_800909C0`.
+  - NOT PlatformHle: no spin, no completion-flag poll, no MMIO read, no call to the trapped libetc
+    VSync 0x80085900; bounded 8-iteration loop. It is the handler, not a waiter — and the gen body
+    already ran ~12k times a run without hitting a trap, so the native runs in exactly the same
+    place.
+  - VERIFIED: `PSXPORT_MIRROR_VERIFY=0x80086288`, 800 invocations over 400 frames, 0 mismatches
+    (`scratch/logs/mv_86288.log`). Instrument validated in both directions — an r16/r17 spill-swap
+    built in an isolated copy MISMATCHes at invocation #1 (`scratch/logs/mv_negctl.log`).
+  - The 8 callback slots read all-NULL over that window, so the indirect-dispatch arm is
+    unexercised; the counter bump, the walk and the guest-stack frame are what the 800 passes prove.
+  - Corrects the earlier note here: the addresses were transcribed as `0x800AFDC0`/`0x800AFDE0`,
+    0x4000 too high. They are `0x800ABDC0`/`0x800ABDE0` (`32779<<16` MINUS 16960 / 16928).
 
 - **0x800909C0 → `Sequencer::frameTick()`** (new: game/audio/sequencer.h/.cpp). libsnd's per-VBlank
   TICK WRAPPER, installed by `SsSetTickMode` (docs/journal.md 2026-06-15 "later 54" — already
@@ -3223,12 +3237,23 @@ raw `generated/shard_*.c` gen-C line-by-line (wide-RE tier, UNWIRED/UNVERIFIED, 
   byte-identical; a0→0x400 low bit, a1→0x200 tag bit), `0x8008238C` (DR_TWIN word — algebraically
   identical to func_80083DE0's tail; 16-byte dead-store scratch frame mirrored). All HIGH confidence
   (small, self-contained, each verified twice).
-- **MAPPED, NOT drafted: `0x80081FB0`** (the packer — actually ~147 gen-C lines, not "40-line").
-  6-word header path fully understood (calls the 5 leaves in order, writes dst+4..+24, length byte
-  dst+3=5); but when *(drawEnv+24)!=0 it appends a FillRect-shaped tail whose two sp-scratch source
-  words were not traced to named fields, with two alternative word-layout arms keyed on clip w/h
-  mod-64 — exactly §9's bug-farm shape, deferred rather than guessed. PutDrawEnv reaches it via
-  rec_dispatch, so drafting it later needs no change to PutDrawEnv.
+- **PORTED 2026-07-30: `0x80081FB0` = libgpu `SetDrawEnv(DR_ENV *packet, DRAWENV *env)`** —
+  `game/render/libgpu_draw_env.cpp`, class `LibgpuDrawEnv`. Identified from the callers: 0x800815D0
+  is `SetDrawEnv(env+0x1c, env); tag |= 0xffffff; dma_send(...); memcpy(0x800a59b0, env, 0x5c);
+  return env` (PutDrawEnv verbatim) and 0x800816A0 is the same with an OT pointer linked into the tag
+  (DrawOTagEnv). The five callees fix every word (0xE3/0xE4/0xE5/0xE1/0xE2) and the field offsets
+  reproduce the SDK DRAWENV layout exactly. True extent [0x80081FB0, 0x80082220), 156 instructions.
+  Two corrections to the earlier map: the no-clear length byte is **6**, not 5 (the guest tracks
+  count+1 in r8 and stores r8−1 for the six state words); and the tail's two arms are NOT different
+  word layouts — both write +28/+32/+36, what differs is **GP0(0x02) fill-VRAM (absolute coords,
+  chosen when clip.x and the clamped clip.w are both 64-aligned) vs GP0(0x60) flat rect
+  (drawing-offset-relative, so the offset is subtracted first)**. The sp+16..23 scratch words are
+  simply the clip RECT: raw x/y plus w/h clamped to the framebuffer limits 0x800A59A4/A6 (1024x512).
+  GATED: port_check PASS; SBS full 0-diff (A/B identical at every checkpoint f0..f1800, with and
+  without PSXPORT_RENDER_PSX=1); override provably active — single-core run shows
+  `[ovhit] 0x80081FB0 native=300 oracle=0` over 300 frames, once per frame. See docs/parity-map.md
+  `libgpu-setdrawenv-81fb0` for the logs and the one caveat (the SBS runs end at f1800 in an
+  unrelated pre-existing pc_render crash, so the SBS ovhit table never printed).
 - `0x8009A3E0` (memcpy-like, out of band) left substrate.
 
 **CORRECTIONS APPLIED to the committed `wide_re_libgpu_leaves.cpp` drafts** (found by cross-checking

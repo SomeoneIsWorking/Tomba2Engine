@@ -24,10 +24,16 @@ public:
   //     saved = SetIntrMask(0);   ... touch the DMA ring ...   SetIntrMask(saved);
   static void setIntrMask(Core* c);
 
-  // FUN_0x80086230 — zeroes the 8-slot VSync callback table through the word-fill helper below.
+  // FUN_0x80086230 — zeroes the 8-slot VSync callback table through the word-fill helper below,
+  // then registers runVblankCallbacks() as the IRQ-0 (VBlank) handler.
   static void initVblankCallbacks(Core* c);
   // FUN_0x80086320 — the word-fill helper: writes N words of a constant.
   static void clearWords(Core* c);
+
+  // FUN_0x80086288 — the VBlank handler body installed by initVblankCallbacks(): bump the libetc
+  // VSync tick counter, then run every registered VSyncCallback in the 8-slot table. See the
+  // banner in libapi_intr.cpp for how it was identified and why it is an ordinary port.
+  static void runVblankCallbacks(Core* c);
 
   static void registerOverrides(Game* game);
 };

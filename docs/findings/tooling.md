@@ -607,3 +607,37 @@ Three down, ~55 to go. Both clean, which is worth knowing in itself: it says the
 casually wrong, so a divergence when one turns up is a strong signal rather than noise. Keep the temp
 faithful body OUT of the tree — generate it into `scratch/ab/`, wire it only for the two runs, and
 remove it, or the repo accumulates dead duplicates of every handler.
+
+## codemap.py is BLIND to an address wired through the UNNAMED engine_set_override_* forwarder
+- **symptom:** `tools/codemap.py --addr 80040558` prints `NO native owner found` and the address is
+  absent from `docs/code-map.md`, while the address IS fully owned — a native is registered for it and
+  `docs/parity-map.md` even carries a verified multi-thousand-frame SBS gate for it. A work queue built
+  from the codemap then dispatches it as "still UNOWNED" and a session re-ports it from scratch.
+- **status:** fixed 2026-07-30 (0x80040558 switched to the named registry form; codemap now resolves it)
+- **cause:** codemap's owner scan keys on `overrides::install(0xADDR, "Class::method", …)` — the form
+  that carries a NAME STRING — plus `// FUN_XXXXXXXX` banners. The thin forwarder
+  `engine_set_override_main(addr, native, gen)` (external/psxport/runtime/recomp/override_registry.h)
+  has NO name argument, so an address wired only that way has nothing to attach an owner name to and
+  drops out of the map. game/ai/node_lifecycle_sm.cpp also had no `FUN_80040558` banner, so the
+  fallback missed too.
+- **fix:** register engine/game natives with the NAMED form
+  `overrides::install(0x…u, "Class::method", native, gen, <setter>)`. Treat
+  `engine_set_override_main/_a00/_game` as the render-emitter convenience path only. Grep the tree for
+  remaining unnamed forwarder call sites when an address looks suspiciously unowned.
+- **refs:** game/ai/placed_prop_sm.cpp, tools/codemap.py:283/610, docs/parity-map.md node-lifecycle-sm-40558
+
+## port_check.py takes FILES, not addresses — and a lens setter with a space before `(` counts ZERO stores
+- **symptom:** (a) `port_check.py 80040558` used to print a warning and exit 0, reading as a PASS while
+  nothing was checked (it now REFUSES, but a queue that passes an address still gates nothing).
+  (b) A correct, byte-equivalent port FAILs with `memory-store width sequence mismatch` and a native
+  width list that is missing whole groups of stores.
+- **status:** known-issue / usage rule (2026-07-30)
+- **cause:** (a) the tool's positional argument is `files`. (b) port_check counts guest stores by
+  matching the regex `c->mem_w(8|16|32)\(` — with NO space before the paren — both directly in the
+  method body and inside typed-lens setters harvested from `game/**/*.h`. A setter written
+  `{ c->mem_w8 (n + kOff, v); }` (space added to align a column) matches nothing and contributes zero
+  widths, so every store through that setter vanishes from the native sequence.
+- **fix:** always run `port_check.py game/<sub>/<file>.cpp` and read the per-method
+  PASS / FAIL / UNPROVABLE line. Never align whitespace between `mem_wN` and `(`; align the arguments
+  instead. (Same trap applies to `MEM_W_ANY_RE` in external/psxport/tools/abi_extract.py.)
+- **refs:** external/psxport/tools/port_check.py:60-64/362, abi_extract.py:199, game/ai/placed_prop_sm.h
