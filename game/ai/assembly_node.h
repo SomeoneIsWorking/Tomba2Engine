@@ -25,8 +25,12 @@
 #include <cstdint>
 #include "core.h"
 
-// One sub-part record, reached through AssemblyNode::childPtr(slot). Only the two fields the ported
-// leaves touch are named; this record is larger and the rest is not yet established.
+// One sub-part record, reached through the +0xC0 pointer table of an assembly (AssemblyNode::
+// childPtr) OR of the companion the assembly spawns (AssemblyCompanion::kPartTable) — it is the
+// SAME record type in both, namely the CHILD role of the generic scene-node struct that
+// game/render/node_xform.cpp's `Node` lens documents (sentinel 0x06, childEuler 0x08, frameMatrix
+// 0x18, framePos 0x2C, childScale 0x38). Only the fields the ported leaves touch are named; this
+// record is larger and the rest is not yet established.
 class AssemblyChild {
 public:
   AssemblyChild(Core* c, uint32_t at) : mCore(c), mAt(at) {}
@@ -39,8 +43,27 @@ public:
   void setStateFlags(uint32_t v) const { mCore->mem_w8(mAt + 0x3Eu, (uint8_t)v); }
 
   // +0x0C is the oscillator accumulator FUN_80130D5C drives; the arm path reads it as the fallback
-  // angle when the node's own angle selector does not match the pending command.
+  // angle when the node's own angle selector does not match the pending command. (Same bytes
+  // node_xform.cpp's CHILD role calls childEulerZ — an angle either way, two vocabularies for one
+  // field, not a contradiction.)
   uint32_t accumulator() const { return mCore->mem_r16(mAt + 0x0Cu); }
+
+  // --- the sub-part's own transform slots, added when 0x801389C8 was ported -----------------------
+  // frameMatrix (+0x18, 5-word packed GTE MATRIX): the part's composed local/frame matrix. It is
+  //   the OUTPUT of NodeXform::propagate/propagateAxis (game/render/node_xform.cpp, which names the
+  //   same +0x18 frameMatrixPtr) and the in/out buffer 0x801389C8 hands to MulMatrix0 (0x80084250)
+  //   when it folds the part's own scale in.
+  uint32_t frameMatrixPtr() const { return mAt + 0x18u; }
+  // scale (+0x38/+0x3A/+0x3C, 3x s16): the part's per-axis scale in GTE 4.12 fixed point, so 0x1000
+  //   is 1.0. Established from the WRITER, not from this reader: the companion's state-0 init
+  //   ov_a00_gen_80136F08 allocates every rig part through the generic child spawner 0x8007AAE8,
+  //   stores it into its own node+0xC0 slot, and seeds exactly this field group — sentinel +6 =
+  //   slot-1, euler +8/+10/+12 from the role's blueprint, then 0x1000 into all three of +0x38,
+  //   +0x3A and +0x3C. node_xform.cpp's independently-RE'd Node lens names the same three offsets
+  //   childScaleX/Y/Z and feeds them to the same diagonal-matrix seeder (0x800517BC).
+  int32_t scaleX() const { return mCore->mem_r16s(mAt + 0x38u); }
+  int32_t scaleY() const { return mCore->mem_r16s(mAt + 0x3Au); }
+  int32_t scaleZ() const { return mCore->mem_r16s(mAt + 0x3Cu); }
 
 private:
   Core*    mCore;

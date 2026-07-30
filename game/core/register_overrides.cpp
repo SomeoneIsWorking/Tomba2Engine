@@ -22,6 +22,7 @@
 #include "contact_stamp.h"          // class ContactStamp — the kanban #8 contact producer (0x80111304)
 #include "cull_substate_native.h"  // class CullSubstateLeaves — A00 cull-substate leaf (0x80133550)
 #include "assembly_companion.h"    // class AssemblyCompanion — assembly companion idle tick (0x80138A64)
+                                   //   + its per-visible-frame rig pose (0x801389C8)
 #include "ui_ft4_layout.h"        // class UiFt4Layout — POLY_FT4 UI vertex-layout case block (0x8007E2F8)
 #include "pad_sampler.h"           // class PadSampler — port-0 button-mask sampler (0x800524B4)
 #include "substate_edge_native.h"   // class SubstateEdgeLeaves — A00 orchestrator leaves (0x80130AC4/801316CC/80131134)
@@ -132,7 +133,8 @@ void register_engine_overrides(Game* game) {
   PlacedPropSm::registerOverrides(game);              // placed scene-prop behaviour handler (0x80040558)
   ContactStamp::registerOverrides(game);              // contact stamp producer (0x80111304)
   CullSubstateLeaves::registerOverrides(game);        // A00 cull-substate orchestrator leaf (0x80133550)
-  AssemblyCompanion::registerOverrides();             // idle tick of the companion a field assembly spawns (0x80138A64)
+  AssemblyCompanion::registerOverrides();             // idle tick (0x80138A64) + rig pose (0x801389C8) of the
+                                                      // companion a field assembly spawns
   UiFt4Layout::registerOverrides(game);               // POLY_FT4 UI vertex-layout case 0 (0x8007E2F8)
   PadSampler::registerOverrides(game);                // port-0 button-mask sampler (0x800524B4)
   SubstateEdgeLeaves::registerOverrides(game);        // A00 substate-edge orchestrator leaves (45,900 dispatches/6000 frames)

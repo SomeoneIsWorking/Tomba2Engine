@@ -77,6 +77,19 @@ public:
   void setSubState(uint8_t v) const { mCore->mem_w8(mAt + 0x05u, v); }
   void setStep(uint8_t v) const { mCore->mem_w8(mAt + 0x06u, v); }
 
+  // --- the companion's own RIG: a table of sub-part records it owns and poses every visible frame -
+  // partCount (+0x08, u8): how many sub-parts the rig has. Written by the state-0 init
+  //   ov_a00_gen_80136F08 as `node[8] = *(u8*)(0x8014A9A4 + role)` — the per-role part-count table
+  //   already described on role() above (6, 9, 10, 9 for roles 0..3) — and mirrored into node[9]
+  //   immediately after. game/render/node_xform.cpp's Node lens calls the same pair
+  //   childCount(0x08)/childCountGuard(0x09), which is what NodeXform's transform loops bound on.
+  uint8_t partCount() const { return mCore->mem_r8(mAt + 0x08u); }
+  // kPartTable (+0xC0): the sub-part POINTER array, one u32 per part, in the standard scene-node
+  //   place. The same init loop fills it: for each part it calls the generic child spawner
+  //   0x8007AAE8 and stores the result into node+0xC0+4*i. Read each entry through AssemblyChild
+  //   (game/ai/assembly_node.h) — it is the same CHILD-role record type the assembly's own parts use.
+  static constexpr uint32_t kPartTable = 0xC0u;
+
   // camHoldTimer (+0x40, u16): the cooldown the performance leaves behind. Guest 0x80137198 stores 30
   //   here on every path that drops back to subState 0, and this leaf counts it down one per frame,
   //   testing the SIGN OF THE LOW 16 BITS — so the release fires on the frame the counter passes
@@ -99,6 +112,9 @@ public:
 
   // FUN_80138A64 — the idle-sub-state tick. See the banner in assembly_companion.cpp.
   static void endCamHoldAndRearmOnStroke(Core* c);
+
+  // FUN_801389C8 — the per-visible-frame rig pose. See the banner in assembly_companion.cpp.
+  static void composeRigAndApplyPartScales(Core* c);
 
   static void registerOverrides();
 

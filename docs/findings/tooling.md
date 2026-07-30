@@ -757,3 +757,20 @@ remove it, or the repo accumulates dead duplicates of every handler.
   real `jr`, even when unreachable given a bounds-checked table), and do NOT write a comment claiming
   the gate requires it — it does not. State plainly that the gate cannot see it.
 - **refs:** external/psxport/tools/port_check.py GUEST_DISPATCH_RE; docs/re/collision-resolve-23d48.md
+
+## port_check is blind to `guest_fn(...)` — the call shape guest_abi.h tells new ports to use
+- **status:** found 2026-07-30, NOT fixed. False-FAIL only, so nothing already green is wrong.
+- **the defect:** port_check has `GUEST_CALL_RE` and `GUEST_DISPATCH_RE` but NO `GUEST_FN_RE`. A
+  `guest_fn(...)` call therefore falls through the extractor with `pending_ra == None` and is dropped
+  from the call list entirely, producing a call-count FAIL on a byte-correct port.
+- **why it stings:** `runtime/recomp/guest_abi.h` section 4 declares guest_fn to be "THE call shape
+  for faithful bodies... New ports use guest_fn". So the gate penalises exactly the shape the
+  framework documents as preferred. An agent hitting this will either think its port is wrong, or
+  quietly rewrite to an older shape to appease the gate — which is how a directive gets silently
+  eroded by a tool.
+- **for whoever fixes it:** the argument ORDERS differ — `guest_dispatch(c, ra, target)` versus
+  `guest_fn(c, target, ra, ...)`. A fix that assumes one order will mis-attribute ra constants.
+- **workaround used meanwhile:** `guest_dispatch` + explicit `c->r[4..7]` argument setup, which stays
+  inside what the gate can verify. Correct, just more verbose than the documented idiom.
+- **refs:** external/psxport/tools/port_check.py GUEST_CALL_RE/GUEST_DISPATCH_RE;
+  runtime/recomp/guest_abi.h section 4
