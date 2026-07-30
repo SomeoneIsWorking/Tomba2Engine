@@ -682,3 +682,34 @@ does not reproduce it" as evidence about the bug.
   here says a Cull native is wrong — only that the search has moved into code we own.
 - **refs:** generated/shard_0.c:11145-11148, shard_1.c:5917-5921 and :15029-15032, shard_3.c:17775-17778,
   shard_6.c:12842-12849; game/render/cull.cpp; claim C024
+
+## kanban #8: the candidate list is CULL QUEUE A — class 2/9 only, cap 24 — and our natives are faithful
+- **status:** RESOLVED as a question (2026-07-30). This closes "what populates the candidate list".
+- **the mechanism**, identical in all publishers (a downward-growing push, guest and native agree):
+      cnt = mem_r16s(0x1F800144)          // SIGNED read
+      if (cnt < 24) { ptr = mem_r32(0x1F80013C); ptr -= 4;   // list grows DOWNWARD
+                      mem_w32(0x1F80013C, ptr); mem_w32(ptr, obj);
+                      mem_w16(0x1F800144, cnt + 1); }
+  There are THREE such queues, stride 12, each {ptr, ?, count(halfword)}:
+      A ptr 0x1F80013C cnt 0x1F800144 cap 24 · B 0x148/0x150 cap 40 · C 0x154/0x15C cap 28
+- **WHAT GATES ENTRY (the actual answer):** Cull::enqueueByClass (0x8007703C) routes on the object CLASS
+  BYTE obj[+0x0C] — class 4 -> queue B, class 2 or 9 -> QUEUE A, class 5 -> queue C, anything else is
+  dropped with no push at all. The contact producer consumes queue A. So the candidate list is by
+  construction "the visible class-2/9 objects, at most 24 of them".
+- **OUR NATIVES ARE NOT THE BUG.** Cull::performBaseCull, enqueueByClass, enqueueQueueA,
+  enqueueVisibleClass4 and enqueueQueueC all commit the push faithfully (same signed-count read, same
+  cap gate, same decrement-then-store order). Checked line by line against the gen bodies. The earlier
+  worry was misplaced: Cull::decide is a PURE helper that deliberately makes no writes, and
+  performBaseCull is the thing registered for 0x8007712C — it applies decide()'s verdict and then does
+  commit the queue push.
+- **The byte-vs-halfword discrepancy is BENIGN — do not re-chase it.** Publishers write the count with
+  mem_w16 at 0x1F800144; the consumer 0x801130C4 reads it with mem_r8 at the same address. On this
+  little-endian target the low byte of a halfword count N < 256 lands at 0x144, and the cap is 24, so
+  the byte read is always correct. Verified by reading both bodies, not assumed.
+- **WHAT THIS MEANS FOR THE CARD:** "why are the pump beams never candidates" is now a CONTENT question,
+  not an engine one — what is the beams' class byte obj[+0x0C], and should it be 2 or 9? If the beams
+  are some other class they are dropped by enqueueByClass by design, and the contact the card is chasing
+  must arrive through a different mechanism entirely. That is the next thing to measure.
+- **refs:** game/render/cull.cpp:96-98 (queue tables), :151-169 (performBaseCull push), :214-228
+  (enqueueByClass class routing), :230-247 (enqueueQueueA); generated/shard_1.c:15022-15032,
+  shard_0.c:11138-11148; claim C024
