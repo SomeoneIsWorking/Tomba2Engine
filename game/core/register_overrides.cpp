@@ -19,6 +19,7 @@
 #include "engine.h"
 #include "mtx.h"                   // class Mtx — libgte matrix leaves (MR_init identity, 0x80051794)
 #include "placed_prop_sm.h"         // class PlacedPropSm — placed scene-prop behaviour (0x80040558)
+#include "rope_swing.h"        // class RopeSwing — hanging rope swing + segment bend (0x801281B8)
 #include "tilt_follower.h"      // class TiltFollower — half-tilt follower leaf (0x80125FE0)
 #include "contact_stamp.h"          // class ContactStamp — the kanban #8 contact producer (0x80111304)
 #include "cull_substate_native.h"  // class CullSubstateLeaves — A00 cull-substate leaf (0x80133550)
@@ -133,6 +134,7 @@ void register_engine_overrides(Game* game) {
   { extern void startup_overrides_install(); startup_overrides_install(); }  // Engine::allocRecordForSelector (0x8008913C)
   { extern void id_routed_leaves_install(); id_routed_leaves_install(); }  // id-routed state-1 common tail (0x80122BF4)
   PlacedPropSm::registerOverrides(game);              // placed scene-prop behaviour handler (0x80040558)
+  RopeSwing::registerOverrides();                      // hanging rope: spring swing + per-segment bend (0x801281B8)
   TiltFollower::registerOverrides();                   // pitch at half the owner sub-part's tilt (0x80125FE0)
   ContactStamp::registerOverrides(game);              // contact stamp producer (0x80111304)
   CullSubstateLeaves::registerOverrides(game);        // A00 cull-substate orchestrator leaf (0x80133550)

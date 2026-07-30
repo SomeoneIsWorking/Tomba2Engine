@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 67 verified · 10 partial · 12 untested · 7 n/a
+**Status:** 68 verified · 10 partial · 12 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -391,6 +391,12 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 360
 - **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_PAD_REPLAY=replays/scene-transitions/hut-entry-alt.pad
 - **evidence:** ovhit rotMatSoft oracle=8; MAT_ROTZ byte-identical f0..f360
+
+## rope-swing-1281b8
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** 50/50 identical, ovhit 2788/2788 balanced; five-mutation table rejects extra store, dropped spill, bad ra constant, deleted call and wrong frame size — and the gate additionally caught a REAL defect in the first draft (a two-site clamp where the guest converges on one store)
 
 ## ScreenFade leaf tap FUN_8007E9C8
 - **status:** verified
