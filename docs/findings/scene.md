@@ -1460,8 +1460,13 @@ kanban #36 symptom. Traced end to end; each step measured rather than assumed.
   after calling devWarpAreaLoad. A real walk-in reaches the destination through state 0; the warp
   jumps past it. So the area's data and code are resident, and nothing ever calls the area's own
   entry handler, which is what would arm its objects.
-- **This explains the symptom exactly:** the arena RENDERS (data loaded) while almost none of the
-  area's own code runs — measured at 1 of A0C's 170 functions.
+- **THAT "1 of 170" FIGURE WAS WRONG — corrected same day, and the error was mine.** `recdep` prints
+  only the TOP 40 dispatch targets by call count (`cap = cfg_dbg("recdep-all") ? v.size() : 40` in
+  overlay_router.cpp). A function called ONCE per area entry can never appear in a top-40 list
+  dominated by per-frame work, so counting A0C members of that list measured the cap, not the game.
+  Re-measured with `PSXPORT_DEBUG=recdep-all`: **17 of A0C's 170 functions are reached** after
+  `warp 12`, and the area handler 0x8010CC28 is among them. ALWAYS use recdep-all for a reach or
+  coverage question; plain recdep is a hotness ranking and nothing else.
 - **NOT YET DONE / the next step:** drive the outer-state-0 entry after the area load so the per-area
   handler fires, then re-measure A0C reach. That is a change to the dev-warp path in native_boot.cpp,
   and it should be validated by the A0C reach count going up, not by the screenshot looking right.
@@ -1474,3 +1479,22 @@ kanban #36 symptom. Traced end to end; each step measured rather than assumed.
 - **refs:** generated/shard_7.c:7636 (the only table read); game/player/actor_tomba.cpp:2304-2358;
   external/psxport/runtime/recomp/native_boot.cpp warpArmed block; generated/ov_a0c_shard_0.c
   ov_a0c_gen_8010CC28; scratch/logs/boss_probe.log
+
+### dev-warp now runs the destination area's entry handler (2026-07-30)
+Added `GameHooks::devWarpAreaEnter` (framework) -> `Sop::transitionAreaEnter` (game), called from the
+warpArmed block in native_boot.cpp after the area load. It reads the per-area handler table at
+0x800A45B8 with the area byte and dispatches the entry with a0 = ActorTomba::G_ADDR — the same
+indexing ActorTomba::enterOuterState0 does, which is the only other reader of that table in the whole
+binary. Game-side because the framework must not know where a game keeps that table; null-guarded, so
+a game without one is unaffected.
+
+VERIFIED: the handler now provably dispatches (`[sop] AREA-ENTER: area 12 -> handler 0x8010CC28`, and
+0x8010CC28 appears in a recdep-all run). SBS unaffected — 50/50 identical, zero divergence, as
+expected since the hook only fires on a dev warp and no replay warps.
+
+NOT ESTABLISHED, and deliberately not claimed: whether this INCREASED A0C reach. The pre-change
+baselines were taken with the capped `recdep` meter and are invalid as a comparison, so there is no
+sound before/after. The change is justified on its own terms — an area entered by any route should
+run its own entry handler, and it demonstrably now does — not on a measured delta. A real A/B needs a
+recdep-all baseline built from the parent commit in a SEPARATE CLONE (never a temporary revert in the
+shared tree).

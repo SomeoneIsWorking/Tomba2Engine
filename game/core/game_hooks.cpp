@@ -31,6 +31,7 @@ static void        tomba_replCamTeleportOff(Core* c)                    { eng(c)
 static void        tomba_renderBbFrameReset(Core* c)                    { rend(c)->bbFrameReset(); }
 // dev-warp full area load (was native_boot.cpp game_main's eng(c).sop.transitionAreaLoad()).
 static void        tomba_devWarpAreaLoad(Core* c)                       { eng(c).sop.transitionAreaLoad(); }
+static void        tomba_devWarpAreaEnter(Core* c)                      { eng(c).sop.transitionAreaEnter(); }
 // dev-warp area index (game/core/dev_areas.cpp) — count / sourced name / "is a warp legal now".
 static int         tomba_devAreaCount(Core*)                            { return Engine::devAreaCount(); }
 static const char* tomba_devAreaName(Core*, int area)                   { return Engine::devAreaName(area); }
@@ -234,6 +235,7 @@ extern const GameHooks g_tomba_hooks = {
   /* renderBbFrameReset */ tomba_renderBbFrameReset,
   /* replCommand        */ tomba_repl_command,
   /* devWarpAreaLoad    */ tomba_devWarpAreaLoad,
+  /* devWarpAreaEnter   */ tomba_devWarpAreaEnter,
   /* devAreaCount       */ tomba_devAreaCount,
   /* devAreaName        */ tomba_devAreaName,
   /* devWarpAllowed     */ tomba_devWarpAllowed,
