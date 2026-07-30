@@ -19,6 +19,7 @@
 #include "engine.h"
 #include "mtx.h"                   // class Mtx — libgte matrix leaves (MR_init identity, 0x80051794)
 #include "placed_prop_sm.h"         // class PlacedPropSm — placed scene-prop behaviour (0x80040558)
+#include "actor_targeting.h"     // class ActorTargeting — acquire a target (0x8001FAE0)
 #include "actor_bump.h"          // class ActorBump — bump response (0x8010EA80)
 #include "actor_object_contact.h" // class ActorObjectContact — hit / proximity contact (0x8010E258)
 #include "rope_swing.h"        // class RopeSwing — hanging rope swing + segment bend (0x801281B8)
@@ -137,6 +138,7 @@ void register_engine_overrides(Game* game) {
   { extern void startup_overrides_install(); startup_overrides_install(); }  // Engine::allocRecordForSelector (0x8008913C)
   { extern void id_routed_leaves_install(); id_routed_leaves_install(); }  // id-routed state-1 common tail (0x80122BF4)
   PlacedPropSm::registerOverrides(game);              // placed scene-prop behaviour handler (0x80040558)
+  ActorTargeting::registerOverrides();                 // acquire a target: reach, band, arc (0x8001FAE0)
   ActorBump::registerOverrides();                      // actor bump: interact / push apart / recoil (0x8010EA80)
   ActorObjectContact::registerOverrides();             // actor-vs-object hit / proximity contact (0x8010E258)
   RopeSwing::registerOverrides();                      // hanging rope: spring swing + per-segment bend (0x801281B8)

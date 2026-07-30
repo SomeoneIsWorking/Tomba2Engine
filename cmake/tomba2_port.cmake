@@ -45,6 +45,7 @@ set(GAME_SRC
   game/math/trig.cpp
   game/render/cull.cpp
   game/player/collision.cpp
+  game/player/actor_targeting.cpp       # FUN_8001FAE0 — acquire a target: reach, band, arc
   game/player/actor_tomba_pretick.cpp
     game/player/interact_scan.cpp
   game/player/hitbox.cpp
