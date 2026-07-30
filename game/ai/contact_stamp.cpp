@@ -27,11 +27,23 @@ void ContactStamp::stampAndSnap(Core* c) {
     // the same frame. Counting the RETURN separates those two, which counting calls cannot.
     if (cfg_dbg("contact")) {
       static long calls = 0, passes = 0;
+      // Distinct item pointers seen, so "the producer only ever sees one candidate" is a COUNT and
+      // not an inference from every-500th-call sampling.
+      static uint32_t seen[16] = {0}; static int nseen = 0;
+      { bool known = false;
+        for (int k = 0; k < nseen; k++) if (seen[k] == c->r[17]) { known = true; break; }
+        if (!known && nseen < 16) seen[nseen++] = c->r[17]; }
       calls++;
       if (c->r[2] != 0) passes++;
-      if ((calls % 500) == 0 || (c->r[2] != 0 && passes <= 5))
-        cfg_logf("contact", "overlap calls=%ld passes=%ld item=%08X G=%08X r2=%u",
-                 calls, passes, c->r[17], c->r[18], c->r[2]);
+      if ((calls % 500) == 0 || (c->r[2] != 0 && passes <= 5)) {
+        // The test is 0x8002300C(G, item, radius<<2). If it always rejects, the interesting inputs
+        // are the radius and how far apart the two records are — log both rather than guessing.
+        const int32_t rad = (int32_t)(int16_t)c->mem_r16(c->r[17] + 128);
+        const int32_t ix = (int16_t)c->mem_r16(c->r[17] + 0x2E), iz = (int16_t)c->mem_r16(c->r[17] + 0x36);
+        const int32_t gx = (int16_t)c->mem_r16(c->r[18] + 0x2E), gz = (int16_t)c->mem_r16(c->r[18] + 0x36);
+        cfg_logf("contact", "calls=%ld passes=%ld distinctItems=%d item=%08X rad=%d itemXZ=(%d,%d) G=%08X gXZ=(%d,%d) d=(%d,%d)",
+                 calls, passes, nseen, c->r[17], rad, ix, iz, c->r[18], gx, gz, ix - gx, iz - gz);
+      }
     }
     { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_801114DC; }
     c->mem_w8((c->r[17] + (uint32_t)43), (uint8_t)c->r[2]);
