@@ -81,5 +81,12 @@ public:
   // byte and returns a 0/1/2 verdict the sub-state ticks use as their escape signal.
   static void driveAccelSelect(Core* c);
 
+  // FUN_0x80131768 — ARM A PAIR OF SUB-PARTS BY ANGLE. Given the node, a group selector and a half-turn flag, it decides
+  static void armChildPairByAngle(Core* c);
+  // FUN_0x801314B4 — RE-PLACE THE DRIVEN PAIR FROM THE TILT ANGLE. Recomputes the two driven sub-parts' +4 field from the
+  static void drivenPairOffsetFromTilt(Core* c);
+  // FUN_0x8013892C — SPAWN THE ASSEMBLY'S COMPANION NODE. Creates a child node, seeds it at the assembly's own world
+  static void spawnInnerDispatchChild(Core* c);
+
   static void registerOverrides(Game* game);
 };

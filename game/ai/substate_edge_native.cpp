@@ -2442,7 +2442,159 @@ void SubstateEdgeLeaves::driveAccelSelect(Core* c) {
     return;
 }
 
+// FUN_0x80131768 — ARM A PAIR OF SUB-PARTS BY ANGLE. Given the node, a group selector and a half-turn flag, it decides
+// WHICH adjacent pair of child sub-parts to (re)arm and stamps state byte 1 into both. The sibling of
+// armPendingChildPair above, reached from the sub-state ticks rather than from the pending command.
+// ORACLE: ov_a00_gen_80131768
+void SubstateEdgeLeaves::armChildPairByAngle(Core* c) {
+    c->r[7] = c->r[4] + c->r[0];
+    c->r[4] = c->r[5] + c->r[0];
+    c->r[6] = c->r[6] << 16;
+    c->r[6] = (uint32_t)(c->r[0] < c->r[6]);
+    c->r[2] = (uint32_t)c->mem_r8((c->r[7] + (uint32_t)94));
+    c->r[2] = c->r[2] & 2u;
+    { int _t = (c->r[2] == c->r[0]); c->r[6] = c->r[6] << 11; if (_t) goto L_801317AC; }
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[7] + (uint32_t)108));
+    c->r[2] = c->r[5] << 16;
+    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
+    { int _t = (c->r[3] != c->r[2]);  if (_t) goto L_801317AC; }
+    c->r[2] = (uint32_t)c->mem_r16((c->r[7] + (uint32_t)110));
+    c->r[2] = c->r[2] & 4095u; goto L_801317C4;
+  L_801317AC:;
+    c->r[2] = c->r[4] << 16;
+    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 14);
+    c->r[2] = c->r[7] + c->r[2];
+    c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
+    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)12));
+  L_801317C4:;
+    c->r[3] = c->r[2] << 16;
+    c->r[3] = (uint32_t)((int32_t)c->r[3] >> 16);
+    c->r[2] = c->r[6] << 16;
+    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
+    { int _t = (c->r[3] != c->r[2]); c->r[2] = c->r[4] << 16; if (_t) goto L_801317EC; }
+    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 14);
+    c->r[4] = c->r[2] + (uint32_t)-2; goto L_801317F4;
+  L_801317EC:;
+    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 14);
+    c->r[4] = c->r[2] + (uint32_t)-4;
+  L_801317F4:;
+    c->r[2] = (uint32_t)c->mem_r16((c->r[7] + (uint32_t)96));
+    c->r[2] = c->r[2] & 2u;
+    { int _t = (c->r[2] != c->r[0]); c->r[3] = c->r[4] << 16; if (_t) goto L_80131810; }
+    c->r[4] = c->r[4] + (uint32_t)-1;
+    c->r[3] = c->r[4] << 16;
+  L_80131810:;
+    c->r[3] = (uint32_t)((int32_t)c->r[3] >> 16);
+    c->r[2] = c->r[3] << 2;
+    c->r[2] = c->r[7] + c->r[2];
+    c->r[4] = c->r[0] + (uint32_t)1;
+    c->r[3] = c->r[3] + (uint32_t)1;
+    c->r[3] = c->r[3] << 2;
+    c->r[2] = c->mem_r32((c->r[2] + (uint32_t)192));
+    c->r[3] = c->r[7] + c->r[3];
+    c->mem_w8((c->r[2] + (uint32_t)62), (uint8_t)c->r[4]);
+    c->r[2] = c->mem_r32((c->r[3] + (uint32_t)192));
+    c->mem_w8((c->r[2] + (uint32_t)62), (uint8_t)c->r[4]); return;
+    return;
+}
+
+// FUN_0x801314B4 — RE-PLACE THE DRIVEN PAIR FROM THE TILT ANGLE. Recomputes the two driven sub-parts' +4 field from the
+// assembly's current tilt. On the seaside water pump this is the step that re-positions the pair of
+// parts hanging off the beam as it tilts — the visible consequence of the angular rate the
+// accelerator selector above drives.
+// ORACLE: ov_a00_gen_801314B4
+void SubstateEdgeLeaves::drivenPairOffsetFromTilt(Core* c) {
+    c->r[29] = c->r[29] + (uint32_t)-32;
+    c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
+    c->r[16] = c->r[4] + c->r[0];
+    c->mem_w32((c->r[29] + (uint32_t)24), c->r[31]);
+    c->mem_w32((c->r[29] + (uint32_t)20), c->r[17]);
+    c->r[2] = c->mem_r32((c->r[16] + (uint32_t)196));
+    c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)8));
+    c->r[31] = 0x801314DCu;
+     rec_dispatch(c, 0x80083F50u);
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)106));
+    c->r[4] = c->mem_r32((c->r[16] + (uint32_t)196));
+    c->r[3] = c->r[3] << 12;
+    c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)8));
+    cpu_div(c, c->r[3], c->r[2]);
+    { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_801314FC; }
+    rec_break(c, 7168u);
+  L_801314FC:;
+    c->r[1] = c->r[0] + (uint32_t)-1;
+    { int _t = (c->r[2] != c->r[1]); c->r[1] = (uint32_t)32768u << 16; if (_t) goto L_80131514; }
+    { int _t = (c->r[3] != c->r[1]);  if (_t) goto L_80131514; }
+    rec_break(c, 6144u);
+  L_80131514:;
+    c->r[17] = c->lo;
+    c->r[31] = 0x80131520u;
+     rec_dispatch(c, 0x80083E80u);
+    c->r[3] = c->r[2] + c->r[0];
+    { int _t = ((int32_t)c->r[3] >= 0);  if (_t) goto L_80131530; }
+    c->r[3] = c->r[0] - c->r[3];
+  L_80131530:;
+    c->r[3] = (uint32_t)((int32_t)c->r[3] >> 6);
+    c->r[4] = c->r[17] + c->r[3];
+    c->r[3] = c->mem_r32((c->r[16] + (uint32_t)200));
+    c->r[2] = c->r[0] - c->r[4];
+    c->mem_w16((c->r[3] + (uint32_t)4), (uint16_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)96));
+    c->r[2] = c->r[2] & 2u;
+    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80131564; }
+    c->r[2] = c->mem_r32((c->r[16] + (uint32_t)204));
+    c->mem_w16((c->r[2] + (uint32_t)4), (uint16_t)c->r[4]);
+  L_80131564:;
+    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)24));
+    c->r[17] = c->mem_r32((c->r[29] + (uint32_t)20));
+    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
+    c->r[29] = c->r[29] + (uint32_t)32; return;
+    return;
+}
+
+// FUN_0x8013892C — SPAWN THE ASSEMBLY'S COMPANION NODE. Creates a child node, seeds it at the assembly's own world
+// position and gives it a per-frame behaviour. Note this is a SPAWN, not bookkeeping — the assembly
+// builds part of itself at runtime.
+// ORACLE: ov_a00_gen_8013892C
+void SubstateEdgeLeaves::spawnInnerDispatchChild(Core* c) {
+    c->r[29] = c->r[29] + (uint32_t)-24;
+    c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
+    c->r[16] = c->r[4] + c->r[0];
+    c->r[5] = c->r[0] + (uint32_t)3;
+    c->r[6] = c->r[0] + (uint32_t)4;
+    c->mem_w32((c->r[29] + (uint32_t)20), c->r[31]);
+    c->r[31] = 0x8013894Cu;
+    c->r[7] = c->r[0] + (uint32_t)10; rec_dispatch(c, 0x80072DDCu);
+    c->r[5] = c->r[2] + c->r[0];
+    { int _t = (c->r[5] == c->r[0]); c->r[2] = (uint32_t)32787u << 16; if (_t) goto L_801389B8; }
+    c->r[2] = c->r[2] + (uint32_t)28060;
+    c->mem_w32((c->r[5] + (uint32_t)28), c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)46));
+    c->mem_w16((c->r[5] + (uint32_t)46), (uint16_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)50));
+    c->mem_w16((c->r[5] + (uint32_t)50), (uint16_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)54));
+    c->mem_w16((c->r[5] + (uint32_t)54), (uint16_t)c->r[2]);
+    c->r[4] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)3));
+    { int _t = (c->r[4] == c->r[0]); c->r[2] = (uint32_t)32780u << 16; if (_t) goto L_8013899C; }
+    c->mem_w8((c->r[5] + (uint32_t)3), (uint8_t)c->r[4]); goto L_801389B8;
+  L_8013899C:;
+    c->r[3] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)-1892));
+    c->r[2] = c->r[0] + (uint32_t)2;
+    { int _t = (c->r[3] != c->r[2]); c->r[2] = c->r[0] + (uint32_t)3; if (_t) goto L_801389B4; }
+    c->mem_w8((c->r[5] + (uint32_t)3), (uint8_t)c->r[2]); goto L_801389B8;
+  L_801389B4:;
+    c->mem_w8((c->r[5] + (uint32_t)3), (uint8_t)c->r[0]);
+  L_801389B8:;
+    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)20));
+    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
+    c->r[29] = c->r[29] + (uint32_t)24; return;
+    return;
+}
+
 void SubstateEdgeLeaves::registerOverrides(Game*) {
+  engine_set_override_a00(0x80131768u, &SubstateEdgeLeaves::armChildPairByAngle, ov_a00_gen_80131768);
+  engine_set_override_a00(0x801314B4u, &SubstateEdgeLeaves::drivenPairOffsetFromTilt, ov_a00_gen_801314B4);
+  engine_set_override_a00(0x8013892Cu, &SubstateEdgeLeaves::spawnInnerDispatchChild, ov_a00_gen_8013892C);
   engine_set_override_a00(0x80130788u, &SubstateEdgeLeaves::driveAccelSelect, ov_a00_gen_80130788);
   engine_set_override_a00(0x801308E0u, &SubstateEdgeLeaves::contactWeightApply, ov_a00_gen_801308E0);
   { extern void ov_opn_gen_8018C820(Core*);

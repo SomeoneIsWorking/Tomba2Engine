@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 55 verified · 9 partial · 10 untested · 7 n/a
+**Status:** 57 verified · 9 partial · 11 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -168,6 +168,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 1500
 - **gate:** SBS full, seesaw-weight.pad
 - **evidence:** 50/50 A/B-identical; ovhit native=11120 oracle=11120 balanced; port_check PASS. RE claims self-verified against ov_a00_shard_0.c:17191-17256 because batch-5's verify agents died on server errors.
+
+## driven-pair-offset-1314b4
+- **scope:** 0x801314B4 re-place driven pair from tilt angle
+- **status:** verified
+- **frames:** 1500
+- **gate:** SBS full, seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical; ovhit native=65 oracle=65 balanced; port_check PASS.
 
 ## engine-alloc-record-selector-8913c
 - **scope:** 0x8008913C record[0]/record[1] selector over the 0x80102500 array
@@ -338,6 +345,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **gate:** PSXPORT_SBS_MODE=full PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 ./scratch/bin/tomba2_port
 - **evidence:** 7cb7bee
 
+## spawn-inner-dispatch-child-13892c
+- **scope:** 0x8013892C spawn the assembly's companion node
+- **status:** verified
+- **frames:** 1500
+- **gate:** SBS full, seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical; ovhit native=6 oracle=6 balanced; port_check PASS.
+
 ## str-compare-bytes-9a640
 - **scope:** 0x8009A640 byte compare
 - **status:** verified
@@ -444,6 +458,11 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **scope:** 0x80145C78 zone-band classifier
 - **status:** untested
 - **evidence:** Wired and build-clean, but ovhit reports native=0 oracle=0 on the seesaw-weight replay — NEVER REACHED. The batch's 50/50 A/B-identical result says nothing whatsoever about this address. Needs a scene that drives ActorZonedAttacker::gateCheck (FUN_8014047C), its only caller.
+
+## arm-child-pair-by-angle-131768
+- **scope:** 0x80131768 arm a sub-part pair by angle
+- **status:** untested
+- **evidence:** port_check PASS and build-clean, but ovhit native=0 oracle=0 — never reached by this replay, so the 50/50 result says nothing about it.
 
 ## chain-cmdclear-1313c4
 - **scope:** 0x801313C4 pending-command clear
