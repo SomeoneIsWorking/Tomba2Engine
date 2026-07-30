@@ -602,3 +602,34 @@ does not reproduce it" as evidence about the bug.
   rather than only lowering a dispatch count.
 - **refs:** docs/kanban/cards/008-*, game/ai/substate_edge_native.{h,cpp},
   game/ai/beh_substate_edge_orchestrator.cpp, scratch/screenshots/pump_state.png
+
+## kanban #8: the contact producer is gated by an AUX-LIST COUNT, not by object class
+- **symptom:** node[+0x2b] (the contact index) is never stamped nonzero, so the weight consumer
+  FUN_801308E0 is starved and the water-pump seesaw never sinks. Card #8 established the consumer and
+  found the producer (FUN_80111304) but left "why it never fires" open, with a lead that the beam's
+  class 4 excluded it from a class-9 path.
+- **status:** STRUCTURE VERIFIED from the gen bodies 2026-07-30. The class lead is NOT what gates it.
+- **what the two bodies actually do:**
+  - `ov_a00_gen_80111304` (the producer, ov_a00_shard_1.c:2994+) takes a0=other, a1=obj. It reads
+    obj+0x80 (radius) << 2, calls `rec_dispatch(0x8002300C)` — an overlap test — and if that returns
+    ZERO it jumps straight to the exit having written NOTHING. Only on a nonzero result does it do
+    `mem_w8(obj+43, 1)`, i.e. stamp the contact index. It then reads scratchpad byte 0x1F800137 and
+    only reaches the `=2` (weight) path when that byte is zero.
+  - `ov_a00_gen_801130C4` (its caller, ov_a00_shard_0.c:4411+) reads a CANDIDATE LIST POINTER from
+    scratchpad 0x1F80013C and a COUNT from 0x1F800144, copies the count into a working counter at
+    0x1F800182, and **branches past the whole loop when the count is zero**. The loop body then walks
+    the list, one candidate per iteration, calling down to the producer.
+- **consequence:** with that count at zero the producer cannot fire for ANY object — the beam's class
+  is irrelevant to this gate. Card #8's own note "Aux list count at 0x1F800144 reads 0 in the .spad at
+  the dump instant (unresolved whether that is frame-phase)" is therefore pointing at the actual gate,
+  not at a side detail.
+- **the open question, now sharp:** is 0x1F800144 zero for the whole frame, or only at the phase the
+  dump was taken? That is a MEASUREMENT, not an RE question — sample the byte across frames rather
+  than at one instant. NOTE that WWATCH cannot see scratchpad (card #8 control-verified this), so it
+  needs a REPL/dbg-server read or a purpose-built probe, and per instrument I027 any wwatch-style
+  attribution must key on `ra`, not `pc`.
+- **NOT established:** who WRITES 0x1F800144, and whether the beam would pass the 0x8002300C overlap
+  test if the list were populated. Both are unread. Nothing here says the producer is correct — only
+  that the reason it is silent is upstream of the class filter that was previously suspected.
+- **refs:** generated/ov_a00_shard_1.c:2994-3010, generated/ov_a00_shard_0.c:4411-4437,
+  docs/kanban/cards/008-*, game/ai/substate_edge_native.cpp (contactWeightApply)
