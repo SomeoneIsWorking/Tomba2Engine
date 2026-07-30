@@ -33,6 +33,23 @@ public:
   //   both 0x800BED80 and 0x800BE22A. All 8 callees stay substrate. Replaces `d0(c, 0x80075a80u)`.
   void updateTail();
 
+  // classifySlotStates(outBuf): FUN_800998E4 — fills the 24-byte status buffer updateTail's per-slot
+  //   post-check reads (the "buf[slot] filled by FUN_800998e4 at entry" this header already refers to
+  //   above). For each of 24 slots it combines TWO independent facts into one byte:
+  //     armed?  field!=0?   byte
+  //     yes     yes          1
+  //     yes     no           3
+  //     no      yes          2
+  //     no      no           0
+  //   The "armed" fact is bit i of the mask word at 0x800AC590; the "field" fact is the halfword at
+  //   +12 of entry i in the table whose base pointer lives at 0x800AC604.
+  //
+  //   NOTE THE STRIDE, because it is NOT updateTail's table: this one walks entries of SIXTEEN bytes,
+  //   while updateTail iterates the 24-entry x 12-byte table at 0x800BE238. Two different tables, both
+  //   24 entries, feeding one 24-byte status buffer. Do not merge them on the strength of the shared
+  //   count.
+  void classifySlotStates(uint32_t outBuf);
+
   // ackIfMatch(arg): FUN_80074AF0 — SIGNATURE-MATCHED slot ack primitive against the same
   // 24-entry × 12-byte slot table at 0x800BE238 that updateTail iterates. The `arg` carries the
   // entry index in its low byte (arg & 0xFF) plus a 3-byte SIGNATURE in the high bytes; if the high

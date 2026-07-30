@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 68 verified · 14 partial · 12 untested · 7 n/a
+**Status:** 69 verified · 14 partial · 12 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -52,6 +52,12 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 20040
 - **gate:** port_check PASS + MIRROR_VERIFY OK + 0 sbs-div; combat 0-diff f5400 + watch-cut f20040
 - **evidence:** d4ace056
+
+## area-slots-classify-998e4
+- **status:** verified
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** 50/50 identical, ovhit 1440/1440 balanced. All four output arms are exercised in the normal field replay (the buffer is rebuilt for 24 slots every call), so unlike most ports today this one is not partial.
 
 ## chain-opn-hook-18c820
 - **scope:** 0x8018C820 OPN-overlay assembly hook (12th chain leaf)

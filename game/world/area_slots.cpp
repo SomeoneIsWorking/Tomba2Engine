@@ -9,6 +9,25 @@
 #include "cfg.h"
 #include <cstdio>
 
+// FUN_800998E4's own table and encoding — named here rather than repeated as literals. See
+// area_slots.h::classifySlotStates for why the stride differs from updateTail's table.
+namespace {
+constexpr uint32_t kSlotCount     = 24;
+constexpr uint32_t kEntryTablePtr = 0x800AC604u;  // holds the base of the 16-byte-stride entry table
+constexpr uint32_t kArmedMaskWord = 0x800AC590u;  // bit i = slot i is armed
+constexpr uint32_t kEntryStride   = 16;
+constexpr uint32_t kEntryFieldOff = 12;           // u16 whose non-zero-ness is the second fact
+constexpr uint8_t  kArmedAndField = 1;
+constexpr uint8_t  kFieldOnly     = 2;
+constexpr uint8_t  kArmedOnly     = 3;
+constexpr uint8_t  kNeither       = 0;
+}  // namespace
+extern void gen_func_800998E4(Core*);
+// The MAIN-module setter: 0x800998E4 lives in shard_0, so direct func_800998E4(c) callers
+// (AreaSlots::updateTail's own call site among them) must be intercepted through it too.
+extern void shard_set_override(uint32_t, void (*)(Core*));
+
+
 // AreaSlots::updateTail — the last direct child of ov_field_frame at guest 0x80075A80.
 // Slot-table state machine over the 24-entry × 12-byte area at 0x800BE238; see area_slots.h for
 // the per-arm contract. All 8 callees stay substrate (FUN_800998E4 buf-fill, FUN_80092660 action
@@ -276,8 +295,58 @@ static void eov_areaSlotsUpdateCell(Core* c) {
 extern void gen_func_80074A38(Core*);
 extern void gen_func_8007496C(Core*);
 
+// ORACLE: gen_func_800998E4
+// FUN_800998E4 — see area_slots.h. Fills the 24-byte slot-status buffer updateTail consults, one byte
+// per slot, from two independent facts per slot.
+//
+// The four output values are NOT a bitfield despite looking like one: armed+field is 1, armed-only is
+// 3, field-only is 2, neither is 0. Reading it as "bit0 = armed, bit1 = field" would swap two of the
+// four cases, and this header's own updateTail notes already ascribe distinct meanings to 0 and 3.
+//
+// A pure leaf: frame_size 0, no calls, so nothing to mirror on the guest stack. The recompiled body's
+// trailing `func_80099970(c); return;` after its real `return;` is the recompiler's dead-tail artifact
+// (a folded sibling), not part of this function.
+void AreaSlots::classifySlotStates(uint32_t outBuf) {
+  Core* c = core;
+  for (uint32_t slot = 0; slot < kSlotCount; slot++) {
+    const uint32_t entry   = c->mem_r32(kEntryTablePtr) + slot * kEntryStride;
+    const uint32_t armed   = c->mem_r32(kArmedMaskWord) & (1u << slot);
+    const uint32_t field   = c->mem_r16(entry + kEntryFieldOff);
+    // FOUR separate store sites, not two ternaries: the guest has one store per arm and the
+    // equivalence gate compares STATIC store sites, so collapsing them is byte-identical in effect
+    // but fails by construction. Same trap as the rope port's clamp earlier in this session.
+    if (armed != 0) {
+      if (field != 0) c->mem_w8(outBuf + slot, kArmedAndField);
+      else            c->mem_w8(outBuf + slot, kArmedOnly);
+    } else {
+      if (field != 0) c->mem_w8(outBuf + slot, kFieldOnly);
+      else            c->mem_w8(outBuf + slot, kNeither);
+    }
+  }
+
+  // REPRODUCE THE EXIT REGISTER STATE. This leaf has no stack frame, so there is nothing to mirror
+  // there — but it is a REGISTER-STATE divergence all the same, and it is observable: the gen body
+  // uses a1..a3 and t0..t2 as loop scratch and leaves them holding the loop's final values, and a
+  // caller that spills those caller-saved registers after the call writes them into guest RAM. Left
+  // untouched, this port diverged at lockstep frame 14 in the guest stack at 0x801FE998 — a stack
+  // diff caused by registers, which is exactly the trap that reads as "impossible, I write no stack".
+  const uint32_t base = c->mem_r32(kEntryTablePtr);
+  c->r[10] = kSlotCount;                                   // t2 — the loop limit
+  c->r[9]  = kArmedOnly;                                   // t1 — 3
+  c->r[8]  = kFieldOnly;                                   // t0 — 2
+  c->r[7]  = kArmedAndField;                               // a3 — 1
+  c->r[6]  = kSlotCount;                                   // a2 — the index, at its exit value
+  c->r[5]  = outBuf + kSlotCount;                          // a1 — the output cursor, one past the end
+  c->r[4]  = base + (kSlotCount - 1) * kEntryStride;       // a0 — the last entry address
+  c->r[3]  = c->mem_r32(kArmedMaskWord) & (1u << (kSlotCount - 1));   // the last slot's armed bit
+  c->r[2]  = 0;                                            // the loop test that ended it
+}
+
+static void eov_areaSlotsClassify(Core* c) { eng(c).areaSlots.classifySlotStates(c->r[4]); }
+
 void AreaSlots::registerOverrides() {
   using overrides::install;
   install(0x80074A38u, "AreaSlots::primeCountdown", eov_areaSlotsPrime,      gen_func_80074A38);
   install(0x8007496Cu, "AreaSlots::updateCell",     eov_areaSlotsUpdateCell, gen_func_8007496C);
+  install(0x800998E4u, "AreaSlots::classifySlotStates", eov_areaSlotsClassify, gen_func_800998E4, shard_set_override);
 }
