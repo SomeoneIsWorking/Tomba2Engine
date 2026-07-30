@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 61 verified · 9 partial · 12 untested · 7 n/a
+**Status:** 62 verified · 9 partial · 12 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -103,6 +103,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
 - **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit native=7397 oracle=7397 (balanced). port_check.py PASS. The dead-stack hazard did not materialise because port_gen emits func_XXXX calls, so each callee still writes its own guest frame.
 - **owner:** game/world/collision_resolve.cpp CollisionResolve::cylinderResolve
+
+## contact-stamp-111304
+- **scope:** 0x80111304 contact stamp producer
+- **status:** verified
+- **frames:** 1500
+- **gate:** SBS full, seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical; ovhit native=1151 oracle=1151 balanced; port_check PASS.
 
 ## contact-weight-apply-1308e0
 - **scope:** 0x801308E0 contact-index to weight consumer

@@ -1,9 +1,10 @@
 ---
 id: C023
 kind: claim
-status: holds
+status: falsified
 created: 2026-07-30
 tags: ai
+falsified_on: 2026-07-30
 ---
 
 ## Claim
@@ -17,3 +18,9 @@ MEASURED 2026-07-30 over replays/bugs/seesaw-weight.pad: the byte at scratchpad 
 ## What would falsify it
 
 a sample of 0x1F800144 on a different replay or scene showing a nonzero value, or identification of a writer that sets it nonzero under conditions this replay never reaches
+
+## FALSIFIED 2026-07-30
+
+MEASURED WRONG BY ITS OWN NEXT STEP. Wiring 0x80111304 and reading ovhit shows native=1151 oracle=1151 over 1500 frames of the same replay — the producer RUNS, roughly once per frame. C023 concluded it was 'skipped for the entire replay' because the aux-list count at scratchpad 0x1F800144 is zero, which was correctly measured but wrongly generalised: 0x801130C4 is only ONE OF EIGHT distinct callers of 0x80111304 (the others being 0x801131A4, 0x801131B8, 0x801131CC, 0x801132C8, 0x801132D8, 0x801332EC, 0x80113314 — mid-loop entry clones). The zero count gates that one path, not the function. The real question therefore moves BACK to the producer's own gate: it writes item+0x2B=1 only when the overlap test 0x8002300C returns nonzero, so with 1151 calls and no nonzero contact index ever observed, either that overlap test fails every time for these objects or a clearer zeroes the stamp within the same frame. Neither is measured yet.
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.

@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 985 native fns, 835 owned addresses, 975 LIVE / 10 ORPHAN.
+Totals: 986 native fns, 836 owned addresses, 976 LIVE / 10 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -793,6 +793,7 @@ Totals: 985 native fns, 835 owned addresses, 975 LIVE / 10 ORPHAN.
 | 0x80110C14 | LIVE | `Render::fxRingSpriteRender` | game/render/fx_sprite.cpp:668 |  |  |
 | 0x80110CA4 | LIVE | `Render::fxBackdropPlaneRender` | game/render/fx_backdrop_plane.cpp:90 |  |  |
 | 0x801110BC | LIVE | `Render::fxDotFieldRender` | game/render/fx_dotfield.cpp:67 |  |  |
+| 0x80111304 | LIVE | `ContactStamp::stampAndSnap` | game/ai/contact_stamp.cpp:12 | 0x8002300C 0x80083E80 0x80083F50 0x80085690 | ORACLE: ov_a00_gen_80111304 |
 | 0x801113B4 | LIVE | `Render::fxMotionTrailRender` | game/render/fx_trail.cpp:79 |  | One joint = four quads. In all of them the two "far" vertices are BLAC… |
 | 0x80112188 | LIVE | `ActorMeleeEngage::doIt` | game/ai/actor_melee_engage.cpp:28 | 0x80022C78 0x80055844 0x80084080 |  |
 | 0x80112188 | LIVE | `ActorMeleeEngage::registerOverrides` | game/ai/actor_melee_engage.cpp:300 |  |  |

@@ -74,6 +74,7 @@ set(GAME_SRC
   game/ai/beh_substate_edge_orchestrator.cpp
   game/ai/substate_edge_native.cpp
   game/ai/cull_substate_native.cpp
+  game/ai/contact_stamp.cpp
   game/ai/node_lifecycle_sm.cpp
   game/ai/beh_jumptable_release_trigger.cpp
   game/ai/release_trigger_motion.cpp
