@@ -88,5 +88,8 @@ public:
   // FUN_0x8013892C — SPAWN THE ASSEMBLY'S COMPANION NODE. Creates a child node, seeds it at the assembly's own world
   static void spawnInnerDispatchChild(Core* c);
 
+  // FUN_0x80130D5C — the per-sub-part oscillator the driver loop ticks.
+  static void swingStrokeGroupTick(Core* c);
+
   static void registerOverrides(Game* game);
 };

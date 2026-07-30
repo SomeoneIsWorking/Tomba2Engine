@@ -326,7 +326,197 @@ void CullSubstateLeaves::tickSubstateZero(Core* c) {
     return;
 }
 
+// FUN_0x80133700 — ARMS the one-shot decaying Euler-Z swing on the node's slot-0 sub-part, and returns a 3-valued edge.
+// Gated on the contact byte node+0x29 — zero means return 0 and write nothing. Guards against
+// re-arming while node+0x78 is already nonzero, then uses the SIGN of node+0x44 to pick direction
+// (+ -> 1, - -> 2) and writes 32 into the sub-part's step field child+0x14.
+//
+// Those two writes are exactly the inputs tickChildEulerZSwing (0x80133550, above) consumes each
+// frame: it adds or subtracts child+0x14 into the accumulator by the selector, decays the step by 8,
+// and clears both when the step passes -32. So this is the ARM and that one is the TICK.
+// ORACLE: ov_a00_gen_80133700
+void CullSubstateLeaves::armChildEulerZSwing(Core* c) {
+    c->r[2] = (uint32_t)c->mem_r8((c->r[4] + (uint32_t)41));
+    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + c->r[0]; if (_t) goto L_8013376C; }
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)120));
+    { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_80133754; }
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)68));
+    { int _t = ((int32_t)c->r[2] <= 0);  if (_t) goto L_8013373C; }
+    c->r[3] = c->mem_r32((c->r[4] + (uint32_t)192));
+    c->r[2] = c->r[0] + (uint32_t)1; goto L_80133748;
+  L_8013373C:;
+    { int _t = ((int32_t)c->r[2] >= 0); c->r[2] = c->r[0] + (uint32_t)2; if (_t) goto L_80133754; }
+    c->r[3] = c->mem_r32((c->r[4] + (uint32_t)192));
+  L_80133748:;
+    c->mem_w16((c->r[4] + (uint32_t)120), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)32;
+    c->mem_w16((c->r[3] + (uint32_t)20), (uint16_t)c->r[2]);
+  L_80133754:;
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)104));
+    { int _t = (c->r[3] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_8013376C; }
+    c->r[2] = c->r[0] + (uint32_t)2; return;
+  L_8013376C:;
+     return;
+}
+
+// FUN_0x80133610 — sets the swing profile/scale parameters the arm and tick above operate with.
+// ORACLE: ov_a00_gen_80133610
+void CullSubstateLeaves::setScaleSwingProfile(Core* c) {
+    c->r[6] = c->r[4] + c->r[0];
+    c->r[5] = c->r[5] << 16;
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[6] + (uint32_t)98));
+    c->r[5] = (uint32_t)((int32_t)c->r[5] >> 16);
+    c->r[2] = c->r[2] << 5;
+    c->r[2] = c->r[2] + (uint32_t)48;
+    c->mem_w16((c->r[6] + (uint32_t)78), (uint16_t)c->r[2]);
+    c->mem_w16((c->r[6] + (uint32_t)80), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)1;
+    { int _t = (c->r[5] == c->r[2]); c->r[2] = (uint32_t)((int32_t)c->r[5] < 2); if (_t) goto L_80133690; }
+    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)2; if (_t) goto L_80133654; }
+    { int _t = (c->r[5] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)16; if (_t) goto L_80133664; }
+     return;
+  L_80133654:;
+    { int _t = (c->r[5] == c->r[2]); c->r[3] = c->r[0] + (uint32_t)64; if (_t) goto L_801336C8; }
+     return;
+  L_80133664:;
+    c->r[4] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)102));
+    c->mem_w16((c->r[6] + (uint32_t)74), (uint16_t)c->r[2]);
+    c->r[2] = c->r[4] << 16;
+    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 20);
+    c->r[3] = c->r[4] + c->r[0];
+    c->r[4] = c->r[4] - c->r[2];
+    c->r[3] = c->r[3] << 16;
+    c->r[3] = (uint32_t)((int32_t)c->r[3] >> 21);
+    c->mem_w16((c->r[6] + (uint32_t)116), (uint16_t)c->r[4]);
+    c->mem_w16((c->r[6] + (uint32_t)64), (uint16_t)c->r[3]); return;
+  L_80133690:;
+    c->r[4] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)102));
+    c->r[3] = c->r[0] + (uint32_t)32;
+    c->mem_w16((c->r[6] + (uint32_t)74), (uint16_t)c->r[3]);
+    c->r[2] = c->r[4] + c->r[0];
+    c->r[2] = c->r[2] << 16;
+    c->r[3] = c->r[4] + c->r[0];
+    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 21);
+    c->r[3] = c->r[3] << 16;
+    c->r[3] = (uint32_t)((int32_t)c->r[3] >> 22);
+    c->mem_w16((c->r[6] + (uint32_t)64), (uint16_t)c->r[2]);
+    c->r[2] = c->r[2] + c->r[3];
+    c->mem_w16((c->r[6] + (uint32_t)116), (uint16_t)c->r[4]);
+    c->mem_w16((c->r[6] + (uint32_t)64), (uint16_t)c->r[2]); return;
+  L_801336C8:;
+    c->r[4] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)102));
+    c->mem_w16((c->r[6] + (uint32_t)74), (uint16_t)c->r[3]);
+    c->r[3] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)80));
+    c->r[2] = c->r[4] + c->r[0];
+    c->r[2] = c->r[2] << 16;
+    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 19);
+    c->mem_w16((c->r[6] + (uint32_t)64), (uint16_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[6] + (uint32_t)78));
+    c->r[3] = c->r[3] + (uint32_t)112;
+    c->mem_w16((c->r[6] + (uint32_t)116), (uint16_t)c->r[4]);
+    c->mem_w16((c->r[6] + (uint32_t)80), (uint16_t)c->r[3]);
+    c->r[2] = c->r[2] + (uint32_t)112;
+    c->mem_w16((c->r[6] + (uint32_t)78), (uint16_t)c->r[2]); return;
+    return;
+}
+
+// FUN_0x801332C4 — reverses the swing when the driven value crosses, and caches the peer swing bit the sub-state-zero tick reads.
+// ORACLE: ov_a00_gen_801332C4
+void CullSubstateLeaves::reverseSwingOnCrossing(Core* c) {
+    c->r[29] = c->r[29] + (uint32_t)-32;
+    c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
+    c->r[16] = c->r[4] + c->r[0];
+    c->mem_w32((c->r[29] + (uint32_t)24), c->r[31]);
+    c->mem_w32((c->r[29] + (uint32_t)20), c->r[17]);
+    c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)3));
+    c->r[2] = c->r[2] & 192u;
+    { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[0] + c->r[0]; if (_t) goto L_80133430; }
+    c->r[5] = c->mem_r32((c->r[16] + (uint32_t)16));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[5] + (uint32_t)120));
+    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_8013330C; }
+    c->mem_w16((c->r[16] + (uint32_t)104), (uint16_t)c->r[2]); goto L_80133310;
+  L_8013330C:;
+    c->mem_w16((c->r[16] + (uint32_t)104), (uint16_t)c->r[0]);
+  L_80133310:;
+    c->r[2] = c->mem_r32((c->r[5] + (uint32_t)196));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)8));
+    c->r[4] = c->r[2] + c->r[0];
+    c->r[2] = (uint32_t)((int32_t)c->r[2] < 2049);
+    { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_80133334; }
+    c->r[4] = c->r[4] | 61440u;
+  L_80133334:;
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[5] + (uint32_t)100));
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[5] + (uint32_t)102));
+    c->r[2] = c->r[2] + c->r[3];
+    c->r[3] = c->r[2] >> 31;
+    c->r[2] = c->r[2] + c->r[3];
+    c->r[3] = c->r[4] << 16;
+    c->r[3] = (uint32_t)((int32_t)c->r[3] >> 16);
+    c->r[2] = c->r[2] << 15;
+    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
+    c->r[3] = (uint32_t)((int32_t)c->r[3] < (int32_t)c->r[2]);
+    c->r[3] = c->r[3] ^ 1u;
+    c->r[2] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)98));
+    c->r[4] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)3));
+    c->r[2] = c->r[2] & 127u;
+    { int _t = (c->r[4] == c->r[2]); c->r[17] = c->r[3] + c->r[0]; if (_t) goto L_80133380; }
+    c->r[2] = c->r[0] + (uint32_t)1;
+    c->r[17] = c->r[2] - c->r[3];
+  L_80133380:;
+    c->r[2] = c->r[0] + (uint32_t)5;
+    { int _t = (c->r[4] != c->r[2]); c->r[2] = c->r[17] << 16; if (_t) goto L_80133398; }
+    c->r[2] = c->r[0] + (uint32_t)1;
+    c->r[17] = c->r[2] - c->r[17];
+    c->r[2] = c->r[17] << 16;
+  L_80133398:;
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + (uint32_t)98));
+    c->r[4] = (uint32_t)((int32_t)c->r[2] >> 16);
+    { int _t = (c->r[4] == c->r[3]); c->r[2] = c->r[0] + (uint32_t)2; if (_t) goto L_8013342C; }
+    { int _t = (c->r[4] == c->r[0]); c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[2]); if (_t) goto L_801333E0; }
+    c->r[3] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)1));
+    c->r[2] = c->r[0] + (uint32_t)4096;
+    c->mem_w16((c->r[16] + (uint32_t)100), (uint16_t)c->r[2]);
+    c->mem_w16((c->r[16] + (uint32_t)102), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)48;
+    c->mem_w16((c->r[16] + (uint32_t)78), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)72;
+    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]);
+    { int _t = (c->r[3] == c->r[0]); c->mem_w16((c->r[16] + (uint32_t)80), (uint16_t)c->r[2]); if (_t) goto L_80133420; }
+    c->r[4] = c->r[0] + (uint32_t)144; goto L_80133414;
+  L_801333E0:;
+    c->r[3] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)1));
+    c->r[2] = c->r[0] + (uint32_t)1;
+    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)3072;
+    c->mem_w16((c->r[16] + (uint32_t)100), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)2457;
+    c->mem_w16((c->r[16] + (uint32_t)102), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)-48;
+    c->mem_w16((c->r[16] + (uint32_t)78), (uint16_t)c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)-72;
+    { int _t = (c->r[3] == c->r[0]); c->mem_w16((c->r[16] + (uint32_t)80), (uint16_t)c->r[2]); if (_t) goto L_80133420; }
+    c->r[4] = c->r[0] + (uint32_t)145;
+  L_80133414:;
+    c->r[5] = c->r[0] + c->r[0];
+    c->r[31] = 0x80133420u;
+    c->r[6] = c->r[5] + c->r[0]; rec_dispatch(c, 0x80074590u);
+  L_80133420:;
+    c->mem_w16((c->r[16] + (uint32_t)98), (uint16_t)c->r[17]);
+    c->r[2] = c->r[0] + (uint32_t)1; goto L_80133430;
+  L_8013342C:;
+    c->r[2] = c->r[0] + c->r[0];
+  L_80133430:;
+    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)24));
+    c->r[17] = c->mem_r32((c->r[29] + (uint32_t)20));
+    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
+    c->r[29] = c->r[29] + (uint32_t)32; return;
+    return;
+}
+
 void CullSubstateLeaves::registerOverrides(Game*) {
+  engine_set_override_a00(0x80133700u, &CullSubstateLeaves::armChildEulerZSwing, ov_a00_gen_80133700);
+  engine_set_override_a00(0x80133610u, &CullSubstateLeaves::setScaleSwingProfile, ov_a00_gen_80133610);
+  engine_set_override_a00(0x801332C4u, &CullSubstateLeaves::reverseSwingOnCrossing, ov_a00_gen_801332C4);
   engine_set_override_a00(0x80132A88u, &CullSubstateLeaves::tickChildEulerZSwingPhase, ov_a00_gen_80132A88);
   engine_set_override_a00(0x80132954u, &CullSubstateLeaves::tickSubstateZero,          ov_a00_gen_80132954);
   engine_set_override_a00(0x80133550u, &CullSubstateLeaves::tickChildEulerZSwing, ov_a00_gen_80133550);

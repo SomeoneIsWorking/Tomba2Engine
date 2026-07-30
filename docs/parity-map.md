@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 58 verified · 9 partial · 11 untested · 7 n/a
+**Status:** 61 verified · 9 partial · 12 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -116,6 +116,20 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 18120
 - **gate:** same wave gate; ovhit 2247/2247; §9 n<=0 return-0 fix
 - **evidence:** 7db286a8
+
+## cull-arm-eulerz-swing-133700
+- **scope:** 0x80133700 arm the one-shot decaying Euler-Z swing
+- **status:** verified
+- **frames:** 1500
+- **gate:** SBS full, seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical; ovhit native=8364 oracle=8364 balanced; port_check PASS.
+
+## cull-reverse-swing-1332c4
+- **scope:** 0x801332C4 reverse swing on crossing + cache peer swing bit
+- **status:** verified
+- **frames:** 1500
+- **gate:** SBS full, seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical; ovhit native=8364 oracle=8364 balanced; port_check PASS.
 
 ## cull-substate-zero-132954
 - **scope:** 0x80132954 sub-state-zero tick
@@ -394,6 +408,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
 - **evidence:** Batch gate: 50/50 A/B-identical, zero divergence; ovhit native=16680 oracle=16680 balanced; port_check PASS.
 
+## swing-stroke-group-tick-130d5c
+- **scope:** 0x80130D5C per-sub-part oscillator
+- **status:** verified
+- **frames:** 1500
+- **gate:** SBS full, seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical; ovhit native=11152 oracle=11152 balanced; port_check PASS.
+
 ## TileGridLayer scrollStep+emit (0x8011534C/0x80115598)
 - **status:** verified
 - **frames:** 20820
@@ -485,6 +506,11 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **scope:** 0x80130524 sub-state 3 tick
 - **status:** untested
 - **evidence:** port_check PASS and build-clean, but ovhit native=0 oracle=0 on the seesaw-weight replay — never reached, so the 50/50 batch result says nothing about this address.
+
+## cull-set-scale-swing-133610
+- **scope:** 0x80133610 swing profile/scale setter
+- **status:** untested
+- **evidence:** port_check PASS and build-clean, but ovhit native=0 oracle=0 — never reached by this replay.
 
 ## render-billboard-c788
 - **status:** untested

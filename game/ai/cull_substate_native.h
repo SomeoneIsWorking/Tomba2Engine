@@ -23,5 +23,12 @@ public:
   // FUN_80132954 — sub-state-zero tick. Replaces a 6-defect draft.
   static void tickSubstateZero(Core* c);
 
+  // FUN_0x80133700 — ARMS the one-shot decaying Euler-Z swing on the node's slot-0 sub-part, and returns a 3-valued edge.
+  static void armChildEulerZSwing(Core* c);
+  // FUN_0x80133610 — sets the swing profile/scale parameters the arm and tick above operate with.
+  static void setScaleSwingProfile(Core* c);
+  // FUN_0x801332C4 — reverses the swing when the driven value crosses, and caches the peer swing bit the sub-state-zero tick reads.
+  static void reverseSwingOnCrossing(Core* c);
+
   static void registerOverrides(Game* game);
 };

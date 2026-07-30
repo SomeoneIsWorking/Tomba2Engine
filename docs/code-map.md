@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 981 native fns, 831 owned addresses, 971 LIVE / 10 ORPHAN.
+Totals: 985 native fns, 835 owned addresses, 975 LIVE / 10 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -819,9 +819,9 @@ Totals: 981 native fns, 831 owned addresses, 971 LIVE / 10 ORPHAN.
 | 0x8011CBD0 | LIVE | `beh_node3_router` | game/ai/beh_node3_router.cpp:38 |  |  |
 | 0x8011D578 | LIVE | `beh_variant_actor_sm` | game/ai/beh_variant_actor_sm.cpp:50 |  |  |
 | 0x8011D988 | LIVE | `beh_actor_move_sm` | game/ai/beh_actor_move_sm.cpp:53 |  |  |
-| 0x80121978 | LIVE | `beh_id_routed_dispatch` | game/ai/beh_id_routed_dispatch.cpp:100 |  |  |
+| 0x80121978 | LIVE | `beh_id_routed_dispatch` | game/ai/beh_id_routed_dispatch.cpp:113 |  |  |
 | 0x80122974 | LIVE | `Render::tetherLineRender` | game/render/fx_line.cpp:288 |  | the TETHER: one rope from this object to an anchor chosen by node+0x47… |
-| 0x80122BF4 | LIVE | `beh_id_routed_offset_point` | game/ai/beh_id_routed_dispatch.cpp:56 | 0x800844C0 | FUN_0x80122BF4 — keeps a point pinned 119 world units ABOVE a linked o… |
+| 0x80122BF4 | LIVE | `beh_id_routed_offset_point` | game/ai/beh_id_routed_dispatch.cpp:69 | 0x800844C0 | FUN_0x80122BF4 — keeps a point pinned 119 world units ABOVE a linked o… |
 | 0x80123E9C | LIVE | `ReleaseTriggerMotion::hoverBobCycle` | game/ai/release_trigger_motion.cpp:75 | 0x80077B5C | ----------------------------------------------------------------------… |
 | 0x801241BC | LIVE | `ReleaseTriggerMotion::leaderFollowSync` | game/ai/release_trigger_motion.cpp:137 | 0x80051D90 0x80123C94 0x8012400C | ----------------------------------------------------------------------… |
 | 0x80124328 | LIVE | `ReleaseTriggerMotion::xSweepCycle` | game/ai/release_trigger_motion.cpp:513 |  | a per-frame X-sweep cycle on the release-trigger object. 6,355 substra… |
@@ -866,6 +866,7 @@ Totals: 981 native fns, 831 owned addresses, 971 LIVE / 10 ORPHAN.
 | 0x80130788 | LIVE | `SubstateEdgeLeaves::driveAccelSelect` | game/ai/substate_edge_native.cpp:2383 |  | FUN_0x80130788 — THE ANGULAR-ACCELERATION SELECTOR for a multi-part as… |
 | 0x801308E0 | LIVE | `SubstateEdgeLeaves::contactWeightApply` | game/ai/substate_edge_native.cpp:2256 | 0x80074590 | FUN_0x801308E0 — THE CONTACT-TO-WEIGHT CONSUMER, and the reason this w… |
 | 0x80130AC4 | LIVE | `SubstateEdgeLeaves::visibilityGate` | game/ai/substate_edge_native.cpp:62 | 0x80077A4C | ORACLE: ov_a00_gen_80130AC4 |
+| 0x80130D5C | LIVE | `SubstateEdgeLeaves::swingStrokeGroupTick` | game/ai/substate_edge_native.cpp:2603 | 0x80074590 | FUN_0x80130D5C — the PER-SUB-PART OSCILLATOR the driver loop ticks. ti… |
 | 0x80131134 | LIVE | `SubstateEdgeLeaves::armPendingChildPair` | game/ai/substate_edge_native.cpp:272 |  | ORACLE: ov_a00_gen_80131134 |
 | 0x801313C4 | LIVE | `SubstateEdgeLeaves::angleLimitGate` | game/ai/substate_edge_native.cpp:2017 |  | FUN_0x801313C4 — ANGLE-LIMIT GATE. RENAMED after reading it: I had cal… |
 | 0x801314B4 | LIVE | `SubstateEdgeLeaves::drivenPairOffsetFromTilt` | game/ai/substate_edge_native.cpp:2511 | 0x80083E80 0x80083F50 | FUN_0x801314B4 — RE-PLACE THE DRIVEN PAIR FROM THE TILT ANGLE. Recompu… |
@@ -880,7 +881,10 @@ Totals: 981 native fns, 831 owned addresses, 971 LIVE / 10 ORPHAN.
 | 0x80132D58 | ORPHAN | `func_80132D58` | game/ai/beh_cull_substate_leaves.cpp:162 | 0x80051B04 0x80133610 0x80133700 0x80133774 | func_80132D58 — DRAFT. RE'd from generated/ov_a00_shard_0.c gen_80132D… |
 | 0x80132EDC | ORPHAN | `func_80132EDC` | game/ai/beh_cull_substate_leaves.cpp:323 | 0x80133610 0x80133700 0x80133774 | func_80132EDC — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_80132E… |
 | 0x80133184 | ORPHAN | `func_80133184` | game/ai/beh_cull_substate_leaves.cpp:237 | 0x80027144 0x80040B48 0x8004ED94 0x80074590 | func_80133184 — DRAFT. RE'd from generated/ov_a00_shard_0.c gen_801331… |
+| 0x801332C4 | LIVE | `CullSubstateLeaves::reverseSwingOnCrossing` | game/ai/cull_substate_native.cpp:425 | 0x80074590 | FUN_0x801332C4 — reverses the swing when the driven value crosses, and… |
 | 0x80133550 | LIVE | `CullSubstateLeaves::tickChildEulerZSwing` | game/ai/cull_substate_native.cpp:36 |  | per-frame tick of the decaying swing on a child record's Euler Z. Prof… |
+| 0x80133610 | LIVE | `CullSubstateLeaves::setScaleSwingProfile` | game/ai/cull_substate_native.cpp:364 |  | FUN_0x80133610 — sets the swing profile/scale parameters the arm and t… |
+| 0x80133700 | LIVE | `CullSubstateLeaves::armChildEulerZSwing` | game/ai/cull_substate_native.cpp:338 |  | FUN_0x80133700 — ARMS the one-shot decaying Euler-Z swing on the node'… |
 | 0x80133C14 | LIVE | `beh_typed_table_seed_gate` | game/ai/beh_typed_table_seed_gate.cpp:299 |  |  |
 | 0x80133D6C | LIVE | `beh_twin_record_steer` | game/ai/beh_twin_record_steer.cpp:68 |  |  |
 | 0x80134FD8 | LIVE | `beh_multi_record_phase_machine` | game/ai/beh_multi_record_phase_machine.cpp:66 |  |  |
