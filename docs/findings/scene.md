@@ -1526,3 +1526,29 @@ machine run to the point of teardown and only then force the load — do NOT jus
 
 NO REGRESSION: the ordinary no-warp SBS gate still reports 50/50 A/B identical, zero divergence, so
 the change is safe to leave in while the teardown half is solved.
+
+### DEAD END: you cannot fix the SBS cross-overlay warp by REORDERING the load (tried 2026-07-30)
+Recorded so the next session does not spend the same hour. Two orderings were tried; both fail, and
+they fail in OPPOSITE ways, which is what makes the frame-delay idea unfixable rather than untuned:
+
+- **Load first, then write the door record** (this is what is committed): both cores DO reach the
+  destination — `WARP fired ... (curA=12 curB=12)` — but the run then misses the A00 address
+  0x801158E0. A node left over from the field area still carries its old-overlay handler and the
+  entity walk dispatches it into the now-resident A0C. The up-front load pre-empted the area machine's
+  teardown of the old area's object tasks.
+- **Door record first, load deferred by 60 frames** (tried, reverted, NOT committed): the teardown
+  gets its chance, but the machine dispatches the per-area handler well inside those 60 frames, so the
+  miss returns to 0x8010CC28 with `curA=0 curB=0` — i.e. worse than the committed version.
+
+So the teardown and the per-area handler dispatch BOTH happen inside the same short window, and there
+is no delay value that sits between them reliably. Picking one would be a magic constant tuned to one
+replay — the exact thing CLAUDE.md bans — and it would silently rot the moment the timing shifted.
+
+**Do not tune the delay.** The real question, still unanswered, is why the game's OWN area machine
+does not bring the destination overlay in under SBS when it evidently does in real play. That is where
+the next attempt should go: instrument the machine's load path (sm[0x4c] cycle, the CD/overlay read)
+on the SBS leg and find where it diverges from the REPL-warp leg, rather than forcing the load from
+outside. Three attempts have now failed from the outside; the fourth should go inside.
+
+Kept: the committed load-first version, because it is strictly closer (both cores reach the area) and
+the ordinary no-warp gate is unaffected at 50/50 identical, zero divergence.
