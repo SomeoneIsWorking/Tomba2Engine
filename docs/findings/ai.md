@@ -807,3 +807,45 @@ CONSEQUENCE: the ~17 reachable idle-set functions are real and portable, but the
 by this route yet. Do not cite SBS_WARP as an area-12 gate without re-testing it. It was built for
 kanban #37 (a hut entry) and evidently works there; area 12 needs the overlay load the door-record
 path lacks.
+
+## The seaside "pump" is ONE COMPOSITE OBJECT, and several of today's ports are its layers
+First node-to-port correlation done by LOOKING at the game rather than at the disassembly, prompted by
+the USER asking whether I actually knew what I was porting. Short answer at the time: the mechanics
+yes, the object no. This closes part of that gap and states plainly what is still open.
+
+**Method** (repeatable, cheap): run `replays/bugs/seesaw-weight.pad` headless under the REPL, `skip`
+to a settled frame, `ents` for every live node's handler + world position, and `shot` a PNG at the same
+instant. Then match positions. Screens: scratch/screenshots/ident/f600.png, f1400.png.
+
+**At f1400 Tomba stands at (6020,-1124,3963), and there is a VERTICAL STACK of nodes beside him.**
+Y grows DOWNWARD in this game, so more negative is higher up:
+
+  node       Y      handler / name                     what owns it now
+  800FB858  -460    8012EB54 substate_edge_orchestrator the assembly itself (kanban #8's subject)
+  800FCCF8  -1214   80136D9C pure_inner_dispatch        AssemblyCompanion (0x80138A64 / 0x801389C8)
+  800FF518  -1560   80125E0C pure_substate_dispatch     the CALLER of TiltFollower (0x80125FE0)
+  800EDF38  -1973   8004C238 visibility_gate_dispatch   AssemblyRider (0x80118B10)
+
+So four of today's ports are not scattered leaves — they are the LAYERS OF ONE COMPOSITE OBJECT at the
+seaside, stacked bottom to top. 800EDF38 is the same node the rider port identified independently from
+the committed RAM dumps, which is a genuine cross-check: two different routes, same node.
+
+**What the screenshot shows at that spot:** a tall DIAGONAL WOODEN POST with horizontal rungs
+(ladder-like), carrying a CREAM/TAN BULBOUS OBJECT at its top; Tomba is standing on a blue barrel with
+a red rim; a thatched hut sits behind. The stack's ordering is consistent with the rider being that
+topmost bulbous object, since it is the highest node of the four.
+
+**NOT CLAIMED, deliberately.** I am not naming the visible object from a 320x240 headless capture.
+docs/areas.md's naming rule applies to objects as much as areas: an offset or a position is a fact, a
+NAME is a claim that needs a source (USER, or guest data). "Water pump" has been used loosely in this
+repo's notes for this assembly and I have not found a source for it either — treat it as a label of
+convenience, not an identification. Whoever gets ground truth should rename the whole family at once.
+
+**What this DOES buy, concretely:** any future port under one of these four handlers can be placed in
+the composite immediately, and a behaviour that looks odd can be checked against the right thing on
+screen instead of reasoned about abstractly.
+
+**Generalise the method:** most of this project's 46 live field handlers carry STRUCTURAL names
+(substate_edge_orchestrator, scatter_record_dither, jumptable_release_trigger) rather than game names,
+because they were all named from the disassembly. `ents` + `shot` at the same frame is the cheapest way
+to attach a real-world identity to any of them.
