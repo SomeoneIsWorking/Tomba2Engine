@@ -80,6 +80,7 @@ set(GAME_SRC
   game/ai/sway_schedule.cpp             # FUN_8012D27C — rocking rate winds down over the area's event sequence
   game/ai/rope_swing.cpp                # FUN_801281B8 — hanging rope: spring swing + per-segment bend
   game/ai/actor_object_contact.cpp      # FUN_8010E258 — actor-vs-object hit / proximity contact
+  game/ai/actor_bump.cpp                # FUN_8010EA80 — actor bump: interact / push apart / recoil
   game/ai/contact_stamp.cpp
   game/ai/placed_prop_sm.cpp
   game/ai/beh_jumptable_release_trigger.cpp

@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 68 verified · 12 partial · 12 untested · 7 n/a
+**Status:** 68 verified · 13 partial · 12 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -477,6 +477,12 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 1500
 - **gate:** PSXPORT_SBS_MODE=full ... PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
 - **evidence:** Batch gate: 50/50 A/B-identical, zero divergence; ovhit native=349 oracle=349 balanced.
+
+## actor-bump-10ea80
+- **status:** partial
+- **frames:** 1500
+- **gate:** PSXPORT_SBS_MODE=full PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad
+- **evidence:** 50/50 identical, ovhit 1511/1511 balanced; five mutations rejected. PARTIAL: three response branches and this replay cannot exercise all of them — the special-interaction arm needs state-flag bit 15 set and the recoil arm needs the other object NOT in state 1 plus a clear contact-kind byte. A 0-diff says nothing about whichever arms did not run.
 
 ## actor-object-contact-10e258
 - **status:** partial
