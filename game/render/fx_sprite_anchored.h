@@ -1,11 +1,11 @@
-// game/render/fx_sprite_anchored.h — FUN_80027CB4, the SINGLE-ANCHOR member of the FUN_80027A4C
-// world-anchored scaled-sprite family.
+// game/render/fx_sprite_anchored.h — FUN_80027CB4 and FUN_80027E5C, the two SINGLE-ANCHOR members of
+// the FUN_80027A4C world-anchored scaled-sprite family.
 //
-// See fx_sprite_anchored.cpp for the identification evidence and for what separates this emitter
-// from its two siblings. This header holds only the typed LENS over the render node, plus a named
-// constant for every field offset, so the body reads as "project this node's anchor and stamp its
-// sprite cluster there" rather than as a run of mem_r32(base + 0x2C). The five-word scratchpad
-// handoff every member of the family shares lives in fx_sprite_publish.h.
+// See fx_sprite_anchored.cpp for the identification evidence and for what separates these two
+// emitters from each other and from the swarm sibling. This header holds only the typed LENS over the
+// render node, plus a named constant for every field offset, so the bodies read as "project this
+// node's anchor and stamp its sprite cluster there" rather than as a run of mem_r32(base + 0x2C). The
+// five-word scratchpad handoff every member of the family shares lives in fx_sprite_publish.h.
 //
 // The one write accessor is deliberately a ONE-LINER: tools/port_check.py harvests a lens setter's
 // mem_wN width by regex, so `node.setRecordTail(v)` counts as exactly the store it performs. A
@@ -18,11 +18,15 @@
 class Game;
 
 // ------------------------------------------------------------------------------------------------
-// The type-0x20 RENDER NODE this member hangs off. The field object walk dispatches the node's own
-// render fn at +0x18; for this member that fn is 0x80027CB4. Unlike the swarm sibling there is no
-// particle array — the node's OWN world transform is the one and only anchor, so the whole cluster
-// is stamped once, at one place on screen.
+// The type-0x20 RENDER NODE these members hang off. The field object walk dispatches the node's own
+// render fn at +0x18; for these members that fn is 0x80027CB4 or 0x80027E5C. Unlike the swarm sibling
+// there is no particle array — the node's OWN world transform is the one and only anchor, so the
+// whole cluster is stamped once, at one place on screen.
 namespace fxanchored {
+// The node's own SIZE BYTE, read by 0x80027E5C only. It is a 4.4 fixed-point multiplier on the
+// depth-derived scale (see kScaleByteShift in the .cpp), so 16 means "leave the size alone" and the
+// value the controllers actually write, 8-ish, means "half". 0x80027CB4 never reads it.
+constexpr uint32_t kScaleByte     = 0x06;  // u8  — per-node size multiplier, 4.4 fixed point
 constexpr uint32_t kWorldAnchorXY = 0x2C;  // u32 — packed world VX (lo16) | VY (hi16)
 // The Z word does double duty, exactly the way the swarm's particle records pack their size into
 // the high half: the emitter feeds the WHOLE 32-bit word to the GTE's VZ0 (which consumes only the
@@ -39,6 +43,7 @@ struct FxAnchoredNode {
   Core* mCore;
   uint32_t mBase;
 
+  uint32_t scaleByte()     const { return mCore->mem_r8(mBase + fxanchored::kScaleByte); }
   uint32_t worldAnchorXY() const { return mCore->mem_r32(mBase + fxanchored::kWorldAnchorXY); }
   uint32_t worldAnchorZ()  const { return mCore->mem_r32(mBase + fxanchored::kWorldAnchorZ); }
   int32_t  otBias()        const { return mCore->mem_r16s(mBase + fxanchored::kOtBias); }
@@ -50,15 +55,23 @@ struct FxAnchoredNode {
 };
 
 // ------------------------------------------------------------------------------------------------
-// The SINGLE-ANCHOR half of the family: one cluster, stamped at the node's own world position.
-// FUN_80027E5C — identical in shape, differing only by a `* (u8)node+6 >> 4` on the scale — belongs
-// in this class as a second method when it is ported.
+// The SINGLE-ANCHOR half of the family: one cluster, stamped at the node's own world position. Both
+// members share this class because they share everything except the last three stores before the
+// writer call — but they are NOT factored into a common helper on purpose: port_check harvests each
+// method's guest stores from its own body, and the shared prologue/OT-gate stores would vanish from
+// both width sequences the moment they moved into a callee. Two guest functions, two full bodies.
 class FxSpriteAnchored {
 public:
   // FUN_80027CB4 — project the node's own world anchor and stamp its sprite cluster there at the
   // UNIFORM depth-derived scale (no per-node and no per-particle size multiplier: the sprite's size
   // is purely a function of how far away it is). a0 = the type-0x20 render node.
   static void emitUniformScale(Core* c);
+
+  // FUN_80027E5C — the same single stamp at the same anchor, but the depth-derived scale is then
+  // multiplied by the node's OWN size byte (node+6) as 4.4 fixed point. Two sprites the same
+  // distance away can therefore be different sizes, and stay their own size for the node's whole
+  // life. a0 = the type-0x20 render node.
+  static void emitByteScale(Core* c);
 
   static void registerOverrides(Game* game);
 
