@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 57 verified · 9 partial · 11 untested · 7 n/a
+**Status:** 58 verified · 9 partial · 11 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -230,6 +230,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
 - **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit native=14675 oracle=14675 (balanced). Plus a headless frame at f1400 byte-identical to the pre-change capture, which matters because this body drives the GTE and SBS does not compare COP2 state.
 - **owner:** game/math/wide_re_gte_transform3.cpp GteTransform3::rotate3AndPackIr
+
+## id-routed-offset-point-122bf4
+- **scope:** 0x80122BF4 pin a point above a linked node in its rotated frame
+- **status:** verified
+- **frames:** 1500
+- **gate:** SBS full, seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical; ovhit native=2819 oracle=2819 balanced; port_check PASS.
 
 ## input-set-voice-volume-92e3c
 - **scope:** 0x80092E3C SPU voice-attribute volume stage

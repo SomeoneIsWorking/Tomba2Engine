@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 980 native fns, 830 owned addresses, 970 LIVE / 10 ORPHAN.
+Totals: 981 native fns, 831 owned addresses, 971 LIVE / 10 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -819,8 +819,9 @@ Totals: 980 native fns, 830 owned addresses, 970 LIVE / 10 ORPHAN.
 | 0x8011CBD0 | LIVE | `beh_node3_router` | game/ai/beh_node3_router.cpp:38 |  |  |
 | 0x8011D578 | LIVE | `beh_variant_actor_sm` | game/ai/beh_variant_actor_sm.cpp:50 |  |  |
 | 0x8011D988 | LIVE | `beh_actor_move_sm` | game/ai/beh_actor_move_sm.cpp:53 |  |  |
-| 0x80121978 | LIVE | `beh_id_routed_dispatch` | game/ai/beh_id_routed_dispatch.cpp:42 |  |  |
+| 0x80121978 | LIVE | `beh_id_routed_dispatch` | game/ai/beh_id_routed_dispatch.cpp:100 |  |  |
 | 0x80122974 | LIVE | `Render::tetherLineRender` | game/render/fx_line.cpp:288 |  | the TETHER: one rope from this object to an anchor chosen by node+0x47… |
+| 0x80122BF4 | LIVE | `beh_id_routed_offset_point` | game/ai/beh_id_routed_dispatch.cpp:56 | 0x800844C0 | FUN_0x80122BF4 — keeps a point pinned 119 world units ABOVE a linked o… |
 | 0x80123E9C | LIVE | `ReleaseTriggerMotion::hoverBobCycle` | game/ai/release_trigger_motion.cpp:75 | 0x80077B5C | ----------------------------------------------------------------------… |
 | 0x801241BC | LIVE | `ReleaseTriggerMotion::leaderFollowSync` | game/ai/release_trigger_motion.cpp:137 | 0x80051D90 0x80123C94 0x8012400C | ----------------------------------------------------------------------… |
 | 0x80124328 | LIVE | `ReleaseTriggerMotion::xSweepCycle` | game/ai/release_trigger_motion.cpp:513 |  | a per-frame X-sweep cycle on the release-trigger object. 6,355 substra… |
@@ -860,16 +861,16 @@ Totals: 980 native fns, 830 owned addresses, 970 LIVE / 10 ORPHAN.
 | 0x8012ED84 | LIVE | `SubstateEdgeLeaves::stateZeroInit` | game/ai/substate_edge_native.cpp:612 | 0x8004CBD8 0x8007AAE8 | FUN_0x8012ED84 — STATE 0 INIT. Verified against the body: it seeds the… |
 | 0x8012F494 | LIVE | `SubstateEdgeLeaves::substate0Tick` | game/ai/substate_edge_native.cpp:366 |  | the orchestrator's node[5]==0 sub-state tick. 14,833 substrate dispatc… |
 | 0x8012F5B4 | LIVE | `SubstateEdgeLeaves::substate1Tick` | game/ai/substate_edge_native.cpp:1022 | 0x80074590 0x80074AF0 0x80083E80 | FUN_0x8012F5B4 — SUB-STATE 1 TICK: the assembly's driven phase. Profil… |
-| 0x8012FD88 | LIVE | `SubstateEdgeLeaves::substate2Tick` | game/ai/substate_edge_native.cpp:1456 | 0x8004CBD8 0x80074590 0x80077768 | FUN_0x8012FD88 — SUB-STATE 2 TICK: an angle-steering phase. Writes the… |
-| 0x80130524 | LIVE | `SubstateEdgeLeaves::substate3Tick` | game/ai/substate_edge_native.cpp:1866 | 0x80077768 | FUN_0x80130524 — SUB-STATE 3 TICK, and the one that reaches the weight… |
-| 0x80130788 | LIVE | `SubstateEdgeLeaves::driveAccelSelect` | game/ai/substate_edge_native.cpp:2378 |  | FUN_0x80130788 — THE ANGULAR-ACCELERATION SELECTOR for a multi-part as… |
-| 0x801308E0 | LIVE | `SubstateEdgeLeaves::contactWeightApply` | game/ai/substate_edge_native.cpp:2251 | 0x80074590 | FUN_0x801308E0 — THE CONTACT-TO-WEIGHT CONSUMER, and the reason this w… |
+| 0x8012FD88 | LIVE | `SubstateEdgeLeaves::substate2Tick` | game/ai/substate_edge_native.cpp:1461 | 0x8004CBD8 0x80074590 0x80077768 | FUN_0x8012FD88 — SUB-STATE 2 TICK: an angle-steering phase. Writes the… |
+| 0x80130524 | LIVE | `SubstateEdgeLeaves::substate3Tick` | game/ai/substate_edge_native.cpp:1871 | 0x80077768 | FUN_0x80130524 — SUB-STATE 3 TICK, and the one that reaches the weight… |
+| 0x80130788 | LIVE | `SubstateEdgeLeaves::driveAccelSelect` | game/ai/substate_edge_native.cpp:2383 |  | FUN_0x80130788 — THE ANGULAR-ACCELERATION SELECTOR for a multi-part as… |
+| 0x801308E0 | LIVE | `SubstateEdgeLeaves::contactWeightApply` | game/ai/substate_edge_native.cpp:2256 | 0x80074590 | FUN_0x801308E0 — THE CONTACT-TO-WEIGHT CONSUMER, and the reason this w… |
 | 0x80130AC4 | LIVE | `SubstateEdgeLeaves::visibilityGate` | game/ai/substate_edge_native.cpp:62 | 0x80077A4C | ORACLE: ov_a00_gen_80130AC4 |
 | 0x80131134 | LIVE | `SubstateEdgeLeaves::armPendingChildPair` | game/ai/substate_edge_native.cpp:272 |  | ORACLE: ov_a00_gen_80131134 |
-| 0x801313C4 | LIVE | `SubstateEdgeLeaves::angleLimitGate` | game/ai/substate_edge_native.cpp:2012 |  | FUN_0x801313C4 — ANGLE-LIMIT GATE. RENAMED after reading it: I had cal… |
-| 0x801314B4 | LIVE | `SubstateEdgeLeaves::drivenPairOffsetFromTilt` | game/ai/substate_edge_native.cpp:2506 | 0x80083E80 0x80083F50 | FUN_0x801314B4 — RE-PLACE THE DRIVEN PAIR FROM THE TILT ANGLE. Recompu… |
+| 0x801313C4 | LIVE | `SubstateEdgeLeaves::angleLimitGate` | game/ai/substate_edge_native.cpp:2017 |  | FUN_0x801313C4 — ANGLE-LIMIT GATE. RENAMED after reading it: I had cal… |
+| 0x801314B4 | LIVE | `SubstateEdgeLeaves::drivenPairOffsetFromTilt` | game/ai/substate_edge_native.cpp:2511 | 0x80083E80 0x80083F50 | FUN_0x801314B4 — RE-PLACE THE DRIVEN PAIR FROM THE TILT ANGLE. Recompu… |
 | 0x801316CC | LIVE | `SubstateEdgeLeaves::tickChildOscillators` | game/ai/substate_edge_native.cpp:214 |  | ORACLE: ov_a00_gen_801316CC |
-| 0x80131768 | LIVE | `SubstateEdgeLeaves::armChildPairByAngle` | game/ai/substate_edge_native.cpp:2449 |  | FUN_0x80131768 — ARM A PAIR OF SUB-PARTS BY ANGLE. Given the node, a g… |
+| 0x80131768 | LIVE | `SubstateEdgeLeaves::armChildPairByAngle` | game/ai/substate_edge_native.cpp:2454 |  | FUN_0x80131768 — ARM A PAIR OF SUB-PARTS BY ANGLE. Given the node, a g… |
 | 0x80131D08 | LIVE | `beh_two_child_steer` | game/ai/beh_two_child_steer.cpp:48 |  |  |
 | 0x80132400 | LIVE | `beh_single_child_cull` | game/ai/beh_single_child_cull.cpp:44 |  |  |
 | 0x8013259C | LIVE | `beh_cull_substate_orchestrator` | game/ai/beh_cull_substate_orchestrator.cpp:52 | 0x8013272C 0x80132954 0x80132A88 0x80132D58 0x80132EDC 0x80133184 … |  |
@@ -890,7 +891,7 @@ Totals: 980 native fns, 830 owned addresses, 970 LIVE / 10 ORPHAN.
 | 0x80136158 | LIVE | `beh_sine_motion_sfx` | game/ai/beh_sine_motion_sfx.cpp:56 | 0x8004766C 0x80048750 |  |
 | 0x80136954 | LIVE | `beh_event_record_machine` | game/ai/beh_event_record_machine.cpp:57 |  |  |
 | 0x80136D9C | LIVE | `beh_pure_inner_dispatch` | game/ai/beh_pure_inner_dispatch.cpp:39 |  |  |
-| 0x8013892C | LIVE | `SubstateEdgeLeaves::spawnInnerDispatchChild` | game/ai/substate_edge_native.cpp:2558 | 0x80072DDC | FUN_0x8013892C — SPAWN THE ASSEMBLY'S COMPANION NODE. Creates a child … |
+| 0x8013892C | LIVE | `SubstateEdgeLeaves::spawnInnerDispatchChild` | game/ai/substate_edge_native.cpp:2563 | 0x80072DDC | FUN_0x8013892C — SPAWN THE ASSEMBLY'S COMPANION NODE. Creates a child … |
 | 0x80138FC8 | LIVE | `beh_typed_jumptable_pair` | game/ai/beh_typed_jumptable_pair.cpp:70 | 0x8004ED94 0x80138B04 0x80138C70 |  |
 | 0x801395C0 | LIVE | `beh_sibling_angle_track` | game/ai/beh_sibling_angle_track.cpp:63 |  |  |
 | 0x80139728 | LIVE | `beh_a06_fade_flash_ramp_80139728` | game/ai/beh_a06_script_fades.cpp:87 |  |  |
@@ -942,9 +943,9 @@ Totals: 980 native fns, 830 owned addresses, 970 LIVE / 10 ORPHAN.
 | 0x801458E0 | LIVE | `AttackOrbitSubstate::orbitTargetMotion` | game/ai/attack_orbit_substate.cpp:44 |  | node[3]==0x81 sub-behavior: 6-phase acquire/orbit machine, see header … |
 | 0x80145AF0 | LIVE | `AttackOrbitSubstate::aimAtTargetAnchor` | game/ai/attack_orbit_substate.cpp:126 |  | node[3]==0x80 sub-behavior: aim-point recompute + one-shot attack-wind… |
 | 0x80145C78 | LIVE | `ActorZonedAttacker::zoneClassify` | game/ai/actor_zoned_attacker.cpp:1258 |  | classifies (u8 at record+0x2A, s16 at record+0x36) into a {0,1,2} zone… |
-| 0x80146348 | LIVE | `SubstateEdgeLeaves::assemblyPostTick` | game/ai/substate_edge_native.cpp:2069 | 0x80072DDC | FUN_0x80146348 — ASSEMBLY POST-TICK. Its one call is Placement::spawnW… |
+| 0x80146348 | LIVE | `SubstateEdgeLeaves::assemblyPostTick` | game/ai/substate_edge_native.cpp:2074 | 0x80072DDC | FUN_0x80146348 — ASSEMBLY POST-TICK. Its one call is Placement::spawnW… |
 | 0x80146478 | LIVE | `OverlayGt3Gt4::submitBlock` | game/render/overlay_gt3gt4.cpp:113 |  |  |
 | 0x801465EC | LIVE | `OverlayGt3Gt4::gt3` | game/render/overlay_gt3gt4.cpp:159 |  | POLY_GT3 (gouraud-textured triangle) emit, GTE-driven, guest-writing. |
 | 0x801467BC | LIVE | `OverlayGt3Gt4::gt4` | game/render/overlay_gt3gt4.cpp:238 |  | POLY_GT4 (gouraud-textured quad) emit, GTE-driven, guest-writing. |
-| 0x8018C820 | LIVE | `SubstateEdgeLeaves::opnAssemblyHook` | game/ai/substate_edge_native.cpp:2119 | 0x80074590 0x80074AF0 0x801314B4 0x8013892C | FUN_0x8018C820 — the assembly's OPN-overlay hook, and the TWELFTH and … |
+| 0x8018C820 | LIVE | `SubstateEdgeLeaves::opnAssemblyHook` | game/ai/substate_edge_native.cpp:2124 | 0x80074590 0x80074AF0 0x801314B4 0x8013892C | FUN_0x8018C820 — the assembly's OPN-overlay hook, and the TWELFTH and … |
 | 0x801FE00C | LIVE | `Render::classifyScene` | game/render/render_walk.cpp:341 |  | --- pc_render scene DISPATCH (see render.h) --------------------------… |

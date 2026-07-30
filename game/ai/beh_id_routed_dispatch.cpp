@@ -39,6 +39,64 @@ static constexpr GuestFrameSpill kSpills_80121978[3] = {
   { 17, 20 },
 };   // frame=32, abi_extract --scaffold --guestabi
 
+
+// FUN_0x80122BF4 — keeps a point pinned 119 world units ABOVE a linked object, in that object's OWN
+// rotated frame, re-derived every field frame. It is the common tail of this dispatcher's state-1
+// routes, which is why it lives here beside them rather than in a file of its own.
+//
+// Gated on u8[node+0x0B] == 1, so it is inert unless the sub-behaviour that arms that byte has run.
+//
+// SCOPE NOTE: the RE plan for this leaf bundled a caller change — upgrading all EIGHT state-1
+// `guest_leaf` call sites in this file to `guest_fn` with their jal-site ra constants — and the
+// verifier expanded rather than shrank that recommendation. It is NOT done here. That is a separate
+// change to a live dispatcher with its own failure mode (a wrong ra constant is invisible until a
+// callee spills it), and it deserves its own verification and gate rather than riding along with a
+// leaf port.
+// ORACLE: ov_a00_gen_80122BF4
+void beh_id_routed_offset_point(Core* c) {
+    c->r[29] = c->r[29] + (uint32_t)-40;
+    c->mem_w32((c->r[29] + (uint32_t)28), c->r[19]);
+    c->r[19] = c->r[4] + c->r[0];
+    c->mem_w32((c->r[29] + (uint32_t)32), c->r[31]);
+    c->mem_w32((c->r[29] + (uint32_t)24), c->r[18]);
+    c->mem_w32((c->r[29] + (uint32_t)20), c->r[17]);
+    c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
+    c->r[3] = (uint32_t)c->mem_r8((c->r[19] + (uint32_t)11));
+    c->r[2] = c->r[0] + (uint32_t)1;
+    { int _t = (c->r[3] != c->r[2]); c->r[5] = (uint32_t)8064u << 16; if (_t) goto L_80122C88; }
+    c->r[18] = c->mem_r32((c->r[19] + (uint32_t)232));
+    c->mem_w16((c->r[5] + (uint32_t)192), (uint16_t)c->r[0]);
+    c->r[5] = c->r[5] + (uint32_t)192;
+    c->r[2] = c->r[0] + (uint32_t)-119;
+    c->r[17] = (uint32_t)8064u << 16;
+    c->r[16] = c->r[17] + (uint32_t)200;
+    c->r[6] = c->r[16] + c->r[0];
+    c->mem_w16((c->r[5] + (uint32_t)2), (uint16_t)c->r[2]);
+    c->mem_w16((c->r[5] + (uint32_t)4), (uint16_t)c->r[0]);
+    c->r[31] = 0x80122C4Cu;
+    c->r[4] = c->r[18] + (uint32_t)24; rec_dispatch(c, 0x800844C0u);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)200));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[18] + (uint32_t)44));
+    c->r[2] = c->r[2] + c->r[3];
+    c->mem_w16((c->r[19] + (uint32_t)78), (uint16_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)2));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[18] + (uint32_t)48));
+    c->r[2] = c->r[2] + c->r[3];
+    c->mem_w16((c->r[19] + (uint32_t)80), (uint16_t)c->r[2]);
+    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)4));
+    c->r[3] = (uint32_t)c->mem_r16((c->r[18] + (uint32_t)52));
+    c->r[2] = c->r[2] + c->r[3];
+    c->mem_w16((c->r[19] + (uint32_t)82), (uint16_t)c->r[2]);
+  L_80122C88:;
+    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)32));
+    c->r[19] = c->mem_r32((c->r[29] + (uint32_t)28));
+    c->r[18] = c->mem_r32((c->r[29] + (uint32_t)24));
+    c->r[17] = c->mem_r32((c->r[29] + (uint32_t)20));
+    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
+    c->r[29] = c->r[29] + (uint32_t)40; return;
+    return;
+}
+
 void beh_id_routed_dispatch(Core* c) {
   GuestFrame<32, 3> frame(c, kSpills_80121978);
   uint32_t s0 = c->r[4];                            // s0 = a0 (node)
@@ -88,4 +146,15 @@ void beh_id_routed_dispatch(Core* c) {
   eng(c).spawn.despawn(s0);                          // FUN_8007A624(node)
  Lret:
   return;
+}
+
+// Wiring for the state-1 common tail above. Oracle-gated through the one registry, so SBS core B
+// keeps running the recompiled body.
+void id_routed_leaves_install() {
+  static bool done = false;
+  if (done) return;
+  done = true;
+  extern void ov_a00_gen_80122BF4(Core*);
+  extern void engine_set_override_a00(uint32_t, OverrideFn, OverrideFn);
+  engine_set_override_a00(0x80122BF4u, beh_id_routed_offset_point, ov_a00_gen_80122BF4);
 }

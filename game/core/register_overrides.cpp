@@ -121,6 +121,7 @@ void register_engine_overrides(Game* game) {
   Trig::registerOverrides(game);                     // Trig::rsin/ratan2/angleCmp fallthrough native-ize (0x80083E80/80085690/80077768)
   Mtx::registerOverrides(game);                      // MR_init identity-matrix leaf (0x80051794) — native existed since long before it was wired
   { extern void startup_overrides_install(); startup_overrides_install(); }  // Engine::allocRecordForSelector (0x8008913C)
+  { extern void id_routed_leaves_install(); id_routed_leaves_install(); }  // id-routed state-1 common tail (0x80122BF4)
   NodeLifecycleSm::registerOverrides(game);           // per-node lifecycle state machine (0x80040558)
   CullSubstateLeaves::registerOverrides(game);        // A00 cull-substate orchestrator leaf (0x80133550)
   UiFt4Layout::registerOverrides(game);               // POLY_FT4 UI vertex-layout case 0 (0x8007E2F8)
