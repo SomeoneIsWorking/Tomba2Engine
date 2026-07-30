@@ -1434,3 +1434,43 @@ anything — note the pad replay CANNOT be used to compare legs (below).
 
 **refs:** kanban #60 (and #2/#58, same family); logs `scratch/logs/{sched60,flagw,cursor,obj2,
 partner,behall,fgall}.log`; repro `replays/bugs/sequence-softlock-2.pad`.
+
+## Why a dev-warped area never runs its OWN per-area handler (traced 2026-07-30)
+This is the concrete reason boss-area (and any warped area's) code sits idle, and it is NOT the
+kanban #36 symptom. Traced end to end; each step measured rather than assumed.
+
+- **The overlay IS loaded and IS routed correctly.** `PSXPORT_DEBUG=ovload` across
+  `newgame; skip 3000; warp 12` prints `slot 1 <- A0C`. The router identifies the resident overlay by
+  a 32-byte signature read out of guest RAM (generated/overlay_table.c sig_a0c), and it matches. The
+  area byte 0x800BF870 reads 0x0C after the warp and STAYS 12 — so the "#36 resets bf870 to 0"
+  symptom is NOT occurring on this path either.
+- **Each area has a handler, in the table at 0x800A45B8.** Entry 12 = 0x8010CC28, which is inside
+  A0C's range. That handler gates on bit 2 of the byte at 0x800BFA1A; on a fresh save that byte reads
+  0x00, so the gate is OPEN and the handler's main block would run.
+- **But the handler is never invoked.** Zero dispatches to 0x8010CC28 after the warp.
+- **WHO invokes it:** the table is read in exactly ONE place across all of generated/ —
+  `gen_func_80058648`, which does `area = mem_r8(0x800BF870); rec_dispatch(table[area])`. That
+  function is `ActorTomba::enterOuterState0`, ALREADY NATIVELY OWNED
+  (game/player/actor_tomba.cpp:2304-2358), and the native DOES reproduce the table dispatch. So the
+  mechanism is present and correct on both legs.
+- **ROOT CAUSE: the dev warp skips the transition that would call it.** enterOuterState0 runs on
+  ENTERING outer state 0 and only takes the table-dispatch path when its mode argument is 0. The dev
+  warp (external/psxport/runtime/recomp/native_boot.cpp, the warpArmed block) deliberately forces the
+  area machine straight into a RUNNING state — `sm[0x48]=2, sm[0x4a]=1, sm[0x4c]=nexttab[dest]` —
+  after calling devWarpAreaLoad. A real walk-in reaches the destination through state 0; the warp
+  jumps past it. So the area's data and code are resident, and nothing ever calls the area's own
+  entry handler, which is what would arm its objects.
+- **This explains the symptom exactly:** the arena RENDERS (data loaded) while almost none of the
+  area's own code runs — measured at 1 of A0C's 170 functions.
+- **NOT YET DONE / the next step:** drive the outer-state-0 entry after the area load so the per-area
+  handler fires, then re-measure A0C reach. That is a change to the dev-warp path in native_boot.cpp,
+  and it should be validated by the A0C reach count going up, not by the screenshot looking right.
+- **INSTRUMENT CAVEAT that bit me twice in this investigation:** `recdep` prints a CUMULATIVE
+  histogram at exit, so a `newgame; skip 3000; warp N` run mixes field-phase hits with post-warp ones.
+  I twice read A00 field hits as "A00 code running in the warped area". Diff against a no-warp
+  baseline before drawing any conclusion. It also counts only SUBSTRATE dispatch targets, so a
+  natively-owned function (enterOuterState0 itself) never appears at all — absence there is not
+  evidence of absence.
+- **refs:** generated/shard_7.c:7636 (the only table read); game/player/actor_tomba.cpp:2304-2358;
+  external/psxport/runtime/recomp/native_boot.cpp warpArmed block; generated/ov_a0c_shard_0.c
+  ov_a0c_gen_8010CC28; scratch/logs/boss_probe.log
