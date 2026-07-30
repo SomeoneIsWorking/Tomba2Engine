@@ -657,3 +657,28 @@ does not reproduce it" as evidence about the bug.
 - **diagnostic:** `PSXPORT_DEBUG=contact` on game/ai/contact_stamp.cpp — host-only counters, writes no
   guest memory.
 - **refs:** game/ai/contact_stamp.cpp, docs/kanban/cards/008-*, claim C023 (falsified)
+
+## kanban #8: the candidate list is the CULL QUEUE, published by natively-owned Cull methods
+- **status:** located statically 2026-07-30. This is the upstream end of the contact-stamp chain.
+- **how:** the pair (list pointer at scratchpad 0x1F80013C, count at 0x1F800144) is published as an
+  adjacent `mem_w32 +316` / `mem_w16 +324` idiom. Scanning generated/ for that pair with the base
+  register provably holding 0x1F800000 (8064u << 16) finds exactly FIVE publishers:
+  - `0x8007703C` Cull::enqueueByClass · `0x8007712C` Cull::decide · `0x80077E7C` Cull::enqueueQueueA
+  - `0x8003BB50` Render::objListWalk1 · `0x800798F8` Pool::initTypedPools
+  All five are already natively owned (codemap LIVE), so this end of the chain is readable C++ rather
+  than substrate.
+- **why it matters:** the contact producer 0x80111304 consumes that list through 0x801130C4, and the
+  count is zero for the whole replay (measured), so the pump beams are never candidates (claim C024).
+  The list is therefore the CULL QUEUE, and the question "why are the beams not in it" is a question
+  about Cull, in native code.
+- **A DISCREPANCY WORTH CHASING FIRST:** the publishers write the count as a HALFWORD (`mem_w16` at
+  +324) while the consumer 0x801130C4 reads it as a BYTE (`mem_r8` at +324). On this little-endian
+  target a halfword count of N lands its low byte at 0x144, so small counts still read correctly and
+  this is probably benign — but it has not been verified, and a byte read of a halfword field is
+  exactly the shape of bug this project keeps finding (cf. the mem_r16s/mem_r32 signedness fix that
+  card #8 already landed). Check it before assuming the zero is genuine.
+- **NOT established:** which of the five publishers is the one that should be enqueueing the beams,
+  whether any of them diverges from its guest body, and what class filter (if any) they apply. Nothing
+  here says a Cull native is wrong — only that the search has moved into code we own.
+- **refs:** generated/shard_0.c:11145-11148, shard_1.c:5917-5921 and :15029-15032, shard_3.c:17775-17778,
+  shard_6.c:12842-12849; game/render/cull.cpp; claim C024
