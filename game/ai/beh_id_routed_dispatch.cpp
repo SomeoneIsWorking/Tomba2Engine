@@ -46,12 +46,25 @@ static constexpr GuestFrameSpill kSpills_80121978[3] = {
 //
 // Gated on u8[node+0x0B] == 1, so it is inert unless the sub-behaviour that arms that byte has run.
 //
-// SCOPE NOTE: the RE plan for this leaf bundled a caller change — upgrading all EIGHT state-1
-// `guest_leaf` call sites in this file to `guest_fn` with their jal-site ra constants — and the
-// verifier expanded rather than shrank that recommendation. It is NOT done here. That is a separate
-// change to a live dispatcher with its own failure mode (a wrong ra constant is invisible until a
-// callee spills it), and it deserves its own verification and gate rather than riding along with a
-// leaf port.
+// THE BUNDLED CALLER CHANGE WAS CHECKED AND DELIBERATELY NOT MADE. The RE plan wanted all EIGHT
+// state-1 `guest_leaf` call sites here upgraded to `guest_fn` with their jal-site ra constants, and
+// the verifier expanded that recommendation. Both halves were then verified:
+//
+//  1. The ra constants are CORRECT. Read off ov_a00_shard_0.c:11380-11409 they are exactly
+//     0x801225BC/0x80121AB8, 0x80122D58/0x80121AC8, 0x801220FC/0x80121AD8, 0x80121B44/0x80121AE8,
+//     0x80121CF8/0x80121AF8, 0x80122CA4/0x80121B08, 0x8018BF08/0x80121B18 and the common tail
+//     0x80122BF4/0x80121B20 — every one matching the plan.
+//
+//  2. It would change nothing that is measured. A stale ra only matters when something READS the
+//     guest stack it gets spilled to, i.e. under the byte-exact compare. But this function is a
+//     BehaviorDispatch TABLE entry (game/object/behavior_dispatch.cpp:129), and dispatchNative gates
+//     on `!pc_skip` among others while SBS forces pc_skip=false on BOTH cores — so the native never
+//     runs on either leg of the compare. Same reasoning, and same conclusion, as the earlier
+//     "native orchestrator spills a stale ra" alarm recorded in docs/findings/sbs.md.
+//
+// So the upgrade is hygiene on a path the gate does not cover, not a correctness fix, and eight edits
+// to a live dispatcher are not worth making blind. Recorded here WITH the verified constants so that
+// whoever does want it has the derivation and does not repeat the analysis.
 // ORACLE: ov_a00_gen_80122BF4
 void beh_id_routed_offset_point(Core* c) {
     c->r[29] = c->r[29] + (uint32_t)-40;
