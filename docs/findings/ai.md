@@ -735,12 +735,25 @@ does not reproduce it" as evidence about the bug.
   is exactly when to suspect the tool. `recdep` counts only substrate DISPATCH targets, so direct
   intra-overlay calls would be invisible — but A0C makes **1001 rec_dispatch calls against 176 direct
   ones**, so the meter would have seen the traffic. The code genuinely is not running.
-- **Most likely cause, already filed:** kanban #36 — cold warp is broken and "the wrong overlay's
-  handler gets dispatched". That fits exactly: the arena renders while the boss's own logic does not run.
+- **MY FIRST ATTRIBUTION WAS WRONG — corrected 2026-07-30, same day.** I blamed kanban #36 (cold warp
+  dispatching the wrong overlay's handler). That is contradicted by a measurement recorded ON THAT VERY
+  CARD: warping to area 12 FROM A SETTLED FIELD and running 4800 frames headless does NOT freeze, the
+  picture keeps changing, and there are ZERO dispatch misses. The settled recipe is exactly the path I
+  used, and my own runs aborted nowhere either. So the warp is not the blocker and #36 is not implicated.
+- **The likely cause is GAME STATE, not the dev tool.** `newgame` + `skip 3000` puts Tomba at the very
+  start with no progression; warping then drops him into the arena with the ENCOUNTER UNARMED. The boss's
+  state machines are gated on story/trigger state that a fresh save has not reached, so the room renders
+  and its scenery ticks while the fight itself never starts. That is a different problem with a different
+  fix, and it is why the replay below is the answer rather than a tooling change.
+- **Do NOT go fix kanban #36 for this.** It is USER-DEFERRED ("warp can stay like this until everything
+  else is resolved... Do NOT spend time on the freeze until the user says otherwise"), and per the
+  correction above it would not unblock the boss anyway.
 - **WHAT WOULD UNBLOCK IT, in order of value:**
   1. A REPLAY that actually plays the fight (`replays/<cat>/<name>.pad`). That makes all 170 functions
      measurable AND SBS-gateable in one step, and porting then proceeds normally.
-  2. Fixing kanban #36, which unblocks warp-based measurement for EVERY area, not just this one.
+  2. NOT kanban #36 — see the correction above; it is deferred by the user and is not the cause.
+     If a replay is not available, the next thing to establish is WHICH trigger arms the encounter
+     (a story flag, an item, a door record), because that is what a fresh save is missing.
 - **DO NOT bulk-port A0C without one of those.** 170 unmeasured, un-gateable functions is precisely the
   cardinal sin on this project — a downstream step faked before its RE is verified. There is no SBS
   gate for area 12 today because no replay reaches it.
