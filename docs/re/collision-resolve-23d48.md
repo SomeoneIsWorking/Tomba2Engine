@@ -3,8 +3,15 @@
 RE'd 2026-07-29 via Ghidra headless (`scratch/decomp/eng_23d48.c`) + `abi_extract.py --contract`
 against `generated/shard_1.c gen_func_80023D48`. **PORTED 2026-07-29** (`game/world/collision_resolve.cpp`,
 SBS 0-diff over 1500 frames, ovhit 7397/7397, port_check PASS) — via `port_gen.py`, which emits the
-`func_XXXX` calls and so handles the stack hazard below BY CONSTRUCTION rather than by care. The
-body is still in register form; the readability pass is tracked on the port frontier.
+`func_XXXX` calls and so handles the stack hazard below BY CONSTRUCTION rather than by care.
+
+**READABILITY PASS COMPLETE 2026-07-30.** Both bodies (`cylinderResolve` 0x80023D48 and
+`landOnObjectTop` 0x8002423C) now read as named control flow over named values: the `L_8002xxxx`
+gotos are gone, the register chains are named locals or `GuestReg<N>` proxies, the frame is a
+`GuestFrame<80,10>` / `GuestFrame<32,3>` built from the `abi_extract --scaffold --guestabi` contract,
+and the eight call sites are `guest_call(c, kRa…, func_XXXX)`. Re-gated: port_check PASS on both
+methods, and the recorded 1500-frame SBS gate re-run gives 50/50 A/B-identical checkpoints with
+ovhit 0x80023D48 native=7397 oracle=7397 and 0x8002423C native=1949 oracle=1949.
 
 Why it matters: **29,869 substrate dispatches per 6000 frames** of `replays/bugs/seesaw-weight.pad`
 — the busiest remaining unowned function in the game once the PlatformHle-owned entries are
@@ -26,6 +33,56 @@ discounted (see instrument I024).
 `flags & 1` selects between two entry geometries: clear = use the actor's raw position; set = offset
 the sample point by `radius(+0x7c)` rotated by `angle(+0x56)` first, and carry that offset back out
 of the final write. The two branches converge on shared separation/response code.
+
+## How it decides (established 2026-07-30 during the readability pass)
+
+Two gates, then a shallowest-axis choice. `anchor` supplies the POSITION being resolved against and
+`other` supplies the DIMENSIONS — they are separate arguments because the caller resolves against a
+hitbox whose size and whose placement live in different records.
+
+1. **XZ gate.** `dist = sqrtLzc(dx² + dz²)` from the sample point to the anchor. Reject (v0 = 0) when
+   `(actor+0x82 - actor+0x80) + other+0x80 < (dist & 0xFFFF)`.
+2. **Vertical gate.** `restOffsetOnTop = other+0x84 + (actor+0x86 - actor+0x84)` — where the actor's
+   origin sits when it is resting on the top face. Reject (v0 = 0) when
+   `(s16)actor+0x86 + (s16)other+0x86 < ((Δy + restOffsetOnTop) & 0xFFFF)`, where
+   `Δy = actor+0x32 + yBias - anchor+0x30`.
+3. **Sign split on Δy.** Guest Y grows DOWNWARD. `Δy < 0` (actor ABOVE the anchor) negates both the
+   gap and the snap, so the "rest on top" snap is NEGATIVE; `Δy >= 0` (actor below) recomputes the
+   snap as `actor+0x84 + (other+0x86 - other+0x84)`, the push-out-underneath offset. The vertical
+   REACH stays positive on both sides.
+4. **Shallowest axis wins.** `xzPenetration = radiusSum - (s16)dist` vs
+   `yPenetration = (s16)reach - (s16)gap`. `xzPenetration < yPenetration` → horizontal push-out
+   (v0 = 1); otherwise the vertical snap, which is v0 = 3 when the snap is `> 0` (pushed underneath)
+   and v0 = 2 + the landed flag when it is `<= 0` (resting on top). So outcome 2 being the NEGATIVE
+   snap is not an oddity — it is the downward-Y convention.
+
+## Two radii out of one pair — an OBSERVATION, not a renaming
+
+The actor's `+0x80`/`+0x82` are named `kActorHeightLo`/`kActorHeightHi` in the port, but this
+function uses them as XZ radii: the overlap GATE uses `(+0x82 - +0x80) + other+0x80` while the
+push-out places the actor on a contact circle of radius `+0x80 + other+0x80`. FUN_8002423C
+independently uses `actor+0x80 + other+0x80` as its XZ reach. Two different radii come out of the
+same pair, and no source (USER or guest data) has been found for what the pair actually is, so the
+names are LEFT ALONE — an offset is a fact, a field name is a claim. Anyone who finds the real
+meaning should rename in both tables at once.
+
+## Callee audit — what the register file can and cannot leak (2026-07-30)
+
+Needed before any register chain could be folded into a C++ local, because a callee that spills its
+caller's callee-saved registers, or stashes its incoming a0..a3 into the O32 argument-save area at
+the top of OUR frame, would put a stale register value into guest RAM that SBS compares. Scanned
+transitively over the five leaves and the one real nested call:
+
+* `0x80083F50` rcos, `0x80084080` sqrtLzc, `0x80085690` ratan2, `0x80077768` angleCmp — frame_size 0,
+  **no memory writes at all**. (Each gen body has a trailing `func_XXXX(c)` after its `return;`; that
+  is the recompiler's dead-sibling fall-through, not a call.)
+* `0x80083E80` rsin — frame_size 24, writes exactly one word: its own `ra` at its `sp+16`, i.e. BELOW
+  our sp. Its real callee `0x80083EBC` writes nothing.
+
+So nothing this function calls can observe a t-register, and the single guest-stack word any of them
+writes is precisely the one the `func_XXXX` wrappers exist to preserve (see THE HAZARD below). The
+port therefore keeps r16..r23/r30 and the per-call-site argument registers on the register file and
+folds only `r2/r3/r8/r9` plus dead `r4/r5` intermediates into named locals.
 
 ## Field map (as used here — offsets are role-specific, per docs/findings/object.md)
 

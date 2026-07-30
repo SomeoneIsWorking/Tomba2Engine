@@ -93,7 +93,7 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **status:** verified
 - **frames:** 1500
 - **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
-- **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit native=1949 oracle=1949 (balanced). port_check PASS on both methods in the file.
+- **evidence:** RE-GATED 2026-07-30 after the readability pass: 50/50 A/B-identical checkpoints, zero divergence; ovhit 0x8002423C native=1949 oracle=1949 (balanced). port_check.py PASS.
 - **owner:** game/world/collision_resolve.cpp CollisionResolve::landOnObjectTop
 
 ## collision-resolve-23d48
@@ -101,7 +101,7 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **status:** verified
 - **frames:** 1500
 - **gate:** PSXPORT_NOWINDOW=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1500 PSXPORT_PAD_REPLAY=replays/bugs/seesaw-weight.pad ./scratch/bin/tomba2_port
-- **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit native=7397 oracle=7397 (balanced). port_check.py PASS. The dead-stack hazard did not materialise because port_gen emits func_XXXX calls, so each callee still writes its own guest frame.
+- **evidence:** 50/50 A/B-identical checkpoints, zero divergence; ovhit native=7397 oracle=7397 (balanced). port_check.py PASS. RE-GATED 2026-07-30 after the readability pass (gotos -> if/else, register chains -> named locals/GuestReg, GuestFrame + guest_call): same 50/50 and same 7397/7397. The dead-stack hazard did not materialise because the port still calls the leaves through their func_XXXX wrappers, so each callee writes its own guest frame.
 - **owner:** game/world/collision_resolve.cpp CollisionResolve::cylinderResolve
 
 ## contact-stamp-111304

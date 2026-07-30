@@ -1,17 +1,46 @@
-// collision_resolve.cpp — PORT_GEN draft, byte-faithful transcription of gen_func_80023D48.
-// Drafted by port_gen from gen_func_80023D48 (../../generated/shard_1.c:2502-2728).
-// The machine-readable ORACLE markers live immediately above each method, not here: port_check caps
-// the marker-to-definition gap at 60 lines and the constant tables below now exceed that.
+// collision_resolve.cpp — actor-vs-object CYLINDER COLLISION RESOLVE (guest FUN_80023D48) and its
+// vertical relative, the landing snap (guest FUN_8002423C). Both are wired by address at the bottom
+// of this file, so every caller — substrate included — reaches these bodies; the oracle leg runs
+// gen_func_80023D48 / gen_func_8002423C.
 //
-// This body is the gen function's guest-visible operations VERBATIM — every c->r[] op,
-// mem_r/mem_w call, func_X/rec_dispatch call with its r31 constant, and label/goto is
-// preserved unchanged. Faithful by construction; the only allowed next step is RENAMING
-// (locals/labels -> named fields/control-flow), verified equivalent by tools/port_check.py.
-// UNWIRED — dead code. Do not wire into any dispatch table before running port_check.py
-// and the mandatory line-by-line verify pass (docs/fleet-workflow.md §9).
+// RE, field map and outcome codes: docs/re/collision-resolve-23d48.md.
+//
+// WHAT cylinderResolve DOES, in one paragraph. The actor is a vertical cylinder; the thing it may
+// be hitting is described by a RADIUS on `other` and a POSITION on `anchor` (two records, because
+// the caller resolves against a hitbox whose dimensions and whose placement live in different
+// objects). Two gates run first: an XZ distance test against the summed radii, then a vertical band
+// test. If both say "overlapping", the two penetration depths are compared and the SHALLOWER axis
+// wins — a horizontal push-out onto the contact circle (outcome 1), or a vertical snap that either
+// rests the actor on the top face (outcome 2, sets the landed flag) or pushes it out underneath
+// (outcome 3). Guest Y grows DOWNWARD, which is why "resting on top" is the NEGATIVE snap.
+//
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
+// WHAT MAY AND MAY NOT BE FOLDED HERE (the readability pass, 2026-07-30 — read before editing)
+//
+// This body was a verbatim port_gen transcription; the pass that named its fields left the register
+// dataflow alone, and this one lifts it. The rule the lift follows, and the evidence for it:
+//
+//   * CALLEE-SAVED registers (r16..r23, r30) and the ARGUMENT registers at each call site are
+//     written to c->r[N] exactly where the gen body writes them. A callee may spill its caller's
+//     callee-saved registers, and O32 lets a callee stash its incoming a0..a3 into the CALLER's
+//     16-byte argument-save area — both would put a stale register value into guest RAM, which SBS
+//     compares. GuestReg<N> proxies give those a name without moving them out of the register file.
+//   * hi/lo go through guest_mult. They are guest-visible state (guest_abi.h §5).
+//   * PURE SCRATCH (r2/r3/r8/r9, and the dead intermediate values of r4/r5 that no call and no
+//     later statement reads) becomes ordinary named C++ locals. Audited 2026-07-30, transitively,
+//     over all five callees and the one real nested call: rcos/sqrtLzc/ratan2/angleCmp descend NO
+//     frame and write NO memory at all; rsin descends 24 and writes exactly one word (its own ra,
+//     at its sp+16, i.e. BELOW our sp); its callee 0x80083EBC writes nothing. So nothing this
+//     function calls can observe a t-register, and the one guest-stack word any of them writes is
+//     the one the func_XXXX wrappers below exist to preserve.
+//
+// The equivalence gate for the lift is `port_check.py game/world/collision_resolve.cpp` (frame
+// sizes, ordered call sites with their ra constants and targets, ordered store-width sequence).
+// ─────────────────────────────────────────────────────────────────────────────────────────────────
 #include "world/collision_resolve.h"
 #include "core.h"
 #include "game.h"
+#include "guest_abi.h"           // GuestFrame / GuestReg / guest_call / guest_mult
 #include "override_registry.h"   // engine_set_override_main
 #include "rec_decls.h"           // gen_func_80023D48 — the body the oracle leg runs
 
@@ -58,256 +87,277 @@ constexpr uint32_t kOtherExtentHi     = 134;   // 0x86
 constexpr uint32_t kAnchorX           = 44;    // 0x2C
 constexpr uint32_t kAnchorY           = 48;    // 0x30
 constexpr uint32_t kAnchorZ           = 52;    // 0x34
+
+// HOW THE ACTOR'S HORIZONTAL SIZE IS BUILT, recorded as OBSERVED rather than renamed: this function
+// uses the actor's +0x80/+0x82 pair as XZ radii, not as a height band. The overlap GATE compares the
+// distance against `(actor+0x82 - actor+0x80) + other+0x80`, while the push-out places the actor on a
+// contact circle of radius `actor+0x80 + other+0x80` — two different radii from the same pair.
+// FUN_8002423C below independently uses `actor+0x80 + other+0x80` as its XZ reach. The kActorHeight*
+// names are kept because no source (USER or guest data) has been found for what the pair really is;
+// an offset is a fact, a field name is a claim. See docs/re/collision-resolve-23d48.md.
+
+// ── this function's own guest stack ──────────────────────────────────────────────────────────────
+// Frame contract from `abi_extract.py 0x80023D48 --scaffold --guestabi`, program order. Not
+// hand-derived; regenerate if the gen body changes.
+constexpr uint32_t kResolveFrameBytes = 80;
+constexpr GuestFrameSpill kResolveSpills[10] = {
+  { 17, 44 }, { 22, 64 }, { 30, 72 }, { 31 /*ra*/, 76 }, { 23, 68 },
+  { 21, 60 }, { 20, 56 }, { 19, 52 }, { 18, 48 }, { 16, 40 },
+};
+// Three s16 locals in that frame. The facing-offset entry writes the offset it applied and the raw
+// X delta; the plain entry writes zeroes for the offsets. All three are read back at the push-out,
+// which is why the offset has to be subtracted out of the final position again.
+constexpr uint32_t kLocalSampleOffsetX = 16;
+constexpr uint32_t kLocalSampleOffsetZ = 24;
+constexpr uint32_t kLocalDeltaX        = 32;
+
+// ── the leaves ───────────────────────────────────────────────────────────────────────────────────
+// Called through their generated func_XXXX wrappers, NEVER the Trig methods — see the header banner
+// for why that is load-bearing rather than laziness. One ra constant per jal site, from the same
+// abi_extract contract.
+constexpr uint32_t kRaSampleCos    = 0x80023D94u;   // Trig::rcos    0x80083F50
+constexpr uint32_t kRaSampleSin    = 0x80023DB0u;   // Trig::rsin    0x80083E80
+constexpr uint32_t kRaSampleDist   = 0x80023E1Cu;   // Math::sqrtLzc 0x80084080
+constexpr uint32_t kRaRawDist      = 0x80023EBCu;   // Math::sqrtLzc 0x80084080
+constexpr uint32_t kRaContactAngle = 0x80023F88u;   // Trig::ratan2  0x80085690
+constexpr uint32_t kRaFacingCmp    = 0x80023FF0u;   // Trig::angleCmp 0x80077768
+constexpr uint32_t kRaPushCos      = 0x80024004u;   // Trig::rcos
+constexpr uint32_t kRaPushSin      = 0x80024028u;   // Trig::rsin
+
+// The contact angle is published to the scratchpad, where the caller reads it back.
+constexpr uint32_t kScratchpadBase    = 0x1F800000u;
+constexpr uint32_t kContactAngleSlot  = 156;        // 0x1F80009C
+
+// v0 is an outcome code, not a boolean.
+constexpr uint32_t kNoCollision   = 0;
+constexpr uint32_t kPushedOutInXz = 1;
+constexpr uint32_t kLandedOnTop   = 2;
+constexpr uint32_t kSnappedInY    = 3;
+
+// The one actor type that also re-aims its facing byte at the contact angle.
+constexpr uint32_t kActorTypeTracksFacing = 2;
+
+// A guest record reached through the register that identifies it — the base is re-read from c->r[N]
+// on every access, exactly as the guest does, so the lens can never go stale across a call.
+struct Rec {
+  Core* c;
+  int   reg;
+  uint32_t base() const { return c->r[reg]; }
+  uint32_t u8 (uint32_t field) const { return c->mem_r8 (base() + field); }
+  uint32_t u16(uint32_t field) const { return c->mem_r16(base() + field); }
+  int32_t  s16(uint32_t field) const { return (int16_t)c->mem_r16(base() + field); }
+  uint32_t u32(uint32_t field) const { return c->mem_r32(base() + field); }
+};
+
+// ── FUN_8002423C's own frame ─────────────────────────────────────────────────────────────────────
+constexpr uint32_t kLandFrameBytes = 32;
+constexpr GuestFrameSpill kLandSpills[3] = { { 16, 16 }, { 31 /*ra*/, 24 }, { 17, 20 } };
+constexpr uint32_t kRaLandDist   = 0x800242A8u;     // Math::sqrtLzc 0x80084080
+constexpr uint32_t kLandRejected = 0xFFFFFFFFu;     // v0 = -1
 }  // namespace
 
 // ORACLE: gen_func_80023D48
 void CollisionResolve::cylinderResolve(Core* c) {
-    c->r[29] = c->r[29] + (uint32_t)-80;
-    c->mem_w32((c->r[29] + (uint32_t)44), c->r[17]);
-    c->r[17] = c->r[4] + c->r[0];
-    c->mem_w32((c->r[29] + (uint32_t)64), c->r[22]);
-    c->r[22] = c->r[5] + c->r[0];
-    c->mem_w32((c->r[29] + (uint32_t)72), c->r[30]);
-    c->r[30] = c->r[6] + c->r[0];
-    c->r[7] = c->r[7] & 1u;
-    c->mem_w32((c->r[29] + (uint32_t)76), c->r[31]);
-    c->mem_w32((c->r[29] + (uint32_t)68), c->r[23]);
-    c->mem_w32((c->r[29] + (uint32_t)60), c->r[21]);
-    c->mem_w32((c->r[29] + (uint32_t)56), c->r[20]);
-    c->mem_w32((c->r[29] + (uint32_t)52), c->r[19]);
-    c->mem_w32((c->r[29] + (uint32_t)48), c->r[18]);
-    { int _t = (c->r[7] == c->r[0]); c->mem_w32((c->r[29] + (uint32_t)40), c->r[16]); if (_t) goto L_80023E60; }
-    c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kActorAngle));
-    c->r[31] = 0x80023D94u;
-     func_80083F50(c);
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kActorSampleRadius));
-    { int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[3]; c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32); }
-    c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kActorAngle));
-    c->r[3] = c->lo;
-    c->r[31] = 0x80023DB0u;
-    c->r[16] = (uint32_t)((int32_t)c->r[3] >> 12); func_80083E80(c);
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kActorSampleRadius));
-    { int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[3]; c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32); }
-    c->r[4] = (uint32_t)c->mem_r16((c->r[17] + kActorX));
-    c->r[2] = (uint32_t)c->mem_r16((c->r[30] + kAnchorX));
-    c->r[4] = c->r[4] + c->r[16];
-    c->r[4] = c->r[4] - c->r[2];
-    c->r[3] = c->lo;
-    c->r[2] = c->r[4] << 16;
-    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
-    { int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[2]; c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32); }
-    c->r[5] = (uint32_t)((int32_t)c->r[3] >> 12);
-    c->r[3] = (uint32_t)c->mem_r16((c->r[17] + kActorZ));
-    c->r[2] = (uint32_t)c->mem_r16((c->r[30] + kAnchorZ));
-    c->r[3] = c->r[3] - c->r[5];
-    c->r[3] = c->r[3] - c->r[2];
-    c->r[6] = c->lo;
-    c->r[2] = c->r[3] << 16;
-    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
-    { int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[2]; c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32); }
-    c->mem_w16((c->r[29] + (uint32_t)16), (uint16_t)c->r[16]);
-    c->mem_w16((c->r[29] + (uint32_t)32), (uint16_t)c->r[4]);
-    c->mem_w16((c->r[29] + (uint32_t)24), (uint16_t)c->r[5]);
-    c->r[19] = c->r[3] + c->r[0];
-    c->r[9] = c->lo;
-    c->r[31] = 0x80023E1Cu;
-    c->r[4] = c->r[6] + c->r[9]; func_80084080(c);
-    c->r[21] = c->r[2] + c->r[0];
-    c->r[5] = c->r[21] & 65535u;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kActorHeightHi));
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kActorHeightLo));
-    c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[22] + kOtherRadius));
-    c->r[2] = c->r[2] - c->r[3];
-    c->r[2] = c->r[2] + c->r[4];
-    c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[5]);
-    { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[0] + c->r[0]; if (_t) goto L_800240CC; }
-    c->r[23] = (uint32_t)c->mem_r16((c->r[17] + kActorYBias));
-    c->r[5] = (uint32_t)c->mem_r16((c->r[17] + kActorY));
-    c->r[2] = (uint32_t)c->mem_r16((c->r[30] + kAnchorY));
-    c->r[3] = (uint32_t)c->mem_r16((c->r[17] + kActorExtentHi));
-    c->r[4] = (uint32_t)c->mem_r16((c->r[22] + kOtherExtentLo));
-    c->r[5] = c->r[5] + c->r[23]; goto L_80023EF4;
-  L_80023E60:;
-    c->r[4] = (uint32_t)c->mem_r16((c->r[17] + kActorX));
-    c->r[2] = (uint32_t)c->mem_r16((c->r[30] + kAnchorX));
-    c->r[4] = c->r[4] - c->r[2];
-    c->r[2] = c->r[4] << 16;
-    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
-    { int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[2]; c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32); }
-    c->r[3] = (uint32_t)c->mem_r16((c->r[17] + kActorZ));
-    c->r[2] = (uint32_t)c->mem_r16((c->r[30] + kAnchorZ));
-    c->r[3] = c->r[3] - c->r[2];
-    c->r[5] = c->lo;
-    c->r[2] = c->r[3] << 16;
-    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
-    { int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[2]; c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32); }
-    c->r[23] = c->r[0] + c->r[0];
-    c->mem_w16((c->r[29] + (uint32_t)16), (uint16_t)c->r[0]);
-    c->mem_w16((c->r[29] + (uint32_t)24), (uint16_t)c->r[0]);
-    c->mem_w16((c->r[29] + (uint32_t)32), (uint16_t)c->r[4]);
-    c->r[19] = c->r[3] + c->r[0];
-    c->r[9] = c->lo;
-    c->r[31] = 0x80023EBCu;
-    c->r[4] = c->r[5] + c->r[9]; func_80084080(c);
-    c->r[21] = c->r[2] + c->r[0];
-    c->r[5] = c->r[21] & 65535u;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kActorHeightHi));
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kActorHeightLo));
-    c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[22] + kOtherRadius));
-    c->r[2] = c->r[2] - c->r[3];
-    c->r[2] = c->r[2] + c->r[4];
-    c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[5]);
-    { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[0] + c->r[0]; if (_t) goto L_800240CC; }
-    c->r[5] = (uint32_t)c->mem_r16((c->r[17] + kActorY));
-    c->r[2] = (uint32_t)c->mem_r16((c->r[30] + kAnchorY));
-    c->r[3] = (uint32_t)c->mem_r16((c->r[17] + kActorExtentHi));
-    c->r[4] = (uint32_t)c->mem_r16((c->r[22] + kOtherExtentLo));
-  L_80023EF4:;
-    c->r[5] = c->r[5] - c->r[2];
-    c->r[2] = (uint32_t)c->mem_r16((c->r[17] + kActorExtentLo));
-    c->r[2] = c->r[3] - c->r[2];
-    c->r[4] = c->r[4] + c->r[2];
-    c->r[16] = c->r[4] + c->r[0];
-    c->r[4] = c->r[5] + c->r[4];
-    c->r[4] = c->r[4] & 65535u;
-    c->r[3] = c->r[3] << 16;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[22] + kOtherExtentHi));
-    c->r[3] = (uint32_t)((int32_t)c->r[3] >> 16);
-    c->r[3] = c->r[3] + c->r[2];
-    c->r[3] = (uint32_t)((int32_t)c->r[3] < (int32_t)c->r[4]);
-    { int _t = (c->r[3] == c->r[0]); c->r[18] = c->r[5] + c->r[0]; if (_t) goto L_80023F38; }
-    c->r[2] = c->r[0] + c->r[0]; goto L_800240CC;
-  L_80023F38:;
-    c->r[2] = c->r[18] << 16;
-    { int _t = ((int32_t)c->r[2] >= 0); c->r[20] = c->r[16] + c->r[0]; if (_t) goto L_80023F50; }
-    c->r[18] = c->r[0] - c->r[18];
-    c->r[16] = c->r[0] - c->r[16]; goto L_80023F6C;
-  L_80023F50:;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[22] + kOtherExtentHi));
-    c->r[4] = (uint32_t)c->mem_r16((c->r[22] + kOtherExtentLo));
-    c->r[3] = (uint32_t)c->mem_r16((c->r[17] + kActorExtentLo));
-    c->r[2] = c->r[2] - c->r[4];
-    c->r[3] = c->r[3] + c->r[2];
-    c->r[20] = c->r[3] + c->r[0];
-    c->r[16] = c->r[3] + c->r[0];
-  L_80023F6C:;
-    c->r[4] = c->r[19] << 16;
-    c->r[4] = (uint32_t)((int32_t)c->r[4] >> 16);
-    c->r[8] = (uint32_t)c->mem_r16((c->r[29] + (uint32_t)32));
-    c->r[4] = c->r[0] - c->r[4];
-    c->r[5] = c->r[8] << 16;
-    c->r[31] = 0x80023F88u;
-    c->r[5] = (uint32_t)((int32_t)c->r[5] >> 16); func_80085690(c);
-    c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kActorHeightHi));
-    c->r[19] = (uint32_t)8064u << 16;
-    c->mem_w32((c->r[19] + (uint32_t)156), c->r[2]);
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kActorHeightLo));
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[22] + kOtherRadius));
-    c->r[4] = c->r[4] - c->r[2];
-    c->r[4] = c->r[4] + c->r[3];
-    c->r[2] = c->r[21] << 16;
-    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
-    c->r[4] = c->r[4] - c->r[2];
-    c->r[3] = c->r[20] << 16;
-    c->r[3] = (uint32_t)((int32_t)c->r[3] >> 16);
-    c->r[2] = c->r[18] << 16;
-    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
-    c->r[3] = c->r[3] - c->r[2];
-    c->r[4] = (uint32_t)((int32_t)c->r[4] < (int32_t)c->r[3]);
-    { int _t = (c->r[4] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)2; if (_t) goto L_80024074; }
-    c->r[3] = (uint32_t)c->mem_r8((c->r[17] + kActorType));
-    { int _t = (c->r[3] != c->r[2]);  if (_t) goto L_80023FF8; }
-    c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[19] + (uint32_t)156));
-    c->r[5] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kActorFacingRef));
-    c->r[31] = 0x80023FF0u;
-    c->r[6] = c->r[0] + (uint32_t)1; func_80077768(c);
-    c->r[2] = c->r[2] + (uint32_t)2;
-    c->mem_w8((c->r[17] + kActorFacing), (uint8_t)c->r[2]);
-  L_80023FF8:;
-    c->r[4] = c->mem_r32((c->r[19] + (uint32_t)156));
-    c->r[31] = 0x80024004u;
-     func_80083F50(c);
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kActorHeightLo));
-    c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[22] + kOtherRadius));
-    c->r[3] = c->r[3] + c->r[4];
-    { int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[3]; c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32); }
-    c->r[4] = c->mem_r32((c->r[19] + (uint32_t)156));
-    c->r[8] = c->lo;
-    c->r[31] = 0x80024028u;
-    c->r[16] = (uint32_t)((int32_t)c->r[8] >> 12); func_80083E80(c);
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kActorHeightLo));
-    c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[22] + kOtherRadius));
-    c->r[3] = c->r[3] + c->r[4];
-    { int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[3]; c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32); }
-    c->r[8] = (uint32_t)c->mem_r16((c->r[29] + (uint32_t)16));
-    c->r[3] = (uint32_t)c->mem_r16((c->r[30] + kAnchorX));
-    c->r[2] = c->r[0] + (uint32_t)1;
-    c->r[3] = c->r[3] + c->r[16];
-    c->r[3] = c->r[3] - c->r[8];
-    c->mem_w16((c->r[17] + kActorX), (uint16_t)c->r[3]);
-    c->r[3] = (uint32_t)c->mem_r16((c->r[30] + kAnchorZ));
-    c->r[8] = c->lo;
-    c->r[4] = (uint32_t)((int32_t)c->r[8] >> 12);
-    c->r[8] = (uint32_t)c->mem_r16((c->r[29] + (uint32_t)24));
-    c->r[3] = c->r[3] - c->r[4];
-    c->r[3] = c->r[3] - c->r[8];
-    c->mem_w16((c->r[17] + kActorZ), (uint16_t)c->r[3]); goto L_800240CC;
-  L_80024074:;
-    c->r[2] = c->r[16] << 16;
-    c->r[5] = (uint32_t)((int32_t)c->r[2] >> 16);
-    { int _t = ((int32_t)c->r[5] <= 0); c->r[2] = c->r[0] + (uint32_t)3; if (_t) goto L_800240A4; }
-    c->r[3] = c->r[23] << 16;
-    c->r[4] = c->mem_r32((c->r[30] + kAnchorY));
-    c->r[3] = (uint32_t)((int32_t)c->r[3] >> 16);
-    c->r[4] = c->r[4] + c->r[5];
-    c->r[4] = c->r[4] - c->r[3];
-    c->r[4] = c->r[4] << 16;
-    c->mem_w32((c->r[17] + kActorY32), c->r[4]); goto L_800240CC;
-  L_800240A4:;
-    c->r[2] = c->r[0] + (uint32_t)2;
-    c->r[3] = c->mem_r32((c->r[30] + kAnchorY));
-    c->r[4] = c->r[0] + (uint32_t)1;
-    c->mem_w8((c->r[17] + kActorLanded), (uint8_t)c->r[4]);
-    c->r[4] = c->r[23] << 16;
-    c->r[4] = (uint32_t)((int32_t)c->r[4] >> 16);
-    c->r[3] = c->r[3] + c->r[5];
-    c->r[3] = c->r[3] - c->r[4];
-    c->r[3] = c->r[3] << 16;
-    c->mem_w32((c->r[17] + kActorY32), c->r[3]);
-  L_800240CC:;
-    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)76));
-    c->r[30] = c->mem_r32((c->r[29] + (uint32_t)72));
-    c->r[23] = c->mem_r32((c->r[29] + (uint32_t)68));
-    c->r[22] = c->mem_r32((c->r[29] + (uint32_t)64));
-    c->r[21] = c->mem_r32((c->r[29] + (uint32_t)60));
-    c->r[20] = c->mem_r32((c->r[29] + (uint32_t)56));
-    c->r[19] = c->mem_r32((c->r[29] + (uint32_t)52));
-    c->r[18] = c->mem_r32((c->r[29] + (uint32_t)48));
-    c->r[17] = c->mem_r32((c->r[29] + (uint32_t)44));
-    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)40));
-    c->r[29] = c->r[29] + (uint32_t)80; return;
+  const uint32_t actorArg  = c->r[4];
+  const uint32_t otherArg  = c->r[5];
+  const uint32_t anchorArg = c->r[6];
+
+  GuestFrame<kResolveFrameBytes, 10> frame(c, kResolveSpills);
+  c->r[17] = actorArg;
+  c->r[22] = otherArg;
+  c->r[30] = anchorArg;
+  c->r[7]  = c->r[7] & 1u;   // gen narrows a3 in place and never writes it again; a3 stays live
+                             // into every callee, so the narrowing has to happen on the register
+  const bool sampleAtFacingOffset = c->r[7] != 0;
+
+  const Rec actor { c, 17 };
+  const Rec other { c, 22 };
+  const Rec anchor{ c, 30 };
+
+  // Values the guest keeps in callee-saved registers because they outlive a call.
+  GuestReg<19> deltaZ(c);       // s3 — sampled point -> anchor, on Z
+  GuestReg<21> xzDistance(c);   // s5 — |sampled point -> anchor| in XZ, from Math::sqrtLzc
+  GuestReg<23> yBias(c);        // s7 — actor +0x7E on the facing-offset entry, 0 on the raw entry
+
+  // ── entry geometry ─────────────────────────────────────────────────────────────────────────────
+  // flags&1 picks which point is tested. Set: a point pushed `sampleRadius` out along the actor's
+  // facing angle (used when the caller is resolving the actor's leading edge rather than its
+  // centre). Clear: the actor's own position, and no offset to undo later.
+  if (sampleAtFacingOffset) {
+    GuestReg<16> sampleOffsetX(c);   // s0 — live across the rsin call below
+
+    c->r[4] = (uint32_t)actor.s16(kActorAngle);                        // a0 = facing angle
+    guest_call(c, kRaSampleCos, func_80083F50);
+    guest_mult(c, (int32_t)c->r[2], actor.s16(kActorSampleRadius));
+    c->r[4] = (uint32_t)actor.s16(kActorAngle);                        // a0 = facing angle
+    sampleOffsetX = (uint32_t)((int32_t)c->lo >> 12);
+    guest_call(c, kRaSampleSin, func_80083E80);
+    guest_mult(c, (int32_t)c->r[2], actor.s16(kActorSampleRadius));
+    const int32_t sinTimesRadius = (int32_t)c->lo;
+
+    // World coordinates are stored as u16, so each delta is truncated to 16 bits and sign-extended
+    // BEFORE squaring — squaring the raw difference would square a value near 65535 instead of -1.
+    const uint32_t dx = actor.u16(kActorX) + sampleOffsetX - anchor.u16(kAnchorX);
+    guest_mult(c, (int16_t)dx, (int16_t)dx);
+    const uint32_t deltaXSq = c->lo;
+
+    const uint32_t sampleOffsetZ = (uint32_t)(sinTimesRadius >> 12);
+    const uint32_t dz = actor.u16(kActorZ) - sampleOffsetZ - anchor.u16(kAnchorZ);
+    c->r[6] = deltaXSq;              // gen leaves dx² in a2, and it is still there at the ratan2
+                                     // call further down — keep it on the register, not in a local
+    guest_mult(c, (int16_t)dz, (int16_t)dz);
+
+    c->mem_w16(c->r[29] + kLocalSampleOffsetX, (uint16_t)sampleOffsetX);
+    c->mem_w16(c->r[29] + kLocalDeltaX,        (uint16_t)dx);
+    c->mem_w16(c->r[29] + kLocalSampleOffsetZ, (uint16_t)sampleOffsetZ);
+
+    deltaZ  = dz;
+    c->r[5] = sampleOffsetZ;         // a1 still holds the Z offset at the call below
+    c->r[4] = deltaXSq + c->lo;      // a0 = dx² + dz²
+    guest_call(c, kRaSampleDist, func_80084080);
+    xzDistance = c->r[2];
+    yBias      = actor.u16(kActorYBias);
+  } else {
+    const uint32_t dx = actor.u16(kActorX) - anchor.u16(kAnchorX);
+    guest_mult(c, (int16_t)dx, (int16_t)dx);
+    const uint32_t deltaXSq = c->lo;
+    const uint32_t dz = actor.u16(kActorZ) - anchor.u16(kAnchorZ);
+    guest_mult(c, (int16_t)dz, (int16_t)dz);
+
+    yBias = 0u;                      // no offset was applied, so nothing to bias the Y test by
+    c->mem_w16(c->r[29] + kLocalSampleOffsetX, 0u);
+    c->mem_w16(c->r[29] + kLocalSampleOffsetZ, 0u);
+    c->mem_w16(c->r[29] + kLocalDeltaX, (uint16_t)dx);
+
+    deltaZ  = dz;
+    c->r[5] = deltaXSq;              // a1 leftover, exactly as gen leaves it
+    c->r[4] = deltaXSq + c->lo;      // a0 = dx² + dz²
+    guest_call(c, kRaRawDist, func_80084080);
+    xzDistance = c->r[2];
+  }
+
+  // ── gate 1: XZ overlap ─────────────────────────────────────────────────────────────────────────
+  const int32_t xzReach = actor.s16(kActorHeightHi) - actor.s16(kActorHeightLo) + other.s16(kOtherRadius);
+  if (xzReach < (int32_t)(xzDistance & 0xFFFFu)) {
+    c->r[2] = kNoCollision;
     return;
+  }
+
+  // ── gate 2: vertical band ──────────────────────────────────────────────────────────────────────
+  // restOffsetOnTop is how far above the anchor the actor sits when it is resting on the top face.
+  const uint32_t deltaY = actor.u16(kActorY) + yBias - anchor.u16(kAnchorY);
+  const uint32_t restOffsetOnTop =
+      other.u16(kOtherExtentLo) + (actor.u16(kActorExtentHi) - actor.u16(kActorExtentLo));
+  const uint32_t bandProbe = (deltaY + restOffsetOnTop) & 0xFFFFu;
+  const int32_t  bandSpan  = actor.s16(kActorExtentHi) + other.s16(kOtherExtentHi);
+  if (bandSpan < (int32_t)bandProbe) {
+    c->r[2] = kNoCollision;
+    return;
+  }
+
+  // ── which way out ──────────────────────────────────────────────────────────────────────────────
+  // Split on the sign of Δy. Guest Y grows DOWNWARD, so Δy < 0 means the actor is ABOVE the anchor
+  // and the resolve is a snap UP onto the top face (a negative offset); Δy >= 0 means it is below,
+  // and it gets pushed further under. verticalReach stays positive on both sides — it is the
+  // separation the two bands may still have and count as touching.
+  GuestReg<16> verticalSnap(c);    // s0 — SIGNED: < 0 rest on top, > 0 pushed underneath
+  GuestReg<18> verticalGap(c);     // s2 — |Δy|
+  GuestReg<20> verticalReach(c);   // s4
+  verticalSnap  = restOffsetOnTop;
+  verticalGap   = deltaY;
+  verticalReach = restOffsetOnTop;
+  if ((int16_t)deltaY < 0) {
+    verticalGap  = 0u - deltaY;
+    verticalSnap = 0u - restOffsetOnTop;
+  } else {
+    verticalSnap  = actor.u16(kActorExtentLo) + (other.u16(kOtherExtentHi) - other.u16(kOtherExtentLo));
+    verticalReach = verticalSnap;
+  }
+
+  // The contact angle from the anchor to the sampled point, published to the scratchpad for the
+  // caller. Z is negated because the guest's ratan2 takes (y, x) in screen-ish orientation.
+  const int32_t contactDz = (int16_t)(uint32_t)deltaZ;
+  c->r[4] = (uint32_t)(-contactDz);                                            // a0
+  c->r[5] = (uint32_t)(int16_t)c->mem_r16(c->r[29] + kLocalDeltaX);            // a1
+  guest_call(c, kRaContactAngle, func_80085690);
+  GuestReg<19> scratchpad(c);      // s3 — dz is consumed, and gen reuses the register as the base
+  scratchpad = kScratchpadBase;
+  c->mem_w32(scratchpad + kContactAngleSlot, c->r[2]);
+
+  // Resolve along whichever axis is LESS deeply penetrated — the shorter way out.
+  const int32_t xzPenetration =
+      (actor.s16(kActorHeightHi) - actor.s16(kActorHeightLo) + other.s16(kOtherRadius))
+      - (int32_t)(int16_t)(uint32_t)xzDistance;
+  const int32_t yPenetration =
+      (int32_t)(int16_t)(uint32_t)verticalReach - (int32_t)(int16_t)(uint32_t)verticalGap;
+
+  if (xzPenetration < yPenetration) {
+    // ── horizontal push-out: put the actor back on the contact circle around the anchor ──────────
+    if (actor.u8(kActorType) == kActorTypeTracksFacing) {
+      c->r[4] = (uint32_t)(int16_t)c->mem_r16(scratchpad + kContactAngleSlot);  // a0 = contact angle
+      c->r[5] = (uint32_t)actor.s16(kActorFacingRef);                           // a1 = reference
+      c->r[6] = 1u;                                                             // a2
+      guest_call(c, kRaFacingCmp, func_80077768);
+      c->mem_w8(actor.base() + kActorFacing, (uint8_t)(c->r[2] + 2));
+    }
+
+    const int32_t contactRadius = actor.s16(kActorHeightLo) + other.s16(kOtherRadius);
+    GuestReg<16> contactOffsetX(c);   // s0 — live across the rsin call
+
+    c->r[4] = c->mem_r32(scratchpad + kContactAngleSlot);                       // a0 = contact angle
+    guest_call(c, kRaPushCos, func_80083F50);
+    guest_mult(c, (int32_t)c->r[2], contactRadius);
+    c->r[4] = c->mem_r32(scratchpad + kContactAngleSlot);                       // a0 = contact angle
+    contactOffsetX = (uint32_t)((int32_t)c->lo >> 12);
+    guest_call(c, kRaPushSin, func_80083E80);
+    guest_mult(c, (int32_t)c->r[2], contactRadius);
+    const uint32_t contactOffsetZ = (uint32_t)((int32_t)c->lo >> 12);
+
+    // The facing offset applied on the way in has to come back out of the position written.
+    const uint32_t undoOffsetX = c->mem_r16(c->r[29] + kLocalSampleOffsetX);
+    c->mem_w16(actor.base() + kActorX,
+               (uint16_t)(anchor.u16(kAnchorX) + contactOffsetX - undoOffsetX));
+    const uint32_t undoOffsetZ = c->mem_r16(c->r[29] + kLocalSampleOffsetZ);
+    c->mem_w16(actor.base() + kActorZ,
+               (uint16_t)(anchor.u16(kAnchorZ) - contactOffsetZ - undoOffsetZ));
+    c->r[2] = kPushedOutInXz;
+    return;
+  }
+
+  // ── vertical resolve: sit the actor at the snap offset from the anchor's own Y ─────────────────
+  const int32_t snap    = (int16_t)(uint32_t)verticalSnap;
+  const int32_t biasOut = (int16_t)(uint32_t)yBias;
+  if (snap > 0) {
+    c->mem_w32(actor.base() + kActorY32,
+               (anchor.u32(kAnchorY) + (uint32_t)snap - (uint32_t)biasOut) << 16);
+    c->r[2] = kSnappedInY;
+    return;
+  }
+  // snap <= 0: the actor came to rest ON TOP of the anchor, which is what "landed" means.
+  c->mem_w8(actor.base() + kActorLanded, 1u);
+  c->mem_w32(actor.base() + kActorY32,
+             (anchor.u32(kAnchorY) + (uint32_t)snap - (uint32_t)biasOut) << 16);
+  c->r[2] = kLandedOnTop;
 }
 
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
-// ORACLE: gen_func_8002423C
 // FUN_8002423C — actor-vs-object VERTICAL LANDING SNAP. The close relative of cylinderResolve above:
 // same record shapes, same sqrt helper, but it answers "should this actor come to rest on top of
 // that object" rather than pushing it out sideways.
 //
 // Three gates, each rejecting with v0 = -1: the actor's velY (+0x4A, SIGNED) must be >= 0, so a
-// rising actor never lands; an XZ cylinder-overlap test via FUN_80084080; and a vertical-band test.
+// rising actor never lands; an XZ cylinder-overlap test via Math::sqrtLzc; and a vertical-band test.
 // On acceptance v0 = 2, the actor's Y is snapped onto the object's rest height and the landed flag
 // at +0x29 is set.
 //
 // TWO THINGS HERE WOULD HAVE BEEN GOT WRONG BY HAND, and are right because port_gen took the body
 // verbatim rather than anyone re-typing it:
 //
-//  1. The dx and dz DIFFERENCES are truncated to 16 bits and sign-extended before squaring
-//     (`<<16 >>16` below). Both operands load UNSIGNED (lhu), so the natural rendering
-//     `int dx = A.x - B.x;` is wrong for the negative world coordinates that are stored as u16 —
-//     it squares a value near 65535 instead of one near -1.
+//  1. The dx and dz DIFFERENCES are truncated to 16 bits and sign-extended before squaring. Both
+//     operands load UNSIGNED (lhu), so the natural rendering `int dx = A.x - B.x;` is wrong for the
+//     negative world coordinates that are stored as u16 — it squares a value near 65535 instead of
+//     one near -1.
 //
 //  2. v0 IS LIVE, not a formality. 28 of the 29 call sites discard it, but generated/
 //     ov_a06_shard_0.c:2389 does `if (v0 == 2) mem_w8(r17 + 386, 0)` — zeroing the node-scan counter
@@ -320,65 +370,53 @@ void CollisionResolve::cylinderResolve(Core* c) {
 // BOTH RECORDS ARE OBJECT RECORDS. r16 = actor (a0), r17 = other (a1), and +0x2E/+0x32/+0x36 mean X/Y/Z
 // on each — which is why kOtherX/Y/Z exist alongside kActorX/Y/Z at the same numeric offsets rather
 // than one table being reused for both roles.
+//
+// ORACLE: gen_func_8002423C
 void CollisionResolve::landOnObjectTop(Core* c) {
-    c->r[29] = c->r[29] + (uint32_t)-32;
-    c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
-    c->r[16] = c->r[4] + c->r[0];
-    c->mem_w32((c->r[29] + (uint32_t)24), c->r[31]);
-    c->mem_w32((c->r[29] + (uint32_t)20), c->r[17]);
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kActorVelY));
-    { int _t = ((int32_t)c->r[2] < 0); c->r[17] = c->r[5] + c->r[0]; if (_t) goto L_80024320; }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + kActorX));
-    c->r[3] = (uint32_t)c->mem_r16((c->r[17] + kOtherX));
-    c->r[2] = c->r[2] - c->r[3];
-    c->r[2] = c->r[2] << 16;
-    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
-    { int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[2]; c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32); }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + kActorZ));
-    c->r[3] = (uint32_t)c->mem_r16((c->r[17] + kOtherZ));
-    c->r[2] = c->r[2] - c->r[3];
-    c->r[4] = c->lo;
-    c->r[2] = c->r[2] << 16;
-    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
-    { int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[2]; c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32); }
-    c->r[3] = c->lo;
-    c->r[31] = 0x800242A8u;
-    c->r[4] = c->r[4] + c->r[3]; func_80084080(c);
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[16] + kActorHeightLo));
-    c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kOtherRadius));
-    c->r[2] = c->r[2] & 65535u;
-    c->r[3] = c->r[3] + c->r[4];
-    c->r[3] = (uint32_t)((int32_t)c->r[3] < (int32_t)c->r[2]);
-    { int _t = (c->r[3] != c->r[0]); c->r[2] = c->r[0] + (uint32_t)-1; if (_t) goto L_80024324; }
-    c->r[4] = (uint32_t)c->mem_r16((c->r[16] + kActorY));
-    c->r[6] = (uint32_t)c->mem_r16((c->r[17] + kOtherY));
-    c->r[3] = (uint32_t)c->mem_r16((c->r[17] + kOtherExtentLo));
-    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + kActorExtentHi));
-    c->r[5] = (uint32_t)c->mem_r16((c->r[16] + kActorExtentLo));
-    c->r[4] = c->r[4] - c->r[6];
-    c->r[3] = c->r[3] + c->r[2];
-    c->r[5] = c->r[3] - c->r[5];
-    c->r[4] = c->r[4] + c->r[5];
-    c->r[4] = c->r[4] & 65535u;
-    c->r[2] = c->r[2] << 16;
-    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + kOtherExtentHi));
-    c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
-    c->r[2] = c->r[2] + c->r[3];
-    c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[4]);
-    { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[0] + (uint32_t)-1; if (_t) goto L_80024324; }
-    c->r[2] = c->r[0] + (uint32_t)2;
-    c->r[3] = c->r[6] - c->r[5];
-    c->mem_w16((c->r[16] + kActorY), (uint16_t)c->r[3]);
-    c->r[3] = c->r[0] + (uint32_t)1;
-    c->mem_w8((c->r[16] + kActorLanded), (uint8_t)c->r[3]); goto L_80024324;
-  L_80024320:;
-    c->r[2] = c->r[0] + (uint32_t)-1;
-  L_80024324:;
-    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)24));
-    c->r[17] = c->mem_r32((c->r[29] + (uint32_t)20));
-    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
-    c->r[29] = c->r[29] + (uint32_t)32; return;
+  const uint32_t actorArg = c->r[4];
+  const uint32_t otherArg = c->r[5];
+
+  GuestFrame<kLandFrameBytes, 3> frame(c, kLandSpills);
+  c->r[16] = actorArg;
+  c->r[17] = otherArg;
+
+  const Rec actor{ c, 16 };
+  const Rec other{ c, 17 };
+
+  // gate 1 — a rising actor never lands on anything.
+  if (actor.s16(kActorVelY) < 0) {
+    c->r[2] = kLandRejected;
     return;
+  }
+
+  // gate 2 — XZ cylinder overlap. Same u16 truncate-then-sign-extend as cylinderResolve.
+  const uint32_t dx = actor.u16(kActorX) - other.u16(kOtherX);
+  guest_mult(c, (int16_t)dx, (int16_t)dx);
+  const uint32_t deltaXSq = c->lo;
+  const uint32_t dz = actor.u16(kActorZ) - other.u16(kOtherZ);
+  guest_mult(c, (int16_t)dz, (int16_t)dz);
+  c->r[4] = deltaXSq + c->lo;                    // a0 = dx² + dz²
+  guest_call(c, kRaLandDist, func_80084080);
+  const uint32_t xzDistance = c->r[2] & 0xFFFFu;
+  const int32_t  xzReach    = actor.s16(kActorHeightLo) + other.s16(kOtherRadius);
+  if (xzReach < (int32_t)xzDistance) {
+    c->r[2] = kLandRejected;
+    return;
+  }
+
+  // gate 3 — vertical band. restOffset is where the actor's origin ends up when it rests on top.
+  const uint32_t restOffset =
+      (other.u16(kOtherExtentLo) + actor.u16(kActorExtentHi)) - actor.u16(kActorExtentLo);
+  const uint32_t bandProbe = (actor.u16(kActorY) - other.u16(kOtherY) + restOffset) & 0xFFFFu;
+  const int32_t  bandSpan  = actor.s16(kActorExtentHi) + other.s16(kOtherExtentHi);
+  if (bandSpan < (int32_t)bandProbe) {
+    c->r[2] = kLandRejected;
+    return;
+  }
+
+  c->mem_w16(actor.base() + kActorY, (uint16_t)(other.u16(kOtherY) - restOffset));
+  c->mem_w8(actor.base() + kActorLanded, 1u);
+  c->r[2] = kLandedOnTop;
 }
 
 void CollisionResolve::registerOverrides(Game*) {
