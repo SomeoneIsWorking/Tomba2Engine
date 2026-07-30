@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 976 native fns, 826 owned addresses, 796 LIVE / 180 ORPHAN.
+Totals: 977 native fns, 827 owned addresses, 797 LIVE / 180 ORPHAN.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -859,24 +859,25 @@ Totals: 976 native fns, 826 owned addresses, 796 LIVE / 180 ORPHAN.
 | 0x8012EB54 | LIVE | `beh_substate_edge_orchestrator` | game/ai/beh_substate_edge_orchestrator.cpp:47 | 0x8012E8A8 0x8012ED84 0x8012F494 0x8012F5B4 0x8012FD88 0x80130524 … |  |
 | 0x8012ED84 | LIVE | `SubstateEdgeLeaves::stateZeroInit` | game/ai/substate_edge_native.cpp:612 | 0x8004CBD8 0x8007AAE8 | FUN_0x8012ED84 — STATE 0 INIT. Verified against the body: it seeds the… |
 | 0x8012F494 | LIVE | `SubstateEdgeLeaves::substate0Tick` | game/ai/substate_edge_native.cpp:366 |  | the orchestrator's node[5]==0 sub-state tick. 14,833 substrate dispatc… |
-| 0x8012F5B4 | LIVE | `SubstateEdgeLeaves::substate1Tick` | game/ai/substate_edge_native.cpp:1015 | 0x80074590 0x80074AF0 0x80083E80 | FUN_0x8012F5B4 — the node[5]==1 sub-state tick. |
-| 0x8012FD88 | LIVE | `SubstateEdgeLeaves::substate2Tick` | game/ai/substate_edge_native.cpp:1445 | 0x8004CBD8 0x80074590 0x80077768 | FUN_0x8012FD88 — the node[5]==2 sub-state tick. |
-| 0x80130524 | LIVE | `SubstateEdgeLeaves::substate3Tick` | game/ai/substate_edge_native.cpp:1853 | 0x80077768 | FUN_0x80130524 — the node[5]==3 sub-state tick. |
-| 0x801308E0 | LIVE | `SubstateEdgeLeaves::contactWeightApply` | game/ai/substate_edge_native.cpp:2236 | 0x80074590 | FUN_0x801308E0 — THE CONTACT-TO-WEIGHT CONSUMER, and the reason this w… |
+| 0x8012F5B4 | LIVE | `SubstateEdgeLeaves::substate1Tick` | game/ai/substate_edge_native.cpp:1022 | 0x80074590 0x80074AF0 0x80083E80 | FUN_0x8012F5B4 — SUB-STATE 1 TICK: the assembly's driven phase. Profil… |
+| 0x8012FD88 | LIVE | `SubstateEdgeLeaves::substate2Tick` | game/ai/substate_edge_native.cpp:1456 | 0x8004CBD8 0x80074590 0x80077768 | FUN_0x8012FD88 — SUB-STATE 2 TICK: an angle-steering phase. Writes the… |
+| 0x80130524 | LIVE | `SubstateEdgeLeaves::substate3Tick` | game/ai/substate_edge_native.cpp:1866 | 0x80077768 | FUN_0x80130524 — SUB-STATE 3 TICK, and the one that reaches the weight… |
+| 0x80130788 | LIVE | `SubstateEdgeLeaves::driveAccelSelect` | game/ai/substate_edge_native.cpp:2375 |  | FUN_0x80130788 — THE DRIVE-AXIS ACCELERATION SELECTOR for the assembly… |
+| 0x801308E0 | LIVE | `SubstateEdgeLeaves::contactWeightApply` | game/ai/substate_edge_native.cpp:2251 | 0x80074590 | FUN_0x801308E0 — THE CONTACT-TO-WEIGHT CONSUMER, and the reason this w… |
 | 0x80130AC4 | LIVE | `SubstateEdgeLeaves::visibilityGate` | game/ai/substate_edge_native.cpp:62 | 0x80077A4C | ORACLE: ov_a00_gen_80130AC4 |
 | 0x80131134 | LIVE | `SubstateEdgeLeaves::armPendingChildPair` | game/ai/substate_edge_native.cpp:272 |  | ORACLE: ov_a00_gen_80131134 |
-| 0x801313C4 | LIVE | `SubstateEdgeLeaves::angleLimitGate` | game/ai/substate_edge_native.cpp:1999 |  | FUN_0x801313C4 — ANGLE-LIMIT GATE. RENAMED after reading it: I had cal… |
+| 0x801313C4 | LIVE | `SubstateEdgeLeaves::angleLimitGate` | game/ai/substate_edge_native.cpp:2012 |  | FUN_0x801313C4 — ANGLE-LIMIT GATE. RENAMED after reading it: I had cal… |
 | 0x801316CC | LIVE | `SubstateEdgeLeaves::tickChildOscillators` | game/ai/substate_edge_native.cpp:214 |  | ORACLE: ov_a00_gen_801316CC |
 | 0x80131D08 | LIVE | `beh_two_child_steer` | game/ai/beh_two_child_steer.cpp:48 |  |  |
 | 0x80132400 | LIVE | `beh_single_child_cull` | game/ai/beh_single_child_cull.cpp:44 |  |  |
 | 0x8013259C | LIVE | `beh_cull_substate_orchestrator` | game/ai/beh_cull_substate_orchestrator.cpp:52 | 0x8013272C 0x80132954 0x80132A88 0x80132D58 0x80132EDC 0x80133184 … |  |
 | 0x8013272C | ORPHAN | `func_8013272C` | game/ai/beh_cull_substate_leaves.cpp:55 | 0x80048750 0x800518FC 0x80051B70 0x801252C0 0x80133774 | func_8013272C — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_801327… |
-| 0x80132954 | LIVE | `CullSubstateLeaves::tickSubstateZero` | game/ai/cull_substate_native.cpp:243 |  | the orchestrator's sub-state-zero tick. 7,583 substrate dispatches per… |
-| 0x80132A88 | LIVE | `CullSubstateLeaves::tickChildEulerZSwingPhase` | game/ai/cull_substate_native.cpp:78 | 0x8004CBD8 0x80074590 0x80077768 | the phase-advancing sibling of tickChildEulerZSwing above. 7,650 subst… |
+| 0x80132954 | LIVE | `CullSubstateLeaves::tickSubstateZero` | game/ai/cull_substate_native.cpp:259 |  | the orchestrator's sub-state-zero tick: a DISPATCHER. It writes only n… |
+| 0x80132A88 | LIVE | `CullSubstateLeaves::tickChildEulerZSwingPhase` | game/ai/cull_substate_native.cpp:91 | 0x8004CBD8 0x80074590 0x80077768 | the phase-advancing sibling of tickChildEulerZSwing. Writes far more s… |
 | 0x80132D58 | ORPHAN | `func_80132D58` | game/ai/beh_cull_substate_leaves.cpp:162 | 0x80051B04 0x80133610 0x80133700 0x80133774 | func_80132D58 — DRAFT. RE'd from generated/ov_a00_shard_0.c gen_80132D… |
 | 0x80132EDC | ORPHAN | `func_80132EDC` | game/ai/beh_cull_substate_leaves.cpp:323 | 0x80133610 0x80133700 0x80133774 | func_80132EDC — DRAFT. RE'd from generated/ov_a00_shard_1.c gen_80132E… |
 | 0x80133184 | ORPHAN | `func_80133184` | game/ai/beh_cull_substate_leaves.cpp:237 | 0x80027144 0x80040B48 0x8004ED94 0x80074590 | func_80133184 — DRAFT. RE'd from generated/ov_a00_shard_0.c gen_801331… |
-| 0x80133550 | LIVE | `CullSubstateLeaves::tickChildEulerZSwing` | game/ai/cull_substate_native.cpp:32 |  | ORACLE: ov_a00_gen_80133550 |
+| 0x80133550 | LIVE | `CullSubstateLeaves::tickChildEulerZSwing` | game/ai/cull_substate_native.cpp:36 |  | per-frame tick of the decaying swing on a child record's Euler Z. Prof… |
 | 0x80133C14 | LIVE | `beh_typed_table_seed_gate` | game/ai/beh_typed_table_seed_gate.cpp:299 |  |  |
 | 0x80133D6C | LIVE | `beh_twin_record_steer` | game/ai/beh_twin_record_steer.cpp:68 |  |  |
 | 0x80134FD8 | LIVE | `beh_multi_record_phase_machine` | game/ai/beh_multi_record_phase_machine.cpp:66 |  |  |
@@ -938,9 +939,9 @@ Totals: 976 native fns, 826 owned addresses, 796 LIVE / 180 ORPHAN.
 | 0x801458E0 | LIVE | `AttackOrbitSubstate::orbitTargetMotion` | game/ai/attack_orbit_substate.cpp:44 |  | node[3]==0x81 sub-behavior: 6-phase acquire/orbit machine, see header … |
 | 0x80145AF0 | LIVE | `AttackOrbitSubstate::aimAtTargetAnchor` | game/ai/attack_orbit_substate.cpp:126 |  | node[3]==0x80 sub-behavior: aim-point recompute + one-shot attack-wind… |
 | 0x80145C78 | LIVE | `ActorZonedAttacker::zoneClassify` | game/ai/actor_zoned_attacker.cpp:1258 |  | classifies (u8 at record+0x2A, s16 at record+0x36) into a {0,1,2} zone… |
-| 0x80146348 | LIVE | `SubstateEdgeLeaves::assemblyPostTick` | game/ai/substate_edge_native.cpp:2054 | 0x80072DDC | FUN_0x80146348 — the assembly post-tick called after the sub-state wor… |
+| 0x80146348 | LIVE | `SubstateEdgeLeaves::assemblyPostTick` | game/ai/substate_edge_native.cpp:2069 | 0x80072DDC | FUN_0x80146348 — ASSEMBLY POST-TICK. Its one call is Placement::spawnW… |
 | 0x80146478 | LIVE | `OverlayGt3Gt4::submitBlock` | game/render/overlay_gt3gt4.cpp:113 |  |  |
 | 0x801465EC | LIVE | `OverlayGt3Gt4::gt3` | game/render/overlay_gt3gt4.cpp:159 |  | POLY_GT3 (gouraud-textured triangle) emit, GTE-driven, guest-writing. |
 | 0x801467BC | LIVE | `OverlayGt3Gt4::gt4` | game/render/overlay_gt3gt4.cpp:238 |  | POLY_GT4 (gouraud-textured quad) emit, GTE-driven, guest-writing. |
-| 0x8018C820 | LIVE | `SubstateEdgeLeaves::opnAssemblyHook` | game/ai/substate_edge_native.cpp:2104 | 0x80074590 0x80074AF0 0x801314B4 0x8013892C | FUN_0x8018C820 — the assembly's OPN-overlay hook, and the TWELFTH and … |
+| 0x8018C820 | LIVE | `SubstateEdgeLeaves::opnAssemblyHook` | game/ai/substate_edge_native.cpp:2119 | 0x80074590 0x80074AF0 0x801314B4 0x8013892C | FUN_0x8018C820 — the assembly's OPN-overlay hook, and the TWELFTH and … |
 | 0x801FE00C | LIVE | `Render::classifyScene` | game/render/render_walk.cpp:341 |  | --- pc_render scene DISPATCH (see render.h) --------------------------… |

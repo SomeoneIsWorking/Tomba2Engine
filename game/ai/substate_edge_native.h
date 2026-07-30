@@ -77,5 +77,9 @@ public:
   // weight at node+0x48. The mechanism kanban #8 is about; see the implementation banner.
   static void contactWeightApply(Core* c);
 
+  // FUN_0x80130788 — drive-axis acceleration selector: picks one of four accelerations by the mode
+  // byte and returns a 0/1/2 verdict the sub-state ticks use as their escape signal.
+  static void driveAccelSelect(Core* c);
+
   static void registerOverrides(Game* game);
 };

@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 54 verified · 9 partial · 10 untested · 7 n/a
+**Status:** 55 verified · 9 partial · 10 untested · 7 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -161,6 +161,13 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **frames:** 19590
 - **gate:** SBS-full combat f5460 + watch-cut f19590 0-diff; hut replay bubble identical via tap (panelq box=800EEA60 count=17)
 - **evidence:** 916ddfc0
+
+## drive-accel-select-130788
+- **scope:** 0x80130788 drive-axis acceleration selector
+- **status:** verified
+- **frames:** 1500
+- **gate:** SBS full, seesaw-weight.pad
+- **evidence:** 50/50 A/B-identical; ovhit native=11120 oracle=11120 balanced; port_check PASS. RE claims self-verified against ov_a00_shard_0.c:17191-17256 because batch-5's verify agents died on server errors.
 
 ## engine-alloc-record-selector-8913c
 - **scope:** 0x8008913C record[0]/record[1] selector over the 0x80102500 array

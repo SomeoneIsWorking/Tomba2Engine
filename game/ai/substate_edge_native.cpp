@@ -2348,7 +2348,99 @@ void SubstateEdgeLeaves::contactWeightApply(Core* c) {
     return;
 }
 
+// FUN_0x80130788 — THE DRIVE-AXIS ACCELERATION SELECTOR for the assembly, and the last substrate
+// round trip out of the sub-state ticks.
+//
+// ONE WRITE in the whole body, the halfword at node+0x4E, from four sites. That +0x4E is the X
+// ACCELERATION is not an offset guess: the caller at 0x8012F894 (inside substate1Tick) immediately
+// does node[0x48] += node[0x4E], clamps node[0x48], and feeds node[0x48] >> 8 into the position
+// accumulator — and docs/findings/object.md records +0x48 as velX in 1/256 world units per frame,
+// which is exactly what that >>8 divides by. So +0x4E is accel, +0x48 is velocity.
+//
+// The mode byte at node+0x29 picks one of four accelerations and, with it, what "moving correctly"
+// means. The return value is the sub-state escape signal, and the 1-vs-2 distinction is LOAD-BEARING:
+// substate0Tick treats any nonzero as "leave the tilt sub-state", while substate1Tick tests for
+// EXACTLY 1. Collapsing the verdict to a bool would break the second caller silently.
+//
+// TWO GATES gagged the write, both verified against the gen body: a1 must be nonzero, AND the
+// halfword at node+0x78 must be zero (`if (node+0x78 != 0) skip`). With a1 = 0 this is a PURE QUERY
+// that writes nothing — which is exactly how substate1Tick's second call site uses it.
+//
+// VERIFIED BY HAND, NOT BY THE USUAL SECOND AGENT. Batch-5's six verify agents all died on
+// server-side 500/529 errors, so this plan reached me unchecked. I re-derived the load-bearing
+// claims from ov_a00_shard_0.c:17191-17256 myself: the mode byte at +0x29, every write targeting
+// +0x4E, and the a1/+0x78 gate. I initially suspected the plan had confused +0x48 and +0x78 — it had
+// not; +0x78 is the hold flag and the sign tests are on +0x48, each read four times.
+// ORACLE: ov_a00_gen_80130788
+void SubstateEdgeLeaves::driveAccelSelect(Core* c) {
+    c->r[3] = (uint32_t)c->mem_r8((c->r[4] + (uint32_t)41));
+    c->r[2] = c->r[3] & 1u;
+    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[3] & 128u; if (_t) goto L_8013080C; }
+    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_801307D8; }
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)120));
+    { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_801307C0; }
+    { int _t = (c->r[5] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)-256; if (_t) goto L_801307C0; }
+    c->mem_w16((c->r[4] + (uint32_t)78), (uint16_t)c->r[2]);
+  L_801307C0:;
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)72));
+    { int _t = ((int32_t)c->r[2] >= 0); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_801308D8; }
+     return;
+  L_801307D8:;
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)120));
+    { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_801307F4; }
+    { int _t = (c->r[5] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)256; if (_t) goto L_801307F4; }
+    c->mem_w16((c->r[4] + (uint32_t)78), (uint16_t)c->r[2]);
+  L_801307F4:;
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)72));
+    { int _t = ((int32_t)c->r[2] <= 0); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_801308D8; }
+     return;
+  L_8013080C:;
+    c->r[2] = c->r[3] & 4u;
+    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80130894; }
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)120));
+    { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_80130870; }
+    { int _t = (c->r[5] == c->r[0]);  if (_t) goto L_80130870; }
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)68));
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)106));
+    c->r[2] = c->r[2] << 7;
+    cpu_div(c, c->r[2], c->r[3]);
+    { int _t = (c->r[3] != c->r[0]);  if (_t) goto L_8013084C; }
+    rec_break(c, 7168u);
+  L_8013084C:;
+    c->r[1] = c->r[0] + (uint32_t)-1;
+    { int _t = (c->r[3] != c->r[1]); c->r[1] = (uint32_t)32768u << 16; if (_t) goto L_80130864; }
+    { int _t = (c->r[2] != c->r[1]);  if (_t) goto L_80130864; }
+    rec_break(c, 6144u);
+  L_80130864:;
+    c->r[2] = c->lo;
+    c->mem_w16((c->r[4] + (uint32_t)78), (uint16_t)c->r[2]);
+  L_80130870:;
+    c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)68));
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)72));
+    { int64_t _p = (int64_t)(int32_t)c->r[3] * (int64_t)(int32_t)c->r[2]; c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32); }
+    c->r[6] = c->lo;
+    { int _t = ((int32_t)c->r[6] <= 0); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_801308D8; }
+     return;
+  L_80130894:;
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)120));
+    { int _t = (c->r[2] != c->r[0]);  if (_t) goto L_801308D0; }
+    { int _t = (c->r[5] == c->r[0]);  if (_t) goto L_801308D0; }
+    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)72));
+    { int _t = ((int32_t)c->r[2] <= 0);  if (_t) goto L_801308C4; }
+    c->r[2] = c->r[0] + (uint32_t)-128; goto L_801308CC;
+  L_801308C4:;
+    { int _t = ((int32_t)c->r[2] >= 0); c->r[2] = c->r[0] + (uint32_t)128; if (_t) goto L_801308D0; }
+  L_801308CC:;
+    c->mem_w16((c->r[4] + (uint32_t)78), (uint16_t)c->r[2]);
+  L_801308D0:;
+    c->r[2] = c->r[0] + c->r[0]; return;
+  L_801308D8:;
+    c->r[2] = c->r[0] + (uint32_t)2; return;
+    return;
+}
+
 void SubstateEdgeLeaves::registerOverrides(Game*) {
+  engine_set_override_a00(0x80130788u, &SubstateEdgeLeaves::driveAccelSelect, ov_a00_gen_80130788);
   engine_set_override_a00(0x801308E0u, &SubstateEdgeLeaves::contactWeightApply, ov_a00_gen_801308E0);
   { extern void ov_opn_gen_8018C820(Core*);
     overrides::install(0x8018C820u, "SubstateEdgeLeaves::opnAssemblyHook",
