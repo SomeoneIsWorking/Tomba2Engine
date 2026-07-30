@@ -252,3 +252,31 @@ a spec. So you can READ a route and AUTHOR your own — no live capture needed.
 (The `hut-entry-door-freeze.pad` holds up 300f and hits the freeze bug; the clean `hut-entry-alt.pad`
 taps up briefly then walks right through — decode both with pad_decode to compare.) To reach OTHER
 areas: same method — walk to the exit, probe X/Z to find the trigger zone, script it.
+
+
+## `tools/whatisit.py` — what in the GAME is this guest address?
+
+Answers the question the USER asked bluntly and that this project had no cheap answer for: you can
+port a function byte-exactly, gate it, and still not know what object it belongs to. Every one of the
+46 live field handlers carries a STRUCTURAL name (substate_edge_orchestrator, scatter_record_dither)
+because they were all named from the disassembly, never from the screen.
+
+    tools/whatisit.py 0x80118B10          # which live node runs or reaches this?
+    tools/whatisit.py --all               # every live node, nearest the player first
+    tools/whatisit.py 0x8012D27C --frame 1400 --replay replays/bugs/seesaw-weight.pad
+
+It drives the replay headless to a frame, walks BOTH entity lists, captures a screenshot at the SAME
+instant, and prints each node's world position, distance from the player, and native owner (resolved
+through codemap, not a grep). Then you look at the picture and match by position.
+
+Two design points worth keeping:
+- **A leaf address will not appear as any node's handler**, because only top-level per-object
+  behaviours do. The tool SAYS SO, gives the denominator ("examined 150 nodes across both entity
+  lists"), and falls back to the nodes nearest the player so you can find your CALLER. It never prints
+  an empty table and lets that read as "nothing found".
+- **It does not name anything.** Positions and a picture only. A position is a fact; a NAME is a claim
+  needing a source (USER or guest data) — the same rule docs/areas.md applies to areas. Do not let a
+  plausible screenshot become an identification.
+
+Y grows DOWNWARD in this game, so a more negative Y is HIGHER — the tool prints that reminder because
+reading the stack upside down is the easy mistake.
