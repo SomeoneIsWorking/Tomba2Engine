@@ -759,3 +759,51 @@ does not reproduce it" as evidence about the bug.
   gate for area 12 today because no replay reaches it.
 - **refs:** docs/areas.md area 12; kanban #36; scratch/logs/boss_a12.log, boss_baseline.log,
   boss_engage.log; scratch/screenshots/boss/a12.png
+
+## FALSIFIED: "the boss encounter is not armed". It ticks. 17/170 is the IDLE vocabulary (2026-07-30)
+Escalated to Fable after two of my own hypotheses failed; its frame-check killed mine, and I
+reproduced the decisive observation independently before accepting it.
+
+- **THE BOSS FSM IS LIVE.** Node 0x800FB218 (t=02, handler 0x801114C4, an A0C address) changes across
+  a 600-frame window after `warp 12`: model 0006 -> 0005, pos (6710,-4800,3310) -> (5640,-5600,3900),
+  render flag 0 -> 1. A dormant node does not do that. Reproduced by me via the REPL `ents` command,
+  not taken on report.
+- **The count arithmetic corroborates per-tick residency.** Over ~369 post-warp logic ticks,
+  recdep-all shows 0x80115048 = 1845 = 5 nodes x 369; 0x80115228/0x80114E00/0x80114CF8 = 738 = 2 x 369;
+  0x801114C4/0x80116A38/0x80110208 = 368-369 = 1 x 369. Dispatch counts are exactly nodeCount x ticks,
+  i.e. the entity-list walk is ticking every live A0C handler every frame.
+- **SO THE ~150 UNREACHED FUNCTIONS ARE ENGAGEMENT-GATED, NOT ARMING-GATED** — hit reactions, attack
+  patterns, grab/throw, the defeat sequence. No flag-poke substitutes for the player doing things.
+- **`ents` is the RIGHT instrument here, and recdep is not.** `ents` reads guest RAM, so
+  natively-owned handlers are visible (recdep sees only substrate dispatch, and ~1000 addresses are
+  already native — absence there proves nothing). At probe time only A0C occupies the overlay slot,
+  so range->module is unambiguous. Use a state DELTA over two snapshots; one snapshot cannot
+  distinguish live from dormant.
+- **recdep cross-check that rescues it when you must use it:** a per-tick node handler's count must
+  equal nodeCount x post-warp ticks. Entries failing that arithmetic (my dump has a 1437/1392 cluster,
+  not a multiple of 369) are field-phase aliases from the cumulative histogram, not area-12 code.
+- **Two residual unknowns resolved:** 0x80042354 is a sound-cue wrapper (8-byte table at 0x80015368 ->
+  Sfx::trigger 0x80074590, publishes a0 to scratchpad 0x1F800137) and 0x8001CF2C is an audio-settle
+  spin on func_80089E1C(9,0,0). So area 12's entry-handler tail is BOSS-MUSIC SETUP plus the state-4
+  arm, and bit 2 of 0x800BFA1A reads as "this boss already beaten" (it suppresses both). That is why
+  my devWarpAreaEnter fix changed no reach: the thing it dispatches was never the fight's ignition.
+
+## The area-12 SBS gate does NOT work today — PSXPORT_SBS_WARP aborts (tested 2026-07-30)
+Fable reported that `PSXPORT_SBS_WARP="frame:area[:sub]"` (external/psxport/runtime/recomp/sbs.cpp)
+already provides a replay-free SBS gate into any area. The mechanism is real and it fires, but I
+TESTED IT FOR AREA 12 AND IT ABORTS:
+
+    PSXPORT_SBS_WARP="1200:12" ... -> "[sbs] WARP fired at f1200: door-record 0x800BF83A=0C00 trig=3"
+    then: [recomp-MISS 0] no recompiled fn for 0x8010CC28 (caller ra=0x800587F8, a0=0x800E7E80)
+    41 checkpoints identical, then abort.
+
+0x8010CC28 is area 12's entry handler and ra=0x800587F8 is exactly the ActorTomba::enterOuterState0
+table-dispatch site. The miss means overlay A0C is NOT RESIDENT on that leg: the SBS warp writes the
+door record and lets the game run its own transition, but that path does not bring the destination
+overlay in, unlike the REPL dev warp which calls devWarpAreaLoad explicitly. This is the kanban #36
+signature verbatim ("recomp-MISS 0x8010AC20, caller ra=0x800587F8").
+
+CONSEQUENCE: the ~17 reachable idle-set functions are real and portable, but they are NOT SBS-gateable
+by this route yet. Do not cite SBS_WARP as an area-12 gate without re-testing it. It was built for
+kanban #37 (a hut entry) and evidently works there; area 12 needs the overlay load the door-record
+path lacks.
