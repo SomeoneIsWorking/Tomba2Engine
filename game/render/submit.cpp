@@ -34,6 +34,7 @@
 #include "render.h"           // class Render — Render::fieldEntityRender lives here
 #include <stdlib.h>
 #include <stdio.h>
+#include <lucent/log.h>
 #include <string.h>
 
 // g_dbg_cur_geomblk retired — per-Core Render::mDbgCurGeomblk (sil_bbox_log_node diag)
@@ -396,6 +397,10 @@ void rec_dispatch(Core*, uint32_t);         // interpret/run a guest fn (unowned
 // (low16 tri, high16 quad), point past the 16-byte header to the record array, and run the two native
 // submitters in sequence (tri-submit returns the advanced record pointer = the quad array base).
 // g_dbg_cur_geomblk retired — per-Core Render::mDbgCurGeomblk
+// No real object's geometry block declares more polys than this; above it the pointer is not a
+// geometry block. Purely a DIAGNOSTIC threshold — nothing branches on it (see gt3gt4 below).
+static constexpr uint32_t kImplausiblePolyCount = 256u;
+
 void Render::gt3gt4(uint32_t geomblk, uint32_t otbase) {   // used by render_walk.cpp
   Core* c = mCore;
   // kanban #33: at guest time on a tier1-eligible scene, the per-object transform was already captured by
@@ -403,6 +408,16 @@ void Render::gt3gt4(uint32_t geomblk, uint32_t otbase) {   // used by render_wal
   // geomblk from mSink on both frames, so submitting it here is pure waste. Skip the projection+submit.
   c->rsub.diag.setGeomblk(geomblk);
   uint32_t counts = c->mem_r32(geomblk + 0);
+  // A real object's geometry block declares tens of polys. A count this large means `cmd+0x40` is
+  // not pointing at a geometry block at all — measured on the Tomba!2 DEMO transition (gpu f1822):
+  // node 800F06D8's geomblk 801E9AB4 held TEXTURE bytes, read back as gt3=63740 gt4=64760, and the
+  // ~125k garbage quads that produced are what fed the render queue the frame that wedged it. The
+  // guest emitter (ov_a00_gen_80146478) reads the SAME two 16-bit fields, so this is faithful, not a
+  // port defect — the diagnostic exists so the next occurrence is visible instead of inferred.
+  const uint32_t gt3_count = counts & 0xFFFFu, gt4_count = counts >> 16;
+  if (gt3_count > kImplausiblePolyCount || gt4_count > kImplausiblePolyCount)
+    lucent::debug("keyord", "gt3gt4 f{} node={:08X} geomblk={:08X} declares gt3={} gt4={} — not a geometry block",
+                  c->game->gpu.s_frame, c->rsub.diag.currentNode(), geomblk, gt3_count, gt4_count);
   c->r[4] = geomblk + 16; c->r[5] = otbase; c->r[6] = counts & 0xFFFFu;
   submitPolyGt3Native(c);
   c->r[4] = c->r[2];      c->r[5] = otbase; c->r[6] = counts >> 16;

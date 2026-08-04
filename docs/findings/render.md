@@ -4362,3 +4362,42 @@ binary and reported "0 pixels changed". That zero is an artefact of the harness,
 recorded here because the identical failure produced a bogus all-zero result earlier today, and the
 lesson (instrument I019: attribute the emission before believing the pixels) only works if the near
 misses get written down too.
+
+## [render] resolveKeyOrder wedged the frame loop at the DEMO attract-loop transition (2026-08-04, FIXED)
+
+symptom : `PSXPORT_NOWINDOW=1 ./run.sh` boots, runs the attract/DEMO loop to gpu frame ~1822, then the
+          frame watchdog fires with `RenderQueue::resolveKeyOrder` on the backtrace and NO further frame
+          is ever presented. EXIT=134.
+status  : FIXED in the framework (`external/psxport`, area claim `render-queue`). Gate: 121,380 frames
+          with no wedge (previously 1,819).
+NOT     : not an infinite loop — resolveKeyOrder contains no unbounded loop. Distinguishing "hang" from
+          "combinatorial blow-up" first is what made this tractable; they have different fixes.
+cause   : resolveKeyOrder's output is ONE BIT PER FACE — "is this face in contest with any other face of
+          its object" — which is an EXISTENCE question. The implementation instead enumerated the
+          complete pairwise relation, every C(n,2) pair of every object group, and kept testing faces
+          whose answer was already settled. Cost is therefore quadratic in the faces ONE guest node
+          emits in a frame. Measured at the wedge frame: 45,993 keyed faces in 3 groups (maxgroup =
+          31,308 on node 800F06D8, vs 143 on a normal frame) = 596,134,804 pair tests, of which
+          530,294,818 passed the bbox reject and 496,339,081 reached the 8x8 interior sampler. 45,917 of
+          45,993 faces (99.83%) were snapped — i.e. nearly every one of those half-billion tests was
+          re-deciding a face already known to be snapped.
+fix     : witness search instead of pairwise enumeration — skip a face whose witness is already found,
+          and stop scanning the moment one is found. The pair rule is symmetric, so a witness found
+          while deciding `a` settles `b` too, and the SNAP SET IS UNCHANGED. Same frame afterwards:
+          860,446 pair tests (693x fewer), same 45,921/45,997 decision. No cap, no time budget, no
+          skip-when-slow, no special case.
+gate    : `external/psxport/tests/test_render_queue_keyorder.cpp` (hermetic, no disc/GPU). Five cases
+          assert the snap set against a brute-force existence oracle (both contest rules + the negative
+          case); a sixth asserts `RenderQueue::keyOrderPairTests <= 64*n` on a 6000-face single-object
+          group. Proven RED against the pre-fix algorithm (that case failed, 34 s) and GREEN after.
+INPUT (separate defect, NOT fixed here, see kanban) : the 45,993 keyed faces are GARBAGE geometry. At
+          the DEMO transition two object nodes' render commands carry a geomblk pointer into a TEXTURE
+          buffer: node 800F0550 cmd 800F7514 -> geomblk 801E9884, node 800F06D8 cmd 800F759C -> geomblk
+          801E9AB4. Those words read back as gt3=0/gt4=59839 and gt3=63740/gt4=64760, so the generic
+          GT3/GT4 emitter submits ~125k nonsense quads. Verified from a RAM dump at native f1817: the
+          bytes at both addresses are pixel data (`0000bfe9 f7f7f7f7 ...`, `fcf8f8fc f8f8f8fc ...`).
+          This is GUEST-FAITHFUL, not a port defect — `ov_a00_gen_80146478` reads the SAME two 16-bit
+          fields (`r[16] & 65535`, `r[16] >> 16`), so the substrate emitter does exactly the same thing.
+          A diagnostic now names it (`PSXPORT_DEBUG=keyord`, Render::gt3gt4) instead of leaving it to be
+          inferred. Root-causing WHY the pointer is stale at that moment is open.
+refs    : scratch/logs/{keyord_census2,keyord_uniq,funnel,gate_clean}.log; coord/patches/render-queue*.diff
