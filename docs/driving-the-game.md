@@ -27,6 +27,60 @@ Do NOT use the attract demo to judge the native render path.
 Verify you're in free-roam (not the menu/cutscene) before rendering: object-list head 0x800FB168 != 0 AND the
 cutscene flag `*(0x1F800137)` == 0.
 
+## ⭐ THE EFFECT SANDBOX — `tools/sandbox.py`: spawn an effect, move the camera, step time, capture
+USER 2026-08-04: *"tbh I wish we had a test app where we could test these things like spawn an effect
+etc"*. This is that. It is **not a separate test binary** — a second executable would carry its own
+renderer/camera/object graph and drift from the game, i.e. test something the real game never does.
+It is a CLIENT that drives the real `scratch/bin/tomba2_port` over the debug server, so it exercises
+the code path that ships. With the sandbox not in use, nothing in the game differs.
+
+```
+tools/sandbox.py --list                          # the effect recipes + the RE source of each
+tools/sandbox.py --selftest                      # prove the parser fires; no game needed
+tools/sandbox.py scenarios/banner-camera-pan.txt # launch an instance + run a scenario
+tools/sandbox.py --attach 5960 scenarios/x.txt   # drive an instance already up
+tools/sandbox.py --sheet scratch/screenshots/n71 # contact-sheet a captured frame series
+```
+
+**Spawning goes through the game's own spawner — there is no new engine mechanism.** The debug
+server's `call` already invokes a guest function on the live CPU at a frame boundary, so every recipe
+is just the game's real spawn entry point with the game's real arguments. Adding an effect to the
+registry is RE work (find the spawner), never new code. A recipe whose call returns `v0=0` is a
+**FATAL** "SPAWN FAILED", not a skip — otherwise a scenario that spawned nothing would produce a
+clean-looking frame series and read as a pass.
+
+Worked example — the item-announcement banner, raised on demand anywhere in the field:
+```
+$ python3 external/psxport/tools/dbgclient.py --port 5960 "call 80040AA4 38 0"
+call 80040AA4(a0=00000038,a1=00000000,...) -> v0=800FB218 v1=00007C7E
+```
+`FUN_80040AA4` = `CubeTextLedger::spawnPopup(value, variant)`; `value` indexes the string table at
+`0x800A33C8` (stride 12) — entry 56 = "A Red Treasure Chest", entry 2 = "Go to the Burning House!",
+entry 1 = the game-start banner. `v0` is the node it allocated.
+
+**Scenario files** (`scenarios/`) are one command per line; `#` **only at line start** is a comment;
+anything not a runner directive passes to the debug server verbatim, so the whole `help` surface
+stays reachable. Runner directives: `spawn <recipe>`, `capture <n> [dir]` (step one LOGIC frame +
+shoot, n times), `preseq <n> [dir]`, `sleep <s>`, `echo <text>`.
+
+**Camera motion is the game's own** — `press right` walks Tomba and the follow camera tracks him,
+which is exactly the condition the user plays in. `tp <x> <y> <z>` pins the camera and bare `tp`
+releases it (see below).
+
+**`capture` is BLIND to fps60 interpolated frames by construction** — it steps whole logic frames.
+For a TEMPORAL artefact (vibration, judder, an interp seam) use `preseq`, which dumps PRESENTED
+frames and therefore interleaves real and interpolated ones. Pair it with `debug preseqobj`: the emit
+path then logs one line per drawn RqItem per present, `key=` being the **node address**, so a single
+effect's screen position can be followed frame by frame and differenced. That is how kanban #71 was
+measured.
+
+### `preseq` and `tp` now work on the DEBUG SERVER, not just the REPL (2026-08-04)
+Both used to exist only in `PSXPORT_REPL`, and this doc says right below that the REPL **blocks the
+frame loop** and must not be used for interactive headless work — so the one instrument that can see
+interpolated frames was unreachable from any live session. `dbg_server.cpp` now forwards both to the
+same functions the REPL calls (`gpu_vk_preseq_arm`, `hooks->replCamTeleport/Off`). No new mechanism,
+no env var, no behaviour change.
+
 ## ⭐ DETERMINISTIC SCENARIO REPLAYS — `PSXPORT_PAD_REPLAY=replays/<...>/<name>.pad`
 For scenarios AUTO-NAV/AUTO-SKIP can't drive (walking into a hut, reaching a specific door, a
 visual bug that needs real navigation), use a **recorded pad replay** — a captured button sequence

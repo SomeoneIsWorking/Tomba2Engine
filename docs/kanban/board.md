@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (29)
+## TODO (33)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
@@ -35,6 +35,10 @@
 - **#67 Area-14 backdrop: FUN_80110CA4's sprite tail 0x801104D0 (440 lines) is unported**  `render`
 - **#68 Area-4 ambient effect FUN_8013B118 is gated off in every reachable state (phase 1, fade 4096)**  `render,verification`
 - **#70 DEMO transition: object cmd geomblk points at texture data, emitter submits ~125k garbage quads**  ``
+- **#71 Item-announcement banner renders glitchy, worst while the camera moves**  `render` — 📎 docs/reference/issues/item-banner-glitch-2026-08-04.png
+- **#72 Stars on stunned enemies no longer render**  `render`
+- **#73 Score-pickup point popups: anchoring to Tomba is wrong in widescreen**  `render,widescreen`
+- **#74 Interior wall decors missing (suspect depth / coincident-face ordering)**  `render`
 
 ## DOING (4)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`

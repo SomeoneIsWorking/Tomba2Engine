@@ -4401,3 +4401,47 @@ INPUT (separate defect, NOT fixed here, see kanban) : the 45,993 keyed faces are
           A diagnostic now names it (`PSXPORT_DEBUG=keyord`, Render::gt3gt4) instead of leaving it to be
           inferred. Root-causing WHY the pointer is stale at that moment is open.
 refs    : scratch/logs/{keyord_census2,keyord_uniq,funnel,gate_clean}.log; coord/patches/render-queue*.diff
+
+## Cube-text banner VIBRATES under camera motion — wq_factor_world is the wrong contract for a view-locked node (kanban #71)
+
+- **symptom:** the item-announcement banner ("A Red Treasure Chest") and every other cube-text
+  popup jitter/vibrate while the camera moves. Invisible in a still, and NOT fixed by the #64
+  glyph-vs-plank lerp work. USER 2026-08-04: "it's glitchy when camera is moving"; later, "the
+  effect is vibrating"; and "I think it still happens without 60fps".
+- **status:** ROOT-CAUSED 2026-08-04, NOT FIXED (the fix is a shared-contract change — see below).
+- **cause:** the cube-text node's per-glyph transform at `cmd+0x18` is **camera-free** — a
+  VIEW-LOCKED billboard. Measured live over 14 stepped frames while the camera eye X travelled
+  3289→3672: `cmd[0] tr = [-114, -62..-67, 358]`, `cmd[5] tr = [-54, -63..-67, 358]` — Z exactly
+  358 and X exactly -114/-54 on every single frame, the camera moving 383 units underneath. (Z=358
+  sits at the projection plane H=350 @0x801003F8; the 12-unit X spacing is the row layout
+  `X=(i-len/2)*12`, leaf_8003A1E4; the few units of Y are the per-glyph random-phase idle bob,
+  leaf_8003A3E8.) But `text_label.cpp:143` and `subpart_capture.cpp:84` both call
+  `wq_factor_world` (render_internal.h:84-101), whose contract is `CR = cam∘obj`: it computes
+  `objT = camᵀ·(tr − camT)` against the scratchpad camera at 0x1F8000F8, synthesising a fake WORLD
+  position that rides the camera, and `billboardsRender` then re-applies the camera to project it.
+  `camᵀ`-then-`cam` is identity only in exact arithmetic — the camera is s16 fixed point (1/4096,
+  CR-packed) read into float, `camT` is s32 — so the quantisation error of the round trip is a
+  FUNCTION OF THE CAMERA and changes every frame the camera moves.
+- **evidence (both classes, same object, same instrument):** `debug preseqobj` + `preseq`, grouped
+  by `key=<node addr>`, differencing sorted screen-x vectors over the settled window.
+  camera STILL → mean |dX| = 0.13 px, exactly 0.00 for ten consecutive presents.
+  camera PANNING → mean |dX| = 1.53 px, **12/12 sign alternations**, net drift −1.23 px.
+  Control in the same panning run: a still-travelling text-label node scores 2/16 alternations and
+  −39.4 px of net travel, so the discriminator separates oscillation from smooth motion.
+  Axis asymmetry X 1.53 px vs Y 0.43 px — the pan is in X.
+- **why the earlier leads were wrong:** it is NOT the fps60 lerp tier (the round trip runs on every
+  real frame; the lerp only feeds a second camera into the same round trip) and it does NOT share a
+  mechanism with kanban #73 — `ScorePopup` (score_popup.cpp) is a 2D UI element drawn via
+  `emitUiFt4`/`emitUiSprites` into RQ_OVERLAY and contains no WqRec/wide-width arithmetic at all.
+- **fix (named, not applied):** WqRec must carry the SPACE its transform is in, and
+  `billboardsRender` must use a view-space record's position verbatim instead of factoring the
+  camera out and back in. Shared contract — produced by text_label.cpp, subpart_capture.cpp,
+  render_walk.cpp:139, quad_rtpt_submit.cpp, widescreen_margin_quad.cpp, submit.cpp — so it needs
+  its own SBS + pixel A/B and an interaction check with #64. `render_walk.cpp:139` applies the same
+  factoring to every pre-composed-matrix node, so enumerate the other view-locked classes first.
+- **repro:** `PSXPORT_SETTINGS=scratch/fps60_on.ini tools/sandbox.py scenarios/banner-camera-pan.txt
+  --port 5971` (still-camera control = same file with `press right` removed). The banner is raised
+  on demand anywhere in the field by the game's own spawner: `call 80040AA4 38 0`.
+- **refs:** kanban #71 (#16/#23/#64 same emitter), game/render/text_label.cpp,
+  game/render/render_internal.h:84-101, game/render/perobj_billboard.cpp:757-812,
+  game/object/cube_text_ledger.h, tools/sandbox.py, docs/driving-the-game.md

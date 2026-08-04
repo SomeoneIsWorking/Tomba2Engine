@@ -1,0 +1,37 @@
+# scenarios/banner-camera-pan.txt — kanban #71 repro: the item-announcement banner under CAMERA MOTION.
+#
+# USER symptom: "this Tomba! 2 effect was never ported well ... it's glitchy when camera is moving",
+# later characterised as THE EFFECT IS VIBRATING — per-frame positional instability, invisible in any
+# single frame, worst while the camera moves.
+#
+# The camera motion here is the GAME'S OWN: holding Right walks Tomba and the follow camera tracks
+# him. That is the exact condition the user plays in — no synthetic camera path that the shipping
+# code would never see.
+#
+# `preseqobj` makes the emit path log one line per drawn RqItem per PRESENT, so with fps60 on we get
+# the banner's screen position on REAL and INTERPOLATED frames alike. Vibration = that per-frame
+# delta oscillating instead of varying smoothly, and preseqobj_check.py is the gate for exactly that.
+#
+# Run both legs of the fps60 discriminator:
+#   PSXPORT_SETTINGS=scratch/fps60_on.ini  tools/sandbox.py scenarios/banner-camera-pan.txt --port 5971
+#   PSXPORT_SETTINGS=scratch/fps60_off.ini tools/sandbox.py scenarios/banner-camera-pan.txt --port 5972
+
+echo === kanban #71: item banner under camera motion ===
+pause
+debug preseqobj
+
+# Raise the banner through the game's own spawner, then let it play its rise-in animation.
+spawn banner:red-chest
+step 8
+
+# Camera motion: walk right. The follow camera tracks Tomba, so this pans the view.
+press right
+step 4
+
+# Capture the PRESENTED sequence — with fps60 on this interleaves real and interpolated frames.
+preseq 48 scratch/screenshots/n71
+play
+sleep 3
+pause
+release right
+echo === done: frames in scratch/screenshots/n71, preseqobj lines in the instance log ===
