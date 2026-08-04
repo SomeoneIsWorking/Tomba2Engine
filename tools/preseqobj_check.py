@@ -160,6 +160,79 @@ def analyse(track, minrun, amp, present_move):
     return flags, detail
 
 
+def parse_node(path, node):
+    """Every prim of ONE node key, per present, INCLUDING scene=1 records.
+
+    parse() above drops scene=1 (geometry rebuilt at the interp midpoint) because per-object NN
+    tracking over thousands of mesh triangles is meaningless. The node measurement is the opposite
+    case: it already HAS identity (the node address), the prim set is small and bounded, and the
+    display-pass producers under test emit their records with scene=1 — dropping them is exactly how
+    this measurement returns a clean-looking "nothing found".
+    """
+    per = defaultdict(list)
+    with open(path) as f:
+        for ln in f:
+            m = LINE.search(ln)
+            if not m or int(m.group(2), 16) != node:
+                continue
+            per[int(m.group(1))].append((int(m.group(4)), int(m.group(5))))
+    return [(p, per[p]) for p in sorted(per)]
+
+
+def node_vibration(presents, node, tail):
+    """kanban #71's acceptance measurement, scripted.
+
+    ONE node emits many prims per present. Their emit ORDER is not guaranteed stable, so the object's
+    position is summarised order-free: the sorted vector of its prims' screen x (and y). Two consecutive
+    presents are comparable only when the prim COUNT matches; the per-present shift is then the mean of
+    the elementwise differences. VIBRATION = that shift alternating sign at meaningful amplitude while
+    the net travel stays ~0; smooth motion = same sign, net travel large.
+
+    The negative case is reported with its denominator: how many presents carried the node at all, how
+    many consecutive pairs were comparable, and how many were DROPPED for a count mismatch. A node that
+    never appears prints "0 presents carried this node" and returns FAIL, never a clean-looking zero.
+    """
+    seq = []                       # [(present_idx, sorted_xs, sorted_ys)]
+    for p, prims in presents:
+        if prims:
+            seq.append((p, sorted(x for (x, y) in prims), sorted(y for (x, y) in prims)))
+    print(f"\n--- node {node:08X} vibration ---")
+    if not seq:
+        print(f"  0 presents carried node {node:08X} — NOTHING WAS MEASURED.")
+        print("  (spawn refused? wrong node address? channel off? this is a FAIL, not a clean result.)")
+        return None
+    if tail and len(seq) > tail:
+        seq = seq[-tail:]
+    counts = sorted({len(x) for (_, x, _) in seq})
+    dropped = 0
+    dx, dy = [], []
+    for i in range(len(seq) - 1):
+        (_, x0, y0), (_, x1, y1) = seq[i], seq[i + 1]
+        if len(x0) != len(x1):
+            dropped += 1
+            continue
+        n = len(x0)
+        dx.append(sum(x1[k] - x0[k] for k in range(n)) / n)
+        dy.append(sum(y1[k] - y0[k] for k in range(n)) / n)
+    print(f"  window: {len(seq)} presents (p{seq[0][0]}..p{seq[-1][0]}), prim counts seen {counts}")
+    print(f"  comparable consecutive pairs: {len(dx)} of {len(seq) - 1}"
+          f"  ({dropped} dropped for a prim-count mismatch)")
+    if not dx:
+        print("  NO comparable pair — the prim count changed at every step. NOTHING WAS MEASURED.")
+        return None
+    def score(d, axis):
+        alt = sum(1 for i in range(len(d) - 1) if d[i] * d[i + 1] < 0)
+        mean = sum(abs(v) for v in d) / len(d)
+        net = sum(d)
+        print(f"  {axis}: mean |d{axis}| = {mean:.2f} px   sign alternations {alt}/{max(0,len(d)-1)}"
+              f"   net travel {net:+.2f} px")
+        print(f"     d{axis} = " + " ".join(f"{v:+.2f}" for v in d))
+        return mean, alt, net
+    mx = score(dx, "X")
+    my = score(dy, "Y")
+    return {"x": mx, "y": my, "pairs": len(dx), "dropped": dropped, "presents": len(seq)}
+
+
 def main():
     ap = argparse.ArgumentParser(description="per-object fps60 motion acceptance gate")
     ap.add_argument("log", help="stderr log containing [preseqobj] lines")
@@ -167,6 +240,13 @@ def main():
     ap.add_argument("--amp", type=int, default=1, help="min |step| (px) counted as motion for oscillation")
     ap.add_argument("--gate", type=int, default=24, help="NN match radius (px, manhattan) for key==0 tracks")
     ap.add_argument("-v", "--verbose", action="store_true", help="also list clean tracked objects")
+    ap.add_argument("--node", action="append", default=[],
+                    help="hex node key: report ONLY that node's per-present positional shift "
+                         "(kanban #71's vibration measurement). Repeatable — pass the object under "
+                         "test AND a control object so the discriminator is seen against both classes.")
+    ap.add_argument("--tail", type=int, default=18,
+                    help="with --node, judge only the last N presents the node appears in (default 18: "
+                         "the settled window after an effect's rise-in animation)")
     args = ap.parse_args()
 
     presents, scene_count = parse(args.log)
@@ -175,6 +255,14 @@ def main():
         return 2
     print(f"parsed {len(presents)} presents (p{presents[0][0]}..p{presents[-1][0]}); "
           f"{scene_count} rebuilt scene-geometry prims skipped (correct-by-construction)")
+
+    if args.node:
+        ok = True
+        for spec in args.node:
+            key = int(spec, 16)
+            if node_vibration(parse_node(args.log, key), key, args.tail) is None:
+                ok = False
+        return 0 if ok else 2
 
     tracks = build_tracks(presents, args.gate)
 

@@ -43,6 +43,8 @@ set(GAME_SRC
   game/math/rng.cpp
   game/math/mtx.cpp
   game/math/trig.cpp
+  game/render/cube_text_banner.cpp
+  game/render/cube_text_banner_selftest.cpp
   game/render/cull.cpp
   game/player/collision.cpp
   game/player/actor_targeting.cpp       # FUN_8001FAE0 — acquire a target: reach, band, arc
@@ -265,7 +267,6 @@ set(GAME_SRC
   game/render/perobj_dispatch.cpp
   game/render/perobj_billboard.cpp
   game/render/subpart_walk_shared.cpp
-  game/render/subpart_capture.cpp
   game/render/subpart_walk.cpp
   game/render/compose_tint_gate.cpp
   game/render/effect_mod.cpp

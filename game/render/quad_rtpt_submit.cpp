@@ -23,8 +23,8 @@
 #include "game_ctx.h"
 #include "core.h"
 #include "game.h"
-#include "cfg.h"
-#include "render_internal.h"   // cur_render_node — WqRec identity
+#include <lucent/log.h>
+#include "render_internal.h"   // cur_render_node — the diagnostic identity of the emitting object
 #include "render_queue.h"      // RenderQueue::emitOrQueue + RQ_WORLD/RQ_OM_DEPTH
 #include <cstdint>
 #include <cstdio>
@@ -130,18 +130,8 @@ void QuadRtptSubmit::submitQuad(Core* c) {
   const uint32_t out = c->r[4];              // a0
   const uint32_t xf  = c->r[5];               // a1: composedXform
   const int32_t  otzBias = (int32_t)c->r[6];  // a2
-  if (cfg_dbg("quadrtpt")) { static long n = 0; if (n++ % 512 == 0) cfg_logf("quadrtpt", "submitQuad call#%ld", n); }
-  // CR-CONTRACT PROBE (temporary, cfg-gated — REDIRECT census, docs/fps60-rework.md): is the GTE
-  // transform this quad projects under the PURE SCENE CAMERA (CR0-4 == scratchpad CAM_ROT 0x1F8000F8,
-  // CR5-7 == CAM_TRANS 0x1F80010C) or a composed per-object transform? Decides whether this caller
-  // class can be display-pass re-projected through the float camera (like billboardsRender).
-  if (cfg_dbg("quadcr")) {
-    bool rotEq = true, trEq = true;
-    for (unsigned i = 0; i < 5; i++) if (gte_read_ctrl(i) != c->mem_r32(0x1F8000F8u + i * 4u)) { rotEq = false; break; }
-    for (unsigned i = 0; i < 3; i++) if (gte_read_ctrl(5 + i) != c->mem_r32(0x1F80010Cu + i * 4u)) { trEq = false; break; }
-    static long np = 0; if ((np++ & 63) == 0)
-      cfg_logf("quadcr", "#%ld ra=%08X rotEq=%d trEq=%d node=%08X", np, c->r[31], rotEq, trEq, cur_render_node(c));
-  }
+  lucent::debug("quadrtpt", "submitQuad out={:08X} xf={:08X} otzBias={} node={:08X}",
+                out, xf, otzBias, cur_render_node(c));
 
   c->r[29] -= 16;
   const uint32_t sp = c->r[29];
@@ -214,44 +204,15 @@ void QuadRtptSubmit::submitQuad(Core* c) {
     c->mem_w32(dstw, c->mem_r32(out + off));
   c->mem_w32(POOL_PTR, pool + 40);
 
-  // #67 (replaces the #65 DUAL-EMIT, deleted break-first): RECORD this surviving quad for the
-  // display-pass producer Render::billboardsRender instead of pushing the GTE SXYs verbatim. The
-  // MODEL corners are the xf words this leaf just projected; the composed GTE transform is FACTORED
-  // against the scratchpad scene camera (pure at this point — per-object composes touch only the GTE
-  // CRs) into a WORLD transform, so the display pass re-composes it with the (fps60-lerped) camera:
-  // real and interpolated frames derive the quad identically from state (render.h WqRec banner).
-  // Host memory only; the guest packet-pool copy above is untouched.
-  if (!c->game->oracle) {
-    Render::WqRec w;
-    w.node = cur_render_node(c);
-    // Per-node emission index this frame = stable lerp identity (emit order is deterministic).
-    // Derived from the frame's own record list — no per-Core static state (SBS-safe).
-    w.seq = 0;
-    for (const Render::WqRec& p : rend(c)->mWqRecs) if (p.node == w.node) w.seq++;
-    for (int i = 0; i < 4; i++) {
-      const uint32_t vxy = c->mem_r32(xf + (uint32_t)(i < 3 ? i * 8 : 24));
-      const uint32_t vzw = c->mem_r32(xf + (uint32_t)(i < 3 ? i * 8 + 4 : 28));
-      w.vx[i] = (int16_t)vxy; w.vy[i] = (int16_t)(vxy >> 16); w.vz[i] = (int16_t)vzw;
-    }
-    // Factor the live GTE CR0-7 against the scratchpad camera (render_internal.h helpers).
-    { constexpr float FX = 1.0f / 4096.0f;
-      float crF[3][3], tr[3];
-      uint32_t g0 = gte_read_ctrl(0), g1 = gte_read_ctrl(1), g2 = gte_read_ctrl(2),
-               g3 = gte_read_ctrl(3), g4 = gte_read_ctrl(4);
-      crF[0][0] = (int16_t)g0 * FX;         crF[0][1] = (int16_t)(g0 >> 16) * FX; crF[0][2] = (int16_t)g1 * FX;
-      crF[1][0] = (int16_t)(g1 >> 16) * FX; crF[1][1] = (int16_t)g2 * FX;         crF[1][2] = (int16_t)(g2 >> 16) * FX;
-      crF[2][0] = (int16_t)g3 * FX;         crF[2][1] = (int16_t)(g3 >> 16) * FX; crF[2][2] = (int16_t)g4 * FX;
-      for (int i = 0; i < 3; i++) tr[i] = (float)(int32_t)gte_read_ctrl(5u + (unsigned)i);
-      wq_factor_world(c, crF, tr, w.objR, w.objT);
-    }
-    { const uint32_t col = c->mem_r32(out + 4);
-      for (int i = 0; i < 4; i++) w.wCol[i] = col; }
-    w.wUv0 = c->mem_r32(out + 12); w.wUv1 = c->mem_r32(out + 20);
-    w.wUv2 = c->mem_r32(out + 28); w.wUv3 = c->mem_r32(out + 36);
-    rend(c)->mWqRecs.push_back(w);
-    { static long np = 0; if ((np++ & 255) == 0)
-        cfg_logf("quadrtpt", "rec #%ld node=%08X seq=%u", np, w.node, w.seq); }
-  }
+  // NO pc_render PICTURE FROM THIS LEAF. It used to publish a display-pass record whose transform was
+  // read back out of the GTE CONTROL REGISTERS (gte_read_ctrl(0..4)/(5+i)) and un-composed against the
+  // scene camera. That is a TAP — the PSX geometry engine did the projection and the port recovered it —
+  // and it is banned outright (USER 2026-08-04: "never do this please NEVER, just leaving the effect as
+  // is is better than this"). Its classes (the a00-overlay flame/rope emitter around 0x801341xx, the
+  // case-188 particles, the B704 beams) therefore have NO native producer and NO pc_render picture:
+  // an honestly missing layer, tracked as portmap debt `render-producer-submitquad-classes`.
+  // Rebuilding one means porting ITS emitter and drawing from that emitter's own world state.
+  // The guest packet-pool copy + OT link above is untouched — psx_render still draws these.
   pop();                                       // ascend the real 16-byte frame
 }
 

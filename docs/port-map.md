@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 24 verified · 13 ported-unverified · 1 todo · 3 blocked
+**Status:** 26 verified · 13 ported-unverified · 1 hack · 4 todo · 3 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -214,6 +214,17 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** LibgpuDrawEnv::setDrawEnv (game/render/libgpu_draw_env.cpp)
 - **notes:** libgpu SetDrawEnv(DR_ENV*, DRAWENV*) at 0x80081FB0 — compiles the frame's drawing environment into the 6-or-9-word GP0 packet PutDrawEnv (0x800815D0) / DrawOTagEnv (0x800816A0) send to the GPU DMA; ~6000 dispatches, 2x/frame. Identity from the callers (Ghidra scratch/decomp/setdrawenv_81fb0.c) + the five already-owned word builders (0xE3/0xE4/0xE5/0xE1/0xE2). True extent [0x80081FB0,0x80082220), 156 instr, confirmed three ways (disas jr-ra at 0x80082218 + delay slot; 0x80082220 is a call target of this function; port_gen live extent 12834-12980 of shard_4.c with no folded sibling). GATED: port_check PASS, build clean, SBS full 0-diff f0..f1800, ovhit native=300/300 frames single-core. See docs/parity-map.md libgpu-setdrawenv-81fb0.
 
+## render-tap-precomposed-matrix
+- **scope:** pc_render producers that recover a transform by FACTORING the guest's pre-composed matrix against the scene camera (wq_factor_world)
+- **status:** verified
+- **owner:** game/render/render_internal.h:88 (wq_factor_world); callers text_label.cpp:143, render_walk.cpp:140, widescreen_margin_quad.cpp:317, quad_rtpt_submit.cpp:245
+- **notes:** RESOLVED 2026-08-04. wq_factor_world and wq_read_matrix are DELETED from render_internal.h, and with them every caller's capture: text_label.cpp (glyph WqRecs), subpart_capture.cpp (whole file deleted, plus the mSubPartDrawSuppress handover in submit.cpp that only existed to pair with it), Render::perObjFlushPreComposed (deleted; pre-composed-matrix node types now get NO generic native mesh flush), quad_rtpt_submit.cpp and widescreen_margin_quad.cpp (deleted with the GTE-register tap). The false comment claiming the round trip was 'Exact at the endpoints for ANY CR content' went with it. Death condition met: zero references to wq_factor_world/wq_read_matrix in the tree. Cost, reported honestly: the item-announcement banner and every other pre-composed-matrix node class now have NO pc_render picture — measured, node 800FB218 went from 196 prims per present to 0, and the banner is absent from the screenshot. That is the USER's stated preference over a tap.
+
+## render-producer-cube-text-banner
+- **scope:** the item-announcement / cube-text banner (node class FUN_8003AD48, drawn by FUN_80039F4C textLabelEmit + FUN_8003F174 subPartWalk) has NO pc_render picture
+- **status:** verified
+- **notes:** RESOLVED 2026-08-04, same day it was opened. game/render/cube_text_banner.cpp — CubeTextBanner::render, called from the native object walk for pre-composed-matrix nodes and self-filtering on node+0x1C == 0x8003AD48 (structural identity, not a tag). It rebuilds each glyph's transform from the fields the (already native) behaviour owns — rec.R = node.R * rotmat(rec+0x08), rec.T = node.R * (rec+0,+2,+4) + (node+0x2E,+0x32,+0x36), i.e. NodeXform::propagateRotmat's own math recomputed from its inputs — and projects it as a VIEW-SPACE transform with ofx/ofy/H alone. The camera does not enter the arithmetic, so a camera-dependent residue is structurally impossible, not merely small. It draws BOTH halves (glyph quad + the record's plank geomblk) from that one transform, which also makes kanban #64's glyph-vs-plank drift impossible; subpart_walk.cpp hands the guest-time draw over for exactly this node class (host-side skip only). GATE, same instrument/object/window as the defect measurement (tools/preseqobj_check.py --node): camera panning, mean |dX| 1.48 px with 12/12 sign alternations BEFORE -> 0.15 px with 0/16 alternations AFTER; camera still, 0.00 px exactly. All residual motion now traces to the banner's own bounce-out animation (measured dY -14.9,-13.0,-11.1,-9.5,-7.2,-5.6,-3.7 px == the guest's rec+0x12 gravity integration, -256 stepping +32/frame). Guest RAM + scratchpad byte-identical to the pre-change binary over a spawn+40-frame run. Hermetic gate: PSXPORT_SELFTEST=cubetext asserts the output is byte-identical across two cameras, with a negative control proving the comparator sees an 81.2 px change for a camera-composed projection of the same points.
+
 ## render-compose-tint-gate
 - **status:** ported-unverified
 - **notes:** Render::composeTintGate (FUN_8003EF9C): per-type render gate, port_check PASS, wired via overrides::install with setter. Pool-snapshot idiom: emits geometry then colour-adds over exactly the primitives just emitted. Cold on the field/dialog replay - needs a scene that uses render mode 2.
@@ -248,11 +259,32 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** game/render/fx_backdrop_plane.cpp
 - **notes:** Render::fxBackdropSparkRender (FUN_801104D0, A0E overlay, area 14) — the tail half FUN_80110CA4 tail-calls (kanban #67), now called from fxBackdropPlaneRender exactly as the guest tail-calls it. A fixed 200-slot sprite-particle pool: 0x8012686C + i*4 is the slot's record list AND its live flag (non-zero = live), 0x80125BEC + i*8 is {u16 x,y,z}, 0x8012622C + i*8 is velocity, clut|tpage at 0x8011B224, gate bias -50, DQA 6, IR0 = 0. WHY THE PORT IS SMALL WHERE THE GEN BODY IS 441 LINES: that body SIMULATES AND DRAWS — it integrates pos += vel, adds 25 to vel.y for gravity, writes both back, and its bulk is the SPAWN state machine where all 34 of its PRNG draws live. A read-only producer reproduces NONE of that; the guest's own body keeps the pool simulated underneath, so this reads slot state and emits. It therefore needs no GuestRngMirror — the randomness is upstream of the state we read. STATUS ported-unverified, and the reason is measured not assumed: in the area-14 capture (warp 14 + skip 600) the pool reads live=0/200, so there is nothing to draw and the pixel delta against the grids-only build is 0. That is an EMPTY POOL, not a dead producer — the fxplane 'sparks ... live=N drawn=M/200' line distinguishes the two, which is instrument I022's lesson applied. Verify when a scene populates the pool.
 
+## render-tap-gte-registers
+- **scope:** pc_render producers that source an object transform from GTE HARDWARE REGISTERS after the substrate ran
+- **status:** hack
+- **owner:** game/render/quad_rtpt_submit.cpp:241-245, game/render/widescreen_margin_quad.cpp:311-317
+- **notes:** PARTIALLY REMOVED 2026-08-04, NOT resolved — the death condition ('zero gte_read_* in any pc_render producer') is NOT met, and marking this resolved would make the tracker lie. GONE: quad_rtpt_submit.cpp:241-245 and widescreen_margin_quad.cpp:311-317, both deleted (their layers — the a00-overlay flame/rope emitter, case-188 particles, B704 beams, and the drum/windmill margin prop quads — now have NO pc_render picture, which is the USER's stated preference over a tap). ALSO DELETED there: the dead cfg-gated 'quadcr' CR-contract census probe. STILL LIVE, found during that pass and NOT in its ordered scope: game/render/perobj_billboard.cpp billboardEmit's BbRec capture builds rotR from gte_read_ctrl(0..4) and the world anchor from gte_read_ctrl(5+i) factored against the scratchpad camera — the identical mechanism with the identical camera-dependent residue. Deleting it deletes the entire particle layer (AP gems, flames, apples, splash, windmill sprites), so it is marked in-place with a DEBT banner and left for a decision. Real fix: port billboardEmit's callers so each particle's anchor+rotation come from the effect's own state. Also worth auditing under the same rule: swing_fx.cpp and fx_mesh.cpp build an EObjXform's rotation/translation straight from CR0-4/CR5-7, and fx_sprite_anchored.cpp / fx_sprite_swarm.cpp read GTE OUTPUT (SXY2/MAC0/SZ3) to position sprites.
+
 ## world-line-ring-shadow
 - **scope:** render
 - **status:** todo
 - **deps:** world-line-rope
 - **notes:** FUN_8013E08C: op-0x4A ground ring shadow, its own GTE loop over the 16-point circle at 0x8014C780 (sliding 3-point window), grey = 0x80-((nodeY-0x14)*0x80)/200, blends 1 and 2, node matrix at node+0x2C via FUN_80084220 + a diagonal scale from nodeY<<4. BLOCKED on RE of FUN_80084110/FUN_80084220.
+
+## render-producer-submitquad-classes
+- **scope:** the FUN_8003B320 (submitQuad) caller classes — a00-overlay flame/rope emitter ~0x801341xx, case-188 particles, B704 beams — have NO pc_render picture
+- **status:** todo
+- **notes:** OPENED 2026-08-04 by the tap-retirement pass. Their display-pass records were built from gte_read_ctrl(0..4)/(5+i) after the substrate's RTPT ran, then un-composed against the scene camera. Deleted per the USER's absolute rule. REAL FIX: port each emitter and draw from its own world state; there is no shared shortcut, which is exactly why the shared tap existed.
+
+## render-producer-margin-quad
+- **scope:** FUN_8013CDD4's GT4 prop quads (drum/windmill caps) have NO pc_render picture
+- **status:** todo
+- **notes:** OPENED 2026-08-04 by the tap-retirement pass. Same deleted mechanism as render-producer-submitquad-classes. REAL FIX: drive the emitter from the node's own world position + rotation angles (obj+44 / node+0..2, the inputs 0x800318A0 composes) instead of reading back what it composed into the GTE.
+
+## framework-dead-fps60bbswap
+- **scope:** external/psxport game_iface.h carries a dead hook field fps60BbSwapPrev
+- **status:** todo
+- **notes:** OPENED 2026-08-04. Its only ever purpose was rotating Tomba!2's WqRec front/back buffers for the fps60 lerp; WqRec is deleted (it was the banned factored-transform record), so the hook rotates nothing in any of the three games and Tomba!2 must supply an empty function because fps60.cpp calls it unconditionally. FIX: delete the field + the call site. Cross-repo (spider1/spyro checkouts carry the same field), so it needs a coord claim and the operator to land it framework-first. Death condition: no fps60BbSwapPrev in psxport.
 
 ## fx-area4-ambient-13b118
 - **scope:** render

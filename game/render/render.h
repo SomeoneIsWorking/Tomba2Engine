@@ -132,11 +132,12 @@ public:
   // the object's real world coords and submits every geomblk cmd on node+0xC0 through gt3gt4.
   // Taxi-parameter c->r[4] = node (recomp-shaped body, mirrors the guest ABI).
   void perObjFlush();
-  // perObjFlushPreComposed: perObjFlush for the F174-class node types whose cmd+0x18 holds a
-  // PRE-COMPOSED camera∘object MATRIX (renderWalk table types 1/4 — text labels etc.), factored
-  // against the scene camera (wq_factor_world) back to a world transform so the native compose
-  // (and the fps60 interp re-run's lerped camera) applies the camera exactly once.
-  void perObjFlushPreComposed();
+  // NO perObjFlushPreComposed. The F174-class node types (renderWalk table types 1/4 — text labels
+  // etc.) hold a PRE-COMPOSED MATRIX at cmd+0x18, and the native flush for them worked by factoring
+  // the scene camera back out of it. That is the tap the USER banned on 2026-08-04, so the whole
+  // method is gone and those nodes get NO generic native mesh flush. The one class with a real
+  // producer is the cube-text banner — CubeTextBanner (game/render/cube_text_banner.cpp), which
+  // builds its transform from the banner's own state instead.
 
   // terrain (guest 0x8002AB5C): the field terrain render entry. Picks the area's light config for
   // the frame, then either super-calls the recomp body (dual-core diff neutralize path) or runs the
@@ -480,36 +481,27 @@ public:
   std::vector<BbRec> mBbRecs;             // this logic frame's records, guest-walk emit order
   // (No BbRec prev buffer: effect particles have no stable cross-frame identity — the sub-lists
   // reuse/walk particle addresses — so they never lerp; they draw at their own frame's state under
-  // the lerped camera. WqRecs below DO lerp, keyed by stable (node, per-node seq).)
+  // the lerped camera.)
+  //
 
-  // WqRec — the GENERIC composed-CR quad record (QuadRtptSubmit::submitQuad's classes: the A00-overlay
-  // flame/rope emitter 0x801341xx, case188 particles, B704 beams). At capture the composed GTE
-  // transform is FACTORED against the scratchpad scene camera (which stays pure while only the GTE
-  // CRs get per-object composes): CR = cam∘obj, tr = cam·pos + cam.t  ⇒  objR = camᵀ·CR/4096,
-  // objT = camᵀ·(tr − camT). The display pass re-composes with the (fps60-lerped) camera:
-  // corner_view = cam'·(objR·corner + objT) + camT' — exact at the endpoints for ANY CR content,
-  // world-glued in between. One mechanism for every submitQuad caller, no per-emitter RE needed.
-  struct WqRec {
-    uint32_t node;                        // identity (dbg_node)
-    uint32_t seq;                         // per-node emission index this frame (lerp identity key)
-    float    objR[3][3];                  // factored world rotation (unit scale)
-    float    objT[3];                     // factored world position
-    int16_t  vx[4], vy[4], vz[4];         // model-space corners (the xf words submitQuad projected)
-    // Material record words. wCol[0] carries the code byte (>>24: semi/raw bits); FT4 emitters fill
-    // all four with the same flat word, the GT4 emitter (widescreen_margin_quad) per-vertex colors.
-    uint32_t wCol[4];
-    uint32_t wUv0, wUv1, wUv2, wUv3;      // uv words (clut in wUv0>>16, tpage in wUv1>>16)
-  };
-  std::vector<WqRec> mWqRecs;
-  std::vector<WqRec> mWqRecsPrev;
+  void bbFrameReset() { mBbRecs.clear(); }                          // per logic frame, pre-walk
 
-  void bbFrameReset() { mBbRecs.clear(); mWqRecs.clear(); }          // per logic frame, pre-walk
-  void bbSwapPrev()   { mWqRecs.swap(mWqRecsPrev); }                 // fps60 rotation (WqRec lerp source)
-  void billboardsRender();                // display-pass producer: project + emit every BbRec + WqRec
+  void billboardsRender();                // display-pass producer: project + emit every BbRec
+
+  // emitRecordQuad — the shared "already-projected quad + PSX material words" emit used by every
+  // display-pass producer (billboardsRender's particles, CubeTextBanner's glyphs and planks). Takes
+  // screen-space corners + per-vertex depth and the four FT4/GT4 material words, decodes tpage/clut
+  // RAW out of them (NOT from GpuState's live s_tp_*/s_da_*, which hold unrelated stale state at
+  // display time) and pushes one RQ_WORLD quad tagged with the owning node.
+  //   wCol[0]>>24 = the GP0 op byte (bit0 raw, bit1 semi); wUv0>>16 = clut; wUv1>>16 = tpage.
+  static void emitRecordQuad(Core* c, uint32_t node, const uint32_t wCol[4],
+                             uint32_t wUv0, uint32_t wUv1, uint32_t wUv2, uint32_t wUv3,
+                             const float* px, const float* py, const float* dep);
 
   // textLabelEmit (FUN_80039F4C, text_label.cpp): the per-character 3D text-label renderer —
-  // faithful substrate-mirror orchestrator (mesh pass + per-char glyph packets, all callees still
-  // substrate) + WqRec display-pass capture per surviving glyph. Replaces the RenderObserver wrap.
+  // a faithful substrate-mirror orchestrator (mesh pass + per-char glyph packets, all callees still
+  // substrate). It produces GUEST PACKETS ONLY: the display-pass capture it used to do was a tap and
+  // is deleted, so this node class has no pc_render picture (portmap render-producer-cube-text-banner).
   void textLabelEmit();
 
   // fieldEntityRender: world-space GT3/GT4 scene-table renderer. Walks the entity-list struct at
@@ -608,23 +600,13 @@ public:
   // node[+9] is the do/while bound. See render/subpart_walk.cpp.
   static void subPartWalk(Core* c);
 
-  // subPartCapture: the DISPLAY-PASS half of subPartWalk (kanban #64/#16/#23). subPartWalk itself is
-  // a faithful substrate mirror — it loads each sub-part's transform into the GTE and submits its
-  // geomblk through the still-substrate func_8003F698, which produces guest packets and NOTHING the
-  // display pass can draw or interpolate. So on a text-label node the GLYPHS (which textLabelEmit
-  // captures as WqRecs) lerped at 60fps while the BOARDS they sit on stepped at 30Hz — the letters
-  // visibly drift off their planks. This decodes the sub-part's geomblk host-side and pushes one
-  // WqRec per prim, using the same corners + factored-world-transform contract the glyph pass uses,
-  // so both halves of the object come from state and interpolate together. READ-ONLY: guest memory
-  // is only read, no c->r[] is touched, and it is skipped on the oracle leg.
-  static void subPartCapture(Core* c, uint32_t node, uint32_t sub);
-
-  // Set (as a scope) around subPartWalk's per-sub-part submit while subPartCapture has taken that
-  // sub-part's prims onto the display pass. The native GT3/GT4 submitters check it and skip ONLY
-  // their drawWorldQuad — every guest-visible effect still happens, so this is a host-side handover,
-  // not a behaviour change. Without it the sub-part is drawn twice (guest-time + display pass): the
-  // copies coincide on a real frame and separate on the interpolated one, ghosting the geometry.
-  int mSubPartDrawSuppress = 0;
+  // Set (as a counter) around a guest-time submit whose PICTURE a native display-pass producer has
+  // taken over — currently only the cube-text banner's sub-parts (CubeTextBanner). The native GT3/GT4
+  // submitters check it and skip ONLY their drawWorldQuad; every guest-visible effect still happens,
+  // so this is a host-side handover, not a behaviour change. Without it the object is drawn twice,
+  // and the guest-time copy has no valid eproj transform (the substrate feeds those submitters
+  // through the GTE), so it lands hundreds of pixels off screen.
+  int mNativeDrawSuppress = 0;
 
   // sharedTransformWalk (FUN_8003F07C): the sibling of subPartWalk — loads ONE transform (the frame's
   // view matrix from scratchpad 0x1F8000F8) and submits every sub-part under it. F174 is the

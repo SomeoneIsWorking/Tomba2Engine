@@ -279,10 +279,8 @@ void Render::submitPolyGt3Native(Core* c) {
       // is about to build — the exact bug class the "one draw path" design forbids.
       RenderQueue& rqOut = c->game->rqRedirect ? *c->game->rqRedirect : c->game->rq;
       const int skey = game_sort_key(c, p, 3, code, proj_zsf3());
-      // subPartWalk display-pass handover (kanban #64): while a sub-part's prims are being captured
-      // as WqRecs, the guest-time draw must NOT also run or the two copies ghost apart on the
-      // interpolated frame. Host-only skip — every guest-visible effect above already happened.
-      if (!rend(c)->mSubPartDrawSuppress)
+      // Native-producer handover (render.h mNativeDrawSuppress) — host-side skip only.
+      if (!rend(c)->mNativeDrawSuppress)
       rqOut.drawWorldQuad(c, px, py, depth, u, v, r, g, b, tp, clut, semi, sv,
                           skey, skey >= 0 ? key_to_ord(skey) : 0.0f); }
   }
@@ -347,8 +345,8 @@ void Render::submitPolyGt4Native(Core* c) {
       // Tier-1 capture-target redirect — see submitPolyGt3Native above.
       RenderQueue& rqOut = c->game->rqRedirect ? *c->game->rqRedirect : c->game->rq;
       const int skey = game_sort_key(c, p, 4, code0, proj_zsf4());
-      // subPartWalk display-pass handover (kanban #64) — see the GT3 twin above.
-      if (!rend(c)->mSubPartDrawSuppress)
+      // Native-producer handover — see the GT3 twin above.
+      if (!rend(c)->mNativeDrawSuppress)
       rqOut.drawWorldQuad(c, px, py, depth, u, v, r, g, b, tp, clut, semi, sv,
                           skey, skey >= 0 ? key_to_ord(skey) : 0.0f); }
   }

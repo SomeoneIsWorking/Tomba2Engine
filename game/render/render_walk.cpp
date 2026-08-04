@@ -19,6 +19,7 @@
 #include "render_queue.h"
 #include "projection.h"   // EObjXform (per-object world-coord float projection; ops on Render)
 #include "render_internal.h"
+#include "cube_text_banner.h"
 #include "player/actor_tomba.h"   // ActorTomba::G_ADDR — Tomba's node, outside the 3 generic entity lists
 #include <stdio.h>
 #include <string.h>
@@ -109,44 +110,6 @@ void Render::perObjFlush() {
       // fps60 TRUE per-object tier: the object's world transform was captured (keyed by cmd) inside
       // projComposeObject above; the GT3/GT4 submit projects it. No per-prim key needed anymore.
       rend(c)->gt3gt4(geomblk, otbase);              // fully-native generic GT3/GT4 submit (no PSX fallback)
-      rend(c)->projClearActive();
-    }
-    i++;
-    if (i >= (int)c->mem_r8(node + 9)) break;
-  }
-}
-
-// perObjFlushPreComposed — render.h banner. Same walk shape as perObjFlush; the transform comes from
-// FACTORING the cmd's pre-composed MATRIX against the scene camera (wq_read_matrix/wq_factor_world,
-// render_internal.h) and re-composing through projComposeObjectHost — camera applied exactly once,
-// through the sceneCam choke (fps60-lerped at the interp re-run).
-void Render::perObjFlushPreComposed() {
-  Core* c = mCore;
-  uint32_t node = c->r[4];
-  if (c->mem_r8(node + 8) == 0) return;
-  if (c->mem_r8(node + 9) == 0) return;
-  // kanban #33: guest-time capture-only. Pre-composed objects DON'T use projObj/mObjCur — the present
-  // re-render re-derives their transform from the cmd's pre-composed matrix (wq_read_matrix) directly, so
-  // there is nothing to capture here. Skip the whole factor+compose+submit; the present redraws from mSink.
-  if (c->game->fps60.mWorldCaptureOnly) return;
-  uint32_t otbase_ptr = c->mem_r32(OTBASE_PTR);
-  int i = 0;
-  while (i < (int)c->mem_r8(node + 8)) {
-    uint32_t cmd = c->mem_r32(node + 0xC0 + i * 4);
-    uint32_t geomblk = c->mem_r32(cmd + 0x40);
-    if (geomblk != 0) {
-      float crF[3][3], tr[3], objR[3][3], objT[3];
-      wq_read_matrix(c, cmd + 0x18u, crF, tr);
-      wq_factor_world(c, crF, tr, objR, objT);
-      // projComposeCore expects Robj in raw int16 scale (4096 = 1.0); the factored objR is unit-scale.
-      float Rraw[3][3];
-      for (int r = 0; r < 3; r++) for (int cc = 0; cc < 3; cc++) Rraw[r][cc] = objR[r][cc] * 4096.0f;
-      EObjXform w; rend(c)->projComposeObjectHost(Rraw, objT, &w);
-      rend(c)->projSetActive(&w);
-      uint32_t otbase = otbase_ptr;
-      if ((c->mem_r8(node + 0xD) & 0xF) == 4)
-        otbase = otbase_ptr + ((c->mem_r8s(cmd + 0x3F)) << 2);
-      rend(c)->gt3gt4(geomblk, otbase);
       rend(c)->projClearActive();
     }
     i++;
@@ -851,8 +814,13 @@ void Render::fieldObjectsRender() {
       // stack by paint order (the waterpump barrel's interior cap vs its water surface). Host-side scope
       // state only — RenderDiag never touches guest memory.
       ObjScope objScope(c, n);
-      if (pre) perObjFlushPreComposed();
-      else     perObjFlush();
+      // `pre` (pre-composed-matrix node types) has NO generic native mesh flush any more — see
+      // render.h. The one class with a real native producer is the cube-text banner, which builds
+      // its transform from its own state instead of factoring the composed matrix; CubeTextBanner
+      // self-filters on the behaviour pointer, so any OTHER pre-composed class draws nothing rather
+      // than a guessed-transform mesh.
+      if (pre) { CubeTextBanner::render(c, n); continue; }
+      perObjFlush();
     }
   }
   {

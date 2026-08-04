@@ -194,9 +194,11 @@ extern void tomba_fps60_bb_swap_prev(Core* c);
 // called by the framework selftest harness through the hook so selftest.cpp names no game function.
 extern int run_camera_oracle(const char* exe_path);
 extern int run_effectmod_selftest(const char* exe_path);
+extern int run_cubetext_selftest(const char* exe_path);
 static int tomba_selftestGame(const char* which, const char* exePath) {
   if (!strcmp(which, "camera"))    return run_camera_oracle(exePath);
   if (!strcmp(which, "effectmod")) return run_effectmod_selftest(exePath);
+  if (!strcmp(which, "cubetext"))  return run_cubetext_selftest(exePath);
   return 2;   // not ours -> selftest_run reports "unknown"
 }
 

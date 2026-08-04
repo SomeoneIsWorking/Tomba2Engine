@@ -19,12 +19,13 @@
 //   - packet bump-copied at the pool tail (0x800BF544, 40 bytes) and OT-linked at (otz-1).
 //
 // WHY OWNED: the faithful guest body stays byte-identical (all callees substrate, real guest frame,
-// register-faithful) — owning the ORCHESTRATOR lets the display pass get the label's PICTURE from
-// game state: at the link point each surviving glyph is captured as a Render::WqRec (corners =
-// template constants, world transform = the cmd+0x18 matrix FACTORED against the scene camera —
-// render.h WqRec banner) and emitted by Render::billboardsRender through the float camera path,
-// fps60-lerped like every other world prim. Replaces the RenderObserver wrapper this address
-// carried.
+// register-faithful), and owning the ORCHESTRATOR is what makes the guest-side packet emission
+// legible. It produces GUEST PACKETS ONLY — this file draws no pc_render picture. The label's
+// PICTURE comes from CubeTextBanner (game/render/cube_text_banner.cpp), which builds each glyph's
+// transform from the banner's own state and projects it in view space with no camera term. The
+// display-pass capture that used to live here factored the scene camera out of the pre-composed
+// matrix at cmd+0x18; that is the tap the USER banned on 2026-08-04 and the measured cause of
+// kanban #71's vibration, and it is deleted.
 #include "core.h"
 #include "game_ctx.h"
 #include "game.h"
@@ -130,31 +131,12 @@ void textLabelBody(Core* c) {
           const uint32_t slot = otbase + (uint32_t)otzm1 * 4u;
           c->mem_w32(pk + 0u, c->mem_r32(slot) | 0x09000000u);
           c->mem_w32(slot, pk);
-          // #67 display-pass capture: this glyph's picture comes from state — template corners +
-          // the cmd's pre-composed matrix factored against the scene camera (render.h WqRec).
-          if (!c->game->oracle) {
-            Render::WqRec w;
-            w.node = node;
-            w.seq = 0;
-            for (const Render::WqRec& p : rend(c)->mWqRecs) if (p.node == w.node) w.seq++;
-            for (int i = 0; i < 4; i++) { w.vx[i] = kGlyphX[i]; w.vy[i] = kGlyphY[i]; w.vz[i] = kGlyphZ; }
-            float crF[3][3], tr[3];
-            wq_read_matrix(c, cmd + 24u, crF, tr);
-            wq_factor_world(c, crF, tr, w.objR, w.objT);
-            // GLYPH half of the kanban #64 comparison, same channel as the plank half
-            // (subpart_capture.cpp): if a glyph's world position moves by the SAME per-frame delta
-            // its plank does, the two cannot drift apart and #64's premise is dead; if the deltas
-            // differ, that difference IS the drift the user captured — in guest units, not pixels.
-            if (cfg_dbg("subpartcap"))
-              cfg_logf("subpartcap", "GLYPH node=%08X cmd=%08X ch=%u objT=(%.1f,%.1f,%.1f)",
-                       node, cmd, (unsigned)ch,
-                       (double)w.objT[0], (double)w.objT[1], (double)w.objT[2]);
-            { const uint32_t col = c->mem_r32(pk + 4u);
-              for (int i = 0; i < 4; i++) w.wCol[i] = col; }
-            w.wUv0 = c->mem_r32(pk + 12u); w.wUv1 = c->mem_r32(pk + 20u);
-            w.wUv2 = c->mem_r32(pk + 28u); w.wUv3 = c->mem_r32(pk + 36u);
-            rend(c)->mWqRecs.push_back(w);
-          }
+          // The glyph's PICTURE is produced by CubeTextBanner (game/render/cube_text_banner.cpp),
+          // which builds every glyph's transform from the banner's OWN state and projects with the
+          // native camera. Nothing is captured here: the previous capture read the pre-composed
+          // matrix at cmd+0x18 back out of guest RAM and un-composed the camera from it, which is
+          // the tap the USER banned outright on 2026-08-04 and the measured source of kanban #71's
+          // vibration. This body stays a byte-exact substrate mirror and produces guest packets only.
         }
       }
     }

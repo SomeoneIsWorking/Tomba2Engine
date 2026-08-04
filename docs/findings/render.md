@@ -4445,3 +4445,129 @@ refs    : scratch/logs/{keyord_census2,keyord_uniq,funnel,gate_clean}.log; coord
 - **refs:** kanban #71 (#16/#23/#64 same emitter), game/render/text_label.cpp,
   game/render/render_internal.h:84-101, game/render/perobj_billboard.cpp:757-812,
   game/object/cube_text_ledger.h, tools/sandbox.py, docs/driving-the-game.md
+
+## The render TAPS are retired: an unported effect beats a tapped one (kanban #71/#64, 2026-08-04, FIXED)
+
+**Symptom:** the item-announcement banner ("A Red Treasure Chest") VIBRATES, worst while the camera
+moves. Measured, `tools/preseqobj_check.py --node 800FB218`: camera panning, mean |dX| 1.48 px with
+**12/12 sign alternations**; camera still, 0.13 px. Nothing in the game moves it.
+
+**Status:** FIXED — by DELETING the mechanism, not by correcting it.
+
+**Cause (already recorded in the section above, restated for the fix):** the effect had no native
+producer. Its picture came from reading back the libgte MATRIX the guest had already composed and
+un-composing the scene camera out of it (`wq_factor_world`), after which the display pass re-applied
+the camera. `camᵀ`-then-`cam` is identity only in exact arithmetic; the camera is s16 fixed point;
+so the residue was **a function of the camera**. `wq_factor_world`'s own comment claimed the round
+trip was *"Exact at the endpoints for ANY CR content (orthonormal camera ⇒ inverse = transpose)"* —
+that was measurably false and sat directly on the defect. It is deleted along with the function.
+
+**USER RULE that governs this, 2026-08-04, verbatim:** *"never do this please NEVER, just leaving the
+effect as is is better than this."* An UNPORTED effect is better than a TAPPED one. Unported is
+honest — the gap is visible and someone fixes it. A tap looks finished while the substrate is still
+doing the projection, so it never gets fixed and it drags PSX artefacts into the picture.
+
+### What was deleted (break-first, absence confirmed before anything was rebuilt)
+
+| site | what it tapped | layer now |
+|---|---|---|
+| `quad_rtpt_submit.cpp` | `gte_read_ctrl(0..4)` + `(5+i)` after the substrate's RTPT | **absent** — a00 flame/rope emitter, case-188 particles, B704 beams |
+| `widescreen_margin_quad.cpp` | same | **absent** — drum/windmill margin prop quads |
+| `text_label.cpp` | `wq_factor_world(cmd+0x18)` | rebuilt (below) |
+| `subpart_capture.cpp` (whole file) | `wq_factor_world(sub+0x18)` | rebuilt (below) |
+| `Render::perObjFlushPreComposed` | `wq_factor_world(cmd+0x18)` | **absent** for every other pre-composed node type |
+| `Render::WqRec` + `mWqRecs`/`mWqRecsPrev` + `bbSwapPrev` | the record type that carried a factored transform back to a camera re-apply | deleted, no producers left |
+
+Absence was verified numerically and visually before the rebuild: node 800FB218 went from 196 prims
+per present to **0**, and the banner was gone from the screenshot.
+
+### The native producer — `game/render/cube_text_banner.cpp`
+
+RE (Ghidra headless + `generated/` shards, 19 functions on the write path audited):
+
+- **The per-glyph record IS the sub-part.** `textLabelEmit`'s `cmd` and `subPartWalk`'s `sub` are the
+  same pointer, `node+0xC0[i]`. One transform drives a character's plank AND its letter — which is
+  why kanban #64's glyph-vs-plank drift was never a legitimate degree of freedom.
+- **Exactly one writer:** `NodeXform::propagateRotmat` (FUN_80051300, already native), once per tick
+  from `GraphicsBind::renderUpdateBody` (FUN_800517F8, already native):
+  `rec.R = node.R · rotmat(rec+0x08)`, `rec.T = node.R·(rec+0,+2,+4) + (node+0x2E,+0x32,+0x36)`.
+- **Camera-free, with a denominator:** 19 functions checked for absolute reads of the scene camera
+  (0x1F8000F8 / 0x1F80010C / 0x1F800118) and for `gte_read_ctrl` — **zero of either**. The only
+  scratchpad address any of them touches is 0x1F800000, propagateRotmat's temp matrix. Blind spot
+  named: the scan reconstructs *constant* addresses, so all 19 bodies were also read for
+  pointer-based loads; the only ones are `node+0xC0[i]`, `rec+0x40` and the OT base.
+- **So this node class is a VIEW-SPACE billboard** — its transform IS the modelview, and
+  `node+0x36` is `H+8` (H at 0x801003F8: 350, or 233 in area 3), which is why it renders ~1:1 in
+  screen units. **358 is not a constant of the effect; read H live.**
+
+The producer therefore recomputes propagateRotmat's math from its own inputs and projects with
+`ofx/ofy/H` **and no camera at all**. Vibration is not reduced, it is *structurally impossible*.
+It deliberately does NOT re-simulate the animation (that would consume the shared LCG at 0x80105EE8
+— 2 draws per glyph at toss-in, 1 at bob-in, 1 at scatter-out — and desync every other consumer) and
+does NOT lerp at 60fps (the toss-in ends in a one-frame snap; a lerp across that boundary smears it).
+
+### The result, same instrument / object / window as the defect measurement
+
+| leg | mean \|dX\| | sign alternations |
+|---|---|---|
+| panning, BEFORE | 1.48 px | **12/12** |
+| panning, AFTER | 0.15 px | **0/16** |
+| still, AFTER | **0.00 px** | 0/16 |
+
+The 0.15 px/present that remains is MONOTONE and is the banner's own bounce-out: the measured
+`dY = -14.9 -13.0 -11.1 -9.5 -7.2 -5.6 -3.7` px is exactly the guest integrating `rec+0x12` from
+-256 at +32/frame. **Every pixel of motion now traces to code in the game**, which was the user's own
+test for whether it is real.
+
+Guest RAM (2 MB) and scratchpad are **byte-identical** to the pre-change binary over a spawn +
+40-frame run — pc_render still writes no guest memory.
+
+### Two traps this pass hit, recorded so the next one does not
+
+1. **Deleting `subPartCapture` also deleted the handover it was paired with.** `mSubPartDrawSuppress`
+   existed to stop the guest-time native GT3/GT4 draw double-drawing against the capture. With the
+   capture gone I removed the suppression too — and the guest-time draw then projected those prims
+   through whatever eproj transform happened to be active (this walk sets none; the substrate feeds
+   those submitters through the GTE). Result: the banner's prims landed at screen x **-2328..2642**,
+   off-screen, while the per-present prim COUNT looked perfectly healthy. The handover is back as
+   `Render::mNativeDrawSuppress`, scoped to the one node class a native producer owns.
+2. **`preseqobj_check.py`'s parser drops `scene=1` records** (geometry rebuilt at the interp
+   midpoint), which is right for its NN tracker and catastrophic for a per-node measurement — the
+   display-pass producers under test emit with `scene=1`, so the first run of the new `--node` mode
+   reported "0 presents carried node 800FB218" for a node that was drawing 9370 prims. `--node` now
+   parses separately and includes them.
+
+### Instruments
+
+- `tools/preseqobj_check.py --node <hex> [--tail N]` — kanban #71's measurement, scripted: per-present
+  order-free positional shift of one node's prims, with sign-alternation count and the DENOMINATOR
+  (presents carried, comparable pairs, pairs dropped to a prim-count mismatch). A node that never
+  appears prints "NOTHING WAS MEASURED" and **fails**, rather than a clean-looking 0.00. Validated
+  against the pre-change binary (reproduced the historical 1.53 px / 12-12 / -1.23) and against a
+  nonexistent node key.
+- `scenarios/banner-settled-pan.txt` / `banner-settled-still.txt` — the two legs of the gate, with the
+  toss-in animation stepped past so the X axis carries only port-side motion.
+- `PSXPORT_SELFTEST=cubetext` — hermetic: the producer's screen output must be **byte-identical**
+  under two very different cameras, with a NEGATIVE CONTROL proving the comparator sees an 81.2 px
+  change for a camera-composed projection of the same points, and a prim-count assertion so a
+  producer that drew nothing cannot pass. It went red first and caught a real bug (the string's NUL
+  was ending the *record* loop, dropping every trailing plank — the guest bounds the two halves
+  differently).
+
+### Still-open debt from this pass (portmap)
+
+- `render-tap-gte-registers` remains a **hack**: `perobj_billboard.cpp`'s BbRec capture uses the
+  identical mechanism (rotation from CR0-4, anchor factored from CR5-7) and deleting it deletes the
+  whole particle layer. Marked in place with a ⛔ DEBT banner. Also to audit under the same rule:
+  `swing_fx.cpp` and `fx_mesh.cpp` (EObjXform straight from CR0-4/CR5-7) and
+  `fx_sprite_anchored.cpp` / `fx_sprite_swarm.cpp` (reading GTE OUTPUT SXY2/MAC0/SZ3).
+- `render-producer-submitquad-classes`, `render-producer-margin-quad` — the layers deleted above,
+  each needing its own emitter ported.
+- `framework-dead-fps60bbswap` — `game_iface.h`'s `fps60BbSwapPrev` now rotates nothing in any of the
+  three games; removing it is a cross-repo change.
+
+### Pre-existing, NOT caused by this work
+
+`PSXPORT_SBS_MODE=full` aborts in `Render::fieldObjectsRender` → `Core::mem_r8` → `io_read` on an
+out-of-range guest read. **The pre-change binary aborts at the identical site**, so SBS-full could not
+be used as the guest-write gate here; the 2 MB RAM + scratchpad A/B above was used instead.

@@ -1,0 +1,9 @@
+# One-off probe: watch the cube-text producer's own inputs (node position, ofx/ofy/H) while the
+# camera pans. Answers "is anything camera-correlated reaching this view-space producer".
+pause
+debug cubetext
+spawn banner:red-chest
+step 40
+press right
+step 12
+release right

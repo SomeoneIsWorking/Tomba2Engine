@@ -1,10 +1,10 @@
 ---
 id: 64
 title: Quest-update banner lerps its LETTERS but not the PLANKS they sit on
-status: todo
+status: done
 labels: [bug, render, fps60]
 created: 2026-07-28
-updated: 2026-07-28
+updated: 2026-08-04
 ---
 
 USER 2026-07-28 with a capture of the 'A Red Treasure Chest' banner. Reached STATICALLY — read from the port's own source, no live run.
@@ -98,3 +98,24 @@ With the handover wired, every glyph and its own plank now carry the SAME world 
 That is the fix stated structurally rather than visually: both halves are now Render::WqRecs carrying one objT, so billboardsRender projects and lerps them with the same factor. They cannot drift apart on an interpolated frame any more — not 'they look aligned in a still', but 'there is no longer a mechanism by which they could separate'. Before the change only the glyph half had a record, so the letter moved to the half-way position while the plank held the real-frame position, ~half a frame of motion (the transform steps 10-15 units/axis/frame).
 
 Remaining verification is the moving picture at 60fps, which needs a USER eyeball — no headless measurement can substitute for 'do the letters sit still on their planks now'.
+
+**2026-08-04:** 2026-08-04 RESOLVED, as a side effect of #71's fix — and by construction rather than by correction.
+
+#64's premise was 'the MESH half has no display-pass producer, so give it one'. A producer WAS added
+for it on 2026-07-28 (Render::subPartCapture) and it worked, but it recovered the plank transform by
+factoring the scene camera out of the guest's composed matrix — the tap the USER banned outright on
+2026-08-04, and the measured cause of #71's vibration. So subpart_capture.cpp is now DELETED along
+with every other caller of wq_factor_world.
+
+The replacement makes #64 impossible instead of fixing it. game/render/cube_text_banner.cpp draws the
+glyph AND the record's plank geomblk from ONE computed transform, in one pass, in the same frame.
+The RE behind that (2026-08-04): textLabelEmit's `cmd` and subPartWalk's `sub` are literally the SAME
+pointer, node+0xC0[i], so the two halves were never entitled to separate transforms in the first
+place. There is now no second tier for them to drift between.
+
+Verified: the banner renders correctly with letters seated on their planks (screenshot
+scratch/screenshots/n71_fix_p0040.png), 164 prims per present with a stable count across all 17
+consecutive present pairs (the pre-fix path dropped 4 of 17 comparisons to prim-count mismatches).
+
+#16 and #23 are the SAME emitter with different strings, so this producer should cover them too — but
+I have NOT reproduced or measured either, so they stay open rather than being closed on inference.

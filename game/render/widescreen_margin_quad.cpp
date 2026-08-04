@@ -16,9 +16,7 @@
 #include "game.h"
 #include "guest_abi.h"
 #include "widescreen_margin_quad.h"
-#include "render.h"            // Render::WqRec — display-pass capture (#67/#66)
-#include "render_internal.h"   // wq_factor_world
-#include "cfg.h"
+#include <lucent/log.h>
 #include <cstdint>
 
 namespace {
@@ -173,8 +171,8 @@ void WidescreenMarginQuad::emit(Core* c) {
   uint32_t poolBase = (uint32_t)pool + 48; // tracks (current-packet-base + 48); advances on commit
   uint32_t recAddr = c->mem_r32((uint32_t)recArrayField); // dereference: the actual record array ptr
 
-  cfg_logf("wmq", "obj=%08X pool=%08X recArrayPtr=%08X node=%08X",
-           (uint32_t)obj, (uint32_t)pool, recAddr, (uint32_t)node);
+  lucent::debug("wmq", "obj={:08X} pool={:08X} recArrayPtr={:08X} node={:08X}",
+                (uint32_t)obj, (uint32_t)pool, recAddr, (uint32_t)node);
 
   for (;;) {
     MarginQuadRecord rec{c, recAddr};
@@ -288,40 +286,15 @@ void WidescreenMarginQuad::emit(Core* c) {
       c->r[3] = kPktTag;                                 // v1 = tag constant (gen leaves this live)
       c->mem_w32((uint32_t)pool + 0, oldHead | c->r[3]); // tag | old head
       c->mem_w32(slotAddr, (uint32_t)pool);
-      // #67/#66 display-pass capture: this GT4's picture from state — model corners (the staged
-      // stack scratch, already delta×256 ints), the composed GTE transform factored against the
-      // camera (render.h WqRec banner), and the FINAL packet material (post fog-shade + clut-bias:
-      // per-vertex colors +4/16/28/40, uv words +12/24/36/48). These prop quads (drum/windmill caps
-      // etc.) previously had NO pc_render picture at all — the guest packets were their only output.
-      if (!c->game->oracle) {
-        Render::WqRec w;
-        w.node = (uint32_t)node;
-        w.seq = 0;
-        for (const Render::WqRec& p : rend(c)->mWqRecs) if (p.node == w.node) w.seq++;
-        static constexpr uint32_t kVX[4] = { kVtxScratch_X0, kVtxScratch_X1, kVtxScratch_X2, kVtxScratch_X3 };
-        static constexpr uint32_t kVY[4] = { kVtxScratch_Y0, kVtxScratch_Y1, kVtxScratch_Y2, kVtxScratch_Y3 };
-        static constexpr uint32_t kVZ[4] = { kVtxScratch_Z0, kVtxScratch_Z1, kVtxScratch_Z2, kVtxScratch_Z3 };
-        for (int i = 0; i < 4; i++) {
-          w.vx[i] = c->mem_r16s(sp + kVX[i]);
-          w.vy[i] = c->mem_r16s(sp + kVY[i]);
-          w.vz[i] = c->mem_r16s(sp + kVZ[i]);
-        }
-        { constexpr float FX = 1.0f / 4096.0f;
-          float crF[3][3], tr[3];
-          uint32_t g0 = gte_read_ctrl(0), g1 = gte_read_ctrl(1), g2 = gte_read_ctrl(2),
-                   g3 = gte_read_ctrl(3), g4 = gte_read_ctrl(4);
-          crF[0][0] = (int16_t)g0 * FX;         crF[0][1] = (int16_t)(g0 >> 16) * FX; crF[0][2] = (int16_t)g1 * FX;
-          crF[1][0] = (int16_t)(g1 >> 16) * FX; crF[1][1] = (int16_t)g2 * FX;         crF[1][2] = (int16_t)(g2 >> 16) * FX;
-          crF[2][0] = (int16_t)g3 * FX;         crF[2][1] = (int16_t)(g3 >> 16) * FX; crF[2][2] = (int16_t)g4 * FX;
-          for (int i = 0; i < 3; i++) tr[i] = (float)(int32_t)gte_read_ctrl(5u + (unsigned)i);
-          wq_factor_world(c, crF, tr, w.objR, w.objT);
-        }
-        static constexpr uint32_t kColOff[4] = { 4, 16, 28, 40 };
-        for (int i = 0; i < 4; i++) w.wCol[i] = c->mem_r32((uint32_t)pool + kColOff[i]);
-        w.wUv0 = c->mem_r32((uint32_t)pool + 12); w.wUv1 = c->mem_r32((uint32_t)pool + 24);
-        w.wUv2 = c->mem_r32((uint32_t)pool + 36); w.wUv3 = c->mem_r32((uint32_t)pool + 48);
-        rend(c)->mWqRecs.push_back(w);
-      }
+      // NO pc_render PICTURE FROM THIS LEAF. It used to publish a display-pass record whose transform
+      // was read back out of the GTE CONTROL REGISTERS after the RTPT ran and un-composed against the
+      // scene camera. That is a TAP — the PSX geometry engine did the projection and the port recovered
+      // it — banned outright (USER 2026-08-04: "never do this please NEVER, just leaving the effect as
+      // is is better than this"). These prop quads (drum/windmill caps) therefore have NO native
+      // producer and NO pc_render picture: an honestly missing layer, tracked as portmap debt
+      // `render-producer-margin-quad`. Rebuilding it means driving the emitter from the node's own
+      // world position/angles instead of reading back what 0x800318A0 composed into the GTE.
+      // Every guest write in this leaf is untouched — psx_render still draws these.
       pool = (uint32_t)pool + 52;
       poolBase += 52;
     }

@@ -3,7 +3,7 @@
 Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported unit.
 `tools/parity.py` = summary · `tools/parity.py <words>` = search · `tools/parity.py check` = gate.
 
-**Status:** 69 verified · 14 partial · 12 untested · 7 n/a
+**Status:** 69 verified · 14 partial · 12 untested · 8 n/a
 
 ## ActorTomba::actionHandler800531DC (FUN_800531DC)
 - **status:** verified
@@ -631,6 +631,10 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **status:** n/a
 - **gate:** host-only queue push (zero guest writes); 2-leg 0-diff f5520/f20610 with pushes live; USER play-test pending (#65)
 - **evidence:** 8988b389
+
+## cube-text-banner
+- **status:** n/a
+- **evidence:** pc_render display-pass producer (game/render/cube_text_banner.cpp): reads guest RAM, writes only host render-queue state. Verified 2026-08-04 by a 2 MB guest-RAM + scratchpad byte-compare against the pre-change binary over a spawn + 40-frame run: IDENTICAL.
 
 ## Font::glyphQueuePush (glyphEmit dual-emit host half)
 - **status:** n/a

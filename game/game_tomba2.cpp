@@ -202,7 +202,8 @@ void games_tomba2_init(void) {
   void perobj_billboard_install();
   perobj_billboard_install();  // FUN_8003CCA4/C2D4/C464/C8F4 substrate-mirror ownership (band 0x8003xxxx)
   void text_label_install();
-  text_label_install();        // FUN_80039F4C text-label renderer (Render::textLabelEmit + WqRec capture)
+  text_label_install();        // FUN_80039F4C text-label renderer (Render::textLabelEmit — substrate
+                               // mirror; the PICTURE is CubeTextBanner, game/render/cube_text_banner.cpp)
   void render_walk_dispatch_install();
   render_walk_dispatch_install();  // FUN_8003C048 render-walk loop ownership (band 0x8003xxxx)
   void overlay_type_dispatch_install();

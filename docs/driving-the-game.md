@@ -58,6 +58,32 @@ call 80040AA4(a0=00000038,a1=00000000,...) -> v0=800FB218 v1=00007C7E
 `0x800A33C8` (stride 12) — entry 56 = "A Red Treasure Chest", entry 2 = "Go to the Burning House!",
 entry 1 = the game-start banner. `v0` is the node it allocated.
 
+### THE VIBRATION GATE — `tools/preseqobj_check.py --node <hex>` (2026-08-04)
+`preseq` + `debug preseqobj` gives you the frames; this turns them into a NUMBER. `--node` reports one
+object's per-present positional shift, order-free (sorted vector of its prims' screen x/y, so emit
+order does not matter), with the sign-alternation count that distinguishes VIBRATION from motion:
+
+```
+python3 tools/preseqobj_check.py scratch/logs/sandbox_5971.log --node 800FB218 --node <control> [--tail 18]
+```
+It prints its DENOMINATOR — presents that carried the node, comparable consecutive pairs, and pairs
+dropped for a prim-count mismatch — and a node that never appears reports **"NOTHING WAS MEASURED"**
+and exits non-zero, instead of a clean-looking 0.00. Pass `--node` twice to score the object under
+test AND a control object in one go; a discriminator that has not been run against both classes is
+not yet an instrument. (`--node` deliberately INCLUDES `scene=1` records, which the default NN tracker
+drops — display-pass producers emit with `scene=1`, and dropping them silently measures nothing.)
+
+Worked gate, kanban #71 (the item banner's camera-driven vibration):
+```
+PSXPORT_SETTINGS=scratch/fps60_on.ini tools/sandbox.py scenarios/banner-settled-pan.txt   --port 5971
+PSXPORT_SETTINGS=scratch/fps60_on.ini tools/sandbox.py scenarios/banner-settled-still.txt --port 5972
+```
+The two `banner-settled-*` scenarios step 40 logic frames BEFORE the camera moves, so the banner's
+toss-in animation is over and anything left on the X axis is the port's own. Before the fix: mean
+|dX| 1.48 px, **12/12 sign alternations**. After: 0.15 px, **0/16**, and 0.00 px exactly with the
+camera still. (`banner-camera-pan.txt`/`-still.txt` are the originals, kept — they catch the effect
+mid-animation, which is a different and also useful window.)
+
 **Scenario files** (`scenarios/`) are one command per line; `#` **only at line start** is a comment;
 anything not a runner directive passes to the debug server verbatim, so the whole `help` surface
 stays reachable. Runner directives: `spawn <recipe>`, `capture <n> [dir]` (step one LOGIC frame +

@@ -1,0 +1,17 @@
+# scenarios/banner-settled-pan.txt — kanban #71 acceptance gate, CAMERA PANNING.
+#
+# Same as banner-camera-pan.txt but it steps 40 logic frames BEFORE the camera
+# moves, so the banner's toss-in animation (24 frames of X ramp + 23 frames of Z pull-in) is fully
+# over and the only thing left running is the idle bob, which is Y-only. Anything that then shows up
+# on the X axis is the port's own, not the effect's — which is exactly the discrimination #71 needs.
+pause
+debug preseqobj
+spawn banner:red-chest
+step 40
+press right
+step 4
+preseq 48 scratch/screenshots/n71_settled_pan
+play
+sleep 3
+pause
+release right

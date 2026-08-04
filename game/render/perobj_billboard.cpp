@@ -69,7 +69,6 @@
 #include "render.h"
 #include "render_internal.h"   // withObjScope / cur_render_node
 #include "proj_params.h"       // ProjParams::pzToOrd — billboardsRender depth normalize
-#include <unordered_map>
 
 void rec_dispatch(Core*, uint32_t);
 void shard_set_override(uint32_t addr, OverrideFn fn);   // generated/shard_disp.c (C++ linkage)
@@ -95,6 +94,23 @@ void func_8003B220(Core*);   // billboardEmit's quad-corner builder (writes real
 void func_8003B054(Core*);   // billboardEmit's color/UV fill
 
 namespace {
+// Read the SCENE CAMERA's libgte MATRIX (9×s16 CR-packed in 5 words @+0, 3×s32 translation @+0x14)
+// out of the scratchpad into unit-scale float rows — the same bytes Fps60::sceneCam reads. Reading
+// the camera is not a tap: the native path has to get the camera from somewhere, and this is where
+// the engine keeps it. (The FACTORING done with it in billboardEmit's capture below IS a tap — see
+// the ⛔ DEBT banner there.)
+void readSceneCamMatrix(Core* c, float camR[3][3], float camT[3]) {
+  constexpr uint32_t CAM_MATRIX = 0x1F8000F8u;
+  constexpr float FX = 1.0f / 4096.0f;
+  const uint32_t w0 = c->mem_r32(CAM_MATRIX + 0),  w1 = c->mem_r32(CAM_MATRIX + 4),
+                 w2 = c->mem_r32(CAM_MATRIX + 8),  w3 = c->mem_r32(CAM_MATRIX + 12),
+                 w4 = c->mem_r32(CAM_MATRIX + 16);
+  camR[0][0] = (int16_t)w0 * FX;         camR[0][1] = (int16_t)(w0 >> 16) * FX; camR[0][2] = (int16_t)w1 * FX;
+  camR[1][0] = (int16_t)(w1 >> 16) * FX; camR[1][1] = (int16_t)w2 * FX;         camR[1][2] = (int16_t)(w2 >> 16) * FX;
+  camR[2][0] = (int16_t)w3 * FX;         camR[2][1] = (int16_t)(w3 >> 16) * FX; camR[2][2] = (int16_t)w4 * FX;
+  for (int i = 0; i < 3; i++) camT[i] = (float)(int32_t)c->mem_r32(CAM_MATRIX + 0x14u + (uint32_t)i * 4u);
+}
+
 constexpr uint32_t CUR_NODE_SCR = 0x1F80028Cu;   // "current render node" scratch
 constexpr uint32_t PKT_POOL_PTR = 0x800BF544u;   // packet-pool bump-allocator write pointer
 constexpr uint32_t OTBASE_PTR   = 0x800ED8C8u;   // *this = the active ordering-table base
@@ -614,10 +630,18 @@ void Render::billboardEmit() {
             rb.rotR[0][0] = (int16_t)g0;         rb.rotR[0][1] = (int16_t)(g0 >> 16); rb.rotR[0][2] = (int16_t)g1;
             rb.rotR[1][0] = (int16_t)(g1 >> 16); rb.rotR[1][1] = (int16_t)g2;         rb.rotR[1][2] = (int16_t)(g2 >> 16);
             rb.rotR[2][0] = (int16_t)g3;         rb.rotR[2][1] = (int16_t)(g3 >> 16); rb.rotR[2][2] = (int16_t)g4; }
-          // World anchor factored from the LIVE CR5-7 view translation (tr = cam·pos + cam.t for
-          // every compose variant ⇒ camᵀ·(tr − camT) = pos exactly) — not a node-field assumption.
+          // ⛔ DEBT, portmap `render-tap-gte-registers` (NOT resolved): the rotation above and the
+          // world anchor below are recovered from the GTE CONTROL REGISTERS after the substrate
+          // composed them, then un-composed against the scene camera — the SAME banned mechanism
+          // that was deleted from quad_rtpt_submit.cpp / widescreen_margin_quad.cpp / text_label.cpp
+          // / subpart_capture.cpp / perObjFlushPreComposed on 2026-08-04, and it carries the same
+          // camera-dependent quantisation residue (kanban #71). It survives here only because
+          // deleting it deletes the entire particle layer (AP gems, flames, apples, splash, windmill)
+          // and that was outside the ordered scope of that pass. Real fix: port billboardEmit's
+          // callers so each particle's world anchor + rotation come from the effect's own state.
+          // Death condition: zero gte_read_ctrl in this file's capture path.
           { float camR[3][3], camT[3];
-            wq_read_matrix(c, 0x1F8000F8u, camR, camT);
+            readSceneCamMatrix(c, camR, camT);
             float tr[3];
             for (int i = 0; i < 3; i++) tr[i] = (float)(int32_t)gte_read_ctrl(5u + (unsigned)i);
             rb.wx = camR[0][0]*(tr[0]-camT[0]) + camR[1][0]*(tr[1]-camT[1]) + camR[2][0]*(tr[2]-camT[2]);
@@ -668,9 +692,9 @@ void ov_billboardEmit(Core* c)        { rend(c)->billboardEmit(); }
 // half; neutral texture-window, full draw-area) — NOT from GpuState's live s_tp_*/s_da_* fields,
 // which hold unrelated stale state at display time. Float verts + real per-vertex depth + the
 // drawWorldQuad draw-offset convention; dbg_node = the owning node (real identity).
-static void emitRecQuad(Core* c, uint32_t node, const uint32_t wCol[4],
-                        uint32_t wUv0, uint32_t wUv1, uint32_t wUv2, uint32_t wUv3,
-                        const float* px, const float* py, const float* dep) {
+void Render::emitRecordQuad(Core* c, uint32_t node, const uint32_t wCol[4],
+                            uint32_t wUv0, uint32_t wUv1, uint32_t wUv2, uint32_t wUv3,
+                            const float* px, const float* py, const float* dep) {
   const uint8_t  op   = (uint8_t)(wCol[0] >> 24);
   const uint32_t clut = wUv0 >> 16;
   const uint32_t tp   = wUv1 >> 16;
@@ -705,7 +729,7 @@ static void emitRecQuad(Core* c, uint32_t node, const uint32_t wCol[4],
 
 void Render::billboardsRender() {
   Core* c = mCore;
-  if (mBbRecs.empty() && mWqRecs.empty()) return;
+  if (mBbRecs.empty()) return;
 
   float Ri[3][3], T[3], ofx, ofy, H;
   c->game->fps60.sceneCam(c, Ri, T, ofx, ofy, H);   // raw int16-unit rows, the sceneCam convention
@@ -714,14 +738,11 @@ void Render::billboardsRender() {
   float R[3][3];
   for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) R[i][j] = Ri[i][j] * FX;
 
-  // fps60 interp re-run: WqRecs lerp against the previous frame (stable node/seq identity). BbRec
-  // PARTICLES do NOT lerp — the effect sub-lists reuse/walk particle addresses every frame, so no
-  // stable cross-frame identity exists; a particle-addr-keyed lerp blended DIFFERENT sprites'
+  // BbRec PARTICLES do NOT lerp — the effect sub-lists reuse/walk particle addresses every frame, so
+  // no stable cross-frame identity exists; a particle-addr-keyed lerp blended DIFFERENT sprites'
   // positions (USER: "gems rendered at two different places between real and interpolated frames").
   // A particle draws at its own frame's state under the LERPED camera: world-glued, no ghosting;
   // its animation steps at the logic rate, which is what the state actually says.
-  const bool interp = c->game->fps60.mObjOverrideOn;
-  const float t = c->game->fps60.mT;
 
   for (const BbRec& rc : mBbRecs) {
     // This frame's own state (no per-particle lerp — see banner above); camera lerp comes via R/T.
@@ -751,54 +772,9 @@ void Render::billboardsRender() {
     if (behind) continue;
 
     { const uint32_t wc[4] = { rc.wColor, rc.wColor, rc.wColor, rc.wColor };
-      emitRecQuad(c, rc.node, wc, rc.wUv0, rc.wUv1, rc.wUv2, rc.wUv3, px, py, dep); }
+      emitRecordQuad(c, rc.node, wc, rc.wUv0, rc.wUv1, rc.wUv2, rc.wUv3, px, py, dep); }
   }
 
-  // ---- WqRecs: the generic composed-CR quad classes (submitQuad callers — render.h WqRec banner).
-  // Re-compose each record's FACTORED world transform with the (fps60-lerped) camera and project:
-  // corner_view = Rcam·(objR·corner + objT) + Tcam — identical derivation on real and interp frames.
-  std::unordered_map<uint64_t, const WqRec*> wprev;
-  if (interp) for (const WqRec& p : mWqRecsPrev)
-    wprev.emplace(((uint64_t)p.node << 8) | p.seq, &p);
-  for (const WqRec& rc : mWqRecs) {
-    float objR[3][3], objT[3];
-    for (int i = 0; i < 3; i++) { for (int j = 0; j < 3; j++) objR[i][j] = rc.objR[i][j]; objT[i] = rc.objT[i]; }
-    float vxl[4][3];
-    for (int i = 0; i < 4; i++) { vxl[i][0] = rc.vx[i]; vxl[i][1] = rc.vy[i]; vxl[i][2] = rc.vz[i]; }
-    if (interp) {
-      auto it = wprev.find(((uint64_t)rc.node << 8) | rc.seq);
-      if (it != wprev.end()) {
-        const WqRec& pv = *it->second;
-        auto L = [t](float a, float b) { return a + (b - a) * t; };
-        for (int i = 0; i < 3; i++) {
-          for (int j = 0; j < 3; j++) objR[i][j] = L(pv.objR[i][j], rc.objR[i][j]);
-          objT[i] = L(pv.objT[i], rc.objT[i]);
-        }
-        for (int i = 0; i < 4; i++) {
-          vxl[i][0] = L(pv.vx[i], rc.vx[i]); vxl[i][1] = L(pv.vy[i], rc.vy[i]); vxl[i][2] = L(pv.vz[i], rc.vz[i]);
-        }
-      }
-    }
-    float px[4], py[4], dep[4];
-    bool behind = false;
-    for (int i = 0; i < 4; i++) {
-      const float wxp = objR[0][0]*vxl[i][0] + objR[0][1]*vxl[i][1] + objR[0][2]*vxl[i][2] + objT[0];
-      const float wyp = objR[1][0]*vxl[i][0] + objR[1][1]*vxl[i][1] + objR[1][2]*vxl[i][2] + objT[1];
-      const float wzp = objR[2][0]*vxl[i][0] + objR[2][1]*vxl[i][1] + objR[2][2]*vxl[i][2] + objT[2];
-      const float vx = R[0][0]*wxp + R[0][1]*wyp + R[0][2]*wzp + T[0];
-      const float vy = R[1][0]*wxp + R[1][1]*wyp + R[1][2]*wzp + T[1];
-      const float vz = R[2][0]*wxp + R[2][1]*wyp + R[2][2]*wzp + T[2];
-      if (vz <= 0.0f) { behind = true; break; }
-      float pz = H * 0.5f; if (vz > pz) pz = vz;
-      const float ph = H / pz;
-      px[i] = ofx + vx * ph;
-      py[i] = ofy + vy * ph;
-      dep[i] = c->rsub.projParams.pzToOrd(vz);
-    }
-    if (behind) continue;
-
-    emitRecQuad(c, rc.node, rc.wCol, rc.wUv0, rc.wUv1, rc.wUv2, rc.wUv3, px, py, dep);
-  }
 }
 
 void perobj_billboard_install() {

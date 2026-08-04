@@ -1,7 +1,7 @@
 ---
 id: 71
 title: Item-announcement banner renders glitchy, worst while the camera moves
-status: todo
+status: done
 labels: [render]
 created: 2026-08-04
 updated: 2026-08-04
@@ -132,3 +132,55 @@ REPRO, one command:
   PSXPORT_SETTINGS=scratch/fps60_on.ini tools/sandbox.py scenarios/banner-camera-pan.txt --port 5971
   (still-camera control: same file with `press right` removed)
 Measurement: `debug preseqobj` + `preseq`, group by key=<node addr>, diff sorted screen-x vectors.
+
+**2026-08-04:** USER 2026-08-04, and this REJECTS the fix proposed above: 'If these are properly ported then the vibrations shouldn't happen because we'd know if it was vibrating because there would be code that makes it vibrate.' Correct, and decisive. Nothing in the game vibrates this banner — no jitter routine, no noise term. So 100% of the motion is manufactured by the PORT, and any fix that REDUCES it is compensating for a mechanism that should not exist. DO NOT implement 'WqRec carries its transform space, skip the camera re-apply': it keeps the tap, keeps the GTE read, keeps the s16 quantisation, and merely shrinks the residue. REAL CAUSE, one level up: this effect is not ported, it is TAPPED. quad_rtpt_submit.cpp:241-245 reads the GTE CONTROL REGISTERS (gte_read_ctrl(5+i), (int16_t) matrix words) after the substrate ran, then wq_factor_world un-composes the camera out of that already-quantised matrix and the renderer re-applies the native camera. camT-then-cam is identity only in exact arithmetic, so the residue is a FUNCTION OF THE CAMERA and changes every frame it moves. CLAUDE.md bans exactly this ('never reproduce GTE output'; 'a tap is a SCAFFOLD, not the destination', USER 2026-07-23). REAL FIX: retire the tap into a native producer that reads the effect's own world state and projects with the native camera — no GTE read, no factoring, no round-trip. Then vibration is structurally impossible rather than merely small. Note the standing gate that forces this anyway: a tap CANNOT lerp, so any effect that must interpolate at 60fps has to be a real port by construction. SCOPE: wq_factor_world has callers in text_label.cpp:143 and quad_rtpt_submit.cpp:245, and render_walk.cpp:139 applies the same factoring to EVERY pre-composed-matrix node — so every view-locked class through that path shares this defect.
+
+**2026-08-04:** 2026-08-04 FIXED, and the fix is the RETIREMENT OF THE TAP, not a correction to it.
+
+WHAT WAS WRONG. The banner had no native producer. Its picture came from reading back the per-glyph
+libgte MATRIX the guest had already composed (cmd+0x18 == sub+0x18 — textLabelEmit's cmd and
+subPartWalk's sub are the SAME pointer, node+0xC0[i]), un-composing the scene camera out of it
+(wq_factor_world) and letting billboardsRender re-apply the camera. cam^T-then-cam is identity only
+in exact arithmetic; the camera is s16 fixed point; so the residue was a function of the camera and
+moved every frame the camera moved. That is 100% of the vibration. Nothing in the game produced it.
+
+WHAT WAS DONE. Break-first, per the standing rule. Every tap was DELETED and the layer was confirmed
+honestly absent (node 800FB218: 196 prims/present -> 0, and gone from the screenshot) BEFORE anything
+was rebuilt. wq_factor_world and wq_read_matrix are gone from render_internal.h; subpart_capture.cpp
+is deleted; Render::perObjFlushPreComposed is deleted; the WqRec record type, its two buffers and the
+fps60 swap that rotated them are gone, because their only purpose was carrying a factored transform
+back to a camera re-apply. Then the real producer: game/render/cube_text_banner.cpp.
+
+THE PRODUCER. The cube-text node is a VIEW-SPACE billboard — its transform IS the modelview. RE
+(19 functions on the write path audited): the matrix has exactly one writer, NodeXform::propagateRotmat
+(already native), and NOTHING on that path reads the scene camera or a GTE control register. So
+CubeTextBanner recomputes propagateRotmat's own math from its own inputs — rec.R = node.R *
+rotmat(rec+0x08), rec.T = node.R*(rec+0,+2,+4) + (node+0x2E,+0x32,+0x36) — and projects with
+ofx/ofy/H and NO camera at all. Vibration is not reduced, it is structurally impossible. It draws the
+glyph AND the record's plank from that one transform, so #64's glyph-vs-plank drift is also
+structurally impossible.
+
+THE NUMBERS (tools/preseqobj_check.py --node, now a scripted gate; same object, same window, same
+instrument as the defect measurement):
+  camera PANNING  before: mean |dX| 1.48 px, 12/12 sign alternations, net -1.35 px
+                  after:  mean |dX| 0.15 px,  0/16 sign alternations, net +2.60 px
+  camera STILL    after:  mean |dX| 0.00 px exactly, 0/16 alternations
+  The 0.15 px/present that remains is MONOTONE and is the banner's own bounce-out animation: the
+  measured dY sequence -14.9 -13.0 -11.1 -9.5 -7.2 -5.6 -3.7 px is exactly the guest integrating
+  rec+0x12 from -256 at +32/frame. Every pixel of motion now traces to code in the game.
+  Instrument validated on the pre-change binary (reproduced the original 1.53 px / 12-12 / -1.23) and
+  against a node key that does not exist (reports NOTHING WAS MEASURED and fails, rather than 0.00).
+
+NOT A GUEST-STATE CHANGE: guest RAM (2 MB) and scratchpad are byte-identical to the pre-change binary
+over a spawn + 40-frame run.
+
+HERMETIC GATE: PSXPORT_SELFTEST=cubetext asserts the producer's screen output is byte-identical under
+two very different cameras, with a NEGATIVE CONTROL proving the comparator sees an 81.2 px change for
+a camera-composed projection of the same points, and a prim-count assertion so a producer that drew
+nothing cannot pass. It went red first and caught a real bug (the string NUL was ending the record
+loop, dropping every trailing plank).
+
+REPRO / gate commands:
+  PSXPORT_SETTINGS=scratch/fps60_on.ini tools/sandbox.py scenarios/banner-settled-pan.txt --port 5971
+  PSXPORT_SETTINGS=scratch/fps60_on.ini tools/sandbox.py scenarios/banner-settled-still.txt --port 5972
+  python3 tools/preseqobj_check.py scratch/logs/sandbox_5971.log --node 800FB218

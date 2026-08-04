@@ -22,6 +22,8 @@
 #include "core.h"
 #include "render.h"
 #include "game_ctx.h"           // rend()
+#include "game.h"               // c->game->oracle
+#include "cube_text_banner.h"   // the one native producer that owns a sub-part node's picture
 #include "override_registry.h"
 
 void func_8003F698(Core*);   // generated/shard_disp.c — geometry-block submit
@@ -42,6 +44,11 @@ constexpr uint32_t NODE_COUNT     = 9u;           // do/while bound at the botto
 // ORACLE: gen_func_8003F174
 void Render::subPartWalk(Core* c) {
   const uint32_t node = c->r[4];
+  // Does a NATIVE producer own this node's picture? Only the cube-text banner does (CubeTextBanner,
+  // selected by the same behaviour pointer it selects on — structural identity, not a tag). On the
+  // oracle leg nothing native draws at all, so the handover must not fire there either.
+  const bool nativeOwnsPicture = !c->game->oracle &&
+      c->mem_r32(node + 0x1Cu) == CubeTextBanner::kBehCubeTextSpawn;
   const uint32_t passThrough = c->r[5];
 
   c->r[29] -= 80;
@@ -89,29 +96,27 @@ void Render::subPartWalk(Core* c) {
       gte_write_ctrl(6, c->mem_r32(xf + 24));
       gte_write_ctrl(7, c->mem_r32(xf + 28));
 
-      // DISPLAY-PASS capture (kanban #64/#16/#23) — WIRED 2026-07-28 on this evidence:
-      // the glyph pass's `cmd` and this walk's `sub` ARE THE SAME POINTER (measured: node 800FB218's
-      // sub-parts 800F9C64/9CA8/9D30... are exactly the cmds textLabelEmit captures glyphs from), so
-      // one transform block drives BOTH halves of a text-label character — its plank and its letter.
-      // That shared transform MOVES every logic frame (87 distinct world positions in 87 consecutive
-      // appearances, ~10-15 units/frame). With only the glyph half captured, the interpolated frame
-      // drew the LETTER at the half-way position while its PLANK stayed at the real-frame position —
-      // a per-character offset of roughly half a frame of motion, which is exactly the drift in the
-      // user's "A Red Treasure Chest" capture.
-      // subPartCapture re-derives the plank prims from the same transform and hands them to the
-      // display pass; mSubPartDrawSuppress stops the submit below from ALSO drawing them (without it
-      // the two copies coincide on a real frame and separate on the interpolated one — measured as a
-      // 26/76800 px second copy). Picture-neutral on a real frame, same 26 px, banner intact.
-      Render::subPartCapture(c, node, sub);
-      rend(c)->mSubPartDrawSuppress++;
-
+      // NO DISPLAY-PASS CAPTURE HERE. Render::subPartCapture used to re-derive these prims from the
+      // sub-part's transform at sub+0x18, un-composing the scene camera out of it (wq_factor_world)
+      // so the display pass could re-apply the camera. That round trip is the tap the USER banned on
+      // 2026-08-04 and the measured cause of kanban #71's vibration, and it is gone.
+      //
+      // The HANDOVER it needed is still needed, for a different owner: on a CUBE-TEXT BANNER node,
+      // CubeTextBanner (game/render/cube_text_banner.cpp) draws these same sub-parts from the node's
+      // own state, so the guest-time native draw below must stand down or the banner is drawn twice.
+      // Scoped to that node class only — every OTHER sub-part class still has no producer and keeps
+      // its guest-time draw. This is host-side only: every guest-visible effect of the walk still
+      // happens, byte for byte. (Measured 2026-08-04: without it the banner's prims land at screen x
+      // -2328..2642, because the guest-time submitters project through whatever eproj transform
+      // happens to be active and this walk sets none — the substrate feeds them via the GTE.)
       cursor += 4;
       c->r[4] = c->mem_r32(sub + SUB_GEOMBLK);
       c->r[5] = c->mem_r32(OT_TABLE_PTR);
       c->r[31] = 0x8003F230u;               // jal-site ra
       c->r[6] = passThrough;
+      if (nativeOwnsPicture) rend(c)->mNativeDrawSuppress++;
       func_8003F698(c);
-      rend(c)->mSubPartDrawSuppress--;
+      if (nativeOwnsPicture) rend(c)->mNativeDrawSuppress--;
 
       index += 1;
     } while ((int32_t)index < (int32_t)(uint32_t)c->mem_r8(node + NODE_COUNT));

@@ -4,7 +4,7 @@ title: Roof flames do not lerp at fps60 while the burning-rope flame does
 status: done
 labels: [render, fps60]
 created: 2026-07-22
-updated: 2026-07-28
+updated: 2026-08-04
 evidence: docs/reference/issues/issue23_flame_no_lerp.png
 ---
 
@@ -15,3 +15,5 @@ USER 2026-07-22 with a matched pair, which is what makes this diagnosable: docs/
 **2026-07-23:** 2026-07-23: FIXED. Replaced the fxSpriteTap leaf tap with a NATIVE PRODUCER Render::fxSpriteRender (game/render/fx_sprite.cpp), dispatched from fieldObjectsRender's type-0x20 walk for node+0x18 in {80027CB4,80027E5C,800281EC}. Projects the node's own world anchor(s) via projComposeCamera (fps60-lerped sceneCam) + EObjXform::project; base pixel scale derived natively as MAC0=n*DQA (DQA=6, or 4 for the 281EC '!' variant; DQB=0; n=(H*0x20000/SZ3+1)/2 = the RTPS depth-cue divide the emitters repurpose as sprite scale). Emits via drawWorldQuad -> has_xyf=1 -> tier1-owned -> re-rendered under the lerped camera, so it LERPS. Tap deleted; 0x80027A4C runs its plain gen body (SBS still 0-diff). VERIFY: (#1) roof flames match psx_render to <1px centroid / 172-vs-174 flame px at seesaw-weight.pad f10000 (GATE=1 pc_render vs ORACLE); (#2) fps60 interp flame X sits at the midpoint of its two real neighbours during a camera pan (scratch/framedump, lerpmeas.py: 42/43 & 18/21 moving intervals between); (#3) zero gen_func in producer, override absent from ovhit; (#4) plain-field 0-diff exact; (#5) SBS-full 0-diff to f4680.
 
 **2026-07-28:** 2026-07-28: check whether #64's fix covers this too. #64 root-caused and fixed a presentation-tier split in Render::textLabelEmit — glyph cmd and plank sub are the same pointer, the shared transform moves every frame, and only the glyph half had a display-pass record, so the halves separated on interpolated frames. subPartCapture + mSubPartDrawSuppress now give the mesh half a record (verified 1740 agree / 0 differ on same-frame objT). If this card's effect is drawn through subPartWalk sub-parts it is now covered; if it is a different emitter, the FIX PATTERN still applies — find which half lacks a display-pass record rather than reaching for a matcher or an anchor stamp.
+
+**2026-08-04:** 2026-08-04: same note as #16 — the text-label emitter now has a native view-space producer (game/render/cube_text_banner.cpp, #71/#64). Not closed on inference; reproduce and measure first.

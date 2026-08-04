@@ -4,7 +4,7 @@ title: Sign text jitters at fps60 when the camera moves
 status: todo
 labels: [render, fps60]
 created: 2026-07-22
-updated: 2026-07-28
+updated: 2026-08-04
 evidence: docs/reference/issues/issue16_sign_text_jitter.png
 ---
 
@@ -23,3 +23,5 @@ This card's SECOND half (glyphs dropping out, 'urnIn' / 'Ho se') is still a sepa
 Since this card's symptom is 'text jitters WHILE THE CAMERA MOVES' and the mechanism was a per-frame transform delta being applied to one half only, the same fix should cover it. RE-TEST at 60fps with the camera panning past the sign before doing any further work here.
 
 The DROPPED-GLYPH half of this card ('urnIn' / 'Ho se') is untouched by that fix and still needs its own root cause — it is an emitter/atlas question, not a presentation-tier one.
+
+**2026-08-04:** 2026-08-04: the emitter behind this (FUN_80039F4C text-label / cube-text banner) now has a real native producer — game/render/cube_text_banner.cpp, see #71 and #64. It projects in view space with no camera term, so the camera-driven jitter class is structurally gone for every string this emitter draws. This card is NOT closed on that inference: nobody has reproduced #16's sign text or measured it. Reproduce it and re-measure with tools/preseqobj_check.py --node before closing.

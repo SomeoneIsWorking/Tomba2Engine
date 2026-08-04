@@ -68,4 +68,4 @@ void tomba_fps60_world_pass(Core* c, float t) {
   }
 }
 
-void tomba_fps60_bb_swap_prev(Core* c) { rend(c)->bbSwapPrev(); }
+void tomba_fps60_bb_swap_prev(Core* c) { (void)c; }
