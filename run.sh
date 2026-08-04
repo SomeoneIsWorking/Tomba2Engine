@@ -35,18 +35,28 @@ JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null |
 # the link fails with undefined GTE_BindState / MDEC_*State / SPU_*State. Sync them here so
 # `git pull && ./run.sh` is self-sufficient. Guard: if a submodule has UNCOMMITTED edits (the dev
 # works in the beetle fork in-tree), skip the auto-checkout and just warn — never clobber local work.
+# ONE implementation, shared by all three ports: external/psxport/scripts/sync-submodules.sh.
+#
+# The copy that used to live here was VACUOUS, not merely narrow. It guarded on
+# `git -C vendor/beetle-psx status --porcelain`, but this repo has no top-level vendor/ — beetle
+# lives at external/psxport/vendor/beetle-psx. So the command failed, produced an empty string,
+# `[ -z "" ]` was true, and the "everything is clean, update it all" branch ran EVERY time. It
+# protected nothing, while `git submodule update --recursive` happily discarded uncommitted work in
+# external/psxport, which is exactly where framework changes are made. The shared script guards
+# every submodule by walking them, so there is no path name to get wrong.
+#
+# Bootstrap: the script lives INSIDE the submodule, so on a fresh clone (or against a gitlink older
+# than the script itself) it does not exist yet — init first, then call it.
 if command -v git >/dev/null && [ -f .gitmodules ]; then
-  if git submodule status --recursive 2>/dev/null | grep -q '^-'; then
+  if [ ! -f external/psxport/scripts/sync-submodules.sh ]; then
     say "initializing git submodules…"
     git submodule update --init --recursive || die "git submodule update failed"
-  elif git submodule status --recursive 2>/dev/null | grep -q '^+'; then
-    # gitlink moved (e.g. after a pull) but checkout differs. Update only the CLEAN ones.
-    if [ -z "$(git -C vendor/beetle-psx status --porcelain 2>/dev/null)" ]; then
-      say "updating git submodules to recorded commits…"
-      git submodule update --recursive || die "git submodule update failed"
-    else
-      say "WARNING: vendor/beetle-psx has uncommitted changes; not auto-updating submodule (commit or stash to sync)."
-    fi
+  fi
+  if [ -f external/psxport/scripts/sync-submodules.sh ]; then
+    bash external/psxport/scripts/sync-submodules.sh || die "submodule sync failed"
+  else
+    say "WARNING: external/psxport/scripts/sync-submodules.sh is absent even after init —"
+    say "         submodules were NOT synced and may not match this repo's recorded gitlinks."
   fi
 fi
 
