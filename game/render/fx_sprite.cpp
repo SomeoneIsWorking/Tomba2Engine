@@ -51,6 +51,7 @@
 #include "fx_sprite.h"         // SpriteAnchor — the family's shared scale / OT-gate / depth-cue relations
 #include "game_ctx.h"          // trigOf(c)
 #include "trig.h"              // Trig::rsin / rcos — the ports of FUN_80083E80 / FUN_80083F50
+#include <lucent/log.h>        // `fxsprite` diagnostic channel
 #include "cfg.h"
 
 // --- the family's shared relations (fx_sprite.h) ---------------------------------------------------
@@ -414,14 +415,31 @@ void Render::fxSpriteEmit(uint32_t node, uint32_t rfn) {
     EObjXform ring; projComposeObjectHost(Robj, Tobj, &ring);
     const int height = (int)(int16_t)c->mem_r16(node + kRingHeight) << 6;
     const uint32_t ringH = (uint32_t)ring.H;
+    // A DROPPED RING POINT USED TO BE SILENT. `otKeyInRange` can reject all four points and this
+    // branch would then draw nothing and say nothing — so "no stars on screen" was indistinguishable
+    // from "the producer was never dispatched", which is the whole reason kanban #55/#72 could not be
+    // diagnosed. Every point's outcome is accumulated (one Line, never a log per point) and flushed
+    // as a single line that carries its DENOMINATOR: drawn out of kRingPoints, plus the sz that each
+    // rejected point was gated on. This line is emitted whenever the branch RUNS, so its absence
+    // means dispatch never reached here — a distinction the old code could not express.
+    lucent::Line pts;
+    int drawn = 0;
     for (int i = 0; i < kRingPoints; i++) {
       int sn, cs; MeshQuads::trig(c, i << 10, &sn, &cs);       // 0/1024/2048/3072 = the 4 cardinals
       ProjVtx pv;
       ring.project((cs * kRingRadiusN) >> 4, height, (sn * kRingRadiusN) >> 4, &pv);
-      if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) continue;  // the emitter's own per-point gate
+      if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) {          // the emitter's own per-point gate
+        pts.add("{}:DROP(sz={}) ", i, pv.sz);
+        continue;
+      }
       const int32_t scale = SpriteAnchor::baseScale(ringH, pv.sz, /*dqa=*/6);
       spriteRecordsEmit(rec0, clutPage, pv.px, pv.py, proj_pz_to_ord(pv.pz), scale, scale);
+      drawn++;
+      pts.add("{}:({},{} sz={} sc={}) ", i, pv.px, pv.py, pv.sz, scale);
     }
+    lucent::debug("fxsprite", "ringrot node={:08X} drawn={}/{} height={} bias={} anchor=({},{},{}) {}",
+                  node, drawn, kRingPoints, height, bias,
+                  (int)Tobj[0], (int)Tobj[1], (int)Tobj[2], pts.view());
     return;
   }
 

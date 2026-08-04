@@ -7,7 +7,7 @@
 #include "engine.h"
 #include "render.h"          // Render::emitUiFt4 / emitUiSprites + rsub.mode.psxRender() gate
 #include "render_queue.h"    // RQ_OVERLAY
-#include "cfg.h"             // `scorepopup` diagnostic channel
+#include <lucent/log.h>      // `scorepopup` diagnostic channel
 #include <algorithm>
 #include <numeric>
 
@@ -34,11 +34,23 @@ void ScorePopup::drawCollected() {
     return bi != bj ? bi > bj : i > j;
   });
 
+  // WIDE-FINAL COORDINATES (kanban #73). Every (a.x, a.y) below is the guest's own projection of the
+  // player anchor: FUN_80071DFC / FUN_80072308 load the camera from scratchpad 0x1F8000F8 and project
+  // through FUN_8003F7A0, which is an RTPS + store SXY2 — and native_boot re-asserts GTE CR24 = OFX =
+  // nw/2 every frame under widescreen. So a.x already lands where the character is in the WIDE frame.
+  // The queue's default is to centre a 4:3-authored layout, which would add the margin a second time
+  // and put the digits one margin (54 px at 16:9) to the right of Tomba — exactly what the user saw.
+  //
+  // This declaration stays correct when the tap becomes a real port: a native producer would read the
+  // player's world position and project it with the NATIVE camera, which is widened the same way, so
+  // its output is wide-final too. The space is a property of "anchored to something in the world",
+  // not of how the anchor is currently obtained.
+  RenderQueue::Space2dScope wideFinal(c->game->activeRq(), RQ_2D_WIDE_FINAL);
   for (int i : order) {
     const UiGroupArgs& a = mGroups[i];
-    cfg_logf("scorepopup", "%s bucket=%3u templ=%08X at (%d,%d) wh=(%d,%d) attr=%02X clutSemi=%04X",
-             a.sprite ? "SPR" : "FT4", a.otBucket, a.templPtr, a.x, a.y, a.wOv, a.hOv,
-             a.attrByte, a.clutSemi);
+    lucent::debug("scorepopup", "{} bucket={:3} templ={:08X} at ({},{}) wh=({},{}) attr={:02X} clutSemi={:04X}",
+                  a.sprite ? "SPR" : "FT4", a.otBucket, a.templPtr, a.x, a.y, a.wOv, a.hOv,
+                  a.attrByte, a.clutSemi);
     if (a.sprite) {
       rend(c)->emitUiSprites(a.x, a.y, a.templPtr, a.dataBase, a.attrByte, a.clutSemi, RQ_OVERLAY);
     } else {

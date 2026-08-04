@@ -4,7 +4,7 @@ title: Stunned monsters missing their spinning stars
 status: todo
 labels: [render, bug]
 created: 2026-07-23
-updated: 2026-07-23
+updated: 2026-08-05
 evidence: docs/reference/issues/issue55_stunned_stars_missing.png
 ---
 
@@ -19,3 +19,5 @@ REPRO: needs a stunned enemy. Stun comes from hitting a monster with the weapon 
 VERIFY the psx reference from a SECOND run with PSXPORT_RENDER_PSX=1 at the same frame index — never a bare mid-scene `renderpsx` toggle (kanban #41: it is honoured per scene entry and silently returns a pc frame).
 
 PORT IT, DO NOT TAP IT (USER directive): read the effect node's own state, project with projComposeCamera(sceneCam) so it lerps at fps60, emit drawWorldQuad with has_xyf=1. game/render/fx_sprite.cpp and fx_dust.cpp are the templates.
+
+**2026-08-05:** 2026-08-05: kanban #72 is the SAME bug, and #72's investigation root-caused the visible half. See #72 for the full measurement. Summary: the ring effect node IS spawned by FUN_8006BE88 but self-retires on its first tick because gen_func_8002B7B0 tests mem_r8(mem_r32(node+0x14)+0x1B)&0x40 and node+0x14 is never written by the spawn path. Hypothesis on this card ('almost certainly the FUN_80027A4C scaled-sprite family, may need only a dispatch entry') was CORRECT about the family — but the dispatch entry now exists (render_walk.cpp:661, landed f87b8fb 07-28) and was NOT sufficient.

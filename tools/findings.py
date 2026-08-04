@@ -129,8 +129,30 @@ def query(words):
         for title, snip in jhits:
             print(f"  journal ## {title}\n      {snip}")
     if not hits and not jhits:
-        print(f"[findings] no match for {words!r} in the registry OR the journal — likely NOT yet "
-              "investigated. Solve it, then add a block to docs/findings/<subsystem>.md.")
+        # A NEGATIVE MUST CARRY ITS DENOMINATOR. This used to print a bare "likely NOT yet
+        # investigated", which is indistinguishable from "I never looked" — and it was WRONG in
+        # practice: the AND over 3-5 words misses an entry that genuinely covers the symptom, so a
+        # session reads "not investigated" and re-derives a solved bug. (Real instances: `wall decor
+        # decal` and `score popup widescreen`, both of which have a matching finding.) So say how
+        # many findings were scanned, and how many each TERM matched on its own — a term with a high
+        # individual count and a zero AND is the signal to retry with fewer words.
+        corpus = list(all_findings())
+        per_term = []
+        for t in terms:
+            n = sum(1 for sub, title, f in corpus
+                    if t in " ".join([title] + list(f.values())).lower())
+            per_term.append((t, n))
+        print(f"[findings] 0 findings match ALL of {words!r}.")
+        print(f"           scanned {len(corpus)} registry findings + the journal + docs/re/.")
+        print("           per-term matches: " + ", ".join(f"{t}={n}" for t, n in per_term))
+        best = [t for t, n in per_term if n]
+        if best:
+            print(f"           {len(best)} of {len(terms)} terms DO match something — this is an "
+                  f"AND miss, not an absence. Retry with fewer words, e.g. "
+                  f"`findings.py {max(per_term, key=lambda tn: tn[1])[0]}`.")
+        else:
+            print("           NO term matches anything — likely genuinely uninvestigated. Solve it, "
+                  "then add a block to docs/findings/<subsystem>.md.")
 
 def main():
     os.makedirs(FDIR, exist_ok=True)

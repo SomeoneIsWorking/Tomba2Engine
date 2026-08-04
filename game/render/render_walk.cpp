@@ -268,6 +268,14 @@ void Render::backdropRender(uint32_t t4) {
   // clear, SOP fills). This is what lets Fps60::tier1Render's queue-lerp exclusion (fps60.cpp
   // isTier1Owned) target ONLY the prims it actually re-renders, same pattern as terrain/scene-table (#54).
   c->rsub.diag.beginObject(kBackdropDbgNode);
+  // These tiles are already WIDE-FINAL: every X below is built from cx = nw/2 (above), i.e. the same
+  // widened centre the world is projected with, so the queue's 4:3 centring must not touch them. This
+  // used to be expressed as an exemption inside the queue keyed on kBackdropDbgNode — but a debug
+  // node id is an IDENTITY, not a coordinate space, and using it as one meant every other producer
+  // with wide-final coordinates was silently centred a second time (kanban #73). The declaration
+  // belongs here, at the producer that knows.
+  RenderQueue& bgRq = c->game->rqRedirect ? *c->game->rqRedirect : c->game->rq;
+  RenderQueue::Space2dScope wideFinal(bgRq, RQ_2D_WIDE_FINAL);
   for (int t8 = scrollY - 120;;) {
     int Y = (int16_t)((t8 & 0xFFF0) + yoff);
     int t6 = (int16_t)t2;                          // row byte offset (sign-extended)
@@ -284,8 +292,7 @@ void Render::backdropRender(uint32_t t4) {
       // Tier-1 redirect (mirrors native_terrain.cpp / fieldEntityRender's fix — see fps60-rework.md
       // "Tier 1 extended"): route through rqRedirect so re-invoking this fn at present time (Fps60::
       // tier1Render) lands in the isolated mSink, never the live queue the next real frame will build.
-      (c->game->rqRedirect ? *c->game->rqRedirect : c->game->rq)
-          .push2dQuad(RQ_BACKGROUND, /*order_2d_fg=*/0, xs, ys, us, vs, col, col, col,
+      bgRq.push2dQuad(RQ_BACKGROUND, /*order_2d_fg=*/0, xs, ys, us, vs, col, col, col,
                              tp_x, tp_y, mode, /*raw=*/1, clut_x, clut_y, 0, 0, 0, 0, 0, 0, 1023, 511);
       c->rsub.stats.snCmds++;
       t0 += 2; if (t0 >= rowstride) t0 = 0;        // column wrap

@@ -4571,3 +4571,57 @@ Guest RAM (2 MB) and scratchpad are **byte-identical** to the pre-change binary 
 `PSXPORT_SBS_MODE=full` aborts in `Render::fieldObjectsRender` → `Core::mem_r8` → `io_read` on an
 out-of-range guest read. **The pre-change binary aborts at the identical site**, so SBS-full could not
 be used as the guest-write gate here; the 2 MB RAM + scratchpad A/B above was used instead.
+
+## [render] Widescreen: a 2D overlay anchored to a WORLD object is shifted one margin right (kanban #73, 2026-08-05, FIXED)
+
+  status  : FIXED — framework patch `coord/patches/widescreen-2d-layout.diff` (external/psxport
+            render_queue.{h,cpp} + gpu_vk.cpp), game side `game/render/score_popup.cpp` +
+            `game/render/render_walk.cpp`. Test: `external/psxport/tests/test_rq_widen_2d.cpp`.
+  symptom : the score-pickup point popup RENDERS but floats 54 px to the right of Tomba, only at
+            16:9. Fixed 4:3-authored HUD/menus were unaffected. NOT a 07-28..31 regression — both
+            halves of the mechanism predate that window.
+  cause   : TWO SCREEN SPACES WERE BEING TREATED AS ONE. `RenderQueue::emitOrQueue` centred every
+            non-depth prim by margin=(ww-native)/2 because it INFERRED that all 2D is authored in
+            4:3 layout space, carving out exactly one exemption keyed on a DEBUG NODE ID
+            (`currentNode() != kBackdropDbgNode`). But a debug node id is an IDENTITY, not a
+            coordinate space. Any producer whose x came out of a projection the framework had
+            ALREADY widened is in the wide frame already: `native_boot.cpp:80` re-asserts GTE
+            CR24 = OFX = nw/2 every frame under widescreen, so the guest's own RTPS output is
+            wide-final. ScorePopup replays exactly that (its anchor is `gen_func_8003F7A0` =
+            RTPS + store SXY2), so it got the margin TWICE.
+  measured: two headless instances, byte-identical world state (player block 0x800E7EA8 and the
+            full 3-head entity walk compared equal), popup raised via the game's own spawner
+            `call 80071B44 800EF478 64 0`.
+              pre-widen  x (`PSXPORT_DEBUG=scorepopup`)  4:3=125/117/109  16:9=179/171/163
+                -> delta +54 = exactly margin, i.e. the GUEST projection is already widened
+              post-widen x (`PSXPORT_DEBUG=preseqobj`, it->xs[0], what actually rasterizes)
+                BEFORE  4:3=117/109/105   16:9=225/217/213   delta 108 = 2 x margin
+                AFTER   4:3=117/109/105   16:9=171/163/159   delta  54 = 1 x margin
+  fix     : the queue stops guessing. `Rq2dSpace { RQ_2D_AUTHORED_4_3, RQ_2D_WIDE_FINAL }` is
+            DECLARED by the producer through `RenderQueue::Space2dScope` (RAII, restores the
+            previous value, per-RenderQueue so SBS cores cannot see each other's). The rule itself
+            is extracted to the pure `rq_2d_xform` and tested hermetically. The backdrop's dbg-node
+            exemption is DELETED and re-expressed as the same explicit scope — `kBackdropDbgNode`
+            keeps its real job (fps60 tier-1 ownership) and nothing else.
+  also    : `render_queue.cpp` hardcoded 320 in both the margin and the stretch — a FIFTH instance
+            of the "every PSX game is 320 wide" assumption that psxport a0b88136 / 94e52472 /
+            2c54ce71 / 6dda8528 each removed from one other site. No-op for Tomba, WRONG for Spyro
+            (512x240: centred by 182 instead of 86). Now takes `gpu_vk_native_w(Core*)`.
+  dead end: the four widescreen commits named on the card are all no-ops for a 320-wide game BY
+            CONSTRUCTION. Do not re-suspect them for a Tomba widescreen bug.
+  refs    : kanban #73; external/psxport/tests/test_rq_widen_2d.cpp; coord/claims/widescreen-2d-layout/
+
+## [instrument] The debug server's `ents` is BLIND to one of the three entity heads (2026-08-05)
+
+  status  : KNOWN DEFECT, not yet fixed — record before trusting any `ents`-derived count.
+  symptom : `ents` reported 0 type-0x20 effect nodes while 25 were live.
+  cause   : `ents` walks TWO list heads (its own help text says "both heads"). The render walk
+            (`game/render/render_walk.cpp:646`) walks THREE: 0x800FB168, 0x800F2624, 0x800F2738.
+            Effect nodes live on head[1] 0x800F2624, and the 27 type-0x20 nodes found by a manual
+            3-head walk were invisible to `ents`.
+  impact  : any "the effect was never spawned" conclusion drawn from `ents` is unsound. This nearly
+            mis-attributed kanban #72 — the ring-effect node IS spawned, `ents` just cannot see it.
+  workaround: walk the three heads directly with `rw <head> 1` then `rw <node>+0x24 1`, testing
+            `r <node>+0xB` for the type. Node +1 is the per-frame visibility marker the render walk
+            gates on FIRST, so a node can be present and still never reach any producer.
+  refs    : kanban #72

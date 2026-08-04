@@ -41,17 +41,17 @@ void VerifyHarness::skipCheck(uint32_t addr, void (*skipFn)(void*), void* skipCt
   // pre-state (guest + SPU RAM — the sample banks are part of the observable set)
   memcpy(mStrictPreRam, c->ram, 0x200000); memcpy(preSpad, c->scratch, 0x400);
   memcpy(preRegs, c->r, 32 * 4); preRegs[32] = c->hi; preRegs[33] = c->lo;
-  c->game->spu.bind(); SPU_PeekRAM(mSkipSpuPre);
+  c->game->spu.bind(c); SPU_PeekRAM(mSkipSpuPre);
   // leg 1: the SKIP shortcut
   skipFn(skipCtx);
   memcpy(mStrictNatRam, c->ram, 0x200000);
   uint8_t skipSpad[0x400]; memcpy(skipSpad, c->scratch, 0x400);
   uint32_t skipRegs[34]; memcpy(skipRegs, c->r, 32 * 4); skipRegs[32] = c->hi; skipRegs[33] = c->lo;
-  c->game->spu.bind(); SPU_PeekRAM(mSkipSpuA);
+  c->game->spu.bind(c); SPU_PeekRAM(mSkipSpuA);
   // rewind (guest + SPU)
   memcpy(c->ram, mStrictPreRam, 0x200000); memcpy(c->scratch, preSpad, 0x400);
   memcpy(c->r, preRegs, 32 * 4); c->hi = preRegs[32]; c->lo = preRegs[33];
-  c->game->spu.bind(); SPU_PokeRAM(mSkipSpuPre);
+  c->game->spu.bind(c); SPU_PokeRAM(mSkipSpuPre);
   // leg 2: the substrate ORACLE arc, inline+synchronous — in_stage=0 makes the scheduler yield
   // prims (FUN_80051F80/FB4, normally reached via the override registry's native dispatch — which
   // is SUPPRESSED here, so the SUBSTRATE prims run and funnel into scheduler_yield) no-ops; the
@@ -69,7 +69,7 @@ void VerifyHarness::skipCheck(uint32_t addr, void (*skipFn)(void*), void* skipCt
   inCheck = inCheck_save;
   inSubstrateLeg = false;
   c->game->pcSched.in_stage = in_stage_save;
-  c->game->spu.bind(); SPU_PeekRAM(mSkipSpuB);
+  c->game->spu.bind(c); SPU_PeekRAM(mSkipSpuB);
   // compare the OBSERVABLE positive list: oracle post-state (current) vs skip post-state
   int bad = 0;
   for (int i = 0; i < kNObsRegions; i++) {
@@ -108,7 +108,7 @@ void VerifyHarness::skipCheck(uint32_t addr, void (*skipFn)(void*), void* skipCt
   // match: continue from the SKIP result (the real pc_skip execution path)
   memcpy(c->ram, mStrictNatRam, 0x200000); memcpy(c->scratch, skipSpad, 0x400);
   memcpy(c->r, skipRegs, 32 * 4); c->hi = skipRegs[32]; c->lo = skipRegs[33];
-  c->game->spu.bind(); SPU_PokeRAM(mSkipSpuA);
+  c->game->spu.bind(c); SPU_PokeRAM(mSkipSpuA);
   inCheck = false;
   Check& k = check("skip-verify");
   if (++k.nMatch % 16 == 1) cfg_logi("skip-verify", "0x%08X OK (pass #%ld)", addr, k.nMatch);
