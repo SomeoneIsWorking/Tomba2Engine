@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (31)
+## TODO (30)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
@@ -36,13 +36,13 @@
 - **#70 DEMO transition: object cmd geomblk points at texture data, emitter submits ~125k garbage quads**  ``
 - **#72 Stars on stunned enemies no longer render**  `render`
 - **#73 Score-pickup point popups: anchoring to Tomba is wrong in widescreen**  `render,widescreen`
-- **#74 Interior wall decors missing (suspect depth / coincident-face ordering)**  `render`
 
-## DOING (4)
+## DOING (5)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
 - **#22 Health wheel is too transparent — reproduces on psx_render too, so the oracle is NOT the reference**  `render` — 📎 docs/reference/issues/issue22_health_wheel_reference.png,            docs/reference/issues/issue22_health_wheel_reference_dark.png
 - **#45 CAMPAIGN: render everything natively — retire the substrate-GTE projection producers to float-native**  `render,campaign`
 - **#47 pc_skip: entering 'House on the Point' corrupts state (music stops, camera unfollows, interior vibrates)**  `bug,pc-skip`
+- **#74 Interior wall decors missing (suspect depth / coincident-face ordering)**  `render` — 📎 docs/reference/issues/issue74_house_pc_render_decor_missing.png,    docs/reference/issues/issue74_house_psx_render_decor_present.png
 
 ## DONE (40)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
