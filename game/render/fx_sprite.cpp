@@ -437,8 +437,17 @@ void Render::fxSpriteEmit(uint32_t node, uint32_t rfn) {
       drawn++;
       pts.add("{}:({},{} sz={} sc={}) ", i, pv.px, pv.py, pv.sz, scale);
     }
-    lucent::debug("fxsprite", "ringrot node={:08X} drawn={}/{} height={} bias={} anchor=({},{},{}) {}",
-                  node, drawn, kRingPoints, height, bias,
+    // rec0 AND clutPage are on this line deliberately. `drawn=4/4` says the emit was CALLED four
+    // times; it says NOTHING about what those quads are textured with, and spriteRecordsEmit returns
+    // void so the count cannot distinguish "four visible quads" from "four quads drawn out of texture
+    // page 0 with CLUT 0" — which look identical in every number kanban #72 has collected so far.
+    // clutPage is node+0x44, and that slot is NOT among the writers the #72 RE enumerated for this
+    // spawn path (+0x18/+0x1C/+0x38 from FUN_80028E10, +0x2C/0x2E/0x30/0x32 from FUN_8003116C), so
+    // "nothing ever writes it" is a live hypothesis with a specific consequence: tpage=0, clut=0.
+    lucent::debug("fxsprite", "ringrot node={:08X} drawn={}/{} rec0={:08X} clutPage={:08X} "
+                              "(tpage={:04X} clut={:04X}) height={} bias={} anchor=({},{},{}) {}",
+                  node, drawn, kRingPoints, rec0, clutPage,
+                  (unsigned)(clutPage >> 16), (unsigned)(clutPage & 0xFFFFu), height, bias,
                   (int)Tobj[0], (int)Tobj[1], (int)Tobj[2], pts.view());
     return;
   }
