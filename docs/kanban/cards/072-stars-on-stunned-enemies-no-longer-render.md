@@ -24,3 +24,41 @@ INSTRUMENT EXTENDED (built, compiles): the `fxsprite` ringrot line now carries `
 (3) THE REPRO IN THIS CARD IS INCOMPLETE — stated with its denominator. A CLEAN full run of `PSXPORT_PAD_REPLAY=replays/bugs/walk-dust-puff.pad` (headless, `PSXPORT_NO_FMV=1`, ran to completion rc=0) produced **0 ringrot lines**: the ring node never spawned at all, so the producer never ran once. Whatever "run 560" meant in the previous entry (a REPL frame budget, a warp, a skip) is NOT recorded here and the replay alone does not reach a stunned enemy. Anyone continuing this card must first establish a reproduction that actually spawns the node — and the `fxsprite` line's ABSENCE is now a meaningful signal that it did not, which is the distinction the instrument was built to express.
 
 Also note for any headless probe here: this port's boot FMV is no longer auto-fast-forwarded headless (psxport removed that divergence deliberately — headless and windowed are one path). A probe must ask, with `PSXPORT_NO_FMV=1` or `PSXPORT_FMV_FPS=0`, or the watchdog aborts inside `Fmv::pace`.
+
+**2026-08-05 (later still):** THE WHOLE REPLAY LIBRARY WAS SWEPT — 0 of 17 spawn the node.
+
+Every `.pad` in `replays/` run headless to completion (`PSXPORT_NO_FMV=1`, `PSXPORT_DEBUG=fxsprite`,
+150 s cap each), counting `ringrot` lines:
+
+    0  boot-smoke/general-session      0  bugs/save-prompt-black-screen
+    0  boot-smoke/short-session        0  bugs/save-sign-softlock
+    0  boot-smoke/start-mash-smoke     0  bugs/seesaw-weight
+    0  bugs/bucket-softlock            0  bugs/sequence-softlock-2
+    0  bugs/dark-screen-repro          0  bugs/title-options-page
+    0  bugs/house-on-the-point         0  bugs/walk-dust-puff
+    0  bugs/ingame-item-menu           0  bugs/weapon-impact-bucket
+    0  bugs/ingame-options-page        0  scene-transitions/hut-entry-alt
+                                       0  scene-transitions/hut-entry-door-freeze
+
+**17 of 17 replays, 0 ringrot lines.** The producer never runs in ANY recorded scenario.
+
+WHAT THIS DOES TO THIS CARD'S CENTRAL CONCLUSION. The entry above reports "the FN_RINGROT producer
+runs 676 times and reports drawn=4/4 EVERY time" and attributes it to `walk-dust-puff.pad`. That
+replay produces ZERO ringrot lines on a clean run of the current build. So that measurement did not
+come from the replay alone — the only other spawn route this card documents is invoking
+`FUN_8006BE88` through the debug server, which is the very route an earlier entry recorded as
+"not excluded" and a later one declared "an ARTEFACT ... it was the cause".
+
+So "the producer emits four correct quads and they do not reach the picture" is **UNREPRODUCIBLE
+from anything written down**, and it is now the prime suspect for being an artefact of the same
+debug-server spawn: a node created outside the real hit path plausibly never gets `+0x44`
+(`clutPage`) written, which produces exactly `tpage=0 / clut=0` — four correctly-placed,
+correctly-sized, INVISIBLE quads. The two open threads on this card may be one thread.
+
+NEXT STEP, and it replaces the previous one: do NOT chase "why are the quads invisible" until the
+producer has been seen running from a REAL in-game stun. Record a new replay that actually stuns an
+enemy (`PSXPORT_PAD_RECORD=replays/bugs/stun-stars.pad ./run.sh`, hit a monster, stop). Then one run
+with `PSXPORT_DEBUG=fxsprite` answers both questions at once: whether the producer fires in real
+gameplay at all, and — from the `clutPage`/`tpage`/`clut` now on that line — whether it is textured.
+Either outcome is progress; today's state is that nobody has ever observed this layer from the real
+code path.
