@@ -395,9 +395,35 @@ void rec_dispatch(Core*, uint32_t);         // interpret/run a guest fn (unowned
 // (low16 tri, high16 quad), point past the 16-byte header to the record array, and run the two native
 // submitters in sequence (tri-submit returns the advanced record pointer = the quad array base).
 // g_dbg_cur_geomblk retired — per-Core Render::mDbgCurGeomblk
-// No real object's geometry block declares more polys than this; above it the pointer is not a
-// geometry block. Purely a DIAGNOSTIC threshold — nothing branches on it (see gt3gt4 below).
-static constexpr uint32_t kImplausiblePolyCount = 256u;
+
+// "IS cmd+0x40 REALLY POINTING AT A GEOMETRY BLOCK?" — answered STRUCTURALLY, not by a magnitude guess.
+//
+// This used to be `count > 256`, a number picked because real blocks looked smaller than it. It cried
+// wolf: node 800FD850's PERFECTLY LEGITIMATE 382-gt4 block tripped it 2428 times in one hut replay,
+// logging "not a geometry block" about real geometry (kanban #74). A diagnostic that fires on the
+// healthy case is worse than none — it sends the next reader down a false trail.
+//
+// The real question has an exact answer. The two submitters below walk the record array with a FIXED
+// stride (36 bytes per GT3, 44 per GT4, see their loops), so a declared count implies exactly where the
+// array ENDS. If that end runs past the top of guest RAM, the counts cannot describe an array that
+// exists — whatever cmd+0x40 points at, it is not a geometry block. No threshold, no tuning.
+//
+// SEPARATES BOTH MEASURED CLASSES, which is why it is trustworthy rather than merely stricter:
+//   real   — geomblk 8018A03C, gt3=154 gt4=382 -> ends 0x2257 bytes in, inside RAM.        PASSES
+//   garbage— geomblk 801E9AB4, gt3=63740 gt4=64760 (TEXTURE bytes read as counts, DEMO f1822)
+//            -> implies a 5.1 MB array in a 2 MB machine.                                  FLAGGED
+// Purely DIAGNOSTIC — nothing branches on it; submitPolyGt3/4Native run either way.
+static constexpr uint32_t kGuestRamEnd  = 0x80200000u;   // 2 MB main RAM
+static constexpr uint32_t kGt3RecBytes  = 36u;
+static constexpr uint32_t kGt4RecBytes  = 44u;
+static constexpr uint32_t kGeomHdrBytes = 16u;           // counts word + header, before the records
+
+static bool geomblkRecordsFitInRam(uint32_t geomblk, uint32_t gt3, uint32_t gt4) {
+  // 64-bit so the garbage case cannot wrap back into a plausible-looking address.
+  const uint64_t end = (uint64_t)geomblk + kGeomHdrBytes +
+                       (uint64_t)gt3 * kGt3RecBytes + (uint64_t)gt4 * kGt4RecBytes;
+  return end <= (uint64_t)kGuestRamEnd;
+}
 
 void Render::gt3gt4(uint32_t geomblk, uint32_t otbase) {   // used by render_walk.cpp
   Core* c = mCore;
@@ -413,9 +439,12 @@ void Render::gt3gt4(uint32_t geomblk, uint32_t otbase) {   // used by render_wal
   // guest emitter (ov_a00_gen_80146478) reads the SAME two 16-bit fields, so this is faithful, not a
   // port defect — the diagnostic exists so the next occurrence is visible instead of inferred.
   const uint32_t gt3_count = counts & 0xFFFFu, gt4_count = counts >> 16;
-  if (gt3_count > kImplausiblePolyCount || gt4_count > kImplausiblePolyCount)
-    lucent::debug("keyord", "gt3gt4 f{} node={:08X} geomblk={:08X} declares gt3={} gt4={} — not a geometry block",
-                  c->game->gpu.s_frame, c->rsub.diag.currentNode(), geomblk, gt3_count, gt4_count);
+  if (!geomblkRecordsFitInRam(geomblk, gt3_count, gt4_count))
+    lucent::debug("keyord",
+                  "gt3gt4 f{} node={:08X} geomblk={:08X} declares gt3={} gt4={} — NOT a geometry block: "
+                  "those counts imply {} record bytes from {:08X}, running past the top of guest RAM",
+                  c->game->gpu.s_frame, c->rsub.diag.currentNode(), geomblk, gt3_count, gt4_count,
+                  (uint64_t)gt3_count * kGt3RecBytes + (uint64_t)gt4_count * kGt4RecBytes, geomblk);
   c->r[4] = geomblk + 16; c->r[5] = otbase; c->r[6] = counts & 0xFFFFu;
   submitPolyGt3Native(c);
   c->r[4] = c->r[2];      c->r[5] = otbase; c->r[6] = counts >> 16;
