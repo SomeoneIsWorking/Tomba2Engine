@@ -111,7 +111,13 @@ static const GameConfig g_tomba_config = {
   .cdReadStock = 0u,
   .cdReadSync = 0u,
   .cdSearchFile = 0u,
-  .cdDmaDoneCbPtr = 0u,
+
+  // --- DMA completion callback table (libapi DMACallback) ---
+  // Zero: this game's DMACallback table has not been reverse-engineered, so NO channel completion is
+  // dispatched — the same behaviour as a guest that registered none, never a wrong one. Was the
+  // CD-only `cdDmaDoneCbPtr` until psxport 3f6a1e14 widened it to every channel; the value was 0 then
+  // and is 0 now, so nothing about this port's dispatch changes.
+  .dmaCallbackTable = 0u,
 
   // --- pad driver (pad_input.cpp) ---
   .padSlot0Buf = 0x800bf4f8u,
@@ -150,6 +156,12 @@ static const GameConfig g_tomba_config = {
     .gpuTimeoutDeadlineVar = 0x800A5ADCu,
     .gpuTimeoutFlagVar = 0x800A5AE0u,
     .changeThread = 0x80080880u,   // ChangeThread — the universal yield/task-end primitive
+    // libgte SetGeomOffset / SetGeomScreen — the camera projection, recorded where the game STATES it
+    // rather than read back out of the GTE at draw time (see proj_params.h). Both RE'd and 0-diff
+    // (engine-ownership audit rows 40-41): OFX 160 / OFY 120, H 350 — with H re-stated per area by
+    // Pool::finalViewInit at that area's own draw range.
+    .setGeomOffset = 0x800846D0u,
+    .setGeomScreen = 0x800846F0u,
     // VSync TRAP: correct FOR THIS PORT, whose PC-native frame loop owns all timing, so nothing may
     // reach libetc VSync in any mode. A port still running the guest's own loop on the substrate
     // would leave this zero and register a faithful VSync instead.

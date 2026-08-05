@@ -1,6 +1,6 @@
 # 075 — the native camera reads its projection constants back out of the GTE
 
-status: open
+status: done
 created: 2026-08-05
 tags: render, camera, gte, user-rule, debt
 where: `game/render/scene_build.cpp` `NativeScenePass::collect()`
@@ -67,3 +67,53 @@ Found and scoped 2026-08-05 while closing the audio and A/V-sync work in the sib
 started: doing it properly means standing up two overrides in this repo and verifying against a real
 run, and it was not safe to begin an edit here that could not be built and verified in the same
 session. Everything needed to execute it is above — no re-derivation required.
+
+## DONE 2026-08-05 — and three things this card had wrong
+
+Landed as psxport `5f3d7bf7` + the game-side commit that bumps to it. The fix is what section "The
+fix" describes, at a different ALTITUDE and in a different REPO. What the card got wrong, recorded
+because each one would have sent the next session down a narrower path than the real one:
+
+1. **`scene_build.cpp` was not the reader that mattered.** The camera path's real choke is
+   `Fps60::sceneCam` — in **psxport**, not this repo — and EVERY native producer inherits it
+   (projection.cpp, native_terrain.cpp, cube_text_banner.cpp, submit.cpp). `scene_build.cpp` was a
+   second, duplicating reader. Fixing only the three lines this card names would have left the
+   framework-level GTE read serving the whole rest of the render path: a cosmetic fix.
+
+2. **`ov_set_geom_offset` / `ov_set_geom_screen` were not "overrides that need standing back up".**
+   The setters had been ported INTO `Engine::initDisplay` (`game/scene/startup.cpp`), which writes
+   CR24/25/26 inline. The audit rows describe a shape that no longer exists. Overrides were still
+   needed, but for a different reason than the card gives — see 3.
+
+3. **There were THREE writers of the projection, not two.** Besides `Engine::initDisplay` and
+   `Pool::finalViewInit`, the substrate calls the setters directly (`func_800846D0` in shard_3/
+   shard_7, `func_800846F0` in shard_0/shard_3/shard_5), AND `native_step_frame` re-asserts CR24
+   every frame under widescreen because the window is created lazily. Capturing only at the two
+   named callers would have left the GTE moving without the port's copy — the exact desync the
+   change removes. All three now go through the one implementation.
+
+**It is framework code, not game code.** Both leaves are pure libgte (`CR24 = ofx<<16; CR25 =
+ofy<<16` and `CR26 = h`), identical in every game that links libgte, and their consumer (ProjParams,
+Fps60::sceneCam) was already framework. So the behaviour lives in psxport and only the ADDRESS is
+per-game (`GameConfig::hle.setGeomOffset/.setGeomScreen`), registered by PlatformHle — which is
+correct here precisely because these touch NO guest RAM, so firing on the SBS oracle leg too is fine.
+A first attempt put a `LibgteGeom` class in `game/render/`, following the convention of
+`libgpu_draw_env.cpp` / `mtx.cpp`; the USER challenged it and the convention did not survive
+scrutiny.
+
+**Acceptance gate, met as stated:** three VK-headless shots at fixed REPL frames are BIT-IDENTICAL to
+the pre-change baseline (`cmp`). That is the right answer, not a null result — 160/120/350 are the
+audited values, so a correct capture reproduces the image exactly and a DIFFERENT image would have
+meant the capture was wrong. `grep -rn 'gte_read_ctrl(2[456])' game/` is now zero live hits (one
+comment in `submit.cpp` explaining why not to do it). Framework ctest 14/14.
+
+**What makes "identical" evidence rather than coincidence:** `requireGeom` ABORTS on an unset
+projection instead of falling back. Had the capture not happened, the run would have died with a
+backtrace rather than rendering. Measured alongside: `PSXPORT_DEBUG=ovhit` showed the screen setter
+reached 3x through dispatch before the move to PlatformHle, so the substrate-caller path is live and
+not theoretical.
+
+**Deliberately NOT done:** `proj_native_xform` / `proj_native_vertex` (gte_beetle.cpp) still read
+CR24/25/26, and that is correct — they are native reimplementations of the GTE's own RTPS/RTPT
+instruction, so the control registers ARE their input. The ban is on the CAMERA recovering a
+projection it was handed, not on the GTE emulation reading the GTE.

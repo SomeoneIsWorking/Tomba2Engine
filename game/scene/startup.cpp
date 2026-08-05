@@ -17,6 +17,8 @@
 #include "engine.h"
 #include "game_ctx.h"
 #include "core.h"
+#include "proj_params.h"   // libgte_set_geom_offset / _screen — SetGeomOffset / SetGeomScreen
+#include "gpu_vk.h"        // gpu_vk_wide_engine / _ofx — the widescreen projection centre
 #include <stdint.h>
 
 void rec_dispatch(Core*, uint32_t);   // run a guest fn (for the few sub-bits not yet PC-native)
@@ -71,6 +73,13 @@ void Engine::initFrameState() {
 // (FUN_80085810) that our always-on native GTE does not need, so it reduces to the CR writes here.
 // FUN_80050738 (the PSX double-buffer draw/disp env structs) is still dispatched — those structs are read
 // by native_step_frame's PutDrawEnv/PutDispEnv; a PC-native single display env is the next display step.
+
+// The stock 4:3 projection, as the game states it: screen centre 160,120 and a projection plane 350
+// units out. Named rather than repeated as literals — initCamera below derives from the same H.
+static constexpr int kScreenCentreX    = 160;
+static constexpr int kScreenCentreY    = 120;
+static constexpr int kProjectionPlaneH = 350;
+
 void Engine::initDisplay() {
   Core* c = this->core;
   c->mem_w16(0x800E7E70, 0);     // DAT_800e7e70
@@ -83,18 +92,21 @@ void Engine::initDisplay() {
   gte_write_ctrl(28, 0x01400000);       // DQB
   gte_write_ctrl(24, 0);                // OFX
   gte_write_ctrl(25, 0);                // OFY
-  // SetGeomOffset(160,120) (FUN_800846d0): screen-center projection offset, (x,y) << 16.
-  // Widescreen: shift the projection center to the aspect center (nw/2 = 214@16:9 / 280@21:9) so the
-  // GUEST GTE itself projects the wider FOV — the guest OT packets AND every native re-projection then
-  // agree on one center (avoids the ~54px double-image when only the native pass is widened). Off at 4:3 /
-  // oracle (gpu_vk_wide_engine()==0), so the substrate/SBS reference keeps the stock 160.
-  { int gpu_vk_wide_engine(Core*), gpu_vk_wide_engine_ofx(Core*);
-    int ofx = gpu_vk_wide_engine(c) ? gpu_vk_wide_engine_ofx(c) : 160;
-    gte_write_ctrl(24, (uint32_t)ofx << 16); }
-  gte_write_ctrl(25, (uint32_t)120 << 16);
-  c->mem_w16(0x801003F8, 350);          // DAT_801003f8 = projection plane H (initCamera reads this)
-  // SetGeomScreen(350) (FUN_800846f0): projection plane distance H.
-  gte_write_ctrl(26, 350);
+
+  // SetGeomOffset (FUN_800846d0) / SetGeomScreen (FUN_800846f0), through the framework leaves that own
+  // them. Going through those — rather than writing CR24/25/26 here — is what keeps the GTE and the
+  // NATIVE CAMERA's copy of the projection in step: the render path reads that copy
+  // (ProjParams::requireGeom) instead of reading the control registers back out of the GTE.
+  //
+  // Widescreen shifts the projection centre to the aspect centre (nw/2 = 214@16:9, 280@21:9) so the
+  // GUEST GTE itself projects the wider FOV — the guest OT packets and every native re-projection then
+  // agree on one centre, which is what avoids the ~54px double-image when only the native pass is
+  // widened. Off at 4:3 and on the oracle, so the substrate/SBS reference keeps the stock 160.
+  const int centreX = gpu_vk_wide_engine(c) ? gpu_vk_wide_engine_ofx(c) : kScreenCentreX;
+  libgte_set_geom_offset(c, centreX, kScreenCentreY);
+
+  c->mem_w16(0x801003F8, kProjectionPlaneH);   // DAT_801003f8 — initCamera reads H back from here
+  libgte_set_geom_screen(c, kProjectionPlaneH);
   rec_dispatch(c, 0x80050738u);         // FUN_80050738: draw/disp env structs (still PSX; native next)
 }
 

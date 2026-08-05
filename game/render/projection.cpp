@@ -22,11 +22,6 @@
 #include "cfg.h"
 #include <stdio.h>
 
-// camera projection constants (screen center OFX/OFY, projection-plane H) — frame-constant, set by the
-// engine's projection setup. Read from the GTE control regs (CR24-26): these are the camera's projection,
-// not a per-object PSX compute. (A future engine-owned camera can supply them directly.)
-uint32_t gte_read_ctrl(uint32_t reg);
-
 #define SCR 0x1F800000u
 
 static inline int16_t r16(Core* c, uint32_t a) { return c->mem_r16s(a); }
@@ -34,11 +29,11 @@ static inline int16_t r16(Core* c, uint32_t a) { return c->mem_r16s(a); }
 // Shared camera-compose core: R = (Rcam · Robj) / 4096, T = (Rcam · Tobj) / 4096 + Tcam, plus the
 // camera's projection constants. Robj/Tobj are already-float object rotation/translation — either read
 // from cmd+0x18/0x2C (projComposeObject) or host-computed by a caller whose object is stale in guest RAM
-// (projComposeObjectHost). Camera state (Rcam/Tcam/ofx/ofy/H) is always read from scratchpad/GTE ctrl —
-// the camera itself is never stale.
+// (projComposeObjectHost). Camera state (Rcam/Tcam/ofx/ofy/H) is always read live — the camera itself
+// is never stale.
 static void projComposeCore(Core* c, const float Robj[3][3], const float Tobj[3], EObjXform* out) {
-  // Scene camera (Rcam int16 rows, Tcam raw view units, OFX/OFY/H): a plain read of the scratchpad view
-  // matrix + CR24-26 through the shared Fps60::sceneCam choke (see fps60.cpp).
+  // Scene camera (Rcam int16 rows, Tcam raw view units, OFX/OFY/H): the scratchpad view matrix plus the
+  // projection constants the GAME SET, both through the shared Fps60::sceneCam choke (see fps60.cpp).
   float Rcam[3][3], Tcam[3], ofx, ofy, H;
   c->game->fps60.sceneCam(c, Rcam, Tcam, ofx, ofy, H);
 

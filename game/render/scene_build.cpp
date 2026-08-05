@@ -21,14 +21,10 @@
 #include "cfg.h"
 #include "render_native.h"
 #include "scene_data.h"
+#include "proj_params.h"   // ProjParams::requireGeom — the camera projection, as the GAME set it
 #include <stdint.h>
 #include <stdio.h>
 #include <math.h>
-
-// CR24/25/26 (projection center + H). These are the camera projection the engine configured (libgte
-// SetGeomOffset/SetGeomScreen, owned in game_tomba2.cpp). A future engine-owned camera supplies them
-// directly; for now we read them like the rest of the native projection path (projection.cpp).
-uint32_t gte_read_ctrl(uint32_t reg);
 
 #define SCR 0x1F800000u
 
@@ -71,9 +67,12 @@ int NativeScenePass::collect() {
 
   float Rcam[3][3], Tcam[3];
   read_camera(c, Rcam, Tcam);
-  out->cam.ofx = (float)(int32_t)gte_read_ctrl(24) / 65536.0f;   // CR24 already carries the widescreen center
-  out->cam.ofy = (float)(int32_t)gte_read_ctrl(25) / 65536.0f;
-  out->cam.H   = (float)(uint16_t)gte_read_ctrl(26);
+  // Projection constants: the values the ENGINE SET (Engine::initDisplay / Pool::finalViewInit record
+  // them into ProjParams as they call SetGeomOffset / SetGeomScreen), never a read-back of CR24/25/26.
+  // The widescreen center is already applied at that source, so this is the one center the guest GTE
+  // and every native re-projection agree on. requireGeom is fatal if the game never set a projection —
+  // no fallback, because a fallback would paint a plausible picture over an RE gap.
+  c->rsub.projParams.requireGeom("scene_build", out->cam.ofx, out->cam.ofy, out->cam.H);
 
   int dbg = cfg_dbg("rendernative");
   static const uint32_t HEADS[3] = { 0x800FB168u, 0x800F2624u, 0x800F2738u };
