@@ -28,11 +28,11 @@
 //
 //  2. WHAT EACH CALLER DOES NEXT. Ghidra headless on those four (scratch/decomp/xform_callers.c)
 //     shows three of them calling this leaf and then IMMEDIATELY calling FUN_80027768 — the shared
-//     effect-mesh record writer already owned as FxMesh::draw (game/render/fx_mesh.cpp:165). Three
-//     of the four are exactly the A00-overlay mesh controllers fx_mesh.cpp already enumerates
-//     (ov_a00_gen_8013D454 / _8013ED08 / _8013EF58), and that file's own banner says of them: "Each
-//     composes the node's transform into GTE CR0-7 itself and then calls the shared writer
-//     FUN_80027768". THIS is the leaf that does that composing. The fourth caller, FUN_8013CDD4, is
+//     effect-mesh record writer, which has no native producer (portmap
+//     render-producer-effect-mesh). Three of the four are the A00-overlay mesh controllers
+//     ov_a00_gen_8013D454 / _8013ED08 / _8013EF58: each composes the node's transform into GTE
+//     CR0-7 itself and then calls the shared writer FUN_80027768, and THIS is the leaf that does
+//     that composing — i.e. the RE entry point for a real producer. The fourth caller, FUN_8013CDD4, is
 //     already ported (game/render/widescreen_margin_quad.cpp) and calls this leaf through
 //     guest_fn() before its own RTPT run — its comment at :154 guessed the behaviour correctly from
 //     the scratchpad addresses alone; this port replaces the guess with the body.

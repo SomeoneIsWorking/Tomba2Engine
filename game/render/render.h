@@ -459,6 +459,18 @@ public:
   // (docs/fps60-rework.md step 2b). Pure reads + queue emits, no state mutation.
   void fieldObjectsRender();
 
+  // ---- kanban #72 / #55 instrument: RING-NODE (stunned-enemy stars) CENSUS -----------------------
+  // Answers "why are the stars absent" in ANY run, including one where they never appear. It runs
+  // BEFORE fieldObjectsRender's `node+1 == 0` visibility skip, because the ring node is INVISIBLE and
+  // is therefore structurally unreachable by `nofx` (which sits behind that skip and so can only ever
+  // report nodes that are already being drawn — a blind spot, since the whole symptom is invisibility).
+  // Emits ONE line per frame carrying its DENOMINATOR (nodes walked across all 3 heads, type-0x20
+  // count) so "no ring nodes" is distinguishable from "the walk never ran". For each ring node it
+  // prints the owner pointer node+0x14 and the two bytes the behaviour 0x8002B7B0 derives from it —
+  // the retire gate *(owner+0x1B)&0x40 and the visibility source *(owner+1) — which is exactly the
+  // state that decides whether the stars live or self-retire on their first tick.
+  void ringNodeCensus();
+
   // ---- BILLBOARD display-pass producer (#67 RE work — REDIRECT doctrine, USER: both frame kinds
   // derive from game state) ---------------------------------------------------------------------
   // The billboardEmit particle system (perobj_billboard.cpp — AP gems / flames / apples / splash /
@@ -474,10 +486,21 @@ public:
   struct BbRec {
     uint32_t node, particle;              // identity (node = dbg_node; particle addr = stable key)
     int16_t  cx[4], cy[4];                // local corner ints (already ×5; z=0 in local space)
-    int16_t  rotR[3][3];                  // live CR0-4 rotation at emit, 4.12 fixed (row-major)
-    float    wx, wy, wz;                  // world anchor, factored from live CR5-7 (camᵀ·(tr−camT))
+    float    rotR[3][3];                  // the NODE's own object rotation, rebuilt in float from the
+                                          // node's euler/scale fields (BbObjectRot) — unit scale, no
+                                          // camera in it and no GTE register read.
+    float    wx, wy, wz;                  // world anchor = the node's own (s16 +46, +50, +54)
     uint32_t wColor, wUv0, wUv1, wUv2, wUv3;   // resolved record words BUF+4/+12/+20/+28/+36
   };
+
+  // The object rotation the ACTIVE billboard compose variant owns, published by that compose method
+  // before it hands off to billboardEmit and consumed by billboardEmit's record capture. It is a
+  // recomputation from the node's own fields, never a read-back of what the substrate composed —
+  // see the BbObjectRot banner in perobj_billboard.cpp. `mBbRotValid` is false outside a compose,
+  // and billboardEmit records nothing then, so a future 5th compose sibling that forgets to publish
+  // drops its particles instead of silently inheriting the previous node's rotation.
+  float mBbRot[3][3] = {{1,0,0},{0,1,0},{0,0,1}};
+  bool  mBbRotValid  = false;
   std::vector<BbRec> mBbRecs;             // this logic frame's records, guest-walk emit order
   // (No BbRec prev buffer: effect particles have no stable cross-frame identity — the sub-lists
   // reuse/walk particle addresses — so they never lerp; they draw at their own frame's state under

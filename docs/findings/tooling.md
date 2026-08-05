@@ -790,3 +790,56 @@ remove it, or the repo accumulates dead duplicates of every handler.
 - **workaround until then:** put the whole default arm on one line and note why.
 - **related, already recorded:** the gate cannot SEE a switch-default rec_dispatch at all when it is
   skipped, so deleting the arm entirely also passes. Two different failure modes on the same construct.
+
+## codemap `--addr` answered "NO native owner found" for 26 addresses that HAD a live override
+- **symptom:** `tools/codemap.py --addr <hex>` reported no owner for 26 guest addresses with a
+  shipping `overrides::install` / `engine_set_override_*` wiring. CLAUDE.md sends every agent to
+  that command BEFORE reimplementing a `FUN_xxxx`, so the false negative reads as "free to port"
+  and directly causes duplicated work. Clusters: `game/render/fx_mesh.cpp` (11), `game/ui/
+  options_page.cpp` (5), `game/object/cube_text_ledger.cpp` (2), `game/player/actor_tomba.cpp` (2),
+  `game/math/gte_math.cpp` (1), `game/ui/panel.cpp` (1), plus `0x8009A420` installed from
+  `external/psxport/runtime/recomp/mem.cpp`. Separately `game/render/mesh_emit_tap.cpp` — the SINGLE
+  installer of `0x80027768` — appeared 0 times in `docs/code-map.md`, and `--addr 80027768` named
+  only its two CONSUMERS, sending a debugging session to the wrong two files.
+- **status:** FIXED 2026-08-05 (tools/codemap.py). `--selftest`, wired into
+  `tools/precommit_gate.sh`, now asserts one case per ownership shape plus negative controls, and
+  asserts that ZERO installed addresses fail to resolve (490/490 resolve today).
+- **cause:** the scanner indexed only by native DEFINITION — a name carrying the address
+  (`ov_<hex>`), an adjacent/def-line/file-header comment tag, a header declaration tag, or the
+  quoted name of an `overrides::install`. The dominant real-world shape has none of those: the
+  handler is a file-local static in an ANONYMOUS NAMESPACE (`armTap_8002BC9C`, `panelBuildTap`,
+  `meshEmitTap`), or a MACRO-GENERATED symbol with no textual definition at all
+  (`FX_A00_CONTROLLER_SCOPE(8013ED08)`), or a TEMPLATE instantiation (`pageScope<gen_func_8007F104>`).
+  The install call site was the only record of ownership and was not indexed. `mesh_emit_tap.cpp`
+  additionally missed the file-header fallback because its banner says "the SINGLE **owner of**
+  guest FUN_80027768" while `FILE_HEADER_ADDR_RE` matches only "**ownership of** FUN_xxxx".
+- **fix:** index by INSTALL SITE as a first-class ownership source (`load_install_sites` +
+  `synth_install_owners`), over a corpus that includes `external/psxport/runtime/` so a framework
+  install is visible. The install file is reported as the answer to "where do I debug this from".
+- **also fixed in the same pass:** `--substrate-fallthrough` reported 268 addresses as falling
+  through to the emulated substrate; 182 of those were false — `load_registered_addrs` only matched
+  `<x>set_override(0xADDR, …)` and could not see `overrides::install(0xADDR, …)` (where the setter
+  is an ARGUMENT, not the callee) nor anything installed from the submodule. Now 86.
+- **dead end recorded:** do NOT special-case the file header wording for `mesh_emit_tap.cpp`. The
+  address had a live install; the install site is the general answer and fixes the whole family.
+
+## `0x80078240` has two native implementations in two files — only one is installed
+- **symptom:** `Trig::vecLen` (`game/math/trig.cpp:91`) and `Math::approxDist3`
+  (`game/math/gte_math.cpp`, installed at :787 via `eov_approxDist3`) are two independent
+  reimplementations of guest `FUN_80078240`. No signal surfaced it: `--dup-installs` is correctly 0
+  (only gte_math.cpp installs) and `--conflicts` never saw trig.cpp's twin because the install
+  carries the address under a quoted registry name, not a def tag.
+- **status:** SIGNAL ADDED 2026-08-05 (`codemap.py --uninstalled-claims`, and a
+  ⚠ CLAIM-WITHOUT-INSTALL line in `--addr`). The SOURCE duplication is NOT fixed — see below.
+- **cause:** two ports of one leaf landed independently: gte_math.cpp's as a guest-ABI override
+  (`eov_approxDist3` -> `eng_approxDist3`), trig.cpp's as a host-ABI static called directly from
+  `game/render/fx_sprite.cpp:825`. Both bodies are line-for-line the same algorithm (abs, bubble the
+  largest component into x with the guest's two compares, `x - (x>>4) + ((y+z)>>2) + ((y+z)>>3)`).
+- **NEITHER IS DEAD CODE** — checked, not assumed. `Math::approxDist3` is what a guest call reaches;
+  `Trig::vecLen` has one live C++ caller. So this is a duplicate, not an orphan.
+- **the real fix (NOT done — needs an edit under `game/`):** delete `Trig::vecLen` + its declaration
+  in `game/math/trig.h:49`, and point `fx_sprite.cpp:825` at `eng_approxDist3`. One guest function,
+  one native body.
+- **the other three rows `--uninstalled-claims` reports today** (`0x80044BD4` Demo::s0PreYield vs
+  pc_scheduler's eov_spawnwait, `0x8007E1B8`, `0x8007E6DC`) are unexamined — triage each with
+  `--addr` before deleting anything.

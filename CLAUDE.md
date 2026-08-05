@@ -81,10 +81,14 @@ workflow defects. Stop and fix them, then resume.
 - **Live bug list** — `tools/kanban.py` (skill `bug-tracker`) is a LOCAL in-repo kanban (`docs/kanban/`
   cards; columns backlog|todo|doing|done). Add a card when the USER reports a symptom; `move <id> doing`
   when chasing; promote to findings + `move <id> done` on confirm. Evidence images in `docs/reference/issues/`.
-- **CHECK before reimplementing any `FUN_xxxx`:** `tools/codemap.py --addr <hex>` — ~350 natives indexed
-  by guest address (`docs/code-map.md`; warns ⚠ DUAL-OWNERSHIP if already owned in another file).
-  Regenerate on add/move. `tools/codemap.py --conflicts` lists every duplicate-owned address — a native
-  RE'ing a `FUN_xxxx` some other subsystem already owns (how FUN_80040B48/80040CDC got duplicated).
+- **CHECK before reimplementing any `FUN_xxxx`:** `tools/codemap.py --addr <hex>` — every native indexed
+  by guest address AND by override INSTALL SITE (`docs/code-map.md` carries the live counts; warns
+  ⚠ DUAL-OWNERSHIP if already owned in another file, ⚠ CLAIM-WITHOUT-INSTALL when two files claim one
+  address and only one installs, and ⛔ DELIBERATELY ABSENT when `docs/port-map.md` says the layer was
+  removed on purpose). Regenerate on add/move. `tools/codemap.py --conflicts` lists every duplicate-owned
+  address — a native RE'ing a `FUN_xxxx` some other subsystem already owns (how FUN_80040B48/80040CDC
+  got duplicated). `--selftest` (wired into `tools/precommit_gate.sh`) proves the index still answers
+  positively for every ownership shape it claims to cover.
 - **The TRACKING STACK — four orthogonal maps, one question each (consult at task start, update in the
   SAME commit as the work):**
   - **codemap** (`tools/codemap.py` → `docs/code-map.md`) — WHERE is it: guest addr → native owner,

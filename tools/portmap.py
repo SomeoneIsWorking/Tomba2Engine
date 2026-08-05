@@ -41,7 +41,13 @@ import os, re, sys, argparse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DOC = os.path.join(ROOT, "docs", "port-map.md")
-FIELDS = ("scope", "status", "order", "deps", "owner", "notes")
+# `absent` is optional and read by tools/codemap.py: it marks a step whose LAYER IS DELIBERATELY
+# GONE (its producer was deleted by decision — usually PROTOCOL.md's absolute no-tap rule), so the
+# codemap can report it AS deliberately absent instead of letting it look unported. Without it a
+# removed layer is indistinguishable from a port target and the codemap invites someone to rebuild
+# it, quite possibly by re-adding the banned tap. One line: WHAT is absent and by WHOSE decision.
+# It is never inferred from `notes` — an unmarked step is simply not claimed to be absent.
+FIELDS = ("scope", "status", "order", "deps", "owner", "absent", "notes")
 STATUSES = ("verified", "ported-unverified", "hack", "todo", "blocked")
 HEADER = "# RE + port frontier — is each step REAL (re-verified) or a HACK? (managed by tools/portmap.py)\n"
 

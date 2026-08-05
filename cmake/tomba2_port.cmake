@@ -206,7 +206,6 @@ set(GAME_SRC
   game/render/render_frame.cpp
   game/render/cine_bars.cpp
   game/render/narration_swirl.cpp
-  game/render/swing_fx.cpp
   game/render/render_walk.cpp
   game/render/ui_ft4_layout.cpp
   game/render/render_hut_interior.cpp   # pc_render producer: hut/door authored sub-scene (objects-only)
@@ -257,8 +256,6 @@ set(GAME_SRC
   game/render/fx_dust.cpp
   game/render/mesh_quads.cpp
   game/render/effect_lerp.cpp
-  game/render/fx_mesh.cpp
-  game/render/mesh_emit_tap.cpp
   game/render/field_hud.cpp
   game/render/minimap.cpp
   game/render/ui_group_args.cpp

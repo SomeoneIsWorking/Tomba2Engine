@@ -30,11 +30,9 @@
 #include "ui/pause_menu.h" // PauseMenu::install — FUN_800346BC/8007E1B8 in-game menu chrome producer
 #include "ui/start_page.h" // StartPage::install — FUN_8007EAE4 in-game START page chrome producer
 #include "ui/options_page.h" // OptionsPage::install — the five OPTIONS page builders + their backdrop
-#include "render/swing_fx.h" // SwingFx::install — FUN_8002A834 weapon-charge starburst producer (#14)
 #include "ui/pause_menu.h" // PauseMenu::install — FUN_800346BC in-game menu chrome producer
 #include "render/score_popup.h" // ScorePopup::install — FUN_80072520 AP-gem popup producer (#18)
 #include "render/ui_ft4_tap.h"  // UiFt4Tap::install  — FUN_8007E1B8 shared FT4 leaf, one owner
-#include "render/fx_mesh.h" // FxMesh::install — FUN_800288AC effect-mesh producer (#15)
 #include "collision.h"  // PC-native collision-grid subsystem
 #include "entity.h"     // PC-native per-object entity state-machine subsystem
 #include "script_vm.h"     // PC-native per-object script-VM subsystem
@@ -227,15 +225,11 @@ void games_tomba2_init(void) {
   PauseMenu::install();           // FUN_800346BC/8007E1B8 in-game pause/item menu chrome (#21)
   StartPage::install();           // FUN_8007EAE4 in-game START page chrome (#35)
   OptionsPage::install();         // FUN_8007F104..F8F8 page scopes + FUN_8007FC24 backdrop (#38)
-  SwingFx::install();             // FUN_8002A834 charge-effect scope (#14)
   PauseMenu::install();           // FUN_800346BC in-game pause/item menu chrome scope (#21)
   ScorePopup::install();          // FUN_80072520 score/AP-gem pickup popup scope (#18)
   UiFt4Tap::install();            // FUN_8007E1B8 shared FT4 group leaf — ONE owner, fans out to both
   // FUN_80027A4C scaled-sprite family (#12/#23) is now a NATIVE PRODUCER (Render::fxSpriteRender,
   // dispatched from the type-0x20 render walk) — no leaf tap; 0x80027A4C runs its plain gen body.
-  FxMesh::install();              // FUN_800288AC effect-mesh controller scope (#15)
-  { extern void mesh_emit_tap_install(); mesh_emit_tap_install(); }  // FUN_80027768 — SINGLE owner of the
-                                  // shared mesh writer, dispatching to whichever of the two scopes is up
   void pad_edge_fence_install();
   pad_edge_fence_install();       // FUN_800788AC per-frame input-edge fence (banked draft, §9-verified)
   void guest_memset_install();

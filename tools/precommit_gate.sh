@@ -17,6 +17,13 @@
 #   2. codemap.py --dup-installs    — two files installing an override on ONE
 #      guest address. The runtime guard aborts on this at boot; catching it here
 #      turns a runtime abort into a commit-time message.
+#   3. codemap.py --selftest        — the codemap can still answer POSITIVELY for
+#      every ownership shape it claims to cover. CLAUDE.md sends every agent to
+#      `--addr <hex>` BEFORE reimplementing a FUN_xxxx, so a scanner that quietly
+#      stops seeing a shape does not fail loudly — it answers "NO native owner
+#      found" and causes a duplicated port. 26 addresses were in exactly that
+#      state on 2026-08-05. A self-test nobody runs is the same bug one level up,
+#      so it runs here.
 #
 # Both are fast (seconds). Skip deliberately with `git commit --no-verify` when
 # you know better — but say why in the commit message.
@@ -55,6 +62,15 @@ if [ -f tools/codemap.py ]; then
                  bad "two files installing one guest address — the runtime guard aborts on this. Give the address ONE owner."
                  fail=1 ;;
   esac
+
+  if out="$(python3 tools/codemap.py --selftest 2>&1)"; then
+    say "codemap selftest: $(printf '%s\n' "$out" | tail -1)"
+  else
+    bad "codemap SELFTEST FAILED — the index has stopped resolving an ownership shape it claims to cover:"
+    printf '%s\n' "$out" | grep -E '^(FAIL|  \[FAIL)' | sed 's/^/  /'
+    bad "every agent runs 'codemap.py --addr <hex>' before porting a FUN_xxxx; a silent miss there causes a duplicated port."
+    fail=1
+  fi
 fi
 
 exit "$fail"

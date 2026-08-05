@@ -24,6 +24,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <string_view>
+#include <lucent/log.h>   // `ringcensus` diagnostic channel (kanban #72)
 
 void rec_dispatch(Core*, uint32_t);
 void rec_super_call(Core*, uint32_t);
@@ -641,9 +643,55 @@ void Render::sceneNative() { Core* c = mCore;
 // latch / per-frame-state mutation (those stay in sceneNative), so re-running it is safe under the
 // present-time invariant. (d) Tomba: the player is not in the 3 entity lists (per-area callback tick);
 // flushed the same generic way — this was the "Tomba invisible" fix.
+// kanban #72/#55 — see render.h. A ring node is INVISIBLE, so every existing type-0x20 diagnostic
+// (which sits behind fieldObjectsRender's `node+1 == 0` skip) is blind to it by construction. This
+// walk answers the question the others cannot even ask.
+void Render::ringNodeCensus() {
+  static const lucent::Channel ch{"ringcensus"};
+  if (!ch) return;                       // guards the WALK (expensive), not a log call
+  Core* c = mCore;
+  static const uint32_t HEADS[3] = { 0x800FB168u, 0x800F2624u, 0x800F2738u };
+  // Behaviour 0x8002B7B0 / render fn 0x8002B3A4 = descriptor entry 15 at 0x800A2168 (MAIN.EXE
+  // +0x92968), reached as type code obj[+2]+12 from the stun reaction FUN_8006BE88.
+  constexpr uint32_t kRingRenderFn = 0x8002B3A4u, kRingBeh = 0x8002B7B0u;
+  constexpr uint32_t kNodeVisible = 1u, kNodeState = 4u, kNodeType = 0xBu;
+  constexpr uint32_t kNodeOwner = 0x14u, kNodeRenderFn = 0x18u, kNodeBeh = 0x1Cu;
+  constexpr uint32_t kOwnerVisible = 1u, kOwnerFlags = 0x1Bu, kOwnerStunBit = 0x40u;
+  int walked = 0, type20 = 0, rings = 0;
+  lucent::Line found;
+  for (int h = 0; h < 3; h++) {
+    uint32_t n = c->mem_r32(HEADS[h]);
+    for (int g = 0; n && g < 400; g++, n = c->mem_r32(n + 0x24)) {
+      walked++;
+      if (c->mem_r8(n + kNodeType) == 0x20u) type20++;
+      // Match on EITHER field rather than assuming which one identifies the ring: FUN_80028E10 writes
+      // descriptor[0] -> node+0x1C (behaviour 0x8002B7B0) and descriptor[4] -> node+0x18 (render fn
+      // 0x8002B3A4). Matching only one would make a node the other field still identifies invisible to
+      // this census, which is the exact failure mode this instrument exists to rule out.
+      const bool byRender = c->mem_r32(n + kNodeRenderFn) == kRingRenderFn;
+      const bool byBeh    = c->mem_r32(n + kNodeBeh) == kRingBeh;
+      if (!byRender && !byBeh) continue;
+      rings++;
+      const uint32_t owner = c->mem_r32(n + kNodeOwner);
+      // The behaviour dereferences the owner unconditionally; with owner==0 these are reads of guest
+      // addresses 0x1B / 0x01, i.e. low kernel RAM. Report what those bytes ACTUALLY hold.
+      const uint8_t flags = c->mem_r8(owner + kOwnerFlags);
+      found.add("[node={:08X} by={} type={:02X} vis={} state={} rfn={:08X} beh={:08X} owner={:08X} "
+                "*(owner+0x1B)={:02X} stunbit={} *(owner+1)={:02X}] ",
+                n, byRender ? (byBeh ? "both" : "rfn") : "beh", c->mem_r8(n + kNodeType),
+                c->mem_r8(n + kNodeVisible), c->mem_r8(n + kNodeState),
+                c->mem_r32(n + kNodeRenderFn), c->mem_r32(n + kNodeBeh), owner,
+                flags, (flags & kOwnerStunBit) ? 1 : 0, c->mem_r8(owner + kOwnerVisible));
+    }
+  }
+  lucent::debug(ch, "walked={} type20={} rings={} {}", walked, type20, rings,
+                rings ? found.view() : std::string_view{"(no ring node live this frame)"});
+}
+
 void Render::fieldObjectsRender() {
   Core* c = mCore;
   static const uint32_t HEADS[3] = { 0x800FB168u, 0x800F2624u, 0x800F2738u };
+  ringNodeCensus();
   uint32_t saved = c->r[4];
   for (int h = 0; h < 3; h++) {
     uint32_t n = c->mem_r32(HEADS[h]);

@@ -161,6 +161,14 @@ static const GameConfig g_tomba_config = {
   // VRAM from the guest's own drawing is stale and the clear-to-black is correct. A port still
   // running the guest's drawing code sets this to 1 so its upload-only screens are not erased.
   .preserveVramBackdrop = 0u,
+
+  // Vblanks one gpu_pace_frame call represents. 2 = the engine's 30fps base cadence.
+  // Was read from scratchpad 0x1F800235 — this engine's OWN field, but a magic address in the
+  // framework, and ordinary working memory for every other port (it silently mistimed Spyro and
+  // Spider-Man). That fallback is deleted; state it here instead.
+  // NOTE: if this engine legitimately VARIES that byte per frame (slowdown frames), a constant is
+  // wrong and it needs a GameHooks callback, not this. Unmeasured — see psxport gpu_native.cpp.
+  .paceQuota = 2u,
 };
 
 // The game's callback vtable — defined in game_hooks.cpp (thin impls reaching eng(c).*).

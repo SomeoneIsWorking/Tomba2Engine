@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """codemap.py — index the PC-native engine's reverse-engineering ownership by GUEST ADDRESS.
 
-WHY THIS EXISTS (read this first): the native port has ~350+ hand-written reimplementations of
-specific Tomba!2 functions, scattered across engine/*.cpp and runtime/recomp/*.{c,cpp}, each tied
-to a guest MIPS address ONLY by its symbol name (`ov_800753D4`) or a header comment (`// 0x800753D4
-— ...`). There is no other index. Worse, the OLD override system that wired address->native was
+WHY THIS EXISTS (read this first): the native port has a thousand-odd hand-written reimplementations
+of specific Tomba!2 functions (the live count is in the header of the generated docs/code-map.md —
+never hard-coded in prose, which is how "~350" survived into three documents long after it was
+wrong), scattered across game/**.cpp and the psxport runtime, each tied to a guest MIPS address only
+by its symbol name (`ov_800753D4`), a header comment (`// 0x800753D4 — ...`), or — for the whole
+anonymous-namespace family — by nothing at all except its `overrides::install` call site. There is
+no other index. Worse, the OLD override system that wired address->native was
 REMOVED (top-down PC-driven now), so the great majority of these natives are currently ORPHANED:
 real, correct code that nothing calls. Without a map you cannot answer the one question that saves
 hours — "is FUN_XXXX already owned natively, and where?" — so you re-derive code that already exists
@@ -20,10 +23,16 @@ WHAT IT DOES: scans the native sources, extracts for each native function:
 
 USAGE:
   tools/codemap.py                      # write docs/code-map.md (the committed index)
-  tools/codemap.py --addr 800753d4      # look up one address: who implements it + who depends on it
-                                        #   (warns ⚠ DUAL-OWNERSHIP if authoritatively owned in >=2 files)
+  tools/codemap.py --addr 800753d4      # look up one address: who implements it + WHERE IT IS INSTALLED
+                                        #   + who depends on it (warns ⚠ DUAL-OWNERSHIP if authoritatively
+                                        #   owned in >=2 files, ⚠ CLAIM-WITHOUT-INSTALL if two files claim
+                                        #   it by name and only one installs, and ⛔ DELIBERATELY ABSENT
+                                        #   when docs/port-map.md says the layer was removed on purpose)
   tools/codemap.py --dup-installs       # guest addrs INSTALLED from 2+ files — the source twin of the
                                         #   runtime duplicate-owner abort; expect 0, trust this for #32
+  tools/codemap.py --uninstalled-claims # addrs 2+ files claim BY NAME while only one INSTALLS: the other
+                                        #   claim is a host-side twin or a stale orphan, never the owner
+  tools/codemap.py --selftest           # prove the index can still answer POSITIVELY (see selftest())
   tools/codemap.py --conflicts          # broad cross-file NAMING smell (over-reports inline helpers /
                                         #   consumers that install nothing; use --dup-installs + --addr)
   tools/codemap.py --substrate-fallthrough  # native-owned addrs that are a DISPATCH TARGET but NOT
@@ -42,6 +51,14 @@ import os, re, sys, glob
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC_GLOBS = ["engine/**/*.cpp", "engine/**/*.h", "game/**/*.cpp", "game/**/*.h",
              "runtime/recomp/**/*.cpp", "runtime/recomp/**/*.c"]
+# The INSTALL-SITE corpus is deliberately WIDER than the native-definition corpus above. The PSX
+# platform lives in the SUBMODULE (external/psxport/runtime/recomp/), not in a top-level runtime/ —
+# `runtime/recomp/**` in SRC_GLOBS matches nothing in this checkout. That is fine for native DEFS
+# (framework code is not this game's port surface) but NOT for override installs: mem.cpp installs
+# 0x8009A420 (ov_guestMemset) from the submodule, and before this glob existed `--addr 8009A420`
+# answered "NO native owner found" for an address with a live, shipping install. An address with a
+# live install has an owner, period, wherever the install call site happens to live.
+INSTALL_GLOBS = SRC_GLOBS + ["external/psxport/runtime/**/*.cpp", "external/psxport/runtime/**/*.c"]
 # Native-dispatch ROOTS: symbols native_boot.cpp calls directly (top-down) to enter native code.
 # Everything reachable from these by direct C call is LIVE; the rest is ORPHANED (was override-only).
 ROOTS = {"ov_game_stage_main", "ov_start_bin_stage", "native_task0_bootstrap",
@@ -195,6 +212,89 @@ def load_platform_hle_table():
     return table, ""
 
 
+# --- CROSS-REFERENCE docs/port-map.md (the DELIBERATELY-ABSENT ledger) ----------------------------
+#
+# This map answers "where does it live". It cannot answer "should it exist at all", and that gap has
+# a sharp edge: `docs/port-map.md` records render layers whose producer was DELETED ON PURPOSE
+# (PROTOCOL.md's absolute rule — an UNPORTED effect is better than a TAPPED one; a tap that recovers
+# a transform from GTE registers or a pre-composed guest matrix is banned, so the layers those taps
+# drew are now honestly blank). Without this cross-reference an agent reads "NO native owner found",
+# walks into `--unowned-rank` — a list this file itself labels THE PORT TARGET QUEUE — and
+# re-implements a layer that was removed by user directive, quite possibly by re-adding the banned
+# tap.
+#
+# Two join keys, both mechanical, no prose sniffing:
+#   * ADDRESS  — every guest address named in a step's `scope` field (NOT `notes`: notes are long
+#                prose that name data addresses, callees and dependencies, so joining on them
+#                produces mostly noise — measured on this tree), plus an optional explicit `addrs`
+#                field for steps whose scope names none.
+#   * OWNER FILE — the paths in a step's `owner` field. This is the key that actually fires for the
+#                deleted-tap steps: their entry addresses (0x8003B320 submitQuad, 0x8013CDD4 the
+#                margin-quad emitter) ARE natively owned — the producer still exists, it just no
+#                longer draws — so `--addr` returns a LIVE owner and the absence is invisible on the
+#                address key alone.
+#
+# A step is DELIBERATELY ABSENT only when it carries an explicit `absent:` field. Nothing is inferred
+# from the wording of `notes`: a checker that guessed from prose would be a new instrument with no
+# way to be audited, and it would go silently wrong the day someone rephrased a note.
+PORTMAP_DOC = "docs/port-map.md"
+
+
+def load_portmap():
+    """Returns (steps, note). Each step: {title, status, absent, addrs:set, files:set}.
+
+    `note` is non-empty when the document could not be read or parsed — an empty cross-reference from
+    a moved/renamed doc must NOT be reported as "nothing is deliberately absent"."""
+    path = os.path.join(ROOT, PORTMAP_DOC)
+    if not os.path.exists(path):
+        return [], f"{PORTMAP_DOC} not found — deliberate-absence cross-reference NOT performed"
+    txt = open(path, encoding="utf-8", errors="replace").read()
+    steps = []
+    for block in re.split(r"(?m)^## +", txt)[1:]:
+        title = block.splitlines()[0].strip()
+        fields = {}
+        for k in ("scope", "status", "owner", "absent", "addrs"):
+            m = re.search(r"(?im)^\s*[-*]?\s*\*\*%s:\*\*\s*(.*?)\s*$" % k, block)
+            if m and m.group(1).strip():
+                fields[k] = m.group(1).strip()
+        addrs = set()
+        for src in (fields.get("scope", ""), fields.get("addrs", "")):
+            for m in re.finditer(r'FUN_(8[0-9A-Fa-f]{7})|0x(8[0-9A-Fa-f]{7})', src):
+                addrs.add((m.group(1) or m.group(2)).upper())
+        files = set(re.findall(r'\b((?:game|runtime|external|tools|docs)/[\w./-]+\.(?:cpp|c|h))', fields.get("owner", "")))
+        steps.append(dict(title=title, status=fields.get("status", "?"),
+                          absent=fields.get("absent", ""), addrs=addrs, files=files))
+    if not steps:
+        return [], f"{PORTMAP_DOC} parsed to ZERO steps (format changed?) — cross-reference is EMPTY BY FAILURE"
+    return steps, ""
+
+
+def portmap_hits(steps, addr, owner_files):
+    """Steps matching this address, by address key or by owner-file key."""
+    return [s for s in steps if addr.upper() in s["addrs"] or (s["files"] & set(owner_files))]
+
+
+def print_portmap_xref(steps, note, addr, owner_files, indent="  "):
+    """Print the port-map cross-reference for one address. ALWAYS prints something: a hit, an
+    explicit no-hit carrying its denominator, or the reason the lookup could not run."""
+    if note:
+        print(f"{indent}WARNING: port-map cross-reference UNAVAILABLE — {note}.")
+        return
+    hits = portmap_hits(steps, addr, owner_files)
+    absent = [s for s in hits if s["absent"]]
+    for s in absent:
+        print(f"{indent}⛔ DELIBERATELY ABSENT — {PORTMAP_DOC} step `{s['title']}` (status: {s['status']})")
+        print(f"{indent}   {s['absent']}")
+        print(f"{indent}   DO NOT re-implement this from the codemap alone. Read the step's `notes` in "
+              f"{PORTMAP_DOC} first: it names WHY the layer was removed and what the real fix is.")
+    for s in [h for h in hits if not h["absent"]]:
+        print(f"{indent}port-map: step `{s['title']}` (status: {s['status']}) — see {PORTMAP_DOC}")
+    if not hits:
+        print(f"{indent}port-map: no step names this address or its owner file "
+              f"(cross-checked {len(steps)} steps, {sum(1 for s in steps if s['absent'])} marked "
+              f"deliberately-absent, in {PORTMAP_DOC}).")
+
+
 def collect_files():
     files = []
     for g in SRC_GLOBS:
@@ -291,6 +391,145 @@ def load_installs():
     return sym2addrs
 
 
+# --- INDEX BY INSTALL SITE (the fix for the anonymous-namespace blind spot) -----------------------
+#
+# Everything above indexes by native DEFINITION: a symbol whose name, adjacent comment, header tag or
+# quoted install name states a guest address. That misses an entire, very common shape — a handler
+# that is a FILE-LOCAL STATIC inside an anonymous namespace, carrying no address in its name, no
+# per-def tag, and no quoted name at the install:
+#
+#     namespace {
+#     void armTap_8002BC9C(Core* c) { ... }              // no tag, file-local, invisible above
+#     }
+#     void FxMesh::install() {
+#       engine_set_override_main(0x8002BC9Cu, armTap_8002BC9C, gen_func_8002BC9C);   // <-- THE TRUTH
+#     }
+#
+# 26 guest addresses were in exactly this state (11 in fx_mesh.cpp, 5 in options_page.cpp, 2 each in
+# cube_text_ledger.cpp / actor_tomba.cpp / panel.cpp-and-friends, 1 in gte_math.cpp, plus
+# 0x8009A420 installed from the submodule) and `--addr` answered "NO native owner found" for every
+# one — the worst possible lie from this tool, because CLAUDE.md tells every agent to run `--addr`
+# BEFORE reimplementing a FUN_xxxx, so the answer directly causes a duplicated port.
+#
+# THE RULE: an address with a live install HAS an owner. The file containing the install call site is
+# the answer to "where do I debug this from", whether or not the handler it names is greppable by
+# address. Handler identity is a bonus, not a requirement.
+#
+# Also fixes the mirror-image failure: mesh_emit_tap.cpp is the SINGLE installer of 0x80027768 and
+# appeared 0 times in the generated map, while `--addr 80027768` named only its two CONSUMERS
+# (FxMesh::draw, SwingFx::drawMesh) — sending a debugging session to the wrong two files. Its handler
+# `meshEmitTap` is anonymous-namespace and its file header says "the SINGLE owner of guest
+# FUN_80027768", which FILE_HEADER_ADDR_RE ("ownership of FUN_xxxx") does not match. Indexing the
+# install site fixes it without special-casing the file.
+INSTALL_SITE_RE = re.compile(
+    r'\b(overrides::install|engine_set_override_\w+|shard_set_override|ov_\w+_set_override'
+    r'|rec_set_override|install)\s*\(\s*(?:c\s*,\s*)?0x([0-9A-Fa-f]{8})u?\s*,\s*'
+    r'(?:"([^"]*)"\s*,\s*)?&?([A-Za-z_][\w:]*(?:<[^;()<>]*>)?)?')
+
+
+def collect_install_files():
+    files = []
+    for g in INSTALL_GLOBS:
+        files += glob.glob(os.path.join(ROOT, g), recursive=True)
+    return sorted(set(f for f in files if f.endswith((".cpp", ".c"))))
+
+
+def load_install_sites():
+    """addr -> [ {file, line, idiom, name, handler, defline} ] for every override install call site
+    that names a LITERAL guest address, across INSTALL_GLOBS.
+
+    `name` is the quoted symbol name when the idiom carries one (`overrides::install`), else "".
+    `defline` is the line where the handler's `<sym>(Core*` definition was found in the SAME file, or
+    0 when it has none there — which is the normal case for a MACRO-GENERATED handler (fx_mesh.cpp's
+    FX_A00_CONTROLLER_SCOPE token-pastes `a00Tap_8013D828`, so no such text exists) and for a
+    template instantiation (`pageScope<gen_func_8007F104>`). A missing defline is NOT a missing
+    owner: the install site itself is the address's home."""
+    sites = {}
+    for path in collect_install_files():
+        try:
+            txt = open(path, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        rel = os.path.relpath(path, ROOT)
+        for m in INSTALL_SITE_RE.finditer(txt):
+            handler = m.group(4) or ""
+            bare = handler.split("<")[0].split("::")[-1]
+            dm = re.search(r'(?m)^(?!\s*//).*\b' + re.escape(bare) + r'\s*\(\s*Core\s*\*', txt) if bare else None
+            sites.setdefault(m.group(2).upper(), []).append(dict(
+                file=rel, line=txt.count("\n", 0, m.start()) + 1, idiom=m.group(1),
+                name=m.group(3) or "", handler=handler,
+                defline=(txt.count("\n", 0, dm.start()) + 1) if dm else 0,
+                defbody=_brace_body(txt, dm.start()) if dm else ""))
+    return sites
+
+
+def _brace_body(txt, start):
+    """Text of the function definition starting at `start`, to the brace-balanced close. Used to ask
+    a single question about a handler: does it FORWARD to a symbol some other file claims? A
+    forwarder means the two files are ONE owner (the class's central register fn installing a shim
+    around a body that lives in a sibling file); a handler that does NOT mention the other file's
+    symbol means they are two independent implementations of one guest function."""
+    depth, seen, i, n = 0, False, start, len(txt)
+    while i < n:
+        if txt[i] == "{":
+            depth += 1; seen = True
+        elif txt[i] == "}":
+            depth -= 1
+            if seen and depth <= 0:
+                return txt[start:i + 1]
+        elif txt[i] == ";" and not seen:
+            return txt[start:i + 1]
+        i += 1
+    return txt[start:start + 4000]
+
+
+def _forwards_to(inst, sym):
+    """True when some install handler for this address forwards to `sym` (or its bare method name)."""
+    bare = sym.split("::")[-1]
+    return any(re.search(r'\b' + re.escape(bare) + r'\s*\(', s.get("defbody", "")) for s in inst)
+
+
+def _competing_claim_files(owners, inst):
+    """Files that claim the address BY NAME, do not install it, and are not merely the body a
+    forwarding install handler calls."""
+    inst_files = {s["file"] for s in inst}
+    out = {}
+    for n in owners:
+        if not n.get("authoritative") or n["file"] in inst_files or _forwards_to(inst, n["sym"]):
+            continue
+        out.setdefault(n["file"], set()).add(n["sym"])
+    return {f: sorted(v) for f, v in out.items()}
+
+
+def synth_install_owners(natives, sites):
+    """Owner records for every (address, install-file) pair the definition scan did not already
+    produce. These are FIRST-CLASS entries — they land in `idx`, so `--addr`, `--conflicts`,
+    `--unowned-rank` and the generated markdown all answer from the same index and cannot disagree.
+
+    Deliberately keyed on (addr, FILE) rather than (addr): mesh_emit_tap.cpp must appear as an owner
+    of 0x80027768 even though fx_mesh.cpp and swing_fx.cpp already claim that address by name — the
+    installer and the consumers are different answers to different questions, and hiding the
+    installer is what made the map point at the wrong files."""
+    have = {(a.upper(), n["file"]) for n in natives for a in n["impl"]}
+    have_sym = {(a.upper(), n["sym"]) for n in natives for a in n["impl"]}
+    seen, out = set(), []
+    for a in sorted(sites):
+        for s in sites[a]:
+            sym = s["handler"] or s["name"] or f"install@{s['file']}:{s['line']}"
+            key = (a, s["file"])
+            if key in have or key in seen or (a, sym) in have_sym:
+                continue
+            seen.add(key)
+            where = f"{s['idiom']}() at {s['file']}:{s['line']}"
+            named = f' registry name "{s["name"]}";' if s["name"] else ""
+            out.append(dict(sym=sym, file=s["file"], line=s["defline"] or s["line"], impl=[a],
+                            deps=[], desc=f"installed via {where};{named} handler is file-local "
+                                          f"(no address tag on its definition)",
+                            body="", bstart=-1, bend=-1, is_freefn=False, authoritative=True,
+                            via_install=s, forced_live=True))
+    return out
+
+
 def load_registered_addrs():
     """Set of guest addresses CURRENTLY wired to a native override at runtime: EngineOverrides
     `register_(0xADDR, ...)`, any `*set_override(...)` family (shard_set_override / engine_set_override_* /
@@ -309,6 +548,12 @@ def load_registered_addrs():
             addrs.add(m.group(1).upper())
     for a_list in load_behavior_table().values():
         addrs.update(a.upper() for a in a_list)
+    # The regex above only sees the `<something>set_override(0xADDR, …)` shape. It does NOT see
+    # `overrides::install(0xADDR, "name", native, gen, setter)` / a bare `install(0xADDR, …)` (the
+    # current idiom — the setter is an ARGUMENT there, not the callee) nor anything installed from
+    # the psxport submodule. Union in the install-site index so --substrate-fallthrough cannot
+    # report a live, registered address as falling through to the substrate.
+    addrs.update(load_install_sites())
     return addrs
 
 
@@ -490,6 +735,9 @@ def ordinary_corpus(files, natives):
     the callee text `loadDescriptorChunk(` too — that must NOT self-seed liveness)."""
     by_file = {}
     for n in natives:
+        if n["bstart"] < 0:
+            continue   # install-site owner: no body of its own to blank (a negative range would
+                       # index from the END of the file and silently delete an unrelated call site)
         by_file.setdefault(n["file"], []).append((n["bstart"], n["bend"]))
     chunks = []
     for f in files:
@@ -504,7 +752,11 @@ def ordinary_corpus(files, natives):
 
 def build(natives, files):
     by_sym = {n["sym"]: n for n in natives}
-    sym_set = set(by_sym)
+    # Callee detection runs over natives that have a BODY. An install-site owner is a bare handler
+    # name with no body, and folding it in actively broke liveness: the synthetic `gov_turnBiasCompute`
+    # collided with the real `ActorTomba::gov_turnBiasCompute` on the same bare name, which pushed
+    # that name out of the unique-bare-name table and reported a live method as ORPHAN.
+    sym_set = {n["sym"] for n in natives if n["bstart"] >= 0}
     callers = {s: set() for s in sym_set}
 
     # --- callee detection: two complementary forms -------------------------------------------
@@ -670,16 +922,143 @@ def reconcile_freefn_claims(natives):
     return kept
 
 
-def main():
+def claim_vs_install_lines(addr, owners, inst):
+    """The ⚠ CLAIM-WITHOUT-INSTALL lines for one address (empty list when there is nothing to say)."""
+    if not inst:
+        return []
+    dead = _competing_claim_files(owners, inst)
+    if not dead:
+        return []
+    inst_files = sorted({s["file"] for s in inst})
+    out = [f"  ⚠ CLAIM-WITHOUT-INSTALL: 0x{addr} is INSTALLED from {', '.join(inst_files)} — "
+           f"that is the owner a guest call reaches. {len(dead)} other file(s) claim the same address "
+           f"by name, install nothing, and are not the body a forwarding install handler calls:"]
+    for f in sorted(dead):
+        out.append(f"      {f}  ({', '.join(dead[f])})")
+    out.append("      Each is either a HOST-SIDE TWIN (native-ABI, reached by direct C++ call — fine, "
+               "but it is a second implementation of one guest function) or a STALE ORPHAN. Do not "
+               "read it as the owner; check its callers with `--addr`.")
+    return out
+
+
+def uninstalled_claims(idx, sites):
+    rows = []
+    for a, ns in idx.items():
+        inst = sites.get(a.zfill(8), [])
+        if not inst:
+            continue
+        dead = _competing_claim_files(ns, inst)
+        if not dead:
+            continue
+        rows.append((a, sorted({s["file"] for s in inst}), sorted(dead.items())))
+    return sorted(rows)
+
+
+# --- SELFTEST: prove the index can still answer POSITIVELY ----------------------------------------
+#
+# The project rule is that a diagnostic which can print nothing is lying, so this tool ships a case
+# that MUST produce a positive. It is wired into tools/precommit_gate.sh, because a self-test nobody
+# runs is the same bug one level up.
+#
+# Each case is a REAL address in this tree whose ownership is expressed by a shape that `--addr` was
+# blind to before 2026-08-05, one per distinct mechanism. If a future refactor of the scanner
+# silently re-loses any of them, this fails loudly instead of quietly reporting "NO native owner".
+# The three NEGATIVE controls at the end matter just as much: they prove the index still says NO to
+# an address nothing owns, i.e. that a green selftest is discrimination and not a blanket yes.
+SELFTEST_POSITIVE = [
+    ("8002BC9C", "game/render/fx_mesh.cpp",          "anonymous-namespace handler, no address tag, no quoted name"),
+    ("8013ED08", "game/render/fx_mesh.cpp",          "MACRO-GENERATED handler symbol (no textual definition)"),
+    ("8007F104", "game/ui/options_page.cpp",         "TEMPLATE instantiation as the handler"),
+    ("80040AA4", "game/object/cube_text_ledger.cpp", "overrides::install with a quoted name, method untagged"),
+    ("80055C9C", "game/player/actor_tomba.cpp",      "file-local gov_* forwarder, no tag"),
+    ("80077FB0", "game/math/gte_math.cpp",           "static eov_* guest-ABI shim, no tag"),
+    ("8005019C", "game/ui/panel.cpp",                "anonymous-namespace tap"),
+    ("80027768", "game/render/mesh_emit_tap.cpp",    "single installer that the definition scan missed entirely"),
+    ("8009A420", "external/psxport/runtime/recomp/mem.cpp", "install from the psxport SUBMODULE"),
+]
+# Addresses that must resolve to NOTHING. 0x80000000/0x8FFFFFF8 are not code; 0x800834A0 is
+# PlatformHle-owned and must be reported as such, never as a scanned native.
+SELFTEST_NEGATIVE = ["80000004", "8FFFFFF8"]
+
+
+def selftest():
+    natives, files, sites, by_sym, callers, live, ordinary_hit, idx = load_index()
+    pm_steps, pm_note = load_portmap()
+    fails = []
+    print(f"corpus: {len(natives)} indexed natives, {len(idx)} owned addresses, "
+          f"{sum(len(v) for v in sites.values())} install sites in {len(collect_install_files())} files, "
+          f"{len(pm_steps)} port-map steps.")
+    for a, want_file, why in SELFTEST_POSITIVE:
+        got = sorted({n["file"] for n in idx.get(a, [])} | {s["file"] for s in sites.get(a, [])})
+        ok = want_file in got
+        print(f"  [{'ok ' if ok else 'FAIL'}] 0x{a} -> {want_file:52s} ({why})")
+        if not ok:
+            fails.append(f"0x{a}: expected owner file {want_file}, index says {got or '(nothing)'} — {why}")
+    for a in SELFTEST_NEGATIVE:
+        got = idx.get(a, []) or sites.get(a, [])
+        print(f"  [{'ok ' if not got else 'FAIL'}] 0x{a} -> (nothing), as it must be  [negative control]")
+        if got:
+            fails.append(f"0x{a}: expected NO owner, index claims one — the index says yes to everything")
+    # The blind-spot list printed by the negative branch of --addr claims installs are found across
+    # the psxport submodule and that macro/template/anon-namespace handlers are covered. Assert the
+    # corpus really reaches there, so the claim cannot rot into a comforting lie.
+    if not any(os.path.relpath(f, ROOT).startswith("external/psxport/") for f in collect_install_files()):
+        fails.append("INSTALL_GLOBS no longer reaches external/psxport/runtime — the blind-spot list "
+                     "printed by --addr claims it does.")
+    if pm_note:
+        fails.append(f"port-map cross-reference unavailable: {pm_note}")
+    # PROVE THE DELIBERATELY-ABSENT FILTER FIRES. On the current tree every `absent:` step's address
+    # is natively OWNED, so `--unowned-rank` legitimately excludes ZERO rows — and a filter that has
+    # never fired is indistinguishable from a filter that is broken. Feed it a case that MUST be
+    # excluded, and a control that MUST NOT be.
+    probe = [dict(title="<selftest>", status="todo", absent="selftest fixture",
+                  addrs={"8FFFFFF8"}, files={"nowhere/none.cpp"}),
+             dict(title="<selftest-control>", status="todo", absent="",
+                  addrs={"8FFFFFF0"}, files=set())]
+    if not [s for s in portmap_hits(probe, "8FFFFFF8", []) if s["absent"]]:
+        fails.append("the deliberately-absent filter does NOT fire on a step that declares the address")
+    if [s for s in portmap_hits(probe, "8FFFFFF0", []) if s["absent"]]:
+        fails.append("the deliberately-absent filter fires on a step with NO absent: field")
+    if not [s for s in portmap_hits(probe, "80000000", ["nowhere/none.cpp"]) if s["absent"]]:
+        fails.append("the deliberately-absent filter does NOT fire on the OWNER-FILE key")
+    real_absent = [s for s in pm_steps if s["absent"]]
+    print(f"  [{'ok ' if real_absent else 'FAIL'}] {PORTMAP_DOC} carries {len(real_absent)} step(s) "
+          f"with an `absent:` field (of {len(pm_steps)}); the filter is exercised on a fixture too")
+    if not real_absent:
+        fails.append(f"no {PORTMAP_DOC} step carries `absent:` — the cross-reference can only ever "
+                     f"print the negative, which is the failure mode this selftest exists to catch")
+    unresolved = sorted(a for a in sites if not idx.get(a))
+    print(f"  [{'ok ' if not unresolved else 'FAIL'}] every installed address resolves through --addr "
+          f"({len(sites)} installed addresses, {len(unresolved)} unresolved)")
+    if unresolved:
+        fails.append("addresses with a live install that --addr cannot resolve: " + ", ".join("0x"+x for x in unresolved))
+    for f in fails:
+        print("FAIL: " + f)
+    print(f"\n{len(SELFTEST_POSITIVE)} positive case(s), {len(SELFTEST_NEGATIVE)} negative control(s), "
+          f"6 invariant(s) — {len(fails)} failure(s).")
+    return 1 if fails else 0
+
+
+def load_index():
+    """The one index every command answers from: definition-scanned natives + install-site owners."""
     natives = []
     files = collect_files()
     for f in files:
         parse_file(f, natives)
     natives = reconcile_freefn_claims(natives)
+    sites = load_install_sites()
+    natives += synth_install_owners(natives, sites)
     by_sym, callers, live, ordinary_hit = build(natives, files)
-    idx = addr_index(natives)
+    live |= {n["sym"] for n in natives if n.get("forced_live")}
+    return natives, files, sites, by_sym, callers, live, ordinary_hit, addr_index(natives)
 
+
+def main():
     args = sys.argv[1:]
+    if "--selftest" in args:
+        sys.exit(selftest())
+    natives, files, sites, by_sym, callers, live, ordinary_hit, idx = load_index()
+    pm_steps, pm_note = load_portmap()
     if "--addr" in args:
         a = args[args.index("--addr") + 1].upper().replace("0X", "")
         owners = idx.get(a, [])
@@ -693,16 +1072,55 @@ def main():
             print(f"    wired from GameConfig::hle.{hle[0]} ({HLE_CFG_SRC}) — a BIOS/libgpu/libetc/libcd/"
                   f"libmdec primitive, NOT a porting target.")
             print(f"    The recompiled body never runs; do NOT install a second override on this address.")
+        inst = sites.get(a.zfill(8), [])
         if not owners and not hle:
             print(f"0x{a}: NO native owner found.")
-            # State the reach of that negative: which tables were actually consulted, and any that
-            # could not be. A bare "NO native owner" from a scan that silently saw nothing is a lie.
-            print(f"    (searched: {len(natives)} scanned natives in game/+runtime/, "
-                  f"{len(hle_tbl)} PlatformHle entries"
-                  + (f" — WARNING: PlatformHle table UNAVAILABLE, {hle_note}" if hle_note else "")
-                  + f". Blind to: overlay/interpreted-only code with no native def.)")
+            # State the reach of that negative: what was actually searched, with its DENOMINATOR, and
+            # what this method genuinely cannot see. A bare "NO native owner" from a scan that
+            # silently saw nothing is a lie — and so is a blind-spot list that names the wrong blind
+            # spots, which is strictly worse because it reads as MORE trustworthy than it is. The
+            # list below is kept true BY CONSTRUCTION: `--selftest` asserts each named blind spot
+            # still holds and each un-named one is genuinely covered.
+            n_def_files = len(files)
+            n_inst_files = len(collect_install_files())
+            n_sites = sum(len(v) for v in sites.values())
+            # Name the roots that ACTUALLY matched, not the globs. `engine/**` and `runtime/recomp/**`
+            # are in SRC_GLOBS and match nothing in this checkout (the platform lives in the
+            # submodule), so printing the glob list would overstate the search.
+            roots = sorted({os.path.relpath(f, ROOT).split("/")[0] for f in files})
+            print(f"    SEARCHED (denominator): {len(natives)} indexed natives from {n_def_files} "
+                  f"source files under {'/, '.join(roots)}/ (of SRC_GLOBS "
+                  f"{' '.join(SRC_GLOBS)} — the rest match no file in this checkout); "
+                  f"{n_sites} override install sites (literal-address) across {n_inst_files} files "
+                  f"incl. external/psxport/runtime/; {len(hle_tbl)} PlatformHle entries; "
+                  f"{len(pm_steps)} {PORTMAP_DOC} steps."
+                  + (f"  WARNING: PlatformHle table UNAVAILABLE, {hle_note}" if hle_note else ""))
+            print( "    BLIND TO (a hit here would NOT have been found):")
+            print( "      1. an install whose address is not a LITERAL 0x8xxxxxxx on the call line "
+                   "(computed, table-driven, or token-pasted by a macro into the ADDRESS argument);")
+            print(f"      2. a native definition outside {'/, '.join(roots)}/ that neither installs "
+                   "nor is named by an install — e.g. a reimplementation living in external/psxport "
+                   "that is only ever reached by a direct C++ call;")
+            print( "      3. a native that reimplements this guest fn but records the address NOWHERE "
+                   "— no name-hex, no adjacent/def-line/file-header tag, no header decl tag, no "
+                   "install. Nothing in the tree connects it to this address, so nothing can find it;")
+            print( "      4. ownership expressed at RUNTIME only (a handler stored into a dispatch "
+                   "table at run time rather than installed from a call site);")
+            print( "      5. overlay/interpreted-only guest code with no native counterpart at all.")
+            print( "    NOT blind to (these were fixed and are asserted by --selftest): a file-local "
+                   "static in an ANONYMOUS NAMESPACE with no address in its name and no quoted "
+                   "install name; a macro-GENERATED handler symbol; a template instantiation; an "
+                   "install from the psxport submodule.")
         elif hle_note:
             print(f"    WARNING: PlatformHle ownership NOT checked — {hle_note}")
+        if inst:
+            print(f"  INSTALLED — {len(inst)} live override install site(s). DEBUG FROM HERE: the file "
+                  f"holding the install owns this address at runtime.")
+            for s in inst:
+                nm = f' as "{s["name"]}"' if s["name"] else ""
+                dl = f", handler defined at line {s['defline']}" if s["defline"] else \
+                     " (handler has no textual definition in this file — macro-generated or a template)"
+                print(f"    {s['file']}:{s['line']}  {s['idiom']}() -> {s['handler'] or '?'}{nm}{dl}")
         for n in owners:
             st = "LIVE" if n["sym"] in live else "ORPHAN"
             print(f"0x{a}: {n['sym']}  [{st}]  {n['file']}:{n['line']}")
@@ -721,6 +1139,29 @@ def main():
                   f"({', '.join(cf)}). Two natives claiming one guest address is a DUPLICATION bug "
                   f"unless it is a deliberate same-class pc_skip doSkip()/doFaithful() fork — "
                   f"consolidate to one owner (delegate one body to the other).")
+        # CLAIM vs INSTALL. Two files can both claim an address BY NAME while only one INSTALLS it —
+        # 0x80078240 is claimed as `Trig::vecLen` (trig.cpp) and `Math::approxDist3` (gte_math.cpp),
+        # and only the latter is installed. `--dup-installs` is legitimately 0 there (one installer)
+        # and `--conflicts` never saw it (the install carries the quoted name, not a def tag), so
+        # NOTHING surfaced it. The distinction matters: only the installed one answers a guest call;
+        # the other is a host-side twin reached by direct C++ call, or a stale orphan.
+        for line in claim_vs_install_lines(a, owners, inst):
+            print(line)
+        print_portmap_xref(pm_steps, pm_note, a, [n["file"] for n in owners] + [s["file"] for s in inst])
+        return
+
+    if "--uninstalled-claims" in args:
+        rows = uninstalled_claims(idx, sites)
+        for a, installed, claimed in rows:
+            print(f"0x{a}: INSTALLED owner -> {', '.join(installed)}")
+            for f, syms in claimed:
+                print(f"    claims by name but does NOT install: {f}  ({', '.join(syms)})")
+        print(f"\n{len(rows)} guest address(es) claimed by name in 2+ files where exactly the "
+              f"install-site file is the runtime owner. Scanned {len(idx)} owned addresses against "
+              f"{sum(len(v) for v in sites.values())} install sites. Each row is EITHER a legitimate "
+              f"host-side twin (a native-ABI reimplementation called directly by C++, e.g. a math "
+              f"leaf) OR a stale orphan — check with `--addr <hex>` and delete the duplicate if it "
+              f"has no caller. It is NOT a double-install: `--dup-installs` stays the signal for that.")
         return
 
     if "--unowned-rank" in args:
@@ -768,6 +1209,19 @@ def main():
                 hle_hits.append((a, hits, hle_tbl[a.zfill(8)][1]))
             elif not idx.get(a):
                 unowned.append((a, hits))
+        # DELIBERATELY-ABSENT layers must not sit in a list headed "THE PORT TARGET QUEUE". A render
+        # layer whose producer was deleted under PROTOCOL.md's no-tap rule looks exactly like an
+        # unported one from here — same "no native owner", same hotness — so the queue was actively
+        # inviting someone to rebuild it, quite possibly by re-adding the banned tap. Pull them out,
+        # and NAME them with their port-map step rather than dropping them silently.
+        absent_rows = []
+        if not pm_note:
+            keep = []
+            for a, hits in unowned:
+                hit = [s for s in portmap_hits(pm_steps, a, []) if s["absent"]]
+                (absent_rows if hit else keep).append((a, hits, hit[0] if hit else None))
+            unowned = [(a, h) for a, h, _ in keep]
+            absent_rows = [(a, h, s) for a, h, s in absent_rows]
         limit = 40
         if "--top" in args:
             limit = int(args[args.index("--top") + 1])
@@ -789,6 +1243,19 @@ def main():
         if hle_note:
             print(f"WARNING: PlatformHle-owned addresses were NOT excluded — {hle_note}. "
                   f"Treat every entry above as UNVERIFIED ownership until that is fixed.")
+        if absent_rows:
+            print(f"\n⛔ EXCLUDED — {len(absent_rows)} address(es) are DELIBERATELY ABSENT per "
+                  f"{PORTMAP_DOC}, NOT unported. These are NOT port targets; re-implementing one "
+                  f"undoes a decision, and may re-add a banned tap:")
+            for a, hits, s in sorted(absent_rows, key=lambda t: -t[1]):
+                print(f"    0x{a}  {hits:>8}   step `{s['title']}` ({s['status']}) — {s['absent']}")
+        if pm_note:
+            print(f"WARNING: deliberately-absent layers were NOT excluded — {pm_note}. A layer this "
+                  f"project removed ON PURPOSE may be listed above as a port target.")
+        else:
+            print(f"Cross-checked {len(pm_steps)} {PORTMAP_DOC} steps "
+                  f"({sum(1 for s in pm_steps if s['absent'])} marked deliberately-absent); "
+                  f"{len(absent_rows)} queue entr(ies) excluded on that basis.")
         print("Hotness is one input, not the order — cross-check `portmap.py next` for the RE chain, "
               "and `--addr <hex>` before writing anything.")
         return
@@ -832,9 +1299,19 @@ def main():
         rows = []
         for a, ns in idx.items():
             auth = [n for n in ns if n.get("authoritative")]
-            cf = sorted(set(n["file"] for n in auth))
+            inst = sites.get(a.zfill(8), [])
+            if inst:
+                # With install sites indexed, the install file appears as an owner of its address.
+                # That would list every ordinary "central register fn installs a gov_*/eov_* shim
+                # around a body in a sibling file" as a cross-file conflict (15 such rows on this
+                # tree — actor_tomba's action handlers, panel's fill tap, engine's mode handlers).
+                # A forwarding shim and the body it calls are ONE owner, so count only files that
+                # neither install nor are called by an install handler.
+                cf = sorted(set(_competing_claim_files(auth, inst)) | {s["file"] for s in inst})
+            else:
+                cf = sorted(set(n["file"] for n in auth))
             if len(cf) >= 2:
-                rows.append((a, cf, sorted(set(n["sym"] for n in auth))))
+                rows.append((a, cf, sorted(set(n["sym"] for n in auth if n["file"] in cf))))
         for a, cf, syms in sorted(rows):
             print(f"0x{a}: {len(cf)} files — {', '.join(syms)}")
             for f in cf:
@@ -890,8 +1367,21 @@ def main():
     out.append("native exists but no call site of any of those forms was found anywhere in the tree — it")
     out.append("is genuinely dead code until something calls it.\n")
     n_live = sum(1 for n in natives if n["sym"] in live)
+    n_sites = sum(len(v) for v in sites.values())
     out.append(f"Totals: {len(natives)} native fns, {len(idx)} owned addresses, "
-               f"{n_live} LIVE / {len(natives)-n_live} ORPHAN.\n")
+               f"{n_live} LIVE / {len(natives)-n_live} ORPHAN. "
+               f"{n_sites} override install sites over {len(sites)} addresses.\n")
+    out.append("**A row can come from a DEFINITION or from an INSTALL SITE.** An address whose "
+               "handler is a file-local static in an anonymous namespace (no address in its name, no "
+               "tag, no quoted registry name) has no findable definition — the `overrides::install` "
+               "/ `engine_set_override_*` call site is its only ownership record, and the file "
+               "holding that call site is where you debug it from. Those rows say so in the summary "
+               "column.\n")
+    out.append(f"**Cross-check `{PORTMAP_DOC}` before porting anything.** This map answers WHERE "
+               "code lives; it cannot answer whether a layer should exist. Layers whose producer was "
+               "DELETED ON PURPOSE (the no-tap rule) look identical here to unported ones. "
+               "`--addr <hex>` performs the cross-reference; the section at the end of this file "
+               "lists every deliberately-absent step.\n")
     out.append("| addr | status | symbol | file:line | depends-on (still-PSX) | summary |")
     out.append("|------|--------|--------|-----------|------------------------|---------|")
     for a in sorted(idx):
@@ -926,6 +1416,34 @@ def main():
         out.append(f"**TABLE UNAVAILABLE — {hle_note}.** This section is EMPTY BECAUSE THE LOOKUP "
                    "FAILED, not because no address is PlatformHle-owned. Do not read it as "
                    "'nothing here is owned'; fix the paths above and regenerate.")
+    # THIRD SECTION: the deliberately-absent ledger, cross-referenced from docs/port-map.md. This
+    # document is grepped directly, so an address that is honestly blank BY DECISION must say so
+    # here — otherwise the grep answers "not owned", which reads as "free to port".
+    out.append(f"\n## Deliberately ABSENT — do NOT port from this map alone (`{PORTMAP_DOC}`)\n")
+    if pm_note:
+        out.append(f"**SECTION UNAVAILABLE — {pm_note}.** It is empty BECAUSE THE LOOKUP FAILED, not "
+                   "because nothing is deliberately absent. Fix the path and regenerate.")
+    else:
+        absent_steps = [s for s in pm_steps if s["absent"]]
+        out.append(f"Cross-referenced against {len(pm_steps)} `{PORTMAP_DOC}` steps; "
+                   f"{len(absent_steps)} carry an explicit `absent:` field. A step here means the "
+                   "layer's PICTURE was removed by decision (usually PROTOCOL.md's absolute no-tap "
+                   "rule). Its entry function may still be natively OWNED above — the producer "
+                   "exists, it just no longer draws — so an owner row is NOT evidence the layer is "
+                   "present. Read the step's `notes` in the port map before touching any of it.\n")
+        if absent_steps:
+            out.append("| port-map step | status | why it is absent | guest addrs | owner files |")
+            out.append("|---------------|--------|------------------|-------------|-------------|")
+            for s in sorted(absent_steps, key=lambda x: x["title"]):
+                why = s["absent"].replace("|", "\\|")
+                out.append(f"| `{s['title']}` | {s['status']} | {why} | "
+                           f"{' '.join('0x'+x for x in sorted(s['addrs'])) or '—'} | "
+                           f"{' '.join(sorted(s['files'])) or '—'} |")
+        else:
+            out.append("**0 steps carry an `absent:` field.** That is a statement about the PORT MAP, "
+                       "not about the code: it means no step has been marked, NOT that nothing was "
+                       "deliberately deleted. If you know of a layer removed on purpose, add "
+                       "`- **absent:** <one line why>` to its step in the port map.")
     text = "\n".join(out) + "\n"
     if "--stdout" in args:
         sys.stdout.write(text)

@@ -12,6 +12,7 @@
 #include "game_ctx.h"
 #include "cfg.h"
 #include "gte_math.h"   // class Math — static entry surface + ov_* free-fn decls for internal reuse
+#include "trig.h"       // Trig::vecLen — the single home of FUN_80078240's magnitude approximation
 #include "game.h"
 #include "override_registry.h"  // overrides::install — the one native-override registry
 #include <stdio.h>
@@ -90,17 +91,13 @@ uint32_t eng_isqrt16(uint32_t a0) { return isqrt16(a0); }
 //   iVar1 = max(a,b); the LOSER of that compare becomes the new `b`
 //   iVar2 = max(iVar1,c); the LOSER of that compare becomes the new `c`
 //   return (iVar2 - iVar2/16) + (b+c)/4 + (b+c)/8
-uint32_t eng_approxDist3(int32_t a, int32_t b, int32_t c) {
-  if (a < 0) a = -a;
-  if (b < 0) b = -b;
-  if (c < 0) c = -c;
-  int32_t iVar1 = a;
-  if (a < b) { iVar1 = b; b = a; }
-  int32_t iVar2 = iVar1;
-  if (iVar1 < c) { iVar2 = c; c = iVar1; }
-  uint32_t sum = (uint32_t)(b + c);
-  return (uint32_t)(iVar2 - (iVar2 >> 4)) + (sum >> 2) + (sum >> 3);
-}
+// ONE implementation, in game/math/trig.cpp as Trig::vecLen. This file used to carry a second,
+// independently-RE'd copy (`eng_approxDist3`) of the SAME guest leaf: identical abs, identical
+// two-compare max-with-loser-carry, identical max*(15/16) + (rest)*(3/8). `codemap.py --conflicts`
+// flagged 0x80078240 as claimed by two files by name while only this one installs — a duplicate that
+// the two-file split is exactly what hides. The install below stays here (this is the address's
+// owner); only the arithmetic moved to its single home. Values are non-negative by construction, so
+// the int32_t -> uint32_t result conversion is value-preserving.
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FUN_80084110 — 3x3 MATRIX MULTIPLY P = R × M via the GTE. a0 = matrix R, a1 = matrix M, a2 = out P
@@ -761,7 +758,7 @@ static void eov_rotZ(Core* c)          { c->r[2] = mathOf(c).rotZ((int16_t)c->r[
 static void eov_rotMatSoft(Core* c)    { c->r[2] = mathOf(c).rotMatSoft(c->r[4], c->r[5]); }
 
 static void eov_isqrt16(Core* c)       { c->r[2] = eng_isqrt16(c->r[4]); }
-static void eov_approxDist3(Core* c)   { c->r[2] = eng_approxDist3((int32_t)c->r[4], (int32_t)c->r[5], (int32_t)c->r[6]); }
+static void eov_approxDist3(Core* c)   { c->r[2] = (uint32_t)Trig::vecLen((int32_t)c->r[4], (int32_t)c->r[5], (int32_t)c->r[6]); }
 
 static void eov_sqrtLzc(Core* c)       { c->r[2] = mathOf(c).sqrtLzc(c->r[4]); }
 static void eov_matLoadLV(Core* c)     { c->r[2] = mathOf(c).matLoadLV(c->r[4], c->r[5]); }

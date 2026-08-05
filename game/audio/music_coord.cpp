@@ -23,12 +23,19 @@
 #include <stdio.h>
 #include <string.h>        // memcmp (fieldBgmDirector bundle validation)
 #include <stdlib.h>        // atoi (PSXPORT_FIELD_SONG)
+#include <lucent/log.h>    // `coord` diagnostic channel
 
 void rec_dispatch(Core*, uint32_t);   // still-substrate leaves called from voiceMixTick
 
+// The game's CURRENT-SONG index. 4..7 are the dialog tones (regular/worry/etc, user-identified);
+// the looping area/ingame music uses other indices. Read-only from here.
+// NOTE: game/ui/font.cpp:43 names this same address `kTextUnusedFlagAddr` — one of the two names
+// is wrong. Not resolved here; see the report for 0x800BED80.
+constexpr uint32_t kCurrentSongIdx = 0x800BED80u;
+
 bool MusicCoord::dialogToneActive() {
   Core* c = this->core;
-  uint32_t s = c->mem_r16(0x800bed80) & 0xFFFF;
+  uint32_t s = c->mem_r16(kCurrentSongIdx) & 0xFFFF;
   return s >= 4 && s <= 7;
 }
 
@@ -230,12 +237,15 @@ void MusicCoord::registerOverrides() {
 // the dialog ends and the XA stream is free (no voice playing).
 void MusicCoord::tick() {
   Core* c = this->core;
-  if (cfg_str("PSXPORT_XA_DBG")) {
-    uint32_t s = c->mem_r16(0x800bed80) & 0xFFFF; int a = xa_stream_is_active(&c->game->xa), l = xa_stream_is_looping(&c->game->xa);
-    if (s != mPrev || a != mPa || l != mPl) {
-      cfg_logi("coord", "song=%u tone=%d xa_active=%d loop=%d pending=%d", s, dialogToneActive(), a, l, c->game->cd.pending_music);
-      mPrev = s; mPa = a; mPl = l;
-    }
+  // Edge-triggered: one `coord` line per CHANGE of the (song, xa-active, xa-looping) tuple, not one
+  // per frame. The remaining `if` is a state-change detector that also advances the detector's own
+  // state — not a channel gate (lucent gates itself, and does not evaluate args when `coord` is off).
+  uint32_t s = c->mem_r16(kCurrentSongIdx) & 0xFFFF;
+  int a = xa_stream_is_active(&c->game->xa), l = xa_stream_is_looping(&c->game->xa);
+  if (s != mPrev || a != mPa || l != mPl) {
+    lucent::debug("coord", "song={} tone={} xa_active={} loop={} pending={}",
+                  s, dialogToneActive(), a, l, c->game->cd.pending_music);
+    mPrev = s; mPa = a; mPl = l;
   }
   if (dialogToneActive()) {
     if (xa_stream_is_looping(&c->game->xa)) xa_stream_stop(&c->game->xa);    // dialog up: silence ingame music (kept pending)

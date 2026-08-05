@@ -69,6 +69,8 @@
 #include "render.h"
 #include "render_internal.h"   // withObjScope / cur_render_node
 #include "proj_params.h"       // ProjParams::pzToOrd — billboardsRender depth normalize
+#include <lucent/log.h>        // `bbrot` — the node-rotation rebuild instrument (see BbObjectRot)
+#include <cmath>
 
 void rec_dispatch(Core*, uint32_t);
 void shard_set_override(uint32_t addr, OverrideFn fn);   // generated/shard_disp.c (C++ linkage)
@@ -94,22 +96,128 @@ void func_8003B220(Core*);   // billboardEmit's quad-corner builder (writes real
 void func_8003B054(Core*);   // billboardEmit's color/UV fill
 
 namespace {
-// Read the SCENE CAMERA's libgte MATRIX (9×s16 CR-packed in 5 words @+0, 3×s32 translation @+0x14)
-// out of the scratchpad into unit-scale float rows — the same bytes Fps60::sceneCam reads. Reading
-// the camera is not a tap: the native path has to get the camera from somewhere, and this is where
-// the engine keeps it. (The FACTORING done with it in billboardEmit's capture below IS a tap — see
-// the ⛔ DEBT banner there.)
-void readSceneCamMatrix(Core* c, float camR[3][3], float camT[3]) {
-  constexpr uint32_t CAM_MATRIX = 0x1F8000F8u;
-  constexpr float FX = 1.0f / 4096.0f;
-  const uint32_t w0 = c->mem_r32(CAM_MATRIX + 0),  w1 = c->mem_r32(CAM_MATRIX + 4),
-                 w2 = c->mem_r32(CAM_MATRIX + 8),  w3 = c->mem_r32(CAM_MATRIX + 12),
-                 w4 = c->mem_r32(CAM_MATRIX + 16);
-  camR[0][0] = (int16_t)w0 * FX;         camR[0][1] = (int16_t)(w0 >> 16) * FX; camR[0][2] = (int16_t)w1 * FX;
-  camR[1][0] = (int16_t)(w1 >> 16) * FX; camR[1][1] = (int16_t)w2 * FX;         camR[1][2] = (int16_t)(w2 >> 16) * FX;
-  camR[2][0] = (int16_t)w3 * FX;         camR[2][1] = (int16_t)(w3 >> 16) * FX; camR[2][2] = (int16_t)w4 * FX;
-  for (int i = 0; i < 3; i++) camT[i] = (float)(int32_t)c->mem_r32(CAM_MATRIX + 0x14u + (uint32_t)i * 4u);
+
+// ==================================================================================================
+// BbObjectRot — the billboard particle layer's OBJECT ROTATION, rebuilt from the node's own fields.
+//
+// WHY THIS EXISTS (2026-08-05). The record capture in billboardEmit used to take this rotation out of
+// GTE CR0-4 and the world anchor out of CR5-7 un-composed against the scene camera. That is the
+// mechanism the USER banned outright ("never do this please NEVER"): the camera enters and leaves the
+// arithmetic through an s16-quantised matrix, so cam-then-camᵀ is identity only in exact arithmetic
+// and the residue is a FUNCTION OF THE CAMERA — the effect vibrates while panning and nothing in the
+// game is moving it. The tap was deleted (break-first), the layer measured absent, and this is the
+// rebuild. Same shape as CubeTextBanner: recompute from the fields the behaviour owns.
+//
+// THE FOUR COMPOSE VARIANTS, RE'd from their own already-native bodies below plus the leaves they
+// call (game/math/gte_math.cpp is the ground truth for each leaf's element formulas):
+//   FUN_8003C2D4 billboardCompose1  MAT_A = identity                       -> R = Rz(node+90)
+//   FUN_8003C464 billboardCompose2  MAT_A = FUN_800517BC(node+122/124/126) -> R = Rz(node+90)·diag(s)
+//   FUN_8003C788 billboardCompose3  MAT_ROTZ = matMul(node+152, identity)  -> UNRESOLVED, see below
+//   FUN_8003C5F8 billboardComposeC5F8 MAT_ROTZ = rotMatSoft(node+84)       -> R = rotmat(node+84..88)
+// and each then runs the SHARED tail, which is the only place a camera appears — it composes CAM2
+// onto the node's WORLD_POS. That tail's camera work is exactly what the native display pass
+// (Render::billboardsRender, via Fps60::sceneCam) does for itself, so the producer needs NONE of it:
+// it takes the node's own world triple straight out of node+46/+50/+54, the same halfwords the tail
+// copies into WORLD_POS.
+//
+// FUN_800517BC IS A DIAGONAL SCALE, not a rotation (generated/shard_5.c: it sign-extends a1/a2/a3 and
+// stores them as words at +0/+8/+16 with every other word zero — i.e. m00/m11/m22 and a zero
+// translation, the packed-halfword MATRIX layout's diagonal). 4096 is unity.
+//
+// COMPOSE3 IS DELIBERATELY NOT REBUILT, and the reason is measured. node+152 (= node+0x98) is written
+// as Math::rotmat(euler @node+0x54) by GraphicsBind::renderUpdateBody (FUN_800517F8), so the obvious
+// rebuild is rotmat(node+84/86/88) — the same three angles composeC5F8 uses. The `bbrot` channel was
+// added to CHECK that rather than assert it, and it FALSIFIED it: see the note at the compose3 call
+// site. So compose3's particles are left absent instead of being drawn under a plausible-looking
+// wrong matrix. Math::rotmat (FUN_80085480) and Math::rotMatSoft (FUN_800847F0) do build the same
+// Rx·Ry·Rz product (gte_math.cpp, one on the GTE and one in software), so ONE float builder still
+// serves composeC5F8; that part of the claim survived.
+// The `bbrot` channel prints each variant's recomputation beside the s16 matrix at node+152. It is a
+// diagnostic and never feeds the picture — and it is the instrument that caught the compose3 error,
+// which is why it stays.
+constexpr float kFixedOne = 4096.0f;      // libgte 1.3.12: 4096 == 1.0
+constexpr uint32_t kAngleTurn = 4096u;    // libgte angle unit: 4096 == one full turn
+
+constexpr uint32_t NODE_ROT_Z      = 90u;    // s16 — compose1/2's single Z angle
+constexpr uint32_t NODE_EULER      = 84u;    // 3× s16 — compose3/C5F8's Euler triple (= node+0x54)
+constexpr uint32_t NODE_SCALE_DIAG = 122u;   // 3× s16 — compose2's diagonal scale (1.3.12)
+constexpr uint32_t NODE_WORLD_X    = 46u;    // s16 ×3 (+46/+50/+54) — the node's own world position,
+constexpr uint32_t NODE_WORLD_Y    = 50u;    //   the exact halfwords billboardComposeTail copies into
+constexpr uint32_t NODE_WORLD_Z    = 54u;    //   WORLD_POS before composing the camera onto them
+constexpr uint32_t NODE_OWN_MATRIX = 152u;   // the node's own 3×3 (diagnostic cross-check only)
+
+struct Mat3f { float m[3][3]; };
+
+Mat3f mul3(const Mat3f& a, const Mat3f& b) {           // a · b
+  Mat3f o{};
+  for (int i = 0; i < 3; i++)
+    for (int j = 0; j < 3; j++)
+      o.m[i][j] = a.m[i][0]*b.m[0][j] + a.m[i][1]*b.m[1][j] + a.m[i][2]*b.m[2][j];
+  return o;
 }
+
+float angleToRadians(int16_t a) { return (float)a * 6.28318530718f / (float)kAngleTurn; }
+
+// Math::rotZ (FUN_80085050) applied to the identity: rotpair rotates matrix ROWS 0 and 1 as
+// row0' = cos·row0 − sin·row1, row1' = sin·row0 + cos·row1, which on the identity leaves the plain
+// Z rotation. Float instead of the s16/LUT chain because a native producer owns its own precision.
+Mat3f rotZ3(int16_t angle) {
+  const float a = angleToRadians(angle), s = std::sin(a), c = std::cos(a);
+  return Mat3f{{{ c, -s, 0 }, { s, c, 0 }, { 0, 0, 1 }}};
+}
+
+// Math::rotMatSoft (FUN_800847F0) / Math::rotmat (FUN_80085480) — Rx(vx)·Ry(vy)·Rz(vz), transcribed
+// from rotMatSoft's element formulas in gte_math.cpp with the >>12 fixed-point steps replaced by
+// exact float. (m02 is +sinB there because the asm stores the RAW sinB.)
+Mat3f rotEuler3(int16_t ax, int16_t ay, int16_t az) {
+  const float A = angleToRadians(ax), B = angleToRadians(ay), C = angleToRadians(az);
+  const float sA = std::sin(A), cA = std::cos(A);
+  const float sB = std::sin(B), cB = std::cos(B);
+  const float sC = std::sin(C), cC = std::cos(C);
+  Mat3f r{};
+  r.m[0][0] =  cC*cB;              r.m[0][1] = -sC*cB;              r.m[0][2] =  sB;
+  r.m[1][0] =  sC*cA + cC*sB*sA;   r.m[1][1] =  cC*cA - sC*sB*sA;   r.m[1][2] = -cB*sA;
+  r.m[2][0] =  sC*sA - cC*sB*cA;   r.m[2][1] =  cC*sA + sC*sB*cA;   r.m[2][2] =  cB*cA;
+  return r;
+}
+
+// FUN_800517BC's diagonal scale, in unit scale.
+Mat3f diagScale3(int16_t x, int16_t y, int16_t z) {
+  return Mat3f{{{ (float)x/kFixedOne, 0, 0 }, { 0, (float)y/kFixedOne, 0 }, { 0, 0, (float)z/kFixedOne }}};
+}
+
+// Publish the active compose variant's object rotation for billboardEmit's record capture, and clear
+// it again on the way out so no node can inherit a neighbour's matrix. RAII because each compose
+// method has several exits once its epilogue restore is counted.
+class BbRotScope {
+public:
+  BbRotScope(Core* c, uint32_t node, const char* variant, const Mat3f& r) : mCore(c) {
+    Render* rr = rend(c);
+    for (int i = 0; i < 3; i++)
+      for (int j = 0; j < 3; j++) rr->mBbRot[i][j] = r.m[i][j];
+    rr->mBbRotValid = true;
+    // The instrument for the node+152 claim in the banner above: it prints the recomputation NEXT TO
+    // the s16 matrix the guest holds, so "these are the same matrix" is checkable on live data. The
+    // guest read happens only inside the log arguments, which lucent does not evaluate when the
+    // channel is off, and it never reaches the picture.
+    // guest_node152 is only the NODE'S OWN matrix for the compose3 variant (the only one that reads
+    // it); for the others that memory belongs to something else, which is why the variant is printed
+    // beside it — a reader comparing the two columns on a compose1 line would be comparing noise.
+    lucent::debug("bbrot", "node={:08X} variant={} rebuilt=[{:.4f} {:.4f} {:.4f} | {:.4f} {:.4f} {:.4f} | "
+                           "{:.4f} {:.4f} {:.4f}] guest_node152=[{} {} {} | {} {} {} | {} {} {}]",
+                  node, variant,
+                  r.m[0][0], r.m[0][1], r.m[0][2], r.m[1][0], r.m[1][1], r.m[1][2],
+                  r.m[2][0], r.m[2][1], r.m[2][2],
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 0),  c->mem_r16s(node + NODE_OWN_MATRIX + 2),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 4),  c->mem_r16s(node + NODE_OWN_MATRIX + 6),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 8),  c->mem_r16s(node + NODE_OWN_MATRIX + 10),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 12), c->mem_r16s(node + NODE_OWN_MATRIX + 14),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 16));
+  }
+  ~BbRotScope() { rend(mCore)->mBbRotValid = false; }
+private:
+  Core* mCore;
+};
 
 constexpr uint32_t CUR_NODE_SCR = 0x1F80028Cu;   // "current render node" scratch
 constexpr uint32_t PKT_POOL_PTR = 0x800BF544u;   // packet-pool bump-allocator write pointer
@@ -324,6 +432,8 @@ void Render::billboardCompose1() {
     mathOf(c).rotZ((int16_t)c->mem_r16(node + 90), MAT_ROTZ);
     const uint32_t flag = c->mem_r8(node + 71) & 1u;
     mathOf(c).matMul(MAT_ROTZ, MAT_A, MAT_OUT);
+    // MAT_A is the identity here, so the object rotation IS the Z rotation this node carries.
+    BbRotScope bbRot(c, node, "compose1_rotZ", rotZ3(c->mem_r16s(node + NODE_ROT_Z)));
     // gen's live callee-saved state at the func_8003C8F4 call site (L4593-4595): billboardEmit
     // spills these as its "caller" registers, so they must hold gen's values here.
     c->r[16] = MAT_OUT; c->r[17] = MAT_A; c->r[18] = flag; c->r[19] = node;
@@ -361,6 +471,12 @@ void Render::billboardCompose2() {
     mathOf(c).rotZ((int16_t)c->mem_r16(node + 90), MAT_ROTZ);
     const uint32_t flag = c->mem_r8(node + 71) & 1u;
     mathOf(c).matMul(MAT_ROTZ, MAT_A, MAT_OUT);
+    // MAT_A is FUN_800517BC's diagonal scale, so the object transform is the Z rotation times it.
+    BbRotScope bbRot(c, node, "compose2_rotZ_diag",
+                     mul3(rotZ3(c->mem_r16s(node + NODE_ROT_Z)),
+                          diagScale3(c->mem_r16s(node + NODE_SCALE_DIAG + 0),
+                                     c->mem_r16s(node + NODE_SCALE_DIAG + 2),
+                                     c->mem_r16s(node + NODE_SCALE_DIAG + 4))));
     // gen's live callee-saved state at the func_8003C8F4 call site (L5993-5995) — NOTE C464 differs
     // from C2D4: r17=flag (not MAT_A) and r18=node (gen reassigns r17 to flag at L5931 and keeps
     // r18=node from the prologue). billboardEmit spills these, so match gen exactly.
@@ -397,6 +513,27 @@ void Render::billboardCompose3() {
     mtxOf(c).identity(MAT_A);
     const uint32_t flag = c->mem_r8(node + 71) & 1u;
     mathOf(c).matMul(node + 152, MAT_A, MAT_ROTZ);   // MAT_ROTZ = (node+152 matrix) x identity
+    // NO ROTATION IS PUBLISHED FOR THIS VARIANT, so its particles are NOT recorded and this class's
+    // billboard layer stays ABSENT. Reason, measured not assumed (portmap
+    // render-producer-billboard-compose3): compose3's transform is the node's OWN matrix at node+152,
+    // and the obvious candidate for recomputing it — GraphicsBind::renderUpdateBody's
+    // Math::rotmat(node+0x54 -> node+0x98), i.e. the same three Euler angles composeC5F8 uses — is
+    // WRONG here. Checked on live data with the `bbrot` channel on replays/bugs/walk-dust-puff.pad:
+    // for node 800F1B84 the guest holds node+152 = [0.4734 -0.2603 0.8413 | 0.5669 0.8208 -0.0654 |
+    // -0.6738 0.5076 0.5359] (sinY = 0.8413) while rotmat(node+84..88) gives sinY = 1.0000 — a
+    // different Y angle entirely, on every one of the 25 compose3 calls in that run. So some other
+    // writer owns node+152 for this node class and it has not been identified yet. Reading node+152
+    // back would be reading a matrix the engine composed, which is the banned mechanism; inventing a
+    // plausible substitute is worse. The layer is left honestly missing until that writer is RE'd.
+    lucent::debug("bbrot", "node={:08X} variant=compose3_node152 NOT PUBLISHED (writer of node+152 "
+                           "unidentified; particles not recorded) guest_node152=[{} {} {} | {} {} {} "
+                           "| {} {} {}] node84={} node86={} node88={}",
+                  node,
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 0),  c->mem_r16s(node + NODE_OWN_MATRIX + 2),  c->mem_r16s(node + NODE_OWN_MATRIX + 4),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 6),  c->mem_r16s(node + NODE_OWN_MATRIX + 8),  c->mem_r16s(node + NODE_OWN_MATRIX + 10),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 12), c->mem_r16s(node + NODE_OWN_MATRIX + 14), c->mem_r16s(node + NODE_OWN_MATRIX + 16),
+                  c->mem_r16s(node + NODE_EULER + 0), c->mem_r16s(node + NODE_EULER + 2),
+                  c->mem_r16s(node + NODE_EULER + 4));
     // gen's live callee-saved state at the billboardEmit call site (abi_extract call [2]): r16=MAT_ROTZ,
     // r17=flag, r18=node. billboardEmit spills these as its caller regs, so match gen exactly.
     c->r[16] = MAT_ROTZ; c->r[17] = flag; c->r[18] = node;
@@ -435,6 +572,10 @@ void Render::billboardComposeC5F8() {
     mathOf(c).rotMatSoft(node + 84, MAT_ROTZ);       // MAT_ROTZ = software RotMatrix(SVECTOR @ node+84)
     const uint32_t flag = c->mem_r8(node + 71) & 1u;
     mathOf(c).matMul(MAT_ROTZ, MAT_A, MAT_OUT);
+    // MAT_A is the identity here, so the object rotation is rotMatSoft's own Euler product.
+    BbRotScope bbRot(c, node, "composeC5F8_euler", rotEuler3(c->mem_r16s(node + NODE_EULER + 0),
+                                        c->mem_r16s(node + NODE_EULER + 2),
+                                        c->mem_r16s(node + NODE_EULER + 4)));
     // gen's live callee-saved state at the billboardEmit (func_8003C8F4) call site: r16=MAT_OUT,
     // r17=MAT_A, r18=flag, r19=node — identical to C2D4. billboardEmit spills these as its caller regs.
     c->r[16] = MAT_OUT; c->r[17] = MAT_A; c->r[18] = flag; c->r[19] = node;
@@ -602,56 +743,32 @@ void Render::billboardEmit() {
       }
       c->mem_w32(PKT_POOL_PTR, tail);
 
-      // Skipped on the SBS oracle core (core B/psx_fallback must stay the untouched reference).
-      if (!c->game->oracle) {
-        // #67 (replaces the #65 DUAL-EMIT, deleted break-first): RECORD this particle for the
-        // display-pass producer Render::billboardsRender instead of pushing the GTE-computed SXYs
-        // verbatim. The record is pure game state resolved this tick — local corners (the ×5 ints
-        // func_8003B220 just built into the guest-stack scratch), the node's composed MAT_OUT
-        // rotation + world anchor, and the RESOLVED material words (post node+92 override +
-        // node+13 case patches). billboardsRender projects it through the SAME float camera path
-        // the world uses, so the fps60 interp re-run derives the quad under lerped inputs — real
-        // and interpolated frames are made identically (USER principle). Host memory only.
-        {
-          Render::BbRec rb;
-          rb.node = node; rb.particle = particle;
-          const uint32_t vbase = FR(16);
-          rb.cx[0] = c->mem_r16s(vbase + 0);  rb.cy[0] = c->mem_r16s(vbase + 2);
-          rb.cx[1] = c->mem_r16s(vbase + 8);  rb.cy[1] = c->mem_r16s(vbase + 10);
-          rb.cx[2] = c->mem_r16s(vbase + 16); rb.cy[2] = c->mem_r16s(vbase + 18);
-          rb.cx[3] = c->mem_r16s(vbase + 24); rb.cy[3] = c->mem_r16s(vbase + 26);
-          // Rotation = the LIVE GTE CR0-4 — whatever matrix this node's compose variant loaded
-          // (compose1/2 → MAT_OUT @BUF+0x40, but FUN_8003C5F8 composes into BUF+0x40 via a
-          // different chain and FUN_8003C788 into BUF+0x20 — reading a fixed scratch address
-          // captured the WRONG rotation for the C788 class; the CRs are always the truth).
-          // billboardEmit's own RTPT/RTPS ops never modify the control regs.
-          { uint32_t g0 = gte_read_ctrl(0), g1 = gte_read_ctrl(1), g2 = gte_read_ctrl(2),
-                     g3 = gte_read_ctrl(3), g4 = gte_read_ctrl(4);
-            rb.rotR[0][0] = (int16_t)g0;         rb.rotR[0][1] = (int16_t)(g0 >> 16); rb.rotR[0][2] = (int16_t)g1;
-            rb.rotR[1][0] = (int16_t)(g1 >> 16); rb.rotR[1][1] = (int16_t)g2;         rb.rotR[1][2] = (int16_t)(g2 >> 16);
-            rb.rotR[2][0] = (int16_t)g3;         rb.rotR[2][1] = (int16_t)(g3 >> 16); rb.rotR[2][2] = (int16_t)g4; }
-          // ⛔ DEBT, portmap `render-tap-gte-registers` (NOT resolved): the rotation above and the
-          // world anchor below are recovered from the GTE CONTROL REGISTERS after the substrate
-          // composed them, then un-composed against the scene camera — the SAME banned mechanism
-          // that was deleted from quad_rtpt_submit.cpp / widescreen_margin_quad.cpp / text_label.cpp
-          // / subpart_capture.cpp / perObjFlushPreComposed on 2026-08-04, and it carries the same
-          // camera-dependent quantisation residue (kanban #71). It survives here only because
-          // deleting it deletes the entire particle layer (AP gems, flames, apples, splash, windmill)
-          // and that was outside the ordered scope of that pass. Real fix: port billboardEmit's
-          // callers so each particle's world anchor + rotation come from the effect's own state.
-          // Death condition: zero gte_read_ctrl in this file's capture path.
-          { float camR[3][3], camT[3];
-            readSceneCamMatrix(c, camR, camT);
-            float tr[3];
-            for (int i = 0; i < 3; i++) tr[i] = (float)(int32_t)gte_read_ctrl(5u + (unsigned)i);
-            rb.wx = camR[0][0]*(tr[0]-camT[0]) + camR[1][0]*(tr[1]-camT[1]) + camR[2][0]*(tr[2]-camT[2]);
-            rb.wy = camR[0][1]*(tr[0]-camT[0]) + camR[1][1]*(tr[1]-camT[1]) + camR[2][1]*(tr[2]-camT[2]);
-            rb.wz = camR[0][2]*(tr[0]-camT[0]) + camR[1][2]*(tr[1]-camT[1]) + camR[2][2]*(tr[2]-camT[2]); }
-          rb.wColor = c->mem_r32(BUF + 4);
-          rb.wUv0 = c->mem_r32(BUF + 12); rb.wUv1 = c->mem_r32(BUF + 20);
-          rb.wUv2 = c->mem_r32(BUF + 28); rb.wUv3 = c->mem_r32(BUF + 36);
-          rend(c)->mBbRecs.push_back(rb);
-        }
+      // 6) RECORD this particle for the display-pass producer Render::billboardsRender. Everything
+      // here is the effect's OWN state: the local quad corners func_8003B220 just built for this
+      // particle, the node's own object rotation (published by whichever compose variant is running —
+      // BbObjectRot above, rebuilt from the node's euler/scale fields), the node's own world
+      // position, and the RESOLVED material words (post node+92 override + node+13 case patches).
+      // NO GTE register is read and the camera does not appear, so billboardsRender applying the
+      // native camera cannot produce a camera-dependent residue: this is the rebuild that replaced
+      // the CR0-4/CR5-7 tap. Host memory only, and skipped on the SBS oracle core (core B must stay
+      // the untouched reference).
+      if (!c->game->oracle && rend(c)->mBbRotValid) {
+        Render::BbRec rb;
+        rb.node = node; rb.particle = particle;
+        const uint32_t vbase = FR(16);
+        rb.cx[0] = c->mem_r16s(vbase + 0);  rb.cy[0] = c->mem_r16s(vbase + 2);
+        rb.cx[1] = c->mem_r16s(vbase + 8);  rb.cy[1] = c->mem_r16s(vbase + 10);
+        rb.cx[2] = c->mem_r16s(vbase + 16); rb.cy[2] = c->mem_r16s(vbase + 18);
+        rb.cx[3] = c->mem_r16s(vbase + 24); rb.cy[3] = c->mem_r16s(vbase + 26);
+        for (int i = 0; i < 3; i++)
+          for (int j = 0; j < 3; j++) rb.rotR[i][j] = rend(c)->mBbRot[i][j];
+        rb.wx = (float)c->mem_r16s(node + NODE_WORLD_X);
+        rb.wy = (float)c->mem_r16s(node + NODE_WORLD_Y);
+        rb.wz = (float)c->mem_r16s(node + NODE_WORLD_Z);
+        rb.wColor = c->mem_r32(BUF + 4);
+        rb.wUv0 = c->mem_r32(BUF + 12); rb.wUv1 = c->mem_r32(BUF + 20);
+        rb.wUv2 = c->mem_r32(BUF + 28); rb.wUv3 = c->mem_r32(BUF + 36);
+        rend(c)->mBbRecs.push_back(rb);
       }
     }
   });
@@ -673,19 +790,17 @@ void ov_billboardEmit(Core* c)        { rend(c)->billboardEmit(); }
 }
 
 // ==================================================================================================
-// billboardsRender — the DISPLAY-PASS billboard producer (#67; REDIRECT doctrine: RE+port, not
-// stamping). Projects every BbRec billboardEmit captured this logic frame through the SAME float
-// camera path the rest of the world uses (Fps60::sceneCam — the choke the fps60 interp present serves
-// a lerp(prev,cur) camera through), reproducing the GTE compose exactly in float:
-//   CR rotation  = MAT_OUT.R                      -> corner_view = MAT_OUT.R·corner/4096 + t
-//   CR translate = CAM2.R·WORLD_POS + CAM2.t      -> t = Rcam·anchor/4096 + Tcam  (CAM2 == sceneCam's
-//                                                    scratchpad view matrix, see the header banner)
-//   sx = OFX + vx·H/pz, pz = max(H/2, vz)          -> the same projection camWorldScreen/terrain use.
+// billboardsRender — the DISPLAY-PASS billboard producer. Projects every BbRec billboardEmit captured
+// this logic frame through the SAME float camera path the rest of the world uses (Fps60::sceneCam —
+// the choke the fps60 interp present serves a lerp(prev,cur) camera through):
+//   object rotation = the node's own R (BbObjectRot, rebuilt from its euler/scale fields)
+//   view transform  = Rcam·anchor/4096 + Tcam, anchor = the node's own world position
+//   sx = OFX + vx·H/pz, pz = max(H/2, vz)  — the same projection camWorldScreen/terrain use.
+// THE CAMERA APPEARS EXACTLY ONCE, HERE, and it is the native camera. The record carries no camera
+// term at all, so the camera-dependent quantisation residue the deleted CR0-4/CR5-7 tap produced is
+// structurally impossible rather than merely small.
 // Emits RQ_WORLD float quads (has_xyf=1 → tier1-owned, rebuilt on the interp present) with real
-// per-particle identity (dbg_node = node, records in guest emit order). At the interp re-run
-// (Fps60::mObjOverrideOn) each record is component-lerped against the PREVIOUS frame's record for the
-// same particle (anchor + corners + rotation), so particle animation interpolates too — the
-// per-particle motion the retired screen-space anchor machinery approximated, now derived from state.
+// per-particle identity (dbg_node = node, records in guest emit order).
 // Read-only over guest memory (reads nothing but the camera via sceneCam); host writes only.
 // emitRecQuad — shared record-quad emit for billboardsRender's two record kinds. Decodes the FT4
 // record's material words RAW (mode/tp_x/tp_y/blend from the tpage half, clut x/y from the clut
@@ -747,9 +862,10 @@ void Render::billboardsRender() {
   for (const BbRec& rc : mBbRecs) {
     // This frame's own state (no per-particle lerp — see banner above); camera lerp comes via R/T.
     const float wx = rc.wx, wy = rc.wy, wz = rc.wz;
-    float cxf[4], cyf[4], rot[3][3];
+    float cxf[4], cyf[4];
     for (int i = 0; i < 4; i++) { cxf[i] = rc.cx[i]; cyf[i] = rc.cy[i]; }
-    for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) rot[i][j] = rc.rotR[i][j] * FX;
+    // rc.rotR is already unit-scale float (rebuilt from the node's fields), so it needs no 1/4096.
+    const float (&rot)[3][3] = rc.rotR;
 
     // t = Rcam·anchor + Tcam (the MVMVA CAM2 compose, in float).
     const float ax = R[0][0]*wx + R[0][1]*wy + R[0][2]*wz + T[0];
