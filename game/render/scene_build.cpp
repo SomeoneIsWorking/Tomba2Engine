@@ -8,8 +8,11 @@
 // Entity model (from the object subsystem, game/world/, and memory [[object-pipeline-and-depth-regression]]):
 //   - 3 list heads: 0x800FB168 / 0x800F2624 / 0x800F2738; next ptr @node+0x24 (0 = end).
 //   - live flag @node+1 (0 = dead/free slot).
-//   - render-intrinsic @node+0xb: 0x0F = 3D mesh (we draw these), 0x10..0x14 = 2D billboard (sprite path,
-//     not handled in this first cut), 0x20 = off-world (skip).
+//   - render-intrinsic @node+0xb: the selection is a DENY-LIST, not an allow-list — 0x10..0x14 (2D
+//     billboard, sprite path) and 0x20 (off-world) are skipped and EVERYTHING ELSE is drawn. The
+//     field's static props are ri=0x00/0x02 and the player/dynamic meshes are ri=0x0F, so 0x00 draws.
+//     (This used to read "0x0F = 3D mesh (we draw these)", which describes an allow-list the code has
+//     never had; it cost a #74 session an hour chasing a filter that does not exist. Match line ~92.)
 //   - render-command array @node+0xC0, count @node+8; per cmd: geomblk = mem_r32(cmd+0x40).
 //   - world transform: euler rot s16 @node+0x54/0x56/0x58 ; position s16 @node+0x2e/0x32/0x36 ;
 //     scale @node+0xb8/0xba/0xbc (0x1000 = 1.0).

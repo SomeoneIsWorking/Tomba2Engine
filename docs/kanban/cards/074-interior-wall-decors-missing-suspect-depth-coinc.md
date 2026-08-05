@@ -5,7 +5,7 @@ status: doing
 labels: [render]
 created: 2026-08-04
 updated: 2026-08-05
-evidence: docs/reference/issues/issue74_house_pc_render_decor_missing.png,   docs/reference/issues/issue74_house_psx_render_decor_present.png
+evidence: docs/reference/issues/issue74_house_pc_render_decor_missing.png,    docs/reference/issues/issue74_house_psx_render_decor_present.png
 ---
 
 **2026-08-04:** USER-REPORTED 2026-08-04: interior wall decors missing, user suspects depth. CRITICAL CONTEXT: this is the same mechanism as kanban #29 (hut-interior wall decals — coincident faces in one OT bucket resolved by submission order), which is handled by RenderQueue::resolveKeyOrder. I rewrote resolveKeyOrder TODAY (psxport ffba3eaa) from pairwise enumeration to witness search. That change was gated by 5 tests pinning the snap set against a brute-force oracle, passing on BOTH sides — so it should be behaviour-preserving. BUT: equivalence to the PREVIOUS behaviour preserves a defect if the decals were already broken before it. Two distinct questions, answer both: (a) were the decors already missing BEFORE ffba3eaa? (b) does ffba3eaa change them at all? Check (a) first by testing a pre-ffba3eaa build; if they were already missing, ffba3eaa is exonerated and the cause is in the 07-28..07-31 window.
@@ -27,3 +27,43 @@ WHAT IT ACTUALLY IS: a layer with NO NATIVE PRODUCER, not a depth or coincident-
 CANDIDATE PRODUCER, not yet confirmed: PSXPORT_DEBUG=otattr + REPL 'otattr' at the frame reports GTE RTPS/RTPT per-node counts of node=0x800FD748 count=636, node=0x800FC9E0 count=185, node=0x800E7E80 count=310, and fn=0x8002AB5C node=0x800EDB80 count=2. 0x800FD748 (636 transforms in ONE frame) is the strongest candidate for the decor emitter — note it is adjacent to, but NOT the same as, the hut decor node 0x800FD850 from #29. CAVEAT ON THAT NUMBER: fn=0 on three of the four rows, i.e. otattr could not attribute the emitting function — its class comment states it is blind to fully-native (non-dispatched) draw paths, so 'fn=0' here means 'not attributed', NOT 'no function'. Do not read the node numbers as a producer identification until the emitter is confirmed by another route (Ghidra on the writer of 0x800FD748, or otattr watch/who on it).
 
 SECOND MISSING LAYER SEEN IN THE SAME PAIR, filed here so it is not lost: psx_render draws a 'Use UP + O to talk' dialog prompt at this frame and pc_render draws nothing there. Same state, same frame. Not investigated.
+
+**2026-08-05:** PRODUCER HUNT, iteration 2 — two hypotheses KILLED, one sharp discrepancy left.
+
+THE NODE, read live at the repro frame (REPL 'r'/'rw'/'ents' at f3000 of house-on-the-point.pad):
+  800FD748  t=03 ri=00 model=0000 h=8012C910 pos=(14596,-2462,809) rf=1 cmds=2 gb0=8018F9AC  [PSX]
+It is in LIST 1, its live byte (+0x01) is 1, it has 2 render commands and a valid geomblk, and its
+behaviour handler 0x8012C910 has NO native owner — codemap.py --addr reports that against a stated
+denominator (1035 indexed natives / 472 install sites / 11 PlatformHle / 48 port-map steps) and lists
+what it is blind to, so 'no owner' here is a real negative and not an empty search.
+
+KILLED HYPOTHESIS 1 — 'collect() skips it because ri != 0x0F'. WRONG, and the source of the error was a
+STALE COMMENT in scene_build.cpp itself: the banner said '0x0F = 3D mesh (we draw these)', describing an
+allow-list. The actual code (line ~92) is a DENY-list: 'if ((ri >= 0x10 && ri <= 0x14) || ri == 0x20)
+continue' — everything else draws, and ri=0x00 is the field's normal static-prop value. So ri=0x00 is NOT
+why this node is missing. Comment fixed in the same commit so the next reader does not lose the same hour.
+
+KILLED HYPOTHESIS 2 — 'the two walkers read different list heads'. WRONG, checked rather than asserted:
+scene_build.cpp:78 and repl.cpp:134 both use the identical triple { 0x800FB168, 0x800F2624, 0x800F2738 }
+and both dereference it. Same lists, same order.
+
+THE REAL DISCREPANCY, and the next thing to chase: over those SAME lists at the SAME frame, 'ents'
+enumerates ~130 nodes while PSXPORT_DEBUG=rendernative reports 'scene: 3 live, 2 3D-mesh nodes, 17
+geomblk objects'. Both walk head -> +0x24 chains. The two loops differ in exactly two ways and one of
+them must explain a 130-vs-3 gap:
+  (a) the LIVE TEST. collect() does 'if (mem_r8(n + 1) == 0) continue' and counts what survives; ents
+      applies no live filter at all. But 800FD748's +0x01 reads 1, so this node should have survived —
+      unless the byte differs AT THE MOMENT collect() RUNS. collect() runs inside the render pass; 'ents'
+      runs from the REPL after the frame completed. If the lists are (re)built or the live flags set
+      later in the frame than the render pass, collect() legitimately sees an almost-empty world and the
+      bug is ORDERING WITHIN THE FRAME, not enumeration. THAT IS THE LEADING HYPOTHESIS and it is
+      directly testable: log n/+0x01/ri per visited node from inside collect() and compare against ents
+      at the same frame.
+  (b) the TERMINATION TEST. collect() walks while 'n >= 0x80000000 && n < 0x80200000 && g < 1024'; ents
+      walks while 'n && g < 400'. A next-pointer that is non-zero but outside [0x80000000,0x80200000)
+      stops collect() DEAD while ents keeps going — so a single out-of-range link early in list 0 would
+      truncate collect() to a handful of nodes and leave ents' count untouched. Also fits 130-vs-3.
+Distinguish (a) from (b) with one instrumented run; do not guess between them.
+
+NOT YET DONE: 0x8012C910 has not been decompiled. Do (a)/(b) first — if collect() is being truncated or
+run too early, the emitter's identity does not matter yet.
