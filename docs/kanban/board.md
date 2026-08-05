@@ -44,7 +44,7 @@
 - **#45 CAMPAIGN: render everything natively — retire the substrate-GTE projection producers to float-native**  `render,campaign`
 - **#47 pc_skip: entering 'House on the Point' corrupts state (music stops, camera unfollows, interior vibrates)**  `bug,pc-skip`
 
-## DONE (39)
+## DONE (40)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -84,3 +84,4 @@
 - **#64 Quest-update banner lerps its LETTERS but not the PLANKS they sit on**  `bug,render,fps60`
 - **#69 Read-only producers cannot use the guest PRNG (FUN_8009A450 writes seed 0x80105EE8) — needs a host-side mirror design**  `render`
 - **#71 Item-announcement banner renders glitchy, worst while the camera moves**  `render` — 📎 docs/reference/issues/item-banner-glitch-2026-08-04.png
+- **#75 the native camera reads its projection constants back out of the GTE**  `render,camera,gte,user-rule,debt`

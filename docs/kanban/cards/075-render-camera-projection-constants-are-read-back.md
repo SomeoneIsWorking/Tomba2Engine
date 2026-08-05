@@ -1,9 +1,15 @@
+---
+id: 75
+title: the native camera reads its projection constants back out of the GTE
+status: done
+labels: [render, camera, gte, user-rule, debt]
+created: 2026-08-05
+updated: 2026-08-05
+---
+
 # 075 — the native camera reads its projection constants back out of the GTE
 
-status: done
-created: 2026-08-05
-tags: render, camera, gte, user-rule, debt
-where: `game/render/scene_build.cpp` `NativeScenePass::collect()`
+where: `game/render/scene_build.cpp` `NativeScenePass::collect()` -> now psxport `ProjParams`
 
 ## What is wrong
 

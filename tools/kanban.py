@@ -25,11 +25,21 @@ CARDS = ROOT / "docs" / "kanban" / "cards"
 BOARD = ROOT / "docs" / "kanban" / "board.md"
 COLS  = ["backlog", "todo", "doing", "done"]
 
+# Cards all_cards() had to drop this run. Read by main() to set a non-zero exit status, so a
+# malformed card is a build-visible failure and not just a line someone scrolled past.
+MALFORMED = []
+
 def today(): return datetime.date.today().isoformat()  # date only; fine for a local tracker
 
 def slug(s):
     s = re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
     return s[:48] or "card"
+
+# A card whose frontmatter is missing or incomplete USED TO take the whole tracker down with a bare
+# `KeyError: 'status'` — no file name, no field name, no hint that one card out of 75 was the problem.
+# A card is easy to hand-write without the `---` fences (that is exactly how #75 was written), so this
+# is a normal thing to get wrong, and the tool has to say WHICH card and WHAT is missing.
+REQUIRED_FIELDS = ("id", "title", "status")
 
 def parse_card(path):
     txt = path.read_text()
@@ -41,14 +51,39 @@ def parse_card(path):
             if ":" in line:
                 k, v = line.split(":", 1); fm[k.strip()] = v.strip()
     fm["_path"] = path; fm["_body"] = body
+    # What is wrong, in the card's own terms — "no --- fences" and "has fences but no status:" are
+    # different mistakes with different fixes, so do not collapse them into one message.
+    if not m:
+        fm["_malformed"] = "no `---` frontmatter block (the file must OPEN with a line that is just `---`)"
+    else:
+        missing = [k for k in REQUIRED_FIELDS if k not in fm]
+        if missing: fm["_malformed"] = "frontmatter is missing: " + ", ".join(missing)
     fm["labels"] = [x for x in re.findall(r"[\w-]+", fm.get("labels", "")) ]
     fm["evidence"] = [x for x in fm.get("evidence", "").split(",") if x.strip()]
-    fm["id"] = int(fm.get("id", 0))
+    try:
+        fm["id"] = int(fm.get("id", 0))
+    except ValueError:
+        fm["_malformed"] = f"id is not a number: {fm.get('id')!r}"
+        fm["id"] = 0
     return fm
 
 def all_cards():
-    return sorted((parse_card(pathlib.Path(p)) for p in glob.glob(str(CARDS / "*.md"))),
-                  key=lambda c: c["id"])
+    """Every WELL-FORMED card, with malformed ones reported by NAME rather than skipped or fatal.
+
+    Skipping silently would be worse than the crash it replaces: a card that vanishes from `list`
+    reads as "that bug does not exist". Dying on the first bad card is also wrong — one hand-written
+    card should not make the tracker unusable. So the good cards are returned, the bad ones are named
+    loudly on stderr with their count, and the CLI exits non-zero (see main) so a script cannot treat
+    a partial board as complete."""
+    parsed = [parse_card(pathlib.Path(p)) for p in glob.glob(str(CARDS / "*.md"))]
+    bad = [c for c in parsed if c.get("_malformed")]
+    if bad:
+        MALFORMED.extend(bad)
+        print(f"kanban: {len(bad)} of {len(parsed)} card(s) are MALFORMED and are missing from the "
+              f"board below:", file=sys.stderr)
+        for c in bad:
+            print(f"  {c['_path'].relative_to(ROOT)} — {c['_malformed']}", file=sys.stderr)
+    return sorted((c for c in parsed if not c.get("_malformed")), key=lambda c: c["id"])
 
 def write_card(c):
     fm = ["---", f"id: {c['id']}", f"title: {c['title']}", f"status: {c['status']}",
@@ -184,6 +219,9 @@ def main():
     s = sub.add_parser("board"); s.set_defaults(fn=cmd_board)
     s = sub.add_parser("rm"); s.add_argument("id"); s.set_defaults(fn=cmd_rm)
     a = p.parse_args(); a.fn(a)
+    # Non-zero when any card could not be read, so `kanban.py list` in a gate FAILS rather
+    # than reporting a board that is quietly short a bug.
+    if MALFORMED: sys.exit(1)
 
 if __name__ == "__main__":
     main()
