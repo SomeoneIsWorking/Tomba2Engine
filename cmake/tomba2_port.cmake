@@ -273,7 +273,8 @@ set(GAME_SRC
   game/render/text_label.cpp
   game/render/render_walk_dispatch.cpp
   game/render/overlay_type_dispatch.cpp
-  game/render/objlist_walk.cpp)
+  game/render/objlist_walk.cpp
+  game/render/queue_dispatch.cpp)
 
 # The recompiler substrate: the statically-recompiled shards (C++ content in .c files) = the game
 # binary MAIN.EXE + each OVERLAY module. emit.py writes the exact TU list to

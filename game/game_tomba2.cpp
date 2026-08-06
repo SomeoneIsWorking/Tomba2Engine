@@ -165,6 +165,12 @@ void Engine::drawOTag(uint32_t otHead) {   // called directly from native_step_f
   // renderer happened to be active — and a mid-scene switch out of psx_render then lost the backdrop and
   // the scene table permanently (kanban #41; the mechanism is written up on Render::areaCacheTrustTick).
   rend(c)->areaCacheTrustTick();
+  // Same rule, same reason (kanban #78): which VRAM page holds this frame's backdrop atlas is a fact
+  // about GUEST state, and the OT walk needs it to band the guest's own 16x16 sky/sea tiles as backdrop
+  // rather than HUD. It used to be published only by the native backdrop producer, which runs only on
+  // the pc_render branch below — so under psx_render all 352 of area 0's tiles landed in RQ_HUD (the
+  // topmost 2D band) and painted over the 617 world polys the substrate had just drawn.
+  rend(c)->backdropTexpagePublishTick();
 
   // ============================================================================================
   // REFERENCE RENDERER (psx_render) — the substrate guest-OT walk. This is now the ONLY caller of

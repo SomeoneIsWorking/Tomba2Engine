@@ -20,6 +20,8 @@
 #include "projection.h"   // EObjXform (per-object world-coord float projection; ops on Render)
 #include "render_internal.h"
 #include "cube_text_banner.h"
+#include "queue_dispatch.h"   // the guest's own class->queue->per-type render routing (kanban #77)
+#include "cull.h"             // Cull::submittedThisFrame — the PUSH-TIME submission record
 #include "player/actor_tomba.h"   // ActorTomba::G_ADDR — Tomba's node, outside the 3 generic entity lists
 #include <stdio.h>
 #include <string.h>
@@ -179,6 +181,54 @@ bool Render::backdropTilemapDrawer(int& vAdd) {
   return false;
 }
 
+// BACKDROP ATLAS TEXPAGE — a per-frame FACT ABOUT GUEST STATE, published for BOTH render modes.
+//
+// "Which VRAM page holds this frame's sky/sea tiles" is not part of building a picture: it is the key
+// the OT walk uses to recognise the GUEST background drawer's own 16x16 tiles (gpu_native.cpp
+// sprite_is_bg_texpage) and band them RQ_BACKGROUND. Without it a screen-space sprite falls through to
+// `bg_2d`'s coverage heuristic, which a 16x16 tile can never satisfy, so it lands in RQ_HUD — the
+// TOPMOST 2D band — and is painted over the world.
+//
+// It used to be published only from Render::backdropRender, which runs only inside renderScene(), i.e.
+// only on the pc_render arm of Engine::drawOTag. psx_render returns from drawOTag before renderScene,
+// so on the reference leg it was NEVER published and every backdrop tile the guest emitted occluded the
+// whole frame. MEASURED 2026-08-06, area 0 free-roam f3100, PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1,
+// PSXPORT_PRIMDUMP: 972 prims walked = 617 is3d world polys + 355 sprites, and 355/355 sprites carried
+// bg=0 — 352 of them the 16x16 tiles of texpage (896,0), the backdrop atlas named in the banner below.
+// The reference renderer therefore drew the whole village and then painted the sea over it.
+//
+// This is the SAME defect, and the same fix, as areaCacheTrustTick (kanban #41): per-logic-frame guest
+// state tracking that both render modes need must be ticked BEFORE the render-mode branch, never from
+// inside one arm. It is the ONLY publisher — backdropRender no longer publishes.
+//
+// Gate: the guest's OWN dispatch resolution — backdropTilemapDrawer, which resolves the resident drawer
+// through the field bg-state jump table and its dispatch gate exactly as the guest field dispatcher does
+// (see that function; it owns those addresses). NOT
+// mBackdropTrusted. That latch answers "may OUR native producer draw", which is a different question —
+// the guest emitted its tiles from this struct whether or not we trust it, so the page it sampled is a
+// fact about what is in the OT. Read-only: guest RAM + resident code words, no guest write.
+void Render::backdropTexpagePublishTick() {
+  Core* c = mCore;
+  constexpr uint32_t kParallaxBgSm  = 0x800ED018u;  // the backdrop tilemap state struct (see banner below)
+  constexpr uint32_t kBgTpageOff    = 0x04u;        // +0x04 hword tpage
+  int vAdd = 0;
+  const bool tilemapBackdrop = backdropTilemapDrawer(vAdd);
+  int tp_x = -1, tp_y = -1;
+  if (tilemapBackdrop) {
+    const uint16_t tpage = c->mem_r16(kParallaxBgSm + kBgTpageOff);
+    tp_x = (tpage & 0xF) * 64;
+    tp_y = ((tpage >> 4) & 1) * 256;
+    void gpu_bg_texpage_set(Core*, int, int); gpu_bg_texpage_set(c, tp_x, tp_y);
+  }
+  // A silent negative here is indistinguishable from "the tick never ran", and the consequence of a
+  // negative is invisible-world, so the line always carries WHICH branch was taken and the guest bytes
+  // it turned on: tilemap=0 means the resident drawer is not the shared tilemap routine (area 14/21 and
+  // the state>=16 areas — an honest unported-backdrop gap, and those areas' guest tiles, if any, will
+  // still band as HUD), tilemap=1 names the page that was published.
+  lucent::debug("bgtp", "tilemap={} tp=({},{}) bgstate={} bggate={}", (int)tilemapBackdrop, tp_x, tp_y,
+                c->mem_r8(0x800BF870u), c->mem_r8(0x800BF873u));
+}
+
 // NATIVE BACKDROP tilemap drawer — overlay FUN_80115598 (the seaside field's state-0 background drawer,
 // reached via 0x8003df04's 16-state jump table @0x80014fc0; state 0 → 0x8003df74 → 0x80115598). This is the
 // sky + distant parallax hills (the only thing the decoupled native scene was missing — verified by SKIPPASS
@@ -210,13 +260,10 @@ void Render::backdropRender(uint32_t t4) {
   // non-override call) and skip drawing every tile; the present re-renders the backdrop from mSink.
   if (c->game->fps60.mWorldCaptureOnly) {
     int sx, sy; c->game->fps60.bgScroll(c, t4, sx, sy);
-    // PRESERVE the ONE non-draw side effect: publish this frame's backdrop texpage so the guest OT-walk
-    // still drops its redundant sky/sea tiles (sprite_is_bg_texpage). Skipping the tile draw is safe (the
-    // present re-renders it) but skipping this publish is NOT — the redundant guest tiles regress to RQ_HUD
-    // and occlude the world (render.md OPEN #1). Same tp derivation as the draw path below.
-    uint16_t tpage = c->mem_r16(t4 + 0x04);
-    int tp_x = (tpage & 0xF) * 64, tp_y = ((tpage >> 4) & 1) * 256;
-    void gpu_bg_texpage_set(Core*, int, int); gpu_bg_texpage_set(c, tp_x, tp_y);
+    // The backdrop texpage publish that used to live here (and in the draw path below) is gone: it is
+    // per-frame guest-state tracking, so it belongs to backdropTexpagePublishTick, which Engine::drawOTag
+    // runs BEFORE the render-mode branch. Publishing it from a producer made it a function of which
+    // renderer was active, which is what left psx_render's own backdrop tiles in RQ_HUD.
     return;
   }
   // TILE V-OFFSET — the seaside FIELD drawer (FUN_80115598) samples each tile at v = (tile&0xF0)+8; the
@@ -238,12 +285,8 @@ void Render::backdropRender(uint32_t t4) {
   uint16_t clutbase = c->mem_r16(t4 + 0x06);
   int tp_x = (tpage & 0xF) * 64, tp_y = ((tpage >> 4) & 1) * 256;
   int mode = (tpage >> 7) & 3; if (mode > 2) mode = 2;
-  // Publish THIS frame's backdrop texpage so the OT walk can recognize the GUEST background drawer's
-  // redundant sky/sea tiles (FUN_80115598) and drop them on the field: the native backdrop (this fn) already
-  // owns the sky/sea as RQ_BACKGROUND. Replaces the dead ov_bg_tilemap packet-span provenance (orphaned by
-  // the override-system removal 2026-06-22), which is why the redundant tiles regressed to RQ_HUD and
-  // occluded the world (render.md OPEN #1). Data-derived (real backdrop tpage), not a magic constant.
-  void gpu_bg_texpage_set(Core*, int, int); gpu_bg_texpage_set(c, tp_x, tp_y);
+  // (This frame's backdrop texpage is published by backdropTexpagePublishTick, before the render-mode
+  // branch — not from here. See that function.)
   // WIDESCREEN backdrop coverage (root-cause fix for the [320,nw) atlas-garbage band): the PSX body tiles
   // a 320-wide window centred at screen-x 160 (t5 = ...+0x160 = 352 = 320+32 slack). At a wide aspect the
   // engine projects the world with OFX=nw/2, so the visible field spans [0,nw) — but the sky/parallax
@@ -717,50 +760,58 @@ void Render::ringNodeCensus() {
 }
 
 // ---- the guest's own render-submission set for HEADS[0] (kanban #77) -----------------------------
-// MEASURED 2026-08-06, and this is the whole point of the card. The guest has NO RENDER WALK over
-// HEADS[0] (0x800FB168). The only guest functions that touch that head are the list-MANAGEMENT family
-// gen_func_{80079C3C,8007A2C8,8007A624,8007A904,8007ADDC,8007B04C} — spawn/unlink/behaviour-walk — and
-// not one of them dispatches a renderer. The guest's three RENDER walks are:
-//   gen_func_8003C048  over HEADS[1] 0x800F2624, per-type table 0x80014DB8 (33 entries)
-//   the objListWalk4 family over HEADS[2] 0x800F2738, per-type table 0x80015000 (33 entries)
-//   gen_func_8003BB50  over QUEUE B (the cull's class-4 render list), per-type table 0x80014A70
-// So a HEADS[0] node reaches vanilla's picture ONLY by being pushed onto one of the cull's three
-// render queues, and the push is CLASS-KEYED: FUN_8007712C's tail and FUN_8007703C push class 4 to
-// queue B, classes 2/9 to queue A, class 5 to queue C, and "other -> no-op". A HEADS[0] node of any
-// other class is marked visible (node+1 = 1) and then drawn by NOBODY.
+// RESOLVED 2026-08-06 — and the answer was "the arm was drawing very nearly the right set all
+// along". Full account + the numbers: docs/findings/render.md, this section's RESOLVED block.
 //
-// This walk flushes every visible HEADS[0] node with render commands regardless — the file's own
-// "HEADS[0]: table not yet RE'd — keep the flush-all behavior (existing)". That is the standing gap,
-// and kanban #77's T1 blocker (area 13, the green mass between camera and player) IS a HEADS[0] node:
-// suppressing this arm removes that blob and nothing else in that scene (A/B 2026-08-06,
-// scratch/shots/blockcull-ab/{before,after}_a13.png, 2787/76800 px).
+// HEADS[0] (0x800FB168) has NO render walk of its own. Its nodes reach vanilla's picture through the
+// three CULL RENDER QUEUES: the cull routes a KEPT node by its CLASS byte (+0xC) onto one queue, and
+// that queue's consumer walk routes it again by its TYPE byte (+0xB) through the walk's own jump
+// table — where a type can land on a dedicated NO-OP arm and draw nothing at all. Both decisions are
+// modelled read-only in queue_dispatch.h (tables dumped from the RUNNING game, not guessed), and the
+// arm below applies them instead of flushing the whole list.
 //
-// TWO THINGS THAT LOOK LIKE THE FIX AND ARE NOT — both MEASURED, do not re-derive them:
-//  1. "Gate HEADS[0] on the cull's render-queue membership." The queues (0x1F80013C/148/154 with
-//     counters 0x1F800144/150/15C) are ALREADY DRAINED AND RESET by the time this display-pass walk
-//     runs: measured live=45 nodes in area 13 with inGuestQueue=0 for ALL of them, 42 of which are
-//     class 4 — the very class the cull pushes to queue B. So the membership read is sampled at the
-//     wrong point in the frame and can only ever answer "no". Gating on it deletes the whole arm.
-//  2. "Gate HEADS[0] on the class byte (+0xC), since FUN_8007703C queues only classes 4/2/9/5."
-//     In the actual repro scene EVERY live HEADS[0] node is already class 2 or 4 (45/45 in a13,
-//     27/27 in a14), so that filter removes NOTHING there. It is not the mechanism.
-//  And it is not the whole card either: kanban #77's T2 blocker (area 14, the wall of water) is NOT
-//  a HEADS[0] node — suppressing this arm leaves it pixel-identical (the only a14 delta was 459 px
-//  of the PLAYER vanishing, which is itself evidence the arm carries legitimate content).
-// The real fix needs the guest's own submission rule for these nodes — i.e. RE'ing which walk
-// consumes queue B (gen_func_8003BB50, per-type table 0x80014A70) and reproducing THAT, so the arm
-// draws the set the guest draws instead of everything.
+// WHAT THE MEASUREMENT SAID, so nobody re-runs it: at the kanban #77 T1 repro (area 13) the two sets
+// are EQUAL. All 15 live nodes are type 0 and route to the guest's own mesh flush; 14 of 15 are on
+// the frame's own submission list; dropping the 15th costs 0/76800 px. Across all 22 areas the
+// guest-rule leg is pixel-identical to the old flush-all leg (area 3 crashes identically on both).
+// The rule is NOT vacuous — in area 15 it drops a type-2 node whose arm is an area-overlay renderer,
+// not the mesh flush — it simply never changed a picture in any sampled frame. And the psx reference
+// leg (PSXPORT_ORACLE=1) draws the T1 green mass and the T2 water wall in the same places the port
+// does, so NEITHER blocker is geometry this port invented. #77's cause is elsewhere; the leading
+// untested suspect is that the repro places TOMBA at coordinates the user read off the CAMERA.
+//
+// DEAD ENDS, MEASURED — do not re-derive:
+//  1. "Gate on the cull queues, they are drained by display time so it cannot be done." The drained
+//     thing is the ACCUMULATOR pair (0x1F80013C/144 etc). The first consumer walk of each frame
+//     SNAPSHOTS it into a second pair (0x1F800140/146, 0x1F80014C/152, 0x1F800158/15E) and resets
+//     the accumulator; the snapshot IS the list the walk consumed and it survives to display time.
+//     Every earlier "queueCounters=(0,0,0), queued by nobody" reading sampled the accumulator.
+//  2. "Instrument the cull at its PUSH SITE." Structurally blind on the PSXPORT_GATE=1 leg: the
+//     whole cull family runs as the substrate there (PSXPORT_DEBUG=ovhit -> Cull::cullWrapper
+//     native=0 / oracle=86368), so cull.cpp's census prints nothing however many frames you run.
+//  3. "Gate on the class byte (+0xC)." Removes nothing: every live HEADS[0] node in a13 and a14 is
+//     already class 2 or 4, both of which have queues.
+//  4. "gen_func_8003BB50 consumes queue B." It consumes queue A. Queue B's consumer is
+//     FUN_8003BCF4 (Render::objListWalk2), table 0x80014CB0.
+//
+// STILL NOT MODELLED HERE, and it belongs with the above when this arm is next touched:
+// perObjRenderDispatch (FUN_8003CCA4) itself early-returns when (node[+0xD] & 11) >= 9. At T1 every
+// node has node[+0xD] in {0,1}, so it changes nothing there — but it is a third real gate.
 
-// `heads0` instrument. Per-frame census of the HEADS[0] arm, ALWAYS carrying its denominator. The
-// three silences are kept apart on purpose: no line at all = fieldObjectsRender never ran; `live=0` =
-// the list was empty, so nothing was measured; a `live=N` line with `queuedNow=0` does NOT mean the
-// nodes are unsubmitted — it means the queues read empty AT THIS SAMPLE POINT, which is trap 1 above.
-// The queue counters are printed raw for exactly that reason: a future reader can see they are zero
-// rather than infer a verdict from a derived boolean.
+// `heads0` instrument. Per-frame census of the HEADS[0] arm, ALWAYS carrying its denominators. The
+// silences are kept apart on purpose: no line at all = fieldObjectsRender never ran; `live=0` = the
+// list was empty, so nothing was measured. `queuedNow` reads the ACCUMULATOR pair and is therefore
+// expected to be 0 at this sample point — it is printed raw, next to the counters it comes from, so
+// nobody mistakes it for "these nodes were not submitted" (dead end 1 above). The real membership
+// answer is `onFrameSubmitList`, which reads the walks' snapshot pair. The VERDICT line then carries
+// `frameSubmitListEntries` and `nativeCullPushes`: a zero in either is a fact about the INSTRUMENT
+// (nothing on the list at all / the cull ran as the substrate), never a verdict about the nodes.
 void Render::heads0Census(uint32_t node) { Core* c = mCore;
   mH0.live++;
   mH0.byClass[c->mem_r8(node + 0xC) & 0xF]++;
   if (nodeInCullRenderQueue(c, node)) mH0.queuedNow++;
+  if (mH0.n >= H0_CAP) { mH0.overflow++; return; }
+  mH0.node[mH0.n++] = H0Node{ node, c->mem_r8(node + 0xC), c->mem_r8(node + 0xB) };
 }
 
 // Queue layout (RE'd, same constants Cull::performBaseCull writes): the pointer grows DOWNWARD, so a
@@ -793,6 +844,36 @@ void Render::heads0Flush(int frame) { Core* c = mCore;
                 frame, mH0.live, cls.view(),
                 (int)c->mem_r16s(0x1F800144u), (int)c->mem_r16s(0x1F800150u), (int)c->mem_r16s(0x1F80015Cu),
                 mH0.queuedNow);
+  // The axis the class census could not see (kanban #77): for each node the arm drew, what the
+  // GUEST's own queue walk would have done with it — the queue its class routes it to, the per-type
+  // jump-table target, and whether that arm is the mesh flush or a dedicated NO-OP.
+  // `onFrameSubmitList` reads the walks' per-frame SNAPSHOT pair, which is the list the walk actually
+  // consumed and survives to this sample point (the accumulator `queuedNow` reads does not).
+  const int submittedTotal = GuestQueueDispatch::submittedTotal(c);
+  const long cullPushes = eng(c).cull.submitLog().routed;
+  long meshArm = 0, submitted = 0, drawnByGuest = 0;
+  for (int i = 0; i < mH0.n; i++) {
+    const H0Node& hn = mH0.node[i];
+    const GuestQueueDispatch::Route r = GuestQueueDispatch::routeFor(c, hn.node);
+    const bool meshes = GuestQueueDispatch::guestFlushesMesh(r);
+    const bool onList = GuestQueueDispatch::submittedThisFrame(c, hn.node, r.queue);
+    if (meshes) meshArm++;
+    if (onList) submitted++;
+    if (meshes && onList) drawnByGuest++;
+    lucent::debug("heads0", "f{}   node={:08X} class={} type={} queue={} target={:08X} arm={} "
+                            "meshArm={} onFrameSubmitList={}",
+                  frame, hn.node, hn.objClass, hn.type, GuestQueueDispatch::queueName(r.queue),
+                  r.target, GuestQueueDispatch::armName(r.arm), meshes ? 1 : 0, onList ? 1 : 0);
+  }
+  // The verdict line carries EVERY denominator a negative needs: how many nodes were examined, how
+  // many entries the guest's own submission snapshot held this frame at all (0 there means the read
+  // itself found nothing — NOT that these nodes were rejected), and how many pushes the NATIVE cull
+  // recorded (0 on the PSXPORT_GATE leg, where the cull runs as the substrate and the push-site
+  // record is structurally blind — see docs/findings/render.md).
+  lucent::debug("heads0", "f{} VERDICT examined={} (overflow={}) meshArm={} onSubmitList={} "
+                          "drawnByGuest={} | frameSubmitListEntries={} nativeCullPushes={}",
+                frame, mH0.n, mH0.overflow, meshArm, submitted, drawnByGuest,
+                submittedTotal, cullPushes);
 }
 
 void Render::fieldObjectsRender() {
@@ -997,14 +1078,21 @@ void Render::fieldObjectsRender() {
       // "don't render any unowned things"), rather than a guessed-transform mesh.
       //   HEADS[1] 0x800F2624 (renderWalk 0x80014DB8): mesh {0,15} · pre-composed {1,4}
       //   HEADS[2] 0x800F2738 (objListWalk4 0x80015000): mesh {0,1,15} (1 = EF30 mesh + B704 beams)
-      //   HEADS[0] 0x800FB168: table not yet RE'd — keep the flush-all behavior (existing).
+      //   HEADS[0] 0x800FB168: no table of its own — routed via the CULL QUEUES (queue_dispatch.h).
       bool mesh = true, pre = false;
       if (h == 1) { mesh = (type == 0 || type == 15); pre = (type == 1 || type == 4); }
       else if (h == 2) { mesh = (type == 0 || type == 1 || type == 15); }
       else {
-        // HEADS[0] — still the flush-all behaviour. DO NOT gate this on queue membership: tried and
-        // MEASURED 2026-08-06 (kanban #77), it is wrong twice over. See heads0Flush's banner.
+        // HEADS[0] (kanban #77). This list has NO render walk of its own, so its nodes reach
+        // vanilla's picture only by being on one of the three CULL RENDER QUEUES, whose consumer
+        // walk then routes each entry by its TYPE byte. Reproduce exactly that pair of guest
+        // decisions — the frame's own submission list, and the guest's own per-type jump table —
+        // instead of flushing the whole list. Both come from the game's own state (see
+        // queue_dispatch.h); neither is a threshold of ours.
         heads0Census(n);
+        const GuestQueueDispatch::Route route = GuestQueueDispatch::routeFor(c, n);
+        mesh = GuestQueueDispatch::guestFlushesMesh(route) &&
+               GuestQueueDispatch::submittedThisFrame(c, n, route.queue);
       }
       if (!mesh && !pre) continue;
       c->rsub.stats.snObjs++; c->rsub.stats.snCmds += c->mem_r8(n + 8);

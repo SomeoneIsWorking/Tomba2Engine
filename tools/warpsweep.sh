@@ -65,7 +65,16 @@ for a in "${areas[@]}"; do
     continue
   fi
   rc_pc=$(leg "$a" pc)
-  rc_psx=$(leg "$a" psx PSXPORT_RENDER_PSX=1)
+  # THE REFERENCE LEG IS `PSXPORT_ORACLE=1`, NOT `PSXPORT_RENDER_PSX=1` (kanban #78, 2026-08-06).
+  # RENDER_PSX walks the guest OT but hands every prim to the NATIVE render queue's layer split
+  # (is3d -> RQ_WORLD, sprite -> bg ? RQ_BACKGROUND : RQ_HUD), and that split needs a native producer to
+  # have published this frame's backdrop texpage. On the RENDER_PSX leg the native producers do not run,
+  # so every 16x16 backdrop tile the guest emitted fell to RQ_HUD — the topmost band — and painted over
+  # the world: measured area 0 f3100, 972 prims walked = 617 world polys + 355 sprites with 355/355
+  # bg=0, and the capture showed SKY AND SEA ONLY. ORACLE implies GATE + RENDER_PSX and additionally
+  # forces pure OT painter order (gpu_native.cpp: `is3d = 0; bg = 0` under game->oracle), so no native
+  # band/depth decision can touch the picture. That is the leg that is actually a reference.
+  rc_psx=$(leg "$a" psx PSXPORT_ORACLE=1)
   line=$(python3 tools/render_cmp.py diff "$out/${tag}${a}_pc.png" "$out/${tag}${a}_psx.png" | tail -1)
   rc_cmp=$?
   printf 'area %-3s pc_exit=%-3s psx_exit=%-3s cmp_exit=%-3s %s\n' \

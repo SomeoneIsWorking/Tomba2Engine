@@ -11,10 +11,12 @@
 #include "cfg.h"
 #include "render.h"   // rend(c)->margin (widescreen margin collect)
 #include "cull.h"
+#include "queue_dispatch.h"      // the guest's own class->queue->per-type routing (kanban #77)
 #include "override_registry.h"   // overrides::install — the one native-override registry
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <lucent/log.h>          // `cullpush` push-time submission census (kanban #77)
 void rec_super_call(Core*, uint32_t);
 void rec_dispatch(Core*, uint32_t);
 uint32_t eng_isqrt16(uint32_t);
@@ -151,20 +153,75 @@ Cull::Decision Cull::decide() { Core* c = core;
 void Cull::performBaseCull() { Core* c = core;
   uint32_t obj = c->r[4];
   Decision R = decide();
+  submitLogRoll();                                        // kanban #77 census, host-side only
+  mSubmit.culled++;
   c->mem_w8(obj + 1, 0);                                  // prologue `sb zero,1(s3)`
   if (R.wrote_state2) c->mem_w32(0x1F800084u, 2);
   if (!R.kept) { c->r[2] = 0; return; }
   c->mem_w8(obj + 1, 1);
   c->r[2] = 1;
+  mSubmit.kept++;
   if (R.queue) {
     int qi = R.queue - 1;
     int32_t cnt = c->mem_r16s(CULL_QCNT[qi]);
-    if (cnt < CULL_QCAP[qi]) {
+    const bool accepted = cnt < CULL_QCAP[qi];
+    if (accepted) {
       uint32_t ptr = c->mem_r32(CULL_QPTR[qi]);
       c->mem_w32(CULL_QPTR[qi], ptr - 4);
       c->mem_w32(ptr - 4, obj);
       c->mem_w16(CULL_QCNT[qi], (uint16_t)(cnt + 1));
     }
+    noteQueuePush(obj, R.queue, accepted);
+  }
+}
+
+// ---- kanban #77 PUSH-TIME SUBMISSION CENSUS -------------------------------------------------------
+// See cull.h. Sampled HERE because the queues are drained and reset before the display pass; a
+// display-pass read of them can only ever answer "not queued", which is how an earlier instrument
+// produced a false "orphan 45/45". Host memory only — nothing below writes guest RAM.
+void Cull::noteQueuePush(uint32_t obj, int queue, bool accepted) { Core* c = core;
+  mSubmit.routed++;
+  if (!accepted) mSubmit.capRejected++;
+  if (mSubmit.n >= SUBMIT_CAP) { mSubmit.overflow++; return; }
+  mSubmit.entry[mSubmit.n++] = QueueSubmission{ obj, (uint8_t)queue, c->mem_r8(obj + 0xC),
+                                                c->mem_r8(obj + 0xB), accepted };
+}
+
+bool Cull::submittedThisFrame(uint32_t node) const {
+  for (int i = 0; i < mSubmit.n; i++)
+    if (mSubmit.entry[i].node == node && mSubmit.entry[i].accepted) return true;
+  return false;
+}
+
+void Cull::submitLogRoll() { Core* c = core;
+  const int f = c->game->gpu.s_frame;
+  if (f == mSubmit.frame) return;
+  if (mSubmit.frame >= 0) submitLogFlush(mSubmit);
+  mSubmit = SubmitLog{};
+  mSubmit.frame = f;
+}
+
+// The census. Its NEGATIVE carries its denominator on purpose: a frame in which nothing was pushed
+// still prints how many objects the cull looked at and how many it kept, so "no pushes" can never be
+// confused with "the cull never ran".
+void Cull::submitLogFlush(const SubmitLog& log) const { Core* c = core;
+  if (log.culled == 0 && log.routed == 0) {
+    lucent::debug("cullpush", "f{} neither the cull nor any manual enqueue ran this frame — NOTHING "
+                              "was measured, this is not evidence that nothing was submitted",
+                  log.frame);
+    return;
+  }
+  lucent::debug("cullpush", "f{} culled={} kept={} routedToAQueue={} capRejected={} recorded={} "
+                            "overflow={}",
+                log.frame, log.culled, log.kept, log.routed, log.capRejected, log.n, log.overflow);
+  for (int i = 0; i < log.n; i++) {
+    const QueueSubmission& e = log.entry[i];
+    const GuestQueueDispatch::Route r = GuestQueueDispatch::routeFor(c, e.node);
+    lucent::debug("cullpush", "f{}   push node={:08X} class={} type={} queue={} accepted={} "
+                              "target={:08X} arm={} guestDrawsMesh={}",
+                  log.frame, e.node, e.objClass, e.type, GuestQueueDispatch::queueName(r.queue),
+                  e.accepted ? 1 : 0, r.target, GuestQueueDispatch::armName(r.arm),
+                  GuestQueueDispatch::guestFlushesMesh(r) ? 1 : 0);
   }
 }
 
@@ -201,8 +258,10 @@ void Cull::coneCull2b278() { Core* c = core;
 // render list (list ptr @ CULL_QPTR[1] = 0x1F800148, counter @ CULL_QCNT[1] = 0x1F800150, cap 40).
 // Byte-exact match to the guest body's slti-40 gate + list-ptr decrement + write + counter bump.
 uint32_t Cull::enqueueVisibleClass4(uint32_t obj) { Core* c = core;
+  submitLogRoll();
   int32_t cnt = c->mem_r16s(CULL_QCNT[1]);
-  if (cnt >= CULL_QCAP[1]) return 0;                      // list full — v0 = 0 (matches recomp)
+  if (cnt >= CULL_QCAP[1]) { noteQueuePush(obj, 2, false); return 0; }   // list full — v0 = 0 (matches recomp)
+  noteQueuePush(obj, 2, true);
   uint32_t ptr = c->mem_r32(CULL_QPTR[1]);
   c->mem_w32(CULL_QPTR[1], ptr - 4);
   c->mem_w32(ptr - 4, obj);
@@ -233,8 +292,10 @@ uint32_t Cull::enqueueByClass(uint32_t obj) { Core* c = core;
 // RE'd from disas 0x80077E7C..0x80077EB8. Six substrate callers: game/world/entity.cpp (4x),
 // beh_variant_actor_sm, beh_jumptable_release_trigger.
 uint32_t Cull::enqueueQueueA(uint32_t obj) { Core* c = core;
+  submitLogRoll();
   int32_t cnt = c->mem_r16s(CULL_QCNT[0]);
-  if (cnt >= CULL_QCAP[0]) return 0;                      // queue full — v0 = 0 (matches recomp)
+  if (cnt >= CULL_QCAP[0]) { noteQueuePush(obj, 1, false); return 0; }   // queue full — v0 = 0 (matches recomp)
+  noteQueuePush(obj, 1, true);
   uint32_t ptr = c->mem_r32(CULL_QPTR[0]);
   c->mem_w32(CULL_QPTR[0], ptr - 4);
   c->mem_w32(ptr - 4, obj);
@@ -247,8 +308,10 @@ uint32_t Cull::enqueueQueueA(uint32_t obj) { Core* c = core;
 // CULL_QPTR[2] = 0x1F800154, counter @ CULL_QCNT[2] = 0x1F80015C, cap 28). RE'd verbatim from disas
 // 0x80077EFC..0x80077F38. Return convention matches enqueueQueueA (0 on cap-hit, new count on push).
 uint32_t Cull::enqueueQueueC(uint32_t obj) { Core* c = core;
+  submitLogRoll();
   int32_t cnt = c->mem_r16s(CULL_QCNT[2]);
-  if (cnt >= CULL_QCAP[2]) return 0;
+  if (cnt >= CULL_QCAP[2]) { noteQueuePush(obj, 3, false); return 0; }
+  noteQueuePush(obj, 3, true);
   uint32_t ptr = c->mem_r32(CULL_QPTR[2]);
   c->mem_w32(CULL_QPTR[2], ptr - 4);
   c->mem_w32(ptr - 4, obj);

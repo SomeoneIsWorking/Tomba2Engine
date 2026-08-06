@@ -511,7 +511,15 @@ public:
   // the arm; it does NOT gate it. Read the banner in render_walk.cpp before changing that — it records
   // the two gates that were tried and measured wrong.
   bool nodeInCullRenderQueue(Core* c, uint32_t node);   // DIAGNOSTIC ONLY (queues are reset by now)
-  struct H0Census { int frame = -1; long live = 0, queuedNow = 0; long byClass[16] = {0}; };
+  static constexpr int H0_CAP = 128;                    // recorded nodes per frame; beyond it we count
+  struct H0Node { uint32_t node; uint8_t objClass; uint8_t type; };
+  struct H0Census {
+    int  frame = -1;
+    long live = 0, queuedNow = 0, overflow = 0;
+    long byClass[16] = {0};
+    int  n = 0;
+    H0Node node[H0_CAP];
+  };
   H0Census mH0;
   void heads0Census(uint32_t node);
   void heads0Flush(int frame);
@@ -588,6 +596,13 @@ public:
   // the file-local `render_bg_tilemap_native` (render_walk.cpp); promoted to a method so tier1Render can
   // call the SAME pass, mirroring terrainRenderAll/fieldEntityRender.
   void backdropRender(uint32_t t4);
+
+  // backdropTexpagePublishTick — publish THIS frame's backdrop atlas texpage (the VRAM page the guest's
+  // own background drawer samples), the key gpu_native's OT walk uses to band the guest's 16x16 backdrop
+  // tiles RQ_BACKGROUND instead of RQ_HUD. Per-LOGIC-FRAME guest-state tracking, so Engine::drawOTag runs
+  // it BEFORE the render-mode branch, exactly like areaCacheTrustTick — publishing it from inside a
+  // pc_render producer is what made psx_render paint the sea over the whole world. Read-only.
+  void backdropTexpagePublishTick();
 
   // backdropTilemapDrawer — resolve the resident field/narration backdrop drawer the guest would
   // dispatch (gen_func_8003DF04 @0x8003DF04) and report whether it is the SHARED tilemap routine (the one

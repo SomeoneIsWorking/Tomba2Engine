@@ -85,6 +85,26 @@ public:
   // Returns v0 = new 1-based count on push, 0 on cap-hit or unknown class (matches recomp).
   uint32_t enqueueByClass(uint32_t obj);
 
+  // ---- SUBMISSION RECORD (kanban #77) -----------------------------------------------------------
+  // The cull is the ONLY place a node enters one of the three render queues, and those queues are
+  // DRAINED AND RESET by the consumer walks before the display pass runs. So "was this node
+  // submitted for rendering this frame" is a question only the PUSH SITE can answer — a display-pass
+  // read of the queues can only ever say "no", which is precisely how an earlier instrument came to
+  // report a false "queued by nobody, 45/45". This record is HOST MEMORY ONLY (no guest write, so
+  // the SBS byte-compare is untouched) and it is per-Cull-instance, so the two SBS cores never share
+  // it. `PSXPORT_DEBUG=cullpush` prints it, with its denominators.
+  static constexpr int SUBMIT_CAP = 256;                 // beyond this we count, we do not store
+  struct QueueSubmission { uint32_t node; uint8_t queue; uint8_t objClass; uint8_t type; bool accepted; };
+  struct SubmitLog {
+    int  frame = -1;
+    long culled = 0, kept = 0, routed = 0, capRejected = 0, overflow = 0;
+    int  n = 0;
+    QueueSubmission entry[SUBMIT_CAP];
+  };
+  // True iff this frame's cull pushed `node` onto a render queue AND the queue accepted it.
+  bool submittedThisFrame(uint32_t node) const;
+  const SubmitLog& submitLog() const { return mSubmit; }
+
   // enqueueVisibleClass4 (FUN_80077EBC): MANUAL push of `obj` onto render class 4's list — the same
   // list-add tail performBaseCull runs when the base cull KEEPS a class-4 object, but callable
   // directly by beh_ handlers whose scene-specific logic decides an object should render this frame
@@ -159,6 +179,13 @@ private:
   int cullFarMult();
   int cullFarMultFaithful();
   int cullFarMultSkip();
+
+  // Records one queue push (or one cap-rejected push) into mSubmit, rolling the log at the frame
+  // boundary and emitting the `cullpush` census for the frame that just ended.
+  void noteQueuePush(uint32_t obj, int queue, bool accepted);
+  void submitLogRoll();                          // frame boundary: flush the census, reset the log
+  void submitLogFlush(const SubmitLog& log) const;
+  SubmitLog mSubmit;
 
   // Lazily-initialized cfg caches (-1/-2 = not read yet). Per-instance so the two SBS cores don't
   // share diagnostic state.

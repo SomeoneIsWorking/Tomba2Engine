@@ -36,8 +36,13 @@ Two execution paths and two rendering paths. Any run is one exec × one render.
 
 ### Combinations
 
-- `PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1` — recomp_path + psx_render. **Works perfectly** (skips OP.FMV,
-  fix deferred). The reference build.
+- `PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1` — recomp_path + psx_render (skips OP.FMV, fix deferred). It walks
+  the guest OT but still hands every prim to the NATIVE render queue's layer split + per-pixel depth, so
+  it is **not** the pure reference — its fidelity depends on pc_render producers having run, which on
+  this leg they have not (kanban #78: that cost a whole investigation).
+- **`PSXPORT_ORACLE=1` IS THE REFERENCE BUILD.** Implies GATE + RENDER_PSX and additionally forces pure
+  OT painter order, so no native band/depth/widescreen/fps60 decision can reach the picture. Reach for
+  this whenever the question is "what does the substrate actually draw".
 - `PSXPORT_GATE=1` — recomp_path + pc_render. Works, has known rendering issues (deferred).
 - `./run.sh` — pc_faithful + pc_render. Currently broken. Target: byte-exact to recomp_path.
 

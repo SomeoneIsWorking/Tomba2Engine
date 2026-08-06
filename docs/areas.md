@@ -60,6 +60,45 @@ The recipe that works:
 | PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 ./scratch/bin/tomba2_port
 ```
 
-Add `PSXPORT_RENDER_PSX=1` for the psx_render reference on the same exec leg — same execution, only
-the renderer differs, which is the one clean pc-vs-psx comparison. See `docs/driving-the-game.md`
-for the full REPL command set and `docs/gfx-debug.md` for the three ground truths.
+Add **`PSXPORT_ORACLE=1`** for the substrate reference on the same exec leg — same execution, only the
+renderer differs, which is the one clean pc-vs-psx comparison. **Not `PSXPORT_RENDER_PSX=1`**: that leg
+walks the guest OT but still hands every prim to the native render queue's layer split, which needs a
+pc_render producer to have published the backdrop texpage — so on that leg the guest's own 16x16
+backdrop tiles land in the topmost band and paint over the whole world (kanban #78; the tile banding is
+fixed now, but ORACLE is still the leg with no native ordering decision in it at all). See
+`docs/driving-the-game.md` for the full REPL command set and `docs/gfx-debug.md` for the three ground
+truths.
+
+## The SETTLED camera triple per area — for resolving a USER coordinate report
+
+The HUD's world readout is the CAMERA, not Tomba: `overlay_glue.cpp:31-33` pushes
+`(int16)[0x1F8000D2], (int16)[0x1F8000D6], (int16)[0x1F8000DA]` into `rml_overlay.setWorld`. So a
+coordinate in a bug report is in THAT space. `tp` writes a different quantity — Tomba's master
+position `0x800E7EAC/B0/B4` (`Engine::devTeleportApply`) — so **`tp <the reported triple>` does not
+go where the user was**, and `rw 800e7eac` "confirming" it only reads back the word `tp` just wrote.
+See instrument I047; that circularity is what invalidated kanban #77's location sweep.
+
+Measured 2026-08-06, `newgame / skip 3000 / warp N / skip 600 / run 300 / rw 1f8000d0 4`, no `tp`:
+
+| area | camera (X,Y,Z) | | area | camera (X,Y,Z) |
+|---|---|---|---|---|
+| 0 | (3270, -1352, 2352) | | 11 | (11265, -8327, 4808) |
+| 1 | (2600, -7500, 7408) | | 12 | rc=124, no capture |
+| 2 | (10573, -4198, 4668) | | 13 | (7455, -1510, 7821) |
+| 3 | rc=139, no capture | | 14 | (10382, -4344, 9608) |
+| 4 | (7184, -8852, 4413) | | 15 | (7460, -5954, 5130) |
+| 5 | (17359, -7500, 4860) | | 16 | (3433, -1704, 3502) |
+| 6 | (28650, -2297, 19145) | | 17 | (3081, -5644, 4801) |
+| 7 | (5456, -4102, 16670) | | 18 | (3315, -1804, 4300) |
+| 8 | (5759, -4452, 8729) | | 19 | (3829, -1804, 4753) |
+| 9 | (1811, -1100, 688) | | 20 | (15800, -2485, 8122) |
+| 10 | (6717, -2970, 2844) | | 21 | (123, 88, 442) |
+
+**READ THE DENOMINATOR BEFORE USING THIS.** Each row is ONE point — the camera where that area's
+`warp` + settle leaves you — not the area's coordinate range. A player who walked anywhere is off
+this table, so a row is evidence of a NEIGHBOURHOOD, never an identification. Areas 3 and 12 refused
+to capture (rc 139 / 124) and are simply absent; they are not "no match".
+Worked example: kanban #77's T1 (13029,-2872,7161) and T2 (20161,-1923,8268) match NO row (nearest
+by L1 is area 20 at 4119 / 5069, and area 20 is a torchlit cave, not water and not a green mass), so
+both reports are from somewhere a `warp` does not land — which is why they need a driven repro, not
+a warp.

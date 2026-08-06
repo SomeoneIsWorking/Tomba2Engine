@@ -1,5 +1,74 @@
 # Findings — render / engine submit
 
+## psx_render drew NO world geometry — the guest's own backdrop tiles were banded RQ_HUD and painted over it (kanban #78, 2026-08-06)
+
+- **symptom:** `PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1` — the leg every doc and tool offered as "THE
+  REFERENCE" — rendered **sky and sea only** in area 0 and only the fronds/sparkle in area 13, while
+  `PSXPORT_GATE=1` (pc_render) on the same exec leg rendered the village, hut, terrain and Tomba.
+  Consequence, and the reason this was worth a card: any conclusion of the form "the reference does not
+  draw X, therefore vanilla culls X" was VOID, and kanban #77 nearly drew exactly that conclusion.
+- **the hypothesis that was WRONG, and is recorded so nobody re-derives it:** kanban #45's campaign
+  retired the substrate-GTE projection producers, so the guest OT is empty. **Refuted by measurement.**
+  `debug otattr` + REPL `otattr` (which re-walks the LAST-walked OT read-only) on the psx leg at f3103,
+  area 0: **983 packets** in the chain — 352 `op=0x7C` 16×16 sprites, 308 `op=0x34` GT3, 298 `op=0x3C`
+  GT4, plus HUD `0x65`s — with plausible screen coords (v0 x∈[-57,456], y∈[-78,311]). Both legs report
+  the SAME `spans=15668` / `gteBuckets=15`, i.e. the substrate emits identically in both render modes
+  (as designed — the substrate render orchestrator always executes underneath). The OT was full.
+- **cause (measured, with its denominator):** the OT walk does not paint in OT order. `gpu_dma2_linked_list`
+  decodes each packet and hands it to the NATIVE `RenderQueue`, which re-bands it —
+  `layer = is3d ? RQ_WORLD : (bg ? RQ_BACKGROUND : RQ_HUD)` (`gpu_native.cpp:874` polys, `:1036`
+  sprites), painted low→high (`RqLayer{BACKGROUND=0, WORLD=1, OVERLAY=2, HUD=3}`). A screen-space sprite
+  is `bg` only via `node_is_bg` / `sprite_is_bg_texpage` provenance or `bg_2d`'s ≥¾-screen coverage
+  heuristic, which a 16×16 tile can never satisfy. And `sprite_is_bg_texpage` reads
+  `GpuState::s_bgtp_*`, published by `gpu_bg_texpage_set` — whose ONLY caller was
+  `Render::backdropRender`, a pc_render producer reached from `renderScene()`, i.e. **only from the
+  pc_render arm of `Engine::drawOTag`**. psx_render returns before `renderScene`, so the page was never
+  published on the reference leg. `PSXPORT_PRIMDUMP=3100:3102`, area 0 f3100: **972 prims = 617 `is3d=1`
+  world polys + 355 sprites, 355/355 with `bg=0`**, 352 of them the 16×16 tiles of texpage (896,0) — the
+  backdrop atlas. All 352 went to `RQ_HUD` and covered the frame. The reference drew the whole village
+  and then painted the sea on top of it.
+- **fix:** `Render::backdropTexpagePublishTick()` (`game/render/render_walk.cpp`), called from
+  `Engine::drawOTag` immediately after `areaCacheTrustTick()` — **before** the render-mode branch. It
+  resolves the backdrop drawer exactly as the guest dispatcher does (`backdropTilemapDrawer`, the
+  `0x80014FC0` jump table + the `0x800BF873` gate) and publishes `PARALLAX_BG_SM+0x04`'s texpage. The two
+  publishes inside `backdropRender` are deleted — one publisher. This is the SAME defect and the SAME fix
+  as kanban #41 (`areaCacheTrustTick`): per-logic-frame guest-state tracking must not live inside one
+  render arm, or it becomes a function of which renderer is active. Gate is the guest's own dispatch
+  resolution, NOT `mBackdropTrusted` — that latch answers "may OUR producer draw", a different question.
+- **evidence + negative control:** recipe `newgame / skip 3000 / run 60 / run 2 / shot`, headless,
+  `PSXPORT_GATE=1 PSXPORT_NO_FMV=1 PSXPORT_NOAUDIO=1 PSXPORT_NOPACE=1`, one boot per leg.
+  BEFORE (pre-fix binary): `scratch/shots/psxref/a0_psx.png` = sea and sky, no world.
+  AFTER: `scratch/shots/psxref/a0_psx_fix.png` = village, hut, Tomba, terrain, fence, crane, gem.
+  In-band leg proof (not the pixels being measured): `PSXPORT_DEBUG=bgtp` prints 3098 lines
+  `tilemap=1 tp=(896,0)` on the fixed binary and does not exist on the old one; the primdump flips
+  352/352 tiles from `bg=0` to `bg=1` with the 3 HUD sprites still `bg=0`.
+  pc_render control: unchanged by construction — pc_render never walks the OT, so nothing consumes the
+  publish there.
+- **`PSXPORT_ORACLE=1` WAS WORKING THE WHOLE TIME, and is the leg to use.** It implies GATE +
+  RENDER_PSX and additionally forces pure OT painter order (`gpu_native.cpp:870`,
+  `if (pm || core->game->oracle) { is3d = 0; bg = 0; }`), so every prim composites in one band in OT
+  order and no native band/depth decision can reach the picture. Verified: `a0_oracle.png`,
+  `a13_oracle.png`, `a14_oracle.png` all draw the full world and match pc_render to the documented
+  ~28k >8/255 generic baseline (28794 / 28238 / 28171 px of 76800 — the same baseline kanban #42
+  records). Control that the fix does not perturb it: `PSXPORT_ORACLE=1` vs
+  `PSXPORT_ORACLE=1 PSXPORT_PAINTER=1` (PAINTER reproduces the pre-fix `bg=0` sprite banding) differ by
+  **13 px of 76800**, in one 32×13 box.
+- **RESIDUAL, still open (own card):** on the non-oracle `PSXPORT_RENDER_PSX=1` leg the now-`RQ_BACKGROUND`
+  backdrop tiles show a **4-px bright-cyan band at each tile's right edge** (measured y=60: sky
+  `(120,176,216)` with `(32,224,240)`/`(48,248,248)` runs at x=8..11, 56..59, 72..75, 88..91, 104..107 —
+  exactly the last 4 columns of each 16-px tile). The tiles abut exactly and their UVs are exact 16-texel
+  spans (`x=-4..12 uv 112..127`, `x=12..28 uv 128..143`), so it is not geometry: it is the
+  `RQ_BACKGROUND`/`RQ_OM_2D_BG` emit path for guest 16×16 sprites. Absent under ORACLE. The fix is in
+  `external/psxport` and was not attempted (another agent held that tree).
+- **framework asymmetry worth fixing (psxport, NOT edited):** the oracle's "no band split" purity is
+  applied to POLYS only — `gpu_native.cpp:871` is `if (pm || core->game->oracle) { is3d = 0; bg = 0; }`
+  but the sprite path at `:1005` is `if (pm) bg = 0;` with no `oracle` term. Under ORACLE, sprites are
+  therefore still band-split by whatever `sprite_is_bg_texpage` says. It happened not to matter (both
+  bandings give a correct oracle picture; the 13-px control above is the whole effect), but the oracle
+  is supposed to be immune to this class by construction, and here it is not.
+- **refs:** `game/render/render_walk.cpp` (`backdropTexpagePublishTick`), `game/game_tomba2.cpp`
+  (`Engine::drawOTag`), `docs/gfx-debug.md` ground truth #1, `tools/warpsweep.sh`, `docs/areas.md`.
+
 ## Under PSXPORT_GATE=1 every native OVERRIDE runs its `gen` body — so every diagnostic inside one is SILENT (2026-08-06)
 
 - **symptom:** a reachability census for FUN_8003B704 (the beam emitter), placed as a `lucent::debug`
@@ -4856,7 +4925,76 @@ be used as the guest-write gate here; the 2 MB RAM + scratchpad A/B above was us
 
 ## Geometry the vanilla game does not show — the HEADS[0] flush-all (kanban #77)
 
-> **CORRECTION 2026-08-06 — THE MECHANISM BELOW IS REFUTED. Read this first.**
+> **RESOLVED 2026-08-06 — THE HEADS[0] FLUSH-ALL IS NOT THE PRODUCER OF EITHER BLOCKER.**
+> This supersedes the CORRECTION block below (which supersedes the section under it). Both are kept
+> because each names a method that failed, and the failures are the reusable part.
+>
+> **The RE is done and the gap is closed.** HEADS[0] has no walk of its own; its nodes reach the
+> picture through the three CULL RENDER QUEUES, and the whole chain is now modelled read-only in
+> `game/render/queue_dispatch.{h,cpp}` and applied by `Render::fieldObjectsRender`'s HEADS[0] arm in
+> place of the flush-all:
+>
+> | class (+0xC) | queue | consumer walk | per-type table (+0xB) | entries | no-op arm |
+> |---|---|---|---|---|---|
+> | 2, 9 | A | `FUN_8003BB50` (`Render::objListWalk1`) | `0x80014A70` | 144 | `0x8003BCD0` |
+> | 4    | B | `FUN_8003BCF4` (`Render::objListWalk2`) | `0x80014CB0` |  33 | `0x8003BED8` |
+> | 5    | C | `FUN_8003BF00` (`Render::objListWalk3`) | `0x80014D38` |  32 | `0x8003C028` |
+> | any other | — | none: marked visible, consumed by nobody | | | |
+>
+> All five per-type tables were **dumped from the RUNNING game** (`scratch/logs/heads0/tbl_a13.log`,
+> parsed by `scratch/parse_tbl.py`), not guessed. Queue A's mesh arm is types {0,15,64,79,128,143}
+> (the 0x40/0x80 attribute bits repeat the base type); queue B's and C's are {0,15}. The earlier note
+> that `gen_func_8003BB50` consumes "queue B" is WRONG — it consumes queue A; **queue B's missing
+> consumer is `FUN_8003BCF4`**, whose table is `0x80014CB0`, which sits immediately after A's 144
+> entries (0x80014A70 + 144*4 = 0x80014CB0 — the whole 0x80014A70..0x8001503C block is five
+> contiguous tables ending in the two already-modelled ones, 0x80014DB8 and 0x80015000).
+>
+> **THE NODE-FOR-NODE COMPARISON AT T1 CAME OUT EQUAL.** Area 13, `PSXPORT_DEBUG=heads0`: 45 census
+> entries = 15 distinct nodes x 3 `fieldObjectsRender` calls per frame. `meshArm=45` — every one of
+> them is type 0 and routes to the guest's own mesh flush; `onSubmitList=42` — 14 of the 15 are on
+> the frame's own submission list. The single node the new rule drops (`800FB218`, class 2, queue A,
+> visible but never queued) is worth **0/76800 px**. Sweep over all 22 areas, flush-all leg vs
+> guest-rule leg: **0/76800 px in 21 of them**, area 3 crashing identically (rc=139) on both legs.
+> The rule is not vacuous — it fires: area 15 drops `800EF53C` (type 2 -> `0x8003BDF4`, an
+> area-overlay renderer, NOT the mesh flush) and `800FB218` again. It just never mattered visually
+> in any sampled frame.
+>
+> **AND THE psx REFERENCE DRAWS BOTH BLOCKERS.** With kanban #78 fixed this session there is finally
+> a reference leg, and `PSXPORT_ORACLE=1` at the T1 repro shows THE SAME green mass in the same place
+> (blob-box mean RGB: oracle (16,71,31) · pc (20,73,32) · arm-suppressed (65,90,60) — the instrument
+> plainly distinguishes present from absent, and both legs say present). Same at T2 for the water
+> wall. The two legs differ on 48933/76800 (T1) and 66861/76800 (T2) pixels overall, so the toggle
+> demonstrably took effect. **So neither blocker is geometry the port invented.**
+>
+> **WHERE THAT LEAVES #77.** Not in node selection, on either axis (class, type, submission) and not
+> in the flush-all. What has never been checked is that **the repro places TOMBA at the coordinates
+> the user read off the CAMERA** (`0x1F8000D2/D6/DA`) — `[tp] Tomba -> (13029,-2872,7161)`, verified
+> by reading 0x800E7EAC back. The camera then settles wherever it settles behind him, so the
+> viewpoint under measurement is NOT the user's viewpoint. Before any more producer archaeology,
+> reach the user's actual camera.
+>
+> **A THIRD GATE, RE'd but not yet reproduced by the display pass:** `Render::perObjRenderDispatch`
+> (FUN_8003CCA4) itself early-returns when `(node[+0xD] & 11) >= 9` (table `0x80014EC8`, 9 entries).
+> So even a submitted, mesh-armed node can draw nothing. Measured at T1: every one of the 15 nodes
+> has `node[+0xD]` of 0 or 1, so it changes nothing there — but the display arm does not model it,
+> and it belongs with the queue rule when someone next touches that arm.
+>
+> **AN INSTRUMENT THAT LIED, and the fix (this is the reusable part).** "The cull queues are drained
+> by display time, so membership is unanswerable there" is FALSE. The queue the cull pushes onto is
+> an ACCUMULATOR pair; the first consumer walk of each field frame SNAPSHOTS it into a SECOND pair
+> and then resets the accumulator. The snapshot survives to display time and is exactly the list the
+> walk consumed:
+> `A 0x1F800140/0x1F800146 · B 0x1F80014C/0x1F800152 · C 0x1F800158/0x1F80015E`.
+> Every previous reading (`live=45, queueCounters=(0,0,0)`) sampled the accumulator, which can only
+> ever answer zero. And the PUSH-SITE instrument that was supposed to settle it is **structurally
+> blind on this exec leg**: under `PSXPORT_GATE=1` the whole cull family runs as the substrate —
+> `PSXPORT_DEBUG=ovhit` reports `native=0 / oracle=86368` for `Cull::cullWrapper` and native=0 for
+> every sibling, and for the three queue walks too — so `Cull`'s own push census printed NOTHING for
+> 30 frames and a naive reading of that silence would have been a second false "queued by nobody".
+> The `heads0` verdict line now prints `frameSubmitListEntries` and `nativeCullPushes` for exactly
+> this reason: a zero in either column is a statement about the INSTRUMENT, not about the nodes.
+>
+> **CORRECTION 2026-08-06 — the mechanism below the next line is REFUTED. Kept as history.**
 > The stated cause ("the port draws a SUPERSET because the guest never render-walks HEADS[0]") does
 > not hold, refuted from the substrate source by adversarial verification:
 >
@@ -4876,6 +5014,16 @@ be used as the guest-write gate here; the 2 MB RAM + scratchpad A/B above was us
 >    8007A904, 8007ADDC, 8007B04C, 800798F8. Six were named. The conclusion happens to survive (the
 >    four omitted are also list-management), but the method missed 40% of the sites and produced
 >    defect (2).
+>
+> **UPDATE 2026-08-06 — THE REFERENCE IS BACK, so #77 no longer has to be settled from static RE alone.**
+> The reason this investigation fell back on the guest's dispatch tables was kanban #78: the psx leg drew
+> no world geometry. That is root-caused and fixed (see the #78 entry at the top of this file), and the
+> leg to use is **`PSXPORT_ORACLE=1`**, which was never affected. Verified at the settled warp viewpoint:
+> `scratch/shots/psxref/a13_oracle.png` draws area 13's trunks/cliff/fronds/water and
+> `a14_oracle.png` draws area 14's waterfall wall, pillars and reflections — i.e. **the substrate DOES
+> draw the a14 water wall**, so "T2 is geometry vanilla does not show" must be re-tested against that
+> reference AT T2's own tp position before it is believed. Recipe: the #77 REPL recipe with
+> `PSXPORT_ORACLE=1` instead of `PSXPORT_GATE=1`, one boot per capture.
 >
 > **WHAT IS ACTUALLY LEFT is this file's own pre-existing comment: HEADS[0]'s per-TYPE table is not
 > RE'd.** `0x80014A70` has 144 entries with genuine no-op arms (`0x8003BCD0`) — exactly like
@@ -4947,3 +5095,85 @@ reproduce its submission set for the HEADS[0] arm. T2's water wall is a separate
 after 300 frames) in EIGHT areas each — {7,10,11,12,13,14,15,20} — and hold in X/Z with Y drifting in
 {2,4}. Elsewhere `tp` relocates. Areas 9/18/19 are teleport-REJECTION artifacts: both targets land on
 a pixel-identical frame there, so those captures are not repros of anything.
+
+## kanban #77 T2 — the area-14 "wall of water" is fxBackdropPlaneRender (FUN_80110CA4), and the tp repro cannot reach the reported camera
+
+**2026-08-06, break-first A/B in an isolated clone (`scratch/wt/t2-sceneab`, deleted after; artifacts
+copied to `scratch/shots/t2-producer/` and `scratch/logs/t2-producer/`).**
+
+**THE PRODUCER IS `Render::fxBackdropPlaneRender`** — `game/render/fx_backdrop_plane.cpp`, guest
+`FUN_80110CA4` in the A0E overlay, drawing node **`0x800ED960`** (on **HEADS[1]** `0x800F2624`,
+type `+0xB = 0x20`, class `+0xC = 6`, per-type table `0x80014DB8[32] = 0x8003C29C` = the
+`RCASE_DEFAULT` "call the fn ptr at node+24" arm). It is the area-14 waterfall backdrop of kanban #48.
+
+Evidence, both legs built from the same tree with the build exit status checked and an in-band
+per-leg channel count (`[t2ab] LEG=…`, `[gteflag] …`) distinguishing them from the pixels measured:
+
+| leg | in-band signal | pixels vs base |
+|---|---|---|
+| scene table (`fieldEntityRender`, `0x800F2418`) suppressed | `LEG=SUPPRESS cells=37 gt3=145 gt4=489`, 7704 calls | **6001/76800**, bbox y[117..227] — the DOCKS AND BARRELS ONLY, the wall untouched |
+| `fxBackdropPlaneRender`'s `drawWorldQuad` suppressed | `[gteflag] f3940 quads=80 drawn=25+7` unchanged (the producer still ran) | **63112/76800**, bbox x[0..319] y[12..227]; the upper half goes from 33600/37440 changed to BLACK |
+
+**`dbgnode=FFFF0002` (the scene table) was a FALSE POSITIVE of the PRIMAT instrument, not a lead.**
+`RenderQueue::emitOrQueue`'s point-in-triangle test is `(w0>=0&&w1>=0&&w2>=0)||(all<=0)`, which is
+TRUE at every pixel for a DEGENERATE triangle (all edge functions 0), and this path tees GT3s as
+quads with `v3==v2`. Filtering the same logs for non-degenerate coverage
+(`tools/primat_filter.py`, ships with a `--selftest`) leaves, at (160,40), (40,20) and (280,90) on
+the capture frame: **2 genuine covers each, all `dbgnode=800ED960`**, against 26-28 rejected
+degenerate hits (`FFFF0001` terrain and `800FB218`). Denominators are printed with every answer.
+
+**DOES VANILLA SUBMIT IT? YES — at this camera, measured, not reasoned.** `FUN_80110ca4` (Ghidra
+decomp: `scratch/logs/t2-producer/a14_water.c`) gates every quad on (a) `if (-1 < FLAG)` after the
+RTPT and again after the RTPS — the GTE error flag, i.e. divide overflow `SZ3 < H/2`, SX2/SY2
+saturation past ±1024, IR saturation; (b) two "any vertex passes" screen tests (`SX < 0x141`,
+`SY < 0xF1`, read unsigned); (c) an OT-key gate — `AVSZ4`, then `±0x50/0x78` phase bias, then (grid A
+only) a near-snap of `otz ∈ [-39,3]` to 5, then the log compression `(otz >> (otz>>10 & 31)) +
+(otz>>10)*0x200`, then **grid A drops `k < 4`** and **grid B drops `k` outside `[4, 0x7FF]`**.
+Reconstructing (a) and (c) term-by-term inside the native producer from the SAME inputs it projects
+with, and only COUNTING:
+
+    [gteflag] f3940 backdrop quads=80 drawn=25+7 GTE-FLAG-error would drop 0
+              (divOverflow=0 sxSat=0 sySat=0 irSat=0); OT-KEY gate would drop 0 (undet 0)
+
+**0 of 80.** Negative control for that instrument, same run, earlier frames on the approach:
+`f3043 quads=32 … would drop 15 (divOverflow=2 sxSat=13 sySat=11)`, `f3192 … drop 28 of 38`. So the
+gate CAN report a positive; at the captured camera it does not. The same holds for the main
+submitters at T1: `[otlink]` in area 13 tallies `guest_links=N guest_DROPS=0` for all 8 nodes.
+
+**THEREFORE: at this camera the port emits exactly the quads the guest emits, and no cull belongs
+here.** Any distance/near/ID test added to make this wall go away would be invented.
+
+#### The blocking problem: THE T1/T2 REPRO DOES NOT REPRODUCE THE USER'S COORDINATES
+
+1. **The reported triple is the camera readout `0x1F8000D2/D6/DA`** (`overlay_glue.cpp:31-33` feeds
+   exactly those three halfwords to `rml_overlay.setWorld`). `tp` writes **Tomba's master position**
+   `0x800E7EAC/B0/B4` (`Engine::devTeleportApply`, `engine.cpp`). Different quantity, different
+   address. The sweep teleported the PLAYER to the CAMERA's coordinates.
+2. **The "confirm tp fired" check is circular.** `rw 800e7eac 3` reads back the very word `tp` just
+   wrote (`MASTER_X = G + 0x2C = 0x800E7EAC`, `cutscene_camera.h:47`). It cannot ever report failure,
+   and it is what the "both triples hold exactly in EIGHT areas" line above is built on.
+3. **In area 14 nothing moves.** `tp 29940 498 6928` (Tomba +9779/+2421/-1340 from the T2 tp) →
+   **80/76800 px changed**, and the camera triple is BYTE-IDENTICAL (`288E/EF08/2588`). Walking
+   (`press right`, 240 frames) leaves `0x800E7EAC` unchanged too. Area 14 after `warp 14 + skip 600`
+   is a static tableau; the camera merely settles to `(10382,-4344,9608)` after ~300 frames whatever
+   you do.
+4. So the captured camera is **(10382,-4344,9608)**, not the reported **(20161,-1923,8268)**; area
+   13's is **(7455,-1510,7821)**, not T1's **(13029,-2872,7161)**. The area attributions in this
+   section came from eyeballing 44 screenshots that are each just that area's default settled view —
+   the coordinates never entered into them.
+
+**What T2 needs next is a repro that can reach a camera position, not more producer archaeology.**
+Options, in order of cost: drive the game with a replay/pad sequence to the user's coordinates (the
+camera triple is a live readout, so it can be searched for); or ask the USER for the area index,
+which the HUD does not print (that missing field is already a sibling card).
+
+**Named, honestly unported, and NOT the cause here:** `Render::submitPolyGt3Native/Gt4Native`
+(`submit.cpp`) reproduce the guest's backface and right/bottom screen culls but NOT the two drops
+`gen_func_8007FDB0`/`gen_func_8008007C` also perform — `if ((int32_t)gte_read_ctrl(31) < 0) skip`
+(twice) and `if ((uint32_t)(k-4) >= 2044) k = -1 → skip`. `game_sort_key` (`submit.cpp:177`) already
+computes the second one exactly and returns `-1`, but the caller uses it only as "no sort key",
+never as "the guest never linked this prim". `fx_backdrop_plane.cpp` likewise reproduces the FLAG
+cull only as `pv[k].sz <= 0`, which misses divide overflow and SX/SY saturation. Closing this is a
+real port of a real guest mechanism — measured at 0 effect on T1 and T2, and 15-28 quads/frame on
+area 14's approach frames, so it MUST be landed against pixel evidence in a scene where it fires,
+not against this bug.
