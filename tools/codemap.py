@@ -33,6 +33,14 @@ USAGE:
   tools/codemap.py --uninstalled-claims # addrs 2+ files claim BY NAME while only one INSTALLS: the other
                                         #   claim is a host-side twin or a stale orphan, never the owner
   tools/codemap.py --selftest           # prove the index can still answer POSITIVELY (see selftest())
+  tools/codemap.py --shape-census       # how many LIVE examples of each ownership shape the tree holds,
+                                        #   with the denominator. The tree's own answer to "is shape X
+                                        #   still exercised here", and where --selftest fixtures come
+                                        #   from — a fixture typed by hand is a fixture that can rot.
+  tools/codemap.py --selftest-nc        # run --selftest against 4 deliberately-broken trees and require
+                                        #   it to FAIL each. Proves the selftest is not a blanket yes.
+                                        #   ~53s (it loads the index 4x), so it is NOT in the pre-commit
+                                        #   gate; run it whenever you change selftest() or the scanner.
   tools/codemap.py --conflicts          # broad cross-file NAMING smell (over-reports inline helpers /
                                         #   consumers that install nothing; use --dup-installs + --addr)
   tools/codemap.py --substrate-fallthrough  # native-owned addrs that are a DISPATCH TARGET but NOT
@@ -434,23 +442,58 @@ def collect_install_files():
     return sorted(set(f for f in files if f.endswith((".cpp", ".c"))))
 
 
+# Blank out comments and string/char literals, PRESERVING byte offsets, so the namespace tracker
+# below cannot be thrown by a `{` inside a comment or a string. Offset preservation is the point:
+# the caller indexes the result with offsets taken from the original text.
+_BLANKABLE = re.compile(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'', re.S)
+
+
+def _code_only(txt):
+    return _BLANKABLE.sub(lambda m: re.sub(r'[^\n]', ' ', m.group(0)), txt)
+
+
+_NS_TOKEN = re.compile(r'\bnamespace\s+([A-Za-z_][\w:]*)?\s*\{|(\{)|(\})')
+
+
+def _namespace_stack(code, upto):
+    """Namespace names enclosing byte offset `upto` in comment-stripped `code` ("" = ANONYMOUS).
+    Brace-tracked rather than "nearest `namespace` line above", so a namespace that has already been
+    CLOSED above the point does not count — the naive form reported every handler in panel.cpp as
+    anonymous because an unrelated anonymous block appeared earlier in the file."""
+    stack, depth = [], 0
+    for m in _NS_TOKEN.finditer(code, 0, upto):
+        if m.group(3):                        # }
+            if stack and stack[-1][1] == depth:
+                stack.pop()
+            depth -= 1
+        else:                                 # { , with or without a `namespace` head
+            depth += 1
+            if not m.group(2):
+                stack.append((m.group(1) or "", depth))
+    return [n for n, _ in stack]
+
+
 def load_install_sites():
-    """addr -> [ {file, line, idiom, name, handler, defline} ] for every override install call site
-    that names a LITERAL guest address, across INSTALL_GLOBS.
+    """addr -> [ {file, line, idiom, name, handler, defline, anon, tokenpaste} ] for every override
+    install call site that names a LITERAL guest address, across INSTALL_GLOBS.
 
     `name` is the quoted symbol name when the idiom carries one (`overrides::install`), else "".
     `defline` is the line where the handler's `<sym>(Core*` definition was found in the SAME file, or
-    0 when it has none there — which is the normal case for a MACRO-GENERATED handler (fx_mesh.cpp's
-    FX_A00_CONTROLLER_SCOPE token-pastes `a00Tap_8013D828`, so no such text exists) and for a
-    template instantiation (`pageScope<gen_func_8007F104>`). A missing defline is NOT a missing
-    owner: the install site itself is the address's home."""
+    0 when it has none there — the case for a MACRO-GENERATED handler symbol (a `#define` that
+    token-pastes `armTap_##hex`, so no such text exists), for a handler the regex could not name at
+    all, and for some template instantiations. A missing defline is NOT a missing owner: the install
+    site itself is the address's home.
+    `anon` is True when the handler's definition sits in an ANONYMOUS namespace in that file, and
+    `tokenpaste` is True when the file defines a token-pasting macro — the two structural facts
+    `--shape-census` classifies ownership shapes by, computed here so nothing re-reads the corpus."""
     sites = {}
     for path in collect_install_files():
         try:
             txt = open(path, encoding="utf-8", errors="replace").read()
         except OSError:
             continue
-        rel = os.path.relpath(path, ROOT)
+        rel, code = os.path.relpath(path, ROOT), _code_only(txt)
+        paste = bool(re.search(r'(?m)^\s*#\s*define\b[^\n]*##', code))
         for m in INSTALL_SITE_RE.finditer(txt):
             handler = m.group(4) or ""
             bare = handler.split("<")[0].split("::")[-1]
@@ -459,6 +502,8 @@ def load_install_sites():
                 file=rel, line=txt.count("\n", 0, m.start()) + 1, idiom=m.group(1),
                 name=m.group(3) or "", handler=handler,
                 defline=(txt.count("\n", 0, dm.start()) + 1) if dm else 0,
+                anon=bool(dm) and "" in _namespace_stack(code, dm.start()),
+                tokenpaste=paste,
                 defbody=_brace_body(txt, dm.start()) if dm else ""))
     return sites
 
@@ -954,6 +999,73 @@ def uninstalled_claims(idx, sites):
     return sorted(rows)
 
 
+# --- SHAPE CENSUS: the tree's own answer to "which ownership shapes still EXIST here?" ------------
+#
+# WHY THIS EXISTS, and it is the root cause of a gate that was red for a day with a message that was
+# FALSE. `SELFTEST_POSITIVE` below pins (address, file) constants. Commit abf3cf9 deleted
+# game/render/fx_mesh.cpp and game/render/mesh_emit_tap.cpp — the GTE-register render taps — in the
+# same commit that introduced those constants, so three fixtures named files that no longer exist.
+# Nothing linked a fixture to the tree, so the selftest could not tell "the SCANNER lost a shape"
+# (a real regression) from "the fixture's EXEMPLAR was deleted" (bookkeeping), and it reported the
+# former. A permanently-unsatisfiable fixture is worse than no fixture: it buries the real signal.
+#
+# So a shape is now defined by a PREDICATE over the tree, not by an address someone typed. The census
+# answers, mechanically and with a denominator, "how many live examples of this shape does the tree
+# hold, and which are they" — which makes a rotted fixture re-pointable by running the tool instead
+# of by archaeology, and makes "the scanner still covers shape X" a measurement rather than a claim.
+SHAPES = {
+    "install-only": (
+        "the definition scan produced NO owner in the installing file — the install site IS the owner",
+        lambda a, s, claim: s["file"] not in claim),
+    "consumers-claim-elsewhere": (
+        "sole installer, its file absent from the definition scan, while OTHER files claim the address "
+        "by name — `--addr` would otherwise name only the CONSUMERS",
+        lambda a, s, claim: s["file"] not in claim and bool(claim)),
+    "no-textual-def": (
+        "handler symbol has NO textual definition in the installing file (macro-generated, or a "
+        "handler the install regex could not name) — the install LINE is the owner",
+        lambda a, s, claim: s["defline"] == 0),
+    "token-paste-handler": (
+        "the no-textual-def sub-shape whose handler is token-pasted by a `#define` in that same file",
+        lambda a, s, claim: s["defline"] == 0 and s["tokenpaste"]),
+    "template-handler": (
+        "a TEMPLATE instantiation as the handler",
+        lambda a, s, claim: "<" in (s["handler"] or "")),
+    "anon-ns-unnamed": (
+        "handler defined in an ANONYMOUS namespace, installed with no quoted registry name and no "
+        "address tag on its definition",
+        lambda a, s, claim: s["anon"] and not s["name"]),
+    "submodule-install": (
+        "the install call site lives in the psxport SUBMODULE, outside the native-definition corpus",
+        lambda a, s, claim: s["file"].startswith("external/psxport/")),
+}
+
+
+def shape_census(natives, sites):
+    """shape id -> sorted [(addr, file, line)] of every LIVE example in this tree.
+
+    `claim` is the DEFINITION-scan attribution only (install-synthesised owners excluded), because
+    every shape here is about what the definition scan MISSED; folding the synthesised owners back in
+    would make each predicate trivially false and the census would certify coverage it never checked."""
+    claim = {}
+    for n in natives:
+        if n.get("via_install"):
+            continue
+        for a in n["impl"]:
+            claim.setdefault(a.upper(), set()).add(n["file"])
+    out = {k: [] for k in SHAPES}
+    for a in sorted(sites):
+        sole = len(sites[a]) == 1
+        for s in sites[a]:
+            files = claim.get(a, set())
+            for k, (_, pred) in SHAPES.items():
+                if k == "consumers-claim-elsewhere" and not sole:
+                    continue
+                if pred(a, s, files):
+                    out[k].append((a, s["file"], s["line"]))
+    return out
+
+
 # --- SELFTEST: prove the index can still answer POSITIVELY ----------------------------------------
 #
 # The project rule is that a diagnostic which can print nothing is lying, so this tool ships a case
@@ -963,19 +1075,34 @@ def uninstalled_claims(idx, sites):
 # Each case is a REAL address in this tree whose ownership is expressed by a shape that `--addr` was
 # blind to before 2026-08-05, one per distinct mechanism. If a future refactor of the scanner
 # silently re-loses any of them, this fails loudly instead of quietly reporting "NO native owner".
-# The three NEGATIVE controls at the end matter just as much: they prove the index still says NO to
-# an address nothing owns, i.e. that a green selftest is discrimination and not a blanket yes.
+# The NEGATIVE controls at the end matter just as much: they prove the index still says NO to an
+# address nothing owns, i.e. that a green selftest is discrimination and not a blanket yes.
+#
+# Column 4 names the SHAPES key the case is an exemplar OF (empty for the definition-scan shapes the
+# census does not classify — those are asserted by the pinned case alone). Every non-empty one is
+# cross-checked against the census, so a fixture cannot drift away from the shape it claims to prove,
+# and a fixture whose file has been DELETED is reported as ROTTED with live replacements listed.
 SELFTEST_POSITIVE = [
-    ("8002BC9C", "game/render/fx_mesh.cpp",          "anonymous-namespace handler, no address tag, no quoted name"),
-    ("8013ED08", "game/render/fx_mesh.cpp",          "MACRO-GENERATED handler symbol (no textual definition)"),
-    ("8007F104", "game/ui/options_page.cpp",         "TEMPLATE instantiation as the handler"),
-    ("80040AA4", "game/object/cube_text_ledger.cpp", "overrides::install with a quoted name, method untagged"),
-    ("80055C9C", "game/player/actor_tomba.cpp",      "file-local gov_* forwarder, no tag"),
-    ("80077FB0", "game/math/gte_math.cpp",           "static eov_* guest-ABI shim, no tag"),
-    ("8005019C", "game/ui/panel.cpp",                "anonymous-namespace tap"),
-    ("80027768", "game/render/mesh_emit_tap.cpp",    "single installer that the definition scan missed entirely"),
-    ("8009A420", "external/psxport/runtime/recomp/mem.cpp", "install from the psxport SUBMODULE"),
+    ("8004FFB4", "game/ui/panel.cpp",                "anonymous-namespace handler, no address tag, no quoted name", "anon-ns-unnamed"),
+    ("80003A4C", "external/psxport/runtime/recomp/pad_input.cpp", "handler with NO textual definition — the install LINE is the owner", "no-textual-def"),
+    ("8007F104", "game/ui/options_page.cpp",         "TEMPLATE instantiation as the handler", "template-handler"),
+    ("80040AA4", "game/object/cube_text_ledger.cpp", "overrides::install with a quoted name, method untagged", ""),
+    ("80055C9C", "game/player/actor_tomba.cpp",      "file-local gov_* forwarder, no tag", ""),
+    ("80077FB0", "game/math/gte_math.cpp",           "static eov_* guest-ABI shim, no tag", ""),
+    ("8005019C", "game/ui/panel.cpp",                "anonymous-namespace tap", "anon-ns-unnamed"),
+    ("8007E1B8", "game/render/ui_ft4_tap.cpp",       "single installer that the definition scan missed entirely", "consumers-claim-elsewhere"),
+    ("8009A420", "external/psxport/runtime/recomp/mem.cpp", "install from the psxport SUBMODULE", "submodule-install"),
 ]
+# A shape the scanner IMPLEMENTS but that no longer has a live example here, so no fixture can assert
+# it. Named rather than dropped: silence would read as "covered". The selftest prints the count with
+# its denominator, and FAILS the moment an example reappears un-pinned — the coverage claim in
+# `--addr`'s blind-spot list is then a measurement again instead of a memory.
+#
+# token-paste-handler: the exemplars were fx_mesh.cpp's FX_CONTROLLER_SCOPE / FX_A00_CONTROLLER_SCOPE,
+# which token-pasted `armTap_##hex` / `a00Tap_##hex`. Both died with the file in abf3cf9. The
+# MECHANISM they exercised (defline == 0 -> the install line is the owner) is still asserted, by
+# 0x80003A4C above; only the token-paste sub-form is unexemplified.
+SELFTEST_UNEXEMPLIFIED = ["token-paste-handler"]
 # Addresses that must resolve to NOTHING. 0x80000000/0x8FFFFFF8 are not code; 0x800834A0 is
 # PlatformHle-owned and must be reported as such, never as a scanned native.
 SELFTEST_NEGATIVE = ["80000004", "8FFFFFF8"]
@@ -988,12 +1115,63 @@ def selftest():
     print(f"corpus: {len(natives)} indexed natives, {len(idx)} owned addresses, "
           f"{sum(len(v) for v in sites.values())} install sites in {len(collect_install_files())} files, "
           f"{len(pm_steps)} port-map steps.")
-    for a, want_file, why in SELFTEST_POSITIVE:
+    census = shape_census(natives, sites)
+    for a, want_file, why, shape in SELFTEST_POSITIVE:
+        # DISCRIMINATE THE TWO FAILURE MODES BEFORE MEASURING. A fixture whose exemplar FILE has been
+        # deleted proves nothing about the scanner, and reporting it as "the index has stopped
+        # resolving an ownership shape" sends the reader hunting a regression that never happened —
+        # which is exactly what this gate did between abf3cf9 and today. Say which it is, and hand
+        # over live replacements so re-pointing is a copy rather than an excavation.
+        if not os.path.exists(os.path.join(ROOT, want_file)):
+            alt = census.get(shape, [])[:3]
+            hint = ("; live examples of this shape to re-point at: "
+                    + ", ".join(f"0x{x} -> {f}:{ln}" for x, f, ln in alt)) if alt else \
+                   f"; NO live example of shape `{shape}` remains — move it to SELFTEST_UNEXEMPLIFIED " \
+                   f"with the evidence, do not delete it silently"
+            print(f"  [ROT ] 0x{a} -> {want_file:52s} ({why})")
+            fails.append(f"ROTTED FIXTURE 0x{a}: its exemplar file {want_file} DOES NOT EXIST. This is "
+                         f"bookkeeping, NOT a scanner regression{hint}")
+            continue
         got = sorted({n["file"] for n in idx.get(a, [])} | {s["file"] for s in sites.get(a, [])})
         ok = want_file in got
         print(f"  [{'ok ' if ok else 'FAIL'}] 0x{a} -> {want_file:52s} ({why})")
         if not ok:
             fails.append(f"0x{a}: expected owner file {want_file}, index says {got or '(nothing)'} — {why}")
+        # A fixture that has drifted off the shape it claims to prove is a fixture proving something
+        # else under the old label — the quiet way coverage rots without anything going red.
+        if shape and (a, want_file) not in {(x, f) for x, f, _ in census.get(shape, [])}:
+            fails.append(f"0x{a} is pinned as an exemplar of shape `{shape}` but the census does not "
+                         f"classify it as one ({len(census.get(shape, []))} live example(s) of that shape)")
+    # SHAPE COVERAGE, with its denominator. Each count is the tree's own answer, so "this shape is
+    # covered" stops being a memory of what someone fixed in August and becomes a measurement.
+    # COVERED means "some pinned fixture is STRUCTURALLY a member of this shape", not "some fixture
+    # carries this label". A fixture labelled `anon-ns-unnamed` is also an `install-only` case, and
+    # label-matching reported the superset shape as uncovered while nothing was appended to `fails` —
+    # a marker that printed FAIL next to a verdict of 0 failures. A mark that can disagree with the
+    # exit code is the same defect this whole selftest exists to prevent, one level up.
+    pins = {(a, f) for a, f, _, _ in SELFTEST_POSITIVE}
+    for k in SHAPES:
+        rows, unex = census[k], k in SELFTEST_UNEXEMPLIFIED
+        covering = sorted(pins & {(a, f) for a, f, _ in rows})
+        mark = "ok " if (rows and covering) or (not rows and unex) else "FAIL"
+        note = f"covered by {len(covering)} pinned fixture(s): " + \
+               ", ".join(f"0x{a}" for a, _ in covering) if covering else \
+               ("NO live example — declared unexemplified, NOT asserted" if unex else
+                "live examples exist but NO pinned fixture is one of them")
+        print(f"  [{mark}] shape {k:26s} {len(rows):4d} live example(s)  ({note})")
+        if rows and not covering and not unex:
+            fails.append(f"shape `{k}` has {len(rows)} live example(s) and NOT ONE is pinned in "
+                         f"SELFTEST_POSITIVE — nothing asserts the scanner still resolves it; pin one "
+                         f"(e.g. 0x{rows[0][0]} -> {rows[0][1]}:{rows[0][2]})")
+        if unex and rows:
+            fails.append(f"shape `{k}` was declared unexemplified but {len(rows)} live example(s) now "
+                         f"exist (first: 0x{rows[0][0]} {rows[0][1]}:{rows[0][2]}) — pin one in "
+                         f"SELFTEST_POSITIVE and drop it from SELFTEST_UNEXEMPLIFIED; the blind-spot "
+                         f"list --addr prints claims this shape is covered")
+        if not rows and not unex:
+            fails.append(f"shape `{k}` has ZERO live examples in the tree, so nothing asserts the "
+                         f"scanner still resolves it — either the shape genuinely left the codebase "
+                         f"(declare it in SELFTEST_UNEXEMPLIFIED) or the classifier broke")
     for a in SELFTEST_NEGATIVE:
         got = idx.get(a, []) or sites.get(a, [])
         print(f"  [{'ok ' if not got else 'FAIL'}] 0x{a} -> (nothing), as it must be  [negative control]")
@@ -1035,8 +1213,64 @@ def selftest():
     for f in fails:
         print("FAIL: " + f)
     print(f"\n{len(SELFTEST_POSITIVE)} positive case(s), {len(SELFTEST_NEGATIVE)} negative control(s), "
-          f"6 invariant(s) — {len(fails)} failure(s).")
+          f"{len(SHAPES)} shape(s) censused ({len(SELFTEST_UNEXEMPLIFIED)} declared unexemplified: "
+          f"{', '.join(SELFTEST_UNEXEMPLIFIED) or 'none'}), 6 invariant(s) — {len(fails)} failure(s).")
     return 1 if fails else 0
+
+
+def selftest_negative_controls():
+    """Run --selftest against four DELIBERATELY BROKEN trees and require it to fail each one.
+
+    WHY THIS SHIPS. `--selftest` went green in this commit, and a self-test that has only ever been
+    seen green proves nothing about what it covers — the same argument that put `--selftest` in the
+    pre-commit hook, one level up. Worse, the failure this repair is ABOUT was invisible for exactly
+    that reason: the gate was red, but red for a rotted fixture, and nobody could tell that from red
+    for a scanner regression because no control had ever produced either on purpose.
+
+    Each control mutates ONE thing in memory (never the tree) and asserts the selftest fails AND that
+    its message names the right cause. A control that merely asserts "fails" would pass for the wrong
+    reason — a broken scanner fails everything."""
+    import contextlib, io
+    global SELFTEST_POSITIVE, SELFTEST_UNEXEMPLIFIED, INSTALL_SITE_RE
+    saved = (SELFTEST_POSITIVE, SELFTEST_UNEXEMPLIFIED, INSTALL_SITE_RE)
+    dead = "game/render/fx_mesh.cpp"   # deleted in abf3cf9 — the real rot, replayed
+    controls = [
+        ("ROTTED FIXTURE (exemplar file deleted)",
+         lambda: globals().__setitem__("SELFTEST_POSITIVE",
+             saved[0] + [("8002BC9C", dead, "the abf3cf9 rot, replayed", "anon-ns-unnamed")]),
+         "ROTTED FIXTURE"),
+        ("SCANNER REGRESSION (install-site scan resolves nothing)",
+         lambda: globals().__setitem__("INSTALL_SITE_RE", re.compile(r'(?!x)x()()()')),
+         "has ZERO live examples in the tree"),
+        ("FIXTURE DRIFT (pinned as a shape it is not an example of)",
+         lambda: globals().__setitem__("SELFTEST_POSITIVE",
+             [(a, f, w, "template-handler" if a == "8009A420" else s) for a, f, w, s in saved[0]]),
+         "but the census does not classify it as one"),
+        ("UNEXEMPLIFIED SHAPE REAPPEARS (declared absent, examples exist)",
+         lambda: globals().__setitem__("SELFTEST_UNEXEMPLIFIED", ["template-handler"]),
+         "was declared unexemplified but"),
+    ]
+    bad = 0
+    print(f"NEGATIVE CONTROLS for --selftest: {len(controls)} deliberately-broken trees, each of which "
+          f"MUST make it exit non-zero for the STATED reason.")
+    for label, mutate, want in controls:
+        SELFTEST_POSITIVE, SELFTEST_UNEXEMPLIFIED, INSTALL_SITE_RE = saved
+        mutate()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = selftest()
+        out = buf.getvalue()
+        ok = rc != 0 and want in out
+        print(f"  [{'ok ' if ok else 'FAIL'}] {label}\n"
+              f"         exit={rc} (want non-zero), message contains {want!r}: {want in out}")
+        if not ok:
+            bad += 1
+            print("         --- its output ---\n" + "".join("         " + l + "\n"
+                                                            for l in out.splitlines() if "FAIL" in l))
+    SELFTEST_POSITIVE, SELFTEST_UNEXEMPLIFIED, INSTALL_SITE_RE = saved
+    print(f"\n{len(controls)} control(s), {bad} that did NOT fire. A control that does not fire means "
+          f"--selftest is blind to that failure mode.")
+    return 1 if bad else 0
 
 
 def load_index():
@@ -1057,6 +1291,23 @@ def main():
     args = sys.argv[1:]
     if "--selftest" in args:
         sys.exit(selftest())
+    if "--selftest-nc" in args:
+        sys.exit(selftest_negative_controls())
+    if "--shape-census" in args:
+        natives, files, sites, *_ = load_index()
+        census = shape_census(natives, sites)
+        n_sites = sum(len(v) for v in sites.values())
+        print(f"corpus: {n_sites} install sites over {len(sites)} addresses in "
+              f"{len(collect_install_files())} files.")
+        for k, (why, _) in SHAPES.items():
+            rows = census[k]
+            tag = "  [declared UNEXEMPLIFIED]" if k in SELFTEST_UNEXEMPLIFIED else ""
+            print(f"\n{k}: {len(rows)} of {n_sites} install site(s){tag}\n  {why}")
+            for a, f, ln in rows[:8]:
+                print(f"    0x{a}  {f}:{ln}")
+            if len(rows) > 8:
+                print(f"    ... {len(rows) - 8} more")
+        sys.exit(0)
     natives, files, sites, by_sym, callers, live, ordinary_hit, idx = load_index()
     pm_steps, pm_note = load_portmap()
     if "--addr" in args:
@@ -1107,10 +1358,14 @@ def main():
             print( "      4. ownership expressed at RUNTIME only (a handler stored into a dispatch "
                    "table at run time rather than installed from a call site);")
             print( "      5. overlay/interpreted-only guest code with no native counterpart at all.")
-            print( "    NOT blind to (these were fixed and are asserted by --selftest): a file-local "
-                   "static in an ANONYMOUS NAMESPACE with no address in its name and no quoted "
-                   "install name; a macro-GENERATED handler symbol; a template instantiation; an "
-                   "install from the psxport submodule.")
+            print( "    NOT blind to (each asserted by a LIVE fixture in --selftest, and counted by "
+                   "--shape-census): a file-local static in an ANONYMOUS NAMESPACE with no address in "
+                   "its name and no quoted install name; a handler with NO textual definition (the "
+                   "install line is the owner); a template instantiation; an install from the psxport "
+                   "submodule; a sole installer whose file the definition scan never saw.")
+            print( "    COVERED BUT UNEXEMPLIFIED — implemented, and NOT asserted, because the tree "
+                   "currently holds zero examples to assert it with (run --shape-census for the "
+                   f"counts): {', '.join(SELFTEST_UNEXEMPLIFIED) or 'none'}.")
         elif hle_note:
             print(f"    WARNING: PlatformHle ownership NOT checked — {hle_note}")
         if inst:

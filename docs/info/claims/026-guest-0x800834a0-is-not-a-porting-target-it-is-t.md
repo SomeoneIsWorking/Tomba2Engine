@@ -4,6 +4,9 @@ kind: claim
 status: holds
 created: 2026-07-30
 tags: port
+reconfirmed: 2026-08-06
+verified_at: 2026-08-06
+depends: game/core/game_config.cpp
 ---
 
 ## Claim
@@ -17,3 +20,7 @@ Guest body (gen_func_800834A0, generated/shard_1.c:16121) is 12 instructions: ca
 ## What would falsify it
 
 if the port ever stops running the GPU/OT DMA synchronously (a real async GPU queue), the far-future deadline stops being correct and the real VSync-based arm would have to come back — at which point this address becomes a genuine port target
+
+## Re-confirmed 2026-08-06
+
+RE-VERIFIED 2026-08-06, statically, at every line the claim rests on; the two commits that flagged it stale (79d420e camera, abf3cf9 tap deletion) touch neither. game/core/game_config.cpp now has .gpuTimeoutArm = 0x800834A0u at line 154 (claim said 148 — the line MOVED, the value did not), .gpuTimeoutDeadlineVar = 0x800A5ADCu at 156, .gpuTimeoutFlagVar = 0x800A5AE0u at 157 — the same two globals the guest body writes. external/psxport/runtime/recomp/sync_overrides.cpp:138 still defines vsync_trap as trap_abort(c,'VSYNC',...) and line 211 still registers it on h.vsyncTrap, so porting the guest body faithfully would still hit an abort on its call to 0x80085900. tools/codemap.py --addr 800834A0 reports it PlatformHle-owned, not a scanned native, so the codemap agrees. NOT re-verified: the live recdep run cited in the original evidence (2276 dispatches) was not repeated — that needs a game run, and nothing about this claim depends on the COUNT. The falsifier is unchanged and untriggered: the port still runs GPU/OT DMA synchronously.

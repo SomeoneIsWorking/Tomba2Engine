@@ -108,6 +108,12 @@ workflow defects. Stop and fix them, then resume.
     `none` (host-only overlay — a guest write is a BUG) | `non-canon` (writes guest RAM but byte-matches
     at the rendezvous — pc_skip) | `full` (deliberately changes canon state — pc_enh; MUST be
     force-suppressed under ORACLE/SBS or `behavior.py check` FAILS). Register every enhancement here.
+- **What is MISSING from the picture:** `docs/unported-render-inventory.md` — the ranked, cross-cut
+  list of visual layers pc_render does not natively produce, with each layer's guest producer,
+  dependency order and user-visible cost. None of the four maps above can answer this (a deliberately
+  deleted layer looks identical to an unported one in the codemap; port-map rows are steps, not
+  layers). Read it before starting ANY "X is missing under pc_render" work; update it in the same
+  change that closes a row.
 - **Area index:** `docs/areas.md` — the 22 areas (0..21), how to reach one (cold `warp` is broken;
   use the settled recipe), and the NAMING RULE: an area index is a fact, an area name is a claim that
   needs a source (USER or guest data). Two cards were filed against invented names before this existed.

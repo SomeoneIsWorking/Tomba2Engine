@@ -4,6 +4,9 @@ kind: claim
 status: holds
 created: 2026-07-28
 tags: render
+reconfirmed: 2026-08-06
+verified_at: 2026-08-06
+depends: game/render/fx_sprite.cpp#altSpriteEmit
 ---
 
 ## Claim
@@ -17,3 +20,7 @@ ov_a01_gen_8012D9E8 body spans generated/ov_a01_shard_1.c:16073-16412 and line 1
 ## What would falsify it
 
 a scene where node+0x70 is provably always non-negative would make it unobservable but not wrong; a gen body for 8012D9E8 reading lhu would falsify it outright
+
+## Re-confirmed 2026-08-06
+
+RE-VERIFIED 2026-08-06, statically, against BOTH sides. GUEST: ov_a01_gen_8012D9E8 (generated/ov_a01_shard_1.c:16153-16508, 356 lines) reads the scale numerator at line 16478 as `(uint32_t)(int16_t)c->mem_r16((c->r[17] + (uint32_t)16))` — sign-extended, i.e. lh. NATIVE: game/render/fx_sprite.cpp:610 reads `c->mem_r16s(node + kRotTailScale)` with kRotTailScale=0x70 (line 260); the fix is still in place. NEGATIVE CONTROL for the signedness discriminator, in that same gen body: 4 sign-extended vs 14 zero-extended halfword reads, so the check demonstrably produces BOTH answers and is not reading 'signed' off everything. NOTE ON THE ORIGINAL EVIDENCE: it cited ov_a01_shard_1.c:16382, which now holds unrelated code — generated/ is rebuilt from the operator's own disc, so a generated/ LINE NUMBER is not a stable citation. Re-located by scanning for the gen symbol instead. NOT re-verified: no runtime observation; fxRotSpriteTailRender remains cold across the replay library, exactly as the claim already says.

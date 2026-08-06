@@ -1,8 +1,9 @@
 ---
-id: C004
+id: C029
 kind: claim
 status: holds
 created: 2026-07-23
+renumbered: 2026-08-06 from C004 — that id was shared by several claims, so every by-id command resolved it to an arbitrary one
 tags: ui,render
 ---
 

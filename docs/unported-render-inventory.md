@@ -1,0 +1,301 @@
+# The unported-render inventory — every visual layer pc_render does NOT natively produce
+
+**Opened 2026-08-06** by the G10 survey, answering the USER's request: *"Tomba! 2 also has many
+unported renders so missing graphics that should be ported."*
+
+**Why this doc and not another one.** The four tracking maps each answer one question and none of them
+answers *this* one:
+
+| map | answers | why it cannot answer "what's missing from the picture" |
+|---|---|---|
+| `docs/code-map.md` (`tools/codemap.py`) | WHERE a guest address is owned | a layer that was deliberately deleted looks identical to one never ported; a layer whose *entry fn* is owned can still draw nothing |
+| `docs/port-map.md` (`tools/portmap.py`) | is a step REAL or a HACK | it is a step list, not a layer list — one step covers eight controllers, and a layer with no step is invisible to it |
+| `docs/parity-map.md` (`tools/parity.py`) | is it SBS byte-exact | pc_render is `n/a` there by construction (it never writes guest RAM) |
+| `docs/kanban/` (`tools/kanban.py`) | what a USER reported | only covers what someone happened to look at |
+
+This file is the cross-cut: **one row per visual layer that does not reach the pc_render picture**,
+with its guest producer, why it is absent, what porting it needs, and what it costs the player. It is
+hand-maintained. When you close a row, close it here *and* in whichever map owns the mechanism.
+
+**Ranking axis:** user-visible impact × how often the layer is reached × how much RE is already done.
+
+---
+
+## 0. THE STRUCTURAL RULE — what can reach the pc_render picture at all
+
+This is the thing to understand before reading any row below, and it is a
+definition/call-site fact, not a grep:
+
+> `game/game_tomba2.cpp:170-176` — under `psx_render`, `Engine::drawOTag` calls
+> `gpu_dma2_linked_list`. Under `pc_render` it does not, and **that is the only call site of the OT
+> walk in the tree**. So *every GP0 primitive the guest links into the ordering table is
+> structurally absent from the pc_render picture* unless a native producer re-emits it.
+
+Primitives that do **not** go through the OT — the ones libgpu issues as direct GP0 words / DMA
+block transfers — still execute under `pc_render`, because `GpuState::gpu_gp0_word` is reached from
+the GPU register and DMA paths regardless of render mode.
+
+### 0.1 The GP0 op-class inventory (guest emits vs native produces)
+
+Measured on **one** run pair, so read the denominators: `PSXPORT_GATE=1`, headless, 460 frames of
+`replays/bugs/bucket-softlock.pad` (area 0, the seaside), one leg with `PSXPORT_RENDER_PSX=1` and one
+without, everything else identical. Counts are diagnostic lines, not pixels.
+
+| GP0 class | decoded by | psx_render leg | pc_render leg | native counterpart | verdict |
+|---|---|---|---|---|---|
+| polygon `0x20–0x3F` | `gp0_exec` (gpu_native.cpp:651) | (not counted — see blind spots) | 0 via the OT | `RqItem` with `nv`=3/4, gouraud, textured, raw, semi+blend, texwindow | **producer-only**: every poly must be re-emitted natively |
+| line `0x40–0x5F` | gpu_native.cpp:1029, incl. variable-length poly-lines | **1658 packets** (1064 op-0x4A, 594 op-0x5E) | **0** | no line primitive in the queue **by design** — producers expand each segment to a quad (`fx_line.cpp`) | **COVERED.** All three emitters ported — see row R-CLOSED-1 |
+| rect / sprite `0x60–0x7F` | gpu_native.cpp:845 | (not counted) | 0 via the OT | no rect primitive — sprite producers push quads (`push2dQuad`, `emitAnimQuadRecords`) | **producer-only** |
+| FillRect `0x02` | gpu_native.cpp:958 | ≥24 (rate-limited) | **≥24, identical rects** | none needed | **NOT a gap** — it arrives on the direct-GP0 path and still executes. Every rect observed was full-screen (320×240 / 320×511), i.e. the frame clear, carrying no unique picture |
+| CPU→VRAM `0xA0` | gpu_native.cpp:1186 | — | **2305 uploads** | none needed | **NOT a gap** — textures/FMV frames still land in VRAM and pc_render samples them |
+| VRAM→VRAM `0x80` | gpu_native.cpp:1204 | — | — | none needed | **NOT a gap** — direct-GP0 path, still executes |
+| VRAM→CPU `0xC0` | gpu_native.cpp:1102 | — | — | n/a | readback, not picture |
+| env `0xE1–0xE5` | gpu_native.cpp:1130-1147 | — | — | resolved into each `RqItem` at enqueue | covered |
+| mask settings `0xE6` | gpu_native.cpp:1148 | — | — | **not modelled at all** | framework-wide, affects BOTH renderers equally. Whether Tomba!2 uses the mask bit is **unchecked** |
+
+**HEADLINE, and it is the answer to "is a whole class invisible":**
+**No GP0 op class is missing from the native renderer today.** The class that *was* missing — lines,
+which made every rope, chain and fishing line invisible and read as several unrelated bugs (kanban
+#56) — has been closed: all three line emitters have native producers and the pc_render leg emits
+zero GP0 lines while drawing them as quads.
+
+**But the same failure shape has recurred one level down, at a SHARED WRITER instead of an op class.**
+`FUN_80027768` — the effect-mesh writer, 20 controller call sites — lost its only producer route on
+2026-08-04 and now draws nothing at all. That is row **R1**, and it is the single highest-value item
+in this document for exactly the reason kanban #56 was: one gap, many symptoms, each of which reads
+as its own unrelated missing effect.
+
+### 0.2 Blind spots of this census — state these before citing it
+
+1. **One replay, one area, 460 frames.** Area 0 (seaside) only. This is not the 22-area sweep
+   (`docs/areas.md` recipe, instrument I021); a layer that only lives in area 7 cannot appear here.
+2. **Polygon and sprite op subcodes were NOT counted, and no instrument in the tree can count them
+   as-is.** `objz` is the only per-prim poly/sprite channel and it is gated twice — on
+   `s_frame == s_primdump_frame` (so it prints nothing unless `PSXPORT_PRIMDUMP=<frame>` is set) and
+   on `!is3d && !bg` (so it is a 2D-non-background census, never a whole-frame one). The poly/sprite
+   rows above therefore rest on the call-site fact in §0, not on a count.
+3. **No pictures were compared.** Nothing in this document is a pixel measurement I took; where a
+   pixel number appears it is cited from the work that produced it.
+4. `PSXPORT_DEBUG=nofx` is **DISTRUSTED** (instrument I018): it sits behind `fieldObjectsRender`'s
+   `mem_r8(n+1) == 0` visibility skip, so it can only ever name nodes that are ALREADY VISIBLE and is
+   structurally blind to a node skipped for invisibility — which is the single most important case
+   for a missing-layer bug. Where I use it below, I say so. `ringcensus` (I033) is the instrument
+   that sits *before* the skip.
+
+---
+
+## 1. THE INVENTORY, ranked
+
+### R1 — THE EFFECT-MESH FAMILY has no producer at all *(highest value; RE largely done)*
+
+| | |
+|---|---|
+| **Looks like in game** | the weapon-IMPACT radial plume; the weapon SWING / CHARGE effect; the water jet's mesh half ("Water came out from the faucet!"); a 4-copy radial plume that is the commonest effect node in a field dump; plus up to 14 further effect controllers not yet identified by sight |
+| **Guest producer** | shared writer `FUN_80027768`, reached from **20 distinct controllers**. Named ones: `0x800288AC` (impact plume), `0x8002BC9C` (4-copy plume), `0x8002A834` (SwingFx), `0x8013D454` MESH branch, `0x8013D828`, `0x8013ED08`, `0x8013EF58` (A00 overlay), and the unowned twelve `0x80028B70 0x8002C138 0x8002C6AC 0x8002CD18 0x8002D65C 0x8002DF68 0x8002F36C 0x8002FDD0 0x80030264 0x80030D68` (census in `docs/findings/render.md`, "the mesh writer has 20 callers") |
+| **Why absent** | commit **`abf3cf9`** ("Delete the GTE-register render taps; four layers are now honestly absent", 2026-08-04) removed `game/render/fx_mesh.cpp/.h`, `mesh_emit_tap.cpp`, `swing_fx.cpp/.h`. `mesh_emit_tap.cpp` was the **single owner** of `FUN_80027768` and dispatched to whichever controller SCOPE was up. No scope, no picture — and pc_render does not walk the guest OT, so the guest packets are not a fallback. **The deletion was CORRECT**: those producers re-derived quads from the transform the substrate controller had just composed into GTE CR0–7, i.e. a tap, banned by PROTOCOL.md. What was never recorded anywhere is that it left the whole family producer-less |
+| **Evidence** | `tools/codemap.py --addr` answers **NO NATIVE OWNER** for `0x80027768`, `0x800288AC`, `0x8002BC9C`, `0x8002A834`, `0x8013D828`, `0x8013ED08`, `0x8013EF58`. **Live confirmation on the current build, not a grep:** `PSXPORT_GATE=1` pc_render + `PSXPORT_DEBUG=nofx,ringcensus` on `bucket-softlock.pad`, 460 frames headless, names `0x8002BC9C` (node `800EE7B8`) and `0x800288AC` (node `800EEBF8`) as live-and-skipped in **area 0**, with 27 live type-0x20 nodes of 152 walked per frame |
+| **Collateral** | closes-that-are-now-false: **kanban #14** ("Weapon CHARGE effect missing") was closed citing `fx_mesh.cpp` — reopened to `todo` 2026-08-06. **kanban #15**'s 2026-07-23 mesh-half fix and its 2026-07-28 A00 follow-up (gated at **700–1367 px/frame** on `walk-dust-puff.pad`) are both gone. **Claim C011** ("every type-0x20 fn the nofx census reaches now has a producer") is **falsified** |
+| **Porting needs** | one native producer per controller, reading the controller's OWN node state (`node+0x48` angles, `node+0x2C/0x30` position, model table at `node+0x50`) and projecting with the native camera — the shape `fx_sprite.cpp` / `fx_dust.cpp` / `fx_line.cpp` already use. **The RE is largely DONE — do not re-derive it:** kanban #15's 2026-07-28 entry carries the full `FUN_8002BC9C` decode; `docs/findings/render.md` "The A00-overlay effect-mesh controllers" carries `0x8013D454/D828/ED08/EF58` |
+| **Do NOT** | restore a scope/tap to get the picture back. `mesh_emit_tap.cpp` is not a template to resurrect |
+| **Tracked as** | portmap `render-producer-effect-mesh-family` (todo, `absent:` set) |
+
+### R2 — The `submitQuad` caller classes: flames, generic particles, see-saw/beam quads
+
+| | |
+|---|---|
+| **Looks like in game** | the A00-overlay flame/rope emitter's quads; generic particle quads (case-188); the see-saw / beam quads (two quads spanning an anchor and the node) |
+| **Guest producer** | `FUN_8003B320` (`submitQuad`, already native) called from **`FUN_8003B704`** (see-saw / beam), **`renderWalkCase188`** (generic particles), and the a00-overlay emitter around `0x801341xx` |
+| **Why absent** | DELETED 2026-08-04 with `quad_rtpt_submit.cpp`'s GTE-register tap. Their display-pass records were built from `gte_read_ctrl(0..4)/(5+i)` after the substrate's RTPT ran, then un-composed against the scene camera — the exact banned shape |
+| **Porting needs** | port each emitter and draw from its own world state; there is no shared shortcut, which is precisely why the shared tap existed. **Partial RE exists** and must not be re-derived: `scratch/decomp/quad_emitters.c` (Ghidra `ram_sea`) + `docs/fps60-rework.md` "REDIRECT census progress" carries `FUN_8003B704`'s full decode (two quads across `DAT_800e7f5c+0x2c/30/34` and `node+0x2E/32/36`, half-widths from `rcos/rsin(node+0x68, node+0x6A)`×0x14, colour `DAT_800a3b04[node+0x66*2]`, code 0x2D, clut 0x3E9F) |
+| **OPEN before porting** | the **CR contract**. `FUN_8003B704`'s verts look world-space but the control registers at call time are whatever `perObjRenderDispatch` / `billboardCompose1` left. Pin down whether the positions are world or node-relative, and what CR state each dispatch case guarantees — same question for case-188. Answering it from the GAME's own state, not from the CRs, IS the port |
+| **Tracked as** | portmap `render-producer-submitquad-classes` (todo, `absent:` set); `docs/fps60-rework.md` residuals |
+
+### R3 — `FUN_8013CDD4`'s GT4 prop quads (drum / windmill caps)
+
+Deliberately absent since 2026-08-04 (same tap deletion). **Confirmed live in area 0 this session**:
+`nofx` names node `800EE598` render fn `0x8013CDD4`; the library census recorded it in 15 of 17
+replays, so this is a commonly-reached layer, not a corner case. `WidescreenMarginQuad::emit` still
+*exists and installs* — `codemap.py --addr 0x8013CDD4` finds an owner — which is exactly why the
+codemap alone cannot answer "is this layer present". **Real fix:** drive the emitter from the node's
+own position + rotation angles (`obj+44` / `node+0..2`, the inputs `0x800318A0` composes), never by
+reading back what it composed. Tracked as portmap `render-producer-margin-quad`.
+
+### R4 — Overlay-mode geomblks: the mesh-flush SEAM
+
+`Render::subPartWalk` / the shared per-cmd flush own the **GENERIC** mode loop only. Overlay-mode
+geomblks (`0x8012xxxx` / `0x8013xxxx`) are the next tier and are explicitly marked **do NOT jump**.
+This is a whole-tier gap rather than one effect, and it sits under several of the rows below.
+Tracked as portmap `render-mesh-flush` (blocked).
+
+### R5 — Area backdrops and ambient layers, per area
+
+| area | layer | guest producer | state |
+|---|---|---|---|
+| 21 | sky is a **GRADIENT + tilemap composite** — the gouraud base is unported | `gen_func_8003DF04` special-case → `0x8010BE30` → helper `ov_a0l_gen_8010BB64` (four POLY_G quads spanning x[0,320], colours `0x00AC0606` / `0x00EA9898`, scroll-derived Y from the s16 at `0x800C00F0`) | kanban #49 todo. Routing it through the plain tilemap producer was **tried and measured worse** — do not retry that |
+| 14 | waterfall backdrop's **sprite tail** — ~~unported~~ | `FUN_80110CA4` tail-calls `0x801104D0`, 440 gen lines | **NOT A GAP — kanban #67 is STALE.** `codemap --addr 0x801104D0` returns `Render::fxBackdropSparkRender` LIVE (`fx_backdrop_plane.cpp:210`), called from `fxBackdropPlaneRender` exactly as the guest tail-calls it. Its card's stated blocker (34 `FUN_8009A450` calls writing the seed) does not apply: the guest's own body keeps the pool simulated underneath, so the producer only READS slot state — the randomness is upstream. Status is **ported-unverified**, because the pool reads `live=0/200` in the only capture: an EMPTY POOL, not a dead producer. Needs a scene that populates it, not a port |
+| 21 | the **jet effect** | `FUN_8010C1D8` (A0L) | kanban #66 todo, blocked: returns immediately unless `*(u8*)0x800BFA55 >= 4`, and it reads 1 in the standard capture. Port is otherwise ready |
+| 4 | ambient effect + a **342-point tile field** | `FUN_8013B118`; the field is `ov_a04_func_8013AD90` (218 lines of raw GP0 tile emit, **no analogue anywhere in `game/render/`**) | kanban #68 todo. Of its three stated blockers, **the PRNG one is resolved**: `GuestRngMirror` (`game/render/guest_rng_mirror.{h,cpp}`) exists, is in `cmake/tomba2_port.cmake`, and is a per-logic-frame read-only seed snapshot built for exactly this. The two that remain are real: every branch is gated off in the only reachable state (story phase `0x800E7EAA` = 1), and the 342-point field has no analogue in the tree. The field deserves its own row once reachable |
+
+### R6 — Layers with a producer that still never draw *(NOT missing producers — different fix)*
+
+Ranked here because the user sees them as missing graphics, but the fix is not "port an emitter":
+
+- **Stunned-enemy spinning stars** (kanban #55 / #72). The producer EXISTS and is a real native one
+  (`Render::fxSpriteEmit`'s `FN_RINGROT` branch, `0x8002B3A4`, zero `gte_read_*`). The ring node
+  spawns, but `node+1 == 0` (never marked visible) and it self-retires on its first behaviour tick
+  because `gen_func_8002B7B0` tests `mem_r8(mem_r32(node+0x14)+0x1B) & 0x40` and `node+0x14` is 0 —
+  **nothing in the spawn path writes it**. NEXT RE STEP: who is supposed to write `node+0x14` for
+  behaviour `0x8002B7B0`. *This session's ringcensus on area 0 reported `rings=0` on every frame —
+  no stun occurs in that replay, so it neither confirms nor denies the card.*
+- **Bucket's supporting POLE** visible only after pickup (kanban #54) — state-gated, not class-gated.
+- **Hut/house interior wall decorations** (kanban #57, #74) — suspected occlusion / coincident-face
+  ordering, i.e. a depth problem in a layer that IS produced.
+- **GAME OVER screen keeps drawing field geometry** (kanban #62) and **DEMO transition submits ~125k
+  garbage quads from a geomblk pointing at texture data** (kanban #70) — wrong-content, not absent.
+- **Flying bird in area 0** (kanban #63) — missing, mechanism not yet attributed to a class.
+
+### R7 — 2D layer residuals
+
+`field-2D layer (#3b)` is ported-unverified as a whole. Named remaining gap: **special-character icon
+glyphs `FUN_80078988` are still substrate**. Also outstanding on that step: the gauge firing drive and
+a USER eyeball of the whole 2D layer.
+
+### R8 — Implemented but never seen on screen ("ported-unverified" — plausible and unproven)
+
+Each of these is code that exists and may be silently wrong; treat a green gate on them as hollow
+until something drives them. `fxAltAnimSpriteRender` (`0x8012E868`) and `fxRotSpriteTailRender`
+(`0x8012D9E8`, **and its inline rotated-mesh pass is unported**) are COLD across the entire 15-replay
+library — zero emissions, checked by their distinguishing gate/depth signature rather than assumed.
+`fadeTileRender` (`0x800726D4`) — cold because the game has two unrelated fade paths and this is the
+rare one. `composeTintGate` (`0x8003EF9C`) and `sharedTransformWalk` (`0x8003F07C`) — cold, need a
+scene using render mode 2. `impactRingRender` / `impactAnnulusDraw` (`0x8002ECD8` / `0x8002E680`) —
+no replay in the library reaches them. **Dust PUFF MESH layer** (kanban #53) — implemented from the
+RE, ring state never leaves {0,1} in 4000 frames so it has never been exercised.
+`world-line-ring-shadow` — see R-CLOSED-1.
+
+### R9 — Whole SCENES with no producer (abort, not a missing layer)
+
+`Render::renderScene` dispatches six scene kinds — `Loading`, `StartBoot`, `Title`, `Field`,
+`HutInterior`, `SopNarration` — and **aborts** on anything else (`render_walk.cpp:350`), as does a
+DEMO front-end substate outside `sm[0x48] ∈ {2,3,4,6,7}` (`render_walk.cpp:403`). That abort is the
+honest design (no OT-walk fallback), but it means an unported scene class is a crash, not a blank
+layer. Reaching a new scene kind is therefore a porting *prerequisite*, and `PSXPORT_RENDER_PSX=1` is
+the way to drive into one.
+
+---
+
+## 2. DEPENDENCY ORDER — what to work, and in what order
+
+```
+  R1  effect-mesh family (FUN_80027768 x 20 controllers)      <- START HERE
+       |   independent of everything below; RE already done; one producer per controller,
+       |   and each one landed is a whole visible effect back
+       |
+  R4  overlay-mode geomblk mesh flush (the SEAM)
+       |   several R5/R8 layers sit on this tier; portmap says do NOT jump ahead of it
+       |
+       +--> R2 submitQuad classes (B704 / case188 / a00 flame)
+       |       gated on answering the CR-contract question first, from GAME state
+       +--> R3 FUN_8013CDD4 prop quads       (independent; smallest of the three tap victims)
+       |
+  R5  per-area backdrops
+       |   area 21 gradient  -- independent, ready. THE ONLY ONE THAT NEEDS PORTING WORK.
+       |   area 14 tail      -- NOT a gap; ported. Needs a scene that fills the pool.
+       |   area 21 jet / area 4 -- blocked on REACHABILITY, not on code. Needs a scene where
+       |                     the phase byte advances; that is a game-driving task, not RE.
+       |
+  R6  behaviour-link bugs (stars: who writes node+0x14) -- independent of all render work
+  R7  2D residual: FUN_80078988 special-char glyphs      -- independent
+  R8  drive the cold producers                            -- needs scenarios, not code
+```
+
+**Two chokepoints worth naming**, because each unblocks several rows at once:
+
+1. **scene reachability, and it is the bigger one.** Area 21's jet, area 4's ambient, the dust puff
+   mesh (#53) and every cold producer in R8 are blocked on *reaching a game state*, not on RE or
+   code. That is a driving / replay-capture task, it is cheap relative to porting, and it would
+   convert a large block of "ported-unverified" into either verified or a real bug. **Doing this
+   before more porting is probably the highest return per hour on this whole list**, because an
+   unverified rebuild is exactly the class kanban #10 exists to warn about.
+2. **the host-side guest-PRNG mirror is NOT a chokepoint any more** — recorded here because two
+   cards still say it is. `FUN_8009A450` does read *and write* the seed at `0x80105EE8` (claim
+   **C018**, kanban **#69**), but `GuestRngMirror` (`game/render/guest_rng_mirror.{h,cpp}`, in the
+   CMake source list, already referenced from `fx_backdrop_plane.cpp`) is the per-logic-frame
+   read-only snapshot that answers it. Do not re-derive that design.
+
+---
+
+## 3. HOW TO RE-RUN THIS CENSUS
+
+```sh
+# the GP0 class census — TWO LEGS, and the psx leg is the negative control that proves the
+# instrument is not silent. Everything else identical between them.
+printf 'newgame\nrun 460\nquit\n' | PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1 PSXPORT_REPL=1 \
+  PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 PSXPORT_WATCHDOG=300 \
+  PSXPORT_DEBUG=fillrect,lineprim,upload \
+  PSXPORT_PAD_REPLAY=replays/bugs/bucket-softlock.pad ./scratch/bin/tomba2_port 2> scratch/g10/psx.err
+# ...then the same command WITHOUT PSXPORT_RENDER_PSX=1 -> scratch/g10/pc.err
+grep -o 'op=0x[0-9A-F]*' scratch/g10/psx.err | sort | uniq -c     # line packets by op
+
+# which type-0x20 nodes the native walk has no producer for (I018 — DISTRUSTED denominator:
+# blind to INVISIBLE nodes) plus the ring census that sits BEFORE the visibility skip (I033)
+PSXPORT_DEBUG=nofx,ringcensus   # same run shape, pc_render leg
+
+# who owns a guest address, with the denominator of what was searched
+python3 tools/codemap.py --addr 0x800288AC
+```
+
+**Two traps this census hit, recorded so nobody re-hits them:**
+
+- `PSXPORT_DEBUG=objz` **prints nothing** unless `PSXPORT_PRIMDUMP=<frame>` is also set — the log
+  line is gated on `s_frame == s_primdump_frame` — and even then it is a 2D-non-background census
+  (`!is3d && !bg`), never a whole-frame op histogram. A quiet `objz` is not a negative result.
+- The `fillrect` channel is **rate-limited** to the first 24 lines plus every 512th, and the counter
+  it prints is the point of the line. Seeing `#24` as the last line means the true total is
+  somewhere in [24, 512) — do not read 24 as the count.
+
+---
+
+## 4. DOC / TRACKER DEFECTS FOUND BY THIS SURVEY (all corrected in the same pass)
+
+1. **Claim C011 falsified** — "every type-0x20 render fn the nofx census reaches now has a producer"
+   rested on three of its five fns being "owned by another route"; `abf3cf9` deleted that route.
+2. **portmap `world-line-ring-shadow` was STALE** and was inflating the missing-layer list — it
+   listed `FUN_8013E08C` as todo/BLOCKED on RE of `FUN_80084110/80084220`, but the *same address* is
+   step `fx-line-emitter-e08c`, ported 2026-07-28 as `Render::shockwaveRingRender`, whitelisted, and
+   `codemap --addr` returns it LIVE. Corrected to ported-unverified. **Unresolved and now recorded:**
+   this step calls the layer a *ground ring shadow* and `fx_line.cpp` calls it an *expanding
+   shockwave ring* — same code, two incompatible descriptions, nobody has looked at it.
+3. **kanban #14 reopened** — closed citing a file that no longer exists.
+4. **kanban #67 is STALE** — it says the area-14 backdrop's sprite tail `0x801104D0` "is unported"
+   and blocked on the guest PRNG. `codemap --addr` returns `Render::fxBackdropSparkRender` LIVE, and
+   the port's own note explains why the PRNG constraint does not apply to it. Noted on the card.
+5. **kanban #68's PRNG blocker is stale** — `GuestRngMirror` exists and is built. Its other two
+   blockers (state gating, the 342-point field) are real. Noted on the card.
+6. **Stale comments in `game/render/render_walk.cpp` (lines ~794, ~802, ~850) and
+   `game/render/fx_sprite.cpp` (~251, ~343) and `render.h` (~281)** still say the mesh half is
+   "already captured by fx_mesh's armTap scope" / "owned by fx_mesh.cpp's a00 scope". `fx_mesh.cpp`
+   was deleted. **These comments are the reason R1 stayed invisible for two days** — they read as an
+   ownership record. They are NOT corrected by this doc (the survey was told not to change renderer
+   code); correcting them is a one-line-each follow-up and should happen with R1.
+
+*Pattern worth naming: four of the six defects above are a tracker row that outlived its own fix.
+Sizing this work from the card titles alone would have OVER-counted the missing layers by two (#67,
+`world-line-ring-shadow`) and UNDER-counted them by one — R1, which no tracker mentioned at all and
+which is the largest item on the list. That asymmetry is the argument for this file existing.*
+
+### R-CLOSED-1 — the LINE class *(kept here because it is the template for R1)*
+
+Kanban **#56** ("SYSTEMIC: pc_render has NO line-primitive producer — every GP0 line is invisible")
+is the canonical instance of the failure this document exists to catch: *one structural gap that
+presents as several unrelated missing effects* (bucket rope, fishing line, hanging vines). It is now
+**closed pending a USER eyeball**. All three emitters have native producers — `FUN_8013E9D8`
+(anchor rope), `FUN_8013EA64` (8-point chain), `FUN_80122974` (4-mode tether incl. the fishing line),
+all through the shared leaf `FUN_8013DD34`, plus `FUN_8013E08C` (the ring). Measured this session on
+the same replay: psx leg **1658** GP0 line packets, pc leg **0** line packets and instead **152**
+shockwave + **598** rope-leaf producer calls. The queue stayed quads-only — the segment→quad
+expansion lives in the producer, which is the pattern R1's port should follow.
+
+*Un-root-caused, recorded rather than hidden:* 152 shockwave producer calls is exactly 2× the 76 that
+the guest's 1064 op-0x4A packets imply (7 spans × 2 strokes per call). Most likely the fps60
+real+interp double render — but that is an inference, not a measurement.
