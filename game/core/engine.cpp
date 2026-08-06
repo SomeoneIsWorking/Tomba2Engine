@@ -43,6 +43,7 @@
 #include "game.h"
 #include "override_registry.h"   // overrides::install — the one native-override registry   // class Game — Game::sbs
 #include "sbs.h"                     // `sefprobe` probe below — Sbs::coreId/frame
+#include <lucent/log.h>              // Engine::devTeleportApply's `tp` line
 static inline void d0(Core* c, uint32_t fn) { rec_dispatch(c, fn); }
 static inline void d1(Core* c, uint32_t fn, uint32_t a0) { c->r[4]=a0; rec_dispatch(c, fn); }
 static inline void d2(Core* c, uint32_t fn, uint32_t a0, uint32_t a1) { c->r[4]=a0; c->r[5]=a1; rec_dispatch(c, fn); }
@@ -746,6 +747,30 @@ void Engine::sceneRenderListBuilderFaithful() { Core* c = core;
 // recipe (same fork the DEMO tail uses — demo.cpp demo_tail_75a80_faithful). NO dualviewSnapshot
 // capture/restore here: with the substrate render orchestrator executing underneath
 // (Render::frame), its guest writes ARE faithful state — rewinding them would diverge from B.
+// DEV TELEPORT (`tp X Y Z`) — write Tomba's master position, once. Called from Engine::frameUpdate
+// (game_tomba2.cpp), the one per-frame body native_step_frame runs on EVERY exec path.
+//
+// It is not CutsceneCamera's, because the camera is the WRONG owner: trackXZ runs
+// only in the follow-camera mode, so an armed teleport was simply never consumed in any area whose
+// camera is in another mode, and the command reported success anyway. Measured 2026-08-06 on
+// tomba2_port at HEAD: area 0 logged one `[tp] Tomba ->` line and Tomba moved X 3940 -> 6020; areas
+// 13, 14 and 20 logged ZERO such lines over 300 frames each and his position never changed.
+//
+// Y and Z are still the game's to overrule — the terrain/collision step re-derives ground height and
+// the area's walkable Z after this write (area 0: tp Y -1500 settled to -1124, tp Z 2600 settled to
+// 3963). That is the game doing its job, not the teleport failing; a dev teleport asks for a
+// position, it does not suspend collision.
+void Engine::devTeleportApply() {
+  if (!mCamTpPending) return;
+  Core* c = core;
+  mCamTpPending = false;
+  c->mem_w32(CutsceneCamera::MASTER_X, (uint32_t)mCamTpX << 16);   // 16.16 fixed; hi16 = world int
+  c->mem_w32(CutsceneCamera::MASTER_Y, (uint32_t)mCamTpY << 16);
+  c->mem_w32(CutsceneCamera::MASTER_Z, (uint32_t)mCamTpZ << 16);
+  c->mem_w32(CutsceneCamera::G + 0x44, 0);                          // master speed — land stopped
+  lucent::info("tp", "Tomba -> ({},{},{})", mCamTpX, mCamTpY, mCamTpZ);
+}
+
 void Engine::fieldFrameFaithful() { Core* c = core;
   c->r[29] -= 24;
   const uint32_t sp = c->r[29];

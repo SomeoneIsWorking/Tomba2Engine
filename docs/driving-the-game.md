@@ -246,6 +246,22 @@ Launch with `PSXPORT_DEBUG_SERVER=1` (port 5959) **and a high `PSXPORT_NATIVE_FR
     Typical field run: `debug preseqobj` → `preseq 24 scratch/screenshots/preseq_field` → `run 20` → `quit`;
     the fps60 setting comes from `PSXPORT_SETTINGS=<ini with fps60=1>`.
 - `pause` / `play` / `step`.
+- `menu [on|off|toggle]` — show/hide the RmlUi mod/debug overlay **without a keyboard or a window**.
+  It used to be reachable only by an SDL ESC key event, i.e. only through a window, so the whole UI
+  was undrivable by every instrument this project actually uses. Prints what it did, including its
+  refusals (`overlay NOT initialised` / `overlay is up but has NO DOCUMENT`), so a run that changed
+  nothing cannot read like a run that worked. Pair it with `PSXPORT_DEBUG=rmlui` to see the text the
+  overlay actually put in the DOM:
+
+  ```
+  [rmlui] overlay up (headless sink 960x720, 3/3 fonts, ESC to toggle the menu)
+  [rmlui] text #video_readout = "render 960x720 · window 960x720 · internal 3x"
+  [rmlui] text #world_readout = "pos X 0 Y 0 Z -1750 · stage DEMO (0x801062E4)"
+  ```
+
+  That line reports `DecodeRml(GetInnerRML())` — what the DOM HOLDS, not what we composed. The
+  distinction is the point: the `&middot;` bug (kanban #76) was invisible to any diagnostic that
+  echoed the string we sent, because the string we sent was fine and RmlUi's reading of it was not.
 
 ### RE commands (later-134) — inspect/poke/call live, no recompile-a-probe loop
 - `w8 A V` / `w16 A V` / `w32 A V` — poke a byte/half/word into guest RAM (hex addr + value).

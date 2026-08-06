@@ -63,15 +63,9 @@ bool CutsceneCamera::followAxis(uint32_t accAddr, uint32_t tgt32Addr, uint16_t t
 
 // ── follow accumulators ──────────────────────────────────────────────────────────────────────────
 bool CutsceneCamera::trackXZ(uint32_t target) {   // FUN_8006D960
-  if (eng(c).mCamTpPending) {                        // one-shot debug teleport of Tomba's master pos
-    auto& e = eng(c);
-    e.mCamTpPending = false;
-    w32(MASTER_X, (uint32_t)e.mCamTpX << 16);
-    w32(MASTER_Y, (uint32_t)e.mCamTpY << 16);
-    w32(MASTER_Z, (uint32_t)e.mCamTpZ << 16);
-    w32(G + 0x44, 0);                                   // master speed
-    cfg_logi("tp", "Tomba -> (%d,%d,%d)", e.mCamTpX, e.mCamTpY, e.mCamTpZ);
-  }
+  // (The dev teleport used to be consumed here. It is Engine::devTeleportApply's now — this method
+  // only runs in the follow-camera mode, so consuming it here made `tp` a no-op in every area whose
+  // camera is in another mode. See engine.h's mCamTpPending banner for the measurement.)
   bool snapX = followAxis(S + 0x0C, target + 0, r16(target + 2),  r16(S + 0x0E), 6144);
   bool snapZ = followAxis(S + 0x14, target + 8, r16(target + 10), r16(S + 0x16), 6144);
   return snapX && snapZ;

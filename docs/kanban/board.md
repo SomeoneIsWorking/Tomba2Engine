@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (29)
+## TODO (30)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
@@ -35,15 +35,17 @@
 - **#70 DEMO transition: object cmd geomblk points at texture data, emitter submits ~125k garbage quads**  ``
 - **#72 Stars on stunned enemies no longer render**  `render`
 - **#73 Score-pickup point popups: anchoring to Tomba is wrong in widescreen**  `render,widescreen`
+- **#78 psx_render draws NO world geometry — the pc-vs-psx reference comparison is a DEAD instrument**  `render,tooling,verification`
 
-## DOING (5)
+## DOING (6)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
 - **#22 Health wheel is too transparent — reproduces on psx_render too, so the oracle is NOT the reference**  `render` — 📎 docs/reference/issues/issue22_health_wheel_reference.png,            docs/reference/issues/issue22_health_wheel_reference_dark.png
 - **#45 CAMPAIGN: render everything natively — retire the substrate-GTE projection producers to float-native**  `render,campaign`
 - **#47 pc_skip: entering 'House on the Point' corrupts state (music stops, camera unfollows, interior vibrates)**  `bug,pc-skip`
 - **#74 Interior wall decors missing (suspect depth / coincident-face ordering)**  `render` — 📎 docs/reference/issues/issue74_house_pc_render_decor_missing.png,     docs/reference/issues/issue74_house_psx_render_decor_present.png
+- **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 
-## DONE (41)
+## DONE (43)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -85,3 +87,5 @@
 - **#69 Read-only producers cannot use the guest PRNG (FUN_8009A450 writes seed 0x80105EE8) — needs a host-side mirror design**  `render`
 - **#71 Item-announcement banner renders glitchy, worst while the camera moves**  `render` — 📎 docs/reference/issues/item-banner-glitch-2026-08-04.png
 - **#75 the native camera reads its projection constants back out of the GTE**  `render,camera,gte,user-rule,debt`
+- **#76 Debug overlay renders HTML entities literally: "&middot;" instead of "·" in the video/world readouts**  `ui,bug`
+- **#79 dev tp was a silent no-op outside the follow-camera mode — FIXED**  `tooling`

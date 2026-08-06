@@ -4827,3 +4827,29 @@ be used as the guest-write gate here; the 2 MB RAM + scratchpad A/B above was us
             shows an open water surface. Align the legs by content before comparing, or do not compare.
   refs    : kanban #15; docs/unported-render-inventory.md R1-CLOSED-1; portmap
             `render-producer-plume-bc9c`; game/render/fx_plume.cpp; game/render/mesh_quads.{h,cpp}
+
+## psx_render is NOT a reference — it draws no world geometry at all (2026-08-06)
+
+  symptom : `PSXPORT_RENDER_PSX=1` produces a picture with the far background and the sprite/particle
+            layers only. No terrain, no props, no player. It looks like a scene, so it reads as a
+            reference — it is not one.
+  status  : MEASURED, cause not verified. Kanban #78.
+  evidence: area 0, reached by `newgame` + `skip 3000` with NO warp (so no dev-warp state is involved),
+            both legs on the SAME exec leg `PSXPORT_GATE=1` (recomp_path), one BOOT per leg, only
+            `PSXPORT_RENDER_PSX` differing:
+              pc  scratch/screenshots/blockcull/ctl_a0_gpc.png  — village field, hut, Tomba, terrain.
+              psx scratch/screenshots/blockcull/ctl_a0_gpsx.png — SKY AND SEA ONLY.
+            Area 13 after a dev warp, same shape: abg_a13_gpc.png draws trunks/fence/terrain,
+            abg_a13_gpsx.png draws only the fronds and the particle sparkle. The knob IS being read
+            (the picture changes); the startup cvar audit lists it UNKNOWN, which is that audit's
+            declared blind spot for un-migrated knobs, not evidence the flag did nothing.
+  why it  : every conclusion of the form "psx_render does not draw X, therefore vanilla culls X" is
+  matters   VOID in this build. The instrument cannot produce the failing answer for ANY world
+            geometry, so a negative from it is a fact about the instrument. This is the number behind
+            docs/gfx-debug.md's "there is no render oracle" — that sentence is currently a rule
+            readers can mistake for a caution, and tools/warpsweep.sh + docs/areas.md still offer the
+            psx leg as a reference.
+  suspect : kanban #45's campaign retired the substrate-GTE projection producers, so the guest OT is
+            no longer filled with the world and the OT walk has nothing to draw. NOT verified — the
+            check is whether the OT is empty of world prims on the psx leg, which nobody has run.
+  refs    : kanban #77 (the user-reported blocked-camera bug this blocked), #78, #45.

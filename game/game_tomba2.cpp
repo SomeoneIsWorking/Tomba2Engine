@@ -76,6 +76,11 @@ void rec_dispatch(Core*, uint32_t);  // hybrid call: recomp body if emitted, els
 // used to attach). NOT an override anymore; not static so native_boot can call it top-down.
 void Engine::frameUpdate() {
   Core* c = this->core;
+  devTeleportApply();   // dev `tp X Y Z`, before the frame's state update. HERE and not in a stage/
+                        // camera body because this is the ONE per-frame body every exec path runs
+                        // (native_step_frame calls it directly), so the teleport no longer depends on
+                        // which camera mode, stage or exec leg the run happens to be in — see
+                        // engine.h's mCamTpPending banner for what that dependency measured.
   c->game->perf.phaseBegin(0);                               // perf: LOGIC = all guest interpreter work + render submit
   rec_dispatch(c, 0x800788ACu);                      // real per-frame state update (still-PSX leaf)
   c->game->perf.phaseEnd(0);

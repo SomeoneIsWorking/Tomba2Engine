@@ -59,15 +59,29 @@ public:
   // Back-pointer set once by Core's constructor (same pattern as ScreenFade::core).
   Core* core = nullptr;
 
-  // One-shot debug camera-teleport (REPL `tp X Y Z`). CutsceneCamera is instantiated per-call so
-  // its own members can't persist across the set/consume boundary; live on Engine (per-Core) instead.
-  // Consumed + cleared by CutsceneCamera::trackXZ. Was file-scope s_tp_pending / s_tp_x/y/z; cross-Core
-  // shared meant an `@a tp X Y Z` teleported BOTH SBS cores (deglobalize 2026-07-03).
+  // One-shot debug PLAYER teleport (REPL / debug-server `tp X Y Z`). CutsceneCamera is instantiated
+  // per-call so its own members can't persist across the set/consume boundary; live on Engine
+  // (per-Core) instead. Was file-scope s_tp_pending / s_tp_x/y/z; cross-Core shared meant an
+  // `@a tp X Y Z` teleported BOTH SBS cores (deglobalize 2026-07-03).
+  //
+  // IT WRITES TOMBA'S MASTER POSITION, NOT THE CAMERA — the follow camera then moves because it
+  // tracks him. The name is historical; `devTeleport` below is what it does.
+  //
+  // CONSUMED BY Engine::devTeleportApply, called from Engine::frameUpdate — the ONE per-frame body
+  // native_step_frame calls on every exec path — NOT from a camera method. It used to be consumed inside
+  // CutsceneCamera::trackXZ, which only runs in the follow-camera mode: MEASURED 2026-08-06, `tp`
+  // fired in area 0 (1 `[tp] Tomba ->` line) and NEVER FIRED in areas 13/14/20 (0 lines each) while
+  // the REPL still printed "tp camera -> (x,y,z)" — a dev teleport that silently did nothing over
+  // most of the game and reported success. The frame step always runs, so consumption no longer
+  // depends on which camera mode the area is in.
   bool     mCamTpPending = false;
   int32_t  mCamTpX = 0, mCamTpY = 0, mCamTpZ = 0;
-  // Arm / disarm the one-shot teleport (REPL `tp X Y Z` / `tp`). Consumed by CutsceneCamera::trackXZ.
+  // Arm / disarm the one-shot teleport (`tp X Y Z` / bare `tp`).
   void camTeleport(int x, int y, int z) { mCamTpX = x; mCamTpY = y; mCamTpZ = z; mCamTpPending = true; }
   void camTeleportOff() { mCamTpPending = false; }
+  // Apply an armed teleport to Tomba's master position. No-op when nothing is armed. Called once per
+  // frame from Engine::frameUpdate, before that frame's state update.
+  void devTeleportApply();
 
   // DEV WARP area index (game/core/dev_areas.cpp) — backs the RmlUi warp selector and the REPL `warp`
   // range guard. Static: no Engine state, and the framework reaches them through GameHooks so it never
