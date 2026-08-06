@@ -21,4 +21,10 @@ struct EObjXform {
 
   // Project model vertex V through this transform to float screen + view depth (full RTPT in float). No GTE.
   void project(int vx, int vy, int vz, ProjVtx* out) const;
+  // Same projection, and additionally REPORT which of the GTE's saturations the vertex hit, as CR31
+  // FLAG bits (see game/render/guest_face_gate.h). The projection has always applied these clamps —
+  // near-plane divide clamp, ±1024 screen clamp, 0..65535 depth clamp, ±32767 view clamp — it just
+  // never said so, and the guest's own submitters DROP any face whose CR31 error bit is set. Returns
+  // the flag word; `project` is this with the report discarded.
+  uint32_t projectFlags(int vx, int vy, int vz, ProjVtx* out) const;
 };

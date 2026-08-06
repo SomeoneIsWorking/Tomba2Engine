@@ -32,6 +32,7 @@
 #include "mtx.h"              // class Mtx — libgte helpers (identity, diagonal, ...)
 #include "trig.h"             // class Trig — libgte rsin/rcos
 #include "render.h"           // class Render — Render::fieldEntityRender lives here
+#include "guest_face_gate.h"  // the four gates the REAL game runs on every face before drawing it
 #include <stdlib.h>
 #include <stdio.h>
 #include <lucent/log.h>
@@ -174,7 +175,13 @@ static inline void engine_shade_face(Core* c, const ProjVtx* p, int nv, uint8_t 
 // MEASURED ground truth this reproduces (psx_render leg, REPL `otwhere`, 2026-07-22): the barrel's
 // interior cap files in bucket 460 and its water surface in bucket 457 — the game's own key orders the
 // water categorically IN FRONT, which is exactly what pc_render's per-pixel depth inverts.
-static int game_sort_key(Core* c, const ProjVtx* p, int nv, uint32_t code, int zsf) {
+// RETURNS A `SortKey`, NOT AN INT, and the distinction is the point: this function has two entirely
+// different reasons to produce no bucket, and the old `return -1` for both is what left the guest's own
+// OT-RANGE CULL unported. `droppedByGuest()` means THE GAME COMPUTED A KEY AND REFUSED TO LINK THE FACE
+// (a real cull, and the only -1 the caller may act on); `unknown()` means this port could not work out
+// which bucket the game would have used (no ZSF captured yet, an OT base that is not the active one) —
+// a bookkeeping gap, which must never become a cull.
+static SortKey game_sort_key(Core* c, const ProjVtx* p, int nv, uint32_t code, int zsf) {
   int policy = (int)((code >> 24) & 3u);
   int32_t otz;
   if (policy == 1 || policy == 2) {
@@ -182,20 +189,22 @@ static int game_sort_key(Core* c, const ProjVtx* p, int nv, uint32_t code, int z
     for (int k = 1; k < nv; k++) { int32_t s = p[k].sz; if (policy == 1 ? s > m : s < m) m = s; }
     otz = m >> 2;
   } else {
-    if (zsf <= 0) return -1;                       // no ZSF captured yet this run — no key
+    if (zsf <= 0) return SortKey::unknown();       // no ZSF captured yet this run — we cannot tell
     int64_t sum = 0; for (int k = 0; k < nv; k++) sum += p[k].sz;
     int64_t v = ((int64_t)zsf * sum) >> 12;        // GTE AVSZ MAC0>>12 with Lm_D saturation
     otz = v < 0 ? 0 : v > 65535 ? 65535 : (int32_t)v;
   }
   int32_t b = otz >> 10;
   int32_t k = (otz >> (b & 31)) + (b << 9);
-  if ((uint32_t)(k - 4) >= 2044u) return -1;       // guest range check — prim never linked, no key
+  // THE GUEST'S OWN RANGE TEST, literal: `if ((unsigned)(k-4) >= 2044) k = -1`, after which the submitter
+  // stores -1 and gen_func_80080000 skips the OT link entirely. The face is NOT DRAWN by the real game.
+  if ((uint32_t)(k - 4) >= 2044u) return SortKey::droppedByGuest();
   uint32_t base = c->mem_r32(0x800ED8C8u);         // active OT base (the same word perObjFlush reads)
   int32_t delta = (int32_t)(c->r[5] - base);
-  if (delta & 3) return -1;                        // otbase not derived from the active base
+  if (delta & 3) return SortKey::unknown();        // otbase not derived from the active base
   int32_t shift = delta >> 2;
-  if (shift < -128 || shift > 127) return -1;      // outside the int8 cmd[0x3F] range — foreign OT
-  return k + shift;
+  if (shift < -128 || shift > 127) return SortKey::unknown();  // outside int8 cmd[0x3F] — foreign OT
+  return SortKey::linkedAt(k + shift);
 }
 // Map a sort key back into the SAME normalized ord scale as the per-vertex depths (proj_pz_to_ord), so
 // resolveKeyOrder can snap a face onto a value that still sits at its real distance band. The guest's
@@ -234,10 +243,18 @@ void Render::submitPolyGt3Native(Core* c) {
   for (uint32_t i = 0; i < count; i++, rec += 36) {
     uint32_t vz01 = c->mem_r32(rec + 20);
     uint32_t xy0 = c->mem_r32(rec + 16), xy1 = c->mem_r32(rec + 24), xy2 = c->mem_r32(rec + 28);
-    ProjVtx p[3];
-    rend(c)->projVertexActive( (int16_t)xy0, (int16_t)(xy0 >> 16), (int16_t)vz01,         &p[0]);
-    rend(c)->projVertexActive( (int16_t)xy1, (int16_t)(xy1 >> 16), (int16_t)(vz01 >> 16), &p[1]);
-    rend(c)->projVertexActive( (int16_t)xy2, (int16_t)(xy2 >> 16), (int16_t)c->mem_r32(rec + 32), &p[2]);
+    ProjVtx p[3]; uint32_t vflag[3];
+    vflag[0] = rend(c)->projVertexActiveFlags( (int16_t)xy0, (int16_t)(xy0 >> 16), (int16_t)vz01,         &p[0]);
+    vflag[1] = rend(c)->projVertexActiveFlags( (int16_t)xy1, (int16_t)(xy1 >> 16), (int16_t)(vz01 >> 16), &p[1]);
+    vflag[2] = rend(c)->projVertexActiveFlags( (int16_t)xy2, (int16_t)(xy2 >> 16), (int16_t)c->mem_r32(rec + 32), &p[2]);
+    // GATE 1 — the guest reads CR31 immediately after the RTPT and drops the face whole if the error
+    // bit is set (`lw t4, CR31 ; bltz t4, next`). See guest_face_gate.h: that single test IS the
+    // engine's near-plane and off-scale cull, and skipping it is why geometry the real game removes
+    // when the camera gets close stayed on screen here.
+    { const uint32_t ff = vflag[0] | vflag[1] | vflag[2];
+      const bool drop = GteFlag::isError(ff);
+      rend(c)->mGuestGate.noteGte(drop, ff);
+      if (drop) continue; }
     float area = (p[1].px - p[0].px) * (p[2].py - p[0].py) - (p[2].px - p[0].px) * (p[1].py - p[0].py);
     if (area <= 0) continue;                                  // backface
     int xmax = submit_xmax(c);
@@ -278,7 +295,12 @@ void Render::submitPolyGt3Native(Core* c) {
       // otherwise. Without this, a present-time re-render would corrupt the live queue the NEXT real frame
       // is about to build — the exact bug class the "one draw path" design forbids.
       RenderQueue& rqOut = c->game->rqRedirect ? *c->game->rqRedirect : c->game->rq;
-      const int skey = game_sort_key(c, p, 3, code, proj_zsf3());
+      const SortKey key = game_sort_key(c, p, 3, code, proj_zsf3());
+      rend(c)->mGuestGate.noteKey(key);
+      // GATE 4 — the guest computed a key and its own range test rejected it, so the submitter stores
+      // -1 and gen_func_80080000 never links the prim. `unknown()` is deliberately NOT this branch.
+      if (key.guestDrop) continue;
+      const int skey = key.linked ? key.key : -1;
       // Native-producer handover (render.h mNativeDrawSuppress) — host-side skip only.
       if (!rend(c)->mNativeDrawSuppress)
       rqOut.drawWorldQuad(c, px, py, depth, u, v, r, g, b, tp, clut, semi, sv,
@@ -305,11 +327,17 @@ void Render::submitPolyGt4Native(Core* c) {
     uint32_t vz01 = c->mem_r32(rec + 24), vz23 = c->mem_r32(rec + 36);
     uint32_t xy0 = c->mem_r32(rec + 20), xy1 = c->mem_r32(rec + 28),
              xy2 = c->mem_r32(rec + 32), xy3 = c->mem_r32(rec + 40);
-    ProjVtx p[4];
-    rend(c)->projVertexActive( (int16_t)xy0, (int16_t)(xy0 >> 16), (int16_t)vz01,          &p[0]);
-    rend(c)->projVertexActive( (int16_t)xy1, (int16_t)(xy1 >> 16), (int16_t)(vz01 >> 16),  &p[1]);
-    rend(c)->projVertexActive( (int16_t)xy2, (int16_t)(xy2 >> 16), (int16_t)vz23,          &p[2]);
-    rend(c)->projVertexActive( (int16_t)xy3, (int16_t)(xy3 >> 16), (int16_t)(vz23 >> 16),  &p[3]);
+    ProjVtx p[4]; uint32_t vflag[4];
+    vflag[0] = rend(c)->projVertexActiveFlags( (int16_t)xy0, (int16_t)(xy0 >> 16), (int16_t)vz01,          &p[0]);
+    vflag[1] = rend(c)->projVertexActiveFlags( (int16_t)xy1, (int16_t)(xy1 >> 16), (int16_t)(vz01 >> 16),  &p[1]);
+    vflag[2] = rend(c)->projVertexActiveFlags( (int16_t)xy2, (int16_t)(xy2 >> 16), (int16_t)vz23,          &p[2]);
+    vflag[3] = rend(c)->projVertexActiveFlags( (int16_t)xy3, (int16_t)(xy3 >> 16), (int16_t)(vz23 >> 16),  &p[3]);
+    // GATE 1 — see the GT3 twin. The GT4 body reads CR31 twice (after the RTPT of v0..v2 and again
+    // after the extra RTPS of v3); the OR over all four vertices is the same test.
+    { const uint32_t ff = vflag[0] | vflag[1] | vflag[2] | vflag[3];
+      const bool drop = GteFlag::isError(ff);
+      rend(c)->mGuestGate.noteGte(drop, ff);
+      if (drop) continue; }
     // backface cull on the FRONT triangle's signed screen area (NCLIP: (SX1-SX0)*(SY2-SY0)-(SX2-SX0)*(SY1-SY0)).
     float area = (p[1].px - p[0].px) * (p[2].py - p[0].py) - (p[2].px - p[0].px) * (p[1].py - p[0].py);
     if (area <= 0) continue;                                  // backface (matches MAC0<=0 drop)
@@ -344,7 +372,10 @@ void Render::submitPolyGt4Native(Core* c) {
     { float vv[4][3]; const float (*sv)[3] = shadow_verts(p, 4, semi, vv);   // dynamic shadow verts (carried on the item)
       // Tier-1 capture-target redirect — see submitPolyGt3Native above.
       RenderQueue& rqOut = c->game->rqRedirect ? *c->game->rqRedirect : c->game->rq;
-      const int skey = game_sort_key(c, p, 4, code0, proj_zsf4());
+      const SortKey key = game_sort_key(c, p, 4, code0, proj_zsf4());
+      rend(c)->mGuestGate.noteKey(key);                       // see the GT3 twin above
+      if (key.guestDrop) continue;                            // GATE 4 — see the GT3 twin above
+      const int skey = key.linked ? key.key : -1;
       // Native-producer handover — see the GT3 twin above.
       if (!rend(c)->mNativeDrawSuppress)
       rqOut.drawWorldQuad(c, px, py, depth, u, v, r, g, b, tp, clut, semi, sv,

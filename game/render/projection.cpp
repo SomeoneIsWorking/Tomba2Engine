@@ -16,11 +16,15 @@
 // This is exactly view = Rcam·(Robj·v + Tobj) + Tcam — a standard model→world→view transform.
 
 #include "projection.h"
+#include "guest_face_gate.h"   // GteFlag — the CR31 bits each clamp below raises
 #include "render.h"
 #include "core.h"
 #include "game.h"    // c->game->fps60 — the TRUE per-object 60fps camera/object interpolation provider
 #include "cfg.h"
 #include <stdio.h>
+#include <lucent/log.h>
+
+int gpu_frame_no(Core*);   // the presented-frame counter the other render censuses tag their lines with
 
 #define SCR 0x1F800000u
 
@@ -77,28 +81,51 @@ void Render::projComposeCamera(EObjXform* out) {
   c->game->fps60.sceneCam(c, out->R, out->T, out->ofx, out->ofy, out->H);
 }
 
-void EObjXform::project(int vx, int vy, int vz, ProjVtx* out) const {
+// EVERY clamp below is a GTE saturation, and the guest's geometry submitters DROP a face whose GTE
+// FLAG (CR31) error bit came back set — so each clamp is also a cull the real game performs. The flag
+// word records which fired; see game/render/guest_face_gate.h for the four gates and the guest code
+// they were read from. `project` is `projectFlags` with the report thrown away, so there is exactly
+// one projection body and the flag can never drift from the clamp that raises it.
+uint32_t EObjXform::projectFlags(int vx, int vy, int vz, ProjVtx* out) const {
+  uint32_t flag = 0;
   const float V0 = (float)(int16_t)vx, V1 = (float)(int16_t)vy, V2 = (float)(int16_t)vz;
   // view = R·V + T  (R in 1.3.12 scale, so divide the rotate product by 4096; T is raw view units).
   double view[3], vz_raw = 0;
   for (int i = 0; i < 3; i++) {
     double t = (double)T[i] * 4096.0 + (double)R[i][0] * V0 + (double)R[i][1] * V1 + (double)R[i][2] * V2;
     if (i == 2) vz_raw = t;
+    // MAC1..3 hold this product in 1/4096 units and overflow past 43 bits.
+    if (t >= 4398046511104.0 || t < -4398046511104.0)
+      flag |= (i == 0 ? GteFlag::MAC1_OVF : i == 1 ? GteFlag::MAC2_OVF : GteFlag::MAC3_OVF);
     view[i] = t / 4096.0;
   }
   // IR saturation to ±32767 (kept so per-object geometry lines up with the rest of the projection pipeline).
+  if (view[0] < -32768 || view[0] > 32767) flag |= GteFlag::IR1_SAT;
+  if (view[1] < -32768 || view[1] > 32767) flag |= GteFlag::IR2_SAT;
+  if (view[2] < -32768 || view[2] > 32767) flag |= GteFlag::IR3_SAT;
   float ir1 = (float)(view[0] < -32768 ? -32768 : view[0] > 32767 ? 32767 : view[0]);
   float ir2 = (float)(view[1] < -32768 ? -32768 : view[1] > 32767 ? 32767 : view[1]);
   float ir3 = (float)(view[2] < -32768 ? -32768 : view[2] > 32767 ? 32767 : view[2]);
   out->ir1 = (int)ir1; out->ir2 = (int)ir2; out->ir3 = (int)ir3;
   out->vx = ir1; out->vy = ir2; out->vz = ir3;
   float szf = (float)(vz_raw / 4096.0);
+  if (szf < 0.0f || szf > 65535.0f) flag |= GteFlag::SZ3_SAT;
   int32_t szi = (int32_t)szf; out->sz = szi < 0 ? 0 : szi > 65535 ? 65535 : szi;
   // perspective: pz = max(H/2, view-Z); screen = OFX/OFY + IR * (H / pz).
+  // The GTE's divide saturates (and raises bit 17) exactly when SZ3 == 0 or H >= 2*SZ3 — THE NEAR
+  // PLANE. `pz = max(H/2, szf)` is that same saturation; flag it from the integer SZ3 the hardware
+  // divides by, not from the float, so the boundary case matches the hardware's.
+  if (out->sz == 0 || (int32_t)H >= out->sz * 2) flag |= GteFlag::DIV_OVF;
   float pz = H * 0.5f; if (szf > pz) pz = szf;
   float ph = (pz > 0.0f) ? H / pz : 0.0f;
   out->px = ofx + ir1 * ph;
   out->py = ofy + ir2 * ph;
+  // MAC0 holds the screen coordinate in 1/65536 units and overflows past 31 bits before SX2/SY2 are
+  // taken; at these magnitudes SX2/SY2 saturation has already fired, but the guest's test is the OR.
+  if (out->px * 65536.0f >= 2147483648.0f || out->px * 65536.0f < -2147483648.0f ||
+      out->py * 65536.0f >= 2147483648.0f || out->py * 65536.0f < -2147483648.0f) flag |= GteFlag::MAC0_OVF;
+  if (out->px < -1024.f || out->px > 1023.f) flag |= GteFlag::SX2_SAT;
+  if (out->py < -1024.f || out->py > 1023.f) flag |= GteFlag::SY2_SAT;
   if (out->px < -1024.f) out->px = -1024.f; if (out->px > 1023.f) out->px = 1023.f;
   if (out->py < -1024.f) out->py = -1024.f; if (out->py > 1023.f) out->py = 1023.f;
   int32_t sxi = (int32_t)(out->px < 0 ? out->px - 0.5f : out->px + 0.5f);
@@ -106,7 +133,10 @@ void EObjXform::project(int vx, int vy, int vz, ProjVtx* out) const {
   out->sx = sxi < -1024 ? -1024 : sxi > 1023 ? 1023 : sxi;
   out->sy = syi < -1024 ? -1024 : syi > 1023 ? 1023 : syi;
   out->pz = pz;
+  return flag;
 }
+
+void EObjXform::project(int vx, int vy, int vz, ProjVtx* out) const { (void)projectFlags(vx, vy, vz, out); }
 
 // The active object xform: set once per render command by the per-object flush; the GT3/GT4 submitters
 // project every vertex through it. There is NO GTE fallback — a submitter that runs in the per-object path
@@ -114,6 +144,9 @@ void EObjXform::project(int vx, int vy, int vz, ProjVtx* out) const {
 void Render::projSetActive(const EObjXform* w) { mActiveXform = *w; mActiveXformSet = true; }
 void Render::projClearActive()                 { mActiveXformSet = false; }
 void Render::projVertexActive(int vx, int vy, int vz, ProjVtx* out) { mActiveXform.project(vx, vy, vz, out); }
+uint32_t Render::projVertexActiveFlags(int vx, int vy, int vz, ProjVtx* out) {
+  return mActiveXform.projectFlags(vx, vy, vz, out);
+}
 
 static inline int32_t round_i16(float f) {
   int32_t v = (int32_t)(f < 0 ? f - 0.5f : f + 0.5f);
@@ -136,4 +169,18 @@ void Render::projActiveCr(uint32_t cr[11]) {
   cr[8] = (uint32_t)(int32_t)(a.ofx * 65536.0f);
   cr[9] = (uint32_t)(int32_t)(a.ofy * 65536.0f);
   cr[10] = (uint32_t)(uint16_t)a.H;
+}
+
+// ── The guest-face-gate census verdict (game/render/guest_face_gate.h) ─────────────────────────────
+// One line per rendered frame on `PSXPORT_DEBUG=guestgate`. It prints the DENOMINATOR first and names
+// what it cannot see, because the failure this instrument exists to prevent is a silent zero being read
+// as "the game keeps every face we draw".
+void Render::guestGateFlush() {
+  GuestFaceGateCensus& g = mGuestGate;
+  lucent::debug("guestgate",
+      "f{} faces={} droppedGTE={} droppedOTKEY={} keyUnknown={} flagsSeen={:08X}"
+      " [scope: the GT3/GT4 per-object submitters only — the tile/sprite/2D producers and any face"
+      " this port already culled for backface or screen bounds are OUTSIDE this count]",
+      gpu_frame_no(mCore), g.faces, g.dropGte, g.dropOtKey, g.unknownKey, g.flagsSeen);
+  g.reset();
 }

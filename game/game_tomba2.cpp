@@ -199,6 +199,7 @@ void Engine::drawOTag(uint32_t otHead) {   // called directly from native_step_f
   // gated behind the `rendernative` DIAGNOSTIC channel (off by default). Builds from native scene data.
   if (cfg_dbg("rendernative")) rend(c)->mNativeScene.run();
   c->game->rq.flush(c);
+  rend(c)->guestGateFlush();
 }
 
 void games_tomba2_init(void) {

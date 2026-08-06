@@ -17,6 +17,7 @@
 #include "guest_rng_mirror.h" // class GuestRngMirror — read-only stand-in for the guest PRNG
 #include "effect_lerp.h"      // class EffectLerp — the effect-node actor-transform interpolation tier           // class Lighting — per-area light registry (sun / lava+torch)
 #include "mesh_quads.h"       // struct MeshOtBias — the mesh writer's per-caller ordering-bias argument
+#include "guest_face_gate.h" // struct GuestFaceGateCensus — the guest's own per-face draw/no-draw test
 #include <unordered_set>
 #include <vector>
 class Core;
@@ -41,6 +42,13 @@ public:
   // The gp0 classify is deferred one frame, so the names live in a per-Core ring, not walk locals.
   NativeScenePass   mNativeScene;      // decoupled native render pass (collect + drawObject)
   MarginRenderer    margin;            // widescreen margin re-include (collect in cull, flush post-walk)
+  // Per-frame tally of faces THIS PORT DRAWS that the real game would have refused to draw, by
+  // guest rule. Per-Core so SBS's two cores never share it. Reported by guestGateFlush().
+  GuestFaceGateCensus mGuestGate;
+  // Report and reset mGuestGate — one line per frame on the `guestgate` channel. A frame in which the
+  // guest would drop nothing STILL PRINTS, with its denominator, because "0 drops" and "the census never
+  // ran" are the two answers this whole investigation kept confusing for each other.
+  void guestGateFlush();
   Lighting          lighting;          // per-area light registry (selected once per frame by shadeSelect)
   // Light config selected for this frame by shadeSelect(); the hot per-face shading routine reads the
   // cached pointer instead of re-reading guest RAM. Falls back to the SUN default when unset.
@@ -110,6 +118,10 @@ public:
   void projClearActive();
   bool projActive() const { return mActiveXformSet; }
   void projVertexActive(int vx, int vy, int vz, ProjVtx* out);
+  // Same projection, and additionally report the GTE FLAG (CR31) bits this vertex would have raised.
+  // The guest's geometry submitters drop a face whose CR31 error bit is set, so a caller that wants to
+  // run the guest's own test needs the report — see game/render/guest_face_gate.h.
+  uint32_t projVertexActiveFlags(int vx, int vy, int vz, ProjVtx* out);
   // Pack the ACTIVE float xform into the CR0-7 + CR24/25/26 layout the fps60 midpoint reprojection consumes.
   void projActiveCr(uint32_t cr[11]);
 
