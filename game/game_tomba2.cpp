@@ -154,6 +154,13 @@ void Engine::drawOTag(uint32_t otHead) {   // called directly from native_step_f
   // this is a no-op-equivalent (its bg overwrites the black). Engine-owned, keyed on the stage's own signal.
   if (c->mem_r32(0x801FE00Cu) == 0x801062E4u && c->mem_r8(0x801FE048u) < 2) c->game->gpu.gpu_blank_display();
 
+  // Per-logic-frame GUEST-STATE tracking that both render modes need, ticked BEFORE the mode branch.
+  // The area-cache trust latches are a state machine over the narration→field handoff, not part of
+  // building the picture, so running them only on the pc_render branch made them a function of which
+  // renderer happened to be active — and a mid-scene switch out of psx_render then lost the backdrop and
+  // the scene table permanently (kanban #41; the mechanism is written up on Render::areaCacheTrustTick).
+  rend(c)->areaCacheTrustTick();
+
   // ============================================================================================
   // REFERENCE RENDERER (psx_render) — the substrate guest-OT walk. This is now the ONLY caller of
   // gpu_dma2_linked_list. It is not a shipped render behavior: it is the byte-exact PSX reference

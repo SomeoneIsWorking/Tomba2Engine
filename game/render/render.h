@@ -173,6 +173,13 @@ public:
   // widescreen re-include pass). Was ov_scene_native.
   void sceneNative();
 
+  // areaCacheTrustTick: the once-per-logic-frame edge detector behind mSceneTableTrusted /
+  // mBackdropTrusted. Called from Engine::drawOTag BEFORE the psx_render/pc_render branch, because it
+  // tracks GUEST state (has the area cache been repopulated?) and is not part of building the picture.
+  // Living inside sceneNative made it pc_render-only, which permanently suppressed the backdrop and the
+  // scene table after any mid-scene switch out of psx_render — kanban #41, see the writeup on the body.
+  void areaCacheTrustTick();
+
   // ---- pc_render scene DISPATCH: classify the current scene, then run its native producer -------------
   // The picture for every pc_render frame comes from ONE of these per-scene producers (no guest-OT
   // transcription). drawOTag (game_tomba2.cpp) calls renderScene() after the psx_render reference guard;

@@ -11,8 +11,16 @@
 # THE RULES THIS SCRIPT ENCODES:
 #   1. Never compare adjacent frames. The pad replay is bit-deterministic, so the psx reference is a
 #      SECOND RUN at the SAME frame index with PSXPORT_RENDER_PSX=1 set AT BOOT.
-#   2. Never use the in-process `renderpsx` toggle for the reference: it is honoured per SCENE ENTRY,
-#      so flipping it inside an already-loaded area returns a bit-identical pc frame (kanban #41).
+#   2. This script still takes its reference from a SECOND BOOT RUN, and that stays the protocol — but
+#      the reason recorded here was WRONG and is corrected (kanban #41, 2026-08-05). The `renderpsx`
+#      toggle is NOT "honoured per scene entry": it is honoured every frame. Two real effects were being
+#      read as one latch. (a) A `shot` issued after `run 1` reads the PREVIOUSLY presented frame, because
+#      the REPL executes commands before the next frame runs — so a toggle needs `run 2`, not `run 1`.
+#      (b) Switching OUT of psx_render mid-scene used to leave the picture permanently near-black: the
+#      area-cache trust latches only ticked on the pc_render branch. That is FIXED (drawOTag now ticks
+#      Render::areaCacheTrustTick before the mode branch), and a mid-scene toggle in either direction is
+#      now bit-identical to the corresponding boot-time reference — verified 0/76800 px, area 0 only.
+#      A boot-time reference is still preferred here: it needs no in-band toggle and no lag accounting.
 #   3. One process per area per leg. Chained warps drift (kanban #36 cold-warp self-destruct,
 #      #37 areas 16/17/18 hang), and a hung area must not poison its neighbours.
 #   4. The comparison is `tools/render_cmp.py diff` — which really diffs two image paths. Its exit

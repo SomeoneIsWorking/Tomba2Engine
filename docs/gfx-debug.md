@@ -69,12 +69,29 @@ because they get STRONGER down the list, not weaker:
    pixel-identical and both wrong) and the health wheel. A clean diff is not a clean bill of health.
    **TWO WAYS THE TOGGLE SILENTLY RETURNS A pc FRAME while you think you have psx** — both have burned a
    session (they manufactured kanban #26): (a) a BARE `renderpsx` used to only PRINT the flag and set
-   nothing (fixed 2026-07-23 — it now toggles); (b) the flag is honoured per SCENE ENTRY, so flipping
-   it INSIDE an already-loaded area does not repaint — the next shot is bit-identical to the pc frame
-   even though the flag reads back 1 (kanban #41, not root-caused). So for any AREA/WARP compare, set
-   the reference from a SECOND run with `PSXPORT_RENDER_PSX=1` at BOOT, at the same frame index (the
-   pad replay is bit-deterministic) — `tools/warpsweep.sh` does exactly this. Never compare adjacent
-   frames, and never trust a mid-scene toggle flip.
+   nothing (fixed 2026-07-23 — it now toggles); (b) `renderpsx <x>` + `run 1` + `shot` returns the PC
+   frame. **(b)'s old explanation here — "the flag is honoured per SCENE ENTRY" — was WRONG and is
+   corrected (kanban #41, 2026-08-05).** The flag is honoured every frame; two separate effects were
+   being read as one latch:
+   - **A `shot` reads the PREVIOUSLY presented frame.** The REPL executes its commands before the next
+     frame runs, so the picture in the VK target is still the one built last frame. A toggle therefore
+     needs `run 2`, not `run 1`. This is a property of the REPL's sample point, not of the toggle, and
+     it applies to every `shot` you take — not just after a `renderpsx`.
+   - **Switching OUT of psx_render mid-scene used to black the picture permanently** (nonblack
+     7627/76800, mean 8.6 vs 78.5, still black 70 frames later): the area-cache trust latches only
+     ticked on the pc_render branch of `drawOTag`, so under psx_render they never latched and the
+     backdrop + scene table stayed suppressed. FIXED — `Engine::drawOTag` now calls
+     `Render::areaCacheTrustTick()` before the render-mode branch. Post-fix a mid-scene toggle in
+     EITHER direction is bit-identical (0/76800) to the corresponding boot-time reference. Verified on
+     area 0 free-roam only, headless — not swept across areas.
+   For an AREA/WARP compare still prefer a SECOND run with `PSXPORT_RENDER_PSX=1` at BOOT, at the same
+   frame index (the pad replay is bit-deterministic) — `tools/warpsweep.sh` does exactly this. It needs
+   no lag accounting and no in-band toggle, which is one less thing to get wrong. Never compare adjacent
+   frames.
+   **Instrument:** `PSXPORT_DEBUG=areatrust` prints, once per world frame, both trust latches AND the
+   two guest bytes they latch on (`ent+6`, `bg+10`) — so "the scene table is missing" can be told apart
+   from "the scene table was never allowed to draw", and a `sceneTable=0` negative shows whether the
+   reset it waits for has already gone by. That line is what root-caused this card.
 2. **A real-game reference capture** (USER can source one; store in `docs/reference/issues/`). The
    arbiter when 1 is compromised. Sparse — you get the screens someone happened to photograph — but
    authoritative for those, and two references of the SAME element over different backgrounds tell you

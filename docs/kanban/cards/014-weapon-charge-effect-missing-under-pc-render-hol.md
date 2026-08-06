@@ -1,10 +1,10 @@
 ---
 id: 14
 title: Weapon CHARGE effect missing under pc_render (hold attack)
-status: done
+status: todo
 labels: [render]
 created: 2026-07-22
-updated: 2026-07-23
+updated: 2026-08-06
 evidence: docs/reference/issues/issue14_charge_swing.png
 ---
 
@@ -20,3 +20,5 @@ USER 2026-07-22: holding the attack button charges the weapon and that charge ef
 **2026-07-23:** 2026-07-23: the effect-MESH producer that fixed #15 (game/render/fx_mesh.cpp, taps FUN_800288AC/FUN_80027768) is very likely the same missing producer here - the swing effect object 0x800EE9D8 / beh 0x800293F4 alternates its renderer between FUN_80027E5C (sprite, covered by fx_sprite.cpp) and FUN_800288AC (mesh, now covered). Re-test the CHARGE effect against this build before closing. NOTE the attack button is CIRCLE, not SQUARE as this card says - that is why it kept coming back 'not reproduced'.
 
 **2026-07-23:** 2026-07-23: the 2026-07-22 sweep-agent note ('12 A/B/C samples show no effect layer on EITHER renderer') was pc-vs-pc — the bare-renderpsx reference was a no-op, so only pc_render was ever sampled; it says nothing about psx. Moot now (this card was FIXED 2026-07-23 by the CIRCLE-hold repro). Flagged only so the retraction is complete. See docs/findings/render.md 2026-07-23.
+
+**2026-08-06:** REOPENED 2026-08-06 by the G10 unported-render survey. This card was closed citing game/render/fx_mesh.cpp (the effect-MESH producer). THAT FILE NO LONGER EXISTS: commit abf3cf9 'Delete the GTE-register render taps; four layers are now honestly absent' removed fx_mesh.cpp/.h, mesh_emit_tap.cpp and swing_fx.cpp/.h on 2026-08-04. mesh_emit_tap.cpp was the SINGLE owner of the shared writer FUN_80027768 and dispatched to whichever controller SCOPE was up, so with it gone nothing draws the family at all — pc_render does not walk the guest OT, so the guest packets are not a fallback. tools/codemap.py --addr now answers NO NATIVE OWNER for 0x80027768, 0x800288AC, 0x8002BC9C and 0x8002A834 (SwingFx::effectDrawTick, this card's own fix). The deletion was CORRECT (those producers read the transform out of GTE CR0-7 = a tap, banned by PROTOCOL.md); what is wrong is that this card still reads 'done'. Tracked as portmap step render-producer-effect-mesh-family; full inventory in docs/unported-render-inventory.md item R1. NOT VERIFIED BY ME: I did not reproduce the charge effect on screen — this reopen rests on the ownership query plus the deleted-file check, not on a capture.

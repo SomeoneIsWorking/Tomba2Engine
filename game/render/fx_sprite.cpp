@@ -248,7 +248,11 @@ constexpr uint32_t kAltScript  = 0x64u;   // -> current animation-script byte (b
 constexpr uint32_t kAltTable   = 0x6Cu;   // table of per-animation-frame record lists
 
 // FUN_8013D454's sprite branch. The controller has two modes on (s16)node+0x60: non-zero draws the
-// water jet's MESH through FUN_80027768 (owned by fx_mesh.cpp's scope), zero draws this sprite.
+// water jet's MESH through FUN_80027768, zero draws this sprite.
+// THE MESH BRANCH HAS NO PRODUCER. It used to be reached by a SCOPE in game/render/fx_mesh.cpp, which
+// was deleted with the GTE-register render taps on 2026-08-05 (commit abf3cf9) — correctly, it was a
+// tap. Nothing replaced it, so under pc_render the jet's mesh is honestly absent. Tracked as port-map
+// step `render-producer-effect-mesh-family`; do NOT restore a scope to get the picture back.
 constexpr uint32_t kJetMode     = 0x60u;        // (s16) 0 selects the sprite branch
 constexpr uint32_t kJetScale    = 0x62u;        // u16 uniform scale numerator, applied >> 8
 constexpr uint32_t kJetModelTab = 0x8010A058u;  // 6 record-list pointers; the sprite branch takes [0]
@@ -338,12 +342,15 @@ void Render::fxSpriteRender(uint32_t node) {
 // FUN_80033080 — the WEAPON-IMPACT burst (kanban #15), a COMPOSITE render fn: it is nothing but
 //     { FUN_80027E5C(node); FUN_800288AC(node); }
 // i.e. one node drawn by TWO different effect families at once — this file's byte-scaled sprite
-// (the white starburst flash) and fx_mesh.cpp's effect-mesh controller (the expanding radial plume).
+// (the white starburst flash) and the effect-mesh controller (the expanding radial plume).
 //
-// The mesh half already reaches the picture: 0x800288AC is scoped by fx_mesh.cpp's armTap, so the
-// shared writer's quads are captured at guest-execution time. Measured on
-// replays/bugs/weapon-impact-bucket.pad: 28 live quads over 9 animation steps, growing from a point
-// to ~70px. So "the impact effect is missing" was never a whole-effect gap — it is the SPRITE half
+// THE MESH HALF NO LONGER REACHES THE PICTURE. The paragraph below describes the state up to
+// 2026-08-05: 0x800288AC was scoped by fx_mesh.cpp's armTap, so the shared writer's quads were
+// captured at guest-execution time — measured on replays/bugs/weapon-impact-bucket.pad, 28 live
+// quads over 9 animation steps, growing from a point to ~70px. That scope was a GTE-register tap and
+// was deleted on 2026-08-05 (commit abf3cf9); nothing replaced it, so the plume is now honestly
+// absent and only the sprite half below draws. Tracked as port-map step
+// `render-producer-effect-mesh-family`. So "the impact effect is missing" was, at the time, the SPRITE half
 // that had no producer, because pc_render's type-0x20 whitelist keys on the NODE's render fn and
 // 0x80033080 is not itself an emitter address, so neither half of the pair was recognised.
 //
@@ -570,10 +577,11 @@ void Render::fxAltAnimSpriteRender(uint32_t node) {
   altSpriteEmit(a);
 }
 
-// FUN_8013D454's SPRITE branch — the water jet's other half. fx_mesh.cpp's scope owns the mesh branch
-// (non-zero node+0x60, drawn through FUN_80027768); this owns the zero branch, which emits through
-// FUN_800328EC and therefore had no producer at all even after the scope wrappers landed. The two
-// branches are mutually exclusive, so there is no double-draw.
+// FUN_8013D454's SPRITE branch — the water jet's other half. The mesh branch (non-zero node+0x60,
+// drawn through FUN_80027768) has NO producer since the fx_mesh.cpp tap was deleted 2026-08-05
+// (abf3cf9); this owns the zero branch, which emits through FUN_800328EC. The two branches are
+// mutually exclusive, so there is no double-draw — and with the mesh branch unowned, this is the
+// only half of the jet that draws at all under pc_render.
 void Render::waterJetSpriteRender(uint32_t node) {
   Core* c = mCore;
   if ((int16_t)c->mem_r16(node + kJetMode) != 0) return;        // the mesh branch: not ours

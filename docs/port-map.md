@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 27 verified · 13 ported-unverified · 1 hack · 4 todo · 3 blocked
+**Status:** 27 verified · 14 ported-unverified · 1 hack · 4 todo · 3 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -150,6 +150,14 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** game/ui/options_page.cpp (class OptionsPage) + game/render/render_options.cpp
 - **notes:** kanban #7 then #38. ONE producer for BOTH entry points (title front-end sm[0x48]==6 and the in-game dispatcher FUN_8010810C page byte task-sm[0x6B]==3, which share the five builders FUN_8007F104/F250/F498/F73C/F8F8). Each element is produced at ITS OWN guest emitter under a page scope, not as a host twin of the page's element list: FUN_8007FC24 PORTED (OptionsPage::pushBackdrop, port_check PASS) and drawn at RQ_OVERLAY in the 2D-FG band; FUN_8007FCC8's boxes recorded from their existing single owner Panel::pushDialogBackdrop; cursor + pad diagram captured off the shared 2D group leaves via UiGroupCapture. render_options.cpp keeps only the two draw helpers + the title chrome Demo::s6 composites under the Screen-adjust page. GATE (pc_render vs psx_render, same frame, render_cmp.py): in-game Select Options 74442/76800 -> 0/76800, in-game Messages/Sound/Controls 0/76800, title-path all five pages 0/76800; psx leg unchanged vs the pre-port build (0/76800), so the ported packet is guest-equivalent. Repros: replays/bugs/ingame-options-page.pad f1160, title-options-page.pad f1027.
 
+## render-producer-effect-mesh-family
+- **scope:** the EFFECT-MESH family: shared writer FUN_80027768 and its 20 controller call sites — impact plume, weapon swing/charge, water jet mesh, and 14 further controllers
+- **status:** todo
+- **order:** 50
+- **owner:** -
+- **absent:** the effect-mesh PICTURE was deleted 2026-08-04 with the GTE-register taps (commit abf3cf9 removed game/render/fx_mesh.cpp/.h, mesh_emit_tap.cpp, swing_fx.cpp/.h). Those producers re-derived quads host-side from the transform the substrate controller had just composed into GTE CR0-7 — a tap, banned by PROTOCOL.md. Deleting them was CORRECT; what was never recorded is that it left the whole family with no producer. Do NOT restore a scope/tap to get the picture back.
+- **notes:** OPENED 2026-08-06 by the G10 unported-render survey. UNRECORDED CONSEQUENCE of the tap retirement: mesh_emit_tap.cpp was the SINGLE owner of FUN_80027768 and dispatched to whichever controller SCOPE was up. With it gone, tools/codemap.py --addr answers NO NATIVE OWNER for 0x80027768, 0x800288AC (impact radial plume, kanban #15's 2026-07-23 fix), 0x8002BC9C (4-copy plume, the most common unowned effect: 5 resident nodes in one field dump), 0x8002A834 (SwingFx::effectDrawTick, kanban #14's fix), and the A00 overlay three 0x8013D828/0x8013ED08/0x8013EF58. 0x8013D454 keeps only its SPRITE branch (Render::waterJetSpriteRender); its MESH branch is gone — the 2026-07-28 A00 fix was gated at 700-1367 px/frame on walk-dust-puff.pad and that picture is now absent. MEASURED ON THE CURRENT BUILD, not inferred: PSXPORT_GATE=1 pc_render + PSXPORT_DEBUG=nofx,ringcensus on replays/bugs/bucket-softlock.pad, 460 frames headless, names 0x8002BC9C (node 800EE7B8) and 0x800288AC (node 800EEBF8) as live-and-skipped in area 0; 27 live type-0x20 nodes of 152 walked per frame. Falsifies claim C011. REAL FIX: one native producer per controller, reading the controller's OWN node state (node+0x48 angles, node+0x2C/0x30 position, the model table at node+0x50) and projecting with the native camera — the shape fx_sprite.cpp/fx_dust.cpp/fx_line.cpp already use. The RE is largely DONE and must not be re-derived: kanban #15 (2026-07-28 entry) carries the full FUN_8002BC9C decode, and docs/findings/render.md 'The A00-overlay effect-mesh controllers' carries 0x8013D454/D828/ED08/EF58. Death condition: codemap --addr finds an owner for every controller in the 20-caller census in docs/findings/render.md.
+
 ## pause-menu-chrome
 - **scope:** in-game pause/item menu display producer (FUN_800346BC controller + FUN_8007E1B8/FUN_8007E6DC UI leaves)
 - **status:** verified
@@ -266,17 +274,18 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** game/render/fx_backdrop_plane.cpp
 - **notes:** Render::fxBackdropSparkRender (FUN_801104D0, A0E overlay, area 14) — the tail half FUN_80110CA4 tail-calls (kanban #67), now called from fxBackdropPlaneRender exactly as the guest tail-calls it. A fixed 200-slot sprite-particle pool: 0x8012686C + i*4 is the slot's record list AND its live flag (non-zero = live), 0x80125BEC + i*8 is {u16 x,y,z}, 0x8012622C + i*8 is velocity, clut|tpage at 0x8011B224, gate bias -50, DQA 6, IR0 = 0. WHY THE PORT IS SMALL WHERE THE GEN BODY IS 441 LINES: that body SIMULATES AND DRAWS — it integrates pos += vel, adds 25 to vel.y for gravity, writes both back, and its bulk is the SPAWN state machine where all 34 of its PRNG draws live. A read-only producer reproduces NONE of that; the guest's own body keeps the pool simulated underneath, so this reads slot state and emits. It therefore needs no GuestRngMirror — the randomness is upstream of the state we read. STATUS ported-unverified, and the reason is measured not assumed: in the area-14 capture (warp 14 + skip 600) the pool reads live=0/200, so there is nothing to draw and the pixel delta against the grids-only build is 0. That is an EMPTY POOL, not a dead producer — the fxplane 'sparks ... live=N drawn=M/200' line distinguishes the two, which is instrument I022's lesson applied. Verify when a scene populates the pool.
 
+## world-line-ring-shadow
+- **scope:** render
+- **status:** ported-unverified
+- **deps:** world-line-rope
+- **owner:** game/render/fx_line.cpp (Render::shockwaveRingRender)
+- **notes:** CORRECTED 2026-08-06 by the G10 survey — this step was STALE and was inflating the missing-layer list. It scopes FUN_8013E08C, the SAME address as step fx-line-emitter-e08c, which was ported 2026-07-28 as Render::shockwaveRingRender and is whitelisted in Render::fieldObjectsRender behind the overlay first-instruction guard 0x27BDFFB8. This step's stated blocker ('BLOCKED on RE of FUN_80084110/FUN_80084220') no longer applies: the port reduced camera*scale algebraically to projComposeObjectHost(diag(scale), nodePos), so neither matrix helper was needed. tools/codemap.py --addr 0x8013E08C returns Render::shockwaveRingRender LIVE. MEASURED 2026-08-06: replays/bugs/bucket-softlock.pad, 460 frames headless — psx_render leg emits 1064 GP0 op-0x4A poly-line packets (PSXPORT_DEBUG=lineprim), pc_render leg fires the producer 152 times (PSXPORT_DEBUG=ropeline) and emits 0 GP0 lines. UNRESOLVED and the reason the status is ported-unverified, not verified: (1) this step calls the layer a GROUND RING SHADOW and fx_line.cpp calls it an EXPANDING SHOCKWAVE RING — same code, two incompatible descriptions, and nobody has confirmed on screen which it is; (2) 152 producer calls is EXACTLY 2x the 76 calls the guest's 1064 packets imply (7 spans x 2 strokes per call), un-root-caused — most likely the fps60 real+interp double render, but that is an inference, not a measurement.
+
 ## render-camera-projconst-from-gte
 - **scope:** the native camera's OFX/OFY/H are read from GTE control registers 24/25/26
 - **status:** hack
 - **owner:** game/render/scene_build.cpp:74-76
 - **notes:** Registered 2026-08-05 by the agent that retired the object-transform taps, AGAINST ITS OWN WORK. scene_build.cpp fills the native camera's projection constants from gte_read_ctrl(24/25/26), and EVERY native producer inherits them via Fps60::sceneCam — INCLUDING the exemplar cube_text_banner.cpp. So 'zero gte_read in a native producer' was never fully true, including before today. Much weaker than an object transform (three per-frame scalars, no per-object residue) but it is the same banned shape. REAL FIX: derive OFX/OFY/H from the game's own camera/projection state. Death condition: no pc_render path reads gte_read_ctrl(24/25/26).
-
-## world-line-ring-shadow
-- **scope:** render
-- **status:** todo
-- **deps:** world-line-rope
-- **notes:** FUN_8013E08C: op-0x4A ground ring shadow, its own GTE loop over the 16-point circle at 0x8014C780 (sliding 3-point window), grey = 0x80-((nodeY-0x14)*0x80)/200, blends 1 and 2, node matrix at node+0x2C via FUN_80084220 + a diagonal scale from nodeY<<4. BLOCKED on RE of FUN_80084110/FUN_80084220.
 
 ## render-producer-submitquad-classes
 - **scope:** the FUN_8003B320 (submitQuad) caller classes — a00-overlay flame/rope emitter ~0x801341xx, case-188 particles, B704 beams — have NO pc_render picture

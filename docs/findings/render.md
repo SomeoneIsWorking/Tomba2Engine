@@ -632,10 +632,44 @@ establish (which areas load, which abort) stands, because that part never needed
   3. `tools/warpsweep.sh` — tracked, one process per area per leg, and the psx reference is a SECOND
      RUN with `PSXPORT_RENDER_PSX=1` set AT BOOT at the same frame index (the pad replay is
      bit-deterministic). Never adjacent frames, never the in-process toggle.
-- **why not the in-process toggle even now:** it is honoured per SCENE ENTRY. `renderpsx on` issued
-  inside a loaded area and shot one frame later returns a frame bit-identical to the pure-pc frame,
-  with the flag reading back 1 — kanban #41. Ground truth #1 in `docs/gfx-debug.md` silently lies in
-  that situation. Set the flag before the area load, or use `PSXPORT_RENDER_PSX=1` at boot.
+- **why not the in-process toggle even now — CORRECTED 2026-08-05, the old reason was wrong.** This
+  entry used to say the toggle "is honoured per SCENE ENTRY". It is not; it is honoured every frame.
+  What was really happening (kanban #41, root-caused and fixed) was two things read as one latch:
+  (1) a REPL `shot` reads the PREVIOUSLY presented frame, because commands run before the next frame
+  does — so `renderpsx on; run 1; shot` legitimately returns the pc frame and `run 2` is the recipe;
+  (2) toggling OUT of psx_render mid-scene blacked the picture PERMANENTLY, because the area-cache
+  trust latches (`mSceneTableTrusted`/`mBackdropTrusted`) only ticked on the pc_render branch of
+  `Engine::drawOTag` — see the dedicated entry below. Post-fix a mid-scene toggle is bit-identical
+  (0/76800) to the boot-time reference in both directions, on area 0. A boot-time
+  `PSXPORT_RENDER_PSX=1` reference is still the preferred protocol: no lag accounting, no in-band flag.
+
+## The area-cache trust latches were pc_render-branch state, so psx_render never ticked them
+- **symptom:** flipping `renderpsx off` inside a loaded area left the picture near-black FOREVER
+  (nonblack 7627/76800, mean 8.6 vs 78.5 on a pure-pc frame; unchanged 70 frames later, and with
+  `fps60=0` too, so not an fps60/mSink mechanism). Reported as kanban #41 "a mid-scene flip does not
+  repaint", diagnosed there as a scene-entry latch — which it was not.
+- **status:** FIXED 2026-08-05, game-side, no framework change.
+- **cause:** `Render::mSceneTableTrusted` / `mBackdropTrusted` construct `false` and were latched true
+  by an edge detector at the top of `Render::sceneNative`, i.e. only on the pc_render branch of
+  `Engine::drawOTag`. Under psx_render `drawOTag` returns before `renderScene`, so across the whole
+  narration→field handoff the detector never ran and the re-zero each latch waits for went by
+  unobserved. `fieldEntityRender(SCENE_ENT_TABLE)` and `backdropRender` are gated on those latches, so
+  after a mid-scene switch to pc_render both stayed suppressed permanently. The latch is a state
+  machine over GUEST state; making it a function of which renderer is active was the defect.
+- **fix:** extracted to `Render::areaCacheTrustTick()` (game/render/render_walk.cpp), called from
+  `Engine::drawOTag` BEFORE the render-mode branch, guarded to exactly the scenes whose producer calls
+  `sceneNative` (Field, SopNarration, Title+`sm[0x48]==7` attract). `sceneNative` now only READS the
+  latches.
+- **evidence + negative control:** new channel `PSXPORT_DEBUG=areatrust` prints both latches and the
+  two guest bytes they latch on. Pre-fix the toggled leg read `sceneTable=0 backdrop=0 ent+6=132
+  bg+10=36` while a pure-pc leg at the same point read `sceneTable=1 backdrop=1 ent+6=132 bg+10=36` —
+  identical guest state, opposite latch state; `preseqobj` independently counted 0 of 704
+  RQ_BACKGROUND items emitted (RQ_WORLD 784 vs 1370). Post-fix the toggled leg reads 1/1 and its frame
+  is 0/76800 against a pure-pc boot leg at the same logic frame (pre-fix: 71401/76800). Both boot paths
+  are 0/76800 against the pre-fix binary, so neither shipped path moved.
+- **not verified:** one scene only (area 0 free-roam at `PSXPORT_AUTO_SKIP` f400), headless; no area
+  sweep, no windowed run, no scene TRANSITION taken while toggled, and the hut-interior producer does
+  not use these latches so it was not exercised.
 - **still true and worth keeping from that session:** engine taps never fire under `PSXPORT_GATE=1`
   (that whole process is the psx_fallback leg), so a GATE-vs-ORACLE compare is BLIND to every
   tap-based producer — that is why the compare has to happen on the DEFAULT leg. And `warp <area_id>`

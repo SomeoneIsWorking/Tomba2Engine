@@ -74,13 +74,33 @@ def next_id(d, prefix):
     number to every one of them — that produced three entries all called I003 in a single round (the
     same collision the kanban cards hit). Scanning for the first FREE slot means the operator's
     integration renumbers at most the genuine duplicates instead of silently overwriting one.
+
+    `taken` is the union of the FILENAME prefixes and the frontmatter `id:` values. Reading only the
+    filenames is what let the collision this fixes survive: a set collapses four files all named
+    `004-*.md` to the single entry {4}, so the allocator saw one claim where the tree held four, and
+    `by_id` — which returns the FIRST match — silently resolved `C004` to whichever sorted first.
+    `claim falsify C004` would then have marked the WRONG claim dead. Measured 2026-08-06 on this
+    tree: 33 claim files, 28 distinct ids, C004 shared by 4 and C005 by 3.
     """
     ensure(d)
     taken = {int(m.group(1)) for f in os.listdir(d) if (m := re.match(r"(\d+)-", f))}
+    taken |= {int(m.group(1)) for e in entries(d)
+              if (m := re.match(r"[A-Za-z]*(\d+)$", e.get("id", "")))}
     n = 1
     while n in taken:
         n += 1
     return f"{prefix}{n:03d}", n
+
+
+def duplicate_ids(d):
+    """id -> [paths] for every id claimed by MORE THAN ONE entry in `d`.
+
+    Its own presence is the point: while a duplicate exists, every `by_id` answer in this tool is a
+    coin flip, so `check` fails on it rather than reporting on a registry it cannot address."""
+    seen = {}
+    for e in entries(d):
+        seen.setdefault(e.get("id", "(no id)"), []).append(os.path.relpath(e["_path"], ROOT))
+    return {i: sorted(p) for i, p in seen.items() if len(p) > 1}
 
 
 def write(path, front, body):
@@ -962,6 +982,20 @@ def cmd_check(a):
         print(f"FALSIFIED CLAIM {e.get('id')} — anything citing it needs re-checking")
 
     problems = 0
+    # (0) DUPLICATE IDS FIRST, because they invalidate every other answer here. `by_id` returns the
+    # first match, so while an id is shared, `claim confirm`/`claim falsify`/`instrument distrust`
+    # all address an arbitrary one of the entries — a registry that marks the wrong result dead is
+    # worse than no registry. This is checked, not assumed: parallel agents each allocate ids in
+    # their own clone and nothing renumbers on merge, so collisions arrive by construction.
+    for d, what in ((CLAIMS, "claim"), (INSTR, "instrument")):
+        for i, paths in duplicate_ids(d).items():
+            problems += 1
+            print(f"DUPLICATE ID: {len(paths)} {what}s all claim `{i}` — every by-id command "
+                  f"(confirm/falsify/distrust) resolves it to an ARBITRARY one of them:")
+            for p in paths:
+                print(f"    {p}")
+            print(f"    fix: keep {i} on the entry other docs cite, renumber the rest to free slots "
+                  f"(id: field AND filename prefix), then re-run.")
     # (a) a claim declares it falsifies another, but that other one still reads as holding
     for e in claims:
         if e.get("status") != "holds":

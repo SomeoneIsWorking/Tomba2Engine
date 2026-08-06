@@ -534,6 +534,62 @@ bool Render::fieldAreaInit() const {
       && c->mem_r16(0x801fe04eu) == 0;            // sm[0x4e] == object-placement init (pre-attach)
 }
 
+// AREA-SCOPED CACHE trust latches (see render.h mSceneTableTrusted/mBackdropTrusted) — the shared edge
+// detector for both. SCENE_ENT_TABLE (0x800F2418) and PARALLAX_BG_SM (0x800ED018, the backdrop tilemap
+// struct) go stale for a few ticks right when SOP narration hands off to the field-area load; each
+// latches back to trusted once ITS OWN structure shows the natural re-zero its setup step performs
+// before repopulating (see render.h for the full writeup).
+//
+// The handoff edge itself is read from the GAME submode dispatcher's own ownership switch
+// (sm[0x4a]==0: SOP field-mode machine owns the per-tick prepass/scroller; sm[0x4a]==1: the field-
+// area machine does, once it takes over) rather than the SOP overlay signature (0x80109450): the
+// area-load that repurposes PARALLAX_BG_SM's referenced memory (an in-progress CD stream landing
+// AS the same-tick RESET that also increments sm[0x4c]/sm[0x4a] — Sop::fieldMode case 4) clobbers it
+// 1-2 ticks BEFORE the overlay's own first-instruction word is overwritten by the incoming stream
+// (verified: sm[0x4c] leaves 0 the exact tick the garbage first appears, one tick ahead of sm[0x4a]
+// and two ahead of the overlay signature). sm[0x4c]!=0 while sm[0x4a]==0 is SOP's own one-shot
+// "narration ending, RESET case has fired" tail (it only ever increments once, at the single RESET
+// that ends the whole cutscene — not per-beat), so `sm4a==0 && sm4c==0` is "SOP genuinely still
+// owns this tick" without false-negatives across the narration's own beats.
+//
+// WHY THIS IS TICKED FROM drawOTag AND NOT FROM sceneNative (kanban #41): it is a state machine over
+// GUEST state — "is the area cache repopulated yet" — and the answer does not depend on which renderer
+// draws the picture. It used to run at the top of sceneNative, i.e. only on the pc_render branch of
+// Engine::drawOTag. Under psx_render (boot flag or the `renderpsx` REPL toggle) drawOTag returns before
+// renderScene, so the edge detector never ran, both latches stayed at their `false` construction value
+// through the whole narration→field handoff, and the reset each waits for went by unobserved. Switching
+// to pc_render mid-scene then left the backdrop and the scene table suppressed FOREVER — measured:
+// identical guest state on both legs (SCENE_ENT_TABLE+6 = 132, PARALLAX_BG_SM+0x10 = 36) with
+// sceneTable/backdrop = 0/0 on the toggled leg vs 1/1 on a pure pc_render leg, and 0 of 704 RQ_BACKGROUND
+// items emitted. Ticking it per logic frame in BOTH modes makes the latch a property of the frame, which
+// is what it always was.
+void Render::areaCacheTrustTick() { Core* c = mCore;
+  // Reach: exactly the scenes whose producer calls sceneNative() — the field, the SOP narration, and the
+  // DEMO-stage attract world. Elsewhere task0's sm[0x4a]/sm[0x4c] belong to another stage's state machine
+  // and are not this edge detector's inputs.
+  const SceneKind kind = classifyScene();
+  const bool worldScene = kind == SceneKind::Field || kind == SceneKind::SopNarration
+                          || (kind == SceneKind::Title && c->mem_r16(0x801FE048u) == 7);
+  if (!worldScene) return;
+  uint16_t sm4a = c->mem_r16(0x801fe04au), sm4c = c->mem_r16(0x801fe04cu);
+  bool sop_narration_now = (sm4a == 0) && (sm4c == 0);
+  if (sop_narration_now) {
+    mSceneTableTrusted = true; mBackdropTrusted = true;      // narration's own prepass/scroller ticks both every tick
+    mAreaCacheWasNarration = true;
+  } else {
+    if (mAreaCacheWasNarration) { mSceneTableTrusted = false; mBackdropTrusted = false; mAreaCacheWasNarration = false; }  // handoff edge
+    if (!mSceneTableTrusted && c->mem_r8(0x800F2418u + 6u) == 0) mSceneTableTrusted = true;      // SCENE_ENT_TABLE owner reset seen
+    if (!mBackdropTrusted   && c->mem_r8(0x800ed018u + 0x10u) == 0) mBackdropTrusted = true;     // PARALLAX_BG_SM owner reset seen (W==0)
+  }
+  // These two latches decide whether the scene table and the backdrop draw AT ALL, so a picture missing
+  // either is indistinguishable from "no producer exists" unless their state is observable. The line
+  // carries both latch values AND the two guest bytes they latch on, so a negative ("sceneTable=0") also
+  // shows whether the reset it is waiting for has already gone by unobserved.
+  lucent::debug("areatrust", "scene={} sceneTable={} backdrop={} wasNarr={} ent+6={} bg+10={}",
+                (int)kind, (int)mSceneTableTrusted, (int)mBackdropTrusted, (int)mAreaCacheWasNarration,
+                c->mem_r8(0x800F2418u + 6u), c->mem_r8(0x800ed018u + 0x10u));
+}
+
 void Render::sceneNative() { Core* c = mCore;
   static const uint32_t HEADS[3] = { 0x800FB168u, 0x800F2624u, 0x800F2738u };
   uint32_t saved = c->r[4];
@@ -546,38 +602,10 @@ void Render::sceneNative() { Core* c = mCore;
   // present verbatim) and off under the SBS/psx-render legs. Cleared on every exit below.
   c->game->fps60.mWorldCaptureOnly = c->game->mods.fps60 && c->game->fps60.mTier1EligibleCur
                                      && !c->game->diff_mode && !c->rsub.mode.psxRender();
-  // AREA-SCOPED CACHE trust latches (see render.h mSceneTableTrusted/mBackdropTrusted) — shared edge
-  // detector, computed once per frame. Both SCENE_ENT_TABLE (0x800F2418) and PARALLAX_BG_SM
-  // (0x800ED018, the backdrop tilemap struct below) go stale for a few ticks right when SOP narration
-  // hands off to the field-area load; each latches back to trusted once ITS OWN structure shows the
-  // natural re-zero its setup step performs before repopulating (see render.h for the full writeup).
+  // AREA-SCOPED CACHE trust latches: the EDGE DETECTOR now lives in areaCacheTrustTick(), ticked once
+  // per logic frame from Engine::drawOTag BEFORE the render-mode branch (it is guest-state tracking, not
+  // picture-building — see that function). Here we only READ mSceneTableTrusted / mBackdropTrusted.
   //
-  // The handoff edge itself is read from the GAME submode dispatcher's own ownership switch
-  // (sm[0x4a]==0: SOP field-mode machine owns the per-tick prepass/scroller; sm[0x4a]==1: the field-
-  // area machine does, once it takes over) rather than the SOP overlay signature (0x80109450): the
-  // area-load that repurposes PARALLAX_BG_SM's referenced memory (an in-progress CD stream landing
-  // AS the same-tick RESET that also increments sm[0x4c]/sm[0x4a] — Sop::fieldMode case 4) clobbers it
-  // 1-2 ticks BEFORE the overlay's own first-instruction word is overwritten by the incoming stream
-  // (verified: sm[0x4c] leaves 0 the exact tick the garbage first appears, one tick ahead of sm[0x4a]
-  // and two ahead of the overlay signature). sm[0x4c]!=0 while sm[0x4a]==0 is SOP's own one-shot
-  // "narration ending, RESET case has fired" tail (it only ever increments once, at the single RESET
-  // that ends the whole cutscene — not per-beat), so `sm4a==0 && sm4c==0` is "SOP genuinely still
-  // owns this tick" without false-negatives across the narration's own beats.
-  // The trust-latch EDGE DETECTOR is a once-per-frame state machine (mAreaCacheWasNarration is toggled by
-  // the narration→field handoff edge). sceneNative runs exactly once per real logic frame (fps60 no longer
-  // re-runs it for the in-between — docs/fps60-rework.md), so this always mutates the REAL frame's latches.
-  {
-    uint16_t sm4a = c->mem_r16(0x801fe04au), sm4c = c->mem_r16(0x801fe04cu);
-    bool sop_narration_now = (sm4a == 0) && (sm4c == 0);
-    if (sop_narration_now) {
-      mSceneTableTrusted = true; mBackdropTrusted = true;      // narration's own prepass/scroller ticks both every tick
-      mAreaCacheWasNarration = true;
-    } else {
-      if (mAreaCacheWasNarration) { mSceneTableTrusted = false; mBackdropTrusted = false; mAreaCacheWasNarration = false; }  // handoff edge
-      if (!mSceneTableTrusted && c->mem_r8(0x800F2418u + 6u) == 0) mSceneTableTrusted = true;      // SCENE_ENT_TABLE owner reset seen
-      if (!mBackdropTrusted   && c->mem_r8(0x800ed018u + 0x10u) == 0) mBackdropTrusted = true;     // PARALLAX_BG_SM owner reset seen (W==0)
-    }
-  }
   // (0) BACKDROP (sky + distant parallax hills) — the field's background drawer, dispatched natively. The
   // PSX path is 0x8003df04's 16-state jump table @0x80014fc0 keyed on mem_r8(0x800bf870), gated by
   // mem_r8(0x800bf873)==0. backdropTilemapDrawer resolves the resident drawer that same way and draws it

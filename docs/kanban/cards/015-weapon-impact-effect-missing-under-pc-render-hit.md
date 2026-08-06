@@ -4,7 +4,7 @@ title: Weapon IMPACT effect missing under pc_render (hitting something)
 status: todo
 labels: [render]
 created: 2026-07-22
-updated: 2026-07-28
+updated: 2026-08-06
 ---
 
 USER 2026-07-22: striking something with the weapon produces an impact effect that does not render under pc_render. Note docs/findings/render.md already records issue #39 as 'weapon chain + impact effect' fixed via withDepthTag depth-tagging - so either that fix regressed, or it covered only the chain and the impact half was never actually verified. CHECK THE EXISTING FINDING FIRST before re-deriving. Repro: free-roam, tap square next to a breakable/enemy, shot on the contact frames; compare PSXPORT_GATE=1 against PSXPORT_ORACLE=1 at identical exec state.
@@ -119,3 +119,5 @@ A library-wide nofx sweep (all 17 replays, headless, each sized to its own pad l
 A/B on walk-dust-puff at replay frames 460/470/480/490/510/520 with the four installs compiled out: 700-1367 px differ per frame in a moving ~30x40 bbox; frame 500 alone matches (the jet is between pulses). Leg proven by the channel: 68 ctrl=8013D454 lists with the scopes, 0 without. New FxMesh::mScopeFn makes that attribution possible — the first A/B attempt gave a bogus all-zero result that only the ctrl= counts could contradict.
 
 docs/findings/render.md 'The A00-overlay effect-mesh controllers — and the WATER JET that was invisible'.
+
+**2026-08-06:** 2026-08-06 (G10 survey) — THE GROUND UNDER THIS CARD MOVED. Its 2026-07-23 fix (the mesh half, via fx_mesh.cpp's armTap on FUN_800288AC) and its 2026-07-28 follow-up (the A00 four 0x8013D454/D828/ED08/EF58) were BOTH deleted by abf3cf9 on 2026-08-04 along with mesh_emit_tap.cpp. So the impact effect is now missing in BOTH halves' worth of controllers, not just the un-ported ones: 0x800288AC has no owner, and MEASURED on the current build (PSXPORT_GATE=1 pc_render, PSXPORT_DEBUG=nofx, replays/bugs/bucket-softlock.pad 460 frames) it is named live-and-skipped on node 800EEBF8 in area 0. The SPRITE half survives (Render::impactBurstRender at 0x80033080, whitelisted). Work this through portmap step render-producer-effect-mesh-family; the 20-caller census in docs/findings/render.md is still the work-list and the RE in this card's 2026-07-28 entry must not be re-derived.
