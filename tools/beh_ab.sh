@@ -48,7 +48,7 @@ tag="$(basename "$pad" .pad)"
 # One replay run. $1 = PSXPORT_BEH_SUBSTRATE value ("" = all natives live), $2 = dump path, $3 = log.
 run_once() {
   printf 'run %s\ndumpram %s\nquit\n' "$frames" "$2" \
-    | env PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 "PSXPORT_PAD_REPLAY=$pad" \
+    | env PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 PSXPORT_NOPACE=1 "PSXPORT_PAD_REPLAY=$pad" \
       "PSXPORT_BEH_SUBSTRATE=$1" ./scratch/bin/tomba2_port > "$3" 2>&1
 }
 
@@ -69,7 +69,7 @@ case "$mode" in
   cov)
     l="$log/cov_$tag.log"
     printf 'run %s\nquit\n' "$frames" \
-      | env PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 "PSXPORT_PAD_REPLAY=$pad" \
+      | env PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 PSXPORT_NOPACE=1 "PSXPORT_PAD_REPLAY=$pad" \
         PSXPORT_DEBUG=behcov ./scratch/bin/tomba2_port > "$l" 2>&1 || true
     echo "log: $l"
     grep '^\[behcov\]' "$l" | awk '{print $2, $3}' | sort -u

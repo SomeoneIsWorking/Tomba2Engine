@@ -100,7 +100,9 @@ def launch(port, extra_env=None, timeout=90):
     os.makedirs(f"{REPO}/scratch/logs", exist_ok=True)
     log = f"{REPO}/scratch/logs/sandbox_{port}.log"
     env = dict(os.environ,
-               PSXPORT_VK_HEADLESS="1", PSXPORT_NOAUDIO="1",
+               # PSXPORT_NOPACE: drive the game as fast as the host can. Headless is PACED like a
+               # windowed run now (they are one program), so "fast" has to be ASKED for.
+               PSXPORT_VK_HEADLESS="1", PSXPORT_NOAUDIO="1", PSXPORT_NOPACE="1",
                PSXPORT_DEBUG_SERVER=str(port), PSXPORT_AUTO_SKIP="1")
     env.update(extra_env or {})
     exe = f"{REPO}/scratch/bin/tomba2_port"

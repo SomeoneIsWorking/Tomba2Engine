@@ -1,5 +1,69 @@
 # Findings — render / engine submit
 
+## Under PSXPORT_GATE=1 every native OVERRIDE runs its `gen` body — so every diagnostic inside one is SILENT (2026-08-06)
+
+- **symptom:** a reachability census for FUN_8003B704 (the beam emitter), placed as a `lucent::debug`
+  inside `Render::objListWalk4`, read **0 hits across all 17 replays x 900 frames**. The layer was in
+  fact live in 4 of them. The probe had never executed once.
+- **cause, and it is not specific to that probe:** `PSXPORT_GATE=1` sets `Game::psx_fallback = 1`
+  (`external/psxport/runtime/recomp/native_boot.cpp:605`), and the ONE dispatch decision
+  (`override_registry.cpp:74`) is
+  `oracle = psx_fallback || verify.inSubstrateLeg || forced(addr)` -> run `e.gen(c)` and return.
+  So under the standard measurement flag **the native handler of every registered override never
+  runs.** Measured, not inferred: `PSXPORT_DEBUG=ovhit` on `replays/bugs/seesaw-weight.pad` under
+  `PSXPORT_GATE=1` prints `native=0` for **all 482 registered addresses**, while the same run shows
+  `oracle=381` for 0x8003EEC0 / 0x8003BB50 / 0x8003BF00, `5649` for 0x8003CCA4 and `14` for
+  0x8003B320 — i.e. the addresses ARE being reached, just not by our code.
+- **what this invalidates:** any "I instrumented X and saw nothing" where X is an override body.
+  Confirmed silent under GATE: `walk` (in `Render::renderWalk`, override 0x8003C048) and `quadrtpt`
+  (in `QuadRtptSubmit::submitQuad`, override 0x8003B320). The inventory's remark that "`walk` shows
+  only 3 targets ever fire across the whole replay library" therefore rests on an instrument that
+  prints nothing in that mode — treat it as unmeasured, not as a census.
+- **what still works:** pc_render's display-pass producers are reached from
+  `Render::fieldObjectsRender` / the present path by ordinary C++ calls, not through the registry, so
+  a probe placed THERE fires normally (that is where `beamfx` lives).
+- **the cheap check before trusting a quiet channel:** run `PSXPORT_DEBUG=ovhit` and look up the
+  address that owns the channel. `native=0` means the channel measured nothing.
+- **refs:** override_registry.cpp:74, native_boot.cpp:605, game/render/fx_beam.cpp,
+  game/render/render_walk.cpp (the `beamfx` summary), docs/unported-render-inventory.md S0.3.
+
+## FUN_8003B704 BEAM / see-saw ribbon now has a native producer — and the "CR contract" was never open (2026-08-06)
+
+- **symptom:** one of the three `submitQuad` caller classes left with no pc_render picture by the
+  2026-08-04 tap retirement (`docs/unported-render-inventory.md` R2). Both that row and
+  `docs/fps60-rework.md` recorded a blocking OPEN question: "its verts look world-space but the CRs
+  at call time are whatever perObjRenderDispatch / billboardCompose1 left".
+- **the question was already answered inside the emitter.** `gen_func_8003B704` calls
+  `func_80084660` / `func_80084690` with `a0 = 0x1F8000F8`. Those two are libgte
+  **SetRotMatrix / SetTransMatrix** (the mis-RE that called them "pool-span markers" had already been
+  corrected once, for FUN_80039F4C, and the correction was never propagated to this row), and
+  0x1F8000F8 is the **pure camera**. The emitter therefore OVERWRITES CR0-7 with the camera
+  immediately before building its corners: the corners are world space, and the caller's CR state is
+  irrelevant. A native producer needs only the node's own fields plus the native camera.
+- **the port:** `Render::beamQuadRender`, `game/render/fx_beam.cpp`, dispatched from
+  `fieldObjectsRender` for the objListWalk4 chain. Half-extent
+  `H = 0x14 * (cos a cos b, sin b, -sin a cos b)` from `node+0x68` / `node+0x6A` (`+1024` on the polar
+  when `*(u8*)0x800E7FC6 < 4`); span from the tracked anchor `*(0x800E7F5C)` (s32 at +0x2C/30/34) to
+  the node's own position (s16 at +0x2E/32/36), split at the round-toward-zero midpoint when
+  `(s16)node+0x60 == 3`; each span is `(P-H, Q-H, P+H, Q+H)`. Dispatch re-reads FUN_8003EEC0's own
+  jump table at 0x80015000 rather than hardcoding a type list (dumped live: type 1 -> 0x8003EF30,
+  type 16 -> 0x8003EF40, type 32 -> 0x8003EF68, everything else a no-op).
+- **two decode corrections, from ground truth `generated/shard_0.c`:** `DAT_800a3b04[node+0x66*2]` is
+  NOT a colour (as fps60-rework said) — it is the pair of texture **V rows**, U being fixed at 224 and
+  247; and the packet's RGB word is never written at all, consistent with code 0x2D having the RAW bit
+  set. The V table itself reads `80 87 88 8F 90 9F 80 87`, so index 3 aliases index 0.
+- **proof it draws, with its negative control:** two binaries identical except this producer (the
+  no-beam leg built in an isolated tree, both Release), same replay
+  `replays/bugs/weapon-impact-bucket.pad`, headless. f652: **84 changed pixels**, bbox
+  `x[153,179] y[120,125]`, inside the producer's own reported screen bbox
+  `[145.9,117.3]..[188.8,129.3]`; f646 26 px; f648 7 px; f650 **0 px**, and that zero is honest — the
+  producer's own log says the span was degenerate (`A == N`), a zero-area quad. Nothing outside the
+  beam's bbox changed in any frame. Leg discriminator: the no-beam leg emits 0 `beamfx` lines.
+- **not verified:** the split (`kind == 3`) form and the billboard arm (`0x8003EF40`, gated
+  `node+2 == 1`) are unexercised across the whole replay library; no USER eyeball.
+- **refs:** game/render/fx_beam.cpp, game/render/render_walk.cpp, game/render/render.h,
+  portmap `render-producer-beam-b704`, docs/unported-render-inventory.md R2-CLOSED-1.
+
 ## pc_render had NO LINE PRIMITIVE — every rope/chain/tether in the game was invisible (kanban #56 systemic, #54 the bucket rope; 2026-07-23)
 
 - **symptom:** the bucket's suspension ROPE and a fisherman's fishing LINE were missing under pc_render
@@ -9,8 +73,11 @@
   `PSXPORT_RENDER_PSX=1` — but the native render queue is quads-only and had no line path at all.
   Since the break-first render rebuild pc_render does not walk the guest OT, every GP0 line was
   simply never drawn. One missing producer, many symptoms.
-- **status:** FIXED for the whole 0x5E rope family (`game/render/fx_line.cpp`). One remaining line
-  emitter is RE'd but NOT yet ported — see the ring-shadow section below.
+- **status:** FIXED for the whole 0x5E rope family (`game/render/fx_line.cpp`), and since 2026-08-06
+  for the third emitter too — the op-0x4A shockwave ring, which was ported 2026-07-28 but drew nothing
+  until its two transform bugs were found. See the shockwave-ring section below. All three emitters the
+  `lineprim` census finds are now pixel-verified; `Render::ropeChainRender` (0x8013EA64) is implemented
+  but still COLD — no replay in the library reaches it.
 - **how the emitters were identified (guest data):** new diagnostic `debug lineprim` (gpu_native.cpp's
   line branch) logs every line packet with its vertices, colours, the GPU blend in force, and the
   otattr store-span attribution {emitter fn, caller fn, node}. On `replays/bugs/bucket-softlock.pad`
@@ -49,15 +116,52 @@
   the two legs present a ~2-frame-skewed camera, so the frame differs by ~50k px with or without the
   fix. Use the A/B (producer on vs off) plus the coordinate match against the `lineprim` census.
 
-### STILL MISSING — the ground RING SHADOW (`FUN_8013E08C`), the same #56 gap, a second emitter
+### The expanding SHOCKWAVE RING (`FUN_8013E08C`) — ported, then BROKEN for nine days, fixed 2026-08-06
 
-RE'd but not ported. It does NOT go through `FUN_8013DD34`: it runs its own GTE loop, 7 iterations over
-a **16-point circle of radius 256 at 0x8014C780** taken as a sliding 3-point window, emitting op-0x4A
-mono semi poly-lines (3 verts) TWICE, the second copy offset (+2,+1) in screen space. Grey level is
-`0x80 - ((nodeY - 0x14) * 0x80) / 200` — it fades out as the object rises — and it alternates GPU blend
-1 (B+F) and 2 (B-F) between the two copies. It uses the node's matrix at node+0x2C via `FUN_80084220`
-and a diagonal scale matrix built from `nodeY<<4`, so porting it needs those two matrix leaves RE'd
-first — that is the reason it was not ported alongside the rope family, and it is the next step for #56.
+- **symptom:** under pc_render the layer drew **zero pixels** although `Render::shockwaveRingRender`
+  was called 152 times per `bucket-softlock` run. It was recorded as *cold* (claim C036) on an A/B
+  captured at presents **440-485** while the producer fires only at **f270..f358** — a zero measured
+  where the producer never runs. The guest draws this ring dead centre of the screen for ~90 frames.
+- **status:** FIXED and pixel-verified (claim C038). Port-map step `fx-line-emitter-e08c` = `verified`.
+- **cause — TWO independent bugs, either fatal on its own:**
+  1. **Wrong translation source.** The emitter hands `node+0x2C` to `0x80084220`, which loads word0 as
+     `VXY0` and word1 as `VZ0` — a packed **SVECTOR**, X@0x2C Y@0x2E Z@0x30. (The note this block
+     replaces called `node+0x2C` "the node's matrix"; it is a position.) The producer instead read
+     `node+0x4E/0x50/0x52`, the ROPE/TETHER node family's layout — and on a ring node **`0x50` is the
+     SCALE animator**, so the port's Y was literally the ring's own radius while X/Z came from
+     unrelated fields. That is why its logged "position" walked `(0,30,10)..(7,210,10)` in lockstep
+     with the scale, near the world origin, while the camera sat at `(10264,-2124,3979)`. "Off-screen"
+     was the symptom, not the explanation. The same field the old note called `nodeY` in the grey
+     formula is that scale animator.
+  2. **`Robj` divided by 4096.** `projComposeObjectHost` takes the object rotation in the guest's
+     **1.3.12** convention (4096 = identity) — `scale<<4` is already that value. The producer divided
+     it down first, collapsing every ring onto a single point. Invisible until bug 1 was fixed *and*
+     the producer logged its own projected screen box.
+- **also corrected:** each span is emitted **twice with its own `DR_MODE`** — tpage 53 (blend bits 1 =
+  B+F additive) unshifted, and tpage 85 (blend bits 2 = B-F subtractive) at (+2,+1), inserted so the
+  subtractive copy draws underneath. An embossed highlight+shadow pair, not a 2 px stroke; the producer
+  had both copies on blend 3. Confirmed by the `lineprim` census's own alternating `blend=1`/`blend=2`
+  and the (+2,+1) delta between consecutive packets.
+- **not reproduced, deliberately:** the guest biases its OT index by `(s16)node+0x32` to lift the ring
+  clear of the ground. The native queue orders by real per-vertex depth, so there is no index to bias.
+- **fix:** `game/render/fx_line.cpp` — `ShockwaveRingNode` lens (`scale()`, `worldPos()`),
+  `ringFadeGrey()`, per-stroke blend, and a `ropeline` line that now carries **spans drawn / spans
+  rejected / the projected screen box**, so a future zero says *which* it was.
+- **gate:** three separately-built binaries, isolated tree, in-band leg proof;
+  `PSXPORT_PRESENT_SHOT_AT=275,280,287,320,340,355` (inside the window) — fixed-vs-deleted =
+  450/657/909/2151/1602/2232 changed px of 691,200, every mask a single closed ellipse outline with no
+  stray region. **NEGATIVE CONTROL:** the shipped producer vs the same deleted leg, same presents, same
+  differ = 0 on all six. Position cross-checked against the guest's own `lineprim` submitted vertices
+  (~1 px on 8 frames) — resolved from what SUBMITS to the GTE, never from GTE output.
+- **the 152-vs-76 factor of 2 is NOT a bug:** 152 calls = 76 distinct (frame, node) pairs seen twice,
+  one per PRESENT, because fps60 re-renders the field object walk for the interpolated present.
+  Measured: with `fps60=0` the same replay logs exactly 76 = 1064 guest packets / 14 per call.
+- **it is a SHOCKWAVE RING, not a ground ring shadow** — it grows from ~6 px across at f270 to ~80 px
+  at f357 while its grey fades 122 → 13. Three instances over f270..f358.
+- **METHOD NOTE worth more than the fix:** the old one-line producer diagnostic printed position and
+  colour and could not have shown either bug. The line that found bug 2 in one run was the one carrying
+  the **denominator** — spans drawn out of 7, and the screen box they landed in. A diagnostic that can
+  only print "I ran" is not an instrument.
 
 ## Missing MINIMAP (areas 2, 7) and area-15 PORTAL — two type-of-nothing gaps, both closed by porting the emitter (kanban #43 / #44, 2026-07-23)
 
@@ -4659,3 +4763,67 @@ be used as the guest-write gate here; the 2 MB RAM + scratchpad A/B above was us
             `r <node>+0xB` for the type. Node +1 is the per-frame visibility marker the render walk
             gates on FIRST, so a node can be present and still never reach any producer.
   refs    : kanban #72
+
+## [render] The four-copy RADIAL PLUME is back — the first effect-mesh controller rebuilt as a real producer (2026-08-06, FIXED)
+
+  status  : PORTED, picture-proven, USER-uneyeballed. portmap `render-producer-plume-bc9c`
+            (ported-unverified); inventory row R1-CLOSED-1.
+  symptom : `PSXPORT_DEBUG=nofx` on `bucket-softlock.pad` named type-0x20 node 800EE7B8 with render fn
+            `0x8002BC9C` as live-and-skipped in area 0 — the layer drew NOTHING under pc_render.
+  cause   : commit abf3cf9 (2026-08-04) deleted `mesh_emit_tap.cpp`, the SINGLE owner of the shared
+            mesh writer `FUN_80027768`, and with it every controller SCOPE. pc_render does not walk the
+            guest OT, so the guest's own packets are not a fallback. The deletion was CORRECT — those
+            producers re-derived their quads from `gte_read_ctrl(0..7)`, i.e. from what the GTE had just
+            been given, which PROTOCOL.md bans — but nothing recorded that it left 20 controllers with
+            no picture at all.
+  fix     : `Render::radialPlumeRender` (`game/render/fx_plume.cpp`), dispatched from
+            `Render::fieldObjectsRender`'s type-0x20 walk on `node+0x18 == 0x8002BC9C`. RE from ground
+            truth `generated/shard_0.c gen_func_8002BC9C` + `generated/shard_5.c gen_func_80027768`.
+            The transform is built from the NODE'S OWN state — `rotmat(node+0x48/4A/4C)` column-scaled
+            by the authored triple at `0x800A1CD4`, at the node's own s16 world position
+            `node+0x2C/2E/30`, four copies a quarter turn apart — and projected with the native
+            fps60-lerped camera through `projComposeObjectHost`. No GTE register is read.
+  RE facts worth not re-deriving:
+            * the controller programs the writer's depth cue to the IDENTITY (IR0 = 0 at scratchpad
+              0x1F800090, far colour CR21-23 = 0), so the mesh keeps its authored colours. The dust puff
+              is the opposite case (IR0 = 0xFFF replaces them with the surface's far colour).
+            * `*(node+0x3C)` is the animation-script byte: low 7 bits index the node's own mesh-pointer
+              table at `*(node+0x50)`, bit 7 marks the script's LAST frame.
+            * reading `node+0x4A` at DISPLAY time is sound even though the guest advanced it four times:
+              it is left at base + a full turn and the engine's sine LUT is a full 4096-entry turn, so
+              the four orientations are the same set, merely relabelled.
+            * the mesh writer's ORDERING decision needs the caller's sort bias, and the OT-unit → view-
+              unit factor comes from the GAME's own projection init `gen_func_80083FF8`
+              (ZSF3 = 341, **ZSF4 = 256**, H = 1000, DQA = -4194, DQB = 320<<16). ZSF4 = 256 makes the
+              AVSZ4 key mean-depth/4, so ONE bias unit is FOUR view units — the same relation the sprite
+              family already uses, and derived from authored data rather than from `gte_read_ctrl(30)`.
+  evidence: two Release binaries from the isolated tree `psx/scratch-plumeab/T2`, distinct md5s,
+            identical except the one dispatch branch. `replays/bugs/bucket-softlock.pad`, headless,
+            `PSXPORT_GATE=1` pc_render, `PSXPORT_PRESENT_SHOT_AT` at 960x720. In the producer's own
+            active window (plumefx: f252-f263) presents 254/258/262 differ by 675 / 3267 / 828 px of
+            691,200 in bboxes that track the burst; outside it presents 300/320 differ by 0 px, and the
+            producer is not called there. Leg proof is the channel, not the pixels: 24 `plumefx` lines
+            ON, 0 OFF. AND THE PIXELS ARE WHERE THE PRODUCER SAID: the channel reports the screen box
+            the call emitted into, and scaled by ires 3, 100% / 99.72% / 100% of the f254 / f258 / f262
+            diffs fall inside it. Library census, all 17 replays at 900 frames: SEVEN reach the
+            producer 24 times each (bucket-softlock, house-on-the-point, save-prompt-black-screen,
+            seesaw-weight, sequence-softlock-2, title-options-page, walk-dust-puff), the other TEN 0
+            times, every run exit 0 with zero abort/FATAL/recomp-MISS, `quads=0` never seen. Boot gate
+            (newgame + run 400 headless) reaches frame=440 stage=8010637C sm48=2 before AND after.
+  NOT done: no USER eyeball; the controller's SECOND half (`node+3` in {0x14,0x15} -> the sprite writer
+            `FUN_80027A4C` with the list at `node+0x34`) is NOT ported and every observed call carries
+            subtype 0x07, so it is unreached rather than broken; and NO cross-check against psx_render,
+            because the two legs' present-frame timelines are offset (the psx leg skips the OP FMV) so
+            the same frame number is a different moment.
+  residual: the 9 pixels of the f258 diff that fall OUTSIDE the producer's own box are ONE native
+            320x240 pixel (146,122) — the 3x3 block (438..440, 366..368) — which goes pale yellow
+            (206,206,107) with the producer OFF to dark brown (107,74,49) with it ON. It is well
+            outside the plume's footprint, so the plume did not paint it: the shape of the change is
+            one surface losing to another at a single pixel, i.e. a depth-coincidence / ordering flip
+            of kanban #74's class, triggered by the extra draws. UN-ROOT-CAUSED. Start here if this
+            layer is revisited.
+  dead end: a psx_render screenshot at the SAME present-frame number is NOT a like-for-like reference
+            for a pc_render one. Measured 2026-08-06: pc leg f258 shows Tomba at the fence, psx leg f258
+            shows an open water surface. Align the legs by content before comparing, or do not compare.
+  refs    : kanban #15; docs/unported-render-inventory.md R1-CLOSED-1; portmap
+            `render-producer-plume-bc9c`; game/render/fx_plume.cpp; game/render/mesh_quads.{h,cpp}

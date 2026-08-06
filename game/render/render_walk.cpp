@@ -721,6 +721,17 @@ void Render::fieldObjectsRender() {
   static const uint32_t HEADS[3] = { 0x800FB168u, 0x800F2624u, 0x800F2738u };
   ringNodeCensus();
   uint32_t saved = c->r[4];
+  // Denominator for the `beamfx` channel: a run where the beam emitter draws nothing must be able to
+  // say whether NO NODE ASKED FOR IT or whether the producer declined. beamCand counts the live
+  // objListWalk4 nodes the producer inspected, beamHit the ones the guest's own jump table routes to
+  // FUN_8003B704. A silent `beamfx` with beamCand==0 means the chain was empty, not that the layer
+  // is broken — those are different bugs and the summary below distinguishes them.
+  // BLIND SPOT, stated: beamCand excludes anything that `continue`d earlier in this loop — invisible
+  // nodes (n+1 == 0) and type-0x20 nodes. That is sound for the beam question only because the guest
+  // table at 0x80015000 routes type 32 to 0x8003EF68, not to a beam arm (dumped from the running
+  // game 2026-08-06: type 1 -> 0x8003EF30, type 16 -> 0x8003EF40, all other in-range types no-op).
+  // If that table ever changes, this denominator starts lying.
+  int beamCand = 0, beamHit = 0;
   for (int h = 0; h < 3; h++) {
     uint32_t n = c->mem_r32(HEADS[h]);
     for (int g = 0; n && g < 400; g++, n = c->mem_r32(n + 0x24)) {
@@ -819,6 +830,13 @@ void Render::fieldObjectsRender() {
           // puff mesh, drawn from the ring/age state by fx_dust.cpp.
           c->rsub.stats.snObjs++;
           rend(c)->dustEffectRender(n);
+        } else if (rfn == 0x8002BC9Cu) {
+          // The FOUR-COPY RADIAL PLUME (docs/unported-render-inventory.md R1): FUN_8002BC9C stamps the
+          // animation script's current mesh four times, a quarter turn apart, from the node's own
+          // angles and position. It lives in MAIN.EXE, so no overlay-residency signature is needed —
+          // unlike the overlay entries above, this address never changes owner. See fx_plume.cpp.
+          c->rsub.stats.snObjs++;
+          rend(c)->radialPlumeRender(n);
         } else if (rfn == 0x8013E9D8u && c->mem_r32(0x8013E9D8u) == 0x27BDFFD8u) {
           // The hanging object's ROPE (#54/#56): FUN_8013E9D8 draws one rope from the object this node
           // hangs off (node+0x14) down to itself, through the shared line leaf FUN_8013DD34. Overlay-
@@ -871,6 +889,17 @@ void Render::fieldObjectsRender() {
           !c->game->fps60.mWorldCaptureOnly) {
         rend(c)->tetherLineRender(n);
       }
+      // BEAM / SEE-SAW ribbon (FUN_8003B704, unported-render-inventory R2). Only the objListWalk4
+      // chain (HEADS[2] = FUN_8003EEC0's list) reaches that emitter, and which nodes reach it is
+      // decided by THAT walk's own jump table — so beamNodeReached re-reads the table rather than
+      // this dispatch carrying a hardcoded type list. Ahead of the render-command check because the
+      // guest calls the emitter regardless of whether the node has any render commands. Skipped on
+      // the capture-only pass like the other float-screen-XY producers (the present-time re-render
+      // rebuilds it under the lerped camera).
+      if (h == 2 && !c->game->fps60.mWorldCaptureOnly) {
+        beamCand++;
+        if (rend(c)->beamNodeReached(n)) { beamHit++; rend(c)->beamQuadRender(n); }
+      }
       if (c->mem_r8(n + 8) == 0 || c->mem_r8(n + 9) == 0) continue;    // no render commands
       // TYPE-CORRECT ROUTING (#67 cont.; tables RE'd from the LIVE walk jump tables — the substrate
       // routes each node TYPE to a class-specific renderer, and the cmd+0x18 field's MEANING differs
@@ -906,6 +935,8 @@ void Render::fieldObjectsRender() {
       perObjFlush();
     }
   }
+  lucent::debug("beamfx", "SUMMARY objListWalk4 live nodes inspected={} routed to FUN_8003B704={}",
+                beamCand, beamHit);
   {
     uint32_t g = ActorTomba::G_ADDR;
     if (c->mem_r8(g + 8) != 0 && c->mem_r8(g + 9) != 0) {

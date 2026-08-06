@@ -458,16 +458,30 @@ docs/findings/render.md "billboardEmit particles now a DISPLAY-PASS producer".
 
 REMAINING guest-time quad emitters (decompiled 2026-07-16, scratch/decomp/quad_emitters.c —
 Ghidra ram_sea; re-derive from there, not from scratch):
-- **FUN_8003B704 — see-saw/beam quad emitter** (dispatched from objListWalk4/EEC0 cases 0x8003EF30
-  (after perObjRenderDispatch) and 0x8003EF40 (after billboardCompose1, gated node+2==1)). Builds TWO
-  quads spanning DAT_800e7f5c's +0x2c/30/34 position and node+0x2E/32/36, half-widths from
-  rcos/rsin(node+0x68, node+0x6A [+0x400 when DAT_800e7fc6<4]) ×0x14, color from
-  DAT_800a3b04[node+0x66*2], code 0x2D, clut 0x3E9F; emits via func_8003B320 (submitQuad, native)
-  with otzBias=0; pool-span markers on 0x1F8000F8. **OPEN before display-pass port: the CR contract**
-  — its verts look world-space but the CRs at call time are whatever perObjRenderDispatch /
-  billboardCompose1 left (camera∘object or MAT_OUT compose). Pin down whether DAT_800e7f5c/node
-  positions are world or node-relative and what CR state each dispatch case guarantees.
-- **FUN_80039F4C — per-character 3D text-label renderer** (renderWalk case 0x8003C0E8). Text = "Clear"
+- **FUN_8003B704 — see-saw/beam quad emitter — PORTED 2026-08-06** as `Render::beamQuadRender`
+  (game/render/fx_beam.cpp, portmap `render-producer-beam-b704`). Dispatched from objListWalk4/EEC0
+  cases 0x8003EF30 (after perObjRenderDispatch) and 0x8003EF40 (after billboardCompose1, gated
+  node+2==1). Builds ONE quad spanning DAT_800e7f5c's +0x2c/30/34 position and node+0x2E/32/36, or
+  TWO through their midpoint when (s16)node+0x60 == 3; half-widths from rcos/rsin(node+0x68,
+  node+0x6A [+0x400 when DAT_800e7fc6<4]) ×0x14; code 0x2D, clut 0x3E9F; emits via func_8003B320
+  (submitQuad) with otzBias=0.
+  **THE CR CONTRACT IS SETTLED, and the note above was looking in the wrong place for it.** The line
+  it called "pool-span markers on 0x1F8000F8" is the answer: func_80084660/func_80084690 ARE libgte
+  SetRotMatrix/SetTransMatrix (the same mis-RE that was already corrected for FUN_80039F4C), so the
+  emitter LOADS THE PURE CAMERA from scratchpad 0x1F8000F8 into CR0-7 itself, immediately before
+  building its corners. Whatever perObjRenderDispatch / billboardCompose1 left there is overwritten.
+  The corners are therefore WORLD SPACE and the producer needs only the node's own state.
+  **TWO CORRECTIONS to the decode above, both from generated/shard_0.c:** DAT_800a3b04[node+0x66*2]
+  is NOT a colour — it is the pair of texture V rows written to the packet's v0/v1 and v2/v3 (U is
+  fixed at 224 and 247); and the packet's RGB word is never written at all, which is consistent
+  because code 0x2D sets the RAW bit, so the texel is unmodulated.
+- **FUN_80039F4C — per-character 3D text-label renderer — ALREADY DONE, this entry is STALE.** The
+  orchestrator is owned (`Render::textLabelEmit`, game/render/text_label.cpp, wired at
+  text_label.cpp:162) and the PICTURE has a native producer (`CubeTextBanner`,
+  game/render/cube_text_banner.cpp, portmap `render-producer-cube-text-banner` = verified). The
+  "OPEN" note below was answered in the same 2026-07-16 session that wrote it — FUN_80084660/84690
+  are SetRotMatrix/SetTransMatrix, not span markers. Left in place only so the correction is visible
+  where the stale claim was. Original text: text = "Clear"
   (+DAT_80014a1c suffix) when node+3==2, else string table PTR_DAT_800a33cc[node+0x60*3]. Per char:
   glyph template quad {(-3,-7),(5,-7),(-3,9),(5,9)} z=-1, FUN_80039e80(char, pool) fills the packet
   (returns OT depth or -1), per-char cmd at node+0xC0[i] (span markers on cmd+0x18), projected by
@@ -475,8 +489,16 @@ Ghidra ram_sea; re-derive from there, not from scratch):
   0x7DFF/0x7C7F. **OPEN: FUN_8003F174(node,1) prep + FUN_80039e80 (per-char transform/UV source) —
   decompile these two before porting.**
 - **case188 generic-particle quads** (renderWalkCase188, render_walk_dispatch.cpp): corners from
-  node+96..118 through func_8003B054/B320 under per-node CRs composed earlier — same CR-contract
-  question as B704.
-- These three still draw via QuadRtptSubmit's dual-emit (rq_push_ft4_record — the last caller);
-  at fps60 they present verbatim (30Hz stepping, no flicker). Delete that dual-emit only as each
-  class gains its display-pass producer.
+  node+96..118 through func_8003B054/B320. Its CR contract is its OWN question — B704's answer does
+  NOT carry over, because case188 loads CR0-7 from CASE188_SCR rather than from 0x1F8000F8, and it
+  passes otzBias=16 rather than 0. **BLOCKED ON REACHABILITY, measured 2026-08-06:** its dispatch
+  target 0x8003C188 is never taken in any of the 17 replays, so a port could not be picture-verified
+  today. Note also that only 11 halfwords (node+96..118) are copied into the 8-word xform buffer, so
+  the 4th corner's VXY3/VZ3 come from stale guest stack — re-derive that from gen before porting,
+  it is not a transcription detail to carry over blind.
+- STALE AS OF 2026-08-04, corrected 2026-08-06: this list used to end "these three still draw via
+  QuadRtptSubmit's dual-emit (rq_push_ft4_record)". `rq_push_ft4_record` no longer exists anywhere in
+  game/ or runtime/ (only a comment in external/psxport/runtime/recomp/fps60.cpp:268 still names it).
+  The dual-emit went with the tap on 2026-08-04, so these classes drew NOTHING at all until a native
+  producer was written for them — which is exactly the gap docs/unported-render-inventory.md R2 exists
+  to track.

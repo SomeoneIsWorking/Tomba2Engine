@@ -11,6 +11,21 @@
 #include <stdint.h>
 struct Core;
 
+// The mesh writer's own PER-QUAD ORDERING DECISION, which every caller of FUN_80027768 gets but which
+// cannot be evaluated without the caller's OWN sort-bias argument (a2). The writer averages the four
+// projected depths with AVSZ4, adds a2, compresses the result into an ordering-table bucket and DROPS
+// the quad when that bucket falls outside the linkable range; the bias is also what lets an effect that
+// spawns just behind the thing it hit still paint in front of it.
+//
+// It is opt-in rather than always-on because a2 is a per-CALLER fact: only a producer that has RE'd its
+// own controller's call may claim to know it. `known == false` means "this caller's bias is not RE'd",
+// and the walk then draws every record with no ordering bias — which is exactly what the callers written
+// before this struct existed did, so they are unchanged by its introduction.
+struct MeshOtBias {
+  bool    known = false;
+  int32_t bias  = 0;      // the s16 the controller hands the writer as its sort-bias argument
+};
+
 class MeshQuads {
 public:
   // The engine's packed sin/cos LUT at 0x800A6490 (word = cos<<16 | sin), read the way Math::rotmat and

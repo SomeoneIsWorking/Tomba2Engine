@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 1036 native fns, 874 owned addresses, 1026 LIVE / 10 ORPHAN. 472 override install sites over 472 addresses.
+Totals: 1039 native fns, 876 owned addresses, 1029 LIVE / 10 ORPHAN. 472 override install sites over 472 addresses.
 
 **A row can come from a DEFINITION or from an INSTALL SITE.** An address whose handler is a file-local static in an anonymous namespace (no address in its name, no tag, no quoted registry name) has no findable definition — the `overrides::install` / `engine_set_override_*` call site is its only ownership record, and the file holding that call site is where you debug it from. Those rows say so in the summary column.
 
@@ -74,6 +74,7 @@ Totals: 1036 native fns, 874 owned addresses, 1026 LIVE / 10 ORPHAN. 472 overrid
 | 0x8002AE0C | LIVE | `leaf_8002AE0C` | game/core/field_owned_leaves.cpp:867 |  |  |
 | 0x8002B278 | LIVE | `Cull::coneCullBody` | game/render/cull.cpp:177 |  | standalone view-CONE cull (3.9% field hot). a0 = node. The multiply-fo… |
 | 0x8002B278 | LIVE | `Cull::coneCull2b278` | game/render/cull.cpp:196 |  |  |
+| 0x8002BC9C | LIVE | `Render::radialPlumeRender` | game/render/fx_plume.cpp:91 |  | The four-copy radial plume of guest FUN_8002BC9C, rebuilt from the nod… |
 | 0x8002E680 | LIVE | `Render::impactAnnulusDraw` | game/render/fx_ring.cpp:117 |  | the shared annulus leaf, as a native producer. Centre and scale are al… |
 | 0x8002ECD8 | LIVE | `Render::impactRingRender` | game/render/fx_ring.cpp:170 |  | the node half: resolve centre/scale/depth, animate the radii, hand off… |
 | 0x8002F514 | LIVE | `leaf_8002F514` | game/core/field_owned_leaves.cpp:1135 |  |  |
@@ -109,6 +110,8 @@ Totals: 1036 native fns, 874 owned addresses, 1026 LIVE / 10 ORPHAN. 472 overrid
 | 0x8003B220 | ORPHAN | `hitbox_build_3b220` | game/player/hitbox.cpp:51 |  | Pure native body. Mirrors the recomp's exact in-memory load/store orde… |
 | 0x8003B320 | LIVE | `QuadRtptSubmit::submitQuad` | game/render/quad_rtpt_submit.cpp:129 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x8003B588 | LIVE | `leaf_8003B588` | game/core/field_owned_leaves.cpp:2024 |  |  |
+| 0x8003B704 | LIVE | `Render::beamNodeReached` | game/render/fx_beam.cpp:125 |  | beamNodeReached — which of FUN_8003EEC0's arms this node takes, read f… |
+| 0x8003B704 | LIVE | `Render::beamQuadRender` | game/render/fx_beam.cpp:137 |  | beamQuadRender — FUN_8003B704's picture. Read-only; emits world quads … |
 | 0x8003BB50 | LIVE | `Render::objListWalk1` | game/render/objlist_walk.cpp:118 | 0x80122974 | ======================================================================… |
 | 0x8003BCF4 | LIVE | `Render::objListWalk2` | game/render/objlist_walk.cpp:221 |  | ======================================================================… |
 | 0x8003BDAC | LIVE | `ov_objListWalk2Case0` | game/render/objlist_walk.cpp:439 |  | jump-table case 0/15 of the object-type table at 0x80014CB0. NOT A FUN… |
@@ -697,7 +700,7 @@ Totals: 1036 native fns, 874 owned addresses, 1026 LIVE / 10 ORPHAN. 472 overrid
 | 0x80085050 | LIVE | `Math::rotZ` | game/math/gte_math.cpp:421 |  |  |
 | 0x800851F0 | LIVE | `Math::rotMatSoftYXZ` | game/math/gte_math.cpp:579 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80085480 | LIVE | `Math::rotmat` | game/math/gte_math.cpp:346 |  |  |
-| 0x80085480 | LIVE | `MeshQuads::rotmat` | game/render/mesh_quads.cpp:62 |  |  |
+| 0x80085480 | LIVE | `MeshQuads::rotmat` | game/render/mesh_quads.cpp:89 |  |  |
 | 0x80085690 | LIVE | `Trig::ratan2` | game/math/trig.cpp:23 |  |  |
 | 0x80085C9C | LIVE | `LibapiIntr::setIntrMask` | game/core/libapi_intr.cpp:115 |  |  |
 | 0x80086230 | LIVE | `LibapiIntr::initVblankCallbacks` | game/core/libapi_intr.cpp:125 |  | FUN_0x80086230 — VBlank-callback subsystem init: clear the 8-slot VSyn… |
@@ -747,12 +750,12 @@ Totals: 1036 native fns, 874 owned addresses, 1026 LIVE / 10 ORPHAN. 472 overrid
 | 0x80099478 | LIVE | `bav_lock_ready` | game/ui/bav_loader.cpp:79 |  | -- lock helpers (FUN_80099478 / FUN_80099450), inlined --- |
 | 0x800998E4 | LIVE | `AreaSlots::classifySlotStates` | game/world/area_slots.cpp:309 |  | ORACLE: gen_func_800998E4 |
 | 0x8009A3E0 | LIVE | `Str::copyBytes` | game/core/str.cpp:36 |  | memcpy(dst, src, n). RE from generated/shard_0.c:15524 gen_func_8009A3… |
-| 0x8009A420 | LIVE | `ov_guestMemset` | external/psxport/runtime/recomp/mem.cpp:905 |  | installed via engine_set_override_main() at external/psxport/runtime/r… |
+| 0x8009A420 | LIVE | `ov_guestMemset` | external/psxport/runtime/recomp/mem.cpp:910 |  | installed via engine_set_override_main() at external/psxport/runtime/r… |
 | 0x8009A450 | LIVE | `prng` | game/ai/beh_typed_variant_router.cpp:47 |  |  |
 | 0x8009A450 | ORPHAN | `tomba_schedRng` | game/core/game_hooks.cpp:185 |  |  |
 | 0x8009A640 | LIVE | `Str::compareBytes` | game/core/str.cpp:80 |  | FUN_0x8009A640 — byte compare, sibling of the memcpy already owned her… |
 | 0x800A33C8 | LIVE | `tbl_strp` | game/ai/beh_cube_text_spawn.cpp:46 |  | string-table entry pointer: mem32(0x800a33c8 + (node[0x60]*3 << 2) + 4… |
-| 0x800A6490 | LIVE | `MeshQuads::trig` | game/render/mesh_quads.cpp:53 |  |  |
+| 0x800A6490 | LIVE | `MeshQuads::trig` | game/render/mesh_quads.cpp:80 |  |  |
 | 0x800BE0D4 | LIVE | `Engine::startBinStageSkip` | game/core/engine.cpp:3112 |  | ── STARTBINSTAGE — pc_skip (default ./run.sh) ────────────────────────… |
 | 0x800BE224 | LIVE | `MusicCoord::musicFadeIn` | game/audio/music_coord.cpp:50 |  | PC-added helper (NOT a port of any FUN_XXXX): snap the game's CD-volum… |
 | 0x800BED80 | LIVE | `MusicCoord::dialogToneActive` | game/audio/music_coord.cpp:36 |  |  |
@@ -870,7 +873,7 @@ Totals: 1036 native fns, 874 owned addresses, 1026 LIVE / 10 ORPHAN. 472 overrid
 | 0x8011D578 | LIVE | `beh_variant_actor_sm` | game/ai/beh_variant_actor_sm.cpp:50 |  |  |
 | 0x8011D988 | LIVE | `beh_actor_move_sm` | game/ai/beh_actor_move_sm.cpp:53 |  |  |
 | 0x80121978 | LIVE | `beh_id_routed_dispatch` | game/ai/beh_id_routed_dispatch.cpp:113 |  |  |
-| 0x80122974 | LIVE | `Render::tetherLineRender` | game/render/fx_line.cpp:288 |  | the TETHER: one rope from this object to an anchor chosen by node+0x47… |
+| 0x80122974 | LIVE | `Render::tetherLineRender` | game/render/fx_line.cpp:371 |  | the TETHER: one rope from this object to an anchor chosen by node+0x47… |
 | 0x80122BF4 | LIVE | `beh_id_routed_offset_point` | game/ai/beh_id_routed_dispatch.cpp:69 | 0x800844C0 | FUN_0x80122BF4 — keeps a point pinned 119 world units ABOVE a linked o… |
 | 0x80123E9C | LIVE | `ReleaseTriggerMotion::hoverBobCycle` | game/ai/release_trigger_motion.cpp:75 | 0x80077B5C | ----------------------------------------------------------------------… |
 | 0x801241BC | LIVE | `ReleaseTriggerMotion::leaderFollowSync` | game/ai/release_trigger_motion.cpp:137 | 0x80051D90 0x80123C94 0x8012400C | ----------------------------------------------------------------------… |
@@ -984,11 +987,11 @@ Totals: 1036 native fns, 874 owned addresses, 1026 LIVE / 10 ORPHAN. 472 overrid
 | 0x8013C9C0 | LIVE | `beh_scatter_ramp_machine` | game/ai/beh_scatter_ramp_machine.cpp:52 |  |  |
 | 0x8013CDD4 | LIVE | `WidescreenMarginQuad::emit` | game/render/widescreen_margin_quad.cpp:124 |  |  |
 | 0x8013D454 | LIVE | `Render::waterJetSpriteRender` | game/render/fx_sprite.cpp:585 |  | 's SPRITE branch — the water jet's other half. The mesh branch (non-ze… |
-| 0x8013DD34 | LIVE | `Render::worldLineDraw` | game/render/fx_line.cpp:131 |  | THE rope leaf: a stroke between two world points, drawn as the project… |
+| 0x8013DD34 | LIVE | `Render::worldLineDraw` | game/render/fx_line.cpp:179 |  | THE rope leaf: a stroke between two world points, drawn as the project… |
 | 0x8013DD48 | ORPHAN | `sub8013DD48` | game/ai/beh_a08_scene_actor.cpp:150 | 0x80072DDC | (objAnim, subId) — allocate a spawner obj and hook its handler. |
-| 0x8013E08C | LIVE | `Render::shockwaveRingRender` | game/render/fx_line.cpp:211 |  | the expanding SHOCKWAVE RING. Ported 2026-07-28; it was surfaced by |
-| 0x8013E9D8 | LIVE | `Render::ropeAnchorRender` | game/render/fx_line.cpp:256 |  | the HANGING object's rope: from the object it hangs off (node+0x14) to… |
-| 0x8013EA64 | LIVE | `Render::ropeChainRender` | game/render/fx_line.cpp:268 |  | the segmented CHAIN: 8 points the node carries, joined end to end. nod… |
+| 0x8013E08C | LIVE | `Render::shockwaveRingRender` | game/render/fx_line.cpp:281 |  | the expanding SHOCKWAVE RING. Ported 2026-07-28; it was surfaced by |
+| 0x8013E9D8 | LIVE | `Render::ropeAnchorRender` | game/render/fx_line.cpp:339 |  | the HANGING object's rope: from the object it hangs off (node+0x14) to… |
+| 0x8013EA64 | LIVE | `Render::ropeChainRender` | game/render/fx_line.cpp:351 |  | the segmented CHAIN: 8 points the node carries, joined end to end. nod… |
 | 0x8013FB88 | LIVE | `OverlayGroundGt3Gt4::gt3` | game/render/overlay_ground_gt3gt4.cpp:138 |  | ground/scene POLY_GT3 emit. Record = 36 bytes, SAME field layout as th… |
 | 0x8013FE58 | LIVE | `OverlayGroundGt3Gt4::gt4` | game/render/overlay_ground_gt3gt4.cpp:254 |  | ground/scene POLY_GT4 emit. Record = 44 bytes: {+0 rgb0(rgb1=rgb0<<4)\|… |
 | 0x801401B8 | LIVE | `OverlayGroundGt3Gt4::entityLoop` | game/render/overlay_ground_gt3gt4.cpp:363 |  | the ground-entity render list walker. list=a0: +6 (u8) entry count, +1… |
@@ -1031,11 +1034,11 @@ Owned by a DIFFERENT mechanism than the table above: `PlatformHle` (`external/ps
 
 ## Deliberately ABSENT — do NOT port from this map alone (`docs/port-map.md`)
 
-Cross-referenced against 49 `docs/port-map.md` steps; 4 carry an explicit `absent:` field. A step here means the layer's PICTURE was removed by decision (usually PROTOCOL.md's absolute no-tap rule). Its entry function may still be natively OWNED above — the producer exists, it just no longer draws — so an owner row is NOT evidence the layer is present. Read the step's `notes` in the port map before touching any of it.
+Cross-referenced against 51 `docs/port-map.md` steps; 4 carry an explicit `absent:` field. A step here means the layer's PICTURE was removed by decision (usually PROTOCOL.md's absolute no-tap rule). Its entry function may still be natively OWNED above — the producer exists, it just no longer draws — so an owner row is NOT evidence the layer is present. Read the step's `notes` in the port map before touching any of it.
 
 | port-map step | status | why it is absent | guest addrs | owner files |
 |---------------|--------|------------------|-------------|-------------|
 | `render-producer-effect-mesh-family` | todo | the effect-mesh PICTURE was deleted 2026-08-04 with the GTE-register taps (commit abf3cf9 removed game/render/fx_mesh.cpp/.h, mesh_emit_tap.cpp, swing_fx.cpp/.h). Those producers re-derived quads host-side from the transform the substrate controller had just composed into GTE CR0-7 — a tap, banned by PROTOCOL.md. Deleting them was CORRECT; what was never recorded is that it left the whole family with no producer. Do NOT restore a scope/tap to get the picture back. | 0x80027768 | — |
 | `render-producer-margin-quad` | todo | FUN_8013CDD4's GT4 prop-quad picture was DELETED 2026-08-04, not left unported — its GTE-register tap is banned by PROTOCOL.md (USER, absolute). Rebuild ONLY from the node's own position/angles, never by reading back what the guest composed. | 0x8013CDD4 | — |
-| `render-producer-submitquad-classes` | todo | the PICTURE for these caller classes (a00-overlay flame/rope emitter, case-188 particles, B704 beams) was DELETED 2026-08-04, not left unported — its GTE-register tap is banned by PROTOCOL.md (USER, absolute). Rebuild ONLY as a native producer reading each emitter's own world state. | 0x8003B320 | — |
+| `render-producer-submitquad-classes` | todo | the PICTURE for the two REMAINING caller classes (a00-overlay flame/rope emitter, case-188 particles) was DELETED 2026-08-04, not left unported — its GTE-register tap is banned by PROTOCOL.md (USER, absolute). Rebuild ONLY as a native producer reading each emitter's own world state. | 0x8003B320 | — |
 | `render-tap-gte-registers` | verified | the layers these two taps drew (quad_rtpt_submit.cpp, widescreen_margin_quad.cpp) are honestly BLANK by decision — the taps were deleted 2026-08-04 under PROTOCOL.md's absolute no-tap rule. An UNPORTED effect is better than a TAPPED one; do not restore a tap to get a picture back. | — | game/render/quad_rtpt_submit.cpp game/render/widescreen_margin_quad.cpp |

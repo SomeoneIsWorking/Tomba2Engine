@@ -37,7 +37,10 @@ ENTS_RE = re.compile(
 def run_game(replay, frame, shot):
     """Drive the replay to `frame`, dump ents, and grab a PNG at the same instant."""
     cmds = [f"skip {frame}", "ents", f"shot {shot}", "quit"]
+    # PSXPORT_NOPACE: a probe, not a play session. Headless is PACED like a windowed run now (they
+    # are one program), so "as fast as the host can" has to be ASKED for.
     env = dict(os.environ, PSXPORT_REPL="1", PSXPORT_VK_HEADLESS="1", PSXPORT_NOAUDIO="1",
+                           PSXPORT_NOPACE="1",
                PSXPORT_PAD_REPLAY=replay)
     binp = os.path.join(ROOT, "scratch/bin/tomba2_port")
     if not os.path.isfile(binp):

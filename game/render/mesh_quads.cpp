@@ -13,6 +13,11 @@
 // only checks the GTE overflow flag), so none is added. Every U byte takes the caller's uBias (the
 // animated texture scroll these effects use as their frame counter).
 //
+// ORDERING: the writer also averages the four projected depths (AVSZ4), adds the CALLER's sort bias and
+// drops any quad whose resulting ordering-table bucket is out of range. That decision needs a per-caller
+// argument, so it arrives as MeshOtBias and is skipped when a caller has not RE'd its own — see the
+// struct's note in mesh_quads.h.
+//
 // COLOUR: the guest runs the four RGBs through DPCT/DPCS, a lerp toward the GTE far colour by the
 // depth-cue factor IR0. Callers that publish IR0 = 0 (the narration swirl) get their colours through
 // unchanged; the dust puff publishes IR0 = 0xFFF, which replaces the mesh's own colour with the
@@ -32,6 +37,27 @@ constexpr uint32_t kTrigLut   = 0x800A6490u;   // word = cos<<16 | sin, 4096 ent
 constexpr uint32_t kRecStride = 36u;
 constexpr uint32_t kRecMax    = 512u;          // runaway guard; the guest's terminator is word1 bit31
 constexpr uint32_t kSemiBit   = 0x40000000u;
+
+// ── the writer's ordering-table arithmetic, in the game's own constants ────────────────────────────
+// AVSZ4 forms the quad's ordering key as `(ZSF4 * (sz0+sz1+sz2+sz3)) >> 12`, and the game's own
+// projection init (gen_func_80083FF8: ZSF3 = 341, ZSF4 = 256, H = 1000, DQA = -4194, DQB = 320<<16)
+// makes ZSF4 exactly 256 — so the key is the MEAN of the four view depths divided by four, and one
+// unit of the caller's sort bias is therefore FOUR units of view depth. That factor is derived from
+// the game's authored constant, not read back out of a GTE control register.
+constexpr int32_t kZsf4          = 256;
+constexpr int32_t kViewPerOtUnit = 4;
+// The writer's own near/far reject: a key outside [kBucketMin, kBucketMin+kBucketSpan) is never linked
+// into the ordering table, so the quad is never drawn.
+constexpr int32_t kBucketMin  = 4;
+constexpr int32_t kBucketSpan = 2044;
+
+// The writer's bucket compression, transcribed from gen_func_80027768 including its behaviour on a
+// negative key (the caller's bias can drive it below zero, and the guest lets the shifts run anyway
+// and then rejects the result).
+int32_t otBucketOf(int32_t key) {
+  const int32_t shift = key >> 10;
+  return (key >> (shift & 31)) + (shift << 9);
+}
 
 int16_t gpf(int a, int b) {                    // the GPF product-and-clamp the rotmat leaf uses
   int32_t v = ((int32_t)a * b) >> 12;
@@ -102,7 +128,8 @@ void MeshQuads::composeScaled(const int32_t A[3][3], const int32_t B[3][3], cons
     }
 }
 
-int Render::meshQuadRecordsEmit(uint32_t mesh, int uBias, const int32_t farColour[3], int32_t ir0) {
+int Render::meshQuadRecordsEmit(uint32_t mesh, int uBias, const int32_t farColour[3], int32_t ir0,
+                                const MeshOtBias& ot, float* screenBbox) {
   Core* c = mCore;
   int drawn = 0;
   for (uint32_t n = 0, rec = mesh; n < kRecMax; n++, rec += kRecStride) {
@@ -112,10 +139,32 @@ int Render::meshQuadRecordsEmit(uint32_t mesh, int uBias, const int32_t farColou
     const int vy[4] = { sb(30), sb(31), sb(34), sb(35) };
     const int vz[4] = { sb(15), sb(19), sb(23), sb(27) };
 
+    ProjVtx p[4];
+    int32_t depthSum = 0;
+    for (int k = 0; k < 4; k++) {
+      projVertexActive(vx[k], vy[k], vz[k], &p[k]);
+      depthSum += p[k].sz;
+    }
+    // The writer's own ordering decision, when the caller has RE'd its bias argument: reject the quad
+    // the game would not have linked, and shift the drawn depth by the same authored amount the game
+    // shifts the key by, so a plume that spawns behind the thing it hit still paints in front of it.
+    const bool last = ((int32_t)w1 <= 0);
+    float depthShift = 0.0f;
+    if (ot.known) {
+      int32_t avg = (kZsf4 * depthSum) >> 12;
+      if (avg > 0xFFFF) avg = 0xFFFF;                                  // AVSZ4's own OTZ clamp
+      const int32_t bucket = otBucketOf(avg + ot.bias);
+      if ((uint32_t)(bucket - kBucketMin) >= (uint32_t)kBucketSpan) { if (last) break; else continue; }
+      depthShift = (float)(kViewPerOtUnit * ot.bias);
+    }
+
     float px[4], py[4], depth[4];
     for (int k = 0; k < 4; k++) {
-      ProjVtx p; projVertexActive(vx[k], vy[k], vz[k], &p);
-      px[k] = p.px; py[k] = p.py; depth[k] = proj_pz_to_ord(p.pz);
+      px[k] = p[k].px; py[k] = p[k].py;
+      float pz = p[k].pz + depthShift;
+      const float nearPz = proj_near_pz();
+      if (pz < nearPz) pz = nearPz;
+      depth[k] = proj_pz_to_ord(pz);
     }
     unsigned char r[4], g[4], b[4];
     for (int k = 0; k < 4; k++) {
@@ -134,8 +183,15 @@ int Render::meshQuadRecordsEmit(uint32_t mesh, int uBias, const int32_t farColou
     const uint16_t tp   = (uint16_t)((w1 >> 16) & 0x7Fu);
     const int semi = (w1 & kSemiBit) ? 1 : 0;
     c->game->activeRq().drawWorldQuad(c, px, py, depth, u, v, r, g, b, tp, clut, semi, nullptr);
+    if (screenBbox)
+      for (int k = 0; k < 4; k++) {
+        if (px[k] < screenBbox[0]) screenBbox[0] = px[k];
+        if (py[k] < screenBbox[1]) screenBbox[1] = py[k];
+        if (px[k] > screenBbox[2]) screenBbox[2] = px[k];
+        if (py[k] > screenBbox[3]) screenBbox[3] = py[k];
+      }
     drawn++;
-    if ((int32_t)w1 <= 0) break;                         // the terminal record IS drawn, then stop
+    if (last) break;                                     // the terminal record IS drawn, then stop
   }
   return drawn;
 }

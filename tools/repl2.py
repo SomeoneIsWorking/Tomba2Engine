@@ -25,7 +25,9 @@ def disc():
 
 def run_core(which, cmds, timeout=300):
     script = "\n".join(cmds) + "\nquit\n"
-    env = dict(os.environ, PSXPORT_NOWINDOW="1", PSXPORT_NOAUDIO="1")
+    # PSXPORT_NOPACE: `run N` should advance N frames as fast as the host can, not in N/60 s.
+    # Headless is PACED like a windowed run now (they are one program), so "fast" is ASKED for.
+    env = dict(os.environ, PSXPORT_NOWINDOW="1", PSXPORT_NOAUDIO="1", PSXPORT_NOPACE="1")
     if which == "native":
         env["PSXPORT_REPL"] = "1"
         argv = [os.path.join(ROOT, "scratch/bin/tomba2_port"),

@@ -51,7 +51,10 @@ leg() {                            # leg <area> <suffix> [env...]
   local a=$1 suffix=$2; shift 2
   printf 'newgame\nrun %s\nwarp %s\nrun %s\nstage\nshot %s\nquit\n' \
     "$SETTLE" "$a" "$DWELL" "$out/${tag}${a}_${suffix}.png" \
-  | timeout "$TIMEOUT" env "$@" PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 \
+# PSXPORT_NOPACE=1 — as fast as the host can. Headless is PACED like a windowed run now
+# (they are one program; the pacer used to early-return when there was no window), so a
+# tool that wants frames rather than real time has to ask for the unpaced run explicitly.
+  | timeout "$TIMEOUT" env "$@" PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 PSXPORT_NOPACE=1 \
       PSXPORT_PAD_REPLAY="$REPLAY" "$BIN" > "$out/${tag}${a}.${suffix}.log" 2>&1
   echo $?
 }

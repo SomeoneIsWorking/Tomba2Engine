@@ -16,6 +16,7 @@
 #include "fx_motes.h"        // class MoteStreaks — the area-8 streak shadow
 #include "guest_rng_mirror.h" // class GuestRngMirror — read-only stand-in for the guest PRNG
 #include "effect_lerp.h"      // class EffectLerp — the effect-node actor-transform interpolation tier           // class Lighting — per-area light registry (sun / lava+torch)
+#include "mesh_quads.h"       // struct MeshOtBias — the mesh writer's per-caller ordering-bias argument
 #include <unordered_set>
 #include <vector>
 class Core;
@@ -390,6 +391,18 @@ public:
   void shockwaveRingRender(uint32_t node);
   void tetherLineRender(uint32_t node);
 
+  // BEAM / SEE-SAW ribbon (game/render/fx_beam.cpp) — the native producer for guest FUN_8003B704,
+  // one of the three submitQuad caller classes the 2026-08-04 tap retirement left picture-less
+  // (docs/unported-render-inventory.md R2). A textured ribbon of half-width 0x14 stretched from the
+  // scene's tracked anchor *(0x800E7F5C) to the node's own world position, split at the midpoint
+  // when the node's kind field asks for it. The emitter loads the PURE CAMERA into the GTE control
+  // registers before projecting, so its corners are world-space and this producer needs nothing but
+  // the node's own angles/position and the native camera — no register read-back, no tap.
+  // beamNodeReached answers "does FUN_8003EEC0's own jump table route this node to the emitter",
+  // read live from guest memory so the dispatch cannot drift from the game's routing.
+  bool beamNodeReached(uint32_t node) const;
+  void beamQuadRender(uint32_t node);
+
   // impactRingRender (game/render/fx_ring.cpp): native producer for the IMPACT ANNULUS — the type-0x20
   // node whose render fn is 0x8002ECD8. It resolves the ring's screen centre + pixel scale (world
   // anchor through the native camera, or the fixed HUD position) and animates the inner/outer radii
@@ -414,7 +427,20 @@ public:
   // quad-record format (FUN_80027768's 36-byte records). Projects every vertex through the ACTIVE object
   // xform (projSetActive first), applies the caller's U scroll and the DPCT/DPCS depth cue toward
   // farColour by ir0, and draws each record as a native world quad. Returns the number drawn.
-  int meshQuadRecordsEmit(uint32_t mesh, int uBias, const int32_t farColour[3], int32_t ir0);
+  // `ot` carries the emitting controller's sort-bias argument when the producer has RE'd it; see
+  // MeshOtBias in mesh_quads.h for why that is opt-in and what the default preserves. `screenBbox`
+  // (x0,y0,x1,y1) is UNIONED with what this call actually emitted, so a producer can report the box
+  // it claims to have drawn into and an A/B pixel diff can be checked against it — the caller seeds
+  // it inverted and reads it back.
+  int meshQuadRecordsEmit(uint32_t mesh, int uBias, const int32_t farColour[3], int32_t ir0,
+                          const MeshOtBias& ot = MeshOtBias{}, float* screenBbox = nullptr);
+
+  // radialPlumeRender (game/render/fx_plume.cpp): native producer for the FOUR-COPY RADIAL PLUME —
+  // the type-0x20 node whose custom render fn is FUN_8002BC9C, the most resident of the effect-mesh
+  // controllers the 2026-08-04 tap retirement left with no producer at all (docs/unported-render-
+  // inventory.md row R1). Draws the animation script's current mesh four times, a quarter turn apart
+  // about the node's own Y axis, from the node's own angles/position — no GTE register is read.
+  void radialPlumeRender(uint32_t node);
 
   // dustEffectRender (game/render/fx_dust.cpp): native producer for Tomba's movement DUST PUFF
   // (kanban #39) — the type-0x20 node whose custom render fn is FUN_80029F6C. Draws the additive

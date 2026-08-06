@@ -33,7 +33,10 @@ def write_cmp_ini():
 
 
 def run_leg(prelude, out_ppm, render_psx):
+    # PSXPORT_NOPACE: a picture comparison, not a play session — pacing changes when frames happen,
+    # never what is in them. Headless is PACED like a windowed run now, so "fast" is ASKED for.
     env = dict(os.environ, PSXPORT_SETTINGS=CMP_INI, PSXPORT_REPL="1", PSXPORT_VK_HEADLESS="1",
+                           PSXPORT_NOPACE="1",
                PSXPORT_NOAUDIO="1", PSXPORT_NO_FMV="1")
     if render_psx:
         env["PSXPORT_RENDER_PSX"] = "1"

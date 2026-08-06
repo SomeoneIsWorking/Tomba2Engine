@@ -10,7 +10,10 @@ cd "$(dirname "$0")/.."
 D="python3 external/psxport/tools/dbgclient.py --port $PORT"
 LOG=scratch/logs/ab_$TAG.log
 rm -f "$LOG"
-setsid nohup env PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 PSXPORT_DEBUG_SERVER=$PORT \
+# PSXPORT_NOPACE=1 — as fast as the host can. Headless is PACED like a windowed run now
+# (they are one program; the pacer used to early-return when there was no window), so a
+# tool that wants frames rather than real time has to ask for the unpaced run explicitly.
+setsid nohup env PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 PSXPORT_NOPACE=1 PSXPORT_DEBUG_SERVER=$PORT \
   PSXPORT_AUTO_SKIP=1 "$BIN" scratch/bin/tomba2/MAIN.EXE > "$LOG" 2>&1 < /dev/null &
 PID=$!
 echo "$TAG pid=$PID"

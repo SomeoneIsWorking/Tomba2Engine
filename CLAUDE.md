@@ -247,15 +247,23 @@ prim fingerprint matching — is transitional debt and must be REMOVED, not exte
   Delete dead mechanisms outright (no tombstones); do not leave them "in case".
 - **DIAGNOSTICS ARE EXEMPT and stay.** `OtAttr`, `PSXPORT_PRIMAT`, `debug objid`/`otattr` read guest
   state to ANSWER QUESTIONS; they never produce the picture. The ban is on tagging the shipping path.
-- **A tap is a SCAFFOLD, not the destination (USER, 2026-07-23: "I don't want stamps, taps or
-  whatever, just do it like how it is supposed to be done, via porting").** Running a gen body and
-  re-deriving quads host-side from the scratchpad/register contract it publishes proves the RE and gets
-  a layer on screen — but the substrate is still doing the projection, so the tap is a transitional
-  render device, NOT a finished port. The finished port REIMPLEMENTS the emitter natively: it reads the
-  effect/object's own world state, projects with the native camera, and runs NO `gen_func_*` body for
-  the picture. Retire each tap into a real producer the same way stamping was retired. The gate that
-  forces this: a tap CANNOT lerp (re-running its gen body under a lerped camera would write guest RAM),
-  so any effect that must interpolate at 60fps has to be a real port by construction — see LERP below.
+- **THE PICTURE COMES FROM GAME STATE, NEVER FROM WHAT THE GTE PRODUCED** (USER, 2026-07-23 →
+  2026-08-06; the binding statement is `coord/PROTOCOL.md`, read it). Two checkable rules, and the
+  word "tap" is RETIRED because it needed adjudication every time:
+  (1) **the shipping picture path runs no `gen_func_*` body.** Reads are fine — a producer reads the
+  node's own fields, and DIAGNOSTICS ARE EXEMPT because they answer questions rather than produce the
+  picture. The gate that enforces it: a producer running a gen body CANNOT lerp, since re-running it
+  under a lerped camera would write guest RAM — so any effect that must move at 60fps is a real port
+  by construction.
+  (2) **resolve from what SUBMITS to the GTE, never from what the GTE produced.** Find the
+  SetRotMatrix/SetTransMatrix/RTPS site and take its INPUTS — the game's own pre-quantisation values.
+  Never `gte_read_ctrl()`/OT/composed-GP0 inverted to recover a transform: that is s16-quantised, and
+  factoring the camera back out leaves a residue that is A FUNCTION OF THE CAMERA (measured: 0.13 px
+  still, 1.53 px panning, 12/12 sign alternations — a "vibrating" layer nothing in the game moves).
+  **Dusklight lerps recorded matrices and we may not** — theirs are FLOAT values from a decomp, ours
+  would be s16 GTE output. Same technique, different source. Resolve from the submitter and we are in
+  their position. (PSX having no Z-buffer is a SEPARATE fact — `OTZ` is a bucket index, not a
+  distance — and it argues for native per-vertex depth, not against interpolation.)
 - **LERP IS NATIVE TOO (USER, 2026-07-22).** fps60 interpolation is covered by this rule, with no
   exemption for being hard. Per-prim `matchAndLerp` fingerprinting is the same banned pattern —
   recovering identity by matching packets after the fact. Interpolate at the ACTOR-TRANSFORM tier

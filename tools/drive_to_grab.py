@@ -91,7 +91,10 @@ def main():
 
     env = dict(os.environ)
     env.update({
+        # PSXPORT_NOPACE: drive to the grab point as fast as the host can. Headless is PACED like a
+        # windowed run now (they are one program), so "fast" has to be ASKED for.
         "PSXPORT_NOWINDOW": "1", "PSXPORT_NOAUDIO": "1", "PSXPORT_NO_FMV": "1",
+        "PSXPORT_NOPACE": "1",
         "PSXPORT_NATIVE_FRAMES": "100000", "PSXPORT_DEBUG_SERVER": str(a.port),
         "PSXPORT_PAD_REPLAY": a.replay,
     })

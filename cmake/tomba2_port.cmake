@@ -251,9 +251,11 @@ set(GAME_SRC
   game/render/fx_motes.cpp
   game/render/guest_rng_mirror.cpp
   game/render/fx_vortex.cpp
+  game/render/fx_beam.cpp
   game/render/fx_line.cpp
   game/render/fx_ring.cpp
   game/render/fx_dust.cpp
+  game/render/fx_plume.cpp
   game/render/mesh_quads.cpp
   game/render/effect_lerp.cpp
   game/render/field_hud.cpp

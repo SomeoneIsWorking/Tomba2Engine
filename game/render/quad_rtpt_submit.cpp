@@ -208,11 +208,17 @@ void QuadRtptSubmit::submitQuad(Core* c) {
   // read back out of the GTE CONTROL REGISTERS (gte_read_ctrl(0..4)/(5+i)) and un-composed against the
   // scene camera. That is a TAP — the PSX geometry engine did the projection and the port recovered it —
   // and it is banned outright (USER 2026-08-04: "never do this please NEVER, just leaving the effect as
-  // is is better than this"). Its classes (the a00-overlay flame/rope emitter around 0x801341xx, the
-  // case-188 particles, the B704 beams) therefore have NO native producer and NO pc_render picture:
-  // an honestly missing layer, tracked as portmap debt `render-producer-submitquad-classes`.
-  // Rebuilding one means porting ITS emitter and drawing from that emitter's own world state.
-  // The guest packet-pool copy + OT link above is untouched — psx_render still draws these.
+  // is is better than this"). Rebuilding a class means porting ITS emitter and drawing from that
+  // emitter's own world state. The guest packet-pool copy + OT link above is untouched — psx_render
+  // still draws all of them. Class by class:
+  //   * the B704 BEAMS — DONE 2026-08-06: Render::beamQuadRender (game/render/fx_beam.cpp), portmap
+  //     `render-producer-beam-b704`. FUN_8003B704 loads the PURE CAMERA (scratchpad 0x1F8000F8) into
+  //     CR0-7 itself right before projecting, so its corners are world space and the producer needs
+  //     nothing but the node's own angles/position.
+  //   * the a00-overlay flame/rope emitter around 0x801341xx, and the case-188 particles — STILL no
+  //     native producer and no pc_render picture: honestly missing layers, tracked as portmap debt
+  //     `render-producer-submitquad-classes`. Their CR contract is each emitter's OWN question and
+  //     B704's answer does NOT transfer — case-188 loads CR0-7 from CASE188_SCR, not 0x1F8000F8.
   pop();                                       // ascend the real 16-byte frame
 }
 
