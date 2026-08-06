@@ -4925,6 +4925,39 @@ be used as the guest-write gate here; the 2 MB RAM + scratchpad A/B above was us
 
 ## Geometry the vanilla game does not show — the HEADS[0] flush-all (kanban #77)
 
+> **USER-REFUTED 2026-08-06 — the "EQUAL branch" result below is WRONG, and the reason is the
+> assumption that investigation itself flagged as load-bearing and unchecked.**
+>
+> The RE concluded: `PSXPORT_ORACLE=1` draws the same green mass at T1, therefore the blocker is not
+> geometry this port invented, therefore node selection is not the cause.
+>
+> **THE USER RAN THE ORACLE AT THE ACTUAL SPOT AND IT SHOWS NO MASS — correctly culled.**
+> Their oracle HUD reads `pos X 13014 Y -2860 Z 7237, stage GAME`, against the originally reported
+> `13029 / -2872 / 7161`. Same viewpoint (deltas 15 / 12 / 76). So at that camera:
+>
+>     ORACLE (the substrate reference)  ->  NO mass. The guest CULLS it.
+>     pc_render                         ->  mass blocks the camera.
+>
+> **There IS a cull, and this port does not reproduce it.**
+>
+> **WHY OUR ORACLE CAPTURE DISAGREED — the method defect, not a measurement error.** The HUD triple
+> the user reads is the **CAMERA** position (`0x1F8000D2/D6/DA`, overlay_glue.cpp:29). Our repro
+> `tp X Y Z` teleports **TOMBA**, the player (`Engine::devTeleportApply` -> master position
+> `0x800E7EAC/B0/B4`). Putting the PLAYER where the CAMERA was yields a different viewpoint, so every
+> oracle-vs-pc comparison in this section was taken from a place the user never stood. The RE flagged
+> this itself and shipped anyway; the user checked it in one screenshot.
+>
+> **WHAT SURVIVES:** the dispatch RE itself (five tables dumped live, queue B's consumer =
+> `FUN_8003BCF4`, the accumulator-vs-snapshot correction, the ovhit blindness of a push-site census
+> on the GATE leg). Those are facts about the guest and are unaffected by viewpoint. What does NOT
+> survive is the conclusion drawn from them.
+>
+> **THE REPRO MUST DRIVE THE CAMERA, NOT THE PLAYER.** Reaching a camera triple means either moving
+> the player until the camera readout matches, or setting the camera directly — and whichever is
+> used, the capture must PRINT THE CAMERA READBACK (`r 1f8000d2 12`) next to the target so a
+> viewpoint mismatch can never again masquerade as a rendering result.
+
+
 > **RESOLVED 2026-08-06 — THE HEADS[0] FLUSH-ALL IS NOT THE PRODUCER OF EITHER BLOCKER.**
 > This supersedes the CORRECTION block below (which supersedes the section under it). Both are kept
 > because each names a method that failed, and the failures are the reusable part.
