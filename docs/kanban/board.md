@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (30)
+## TODO (31)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
@@ -36,6 +36,7 @@
 - **#72 Stars on stunned enemies no longer render**  `render`
 - **#73 Score-pickup point popups: anchoring to Tomba is wrong in widescreen**  `render,widescreen`
 - **#78 psx_render draws NO world geometry — the pc-vs-psx reference comparison is a DEAD instrument**  `render,tooling,verification`
+- **#80 Widescreen margin re-include is DEAD CODE — Cull::objectCull has no caller**  `bug,render,tooling`
 
 ## DOING (6)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`

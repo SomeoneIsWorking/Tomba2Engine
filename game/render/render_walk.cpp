@@ -716,9 +716,94 @@ void Render::ringNodeCensus() {
                 rings ? found.view() : std::string_view{"(no ring node live this frame)"});
 }
 
+// ---- the guest's own render-submission set for HEADS[0] (kanban #77) -----------------------------
+// MEASURED 2026-08-06, and this is the whole point of the card. The guest has NO RENDER WALK over
+// HEADS[0] (0x800FB168). The only guest functions that touch that head are the list-MANAGEMENT family
+// gen_func_{80079C3C,8007A2C8,8007A624,8007A904,8007ADDC,8007B04C} — spawn/unlink/behaviour-walk — and
+// not one of them dispatches a renderer. The guest's three RENDER walks are:
+//   gen_func_8003C048  over HEADS[1] 0x800F2624, per-type table 0x80014DB8 (33 entries)
+//   the objListWalk4 family over HEADS[2] 0x800F2738, per-type table 0x80015000 (33 entries)
+//   gen_func_8003BB50  over QUEUE B (the cull's class-4 render list), per-type table 0x80014A70
+// So a HEADS[0] node reaches vanilla's picture ONLY by being pushed onto one of the cull's three
+// render queues, and the push is CLASS-KEYED: FUN_8007712C's tail and FUN_8007703C push class 4 to
+// queue B, classes 2/9 to queue A, class 5 to queue C, and "other -> no-op". A HEADS[0] node of any
+// other class is marked visible (node+1 = 1) and then drawn by NOBODY.
+//
+// This walk flushes every visible HEADS[0] node with render commands regardless — the file's own
+// "HEADS[0]: table not yet RE'd — keep the flush-all behavior (existing)". That is the standing gap,
+// and kanban #77's T1 blocker (area 13, the green mass between camera and player) IS a HEADS[0] node:
+// suppressing this arm removes that blob and nothing else in that scene (A/B 2026-08-06,
+// scratch/shots/blockcull-ab/{before,after}_a13.png, 2787/76800 px).
+//
+// TWO THINGS THAT LOOK LIKE THE FIX AND ARE NOT — both MEASURED, do not re-derive them:
+//  1. "Gate HEADS[0] on the cull's render-queue membership." The queues (0x1F80013C/148/154 with
+//     counters 0x1F800144/150/15C) are ALREADY DRAINED AND RESET by the time this display-pass walk
+//     runs: measured live=45 nodes in area 13 with inGuestQueue=0 for ALL of them, 42 of which are
+//     class 4 — the very class the cull pushes to queue B. So the membership read is sampled at the
+//     wrong point in the frame and can only ever answer "no". Gating on it deletes the whole arm.
+//  2. "Gate HEADS[0] on the class byte (+0xC), since FUN_8007703C queues only classes 4/2/9/5."
+//     In the actual repro scene EVERY live HEADS[0] node is already class 2 or 4 (45/45 in a13,
+//     27/27 in a14), so that filter removes NOTHING there. It is not the mechanism.
+//  And it is not the whole card either: kanban #77's T2 blocker (area 14, the wall of water) is NOT
+//  a HEADS[0] node — suppressing this arm leaves it pixel-identical (the only a14 delta was 459 px
+//  of the PLAYER vanishing, which is itself evidence the arm carries legitimate content).
+// The real fix needs the guest's own submission rule for these nodes — i.e. RE'ing which walk
+// consumes queue B (gen_func_8003BB50, per-type table 0x80014A70) and reproducing THAT, so the arm
+// draws the set the guest draws instead of everything.
+
+// `heads0` instrument. Per-frame census of the HEADS[0] arm, ALWAYS carrying its denominator. The
+// three silences are kept apart on purpose: no line at all = fieldObjectsRender never ran; `live=0` =
+// the list was empty, so nothing was measured; a `live=N` line with `queuedNow=0` does NOT mean the
+// nodes are unsubmitted — it means the queues read empty AT THIS SAMPLE POINT, which is trap 1 above.
+// The queue counters are printed raw for exactly that reason: a future reader can see they are zero
+// rather than infer a verdict from a derived boolean.
+void Render::heads0Census(uint32_t node) { Core* c = mCore;
+  mH0.live++;
+  mH0.byClass[c->mem_r8(node + 0xC) & 0xF]++;
+  if (nodeInCullRenderQueue(c, node)) mH0.queuedNow++;
+}
+
+// Queue layout (RE'd, same constants Cull::performBaseCull writes): the pointer grows DOWNWARD, so a
+// queue of `cnt` entries occupies ptr[0 .. cnt-1]. DIAGNOSTIC USE ONLY — see trap 1 above.
+bool Render::nodeInCullRenderQueue(Core* c, uint32_t node) {
+  static const uint32_t QPTR[3] = { 0x1F80013Cu, 0x1F800148u, 0x1F800154u };
+  static const uint32_t QCNT[3] = { 0x1F800144u, 0x1F800150u, 0x1F80015Cu };
+  static const int      QCAP[3] = { 24, 40, 28 };
+  for (int q = 0; q < 3; q++) {
+    int cnt = (int)c->mem_r16s(QCNT[q]);
+    if (cnt > QCAP[q]) cnt = QCAP[q];                  // a counter past its cap means the cull capped
+    const uint32_t p = c->mem_r32(QPTR[q]);
+    for (int i = 0; i < cnt; i++)
+      if (c->mem_r32(p + (uint32_t)i * 4u) == node) return true;
+  }
+  return false;
+}
+
+void Render::heads0Flush(int frame) { Core* c = mCore;
+  if (!mH0.live) {
+    lucent::debug("heads0", "f{} HEADS[0] had NO live render nodes this frame — nothing was measured, "
+                            "this is not evidence the arm is clean", frame);
+    return;
+  }
+  lucent::Line cls;
+  for (int i = 0; i < 16; i++) if (mH0.byClass[i]) cls.add("cls{}={} ", i, mH0.byClass[i]);
+  lucent::debug("heads0", "f{} HEADS[0] flushed={} classes[{}] queueCounters(A,B,C)=({},{},{}) "
+                          "matchedAQueueNow={} (0 here means the queues are already reset at this "
+                          "sample point, NOT that the nodes are unsubmitted)",
+                frame, mH0.live, cls.view(),
+                (int)c->mem_r16s(0x1F800144u), (int)c->mem_r16s(0x1F800150u), (int)c->mem_r16s(0x1F80015Cu),
+                mH0.queuedNow);
+}
+
 void Render::fieldObjectsRender() {
   Core* c = mCore;
   static const uint32_t HEADS[3] = { 0x800FB168u, 0x800F2624u, 0x800F2738u };
+  // `heads0` frame boundary — same frame counter Render::nativeObjDrawn reads, no local extern.
+  if (const int f = c->game->gpu.s_frame; f != mH0.frame) {
+    if (mH0.frame >= 0) heads0Flush(mH0.frame);
+    mH0 = H0Census{};
+    mH0.frame = f;
+  }
   ringNodeCensus();
   uint32_t saved = c->r[4];
   // Denominator for the `beamfx` channel: a run where the beam emitter draws nothing must be able to
@@ -916,6 +1001,11 @@ void Render::fieldObjectsRender() {
       bool mesh = true, pre = false;
       if (h == 1) { mesh = (type == 0 || type == 15); pre = (type == 1 || type == 4); }
       else if (h == 2) { mesh = (type == 0 || type == 1 || type == 15); }
+      else {
+        // HEADS[0] — still the flush-all behaviour. DO NOT gate this on queue membership: tried and
+        // MEASURED 2026-08-06 (kanban #77), it is wrong twice over. See heads0Flush's banner.
+        heads0Census(n);
+      }
       if (!mesh && !pre) continue;
       c->rsub.stats.snObjs++; c->rsub.stats.snCmds += c->mem_r8(n + 8);
       c->r[4] = n;

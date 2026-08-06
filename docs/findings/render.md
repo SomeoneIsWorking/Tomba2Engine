@@ -4853,3 +4853,97 @@ be used as the guest-write gate here; the 2 MB RAM + scratchpad A/B above was us
             no longer filled with the world and the OT walk has nothing to draw. NOT verified — the
             check is whether the OT is empty of world prims on the psx leg, which nobody has run.
   refs    : kanban #77 (the user-reported blocked-camera bug this blocked), #78, #45.
+
+## Geometry the vanilla game does not show — the HEADS[0] flush-all (kanban #77)
+
+> **CORRECTION 2026-08-06 — THE MECHANISM BELOW IS REFUTED. Read this first.**
+> The stated cause ("the port draws a SUPERSET because the guest never render-walks HEADS[0]") does
+> not hold, refuted from the substrate source by adversarial verification:
+>
+> 1. **visible <=> queued, in the same call.** `node+1` is set in exactly ONE place —
+>    `gen_func_8007703C`'s prologue (`generated/shard_0.c:11201`, `mem_w8(r6+1,1)`) — which is the
+>    SAME call that pushes the node onto its class queue; `gen_func_8007712C` clears it in its own
+>    prologue. The port's byte-exact native says the same (`cull.cpp:151-169`, `:220`). The HEADS[0]
+>    arm gates on `mem_r8(n+1)`, and the census measured 45/45 (a13) and 27/27 (a14) nodes as class
+>    2 or 4 — so **the arm draws exactly the queued set, not a superset.** The observation that "the
+>    class filter removes nothing" is the fact that KILLS the hypothesis, not evidence for it.
+> 2. **Queue attribution was wrong.** `gen_func_8003BB50` reads ptr `0x1F80013C` / count
+>    `0x1F800144` = **QUEUE A** (classes 2 and 9), not queue B. Queue B (`0x1F800148/0x1F800150`)
+>    holds 42 of the 45 a13 nodes and has **NO identified consumer**. So "RE 8003BB50" as the real
+>    fix targets a walk that can see only 3 of those 45 nodes.
+> 3. **The categorical negative under-enumerated.** TEN guest functions form `0x800FB168`
+>    (`lui 0x8010` / `+(-20120)`): 80079C3C, 80079DDC, 80079F90, 8007A12C, 8007A2C8, 8007A624,
+>    8007A904, 8007ADDC, 8007B04C, 800798F8. Six were named. The conclusion happens to survive (the
+>    four omitted are also list-management), but the method missed 40% of the sites and produced
+>    defect (2).
+>
+> **WHAT IS ACTUALLY LEFT is this file's own pre-existing comment: HEADS[0]'s per-TYPE table is not
+> RE'd.** `0x80014A70` has 144 entries with genuine no-op arms (`0x8003BCD0`) — exactly like
+> `0x80014DB8`'s `8003C2AC` arms. So the candidate mechanism is **TYPE filtering**, and the census
+> below measured CLASS only. A node can be queued and still dispatch to a no-op.
+>
+> **THE MEASUREMENT THAT SETTLES IT** (class censuses and display-pass queue reads provably cannot):
+> instrument the cull at **PUSH TIME**, inside `Cull::enqueueByClass` (`cull.cpp:219`) — log every
+> `(node, class@+0xC, type@+0xB, queue)` for one frame in area 13 — and in parallel dump the per-type
+> tables for BOTH consumers: `0x80014A70` (queue A) and whatever consumes queue B, **which must first
+> be identified**. Compare, node for node, the set the HEADS[0] arm draws against the set those tables
+> would dispatch to a NON-no-op arm. Equal => the flush-all draws nothing extra and the cause is
+> elsewhere. Different => the diff names the offending nodes BY TYPE, which is the only form the real
+> fix can take.
+>
+> ALSO RULED OUT, with a control: `CULL_FAR_MULT` (`cull.cpp:77`). `PSXPORT_CULL_FAR_MULT=1` gives a
+> 0-px-identical frame, and the config audit reports the knob UNKNOWN (never read) on this exec leg —
+> `cullFarMultFaithful()=1` is already in force under `PSXPORT_GATE=1`.
+>
+> What DOES survive from below: the LOCATION (T1 -> area 13, T2 -> area 14, both independently
+> reconfirmed pixel-identical), the A/B showing the a13 blob IS drawn by the HEADS[0] arm, the proof
+> that suppressing that arm does NOT fix T2 (a14's water wall is untouched — a separate producer),
+> and the `heads0` census instrument.
+
+
+**Symptom (USER 2026-08-06):** two spots where geometry blocks the camera that vanilla culls. Located
+by a 44-run sweep: T1 (13029,-2872,7161) = **area 13**, a green mass between camera and player;
+T2 (20161,-1923,8268) = **area 14**, a wall of water. Captures in `scratch/shots/blockcull-sweep/`.
+
+**Cause (named, not yet fixed).** The guest has **no render walk over HEADS[0] (0x800FB168)**. Its
+three render walks are `gen_func_8003C048` over HEADS[1] 0x800F2624 (per-type table 0x80014DB8),
+the objListWalk4 family over HEADS[2] 0x800F2738 (table 0x80015000), and `gen_func_8003BB50` over the
+cull's **queue B** (table 0x80014A70). Everything that touches 0x800FB168 in the guest is the
+list-MANAGEMENT family (`gen_func_{80079C3C,8007A2C8,8007A624,8007A904,8007ADDC,8007B04C}`) — none of
+them dispatches a renderer. A HEADS[0] node therefore reaches vanilla's picture only by being pushed
+onto one of the cull's class-keyed render queues. `Render::fieldObjectsRender` instead flushes the
+whole list (its own comment: *"HEADS[0]: table not yet RE'd — keep the flush-all behavior"*).
+
+**Evidence the T1 blob is a HEADS[0] node.** Break-first A/B, negative control = the pre-change
+binary: suppressing the arm removes the green mass and nothing else in area 13 (2787/76800 px,
+`scratch/shots/blockcull-ab/{before,after}_a13.png`).
+
+### DEAD ENDS — measured, do not re-derive
+
+- **"pc_render includes on `node+1` while the guest uses the queues."** REFUTED at the source:
+  `gen_func_8003C048` itself gates on `mem_r8(node+1) != 0`, exactly like `render_walk.cpp`. `node+1`
+  is the guest's gate too. (This was the strongest stated lead going in.)
+- **"`Cull::objectCull`'s margin re-include lowers the guest's near cull (0x200 → 0x80)."** REFUTED:
+  `Cull::objectCull` has no caller and no `overrides::install`, so the whole margin re-include is dead
+  code — kanban #80. The near-cull RE still stands and is worth keeping: `gen_func_8007712C` rejects
+  `dist < 512` in every state branch (768 in state 2, 1024 in state 4) BEFORE the cone test, and that
+  near test is the game's own view-blocker removal. Any future margin must not undo it.
+- **"Gate HEADS[0] on cull render-queue membership."** Cannot work: the queues (0x1F80013C/148/154,
+  counters 0x1F800144/150/15C) are already drained and reset by display-pass time — measured
+  `live=45`, `queueCounters(A,B,C)=(0,0,0)`, and 42 of the 45 are class 4, the class that goes to
+  queue B. Gating on it deletes the entire arm.
+- **"Gate HEADS[0] on the class byte (+0xC)."** Removes nothing: 45/45 in area 13 and 27/27 in area 14
+  are already class 2 or 4.
+- **Suppressing the arm is not the fix even for T1**: area 14's water wall is not a HEADS[0] node (the
+  same suppression leaves it pixel-identical; the only a14 delta was 459 px of the *player* vanishing).
+
+**Real fix:** RE `gen_func_8003BB50` (queue-B consumer, per-type table 0x80014A70, 144 entries) and
+reproduce its submission set for the HEADS[0] arm. T2's water wall is a separate producer
+(scene-table geometry — PRIMAT reports `dbgnode=FFFF0002` over that region) and needs its own trace.
+
+**Instrument:** `PSXPORT_DEBUG=heads0` (`Render::heads0Census`/`heads0Flush`, render_walk.cpp).
+
+**Coordinate-space finding:** both reported triples hold exactly (readback at 0x800E7EAC unchanged
+after 300 frames) in EIGHT areas each — {7,10,11,12,13,14,15,20} — and hold in X/Z with Y drifting in
+{2,4}. Elsewhere `tp` relocates. Areas 9/18/19 are teleport-REJECTION artifacts: both targets land on
+a pixel-identical frame there, so those captures are not repros of anything.

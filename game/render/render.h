@@ -504,6 +504,18 @@ public:
   // state that decides whether the stars live or self-retire on their first tick.
   void ringNodeCensus();
 
+  // ---- HEADS[0] flush-all census (kanban #77) --------------------------------------------------
+  // The guest has NO render walk over HEADS[0] (0x800FB168) — its nodes reach vanilla's picture only
+  // through the cull's class-keyed render queues, consumed by gen_func_8003BB50. This walk flushes the
+  // whole list instead, which is how geometry vanilla never shows gets on screen. The census measures
+  // the arm; it does NOT gate it. Read the banner in render_walk.cpp before changing that — it records
+  // the two gates that were tried and measured wrong.
+  bool nodeInCullRenderQueue(Core* c, uint32_t node);   // DIAGNOSTIC ONLY (queues are reset by now)
+  struct H0Census { int frame = -1; long live = 0, queuedNow = 0; long byClass[16] = {0}; };
+  H0Census mH0;
+  void heads0Census(uint32_t node);
+  void heads0Flush(int frame);
+
   // ---- BILLBOARD display-pass producer (#67 RE work — REDIRECT doctrine, USER: both frame kinds
   // derive from game state) ---------------------------------------------------------------------
   // The billboardEmit particle system (perobj_billboard.cpp — AP gems / flames / apples / splash /
