@@ -78,6 +78,16 @@ void Render::optionsBackdrop() {
     c->game->activeRq().push2dQuad(RQ_OVERLAY, /*order_2d_fg=*/1, xs, ys, z, z, k, k, k,
                                    0, 0, /*mode=*/3, /*raw=*/0, 0, 0, 0, 0, 0, 0, 0, 0, 1023, 511); }
   {
+    // Producer DB, native leg. Keyed on the guest options backdrop this block reproduces (codemap:
+    // 0x8007FC24 -> Render::optionsBackdrop, this function).
+    //
+    // THE SCOPE STARTS HERE, NOT AT THE TOP OF THE FUNCTION, AND THAT IS THE WHOLE POINT. The pillarbox
+    // fill above is a WIDESCREEN PC ENHANCEMENT with no guest counterpart; inside this scope it would add
+    // exactly one native prim against the guest's one, so the row would read 2-vs-1 in the very column
+    // the DB exists to compare — a fabricated discrepancy in a producer that is actually faithful. It
+    // stays outside and is counted as undeclared, which is the honest treatment until PC-only producers
+    // can carry their own key (see the ProducerScope native-key gap noted in producer_scope.h).
+    ProducerScope backdropScope(&c->rsub.producerScope, 0x8007FC24u, "optionsBackdrop");
     int xs[4] = { 0, 320, 0, 320 };
     int ys[4] = { 0, 0, 240, 240 };
     int uv[4] = { 0, 0, 0, 0 };
@@ -98,6 +108,11 @@ void Render::optionsBackdrop() {
 // the title picture but under the page text (RQ_HUD). Screen offset applied, matching the tapped glyphs.
 void Render::optionsSolidBox(int x, int y, int w, int h, uint32_t flags) {
   Core* c = mCore;
+  // Producer DB, native leg. Keyed on the guest tile emitter this reproduces (codemap: 0x8007FCC8 ->
+  // Render::optionsSolidBox, this function). NOTE codemap also reports 0x8007FCC8 install-claimed by
+  // game/ui/dialog_backdrop.cpp (Panel::pushDialogBackdrop) — two natives reimplementing ONE guest
+  // function, so they share this row by design; a split row would be the wrong answer, not a fix.
+  ProducerScope solidBoxScope(&c->rsub.producerScope, 0x8007FCC8u, "optionsSolidBox");
   const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
   const unsigned char blue = ((flags & 0x7Fu) == 0) ? 70 : 0;
   int xs[4] = { x + ox, x + w + ox, x + ox,     x + w + ox };

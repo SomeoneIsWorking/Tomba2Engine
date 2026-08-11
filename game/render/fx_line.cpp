@@ -32,6 +32,7 @@
 // producer. No gen body runs for the picture, no gte_op, no guest write. The screen-space expansion of
 // a segment into a quad lives HERE, in the producer, so the render queue stays quads-only.
 #include "core.h"
+#include "producer_scope.h"   // ProducerScope — graphics-producer DB, native leg
 #include "game.h"
 #include "render.h"
 #include "render_queue.h"
@@ -370,6 +371,12 @@ void Render::ropeChainRender(uint32_t node) {
 // an eight-segment chain toward the tracked object. Mode 3 is the fishing line.
 void Render::tetherLineRender(uint32_t node) {
   Core* c = mCore;
+  // Producer DB, native leg. Keyed on the guest emitter this reimplements (codemap --addr 0x80122974
+  // -> Render::tetherLineRender). Found by PSXPORT_DEBUG=unscoped, which names the CALL SITE of every prim that
+  // arrives with no producer declared — this one reached the queue through a SHARED emitter
+  // (emitRecordQuad / emitUiFt4 / emitUiSprites / worldLineDraw), so the scope belongs here at the
+  // producer, never on the emitter, which would shadow every one of its callers.
+  ProducerScope tetherLineRenderScope(&c->rsub.producerScope, 0x80122974u, "tetherLineRender");
   const WorldPt self{ (int16_t)c->mem_r16(node + kOwnPosX), (int16_t)c->mem_r16(node + kOwnPosX + 2),
                       (int16_t)c->mem_r16(node + kOwnPosX + 4) };
   const uint8_t mode = c->mem_r8(node + kTetherMode);

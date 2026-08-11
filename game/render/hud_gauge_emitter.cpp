@@ -40,7 +40,8 @@
 #include "game.h"
 #include "guest_abi.h"
 #include "hud_gauge_emitter.h"
-#include "render.h"          // Render::mode.psxRender() — gaugeTextRowTap's read-only overlay gate
+#include "render.h"   // Render::mode.psxRender() — gaugeTextRowTap's read-only overlay gate
+#include "producer_scope.h"   // ProducerScope — graphics-producer DB, native leg
 #include "render_queue.h"    // RenderQueue::push2dQuad + RQ_HUD — the tap's host half
 #include "cfg.h"             // cfg_logf gaugeq probe
 #include <cstdint>
@@ -314,6 +315,12 @@ void gaugeTextRowTap(Core* c) {
   gen_func_8004EB94(c);
   if (c->game->oracle || c->rsub.mode.psxRender()) return;   // guest OT walk owns the picture
   if (c->mem_r8(desc) == 0xFFu) return;                          // empty row (gen early-exit)
+
+  // Producer DB, native leg. Keyed on the guest row emitter this tap replaces the picture for
+  // (codemap: 0x8004EB94 -> this file, installed at the tap below). Opened AFTER both early returns so a
+  // frame the guest itself would not draw cannot mint an empty row, and not in emitFrame/emitItem —
+  // those draw nothing and a scope there would shadow this one.
+  ProducerScope gaugeScope(&c->rsub.producerScope, 0x8004EB94u, "gaugeTextRowTap");
 
   // Width per the measure leaf's rules (NOT the emit loop's — the guest centers on THIS number).
   int width = 0;

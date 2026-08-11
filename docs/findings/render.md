@@ -110,11 +110,15 @@ Full write-up and the staged plan: `external/psxport/docs/plans/graphics-produce
 - **refs:** `game/render/render_walk.cpp` (`backdropTexpagePublishTick`), `game/game_tomba2.cpp`
   (`Engine::drawOTag`), `docs/gfx-debug.md` ground truth #1, `tools/warpsweep.sh`, `docs/areas.md`.
 
-## Under PSXPORT_GATE=1 every native OVERRIDE runs its `gen` body — so every diagnostic inside one is SILENT (2026-08-06)
+## Under PSXPORT_GATE=1 every native OVERRIDE runs its `gen` body — a diagnostic inside one is SILENT, so "never runs" / "never called" / "0 calls" / "never dispatched" / "probe prints nothing" from an override body is UNMEASURED (2026-08-06, re-derived 2026-08-12)
 
-- **symptom:** a reachability census for FUN_8003B704 (the beam emitter), placed as a `lucent::debug`
-  inside `Render::objListWalk4`, read **0 hits across all 17 replays x 900 frames**. The layer was in
-  fact live in 4 of them. The probe had never executed once.
+- **symptom:** a diagnostic placed inside a native override body prints NOTHING — 0 hits, 0 calls, no
+  output — and the obvious reading is "this function never runs / is never called / never dispatched /
+  never executes". It is instead an unmeasured probe. Two independent instances: a reachability census
+  for FUN_8003B704 (the beam emitter) in `Render::objListWalk4` read **0 hits across all 17 replays x
+  900 frames** while the layer was live in 4 of them; and (2026-08-12) a `lucent::debug` in
+  `Render::cmdListDispatch` logged **0 calls** over a 200-frame field replay while `ovhit` shows that
+  same address dispatched **1195** times.
 - **cause, and it is not specific to that probe:** `PSXPORT_GATE=1` sets `Game::psx_fallback = 1`
   (`external/psxport/runtime/recomp/native_boot.cpp:605`), and the ONE dispatch decision
   (`override_registry.cpp:74`) is
@@ -134,6 +138,21 @@ Full write-up and the staged plan: `external/psxport/docs/plans/graphics-produce
   a probe placed THERE fires normally (that is where `beamfx` lives).
 - **the cheap check before trusting a quiet channel:** run `PSXPORT_DEBUG=ovhit` and look up the
   address that owns the channel. `native=0` means the channel measured nothing.
+- **RE-DERIVED 2026-08-12, and the cost was a published wrong conclusion — so the failure was FINDING
+  this, not knowing it.** A `lucent::debug` added to `Render::cmdListDispatch` (override 0x8003CDD8)
+  logged 0 calls over a 200-frame field replay under `PSXPORT_GATE=1`, and I concluded "the guest
+  per-object dispatch chain does NOT EXECUTE on this leg" — committing that into
+  `external/psxport/docs/plans/graphics-producer-db.md` and two `game/render/` banners before catching it.
+  `ovhit` on the same leg shows 0x8003CDD8 `native=0 oracle=1195`, 0x8003F698 `oracle=9507`, 0x80146478
+  `oracle=6245`: the chain runs thousands of times. I never ran the one-line check above because I never
+  searched for this finding — `findings.py` was queried for the crash I was triaging, not for the
+  silence. **Search terms that must reach this entry:** native body logs nothing · 0 calls · never runs ·
+  never executes · never dispatched · probe silent · diagnostic silent · instrumented body no output ·
+  override native not called. Reach for `ovhit` BEFORE concluding anything from a quiet probe.
+- **the producer DB now carries this split per row**, so it cannot be missed from that direction:
+  `native_hits` / `oracle_hits` are emitted per producer and `tools/producers.py report --todo` prints
+  "never dispatched" vs "ran as substrate reference ({n} oracle hit(s))" instead of one ambiguous
+  "native never ran".
 - **refs:** override_registry.cpp:74, native_boot.cpp:605, game/render/fx_beam.cpp,
   game/render/render_walk.cpp (the `beamfx` summary), docs/unported-render-inventory.md S0.3.
 

@@ -4,6 +4,7 @@
 #include "core.h"
 #include "game.h"
 #include "cfg.h"
+#include "producer_scope.h"   // ProducerScope — graphics-producer DB, native leg
 #include <cstdio>
 #include <execinfo.h>
 #include <cstdlib>
@@ -223,6 +224,11 @@ void Render::fadeTileRender(uint32_t node) {
   if (!params) return;
   const int16_t level = (int16_t)c->mem_r16(params + 0u);
   if (level < 0) return;                       // guest early-out: negative level = no tile at all
+
+  // Producer DB, native leg. Keyed on the guest fade-tile emitter this reimplements (codemap:
+  // 0x800726D4 -> Render::fadeTileRender, this function). Opened after both guest early-outs, so the
+  // scope exists only on frames the guest would itself have emitted a tile.
+  ProducerScope fadeScope(&c->rsub.producerScope, 0x800726D4u, "fadeTileRender");
   const unsigned char v = (unsigned char)level;
   cfg_logf("fade", "fadeTile node=%08X level=%d %s", node, (int)level, level == 255 ? "opaque" : "semi");
 

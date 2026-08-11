@@ -104,11 +104,13 @@ void Render::perObjFlush() {
   // by FUN_8003CDD8: the dispatcher is a shared caller, and keying on it would shadow all eleven
   // per-mode emitters into one meaningless row (producer_scope.h's own warning).
   //
-  // THE KEY IS A COUNTERFACTUAL, and render.h's banner on resolvePerModeEmitter has the measurement:
-  // the guest dispatch chain does not execute on this leg at all (0 cmdListDispatch calls in a
-  // 200-frame field replay against ~846k world prims drawn here), so this names the emitter the guest
-  // WOULD route to, read from the same guest data perModeDispatch reads. `flag & 1` — which would also
-  // force the generic emitter — belongs to a function that never runs here and is passed as 0.
+  // The guest chain DOES execute on this leg — FUN_8003CDD8 is dispatched 1195 times in a 200-frame
+  // field replay (PSXPORT_DEBUG=ovhit) — so this key names the emitter the guest ACTUALLY used, read
+  // from the same MODE_* state the executing body reads. render.h's banner on resolvePerModeEmitter has
+  // the full measurement and the correction it replaced (an instrumented NATIVE body logs nothing on
+  // this leg because PSXPORT_GATE routes every override to its gen body, which first read as "the chain
+  // does not execute"). `flag & 1`, which would also force the generic emitter, is a per-call argument
+  // this pass does not receive and is passed as 0 — the one genuinely unobservable input here.
   //
   // NOTE the asymmetry this row EXPOSES rather than hides: the guest routes each cmd to one of eleven
   // per-mode emitters, while this pass draws every geomblk as generic GT3/GT4 (see the file banner —
@@ -549,6 +551,12 @@ void Render::emitMenuSprites(int anchorX, int anchorY, uint32_t templateIdx, uin
 // menuChrome — see render.h. The black backdrop + the 2 logo sprites (FUN_80106690), shared by every
 // front-end menu page. The logos are op-0x65 raw sprites (fixed layout, decoded packet constants).
 void Render::menuChrome() { Core* c = mCore;
+  // Producer DB, native leg. Keyed on the guest emitter this reimplements (codemap --addr 0x80106690
+  // -> Render::menuChrome). Found by PSXPORT_DEBUG=unscoped, which names the CALL SITE of every prim that
+  // arrives with no producer declared — this one reached the queue through a SHARED emitter
+  // (emitRecordQuad / emitUiFt4 / emitUiSprites / worldLineDraw), so the scope belongs here at the
+  // producer, never on the emitter, which would shadow every one of its callers.
+  ProducerScope menuChromeScope(&c->rsub.producerScope, 0x80106690u, "menuChrome");
   const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
   { int xs[4] = { 0, 320, 0, 320 }, ys[4] = { 0, 0, 240, 240 }, z[4] = { 0, 0, 0, 0 };
     unsigned char k[4] = { 0, 0, 0, 0 };

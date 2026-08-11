@@ -25,6 +25,7 @@
 // Read-only: reads guest RAM only, emits host-side RQ_HUD quads. Called from Render::renderField()
 // (the same field-frame scope FUN_8003F9A8 owns on the guest side).
 #include "core.h"
+#include "producer_scope.h"   // ProducerScope — graphics-producer DB, native leg
 #include "game.h"
 #include "cfg.h"
 #include "render_internal.h"   // render_queue.h / cur_render_node / render.h
@@ -191,6 +192,12 @@ void Render::emitUiSprites(int x, int y, uint32_t templPtr, uint32_t dataBase,
 // ---- FUN_80025744 — status row ------------------------------------------------------------------
 void Render::fieldHudStatusRow() {
   Core* c = mCore;
+  // Producer DB, native leg. Keyed on the guest emitter this reimplements (codemap --addr 0x80025744
+  // -> Render::fieldHudStatusRow). Found by PSXPORT_DEBUG=unscoped, which names the CALL SITE of every prim that
+  // arrives with no producer declared — this one reached the queue through a SHARED emitter
+  // (emitRecordQuad / emitUiFt4 / emitUiSprites / worldLineDraw), so the scope belongs here at the
+  // producer, never on the emitter, which would shadow every one of its callers.
+  ProducerScope fieldHudStatusRowScope(&c->rsub.producerScope, 0x80025744u, "fieldHudStatusRow");
   const uint32_t p = kHudState;
   const uint32_t base = c->mem_r32(p + 0x3Cu);
   // 1: equipped-item panel at (0x20, 200), semi, template ptr straight from the struct (+0x38).
@@ -244,6 +251,12 @@ void Render::fieldHudItemRing(int offsetMode, uint32_t /*bucketAttr*/) {
 // ---- FUN_80025B78 — equipped-weapon strip (the kanban #13 layer) --------------------------------
 void Render::fieldHudWeaponStrip() {
   Core* c = mCore;
+  // Producer DB, native leg. Keyed on the guest emitter this reimplements (codemap --addr 0x80025B78
+  // -> Render::fieldHudWeaponStrip). Found by PSXPORT_DEBUG=unscoped, which names the CALL SITE of every prim that
+  // arrives with no producer declared — this one reached the queue through a SHARED emitter
+  // (emitRecordQuad / emitUiFt4 / emitUiSprites / worldLineDraw), so the scope belongs here at the
+  // producer, never on the emitter, which would shadow every one of its callers.
+  ProducerScope fieldHudWeaponStripScope(&c->rsub.producerScope, 0x80025B78u, "fieldHudWeaponStrip");
   const uint32_t p = kHudState;
   const uint32_t base = c->mem_r32(p + 0x3Cu);
   const int oy = c->game->gpu.s_off_y;

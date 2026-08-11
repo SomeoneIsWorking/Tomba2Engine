@@ -108,16 +108,26 @@ public:
   // comment warns about: a shared CALLER shadowing every real emitter and collapsing the entire world
   // layer into one meaningless row.
   //
-  // THE KEY IS RESOLVED FROM DATA, AND IT IS A COUNTERFACTUAL — measured 2026-08-12, stated because it
-  // decides how the row may be read. The guest per-object dispatch chain (FUN_8003CCA4 -> FUN_8003CDD8
-  // -> FUN_8003F698) does NOT EXECUTE on the leg where the native producer census measures: a 200-frame
-  // field replay on the gate leg logged ZERO cmdListDispatch calls while perObjFlush drew ~846k world
-  // prims. So an earlier design that had cmdListDispatch RECORD the routing for perObjFlush to read was
-  // dead by construction — there is no recorder, and there is no runtime guest side for the world layer
-  // to be compared against either. The key therefore names the emitter the guest WOULD route this mode
-  // to, resolved from the same guest data perModeDispatch reads (MODE_FORCE, MODE_BYTE, MODE_TABLE).
-  // That is the correct ROW IDENTITY (it names the emitter family) and the census keeps it honest by
-  // reporting primsGuest separately — which stays 0 for these rows, because nothing guest-side ran.
+  // THE KEY IS RESOLVED FROM DATA, not written down — measured 2026-08-12, and the measurement was
+  // CORRECTED the same day, so read the whole note. The guest dispatch chain DOES execute on the leg
+  // where the census measures: `PSXPORT_DEBUG=ovhit` over a 200-frame field replay shows FUN_8003CDD8
+  // dispatched 1195 times, FUN_8003F698 9507 times, and the generic-overlay emitter FUN_80146478 6245
+  // times. What does NOT run is the NATIVE body of any override: PSXPORT_GATE=1 sets psx_fallback, and
+  // overrides::runEntry routes every registered address to its `gen` body on that leg (482 registry
+  // entries, ZERO with native hits, 268 with oracle hits). An instrumented native body therefore logs
+  // nothing while its guest function is executing thousands of times — which is exactly how the first
+  // reading of this ("the chain does not execute") came to be wrong.
+  //
+  // WHY THE RECORDER DESIGN STILL HAD TO GO: an earlier version had cmdListDispatch record the routing
+  // for perObjFlush to read. That record lived in the NATIVE body, which the gate leg bypasses, so it
+  // could never fire on the leg the census measures — dead for the routing reason, not because the guest
+  // was idle. Resolving from data has no such dependency and is simpler.
+  //
+  // SO THE KEY IS NOT A COUNTERFACTUAL ON THIS LEG: the resolution below reads the same MODE_FORCE /
+  // MODE_BYTE / MODE_TABLE state the executing gen body reads, so it names the emitter the guest
+  // ACTUALLY used. `primsGuest` stays 0 for these rows because the guest leg's own attribution is
+  // structurally blind for packet-pool stores (docs/findings/render.md), NOT because nothing ran —
+  // a guest-side comparison is possible in principle and is blocked by that, not by absence.
   //
   // ONE INPUT IS UNOBSERVABLE HERE: `flag & 1` also forces the generic emitter, and `flag` is a per-call
   // argument of FUN_8003CDD8 — a function that never runs on this leg, so the value cannot be sampled

@@ -35,11 +35,17 @@ WHAT IS MACHINE-OWNED AND WHAT IS YOURS. A row's frontmatter has two halves and 
 touches the first:
 
     observed:   first_seen, last_seen, runs, prims_guest_max, prims_native_max, frames_seen,
-                gte_calls_max, layers, sub_signatures, has_native, native_reached
+                gte_calls_max, layers, sub_signatures, has_native, native_reached, owned_query,
+                native_hits, oracle_hits
     curated:    name, re_status, re_evidence, producer_file, partial_because, compare_status, notes
 
 `has_native` / `native_reached` are DERIVED from the override table by the runtime, not curated — that
-is what stops this from rotting into a wish list. Only slow-moving observed fields are tracked at all
+is what stops this from rotting into a wish list. They mean "the GUEST ADDRESS is override-installed",
+NOT "a native draws this picture": a display-pass producer legitimately draws from game state while the
+guest function stays on the substrate, so `has_native: false` alongside a large `prims_native_max` is
+normal and correct. `owned_query: unavailable` is the THIRD state — the run could not ask (no registry
+injected) — and is deliberately distinct from a false, because until 2026-08-12 nothing emitted these
+fields at all and the report line below could print only 0/N however the run went. Only slow-moving observed fields are tracked at all
 (maxima and first/last, not per-run counters), so after a few sessions a play run's `git diff` is
 *new producers and nothing else*, which is what makes the diff readable as "here is what I found".
 
@@ -72,6 +78,7 @@ COMPARE_STATUS = ("never-compared", "pixel-diffed", "byte-exact", "diverges")
 OBSERVED_KEYS = (
     "key", "kind", "first_seen", "last_seen", "runs", "prims_guest_max", "prims_native_max",
     "frames_seen", "gte_calls_max", "layers", "sub_signatures", "has_native", "native_reached",
+    "owned_query", "native_hits", "oracle_hits",
 )
 
 
@@ -282,10 +289,21 @@ def _merge_observed(front: dict, rec: dict) -> None:
     mx("prims_native_max", rec.get("prims_native"))
     mx("frames_seen", rec.get("frames"))
     mx("gte_calls_max", rec.get("gte_calls"))
-    # DERIVED, never curated: the runtime reads these off the override table.
+    # DERIVED, never curated: the runtime reads these off the override table (overrides::query).
     for k in ("has_native", "native_reached"):
         if k in rec:
             front[k] = bool(rec[k])
+    # The hit counts behind those booleans, so a reader can tell "never dispatched" (oracle_hits 0)
+    # from "dispatched and ran as the substrate reference" (oracle_hits > 0). And `owned_query`, which
+    # records that a run could not ASK — kept distinct from a false, because conflating the two is how
+    # this whole field group came to be unfalsifiable.
+    for k in ("native_hits", "oracle_hits"):
+        if k in rec:
+            front[k] = int(rec[k])
+    if rec.get("owned_query"):
+        front["owned_query"] = str(rec["owned_query"])
+    elif "has_native" in rec:
+        front.pop("owned_query", None)   # a run that COULD ask supersedes an earlier one that could not
     for k in ("layers", "sub_signatures"):
         if rec.get(k):
             merged = list(dict.fromkeys(list(front.get(k) or []) + list(rec[k])))
@@ -304,6 +322,11 @@ def cmd_report(args) -> int:
 
     owned = [r for r in rows.values() if r.front.get("has_native")]
     reached = [r for r in owned if r.front.get("native_reached")]
+    # The third state, kept separate from "not installed" on purpose: a row whose runs never had a
+    # registry to ask. Counting these as false is what made this metric unfalsifiable in the first place.
+    unasked = [r for r in rows.values()
+               if r.front.get("owned_query") == "unavailable" and not r.front.get("has_native")]
+    drawing = [r for r in rows.values() if int(r.front.get("prims_native_max", 0) or 0) > 0]
     ported = [r for r in rows.values() if r.front.get("re_status") == "ported"]
     guest_prims = sum(int(r.front.get("prims_guest_max", 0) or 0) for r in rows.values())
     nat_prims = sum(int(r.front.get("prims_native_max", 0) or 0) for r in rows.values())
@@ -312,8 +335,16 @@ def cmd_report(args) -> int:
         return _todo(rows)
 
     print(f"PRODUCER DB — {len(rows)} rows in {DB_DIR.relative_to(REPO)}")
-    print(f"  has a native producer (derived from the override table): {len(owned)}/{len(rows)}")
-    print(f"    …of which the native body was actually REACHED in a run: {len(reached)}/{len(owned)}")
+    # LABELLED FOR WHAT IT MEASURES. This line used to read "has a native producer", which is a
+    # different and much stronger claim than the field supports — and it read as "we own nothing" while
+    # every row had a native producer drawing into it.
+    print(f"  a NATIVE PRODUCER drew into this row (prims_native > 0): {len(drawing)}/{len(rows)}")
+    print(f"  the GUEST ADDRESS is override-installed: {len(owned)}/{len(rows)}"
+          f"{f' ({len(unasked)} row(s) never had a registry to ask — not the same as false)' if unasked else ''}")
+    print(f"    …of which the installed native was actually REACHED in a run: {len(reached)}/{len(owned)}")
+    if not owned and drawing:
+        print("    NOTE: 0 override-installed with rows actively drawing is EXPECTED here, not a defect —"
+              "\n          these are display-pass producers; the guest functions stay on the substrate.")
     print(f"  curated re_status == ported: {len(ported)}/{len(rows)}")
     print(f"  peak prims: guest {guest_prims}  native {nat_prims}")
     print()
@@ -361,10 +392,15 @@ def _todo(rows: dict[str, Row]) -> int:
                 str(f.get("re_status") or "unknown"))
 
     if lies:
-        print("!! FIRST — rows that claim a native producer whose body NEVER RAN. Either the override is")
-        print("   not installed, or the run never entered its scene. A green gate over these is hollow.")
+        print("!! FIRST — rows whose guest address IS override-installed but whose native body NEVER RAN.")
+        print("   A green gate over these is hollow: nothing exercised the native. `oracle_hits` splits the")
+        print("   two causes, which mean different things — 0 means the address was never dispatched at all")
+        print("   (its guest path does not execute on the measured leg), >0 means it WAS dispatched and ran")
+        print("   as the SUBSTRATE reference instead. Only the first is an unexercised override.")
         for r in lies:
-            print(f"   {r.key}  {r.front.get('name') or '(unnamed)'}  runs={r.front.get('runs')}")
+            oh = int(r.front.get("oracle_hits", 0) or 0)
+            why = "never dispatched" if oh == 0 else f"ran as substrate reference ({oh} oracle hit(s))"
+            print(f"   {r.key}  {r.front.get('name') or '(unnamed)'}  runs={r.front.get('runs')}  — {why}")
         print()
     print("WORK QUEUE — biggest un-owned producers first (max of either leg, then how many runs saw it).")
     print("The `leg` column says WHICH leg the count came from; `native` with no guest count means the")
@@ -438,6 +474,9 @@ def cmd_check(args) -> int:
         pf = str(f.get("producer_file") or "").strip()
         if pf and not (REPO / pf).exists():
             err(f"producer_file '{pf}' does not exist")
+        if f.get("owned_query") == "unavailable" and f.get("has_native"):
+            err("has_native is set on a row whose ownership query was unavailable — one of the two is "
+                "stale; re-ingest a run written by a build that injects overrides::query")
         if f.get("has_native") and st == "unknown":
             err("has_native is true but re_status is still 'unknown' — the override table owns this "
                 "address, so somebody ported it; identify the row")
