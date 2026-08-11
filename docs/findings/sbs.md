@@ -5,6 +5,32 @@ recomp_path (substrate). Both cores get `pc_skip=false` (faithful branch of ever
 Divergences are FATAL — no residual allowlist. Older notes below refer to the pre-rename
 `mIsFaithful` flag; that's `!pc_skip`.
 
+## THE RENDER-NOISE MASK LEFT 97% OF ONE ORDERING-TABLE PAGE UNMASKED — every harness verdict before psxport 10c37cf5 was computed with it (2026-08-11)
+
+- **What was wrong:** the compare harnesses masked "guest RAM the render path legitimately differs in"
+  with the single literal window `[0x800BFE68, 0x800EA200)`, under a comment reading *"packet pool (x2
+  pages) + OT (x2 pages) + env"*. That comment was wrong. This game's ordering table is TWO 0x2070
+  parity pages at `0x800E80A8`, so it ends at **0x800EC188** — the literal stopped **0x1F88 bytes
+  short** and covered only **0xE8 of parity 1's 0x2070 bytes, i.e. 2.8% of it**.
+- **So the direction of the error matters:** the mask was too SMALL, which means the harness reported
+  render-path noise in OT parity 1 as GAMEPLAY divergence. It never hid a real divergence, so no past
+  green verdict is void — but any past investigation that chased a divergence landing in
+  `0x800EA200..0x800EC188` was chasing the ordering table, which is render output by definition.
+  If you have a stale note blaming a divergence in that range on gameplay, re-read it.
+- **Verified by arithmetic, not by reading the comment:** `otRegionBase 0x800E80A8` +
+  `2 * otRegionStride 0x2070` = `0x800EC188`, against the literal's `0x800EA200`; every other bound
+  (pool lo/hi, the pool-pointer pair) reproduces exactly. `dwellCounter 0x800E809C` also sits in the
+  pool→OT gap, not in the pointer window its old annotation implied.
+- **Now:** ONE definition, derived from `GameConfig` — `external/psxport/runtime/recomp/render_noise.h`
+  (`RenderNoiseMask::from`), asserted bound-by-bound in `external/psxport/tests/test_render_noise_mask.cpp`
+  including a per-word scan of parity 1 with its denominator. The three independent copies
+  (`dualcore.cpp isRenderRegion`, `selftest.cpp od_is_render`, `ot_attr.cpp`'s pool range) are gone —
+  that independence is why the same literal could be fixed in one file and stay wrong in two.
+- **For the other ports:** spyro and spider1 leave the `packetPool*`/`otRegion*` fields 0, so their mask
+  is EMPTY and warns once per run. Empty means render noise shows up as divergence there — noisy, but
+  never a false clean.
+- **refs:** psxport `10c37cf5`, `runtime/recomp/render_noise.h`, spyro `docs/issues/0056`.
+
 ## LIVE-REGISTER LAW: callees spill the caller's caller-saved regs — mirror the full register file at every dispatch boundary (2026-07-16)
 
 - **The class (3rd instance; treat as LAW when porting):** a native port that calls a still-substrate
