@@ -20,6 +20,7 @@
 // full-grown bar matches the guest's — h/kGuestFullH of the frame at each edge. READ-ONLY (the substrate
 // manager still runs underneath and owns the guest packets; this only reads the slot table).
 #include "core.h"
+#include "producer_scope.h"   // ProducerScope — graphics-producer DB, native leg
 #include "game.h"
 #include "render.h"
 #include "render_queue.h"
@@ -53,6 +54,12 @@ void Render::cineBarsRender() {
   const int H = 240;                                     // present framebuffer height (native draw units)
   const int barPx = (int)(progress * (float)kGuestFullH + 0.5f);
   if (barPx <= 0) return;
+
+  // Producer DB, native leg. Keyed on guest 0x80026864 — and that address is not a guess or a comment:
+  // it is the value the GUEST'S OWN type->handler table holds, read out of the binary
+  // (0x8009D314[type 1] == 0x80026864). Opened after the barPx early-out so a frame with no bars cannot
+  // mint an empty row.
+  ProducerScope cineScope(&c->rsub.producerScope, 0x80026864u, "cineBarsRender");
 
   // Full-width span: draw far beyond any aspect's extent and let the target/draw-area clip trim it. The
   // 2D origin sits at the 4:3 left edge with the wide content extending both ways, so cover -X..+X wide

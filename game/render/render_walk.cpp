@@ -575,6 +575,10 @@ void Render::menuChrome() { Core* c = mCore;
 // at the game's cursor-X table @0x80107704) then the two item text-images (page-0 {0x8e,0x8f} title, or
 // page-1 {0x90,0x91} s3), the param2-selected item RAW/bright and the other modulated 0x50/dim.
 void Render::menuItemsAndCursor(int param1, int param2) { Core* c = mCore;
+  // Producer DB, native leg. Keyed on the guest menu emitter this reimplements (0x80106824, ov_demo
+  // overlay-resident with no overlay collision). Its prims arrived through the SHARED emitters
+  // emitUiFt4 / emitMenuFt4, which must not be scoped themselves.
+  ProducerScope menuScope(&c->rsub.producerScope, 0x80106824u, "menuItemsAndCursor");
   static const uint32_t TMPL[2][2] = { { 0x8Eu, 0x8Fu }, { 0x90u, 0x91u } };
   const uint32_t t0 = TMPL[param1 & 1][0], t1 = TMPL[param1 & 1][1];
   const uint32_t a0 = (param2 == 0) ? 0u : 0x50u, a1 = (param2 == 0) ? 0x50u : 0u;

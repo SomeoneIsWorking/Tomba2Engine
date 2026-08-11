@@ -45,6 +45,7 @@
 #include "game_ctx.h"
 #include "render.h"
 #include "render_internal.h"   // rend()
+#include "producer_scope.h"   // ProducerScope — graphics-producer DB, native leg
 #include "proj_params.h"       // ProjParams::pzToOrd
 #include <lucent/log.h>
 #include <cmath>
@@ -250,6 +251,27 @@ void emitGlyph(Core* c, uint32_t node, const ViewProjector& proj, const GlyphXfo
 void CubeTextBanner::render(Core* c, uint32_t node) {
   if (c->game->oracle) return;                                   // the oracle leg produces no picture
   if (c->mem_r32(node + NODE_BEHAVIOUR) != kBehCubeTextSpawn) return;
+
+  // Producer DB, native leg — the LARGEST single undeclared block until now (68,388 prims in a 500-frame
+  // replay). Keyed on guest FUN_80039F4C, which game/render/text_label.cpp INSTALLS at its own override
+  // site, so the literal is the code's own assertion rather than a number copied from a comment.
+  //
+  // 0x80039F4C is the right key for the WHOLE producer, both halves: gen_func_80039F4C sets r5=1 and
+  // calls func_8003F174 (the sub-part MESH pass = the PLANKS) before emitting one glyph quad per
+  // character, so the planks are part of what it submits. Measured split of the 68,388: 8,340 glyph
+  // quads (12.2%) and 60,048 plank prims (87.8%) — a key describing only the glyph half would misname
+  // seven eighths of it. codemap's port-map step for this address is literally
+  // `render-producer-cube-text-banner`.
+  //
+  // REJECTED, with reasons, because both look plausible: 0x8003F174 (subPartWalk) is the plank half's
+  // SHARED writer and would collapse the type-1 sub-part class into this row; 0x800803DC is the generic
+  // GT3/GT4 emitter this chain reaches (flag&1 forces it) and already carries 152,981 prims from
+  // perObjFlush, so keying here would bury the banner inside an unidentified row.
+  //
+  // Scoped HERE and not at the render_walk.cpp call site: that site carries every other `pre` node type
+  // too, all of which self-filter to zero prims, so a scope there would mint a row for a producer that
+  // drew nothing.
+  ProducerScope bannerScope(&c->rsub.producerScope, 0x80039F4Cu, "CubeTextBanner::render");
 
   const uint32_t count = c->mem_r8(node + NODE_GLYPH_COUNT);
   const uint32_t bound = c->mem_r8(node + NODE_LOOP_BOUND);

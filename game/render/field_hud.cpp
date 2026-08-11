@@ -222,6 +222,11 @@ void Render::fieldHudStatusRow() {
 // ---- FUN_80025934 — item ring -------------------------------------------------------------------
 void Render::fieldHudItemRing(int offsetMode, uint32_t /*bucketAttr*/) {
   Core* c = mCore;
+  // Producer DB, native leg. Keyed on the guest ring emitter this reimplements (codemap --addr
+  // 0x80025934 -> Render::fieldHudItemRing, this function), mirroring its two already-scoped siblings
+  // in this file. Found by PSXPORT_DEBUG=unscoped: its prims reached the queue through the SHARED
+  // emitter emitUiFt4, which must never be scoped itself or it would shadow every one of its callers.
+  ProducerScope itemRingScope(&c->rsub.producerScope, 0x80025934u, "fieldHudItemRing");
   const uint32_t p = kHudState;
   const uint32_t base = c->mem_r32(p + 0x3Cu);
   const int dx = offsetMode ? 0x10 : 0, dy = offsetMode ? 0x28 : 0;
