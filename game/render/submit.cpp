@@ -27,7 +27,8 @@
 #include "mods.h"   // Mods (game->mods) — live PC-native lighting params (engine-native shading, not a deferred pass)
 #include "lighting.h" // PER-AREA light registry (sun / lava+torch); selected per frame in Render::shadeSelect
 #include "render_queue.h" // RQ_BACKGROUND + RenderQueue::push2dQuad — native backdrop tilemap path
-#include "render_internal.h" // shared render internals (withObjScope, wq_* helpers)
+#include "render_internal.h"   // shared render internals (withObjScope, wq_* helpers)
+#include "producer_scope.h"    // ProducerScope — graphics-producer DB, native leg
 #include "gte_math.h"     // Math:: — GTE-transform cluster (matMul/applyMatlv/rotX/Y/Z/rotmat, static)
 #include "mtx.h"              // class Mtx — libgte helpers (identity, diagonal, ...)
 #include "trig.h"             // class Trig — libgte rsin/rcos
@@ -512,6 +513,14 @@ void Render::fieldEntityRender(uint32_t es) {
   // its extension to fieldEntityRender). Both the real per-logic-frame call (render_walk.cpp sceneNative)
   // and Fps60::tier1Render's present-time re-render go through THIS function, so both tag identically —
   // scoped here (not at each call site) so the tag can never be forgotten at one of the two call sites.
+  // Producer DB, native leg (external/psxport/docs/plans/graphics-producer-db.md). Keyed on the guest
+  // entity-render loop this pass OWNS — 0x80109FE0, confirmed through tools/codemap.py --addr rather
+  // than taken from this file's own banner (a banner address in this subsystem has already been wrong
+  // once: a comment reading "Render::perObjFlush/func_80051464" names an address that belongs to
+  // NodeXform::propagateAxis). Scoped here, not at the two call sites, for the same reason the dbg_node
+  // tag below is: sceneNative's real per-logic-frame call and Fps60::tier1Render's present-time
+  // re-render both come through this function, so neither can forget it.
+  ProducerScope sceneTableScope(&c->rsub.producerScope, 0x80109FE0u, "fieldEntityRender");
   c->rsub.diag.beginObject(kSceneTableDbgNode);
   // DIAG groundproj: log the camera xform + first GT4 record's model verts and their eproj projection, so we
   // can see whether the world-space scene-table geometry projects on-screen with sane depth. (later-231b)
