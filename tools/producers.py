@@ -343,9 +343,20 @@ def _todo(rows: dict[str, Row]) -> int:
             continue
         work.append(r)
 
+    # Rank by the LARGER of the two legs, and say which one it came from. Ranking on prims_guest_max
+    # alone was silently useless: the guest leg is a later stage of the feed, so that column is 0 for
+    # every row until it lands, and a queue that prints "prims=0" for a producer the run watched emit
+    # 51,272 native prims is a work list sorted by nothing. Reporting WHICH leg supplied the number is
+    # the point — a big native count with no guest count means "we draw this, but the compare is blind",
+    # which is a different job from "the guest draws this and we do not".
+    def leg_prims(f: dict) -> tuple:
+        g = int(f.get("prims_guest_max", 0) or 0)
+        n = int(f.get("prims_native_max", 0) or 0)
+        return (g, "guest") if g >= n else (n, "native")
+
     def weight(r: Row) -> tuple:
         f = r.front
-        return (-int(f.get("prims_guest_max", 0) or 0),
+        return (-leg_prims(f)[0],
                 -int(f.get("runs", 0) or 0),
                 str(f.get("re_status") or "unknown"))
 
@@ -355,10 +366,13 @@ def _todo(rows: dict[str, Row]) -> int:
         for r in lies:
             print(f"   {r.key}  {r.front.get('name') or '(unnamed)'}  runs={r.front.get('runs')}")
         print()
-    print("WORK QUEUE — biggest un-owned producers first (prims_guest_max, then how many runs saw it):")
+    print("WORK QUEUE — biggest un-owned producers first (max of either leg, then how many runs saw it).")
+    print("The `leg` column says WHICH leg the count came from; `native` with no guest count means the")
+    print("compare is still blind for that row, not that the guest never drew it.")
     for r in sorted(work, key=weight)[:30]:
         f = r.front
-        print(f"  {r.key}  prims={f.get('prims_guest_max', 0):>6}  runs={f.get('runs', 0):>3}  "
+        n, leg = leg_prims(f)
+        print(f"  {r.key}  prims={n:>6} ({leg:<6})  runs={f.get('runs', 0):>3}  "
               f"re={f.get('re_status') or 'unknown':<14} {f.get('name') or '(unnamed)'}")
     if not work:
         print("  (empty — every observed producer is either ported or listed above)")
