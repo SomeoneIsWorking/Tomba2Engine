@@ -1,0 +1,43 @@
+# behavioural-owners.txt — guest writers whose behaviour IS natively owned but whose owner records no
+# guest address, so tools/codemap.py cannot see it (its own declared blind spot #3: "a native that
+# reimplements this guest fn but records the address NOWHERE").
+#
+# CONSUMED BY tools/producer_frontier.py, which merges these into the frontier it emits for
+# external/psxport/tools/producer_class.py --frontier. Without them that pipeline reports these
+# addresses as outstanding shared dependencies, which is how the R1 effect-mesh row successively
+# carried "4", "1" and "2" outstanding deps when the real answer was 0
+# (docs/unported-render-inventory.md, R1 WORK ORDER).
+#
+# THE BAR FOR ADDING A ROW, because this file can silently retire a judgement call nobody made — the
+# most dangerous direction of error in the whole producer pipeline:
+#   1. name the native owner as file:line, and
+#   2. cite the in-tree evidence that it owns THIS guest writer's behaviour (a source comment stating
+#      the equivalence, or a docs/re/ analysis), and
+#   3. state what the native does with the guest fn's DEPTH CUE — an owner that silently drops the cue
+#      is not an owner, it is a producer with a missing parameter.
+# A row that cannot state all three does not belong here. Prefer fixing the address tag at the
+# definition so codemap indexes it, and delete the row when you do.
+
+# 0x80027768 — the packed-mesh 36-byte quad-record writer.
+#   owner:    Render::meshQuadRecordsEmit, game/render/mesh_quads.cpp:131 (decl game/render/render.h:447)
+#   evidence: render.h:438 — "the ONE host-side walk of the engine's packed-mesh quad-record format
+#             (FUN_80027768's 36-byte records)". docs/re/render-targets-static-re.md:180 confirms the
+#             record format is byte-identical to FUN_80027768's.
+#   cue:      EXPLICIT PARAMETER, not dropped — signature is (mesh, uBias, farColour[3], ir0, ot,
+#             screenBbox). fx_plume.cpp:128 passes (kNoFarColour, kCueOff); fx_dust.cpp:209 kCueFull.
+#             This is the "explicit IR0 cue" overload docs/re/render-targets-static-re.md:222 said was
+#             still owed — that line is STALE, as is its claim the owner is FxMesh::draw (fx_mesh.cpp
+#             was deleted in abf3cf9).
+0x80027768
+
+# 0x8002847C — the 36-byte FOUR-CORNER sprite record writer (reached via the 0x800328EC wrapper).
+#   owner:    emitAnimQuadRecords, game/render/fx_sprite.cpp:288
+#   evidence: fx_sprite.cpp:774 states "FUN_8002847C = emitAnimQuadRecords";
+#             docs/re/render-targets-static-re.md:169 — "codemap reports NO owner for the address, but
+#             the behaviour is fully owned by that static; nothing new is needed".
+#   cue:      EXPLICIT PARAMETERS ir0 = 0, farColour = nullptr by default = the identity, which is
+#             correct for this family BY CONSTRUCTION: gen_func_800328EC zeroes 0x1F800090 and passes
+#             a1=a2=0 (docs/re/render-targets-static-re.md:46, a verifier correction — the original
+#             spec said "whatever the frame left", right conclusion, wrong reason). FUN_8010C7F4's
+#             particle field is the one caller that genuinely DRIVES the cue.
+0x8002847C

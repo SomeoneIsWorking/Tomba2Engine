@@ -136,7 +136,7 @@ what changed is that the SHAPE of the fix is now demonstrated end to end rather 
 | **Do NOT** | restore a scope/tap to get the picture back. `mesh_emit_tap.cpp` is not a template to resurrect |
 | **Tracked as** | portmap `render-producer-effect-mesh-family` (todo, `absent:` set) + `render-producer-plume-bc9c` (ported-unverified) for the one controller now closed |
 
-##### R1 — WORK ORDER: the 19 are gated behind 2 SHARED deps, not 19 hard ports *(measured 2026-08-11)*
+##### R1 — WORK ORDER: the 19 are DRAFTS against existing shared writers, blocked on nothing *(measured 2026-08-11)*
 
 `external/psxport/tools/producer_class.py` classified all 20 controllers by which GTE ops they reach.
 Read the second axis, not the first — the first is what made this family look 10× harder than it is:
@@ -158,10 +158,30 @@ Ownership below is from `tools/codemap.py --addr` (authoritative), **not** from 
 | `0x80027768` the writer | 114 | RTPT/RTPS/AVSZ4 + **DPCT/DPCS** | **no native owner** — but its DPCT/DPCS *cue question is already answered and written down*: `game/render/fx_plume.cpp:15` records that the guest programs the cue to the IDENTITY (IR0=0, CR21-23=0), so it is a no-op in this family. Note the plume and beam ports did NOT own this function — they emit their own quads and bypass it, which is the pattern a new controller follows |
 | `0x8002847C` | 26 | DPCT/DPCS | **no native owner**, and no recorded cue judgement. The one genuinely open question |
 
-**So the gate is 2 shared deps, and only `0x8002847C` is an unanswered question** — the writer's own
-cue is settled, and the plume/beam ports prove a controller can land without owning the writer. Do not
-work a controller before the dep it is blocked on; that is the "jumped ahead of the frontier" failure
-with extra steps.
+**CORRECTION, and it closes the gate entirely: BOTH remaining writers are ALREADY natively owned, so
+this family has ZERO outstanding shared judgement calls.** `codemap.py --addr` reports both as unowned,
+which is its own declared **blind spot #3** — "a native that reimplements this guest fn but records the
+address NOWHERE". Ownership here is BEHAVIOURAL, held by shared writers that carry no address tag:
+
+| guest writer | native owner | evidence |
+|---|---|---|
+| `0x80027768` | **`Render::meshQuadRecordsEmit`** (`game/render/mesh_quads.cpp:131`, declared `render.h:447`) | "the ONE host-side walk of the engine's packed-mesh quad-record format (FUN_80027768's 36-byte records)". Its signature ALREADY takes the cue explicitly — `(mesh, uBias, farColour[3], ir0, ot, screenBbox)` — which is exactly the "overload taking an explicit EObjXform and an explicit IR0 cue" `docs/re/render-targets-static-re.md:222` said was still owed. `fx_plume.cpp:128` calls it `(…, kNoFarColour, kCueOff, …)`, `fx_dust.cpp:209` with `kCueFull` |
+| `0x8002847C` | **`emitAnimQuadRecords`** (`game/render/fx_sprite.cpp:288`) | `fx_sprite.cpp:774` states outright "FUN_8002847C = emitAnimQuadRecords"; `docs/re/render-targets-static-re.md:169` concurs — "codemap reports NO owner for the address, but the behaviour is fully owned by that static; nothing new is needed". Its cue defaults are `ir0 = 0, farColour = nullptr` = the identity |
+
+And the cue SEMANTICS are settled by a verified correction, not an assumption:
+`docs/re/render-targets-static-re.md:46` (a `[MINOR]` verifier correction) shows `gen_func_800328EC`
+**explicitly zeroes** `0x1F800090` and passes `a1=a2=0`, so **IR0 is 0 BY CONSTRUCTION** for this family
+— the original spec's "it is whatever the frame left" reached the right conclusion for the wrong reason.
+`emitAnimQuadRecords`' own comment records the general rule: *"Most emitters in this family force IR0 = 0,
+at which the cue is the identity and the record colours pass through"*, with `FUN_8010C7F4`'s particle
+field named as the one caller that genuinely drives it.
+
+**So R1 is 19 DRAFTS against existing shared writers, blocked on nothing.** Each controller is: read
+the node's own pose → `projComposeObjectHost` → `meshQuadRecordsEmit(mesh, uScroll, farColour, ir0, …)`.
+Two caveats that are real: `docs/re/render-targets-static-re.md` is STALE where it says the writer is
+"owned by `FxMesh::draw` … a GUEST-TIME scoped tap" — `fx_mesh.cpp` was deleted in `abf3cf9` and the
+replacement is the explicit-cue `meshQuadRecordsEmit` above; and a producer may **not** call
+`Rng::next()` for the mesh IR0 dither, because it writes the guest seed at `0x80105EE8` (ibid. :222).
 
 Reproduce — and note the frontier must be GENERATED, never read off a doc:
 
@@ -173,14 +193,19 @@ python3 external/psxport/tools/producer_class.py --repo . classify --file <addrs
     --frontier scratch/producers/frontier.txt      # now blocked_on excludes what is already ported
 ```
 
-**Two wrong numbers this row carried before that pipeline existed, recorded so neither is repeated.**
-Without a frontier the tool reported **4** outstanding deps, because `blocked_on` lists guest functions
-carrying lighting ops and says nothing about whether the port exists. Then feeding it `docs/code-map.md`
-directly reported **1**, because `0x80027768` appears in that file only in the address column of a
-`todo` port-map row and the scraper read "mentioned" as "owned" — the more dangerous direction, since it
-retires a judgement nobody made. `producer_class.py --frontier` now refuses any line that is not a bare
-address, and `tools/producer_frontier.py` resolves ownership through `codemap.py --addr`. The true count
-is **2**.
+**Every wrong count this row carried, recorded so none is re-derived.** With no frontier the tool said
+**4** outstanding deps — `blocked_on` lists guest functions carrying lighting ops and says nothing about
+whether a port exists. Feeding it `docs/code-map.md` directly said **1**, because `0x80027768` appears
+there only in the address column of a `todo` port-map row and the scraper read "mentioned" as "owned"
+(the dangerous direction: it retires a judgement nobody made). With ownership resolved properly through
+`codemap.py --addr` it said **2**. The truth is **0**, because all three of those numbers answer
+*address* ownership and the writers are owned *behaviourally*, by shared natives carrying no address tag.
+
+**The durable lesson: `producer_class.py --frontier` is address-keyed and therefore CANNOT close this
+question by itself.** Its `blocked_on` list is a set of guest functions to CHECK, never a worklist —
+and the check that settles it is "does a native writer for this record format exist", which lives in
+source comments and `docs/re/`, not in an address index. Two of the three numbers above came from
+treating `blocked_on` as the answer. Read it as the question.
 
 Two limits on this measurement, stated because the tool's negative direction is the weak one: it is
 STATIC (a controller that is never reached at runtime still classifies), and "reaches no GTE" is only
