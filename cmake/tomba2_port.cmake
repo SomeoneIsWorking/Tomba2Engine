@@ -16,7 +16,7 @@ option(PSXPORT_BUILD_PORT "Build the Tomba!2 native port binary (tomba2_port)" O
 
 # The framework static library (psxport) + its option(PSXPORT_BUILD_SMOKE) + the standalone smoke.
 # Always included so `psxport` / `psxport_smoke` are buildable even when the game target is off.
-include(${CMAKE_SOURCE_DIR}/external/psxport/cmake/psxport.cmake)
+include(${PSXPORT_DIR}/cmake/psxport.cmake)
 
 if(NOT PSXPORT_BUILD_PORT)
   return()

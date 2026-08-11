@@ -253,7 +253,7 @@ prim fingerprint matching — is transitional debt and must be REMOVED, not exte
 - **DIAGNOSTICS ARE EXEMPT and stay.** `OtAttr`, `PSXPORT_PRIMAT`, `debug objid`/`otattr` read guest
   state to ANSWER QUESTIONS; they never produce the picture. The ban is on tagging the shipping path.
 - **THE PICTURE COMES FROM GAME STATE, NEVER FROM WHAT THE GTE PRODUCED** (USER, 2026-07-23 →
-  2026-08-06; the binding statement is `coord/PROTOCOL.md`, read it). Two checkable rules, and the
+  2026-08-06; the binding statement is `external/psxport/docs/workspace/PROTOCOL.md`, read it). Two checkable rules, and the
   word "tap" is RETIRED because it needed adjudication every time:
   (1) **the shipping picture path runs no `gen_func_*` body.** Reads are fine — a producer reads the
   node's own fields, and DIAGNOSTICS ARE EXEMPT because they answer questions rather than produce the
@@ -308,6 +308,26 @@ you find yourself wanting to write guest RAM from render code, you're building t
   scratchpad and GTE regs).
 - **Improve tools when they fall short.** Grep `docs/gfx-debug.md` + `tools/` first; extend, don't
   reinvent; update doc + skill same change.
+
+## Where the framework source comes from — NEVER edit `external/psxport`
+
+`external/psxport` is a **read-only pinned consumer**. Framework edits happen in the workspace's
+framework DEV CLONE (`$PSX/psxport`, i.e. `../psxport` from here) and nowhere else — `run.sh` re-syncs
+this submodule to the RECORDED gitlink on every run, so an edit made here is liable to be silently
+reverted mid-gate, and the build or measurement that follows describes a different framework than you
+think.
+
+Build this game against in-progress framework work WITHOUT touching the submodule:
+
+```sh
+PSXPORT_DIR=$PSX/psxport ./run.sh          # or: cmake -S . -B build -DPSXPORT_DIR=$PSX/psxport
+```
+
+`PSXPORT_DIR` defaults to the submodule, so a bare clone of this repo still builds standalone — keep it
+that way. `run.sh` announces which framework checkout a run was built from and whether it was dirty;
+read that line before trusting any measurement. The full protocol (area claims, how a framework change
+lands, the standing USER rules) is `external/psxport/docs/workspace/PROTOCOL.md`; the workspace map is
+`external/psxport/docs/workspace/WORKSPACE.md`.
 
 ## Parallel sessions share ONE tree — never leave it non-compiling (2026-07-28)
 

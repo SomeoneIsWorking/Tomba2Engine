@@ -35,6 +35,23 @@ pkg-config --exists sdl3 || die "SDL3 not found (macOS: brew install sdl3; Linux
 CC="${CC:-cc}"
 JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 
+# ---- 0a2. WHICH FRAMEWORK CHECKOUT IS THIS RUN BUILT FROM? --------------------------------------
+# Default: the pinned submodule, so `git clone && ./run.sh` works standalone. Override to build
+# against the workspace's framework dev clone without touching the submodule:
+#
+#   PSXPORT_DIR=$HOME/repo/psx/psxport ./run.sh
+#
+# ANNOUNCED either way, and that is the point: a binary built from in-progress framework work must
+# never be mistaken for one built from the pin. Same discipline as the render-path stamp.
+PSXPORT_DIR="${PSXPORT_DIR:-external/psxport}"
+[ -f "$PSXPORT_DIR/cmake/psxport.cmake" ] || die "PSXPORT_DIR=$PSXPORT_DIR is not a psxport checkout"
+if [ "$PSXPORT_DIR" = "external/psxport" ]; then
+  say "framework: external/psxport (pinned submodule $(git -C external/psxport rev-parse --short HEAD 2>/dev/null || echo '?'))"
+else
+  say "framework: *** $PSXPORT_DIR *** (DEV CLONE $(git -C "$PSXPORT_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')$(
+        [ -n "$(git -C "$PSXPORT_DIR" status --porcelain 2>/dev/null)" ] && echo ' +dirty')) — NOT the recorded pin"
+fi
+
 # ---- 0b. sync git submodules (vendor/beetle-psx = the GTE/MDEC/SPU/CHD backend) -----
 # A plain `git pull` does NOT update submodules, so after a pull the beetle sources can be stale and
 # the link fails with undefined GTE_BindState / MDEC_*State / SPU_*State. Sync them here so
@@ -84,10 +101,10 @@ say "disc: $DISC"
 # (0x800810F0). The old `if [ ! -x ]` guard never rebuilt a stale binary. Don't reintroduce it.
 say "building libchdr + discdump (CMake)…"
 # discdump is a FRAMEWORK tool — built from the psxport submodule (external/psxport), not this game repo.
-cmake -S external/psxport -B external/psxport/build -DCMAKE_BUILD_TYPE=Release >/dev/null || die "psxport cmake configure failed"
-cmake --build external/psxport/build -j "$JOBS" --target discdump >/dev/null || die "discdump build failed"
-DISCDUMP=external/psxport/build/tools/discdump
-[ -x "$DISCDUMP" ] || DISCDUMP=external/psxport/build/tools/discdump.exe
+cmake -S "$PSXPORT_DIR" -B "$PSXPORT_DIR/build" -DCMAKE_BUILD_TYPE=Release >/dev/null || die "psxport cmake configure failed"
+cmake --build "$PSXPORT_DIR/build" -j "$JOBS" --target discdump >/dev/null || die "discdump build failed"
+DISCDUMP="$PSXPORT_DIR/build/tools/discdump"
+[ -x "$DISCDUMP" ] || DISCDUMP="$PSXPORT_DIR/build/tools/discdump.exe"
 [ -x "$DISCDUMP" ] || die "discdump build failed"
 
 # ---- 3. ensure the recompiled substrate is present AND matches its input hash --------
@@ -107,7 +124,7 @@ PSXPORT_DISCDUMP="$DISCDUMP" python3 tools/ensure_recomp.py "$DISC" || die "reco
 # scratch/bin/tomba2_port (RUNTIME_OUTPUT_DIRECTORY). Configure is idempotent (fast when up to date); the
 # build is incremental. (The old hand-rolled per-file g++ compile/link + tools/build_port.sh are retired.)
 say "building the native port (CMake -j$JOBS)…"
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release >/dev/null || die "cmake configure failed"
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPSXPORT_DIR="$(cd "$PSXPORT_DIR" && pwd)" >/dev/null || die "cmake configure failed"
 cmake --build build -j "$JOBS" --target tomba2_port || die "port build failed"
 
 # ---- 5. run ------------------------------------------------------------------------
@@ -121,7 +138,7 @@ if [ -n "${PSXPORT_NOWINDOW:-}" ]; then export PSXPORT_VK_HEADLESS=1; else expor
 # in the psxport submodule, but the overlay disk-loads them relative to PSXPORT_ASSET_DIR (the dir that
 # CONTAINS assets/). We run from the repo root, so point it at the submodule. Without this the overlay
 # loads no fonts and no menu ("[rmlui] LoadDocument … FAILED").
-export PSXPORT_ASSET_DIR="${PSXPORT_ASSET_DIR:-external/psxport}"
+export PSXPORT_ASSET_DIR="${PSXPORT_ASSET_DIR:-$PSXPORT_DIR}"
 # Debug server ON by default so a windowed session can be inspected/driven live (tools/dbgclient.py);
 # opt out with PSXPORT_DEBUG_SERVER=0. Window is windowed by default now (PSXPORT_FULLSCREEN=1 to override).
 #

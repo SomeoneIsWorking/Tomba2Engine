@@ -5,6 +5,28 @@
 cmake_minimum_required(VERSION 3.21)
 project(tomba2engine CXX C)
 
+# PSXPORT_DIR — WHERE THE FRAMEWORK SOURCE COMES FROM. Defaults to the pinned submodule, so a fresh
+# clone of this repo alone builds standalone: that property is what "each game is its own project
+# using psxport as the framework" means, and it must stay testable.
+#
+# Point it at the workspace's framework DEV CLONE to build this game against in-progress framework
+# work WITHOUT editing the submodule (see the workspace's coord/PROTOCOL.md — the submodule is a
+# read-only pinned consumer; framework edits happen in one place):
+#
+#   cmake -S . -B build -DPSXPORT_DIR=$HOME/repo/psx/psxport
+#
+# It is a CACHE path, so it survives reconfigures, and `run.sh` passes it through from the
+# environment. Everything else in this file and in cmake/ derives from it — never re-spell
+# `external/psxport` at a call site, or the two halves of a build can come from different checkouts.
+set(PSXPORT_DIR "${CMAKE_SOURCE_DIR}/external/psxport" CACHE PATH
+    "psxport framework source directory (default: the external/psxport submodule)")
+if(NOT EXISTS "${PSXPORT_DIR}/cmake/psxport.cmake")
+  message(FATAL_ERROR "PSXPORT_DIR=${PSXPORT_DIR} has no cmake/psxport.cmake — "
+                      "run `git submodule update --init --recursive`, or point PSXPORT_DIR at a psxport checkout.")
+endif()
+message(STATUS "psxport framework: ${PSXPORT_DIR}")
+
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -19,10 +41,10 @@ endif()
 find_package(Threads REQUIRED)
 
 # libchdr (CHD access) comes from the Beetle PSX submodule NESTED under the psxport submodule.
-add_subdirectory(external/psxport/vendor/beetle-psx/deps/libchdr ${CMAKE_BINARY_DIR}/libchdr_build EXCLUDE_FROM_ALL)
+add_subdirectory(${PSXPORT_DIR}/vendor/beetle-psx/deps/libchdr ${CMAKE_BINARY_DIR}/libchdr_build EXCLUDE_FROM_ALL)
 
 # The framework static library (psxport) — builds from external/psxport via PSXPORT_ROOT (self-locating).
-include(${CMAKE_SOURCE_DIR}/external/psxport/cmake/psxport.cmake)
+include(${PSXPORT_DIR}/cmake/psxport.cmake)
 
 # The game binary (tomba2_port): game/** + generated/** linking libpsxport. Output: scratch/bin/tomba2_port.
 include(cmake/tomba2_port.cmake)
