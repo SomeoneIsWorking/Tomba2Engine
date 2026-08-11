@@ -136,6 +136,43 @@ what changed is that the SHAPE of the fix is now demonstrated end to end rather 
 | **Do NOT** | restore a scope/tap to get the picture back. `mesh_emit_tap.cpp` is not a template to resurrect |
 | **Tracked as** | portmap `render-producer-effect-mesh-family` (todo, `absent:` set) + `render-producer-plume-bc9c` (ported-unverified) for the one controller now closed |
 
+##### R1 — WORK ORDER: the 19 are gated behind 3 SHARED judgement calls, not 19 hard ports *(measured 2026-08-11)*
+
+`external/psxport/tools/producer_class.py` classified all 20 controllers by which GTE ops they reach.
+Read the second axis, not the first — the first is what made this family look 10× harder than it is:
+
+| axis | result |
+|---|---|
+| whole subtree, everything inlined | **2/20** draftable, 18 "needs judgement" — *with the identical op signature*, which is the tell |
+| own ops, shared callees cut | **19/20** draftable: 14 `portable-rigid-mesh`, 5 `portable-delegates-to-shared-writer`, 1 judgement |
+
+The lighting ops are **not in the controllers**. The controllers' own ops are `MVMVA.rot` — pure rigid
+geometry. Everything else is inherited from shared callees, each ported ONCE for all of its callers:
+
+| shared dep | fan-in | ops | status |
+|---|---|---|---|
+| `0x80027768` the writer | 114 | RTPT/RTPS/AVSZ4 + **DPCT/DPCS** | **judgement ALREADY MADE** — `game/render/fx_plume.cpp:15` records that the guest programs the depth cue to the IDENTITY (IR0=0, CR21-23=0), so the cue is a no-op in this family and the authored colours pass through |
+| `0x80085480` | 67 | GPF×4 | outstanding — a shared math helper (GPF = general-purpose interpolation); likely a small port |
+| `0x80027A4C` sprite writer | 61 | DPCS | outstanding |
+| `0x8002847C` | 26 | DPCT/DPCS | outstanding |
+
+**So the frontier for this row is those 3 outstanding shared deps, not any individual controller** —
+each unblocks many controllers at once, and the plume/beam ports already prove the pattern works once
+the cue question is settled. Do not work a controller before the dep it is blocked on; that is the
+"jumped ahead of the RE frontier" failure with extra steps.
+
+Reproduce, and re-read the `blocked_on` list rather than trusting the table above to stay current:
+
+```sh
+python3 external/psxport/tools/producer_class.py --repo . selftest    # 3/3, BOTH directions
+python3 external/psxport/tools/producer_class.py --repo . classify --file <addrs> --json out.json
+```
+
+Two limits on this measurement, stated because the tool's negative direction is the weak one: it is
+STATIC (a controller that is never reached at runtime still classifies), and "reaches no GTE" is only
+sound with zero unresolved edges — the tool reports `blind` with its denominator rather than guessing.
+All 20 here walked with zero unresolved edges. Scope: this family only, not every producer in this doc.
+
 #### R1-CLOSED-1 — the FOUR-COPY RADIAL PLUME (`FUN_8002BC9C`) *(ported 2026-08-06)*
 
 Native producer `Render::radialPlumeRender`, `game/render/fx_plume.cpp`, portmap step
