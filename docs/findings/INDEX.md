@@ -87,6 +87,7 @@ already solved or ruled out. 314 findings across 12 subsystems.
 - **Debug PAUSE (P) presented a BLACK screen at fps60 (kanban #20, 2026-07-22, FIXED)** [FIXED (`GpuVkState::repaint` / `GpuState::gpu_repaint`). Paused picture is now bit-identical] —   ↪ docs/findings/render.md
 - **Dialog box background drew OVER its own text — two owners on one guest address (kanban #19/#28, 2026-07-22, FIXED)** [?] —   ↪ docs/findings/render.md
 - **Double-submission (#48) FIXED (2026-07-15) — scene-native-owned meshes dropped from the OT walk** [?] —   ↪ docs/findings/render.md
+- **FIXED: producer-census "undeclared NATIVE prims" was also counting GUEST-origin prims (2026-08-12)** [?] —   ↪ docs/findings/render.md
 - **FUN_800328EC: a wrapper, not a writer — and both halves of the water jet now draw (2026-07-28)** [?] —   ↪ docs/findings/render.md
 - **FUN_80039F4C text-label renderer OWNED (Render::textLabelEmit) + BbRec lerp removed (2026-07-16, #67 RE work cont.)** [?] —   ↪ docs/findings/render.md
 - **FUN_8003B704 BEAM / see-saw ribbon now has a native producer — and the "CR contract" was never open (2026-08-06)** [?] — one of the three `submitQuad` caller classes left with no pc_render picture by the  ↪ docs/findings/render.md
@@ -115,7 +116,6 @@ already solved or ruled out. 314 findings across 12 subsystems.
 - **PSX render path always executes underneath; pc_render display pass is READ-ONLY (2026-07-07, issue #32)** [?] —   ↪ docs/findings/render.md
 - **Phase-3 fallthrough native-ization — animTick/walkStart wired + gated (2026-07-15)** [?] —   ↪ docs/findings/render.md
 - **Pre-existing render-port port_check FAILs (byte-divergence, deferred) [2026-07-17]** [KNOWN, deferred (render path). Surfaced by `tools/port_check.py --all`.] —   ↪ docs/findings/render.md
-- **Producer-census "undeclared NATIVE prims" also counts GUEST-origin prims, so 100% is aspect-dependent (2026-08-12)** [?] —   ↪ docs/findings/render.md
 - **PutDrawEnv cluster + Font::drawText/glyphEmit + Str::length — wiring pass (2026-07-10)** [WIRED. All 9 addresses installed via `engine_set_override_main` (oracle-gated thunk,] — frontier wiring session — promote the banked PutDrawEnv chain (0x800815D0 + 4 leaf  ↪ docs/findings/render.md
 - **Quad batching (#45) — evidence pass: scope narrowed to 0x80039F4C (2026-07-14)** [?] —   ↪ docs/findings/render.md
 - **Render coverage on the field path, measured (2026-07-22) — only two unowned functions still run** [?] —   ↪ docs/findings/render.md

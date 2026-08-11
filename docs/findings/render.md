@@ -5271,12 +5271,13 @@ real port of a real guest mechanism — measured at 0 effect on T1 and T2, and 1
 area 14's approach frames, so it MUST be landed against pixel evidence in a scene where it fires,
 not against this bug.
 
-## Producer-census "undeclared NATIVE prims" also counts GUEST-origin prims, so 100% is aspect-dependent (2026-08-12)
+## FIXED: producer-census "undeclared NATIVE prims" was also counting GUEST-origin prims (2026-08-12)
 
 - **symptom**: native-leg attribution reached exactly 100% (1,241,704/1,241,704, unscoped 0) at 4:3. The
   SAME build at `aspect=1` (16:9) reports 418 undeclared prims out of 551,498 — 99.92%. Nothing about the
   native producers changed between the two runs, so the number looked like a widescreen producer gap.
-- **status**: DIAGNOSED, not yet fixed. The 100% figure is real but it is a 4:3 measurement.
+- **status**: FIXED (psxport 3b9a15d3). Undeclared NATIVE producers is now 0 at BOTH 4:3 and 16:9; the
+  418 guest prims land in a separate, reported `guest-origin` bucket that `primsAttributed()` excludes.
 - **cause**: `PSXPORT_DEBUG=unscoped` names exactly ONE distinct call site for all of them:
   `GpuState::gp0_exec <- GpuState::gpu_gp0 <- GpuState::gpu_dma2_linked_list <- Core::io_write` — the
   GUEST'S OWN GP0 linked-list walk. These are guest-emitted prims arriving at the native render queue's
@@ -5287,11 +5288,18 @@ not against this bug.
   way to "fix" it is to open a ProducerScope on a guest function — which would mint exactly the false row
   the whole producer DB exists to avoid. Anyone chasing undeclared prims to zero on a leg that walks the
   guest OT will be chasing a quantity that cannot reach zero.
-- **the fix, when it is done**: the census already HAS a separate bucket for this (`gp0_anon`, currently
-  always 0), so the intent existed and the wiring never reached it. Classify at the chokepoint by ORIGIN —
-  a push arriving through `gp0_exec` is guest-origin and belongs in `gp0_anon`, not `unscopedNative()` —
-  and report the two separately so "undeclared native producer" means only what it says.
-- **do not read the 100% as leg-independent**: it holds for the 4:3 native field leg measured. State the
-  aspect (and the leg) with the number.
+- **the fix**: `GuestGp0Scope` (render_substrate.h) marks the guest's own GP0 execution, and the chokepoint
+  routes a push made inside it to `noteGuestOriginPush()` — a separate counter that `primsAttributed()`
+  excludes. Nesting-safe by DEPTH, not a bool: the guest's DMA walk can re-enter, and a bool would clear the
+  mark on the first inner exit and silently re-attribute the rest of the outer walk. The `unscoped`
+  call-site diagnostic is gated on the same depth so it no longer reports guest pushes as producers to scope.
+- **MY OWN PROPOSED FIX HERE WAS WRONG and is corrected rather than deleted**: this entry originally said to
+  reuse the existing `gp0_anon` bucket "so the intent existed and the wiring never reached it". `gp0_anon` is
+  a GUEST-LEG counter — "the GP0 words carried no guest source address" — which is a different question from
+  "a guest-origin prim arrived at the native chokepoint". Reusing it would have merged two unrelated blind
+  spots into one number.
+- **verified in both directions**, because a bucket that is always non-zero is as useless as one always
+  zero: aspect=0 gives unscoped-native 0 AND guest-origin 0; aspect=1 gives unscoped-native 0 with
+  guest-origin exactly 418, and attributed drops by precisely that amount.
 - **refs**: `external/psxport/runtime/recomp/render_queue.cpp` (the chokepoint + the `unscoped` channel),
   `producer_census.h` (`gp0_anon`), `scratch/logs/unscoped-wide.log`.
