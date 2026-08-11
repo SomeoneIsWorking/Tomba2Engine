@@ -1,5 +1,46 @@
 # Findings — render / engine submit
 
+## OtAttr's emitter-fn attribution is STRUCTURALLY EMPTY for packet-pool stores on this port (2026-08-11)
+
+**Symptom.** The graphics-producer DB's guest leg attributed nothing. Measured on the `gte` render path,
+300 frames headless: of **221,397** pool-store spans found for completed GP0 prims, the span's emitter
+`fn` was **0 for every single one**. Not "mostly" — zero non-zero values.
+
+**Cause, and it is by design rather than a bug.** `OtAttr` takes its identity from
+`InterpDiag::otattrTop()`, the indirect-dispatch shadow stack, which pushes ONLY around the two
+`rec_dispatch` body call sites — "direct recompiler-emitted `func_XXXX(c)` calls do NOT push"
+(`external/psxport/runtime/recomp/interp_diag.h`). This port's frame loop is NATIVE and calls guest
+bodies directly, and the pool writes themselves are performed by SHARED SDK routines (libgs/libgpu) on
+behalf of a caller. So at the moment of a pool store there is frequently nothing indirectly-dispatched on
+the C stack at all, and the shadow stack is empty.
+
+**What that means for the instruments that depend on it — read this before trusting either.**
+`debug otattr`'s per-span emitter and the `lineprim` census both print `fn=` from this source. On this
+path that field is **0**, i.e. those tools can report WHICH ADDRESS a packet was written to and WHICH
+NODE was current, but NOT which function wrote it. A `lineprim` line showing `fn=0x00000000` is the
+instrument being blind, not the emitter being anonymous. (kanban #15's static census over the callers of
+one shared writer exists precisely because this dynamic route could not answer; that is consistent with
+this finding rather than contradicted by it.)
+
+**Two fixes measured and REJECTED, so they are not re-tried.**
+1. *The node's render fn* (`node+0x18`): 219,322 of 221,397 no-fn prims DID carry a render-walk node
+   (99.06%), which looked decisive — but keying on `node+0x18` attributed only **439** (0.2%), because
+   for the rest that word is not a code address, i.e. those are not type-0x20 render-fn nodes. "Is a node
+   present" is not "does that node name a producer".
+2. *The store's guest PC* (`c->pc`, which IS set for direct calls): attributed **221,397 of 221,397** —
+   a complete-looking guest leg — naming `0x80080000`, `0x8008007C`, `0x8007FDB0`, `0x8007E620`, i.e. the
+   SDK's own packet builders. 100% coverage, ~0% truth. **A coverage number cannot validate an identity
+   source; only reading the row keys caught it.**
+
+**The structural conclusion.** No PER-STORE observation can name the effect, because the information is
+not present at the store — a shared library routine is doing the writing. Identity has to come from
+something that SPANS the call: a scope the caller opens (which is exactly what the DB's NATIVE leg does,
+and why that leg works today), or the guest's own dispatch record. The one untried candidate is pushing
+the shadow stack on direct calls too, whose substrate-wide cost must be priced before it is considered.
+
+Full write-up and the staged plan: `external/psxport/docs/plans/graphics-producer-db.md`.
+
+
 ## psx_render drew NO world geometry — the guest's own backdrop tiles were banded RQ_HUD and painted over it (kanban #78, 2026-08-06)
 
 - **symptom:** `PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1` — the leg every doc and tool offered as "THE
