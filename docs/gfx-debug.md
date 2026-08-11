@@ -47,6 +47,38 @@ printf 'newgame\nskip 200\nrun 60\nshot scratch/screenshots/x.ppm\nquit\n' \
 frames; `shot` reads back the VK image over the display region (works headless). Drive elsewhere with
 `press`/`release`/`tap <btn>` + `run`.
 
+## THE PRODUCER DB — check it BEFORE adding another per-effect debug channel
+
+`docs/producers/` + `tools/producers.py` (schema: `docs/producers/README.md`; design:
+`external/psxport/docs/plans/graphics-producer-db.md`).
+
+**Why it exists, and why it belongs at the top of this file:** the toolbox below contains eight
+hand-written per-producer channels — `beamfx`, `plumefx`, `heads0`, `cullpush`, `ropeline`, `nofx`,
+`ringcensus`, `quadrtpt` — each invented for one effect, each carrying its own hand-maintained
+denominator line. That table IS a producer database, kept as prose in a doc and as `if` statements in
+eight producers. The DB is the mechanical version: one row per guest submitter fn, created the first
+time it draws, with `has_native` DERIVED from the override table rather than asserted.
+
+```sh
+python3 tools/producers.py report --todo      # what to own next, ranked — and the rows that LIE
+python3 tools/producers.py search plume       # is this effect already known?
+python3 tools/producers.py show 0x8002BC9C
+```
+
+**Before you write channel number nine, ask whether a DB row answers it.** A per-effect channel is
+still right when you need the effect's INTERNALS (which script frame, which mesh, why it declined) —
+that is what `plumefx` does and the DB never will. It is the wrong tool for "does this effect have a
+native producer / has it been RE'd / how much of the frame is it", which is what the DB is for.
+
+**Reading a negative from it:** a producer absent from `docs/producers/` is NOT-OBSERVED, never absent —
+the DB is the union of the runs that were ingested and the scenes they played. `report` prints that
+caveat every time, and `ingest` REFUSES (exit 2) when there is no observation directory rather than
+reporting "0 new producers". The per-run attribution denominators live in each
+`scratch/producers/*.jsonl` `totals` record.
+
+**Status (2026-08-11):** the tool and schema are in; the runtime does not write the observation files
+yet (census stages 2-5 in psxport), so the DB is EMPTY and that is why — not because nothing draws.
+
 ## The render toolbox (what's left)
 
 | Tool | What it does | Invoke |
