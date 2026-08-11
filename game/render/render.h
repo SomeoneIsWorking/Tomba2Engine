@@ -663,7 +663,9 @@ public:
   // kind / no backdrop for this state): the far plane then stays black, an honest missing-producer gap —
   // area 14's backdrop is GTE scene geometry (#47), area 21's is a gradient+tilemap composite (#48), and
   // the state>=16 areas are ones the guest itself draws no backdrop for. Read-only (no guest writes).
-  bool backdropTilemapDrawer(int& vAdd);
+  // `drawerVAOut` (optional) receives the RESIDENT drawer's address, and only when the resolution
+  // SUCCEEDS — it is the producer DB's key for backdropRender's prims, per area rather than hardcoded.
+  bool backdropTilemapDrawer(int& vAdd, uint32_t* drawerVAOut = nullptr);
 
   // ---- SUBSTRATE MIRROR: per-object cmd-list dispatch (guest FUN_8003CDD8 / FUN_8003F698) --------
   // These run UNDER the render-underneath architecture (issue #32): the substrate walk cluster calls

@@ -155,7 +155,7 @@ void Render::perObjFlush() {
 // Resolve the resident backdrop tilemap drawer exactly as the guest field dispatcher does
 // (gen_func_8003DF04 @0x8003DF04) and confirm it is the SHARED tilemap routine, reporting its baked
 // per-tile V bias. See render.h for the contract. Read-only (guest RAM + resident code words only).
-bool Render::backdropTilemapDrawer(int& vAdd) {
+bool Render::backdropTilemapDrawer(int& vAdd, uint32_t* drawerVAOut) {
   Core* c = mCore;
   constexpr uint32_t kBgGate       = 0x800BF873u;  // field dispatch gate (!=0 -> no backdrop this beat)
   constexpr uint32_t kBgSelector   = 0x800BF870u;  // field bg-state selector (== the area's bg-state)
@@ -198,6 +198,10 @@ bool Render::backdropTilemapDrawer(int& vAdd) {
   for (uint32_t p = drawerVA; p < drawerVA + kDrawerScan; p += 4) {
     if (c->mem_r32(p) != kVDecodeAndi) continue;
     vAdd = (c->mem_r32(p + 4) == kVAdd8Insn) ? 8 : 0;
+    // Report the drawer only on SUCCESS — on any reject path above it is either undecoded or a routine
+    // this producer does not draw, and handing that address to the producer DB would key real native
+    // prims to a guest function that emits something else entirely.
+    if (drawerVAOut) *drawerVAOut = drawerVA;
     return true;
   }
   return false;
@@ -297,7 +301,23 @@ void Render::backdropRender(uint32_t t4) {
   // scene heuristic. Correct in the field and narration contexts, and at both call sites (sceneNative real
   // frame + Fps60 tier-1 interp re-render).
   int vAdd = 8;
-  backdropTilemapDrawer(vAdd);
+  uint32_t drawerVA = 0;
+  const bool isTilemapDrawer = backdropTilemapDrawer(vAdd, &drawerVA);
+
+  // Producer DB, native leg (external/psxport/docs/plans/graphics-producer-db.md). The backdrop was the
+  // second-largest UNDECLARED block of native prims. KEYED BY THE RESIDENT DRAWER, resolved per area
+  // from the guest's own bg-state jump table, NOT by a hardcoded address: every area's backdrop drawer
+  // is the same routine compiled per overlay (seaside FUN_80115598, area 10 FUN_801142EC, area 11
+  // FUN_801141B0, SOP narration FUN_8010C26C...), so one literal would mislabel every area but one —
+  // and the DB would report a producer that is not resident as the thing that drew the sky.
+  //
+  // A miss opens NO scope rather than guessing: if the resolution rejected (drawer is not the shared
+  // tilemap routine, or the resolver could not decode one) those prims stay in the census's counted
+  // unscopedNative() total. This pass still draws in that case only when the caller decided to call it,
+  // so the honest outcome is an undeclared count, never a row keyed to an unidentified drawer.
+  ProducerScope backdropScope((isTilemapDrawer && drawerVA) ? &c->rsub.producerScope : nullptr,
+                              drawerVA, "backdropRender");
+
   int rowstride = W * 2;                          // s0 — bytes per map row
   int mapbytes  = rowstride * H;                  // s3 — total map bytes (wrap modulus)
   int scrollX, scrollY;
