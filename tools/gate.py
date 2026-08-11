@@ -69,6 +69,11 @@ FRAME_RE = re.compile(r'frame[= ](\d+)')
 PROLOGUE_RE = re.compile(r'reached GAME prologue at frame (\d+)')
 ENDSTATE_RE = re.compile(r'stage=([0-9A-Fa-f]+)\s+sm48=(\d+)')
 ENV_AUDIT_RE = re.compile(r'env audit AT EXIT[^\n]*')
+# The AUTHORITATIVE unknown-knob verdict. The startup validator runs BEFORE late-initialising
+# subsystems register their knobs, so it reports false UNKNOWNs (measured: PSXPORT_VK_HEADLESS,
+# PSXPORT_REPL, PSXPORT_PAD_REPLAY). The framework's own exit audit is explicitly labelled
+# "everything that was going to be read has been" — that is the number to gate on.
+AUDIT_UNKNOWN_RE = re.compile(r'env audit AT EXIT[^\n]*?(\d+) UNKNOWN')
 
 
 def refuse(msg: str) -> int:
@@ -159,11 +164,25 @@ def run_gate(script: str, frames_hint: int, debug: str, watchdog: int,
     if audit:
         print(f"[gate:{label}] {audit.group(0).strip()}")
     print(f"[gate:{label}] log: {logpath}")
-    if unknown:
-        print(f"[gate:{label}] WARNING: {len(unknown)} knob(s) set but matched NOTHING — they did "
-              f"nothing this run: {', '.join(unknown)}")
-
     bad = 0
+    # Gate on the EXIT audit, not the startup warnings. A knob this gate passed that was truly never read
+    # is a silent degradation — a replay applying no input still advances frames and still reads green —
+    # so it must fail. But the STARTUP "UNKNOWN knob" lines are premature for any subsystem that
+    # initialises after the validator, and treating those as failures produced a false FAIL on
+    # PSXPORT_PAD_REPLAY while the exit audit reported 0 UNKNOWN for the same run.
+    ma = AUDIT_UNKNOWN_RE.search(out)
+    if ma is not None:
+        n_unknown = int(ma.group(1))
+        if n_unknown:
+            print(f"[gate:{label}] FAIL — the exit env audit reports {n_unknown} UNKNOWN knob(s): a flag "
+                  f"passed to this run was never read, so the run did not do what was asked. Startup "
+                  f"UNKNOWN lines seen: {', '.join(unknown) if unknown else '(none)'}")
+            bad = 1
+    elif unknown:
+        # No exit audit (the run died early), so the startup list is all there is — report, do not judge.
+        print(f"[gate:{label}] note: startup reported {len(unknown)} unknown knob(s) and there is no exit "
+              f"audit to confirm against (run ended early?): {', '.join(unknown)}")
+
     if hits:
         print(f"[gate:{label}] FAIL — {len(hits)} failure pattern(s) matched:")
         for pat, ctx in hits:
@@ -214,8 +233,12 @@ def cmd_replay(args) -> int:
     if not os.path.isfile(pad):
         return refuse(f"replay {pad} does not exist — NOTHING WAS RUN.")
     script = f"newgame\nrun {args.frames}\nquit\n"
-    return run_gate(script, args.frames, args.debug, args.watchdog, args.expect_frame,
-                    {'PSXPORT_SBS_PAD_REPLAY': pad}, 'replay')
+    # A replay whose knob name is wrong degrades to a PLAIN RUN — same frame count, same green, no input.
+    # The gate's unknown-knob line is what caught exactly that (PSXPORT_SBS_PAD_REPLAY did not exist), so
+    # `replay` treats an unaccepted knob as a hard failure rather than reporting a pass over no input.
+    rc = run_gate(script, args.frames, args.debug, args.watchdog, args.expect_frame,
+                  {'PSXPORT_PAD_REPLAY': pad}, 'replay')
+    return rc
 
 
 def cmd_run(args) -> int:

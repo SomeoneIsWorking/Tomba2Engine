@@ -48,6 +48,7 @@
 #include "game.h"
 #include "render.h"
 #include "render_internal.h"   // ObjScope — prim identity is the emitting node
+#include "producer_scope.h"    // ProducerScope — producer identity for the graphics-producer DB
 #include "mesh_quads.h"
 #include "projection.h"
 #include <lucent/log.h>
@@ -56,6 +57,10 @@
 namespace {
 
 // ── the node's own fields (byte offsets), named rather than open-coded at the use site ─────────────
+// This controller's own guest address — the type-0x20 node render fn (node+0x18) the whitelist
+// dispatches to, and therefore the row the guest leg attributes its prims to (see ProducerScope below).
+constexpr uint32_t kGuestControllerAddr = 0x8002BC9Cu;
+
 constexpr uint32_t kNodeSubtype    = 0x03u;   // u8  — 0x14/0x15 additionally enable the sprite half
 constexpr uint32_t kNodePosX       = 0x2Cu;   // s16 world position; Y and Z follow at +0x2E and +0x30
 constexpr uint32_t kNodeSortBias   = 0x32u;   // s16 the controller hands the writer as its sort bias
@@ -114,6 +119,17 @@ void Render::radialPlumeRender(uint32_t node) {
                          (float)c->mem_r16s(node + kNodePosX + 2u),
                          (float)c->mem_r16s(node + kNodePosX + 4u) };
 
+  // The graphics-producer DB's NATIVE leg (external/psxport/docs/plans/graphics-producer-db.md).
+  // KEYED BY THE CONTROLLER'S GUEST ADDRESS, NOT THE WRITER'S, and that is not a style choice: on the
+  // GUEST leg OtAttr's shadow stack pushes only on INDIRECT dispatch (interp_diag.h — "direct
+  // recompiler-emitted func_XXXX(c) calls do NOT push"). This controller is a type-0x20 node render fn
+  // reached by function pointer, so it pushes; the shared writer FUN_80027768 it calls is a plain `jal`
+  // and does not. So the guest leg attributes these prims to 0x8002BC9C, and the native leg must key
+  // the same row or the two legs never line up — which is the entire point of the comparison.
+  // COROLLARY, and it is why meshQuadRecordsEmit opens NO scope of its own: a shared writer must
+  // inherit its caller's scope. If it opened one it would shadow every controller and collapse the
+  // whole mesh family into a single meaningless row.
+  ProducerScope producerScope(&c->rsub.producerScope, kGuestControllerAddr, "radialPlumeRender");
   ObjScope objScope(c, node);
   int drawn = 0;
   float bbox[4] = { 1e9f, 1e9f, -1e9f, -1e9f };   // seeded inverted; the walk unions what it emits
