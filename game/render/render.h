@@ -444,8 +444,15 @@ public:
   // (x0,y0,x1,y1) is UNIONED with what this call actually emitted, so a producer can report the box
   // it claims to have drawn into and an A/B pixel diff can be checked against it — the caller seeds
   // it inverted and reads it back.
+  // `clutRowBias` is the writer's a1 argument: the guest adds `a1 << 22` to each record's word0, which
+  // is bit 6 of the CLUT field, so it selects a different palette ROW (docs/re/impact-plume-288ac.md
+  // §4). OPT-IN at 0, which is bit-identical to using the record's own CLUT — the same discipline
+  // MeshOtBias follows, so a caller whose a1 has not been RE'd is never silently claimed to be 0 by
+  // this signature having a default. Deliberately named for the CLUT row and not as a general "word0
+  // bias": a CLUT row is what is actually RE'd.
   int meshQuadRecordsEmit(uint32_t mesh, int uBias, const int32_t farColour[3], int32_t ir0,
-                          const MeshOtBias& ot = MeshOtBias{}, float* screenBbox = nullptr);
+                          const MeshOtBias& ot = MeshOtBias{}, float* screenBbox = nullptr,
+                          int clutRowBias = 0);
 
   // radialPlumeRender (game/render/fx_plume.cpp): native producer for the FOUR-COPY RADIAL PLUME —
   // the type-0x20 node whose custom render fn is FUN_8002BC9C, the most resident of the effect-mesh

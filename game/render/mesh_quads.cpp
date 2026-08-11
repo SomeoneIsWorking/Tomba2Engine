@@ -129,7 +129,7 @@ void MeshQuads::composeScaled(const int32_t A[3][3], const int32_t B[3][3], cons
 }
 
 int Render::meshQuadRecordsEmit(uint32_t mesh, int uBias, const int32_t farColour[3], int32_t ir0,
-                                const MeshOtBias& ot, float* screenBbox) {
+                                const MeshOtBias& ot, float* screenBbox, int clutRowBias) {
   Core* c = mCore;
   int drawn = 0;
   for (uint32_t n = 0, rec = mesh; n < kRecMax; n++, rec += kRecStride) {
@@ -179,7 +179,13 @@ int Render::meshQuadRecordsEmit(uint32_t mesh, int uBias, const int32_t farColou
                        (int)(uint8_t)(((w2 >> 16) & 0xFFu) + (unsigned)uBias) };
     const int v[4] = { (int)((w0 >> 8) & 0xFFu), (int)((w1 >> 8) & 0xFFu),
                        (int)((w2 >> 8) & 0xFFu), (int)((w2 >> 24) & 0xFFu) };
-    const uint16_t clut = (uint16_t)(w0 >> 16);
+    // CLUT, plus the writer's a1 CLUT-ROW bias. The guest adds `a1 << 22` to word0 BEFORE building the
+    // packet (gen_func_80027768; see docs/re/impact-plume-288ac.md §3-4), and bit 22 is bit 6 of this
+    // `>> 16` field — the CLUT's low 6 bits are its X and the bits above are its Y, so a1 selects a
+    // different palette ROW. Adding at bit 22 cannot carry into bits below 16, so doing it after the
+    // shift is exact rather than an approximation: (w0 + (a1<<22)) >> 16 == (w0 >> 16) + (a1 << 6).
+    // clutRowBias defaults to 0, at which this is bit-identical to reading the record's own CLUT.
+    const uint16_t clut = (uint16_t)((w0 >> 16) + ((unsigned)clutRowBias << 6));
     const uint16_t tp   = (uint16_t)((w1 >> 16) & 0x7Fu);
     const int semi = (w1 & kSemiBit) ? 1 : 0;
     c->game->activeRq().drawWorldQuad(c, px, py, depth, u, v, r, g, b, tp, clut, semi, nullptr);
