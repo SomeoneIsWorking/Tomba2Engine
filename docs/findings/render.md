@@ -5270,3 +5270,28 @@ cull only as `pv[k].sz <= 0`, which misses divide overflow and SX/SY saturation.
 real port of a real guest mechanism — measured at 0 effect on T1 and T2, and 15-28 quads/frame on
 area 14's approach frames, so it MUST be landed against pixel evidence in a scene where it fires,
 not against this bug.
+
+## Producer-census "undeclared NATIVE prims" also counts GUEST-origin prims, so 100% is aspect-dependent (2026-08-12)
+
+- **symptom**: native-leg attribution reached exactly 100% (1,241,704/1,241,704, unscoped 0) at 4:3. The
+  SAME build at `aspect=1` (16:9) reports 418 undeclared prims out of 551,498 — 99.92%. Nothing about the
+  native producers changed between the two runs, so the number looked like a widescreen producer gap.
+- **status**: DIAGNOSED, not yet fixed. The 100% figure is real but it is a 4:3 measurement.
+- **cause**: `PSXPORT_DEBUG=unscoped` names exactly ONE distinct call site for all of them:
+  `GpuState::gp0_exec <- GpuState::gpu_gp0 <- GpuState::gpu_dma2_linked_list <- Core::io_write` — the
+  GUEST'S OWN GP0 linked-list walk. These are guest-emitted prims arriving at the native render queue's
+  chokepoint, where `noteNativeLayer` counts every push that has no `ProducerScope` open. A guest prim has
+  no native producer BY DEFINITION, so it can never be "declared", and the counter's name asserts
+  something false about it.
+- **why this matters more than 418 prims**: the number is the DB's headline denominator, and the obvious
+  way to "fix" it is to open a ProducerScope on a guest function — which would mint exactly the false row
+  the whole producer DB exists to avoid. Anyone chasing undeclared prims to zero on a leg that walks the
+  guest OT will be chasing a quantity that cannot reach zero.
+- **the fix, when it is done**: the census already HAS a separate bucket for this (`gp0_anon`, currently
+  always 0), so the intent existed and the wiring never reached it. Classify at the chokepoint by ORIGIN —
+  a push arriving through `gp0_exec` is guest-origin and belongs in `gp0_anon`, not `unscopedNative()` —
+  and report the two separately so "undeclared native producer" means only what it says.
+- **do not read the 100% as leg-independent**: it holds for the 4:3 native field leg measured. State the
+  aspect (and the leg) with the number.
+- **refs**: `external/psxport/runtime/recomp/render_queue.cpp` (the chokepoint + the `unscoped` channel),
+  `producer_census.h` (`gp0_anon`), `scratch/logs/unscoped-wide.log`.

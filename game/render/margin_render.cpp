@@ -22,6 +22,7 @@
 // reproduce this in plain float (real sin/cos of angle*2*pi/4096) rather than bit-exact PSX fixed-point:
 // the picture is what matters here, not a byte match.
 #include "margin_render.h"
+#include "producer_scope.h"   // ProducerScope + pc_producer — graphics-producer DB
 #include "game_ctx.h"
 #include "render.h"
 #include "projection.h"
@@ -142,6 +143,13 @@ void MarginRenderer::collect(Core* c, uint32_t node) {
 // native, guest-write-free Render::gt3gt4 path — mirrors Render::perObjFlush's own loop shape, fed by
 // host-computed Robj/Tobj instead of (stale, for a culled node) cmd+0x18/0x2C.
 void MarginRenderer::flush(Core* c) {
+  // Producer DB: a PC-ONLY row. The widescreen margin re-include has no guest counterpart at all — the
+  // guest never drew these nodes, which is the entire point of the enhancement — so it can carry no guest
+  // address. An identification pass gave it verdict pc-only and an adversarial pass upheld that, and the
+  // three addresses in this file's own comments are NOT its key: each resolves to a different function
+  // (0x80051464 is NodeXform::propagateAxis, not perObjFlush — the comment cites a shared node+0xC0 array,
+  // not an identity).
+  ProducerScope marginScope(&c->rsub.producerScope, pc_producer("pc/widescreen-margin"));
   for (uint32_t node : nodes_) {
     if (dbg_ && gpu_frame_no(c) == 2900)
       cfg_logi("margin", "  node=%08x type=%02x cnt=%u", node, (unsigned)c->mem_r8(node + 0xc), (unsigned)c->mem_r8(node + 8));

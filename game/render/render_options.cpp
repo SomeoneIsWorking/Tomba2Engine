@@ -75,6 +75,12 @@ void Render::optionsBackdrop() {
   // FB, blacking the side margins) behind the 4:3 gradient below (non-flat → CENTERS, not stretched). 4:3: no-op.
   { int xs[4] = { 0, 320, 0, 320 }, ys[4] = { 0, 0, 240, 240 }, z[4] = { 0, 0, 0, 0 };
     unsigned char k[4] = { 0, 0, 0, 0 };
+    // Producer DB: a PC-ONLY row of its own. This quad has NO guest counterpart, so it must not sit in
+    // the guest-keyed scope below — inside it, it would add one native prim against the guest's one and
+    // make a faithful producer read 2-vs-1 in the one column the DB exists to compare. It used to be
+    // left undeclared for that reason; now that native attribution is 100%, undeclared would mean
+    // "a guest producer nobody wrote down", which this is not.
+    ProducerScope pillarboxScope(&c->rsub.producerScope, pc_producer("pc/options-pillarbox"));
     c->game->activeRq().push2dQuad(RQ_OVERLAY, /*order_2d_fg=*/1, xs, ys, z, z, k, k, k,
                                    0, 0, /*mode=*/3, /*raw=*/0, 0, 0, 0, 0, 0, 0, 0, 0, 1023, 511); }
   {
@@ -85,8 +91,8 @@ void Render::optionsBackdrop() {
     // fill above is a WIDESCREEN PC ENHANCEMENT with no guest counterpart; inside this scope it would add
     // exactly one native prim against the guest's one, so the row would read 2-vs-1 in the very column
     // the DB exists to compare — a fabricated discrepancy in a producer that is actually faithful. It
-    // stays outside and is counted as undeclared, which is the honest treatment until PC-only producers
-    // can carry their own key (see the ProducerScope native-key gap noted in producer_scope.h).
+    // stays outside, and since producer_scope.h grew pc_producer() it carries its own PC-only row
+    // rather than being undeclared.
     ProducerScope backdropScope(&c->rsub.producerScope, 0x8007FC24u, "optionsBackdrop");
     int xs[4] = { 0, 320, 0, 320 };
     int ys[4] = { 0, 0, 240, 240 };
