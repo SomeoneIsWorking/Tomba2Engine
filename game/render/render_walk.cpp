@@ -19,6 +19,7 @@
 #include "render_queue.h"
 #include "projection.h"   // EObjXform (per-object world-coord float projection; ops on Render)
 #include "render_internal.h"
+#include "producer_scope.h"   // ProducerScope — graphics-producer DB, native leg
 #include "cube_text_banner.h"
 #include "queue_dispatch.h"   // the guest's own class->queue->per-type render routing (kanban #77)
 #include "cull.h"             // Cull::submittedThisFrame — the PUSH-TIME submission record
@@ -913,6 +914,16 @@ void Render::fieldObjectsRender() {
         // nothing (host compose) — the present re-renders it from mSink, so its guest-time draw is dead.
         if (c->game->fps60.mWorldCaptureOnly) continue;
         const uint32_t rfn = c->mem_r32(n + 0x18);
+        // THE graphics-producer DB's native leg, for the whole type-0x20 effect family in ONE place
+        // (external/psxport/docs/plans/graphics-producer-db.md). `rfn` IS the node's guest render fn,
+        // dispatched here by address exactly as the guest dispatches it by function pointer — so this
+        // is the indirectly-dispatched handler OtAttr's shadow stack names on the GUEST leg, and keying
+        // the scope with it makes the two legs land in the same row. Scoping here rather than inside
+        // each producer means a NEW producer added to the whitelist below is attributed automatically,
+        // and a producer that forgets its own scope cannot go silently undeclared.
+        // The name is deliberately generic: the ROW IDENTITY is the address, and inventing a per-branch
+        // string here would duplicate a name the producer file already owns.
+        ProducerScope t20Scope(&c->rsub.producerScope, rfn, "type20-render-fn");
         if (rfn == 0x8010BF54u && c->mem_r32(0x80109450u) == 0x3C021F80u) {
           c->rsub.stats.snObjs++;
           rend(c)->narrationSwirlRender(n);
