@@ -136,7 +136,7 @@ what changed is that the SHAPE of the fix is now demonstrated end to end rather 
 | **Do NOT** | restore a scope/tap to get the picture back. `mesh_emit_tap.cpp` is not a template to resurrect |
 | **Tracked as** | portmap `render-producer-effect-mesh-family` (todo, `absent:` set) + `render-producer-plume-bc9c` (ported-unverified) for the one controller now closed |
 
-##### R1 — WORK ORDER: the 19 are gated behind 3 SHARED judgement calls, not 19 hard ports *(measured 2026-08-11)*
+##### R1 — WORK ORDER: the 19 are gated behind 2 SHARED deps, not 19 hard ports *(measured 2026-08-11)*
 
 `external/psxport/tools/producer_class.py` classified all 20 controllers by which GTE ops they reach.
 Read the second axis, not the first — the first is what made this family look 10× harder than it is:
@@ -149,24 +149,38 @@ Read the second axis, not the first — the first is what made this family look 
 The lighting ops are **not in the controllers**. The controllers' own ops are `MVMVA.rot` — pure rigid
 geometry. Everything else is inherited from shared callees, each ported ONCE for all of its callers:
 
-| shared dep | fan-in | ops | status |
+Ownership below is from `tools/codemap.py --addr` (authoritative), **not** from reading `code-map.md`:
+
+| shared dep | fan-in | ops | ownership |
 |---|---|---|---|
-| `0x80027768` the writer | 114 | RTPT/RTPS/AVSZ4 + **DPCT/DPCS** | **judgement ALREADY MADE** — `game/render/fx_plume.cpp:15` records that the guest programs the depth cue to the IDENTITY (IR0=0, CR21-23=0), so the cue is a no-op in this family and the authored colours pass through |
-| `0x80085480` | 67 | GPF×4 | outstanding — a shared math helper (GPF = general-purpose interpolation); likely a small port |
-| `0x80027A4C` sprite writer | 61 | DPCS | outstanding |
-| `0x8002847C` | 26 | DPCT/DPCS | outstanding |
+| `0x80085480` | 67 | GPF×4 | **OWNED — `Math::rotmat`** (`game/math/gte_math.cpp:346`, installed :776). A rotation-matrix compose; GPF×4 is how it does the multiply. `MeshQuads::rotmat` is a second native for producers to call — not a competing claim (`codemap.py --conflicts` reports none) |
+| `0x80027A4C` sprite writer | 61 | DPCS | **OWNED — `Render::fxSpriteRender`** (`game/render/fx_sprite.cpp:338`), two port-map steps `verified` |
+| `0x80027768` the writer | 114 | RTPT/RTPS/AVSZ4 + **DPCT/DPCS** | **no native owner** — but its DPCT/DPCS *cue question is already answered and written down*: `game/render/fx_plume.cpp:15` records that the guest programs the cue to the IDENTITY (IR0=0, CR21-23=0), so it is a no-op in this family. Note the plume and beam ports did NOT own this function — they emit their own quads and bypass it, which is the pattern a new controller follows |
+| `0x8002847C` | 26 | DPCT/DPCS | **no native owner**, and no recorded cue judgement. The one genuinely open question |
 
-**So the frontier for this row is those 3 outstanding shared deps, not any individual controller** —
-each unblocks many controllers at once, and the plume/beam ports already prove the pattern works once
-the cue question is settled. Do not work a controller before the dep it is blocked on; that is the
-"jumped ahead of the RE frontier" failure with extra steps.
+**So the gate is 2 shared deps, and only `0x8002847C` is an unanswered question** — the writer's own
+cue is settled, and the plume/beam ports prove a controller can land without owning the writer. Do not
+work a controller before the dep it is blocked on; that is the "jumped ahead of the frontier" failure
+with extra steps.
 
-Reproduce, and re-read the `blocked_on` list rather than trusting the table above to stay current:
+Reproduce — and note the frontier must be GENERATED, never read off a doc:
 
 ```sh
-python3 external/psxport/tools/producer_class.py --repo . selftest    # 3/3, BOTH directions
-python3 external/psxport/tools/producer_class.py --repo . classify --file <addrs> --json out.json
+python3 external/psxport/tools/producer_class.py --repo . selftest        # 3/3, BOTH directions
+python3 external/psxport/tools/producer_class.py --repo . classify --file <addrs> --json v.json
+python3 tools/producer_frontier.py --from-json v.json > scratch/producers/frontier.txt
+python3 external/psxport/tools/producer_class.py --repo . classify --file <addrs> \
+    --frontier scratch/producers/frontier.txt      # now blocked_on excludes what is already ported
 ```
+
+**Two wrong numbers this row carried before that pipeline existed, recorded so neither is repeated.**
+Without a frontier the tool reported **4** outstanding deps, because `blocked_on` lists guest functions
+carrying lighting ops and says nothing about whether the port exists. Then feeding it `docs/code-map.md`
+directly reported **1**, because `0x80027768` appears in that file only in the address column of a
+`todo` port-map row and the scraper read "mentioned" as "owned" — the more dangerous direction, since it
+retires a judgement nobody made. `producer_class.py --frontier` now refuses any line that is not a bare
+address, and `tools/producer_frontier.py` resolves ownership through `codemap.py --addr`. The true count
+is **2**.
 
 Two limits on this measurement, stated because the tool's negative direction is the weak one: it is
 STATIC (a controller that is never reached at runtime still classifies), and "reaches no GTE" is only
