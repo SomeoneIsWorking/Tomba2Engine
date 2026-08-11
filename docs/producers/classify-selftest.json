@@ -1,0 +1,17 @@
+{
+  "_comment": "Ground truth for external/psxport/tools/producer_class.py selftest. A discriminator run against ONE class is not known to discriminate, so BOTH lists must stay non-empty (the tool exits 2 = INAPPLICABLE otherwise). Every entry cites why it is ground truth.",
+  "projecting": [
+    "8002BC9C",
+    "8003B320"
+  ],
+  "_projecting_why": {
+    "8002BC9C": "the four-copy radial plume. Ported natively as Render::radialPlumeRender (game/render/fx_plume.cpp), which composes the object transform through projComposeObjectHost — i.e. it demonstrably projects.",
+    "8003B320": "QuadRtptSubmit::submitQuad, already native. The name is the evidence: it runs RTPT."
+  },
+  "flat2d": [
+    "8004FFB4"
+  ],
+  "_flat2d_why": {
+    "8004FFB4": "Panel::fillQuad (game/ui/panel_fill.cpp), the codebase's exemplar REBUILT 2D producer: a screen-space panel fill with a decoded packet layout and no projection of any kind."
+  }
+}
