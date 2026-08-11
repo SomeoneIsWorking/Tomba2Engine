@@ -176,8 +176,24 @@ And the cue SEMANTICS are settled by a verified correction, not an assumption:
 at which the cue is the identity and the record colours pass through"*, with `FUN_8010C7F4`'s particle
 field named as the one caller that genuinely drives it.
 
-**So R1 is 19 DRAFTS against existing shared writers, blocked on nothing.** Each controller is: read
-the node's own pose → `projComposeObjectHost` → `meshQuadRecordsEmit(mesh, uScroll, farColour, ir0, …)`.
+**So R1 is 19 DRAFTS against existing shared writers, with no outstanding JUDGEMENT calls.** Each
+controller is: read the node's own pose → `projComposeObjectHost` → `meshQuadRecordsEmit(mesh, uScroll,
+farColour, ir0, …)`.
+
+**QUALIFIED 2026-08-11 by actually decoding the first one.** "No judgement calls" is not the same as
+"no prerequisites". `docs/re/impact-plume-288ac.md` is a complete RE of `0x800288AC` (the impact plume,
+whose earlier `fx_mesh.cpp` port was correctly deleted in `abf3cf9` as a tap), and it found that the
+guest writer's `a1` argument is a **CLUT-ROW BIAS** — `a1 << 22` lands on bit 6 of word0's CLUT field,
+so the script recolours the quads per frame — and `meshQuadRecordsEmit` takes the CLUT straight from the
+record with no parameter for it. A producer ignoring it draws the wrong palette, SILENTLY, because
+nothing compares native CLUT against guest CLUT.
+
+That is a small additive PORT, not a judgement call: an opt-in CLUT-row bias on
+`meshQuadRecordsEmit`, defaulted so the three existing callers stay bit-identical — the same discipline
+`MeshOtBias` already follows. **Do that first**, then the controllers. Expect other controllers to
+surface further writer arguments the native does not yet model; the writer's `a1`/`a3` semantics are
+tabulated in that RE file, and `a3` (`node+0x29`, a U offset applied to the PACKET and not the record,
+so a read-only producer must apply it itself) maps onto the existing `uBias`.
 Two caveats that are real: `docs/re/render-targets-static-re.md` is STALE where it says the writer is
 "owned by `FxMesh::draw` … a GUEST-TIME scoped tap" — `fx_mesh.cpp` was deleted in `abf3cf9` and the
 replacement is the explicit-cue `meshQuadRecordsEmit` above; and a producer may **not** call
