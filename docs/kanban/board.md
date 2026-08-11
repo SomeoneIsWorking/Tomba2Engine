@@ -47,7 +47,7 @@
 - **#74 Interior wall decors missing (suspect depth / coincident-face ordering)**  `render` — 📎 docs/reference/issues/issue74_house_pc_render_decor_missing.png,     docs/reference/issues/issue74_house_psx_render_decor_present.png
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 
-## DONE (44)
+## DONE (45)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -92,3 +92,4 @@
 - **#76 Debug overlay renders HTML entities literally: "&middot;" instead of "·" in the video/world readouts**  `ui,bug`
 - **#78 psx_render draws NO world geometry — the pc-vs-psx reference comparison is a DEAD instrument**  `render,tooling,verification`
 - **#79 dev tp was a silent no-op outside the follow-camera mode — FIXED**  `tooling`
+- **#83 Hotkey to cycle the render path live: PC-native / PC-from-GTE / pure PSX rasterizer**  `render`
