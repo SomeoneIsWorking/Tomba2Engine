@@ -313,6 +313,77 @@ def collect_files():
 CLASS_OPEN_RE = re.compile(r'^\s*class\s+(\w+)\b[^;{]*\{')
 DECL_RE = re.compile(r'^\s*(?:static\s+)?(?:virtual\s+)?[\w:*&<>]+\s+(\w+)\s*\([^;{]*\)\s*(?:const)?\s*(?:override)?\s*;')
 
+# --- IS THAT ADDRESS EVEN A FUNCTION? the recompiled-body oracle -----------------------------------
+#
+# WHY THIS EXISTS. A header decl tag is prose, and prose mentions DATA addresses. mesh_quads.h:31 says
+# "The engine's packed sin/cos LUT at 0x800A6490 ..." above `static void trig(...)`, and
+# scan_decl_tags read that as "MeshQuads::trig owns guest function 0x800A6490" — so `--addr 800A6490`
+# answered with a confident LIVE owner for an address that is a 4096-entry table, not code. A wrong
+# owner does not fail loudly: it mints a plausible row (a graphics-producer key, a port-map hit) that
+# nothing downstream can detect. The recompiler is the authority on what is CODE: it emitted a body
+# for every reachable guest function, in the main executable (`gen_func_<hex>`) and in each overlay
+# (`ov_<ov>_gen_<hex>` / `ov_<ov>_func_<hex>`). An address with no emitted body is not a function.
+GEN_GLOBS = ["generated/*.h", "generated/*.c"]
+GEN_FUNC_RE = re.compile(r'\b[a-z0-9_]*(?:gen|func)_(8[0-9A-Fa-f]{7})\b')
+# Floor under which the oracle is treated as ABSENT rather than as "these are all the functions".
+# generated/ is GITIGNORED, so a fresh clone that has not run the recompiler has no oracle at all --
+# and a guard that rejects every tag because its corpus is empty is the silent-instrument failure this
+# tool exists to prevent. The real tree emits ~8000; 1000 is a floor, not a target.
+GEN_MIN = 1000
+
+
+def load_recomp_funcs():
+    """({ADDR}, note) -- every guest address the recompiler emitted a BODY for. A NON-EMPTY note means
+    the oracle is UNAVAILABLE: every guard consulting it must then DISABLE itself and say so in the
+    output, never reject on an empty corpus."""
+    files = sorted({f for g in GEN_GLOBS for f in glob.glob(os.path.join(ROOT, g))})
+    addrs = set()
+    for path in files:
+        addrs |= {m.group(1).upper()
+                  for m in GEN_FUNC_RE.finditer(open(path, encoding="utf-8", errors="replace").read())}
+    if len(addrs) < GEN_MIN:
+        return set(), (f"generated/ yielded only {len(addrs)} recompiled function bodies from "
+                       f"{len(files)} file(s), under the {GEN_MIN} floor -- generated/ is gitignored, "
+                       f"so a tree that has not run the recompiler has NO oracle. The NOT-A-FUNCTION "
+                       f"guard on header declaration tags is DISABLED for this run, and a DATA address "
+                       f"mentioned in a decl comment can again be indexed as a function owner.")
+    return addrs, ""
+
+
+GEN_FUNCS, GEN_NOTE = load_recomp_funcs()
+# Every candidate decl tag the guards REFUSED, so `--addr` can explain the resulting negative instead
+# of turning a fabricated owner into an unexplained "NO native owner found".
+DECL_TAG_REJECTS = []
+DECL_TAG_SEEN = [0]      # denominator: declarations whose adjacent comment carried ANY guest address
+QUALIFIED_RE = re.compile(r'\b[A-Z]\w*::\w+')
+
+
+def decl_tag_verdict(sym, first_line, gen_funcs):
+    """(ADDR, "") if `first_line` is a genuine ownership tag for `sym`; (None, why) if it is refused.
+
+    Pure, so --selftest can drive it with synthetic tags -- both a shape that MUST be refused and a
+    control that MUST be accepted -- rather than pinning tree addresses that rot."""
+    m3 = re.search(r'FUN_(8[0-9a-fA-F]{7})|0x(8[0-9A-Fa-f]{7})', first_line)
+    if not m3:
+        return None, ""                      # no address at all: not a rejection, just not a tag
+    addr = (m3.group(1) or m3.group(2)).upper()
+    # GUARD 1 -- CROSS-REFERENCE, NOT A CLAIM. mesh_quads.h:36 reads
+    # `// Math::rotmat (FUN_80085480) element math on three Euler angles` above `static void rotmat`:
+    # the address belongs to the OTHER native the line names, and gte_math.cpp both defines and
+    # INSTALLS it. Indexing it here produced a bogus DUAL-OWNERSHIP warning on `--conflicts` -- a
+    # name collision (both classes have a `rotmat`) reported as two natives claiming one guest fn.
+    # A qualified `Foo::bar` other than the declared symbol, LEFT of the address, is that shape.
+    # Directional on purpose: refusing fails SAFE (a loud "NO native owner"), accepting fails SILENT.
+    others = [q for q in QUALIFIED_RE.findall(first_line[:m3.start()]) if q != sym]
+    if others:
+        return None, (f"the tag names {others[0]} BEFORE the address, so 0x{addr} is a cross-reference "
+                      f"to that native, not an ownership claim by {sym}")
+    # GUARD 2 -- NOT A FUNCTION (see load_recomp_funcs). Disabled, loudly, when the oracle is absent.
+    if gen_funcs and addr not in gen_funcs:
+        return None, (f"0x{addr} has NO recompiled function body in generated/ -- it is a DATA address "
+                      f"this comment merely mentions, so it cannot be {sym}'s guest function")
+    return addr, ""
+
 
 def scan_decl_tags(files):
     """A second, ORTHOGONAL source of address ownership beyond load_override_table/
@@ -359,12 +430,16 @@ def scan_decl_tags(files):
             first_line = defcomment or (comment_above(lines, i))
             if not first_line:
                 continue
-            m3 = re.search(r'FUN_(8[0-9a-fA-F]{7})|0x(8[0-9A-Fa-f]{7})', first_line)
-            if not m3:
-                continue
-            addrs = [(m3.group(1) or m3.group(2)).upper()]
             sym = f"{class_stack[-1][0]}::{dm.group(1)}"
-            for a in addrs:
+            addr, why = decl_tag_verdict(sym, first_line, GEN_FUNCS)
+            if addr or why:
+                DECL_TAG_SEEN[0] += 1
+            if why:
+                DECL_TAG_REJECTS.append((sym, os.path.relpath(path, ROOT), i + 1, why))
+                continue
+            if not addr:
+                continue
+            for a in [addr]:
                 tags.setdefault(sym, [])
                 if a not in tags[sym]:
                     tags[sym].append(a)
@@ -1199,6 +1274,53 @@ def selftest():
         fails.append("the deliberately-absent filter fires on a step with NO absent: field")
     if not [s for s in portmap_hits(probe, "80000000", ["nowhere/none.cpp"]) if s["absent"]]:
         fails.append("the deliberately-absent filter does NOT fire on the OWNER-FILE key")
+    # PROVE THE DECL-TAG GUARDS FIRE, AND THAT THEY ARE NOT A BLANKET NO. Both guards refuse a
+    # candidate ownership tag, and a refusal is invisible in the index -- exactly the shape that rots
+    # into either a blanket no (every tag refused, --addr goes quiet tree-wide) or a dead guard (the
+    # regression that put a DATA address in the index as a LIVE function owner). Synthetic fixtures,
+    # so nothing here can rot with a tree address; the ACCEPT controls are the half that matters.
+    ORACLE = {"80085480", "800AAAAA"}
+    guard_cases = [
+        ("MeshQuads::rotmat", "// Math::rotmat (FUN_80085480) element math on three Euler angles.",
+         None, "cross-reference: another native named before the address"),
+        ("MeshQuads::trig",   "// The engine's packed sin/cos LUT at 0x800A6490 (word = cos<<16|sin)",
+         None, "not-a-function: no recompiled body for that address"),
+        ("Math::rotmat",      "// Math::rotmat (FUN_80085480) -- libgte RotMatrix.",
+         "80085480", "ACCEPT control: the qualified name IS the declared symbol"),
+        ("Trig::rsin",        "// rsin(a): guest 0x800AAAAA. Reads the LUT that FUN_80085480 also uses.",
+         "800AAAAA", "ACCEPT control: colon-style tag, later address is description prose"),
+        ("Foo::bar",          "// plain prose with no address at all",
+         None, "no address: not a tag, and not counted as a rejection"),
+    ]
+    for csym, cline, want, why in guard_cases:
+        got, cwhy = decl_tag_verdict(csym, cline, ORACLE)
+        ok = got == want
+        print(f"  [{'ok ' if ok else 'FAIL'}] decl-tag guard: {why} -> "
+              f"{('0x' + got) if got else 'refused/none'}")
+        if not ok:
+            fails.append(f"decl-tag guard fixture ({why}) returned {got!r}, expected {want!r} "
+                         f"[{cwhy or 'no reason given'}]")
+    # ...and that the guard is DISABLED, not inverted, when the oracle is missing.
+    if decl_tag_verdict("MeshQuads::trig", "// LUT at 0x800A6490", set())[0] != "800A6490":
+        fails.append("the not-a-function guard still rejects with an EMPTY oracle -- a missing "
+                     "generated/ must disable the guard, never reject every tag")
+    # On the REAL tree both reasons must have live examples: a guard with zero hits is unasserted.
+    r_xref = [r for r in DECL_TAG_REJECTS if "cross-reference" in r[3]]
+    r_data = [r for r in DECL_TAG_REJECTS if "NO recompiled function body" in r[3]]
+    print(f"  [{'ok ' if GEN_FUNCS else 'WARN'}] recompiled-function oracle: {len(GEN_FUNCS)} guest "
+          f"function bodies in generated/ (floor {GEN_MIN})"
+          + (f" -- UNAVAILABLE: {GEN_NOTE}" if GEN_NOTE else ""))
+    print(f"  [ -- ] decl-tag guards refused {len(DECL_TAG_REJECTS)} of {DECL_TAG_SEEN[0]} "
+          f"address-carrying declaration tag(s): "
+          f"{len(r_xref)} cross-reference, {len(r_data)} not-a-function"
+          + (f" (first: {r_xref[0][1]}:{r_xref[0][2]} {r_xref[0][0]})" if r_xref else "")
+          + (f" (first: {r_data[0][1]}:{r_data[0][2]} {r_data[0][0]})" if r_data else ""))
+    if not r_xref:
+        fails.append("the decl-tag CROSS-REFERENCE guard refused nothing in this tree -- it is "
+                     "asserted only by a synthetic fixture; if the tree genuinely no longer holds "
+                     "the shape, say so here rather than leaving a guard nothing measures")
+    if GEN_FUNCS and not r_data:
+        fails.append("the decl-tag NOT-A-FUNCTION guard refused nothing in this tree -- same problem")
     real_absent = [s for s in pm_steps if s["absent"]]
     print(f"  [{'ok ' if real_absent else 'FAIL'}] {PORTMAP_DOC} carries {len(real_absent)} step(s) "
           f"with an `absent:` field (of {len(pm_steps)}); the filter is exercised on a fixture too")
@@ -1326,6 +1448,12 @@ def main():
         inst = sites.get(a.zfill(8), [])
         if not owners and not hle:
             print(f"0x{a}: NO native owner found.")
+            for rsym, rfile, rline, rwhy in DECL_TAG_REJECTS:
+                if f"0x{a.upper()}" in rwhy or a.upper() in rwhy:
+                    print(f"    NOTE: a header declaration tag for {rsym} ({rfile}:{rline}) mentions "
+                          f"this address and was REFUSED -- {rwhy}")
+            if GEN_NOTE:
+                print(f"    WARNING: not-a-function guard DISABLED -- {GEN_NOTE}")
             # State the reach of that negative: what was actually searched, with its DENOMINATOR, and
             # what this method genuinely cannot see. A bare "NO native owner" from a scan that
             # silently saw nothing is a lie — and so is a blind-spot list that names the wrong blind
