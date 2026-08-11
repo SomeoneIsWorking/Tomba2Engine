@@ -23,6 +23,7 @@
 // class ProjParams (per-Core) — depth-normalize + set-plane-H + camview publish. Header brings in the
 // free-function bridges (proj_pz_to_ord / proj_set_H / camview_publish) used below.
 #include "proj_params.h"
+#include "producer_scope.h"   // ProducerScope — producer identity for the graphics-producer DB
 // sv = the quad's 4 VIEW-SPACE verts (x,y,z) for the shadow map (NULL = no cast); carried on the queued
 // item so it rebuilds per present pass (render_queue.h sh_cast) — no separate shadow stream / keep_shadow.
 int   gpu_vk_shadows_active(void);
@@ -80,9 +81,18 @@ static void terrain_obj_matrix_host(Core* c, uint32_t node, int16_t m[9]) {
 }
 
 // gen_func_8002AB5C, rebuilt PC-native. a0(=r4) = the terrain render-list node.
+// The guest fn this pass rebuilds. It is the row the graphics-producer DB attributes these prims to on
+// BOTH legs: gen_func_8002AB5C is reached through the render-command dispatch (indirect), so OtAttr's
+// shadow stack names it on the guest leg too — see fx_plume.cpp for why keying the indirectly-dispatched
+// fn rather than a shared writer is what makes the two legs comparable.
+static constexpr uint32_t kGuestTerrainRender = 0x8002AB5Cu;
+
 void NativeScenePass::terrainRender() {
   Core* c = mCore;
   uint32_t node = c->r[4];
+  // Measured before this scope existed: the WORLD layer carried 985,359 undeclared prims of 1,318,100
+  // in a 500-frame replay — the largest single block of un-attributed native drawing.
+  ProducerScope producerScope(&c->rsub.producerScope, kGuestTerrainRender, "terrainRender");
   // ---- read scene data as FLOAT ----------------------------------------------------------------------
   // object rotation matrix — host-computed (read-only), /4096.
   int16_t mobj[9]; terrain_obj_matrix_host(c, node, mobj);
