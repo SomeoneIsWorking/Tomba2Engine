@@ -98,6 +98,27 @@ void Render::perObjFlush() {
     }
     return;
   }
+  // Producer DB, native leg (external/psxport/docs/plans/graphics-producer-db.md). This pass is the
+  // PICTURE half of guest FUN_8003CDD8 and was the single largest UNDECLARED block of native prims —
+  // the whole world layer arriving anonymous. It is keyed by the GUEST EMITTER the mode routes to, NOT
+  // by FUN_8003CDD8: the dispatcher is a shared caller, and keying on it would shadow all eleven
+  // per-mode emitters into one meaningless row (producer_scope.h's own warning).
+  //
+  // THE KEY IS A COUNTERFACTUAL, and render.h's banner on resolvePerModeEmitter has the measurement:
+  // the guest dispatch chain does not execute on this leg at all (0 cmdListDispatch calls in a
+  // 200-frame field replay against ~846k world prims drawn here), so this names the emitter the guest
+  // WOULD route to, read from the same guest data perModeDispatch reads. `flag & 1` — which would also
+  // force the generic emitter — belongs to a function that never runs here and is passed as 0.
+  //
+  // NOTE the asymmetry this row EXPOSES rather than hides: the guest routes each cmd to one of eleven
+  // per-mode emitters, while this pass draws every geomblk as generic GT3/GT4 (see the file banner —
+  // the per-mode dispatcher is no longer consulted). A row keyed to a non-generic emitter is therefore
+  // a quantified statement that the native picture is the generic rebuild of a special-cased guest
+  // renderer. That comparison is the point of the DB, not a defect in the key.
+  uint32_t producerCaseLabel = 0;
+  const uint32_t producerKeyAddr = rend(c)->resolvePerModeEmitter(c, /*flag=*/0u, &producerCaseLabel);
+  ProducerScope producerScope(&c->rsub.producerScope, producerKeyAddr, "perObjFlush");
+
   int i = 0;
   while (i < (int)c->mem_r8(node + 8)) {
     uint32_t cmd = c->mem_r32(node + 0xC0 + i * 4);

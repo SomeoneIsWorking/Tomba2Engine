@@ -100,6 +100,36 @@ public:
   int mNativeDrawnFrame = -1;
   bool nativeObjDrawn(Core* c, uint32_t node);   // cmdListDispatch: will perObjFlush draw this node this frame?
 
+  // WHICH GUEST EMITTER perObjFlush's prims STAND IN FOR, for the graphics-producer DB's native leg
+  // (external/psxport/docs/plans/graphics-producer-db.md). perObjFlush is the picture half of guest
+  // FUN_8003CDD8 and draws every per-object geomblk as generic GT3/GT4, but the GUEST routes each cmd
+  // through perModeDispatch to ONE OF ELEVEN per-mode emitters — so the row is keyed by the per-mode
+  // emitter, not by FUN_8003CDD8. Keying on the dispatcher would be the failure producer_scope.h's own
+  // comment warns about: a shared CALLER shadowing every real emitter and collapsing the entire world
+  // layer into one meaningless row.
+  //
+  // THE KEY IS RESOLVED FROM DATA, AND IT IS A COUNTERFACTUAL — measured 2026-08-12, stated because it
+  // decides how the row may be read. The guest per-object dispatch chain (FUN_8003CCA4 -> FUN_8003CDD8
+  // -> FUN_8003F698) does NOT EXECUTE on the leg where the native producer census measures: a 200-frame
+  // field replay on the gate leg logged ZERO cmdListDispatch calls while perObjFlush drew ~846k world
+  // prims. So an earlier design that had cmdListDispatch RECORD the routing for perObjFlush to read was
+  // dead by construction — there is no recorder, and there is no runtime guest side for the world layer
+  // to be compared against either. The key therefore names the emitter the guest WOULD route this mode
+  // to, resolved from the same guest data perModeDispatch reads (MODE_FORCE, MODE_BYTE, MODE_TABLE).
+  // That is the correct ROW IDENTITY (it names the emitter family) and the census keeps it honest by
+  // reporting primsGuest separately — which stays 0 for these rows, because nothing guest-side ran.
+  //
+  // ONE INPUT IS UNOBSERVABLE HERE: `flag & 1` also forces the generic emitter, and `flag` is a per-call
+  // argument of FUN_8003CDD8 — a function that never runs on this leg, so the value cannot be sampled
+  // even in principle. The key is resolved with flag = 0 (routing enabled). A cmd the guest would have
+  // forced generic is therefore keyed to its per-mode emitter instead. Not measurable from here; it is
+  // named at the call site rather than left as a silent inaccuracy.
+  //
+  // FUN_8003F698's routing rule, in ONE place: which guest emitter a cmd with this `flag` reaches.
+  // `*caseLabelOut` = the jump-table label used, or 0 for the generic-emitter path. perModeDispatch
+  // dispatches through it; the producer DB keys perObjFlush's rows by it.
+  uint32_t resolvePerModeEmitter(Core* c, uint32_t flag, uint32_t* caseLabelOut);
+
   // ---- object-render projection ops (impl in projection.cpp) ----------
   // Compose an EObjXform from the object's REAL WORLD coordinates: its world rotation matrix (cmd+0x18)
   // and world position (cmd+0x2C), transformed by the live scene camera (scratchpad view matrix

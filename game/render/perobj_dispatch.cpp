@@ -58,6 +58,8 @@
 #include "cfg.h"
 #include "guest_abi.h"   // GuestFrame/guest_dispatch — perModeDispatch's demo migration (docs/port-framework.md)
 #include "render_internal.h"   // render_field_native_active (REDIRECT below)
+#include "producer_scope.h"    // ProducerScope — graphics-producer DB, native leg
+#include <lucent/log.h>
 
 void rec_dispatch(Core*, uint32_t);          // overlay_router.cpp — the shared choke point for owned/substrate leaves
 void func_800803DC(Core*);                    // generated/shard_disp.c — generic GT3/GT4 packet emitter (still substrate)
@@ -112,6 +114,8 @@ constexpr uint32_t OTBASE_PTR = 0x800ED8C8u;   // *this = the active ordering-ta
 constexpr uint32_t MODE_BYTE  = 0x800BF870u;   // *this = render-mode select (0..0x15)
 constexpr uint32_t MODE_FORCE = 0x1F800234u;   // *this != 0 forces the generic GT3/GT4 path
 constexpr uint32_t MODE_TABLE = 0x80015268u;   // 22-entry jump table: mode -> per-mode renderer addr
+// The generic GT3/GT4 packet emitter every non-routed cmd falls through to (still substrate).
+constexpr uint32_t GENERIC_EMITTER = 0x800803DCu;
 constexpr uint32_t MVMVA_ROTCOL = 0x4A49E012u; // MVMVA: camera-rot(CR0-4) x IR vector -> composed col
 constexpr uint32_t MVMVA_TRANS  = 0x4A486012u; // MVMVA: camera-rot(CR0-4) x V0 (object world position)
 }
@@ -230,12 +234,16 @@ void Render::cmdListDispatch() {
     // only writer): nodes on OTHER walk lists perObjFlush never visits (e.g. the Bcf4 aux list the
     // REDIRECT below exists for) are simply absent, so they stay uncovered unless redirectGeneric's
     // own inline native draw covers them.
+    // The guest emitter this cmd resolves to, through the SAME rule perModeDispatch dispatches on (it
+    // was a third hand-written copy of "MODE_FORCE, flag&1, mode<22, table lookup" here until the
+    // resolver existed).
+    uint32_t emitterCaseLabel = 0;
+    const uint32_t cmdEmitter = resolvePerModeEmitter(c, flag, &emitterCaseLabel);
+
     bool nodeNativeCovered = render_field_native_active(c) && rend(c)->nativeObjDrawn(c, node);
     bool redirectGeneric = false;
     if (render_field_native_active(c)) {
-      const uint32_t modeByte = c->mem_r8(MODE_BYTE);
-      redirectGeneric = c->mem_r8(MODE_FORCE) == 0 && (flag & 1u) == 0 && modeByte < 22 &&
-                        perModeCaseTarget(c->mem_r32(MODE_TABLE + modeByte * 4u)) == 0x80146478u;
+      redirectGeneric = (cmdEmitter == 0x80146478u);
       if (redirectGeneric && !nodeNativeCovered) {
         if (cfg_dbg("redirect")) { static long n=0; if (n++%256==0)
           cfg_logf("redirect", "cmdListDispatch node=%08X cmd=%08X geomblk=%08X otbase=%08X", node, cmd, geomblk, otbase); }
@@ -245,6 +253,10 @@ void Render::cmdListDispatch() {
         // JUST this block, not the whole function, the same discipline game_tomba2.cpp's
         // Engine::drawOTag uses around sceneNative().
         DisplayPassGuard displayPass(c->rsub.mode);
+        // Producer DB: this native draw stands in for the generic-overlay emitter FUN_80146478 it is
+        // replacing, so it lands in THAT emitter's row — the same row perObjFlush feeds for nodes it
+        // reaches. Keying it on cmdListDispatch instead would shadow the real emitter (producer_scope.h).
+        ProducerScope redirectScope(&c->rsub.producerScope, cmdEmitter, "cmdListDispatch:redirectGeneric");
         c->rsub.diag.beginObject(node);           // real dbg_node identity for this cmd's RqItems
         EObjXform w; rend(c)->projComposeObject(cmd, &w); rend(c)->projSetActive(&w);
         rend(c)->gt3gt4(geomblk, otbase);           // the real picture: native float, real per-vertex depth
@@ -316,28 +328,49 @@ static uint32_t perModeCaseTarget(uint32_t caseLabel) {
 // (0x801FE8D0..). Mirrored below per CLAUDE.md ("MIRROR THE GUEST STACK... register-faithfulness").
 static uint32_t perModeCaseReturnAddr(uint32_t caseLabel) { return caseLabel + 8u; }
 
+// WHICH GUEST EMITTER a cmd with this `flag` resolves to — the ONE encoding of FUN_8003F698's routing
+// rule, consumed both by perModeDispatch below (which dispatches to it) and by the graphics-producer
+// DB (which KEYS perObjFlush's native prims by it — see render.h's banner on the key). Two consumers, one
+// rule, deliberately: a second hand-written copy of "MODE_FORCE, flag&1, mode<22, table, generic
+// fallback" would drift, and a DB row keyed by a drifted rule names the wrong producer while looking
+// perfectly plausible.
+//
+// `*caseLabelOut` is the jump-table label the mode resolved to, or ZERO for the generic path — which
+// is what tells perModeDispatch whether it dispatches through a label (needing that label's own RE'd
+// return-address constant) or falls through to the generic emitter. The generic path deliberately
+// reports caseLabel 0 for BOTH of its shapes: routing disabled/out-of-range, and the recognized
+// generic label 0x8003F788 whose body is just `func_800803DC(c)`.
+uint32_t Render::resolvePerModeEmitter(Core* c, uint32_t flag, uint32_t* caseLabelOut) {
+  *caseLabelOut = 0;
+  if (c->mem_r8(MODE_FORCE) == 0 && (flag & 1u) == 0) {
+    const uint32_t mode = c->mem_r8(MODE_BYTE);
+    if (mode < 22) {
+      const uint32_t caseLabel = c->mem_r32(MODE_TABLE + mode * 4);
+      const uint32_t target = perModeCaseTarget(caseLabel);
+      if (target != 0) { *caseLabelOut = caseLabel; return target; }
+      // caseLabel == 0x8003F788 (or an unrecognized label) -> the recomp's own `default:
+      // rec_dispatch(c, c->r[2])` would dispatch the RAW label address here; since 0x8003F788 IS the
+      // generic-fallback label (whose body is just `func_800803DC(c)`, no rec_dispatch), reproduce
+      // that directly rather than rec_dispatch-ing a label address that has no recompiled entry.
+      if (caseLabel != 0x8003F788u) { *caseLabelOut = caseLabel; return caseLabel; }
+    }
+  }
+  return GENERIC_EMITTER;
+}
+
 // FUN_8003F698 — per-mode render dispatcher: routes to the area's per-mode renderer (mode-select byte
 // + jump table) or the generic GT3/GT4 packet emitter (func_800803DC).
 void Render::perModeDispatch() {
   Core* c = mCore;
   GuestFrame<24, 1> frame(c, kSpills_8003F698);   // real -24 guest frame (RE: gen_func_8003F698 prologue, ra spill only)
   const uint32_t flag = c->r[6];
-  if (c->mem_r8(MODE_FORCE) == 0 && (flag & 1u) == 0) {
-    const uint32_t mode = c->mem_r8(MODE_BYTE);
-    if (mode < 22) {
-      const uint32_t caseLabel = c->mem_r32(MODE_TABLE + mode * 4);
-      const uint32_t target = perModeCaseTarget(caseLabel);
-      if (target != 0) { guest_dispatch(c, perModeCaseReturnAddr(caseLabel), target); return; }
-      // caseLabel == 0x8003F788 (or an unrecognized label) -> the recomp's own `default:
-      // rec_dispatch(c, c->r[2])` would dispatch the RAW label address here; since 0x8003F788 IS the
-      // generic-fallback label (whose body is just `func_800803DC(c)`, no rec_dispatch), reproduce
-      // that directly rather than rec_dispatch-ing a label address that has no recompiled entry.
-      if (caseLabel != 0x8003F788u) { guest_dispatch(c, perModeCaseReturnAddr(caseLabel), caseLabel); return; }
-    }
-  }
+  uint32_t caseLabel = 0;
+  const uint32_t emitter = resolvePerModeEmitter(c, flag, &caseLabel);
+  if (caseLabel != 0) { guest_dispatch(c, perModeCaseReturnAddr(caseLabel), emitter); return; }
   c->r[31] = 0x8003F790u;   // RE'd: L_8003F788's own r31 set before func_800803DC (the generic label)
   func_800803DC(c);
 }
+
 
 namespace {
 void ov_cmdListDispatch(Core* c) { rend(c)->cmdListDispatch(); }
