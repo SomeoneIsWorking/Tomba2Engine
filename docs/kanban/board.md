@@ -3,9 +3,8 @@
 > The project bug/issue tracker. Managed by `tools/kanban.py` (see skill `bug-tracker`).
 > Cards live in `docs/kanban/cards/`; evidence images in `docs/reference/issues/`.
 
-## BACKLOG (2)
+## BACKLOG (1)
 - **#86 SBS-full driven by REPL 'newgame' (no AUTONAV) dies on an unmapped read in Render::fieldObjectsRender under renderAttract**  `bug,verification`
-- **#87 Producer census guest rows all report 'frames 1 (f3..f3)' — gpu.s_frame counts presents**  `bug,render`
 
 ## TODO (34)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
@@ -51,7 +50,7 @@
 - **#74 Interior wall decors missing (suspect depth / coincident-face ordering)**  `render` — 📎 docs/reference/issues/issue74_house_pc_render_decor_missing.png,     docs/reference/issues/issue74_house_psx_render_decor_present.png
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 
-## DONE (46)
+## DONE (47)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -98,3 +97,4 @@
 - **#79 dev tp was a silent no-op outside the follow-camera mode — FIXED**  `tooling`
 - **#83 Hotkey to cycle the render path live: PC-native / PC-from-GTE / pure PSX rasterizer**  `render`
 - **#85 Producer DB guest leg keys the EMITTER frame while native rows key the HANDLER — 2 of 25 keys coincide, every guest row reads native 0**  `bug,render`
+- **#87 Producer census guest rows all report 'frames 1 (f3..f3)' — gpu.s_frame counts presents**  `bug,render`
