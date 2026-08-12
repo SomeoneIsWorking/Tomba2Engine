@@ -393,7 +393,7 @@ def color(s, c):
     return s if not sys.stdout.isatty() else f"{c}{s}{OFF}"
 
 
-def report(findings, scope, commits):
+def report(findings, scope, commits, current_only=False):
     by = {"copyright": [], "paths": [], "gitignore": []}
     for f in findings:
         by[f["check"]].append(f)
@@ -468,17 +468,33 @@ def report(findings, scope, commits):
         print(color("        Commit first, then re-run. (A 'clean' result here would mean "
                     "'looked at nothing'.)", DIM))
         return 2
-    print(color(f"scanned {commits} commit(s) of history", DIM))
+    # SAY WHAT WAS ACTUALLY SCANNED. Under `--current` this printed "scanned N commit(s) of history"
+    # and then recommended history rewriting — while having scanned only the working tree and HEAD.
+    # That misdirects the reader toward `filter-repo` + a force-push (destructive, and on a published
+    # repo it rewrites what others have already fetched) when the real fix is an edit and a commit.
+    # It cost real time on 2026-08-12: three HEAD-only leaks in this repo read as a history leak.
+    if current_only:
+        print(color(f"scanned the WORKING TREE + HEAD only — history NOT scanned "
+                    f"({commits} commit(s) exist and were skipped; run without --current for those)", DIM))
+    else:
+        print(color(f"scanned {commits} commit(s) of history", DIM))
 
     if n == 0:
-        print(color("RESULT: clean ✓ — ready to publish", GRN + BOLD))
+        # Scope-qualified, because "clean" over a partial scan is the same lie in a friendlier tone.
+        print(color("RESULT: clean ✓ — ready to publish" if not current_only else
+                    "RESULT: working tree + HEAD clean ✓ — says NOTHING about history; "
+                    "run without --current before publishing", GRN + BOLD))
     elif hard == 0:
         print(color(f"RESULT: 0 blocking, {soft} to review — likely OK after a look", YEL + BOLD))
         print(color("        review items are usually portable/intentional; confirm each.", DIM))
     else:
         print(color(f"RESULT: {hard} BLOCKING + {soft} to review — NOT ready to publish",
                     RED + BOLD))
-        print(color("        history rewriting is destructive; see SKILL.md remediation flow.", DIM))
+        if current_only:
+            print(color("        these are in the WORKING TREE / HEAD, so the fix is an EDIT plus a "
+                        "commit — do NOT reach for history rewriting for these.", DIM))
+        else:
+            print(color("        history rewriting is destructive; see SKILL.md remediation flow.", DIM))
     return hard
 
 
@@ -627,7 +643,7 @@ def main(argv=None):
         commits = int(run(["git", "rev-list", "--all", "--count"], cwd=cwd).strip() or "0")
     except Fail:
         commits = 0            # `rev-list` fails on a repo with no commits — that IS zero history
-    n = report(findings, scope, commits)
+    n = report(findings, scope, commits, current_only=args.current)
     return 1 if n else 0
 
 

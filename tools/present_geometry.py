@@ -9,7 +9,7 @@ DUPLICATED FILE, AND ONE COPY IS CURRENTLY STALE. It lives in THREE repos:
                                             band-only aspect (see THE CONFOUNDER below). Fix it with
                                             `cp spyro/tools/present_geometry.py spider1/tools/`.
 
-A fix in one MUST be propagated to the others. `md5sum */tools/present_geometry.py` from ~/repo/psx
+A fix in one MUST be propagated to the others. `md5sum */tools/present_geometry.py` from the workspace root ($PSX)
 tells you whether they have drifted — run it before trusting a result from any copy, because two of
 them disagree about the same frame today.
 
