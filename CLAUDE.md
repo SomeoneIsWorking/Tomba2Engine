@@ -64,6 +64,17 @@ recomp_path, byte-comparing guest RAM step-for-step with `mPcSkip=false` on both
 no allowlist, no residual list, no "known diff". A diff means pc_faithful is wrong (usually) or
 recomp_path is wrong (rare — recomp has its own bugs; validate against the running game).
 
+**BUT core B IS NOT AN INDEPENDENT ORACLE, and the USER is right that it should be.** USER, 2026-08-12:
+*"oracle compare should be done against a verified emulator like beetle imo, not our unverified
+'faithful' path"*. Both cores are OUR code, written from the same reading of the same disassembly, so a
+shared wrong assumption reads as SUCCESS — the architecture-level form of an instrument that cannot show
+the other answer. The MECHANISM is sound and stays: byte-exact, lockstep, no allowlist, and its
+`PSXPORT_SBS_CANARY` self-test demonstrably works (measured 2026-08-12: canary at f60 tripped on the
+exact address, after identical at f0/f30). What changes is the REFERENCE. Plan, with the measured
+feasibility and the one hard part (we HLE the BIOS, Beetle executes it):
+`external/psxport/docs/plans/oracle-against-beetle.md`. Until that lands, read a green SBS run as
+"our two implementations agree", never as "the port is faithful".
+
 **Job #1 — right now.** Run SBS full, find the first pc_faithful divergence, root-cause it, fix. Repeat
 until zero-diff. Rendering bugs are deferred UNTIL (a) zero-diff is reached, OR (b) an SBS diff traces
 back to pc_render writing to guest memory.
