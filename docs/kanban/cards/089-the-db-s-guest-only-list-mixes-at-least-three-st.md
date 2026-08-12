@@ -1,8 +1,8 @@
 ---
 id: 89
 title: The DB's guest-only list mixes at least three states — it is NOT a work-remaining ranking
-status: todo
-labels: [bug,render]
+status: done
+labels: [bug, render]
 created: 2026-08-12
 updated: 2026-08-12
 ---
@@ -16,3 +16,5 @@ updated: 2026-08-12
 (3) SDK libgs builders, 0x80080000 / 0x8008007C / 0x8007FDB0 — kanban #88.
 
 WHAT TO DO: the DB needs to REPORT these three states separately rather than leaving a reader to derive them, because the undifferentiated list invites exactly the wrong conclusion (it invited mine). The data is already present per row (has_native, native_reached, prims_native), so this is a reporting change in producers.py plus a schema note, not new instrumentation. Until then, do NOT quote the guest-only count as work remaining.
+
+**2026-08-12:** 2026-08-12 FIXED: tools/producers.py report now breaks the guest-only rows into the three states (16 not override-installed / 11 installed-but-never-reached / 0 reached-yet-pushed-nothing) and says in the output itself that this is NOT a work-remaining ranking, naming the reason (a byte-faithful guest-writing emitter is natively owned and still draws through the guest packet path, so it can never open a ProducerScope) and pointing at codemap.py --addr to identify a row before calling it unported. No new instrumentation — every number comes from fields already in the schema.

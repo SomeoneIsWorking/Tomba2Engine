@@ -345,6 +345,31 @@ def cmd_report(args) -> int:
     if not owned and drawing:
         print("    NOTE: 0 override-installed with rows actively drawing is EXPECTED here, not a defect —"
               "\n          these are display-pass producers; the guest functions stay on the substrate.")
+    # THE GUEST-ONLY BREAKDOWN. A row with guest prims and NO native prims reads as "this effect has no
+    # native producer" — and for a third of them that is FALSE. Reported as three separate states because
+    # the undifferentiated count invited exactly the wrong conclusion once already (kanban #89: it was
+    # quoted as a ranked work-remaining list, when 11 of 27 rows were natively OWNED emitters). Every
+    # number here comes from fields already in the schema; nothing new is measured.
+    guest_only = [r for r in rows.values()
+                  if int(r.front.get("prims_guest_max", 0) or 0) > 0
+                  and int(r.front.get("prims_native_max", 0) or 0) == 0]
+    go_owned_unreached = [r for r in guest_only
+                          if r.front.get("has_native") and not r.front.get("native_reached")]
+    go_owned_reached = [r for r in guest_only
+                        if r.front.get("has_native") and r.front.get("native_reached")]
+    go_unowned = [r for r in guest_only if not r.front.get("has_native")]
+    if guest_only:
+        print(f"  GUEST-ONLY rows (the guest drew, no native producer pushed): {len(guest_only)}")
+        print(f"    NOT override-installed — no native owns the address: {len(go_unowned)}")
+        print(f"    override-installed but the native was NEVER REACHED while the guest drew: "
+              f"{len(go_owned_unreached)}")
+        print(f"    override-installed AND reached, yet pushed no prims: {len(go_owned_reached)}")
+        print("    THIS IS NOT A WORK-REMAINING RANKING, and the middle group is why: a byte-faithful")
+        print("    guest-WRITING emitter is natively owned and still produces the picture through the")
+        print("    guest packet path, so it can never open a ProducerScope and can never become a claim.")
+        print("    An address in the first group may also already have a native reimplementation that")
+        print("    installs no override, or a native producer under a DIFFERENT key. Identify a row with")
+        print("    `tools/codemap.py --addr <key>` before calling it unported.")
     print(f"  curated re_status == ported: {len(ported)}/{len(rows)}")
     print(f"  peak prims: guest {guest_prims}  native {nat_prims}")
     print()
