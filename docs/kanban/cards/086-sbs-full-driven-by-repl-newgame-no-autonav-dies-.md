@@ -1,10 +1,12 @@
 ---
 id: 86
 title: SBS-full driven by REPL 'newgame' (no AUTONAV) dies on an unmapped read in Render::fieldObjectsRender under renderAttract
-status: backlog
-labels: [bug,verification]
+status: todo
+labels: [bug, verification]
 created: 2026-08-12
 updated: 2026-08-12
 ---
 
 2026-08-12: 'newgame; run 200' piped to the REPL with PSXPORT_SBS_MODE=full aborts fail-fast on UNMAPPED RAM read8 @ 0x07035D41 from Render::fieldObjectsRender <- sceneNative <- renderAttract <- Engine::drawOTag, on core A. The documented gate legs (AUTONAV=combat / AUTONAV=1 WATCH_CUT) are byte-exact on the same binary, and plain pc_faithful with the same REPL script exits 0, so this is specific to SBS + REPL-driven newgame reaching ATTRACT-mode pc_render. NOT established whether it predates 38cec620 — the discriminator (same run on an unmodified substrate) was not paid for, because the documented legs answered the gating question. If SBS is ever driven by REPL script, root-cause this first.
+
+**2026-08-12:** 2026-08-12 RESOLVED AS PRE-EXISTING, and this card's premise was wrong in two ways. (1) PRE-EXISTING BY 8 DAYS: scratch/logs/sbs.log and scratch/logs/sbs_base.log, both 2026-08-04 23:32/23:33, contain the IDENTICAL fault — same address 0x07035D41, same read8, same chain Core::mem_r8 <- Render::fieldObjectsRender+0x112 <- sceneNative <- renderAttract <- Engine::drawOTag <- Sbs::Impl::run — from a binary built 8 days before 38cec620 existed. Two more reproductions predate 38cec620 within today itself (sbs-permode.log 00:07, sbs-guestleg.log 04:08; 38cec620 landed 04:18). Verified by me: both Aug-4 logs grep positive for 07035D41. Today's framework work is host-side only (shadow-stack push/pop + census bookkeeping + a frame stamp) and writes no guest memory, so it cannot reach this pointer. (2) 'REPL-driven newgame' IS NOT THE TRIGGER — under SBS the REPL is never pumped at all, so newgame/run/quit were silently discarded and the run was a plain no-autonav lockstep that never left attract mode. That is its own defect, now card #90. ROOT CAUSE of the fault itself: the node cursor n in Render::fieldObjectsRender's head walk (game/render/render_walk.cpp:933-950) is 0x07035D40 — not a RAM address — and it faults on the first field read of the loop body, mem_r8(n+1), the per-frame visibility marker. So a native field-object pass walks a field object list during ATTRACT, when no field is loaded and the list head holds garbage. Moving to todo as a real (pre-existing) bug with a named cause rather than a today-regression.

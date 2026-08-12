@@ -5399,9 +5399,16 @@ not against this bug.
   backdropRender, 472,384 native prims) which the guest chain never passes through in 20 frames. The join
   works; its headline list does not mean what I first reported, and the undifferentiated count invites the
   wrong conclusion — it invited mine.
-- **residual, filed not waved off**: ~10% of guest prims still key at SDK libgs builders (`0x80080000`,
-  `0x8008007C`) because no frame in their 8-frame window is claimed — kanban #88, with the two candidate
-  causes and the experiment that distinguishes them. The row frame-range field is still wrong (#87).
+- **residual, MEASURED and the label CORRECTED (2026-08-12)**: ~10% of guest prims key at `0x80080000` /
+  `0x8008007C` / `0x8007FDB0`, which this entry first called "SDK libgs builders". **That was wrong.** They
+  are the game's OWN POLY_GT3/GT4 submit leaves, already native-owned as `ov_submit_poly_gt3`/`gt4`
+  (`game/render/submit.cpp:59` names all three); they merely sit inside the 0x80080000-0x8009E000 band
+  `sync_overrides.cpp` calls the SCEI library window. The label mattered — "SDK" reads as "not our code,
+  nothing to do", when the code is ours and already ported. Cause is settled and the widen-the-window
+  theory is dead: NO frame anywhere on those chains is a claim, out to the root at depth 28. The fix is a
+  `ProducerScope` on the per-mode guest emitter the command routes to (`0x800803DC`, the generic GT3/GT4
+  case) per the keying rule in `render_walk.cpp:101-119` — never the shared dispatcher, which would shadow
+  all eleven per-mode emitters into one row, and never a leaf. Kanban #88. The row frame-range field is still wrong (#87).
 - **verified**: framework ctest 35/35 (incl. a new CVar compatibility gate); boot gate PASS (401 frames);
   SBS-full AUTONAV=combat 0 `sbs-div` across 82 checkpoints to f2400.
 - **refs**: `external/psxport/runtime/recomp/ot_attr.{h,cpp}` (`sampleChain`/`reportChains`/

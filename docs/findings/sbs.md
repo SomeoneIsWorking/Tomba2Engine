@@ -2213,3 +2213,29 @@ PSXPORT_SBS_EXIT_FRAME, PSXPORT_SBS_SHOT in config.md.
 - **NOT established:** whether any of these 20 currently diverges under SBS. port_check is a static
   gate; a FAIL here is a strong smell, not a measured runtime divergence.
 - **refs:** external/psxport/tools/port_check.py (main); instruments I029, I030; claim C026
+
+## PRE-EXISTING (not a today regression): unmapped read8 @ 0x07035D41 in fieldObjectsRender under ATTRACT (2026-08-12)
+
+- **symptom**: an SBS-full run aborts fail-fast on `UNMAPPED RAM read8 @ 0x07035D41` from
+  `Core::mem_r8 <- Render::fieldObjectsRender+0x112 <- Render::sceneNative <- Render::renderAttract <-
+  Engine::drawOTag <- Sbs::Impl::run`, on core A.
+- **status**: PRE-EXISTING by at least 8 days; root cause named, not yet fixed (kanban #86, todo).
+- **cause**: the node cursor `n` in `Render::fieldObjectsRender`'s head walk
+  (`game/render/render_walk.cpp:933-950`) is `0x07035D40` — not a RAM address at all (main RAM is
+  0x00000000-0x001FFFFF) — and it faults on the FIRST field read of the loop body, `mem_r8(n + 1)`, the
+  per-frame visibility marker. So a native field-object pass walks a field-object list during ATTRACT,
+  when no field is loaded and the list head holds garbage.
+- **proof it predates today's framework work**: `scratch/logs/sbs.log` and `scratch/logs/sbs_base.log`,
+  both dated 2026-08-04 23:32/23:33, contain the IDENTICAL fault — same address, same read8, same six-frame
+  chain — from a binary built 8 days before `38cec620` existed. Two further reproductions predate that
+  commit within 2026-08-12 itself (`sbs-permode.log` 00:07, `sbs-guestleg.log` 04:08; `38cec620` landed
+  04:18). Independently: today's framework work pushes a host-side shadow stack, keeps census counters and
+  changes a frame stamp — it writes no guest memory and cannot alter a list head.
+- **THE CARD'S ORIGINAL PREMISE WAS AN ARTIFACT, and this is the reusable part**: it blamed "SBS + a
+  REPL-driven newgame". Under SBS the REPL is **never pumped** — `repl.read()`'s only caller is the
+  single-core frame loop in `native_boot.cpp`, and `sbs.cpp` never reads stdin. The piped
+  `newgame / run 200 / quit` was silently discarded, so the run never left attract mode. The invocation
+  that "reproduced a newgame bug" had driven nothing. Filed as kanban #90 — silently-skipped input is a
+  failure, not a filter.
+- **refs**: `game/render/render_walk.cpp:933-950`; `scratch/logs/sbs.log`, `sbs_base.log` (2026-08-04);
+  kanban #86, #90.
