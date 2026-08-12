@@ -76,6 +76,21 @@ ENV_AUDIT_RE = re.compile(r'env audit AT EXIT[^\n]*')
 AUDIT_UNKNOWN_RE = re.compile(r'env audit AT EXIT[^\n]*?(\d+) UNKNOWN')
 
 
+def _binary_identity() -> dict:
+    """md5 + mtime of the binary about to run. md5 because mtime alone cannot tell a rebuild of the same
+    sources from a rebuild of different ones, and a producer claim's whole provenance rests on it."""
+    import hashlib
+    h = hashlib.md5()
+    try:
+        with open(BIN, 'rb') as f:
+            for chunk in iter(lambda: f.read(1 << 20), b''):
+                h.update(chunk)
+        return {'md5': h.hexdigest(),
+                'mtime': time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(os.path.getmtime(BIN)))}
+    except OSError as e:
+        return {'md5': f'UNREADABLE({e.__class__.__name__})', 'mtime': ''}
+
+
 def refuse(msg: str) -> int:
     print(f"GATE REFUSED: {msg}", file=sys.stderr)
     return 2
@@ -109,6 +124,27 @@ def run_gate(script: str, frames_hint: int, debug: str, watchdog: int,
     stamp = time.strftime('%Y%m%d-%H%M%S')
     logpath = os.path.join(LOGDIR, f'gate-{label}-{stamp}.log')
 
+    # THE RUN RECORDS WHICH BINARY PRODUCED IT, because inferring that afterwards is not sound in this
+    # tree. Several sessions share the checkout and rebuild it; measured 2026-08-12, a producer leg
+    # started at 16:13:12 wrote its observations at 16:14:42 and the binary was replaced at 16:14:44 —
+    # two seconds later. Anything dating that run against "the binary on disk" would have described a
+    # build the run never executed. So the identity is captured BEFORE the launch and re-checked AFTER,
+    # and a swap mid-run is recorded as a MISMATCH so the leg is disqualified rather than trusted.
+    # `tools/producers.py stale` reads this file; without it, that tool can only fall back to mtime order.
+    bin_id = _binary_identity()
+    obs_dir = env.get('PSXPORT_PRODUCERS_DIR')
+    runs_before: set[str] = set()
+    if obs_dir:
+        os.makedirs(os.path.join(REPO, obs_dir), exist_ok=True)
+        # WHICH RUN FILES THIS IDENTITY COVERS. A leg dir accumulates one `run-<stamp>.jsonl` per run
+        # while `binary.txt` is a single file describing the LAST launch, so an identity written now would
+        # otherwise vouch for every earlier run in the same dir. Measured 2026-08-12: scratch/k91b/warp9
+        # held a 16:22:00 run made from an earlier build, and `producers.py stale` credited BOTH runs to
+        # the binary built at 16:45:49 — a build the older run cannot have executed. So the record names
+        # the files that APPEARED during this launch, and vouches for nothing else.
+        runs_before = {f for f in os.listdir(os.path.join(REPO, obs_dir))
+                       if f.startswith('run-') and f.endswith('.jsonl')}
+
     t0 = time.time()
     try:
         p = subprocess.run([BIN, EXE], input=script, capture_output=True, text=True,
@@ -120,6 +156,26 @@ def run_gate(script: str, frames_hint: int, debug: str, watchdog: int,
     out = (p.stdout or '') + (p.stderr or '')
     with open(logpath, 'w') as f:
         f.write(out)
+
+    after = _binary_identity()
+    swapped = after['md5'] != bin_id['md5']
+    if obs_dir:
+        now = {f for f in os.listdir(os.path.join(REPO, obs_dir))
+               if f.startswith('run-') and f.endswith('.jsonl')}
+        new_runs = sorted(now - runs_before)
+        with open(os.path.join(REPO, obs_dir, 'binary.txt'), 'w') as f:
+            f.write(f"status={'MISMATCH' if swapped else 'OK'}\n"
+                    f"md5={bin_id['md5']}\nmtime={bin_id['mtime']}\npath={os.path.relpath(BIN, REPO)}\n"
+                    f"md5_after={after['md5']}\nmtime_after={after['mtime']}\nlog={logpath}\n"
+                    f"runs={','.join(new_runs)}\n")
+        if len(now) != len(new_runs):
+            print(f"[gate:{label}] NOTE: {len(now) - len(new_runs)} run file(s) in {obs_dir} predate this "
+                  f"launch; binary.txt vouches ONLY for {new_runs or '(none — this run wrote no run file)'}"
+                  f". A leg dir is cleanest when it holds ONE run.")
+    print(f"[gate:{label}] binary that ran: md5 {bin_id['md5'][:12]} mtime {bin_id['mtime']}"
+          + (f"  <-- REPLACED MID-RUN (now md5 {after['md5'][:12]} mtime {after['mtime']}); another "
+             f"session rebuilt the shared tree, so this run's observations belong to NO identifiable "
+             f"build and must not be used as evidence" if swapped else ""))
 
     lines = out.count('\n')
     if lines == 0:
