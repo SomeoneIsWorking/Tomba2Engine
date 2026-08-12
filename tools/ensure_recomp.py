@@ -40,7 +40,15 @@ AREA_OVERLAYS = ["A0" + c for c in "0123456789ABCDEFGHIJKL"]
 ALL_OVERLAYS = STAGE_OVERLAYS + AREA_OVERLAYS
 
 # Recompiler module sources — a change to any of these changes the emitted C, so they are hash inputs.
-RECOMP_DIR = "external/psxport/tools/recomp"   # the recompiler lives in the psxport framework submodule
+# The recompiler lives in the psxport framework. WHICH CHECKOUT is the same decision CMake already makes:
+# PSXPORT_DIR selects it and defaults to the vendored submodule, so a bare clone of this repo still
+# provisions standalone. Without honouring it, the substrate could ONLY ever be regenerated from the
+# recorded pin — so a framework change to the recompiler was unverifiable end-to-end no matter what
+# PSXPORT_DIR the build used, and the tool would report "up to date" while reading a DIFFERENT emit.py
+# than the one being edited. That is the same class of silent-wrong-source trap as run.sh's submodule
+# re-sync (external/psxport/docs/workspace/PROTOCOL.md).
+PSXPORT_DIR = os.environ.get("PSXPORT_DIR", "external/psxport")
+RECOMP_DIR = f"{PSXPORT_DIR}/tools/recomp"
 RECOMP_SRCS = [f"{RECOMP_DIR}/emit.py", f"{RECOMP_DIR}/decode.py", f"{RECOMP_DIR}/psexe.py"]
 
 # Our OWN recompiler seeds (emit.py --seeds): the addresses discovery cannot see (fn-pointer targets,

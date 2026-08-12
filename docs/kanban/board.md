@@ -3,9 +3,11 @@
 > The project bug/issue tracker. Managed by `tools/kanban.py` (see skill `bug-tracker`).
 > Cards live in `docs/kanban/cards/`; evidence images in `docs/reference/issues/`.
 
-## BACKLOG (0)
+## BACKLOG (2)
+- **#86 SBS-full driven by REPL 'newgame' (no AUTONAV) dies on an unmapped read in Render::fieldObjectsRender under renderAttract**  `bug,verification`
+- **#87 Producer census guest rows all report 'frames 1 (f3..f3)' — gpu.s_frame counts presents**  `bug,render`
 
-## TODO (33)
+## TODO (34)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
@@ -39,6 +41,7 @@
 - **#81 psx_render (non-oracle) backdrop tiles: 4-px bright-cyan band at each tile's right edge in the RQ_BACKGROUND path**  `render,psxport`
 - **#82 psxport docs/config.md:124 still calls 'PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1' THE REFERENCE — it is not; PSXPORT_ORACLE=1 is**  `docs,psxport`
 - **#84 Replay library cannot exercise the two PC-ONLY producers (pc/widescreen-margin, pc/options-pillarbox)**  `producers`
+- **#85 Producer DB guest leg keys the EMITTER frame while native rows key the HANDLER — 2 of 25 keys coincide, every guest row reads native 0**  `bug,render`
 
 ## DOING (6)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`

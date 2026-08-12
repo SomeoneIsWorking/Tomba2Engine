@@ -5303,3 +5303,46 @@ not against this bug.
   guest-origin exactly 418, and attributed drops by precisely that amount.
 - **refs**: `external/psxport/runtime/recomp/render_queue.cpp` (the chokepoint + the `unscoped` channel),
   `producer_census.h` (`gp0_anon`), `scratch/logs/unscoped-wide.log`.
+
+## FIXED (mechanism) / OPEN (comparison): the producer DB's GUEST leg attributed 1.61% of its prims (2026-08-12)
+
+- **symptom**: on the guest leg (`PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1`), the producer census reported
+  `span-no-fn 274,089` out of 572,050 prims seen — i.e. the OT-attribution stack was EMPTY at 98% of the
+  packet-pool stores, so the DB could name a producer for 1.61% of what the guest drew.
+- **status**: MECHANISM FIXED (psxport 38cec620): `span-no-fn` 274,089 -> **0**, attributed 284,193 on a
+  300-frame `replays/bugs/house-on-the-point.pad` run. **THE COMPARISON IS STILL OPEN** — see below.
+- **cause**: the shadow stack was pushed only around INDIRECT (jalr) dispatch in `rec_dispatch`, but the
+  packet-pool stores are performed by shared SDK-adjacent routines reached by DIRECT `jal`. The stack was
+  therefore absent for exactly the stores that mattered. Not a coverage gap in degree — the wrong site.
+- **the fix**: the recompiler emits the push/pop in each guest function's WRAPPER (`emit.py`
+  `call_or_dispatch`). Direct calls AND the generated dispatch switches both go through that wrapper, so
+  one site covers every guest call of both kinds; the three now-redundant `rec_dispatch` pushes were
+  REMOVED (keeping them double-pushes per indirect dispatch and makes `otattrCaller()` return the span's
+  own function). Cap 64 -> 256 because the stack now holds real call depth.
+- **why not the cheaper `c->pc` route**: `c->pc` is the same word one level down and is NOT restored on
+  return, so a `c->pc`-based guest leg can only ever name a CALLEE. That is exactly how the removed PC
+  route scored 100% coverage and ~0% truth, naming SDK libgs builders as the producers.
+- **BLOCKER, and the reason this is not yet the GTE-vs-native comparison the DB exists for**:
+  `otattrTop()` names the INNERMOST (emitter) frame, while native rows are keyed at the HANDLER/PASS frame
+  (`0x80146478` perObjFlush, `0x80109FE0` fieldEntityRender, `0x8002AB5C` terrainRender). Measured: only
+  **2 of 25** guest keys coincide with an existing row, and **every guest row reads `native 0`**. The two
+  legs land in DISJOINT rows, so the DB grows a second set of rows and LOOKS complete while comparing
+  nothing. ~10% of guest keys are SDK libgs builders (`0x80080000`, `0x8008007C`, `0x8007FDB0`).
+  The maintained stack contains BOTH frames (indirect dispatch also goes through the wrapper), so the
+  census can key on "the frame in the chain that a native producer/DB row claims" rather than the top —
+  NOT implemented, NOT measured. Do not read the guest rows as a side-by-side until that policy exists.
+- **secondary defect, same run**: the guest rows' frame-range field reads `frames 1 (f3..f3)` on EVERY
+  row. `gpu.s_frame` counts PRESENTS, which do not advance the same way on this leg — the same bug class
+  already fixed for the span reset.
+- **residual**: 1.36% of stores still read no fn. Candidates: `OTATTR_CAP` overflow (now 256) and
+  interpreted/HLE frames. Unmeasured.
+- **cost, priced not assumed**: 3,071,077 wrapper calls over a 1200-frame replay (2,559/frame); a
+  push-a-constant arm measured +0.0% user CPU. Real cost is ~4.5% `.text` (the wrapper loses its tail
+  call). The `if (g_otattr_channel)` gate on `recordFnStat` is LOAD-BEARING: without it, +24% pc_render
+  and +87% psx_render, because it linear-scans keyed on `fn` on every guest store and was O(1) only by
+  accident while `otattrTop()` was structurally 0.
+- **verified**: framework ctest 35/35; boot gate PASS (401 frames); SBS-full byte-exact on BOTH documented
+  gate legs with the new wrapper on the guest hot path — AUTONAV=combat 75 checkpoints to f2190, AUTONAV=1
+  WATCH_CUT 234 checkpoints to f6960, zero `sbs-div` in either.
+- **refs**: `external/psxport/tools/recomp/emit.py`, `runtime/recomp/interp_diag.h`, `ot_attr.cpp`,
+  `overlay_router.cpp`; `scratch/logs/sbs-combat.log`, `scratch/logs/sbs-cut.log`.
