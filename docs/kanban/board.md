@@ -6,7 +6,7 @@
 ## BACKLOG (1)
 - **#86 SBS-full driven by REPL 'newgame' (no AUTONAV) dies on an unmapped read in Render::fieldObjectsRender under renderAttract**  `bug,verification`
 
-## TODO (34)
+## TODO (35)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
@@ -41,6 +41,7 @@
 - **#82 psxport docs/config.md:124 still calls 'PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1' THE REFERENCE — it is not; PSXPORT_ORACLE=1 is**  `docs,psxport`
 - **#84 Replay library cannot exercise the two PC-ONLY producers (pc/widescreen-margin, pc/options-pillarbox)**  `producers`
 - **#88 ~10% of guest prims key at SDK libgs builders (0x80080000/0x8008007C) — no frame on their chain is a producer claim**  `bug,render`
+- **#89 The DB's guest-only list mixes at least three states — it is NOT a work-remaining ranking**  `bug,render`
 
 ## DOING (6)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`

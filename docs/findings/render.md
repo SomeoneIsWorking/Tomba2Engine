@@ -5387,6 +5387,18 @@ not against this bug.
   (psx_render) loads them and joins 217,533 spans, 145,027 with no claimed frame, **1** too-early, **0** at
   the limit. Guest rows are now keyed at backdropRender / fieldEntityRender / tetherLineRender /
   terrainRender / cineBarsRender / menuItemsAndCursor.
+- **CORRECTION to this entry's own headline, 2026-08-12, same day**: it said the 27 guest-only rows are
+  "the ranked 'this effect has no native producer' list". That is WRONG for 11 of the 27 and over-claimed
+  for the top item. The guest-only rows mix at least THREE states (kanban #89): 16 are not
+  override-installed; 11 ARE override-installed but their native was never REACHED while the guest drew —
+  byte-faithful guest-writing emitters (`OverlayGroundGt3Gt4::gt4`, `OverlayGt3Gt4::gt3`) that are
+  natively OWNED but produce the picture by writing guest packets, so they never open a `ProducerScope`
+  and can never become claims; and 3 are SDK libgs builders (#88). Even the #1 item, `0x8003DF04` at
+  394,944 prims, is not simply unported: codemap names it `Render::backdropTilemapDrawer` LIVE with NO
+  install site, and the backdrop DOES have a native producer at a different key (`0x8010C26C`
+  backdropRender, 472,384 native prims) which the guest chain never passes through in 20 frames. The join
+  works; its headline list does not mean what I first reported, and the undifferentiated count invites the
+  wrong conclusion — it invited mine.
 - **residual, filed not waved off**: ~10% of guest prims still key at SDK libgs builders (`0x80080000`,
   `0x8008007C`) because no frame in their 8-frame window is claimed — kanban #88, with the two candidate
   causes and the experiment that distinguishes them. The row frame-range field is still wrong (#87).
