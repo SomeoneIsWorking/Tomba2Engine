@@ -2216,11 +2216,12 @@ PSXPORT_SBS_EXIT_FRAME, PSXPORT_SBS_SHOT in config.md.
 
 ## PRE-EXISTING (not a today regression): unmapped read8 @ 0x07035D41 in fieldObjectsRender under ATTRACT (2026-08-12)
 
-- **symptom**: an SBS-full run aborts fail-fast on `UNMAPPED RAM read8 @ 0x07035D41` from
+- **symptom:** an SBS-full run aborts fail-fast on `UNMAPPED RAM read8 @ 0x07035D41` from
   `Core::mem_r8 <- Render::fieldObjectsRender+0x112 <- Render::sceneNative <- Render::renderAttract <-
   Engine::drawOTag <- Sbs::Impl::run`, on core A.
-- **status**: PRE-EXISTING by at least 8 days; root cause named, not yet fixed (kanban #86, todo).
-- **cause**: the node cursor `n` in `Render::fieldObjectsRender`'s head walk
+- **status:** FIXED 2026-08-12 (kanban #86 done; was PRE-EXISTING by 8+ days) — see "THE FIX" below.
+  The diagnosis that follows is retained because its *reasoning* is the reusable part.
+- **cause:** the node cursor `n` in `Render::fieldObjectsRender`'s head walk
   (`game/render/render_walk.cpp:933-950`) is `0x07035D40` — not a RAM address at all (main RAM is
   0x00000000-0x001FFFFF) — and it faults on the FIRST field read of the loop body, `mem_r8(n + 1)`, the
   per-frame visibility marker. So a native field-object pass walks a field-object list during ATTRACT,
@@ -2237,5 +2238,64 @@ PSXPORT_SBS_EXIT_FRAME, PSXPORT_SBS_SHOT in config.md.
   `newgame / run 200 / quit` was silently discarded, so the run never left attract mode. The invocation
   that "reproduced a newgame bug" had driven nothing. Filed as kanban #90 — silently-skipped input is a
   failure, not a filter.
-- **refs**: `game/render/render_walk.cpp:933-950`; `scratch/logs/sbs.log`, `sbs_base.log` (2026-08-04);
-  kanban #86, #90.
+- **THE FIX (2026-08-12) — `s48==7` is the attract SUBSTATE, not the attract WORLD.** The producer's
+  precondition was never "we are in substate 7"; it is "the attract item's world exists". The s7 phase
+  machine `0x80106C24` (RE'd in `game/scene/demo.cpp:s7Phase`, later-186) runs phase0 = LAUNCH an item
+  (select it, stream its area through the **cooperative** slot-1 area load `jal 0x80044BD4`, then eight
+  reinit calls), phase1 = play it ~900 frames, phase2 = tear it down and restart the front-end at s48=0.
+  Because the area load YIELDS, `s48` reads 7 for **two frames per cycle before any of that world
+  exists**, and on those frames the three field entity heads
+  (`0x800FB168`/`0x800F2624`/`0x800F2738`) still hold the PREVIOUS item's torn-down nodes — whose link
+  word (`node+0x24`) the incoming area stream is overwriting with raw file data. Hence a walk that
+  follows a dead node's link into `0x07035D40` and faults on `mem_r8(n+1)`.
+- **the gate is the phase machine's OWN latch, verified at instruction level** (`tools/disasm_overlay.py
+  scratch/bin/overlays/DEMO.BIN`, not inferred):
+  - `0x80106D1C  sb $s1,0x19a($v0)` with `$v0=0x1f800000`, `$s1=1` — the **LAST store in phase0**, after
+    the loader `jal 0x80044BD4` and all eight reinit jals. So `*(u8)0x1F80019A == 1` means exactly "this
+    item's world is built".
+  - `0x80106E0C  sb $zero,0x19a($v0)` — phase2's teardown clears it; DEMO's stage prologue zeroes it too.
+  - **`0x1F80019A` is STAGE-SCOPED, and that is why `==1` is sound here**: GAME's stage prologue
+    `0x8010637C` writes **2** (hence `cine_bars.cpp`'s `!=2` and `music_coord.cpp`'s `kSpAudioState`),
+    DEMO's writes **0**. `renderAttract` is reached only from the DEMO front-end path
+    (`render_walk.cpp:485`, `s48==7`), where the byte only ever holds 0 or 1. Do not reuse `==1` outside
+    that path.
+- **why the two obvious gates are wrong** (both checked, not assumed): `sm[0x4a]==1` (phase1) is NOT
+  sufficient — phase0 bumps the phase counter BEFORE the load completes, so f465/f1826 read `phase=1`
+  with no world, and f1826 is precisely the faulting frame. `0x800BE258==2` is not a gate at all — it is
+  "set once, sticky" with a single writer (`docs/tomba2-scene-state.md:25`), so it reads 2 on every launch
+  frame from the first cycle on.
+- **fix:** `game/render/render_attract.cpp` — `Render::attractItemLive()` reads that latch; `renderAttract()`
+  returns without drawing when the item's world is not built. A **state** gate read from game state, not a
+  range check on the pointer. fps60 tier-1 eligibility is left FALSE on declined frames, so the
+  present-time interp pass does not re-run the walk either.
+- **one sub-decision is NOT verified, and is flagged as such in the source:** the declined path emits
+  nothing rather than calling `gpu_blank_display()`, so the previously presented frame persists for those
+  2 frames per ~1361-frame cycle. This was NOT checked against `PSXPORT_ORACLE` (an earlier draft of the
+  code comment claimed such a measurement; it was never reproduced, so the claim was removed rather than
+  repeated). Either choice is crash-free — the bug was the WALK, not the presentation — so if the
+  reference blanks, the fix is a one-line `gpu_blank_display()` here.
+- **proof, on real data**: pre-fix `scratch/logs/sbs.log` (2026-08-04) and `attract_repro.log` both stop at
+  checkpoint **f1800** with **61** A/B-identical checkpoints and then fault. Post-fix the same invocation
+  (`PSXPORT_SBS=1 SBS_MODE=full NOAUDIO=1 SBS_NOPAUSE=1`, no autonav) runs to **f10890 / 364 checkpoints,
+  0 `sbs-div|VIOLATION`** (`scratch/logs/attract_verify.log`), and its `attract` channel shows the declined
+  frame **f1826 with `head0.link=07035D40`** — the exact faulting pointer (`0x07035D41 = n+1`) — plus two
+  later recurrences at **f5909** and **f9992** that the gate also absorbs. **16 of 7224** attract frames
+  are declined (2 per 1361-frame cycle), so the attract world itself still renders.
+- **parity held** (the fix changes no guest memory): `AUTONAV=combat` 71 checkpoints to f2100, 0 div;
+  `AUTONAV=1 WATCH_CUT=1` 209 checkpoints to f6240, 0 div; `tools/gate.py boot --frames 400` PASS.
+- **BUT KNOW WHAT THOSE TWO LEGS CAN AND CANNOT PROVE — re-measured with `PSXPORT_DEBUG=attract`, BOTH
+  legs enter `renderAttract` ZERO times** (`world=` lines: 0 and 0; `scratch/logs/gate_combat_attract.log`,
+  `gate_watchcut_attract.log`). Autonav drives out of DEMO before the attract timer fires. So they are
+  **regression guards only** — they prove this change broke nothing elsewhere, and they are structurally
+  incapable of exercising the fix. The ONLY leg that exercises it is the no-autonav SBS run, which is
+  exactly the invocation that used to crash. Do not cite the gate legs as evidence the attract fix works.
+- **the checkpoint counts are WALL-CLOCK bounded, not deterministic** — every leg here exits 124 (timeout),
+  so "how far it got" varies run to run (the same watch-cut leg reached f6240/209 without the debug channel
+  and f7800/261 with it). The meaningful signals are **0 divergences** and **0 fatals**, not the count.
+- **note-accuracy correction made in the same pass**: the fix's own comment had cited "oracle f468 and
+  f1829" as the phase=1/no-world frames. Those frames are `DRAWN itemBuilt=1`; the real ones are **f465 and
+  f1826**. Corrected in the source — a confidently-wrong citation sends the next session down a dead end.
+- **refs:** `game/render/render_attract.cpp`; `game/render/render_walk.cpp:933-950` (the walk), `:485` (the
+  s48==7 dispatch); `game/scene/demo.cpp:475-560` (the s7 phase-machine RE); `scratch/logs/sbs.log`,
+  `sbs_base.log` (2026-08-04, pre-fix), `attract_verify.log`, `gate_combat.log`, `gate_watchcut.log`
+  (post-fix); kanban #86, #90.

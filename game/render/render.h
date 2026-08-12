@@ -211,6 +211,13 @@ public:
   // READS of state unchanged since the real frame (fps60's present-time invariant).
   bool worldVoidBeat() const;   // SOP narration VOID beat (0x800bf9b4==5): no terrain/scene-table/backdrop
   bool fieldAreaInit() const;   // GAME field-area object-placement init frame: models unattached, no world
+  // attractItemLive: does the DEMO-stage attract item's world EXIST this frame? s48==7 also covers the
+  // item's LAUNCH frames (the s7 phase machine's cooperative area load yields), and on those the three
+  // field entity heads still point at the PREVIOUS item's torn-down nodes — walking them reads whatever
+  // the incoming area stream wrote over the freed memory. Reads the phase machine's own "item built"
+  // latch; the full RE + the measurement is on the body (game/render/render_attract.cpp), kanban #86.
+  static constexpr uint32_t kAttractItemBuiltLatch = 0x1F80019Au;   // written 1 by phase0's tail
+  bool attractItemLive() const;
 
   // shadeSelect: pick this area's light config once per world frame (cheap guest-RAM fingerprint via
   // Lighting::areaKeyFrom); caches the result in mShadeCfg for the per-face shading routine.

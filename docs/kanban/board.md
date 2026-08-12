@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (36)
+## TODO (35)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
@@ -39,7 +39,6 @@
 - **#81 psx_render (non-oracle) backdrop tiles: 4-px bright-cyan band at each tile's right edge in the RQ_BACKGROUND path**  `render,psxport`
 - **#82 psxport docs/config.md:124 still calls 'PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1' THE REFERENCE — it is not; PSXPORT_ORACLE=1 is**  `docs,psxport`
 - **#84 Replay library cannot exercise the two PC-ONLY producers (pc/widescreen-margin, pc/options-pillarbox)**  `producers`
-- **#86 SBS-full driven by REPL 'newgame' (no AUTONAV) dies on an unmapped read in Render::fieldObjectsRender under renderAttract**  `bug,verification`
 - **#88 ~10% of guest prims key at SDK libgs builders (0x80080000/0x8008007C) — no frame on their chain is a producer claim**  `bug,render`
 - **#90 Piping a REPL script into an SBS run LOOKS like it works and drives NOTHING — silently discarded**  `bug,verification,instrument`
 
@@ -51,7 +50,7 @@
 - **#74 Interior wall decors missing (suspect depth / coincident-face ordering)**  `render` — 📎 docs/reference/issues/issue74_house_pc_render_decor_missing.png,     docs/reference/issues/issue74_house_psx_render_decor_present.png
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 
-## DONE (48)
+## DONE (49)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -98,5 +97,6 @@
 - **#79 dev tp was a silent no-op outside the follow-camera mode — FIXED**  `tooling`
 - **#83 Hotkey to cycle the render path live: PC-native / PC-from-GTE / pure PSX rasterizer**  `render`
 - **#85 Producer DB guest leg keys the EMITTER frame while native rows key the HANDLER — 2 of 25 keys coincide, every guest row reads native 0**  `bug,render`
+- **#86 SBS-full driven by REPL 'newgame' (no AUTONAV) dies on an unmapped read in Render::fieldObjectsRender under renderAttract**  `bug,verification`
 - **#87 Producer census guest rows all report 'frames 1 (f3..f3)' — gpu.s_frame counts presents**  `bug,render`
 - **#89 The DB's guest-only list mixes at least three states — it is NOT a work-remaining ranking**  `bug,render`
