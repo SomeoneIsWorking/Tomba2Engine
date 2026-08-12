@@ -181,6 +181,10 @@ static const GameConfig g_tomba_config = {
   // NOTE: if this engine legitimately VARIES that byte per frame (slowdown frames), a constant is
   // wrong and it needs a GameHooks callback, not this. Unmeasured — see psxport gpu_native.cpp.
   .paceQuota = 2u,
+  // crt0 stack-top bias, MEASURED by psxport tools/crt0_extract over this game's own boot
+  // executable (MAIN.EXE, entry 0x800896E0). `declared = 1` is mandatory: crt0_plan REFUSES a boot when it is 0,
+  // because 0 is a REAL measured answer for some crt0s and so cannot double as "unset".
+  .stackBias = {1, -8},
 };
 
 // The game's callback vtable — defined in game_hooks.cpp (thin impls reaching eng(c).*).
