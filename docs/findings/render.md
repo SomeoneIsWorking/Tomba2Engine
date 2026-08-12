@@ -5322,7 +5322,9 @@ not against this bug.
 - **why not the cheaper `c->pc` route**: `c->pc` is the same word one level down and is NOT restored on
   return, so a `c->pc`-based guest leg can only ever name a CALLEE. That is exactly how the removed PC
   route scored 100% coverage and ~0% truth, naming SDK libgs builders as the producers.
-- **BLOCKER, and the reason this is not yet the GTE-vs-native comparison the DB exists for**:
+- **THE BLOCKER BELOW IS NOW FIXED (psxport 90604e18, 2026-08-12) — see the next entry.** Left in place
+  rather than deleted because it records what the wrong key cost and how it was measured.
+- **BLOCKER (RESOLVED), and the reason this was not yet the GTE-vs-native comparison the DB exists for**:
   `otattrTop()` names the INNERMOST (emitter) frame, while native rows are keyed at the HANDLER/PASS frame
   (`0x80146478` perObjFlush, `0x80109FE0` fieldEntityRender, `0x8002AB5C` terrainRender). Measured: only
   **2 of 25** guest keys coincide with an existing row, and **every guest row reads `native 0`**. The two
@@ -5346,3 +5348,51 @@ not against this bug.
   WATCH_CUT 234 checkpoints to f6960, zero `sbs-div` in either.
 - **refs**: `external/psxport/tools/recomp/emit.py`, `runtime/recomp/interp_diag.h`, `ot_attr.cpp`,
   `overlay_router.cpp`; `scratch/logs/sbs-combat.log`, `scratch/logs/sbs-cut.log`.
+
+
+## FIXED: the two legs now JOIN — a guest prim resolves to the frame a native producer claims (2026-08-12)
+
+- **symptom**: both legs had identity and the DB compared nothing. Guest rows were keyed at the innermost
+  EMITTER frame, native rows at the HANDLER/PASS frame, so only 2 of 25 keys coincided and every guest row
+  read `native 0`. A row list that looks complete while comparing nothing is the worst possible state.
+- **status**: FIXED (psxport 90604e18). The folded DB now has **8 rows carrying BOTH legs** (same key, GTE
+  prims vs native prims) and **27 guest-only rows** — the ranked "this effect has no native producer" list,
+  topped by `0x8003DF04` at 394,944 prims. That list is the deliverable the user asked for.
+- **the premise was MEASURED before anything was built on it** — `PSXPORT_DEBUG=otchain` (new): sample the
+  whole shadow-stack chain at a packet-pool store, capped BY NOVELTY (one sample per distinct `(top,depth)`
+  shape, so a shape seen once is as visible as one seen 78,000 times), and report per shape whether any
+  frame on it is a producer key. 29 shapes / 362,561 stores: 10 shapes = **54.5%** of stores carry a claim,
+  and where it fires it is structurally right — emitters `0x80109C80` and `0x801099B4` both resolve ONE
+  frame out to `0x80109FE0` (fieldEntityRender), which is exactly the native row key.
+- **THE INSTRUMENT CAUGHT ITSELF, and this is the entry's most reusable part.** The FIRST otchain run
+  reported `0 of 29 shapes claimed` — on a pure psx_render leg, where no native producer runs, so the claim
+  set was EMPTY and every shape read unclaimed for that reason alone. Because the report prints its claim
+  count and warns explicitly when it is zero, that 0 was legible as "this run cannot answer the question"
+  instead of "the fix cannot work". Reading it as a finding would have killed the correct design.
+- **the structural fact that empty set revealed**: NO SINGLE LEG runs both halves. Under pc_render the guest
+  packets are never GP0-executed, so the guest column is structurally 0; under psx_render no native producer
+  runs, so nothing can be claimed. **The comparison is therefore CROSS-RUN by nature** — the claim set is
+  earned on one run and consumed by the next, persisted APPEND-ONLY to `<PRODUCERS_DIR>/claims.txt`.
+- **the rejected alternative, and why it is a trap**: reload the newest run JSONL. That DESTROYS the set —
+  a psx_render run's rows legitimately carry `prims_native: 0`, so loading them would report "nothing has a
+  native producer" about a game where nine things do. Append-only means a claim earned by a native producer
+  actually drawing is never un-earned by a later leg that skips it.
+- **resolution runs at STORE time**, not at GP0 execution: the call chain only exists during the store. It
+  is kept in `OtAttr::Span::claimed` ALONGSIDE `fn`, so "the emitter" and "the row it belongs to" stay
+  separately readable — collapsing them is how a resolution bug becomes invisible.
+- **the walk is BOUNDED at 8 frames and the bound is checked, not assumed**: otchain measured every claim
+  within 3 frames of the top, and a claim found AT the limit is counted and warned about. Measured 0 at the
+  limit on a 300-frame run.
+- **measured end to end, two legs, 300-frame house-on-the-point**: leg 1 (pc_render) earns 9 claims; leg 2
+  (psx_render) loads them and joins 217,533 spans, 145,027 with no claimed frame, **1** too-early, **0** at
+  the limit. Guest rows are now keyed at backdropRender / fieldEntityRender / tetherLineRender /
+  terrainRender / cineBarsRender / menuItemsAndCursor.
+- **residual, filed not waved off**: ~10% of guest prims still key at SDK libgs builders (`0x80080000`,
+  `0x8008007C`) because no frame in their 8-frame window is claimed — kanban #88, with the two candidate
+  causes and the experiment that distinguishes them. The row frame-range field is still wrong (#87).
+- **verified**: framework ctest 35/35 (incl. a new CVar compatibility gate); boot gate PASS (401 frames);
+  SBS-full AUTONAV=combat 0 `sbs-div` across 82 checkpoints to f2400.
+- **refs**: `external/psxport/runtime/recomp/ot_attr.{h,cpp}` (`sampleChain`/`reportChains`/
+  `resolveClaimedFrame`), `producer_census.h` (`claims`/`loadClaims`/`appendClaims`), `gpu_native.cpp`
+  (`censusGuestPrim`), `config_vars.h` + `config.cpp` (`cv_producers_dir`/`cv_producers_db`);
+  `scratch/logs/otchain-pc.log`, `leg1-native.log`, `leg2-guest.log`, `sbs2-combat.log`.

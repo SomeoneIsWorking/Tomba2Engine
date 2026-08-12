@@ -41,7 +41,7 @@
 - **#81 psx_render (non-oracle) backdrop tiles: 4-px bright-cyan band at each tile's right edge in the RQ_BACKGROUND path**  `render,psxport`
 - **#82 psxport docs/config.md:124 still calls 'PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1' THE REFERENCE — it is not; PSXPORT_ORACLE=1 is**  `docs,psxport`
 - **#84 Replay library cannot exercise the two PC-ONLY producers (pc/widescreen-margin, pc/options-pillarbox)**  `producers`
-- **#85 Producer DB guest leg keys the EMITTER frame while native rows key the HANDLER — 2 of 25 keys coincide, every guest row reads native 0**  `bug,render`
+- **#88 ~10% of guest prims key at SDK libgs builders (0x80080000/0x8008007C) — no frame on their chain is a producer claim**  `bug,render`
 
 ## DOING (6)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
@@ -51,7 +51,7 @@
 - **#74 Interior wall decors missing (suspect depth / coincident-face ordering)**  `render` — 📎 docs/reference/issues/issue74_house_pc_render_decor_missing.png,     docs/reference/issues/issue74_house_psx_render_decor_present.png
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 
-## DONE (45)
+## DONE (46)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -97,3 +97,4 @@
 - **#78 psx_render draws NO world geometry — the pc-vs-psx reference comparison is a DEAD instrument**  `render,tooling,verification`
 - **#79 dev tp was a silent no-op outside the follow-camera mode — FIXED**  `tooling`
 - **#83 Hotkey to cycle the render path live: PC-native / PC-from-GTE / pure PSX rasterizer**  `render`
+- **#85 Producer DB guest leg keys the EMITTER frame while native rows key the HANDLER — 2 of 25 keys coincide, every guest row reads native 0**  `bug,render`
