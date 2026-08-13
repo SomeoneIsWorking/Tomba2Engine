@@ -23,21 +23,21 @@ under `PSXPORT_ORACLE=1`.
 | 5 | Narration-end transition (was "loading screen") | after 4 | PARTIAL | 2026-07-14 re-verify: NO black+"Loading" card exists in the current build — BOTH default and oracle hold the frozen last-narration frame for the 2-6 frame beat-reset→scene-flip gap (f1124-1128) and roll straight into the fisherman scene. Default matches oracle; the 2026-07-08 "garbage vs black-hold" premise is not reproducible — user eyeball to confirm OK |
 | 6 | Fisherman intro cutscene | after 5 | BUG #34 | 2026-07-14 checked f1130-1830: NO #35 darkening here (daytime segment; luminance tracks oracle within ~1pt — the f1520-1640 gap was the missing dialog box). #44 "upside-down Tomba" was a FALSE ALARM (raw-frame-matched comparison across a 12-14 frame exec lag; exec-aligned A/B identical, eprojv identity-fit sub-pixel). #34 panel FIXED (9178563, UI-span provenance) — row awaits user eyeball |
 | 7 | Prologue interactive (pig bag, first field) | after 6, or `newgame` + AUTO_SKIP free-roam | UNCHECKED | |
-| 8 | Seaside field free-roam | `PSXPORT_AUTO_SKIP=1` (~f216) | PARTIAL | z-fighting on barrels PARTIAL-fixed; #40 door arrow doesn't clear; #41 fps60 2D grouping |
+| 8 | Seaside field free-roam | `PSXPORT_AUTO_SKIP=1` (~f216) | PARTIAL | z-fighting on barrels PARTIAL-fixed; #40 door arrow doesn't clear; fps60 display-pass graduation remains #16 (sign text) / #31 (the wider verbatim-2D class) |
 | 9 | Dialog / signpost text | field, `press up`+O at sign | PARTIAL | #34 panel fix landed (9178563) — same emitter chain as the fisherman box; signpost instance not yet eyeballed |
 | 10 | Weapon attack (chain + impact) | field, attack input | BUG #39 | weapon chain + impact effect missing |
 | 11 | Hut door transition (fade + swap) | `replays/scene-transitions/hut-entry-door-freeze.pad` | UNCHECKED | exec side now 0-diff (voiceMixTick fix bb29e0a); check the VISUAL transition; #27 fade family |
 | 12 | Fisherman's-hut interior | after 11 (quest-gated; see findings/render.md repro-BLOCKED note) | BUG #36 | "much different than oracle"; transition bug (overlay not loaded) — first fix attempt reverted (37c7953) |
-| 13 | Inventory / weapon carousel HUD | field, open menu | BUG #38 | widescreen: HUD bleeds to screen edges (safe-area crop) |
+| 13 | Inventory / weapon carousel HUD | field, open menu | PARTIAL | widescreen: HUD bleeds to screen edges (safe-area crop). The old `#38` reference was wrong: that closed card is the in-game Options backdrop. Reproduce and file the dedicated card before assigning a fix. |
 | 14 | Save/load screens (memory card) | field, save point | UNCHECKED | |
 | 15 | Combat encounter (Koma pigs) | field, engage enemy | UNCHECKED | AUTONAV=combat leg reaches it headless |
-| 16 | Widescreen general | any scene, wide mod on | BUG #42 | expands only to the right; should be symmetric around the 4:3 center |
+| 16 | Widescreen general | any scene, wide mod on | PARTIAL | expands only to the right; should be symmetric around the 4:3 center. The old `#42` reference was wrong: that closed card is the non-seaside backdrop tilemap family. Reproduce and file the dedicated card before assigning a fix. |
 
 ## Cross-scene bug families (fix once, re-verify the affected rows)
 
 - **Fades (#27, #35):** ScreenFade held-latch + cutscene darkening — affects rows 4, 5, 6, 11.
-- **Widescreen (#38, #42):** present/crop geometry — affects rows 13, 16 (and any HUD scene).
-- **fps60 (#41):** per-object interpolation grouping — field scenes (row 8).
+- **Widescreen (untracked; rows 13, 16):** present/crop geometry — affects any HUD scene. The stale #38/#42 links were removed; neither closed card describes these symptoms.
+- **fps60 (#16, #31):** per-object interpolation/display-pass graduation — field scenes (row 8).
 
 ## How to add a row
 
