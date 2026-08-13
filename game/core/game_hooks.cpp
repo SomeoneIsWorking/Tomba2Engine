@@ -29,6 +29,20 @@ static void        tomba_replCamTeleport(Core* c, int x, int y, int z)  { eng(c)
 static void        tomba_replCamTeleportOff(Core* c)                    { eng(c).camTeleportOff(); }
 // Per-frame billboard/bb reset (was native_step_frame's direct rend(c)->bbFrameReset()).
 static void        tomba_renderBbFrameReset(Core* c)                    { rend(c)->bbFrameReset(); }
+// Tomba!2's view matrix is guest state in its scratchpad. Keep this layout game-side: another title
+// must supply its own reader, never inherit these offsets through psxport's generic fps60 machinery.
+static void tomba_fps60ReadSceneCam(Core* c, float R[3][3], float T[3]) {
+  constexpr uint32_t kScratch = 0x1F800000u;
+  const uint32_t w0 = c->mem_r32(kScratch + 0xF8),  w1 = c->mem_r32(kScratch + 0xFC);
+  const uint32_t w2 = c->mem_r32(kScratch + 0x100), w3 = c->mem_r32(kScratch + 0x104);
+  const uint32_t w4 = c->mem_r32(kScratch + 0x108);
+  R[0][0] = (int16_t)w0;         R[0][1] = (int16_t)(w0 >> 16); R[0][2] = (int16_t)w1;
+  R[1][0] = (int16_t)(w1 >> 16); R[1][1] = (int16_t)w2;         R[1][2] = (int16_t)(w2 >> 16);
+  R[2][0] = (int16_t)w3;         R[2][1] = (int16_t)(w3 >> 16); R[2][2] = (int16_t)(w4 >> 16);
+  T[0] = (float)(int32_t)c->mem_r32(kScratch + 0x10C);
+  T[1] = (float)(int32_t)c->mem_r32(kScratch + 0x110);
+  T[2] = (float)(int32_t)c->mem_r32(kScratch + 0x114);
+}
 // dev-warp full area load (was native_boot.cpp game_main's eng(c).sop.transitionAreaLoad()).
 static void        tomba_devWarpAreaLoad(Core* c)                       { eng(c).sop.transitionAreaLoad(); }
 static void        tomba_devWarpAreaEnter(Core* c)                      { eng(c).sop.transitionAreaEnter(); }
@@ -246,4 +260,5 @@ extern const GameHooks g_tomba_hooks = {
   /* fps60WorldPass     */ tomba_fps60_world_pass,
   /* fps60BbSwapPrev    */ tomba_fps60_bb_swap_prev,
   /* selftestGame          */ tomba_selftestGame,
+  /* fps60ReadSceneCam   */ tomba_fps60ReadSceneCam,
 };
