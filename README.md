@@ -1,6 +1,10 @@
-# Tomba2Engine
+# Tomba Engine — Tomba! and Tomba! 2
 
 A **PC-native reimplementation of the *Tomba! 2: The Evil Swine Return* engine** in C++.
+
+This repository is also the project home for the first *Tomba!* game. Tomba! 2 is the current
+implementation; Tomba! 1 has an explicit slot under `titles/` and will use a separate game seam,
+not the existing Tomba! 2 `game/` code. The status and screenshots below describe Tomba! 2 only.
 
 The goal is to rebuild Tomba! 2 as a self-contained, PC-native game engine that runs the **real
 game content** — not an emulator, and not a recompiled-MIPS blob with I/O bolted on. The engine

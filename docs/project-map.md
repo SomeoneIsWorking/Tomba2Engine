@@ -1,3 +1,11 @@
+## Title coverage
+
+| title | status |
+|---|---|
+| Tomba! | not started — title slot only; separate seam and ownership not yet derived |
+| Tomba! 2 | current implementation; subsystem evidence remains below |
+
+The repository-level `game/` is Tomba! 2-specific. Tomba! 1 does not share that game layer.
 
 ## Publication cleanliness gate (2026-07-23)
 
