@@ -22,6 +22,20 @@
 #include "overlay_table.h"   // generated: REC_MAIN_LO/HI — the game owns this, not the framework
 #include "game_ctx.h"
 
+// Task entry PCs, verbatim from the literals psxport's pc_scheduler.cpp used to carry. Values unchanged:
+// this is a MOVE of a declaration, not a re-measurement, so the port's scheduling must be identical and
+// the boot gate is what proves it (stage=8010637C sm48=2, measured before and after the move).
+static const GameConfig::SchedEntry g_tomba_sched_entries[] = {
+  // pc            nativeHandler  hasFiberBody  fiberBody
+  { 0x801062E4u,   1,             0,            SCHED_DEMO_STAGEMAIN },          // DEMO dispatcher
+  { 0x8010637Cu,   1,             0,            SCHED_GAME_PROLOGUE },           // GAME dispatcher
+  { 0x8010649Cu,   1,             0,            SCHED_FIBER_STARTBIN },          // STAGE-0 START.BIN
+  { 0x80109164u,   1,             1,            SCHED_CORO_AREALOAD_FAITHFUL },  // SOP area-load
+  { 0x80044F58u,   0,             1,            SCHED_CORO_TEXGROUP },           // preload body
+  { 0x8004514Cu,   0,             1,            SCHED_CORO_PRELOAD1 },           // stage-1 callback
+  { 0x800452C0u,   0,             1,            SCHED_CORO_AREADATA },           // walkable-field area DATA
+};
+
 static const GameConfig g_tomba_config = {
   // --- crt0 / boot (native_boot.cpp crt0_setup, game_init) ---
   .bssZeroLo = 0x800be0d8u,
@@ -185,6 +199,18 @@ static const GameConfig g_tomba_config = {
   // executable (MAIN.EXE, entry 0x800896E0). `declared = 1` is mandatory: crt0_plan REFUSES a boot when it is 0,
   // because 0 is a REAL measured answer for some crt0s and so cannot double as "unset".
   .stackBias = {1, -8},
+  // The scheduler's guest task ENTRY PCs. These were literals inside psxport's own
+  // `pc_scheduler.cpp` until 2026-08-13; the framework was testing THIS game's addresses directly,
+  // which meant it scheduled Tomba! 2 specially, left those branches dead for every other port, and
+  // gave a new port no way to declare its own. P1.7c had already moved the task BODIES to the
+  // `schedStageBody` hook — this is the mapping that never moved with them.
+  //
+  // `nativeHandler` = the native per-frame stanzas own this entry (PcScheduler::hasNativeHandlerForEntry).
+  // `hasFiberBody`  = a FRESH task at this entry starts a coro fiber running `fiberBody`.
+  // The two are independent: the DEMO/GAME dispatchers have native handlers and no fiber body, the
+  // preload bodies have fiber bodies and no native handler, and SOP area-load has both.
+  .schedEntries     = g_tomba_sched_entries,
+  .schedEntryCount  = (uint32_t)(sizeof(g_tomba_sched_entries) / sizeof(g_tomba_sched_entries[0])),
 };
 
 // The game's callback vtable — defined in game_hooks.cpp (thin impls reaching eng(c).*).
