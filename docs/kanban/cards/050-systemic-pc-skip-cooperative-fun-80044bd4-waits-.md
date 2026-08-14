@@ -1,10 +1,10 @@
 ---
 id: 50
 title: SYSTEMIC pc_skip: cooperative FUN_80044BD4 waits inside the GAME frame are SILENTLY TRUNCATED
-status: todo
+status: done
 labels: [bug, pc-skip]
 created: 2026-07-23
-updated: 2026-07-23
+updated: 2026-08-14
 ---
 
 Found 2026-07-23 while root-causing #47. THIS IS A CLASS DEFECT, not one bug, and it is the mechanism behind the user's 'pc_skip exclusive' observation.

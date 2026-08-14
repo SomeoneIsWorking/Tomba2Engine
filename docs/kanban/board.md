@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (34)
+## TODO (32)
 - **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
@@ -18,7 +18,6 @@
 - **#40 RmlUi warp selector is unverified on screen — no window in the agent environment**  `verification`
 - **#46 recomp-MISS 0x80028E64 latent (label not emitted as entry) — NOT reproduced on current main**  `bug,recomp`
 - **#49 area 21 sky is a GRADIENT+tilemap COMPOSITE — needs the gouraud base ported (split from #42)**  `render`
-- **#50 SYSTEMIC pc_skip: cooperative FUN_80044BD4 waits inside the GAME frame are SILENTLY TRUNCATED**  `bug,pc-skip`
 - **#51 beh_* A/B: 3 localised divergences still open (0x8013C9C0, 0x8011D988, 0x80121978)**  `verification,bug`
 - **#52 No A06/A08 cutscene replay exists — 11 beh_* script handlers are unreachable for A/B**  `verification`
 - **#53 Dust PUFF MESH layer is ported-unverified — never observed on screen (ring state 2/3 unreached)**  `verification,render`
@@ -34,7 +33,6 @@
 - **#68 Area-4 ambient effect FUN_8013B118 is gated off in every reachable state (phase 1, fade 4096)**  `render,verification`
 - **#70 DEMO transition: object cmd geomblk points at texture data, emitter submits ~125k garbage quads**  ``
 - **#72 Stars on stunned enemies no longer render**  `render`
-- **#73 Score-pickup point popups: anchoring to Tomba is wrong in widescreen**  `render,widescreen`
 - **#80 Widescreen margin re-include is DEAD CODE — Cull::objectCull has no caller**  `bug,render,tooling`
 - **#81 psx_render (non-oracle) backdrop tiles: 4-px bright-cyan band at each tile's right edge in the RQ_BACKGROUND path**  `render,psxport`
 - **#84 Replay library cannot exercise the two PC-ONLY producers (pc/widescreen-margin, pc/options-pillarbox)**  `producers`
@@ -49,7 +47,7 @@
 - **#74 Interior wall decors missing (suspect depth / coincident-face ordering)**  `render` — 📎 docs/reference/issues/issue74_house_pc_render_decor_missing.png,     docs/reference/issues/issue74_house_psx_render_decor_present.png
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 
-## DONE (52)
+## DONE (54)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -83,6 +81,7 @@
 - **#43 pc_render omits the field HUD minimap (areas 2, 7)**  `render`
 - **#44 pc_render omits the central vortex/portal effect in area 15**  `render`
 - **#48 area 14 waterfall backdrop is GTE SCENE GEOMETRY with no native producer (split from #42)**  `render`
+- **#50 SYSTEMIC pc_skip: cooperative FUN_80044BD4 waits inside the GAME frame are SILENTLY TRUNCATED**  `bug,pc-skip`
 - **#56 SYSTEMIC: pc_render has NO line-primitive producer — every GP0 line is invisible (rope, fishing line)**  `render,bug` — 📎 docs/reference/issues/issue56_fisherman_line_missing.png
 - **#59 Item menu chrome renders TOO DARK — and psx_render shares it, so the 0/76800 gate is blind**  `render,bug` — 📎 docs/reference/issues/issue59_item_menu_too_dark.png
 - **#60 SEQUENCE softlock (live capture) — game keeps running, sequence never advances**  `bug,pc-skip` — 📎 docs/reference/issues/issue60_sequence_softlock.png
@@ -90,6 +89,7 @@
 - **#64 Quest-update banner lerps its LETTERS but not the PLANKS they sit on**  `bug,render,fps60`
 - **#69 Read-only producers cannot use the guest PRNG (FUN_8009A450 writes seed 0x80105EE8) — needs a host-side mirror design**  `render`
 - **#71 Item-announcement banner renders glitchy, worst while the camera moves**  `render` — 📎 docs/reference/issues/item-banner-glitch-2026-08-04.png
+- **#73 Score-pickup point popups: anchoring to Tomba is wrong in widescreen**  `render,widescreen`
 - **#75 the native camera reads its projection constants back out of the GTE**  `render,camera,gte,user-rule,debt`
 - **#76 Debug overlay renders HTML entities literally: "&middot;" instead of "·" in the video/world readouts**  `ui,bug`
 - **#78 psx_render draws NO world geometry — the pc-vs-psx reference comparison is a DEAD instrument**  `render,tooling,verification`
