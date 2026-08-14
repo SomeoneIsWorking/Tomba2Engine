@@ -1127,10 +1127,11 @@ back outside.
 **refs:** kanban #47; `scratch/logs/{skip_trace,faithful_trace,gate_wav,faithful2x,cw,spudbg,exit}.log`,
 `scratch/wav/{house,exit}.wav`, `scratch/screenshots/padshot_*.ppm`.
 
-## kanban #47, part 2 — the full completion chain RE'd; ONE of the two broken links fixed (2026-07-23, PARTIAL)
+## kanban #47, part 2 — cooperative entry tail fixed; interior-state interpretation corrected (2026-07-23/2026-08-14)
 
 Continues the entry above. Every statement here is measured on `replays/bugs/house-on-the-point.pad`
-(default leg, headless). The card is **NOT closed** — see "the residual" at the end.
+(default leg, headless). The scheduler defect described here is fixed. The remaining #47 scope is the
+reported camera-follow failure after exit; this replay does not contain an exit and cannot test it.
 
 ### The completion condition (RE, end to end)
 `sm[0x4c]` is taken off 3 by exactly one store: **`gen_func_80026AD0` case 4** (`generated/shard_2.c`
@@ -1198,21 +1199,27 @@ correctly (this is also why the user only sees the bug on the default leg).
 Verified: after the fix `G[5] = 36` IS written at f661, `gen_func_80065A54` runs its cases 0/1/2, and
 Tomba walks through the door (z 0x0571 -> 0x03B1).
 
-### THE RESIDUAL — #47 is still open
-The transition still parks: `sm[0x4c]` stays 3 and `bf818` stays 2 for the rest of the capture.
-Reason: the facing hand-off is a NO-OP for this door. `0x800BF81F` is stamped as
-`(1 - door[+0x5F]) << 4` BEFORE the swap (door[+0x5F]==1 -> hint 0), so state 36 loads
-`G[+0x147] = 0` — which is the value `door[+0x5F]` takes AFTER the waiter flips it, i.e. the two end
-up EQUAL and the gate stays shut. Something else must turn Tomba around.
+### CORRECTION — state 3 is the interior mode, not a stuck entry transition (2026-08-14)
+The former "residual" was based on a false expectation. `sm[0x4c]==3` is the authored
+interior/sub-scene mode (the same state used by the hut interior), so it is supposed to remain 3
+while the player remains inside. `house-on-the-point.pad` is idle from about f700 to its end; it
+contains no attempted exit. Persistent `sm[0x4c]==3` on that negative therefore does not show a
+missing completion writer.
 
-**NEXT RE STEP (narrow and named):** find what puts Tomba into **state 4** (the jump-table entry at
-0x80015CC4[4] -> `gen_func_800645E0` -> ... -> `gen_func_80063158`, the 180-degree turn that is the
-only other writer of `G[+0x147]`) during a swap-key-1 door swap. Note `ov_a00_gen_8010CB60`'s
-**key==2** branch (`bf817 == 2`) explicitly rotates `G[+0x140]` by 2048 and clears the hint — i.e.
-the hook DOES contain a turn-around path, just not on the key==1 branch our door takes
-(`bf817 = door node[3] = 1`, so the key is the DOOR INDEX, not a transition type). Either the
-turn comes from the sub-scene data the 0x80045258(26,15) load pulls in, or from a second
-participant object in the re-loaded scene. Start there, not from `sm[0x4c]`.
+The natural release owner is input-facing `gen_func_80055E28`, not the state-4 turn. A fresh run of
+the shipping path (`ef4fa7c-dirty+psxport-077d7744-dirty`) used the replay through f700, then held
+LEFT. `gen_func_80055E28` wrote `G[+0x147]` 0->1 at f703; the existing door/sequencer path then
+changed `sm[0x4c]` 3->2 at f755. The negative-first denominator agrees: a `G[5]` watch scanned all
+23 writes through f720. Exactly one was `G[5]=4`, at f451 before entry; the four post-entry writes
+from f665 through f720 contained zero state-4 writes. Thus `gen_func_80063158` is not an omitted
+entry step, and forcing state 4 or patching the facing byte would be a bandaid. Evidence:
+`scratch/logs/house_g5_writers_bt_current.log` and
+`scratch/logs/house_exit_facing_short_current.log`.
+
+The systemic #50 fix remains necessary: it restores the hook's natural `G[5]=36` tail. What remains
+on #47 is only the user's camera-follow-after-exit symptom. This replay cannot discriminate it; the
+next evidence must be a capture that actually exits and probes the camera target against Tomba's
+position after `sm[0x4c]` returns to 2.
 
 **DEAD ENDS (do not re-walk):**
 * `bf818 == 6` — no writer anywhere; the case-3 first branch is unreachable, confirmed twice.
