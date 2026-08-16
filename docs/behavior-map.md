@@ -68,27 +68,16 @@ deviation, grouped by affect. `tools/behavior.py` = view · `... <words>` = sear
 
 ### **affect: non-canon** — writes guest memory only to reach the SAME end-state faster. Must byte-match recomp_path at every rendezvous; SBS runs the faithful branch.
 
-## loading-text-skip
-- **class:** pc_skip
-- **affect:** non-canon
-- **status:** reverted
-- **flag:** PSXPORT_PC_SKIP (default ON)
-- **original:** FUN_8007FD54 draws the blinking "Loading....." string at (160,180), palette alternating 6/0 on bit 2 of the frame counter 0x1F800198
-- **altered:** pc_skip ON: nothing drawn (LoadingText::drawSkip) — the host file read finishes before this could appear, so it advertises a wait that does not exist
-- **guard:** mPcSkip=false on both SBS cores, so LoadingText::drawFaithful (port_check PASS vs gen_func_8007FD54) runs under ORACLE/SBS and byte-compares clean
-- **owner:** game/ui/loading_text.cpp
-- **notes:** REVERTED 2026-07-22 same day: this blanked the "Loading....." TEXT, but the request was to skip the loading SCREEN (the state that displays it). Blanking the string leaves the same wait with an empty screen. See kanban.
-
-## pc-skip
-- **class:** pc_skip
+## synchronous-loads
+- **class:** loading
 - **affect:** non-canon
 - **status:** implemented
-- **flag:** Game::mPcSkip — per-fork bool; default true (./run.sh shortcuts on); SBS forces false
-- **original:** each collapsed init runs its full multi-step faithful sequence
-- **altered:** the fork takes a single-step shortcut that lands the same end-state (load_in_one_step)
-- **guard:** end-state byte-matches recomp_path at every skip-fork rendezvous; SBS runs the faithful branch (mPcSkip=false); collapse bumps guest tick counters (0x800abde0, 0x1F80017C) so phase-gate consumers hold
-- **owner:** per-fork Game::mPcSkip sites
-- **notes:** two CD readers: skip=cdlibcd_* ISO9660 direct, faithful=Ghidra-ported libcd chain. SPU register-stream divergences are non-canon (docs/findings audio).
+- **flag:** none — this is the product execution policy, not an optional mode
+- **original:** FUN_80044BD4 parks a spawned task across fields and, for flag 2, advances the loading counter and calls FUN_8007FD54
+- **altered:** native FUN_80044BD4 drains the owned task before returning, preserves the authored flag-dependent RNG stamp, and emits zero wait ticks/loading services
+- **guard:** `test_synchronous_task_wait` drives the shipping completion seam for flags 1/2/3; the default live route reached flag 2 and 3 with zero service ticks and reached free roam
+- **owner:** psxport `SynchronousTaskWait`; game call sites use `PcScheduler::completeSyncWait`
+- **notes:** the generated body remains the explicit substrate oracle. `PSXPORT_PC_SKIP` is retired; there is no second product cadence.
 
 ---
 

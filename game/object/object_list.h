@@ -42,7 +42,7 @@ public:
 
   void walkAll();
   void walkAllFaithful();   // faithful mirror of guest FUN_8007A904 (gen_func_8007A904) — used
-                             // when c->game->pc_skip == false. See object_list.cpp for the
+                             // when c->game->native_sync == false. See object_list.cpp for the
                              // frame/ra/s0 discipline this reproduces byte-for-byte.
   void walkAux();
   void walkAuxFaithful();   // faithful mirror of guest FUN_80069B28 (gen_func_80069B28)

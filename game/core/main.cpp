@@ -44,10 +44,9 @@ int main(int argc, char** argv) {
       return 1;
     }
   }
-  // Default: pc_skip=true — the native shortcut path that ./run.sh has always used. Set
-  // PSXPORT_PC_SKIP=0 to route everything through the fiber substrate (slow; audit mode).
-  { const char* e = getenv("PSXPORT_PC_SKIP");
-    if (e && *e && strcmp(e, "0") == 0) game->pc_skip = false; }
+  // The product has one execution policy: owned waits and I/O finish synchronously. The generated
+  // substrate remains available through PSXPORT_ORACLE / the comparison harness, not a second user
+  // launch mode with different cadence.
   c->game->gpu_vk.tritest();                  // PSXPORT_VK_TRITEST=1: GPU triangle-rasterizer self-test, then exit
   watchdog_init();            // PSXPORT_WATCHDOG=<sec>: abort+backtrace if a frame stalls
   load_exe(path, c);

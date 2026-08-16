@@ -58,7 +58,7 @@ static constexpr GuestFrameSpill kSpills_80121978[3] = {
 //  2. It would change nothing that is measured. A stale ra only matters when something READS the
 //     guest stack it gets spilled to, i.e. under the byte-exact compare. But this function is a
 //     BehaviorDispatch TABLE entry (game/object/behavior_dispatch.cpp:129), and dispatchNative gates
-//     on `!pc_skip` among others while SBS forces pc_skip=false on BOTH cores — so the native never
+//     on `!native_sync` among others while SBS forces native_sync=false on BOTH cores — so the native never
 //     runs on either leg of the compare. Same reasoning, and same conclusion, as the earlier
 //     "native orchestrator spills a stale ra" alarm recorded in docs/findings/sbs.md.
 //

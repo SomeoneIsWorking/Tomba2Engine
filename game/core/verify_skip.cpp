@@ -1,7 +1,7 @@
-// game/core/verify_skip.cpp — VerifyHarness's pc_skip-vs-faithful OBSERVABLE gate (split out of the
+// game/core/verify_skip.cpp — VerifyHarness's native_sync-vs-faithful OBSERVABLE gate (split out of the
 // framework verify_harness.cpp during the P1.7c framework/game decoupling: this half reaches the
 // game's observable set (observables.h) + SPU banks, so it lives game-side while the class itself is
-// framework. The framework never calls skipArmed/skipCheck — only the pc_skip path (game) does.)
+// framework. The framework never calls skipArmed/skipCheck — only the native_sync path (game) does.)
 #include "core.h"
 #include "cfg.h"
 #include <cstdio>
@@ -105,7 +105,7 @@ void VerifyHarness::skipCheck(uint32_t addr, void (*skipFn)(void*), void* skipCt
     cfg_loge("skip-verify", "0x%08X FAILED (%d+ observable diffs) — skip leg does NOT produce the oracle's observable output.", addr, bad);
     abort();
   }
-  // match: continue from the SKIP result (the real pc_skip execution path)
+  // match: continue from the SKIP result (the real native_sync execution path)
   memcpy(c->ram, mStrictNatRam, 0x200000); memcpy(c->scratch, skipSpad, 0x400);
   memcpy(c->r, skipRegs, 32 * 4); c->hi = skipRegs[32]; c->lo = skipRegs[33];
   c->game->spu.bind(c); SPU_PokeRAM(mSkipSpuA);

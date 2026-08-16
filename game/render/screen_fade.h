@@ -27,7 +27,7 @@
 //   The native renderer reads this class's members via `get()` to draw the fade.
 //
 //   `set()` / `applyLeafCall()` are host-state-only: they update the C++ members and write nothing
-//   to guest RAM, in BOTH pc_skip modes. The guest packet-pool + scratchpad writes of FUN_8007e9c8
+//   to guest RAM, in BOTH native_sync modes. The guest packet-pool + scratchpad writes of FUN_8007e9c8
 //   fire only where a still-substrate caller runs the recomp body directly.
 //
 //   Still-recomp fade callers reach this class through installLeafTap() — a shard-level override on
@@ -76,7 +76,7 @@ public:
   // touch the held fully-faded state — that persists across admin frames.
   void frameStart();
 
-  // Set the fade for THIS FRAME. Host-state-only: no guest-RAM writes in either pc_skip mode
+  // Set the fade for THIS FRAME. Host-state-only: no guest-RAM writes in either native_sync mode
   // (`otSlot` is accepted for the guest-ABI shape but unused). Last call wins for this frame; a
   // caller that needs the fade held across multiple frames must call this every one of them
   // (matches PSX: OT slot 4 is rebuilt fresh each frame, so an unwritten frame renders no rect).

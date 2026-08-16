@@ -1,5 +1,45 @@
 # Findings — camera
 
+## ✅ FIXED (REGRESSION, 2026-08-16): the fps60 camera seam mis-transcribed R22 — the whole native world stopped rendering
+- **symptom:** USER 2026-08-16 — "camera acting weird and some fisherman are absent". Headless the same defect is total:
+  under `pc_render` the field draws the sea/sky BACKDROP and nothing else — no terrain, no objects, no NPCs —
+  while `PSXPORT_ORACLE=1` at the identical frame draws the full village. Reproduced at f900 of a
+  `PSXPORT_AUTO_SKIP=1` run and across `replays/scene-transitions/hut-entry-door-freeze.pad`.
+- **status:** FIXED 2026-08-16. Verified against the oracle at f900 (AUTO_SKIP) and at f200/400/600/800/930
+  of the hut-entry replay; both fishermen render in the hut interior again.
+- **cause:** psxport commit `a1c53d7c` ("fps60: move scene camera layout behind game seam") correctly moved the
+  scratchpad view-matrix decode out of `Fps60::sceneCam` and behind the new `fps60ReadSceneCam` GameHook. The
+  game-side copy that landed in `game/core/game_hooks.cpp` (Tomba2 `84d9980`) re-typed the decode BY HAND and
+  took `R[2][2]` from the HIGH halfword of the fifth word (`(int16_t)(w4 >> 16)`) instead of the low one. The
+  scratchpad block at `0x1F8000F8` mirrors the GTE control-register packing, in which RT33 is the LOW half of
+  CR4 — `Render::projActiveCr` writes it back as exactly `cr[4] = (uint32_t)R[2][2]`. So the ONE camera reader
+  for the whole native projection path (`projComposeCore` / `projComposeCamera` / native terrain) ran with a
+  corrupt view-Z row: every world vertex got a garbage view-space Z, so depth, the near-plane clamp and the
+  per-object depth cull all acted on nonsense. Depth-dependent, hence "some objects absent" rather than all,
+  and camera-pose-dependent, hence "camera acting weird".
+- **the workflow defect behind it (this is the durable part):** the decode existed in THREE hand-written
+  copies — `Fps60::sceneCam`, the new game hook, and the negative control in
+  `game/render/cube_text_banner_selftest.cpp` — and nothing compared them. The framework's
+  `tests/test_optional_hook_guards.cpp` tests the hook PLUMBING with a spy, so it passes whatever the game
+  decodes; all 57 psxport tests were green with the world invisible. A seam move that RE-TYPES a memory layout
+  is a transcription, and a transcription with no code-level diff against its source is how a halfword flips.
+- **fix:** one decoder, `Render::readSceneViewMatrix` (`game/render/projection.cpp`, declared in
+  `game/render/render.h`), sited directly above `projActiveCr` so the pack and the unpack read as a pair. The
+  hook and the cube-text selftest both call it; no second copy remains. `PSXPORT_SELFTEST=sceneview`
+  (`game/render/scene_view_matrix_selftest.cpp`) round-trips pack→unpack through BOTH functions, so a change
+  to either that the other does not follow fails the test — and it carries the negative control that proves it
+  discriminates the exact bug (the wrong-halfword read yields 0.0 against the correct 3300.0).
+- **in-band evidence, not pixels:** the `producers` census for `fieldEntityRender` (0x80109FE0) went from
+  `native 5348, frames 37 (f118..f154)` before the fix to `native 471980, frames 831 (f60..f899)` after, on
+  the same AUTO_SKIP run.
+- **also landed with it:** the `external/psxport` gitlink was still `a1c53d7c` while the tree was built against
+  psxport `25dd7826`, and `game_hooks.cpp` names `fps60TemporalRotate`, which does not exist in `a1c53d7c` —
+  so a bare clone at the recorded pin did not compile. Gitlink bumped to `25dd7826` in the same commit, per the
+  framework-first cross-repo rule.
+- **refs:** psxport `a1c53d7c` / `da1fc9be`, Tomba2 `84d9980`; `game/core/game_hooks.cpp`,
+  `game/render/projection.cpp`, `game/render/render.h`, `game/render/scene_view_matrix_selftest.cpp`;
+  evidence `scratch/screenshots/regr/` (pc vs oracle f900) and `scratch/screenshots/sweep/`.
+
 ## ✅ RESOLVED: the free-roam camera IS the resident camera (snapFollow→lookat), already owned + verified
 - **symptom:** across later-290/291/292 I repeatedly concluded the resident MAIN.EXE camera "never runs in
   A00 free-roam" (camtrace/recdep showed zero camera dispatch with the player moving) and chased a phantom

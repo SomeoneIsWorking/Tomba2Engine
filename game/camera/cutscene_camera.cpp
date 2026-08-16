@@ -986,7 +986,7 @@ void CutsceneCamera::orbitTick() {   // FUN_8006EF38
 }
 
 void CutsceneCamera::update() {   // FUN_8006EC44 (resident per-frame camera driver; cam obj @0x800E8008)
-  if (c->game && !c->game->pc_skip) { MV_CHECK(c, 0x8006EC44u, updateFaithful()); return; }   // faithful: gen mirror
+  if (c->game && !c->game->native_sync) { MV_CHECK(c, 0x8006EC44u, updateFaithful()); return; }   // faithful: gen mirror
   uint8_t outer = camR8(0);                     // cam[0] = outer state
   if (outer == 0) { camW8(0, 1); init(); return; }   // first frame: init (no post-mode tail)
   if (outer != 1) return;                       // idle
@@ -1009,7 +1009,7 @@ void CutsceneCamera::update() {   // FUN_8006EC44 (resident per-frame camera dri
 // / Sop::fieldModeFaithful). init/mainFollow/rotBuild/trackFollow/snapFollow*/pitchFollow/simpleFollow/
 // shakeTail are dispatched via rec_dispatch(c, addr) to their guest address — since no override-registry
 // entry exists for any of them, this falls straight through to the substrate gen_func body (same code the
-// oracle runs), NOT a call to the native sibling *methods* on this class (those exist for the pc_skip
+// oracle runs), NOT a call to the native sibling *methods* on this class (those exist for the native_sync
 // path only). Calling convention for the two-arg follow leaves (trackFollow/snapFollowA/pitchFollow/
 // snapFollowB/snapFollow/simpleFollow) is a0(r4)=cam, a1(r5)=cam+56 (or G+0x2C for the "snap-to-master"
 // variants of snapFollow/simpleFollow) — verified against the gen bodies AND the real mode-dispatch jump

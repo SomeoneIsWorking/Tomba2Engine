@@ -127,13 +127,13 @@ void MusicCoord::voiceMixTick(uint32_t voice_base) {
   const uint8_t cutMode = c->mem_r8(kSpCutMode);
   const uint8_t boost   = c->mem_r8(kSpBoost);
   int32_t vol;                                     // computed 16-bit volume result
-  // PSXPORT_DEBUG=vmt — voiceMixTick trace (RE/SBS diagnostic: docs/findings/audio.md "pc_skip vs
+  // PSXPORT_DEBUG=vmt — voiceMixTick trace (RE/SBS diagnostic: docs/findings/audio.md "native_sync vs
   // oracle: SPU register stream divergences"). Under SBS the two Games are separate Core/RAM
   // instances; this + the paired [gain2] trace in setGain2() below let a session correlate each
   // core's ramp/smoother state and setGain2 call cadence directly, instead of re-deriving it by
   // hand every time this bug class resurfaces.
   cfg_logf("vmt", "f%u %s state=%u cut=%u boost=%u cur=%d tgt=%d g2cur=%u g2tgt=%d base=%d",
-           c->game->timing.logicFrame, c->game->pc_skip ? "A(skip)" : "B(oracle)", state, cutMode,
+           c->game->timing.logicFrame, c->game->native_sync ? "A(skip)" : "B(oracle)", state, cutMode,
            boost, voice.fadeCur(), voice.fadeTarget(), voice.gain2Cur(), voice.gain2Target(),
            voice.baseVol());
 
@@ -204,7 +204,7 @@ void MusicCoord::setGain2(int32_t val) {
   Core* c = this->core;
   const uint32_t V = 0x800BE1F8u;
   cfg_logf("vmt", "[gain2] f%u %s val=%d",
-           c->game->timing.logicFrame, c->game->pc_skip ? "A(skip)" : "B(oracle)", val);
+           c->game->timing.logicFrame, c->game->native_sync ? "A(skip)" : "B(oracle)", val);
   if (val < 0) {
     uint16_t snap = (uint16_t)(-(int16_t)val);
     c->mem_w16(V + 0x2Eu, snap);   // target

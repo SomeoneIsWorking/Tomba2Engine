@@ -13040,7 +13040,7 @@ void register_field_owned_leaves() {
   install(0x8007EF60u,"leaf_8007EF60",leaf_8007EF60,gen_func_8007EF60,shard_set_override);
   install(0x8007F078u,"leaf_8007F078",leaf_8007F078,gen_func_8007F078,shard_set_override);
   // 0x8007FD54 is owned by LoadingText::draw (game/ui/loading_text.cpp) — RE'd, and it carries
-  // the pc_skip fork that drops the "Loading....." blinker. Do not re-register the leaf here.
+  // the native_sync fork that drops the "Loading....." blinker. Do not re-register the leaf here.
   install(0x80022D08u,"leaf_80022D08",leaf_80022D08,gen_func_80022D08,shard_set_override);
   // 0x80027768 (the shared packed-mesh quad emitter) has NO native owner: it runs its plain gen
   // body. Its two pc_render consumers were deleted with the GTE-register tap they were built on

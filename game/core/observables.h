@@ -1,6 +1,6 @@
 // game/core/observables.h — the OBSERVABLE-STATE positive list (USER 2026-07-08).
 //
-// pc_skip legitimately diverges from the faithful/substrate path in transient scratch, stack
+// native_sync legitimately diverges from the faithful/substrate path in transient scratch, stack
 // bytes and cadence counters — but everything the game/player OBSERVES must match: the SFX/audio
 // tables, the loaded module pointers, consumable handshake flags, and the SPU sample banks. This
 // list is shared by the two comparers built on it:

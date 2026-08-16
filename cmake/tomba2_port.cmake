@@ -32,7 +32,7 @@ set(GAME_SRC
   game/core/game_ctx.cpp
   game/core/game_hooks.cpp
   game/core/main.cpp                # process entry point (P1.7c: main() is game-side)
-  game/core/verify_skip.cpp         # VerifyHarness pc_skip/observable half (P1.7c split)
+  game/core/verify_skip.cpp         # VerifyHarness native-sync/observable half (P1.7c split)
   game/render/fps60_worldpass.cpp   # TRANSITIONAL fps60 world-pass hook body (P1.7c)
   game/core/recomp_register.cpp
   game/core/dev_areas.cpp
@@ -45,6 +45,7 @@ set(GAME_SRC
   game/math/trig.cpp
   game/render/cube_text_banner.cpp
   game/render/cube_text_banner_selftest.cpp
+  game/render/scene_view_matrix_selftest.cpp
   game/render/cull.cpp
   game/player/collision.cpp
   game/player/actor_targeting.cpp       # FUN_8001FAE0 — acquire a target: reach, band, arc

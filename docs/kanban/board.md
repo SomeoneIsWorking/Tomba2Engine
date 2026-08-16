@@ -6,7 +6,6 @@
 ## BACKLOG (0)
 
 ## TODO (32)
-- **#9 pc_skip should skip the LOADING SCREEN entirely (not just its text)**  `pc-skip,enhancement`
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
 - **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
@@ -38,6 +37,7 @@
 - **#84 Replay library cannot exercise the two PC-ONLY producers (pc/widescreen-margin, pc/options-pillarbox)**  `producers`
 - **#91 Producer claim set is append-only with NO provenance — a claim fossilises when a producer's key moves**  `bug,producers,psxport,instrument`
 - **#92 PSXPORT_ENH is ENV-ONLY and off the CVar ladder — cfg_enh() cannot satisfy the USER's CVars ruling, so the first pc_enh consumer had to duplicate its suppression**  `psxport,config,debt,enhancements`
+- **#94 Contextual "Use UP + O to talk" prompt box has no pc_render producer**  `render,bug`
 
 ## DOING (6)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
@@ -47,7 +47,7 @@
 - **#74 Interior wall decors missing (suspect depth / coincident-face ordering)**  `render` — 📎 docs/reference/issues/issue74_house_pc_render_decor_missing.png,     docs/reference/issues/issue74_house_psx_render_decor_present.png
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 
-## DONE (54)
+## DONE (56)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -55,6 +55,7 @@
 - **#6 Load-Game browser (DEMO s48==4) aborts: rec_dispatch miss 0x8018FA88**  `bug,recomp`
 - **#7 DEMO OPTIONS sub-pages (Messages/Sound/Screen adjust/Controls) had no pc_render producer — SIGABRT two presses from the title**  `render`
 - **#8 Water-pump seesaw: Tomba's weight doesn't pull it down when grabbed while climbing (pc_skip ON)**  `bug,pc-skip`
+- **#9 Synchronous loads skip loading-only screens entirely**  `loading,enhancement`
 - **#11 Barrel top face renders BLACK on the blue side (red side correct)**  `bug,render`
 - **#12 Torch flame effect missing entirely under pc_render**  `render` — 📎 docs/reference/issues/issue12_13_missing_flame_object.png
 - **#13 HUD weapon carousel missing entirely under pc_render**  `render` — 📎 docs/reference/issues/issue12_13_missing_flame_object.png
@@ -102,3 +103,4 @@
 - **#88 ~10% of guest prims key at SDK libgs builders (0x80080000/0x8008007C) — no frame on their chain is a producer claim**  `bug,render`
 - **#89 The DB's guest-only list mixes at least three states — it is NOT a work-remaining ranking**  `bug,render`
 - **#90 Piping a REPL script into an SBS run LOOKS like it works and drives NOTHING — silently discarded**  `bug,verification,instrument`
+- **#93 REGRESSION: fps60 camera seam mis-transcribed R22 — pc_render drew only the backdrop, camera read as broken**  `bug,render,camera,fps60,regression`

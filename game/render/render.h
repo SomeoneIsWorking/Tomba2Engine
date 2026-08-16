@@ -164,6 +164,12 @@ public:
   uint32_t projVertexActiveFlags(int vx, int vy, int vz, ProjVtx* out);
   // Pack the ACTIVE float xform into the CR0-7 + CR24/25/26 layout the fps60 midpoint reprojection consumes.
   void projActiveCr(uint32_t cr[11]);
+  // THE decode of Tomba!2's scratchpad scene view matrix (0x1F8000F8 = CR0-4 halfword packing, T at
+  // +0x14 = CR5-7) into float R/T. Exact inverse of projActiveCr's packing, and the ONE place that
+  // knows the layout: the framework's fps60ReadSceneCam seam and the cube-text selftest's
+  // camera-composed negative control both call it, so neither can transcribe a halfword wrong on its
+  // own. `projection_test.cpp` round-trips pack->unpack to keep the pair honest.
+  static void readSceneViewMatrix(Core* c, float R[3][3], float T[3]);
 
   // ---- per-frame render orchestrators (called by Engine::fieldFrame/X) ----
   // frame  (guest 0x8003F9A8) — the primary per-frame render orchestrator; runs the non-walk PSX

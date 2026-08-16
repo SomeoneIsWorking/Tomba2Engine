@@ -41,8 +41,8 @@
 // pass, see docs/port-progress.md).
 //
 // Registered in BehaviorDispatch::kTable as `beh_sop_overlay_shadow` (0x8010AB38, SOP overlay) — a
-// pc_skip=true-only shortcut like every other native `beh_*`; pc_faithful / SBS full always take the
-// substrate body via rec_dispatch (BehaviorDispatch::dispatchObj's `!pc_skip` term), so this cannot
+// native_sync=true-only shortcut like every other native `beh_*`; pc_faithful / SBS full always take the
+// substrate body via rec_dispatch (BehaviorDispatch::dispatchObj's `!native_sync` term), so this cannot
 // affect the byte-exact gate.
 
 #include "core.h"

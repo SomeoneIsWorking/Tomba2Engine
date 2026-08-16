@@ -586,45 +586,22 @@
 - **refs:** bug #43, scratch/screenshots/vortex_{default,gate}_f600.png, sop_overlay_shadow.cpp
   header (beat gate map), beh_sop_intro_narration.cpp.
 
-## pc_skip FUN_80044BD4-collapse INCOMPLETENESS class (2026-07-15) — audit of the #53 bug family — FIXED
-- ROOT CAUSE (workflow): FUN_80044BD4's tail was hand-re-derived at 3 pc_skip collapse sites instead of
-  shared. The COMPLETE byte-exact port is PcScheduler::spawnAndWait (pc_scheduler.cpp:142-187) — all sites
-  should route through a shared helper of its tail side-effects, not re-author.
-- FUN_80044BD4 (gen_func_80044BD4, generated/shard_3.c:11775): spawns slot-1 task, then if a3!=1:
-  draws RNG (FUN_8009A450) and UNCONDITIONALLY stores its RETURN VALUE (v0) as a HALFWORD at task+0x56
-  (the earlier RE misread this as literal 1 — v0 is the RNG result, the `1` was clobbered by the RNG call);
-  then if a3==2 the wait loop bumps u16 0x1F800198 + dispatches FUN_8007FD54 (icon/label placement).
-- INCOMPLETE sites (ranked by reachability), all now fixed:
-  1. Engine::submode1Case0Skip (engine.cpp:2277, a3=2) — HIGHEST, every field area load. Was missing the
-     WHOLE tail (task+0x56 stamp + 0x1F800198 bump + FUN_8007FD54). Probe CONFIRMED: 0x801FE056 stale
-     (73 3A) on default vs written (25 7E -> 23 10) on faithful (PSXPORT_PC_SKIP=0) across submode1
-     case0->2 (~f112-116). FIXED: `c->game->pcSched.bd4Tail(c->mem_r32(0x1f800138u), 2)` inserted BEFORE
-     `SV_CHECK(...transitionAreaLoad())`.
-  2. Sop::fieldMode case 0 (sop.cpp:493, a3=3) — was missing the task+0x56 RNG stamp (the RNG draw
-     already existed for cadence timing but its result was discarded). FIXED: `(void)c->rng.next()`
-     replaced with `c->game->pcSched.bd4Tail(sm, 3)` — same single draw, now stored (no counter/FD54,
-     a3!=2). Draw count unchanged (1).
-  3. demo.cpp:938 (#53 fix, a3=2) — VALUE bug: wrote literal 1 to sm+0x56 instead of the RNG stamp.
-     FIXED: `c->mem_w16(sm + 0x56u, 1)` + the separate counter-bump/FD54 lines replaced with
-     `c->game->pcSched.bd4Tail(sm, 2)`.
-- FIX: extracted `PcScheduler::bd4Tail(uint32_t taskBase, uint32_t flag)` (game/core/pc_scheduler.h/.cpp) —
-  the ONE authoritative copy of the a3!=1 tail (RNG stamp store + flag==2 counter/FD54). All 3 collapse
-  sites now call it instead of re-deriving. spawnAndWait itself was NOT routed through it — its flag==2
-  counter/FD54 repeats per wait-loop iteration gated on done==0, a shape the single-shot helper doesn't
-  model; spawnAndWait keeps its own inline tail (see pc_scheduler.cpp comment above bd4Tail).
-- VERIFIED: build clean; SBS-full (PSXPORT_SBS_MODE=full AUTO_SKIP) 0-diff through 30390+ frames (helper
-  only touches pc_skip branches, which core B doesn't run); MODE=skip AUTO_SKIP SKIP_CONTINUE shows zero
-  task+0x56/field-load-related divergence (only pre-existing unrelated AUDIO spu_reg timing jitter, a
-  separate known class); default free-roam boot + attract-DEMO boot both unaffected (AUTO_SKIP reaches
-  free-roam at f216 as before). Per-site probe of 0x801FE056 (task+0x56): default now writes a real drawn
-  stamp instead of staying stale/literal at every site (demo default f500: `23 10`, was literal `01 00`;
-  engine.cpp default f200+: `82 5C`, was stale/missing). The exact byte value differs from the faithful
-  run's own draw (`23 10` at the same probe) — expected: pc_skip and faithful accumulate different total
-  frame counts before reaching this point (documented "SBS two compare modes" — MODE=skip does NOT require
-  byte-exact RNG-stream alignment, only the fixed observable list + SBS-full on the faithful path, which
-  stayed 0-diff).
-- NOTE: PSXPORT_GATE=1 is NOT a pc_skip=false oracle (only changes exec substrate); use PSXPORT_PC_SKIP=0
-  or SBS-full to force the faithful Engine::pc_skip branch (boot.cpp:141-144).
+## FUN_80044BD4 synchronous task ownership (2026-08-14)
+- Root cause of the former fork was duplicated wait policy: native callers open-coded completion
+  fragments while `PcScheduler::spawnAndWait` retained a multi-frame branch. Flat native callers could
+  also lose their C++ stack when a cooperative yield long-jumped out of the frame.
+- `SynchronousTaskWait` is now the sole native owner. It drains any live slot-1 task, spawns the requested
+  task with the guest-authored parameter latches, pumps that task to its natural close, applies the one
+  authored completion rule, and returns without synthesizing a loading tick or loading-screen service.
+- Engine, Demo, and Sop collapsed call sites all use `PcScheduler::completeSyncWait`; none re-derive the
+  RNG stamp. Flag 1 has no stamp, while flags 2 and 3 share the same stamped completion. The generated
+  FUN_80044BD4 body remains the explicit oracle and is not a second product launch mode.
+- Runtime evidence `scratch/logs/synchronous_wait_single_path.log` reaches free roam at frame 216 and
+  reports both boot completions plus flag-2 and flag-3 completions with
+  `wait_ticks=0 loading_services=0`. `scratch/logs/synchronous_wait_retired_pc_skip_final.log` proves
+  the retired `PSXPORT_PC_SKIP=0` name is unread and selects no alternate cadence. The focused
+  framework test feeds flags 1, 2, and 3 through the shipping completion seam and proves the old wait
+  counter is untouched.
 - REGRESSION FOLLOW-UP (2026-07-15) — bd4Tail DOUBLE-DRAW, fixed same day. The 11b3205 fix inserted
   `bd4Tail(...)` (which draws the RNG stamp as its FIRST action, pc_scheduler.cpp:150) right after
   pre-existing standalone `(void)c->rng.next()` "Slip #5" lines at demo.cpp:920 and engine.cpp:2279 —
@@ -637,7 +614,7 @@
   guest draws 0 (flag=1 jumps to the epilogue before func_8009A450). FIX: deleted all three stray draws;
   bd4Tail is now the SOLE RNG draw for flag!=1 sites, and flag=1 draws none. This is a pc_skip=true-ONLY
   bug — invisible to SBS-full (which forces pc_skip=false), only visible via PSXPORT_RNG_CALLTRACE=1.
-  VERIFIED: post-fix RNG_CALLTRACE (AUTO_SKIP headless) shows the stray `submode1Case0Skip+0x2c` draw
+  VERIFIED: post-fix RNG_CALLTRACE (AUTO_SKIP headless) shows the stray `submode1Case0Native+0x2c` draw
   GONE and only `bd4Tail+0x18` firing (matching gen's 1-draw-per-flag!=1-load); SBS-full 0-diff to f30720.
   LESSON: when extracting a shared helper that performs a side effect, AUDIT every call site for a
   pre-existing standalone copy of that same side effect — the helper insertion doesn't remove it.
@@ -1301,7 +1278,7 @@ covered by this change and were left in place:
   OTHER half of the same disease: the spawned task itself then runs FLAT in
   `recomp_run_generic_dispatch_stanza`, and truncates there if it yields. Curing that means running
   slot tasks on fibers under pc_skip too — a separate, larger change.
-* `Engine::submode1Case0Skip`, `Sop::fieldMode` case 0 and `demo.cpp`'s area-load collapse are
+* `Engine::submode1Case0Native`, `Sop::fieldMode` case 0 and `demo.cpp`'s area-load collapse are
   flag==2 waits and ARE subsumed mechanically — but they currently run the NATIVE body
   (`Asset::areaDataLoadAsTask` / `Sop::transitionAreaLoad`), which is reached only by entry-PC
   through `GameHooks::schedStageBody`. `runTaskInline` dispatches with `rec_coro_run`, so deleting

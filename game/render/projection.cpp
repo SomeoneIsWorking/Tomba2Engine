@@ -153,6 +153,24 @@ static inline int32_t round_i16(float f) {
   return v < -32768 ? -32768 : v > 32767 ? 32767 : v;
 }
 static inline int32_t round_i32(float f) { return (int32_t)(f < 0 ? f - 0.5f : f + 0.5f); }
+// Unpack the scratchpad scene view matrix. Read the halfword picks against projActiveCr directly below:
+// cr[0]=R00|R01<<16, cr[1]=R02|R10<<16, cr[2]=R11|R12<<16, cr[3]=R20|R21<<16, cr[4]=R22 (LOW half —
+// the upper half of that word is not part of the matrix), cr[5..7]=T. Anything that needs this layout
+// calls here rather than re-deriving it; a second hand-written copy is how R22 once became w4>>16 and
+// fed the whole native projection path a corrupt view-Z row.
+void Render::readSceneViewMatrix(Core* c, float R[3][3], float T[3]) {
+  constexpr uint32_t kSceneViewMatrix = 0x1F8000F8u;   // scratchpad; written where the guest's libgte
+                                                       // SetRotMatrix/SetTransMatrix record the camera
+  const uint32_t w0 = c->mem_r32(kSceneViewMatrix + 0),  w1 = c->mem_r32(kSceneViewMatrix + 4);
+  const uint32_t w2 = c->mem_r32(kSceneViewMatrix + 8),  w3 = c->mem_r32(kSceneViewMatrix + 12);
+  const uint32_t w4 = c->mem_r32(kSceneViewMatrix + 16);
+  R[0][0] = (int16_t)w0;         R[0][1] = (int16_t)(w0 >> 16); R[0][2] = (int16_t)w1;
+  R[1][0] = (int16_t)(w1 >> 16); R[1][1] = (int16_t)w2;         R[1][2] = (int16_t)(w2 >> 16);
+  R[2][0] = (int16_t)w3;         R[2][1] = (int16_t)(w3 >> 16); R[2][2] = (int16_t)w4;
+  for (int i = 0; i < 3; i++)
+    T[i] = (float)(int32_t)c->mem_r32(kSceneViewMatrix + 0x14u + (uint32_t)i * 4u);
+}
+
 void Render::projActiveCr(uint32_t cr[11]) {
   // pack R (1.3.12 scale) into CR0-4 halfword layout, T into CR5-7, projection consts into cr[8..10].
   const EObjXform& a = mActiveXform;

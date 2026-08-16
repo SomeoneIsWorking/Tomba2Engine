@@ -181,7 +181,7 @@ void Asset::unpackGroupFaithful(uint32_t tablePtr, uint32_t anchorEnd) {
 // unpackGroupFaithful for step 3 (its libgs leaves run at the live guest sp), and the metadata-
 // copy cursor kept in the guest s0 (selfClose's prologue spills it). Byte shape: generated
 // gen_func_80044F58. This method only runs on the pc_faithful task-1 path (runTask1PreloadStanza);
-// the pc_skip shortcut is preloadTexgroup below.
+// the native_sync shortcut is preloadTexgroup below.
 void Asset::loadTexgroup() {
   Core* c = this->core;
   c->r[29] -= 24;
@@ -347,7 +347,7 @@ void Asset::preloadStage1() {
 // SEQ/VAB VRAM build stays the substrate leaf 0x800754F4: its FUN_800753D4 poll loop yields
 // through scheduler_yield each frame the SsVabTransCompleted flag is still clear, which is what
 // spreads this body across two slices on core B — dispatching the real leaf reproduces both the
-// cadence and its stack bytes organically. Byte shape: generated gen_func_8004514C. The pc_skip
+// cadence and its stack bytes organically. Byte shape: generated gen_func_8004514C. The native_sync
 // shortcut is preloadStage1() above (synchronous, no yields — must never run on this path).
 void Asset::preloadStage1AsTask() {
   Core* c = this->core;

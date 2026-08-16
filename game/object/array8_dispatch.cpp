@@ -2,11 +2,11 @@
 #include "array8_dispatch.h"
 #include "game_ctx.h"
 #include "core.h"
-#include "game.h"   // c->game->pc_skip fork
+#include "game.h"   // c->game->native_sync fork
 
 void Array8Dispatch::tick() {
   Core* c = core;
-  if (c->game && !c->game->pc_skip) { tickFaithful(); return; }
+  if (c->game && !c->game->native_sync) { tickFaithful(); return; }
   for (int i = 0; i < 8; i++) {
     uint32_t slot = ARRAY_BASE + (uint32_t)i * SLOT_STRIDE;
     if (c->mem_r8(slot) == 0) continue;

@@ -153,12 +153,8 @@ float maxDelta(const Shot& a, const Shot& b) {
 Shot shootAsIfCameraComposed(Core* c) {
   constexpr float FX = 1.0f / 4096.0f;
   float camR[3][3], camT[3];
-  const uint32_t w0 = c->mem_r32(CAM_MTX + 0), w1 = c->mem_r32(CAM_MTX + 4), w2 = c->mem_r32(CAM_MTX + 8),
-                 w3 = c->mem_r32(CAM_MTX + 12), w4 = c->mem_r32(CAM_MTX + 16);
-  camR[0][0] = (int16_t)w0 * FX;         camR[0][1] = (int16_t)(w0 >> 16) * FX; camR[0][2] = (int16_t)w1 * FX;
-  camR[1][0] = (int16_t)(w1 >> 16) * FX; camR[1][1] = (int16_t)w2 * FX;         camR[1][2] = (int16_t)(w2 >> 16) * FX;
-  camR[2][0] = (int16_t)w3 * FX;         camR[2][1] = (int16_t)(w3 >> 16) * FX; camR[2][2] = (int16_t)w4 * FX;
-  for (int i = 0; i < 3; i++) camT[i] = (float)(int32_t)c->mem_r32(CAM_MTX + 0x14u + (uint32_t)i * 4u);
+  Render::readSceneViewMatrix(c, camR, camT);   // CAM_MTX layout lives in ONE decoder (render.h)
+  for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) camR[i][j] *= FX;   // 1.3.12 -> unit scale
 
   Shot s;
   for (int i = 0; i < kGlyphs; i++) {

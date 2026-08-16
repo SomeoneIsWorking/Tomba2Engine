@@ -56,7 +56,7 @@ public:
 
   // FUN_8004514C — SWDATA + DAT load, shared texgroup sub-load, relocation table, cel/sprite
   // VRAM build. Two entry points for the same body:
-  //   preloadStage1()       — inline direct call (pc_skip stage0Advance, native area load)
+  //   preloadStage1()       — inline direct call (native_sync stage0Advance, native area load)
   //   preloadStage1AsTask() — task-1 body wrapper (pc_faithful): also sets done_flag=1 and
   //                           rec_dispatches 0x80051FB4 (task-end) so the caller of FUN_80044BD4
   //                           sees the wait-loop exit

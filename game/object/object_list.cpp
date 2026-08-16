@@ -48,7 +48,7 @@ inline void walk_list(Core* c, uint32_t head, long* count) {
 
 void ObjectList::walkAll() {
   Core* c = core;
-  if (c->game && !c->game->pc_skip) { MV_CHECK(c, 0x8007A904u, walkAllFaithful()); return; }
+  if (c->game && !c->game->native_sync) { MV_CHECK(c, 0x8007A904u, walkAllFaithful()); return; }
   long nodes = 0;
   walk_list(c, c->mem_r32(T2_OBJLIST_HEAD_1), &nodes);
   walk_list(c, c->mem_r32(T2_OBJLIST_HEAD_2), &nodes);
@@ -66,7 +66,7 @@ void ObjectList::walkAll() {
 // constant (0x8007A930 list-1 / 0x8007A964 list-2) and carries `next` in r16 across the call so
 // a substrate-routed handler's own ra/s0 spill byte-matches core B. No MarginRenderer::flush —
 // gen_func_8007A904 never calls it (that's a render-overlay addition, deferred — see the
-// unconditional call still in walkAll() above for the pc_skip=true path).
+// unconditional call still in walkAll() above for the native_sync=true path).
 void ObjectList::walkAllFaithful() {
   Core* c = core;
   uint32_t node = c->mem_r32(T2_OBJLIST_HEAD_1);
@@ -112,7 +112,7 @@ void ObjectList::walkList2() {
 
 void ObjectList::walkAux() {
   Core* c = core;
-  if (c->game && !c->game->pc_skip) { MV_CHECK(c, 0x80069B28u, walkAuxFaithful()); return; }
+  if (c->game && !c->game->native_sync) { MV_CHECK(c, 0x80069B28u, walkAuxFaithful()); return; }
   // FUN_80069B28: does NOT clear the render flag; dispatches per handler ptr via the shared path.
   for (uint32_t n = c->mem_r32(AUX_LIST_HEAD); n; ) {
     uint32_t h    = c->mem_r32(n + 0x1Cu);

@@ -339,25 +339,14 @@ its own beyond the shared cursor-index global `DAT_800bf808`):
   leaving both means the unreadable one runs. Several more dialog-path leaves are still ORPHAN
   (0x8007E6DC/E8DC/E938/E998, 0x8007FD54) and are the obvious next candidates.
 
-## "Loading....." indicator (FUN_8007FD54) — RE'd, and skipped under pc_skip (USER, 2026-07-22)
-- **What it is:** three lines of guest code. Read the frame counter at `0x1F800198`, test bit 2, and
-  draw the string `"Loading....."` (`0x80017304`) at (160,180) in palette 6 or 0. Bit 2 of a per-frame
-  counter flips every 4 frames, so the text BLINKS while the disc is read.
-- **`LoadingText`** (`game/ui/loading_text.cpp`) owns it: `drawFaithful` is the guest body
-  (`port_check` PASS vs `gen_func_8007FD54`), `drawSkip` draws nothing, and `draw` is the fork. Two
-  one-path methods, per the no-inline-pc_skip-blocks rule.
-- **Why skip it:** on this port the "load" is a host file read that has already completed by the time
-  anything could be drawn, so the indicator advertises a wait that does not exist. Registered in the
-  behavior map as `loading-text-skip` (class pc_skip, affect non-canon, SBS-suppressed because both
-  SBS cores run `mPcSkip=false` and therefore take the byte-exact faithful path).
-- **Two structural details worth reusing** — both were needed to make `port_check` PASS, and both are
-  what the guest actually does rather than transcription noise:
-  1. the text draw's 5th argument goes on the CALLER'S STACK at `sp+16` (o32), not in a register;
-  2. the guest writes that stack argument separately inside EACH side of the blink test, so the store
-     sequence has three 32-bit stores, not two.
-- **LIVE:** `ovhit` on the bucket capture shows `LoadingText::draw native=1`. As with the backdrop, an
-  ORPHAN `leaf_8007FD54` was registered at the same address and won until it was unregistered AND
-  deleted — installs overwrite, so converting a leaf to readable code means removing the leaf.
+## "Loading....." indicator (FUN_8007FD54) — exact oracle body; absent from the synchronous product path
+- The guest body reads `0x1F800198`, tests bit 2, and draws `"Loading....."` (`0x80017304`) at
+  (160,180). `LoadingText::draw` retains that exact body for generated/oracle comparison.
+- Its only caller is FUN_80044BD4's asynchronous wait loop. The product owns that operation one level
+  up as a synchronous task: host work and the spawned task complete before return, with zero wait
+  ticks and zero loading services. There is therefore no product loading state to hide or blank.
+- This replaces the reverted text-only fork. The oracle still exercises the authored blink/cadence;
+  product code has no separate `drawSkip` policy and no `PSXPORT_PC_SKIP` switch.
 
 ## 2D sprite entry points FUN_8007E8DC / FUN_8007E998 — RE'd and owned (2026-07-22)
 - **What they are:** thin marshallers, not drawers. Each builds two small structs ON ITS OWN GUEST

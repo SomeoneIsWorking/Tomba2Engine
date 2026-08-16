@@ -35,6 +35,15 @@ fail=0
 say() { printf '\033[1;36m[pre-commit] %s\033[0m\n' "$*"; }
 bad() { printf '\033[1;31m[pre-commit] %s\033[0m\n' "$*"; }
 
+if [ -f tools/check_cpp_style.py ]; then
+  if python3 tools/check_cpp_style.py; then
+    say "C++ formatting and ownership caps clean"
+  else
+    bad "C++ formatting/ownership check failed"
+    fail=1
+  fi
+fi
+
 if [ -f tools/go_public.py ]; then
   if ! out="$(python3 tools/go_public.py scan --current 2>&1)"; then
     bad "publication audit FAILED — a blocking leak is about to be committed:"

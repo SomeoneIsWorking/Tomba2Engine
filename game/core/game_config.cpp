@@ -90,7 +90,6 @@ static const GameConfig g_tomba_config = {
   .stageStart = 0x8010649cu,
   .stageDemo = 0x801062e4u,
   .stageGame = 0x8010637cu,
-
   // --- overlay router slots (overlay_router.cpp slot_index) ---
   .overlaySlots = {
     { 0x80106228u, "STAGE" },   // START/DEMO/GAME
@@ -211,6 +210,16 @@ static const GameConfig g_tomba_config = {
   // preload bodies have fiber bodies and no native handler, and SOP area-load has both.
   .schedEntries     = g_tomba_sched_entries,
   .schedEntryCount  = (uint32_t)(sizeof(g_tomba_sched_entries) / sizeof(g_tomba_sched_entries[0])),
+
+  // Synchronous FUN_80044BD4 ownership. These are appended framework fields so positional consumers
+  // keep their ABI; this designated initializer keeps the measured Tomba layout explicit.
+  .syncWaitDoneFlag = 0x1f80019bu,
+  .syncWaitParam2 = 0x801fe0deu,
+  .syncWaitParam3 = 0x801fe0ddu,
+  .syncWaitTaskGp = 0x1f800000u,
+  .syncWaitForceCloseRa = 0x80044c2cu,
+  .syncWaitSpawnRa = 0x80044c50u,
+  .syncWaitFinishRa = 0x80044c64u,
 };
 
 // The game's callback vtable — defined in game_hooks.cpp (thin impls reaching eng(c).*).

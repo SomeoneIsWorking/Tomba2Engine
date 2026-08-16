@@ -13,10 +13,10 @@
 // 0x800AD52C indexed by byte[1] (a0 = slot). Faithful to the recomp body — the callee handlers
 // stay substrate (each honors its own owned override in the super-call path).
 //
-// pc_skip=true (default ./run.sh): dispatch() runs the shortcut body below, with the
+// native_sync=true (default ./run.sh): dispatch() runs the shortcut body below, with the
 // `disp26c88verify` A/B gate on that channel (every dispatch compared byte-for-byte against
 // rec_super_call(0x80026C88), with a scoped exclusion for the dead stack region below entry sp).
-// pc_skip=false (SBS core A / pc_faithful): dispatch() forks to dispatchFaithful() via MV_CHECK
+// native_sync=false (SBS core A / pc_faithful): dispatch() forks to dispatchFaithful() via MV_CHECK
 // (strict mirror TDD gate, game/core/verify_harness.h), a byte-exact mirror of gen_func_80026C88
 // including the guest frame descent + s0/s1/s2/ra stack spill and jal-site r31 — those 16 bytes
 // of guest stack are observable under SBS strict compare and the disp26c88verify dead-stack

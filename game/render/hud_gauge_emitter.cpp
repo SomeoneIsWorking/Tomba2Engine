@@ -160,7 +160,7 @@ void emitDrawAreaAndLink(Core* c, uint32_t raConst, uint32_t rectOff) {
   const uint32_t oldTail = c->mem_r32(tailSlot);
   // gen holds the DR_AREA OT tag constant (512<<16 == 0x02000000) LIVE in r3/v1 across the link
   // and leaves it there — the leaf's v1 return residue. Mirror it in c->r[3] (not just an inline
-  // literal) so a wrong live r3 can't leak out as this leaf's v1 (SBS core A / pc_skip=false
+  // literal) so a wrong live r3 can't leak out as this leaf's v1 (SBS core A / native_sync=false
   // MIRROR_VERIFY caught native leaving 0x09000000 — the last nested leaf's r3 — instead).
   c->r[3] = kDrawAreaOtTag;
   const uint32_t tagWord = oldTail | c->r[3];

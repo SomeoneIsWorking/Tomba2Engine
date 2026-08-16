@@ -140,7 +140,7 @@ void ObjectTable::handler27254(uint32_t obj) {
 
 void ObjectTable::dispatch() {
   Core* c = core;
-  if (c->game && !c->game->pc_skip) { MV_CHECK(c, 0x80026C88u, dispatchFaithful()); return; }
+  if (c->game && !c->game->native_sync) { MV_CHECK(c, 0x80026C88u, dispatchFaithful()); return; }
 
   auto body = [&]() {
     uint32_t obj = TABLE_BASE;
@@ -215,7 +215,7 @@ void ObjectTable::dispatchFaithful() {
       // handler27254()'s native port reproduces the RESULT, not the PSX bytes (its INIT state
       // calls prng(c) -> rngOf(c).next(), which does not reproduce gen_func_8009A450's ABI
       // end-state — v0/v1/hi-lo — the way rec_dispatch to the real LCG body does). Taking the
-      // native shortcut here (as the pc_skip=true `body()` lambda above intentionally does) is
+      // native shortcut here (as the native_sync=true `body()` lambda above intentionally does) is
       // what caused the 0x80106B98 strict-mirror-verify FAILURE (12+ diffs at 0x801FE8xx / v0 /
       // v1): this call is reached from ObjectTable::dispatch()'s own MV_CHECK, but that check is
       // a no-op while nested inside an outer strictCheck (no nesting, verify_harness.h), so the
