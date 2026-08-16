@@ -316,6 +316,11 @@ host-side presentation concern. Anchor/stamp special-casing is its own debt, not
   `external/psxport/tools/dbgclient.py`). Headless render: `PSXPORT_VK_HEADLESS=1`. Key REPL: `run N`, `newgame`, `skip N`,
   `press/release/tap <btn>`, `r`/`rw`/`w`, `dumpram <path>` (+`.spad`), `shot <path>`, `debug <chans|all>`,
   `stage`/`regs`/`seq`/`quit`. See `docs/driving-the-game.md`.
+- **TOOLS ARE PYTHON.** `run.sh` is the ONLY shell script allowed to exist (USER, 2026-08-16: *"only
+  run.sh should be a shell script, all other scripts should be python"*) — it is the user's launcher,
+  not a tool. Every gate/sweep/builder is a `.py` with `argparse`, a `--help` that states what it
+  asserts, and exit codes separating PASS / FAIL / REFUSED (could not assert anything). Add no new
+  shell scripts; convert any you touch.
 - **Repo layout:** `game/` — PC-native game by SUBSYSTEM FOLDER (`ai/ object/ world/ render/ camera/
   scene/ audio/ input/ player/ ui/ items/ math/ core/`) plus top-level `game_tomba2.cpp` +
   `tomba2_types.h`; put a new native in its subsystem folder, never a grab-bag file. The PSX→PC platform is FRAMEWORK-RESIDENT at `external/psxport/runtime/recomp/` —

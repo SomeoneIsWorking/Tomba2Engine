@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (33)
+## TODO (35)
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
 - **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
@@ -39,6 +39,8 @@
 - **#92 PSXPORT_ENH is ENV-ONLY and off the CVar ladder — cfg_enh() cannot satisfy the USER's CVars ruling, so the first pc_enh consumer had to duplicate its suppression**  `psxport,config,debt,enhancements`
 - **#97 Tether producer is dispatched by TYPE byte with no queue/head gate**  `render,bug`
 - **#98 Produced-vs-presented ledger: nothing asserts a pushed prim reached the screen**  `instrument,render,verification`
+- **#100 Convert every shell script to Python (run.sh is the only exception)**  `debt,tooling,workflow`
+- **#101 Present ledger caught a real one-frame world drop at the hut door transition (f390)**  `bug,render`
 
 ## DOING (6)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
