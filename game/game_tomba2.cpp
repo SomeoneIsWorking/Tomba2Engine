@@ -127,13 +127,13 @@ void Engine::frameUpdate() {
   // fps60 (when enabled) OWNS presentation: it presents the interpolated in-between + the real frame
   // (60 fps, 1 frame behind) and paces both halves — see fps60_present_vk. The faithful path
   // presents frame B once and paces a full frame.
+  // frame_commit OWNS presentation in both configs: it builds and presents the real frame and paces it,
+  // and when the tier is on it inserts a lerped in-between first. This used to be an
+  // `if (!mods.fps60) { gpu_present; gpu_pace_frame; }` branch — the game choosing between two
+  // renderers, which is the top of the split kanban #99 is about.
+  c->game->perf.phaseBegin(2);   // perf: PRESENT-cpu = world build + VRAM mirror upload + VK record/submit
   c->game->fps60.frame_commit(c);
-  if (!c->game->mods.fps60) {
-    c->game->perf.phaseBegin(2);                             // perf: PRESENT-cpu = VRAM mirror upload + VK record/submit
-    gpu_present(c);
-    c->game->perf.phaseEnd(2);                               // (pacing/vsync sleep below is excluded -> shows as idle/pace)
-    gpu_pace_frame(c);
-  }
+  c->game->perf.phaseEnd(2);     // (the pacing/vsync sleep is inside the commit -> shows as idle/pace)
 }
 
 // fps60 object tag: the universal per-object cull/LOD dispatcher (a0 = object*, once per logic

@@ -697,7 +697,11 @@ void Render::sceneNative() { Core* c = mCore;
   // reads (camera/object-transform/backdrop-scroll — the state the present re-render reads back) and skip
   // their per-vertex projection+submit. Off for the non-eligible sub-scenes (whose captured world DOES
   // present verbatim) and off under the SBS/psx-render legs. Cleared on every exit below.
-  c->game->fps60.mWorldCaptureOnly = c->game->mods.fps60 && c->game->fps60.mTier1EligibleCur
+  // NOT gated on mods.fps60. The world is built at PRESENT time in both configs, so the guest-time walk
+  // is capture-only in both — that is what makes fps60=0 and fps60=1 the same renderer rather than two
+  // (USER 2026-08-16: "the only difference would be whether to add the extra lerp frames or not"). It is
+  // also not a cost: the world is drawn ONCE either way, just at the present instead of at guest time.
+  c->game->fps60.mWorldCaptureOnly = c->game->fps60.mTier1EligibleCur
                                      && !c->game->diff_mode && !c->rsub.mode.psxRender();
   // AREA-SCOPED CACHE trust latches: the EDGE DETECTOR now lives in areaCacheTrustTick(), ticked once
   // per logic frame from Engine::drawOTag BEFORE the render-mode branch (it is guest-state tracking, not

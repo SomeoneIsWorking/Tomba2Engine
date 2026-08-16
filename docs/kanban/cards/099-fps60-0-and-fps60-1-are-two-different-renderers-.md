@@ -1,8 +1,8 @@
 ---
 id: 99
 title: fps60=0 and fps60=1 are two different renderers — unify so the only difference is the extra lerp present
-status: todo
-labels: [render,fps60,architecture,debt]
+status: done
+labels: [render, fps60, architecture, debt]
 created: 2026-08-16
 updated: 2026-08-16
 ---
@@ -24,3 +24,5 @@ ATTEMPTED AND BACKED OUT 2026-08-16 (do not re-tread blindly): unifying (1) alon
 SCOPE: 5 active() guards in fps60.cpp, the mWorldCaptureOnly gate in render_walk.cpp, the mods.fps60 branch at game_tomba2.cpp:131, and the flush branch in render_queue.cpp. The acceptance gate is pixel-identity of the REAL present between the two configs across the four panel/scene replays, in BOTH directions, plus a perf measurement (unification makes fps60=0 build its world at present time, which it does not do today).
 
 Evidence in the code that t=1 is the right unification point: with PSXPORT_FPS60_TFORCE=1 the interpolated present is 0/76800 px identical to the real present over 3 moving frames, against a validated positive control (TFORCE=0 -> ~45k px).
+
+**2026-08-16:** DONE 2026-08-16, psxport 7713ec42. The invariant is written down in external/psxport/docs/one-renderer.md and pointed at from psxport's CLAUDE.md, including the table of branches that remain legitimate — a branch outside that table means the configs have diverged again. Acceptance gate met: the REAL present is pixel-identical between the two configs, with the check shown to fail as well as pass (cliff and start DIFFER before, IDENTICAL after; hut and menu were identical throughout, which is why a two-scene gate would have passed for the whole period the bug was live). Measured cost recorded, not waved off: fps60=0 goes 2.5s->3.5s per 900 headless frames (+40%, ~294fps against a 30fps target), fps60=1 unchanged. Direction chosen deliberately: building the world at guest time instead would be free here but would undo #33 and cost the DEFAULT config a second world draw per frame.
