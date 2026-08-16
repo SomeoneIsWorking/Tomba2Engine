@@ -37,8 +37,8 @@
 - **#84 Replay library cannot exercise the two PC-ONLY producers (pc/widescreen-margin, pc/options-pillarbox)**  `producers`
 - **#91 Producer claim set is append-only with NO provenance — a claim fossilises when a producer's key moves**  `bug,producers,psxport,instrument`
 - **#92 PSXPORT_ENH is ENV-ONLY and off the CVar ladder — cfg_enh() cannot satisfy the USER's CVars ruling, so the first pc_enh consumer had to duplicate its suppression**  `psxport,config,debt,enhancements`
-- **#94 Contextual "Use UP + O to talk" prompt box has no pc_render producer**  `render,bug`
 - **#97 Tether producer is dispatched by TYPE byte with no queue/head gate**  `render,bug`
+- **#98 Produced-vs-presented ledger: nothing asserts a pushed prim reached the screen**  `instrument,render,verification`
 
 ## DOING (6)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
@@ -48,7 +48,7 @@
 - **#74 Interior wall decors missing (suspect depth / coincident-face ordering)**  `render` — 📎 docs/reference/issues/issue74_house_pc_render_decor_missing.png,     docs/reference/issues/issue74_house_psx_render_decor_present.png
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 
-## DONE (58)
+## DONE (59)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -105,5 +105,6 @@
 - **#89 The DB's guest-only list mixes at least three states — it is NOT a work-remaining ranking**  `bug,render`
 - **#90 Piping a REPL script into an SBS run LOOKS like it works and drives NOTHING — silently discarded**  `bug,verification,instrument`
 - **#93 REGRESSION: fps60 camera seam mis-transcribed R22 — pc_render drew only the backdrop, camera read as broken**  `bug,render,camera,fps60,regression`
+- **#94 Contextual "Use UP + O to talk" prompt box has no pc_render producer**  `render,bug`
 - **#95 Cliff fisherman: body + rod absent under pc_render while his fishing LINE still draws**  `bug,render`
 - **#96 PSXPORT_ORACLE=1 SEGFAULTS at f73 of the cliff replay — the reference build cannot reach the scene**  `bug,oracle,verification`

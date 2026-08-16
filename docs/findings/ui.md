@@ -1,5 +1,51 @@
 # Findings — UI subsystem (game/ui/*)
 
+## ✅ FIXED (2026-08-16): the panel/prompt/dialog family was never re-broken — fps60 was dropping the flush it lives in
+- **symptom:** USER 2026-08-16 — *"we fixed prompt boxes and rebroke them a million times idk why"*. Most
+  recently kanban #94, the contextual "Use UP + O to talk" box, filed as "has no pc_render producer".
+- **status:** FIXED framework-side, psxport `284c012e`. #94 and #35 both closed.
+- **the card's premise was FALSE, and that is the lesson:** the producer runs and pushes. `PSXPORT_DEBUG=
+  panelq` prints the exact rects (x 76-244, y 184-212) and `count=12` glyphs; `ovhit` shows
+  `0x8004FFB4 native=2665 oracle=0`. Nothing about the panel code was wrong. Do not file "X has no
+  producer" without asking the producer whether it fired.
+- **cause:** `RenderQueue::flush` means "one draw-list submission ended" — a logic frame issues one per
+  guest `DrawOTag`, commonly TWO. `Fps60::rq_capture` treated it as the frame's FINAL queue and memcpy'd
+  over its single snapshot each time, so at `fps60=1` only the LAST flush presented. Tomba!2 emits its 2D
+  chrome in the FIRST flush and the world in the second → the whole family vanished. At `fps60=0`,
+  `flush()` calls `emitQueue()` directly and every flush reaches the picture, which is why the same code
+  rendered perfectly at 30fps and why every one of these fixes verified green when it was made.
+- **why it read as endless re-breaking:** flush COUNT is guest-state dependent, so the same panel code is
+  visible in one scene and invisible in another; and an unrelated change to when the guest issues
+  `DrawOTag` flips a whole UI layer off with NO UI commit in the diff. `psxport_settings.ini`'s `fps60`
+  line also flipped 1→0→1 within seven minutes on 2026-07-22, the same day much of this family was being
+  fixed and verified.
+- **the discriminator, worth copying:** pc-vs-pc across a SINGLE env var on one unmodified binary, with
+  the leg proved in-band by the `[cfg] PSXPORT_FPS60 =` line rather than by the pixels being measured —
+  plus a positive control (item menu, `rqflush` shows ONE distinct queue per frame, `reemit=1` on the
+  second, therefore immune, md5-identical on both legs) and a negative control (START page, two flushes,
+  broken). The rule predicts both outcomes in both directions. No oracle involved — and note that an
+  oracle compare would have been the WRONG instrument here (the legs diverge in timing on a pad replay).
+- **fix:** accumulate into `mRqCur` across the frame's flushes with each appended flush's `seq` rebased by
+  the running total (`presentPass` merges by `(layer, seq)` and every flush restarts `seq` at 0); empty the
+  capture at the frame fence in `presentRotate`, not per capture. Two latent defects went with it:
+  `mNCur = n` ran even for `n == 0` (an empty flush blanked the frame while leaving stale items), and an
+  over-cap capture silently truncated (now aborts naming the numbers).
+- **#35 was silently broken too.** Closed "FIXED and verified by screenshot" 2026-07-23; the fix is still
+  correct, but it was verified on the `fps60=0` leg and the panel had been invisible under the committed
+  default ever since. Same single cause.
+- **the gap that let it ship, still open:** nothing asserts that a prim a producer PUSHED reached a
+  PRESENT. The producer census counts prims that ARRIVE unattributed; it has no counter for prims that
+  never arrive, no abort path, and `prims_native_max` is monotonic-max-folded so a drop from N to 0 can
+  never show. `grep -c producers tools/precommit_gate.sh` = 0. Its run-end line was fully green while an
+  entire UI layer was missing from the screen. The produced-vs-presented ledger is the follow-up (kanban
+  #98).
+- **also:** frame-indexed gates for this family have drifted off their scenes — the #19/#28 gate
+  ("bucket-softlock f1200, box opaque with legible text") today shows a field scene with no dialog box at
+  all on BOTH legs, so re-running it compares two boxless images and passes. Locate by scene predicate,
+  not frame number.
+- **refs:** kanban #94, #35, #98; psxport `284c012e` (`runtime/recomp/fps60.{cpp,h}`); `game/ui/panel.cpp`,
+  `game/ui/panel_fill.cpp`; `scratch/screenshots/live/{hut_fps0,hut_fps1_fixed,start_fps1_fixed,menu_fps1_fixed}.png`.
+
 ## The dialog box advances on CIRCLE, and `replays/bugs/bucket-softlock.pad` never presses it (kanban #2, 2026-07-28)
 
 - **falsifies the standing conclusion** that the bucket-pickup cutscene "parks forever" on current
