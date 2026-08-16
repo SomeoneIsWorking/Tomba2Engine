@@ -1,5 +1,40 @@
 # Findings — render / engine submit
 
+## ⚠️ OPEN (2026-08-16): fps60=0 and fps60=1 are TWO RENDERERS — measured three layers deep, unification attempted and backed out
+- **symptom:** USER — *"fps60 and regular should be rendering the same thing and should work the same
+  underneath ... the only difference would be whether to add the extra lerp frames or not"*. It is not
+  true today. kanban #99.
+- **status:** OPEN. A unification was attempted on 2026-08-16, produced two distinct broken pictures, and
+  was REVERTED; the tree was rebuilt from the committed state and verified pixel-identical. What is
+  recorded here is the measured shape of the divergence, so the next attempt starts from it.
+- **why it is the root card:** every render bug fixed on 2026-08-16 is a child of this split — the panel
+  family dropping at 60 only (#94/#35), `zfightScan`/`rqhist` scanning a queue that is not what gets
+  drawn, and the painter-object layer being unreachable because it lives in `emitQueue`.
+- **the divergence, in the order it has to be unpicked:**
+  1. **Present path.** fps60=0: `flush()` -> `emitQueue()` -> the guest's own `gpu_present`. fps60=1:
+     `flush()` -> `rq_capture()` (early return, `emitQueue` never runs) -> `frame_commit` -> `present_vk`
+     -> `presentPass`. `frame_commit` itself early-returns when the tier is off, and `game_tomba2.cpp`
+     branches on `mods.fps60` to choose a presenter.
+  2. **World EMISSION TIME.** `render_walk.cpp`'s `mWorldCaptureOnly` gates on `mods.fps60`: the world is
+     emitted at GUEST time at fps60=0 and at PRESENT time (`tier1Render` into `mSink`) at fps60=1. This is
+     the layer that makes it two renderers rather than one renderer with two presenters.
+  3. **Capture chokes.** `Fps60::sceneCam` / `bgScroll` / `projObj` record their cur-slots only
+     `if (active())`, so at fps60=0 there is no camera/backdrop/object history at all.
+- **the two failures, both measured — do not re-tread blindly:** unifying (1) alone leaves the cliff
+  BLACK at fps60=1 under `TFORCE=1`, because the field world is not in the captured queue at all (it is
+  capture-only at guest time). Unifying (1)+(2) without (3) renders the cliff as bare sea+sky bands at
+  fps60=0, because `tier1Render` runs with an uncaptured zero camera — visually the same failure as the
+  R22 view-matrix bug earlier the same day.
+- **the measurement that says t=1 is the right unification point:** with `PSXPORT_FPS60_TFORCE=1` the
+  interpolated present is 0/76800 px identical to the real present over 3 moving frames, against a
+  validated positive control (`TFORCE=0` -> ~45k px changed). So "the real frame is the in-between at its
+  near endpoint" already holds; what does not hold is that the two CONFIGS reach it the same way.
+- **acceptance gate for the next attempt:** pixel-identity of the REAL present between the two configs
+  across the four panel/scene replays in BOTH directions, plus a perf number (unification makes fps60=0
+  build its world at present time, which it does not do today).
+- **refs:** kanban #99; `runtime/recomp/fps60.{cpp,h}` (5 `active()` guards), `runtime/recomp/render_queue.cpp`
+  (the flush branch), `game/render/render_walk.cpp` (`mWorldCaptureOnly`), `game/game_tomba2.cpp:131`.
+
 ## ✅ FIXED (2026-08-16): the cliff fisherman had no mesh — the tether ARM flushes it from inside its CALLEE
 - **symptom:** USER 2026-08-16, live windowed run — on the seaside cliff the fisherman NPC and the ROD he
   holds do not render under pc_render, while his fishing LINE does (and is nearly invisible against the
