@@ -130,8 +130,18 @@ int GuestQueueDispatch::submittedTotal(Core* c) {
   return snapshotOf(c, Queue::A).count + snapshotOf(c, Queue::B).count + snapshotOf(c, Queue::C).count;
 }
 
-bool GuestQueueDispatch::guestFlushesMesh(const Route& r) {
-  return r.arm == Arm::Mesh || r.arm == Arm::MeshThenFlash;
+// The visibility byte the tether arm's callee tests before flushing the mesh (FUN_80122974's
+// `lbu r2,1(r16)` / `addiu r18,1` / `bne r2,r18`). Same byte the walk's entry gate reads, but the gate
+// only requires non-zero and this requires exactly 1.
+static constexpr uint32_t kNodeVisible   = 1u;
+static constexpr uint32_t kNodeVisibleOff = 1u;   // node + 1
+
+bool GuestQueueDispatch::guestFlushesMesh(Core* c, uint32_t node, const Route& r) {
+  if (r.arm == Arm::Mesh || r.arm == Arm::MeshThenFlash) return true;
+  // The tether arm flushes the mesh too, from inside FUN_80122974 — see the header.
+  if (r.arm == Arm::TetherLine)
+    return c && c->mem_r8(node + kNodeVisibleOff) == kNodeVisible;
+  return false;
 }
 
 const char* GuestQueueDispatch::armName(Arm a) {

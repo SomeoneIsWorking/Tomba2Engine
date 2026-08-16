@@ -1,5 +1,47 @@
 # Findings — render / engine submit
 
+## ✅ FIXED (2026-08-16): the cliff fisherman had no mesh — the tether ARM flushes it from inside its CALLEE
+- **symptom:** USER 2026-08-16, live windowed run — on the seaside cliff the fisherman NPC and the ROD he
+  holds do not render under pc_render, while his fishing LINE does (and is nearly invisible against the
+  water). USER: *"there is no rod either, actually the fishing line is there but you can't see it because
+  it blends with the water"*. kanban #95.
+- **status:** FIXED. `replays/bugs/cliff-fisherman-missing.pad` (152 frames, cut from the user's live
+  session with `padrec save`) reproduces it headless in 156 frames; he renders after the fix.
+- **cause:** `GuestQueueDispatch::guestFlushesMesh` answered from the jump-table ARM alone — its comment
+  said "ONLY the two mesh arms". But queue A's `Arm::TetherLine` target `0x8003BC24` calls
+  `FUN_80122974`, whose FIRST act is `if (node[+1] == 1) FUN_8003CCA4(node)` — `perObjRenderDispatch`,
+  the per-object render-command flush — *before* it draws any tether. So a type-1 node reaches vanilla's
+  picture as a MESH PLUS a line. `Render::tetherLineRender` ports only the second half, and with
+  `guestFlushesMesh` returning false for that arm, `render_walk.cpp`'s HEADS[0] branch hit
+  `if (!mesh && !pre) continue;` and the node left the walk before `perObjFlush()`. 18 render commands /
+  176 polygons, present and valid in RAM, never submitted. **The mesh flush lives in the CALLEE, not the
+  arm** — that is the whole bug, and it is one bug, not two: body and rod are both in that command list.
+- **the asymmetry was the diagnostic:** the line producer kept emitting every frame, which ruled out
+  spawn failure, cull rejection and the render-command gate before any code was read. `heads0` said
+  `meshArm=0 onFrameSubmitList=1 nativeCullPushes=2` — on the submission list, but classified as drawing
+  no mesh.
+- **fix:** `guestFlushesMesh(Core*, node, Route)` — it needs the NODE because the guest's mesh call is
+  conditional, and on `== 1` exactly (the walk's own entry gate only guarantees non-zero, so `!= 0` is
+  the wrong relaxation). `game/render/queue_dispatch.{h,cpp}`, callers in `render_walk.cpp` (x2) and
+  `cull.cpp`. Confining it to the routing model rather than adding a mesh flush beside
+  `tetherLineRender` is deliberate: that producer is dispatched for all three heads and HEADS[2] type 1
+  already sets `mesh = true`, so the other shape would double-draw.
+- **verified:** `heads0` VERDICT went `meshArm=0 drawnByGuest=0` -> `meshArm=3 drawnByGuest=3` on the
+  repro (3 = one node x 3 passes per logic frame) — in-band channel evidence, not pixels. Hut interior
+  (`hut-entry-door-freeze.pad` f930) and the village field (AUTO_SKIP f900) are pixel-unchanged, so
+  nothing that already rendered regressed.
+- **instrument caveats found on the way, both real:** (1) a same-frame pc-vs-ORACLE compare is INVALID
+  on a pad replay — ORACLE forces the faithful multi-step loads, so at f156 it is still in the intro
+  cutscene while pc is at the cliff; the two legs diverge in TIMING, not just rendering. (2)
+  `PSXPORT_RENDER_PSX=1` renders black here (kanban #78), so neither reference was available; the
+  mechanism was established from the recompiled substrate instead
+  (`generated/ov_a00_shard_1.c` `ov_a00_gen_80122974`), which is independent of any renderer.
+- **left open, separate card:** `render_walk.cpp:1118` dispatches the tether by TYPE byte with no
+  queue/head gate, while the guest reaches `FUN_80122974` only through queue A. Not live in this scene.
+- **refs:** kanban #95, `game/render/queue_dispatch.{h,cpp}`, `game/render/render_walk.cpp`,
+  `game/render/fx_line.cpp`, `replays/bugs/cliff-fisherman-missing.pad`,
+  `scratch/screenshots/live/{spot,cliff_pc,cliff_fixed}.png`.
+
 ## OtAttr's emitter-fn attribution is STRUCTURALLY EMPTY for packet-pool stores on this port (2026-08-11)
 
 **Symptom.** The graphics-producer DB's guest leg attributed nothing. Measured on the `gte` render path,

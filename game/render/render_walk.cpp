@@ -909,7 +909,7 @@ void Render::heads0Flush(int frame) { Core* c = mCore;
   for (int i = 0; i < mH0.n; i++) {
     const H0Node& hn = mH0.node[i];
     const GuestQueueDispatch::Route r = GuestQueueDispatch::routeFor(c, hn.node);
-    const bool meshes = GuestQueueDispatch::guestFlushesMesh(r);
+    const bool meshes = GuestQueueDispatch::guestFlushesMesh(c, hn.node, r);
     const bool onList = GuestQueueDispatch::submittedThisFrame(c, hn.node, r.queue);
     if (meshes) meshArm++;
     if (onList) submitted++;
@@ -1155,7 +1155,7 @@ void Render::fieldObjectsRender() {
         // queue_dispatch.h); neither is a threshold of ours.
         heads0Census(n);
         const GuestQueueDispatch::Route route = GuestQueueDispatch::routeFor(c, n);
-        mesh = GuestQueueDispatch::guestFlushesMesh(route) &&
+        mesh = GuestQueueDispatch::guestFlushesMesh(c, n, route) &&
                GuestQueueDispatch::submittedThisFrame(c, n, route.queue);
       }
       if (!mesh && !pre) continue;

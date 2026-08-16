@@ -41,7 +41,8 @@ public:
     NoOp,          // the table's dedicated loop-continue arm — the guest draws NOTHING for this type
     Mesh,          // perObjRenderDispatch (FUN_8003CCA4) — the per-object render-command flush
     MeshThenFlash, // Mesh + the FUN_8002AE0C highlight tail (queue A types 0/15/64/79/128/143)
-    TetherLine,    // FUN_80122974 (the rope/fishing line) + the same highlight tail
+    TetherLine,    // FUN_80122974 — the MESH (when node[+1]==1) and then the rope/fishing line,
+                   // plus the same highlight tail. The mesh flush lives in the callee, not the arm.
     Billboard1,    // billboardCompose1 (FUN_8003C2D4)
     Billboard2,    // billboardCompose2 (FUN_8003C464)
     PreComposed,   // FUN_8003C5F8 / FUN_8003C788 — pre-composed-matrix renderers
@@ -79,9 +80,19 @@ public:
   static int submittedTotal(Core* c);
 
   // Does the guest's own dispatch flush this node's render commands (the display pass's mesh path)?
-  // ONLY the two mesh arms; every other arm is a renderer the display pass produces elsewhere or does
-  // not own, and NoOp/OutOfRange/None mean the guest draws nothing at all for this node.
-  static bool guestFlushesMesh(const Route& r);
+  //
+  // Not answerable from the arm alone, which is what this used to assume ("ONLY the two mesh arms").
+  // Arm::TetherLine's target 0x8003BC24 calls FUN_80122974, and that function's FIRST act is
+  //     if (node[+1] == 1) FUN_8003CCA4(node);      // perObjRenderDispatch — the mesh flush
+  // before it draws any tether. So a type-1 node reaches vanilla's picture as a MESH PLUS a line, and
+  // reading the jump-table arm as the whole story silently dropped the mesh: the cliff fisherman's body
+  // and rod (176 polys over 18 render commands) were never submitted while his fishing line kept
+  // drawing every frame, which is exactly how the bug presented (kanban #95). Verified in the
+  // recompiled substrate itself, generated/ov_a00_shard_1.c `ov_a00_gen_80122974`.
+  //
+  // Hence the node, not just the route: the guest's mesh call is CONDITIONAL, and on `== 1` precisely —
+  // the walk's own entry gate only guarantees non-zero, so do not relax it to `!= 0`.
+  static bool guestFlushesMesh(Core* c, uint32_t node, const Route& r);
 
   static const char* armName(Arm a);
   static char        queueName(Queue q);

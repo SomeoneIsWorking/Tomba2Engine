@@ -221,7 +221,7 @@ void Cull::submitLogFlush(const SubmitLog& log) const { Core* c = core;
                               "target={:08X} arm={} guestDrawsMesh={}",
                   log.frame, e.node, e.objClass, e.type, GuestQueueDispatch::queueName(r.queue),
                   e.accepted ? 1 : 0, r.target, GuestQueueDispatch::armName(r.arm),
-                  GuestQueueDispatch::guestFlushesMesh(r) ? 1 : 0);
+                  GuestQueueDispatch::guestFlushesMesh(c, e.node, r) ? 1 : 0);
   }
 }
 
