@@ -90,12 +90,14 @@ shared rules; the workspace map is `external/psxport/docs/workspace/WORKSPACE.md
 - **BREAK FIRST, THEN REBUILD** (USER 2026-07-16; generalizes the 2026-07-15 render directive) —
   delete the transitional mechanism, let the gap be honestly visible,
   then build the native producer; never keep the stopgap alive alongside the replacement.
-- **Never edit `external/psxport`** — read-only pinned consumer, and `run.sh` re-syncs it to the RECORDED
-  gitlink every run, so an edit here is liable to be silently reverted mid-gate. Framework edits happen
-  in the workspace dev clone (`$PSX/psxport`, i.e. `../psxport`) only. To build against in-progress
-  framework work without touching the submodule: `PSXPORT_DIR=$PSX/psxport` (env or `-D` to cmake); it
-  defaults to the submodule so a bare clone still builds standalone — keep it that way. `run.sh`
-  announces which checkout a run used and whether it was dirty: read that before trusting a measurement.
+- **`external/psxport` IS the shared framework tree** (2026-08-16 — no longer a submodule). It is a
+  symlink to `$PSX/psxport`, so editing through either path edits the same directory and the change is
+  live in every port at once. Commit framework work in `psxport/`, not here. `psxport.pin` records the
+  framework commit this game was built and VERIFIED against; `tools/psxport_sync.py` reports/`--bump`s
+  it, and the precommit gate's `--check` FAILS when the framework you built against is not the recorded
+  one. On a fresh machine `--auto` makes `external/psxport` a private clone at the pin instead, so this
+  repo still builds alone. `run.sh` announces which tree a run used and whether it was dirty: read that
+  before trusting a measurement.
 - **Concurrent sessions: a full clone per session, never a `git worktree`, never `git stash`** — a
   worktree shares `.git`, so `refs/stash` and `.git/modules` are common ground; a stash-pop has already
   grabbed another agent's work in this project.

@@ -44,6 +44,19 @@ if [ -f tools/check_cpp_style.py ]; then
   fi
 fi
 
+# The framework you BUILT against must be the one psxport.pin RECORDS, or a fresh clone builds
+# something you never tested. This tree shipped exactly that once (a pin whose GameHooks lacked a field
+# the game used, so a bare clone did not compile). tools/psxport_sync.py --check asserts nothing and
+# says so when the tree was never configured, rather than passing quietly.
+if [ -f tools/psxport_sync.py ]; then
+  if python3 tools/psxport_sync.py --check; then
+    say "psxport pin matches the framework this tree was built against"
+  else
+    bad "psxport pin does NOT match the framework this tree was built against"
+    fail=1
+  fi
+fi
+
 if [ -f tools/go_public.py ]; then
   if ! out="$(python3 tools/go_public.py scan --current 2>&1)"; then
     bad "publication audit FAILED — a blocking leak is about to be committed:"

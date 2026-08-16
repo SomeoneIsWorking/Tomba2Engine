@@ -5,9 +5,11 @@
 cmake_minimum_required(VERSION 3.21)
 project(tomba2engine CXX C)
 
-# PSXPORT_DIR — WHERE THE FRAMEWORK SOURCE COMES FROM. Defaults to the pinned submodule, so a fresh
-# clone of this repo alone builds standalone: that property is what "each game is its own project
-# using psxport as the framework" means, and it must stay testable.
+# PSXPORT_DIR — WHERE THE FRAMEWORK SOURCE COMES FROM. Defaults to external/psxport, which is NOT a
+# git submodule any more: it is a symlink to the workspace's shared framework clone (local — so a
+# framework edit is live in every port at once), or a private clone at psxport.pin (fresh machine, CI,
+# or anyone cloning this repo alone). tools/psxport_sync.py --auto establishes whichever applies, and
+# run.sh calls it. The PATH is unchanged, so every reference to external/psxport/... still works.
 #
 # Point it at the workspace's framework DEV CLONE to build this game against in-progress framework
 # work WITHOUT editing the submodule (see the workspace's coord/PROTOCOL.md — the submodule is a
@@ -25,6 +27,22 @@ if(NOT EXISTS "${PSXPORT_DIR}/cmake/psxport.cmake")
                       "run `git submodule update --init --recursive`, or point PSXPORT_DIR at a psxport checkout.")
 endif()
 message(STATUS "psxport framework: ${PSXPORT_DIR}")
+
+# RECORD WHAT THIS CONFIGURE RESOLVED, so `tools/psxport_sync.py --check` can compare the framework you
+# actually BUILT against with the one psxport.pin RECORDS. The framework is no longer a git submodule
+# (external/psxport is a symlink to the workspace's shared clone, or a private clone at the pin — see
+# tools/psxport_sync.py); the pin is provenance, and this file is what keeps it honest. Measured
+# 2026-08-16: this tree was once built against one framework commit while recording another, so a bare
+# clone did not compile, and nothing noticed.
+execute_process(COMMAND git -C "${PSXPORT_DIR}" rev-parse HEAD
+                OUTPUT_VARIABLE PSXPORT_RESOLVED_SHA OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET RESULT_VARIABLE _psxport_rev_rc)
+if(NOT _psxport_rev_rc EQUAL 0)
+  set(PSXPORT_RESOLVED_SHA "unknown")   # honest: never silently record a plausible-looking sha
+endif()
+file(WRITE "${CMAKE_BINARY_DIR}/psxport_resolved.txt"
+     "dir = ${PSXPORT_DIR}\ncommit = ${PSXPORT_RESOLVED_SHA}\n")
+message(STATUS "psxport commit: ${PSXPORT_RESOLVED_SHA}")
 
 
 set(CMAKE_CXX_STANDARD 20)

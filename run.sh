@@ -43,10 +43,16 @@ JOBS="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null |
 #
 # ANNOUNCED either way, and that is the point: a binary built from in-progress framework work must
 # never be mistaken for one built from the pin. Same discipline as the render-path stamp.
+# external/psxport is NOT a git submodule any more (2026-08-16): it is a symlink to the workspace's
+# shared framework clone when there is one — so a framework edit is live in every port at once, which
+# is the point — or a private clone at psxport.pin otherwise. Establish whichever applies before we
+# look at it. tools/psxport_sync.py explains the two submodule incidents that motivated the change.
+python3 tools/psxport_sync.py --auto || die "could not resolve external/psxport"
 PSXPORT_DIR="${PSXPORT_DIR:-external/psxport}"
 [ -f "$PSXPORT_DIR/cmake/psxport.cmake" ] || die "PSXPORT_DIR=$PSXPORT_DIR is not a psxport checkout"
 if [ "$PSXPORT_DIR" = "external/psxport" ]; then
-  say "framework: external/psxport (pinned submodule $(git -C external/psxport rev-parse --short HEAD 2>/dev/null || echo '?'))"
+  say "framework: external/psxport -> $(readlink -f external/psxport 2>/dev/null || echo '?') @ $(git -C external/psxport rev-parse --short HEAD 2>/dev/null || echo '?')$(
+        [ -n "$(git -C external/psxport status --porcelain 2>/dev/null)" ] && echo ' +dirty')"
 else
   say "framework: *** $PSXPORT_DIR *** (DEV CLONE $(git -C "$PSXPORT_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')$(
         [ -n "$(git -C "$PSXPORT_DIR" status --porcelain 2>/dev/null)" ] && echo ' +dirty')) — NOT the recorded pin"
