@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (36)
+## TODO (37)
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
 - **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
@@ -42,6 +42,7 @@
 - **#100 Convert every shell script to Python (run.sh is the only exception)**  `debt,tooling,workflow`
 - **#101 Present ledger caught a real one-frame world drop at the hut door transition (f390)**  `bug,render`
 - **#105 Hut interior: the two fishermen are gone after exiting and re-entering the house (live)**  `bug`
+- **#107 renderpath toggle shifts the picture centre when widescreen is on**  `render,bug`
 
 ## DOING (7)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`

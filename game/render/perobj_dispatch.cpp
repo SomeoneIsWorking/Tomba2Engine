@@ -125,6 +125,53 @@ constexpr uint32_t MVMVA_TRANS  = 0x4A486012u; // MVMVA: camera-rot(CR0-4) x V0 
 // REDIRECT (below) needs it to recognize the generic-overlay case BEFORE calling perModeDispatch.
 static uint32_t perModeCaseTarget(uint32_t caseLabel);
 
+// ── REDIRECT CENSUS (`debug redirdiag`) — WHY the per-object redirect drew nothing ────────────────
+//
+// The old `redirect` channel logged every 256th FIRING. That is the wrong half of the question and it
+// cost a session: in the #103 cutscene it reported 2560+ firings while the object under investigation
+// stayed invisible, so every "is the native path live here?" check answered YES. A count of the case
+// that WORKED can never contradict "this object was not redirected".
+//
+// So this counts the DECISION, per frame, with denominators, and prints one line whether or not
+// anything fired — including the all-zero line, which is the answer "the redirect was never even
+// reached this frame". `off[reason]` names WHICH gate closed (render_internal.h's FieldNativeOff), and
+// `emitter` keeps the top unrecognised target rather than folding it into "other", because that
+// address IS the next thing to own.
+namespace {
+struct RedirCensus {
+  int frame = -1;
+  long cmds = 0;          // cmds with a geomblk that reached the decision
+  long gate_off = 0;      // ... of which render_field_native_active() said no
+  long off_reason[8] = {};
+  long covered = 0;       // ... of which perObjFlush had already drawn this node natively
+  long em_overlay = 0;    // ... resolved to 0x80146478 (the generic OVERLAY leaf)
+  long em_generic = 0;    // ... resolved to 0x800803DC (the generic GT3/GT4 emitter)
+  long em_other = 0;      // ... resolved to something with no redirect
+  uint32_t other_top = 0; // one concrete example of that something
+  long drew = 0;          // ... and actually drew natively
+  long prims = 0;         // ... TOTAL prims those native draws actually pushed
+  long drew_empty = 0;    // ... of those draws, how many pushed ZERO prims (drew nothing at all)
+  uint32_t empty_node = 0;// one concrete node whose redirect draw emitted nothing
+
+  void flush() {
+    if (frame < 0) return;
+    // Denominators on every ratio, and the zero case prints — see CLAUDE.md "a diagnostic that can
+    // print nothing is lying".
+    cfg_logf("redirdiag",
+             "f%d cmds=%ld drew=%ld | gate_off=%ld (oracle=%ld psx=%ld stage=%ld narration=%ld subscene=%ld) "
+             "| already_covered=%ld | emitter overlay=%ld generic=%ld other=%ld (e.g. %08X) "
+             "| prims=%ld from %ld draws, EMPTY=%ld (e.g. node %08X)",
+             frame, cmds, drew, gate_off,
+             off_reason[FN_ORACLE], off_reason[FN_PSXRENDER], off_reason[FN_STAGE],
+             off_reason[FN_NARRATION], off_reason[FN_SUBSCENE],
+             covered, em_overlay, em_generic, em_other, other_top,
+             prims, drew, drew_empty, empty_node);
+  }
+  void begin(int f) { if (f != frame) { flush(); *this = RedirCensus{}; frame = f; } }
+};
+RedirCensus g_redir;
+}  // namespace
+
 // FUN_8003CDD8 — per-object cmd-list dispatch: composes the WORLD object transform (camera-rot x
 // object-local, via MVMVA) into GTE CR0-7 for each active render command, then calls FUN_8003F698.
 // ORACLE: gen_func_8003CDD8 (tools/port_check.py equivalence-gate marker; see docs/port-framework.md)
@@ -240,9 +287,22 @@ void Render::cmdListDispatch() {
     uint32_t emitterCaseLabel = 0;
     const uint32_t cmdEmitter = resolvePerModeEmitter(c, flag, &emitterCaseLabel);
 
-    bool nodeNativeCovered = render_field_native_active(c) && rend(c)->nativeObjDrawn(c, node);
+    const int fnReason = render_field_native_reason(c);
+    const bool fieldNative = (fnReason == FN_ON);
+    if (cfg_dbg("redirdiag")) {
+      extern int gpu_frame_no(Core*);
+      g_redir.begin(gpu_frame_no(c));
+      g_redir.cmds++;
+      if (!fieldNative) { g_redir.gate_off++; if (fnReason < 8) g_redir.off_reason[fnReason]++; }
+      if      (cmdEmitter == 0x80146478u)   g_redir.em_overlay++;
+      else if (cmdEmitter == GENERIC_EMITTER) g_redir.em_generic++;
+      else { g_redir.em_other++; if (!g_redir.other_top) g_redir.other_top = cmdEmitter; }
+    }
+
+    bool nodeNativeCovered = fieldNative && rend(c)->nativeObjDrawn(c, node);
+    if (cfg_dbg("redirdiag") && nodeNativeCovered) g_redir.covered++;
     bool redirectGeneric = false;
-    if (render_field_native_active(c)) {
+    if (fieldNative) {
       // WHICH EMITTERS THIS REDIRECT COVERS. Both of these take the SAME (geomblk, otbase, flag) and
       // both parse the SAME record layout Render::gt3gt4 does — geomblk+0 = {GT3 count lo16, GT4 count
       // hi16}, GT3 records at +16 (36B stride), GT4 after (44B stride) — so drawing them natively is a
@@ -257,6 +317,7 @@ void Render::cmdListDispatch() {
       // which is why things kept going missing one at a time.
       redirectGeneric = (cmdEmitter == 0x80146478u || cmdEmitter == GENERIC_EMITTER);
       if (redirectGeneric && !nodeNativeCovered) {
+        if (cfg_dbg("redirdiag")) g_redir.drew++;
         if (cfg_dbg("redirect")) { static long n=0; if (n++%256==0)
           cfg_logf("redirect", "cmdListDispatch node=%08X cmd=%08X geomblk=%08X otbase=%08X", node, cmd, geomblk, otbase); }
         // FAIL-FAST (CLAUDE.md pc_render READ-ONLY OVERLAY invariant): this native draw is a
@@ -271,7 +332,17 @@ void Render::cmdListDispatch() {
         ProducerScope redirectScope(&c->rsub.producerScope, cmdEmitter, "cmdListDispatch:redirectGeneric");
         c->rsub.diag.beginObject(node);           // real dbg_node identity for this cmd's RqItems
         EObjXform w; rend(c)->projComposeObject(cmd, &w); rend(c)->projSetActive(&w);
+        // "drew" counts DECISIONS; a decision that emits nothing is invisible and would still be
+        // counted as coverage. Count the PRIMS the draw actually pushed, and count the draws that
+        // pushed NONE separately — that is the number "the object is missing" can contradict.
+        RenderQueue& rqOut = c->game->rqRedirect ? *c->game->rqRedirect : c->game->rq;
+        const unsigned long long primsBefore = rqOut.pushed_total;   // MONOTONIC — rq.n resets mid-frame
         rend(c)->gt3gt4(geomblk, otbase);           // the real picture: native float, real per-vertex depth
+        if (cfg_dbg("redirdiag")) {
+          const long long emitted = (long long)(rqOut.pushed_total - primsBefore);
+          g_redir.prims += emitted;
+          if (emitted == 0) { g_redir.drew_empty++; if (!g_redir.empty_node) g_redir.empty_node = node; }
+        }
         rend(c)->projClearActive();
         c->rsub.diag.endObject();
       }

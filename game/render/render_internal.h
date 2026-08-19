@@ -34,19 +34,40 @@ float proj_obj_center_ord(void);
 // window the guest OT's full walk (psx_render) is the sole picture source, so an extra native
 // draw would double-draw. Deliberately narrower than drawOTag's own `scenenative` diagnostic branch
 // (that debug channel stays diagnostic-only; it must not also arm new native draws).
-static inline bool render_field_native_active(Core* c) {
-  if (c->game->oracle || c->rsub.mode.psxRender()) return false;
-  if (c->mem_r32(0x801FE00Cu) != 0x8010637Cu) return false;         // GAME stage resident
-  if (c->mem_r32(0x80109450u) == 0x3C021F80u) return false;         // SOP intro narration overlay active
-  // #51: an AUTHORED OT sub-scene (hut/door interior, sm[0x4c]==3 — the game's own fieldRunX/frameX
-  // selector; see game_tomba2.cpp) is drawn ENTIRELY by the full guest-OT walk (#49), NOT the native
-  // field pass — so the native pass does NOT own the picture here. If this returned true, the
-  // cmdListDispatch REDIRECT would draw natively while the walk also draws -> double-draw (and the #48
-  // era showed the inverse failure: owned objects vanishing, Tomba invisible).
-  uint32_t task_sm = c->mem_r32(0x1F800138u);
-  if (task_sm && c->mem_r16(task_sm + 0x4Cu) == 3) return false;
-  return true;
+// WHY it is off, when it is off. A bare bool made every "is the native pass running here?" question
+// answerable only as "no", which is indistinguishable from "I never looked" — and #103 burned a
+// session on exactly that ambiguity. The reason codes are what the redirect diagnostic prints.
+enum FieldNativeOff {
+  FN_ON = 0,          // the native field pass DOES own this frame's picture
+  FN_ORACLE,          // oracle leg
+  FN_PSXRENDER,       // render path is psx (or gte) — the guest OT walk is the sole picture source
+  FN_STAGE,           // the GAME stage overlay is not resident (title/intro/menus)
+  FN_NARRATION,       // SOP intro narration overlay active
+  FN_SUBSCENE,        // #51: an AUTHORED OT sub-scene (sm[0x4c]==3) — the full guest walk draws it
+};
+inline const char* field_native_off_name(int r) {
+  switch (r) {
+    case FN_ON:        return "on";
+    case FN_ORACLE:    return "oracle";
+    case FN_PSXRENDER: return "psx_render";
+    case FN_STAGE:     return "stage!=GAME";
+    case FN_NARRATION: return "narration";
+    case FN_SUBSCENE:  return "sub-scene(sm4C==3)";
+    default:           return "?";
+  }
 }
+
+static inline int render_field_native_reason(Core* c) {
+  if (c->game->oracle) return FN_ORACLE;
+  if (c->rsub.mode.psxRender()) return FN_PSXRENDER;
+  if (c->mem_r32(0x801FE00Cu) != 0x8010637Cu) return FN_STAGE;      // GAME stage resident
+  if (c->mem_r32(0x80109450u) == 0x3C021F80u) return FN_NARRATION;  // SOP intro narration overlay active
+  uint32_t task_sm = c->mem_r32(0x1F800138u);
+  if (task_sm && c->mem_r16(task_sm + 0x4Cu) == 3) return FN_SUBSCENE;
+  return FN_ON;
+}
+
+static inline bool render_field_native_active(Core* c) { return render_field_native_reason(c) == FN_ON; }
 
 // ObjScope — declare "this object is drawing" for the span of a per-node dispatch, so every prim emitted
 // beneath it carries the owning node (RqItem::dbg_node) instead of arriving anonymous. Restores the
