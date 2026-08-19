@@ -115,3 +115,15 @@ Once the recorded sequence ends, input falls through to the host (so `run N` aft
   the bucket obstacle and swings (CIRCLE); the swing connects at pad frames 654-660, peak 656. The
   repro for kanban #15 (weapon impact burst missing its mesh half under pc_render):
   `PSXPORT_PAD_REPLAY=replays/bugs/weapon-impact-bucket.pad PSXPORT_PAD_SHOT_AT=654,656,658 ... run 700`
+
+## `bugs/long-session-many-bugs.pad` (2026-08-19)
+
+51,170 pad frames — the USER's own long play session, cut live with `padrec save` while the window
+was still running, at their request ("it's very long and covers a TON of bugs"). Not yet triaged:
+the bugs it reaches have not been enumerated. Known to pass through the machinery cutscene (#103)
+and the bridge-rope area (#107's centring, which is what revealed the ropes are drawn at all).
+
+Resume it with `./run.sh --resume replays/bugs/long-session-many-bugs.pad`, or headless with
+`PSXPORT_PAD_RESUME=replays/bugs/long-session-many-bugs.pad PSXPORT_NO_FMV=1 PSXPORT_NOPACE=1`.
+NO_FMV matters: without it the boot FMVs play in real time and the watchdog kills the run before
+the fast-forward starts.
