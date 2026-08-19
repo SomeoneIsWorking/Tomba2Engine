@@ -90,6 +90,13 @@ Once the recorded sequence ends, input falls through to the host (so `run N` aft
 - **Originals** also live at `scratch/bin/*.pad` (referenced by older findings); the copies here are
   the canonical, categorized home going forward.
 
+- `bugs/save-confirm-crash.pad` — 1673 frames, cut from the USER's live windowed session with
+  `padrec save` on 2026-08-19, so it replays from boot. Ends with Tomba at the seaside SAVE SIGN and
+  the "Save? / Yes / No" prompt already on screen, which is the state the crash report was made from.
+  Drive on from there with the REPL: `tap x 8` accepts the prompt, `tap x 8` again picks the card
+  slot, and a third opens "OK to save?". Reproduced the memory-card device-table crash (the port
+  aborted on an unmapped read from FUN_80080940's device walk) and now covers the whole save round
+  trip plus every card screen's chrome.
 - `bugs/save-prompt-black-screen.pad` — 12500 frames, cut from a live debug-server session
   (`padrec save`) on top of `bugs/bucket-softlock.pad`, so it replays from boot: it closes the
   bucket-pickup dialog with CIRCLE, walks east, and DIES, landing in the GAME OVER / CONTINUE

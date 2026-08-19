@@ -12,11 +12,13 @@ extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
 
 void StartPage::drawCollected(Core* c) {
   for (int i : capture.paintOrder()) {
-    const UiGroupArgs& a = capture.mGroups[i];
+    const PageChromeItem& it = capture.mItems[i];
     cfg_logf("startpage", "%s bucket=%3u templ=%08X at (%d,%d) wh=(%d,%d) attr=%02X clutSemi=%04X",
-             a.sprite ? "SPR" : "FT4", a.otBucket, a.templPtr, a.x, a.y, a.wOv, a.hOv,
-             a.attrByte, a.clutSemi);
-    capture.emit(c, a, RQ_OVERLAY);
+             it.kind != PageChromeItem::Kind::Group ? "PANEL"
+                 : it.group.sprite ? "SPR" : "FT4",
+             it.otBucket, it.group.templPtr, it.group.x, it.group.y, it.group.wOv, it.group.hOv,
+             it.group.attrByte, it.group.clutSemi);
+    capture.emit(c, it, RQ_OVERLAY);
   }
   capture.clear();
 }

@@ -87,11 +87,13 @@ void OptionsPage::drawCollected(Core* c) {
       rend(c)->optionsSolidBox(b.x, b.y, b.w, b.h, b.flags);
     }
     for (int i : capture.paintOrder()) {
-      const UiGroupArgs& a = capture.mGroups[i];
+      const PageChromeItem& it = capture.mItems[i];
       cfg_logf("optionspage", "%s bucket=%3u templ=%08X at (%d,%d) wh=(%d,%d) attr=%02X clutSemi=%04X",
-               a.sprite ? "SPR" : "FT4", a.otBucket, a.templPtr, a.x, a.y, a.wOv, a.hOv,
-               a.attrByte, a.clutSemi);
-      capture.emit(c, a, RQ_OVERLAY);
+               it.kind != PageChromeItem::Kind::Group ? "PANEL"
+                   : it.group.sprite ? "SPR" : "FT4",
+               it.otBucket, it.group.templPtr, it.group.x, it.group.y, it.group.wOv, it.group.hOv,
+               it.group.attrByte, it.group.clutSemi);
+      capture.emit(c, it, RQ_OVERLAY);
     }
   }
   mBackdrop = false;

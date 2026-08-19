@@ -88,7 +88,8 @@ void PauseMenu::drawCollected() {
 
   bool dimDone = false;
   for (int i : capture.paintOrder()) {
-    const UiGroupArgs& a = capture.mGroups[i];
+    const PageChromeItem& it = capture.mItems[i];
+    const UiGroupArgs& a = it.group;
     // The menu's SUBTRACTIVE full-screen dim, linked at OT bucket kDimBucket ahead of that bucket's
     // own groups — so it paints over everything in higher buckets (the drop shadow, the outer frame,
     // the tab labels and the rule under them) and under everything below (the panel interior, the
@@ -96,11 +97,12 @@ void PauseMenu::drawCollected() {
     // draw-mode word `E1000040` (blend bits = 2, i.e. B - F) followed by `62404040 00000000 00F00140`
     // — colour 0x404040 over the whole 320x240 screen. Without it every element above the panel came
     // out exactly 0x40 too bright on all three channels (measured at the tab glyphs and the rule).
-    if (!dimDone && a.otBucket < kDimBucket) { dimDone = true; pushSubtractiveDim(); }
+    if (!dimDone && it.otBucket < kDimBucket) { dimDone = true; pushSubtractiveDim(); }
     cfg_logf("pausemenu", "%s bucket=%3u templ=%08X at (%d,%d) wh=(%d,%d) attr=%02X clutSemi=%04X",
-             a.sprite ? "SPR" : "FT4", a.otBucket, a.templPtr, a.x, a.y, a.wOv, a.hOv,
-             a.attrByte, a.clutSemi);
-    capture.emit(c, a, RQ_OVERLAY);
+             it.kind != PageChromeItem::Kind::Group ? "PANEL"
+                 : a.sprite ? "SPR" : "FT4",
+             it.otBucket, a.templPtr, a.x, a.y, a.wOv, a.hOv, a.attrByte, a.clutSemi);
+    capture.emit(c, it, RQ_OVERLAY);
   }
   if (!dimDone) pushSubtractiveDim();   // every group sat at or above kDimBucket
   capture.clear();

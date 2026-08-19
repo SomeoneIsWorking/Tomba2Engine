@@ -50,7 +50,7 @@
 - **#74 Interior wall decors missing (suspect depth / coincident-face ordering)**  `render` — 📎 docs/reference/issues/issue74_house_pc_render_decor_missing.png,     docs/reference/issues/issue74_house_psx_render_decor_present.png
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 
-## DONE (60)
+## DONE (61)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -111,3 +111,4 @@
 - **#95 Cliff fisherman: body + rod absent under pc_render while his fishing LINE still draws**  `bug,render`
 - **#96 PSXPORT_ORACLE=1 SEGFAULTS at f73 of the cliff replay — the reference build cannot reach the scene**  `bug,oracle,verification`
 - **#99 fps60=0 and fps60=1 are two different renderers — unify so the only difference is the extra lerp present**  `render,fps60,architecture,debt`
+- **#102 Save/load card browser under pc_render: backdrop, Save title badge, button-prompt icons and the slot save-icon are all missing**  `render,bug,ui`

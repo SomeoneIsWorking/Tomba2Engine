@@ -42,6 +42,12 @@ public:
   // pushFill: native half of the panelFill tap (Spec 2) — one textured FT4 quad over `rectPtr`'s
   // rect (4 s16 at guest ptr: x,y,w,h), UV selected by `uvIndex` (0..4, the spec's texel table).
   static void pushFill(Core* c, uint32_t rectPtr, int32_t uvIndex, uint16_t attr, int32_t otBucket);
+  // …and the form that takes the rect BY VALUE. `rectPtr` points into the CALLER'S GUEST STACK
+  // FRAME, so a panel whose drawing is deferred (a page scope collecting its chrome — see
+  // ui_group_capture.h) must resolve the rect while that frame is still live. Measured: deferring
+  // the pointer instead lost most of the memory-card menu's slot panels, because by drain time the
+  // guest had reused the stack. The pointer form reads the four halfwords and calls this.
+  static void pushFillAt(Core* c, int rx, int ry, int rw, int rh, int32_t uvIndex, uint16_t attr);
 
   // pushDialogGlyphs: native half of the FUN_8007CC00 tap (Spec 3) — the dialog box's per-glyph
   // text row, including the selected-option HIGHLIGHT palette (box+0x47/box+3 -> clut 0x7CBE) the
@@ -52,4 +58,6 @@ public:
   // (TL/TR/BL/BR). Does NOT push the 5 fills — those arrive via panelFill's own tap (see NESTING
   // note above).
   static void pushCorners(Core* c, uint32_t rectPtr, uint16_t style, uint32_t shadow, int32_t otBucket);
+  static void pushCornersAt(Core* c, int rx, int ry, int rw, int rh, uint16_t style,
+                            uint32_t shadow);   // see pushFillAt for why the rect is by value
 };

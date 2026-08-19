@@ -50,6 +50,7 @@
 #include "ui/options_page.h"          // Engine owns the OptionsPage five-page producer (#38 / #7)
 #include "ui/pause_menu.h"            // Engine owns the PauseMenu in-game menu display producer (#21)
 #include "ui/start_page.h"            // Engine owns the StartPage in-game START page producer (#35)
+#include "ui/card_menu.h"             // Engine owns the CardMenu save/load browser producer (#102)
 #include "world/area_slots.h"         // Engine owns the AreaSlots slot-table state machine
 #include "world/graphics_bind.h"      // Engine owns the GraphicsBind object render-bind subsystem
 #include "world/placement.h"          // Engine owns the Placement field-object driver
@@ -162,6 +163,8 @@ public:
   PauseMenu pauseMenu;                       // in-game pause/item menu native display producer
                                              // (FUN_800346BC)
   StartPage startPage;                       // in-game START page native display producer (FUN_8007EAE4)
+  CardMenu cardMenu;                         // memory-card save/load menu native display producer
+                                             // (CRD overlay FUN_8018FBCC)
   OptionsPage optionsPage;                   // OPTIONS five-page native display producer
                                              // (FUN_8007F104..F8F8)
   ScorePopup scorePopup;                     // score/AP-gem pickup popup native display producer

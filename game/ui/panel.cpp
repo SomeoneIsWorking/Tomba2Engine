@@ -5,6 +5,7 @@
 #include "render.h"          // Render::mode.psxRender() gate
 #include "render_queue.h"    // RenderQueue::push2dQuad / emitOrQueue + RQ_HUD / RQ_OM_2D_FG
 #include "cfg.h"              // cfg_logf panelq probe
+#include "ui_group_capture.h" // UiGroupCapture::routePanel* — a raised page owns its own panels
 
 // Both builders share the one skin-texture atlas texpage (VRAM 960,256) — docs/native-render-2d-panel.md
 // "Skin-texture atlas at VRAM (960,256)".
@@ -63,7 +64,12 @@ void pushQuad(Core* c, const int* xs, const int* ys, const int* us, const int* v
 // pushFill — Spec 2. Verts v0(x,y) v1(x+w,y) v2(x,y+h) v3(x+w,y+h); UV per uvIndex (v0=uL,vT /
 // v1=uR,vT / v2=uL,vB / v3=uR,vB), table straight from the doc.
 void Panel::pushFill(Core* c, uint32_t rectPtr, int32_t uvIndex, uint16_t attr, int32_t otBucket) {
-  (void)otBucket;   // OT bucket only matters for the guest packet chain (gen already ran it)
+  (void)otBucket;   // ordering is the page capture's job now (ui_group_capture.h); gen ran the chain
+  pushFillAt(c, c->mem_r16s(rectPtr + 0u), c->mem_r16s(rectPtr + 2u),
+             c->mem_r16s(rectPtr + 4u), c->mem_r16s(rectPtr + 6u), uvIndex, attr);
+}
+
+void Panel::pushFillAt(Core* c, int rx, int ry, int rw, int rh, int32_t uvIndex, uint16_t attr) {
   static const struct { int uL, uR, vT, vB; } kUv[5] = {
     { 192, 200, 136, 144 },   // 0 top
     { 240, 248, 136, 144 },   // 1 bottom
@@ -73,11 +79,6 @@ void Panel::pushFill(Core* c, uint32_t rectPtr, int32_t uvIndex, uint16_t attr, 
   };
   if (uvIndex < 0 || uvIndex > 4) return;
   const auto& uv = kUv[uvIndex];
-
-  const int rx = c->mem_r16s(rectPtr + 0u);
-  const int ry = c->mem_r16s(rectPtr + 2u);
-  const int rw = c->mem_r16s(rectPtr + 4u);
-  const int rh = c->mem_r16s(rectPtr + 6u);
   const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
 
   const AttrDecode pa = decodeAttr(attr);
@@ -98,15 +99,16 @@ void Panel::pushFill(Core* c, uint32_t rectPtr, int32_t uvIndex, uint16_t attr, 
 // pushCorners — Spec 1. attr = style&0x40 ? style+0x0D : (style+6)|(shadow?0x80:0); 4 SPRT_8 8x8
 // corners: TL(x-8,y-8,u=184) TR(x+w,y-8,u=200) BL(x-8,y+h,u=232) BR(x+w,y+h,u=248), all v=136.
 void Panel::pushCorners(Core* c, uint32_t rectPtr, uint16_t style, uint32_t shadow, int32_t otBucket) {
-  (void)otBucket;
+  (void)otBucket;   // ordering is the page capture's job now (ui_group_capture.h)
+  pushCornersAt(c, c->mem_r16s(rectPtr + 0u), c->mem_r16s(rectPtr + 2u),
+                c->mem_r16s(rectPtr + 4u), c->mem_r16s(rectPtr + 6u), style, shadow);
+}
+
+void Panel::pushCornersAt(Core* c, int rx, int ry, int rw, int rh, uint16_t style,
+                          uint32_t shadow) {
   const uint16_t attr = (style & 0x40u)
       ? (uint16_t)(style + 0x0Du)
       : (uint16_t)((style + 6u) | (shadow ? 0x80u : 0u));
-
-  const int rx = c->mem_r16s(rectPtr + 0u);
-  const int ry = c->mem_r16s(rectPtr + 2u);
-  const int rw = c->mem_r16s(rectPtr + 4u);
-  const int rh = c->mem_r16s(rectPtr + 6u);
   const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
 
   const AttrDecode pa = decodeAttr(attr);
@@ -185,6 +187,12 @@ void panelFillTap(Core* c) {
   Panel::fillQuad(c);     // guest packet pool / OT / stack — the readable rebuild in panel_fill.cpp,
                           // proven byte-identical to gen_func_8004FFB4 by A/B dump-diff
   if (c->game->oracle || c->rsub.mode.psxRender()) return;   // read-only overlay gate
+  // A PAGE owns its whole ordering table, panels included: when a page scope is raised the panel is
+  // DEFERRED into that page's one ordered drain instead of being pushed here in call order. Pushing
+  // it here regardless is what left a page's stacking up to whichever host layer each producer chose
+  // — see the ONE LIST note in ui_group_capture.h. With no page raised (the field's dialog box) this
+  // is the inline path, unchanged.
+  if (UiGroupCapture::routePanelFill(c, rectPtr, uvIndex, attr, otBucket)) return;
   Panel::pushFill(c, rectPtr, uvIndex, attr, otBucket);
 }
 void panelBuildTap(Core* c) {
@@ -195,6 +203,7 @@ void panelBuildTap(Core* c) {
   gen_func_8005019C(c);   // byte-exact guest packet pool / OT / stack; nests through the panelFill
                            // tap above (calls the func_8004FFB4 WRAPPER, not gen_ direct — see panel.h)
   if (c->game->oracle || c->rsub.mode.psxRender()) return;   // read-only overlay gate
+  if (UiGroupCapture::routePanelCorners(c, rectPtr, style, shadow, otBucket)) return;  // see above
   Panel::pushCorners(c, rectPtr, style, shadow, otBucket);
 }
 } // namespace

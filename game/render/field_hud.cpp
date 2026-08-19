@@ -77,6 +77,29 @@ constexpr int kStripBaseX = 0xA0;  // current-icon x before the scroll offset (h
 // attrByte: low nibble = layout mode (0 = plain; flip/rotate variants unbuilt -> warn once, skip),
 //           high nibble non-zero = modulate by attrByte (&0xF0F0F0), zero = raw texel.
 // clutSemi: bit15 = semi-transparent; low 15 bits non-zero = clut override.
+// pieceCount — how many entries of a template group to draw.
+//
+// This used to be `min(cnt, 16)`. THE GUEST HAS NO SUCH LIMIT: FUN_8007E6DC / FUN_8007E1B8 both run
+// `n = cnt; do { …stage one piece… } while (--n);`, so 16 was a host-side invention that silently
+// dropped every piece past the sixteenth. Measured: the memory-card menu's backdrop tile is a
+// 20-PIECE group, so four pieces of every tile went missing and the field showed through the holes —
+// which reads exactly like a layering bug and was chased as one.
+//
+// A bound is still kept, because `cnt` is read out of guest memory and a garbage value would spin
+// here. But it is a DIAGNOSTIC, not a filter: it is far above any real group, and reaching it is
+// reported rather than absorbed.
+static int pieceCount(int cnt, uint32_t templPtr) {
+  constexpr int kSane = 256;              // no real group is anywhere near this
+  if (cnt < 0) return 0;
+  if (cnt <= kSane) return cnt;
+  static bool warned = false;
+  if (!warned) { warned = true;
+    cfg_logw("fieldhud", "template group at %08X claims %d pieces — refusing past %d. That is a bad "
+                         "count read out of guest memory, not a big group; the picture is INCOMPLETE.",
+             templPtr, cnt, kSane); }
+  return kSane;
+}
+
 void Render::emitUiFt4(int x, int y, int wOv, int hOv, uint32_t templPtr, uint32_t dataBase,
                        uint8_t attrByte, uint16_t clutSemi, int layer,
                        int daX0, int daY0, int daX1, int daY1) {
@@ -114,7 +137,7 @@ void Render::emitUiFt4(int x, int y, int wOv, int hOv, uint32_t templPtr, uint32
   // DESCENDING packet-pool address = descending k, and emitting them ascending put the wrong piece
   // on top. Only matters where a group's entries overlap, which is why it went unnoticed on the
   // field HUD's non-overlapping tile rows.
-  const int n = (cnt < 16) ? cnt : 16;
+  const int n = pieceCount(cnt, templPtr);
   for (int k = n - 1; k >= 0; k--) {
     const uint32_t e = data + (uint32_t)k * 16u;
     int w = c->mem_r8(e + 10u), h = c->mem_r8(e + 11u);
@@ -167,7 +190,7 @@ void Render::emitUiSprites(int x, int y, uint32_t templPtr, uint32_t dataBase,
   const int semi = (clutSemi & 0x8000u) ? 1 : 0;
   const int tp_x = (tpage & 0xF) * 64, tp_y = ((tpage >> 4) & 1) * 256;
   const int tmode = (tpage >> 7) & 3, blend = (tpage >> 5) & 3;
-  const int n = (cnt < 16) ? cnt : 16;
+  const int n = pieceCount(cnt, templPtr);
   for (int k = n - 1; k >= 0; k--) {
     const uint32_t e = data + (uint32_t)k * 16u;
     const int x0 = x + (int8_t)c->mem_r8(e + 14u);
