@@ -87,9 +87,13 @@ shared rules; the workspace map is `external/psxport/docs/workspace/WORKSPACE.md
 - **THE PICTURE COMES FROM GAME STATE, NEVER FROM WHAT THE GTE PRODUCED** (USER, 2026-07-23 →
   2026-08-06) — `PROTOCOL.md` holds the
   binding statement, its two checkable rules, and the USER quotes behind them.
-- **BREAK FIRST, THEN REBUILD** (USER 2026-07-16; generalizes the 2026-07-15 render directive) —
-  delete the transitional mechanism, let the gap be honestly visible,
-  then build the native producer; never keep the stopgap alive alongside the replacement.
+- **BREAK FIRST, THEN REBUILD** (USER 2026-07-16, reaffirmed 2026-08-19 — agents are too conservative
+  about tearing things down) — delete the transitional mechanism, let the gap be honestly visible, then
+  build the native producer; never keep a wrongly-sourced producer alive beside its replacement.
+  A GUEST-OT FALLBACK for layers with no producer was tried and REVERTED on 2026-08-19 — OT content is
+  post-projection 2D at 320x240, so it drew the world a second time at 4:3 beside the wide native pass.
+  `PROTOCOL.md` holds the measurement; do not rebuild it. The global answer is a GENERIC producer driven
+  by an object's model + its own transform. A native producer draws from GAME STATE, never from GTE output.
 - **`external/psxport` IS the shared framework tree** (2026-08-16 — no longer a submodule). It is a
   symlink to `$PSX/psxport`, so editing through either path edits the same directory and the change is
   live in every port at once. Commit framework work in `psxport/`, not here. `psxport.pin` records the

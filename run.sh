@@ -2,6 +2,19 @@
 # Fully automated build-and-run for the Tomba! 2 native PC port (macOS + Linux).
 #
 #   ./run.sh [/path/to/Tomba2.chd]
+#   ./run.sh --resume [recording.pad]      continue where you left off (see below)
+#
+# --resume: CONTINUE FROM A PAD RECORDING instead of playing back to the spot. Every windowed run
+# already records its input to scratch/bin/pad_session.pad, so --resume with no path picks up the
+# last session: the game replays that input with the pacing off, the sound muted and the movies
+# uncapped, then hands you the controller exactly where you stopped and keeps recording — so the
+# session you end today is what --resume continues tomorrow. Give it a path to resume some other
+# recording (e.g. one of replays/bugs/*.pad, to land on a filed bug).
+#
+# It is NOT a save state: the game really is replayed from boot, so it takes a little while for a
+# long session, and it only lands where you left off if the run is deterministic. If a resume ends
+# up somewhere else, that is a real port divergence and worth a bug card — the console says which
+# pad frame it handed over on.
 #
 # Does everything end to end: builds the CHD tooling (libchdr + discdump) via CMake,
 # extracts MAIN.EXE from your disc, recompiles the game core + native runtime, and launches
@@ -86,6 +99,26 @@ if command -v git >/dev/null && [ -f .gitmodules ]; then
     say "WARNING: external/psxport/scripts/sync-submodules.sh is absent even after init —"
     say "         submodules were NOT synced and may not match this repo's recorded gitlinks."
   fi
+fi
+
+# ---- 0c. --resume [recording.pad] ----------------------------------------------------
+# Consumed here so the rest of the script's positional argument (the disc) is unaffected.
+RESUME_PAD=""
+if [ "${1:-}" = "--resume" ]; then
+  shift
+  # A path that is not another option is the recording to resume; otherwise take the last session.
+  if [ "${1:-}" != "" ] && [ "${1#-}" = "${1:-}" ] && [ "${1##*.}" = "pad" ]; then RESUME_PAD="$1"; shift; fi
+  if [ -z "$RESUME_PAD" ]; then
+    LAST=scratch/bin/pad_session.pad
+    [ -f "$LAST" ] || die "--resume: no recording at $LAST yet — play a windowed session first, or pass a .pad"
+    # SNAPSHOT it. Launching rotates pad_session.pad -> .1.pad before the replay source is opened, so
+    # resuming the live sink directly would open a file that had just been renamed out from under it.
+    RESUME_PAD=scratch/bin/pad_resume.pad
+    cp "$LAST" "$RESUME_PAD"
+  fi
+  [ -f "$RESUME_PAD" ] || die "--resume: no such recording: $RESUME_PAD"
+  say "resume: $RESUME_PAD ($(( $(wc -c < "$RESUME_PAD") / 2 )) pad frames) — fast-forwarding, then it is yours"
+  export PSXPORT_PAD_RESUME="$RESUME_PAD"
 fi
 
 # ---- 1. resolve the disc ------------------------------------------------------------

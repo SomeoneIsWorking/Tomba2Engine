@@ -4,7 +4,7 @@ title: Hotkey to cycle the render path live: PC-native / PC-from-GTE / pure PSX 
 status: done
 labels: [render]
 created: 2026-08-12
-updated: 2026-08-12
+updated: 2026-08-19
 ---
 
 USER ASK, first message of the 2026-08-11 session, verbatim: "one more thing, need a toggle to switch between PC render native, PC render from GTE and pure PSX restraizer".
@@ -16,3 +16,11 @@ Known anchors: runtime switching already works from the REPL (external/psxport/r
 Process note worth keeping: this evaporated because it was never tracked. It lived only in the user's message, so when the session context compacted, the summary carried the work forward but not the outstanding request.
 
 **2026-08-12:** IMPLEMENTED (psxport 9e64bdb8): F5 cycles native -> gte -> psx -> native, edge-detected in pad_input.cpp beside the P / '.' debug keys. Cycle order factored into render_path_next() (render_mode.h) and shared with the REPL's bare `renderpath`, which previously had its own inline arithmetic. Refuses out loud under ORACLE/SBS. Verified live mid-run cycling headless via the REPL (5 frames between switches, exit 0) + tests/test_render_path_cycle.cpp; the F5 KEY READ itself is unverified because it needs a window, so the user should confirm the keypress once.
+
+**2026-08-19:** 2026-08-19: the toggle was still UNREACHABLE IN PRACTICE and the user reported it as not wired. F5 needs the window focused and prints its confirmation to the launching terminal; the REPL blocks the frame loop so it cannot be attached to a live session at all. Added `renderpath [native|gte|psx]` to the DEBUG SERVER (external/psxport/runtime/recomp/dbg_server.cpp) — the one channel that works on a running window. Same cycle order / refusals / CVar mirror as F5 and the REPL (render_mode.h); no new mechanism.
+
+VERIFIED live over the wire, headless instance at AUTO_SKIP free-roam f3102, and against BOTH classes rather than declared: native vs gte 51519/76800 px differ, native vs psx 50021/76800, gte vs psx 9420/76800 (the two guest paths differ only by the rasterizer, as designed), all three non-black (76786-76797 of 76800). Shots: scratch/screenshots/mach/rp_{native,gte,psx}.png.
+
+Also closed a TRAP found while doing it: `cvar PSXPORT_RENDER_PATH <v>` reports ok and changes NOTHING, because render_path_install() consumes that knob once at boot. The dbg `cvar` handler now says so and points at `renderpath`.
+
+STILL UNVERIFIED: the F5 key read itself (needs a window; unchanged since this card was closed).

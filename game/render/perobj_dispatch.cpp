@@ -243,7 +243,19 @@ void Render::cmdListDispatch() {
     bool nodeNativeCovered = render_field_native_active(c) && rend(c)->nativeObjDrawn(c, node);
     bool redirectGeneric = false;
     if (render_field_native_active(c)) {
-      redirectGeneric = (cmdEmitter == 0x80146478u);
+      // WHICH EMITTERS THIS REDIRECT COVERS. Both of these take the SAME (geomblk, otbase, flag) and
+      // both parse the SAME record layout Render::gt3gt4 does — geomblk+0 = {GT3 count lo16, GT4 count
+      // hi16}, GT3 records at +16 (36B stride), GT4 after (44B stride) — so drawing them natively is a
+      // REDIRECT of identical data through the owned path, not a reconstruction:
+      //   0x80146478  OverlayGt3Gt4::gt3/gt4 — the generic OVERLAY leaf (the original case)
+      //   0x800803DC  func_800803DC          — the generic GT3/GT4 emitter every mode falls back to
+      // Adding the second is the point of the exercise (USER 2026-08-19: solve missing graphics
+      // globally, not object by object): it is not one effect's producer, it is the DEFAULT path for
+      // every object whose area mode has no specific renderer, and it was the second-largest unowned
+      // submitter in the census — 6,099,465 guest prims across 30,876 frames of one play session,
+      // against 10,747,968 for the largest. An object drawn through it had NO native producer at all,
+      // which is why things kept going missing one at a time.
+      redirectGeneric = (cmdEmitter == 0x80146478u || cmdEmitter == GENERIC_EMITTER);
       if (redirectGeneric && !nodeNativeCovered) {
         if (cfg_dbg("redirect")) { static long n=0; if (n++%256==0)
           cfg_logf("redirect", "cmdListDispatch node=%08X cmd=%08X geomblk=%08X otbase=%08X", node, cmd, geomblk, otbase); }

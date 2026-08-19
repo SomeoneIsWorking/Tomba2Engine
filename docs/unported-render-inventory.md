@@ -21,6 +21,42 @@ hand-maintained. When you close a row, close it here *and* in whichever map owns
 
 ---
 
+## THE GLOBAL WORK LIST — every guest submitter with NO native producer, ranked (2026-08-19)
+
+Measured the way this document says a row should be: one 30,580-frame play session
+(`replays/bugs/machinery-cutscene.pad`, the USER's own) replayed TWICE, once native and once
+guest-render, and the two producer censuses diffed. **27 of 43 guest submitters drew primitives with no
+native producer at all.** Denominators, because a coverage number without them is a claim:
+guest leg 30,468,349 of 31,606,993 prims attributed (span-miss 1,138,644 = 3.6%), native leg 79,039,101
+of 80,304,234 (unscoped 1,265,133).
+
+| submitter | guest prims | frames | note |
+|---|---|---|---|
+| `0x8003DF04` | 10,747,968 | 30,534 | largest by far, on essentially every frame |
+| `0x800803DC` | 6,099,465 | 30,876 | the GENERIC GT3/GT4 emitter — the per-mode fallback every object lands on when its area mode has no specific renderer. **Now redirected** to the native per-object draw (`perobj_dispatch.cpp`) |
+| `0x80134064` | 626,948 | 29,278 | |
+| `0x8018D418` | 117,472 | 164 | a burst — reached only briefly, so a scene-specific effect |
+| `0x801365C4` | 87,224 | 29,085 | |
+| `0x80027A4C` | 59,162 | 1,564 | |
+| `0x80027768` | 30,515 | 30,217 | the effect-mesh writer of row R1 below |
+| `0x8010C79C` | 4,848 | 76 | |
+| `0x8018C790` | 4,316 | 89 | |
+| `0x8018D26C` | 2,475 | 164 | |
+| `0x8007E620` | 1,300 | 366 | |
+
+**Read this as a work list, not a coverage score.** A row is "this submitter drew and nothing native
+did", which is exactly what the generic object producer is for
+(`external/psxport/docs/generic-object-producer.md`): the top two are shared low-level emitters that many
+objects funnel through, so owning them covers a long tail at once rather than one effect at a time.
+
+**Reproduce it:** run the same replay twice, once with `PSXPORT_RENDER_PATH=psx`, `tools/producers.py
+ingest`, then diff the two `scratch/producers/run-*.jsonl` on `prims_guest > 0 && !has_native`.
+
+**KNOWN BLIND SPOT of this measurement:** one session, one player's route. A submitter this route never
+reached is absent from the table, not absent from the game.
+
+---
+
 ## 0. THE STRUCTURAL RULE — what can reach the pc_render picture at all
 
 This is the thing to understand before reading any row below, and it is a

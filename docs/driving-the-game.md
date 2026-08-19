@@ -107,6 +107,40 @@ interpolated frames was unreachable from any live session. `dbg_server.cpp` now 
 same functions the REPL calls (`gpu_vk_preseq_arm`, `hooks->replCamTeleport/Off`). No new mechanism,
 no env var, no behaviour change.
 
+## ⭐ CONTINUE WHERE YOU LEFT OFF — `./run.sh --resume [file.pad]`
+USER ask, 2026-08-19: *"a feature where I can continue from a pad recording instead of having to play
+all over again"*. Every windowed run already records its input to `scratch/bin/pad_session.pad`, so:
+
+```sh
+./run.sh --resume                              # snapshot the LAST session and continue it
+./run.sh --resume replays/bugs/<name>.pad      # land on a filed bug instead
+```
+
+The run replays that input **fast-forwarded** — pacer off, sound muted, FMVs uncapped
+(`PSXPORT_PAD_RESUME=<path>`, framework `pad_input.cpp`) — and when the recording runs out, speed,
+sound and control are handed back together (they all read `Pad::fastForwarding()`, so there is no
+window where you are driving a fast-forwarding game). It prints `RESUME complete at pad frame N`.
+**Recording stays on during a resume**, and the new sink holds the replayed prefix *plus* the live
+play as one from-boot recording — so today's session is what `--resume` continues tomorrow.
+
+It is **not a save state**: the game really is replayed from boot, and it lands where you left off
+only if the run is deterministic. MEASURED 2026-08-19 on this machine, headless: fast-forward runs at
+**~110 native fps** (CPU-bound, not pace-bound), i.e. ~3.7x real time — a 30k-frame session takes
+~4.7 min instead of ~17. Gate, on `replays/bugs/bucket-softlock.pad` (1764 frames) + 236 free-run
+frames: `PAD_REPLAY` 77.1 s vs `PAD_RESUME` 32.6 s; and pushing the post-handover tail from 236 to
+836 frames took the resume leg from 32.6 s to 52.7 s — **+600 frames in 20.1 s = 29.9 fps**, which is
+the paced field rate, so pacing demonstrably comes back at handover rather than the run simply
+staying unpaced. A resume that ends somewhere else is a real divergence worth a card, and the handover
+line tells you which pad frame it stopped on.
+
+**A `.pad` does NOT transfer between EXECUTION legs.** Measured 2026-08-19 on
+`replays/bugs/machinery-invisible.pad`: the default leg reached pad frame 30150 in 31050 native
+frames, the `PSXPORT_ORACLE=1` leg took 56370 — the same recorded presses therefore land at different
+game moments, and the oracle leg ended up on a *save prompt* while the default leg was in the intended
+cutscene. Same caveat `PSXPORT_SBS_PAD_REPLAY` carries (`external/psxport/docs/config.md`). To compare
+renderers on one scene, do NOT replay it twice on different legs — use `renderpath` below, which swaps
+the renderer under a single running game.
+
 ## ⭐ DETERMINISTIC SCENARIO REPLAYS — `PSXPORT_PAD_REPLAY=replays/<...>/<name>.pad`
 For scenarios AUTO-NAV/AUTO-SKIP can't drive (walking into a hut, reaching a specific door, a
 visual bug that needs real navigation), use a **recorded pad replay** — a captured button sequence
@@ -246,6 +280,14 @@ Launch with `PSXPORT_DEBUG_SERVER=1` (port 5959) **and a high `PSXPORT_NATIVE_FR
     Typical field run: `debug preseqobj` → `preseq 24 scratch/screenshots/preseq_field` → `run 20` → `quit`;
     the fps60 setting comes from `PSXPORT_SETTINGS=<ini with fps60=1>`.
 - `pause` / `play` / `step`.
+- `renderpath [native|gte|psx]` — **swap the renderer under the RUNNING game** (bare form cycles).
+  `native` = PC producers + PC rasterizer; `gte` = the guest's own GTE/OT geometry on the PC
+  rasterizer; `psx` = the guest's own GTE/OT on the PSX software rasterizer. This is THE way to answer
+  "is it missing because our producer doesn't draw it, or because the object isn't there": pause, shoot,
+  `renderpath gte`, `step 2`, shoot. Same switch as the F5 window hotkey and the REPL's `renderpath`
+  (one cycle order, `render_mode.h`); refuses out loud under ORACLE/SBS. NOTE `cvar PSXPORT_RENDER_PATH`
+  does NOT do this — that knob is consumed once at boot by `render_path_install()`.
+  Take the shot 2 frames after the switch, not 1 (the one-present lag, kanban #41).
 - `menu [on|off|toggle]` — show/hide the RmlUi mod/debug overlay **without a keyboard or a window**.
   It used to be reachable only by an SDL ESC key event, i.e. only through a window, so the whole UI
   was undrivable by every instrument this project actually uses. Prints what it did, including its

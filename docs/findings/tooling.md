@@ -1,5 +1,28 @@
 # Findings — tooling / debug server / harness
 
+## A `.pad` replay does NOT transfer between EXECUTION legs — the oracle leg ends up somewhere else (2026-08-19)
+
+- **Symptom:** to answer "what should this scene look like on the oracle", the obvious move is to cut
+  the live session into a replay and run it twice — once on the default leg, once under
+  `PSXPORT_ORACLE=1`. The oracle leg reached a **save prompt** at the frame where the default leg was
+  in the cutscene under investigation (`scratch/screenshots/mach/{pc,oracle}_30150.png`, 66432/76800
+  px differ — i.e. a different scene, not a different renderer).
+- **Cause, measured not inferred:** a pad file is indexed by PAD frame, and the two legs do not run
+  the same number of NATIVE frames per pad frame. Same file, same 30150 pad frames:
+  **default leg 31050 native frames, `PSXPORT_ORACLE=1` leg 56370.** The recorded presses therefore
+  land at different game moments and the run diverges by input timing, long before anything about the
+  port's fidelity is in question. Same caveat `PSXPORT_SBS_PAD_REPLAY` already carries
+  (`external/psxport/docs/config.md`): the strict leg uses faithful per-frame cadence while the
+  default leg completes owned waits synchronously.
+- **So a two-leg replay is not a renderer A/B, and it does not fail loudly** — both legs produce a
+  perfectly good-looking screenshot of a perfectly real scene. Nothing in the pipeline notices they are
+  different scenes; you have to look.
+- **Do this instead:** swap the renderer under ONE running game — `renderpath native|gte|psx` on the
+  debug server (or F5 in the window). One execution, one scene, the renderer as the only variable.
+  Shoot 2 frames after the switch, not 1 (the one-present lag, kanban #41).
+- **Refs:** kanban #103 (the bug this was blocking), #83 (the live switch), #96 (a separate reason the
+  oracle leg cannot reach some scenes at all: it segfaults).
+
 ## ovhit A/B mismatch is often a call-GRAPH asymmetry, not a counting bug
 - **symptom:** the first honest `PSXPORT_DEBUG=ovhit` SBS-full run (post the 2026-07-10 target-
   binding + g_tab-merge fix) surfaced ~15 addresses with A/B count mismatches, some large:
