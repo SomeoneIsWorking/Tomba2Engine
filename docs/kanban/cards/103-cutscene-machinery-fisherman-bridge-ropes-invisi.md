@@ -22,3 +22,18 @@ SUSPECTED FAMILY, not yet confirmed: the rope/tether producers. #56 (no line-pri
 NEXT STEP, and it is blocked on a tool gap: the packet->submitter lookup is 'otattr', which is REPL-ONLY (repl.cpp), and the REPL blocks the frame loop so it cannot attach to a live or long-resumed session. Put otattr on the DEBUG SERVER (same gap renderpath had, same fix), then: renderpath psx -> provat a machinery pixel -> read the packet address -> otattr that address -> the span's fn IS the submitter. Then own that submitter.
 
 Do NOT re-derive the scene: PSXPORT_PAD_RESUME=replays/bugs/machinery-cutscene.pad reaches it in ~5 min.
+
+**2026-08-19:** 2026-08-19 ROOT-CAUSED, with the packet attribution rather than by reasoning.
+
+The machinery is drawn by OverlayGt3Gt4::gt4 (0x801467BC) — an emitter the per-object REDIRECT ALREADY COVERS. It is missing because the redirect is wired at ONE caller (Render::cmdListDispatch's per-mode resolution) and this object reaches the emitter from callers that have none:
+  node 0x800FE408  caller 0x80136748  handler beh_event_record_machine   <- THE MACHINE ITSELF
+  node 0x800F0F44  caller 0x8003CCA4  Render::perObjRenderDispatch (native-owned, no redirect)
+Method (reproduce in 5 min): PSXPORT_PAD_RESUME=replays/bugs/machinery-cutscene.pad, then renderpath psx ; step 2 ; provat 125 95 -> node=<packet> ; otattr <packet>. The span carries fn/caller/node. Take the attribution IMMEDIATELY after a step — the span table is per-frame and reads back 0 spans once the frame turns over.
+
+THE TRAP THIS SCENE SET, worth remembering: PSXPORT_DEBUG=redirect showed the redirect firing 2560+ times IN THIS CUTSCENE, so every 'is the native path running here' check answered yes while the object stayed invisible. It was firing for a different node the whole time. A per-caller count is not evidence of coverage.
+
+Scene state is NOT the cause and was checked: sm[0x4C]=2, so render_field_native_active's authored-sub-scene bail (==3) is not taken here.
+
+NEXT STEP: give Render::perObjRenderDispatch the same redirect cmdListDispatch has (it is already native-owned, and it carries the object's cmd, so projComposeObject + gt3gt4 apply unchanged), then RE 0x80136748 inside beh_event_record_machine for the second path. Framework guidance: external/psxport/docs/generic-object-producer.md section 3a.
+
+Widening the redirect to the generic emitter (committed 58800be) did NOT fix this and was never claimed to — it owns the biggest shared emitter, this object does not go through it.

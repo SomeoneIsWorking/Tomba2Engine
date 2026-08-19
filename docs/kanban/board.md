@@ -52,7 +52,7 @@
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 - **#103 Cutscene machinery + fisherman + bridge ropes invisible under pc_render (area 0, live)**  `render,bug`
 
-## DONE (62)
+## DONE (63)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -115,3 +115,4 @@
 - **#99 fps60=0 and fps60=1 are two different renderers — unify so the only difference is the extra lerp present**  `render,fps60,architecture,debt`
 - **#102 Save/load card browser under pc_render: backdrop, Save title badge, button-prompt icons and the slot save-icon are all missing**  `render,bug,ui`
 - **#104 Continue from a pad recording — ./run.sh --resume (PSXPORT_PAD_RESUME)**  `tooling`
+- **#106 PSX/oracle path showed 16 rows below the cutscene letterbox — the display height was the framework's default, not the game's**  `render,psxport`

@@ -220,6 +220,13 @@ static const GameConfig g_tomba_config = {
   .syncWaitForceCloseRa = 0x80044c2cu,
   .syncWaitSpawnRa = 0x80044c50u,
   .syncWaitFinishRa = 0x80044c64u,
+  // Tomba!2 is a 320x224 game: the cutscene letterbox rects the guest draws sit at rows 0..11 and
+  // 212..223, i.e. flush to the bottom of a 224-line screen (RE note in game/render/cine_bars.cpp,
+  // "sized for a 320x224 PSX display"). It never programs GP1(07) — 16,061 GP1 writes in one
+  // measured session, none of them 05/07/08 — so without this the guest render paths presented the
+  // framework default 240 and showed 16 rows below the bottom bar that no console scans out.
+  .guestDisplayHeight = 224,
+
 };
 
 // The game's callback vtable — defined in game_hooks.cpp (thin impls reaching eng(c).*).
