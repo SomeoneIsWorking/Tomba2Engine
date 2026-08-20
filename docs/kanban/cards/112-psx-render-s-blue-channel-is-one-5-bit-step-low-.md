@@ -39,3 +39,16 @@ WHY IT ONLY SHOWS IN BLUE HERE: this screen's gradient is essentially blue-only 
 REPRO:  python3 tools/vram_oracle.py replays/bugs/ingame-options-page.pad 1160 --path psx
 
 RELATION TO #111: unrelated and much smaller. #111's black screen was presentation clearing away a correct picture (fixed, psxport 6fc7358c). This is the rasterizer itself, off by one LSB on 0.44% of one screen.
+
+**2026-08-20:** 2026-08-20 — SCOPE MEASURED across three menu screens, psx path, each with the feed proven complete first:
+
+  replay / frame                                 prims (ours=beetle)   differing px
+  ingame-item-menu.pad      f1120                     368 = 368         0 / 524,288   0.00%
+  ingame-options-page.pad   f1160                      70 =  70     2,309 / 524,288   0.44%
+  title-options-page.pad    f1027                       5 =   5         0 / 524,288   0.00%
+
+So this is NOT a general rasterizer inaccuracy. Two of the three screens are PIXEL-IDENTICAL to real hardware, including the item menu's 368-primitive scene. Only the options page differs, and only in blue, and only by one 5-bit step.
+
+WHAT SEPARATES THE OPTIONS PAGE FROM THE OTHER TWO: it is the only one of the three built on a large smooth GRADIENT (display-rect mean RGB (2.96, 3.48, 57.84), 100% non-black, and the differing values are exactly the gradient's own steps 24/32/40/48/56/64). The title options page is a bright flat-ish screen (mean (138.38, 122.45, 114.39), 90.7% non-black) and matches exactly; the item menu is flat panels and text and matches exactly.
+
+That is consistent with the interpolator-rounding hypothesis and inconsistent with anything global: a wrong colour conversion, a wrong blend or a wrong texture format would show on all three.

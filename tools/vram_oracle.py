@@ -81,6 +81,11 @@ def main():
         "PSXPORT_GPU_BEETLE_DUMP": str(args.frame),
         "PSXPORT_PAD_REPLAY": args.replay,
         "PSXPORT_DEBUG": "gpubeetle,gpu",
+        # BOUND THE RUN. The headless frame cap is LIFTED for pad replays (psxport 088c4722), so
+        # without this the game runs forever after the recording ends — measured: a title-screen
+        # measurement was at frame 134,892 while waiting for frame 1,027. The tail absorbs the
+        # replay's own overrun past the frame of interest.
+        "PSXPORT_NATIVE_FRAMES": str(args.frame + 40),
     })
     if args.selftest:
         env["PSXPORT_GPU_BEETLE_SELFTEST"] = "1"
