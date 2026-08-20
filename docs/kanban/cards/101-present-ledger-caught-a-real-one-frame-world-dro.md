@@ -28,5 +28,5 @@ invisible in play. It is filed because the gate is only worth having if what it 
 and because it is the first evidence the ledger discriminates on real content rather than only in its
 unit test.
 
-NOTE: this is why tools/present_gate.py is NOT yet wired into tools/precommit_gate.sh — a gate that is
-red on main teaches people to ignore it. Wire it in the same change that fixes this.
+Keep `tools/present_gate.py` as an explicit diagnostic until this is fixed; a permanently red automatic
+check teaches people to ignore it.

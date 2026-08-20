@@ -1,5 +1,15 @@
 # Findings — tooling / debug server / harness
 
+## `run.sh` rebuilt both CMake trees every launch after the Clang-default change (2026-08-20)
+
+- **Cause:** `CC` was initialized to `cc` before the later `CC:=clang` default, so Clang was never the
+  default. The stale-cache check also resolved only the requested spelling and checked only C, making
+  equivalent cache spellings compare unequal while missing C++-only changes.
+- **Fix:** initialize Clang once, normalize both cached compilers, and use CMake `--fresh` only for a
+  real mismatch. The launcher no longer deletes build trees itself.
+- **Verification:** both caches identify Clang 22.1.8; an immediate second build compiled zero C/C++
+  objects. **Ref:** `run.sh`.
+
 ## A `.pad` replay does NOT transfer between EXECUTION legs — the oracle leg ends up somewhere else (2026-08-19)
 
 - **Symptom:** to answer "what should this scene look like on the oracle", the obvious move is to cut
@@ -824,9 +834,9 @@ remove it, or the repo accumulates dead duplicates of every handler.
   `external/psxport/runtime/recomp/mem.cpp`. Separately `game/render/mesh_emit_tap.cpp` — the SINGLE
   installer of `0x80027768` — appeared 0 times in `docs/code-map.md`, and `--addr 80027768` named
   only its two CONSUMERS, sending a debugging session to the wrong two files.
-- **status:** FIXED 2026-08-05 (tools/codemap.py). `--selftest`, wired into
-  `tools/precommit_gate.sh`, now asserts one case per ownership shape plus negative controls, and
-  asserts that ZERO installed addresses fail to resolve (490/490 resolve today).
+- **status:** FIXED 2026-08-05 (tools/codemap.py). `--selftest` asserts one case per ownership shape
+  plus negative controls, and asserts that ZERO installed addresses fail to resolve (490/490 resolve
+  today).
 - **cause:** the scanner indexed only by native DEFINITION — a name carrying the address
   (`ov_<hex>`), an adjacent/def-line/file-header comment tag, a header declaration tag, or the
   quoted name of an `overrides::install`. The dominant real-world shape has none of those: the

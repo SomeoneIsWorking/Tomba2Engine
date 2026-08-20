@@ -1144,8 +1144,7 @@ def shape_census(natives, sites):
 # --- SELFTEST: prove the index can still answer POSITIVELY ----------------------------------------
 #
 # The project rule is that a diagnostic which can print nothing is lying, so this tool ships a case
-# that MUST produce a positive. It is wired into tools/precommit_gate.sh, because a self-test nobody
-# runs is the same bug one level up.
+# that MUST produce a positive. Run `tools/codemap.py --selftest` before trusting a negative result.
 #
 # Each case is a REAL address in this tree whose ownership is expressed by a shape that `--addr` was
 # blind to before 2026-08-05, one per distinct mechanism. If a future refactor of the scanner

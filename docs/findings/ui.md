@@ -36,7 +36,7 @@
 - **the gap that let it ship, still open:** nothing asserts that a prim a producer PUSHED reached a
   PRESENT. The producer census counts prims that ARRIVE unattributed; it has no counter for prims that
   never arrive, no abort path, and `prims_native_max` is monotonic-max-folded so a drop from N to 0 can
-  never show. `grep -c producers tools/precommit_gate.sh` = 0. Its run-end line was fully green while an
+  never show. No commit/CI verifier invoked the producer census. Its run-end line was fully green while an
   entire UI layer was missing from the screen. The produced-vs-presented ledger is the follow-up (kanban
   #98).
 - **also:** frame-indexed gates for this family have drifted off their scenes — the #19/#28 gate

@@ -98,7 +98,7 @@ shared rules; the workspace map is `external/psxport/docs/workspace/WORKSPACE.md
   symlink to `$PSX/psxport`, so editing through either path edits the same directory and the change is
   live in every port at once. Commit framework work in `psxport/`, not here. `psxport.pin` records the
   framework commit this game was built and VERIFIED against; `tools/psxport_sync.py` reports/`--bump`s
-  it, and the precommit gate's `--check` FAILS when the framework you built against is not the recorded
+  it, and `tools/psxport_sync.py --check` FAILS when the framework you built against is not the recorded
   one. On a fresh machine `--auto` makes `external/psxport` a private clone at the pin instead, so this
   repo still builds alone. `run.sh` announces which tree a run used and whether it was dirty: read that
   before trusting a measurement.
@@ -136,8 +136,8 @@ docs, NOT in this file.** Improve the doc/tool/workflow when it falls short, sam
     natives are indexed by guest address AND by override INSTALL SITE, so it warns ⚠ DUAL-OWNERSHIP,
     ⚠ CLAIM-WITHOUT-INSTALL (two files claim one address, one installs) and ⛔ DELIBERATELY ABSENT
     (`docs/port-map.md` says the layer was removed on purpose). `--conflicts` lists every duplicate-owned
-    address (how FUN_80040B48/80040CDC got duplicated); `--selftest` (in `tools/precommit_gate.sh`) proves
-    the index still answers positively for every ownership shape it claims to cover.
+    address (how FUN_80040B48/80040CDC got duplicated); `--selftest` proves the index still answers
+    positively for every ownership shape it claims to cover.
   - **port-map** (`tools/portmap.py` → `docs/port-map.md`) — IS it ported, and REAL not a HACK:
     `verified | ported-unverified | hack | todo | blocked`. `next` = the next RE-ready step (work THAT,
     not a downstream one); `hacks` = the debt list, kept shrinking (a hack MUST name its real fix + death
