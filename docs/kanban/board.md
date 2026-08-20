@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (42)
+## TODO (43)
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
 - **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
@@ -48,6 +48,7 @@
 - **#110 Make psx_render a TRUE oracle: wire beetle's vendored GPU rasterizer (not PsyCross)**  `render,oracle`
 - **#111 Guest render paths at the item menu: gte is missing 58% of the picture, psx draws NOTHING**  `render,oracle,bug`
 - **#114 psx_render: ~561 px still differ from real hardware, incl. 357 by more than one LSB**  ``
+- **#115 Adopt clang + clang-format, drop extern C, drop beetle**  ``
 
 ## DOING (7)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
