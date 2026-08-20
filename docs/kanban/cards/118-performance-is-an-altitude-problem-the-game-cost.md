@@ -44,3 +44,29 @@ REPRO:
   PSXPORT_NOAUDIO=1 PSXPORT_NO_FMV=1 PSXPORT_NOPACE=1 PSXPORT_NATIVE_FRAMES=1100 \
   PSXPORT_PAD_REPLAY=replays/bugs/ingame-options-page.pad PSXPORT_DEBUG=perf ./scratch/bin/tomba2_port
 CHECK `uptime` FIRST — a loaded machine makes every number here meaningless (see #117).
+
+**2026-08-20:** 2026-08-20 — CORRECTION, SAME DAY: "THE GAME COSTS 0.00 ms" IS WRONG. I misread a legacy counter. The game costs 1.28 ms.
+
+WHAT I DID: read `tick-LOGIC 0.00` off the perf line and reported that all of Tomba!2 measures nothing.
+
+WHAT PHASE 0 ACTUALLY MEASURES: game_tomba2.cpp:84-86 brackets ONE call — rec_dispatch(c, 0x800788AC), described as "real per-frame state update (still-PSX leaf)". That was the whole per-frame update when the port ran the guest's own loop. It is not any more: the work moved to PcScheduler, so phase 0 now brackets a path that no longer carries it and honestly reports 0.00 for what it still measures.
+
+WHERE THE GAME ACTUALLY IS: phase 3, and native_boot.cpp:157 says so in a comment — "SCHED-LOGIC = the cooperative scheduler step (the real per-frame GAME logic)", wrapping pcSched.step(). That is 1.28 ms.
+
+    phase                                ms     % of frame   what it is
+    PRESENT-cpu                        2.42        54.8      our renderer (world build + VRAM upload + VK submit)
+    SCHED-LOGIC                        1.28        29.0      THE GAME (recompiled substrate + native game code)
+    post                               0.40         9.0
+    audio                              0.30         6.8
+    pre                                0.02         0.5
+    LOGIC                              0.00         0.0      A DEAD COUNTER — brackets a path the work left
+
+THIS IS EXACTLY THE FAILURE THE PROJECT RULES NAME: a diagnostic that can only print nothing. Phase 0 cannot distinguish "this is free" from "the work moved and I am not measuring it any more", and it prints the same 0.00 for both. It has been printing that on every perf run since the scheduler took over, and today it fooled me into telling the USER the game was free.
+
+THE REVISED PICTURE, and it is less dramatic but still bad:
+  * The PSX gave this game ~1.13M CPU cycles per frame at 33.8 MHz. We spend 1.28 ms on a 4 GHz core = ~5.1M cycles — about 4.5x the CYCLE COUNT the original used, from statically recompiled MIPS running on a superscalar core that should beat the original per cycle, not lose to it.
+  * The renderer at 2.42 ms for a few hundred textured quads at 320x240 remains the clearest outlier and is still the biggest single item.
+
+A REALISTIC TARGET, stated as arithmetic rather than ambition: renderer to ~0.2 ms and substrate to ~0.3 ms gives ~0.9 ms/frame -> ~1,100 fps, ~37x realtime. That is a 5x improvement available, not the 15-30x I claimed. The claim of 3,000-6,000 fps rested on the game being free and is withdrawn.
+
+FIRST ACTION FOR WHOEVER PICKS THIS UP: fix phase 0 — either point it at where the work went or delete it. A counter that reads 0.00 for "not measured" will mislead the next person exactly as it misled me. That is a workflow defect and it outranks the optimisation.
