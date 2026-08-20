@@ -68,3 +68,11 @@ Full four-screen picture, psx path, every one with the feed proven complete firs
 Visual: scratch/screenshots/oracle_menus.png. This card's difference renders as blue DIAGONAL CONTOUR BANDS — the gradient's own iso-value lines, which is what a quantisation-boundary rounding difference looks like and is visibly nothing like #113's dense speckle.
 
 So the two are separate bugs with separate causes and must not be fixed together.
+
+**2026-08-20:** 2026-08-20 — UNCHANGED BY #113's FIX, which is itself informative. The dither fix (psxport 05ce4045) took the START page from 27,561 differing pixels to 5,891 and left this card's options page at exactly 2,309. Two separate bugs, confirmed by a change that moved one and not the other.
+
+A NEW LEAD, and it may merge this card with #113's residual. After the dither fix the START page still differs on 5,534 px that are EXACTLY one 5-bit step and UNIFORM across the 4x4 cells — the same signature as this card, except spread over all three channels (R 2,109 / G 3,634 / B 1,133) instead of blue only. This card's screen is a blue-only gradient, so 'blue only' there and 'all channels' here are consistent with ONE underlying interpolator-rounding bug showing on content with different colour content.
+
+TEST THAT BEFORE FIXING EITHER: if it is one bug, a fix here must also drop the START page's 5,534. If it does not, they are two and this card's scope was right. That is a cheap check and it decides whether to fix once or twice — python3 tools/vram_oracle.py replays/bugs/ingame-options-page.pad 1090 --path psx is the counter-measurement.
+
+STILL SEPARATE FROM BOTH: 357 px on the START page differ by MORE than one step (up to +-184) and were unaffected by the dither fix. A third mechanism, uncharacterised.

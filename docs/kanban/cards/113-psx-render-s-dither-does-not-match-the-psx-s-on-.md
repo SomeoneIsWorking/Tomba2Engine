@@ -1,7 +1,7 @@
 ---
 id: 113
 title: psx_render's dither does not match the PSX's on 3D scenes
-status: todo
+status: done
 labels: []
 created: 2026-08-20
 updated: 2026-08-20
@@ -35,3 +35,34 @@ VISIBILITY: one 5-bit step is invisible in isolation; whether this is worth fixi
 REPRO:  python3 tools/vram_oracle.py replays/bugs/ingame-options-page.pad 1090 --path psx
 
 HOW IT WAS FOUND: the tool REFUSED this frame the first time (exit 2, 'FEED INCOMPLETE: ours drew 971 but beetle dispatched 975'). The refusal was right and the census was wrong — beetle dispatches each POLYLINE SEGMENT separately, so 2 polylines read as 6 line dispatches. Same trap as the quad-continuation counter, fixed the same way (PGC_LINE_CONT). Without the refusal this would have been read as a 5.26% rasterizer difference on a feed that was never verified.
+
+**2026-08-20:** 2026-08-20 — FIXED. psxport 05ce4045. Root cause named, direction measured, fix verified on four screens.
+
+ROOT CAUSE: a texpage word reaches the GPU by TWO routes and they are not equivalent. In beetle they are literally different functions:
+    GP0(0xE1) DrawMode           Command_DrawMode: SetTPage(cmdw), THEN g->dtd = (cmdw >> 9) & 1
+    a primitive's embedded word  SetTPage alone — page, colour mode, blend, tex-disable. NOT dtd.
+So the dither-enable bit is owned by DrawMode and by nothing else, and bit 9 of a primitive's embedded texpage word is meaningless. GpuState::set_texpage() applied it unconditionally from both routes, so the FIRST textured polygon whose embedded word happened to have bit 9 clear switched dithering off for everything drawn after it.
+
+HOW THE DIRECTION WAS ESTABLISHED, since the 4x4 signature says 'one side dithers and the other does not' but cannot say WHICH. Added PSXPORT_GPU_BEETLE_DITHER=0 as a DISCRIMINATOR (documented as such, not as a setting) and ran beetle undithered: the difference collapsed 27,561 -> 5,602, naming OUR side as the one that had stopped. Only then was a pixel trace at (40,160) taken, showing dith=false on a textured, shaded pixel.
+
+RESULT, all four screens re-measured on the same build, each feed proven complete:
+    f1090 START page      27,561 (5.26%)  ->  5,891 (1.12%)     -78.6%
+    f1160 options page     2,309 (0.44%)  ->  2,309             unchanged (that is #112)
+    f1120 item menu            0          ->      0             unchanged
+    f1027 title options        0          ->      0             unchanged
+
+THE DISCRIMINATOR NOW READS THE OTHER WAY, which is the real proof. Per-cell differ rate over the same 4,800-px-per-cell denominator:
+    before   7.0% / 22.2% / 38.4% / 51.1% / 56.9%   by |dither offset| 0..4  — monotonic
+    after    6.90% .. 8.31% across all sixteen cells — FLAT
+Dither is fully accounted for; whatever is left is not positional.
+
+WHAT REMAINS IN THAT FRAME, and it is deliberately NOT closed by this card:
+  * 5,534 px (94%) differ by exactly one 5-bit step, uniform across dither cells, all three channels (R 2,109 / G 3,634 / B 1,133). Same family as #112, which is blue-only on a blue-only gradient — plausibly the same interpolator rounding seen on richer content. Worth testing that they are ONE bug before fixing either.
+  * 357 px differ by MORE than one step, up to +-184. Unchanged in count and character by this fix (it was ~348 before), so it is a third mechanism. Still uncharacterised.
+
+TWO MORE BUGS FIXED IN THE ORACLE ADAPTER while here, neither of which caused this:
+  * psx_gpu_dither_mode was uint8_t where beetle declares `extern enum dither_mode` — 4 bytes. beetle read three bytes past the object. Undefined behaviour that happened to be benign.
+  * it was set to 1 meaning 'on'; the enum is NATIVE=0, UPSCALED=1, OFF=2. Identical behaviour at dither_upscale_shift 0, which is exactly why the wrong constant survived.
+Measured: fixing both changed the f1090 difference by ZERO pixels. Recorded because a wrong constant that is harmless today is wrong the moment upscaling is switched on.
+
+TEST: tests/test_texpage_dither_source.cpp, hermetic, asserts both routes in both directions — including that DrawMode can still CLEAR the bit and that the primitive route still updates page/mode/blend, so a fix that simply stopped updating dither anywhere cannot pass.

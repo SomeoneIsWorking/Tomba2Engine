@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (43)
+## TODO (42)
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
 - **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
@@ -48,7 +48,6 @@
 - **#110 Make psx_render a TRUE oracle: wire beetle's vendored GPU rasterizer (not PsyCross)**  `render,oracle`
 - **#111 Guest render paths at the item menu: gte is missing 58% of the picture, psx draws NOTHING**  `render,oracle,bug`
 - **#112 psx_render's blue channel is one 5-bit step low vs real hardware on gradient fills**  ``
-- **#113 psx_render's dither does not match the PSX's on 3D scenes**  ``
 
 ## DOING (7)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
@@ -59,7 +58,7 @@
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 - **#103 Cutscene machinery + fisherman + bridge ropes invisible under pc_render (area 0, live)**  `render,bug`
 
-## DONE (63)
+## DONE (64)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -123,3 +122,4 @@
 - **#102 Save/load card browser under pc_render: backdrop, Save title badge, button-prompt icons and the slot save-icon are all missing**  `render,bug,ui`
 - **#104 Continue from a pad recording — ./run.sh --resume (PSXPORT_PAD_RESUME)**  `tooling`
 - **#106 PSX/oracle path showed 16 rows below the cutscene letterbox — the display height was the framework's default, not the game's**  `render,psxport`
+- **#113 psx_render's dither does not match the PSX's on 3D scenes**  ``
