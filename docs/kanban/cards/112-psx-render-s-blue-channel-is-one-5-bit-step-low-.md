@@ -1,7 +1,7 @@
 ---
 id: 112
 title: psx_render's blue channel is one 5-bit step low vs real hardware on gradient fills
-status: todo
+status: done
 labels: []
 created: 2026-08-20
 updated: 2026-08-20
@@ -76,3 +76,25 @@ A NEW LEAD, and it may merge this card with #113's residual. After the dither fi
 TEST THAT BEFORE FIXING EITHER: if it is one bug, a fix here must also drop the START page's 5,534. If it does not, they are two and this card's scope was right. That is a cheap check and it decides whether to fix once or twice — python3 tools/vram_oracle.py replays/bugs/ingame-options-page.pad 1090 --path psx is the counter-measurement.
 
 STILL SEPARATE FROM BOTH: 357 px on the START page differ by MORE than one step (up to +-184) and were unaffected by the dither fix. A third mechanism, uncharacterised.
+
+**2026-08-20:** 2026-08-20 — FIXED, and it was ONE bug with #113's residual, exactly as the counter-measurement on this card predicted. psxport 2a0820a5.
+
+ROOT CAUSE: beetle seeds every interpolant with a half-LSB bias, so its DDA ROUNDS TO NEAREST:
+    gpu_polygon.c:904   ig.u = (COORD_MF_INT(u) + (1 << (COORD_FBS - 1 - shift))) << ...
+    gpu_polygon.c:945   ig.r = (COORD_MF_INT(r) + (1 << (COORD_FBS - 1)))         << ...
+gpu_native.cpp already replicated that for U and V — its own comment says so — and did NOT for the interpolated COLOUR, which used a plain integer divide. Integer division truncates toward zero, so our colour was systematically LOW on every gouraud and every texture-modulated pixel.
+
+HOW THE DIRECTION IDENTIFIED IT: after #113's dither fix the START page still differed on 5,534 px by exactly one 5-bit step, and 5,896 of the 6,031 per-channel differences (97.6%) were ours-LOW. A symmetric rounding error is ~50/50; a one-sided bias is truncation. On this card's blue-only gradient it was 100% ours-low in blue — same bug, and 'blue only' was simply the only channel with a gradient.
+
+RESULT, four screens, psx path, feed proven complete on each:
+                         before #113   after #113    after this fix
+    f1090 START page       27,561        5,891           561      -98.0% overall
+    f1160 options page      2,309        2,309            15      -99.4%
+    f1120 item menu             0            0             0
+    f1027 title options         0            0             0
+
+THE COUNTER-MEASUREMENT WAS THE POINT. This card recorded that if #112 and #113's residual were one bug, a fix here MUST also drop the START page's 5,534 — and it did, to 561. Had it not, they were two and the scope was right. That decided fix-once vs fix-twice before any code was written.
+
+WHAT IS LEFT, and it is small enough to be a separate question: 15 px on the options page and 561 on the START page. The START page's 357 large-delta pixels (up to +-184) are still in there and are still a third, uncharacterised mechanism — unchanged by both fixes.
+
+TEST: tests/test_bary_round.cpp, hermetic. Asserts BOTH windings (the doubled area is signed, and floor() would round the wrong way for one of them, moving the bias rather than removing it) and the exact cases, so a fix that just adds +1 fails.
