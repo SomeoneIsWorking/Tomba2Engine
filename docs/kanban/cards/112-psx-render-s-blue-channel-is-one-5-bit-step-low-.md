@@ -52,3 +52,19 @@ So this is NOT a general rasterizer inaccuracy. Two of the three screens are PIX
 WHAT SEPARATES THE OPTIONS PAGE FROM THE OTHER TWO: it is the only one of the three built on a large smooth GRADIENT (display-rect mean RGB (2.96, 3.48, 57.84), 100% non-black, and the differing values are exactly the gradient's own steps 24/32/40/48/56/64). The title options page is a bright flat-ish screen (mean (138.38, 122.45, 114.39), 90.7% non-black) and matches exactly; the item menu is flat panels and text and matches exactly.
 
 That is consistent with the interpolator-rounding hypothesis and inconsistent with anything global: a wrong colour conversion, a wrong blend or a wrong texture format would show on all three.
+
+**2026-08-20:** 2026-08-20 — SCOPE CORRECTED, and a SECOND difference separated out as #113.
+
+'Dither is refuted' remains true FOR THIS SCREEN and is now much better supported, because the same test came out POSITIVE on another one. On the in-game START page (f1090 of the same replay, a full 3D scene) the per-cell differ rate over a 76,800-pixel denominator ranges 6.9% to 56.9% — a factor of eight, the 4x4 ordered matrix showing plainly. Here it is flat at 2.7-3.4%. Same test, same denominator method, opposite answers: that is what makes both readings trustworthy rather than one of them being an artefact of the test.
+
+Full four-screen picture, psx path, every one with the feed proven complete first:
+
+  screen                        prims          differing        signature
+  item menu        f1120    368 = 368        0  (0.00%)   pixel-identical
+  START page       f1090    971 = 971   27,561  (5.26%)   DITHER, all channels -> #113
+  options page     f1160     70 =  70    2,309  (0.44%)   blue only, no 4x4 -> THIS CARD
+  title options    f1027      5 =   5        0  (0.00%)   pixel-identical
+
+Visual: scratch/screenshots/oracle_menus.png. This card's difference renders as blue DIAGONAL CONTOUR BANDS — the gradient's own iso-value lines, which is what a quantisation-boundary rounding difference looks like and is visibly nothing like #113's dense speckle.
+
+So the two are separate bugs with separate causes and must not be fixed together.
