@@ -5,17 +5,17 @@
 // NO GTE. Extracted verbatim from game_tomba2.cpp (one behavior, byte-identical) into its own module for
 // PC-game code structure. The `animvm` diagnostic A/B gate (full RAM+scratchpad vs rec_super_call) is a
 // REPL channel, unchanged.
-#include "core.h"
-#include "game_ctx.h"
+#include "animation.h"
 #include "cfg.h"
+#include "core.h"
+#include "game.h" // c->game->verify — the shared A/B verify scaffold
+#include "game_ctx.h"
+#include "override_registry.h" // overrides::install — the one native-override registry
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "animation.h"
-#include "game.h"      // c->game->verify — the shared A/B verify scaffold
-#include "override_registry.h"   // overrides::install — the one native-override registry
-void rec_super_call(Core*, uint32_t);
-void rec_dispatch(Core*, uint32_t);
+void rec_super_call(Core *, uint32_t);
+void rec_dispatch(Core *, uint32_t);
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FUN_80076D68 — per-object ANIMATION-SEQUENCE VM stepper (resident, no GTE; ~3.6% of field interp
@@ -47,117 +47,184 @@ void rec_dispatch(Core*, uint32_t);
 // `animvm` gate = full RAM+scratchpad A/B vs rec_super_call (each path runs once from one checkpoint;
 //  the native run is rolled back; the fn's own 40-byte stack frame [sp-40,sp) is excluded — the gen
 //  prologue saves regs there, the native body never touches the guest stack).
-static void anim_vm_76d68(Core* c) {
-  const uint32_t s0   = c->r[4];
-  const uint32_t ctrl = c->mem_r16(s0 + 14);             // a0reg (read once)
+static void anim_vm_76d68(Core *c) {
+  const uint32_t s0 = c->r[4];
+  const uint32_t ctrl = c->mem_r16(s0 + 14); // a0reg (read once)
   const uint32_t low12 = ctrl & 0x0fffu;
-  const uint32_t cnt   = (low12 - 1) & 0xffffffffu;      // s1 = low12 - 1
-  const uint32_t freeze = ctrl & 0x1000u;                // bit set => do not advance the cursor
+  const uint32_t cnt = (low12 - 1) & 0xffffffffu; // s1 = low12 - 1
+  const uint32_t freeze = ctrl & 0x1000u;         // bit set => do not advance the cursor
 
   // ---- DELAY branch: low12 != 1 (counter still running) ----
   if (cnt != 0) {
     int32_t cur = (int32_t)c->mem_r32(s0 + 56);
-    if (cur < 0) {                                       // cursor sign bit set -> freeze in place
+    if (cur < 0) { // cursor sign bit set -> freeze in place
       // cur<0 path (0x80076dd0): h = (low12-1) + (ctrl & 0x1000); return 0. The +0x1000 term comes from
       // the bltz delay slot `andi v0,a0,0x1000` (a0 = the entry ctrl word) — NOT a literal +2.
       c->mem_w16(s0 + 14, (uint16_t)(cnt + freeze));
-      c->r[2] = 0; return;
+      c->r[2] = 0;
+      return;
     }
     // 0x80075f0c takes a1 = cnt (the counter, s1 at the jal) — it uses (int16_t)a1==1 to decide whether
     // to set the KSEG0 bit on the cursor (s0+56). The entry register a1 was `addu a1,s1,zero` (=cnt).
-    eng(c).animation.applyFrame(s0, (int32_t)(int16_t)cnt);   // apply current frame (native FUN_80075F0C)
+    eng(c).animation.applyFrame(s0, (int32_t)(int16_t)cnt); // apply current frame (native FUN_80075F0C)
     // s0+14 is RE-READ here (the applier 0x80075f0c may have modified it); only bit 0x1000 is kept.
     uint32_t fz = c->mem_r16(s0 + 14) & 0x1000u;
-    c->mem_w16(s0 + 14, (uint16_t)(cnt + fz));           // (low12-1) | (post-call s0[14] & 0x1000)
-    c->r[2] = 2; return;
+    c->mem_w16(s0 + 14, (uint16_t)(cnt + fz)); // (low12-1) | (post-call s0[14] & 0x1000)
+    c->r[2] = 2;
+    return;
   }
 
   // ---- STEP branch: low12 == 1 (frame elapsed) ----
   uint32_t cur = c->mem_r32(s0 + 56);
-  uint32_t op  = c->mem_r16(cur + 6);                    // lhu; tag bits + payload
-  uint32_t opu = op;                                     // lhu copy (a1)
-  uint32_t tag = op & 0xc000u;                           // s1
+  uint32_t op = c->mem_r16(cur + 6); // lhu; tag bits + payload
+  uint32_t opu = op;                 // lhu copy (a1)
+  uint32_t tag = op & 0xc000u;       // s1
 
   // Run the executor tail and set v0 (mirrors L_f40/L_f28/L_ff0/L_7000):
   //   jump_target: true -> executor a1 = [cur+8]; false -> a1 = cur+8
   //   retval: function return value
   auto exec_tail = [&](uint32_t cur_in, bool jump_target, uint32_t retval) {
     uint32_t a1 = jump_target ? c->mem_r32(cur_in + 8) : (cur_in + 8);
-    c->r[4] = s0; c->r[5] = a1; c->r[6] = (uint32_t)c->mem_r16s(s0 + 14);
+    c->r[4] = s0;
+    c->r[5] = a1;
+    c->r[6] = (uint32_t)c->mem_r16s(s0 + 14);
     rec_dispatch(c, 0x80075ff8u);
     c->r[2] = retval;
   };
 
-  if (tag == 0x4000u) {                                  // block T4000 (0x80076e9c)
+  if (tag == 0x4000u) { // block T4000 (0x80076e9c)
     // NOT frozen -> follow the jump pointer cur=[cur+8] (the cur+8 sw is dead, overwritten); frozen ->
     // leave the cursor unchanged (the bne skips the whole follow).
-    if (!freeze) { cur = c->mem_r32(cur + 8); c->mem_w32(s0 + 56, cur); }
-    cur = c->mem_r32(s0 + 56);
-    uint32_t dur = c->mem_r16(cur + 6) & 0x0fffu;        // duration low12
-    c->mem_w16(s0 + 14, (uint16_t)dur);                  // sh BEFORE the call (delay slot)
-    eng(c).animation.loadFrame(s0);                   // load frame (native FUN_80076904)
-    uint32_t a1c = c->mem_r32(s0 + 56);
-    uint32_t v1  = c->mem_r16(a1c + 6);
-    if ((v1 & 0x2000u) == 0) { c->r[2] = 0; return; }    // no exec flag
-    uint32_t t = v1 & 0xc000u;
-    if (t == 0x4000u)      { exec_tail(a1c, true, 0); return; }   // -> L_f40
-    if (t < 0x4001u) {                                            // t == 0
-      if (t == 0)          { exec_tail(a1c, false, 0); return; }  // -> L_f28
-      c->r[2] = 0; return;
+    if (!freeze) {
+      cur = c->mem_r32(cur + 8);
+      c->mem_w32(s0 + 56, cur);
     }
-    if (t == 0x8000u)      { c->r[2] = 0; return; }               // -> L_701c
-    if (t == 0xc000u)      { exec_tail(a1c, true, 0); return; }   // -> L_f40
-    c->r[2] = 0; return;
+    cur = c->mem_r32(s0 + 56);
+    uint32_t dur = c->mem_r16(cur + 6) & 0x0fffu; // duration low12
+    c->mem_w16(s0 + 14, (uint16_t)dur);           // sh BEFORE the call (delay slot)
+    eng(c).animation.loadFrame(s0);               // load frame (native FUN_80076904)
+    uint32_t a1c = c->mem_r32(s0 + 56);
+    uint32_t v1 = c->mem_r16(a1c + 6);
+    if ((v1 & 0x2000u) == 0) {
+      c->r[2] = 0;
+      return;
+    } // no exec flag
+    uint32_t t = v1 & 0xc000u;
+    if (t == 0x4000u) {
+      exec_tail(a1c, true, 0);
+      return;
+    } // -> L_f40
+    if (t < 0x4001u) { // t == 0
+      if (t == 0) {
+        exec_tail(a1c, false, 0);
+        return;
+      } // -> L_f28
+      c->r[2] = 0;
+      return;
+    }
+    if (t == 0x8000u) {
+      c->r[2] = 0;
+      return;
+    } // -> L_701c
+    if (t == 0xc000u) {
+      exec_tail(a1c, true, 0);
+      return;
+    } // -> L_f40
+    c->r[2] = 0;
+    return;
   }
 
-  if (tag < 0x4001u) {                                   // tag == 0 -> block T0 (0x80076e2c)
-    if (tag != 0) { c->r[2] = 0; return; }               // (unreachable for &0xc000, kept faithful)
-    if (!freeze) { cur = cur + 8; c->mem_w32(s0 + 56, cur); }
+  if (tag < 0x4001u) { // tag == 0 -> block T0 (0x80076e2c)
+    if (tag != 0) {
+      c->r[2] = 0;
+      return;
+    } // (unreachable for &0xc000, kept faithful)
+    if (!freeze) {
+      cur = cur + 8;
+      c->mem_w32(s0 + 56, cur);
+    }
     cur = c->mem_r32(s0 + 56);
     uint32_t dur = c->mem_r16(cur + 6) & 0x0fffu;
-    c->mem_w16(s0 + 14, (uint16_t)dur);                  // sh in jal delay slot
-    eng(c).animation.loadFrame(s0);                   // load frame (native FUN_80076904)
+    c->mem_w16(s0 + 14, (uint16_t)dur); // sh in jal delay slot
+    eng(c).animation.loadFrame(s0);     // load frame (native FUN_80076904)
     uint32_t a1c = c->mem_r32(s0 + 56);
-    uint32_t v1  = c->mem_r16(a1c + 6);
-    if ((v1 & 0x2000u) == 0) { c->r[2] = 0; return; }
-    uint32_t t = v1 & 0xc000u;
-    if (t == 0x4000u)      { exec_tail(a1c, true, 0); return; }   // == s2 -> L_f40
-    if (t < 0x4001u) {                                            // t == 0
-      if (t == 0)          { exec_tail(a1c, false, 0); return; }  // -> L_f28
-      c->r[2] = 0; return;
+    uint32_t v1 = c->mem_r16(a1c + 6);
+    if ((v1 & 0x2000u) == 0) {
+      c->r[2] = 0;
+      return;
     }
-    if (t == 0x8000u)      { c->r[2] = 0; return; }               // -> L_701c
-    if (t == 0xc000u)      { exec_tail(a1c, true, 0); return; }   // -> L_f40
-    c->r[2] = 0; return;
+    uint32_t t = v1 & 0xc000u;
+    if (t == 0x4000u) {
+      exec_tail(a1c, true, 0);
+      return;
+    } // == s2 -> L_f40
+    if (t < 0x4001u) { // t == 0
+      if (t == 0) {
+        exec_tail(a1c, false, 0);
+        return;
+      } // -> L_f28
+      c->r[2] = 0;
+      return;
+    }
+    if (t == 0x8000u) {
+      c->r[2] = 0;
+      return;
+    } // -> L_701c
+    if (t == 0xc000u) {
+      exec_tail(a1c, true, 0);
+      return;
+    } // -> L_f40
+    c->r[2] = 0;
+    return;
   }
 
   // tag is 0x8000 or 0xc000
-  if (tag == 0x8000u) {                                  // block T8000 (0x80076f58)
+  if (tag == 0x8000u) { // block T8000 (0x80076f58)
     c->mem_w16(s0 + 14, (uint16_t)(opu & 0x0fffu));
-    c->r[2] = 1; return;
+    c->r[2] = 1;
+    return;
   }
   // tag == 0xc000 -> block TC000 (0x80076f64)
   {
     // Same follow-jump structure as T4000: NOT frozen -> cur=[cur+8]; frozen -> unchanged.
-    if (!freeze) { cur = c->mem_r32(cur + 8); c->mem_w32(s0 + 56, cur); }
+    if (!freeze) {
+      cur = c->mem_r32(cur + 8);
+      c->mem_w32(s0 + 56, cur);
+    }
     cur = c->mem_r32(s0 + 56);
     uint32_t dur = c->mem_r16(cur + 6) & 0x0fffu;
     c->mem_w16(s0 + 14, (uint16_t)dur);
-    eng(c).animation.loadFrame(s0);                   // load frame (native FUN_80076904)
+    eng(c).animation.loadFrame(s0); // load frame (native FUN_80076904)
     uint32_t a1c = c->mem_r32(s0 + 56);
-    uint32_t v1  = c->mem_r16(a1c + 6);
-    if ((v1 & 0x2000u) == 0) {                                    // beq -> 0x80076f5c (hold-store + return 1)
-      c->mem_w16(s0 + 14, (uint16_t)(opu & 0x0fffu)); c->r[2] = 1; return;
+    uint32_t v1 = c->mem_r16(a1c + 6);
+    if ((v1 & 0x2000u) == 0) { // beq -> 0x80076f5c (hold-store + return 1)
+      c->mem_w16(s0 + 14, (uint16_t)(opu & 0x0fffu));
+      c->r[2] = 1;
+      return;
     }
     uint32_t t = v1 & 0xc000u;
-    if (t == 0x4000u)      { exec_tail(a1c, true, 1); return; }   // == s2 -> L_7000
-    if (t < 0x4001u) {                                            // t == 0
-      if (t == 0)          { exec_tail(a1c, false, 1); return; }  // -> L_ff0
-      c->r[2] = 1; return;                                        // (delay v0=1) -> 0x80077020
+    if (t == 0x4000u) {
+      exec_tail(a1c, true, 1);
+      return;
+    } // == s2 -> L_7000
+    if (t < 0x4001u) { // t == 0
+      if (t == 0) {
+        exec_tail(a1c, false, 1);
+        return;
+      } // -> L_ff0
+      c->r[2] = 1;
+      return; // (delay v0=1) -> 0x80077020
     }
-    if (t == 0x8000u)      { c->r[2] = 1; return; }               // == s3 -> 0x80077020 (v0=1)
-    if (t == 0xc000u)      { exec_tail(a1c, true, 1); return; }   // == s1 -> L_7000
-    c->r[2] = 1; return;
+    if (t == 0x8000u) {
+      c->r[2] = 1;
+      return;
+    } // == s3 -> 0x80077020 (v0=1)
+    if (t == 0xc000u) {
+      exec_tail(a1c, true, 1);
+      return;
+    } // == s1 -> L_7000
+    c->r[2] = 1;
+    return;
   }
 }
 
@@ -179,17 +246,17 @@ static void anim_vm_76d68(Core* c) {
 // with real, concurrently-live guest stack data at whatever sp happened to be current for a
 // native caller). Guest-ABI reachers use THIS method directly instead of step().
 void Animation::stepFramed(uint32_t node) {
-  Core* c = this->core;
+  Core *c = this->core;
   uint32_t save16 = c->r[16], save17 = c->r[17], save18 = c->r[18], save19 = c->r[19], saveRa = c->r[31];
   c->r[29] -= 40;
-  c->mem_w32(c->r[29] + 16, save16);          // sw s0,16(sp) — LIVE incoming r16 (before s0<-a0)
-  c->r[16] = node;                            // s0 = a0 (node) — the body's own local
-  c->mem_w32(c->r[29] + 32, saveRa);          // sw ra,32(sp)
-  c->mem_w32(c->r[29] + 28, save19);          // sw s3,28(sp)
-  c->mem_w32(c->r[29] + 24, save18);          // sw s2,24(sp)
-  c->mem_w32(c->r[29] + 20, save17);          // sw s1,20(sp)
+  c->mem_w32(c->r[29] + 16, save16); // sw s0,16(sp) — LIVE incoming r16 (before s0<-a0)
+  c->r[16] = node;                   // s0 = a0 (node) — the body's own local
+  c->mem_w32(c->r[29] + 32, saveRa); // sw ra,32(sp)
+  c->mem_w32(c->r[29] + 28, save19); // sw s3,28(sp)
+  c->mem_w32(c->r[29] + 24, save18); // sw s2,24(sp)
+  c->mem_w32(c->r[29] + 20, save17); // sw s1,20(sp)
 
-  c->r[4] = node;                             // taxi-in for the still-taxi internal impl
+  c->r[4] = node; // taxi-in for the still-taxi internal impl
   anim_vm_76d68(c);
 
   c->r[31] = c->mem_r32(c->r[29] + 32);
@@ -201,20 +268,28 @@ void Animation::stepFramed(uint32_t node) {
 }
 
 void Animation::step(uint32_t node) {
-  Core* c = this->core;
-  c->r[4] = node;                            // taxi-in for the still-taxi internal impl
+  Core *c = this->core;
+  c->r[4] = node; // taxi-in for the still-taxi internal impl
   // Lazy gate (re-check each call): this fn can run before the REPL `debug animvm` is processed.
-  if (!cfg_dbg("animvm")) { anim_vm_76d68(c); return; }
-  uint8_t* ram0 = c->game->verify.ram0();
-  uint8_t* ramN = c->game->verify.ramN();
+  if (!cfg_dbg("animvm")) {
+    anim_vm_76d68(c);
+    return;
+  }
+  uint8_t *ram0 = c->game->verify.ram0();
+  uint8_t *ramN = c->game->verify.ramN();
   uint8_t spad0[0x400], spadN[0x400];
-  uint32_t regs0[32]; memcpy(regs0, c->r, sizeof regs0);
+  uint32_t regs0[32];
+  memcpy(regs0, c->r, sizeof regs0);
   uint32_t s0 = c->r[4];
-  memcpy(ram0, c->ram, 0x200000); memcpy(spad0, c->scratch, 0x400);
+  memcpy(ram0, c->ram, 0x200000);
+  memcpy(spad0, c->scratch, 0x400);
   anim_vm_76d68(c);
   uint32_t v0_n = c->r[2];
-  memcpy(ramN, c->ram, 0x200000); memcpy(spadN, c->scratch, 0x400);
-  memcpy(c->ram, ram0, 0x200000); memcpy(c->scratch, spad0, 0x400); memcpy(c->r, regs0, sizeof regs0);
+  memcpy(ramN, c->ram, 0x200000);
+  memcpy(spadN, c->scratch, 0x400);
+  memcpy(c->ram, ram0, 0x200000);
+  memcpy(c->scratch, spad0, 0x400);
+  memcpy(c->r, regs0, sizeof regs0);
   rec_super_call(c, 0x80076D68u);
   uint32_t v0_o = c->r[2];
   // Exclude FUN_80076D68's OWN 40-byte stack frame [sp-40, sp) — this NATIVE (unframed) run never
@@ -223,13 +298,29 @@ void Animation::step(uint32_t node) {
   // native-triggered A/B check (not a real guest call site), so that transient frame is expected to
   // differ from "untouched" and is excluded here, same as before this fix.
   uint32_t sp = regs0[29] & 0x1FFFFFu, flo = (sp >= 40) ? sp - 40 : 0;
-  int ro = -1; for (uint32_t a = 0; a < 0x200000; a++) if (c->ram[a] != ramN[a] && !(a >= flo && a < sp)) { ro = (int)a; break; }
-  int so = -1; for (uint32_t a = 0; a < 0x400; a++) if (c->scratch[a] != spadN[a]) { so = (int)a; break; }
-  VerifyHarness::Check& chk = c->game->verify.check("animvm");
+  int ro = -1;
+  for (uint32_t a = 0; a < 0x200000; a++) {
+    if (c->ram[a] != ramN[a] && !(a >= flo && a < sp)) {
+      ro = (int)a;
+      break;
+    }
+  }
+  int so = -1;
+  for (uint32_t a = 0; a < 0x400; a++) {
+    if (c->scratch[a] != spadN[a]) {
+      so = (int)a;
+      break;
+    }
+  }
+  VerifyHarness::Check &chk = c->game->verify.check("animvm");
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0 || v0_n != v0_o) {
-    if (nb++ < 40) cfg_logi("animvm", "MISMATCH s0=%08x v0 n=%x o=%x ram@%x spad@%x sp=%x", s0, v0_n, v0_o, ro, so, sp);
-  } else if (++ng % 2000 == 0) cfg_logi("animvm", "%ld matches", ng);
+    if (nb++ < 40) {
+      cfg_logi("animvm", "MISMATCH s0=%08x v0 n=%x o=%x ram@%x spad@%x sp=%x", s0, v0_n, v0_o, ro, so, sp);
+    }
+  } else if (++ng % 2000 == 0) {
+    cfg_logi("animvm", "%ld matches", ng);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -263,11 +354,13 @@ void Animation::step(uint32_t node) {
 //   Both loops walk `a2` over an array of struct* at (obj+192 + i*4) [i.e. *(uint32_t*)(obj+192+4*i)
 //   is the destination limb struct for iteration i], stopping when i>=boundA (checked before the
 //   body) OR (after incrementing i) i>=boundB (checked after the body) — whichever hits first.
-static inline uint32_t rd_u32(Core* c, uint32_t a) { return c->mem_r32(a); }
+static inline uint32_t rd_u32(Core *c, uint32_t a) {
+  return c->mem_r32(a);
+}
 
 // unpack12x3 — shared 5-byte-stream -> 3x signed-12-bit unpack (dest = obj+0x88/0x8a/0x8c). Both
 // flags&0x40 arms run this IDENTICAL byte sequence when flags&0x80 is set.
-static void anim_unpack_pose_triple(Core* c, uint32_t obj, uint32_t& stream) {
+static void anim_unpack_pose_triple(Core *c, uint32_t obj, uint32_t &stream) {
   uint32_t s = stream;
   uint32_t e0 = c->mem_r8(s), e1 = c->mem_r8(s + 1), e2 = c->mem_r8(s + 2);
   uint32_t e3 = c->mem_r8(s + 3), e4 = c->mem_r8(s + 4);
@@ -298,18 +391,18 @@ static void anim_unpack_pose_triple(Core* c, uint32_t obj, uint32_t& stream) {
   stream = s + 4;
 }
 
-void Animation::loadFrame(uint32_t node) {   // FUN_80076904
-  Core* c = this->core;
-  const uint32_t obj  = node;
-  const uint32_t cur  = c->mem_r32(obj + 0x38);
-  const uint32_t idx  = c->mem_r16(cur + 0);
+void Animation::loadFrame(uint32_t node) { // FUN_80076904
+  Core *c = this->core;
+  const uint32_t obj = node;
+  const uint32_t cur = c->mem_r32(obj + 0x38);
+  const uint32_t idx = c->mem_r16(cur + 0);
   const uint32_t tableBase = c->mem_r32(obj + 0x3c);
-  const uint32_t entryPtr  = tableBase + idx * 4;
-  const uint32_t rec  = rd_u32(c, entryPtr);                 // packed table entry (NOT a pointer)
-  const int8_t   flagsByte = (int8_t)(rec >> 24);
+  const uint32_t entryPtr = tableBase + idx * 4;
+  const uint32_t rec = rd_u32(c, entryPtr); // packed table entry (NOT a pointer)
+  const int8_t flagsByte = (int8_t)(rec >> 24);
   const uint32_t off24 = rec & 0x00FFFFFFu;
   uint32_t stream = tableBase + off24;
-  c->mem_w8(obj + 8, (uint8_t)flagsByte);                    // always stamped (delay-slot write)
+  c->mem_w8(obj + 8, (uint8_t)flagsByte); // always stamped (delay-slot write)
 
   uint32_t phase;
   if (flagsByte & 0x40) {
@@ -319,44 +412,63 @@ void Animation::loadFrame(uint32_t node) {   // FUN_80076904
     // shared helper leaves stream at s+4 (the Loop2 shared-nibble contract), so skip the 5 pad
     // bytes here. Without this, Loop1 decoded every limb 5 bytes early (watch-cut f289: Charles'
     // one-frame pose transient — native wrote f8=0x0020.. constants where gen wrote 0x0FF5/0x0222).
-    if (flagsByte & 0x80) { anim_unpack_pose_triple(c, obj, stream); stream += 5; }
-    phase = rec;                                             // raw table entry seeds the parity
+    if (flagsByte & 0x80) {
+      anim_unpack_pose_triple(c, obj, stream);
+      stream += 5;
+    }
+    phase = rec; // raw table entry seeds the parity
   } else {
-    if (flagsByte & 0x80) { phase = 1; anim_unpack_pose_triple(c, obj, stream); }
-    else                  { phase = 0; }
+    if (flagsByte & 0x80) {
+      phase = 1;
+      anim_unpack_pose_triple(c, obj, stream);
+    } else {
+      phase = 0;
+    }
   }
 
   uint32_t boundA = c->mem_r8(obj + 8) & 0x3fu;
   uint32_t boundB0 = c->mem_r8(obj + 9);
   c->mem_w8(obj + 8, (uint8_t)boundA);
-  if (boundB0 == 0) return;
+  if (boundB0 == 0) {
+    return;
+  }
 
   uint32_t a2 = obj;
   if (flagsByte & 0x40) {
     // ---- Loop1: unconditional, 6 fields (8/10/12 plain 12-bit; 0x38/0x3a/0x3c 12-bit then <<3) ----
-    for (uint32_t i = 0; ; ) {
-      if (!(i < boundA)) return;
+    for (uint32_t i = 0;;) {
+      if (!(i < boundA)) {
+        return;
+      }
       uint32_t s = rd_u32(c, a2 + 192);
       uint8_t b0 = c->mem_r8(stream), b1 = c->mem_r8(stream + 1), b2 = c->mem_r8(stream + 2);
       uint8_t b3 = c->mem_r8(stream + 3), b4 = c->mem_r8(stream + 4), b5 = c->mem_r8(stream + 5);
       uint8_t b6 = c->mem_r8(stream + 6), b7 = c->mem_r8(stream + 7), b8 = c->mem_r8(stream + 8);
       stream += 9;
-      uint16_t f8  = (uint16_t)((b0 << 4) | (b1 >> 4));
+      uint16_t f8 = (uint16_t)((b0 << 4) | (b1 >> 4));
       uint16_t f10 = (uint16_t)(((b1 & 0xf) << 8) | b2);
       uint16_t f12 = (uint16_t)((b3 << 4) | (b4 >> 4));
       uint16_t f56 = (uint16_t)((((b4 & 0xf) << 8) | b5) << 3);
       uint16_t f58 = (uint16_t)(((b6 << 4) | (b7 >> 4)) << 3);
       uint16_t f60 = (uint16_t)((((b7 & 0xf) << 8) | b8) << 3);
-      c->mem_w16(s + 8, f8); c->mem_w16(s + 10, f10); c->mem_w16(s + 12, f12);
-      c->mem_w16(s + 0x38, f56); c->mem_w16(s + 0x3a, f58); c->mem_w16(s + 0x3c, f60);
+      c->mem_w16(s + 8, f8);
+      c->mem_w16(s + 10, f10);
+      c->mem_w16(s + 12, f12);
+      c->mem_w16(s + 0x38, f56);
+      c->mem_w16(s + 0x3a, f58);
+      c->mem_w16(s + 0x3c, f60);
       i++;
-      if (!(i < c->mem_r8(obj + 9))) return;
+      if (!(i < c->mem_r8(obj + 9))) {
+        return;
+      }
       a2 += 4;
     }
   } else {
     // ---- Loop2: parity-gated, 3 fields (8/10/12), nibble-shared 4.5 bytes/limb ----
-    for (uint32_t i = 0; ; ) {
-      if (!(i < boundA)) return;
+    for (uint32_t i = 0;;) {
+      if (!(i < boundA)) {
+        return;
+      }
       uint32_t s = rd_u32(c, a2 + 192);
       uint16_t f8, f10, f12;
       if ((i + phase) & 1u) {
@@ -364,21 +476,25 @@ void Animation::loadFrame(uint32_t node) {   // FUN_80076904
         uint8_t c0 = c->mem_r8(stream), c1 = c->mem_r8(stream + 1), c2 = c->mem_r8(stream + 2);
         uint8_t c3 = c->mem_r8(stream + 3), c4 = c->mem_r8(stream + 4);
         stream += 5;
-        f8  = (uint16_t)(((c0 & 0xf) << 8) | c1);
+        f8 = (uint16_t)(((c0 & 0xf) << 8) | c1);
         f10 = (uint16_t)((c2 << 4) | (c3 >> 4));
         f12 = (uint16_t)(((c3 & 0xf) << 8) | c4);
       } else {
         // EVEN: 4 full bytes, leave the 5th byte's low nibble pending for the next (odd) index.
         uint8_t d0 = c->mem_r8(stream), d1 = c->mem_r8(stream + 1), d2 = c->mem_r8(stream + 2);
         uint8_t d3 = c->mem_r8(stream + 3), d4 = c->mem_r8(stream + 4);
-        stream += 4;                                          // d4 stays pending (not consumed)
-        f8  = (uint16_t)((d0 << 4) | (d1 >> 4));
+        stream += 4; // d4 stays pending (not consumed)
+        f8 = (uint16_t)((d0 << 4) | (d1 >> 4));
         f10 = (uint16_t)(((d1 & 0xf) << 8) | d2);
         f12 = (uint16_t)((d3 << 4) | (d4 >> 4));
       }
-      c->mem_w16(s + 8, f8); c->mem_w16(s + 10, f10); c->mem_w16(s + 12, f12);
+      c->mem_w16(s + 8, f8);
+      c->mem_w16(s + 10, f10);
+      c->mem_w16(s + 12, f12);
       i++;
-      if (!(i < c->mem_r8(obj + 9))) return;
+      if (!(i < c->mem_r8(obj + 9))) {
+        return;
+      }
       a2 += 4;
     }
   }
@@ -392,22 +508,33 @@ void Animation::loadFrame(uint32_t node) {   // FUN_80076904
 // small event chain" leaf by ~10 non-animation beh_ handlers (rec_dispatch(c, 0x80077B5Cu) /
 // `leaf1(c, nd, 0x80077B5Cu)`).
 uint32_t Animation::advanceLinkChain(uint32_t node) {
-  Core* c = this->core;
+  Core *c = this->core;
   uint16_t v = (uint16_t)(c->mem_r16(node + 0xE) - 1);
   c->mem_w16(node + 0xE, v);
-  if (v != 0) return 0;                                       // countdown still running
+  if (v != 0) {
+    return 0; // countdown still running
+  }
 
   uint32_t cur = c->mem_r32(node + 0x38);
   uint32_t tag = c->mem_r16(cur + 2) & 0xc000u;
   uint32_t newcur;
   uint32_t ret;
   switch (tag) {
-    case 0x4000u: newcur = c->mem_r32(cur + 4); ret = 0; break;   // FOLLOW jump pointer
-    case 0u:      newcur = cur + 4;             ret = 0; break;   // ADVANCE linear
-    case 0x8000u:                                                  // TERMINAL/HOLD (no cursor move)
-      c->mem_w16(node + 0xE, (uint16_t)(c->mem_r16(cur + 2) & 0x3fffu));
-      return 1;
-    default:      newcur = c->mem_r32(cur + 4); ret = 1; break;   // 0xc000: FOLLOW jump pointer
+  case 0x4000u:
+    newcur = c->mem_r32(cur + 4);
+    ret = 0;
+    break; // FOLLOW jump pointer
+  case 0u:
+    newcur = cur + 4;
+    ret = 0;
+    break;      // ADVANCE linear
+  case 0x8000u: // TERMINAL/HOLD (no cursor move)
+    c->mem_w16(node + 0xE, (uint16_t)(c->mem_r16(cur + 2) & 0x3fffu));
+    return 1;
+  default:
+    newcur = c->mem_r32(cur + 4);
+    ret = 1;
+    break; // 0xc000: FOLLOW jump pointer
   }
   c->mem_w32(node + 0x38, newcur);
   c->mem_w16(node + 0xE, (uint16_t)(c->mem_r16(newcur + 2) & 0x3fffu));
@@ -438,14 +565,15 @@ uint32_t Animation::advanceLinkChain(uint32_t node) {
 // below with the same LIVE-spill/restore RAII pattern as NodeXform's frames (node_xform.cpp) and
 // Cull::performBaseCullFramed (cull.cpp). isDeadStackScratch's exclusion in sbs.cpp is REMOVED.
 void Animation::attach(uint32_t node, uint32_t table, uint32_t id) {
-  Core* c = this->core;
+  Core *c = this->core;
   uint32_t s16 = c->r[16], s17 = c->r[17], sra = c->r[31];
   c->r[29] -= 32;
   c->mem_w32(c->r[29] + 24, sra);
   c->mem_w32(c->r[29] + 20, s17);
   c->mem_w32(c->r[29] + 16, s16);
   struct Restore {
-    Core* c; uint32_t s16, s17, sra;
+    Core *c;
+    uint32_t s16, s17, sra;
     ~Restore() {
       c->r[31] = c->mem_r32(c->r[29] + 24);
       c->r[17] = c->mem_r32(c->r[29] + 20);
@@ -468,14 +596,27 @@ void Animation::attach(uint32_t node, uint32_t table, uint32_t id) {
   //   r3 = desc; r2 = r3 & 0x2000; early-exit leaves v0=0, v1=desc&0xC000 (delay slot);
   //   tag==0x8000 exit leaves v0=0xC000 (delay-slot r2 arm), v1=0x8000;
   //   executor exits return FUN_80075FF8's own v0/v1 (rec_dispatch below leaves them naturally.)
-  desc = c->mem_r16(entryPtr + 6);                              // re-read (loadFrame may not touch it)
+  desc = c->mem_r16(entryPtr + 6); // re-read (loadFrame may not touch it)
   uint32_t tag = desc & 0xc000u;
-  if ((desc & 0x2000u) == 0) { c->r[2] = 0; c->r[3] = tag; return; }
+  if ((desc & 0x2000u) == 0) {
+    c->r[2] = 0;
+    c->r[3] = tag;
+    return;
+  }
   uint32_t a1;
-  if (tag == 0x8000u) { c->r[2] = 0xC000u; c->r[3] = tag; return; }     // no executor call
-  if (tag == 0x4000u || tag == 0xc000u) a1 = rd_u32(c, entryPtr + 8);   // follow jump pointer
-  else                                  a1 = entryPtr + 8;              // (tag == 0) address itself
-  c->r[4] = node; c->r[5] = a1; c->r[6] = (uint32_t)c->mem_r16s(node + 0xE);
+  if (tag == 0x8000u) {
+    c->r[2] = 0xC000u;
+    c->r[3] = tag;
+    return;
+  } // no executor call
+  if (tag == 0x4000u || tag == 0xc000u) {
+    a1 = rd_u32(c, entryPtr + 8); // follow jump pointer
+  } else {
+    a1 = entryPtr + 8; // (tag == 0) address itself
+  }
+  c->r[4] = node;
+  c->r[5] = a1;
+  c->r[6] = (uint32_t)c->mem_r16s(node + 0xE);
   rec_dispatch(c, 0x80075ff8u);
 }
 
@@ -485,20 +626,22 @@ void Animation::attach(uint32_t node, uint32_t table, uint32_t id) {
 // limb's position by ITS OWN delta the same way. RE'd via Ghidra headless (scratch/decomp
 // cluster1.c, function FUN_80075f0c): a0=node, a1=snapCursor (only ever compared against 1).
 void Animation::applyFrame(uint32_t node, int32_t snapCursor) {
-  Core* c = this->core;
+  Core *c = this->core;
   c->mem_w16(node + 0x88, (uint16_t)(c->mem_r16(node + 0x88) + c->mem_r16(node + 0x90)));
   c->mem_w16(node + 0x8a, (uint16_t)(c->mem_r16(node + 0x8a) + c->mem_r16(node + 0x92)));
   c->mem_w16(node + 0x8c, (uint16_t)(c->mem_r16(node + 0x8c) + c->mem_r16(node + 0x94)));
   uint8_t childCount = c->mem_r8(node + 9);
   if (childCount != 0) {
     uint8_t limit = c->mem_r8(node + 8);
-    uint32_t p = node;                                   // walks +0xC0 off successive +4 slots
+    uint32_t p = node; // walks +0xC0 off successive +4 slots
     for (uint8_t i = 0; i < limit; i++, p += 4) {
       uint32_t child = c->mem_r32(p + 0xC0);
-      c->mem_w16(child + 8,  (uint16_t)(c->mem_r16(child + 8)  + c->mem_r16(child + 0x10)));
+      c->mem_w16(child + 8, (uint16_t)(c->mem_r16(child + 8) + c->mem_r16(child + 0x10)));
       c->mem_w16(child + 10, (uint16_t)(c->mem_r16(child + 10) + c->mem_r16(child + 0x12)));
       c->mem_w16(child + 12, (uint16_t)(c->mem_r16(child + 12) + c->mem_r16(child + 0x14)));
-      if (i + 1 >= childCount) break;
+      if (i + 1 >= childCount) {
+        break;
+      }
     }
   }
   if (snapCursor == 1) {
@@ -506,10 +649,19 @@ void Animation::applyFrame(uint32_t node, int32_t snapCursor) {
   }
 }
 
-static void eov_animLoadFrame(Core* c)      { eng(c).animation.loadFrame(c->r[4]); c->r[2] = 0; }
-static void eov_animAdvanceLink(Core* c)    { c->r[2] = eng(c).animation.advanceLinkChain(c->r[4]); }
-static void eov_animAttach(Core* c)         { eng(c).animation.attach(c->r[4], c->r[5], c->r[6]); }
-static void eov_animApplyFrame(Core* c)     { eng(c).animation.applyFrame(c->r[4], (int32_t)c->r[5]); }
+static void eov_animLoadFrame(Core *c) {
+  eng(c).animation.loadFrame(c->r[4]);
+  c->r[2] = 0;
+}
+static void eov_animAdvanceLink(Core *c) {
+  c->r[2] = eng(c).animation.advanceLinkChain(c->r[4]);
+}
+static void eov_animAttach(Core *c) {
+  eng(c).animation.attach(c->r[4], c->r[5], c->r[6]);
+}
+static void eov_animApplyFrame(Core *c) {
+  eng(c).animation.applyFrame(c->r[4], (int32_t)c->r[5]);
+}
 
 // FUN_80076D68 (Animation::step) is DELIBERATELY LEFT UNWIRED here — investigated + reverted
 // 2026-07-08 (docs/findings/animation.md has the full trace). stepFramed() (above) DOES mirror
@@ -537,19 +689,19 @@ static void eov_animApplyFrame(Core* c)     { eng(c).animation.applyFrame(c->r[4
 // step() stays reachable only via DIRECT native C++ callers (beh_actor_move_sm etc — see step()'s
 // own header comment) and via the override registry (ActorZonedAttacker's call1() leaf-dispatch
 // convenience), which never cross the guest ABI/stack boundary in the first place.
-extern void shard_set_override(uint32_t, void (*)(Core*));
-extern void gen_func_80076904(Core*);
-extern void gen_func_80077B5C(Core*);
-extern void gen_func_80077C40(Core*);
-extern void gen_func_80075F0C(Core*);
+extern void shard_set_override(uint32_t, void (*)(Core *));
+extern void gen_func_80076904(Core *);
+extern void gen_func_80077B5C(Core *);
+extern void gen_func_80077C40(Core *);
+extern void gen_func_80075F0C(Core *);
 
 void Animation::registerOverrides() {
   // 0x80075F0C is ALSO reached by DIRECT substrate `func_<addr>(c)` calls (jal), not only via
   // rec_dispatch; install() puts the shared thunk into g_override[] so both paths are intercepted
   // uniformly (FUN_80075F0C's guest body has no stack-frame adjustment — generated/shard_4.c).
   using overrides::install;
-  install(0x80076904u, "Animation::loadFrame",        eov_animLoadFrame,   gen_func_80076904, shard_set_override);
+  install(0x80076904u, "Animation::loadFrame", eov_animLoadFrame, gen_func_80076904, shard_set_override);
   install(0x80077B5Cu, "Animation::advanceLinkChain", eov_animAdvanceLink, gen_func_80077B5C, shard_set_override);
-  install(0x80077C40u, "Animation::attach",           eov_animAttach,      gen_func_80077C40, shard_set_override);
-  install(0x80075F0Cu, "Animation::applyFrame",       eov_animApplyFrame,  gen_func_80075F0C, shard_set_override);
+  install(0x80077C40u, "Animation::attach", eov_animAttach, gen_func_80077C40, shard_set_override);
+  install(0x80075F0Cu, "Animation::applyFrame", eov_animApplyFrame, gen_func_80075F0C, shard_set_override);
 }

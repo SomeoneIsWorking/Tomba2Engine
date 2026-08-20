@@ -90,8 +90,9 @@ cp .env.example .env      # then edit PSXPORT_TOMBA2_DISC
 ./run.sh                  # or: ./run.sh /path/to/Tomba2.chd
 ```
 
-`run.sh` builds the CHD tooling, extracts `MAIN.EXE` from your disc, recompiles the game core + native
-runtime, and launches the game in a window.
+`run.sh` is the stable three-line entry point. `tools/run.py` owns discovery, Clang validation,
+incremental CMake builds, recomp provisioning, build identity, `--resume`, and launching the current
+native target in a window.
 
 **Disc resolution order** (everywhere): CLI arg → `PSXPORT_TOMBA2_DISC` → `.env` → a `*.chd` drop-in
 in the repo root.
@@ -104,13 +105,14 @@ in the repo root.
 | `PSXPORT_NOAUDIO=1` | mute |
 | `PSXPORT_GPU_DUMP=<dir>` | dump frames as PPM |
 | `PSXPORT_DEBUG=<chan,chan>` | enable diagnostic channels (see `docs/config.md`) |
-| `CC=clang` / `CC=gcc` | override the compiler |
+| `CC=/path/to/clang`, `CXX=/path/to/clang++` | select explicit Clang binaries; non-Clang compilers are refused |
 
 ### Building without running
 
 ```bash
-cmake -S . -B build                              # configure once
+CC=clang CXX=clang++ cmake -S . -B build         # configure once
 cmake --build build --target tomba2_port         # rebuild only
+ctest --test-dir build --output-on-failure       # full normal verifier
 # binary: scratch/bin/tomba2_port
 ```
 

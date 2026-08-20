@@ -13,10 +13,10 @@
 // One instance per Core, owned by Render (`rend(c)->margin`).
 #ifndef PSXPORT_MARGIN_RENDER_HPP
 #define PSXPORT_MARGIN_RENDER_HPP
-#include <stdint.h>
-#include <vector>
-#include <unordered_set>
 #include "core.h"
+#include <stdint.h>
+#include <unordered_set>
+#include <vector>
 
 class MarginRenderer {
 public:
@@ -28,17 +28,17 @@ public:
   // Called from the cull for an object the wide frustum re-includes. Records the node for the
   // post-walk flush. Deduped per frame (the cull runs several times per object via the submit
   // wrappers). Takes the Core to read the node's type from this instance's RAM.
-  void collect(Core* c, uint32_t node);
+  void collect(Core *c, uint32_t node);
 
   // Called from ObjectList::walkAll AFTER both list walks. Renders each collected margin node via
   // gen_func_8003CDD8(node, 0), then clears the collection for the next frame.
-  void flush(Core* c);
+  void flush(Core *c);
 
   bool dbg_ = false;
 
 private:
-  int mNativeEnabled = -1;    // lazy PSXPORT_MARGIN_POKE latch (-1 = not read yet)
-  std::vector<uint32_t>        nodes_;
+  int mNativeEnabled = -1; // lazy PSXPORT_MARGIN_POKE latch (-1 = not read yet)
+  std::vector<uint32_t> nodes_;
   std::unordered_set<uint32_t> seen_;
 };
 #endif

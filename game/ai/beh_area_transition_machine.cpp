@@ -34,22 +34,22 @@
 // The node[5]==3 transition path has no headless coverage (fires on area switch) — transcribed from disas
 // + verifiable via the A/B gate the moment a transition is triggered. Byte-exact gate is the safety net.
 
+#include "camera/cutscene_camera.h" // CutsceneCamera::runInitSeedGrp (was rec_dispatch 0x8006CBA8)
+#include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "render/cull.h"    // Cull::enqueueQueueA (FUN_80077E7C)
-#include "object/actor.h"    // Actor::boundsCull (FUN_8007778C native)
-#include "cfg.h"
+#include "graphics_bind.h" // ov_obj_record_init
+#include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "object/actor.h"  // Actor::boundsCull (FUN_8007778C native)
+#include "render/cull.h"   // Cull::enqueueQueueA (FUN_80077E7C)
+#include "render/render.h" // rend(c)->mNodeXform (was rec_dispatch 0x80051844)
+#include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "trig.h"          // class Trig — libgte ratan2
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
-#include "graphics_bind.h"   // ov_obj_record_init
-#include "trig.h"    // class Trig — libgte ratan2
-#include "camera/cutscene_camera.h"   // CutsceneCamera::runInitSeedGrp (was rec_dispatch 0x8006CBA8)
-#include "render/render.h"   // rend(c)->mNodeXform (was rec_dispatch 0x80051844)
-#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-void rec_super_call(Core*, uint32_t);
-void rec_dispatch(Core*, uint32_t);
+void rec_super_call(Core *, uint32_t);
+void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -64,132 +64,151 @@ constexpr uint32_t G_e84 = 0x800E7E84u, G_e85 = 0x800E7E85u, G_e86 = 0x800E7E86u
 constexpr uint32_t G_f5c = 0x800E7F5Cu;
 constexpr uint32_t G_806c = 0x800E806Cu, G_8074 = 0x800E8074u, G_8076 = 0x800E8076u, G_8078 = 0x800E8078u;
 
-static inline int16_t s16(Core* c, uint32_t a) { return c->mem_r16s(a); }
-
-static void cd0_tail(Core* c, uint32_t nd) {           // @0x80127cd0
-  rend(c)->mNodeXform.build(nd);                              // was rec_dispatch 0x80051844
-  c->mem_w8(nd + 1, 1);
-  eng(c).cull.enqueueQueueA(nd);                    // FUN_80077E7C (native; return ignored)
+static inline int16_t s16(Core *c, uint32_t a) {
+  return c->mem_r16s(a);
 }
 
-static void dat_tail(Core* c, uint32_t nd) {           // @0x80127c9c (sub==3 only)
+static void cd0_tail(Core *c, uint32_t nd) { // @0x80127cd0
+  rend(c)->mNodeXform.build(nd);             // was rec_dispatch 0x80051844
+  c->mem_w8(nd + 1, 1);
+  eng(c).cull.enqueueQueueA(nd); // FUN_80077E7C (native; return ignored)
+}
+
+static void dat_tail(Core *c, uint32_t nd) { // @0x80127c9c (sub==3 only)
   c->mem_w16(0x1F8000C0u, 0);
   c->mem_w16(0x1F8000C2u, 0);
   c->mem_w16(0x1F8000C4u, 0);
-  uint32_t a2 = c->mem_r32(G_f5c);                     // *PTR_DAT_800e7f5c
-  uint32_t fsp = c->r[29] - 0x38;                      // mirror the recomp frame (prologue sp-=0x38)
-  c->mem_w32(fsp + 0x10, 0x1F8000C0u);                 // FUN_8004bd64's 5th arg, stacked at sp+0x10
-  c->r[4] = nd; c->r[5] = 0; c->r[6] = a2; c->r[7] = a2;
-  uint32_t save = c->r[29]; c->r[29] = fsp;
-  eng(c).graphicsBind.posCompose();                               // FUN_8004bd64(node,0,*0x800e7f5c,same,&0x1f8000c0)
+  uint32_t a2 = c->mem_r32(G_f5c);     // *PTR_DAT_800e7f5c
+  uint32_t fsp = c->r[29] - 0x38;      // mirror the recomp frame (prologue sp-=0x38)
+  c->mem_w32(fsp + 0x10, 0x1F8000C0u); // FUN_8004bd64's 5th arg, stacked at sp+0x10
+  c->r[4] = nd;
+  c->r[5] = 0;
+  c->r[6] = a2;
+  c->r[7] = a2;
+  uint32_t save = c->r[29];
+  c->r[29] = fsp;
+  eng(c).graphicsBind.posCompose(); // FUN_8004bd64(node,0,*0x800e7f5c,same,&0x1f8000c0)
   c->r[29] = save;
-  CutsceneCamera(c, CutsceneCamera::CAM_OBJ).initSeedGrp(G_eac);   // FUN_8006cba8(&DAT_800e7eac) — native
+  CutsceneCamera(c, CutsceneCamera::CAM_OBJ).initSeedGrp(G_eac); // FUN_8006cba8(&DAT_800e7eac) — native
 }
 
 // node[6] phase machine (node[5]==3). Mutates node + DAT_800e* state; all cases converge to the DAT tail.
-static void node6_phase(Core* c, uint32_t nd) {
+static void node6_phase(Core *c, uint32_t nd) {
   uint8_t ph = c->mem_r8(nd + 6);
   switch (ph) {
-    case 0:                                            // @0x801279b8 — start fade
-      c->r[4] = 1; c->r[5] = 1; rec_dispatch(c, 0x80042354u);   // FUN_80042354(1,1)
-      c->mem_w8(0x800BF9B5u, 3);                       // (v0=3 from the call's delay-slot store)
-      c->r[31] = 0x801279D8u;                       // ra mirror: gen jal-site (armBody spills ra)
-      eng(c).sceneEvents.arm(0x42);                 // area-transition event; FUN_80040B48 (native)
+  case 0: // @0x801279b8 — start fade
+    c->r[4] = 1;
+    c->r[5] = 1;
+    rec_dispatch(c, 0x80042354u); // FUN_80042354(1,1)
+    c->mem_w8(0x800BF9B5u, 3);    // (v0=3 from the call's delay-slot store)
+    c->r[31] = 0x801279D8u;       // ra mirror: gen jal-site (armBody spills ra)
+    eng(c).sceneEvents.arm(0x42); // area-transition event; FUN_80040B48 (native)
+    c->mem_w8(nd + 6, (uint8_t)(c->mem_r8(nd + 6) + 1));
+    break;
+  case 1: // @0x801279e4 — wait for DAT_800e7ea9
+    if (c->mem_r8(G_ea9) != 0) {
+      c->mem_w16(nd + 0x40, 6);
       c->mem_w8(nd + 6, (uint8_t)(c->mem_r8(nd + 6) + 1));
-      break;
-    case 1:                                            // @0x801279e4 — wait for DAT_800e7ea9
-      if (c->mem_r8(G_ea9) != 0) {
-        c->mem_w16(nd + 0x40, 6);
-        c->mem_w8(nd + 6, (uint8_t)(c->mem_r8(nd + 6) + 1));
-      }
-      break;
-    case 2: {                                          // @0x80127a08 — countdown, then FIRE area load
-      int16_t before = s16(c, nd + 0x40);
+    }
+    break;
+  case 2: { // @0x80127a08 — countdown, then FIRE area load
+    int16_t before = s16(c, nd + 0x40);
+    c->mem_w16(nd + 0x40, (uint16_t)(c->mem_r16(nd + 0x40) - 1));
+    if (before != 1) {
+      break; // only fire when the counter hits 1->0
+    }
+    c->mem_w8(G_e84, 4);
+    c->mem_w8(G_e85, 0x21);
+    c->mem_w8(G_e86, 0);
+    c->mem_w8(G_ea9, 0);
+    c->mem_w8(G_fc7, 1);
+    eng(c).sceneTransition.clearSwapBlock(G); // FUN_80054198 (native)
+    c->r[4] = G;
+    c->r[5] = 0x71;
+    c->r[6] = 8;
+    rec_dispatch(c, 0x80054D14u); // FUN_80054d14(&DAT_800e7e80,0x71,8)
+    // --- camera-transition setup (reachable; Ghidra's "noreturn" on FUN_80054d14 was wrong) ---
+    c->mem_w8(nd + 6, (uint8_t)(c->mem_r8(nd + 6) + 1));
+    int s2 = (int16_t)(8268 - c->mem_r16(G_eb6));       // (int16)(0x204c - hi(eb4))
+    int s0 = (int16_t)(18867 - c->mem_r16(G_eae));      // (int16)(0x49b3 - hi(eac))
+    int s1 = (int)(-1388 - (int)c->mem_r16(G_eb2));     // -1388 - mem16(eb2) (NOT yet 16-bit-clamped)
+    uint32_t ang = (uint32_t)trigOf(c).ratan2(-s2, s0); // FUN_80085690(-s2, s0) -> angle
+    int s0d = (s0 << 8) / 64;                           // <<8 then signed /64 (truncate toward 0)
+    int s1d = ((int16_t)s1 << 8) / 64;                  // (s1<<16>>8)/64 == ((int16)s1<<8)/64
+    int s2d = (s2 << 8) / 64;
+    c->mem_w16(G_ed6, (uint16_t)((ang + 2048) & 0xfff));
+    c->mem_w16(nd + 0x40, 64);
+    c->mem_w16(nd + 0x4a, (uint16_t)(int16_t)-12288);
+    c->mem_w16(nd + 0x4e, (uint16_t)s0d);
+    c->mem_w16(nd + 0x50, (uint16_t)s1d);
+    c->mem_w16(nd + 0x52, (uint16_t)s2d);
+    c->mem_w16(G_8076, (uint16_t)(int16_t)-256);
+    c->mem_w8(G_806c, 1); // s3 = 1
+    c->mem_w16(G_8078, 0);
+    c->mem_w16(G_8074, (uint16_t)(int16_t)-1400);
+    eng(c).sfx.trigger(0x25, 0, 0); // FUN_80074590 (native)
+    break;
+  }
+  case 3: { // @0x80127ba0 — integrate camera deltas
+    if (s16(c, nd + 0x40) == 0) {
+      c->mem_w8(nd + 6, (uint8_t)(c->mem_r8(nd + 6) + 1));
+      c->mem_w16(G_8078, 0x800);
+    } else {
       c->mem_w16(nd + 0x40, (uint16_t)(c->mem_r16(nd + 0x40) - 1));
-      if (before != 1) break;                          // only fire when the counter hits 1->0
-      c->mem_w8(G_e84, 4);
-      c->mem_w8(G_e85, 0x21);
-      c->mem_w8(G_e86, 0);
+      c->mem_w32(G_eac, c->mem_r32(G_eac) + ((int32_t)s16(c, nd + 0x4e) << 8));
+      c->mem_w32(G_eb0, c->mem_r32(G_eb0) + ((int32_t)s16(c, nd + 0x50) << 8));
       c->mem_w8(G_ea9, 0);
-      c->mem_w8(G_fc7, 1);
-      eng(c).sceneTransition.clearSwapBlock(G);     // FUN_80054198 (native)
-      c->r[4] = G; c->r[5] = 0x71; c->r[6] = 8; rec_dispatch(c, 0x80054D14u);  // FUN_80054d14(&DAT_800e7e80,0x71,8)
-      // --- camera-transition setup (reachable; Ghidra's "noreturn" on FUN_80054d14 was wrong) ---
-      c->mem_w8(nd + 6, (uint8_t)(c->mem_r8(nd + 6) + 1));
-      int s2 = (int16_t)(8268  - c->mem_r16(G_eb6));   // (int16)(0x204c - hi(eb4))
-      int s0 = (int16_t)(18867 - c->mem_r16(G_eae));   // (int16)(0x49b3 - hi(eac))
-      int s1 = (int)(-1388 - (int)c->mem_r16(G_eb2));  // -1388 - mem16(eb2) (NOT yet 16-bit-clamped)
-      uint32_t ang = (uint32_t)trigOf(c).ratan2(-s2, s0);   // FUN_80085690(-s2, s0) -> angle
-      int s0d = (s0 << 8) / 64;                         // <<8 then signed /64 (truncate toward 0)
-      int s1d = ((int16_t)s1 << 8) / 64;               // (s1<<16>>8)/64 == ((int16)s1<<8)/64
-      int s2d = (s2 << 8) / 64;
-      c->mem_w16(G_ed6, (uint16_t)((ang + 2048) & 0xfff));
-      c->mem_w16(nd + 0x40, 64);
-      c->mem_w16(nd + 0x4a, (uint16_t)(int16_t)-12288);
-      c->mem_w16(nd + 0x4e, (uint16_t)s0d);
-      c->mem_w16(nd + 0x50, (uint16_t)s1d);
-      c->mem_w16(nd + 0x52, (uint16_t)s2d);
-      c->mem_w16(G_8076, (uint16_t)(int16_t)-256);
-      c->mem_w8 (G_806c, 1);                            // s3 = 1
-      c->mem_w16(G_8078, 0);
-      c->mem_w16(G_8074, (uint16_t)(int16_t)-1400);
-      eng(c).sfx.trigger(0x25, 0, 0);       // FUN_80074590 (native)
-      break;
+      c->mem_w32(G_eb4, c->mem_r32(G_eb4) + ((int32_t)s16(c, nd + 0x52) << 8));
     }
-    case 3: {                                          // @0x80127ba0 — integrate camera deltas
-      if (s16(c, nd + 0x40) == 0) {
-        c->mem_w8(nd + 6, (uint8_t)(c->mem_r8(nd + 6) + 1));
-        c->mem_w16(G_8078, 0x800);
-      } else {
-        c->mem_w16(nd + 0x40, (uint16_t)(c->mem_r16(nd + 0x40) - 1));
-        c->mem_w32(G_eac, c->mem_r32(G_eac) + ((int32_t)s16(c, nd + 0x4e) << 8));
-        c->mem_w32(G_eb0, c->mem_r32(G_eb0) + ((int32_t)s16(c, nd + 0x50) << 8));
-        c->mem_w8 (G_ea9, 0);
-        c->mem_w32(G_eb4, c->mem_r32(G_eb4) + ((int32_t)s16(c, nd + 0x52) << 8));
-      }
-      // common @0x80127c10: ramp node[0x4a] toward 0x3000
-      c->mem_w16(nd + 0x4a, (uint16_t)(c->mem_r16(nd + 0x4a) + 0x180));
-      if (s16(c, nd + 0x4a) > 0x3000) c->mem_w16(nd + 0x4a, 0x3000);
-      c->mem_w32(G_eb0, c->mem_r32(G_eb0) + ((int32_t)s16(c, nd + 0x4a) << 8));
-      break;
+    // common @0x80127c10: ramp node[0x4a] toward 0x3000
+    c->mem_w16(nd + 0x4a, (uint16_t)(c->mem_r16(nd + 0x4a) + 0x180));
+    if (s16(c, nd + 0x4a) > 0x3000) {
+      c->mem_w16(nd + 0x4a, 0x3000);
     }
-    case 4:                                            // @0x80127c50 — re-seed hi-words, advance state
-      c->mem_w8(0x800BF9B5u, 4);
-      c->mem_w16(G_eae, 0x49b3);                        // CONCAT22: hi half of DAT_800e7eac
-      c->mem_w16(G_eb2, 0xfa94);                        // hi half of DAT_800e7eb0
-      c->mem_w16(G_eb6, 0x204c);                        // hi half of DAT_800e7eb4
-      c->mem_w8(G_ea9, 1);
-      c->mem_w8(G_eaa, 0x22);
-      c->mem_w8(0x1F800207u, 0x22);
-      c->mem_w8(nd + 4, (uint8_t)(c->mem_r8(nd + 4) + 1));
-      break;
-    default:                                            // ph>=5 -> straight to the DAT tail
-      break;
+    c->mem_w32(G_eb0, c->mem_r32(G_eb0) + ((int32_t)s16(c, nd + 0x4a) << 8));
+    break;
+  }
+  case 4: // @0x80127c50 — re-seed hi-words, advance state
+    c->mem_w8(0x800BF9B5u, 4);
+    c->mem_w16(G_eae, 0x49b3); // CONCAT22: hi half of DAT_800e7eac
+    c->mem_w16(G_eb2, 0xfa94); // hi half of DAT_800e7eb0
+    c->mem_w16(G_eb6, 0x204c); // hi half of DAT_800e7eb4
+    c->mem_w8(G_ea9, 1);
+    c->mem_w8(G_eaa, 0x22);
+    c->mem_w8(0x1F800207u, 0x22);
+    c->mem_w8(nd + 4, (uint8_t)(c->mem_r8(nd + 4) + 1));
+    break;
+  default: // ph>=5 -> straight to the DAT tail
+    break;
   }
 }
 
-}  // namespace
+} // namespace
 static constexpr GuestFrameSpill kSpills_80127798[7] = {
-  { 20, 40 },
-  { 31 /*ra*/, 48 },
-  { 21, 44 },
-  { 19, 36 },
-  { 18, 32 },
-  { 17, 28 },
-  { 16, 24 },
-};   // frame=56, abi_extract --scaffold --guestabi
+    {20, 40},
+    {31 /*ra*/, 48},
+    {21, 44},
+    {19, 36},
+    {18, 32},
+    {17, 28},
+    {16, 24},
+}; // frame=56, abi_extract --scaffold --guestabi
 
-void beh_area_transition_machine(Core* c) {
+void beh_area_transition_machine(Core *c) {
   GuestFrame<56, 7> frame(c, kSpills_80127798);
   const uint32_t nd = c->r[4];
   uint8_t st = c->mem_r8(nd + 4);
 
   if (st == 1) {
     // ---------- STATE 1 (idle gate) ----------
-    uint32_t d = (uint32_t)(c->mem_r8(0x1F800207u) - 29);          // scratchpad[0x207]
-    if (d >= 3 && c->mem_r8(0x800BF9B5u) != 1) return;             // !((v-29)<3) && mem8(0x800bf9b5)!=1
-    if (Actor(c, nd).boundsCull() == 0) return;                    // FUN_8007778C gate — Actor::boundsCull (native)
-    rend(c)->mNodeXform.build(nd);                                        // was rec_dispatch 0x80051844
+    uint32_t d = (uint32_t)(c->mem_r8(0x1F800207u) - 29); // scratchpad[0x207]
+    if (d >= 3 && c->mem_r8(0x800BF9B5u) != 1) {
+      return; // !((v-29)<3) && mem8(0x800bf9b5)!=1
+    }
+    if (Actor(c, nd).boundsCull() == 0) {
+      return; // FUN_8007778C gate — Actor::boundsCull (native)
+    }
+    rend(c)->mNodeXform.build(nd); // was rec_dispatch 0x80051844
     return;
   }
   if (st >= 2) {
@@ -197,41 +216,52 @@ void beh_area_transition_machine(Core* c) {
       // ---------- STATE 2 (the node[5] machine) ----------
       uint8_t sub = c->mem_r8(nd + 5);
       bool via_dat = false;
-      if (sub == 2) {                                  // @0x80127970 — re-arm
+      if (sub == 2) { // @0x80127970 — re-arm
         c->mem_w8(nd + 0, 1);
         c->mem_w8(nd + 4, 1);
         c->mem_w8(nd + 5, 0);
         c->mem_w16(nd + 0x58, 0xe3);
-      } else if (sub == 1) {                           // @0x8012793c
-        if (c->mem_r8(G_fc7) == 0)
+      } else if (sub == 1) { // @0x8012793c
+        if (c->mem_r8(G_fc7) == 0) {
           c->mem_w16(nd + 0x58, (uint16_t)((0x1000 - (int)s16(c, nd + 0x62)) & 0xfff));
-        else
+        } else {
           c->mem_w16(nd + 0x58, c->mem_r16(nd + 0x62));
-      } else if (sub == 3) {                           // @0x80127988 — the phase machine
+        }
+      } else if (sub == 3) { // @0x80127988 — the phase machine
         node6_phase(c, nd);
         via_dat = true;
       }
       // sub==0 or sub>=4: nothing, fall to CD0.
-      if (via_dat) dat_tail(c, nd);
+      if (via_dat) {
+        dat_tail(c, nd);
+      }
       cd0_tail(c, nd);
       return;
     }
-    if (st == 3) { eng(c).spawn.despawn(nd); }   // STATE 3
+    if (st == 3) {
+      eng(c).spawn.despawn(nd);
+    } // STATE 3
     return;
   }
-  if (st != 0) return;
+  if (st != 0) {
+    return;
+  }
 
   // ---------- STATE 0 (init) ----------
-  c->r[4] = nd; c->r[5] = 0xc; c->r[6] = 0x52;
-  eng(c).graphicsBind.recordInit();                        // FUN_80051b70(node, 0xc, 0x52)
-  if (c->r[2] != 0) return;
+  c->r[4] = nd;
+  c->r[5] = 0xc;
+  c->r[6] = 0x52;
+  eng(c).graphicsBind.recordInit(); // FUN_80051b70(node, 0xc, 0x52)
+  if (c->r[2] != 0) {
+    return;
+  }
   c->mem_w16(nd + 0x2e, 0x4f00);
   c->mem_w16(nd + 0x32, 0xed5e);
   c->mem_w16(nd + 0x36, 0x2a6c);
   c->mem_w16(nd + 0x58, 0xff1d);
-  c->mem_w8 (nd + 0, 1);
-  c->mem_w8 (nd + 0x29, 0);
-  c->mem_w8 (nd + 4, (uint8_t)(c->mem_r8(nd + 4) + 1));  // node[4] 0 -> 1
+  c->mem_w8(nd + 0, 1);
+  c->mem_w8(nd + 0x29, 0);
+  c->mem_w8(nd + 4, (uint8_t)(c->mem_r8(nd + 4) + 1)); // node[4] 0 -> 1
   uint32_t sub = c->mem_r32(nd + 0xc0);
   c->mem_w16(sub + 0x38, 0x1000);
   c->mem_w16(sub + 0x3a, 0x1000);
@@ -243,7 +273,10 @@ void beh_area_transition_machine(Core* c) {
   c->mem_w16(nd + 0x82, 0x60);
   c->mem_w16(nd + 0x84, 0x40);
   c->mem_w16(nd + 0x86, 0x40);
-  c->mem_w8 (nd + 0x2a, 0x1d);
-  c->r[4] = nd; c->r[5] = 0; c->r[6] = 0; c->r[7] = 0;
-  rec_dispatch(c, 0x80041194u);                        // FUN_80041194(node, 0, 0, 0)
+  c->mem_w8(nd + 0x2a, 0x1d);
+  c->r[4] = nd;
+  c->r[5] = 0;
+  c->r[6] = 0;
+  c->r[7] = 0;
+  rec_dispatch(c, 0x80041194u); // FUN_80041194(node, 0, 0, 0)
 }

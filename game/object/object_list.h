@@ -25,27 +25,27 @@ class Core;
 
 class ObjectList {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // `behhist` diagnostic: distinct-handler histogram over the dispatch path (was function-local
   // statics in the TU-local call_handler; per-Core so SBS's two cores tally independently).
   uint32_t mBehAddr[64] = {};
-  long     mBehCnt[64] = {};
-  int      mBehN = 0;
-  long     mBehW = 0;
+  long mBehCnt[64] = {};
+  int mBehN = 0;
+  long mBehW = 0;
   // `debug engine` objwalk log: cfg latch + per-walker cadence counters.
-  int  mDbg = -1;
+  int mDbg = -1;
   long mWalksAll = 0, mWalksL2 = 0;
 
   // Auxiliary-list head (guest FUN_80069B28 walks this one only).
   static constexpr uint32_t AUX_LIST_HEAD = 0x800F2738u;
 
   void walkAll();
-  void walkAllFaithful();   // faithful mirror of guest FUN_8007A904 (gen_func_8007A904) — used
-                             // when c->game->native_sync == false. See object_list.cpp for the
-                             // frame/ra/s0 discipline this reproduces byte-for-byte.
+  void walkAllFaithful(); // faithful mirror of guest FUN_8007A904 (gen_func_8007A904) — used
+                          // when c->game->native_sync == false. See object_list.cpp for the
+                          // frame/ra/s0 discipline this reproduces byte-for-byte.
   void walkAux();
-  void walkAuxFaithful();   // faithful mirror of guest FUN_80069B28 (gen_func_80069B28)
+  void walkAuxFaithful(); // faithful mirror of guest FUN_80069B28 (gen_func_80069B28)
 
   // == walkList2 (guest FUN_8007B008) ==
   //   Same shape as walkAll's second loop: walks ONLY T2_OBJLIST_HEAD_2 (list-2), clears the

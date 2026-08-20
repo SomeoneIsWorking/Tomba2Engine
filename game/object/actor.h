@@ -16,21 +16,25 @@
 // documents WHERE the semantic was learned (which handler / which sub-behavior / what SBS finding named
 // it). Do NOT define fields speculatively — only when a handler's RE actually resolved the semantic.
 #pragma once
-#include <cstdint>
-#include "game_ctx.h"
 #include "core.h"
+#include "game_ctx.h"
+#include <cstdint>
 
 class Actor {
 public:
-  Actor(Core* core, uint32_t addr) : c(core), obj(addr) {}
+  Actor(Core *core, uint32_t addr) : c(core), obj(addr) {}
 
   // The raw guest node pointer (for legacy inline `mem_r*(obj+X)` in code paths that still index unnamed
   // fields, and for `rec_dispatch` sub-behavior calls that take the node in c->r[4]). Prefer named
   // accessors — this is the escape hatch for the not-yet-RE'd offsets.
-  uint32_t addr() const { return obj; }
+  uint32_t addr() const {
+    return obj;
+  }
   // Core back-pointer for helper ports that need to reach rngOf(c).next() / trigOf(c).rcos / rec_dispatch —
   // any per-actor tick natively porting one of the beh_ handlers' sub-behaviors.
-  Core* core() const { return c; }
+  Core *core() const {
+    return c;
+  }
 
   // ── Lifecycle & state ────────────────────────────────────────────────────────────────────────────
   // state (obj+4, u8): per-object state machine byte. Common convention observed across the beh_
@@ -38,49 +42,75 @@ public:
   //   tick), 2/3 = despawn (call spawn.despawn(node)), >=4 = no-op. Named from
   //   beh_typed_table_seed_gate (FUN_80133C14) state-machine RE: sibling handlers FUN_800739AC /
   //   FUN_80073CD8 share this convention.
-  uint8_t state() const               { return c->mem_r8(obj + 0x04); }
-  void    setState(uint8_t v)         { c->mem_w8(obj + 0x04, v); }
+  uint8_t state() const {
+    return c->mem_r8(obj + 0x04);
+  }
+  void setState(uint8_t v) {
+    c->mem_w8(obj + 0x04, v);
+  }
 
   // alive (obj+0, u8): live/render-enable flag. Handlers set this to 1 alongside state=1 (Active) in
   //   the init state. Semantics beyond "set-when-active" not yet fully RE'd — treat as "handler-set
   //   live bit" for now.
-  uint8_t alive() const               { return c->mem_r8(obj + 0x00); }
-  void    setAlive(uint8_t v)         { c->mem_w8(obj + 0x00, v); }
+  uint8_t alive() const {
+    return c->mem_r8(obj + 0x00);
+  }
+  void setAlive(uint8_t v) {
+    c->mem_w8(obj + 0x00, v);
+  }
 
   // renderMode (obj+1, u8): a secondary state byte written by beh_typed_table_seed_gate in the
   //   "scene gate == 0x22" branch (state 1) — set to the current state value (1). Purpose beyond the
   //   handler's local use not yet RE'd; kept named because the write site is coupled to renderMode
   //   semantics (see below).
-  void    setRenderMode(uint8_t v)    { c->mem_w8(obj + 0x01, v); }
+  void setRenderMode(uint8_t v) {
+    c->mem_w8(obj + 0x01, v);
+  }
 
   // type (obj+3, u8): per-object TYPE index used as key into per-type data tables. In
   //   beh_typed_table_seed_gate this indexes the halfword TBL_A6E4 (per-type seed for oscBase).
-  uint8_t type() const                { return c->mem_r8(obj + 0x03); }
+  uint8_t type() const {
+    return c->mem_r8(obj + 0x03);
+  }
 
   // ── Handler-local counters/echoes (u8) ───────────────────────────────────────────────────────────
   // counterA (obj+0x29, u8): "trigger" flag read by FUN_801337E4's sub-state machine: when non-zero,
   //   advance the sub-state directly (case 1 → case 2 via bne, case 4 → case 1 via bne). Zero-cleared
   //   at init by beh_typed_table_seed_gate; a writer (still un-RE'd) sets it when a scene event fires.
-  uint8_t counterA() const            { return c->mem_r8(obj + 0x29); }
-  void    setCounterA(uint8_t v)      { c->mem_w8(obj + 0x29, v); }
+  uint8_t counterA() const {
+    return c->mem_r8(obj + 0x29);
+  }
+  void setCounterA(uint8_t v) {
+    c->mem_w8(obj + 0x29, v);
+  }
   // sceneMode (obj+0x2A, u8): per-handler scene-mode tag. beh_typed_table_seed_gate seeds this to 0x22
   //   at init, and its state-1 gate branches on the global scene-phase byte 0x800E7EAA == 0x22. That
   //   coupling names it: "this actor participates when the scene is in the 0x22 phase".
-  void    setSceneMode(uint8_t v)     { c->mem_w8(obj + 0x2A, v); }
+  void setSceneMode(uint8_t v) {
+    c->mem_w8(obj + 0x2A, v);
+  }
   // triggerSub (obj+5, u8): SCENE-TRIGGER sub-state machine index for the sibling handler
   //   beh_typed_init_scene_trigger (FUN_80073CD8). Dispatched via jumptable at 0x80016BE8 through
   //   values 0..6: 0 = confirm-pending (subFlagX==3 gate), 1/5 = pick-scene-id + FUN_8007E110 into
   //   sceneHandle, 2 = pad-edge trigger, 3 = release sceneHandle + go idle, 4 = enter-active, 6 =
   //   FUN_80042728 completion. Separate axis from the oscillator subState (obj+6).
-  uint8_t triggerSub() const          { return c->mem_r8(obj + 0x05); }
-  void    setTriggerSub(uint8_t v)    { c->mem_w8(obj + 0x05, v); }
+  uint8_t triggerSub() const {
+    return c->mem_r8(obj + 0x05);
+  }
+  void setTriggerSub(uint8_t v) {
+    c->mem_w8(obj + 0x05, v);
+  }
 
   // subState (obj+6, u8): SUB-state machine index for FUN_801337E4's 5-way dispatch (jumptable at
   //   0x80109E58). 0 = INIT (clear oscPhase, advance to 1), 1 = MAIN OSCILLATOR TICK (Trig::rcos of
   //   oscPhase + PRNG-jittered accumulate), 2/3/4 = TURN/SCAN sub-states that consult a pilot-actor
   //   region at 0x800E7E80 and set targetDelta. Semantics named from FUN_801337E4 RE (2026-07-03).
-  uint8_t subState() const            { return c->mem_r8(obj + 0x06); }
-  void    setSubState(uint8_t v)      { c->mem_w8(obj + 0x06, v); }
+  uint8_t subState() const {
+    return c->mem_r8(obj + 0x06);
+  }
+  void setSubState(uint8_t v) {
+    c->mem_w8(obj + 0x06, v);
+  }
   // subFlag (obj+0x2B, u8): MULTI-PURPOSE byte set from OUTSIDE the handlers (writer still un-RE'd),
   //   consumed by whichever handler owns this actor slot:
   //     - FUN_801337E4 case [1]/[4] (background actor tick): when non-zero, dispatch FUN_80077768
@@ -109,46 +139,80 @@ public:
   // The scanner also publishes WHICH activation happened at 0x800BF840 (0x84 sign/plaque family,
   // 0x85 otherwise). `subFlag` is kept below only as a deprecated alias for un-migrated call sites.
   enum : uint8_t { kInteractNone = 0, kInteractInRange = 1, kInteractActivated = 3 };
-  uint8_t interactState() const       { return c->mem_r8(obj + 0x2B); }
-  void    setInteractState(uint8_t v) { c->mem_w8(obj + 0x2B, v); }
-  bool    interactActivated() const   { return interactState() == kInteractActivated; }
+  uint8_t interactState() const {
+    return c->mem_r8(obj + 0x2B);
+  }
+  void setInteractState(uint8_t v) {
+    c->mem_w8(obj + 0x2B, v);
+  }
+  bool interactActivated() const {
+    return interactState() == kInteractActivated;
+  }
 
-  uint8_t subFlag() const             { return c->mem_r8(obj + 0x2B); }   // deprecated: use interactState()
-  void    setSubFlag(uint8_t v)       { c->mem_w8(obj + 0x2B, v); }
+  uint8_t subFlag() const {
+    return c->mem_r8(obj + 0x2B);
+  } // deprecated: use interactState()
+  void setSubFlag(uint8_t v) {
+    c->mem_w8(obj + 0x2B, v);
+  }
   // subFlagX (legacy alias — retained for the earlier RE'd handler while callers migrate).
-  uint8_t subFlagX() const            { return subFlag(); }
-  void    setSubFlagX(uint8_t v)      { setSubFlag(v); }
+  uint8_t subFlagX() const {
+    return subFlag();
+  }
+  void setSubFlagX(uint8_t v) {
+    setSubFlag(v);
+  }
   // counterB (obj+0x46, u8): retry-delay counter for FUN_801337E4's oscillator-tick gate. In sub-state 1
   //   the tick only fires when counterB == 0; otherwise counterB is decremented and the tick is
   //   skipped this frame. Zero-cleared at init by beh_typed_table_seed_gate.
-  uint8_t retryDelay() const          { return c->mem_r8(obj + 0x46); }
-  void    setRetryDelay(uint8_t v)    { c->mem_w8(obj + 0x46, v); }
+  uint8_t retryDelay() const {
+    return c->mem_r8(obj + 0x46);
+  }
+  void setRetryDelay(uint8_t v) {
+    c->mem_w8(obj + 0x46, v);
+  }
   // (old counterB setter kept for beh_typed_table_seed_gate's init reset — same field as retryDelay.)
-  void    setCounterB(uint8_t v)      { c->mem_w8(obj + 0x46, v); }
+  void setCounterB(uint8_t v) {
+    c->mem_w8(obj + 0x46, v);
+  }
 
   // targetDelta (obj+0x44, i16): signed 16-bit "target-angle delta" set by FUN_801337E4's turn/scan
   //   sub-states — case 1 subFlagX path writes ±256 based on the direction lookup return; case 3 seeds
   //   from a small per-pilot-mode table (32/48/64/128); case 4 wraps it into ±0x1000 and clamps.
   //   zero-cleared by the section-A reset (stateEcho != 0 path) at the top of FUN_801337E4.
-  int16_t targetDelta() const         { return (int16_t)c->mem_r16(obj + 0x44); }
-  void    setTargetDelta(int16_t v)   { c->mem_w16(obj + 0x44, (uint16_t)v); }
+  int16_t targetDelta() const {
+    return (int16_t)c->mem_r16(obj + 0x44);
+  }
+  void setTargetDelta(int16_t v) {
+    c->mem_w16(obj + 0x44, (uint16_t)v);
+  }
 
   // renderRec (obj+0xC0, u32): guest pointer to the object's RENDER RECORD (allocated by
   //   GraphicsBind::recordAlloc in the parent handler's INIT state). FUN_801337E4 writes
   //   renderRec[+0xC] with cos(oscPhase) >> 5 in the oscillator-tick body — the display attribute
   //   that reads as this actor's per-frame animated parameter. Not yet promoted to a typed struct;
   //   raw pointer for now.
-  uint32_t renderRec() const          { return c->mem_r32(obj + 0xC0); }
+  uint32_t renderRec() const {
+    return c->mem_r32(obj + 0xC0);
+  }
 
   // oscPhase (obj+0x42, i16 / u16 both used): SBS TARGET-#4 accumulator — the angle-space fixed-point
   //   phase that feeds the case [1] Trig::rcos oscillator in FUN_801337E4 (accumulates +68 + rng>>8
   //   each active tick; the PRNG at FUN_8009A450 seeds off 0x80105EE8 is the almost-certain
   //   divergence source per docs/findings/sbs.md target-#4 upstream probe). beh_typed_table_seed_gate
   //   zero-clears this at init (state 0).
-  int16_t  oscPhase() const           { return (int16_t)c->mem_r16(obj + 0x42); }
-  uint16_t oscPhase_u() const         { return c->mem_r16(obj + 0x42); }
-  void    setOscPhase(int16_t v)      { c->mem_w16(obj + 0x42, (uint16_t)v); }
-  void    setOscPhase(uint16_t v)     { c->mem_w16(obj + 0x42, v); }
+  int16_t oscPhase() const {
+    return (int16_t)c->mem_r16(obj + 0x42);
+  }
+  uint16_t oscPhase_u() const {
+    return c->mem_r16(obj + 0x42);
+  }
+  void setOscPhase(int16_t v) {
+    c->mem_w16(obj + 0x42, (uint16_t)v);
+  }
+  void setOscPhase(uint16_t v) {
+    c->mem_w16(obj + 0x42, v);
+  }
 
   // ── World position (u16 signed as needed; halfword stride 4) ────────────────────────────────────
   // posX / posY / posZ (obj+0x2E/0x32/0x36): the object's world position, read as HALFWORDS at
@@ -161,9 +225,15 @@ public:
   //   "background-actor Y baseline" — the case [2] pilot-consult adjusts it by ±(pilotState-2)*6 and
   //   clamps against TBL_A6F4[type], which is world-Y clamping (per-type Y range). Legacy oscBase
   //   getters/setters retained below as aliases while the earlier commit's docstrings migrate.
-  int16_t  posX() const               { return (int16_t)c->mem_r16(obj + 0x2E); }
-  int16_t  posY() const               { return (int16_t)c->mem_r16(obj + 0x32); }
-  int16_t  posZ() const               { return (int16_t)c->mem_r16(obj + 0x36); }
+  int16_t posX() const {
+    return (int16_t)c->mem_r16(obj + 0x2E);
+  }
+  int16_t posY() const {
+    return (int16_t)c->mem_r16(obj + 0x32);
+  }
+  int16_t posZ() const {
+    return (int16_t)c->mem_r16(obj + 0x36);
+  }
   // ── Sub-pixel position + velocity (RE'd 2026-07-21, docs/findings/object.md) ────────────────
   // Position is 16.16 FIXED POINT. The u32 at 0x2C/0x30/0x34 is the whole value; its HIGH halfword
   // IS posX/posY/posZ (0x2E/0x32/0x36) by little-endian aliasing, and the low halfword is the
@@ -172,34 +242,80 @@ public:
   //   evidence: release_trigger_motion.cpp integrates  pos32 += vel16 * 0x100  then  vel16 += accel16
   //   on all three axes (0x2C/0x48, 0x30/0x4A/0x50, 0x34/0x4C); beh_variant_actor_sm.cpp writes
   //   0x26DE0000 to +0x2C — integer X in the high half, zero fraction in the low half.
-  uint32_t posXFixed() const          { return c->mem_r32(obj + 0x2C); }
-  uint32_t posYFixed() const          { return c->mem_r32(obj + 0x30); }
-  uint32_t posZFixed() const          { return c->mem_r32(obj + 0x34); }
-  void     setPosXFixed(uint32_t v)   { c->mem_w32(obj + 0x2C, v); }
-  void     setPosYFixed(uint32_t v)   { c->mem_w32(obj + 0x30, v); }
-  void     setPosZFixed(uint32_t v)   { c->mem_w32(obj + 0x34, v); }
+  uint32_t posXFixed() const {
+    return c->mem_r32(obj + 0x2C);
+  }
+  uint32_t posYFixed() const {
+    return c->mem_r32(obj + 0x30);
+  }
+  uint32_t posZFixed() const {
+    return c->mem_r32(obj + 0x34);
+  }
+  void setPosXFixed(uint32_t v) {
+    c->mem_w32(obj + 0x2C, v);
+  }
+  void setPosYFixed(uint32_t v) {
+    c->mem_w32(obj + 0x30, v);
+  }
+  void setPosZFixed(uint32_t v) {
+    c->mem_w32(obj + 0x34, v);
+  }
   // Per-axis velocity (i16, in 1/256 world units per frame — hence the *0x100 when integrated into
   // the 16.16 position) and the Y acceleration the arc/hover motions add to velY each frame.
-  int16_t  velX() const               { return c->mem_r16s(obj + 0x48); }
-  int16_t  velY() const               { return c->mem_r16s(obj + 0x4A); }
-  int16_t  velZ() const               { return c->mem_r16s(obj + 0x4C); }
-  void     setVelX(uint16_t v)        { c->mem_w16(obj + 0x48, v); }
-  void     setVelY(uint16_t v)        { c->mem_w16(obj + 0x4A, v); }
-  void     setVelZ(uint16_t v)        { c->mem_w16(obj + 0x4C, v); }
-  int16_t  accelY() const             { return c->mem_r16s(obj + 0x50); }
-  void     setAccelY(uint16_t v)      { c->mem_w16(obj + 0x50, v); }
+  int16_t velX() const {
+    return c->mem_r16s(obj + 0x48);
+  }
+  int16_t velY() const {
+    return c->mem_r16s(obj + 0x4A);
+  }
+  int16_t velZ() const {
+    return c->mem_r16s(obj + 0x4C);
+  }
+  void setVelX(uint16_t v) {
+    c->mem_w16(obj + 0x48, v);
+  }
+  void setVelY(uint16_t v) {
+    c->mem_w16(obj + 0x4A, v);
+  }
+  void setVelZ(uint16_t v) {
+    c->mem_w16(obj + 0x4C, v);
+  }
+  int16_t accelY() const {
+    return c->mem_r16s(obj + 0x50);
+  }
+  void setAccelY(uint16_t v) {
+    c->mem_w16(obj + 0x50, v);
+  }
 
-  uint16_t posX_u() const             { return c->mem_r16(obj + 0x2E); }
-  uint16_t posY_u() const             { return c->mem_r16(obj + 0x32); }
-  uint16_t posZ_u() const             { return c->mem_r16(obj + 0x36); }
-  void     setPosX(uint16_t v)        { c->mem_w16(obj + 0x2E, v); }
-  void     setPosY(uint16_t v)        { c->mem_w16(obj + 0x32, v); }
-  void     setPosZ(uint16_t v)        { c->mem_w16(obj + 0x36, v); }
+  uint16_t posX_u() const {
+    return c->mem_r16(obj + 0x2E);
+  }
+  uint16_t posY_u() const {
+    return c->mem_r16(obj + 0x32);
+  }
+  uint16_t posZ_u() const {
+    return c->mem_r16(obj + 0x36);
+  }
+  void setPosX(uint16_t v) {
+    c->mem_w16(obj + 0x2E, v);
+  }
+  void setPosY(uint16_t v) {
+    c->mem_w16(obj + 0x32, v);
+  }
+  void setPosZ(uint16_t v) {
+    c->mem_w16(obj + 0x36, v);
+  }
   // Legacy oscBase aliases (same field as posY) — retained for the earlier RE arc's callers while
   // they migrate; new code should use posY / setPosY directly.
-  int16_t  oscBase() const            { return posY(); }
-  uint16_t oscBase_u() const          { return posY_u(); }
-  void     setOscBase(uint16_t v)     { setPosY(v); }
+  int16_t oscBase() const {
+    return posY();
+  }
+  uint16_t oscBase_u() const {
+    return posY_u();
+  }
+  void setOscBase(uint16_t v) {
+    setPosY(v);
+  }
 
   // ── Bounds-cull check (was FUN_8007778C thin wrapper) ────────────────────────────────────────────
   // FULL NATIVE CHAIN as of this arc: FUN_8007778C's delta-math + flag reset happens here inline,
@@ -217,7 +333,7 @@ public:
     c->r[5] = (uint32_t)(int32_t)dx;
     c->r[6] = (uint32_t)(int32_t)dy;
     c->r[7] = (uint32_t)(int32_t)dz;
-    eng(c).cull.performBaseCull();                    // FUN_8007712C body — native (was rec_dispatch)
+    eng(c).cull.performBaseCull(); // FUN_8007712C body — native (was rec_dispatch)
     return c->r[2];
   }
   // boundsCullYOffset — the Y-offset variant of boundsCull (was FUN_800778E4). Identical to
@@ -235,7 +351,7 @@ public:
     c->r[5] = (uint32_t)(int32_t)dx;
     c->r[6] = (uint32_t)(int32_t)dy;
     c->r[7] = (uint32_t)(int32_t)dz;
-    eng(c).cull.performBaseCull();                    // FUN_8007712C body — native (was rec_dispatch(0x800778E4))
+    eng(c).cull.performBaseCull(); // FUN_8007712C body — native (was rec_dispatch(0x800778E4))
     return c->r[2];
   }
 
@@ -246,25 +362,47 @@ public:
   //   sub-behavior (state_one_tick's run_turn_setup — the "which direction is the pilot from us"
   //   dispatch). beh_typed_init_scene_trigger's state-0 init zero-clears rotX/rotZ and writes rotY
   //   per-type from a small set of magic angle presets (0x400/0xC00/0x4D0/…).
-  int16_t rotX() const                { return (int16_t)c->mem_r16(obj + 0x54); }
-  int16_t rotY() const                { return (int16_t)c->mem_r16(obj + 0x56); }
+  int16_t rotX() const {
+    return (int16_t)c->mem_r16(obj + 0x54);
+  }
+  int16_t rotY() const {
+    return (int16_t)c->mem_r16(obj + 0x56);
+  }
   // Unsigned width-views of the SAME fields (no new semantics). Faithful bodies read some of these
   // unsigned (`mem_r16`) and some signed (`mem_r16s`); the port must keep whichever the guest used,
   // so the lens offers both rather than forcing a cast at the call site and risking a sign change.
-  uint16_t rotX_u() const             { return c->mem_r16(obj + 0x54); }
-  uint16_t rotY_u() const             { return c->mem_r16(obj + 0x56); }
-  uint16_t rotZ_u() const             { return c->mem_r16(obj + 0x58); }
-  int16_t rotZ() const                { return (int16_t)c->mem_r16(obj + 0x58); }
-  void    setRotX(uint16_t v)         { c->mem_w16(obj + 0x54, v); }
-  void    setRotY(uint16_t v)         { c->mem_w16(obj + 0x56, v); }
-  void    setRotZ(uint16_t v)         { c->mem_w16(obj + 0x58, v); }
+  uint16_t rotX_u() const {
+    return c->mem_r16(obj + 0x54);
+  }
+  uint16_t rotY_u() const {
+    return c->mem_r16(obj + 0x56);
+  }
+  uint16_t rotZ_u() const {
+    return c->mem_r16(obj + 0x58);
+  }
+  int16_t rotZ() const {
+    return (int16_t)c->mem_r16(obj + 0x58);
+  }
+  void setRotX(uint16_t v) {
+    c->mem_w16(obj + 0x54, v);
+  }
+  void setRotY(uint16_t v) {
+    c->mem_w16(obj + 0x56, v);
+  }
+  void setRotZ(uint16_t v) {
+    c->mem_w16(obj + 0x58, v);
+  }
 
   // sceneHandle (obj+0x14, u32): SCENE ENTITY handle returned by FUN_8007E110 in
   //   beh_typed_init_scene_trigger's triggerSub == 1/5 branch. Read at case 3 as a foreign object
   //   pointer whose obj[+4] state is written to 2 to RELEASE the linked scene entity when this
   //   handler goes idle. Zero-cleared on release and on the state-0 init.
-  uint32_t sceneHandle() const        { return c->mem_r32(obj + 0x14); }
-  void    setSceneHandle(uint32_t v)  { c->mem_w32(obj + 0x14, v); }
+  uint32_t sceneHandle() const {
+    return c->mem_r32(obj + 0x14);
+  }
+  void setSceneHandle(uint32_t v) {
+    c->mem_w32(obj + 0x14, v);
+  }
 
   // ── Trigger box / range params ───────────────────────────────────────────────────────────────────
   // triggerParam (obj+0x60, i16): the signed per-object Y-offset passed into Actor::boundsCullYOffset
@@ -272,35 +410,55 @@ public:
   //   posY+triggerParam, posZ) visible?". beh_typed_table_seed_gate seeds it to -200 world units —
   //   likely a "ground beneath the actor" probe (test whether the ground the actor stands on would
   //   render this frame).
-  int16_t triggerParam() const        { return (int16_t)c->mem_r16(obj + 0x60); }
-  uint16_t triggerParam_u() const     { return c->mem_r16(obj + 0x60); }
-  void    setTriggerParam(int16_t v)  { c->mem_w16(obj + 0x60, (uint16_t)v); }
+  int16_t triggerParam() const {
+    return (int16_t)c->mem_r16(obj + 0x60);
+  }
+  uint16_t triggerParam_u() const {
+    return c->mem_r16(obj + 0x60);
+  }
+  void setTriggerParam(int16_t v) {
+    c->mem_w16(obj + 0x60, (uint16_t)v);
+  }
   // stateEcho (obj+0x62, u16 / i16): mirror of the state byte written by beh_typed_table_seed_gate
   //   state-1 non-triggered gate paths. Its READER is FUN_801337E4's section A — when stateEcho is
   //   NON-ZERO on entry, the sub-state machine resets (clear subState, targetDelta, renderRec+0xC,
   //   and re-seed oscBase from the per-type table). So the semantic is: "parent latched a
   //   not-in-scene tick; sub-behavior on next call must reset".
-  int16_t  stateEcho() const          { return (int16_t)c->mem_r16(obj + 0x62); }
-  uint16_t stateEcho_u() const        { return c->mem_r16(obj + 0x62); }
-  void    setStateEcho(uint16_t v)    { c->mem_w16(obj + 0x62, v); }
+  int16_t stateEcho() const {
+    return (int16_t)c->mem_r16(obj + 0x62);
+  }
+  uint16_t stateEcho_u() const {
+    return c->mem_r16(obj + 0x62);
+  }
+  void setStateEcho(uint16_t v) {
+    c->mem_w16(obj + 0x62, v);
+  }
 
   // ── Bounding box / trigger volume (u16 × 4) ──────────────────────────────────────────────────────
   // Seeded at init by beh_typed_table_seed_gate to (30, 60, 50, 100). Reads as a bounding-box or
   // radius-tuple parameterizing a trigger volume; the exact interpretation (AABB half-extents vs
   // XYZ+radius) will be pinned down when the state-1 sub-behavior that CONSUMES it is RE'd.
-  void    setBoxX(uint16_t v)         { c->mem_w16(obj + 0x80, v); }
-  void    setBoxY(uint16_t v)         { c->mem_w16(obj + 0x82, v); }
-  void    setBoxZ(uint16_t v)         { c->mem_w16(obj + 0x84, v); }
-  void    setBoxW(uint16_t v)         { c->mem_w16(obj + 0x86, v); }
+  void setBoxX(uint16_t v) {
+    c->mem_w16(obj + 0x80, v);
+  }
+  void setBoxY(uint16_t v) {
+    c->mem_w16(obj + 0x82, v);
+  }
+  void setBoxZ(uint16_t v) {
+    c->mem_w16(obj + 0x84, v);
+  }
+  void setBoxW(uint16_t v) {
+    c->mem_w16(obj + 0x86, v);
+  }
 
   // ── Static guest-ABI handlers ────────────────────────────────────────────────────────────────────
   // sm24448 (FUN_80024448, game/object/actor_sm_24448.cpp): one actor "move-and-collide" SM step —
   //   derive the probe args from the object's velocity fields, run the shared grid move-collide
   //   probe, apply the result to floor-type / angle / state. a0 = obj; result tag in v0.
-  static void sm24448(Core* c);
+  static void sm24448(Core *c);
 
 private:
-  Core*    c;
+  Core *c;
   uint32_t obj;
 };
 
@@ -308,11 +466,13 @@ private:
 // handlers) to gate their state-1 behavior. Semantics (advanced by what? represents what phase?) not
 // yet RE'd — named for the observation that beh_typed_table_seed_gate has sceneMode=0x22 (obj+0x2A)
 // and dispatches on scene_phase()==0x22 in its state-1 body.
-inline uint8_t scene_phase(Core* c) { return c->mem_r8(0x800E7EAAu); }
+inline uint8_t scene_phase(Core *c) {
+  return c->mem_r8(0x800E7EAAu);
+}
 
 // Per-type OSCILLATION BASE table: 8014A6E4[type] -> u16 seeded into Actor::setOscBase() at init by
 // beh_typed_table_seed_gate. Named for its state-machine role, not its content — content is per-type
 // tuning data.
-inline uint16_t osc_base_table(Core* c, uint8_t type) {
+inline uint16_t osc_base_table(Core *c, uint8_t type) {
   return c->mem_r16(0x8014A6E4u + (uint32_t)type * 2u);
 }

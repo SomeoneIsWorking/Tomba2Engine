@@ -35,28 +35,29 @@
 //     shared epilogue.
 //   - epilogue (L_8003D22C): restore r31 from sp+16, sp += 24, return.
 #include "core.h"
-#include "game_ctx.h"
 #include "game.h"
+#include "game_ctx.h"
 #include "render.h"
 #include <cstdint>
 
-void rec_dispatch(Core*, uint32_t);          // overlay_router.cpp — shared choke point for owned/substrate leaves
-void shard_set_override(uint32_t addr, OverrideFn fn);   // generated/shard_disp.c (C++ linkage)
+void rec_dispatch(Core *, uint32_t); // overlay_router.cpp — shared choke point for owned/substrate leaves
+void shard_set_override(uint32_t addr, OverrideFn fn); // generated/shard_disp.c (C++ linkage)
 
 // gen_func_8003D0BC fallback for the oracle-gated thunk — see render_walk_dispatch.cpp's identical
 // banner for the full rationale (g_override[] is process-global; SBS core B must keep running gen).
-extern void gen_func_8003D0BC(Core*);
+extern void gen_func_8003D0BC(Core *);
 
 namespace {
-constexpr uint32_t AREA_TYPE_BYTE = 0x800BF870u;   // render-mode-select byte (shared with perModeDispatch)
-constexpr uint32_t JUMP_TABLE     = 0x80014EF0u;   // 32769<<16 + 20208 — 22-entry per-area-type table
+constexpr uint32_t AREA_TYPE_BYTE = 0x800BF870u; // render-mode-select byte (shared with perModeDispatch)
+constexpr uint32_t JUMP_TABLE = 0x80014EF0u;     // 32769<<16 + 20208 — 22-entry per-area-type table
 
 // Real -24 guest-stack frame (RE: gen_func_8003D0BC's prologue, generated/shard_7.c:4576/4578) — see
 // CLAUDE.md "MIRROR THE GUEST STACK". Spills the caller's live r31 (whatever gen_func_8003F9A8 had at
 // its own 0x8003F9F4 call site) and restores it on every exit.
 struct DispatchFrame {
-  Core* c; uint32_t s31;
-  explicit DispatchFrame(Core* c_) : c(c_), s31(c_->r[31]) {
+  Core *c;
+  uint32_t s31;
+  explicit DispatchFrame(Core *c_) : c(c_), s31(c_->r[31]) {
     c->r[29] -= 24;
     c->mem_w32(c->r[29] + 16, s31);
   }
@@ -69,52 +70,119 @@ struct DispatchFrame {
 
 // FUN_8003D0BC
 void Render::overlayTypeDispatch() {
-  Core* c = mCore;
+  Core *c = mCore;
   DispatchFrame frame(c);
   const uint32_t areaType = c->mem_r8(AREA_TYPE_BYTE);
-  if (areaType >= 22u) return;   // no area-specific overlay for this type -> epilogue only
+  if (areaType >= 22u) {
+    return; // no area-specific overlay for this type -> epilogue only
+  }
 
   const uint32_t target = c->mem_r32(JUMP_TABLE + areaType * 4u);
   switch (target) {
-    case 0x8003D0F4u: c->r[31] = 0x8003D0FCu; rec_dispatch(c, 0x801401B8u); break;  // entityLoop (owned)
-    case 0x8003D104u: c->r[31] = 0x8003D10Cu; rec_dispatch(c, 0x80132358u); break;
-    case 0x8003D114u: c->r[31] = 0x8003D11Cu; rec_dispatch(c, 0x80124CB8u); break;
-    case 0x8003D124u: c->r[31] = 0x8003D12Cu; rec_dispatch(c, 0x801185F0u); break;
-    case 0x8003D134u: c->r[31] = 0x8003D13Cu; rec_dispatch(c, 0x8013606Cu); break;
-    case 0x8003D144u: c->r[31] = 0x8003D14Cu; rec_dispatch(c, 0x8013CD34u); break;
-    case 0x8003D154u: c->r[31] = 0x8003D15Cu; rec_dispatch(c, 0x8012DA14u); break;
-    case 0x8003D164u: c->r[31] = 0x8003D16Cu; rec_dispatch(c, 0x8012A7CCu); break;
-    case 0x8003D174u: c->r[31] = 0x8003D17Cu; rec_dispatch(c, 0x8011024Cu); break;
-    case 0x8003D184u: c->r[31] = 0x8003D18Cu; rec_dispatch(c, 0x80113050u); break;
-    case 0x8003D194u: c->r[31] = 0x8003D19Cu; rec_dispatch(c, 0x80113DB4u); break;
-    case 0x8003D1A4u: c->r[31] = 0x8003D1ACu; rec_dispatch(c, 0x80113628u); break;
-    case 0x8003D1B4u: c->r[31] = 0x8003D1BCu; rec_dispatch(c, 0x80114320u); break;
-    case 0x8003D1C4u: c->r[31] = 0x8003D1CCu; rec_dispatch(c, 0x80115364u); break;
-    case 0x8003D1D4u: c->r[31] = 0x8003D1DCu; rec_dispatch(c, 0x8010C2A4u); break;
-    case 0x8003D1E4u: c->r[31] = 0x8003D1ECu; rec_dispatch(c, 0x8010B5BCu); break;
-    case 0x8003D1F4u: c->r[31] = 0x8003D1FCu; rec_dispatch(c, 0x8010BA40u); break;
-    case 0x8003D204u: c->r[31] = 0x8003D20Cu; rec_dispatch(c, 0x8010AA20u); break;
-    case 0x8003D214u: c->r[31] = 0x8003D21Cu; rec_dispatch(c, 0x80115F1Cu); break;
-    case 0x8003D224u: c->r[31] = 0x8003D22Cu; rec_dispatch(c, 0x8010B0B8u); break;
-    case 0x8003D22Cu: break;   // early-out target value itself: no-op (falls straight to epilogue)
-    default:
-      // Defensive mirror of the recompiler's own indirect-jump fallback (generated/shard_7.c:4584's
-      // `default: rec_dispatch(c, c->r[2]); return;`) — a full RETURN bypassing the frame epilogue,
-      // exactly like renderWalk's/perObjRenderDispatch's own default cases. Never hit by live game
-      // data: the live 22-slot table only ever holds the 20 case values above (or routes through the
-      // areaType>=22 early-out).
-      rec_dispatch(c, target);
-      return;
+  case 0x8003D0F4u:
+    c->r[31] = 0x8003D0FCu;
+    rec_dispatch(c, 0x801401B8u);
+    break; // entityLoop (owned)
+  case 0x8003D104u:
+    c->r[31] = 0x8003D10Cu;
+    rec_dispatch(c, 0x80132358u);
+    break;
+  case 0x8003D114u:
+    c->r[31] = 0x8003D11Cu;
+    rec_dispatch(c, 0x80124CB8u);
+    break;
+  case 0x8003D124u:
+    c->r[31] = 0x8003D12Cu;
+    rec_dispatch(c, 0x801185F0u);
+    break;
+  case 0x8003D134u:
+    c->r[31] = 0x8003D13Cu;
+    rec_dispatch(c, 0x8013606Cu);
+    break;
+  case 0x8003D144u:
+    c->r[31] = 0x8003D14Cu;
+    rec_dispatch(c, 0x8013CD34u);
+    break;
+  case 0x8003D154u:
+    c->r[31] = 0x8003D15Cu;
+    rec_dispatch(c, 0x8012DA14u);
+    break;
+  case 0x8003D164u:
+    c->r[31] = 0x8003D16Cu;
+    rec_dispatch(c, 0x8012A7CCu);
+    break;
+  case 0x8003D174u:
+    c->r[31] = 0x8003D17Cu;
+    rec_dispatch(c, 0x8011024Cu);
+    break;
+  case 0x8003D184u:
+    c->r[31] = 0x8003D18Cu;
+    rec_dispatch(c, 0x80113050u);
+    break;
+  case 0x8003D194u:
+    c->r[31] = 0x8003D19Cu;
+    rec_dispatch(c, 0x80113DB4u);
+    break;
+  case 0x8003D1A4u:
+    c->r[31] = 0x8003D1ACu;
+    rec_dispatch(c, 0x80113628u);
+    break;
+  case 0x8003D1B4u:
+    c->r[31] = 0x8003D1BCu;
+    rec_dispatch(c, 0x80114320u);
+    break;
+  case 0x8003D1C4u:
+    c->r[31] = 0x8003D1CCu;
+    rec_dispatch(c, 0x80115364u);
+    break;
+  case 0x8003D1D4u:
+    c->r[31] = 0x8003D1DCu;
+    rec_dispatch(c, 0x8010C2A4u);
+    break;
+  case 0x8003D1E4u:
+    c->r[31] = 0x8003D1ECu;
+    rec_dispatch(c, 0x8010B5BCu);
+    break;
+  case 0x8003D1F4u:
+    c->r[31] = 0x8003D1FCu;
+    rec_dispatch(c, 0x8010BA40u);
+    break;
+  case 0x8003D204u:
+    c->r[31] = 0x8003D20Cu;
+    rec_dispatch(c, 0x8010AA20u);
+    break;
+  case 0x8003D214u:
+    c->r[31] = 0x8003D21Cu;
+    rec_dispatch(c, 0x80115F1Cu);
+    break;
+  case 0x8003D224u:
+    c->r[31] = 0x8003D22Cu;
+    rec_dispatch(c, 0x8010B0B8u);
+    break;
+  case 0x8003D22Cu:
+    break; // early-out target value itself: no-op (falls straight to epilogue)
+  default:
+    // Defensive mirror of the recompiler's own indirect-jump fallback (generated/shard_7.c:4584's
+    // `default: rec_dispatch(c, c->r[2]); return;`) — a full RETURN bypassing the frame epilogue,
+    // exactly like renderWalk's/perObjRenderDispatch's own default cases. Never hit by live game
+    // data: the live 22-slot table only ever holds the 20 case values above (or routes through the
+    // areaType>=22 early-out).
+    rec_dispatch(c, target);
+    return;
   }
 }
 
 namespace {
-void ov_overlayTypeDispatch(Core* c) { rend(c)->overlayTypeDispatch(); }
+void ov_overlayTypeDispatch(Core *c) {
+  rend(c)->overlayTypeDispatch();
 }
+} // namespace
 
 void overlay_type_dispatch_install() {
   static bool done = false;
-  if (done) return;
+  if (done) {
+    return;
+  }
   done = true;
   extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
   engine_set_override_main(0x8003D0BCu, ov_overlayTypeDispatch, gen_func_8003D0BC);

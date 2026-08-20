@@ -31,7 +31,7 @@
 // output instead — the prologue is emitted verbatim, so the spills cannot go missing by construction.
 #pragma once
 struct Core;
-class  Game;
+class Game;
 
 class SubstateEdgeLeaves {
 public:
@@ -39,57 +39,59 @@ public:
   // offset points (deltas between child-record[i] and child-record[0]) and asks the camera-relative
   // cull wrapper FUN_80077A4C whether each is on screen. Forks on bit0 of the u16 type-flags at
   // obj+0x60 and on the global story-phase byte at 0x800E7EAA.
-  static void visibilityGate(Core* c);
+  static void visibilityGate(Core *c);
 
   // FUN_801316CC(obj = a0). Driver loop over the child-record pointer table at obj+0xC0: if bit2 of
   // the u16 at obj+0x60 is clear it does nothing, else it calls FUN_80130D5C(obj, slot) for the
   // group-head slots, biasing the slot by -1 when bit1 is clear. Re-reads obj+0x60 on every use.
-  static void tickChildOscillators(Core* c);
+  static void tickChildOscillators(Core *c);
 
   // FUN_80131134(obj = a0). Arms a pending child pair from the 2-bit command at obj+0x7A, gated on
   // the node being one of the two masters (u8[obj+3] < 2) and the target child being idle.
-  static void armPendingChildPair(Core* c);
+  static void armPendingChildPair(Core *c);
 
   // FUN_8012F494 — the node[5]==0 sub-state tick. Replaces a draft with eight defects.
-  static void substate0Tick(Core* c);
+  static void substate0Tick(Core *c);
 
   // FUN_0x8012E8A8 — per-child transform propagate: walks the sub-part table and composes each part's matrix
-  static void perChildTransformPropagate(Core* c);
+  static void perChildTransformPropagate(Core *c);
   // FUN_0x8012ED84 — STATE 0 init: seeds the assembly's parameter block and builds its sub-parts
-  static void stateZeroInit(Core* c);
+  static void stateZeroInit(Core *c);
   // FUN_0x8012F5B4 — the node[5]==1 sub-state tick
-  static void substate1Tick(Core* c);
+  static void substate1Tick(Core *c);
   // FUN_0x8012FD88 — the node[5]==2 sub-state tick
-  static void substate2Tick(Core* c);
+  static void substate2Tick(Core *c);
   // FUN_0x80130524 — the node[5]==3 sub-state tick
-  static void substate3Tick(Core* c);
+  static void substate3Tick(Core *c);
   // FUN_0x801313C4 — angle-limit gate; compares child[1]'s angle against node-derived limits and can
   // reset the mode byte and sub-state. Named for mechanism only — the earlier "pendingCommandClear"
   // was wrong (it never touches +0x7A); see the implementation banner.
-  static void angleLimitGate(Core* c);
+  static void angleLimitGate(Core *c);
   // FUN_0x80146348 — the assembly post-tick called after the sub-state work
-  static void assemblyPostTick(Core* c);
+  static void assemblyPostTick(Core *c);
 
   // FUN_0x8018C820 — the OPN-overlay hook; the twelfth and last leaf of the kanban #8 chain.
-  static void opnAssemblyHook(Core* c);
+  static void opnAssemblyHook(Core *c);
 
   // FUN_0x801308E0 — the contact-to-weight consumer: turns the contact index at node+0x2B into the
   // weight at node+0x48. The mechanism kanban #8 is about; see the implementation banner.
-  static void contactWeightApply(Core* c);
+  static void contactWeightApply(Core *c);
 
   // FUN_0x80130788 — drive-axis acceleration selector: picks one of four accelerations by the mode
   // byte and returns a 0/1/2 verdict the sub-state ticks use as their escape signal.
-  static void driveAccelSelect(Core* c);
+  static void driveAccelSelect(Core *c);
 
-  // FUN_0x80131768 — ARM A PAIR OF SUB-PARTS BY ANGLE. Given the node, a group selector and a half-turn flag, it decides
-  static void armChildPairByAngle(Core* c);
-  // FUN_0x801314B4 — RE-PLACE THE DRIVEN PAIR FROM THE TILT ANGLE. Recomputes the two driven sub-parts' +4 field from the
-  static void drivenPairOffsetFromTilt(Core* c);
+  // FUN_0x80131768 — ARM A PAIR OF SUB-PARTS BY ANGLE. Given the node, a group selector and a half-turn flag, it
+  // decides
+  static void armChildPairByAngle(Core *c);
+  // FUN_0x801314B4 — RE-PLACE THE DRIVEN PAIR FROM THE TILT ANGLE. Recomputes the two driven sub-parts' +4 field from
+  // the
+  static void drivenPairOffsetFromTilt(Core *c);
   // FUN_0x8013892C — SPAWN THE ASSEMBLY'S COMPANION NODE. Creates a child node, seeds it at the assembly's own world
-  static void spawnInnerDispatchChild(Core* c);
+  static void spawnInnerDispatchChild(Core *c);
 
   // FUN_0x80130D5C — the per-sub-part oscillator the driver loop ticks.
-  static void swingStrokeGroupTick(Core* c);
+  static void swingStrokeGroupTick(Core *c);
 
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

@@ -143,24 +143,24 @@
 // header packet's own tag is set to `first_tile | 0x02000000` (chaining forward into the tile batch)
 // and OT[0x7FF] is overwritten with the header packet's own address — i.e. this leaf PREPENDS one
 // mode-reset packet + the whole tile batch onto whatever was already in bucket 0x7FF.
+#include "tile_grid_layer.h"
+#include "cfg.h"
 #include "core.h"
 #include "game.h"
 #include "render.h"
 #include "render_queue.h"
-#include "cfg.h"
-#include "tile_grid_layer.h"
 #include <cstdint>
 
 namespace {
 constexpr uint32_t kPktPoolPtr = 0x800BF544u;   // shared bump-allocator pool ptr (same as overlay_ground_gt3gt4.cpp)
 constexpr uint32_t kOtBaseGlobal = 0x800ED8C8u; // shared OT-base global
 constexpr uint32_t kOtBucketBg = 0x1FFCu;       // OT bucket 0x7FF (background layer, static depth)
-}  // namespace
+} // namespace
 
 // FUN_8011534C
-void TileGridLayer::scrollStep(Core* c) {
+void TileGridLayer::scrollStep(Core *c) {
   const uint32_t node = c->r[4];
-  c->r[29] -= 8;   // real 8B frame; no spills, no stack memory ops in the body (mirror sp only)
+  c->r[29] -= 8; // real 8B frame; no spills, no stack memory ops in the body (mirror sp only)
 
   const uint8_t state = c->mem_r8(node + 0u);
   if (state == 1u) {
@@ -168,20 +168,30 @@ void TileGridLayer::scrollStep(Core* c) {
     const uint16_t kX = c->mem_r16(node + 0x2Cu);
     int32_t wrapX = (((int32_t)kX + 320) >> 1) - ((dX * (int32_t)kX) >> 12);
     const uint16_t pitchX = c->mem_r16(node + 0x30u);
-    while (wrapX < 0) wrapX += pitchX;
-    while (wrapX >= (int32_t)pitchX) wrapX -= pitchX;
+    while (wrapX < 0) {
+      wrapX += pitchX;
+    }
+    while (wrapX >= (int32_t)pitchX) {
+      wrapX -= pitchX;
+    }
 
     int32_t dY = c->mem_r16s(0x1F8000F0u);
     const uint16_t kY = c->mem_r16(node + 0x2Eu);
     const int32_t h8 = (int32_t)c->mem_r8(node + 17u) << 3;
     int32_t wrapY = ((dY * (int32_t)kY) >> 12) + h8 - 32;
     const uint16_t pitchY = c->mem_r16(node + 0x32u);
-    while (wrapY < 0) wrapY += pitchY;
-    while (wrapY >= (int32_t)pitchY) wrapY -= pitchY;
+    while (wrapY < 0) {
+      wrapY += pitchY;
+    }
+    while (wrapY >= (int32_t)pitchY) {
+      wrapY -= pitchY;
+    }
 
     const uint8_t countdown = (uint8_t)(c->mem_r8(node + 0x38u) - 1u);
     c->mem_w8(node + 0x38u, countdown);
-    if ((int8_t)countdown <= 0) c->mem_w8(node + 3u, 1u);
+    if ((int8_t)countdown <= 0) {
+      c->mem_w8(node + 3u, 1u);
+    }
 
     c->mem_w16(node + 0x28u, (uint16_t)wrapX);
     c->mem_w16(node + 0x2Au, (uint16_t)wrapY);
@@ -189,8 +199,9 @@ void TileGridLayer::scrollStep(Core* c) {
     const uint32_t src = c->mem_r32(0x800ECF84u);
     c->mem_w8(node + 0u, 1u);
     c->mem_w8(node + 3u, 0u);
-    for (int i = 0; i < 6; i++)
+    for (int i = 0; i < 6; i++) {
       c->mem_w16(node + 4u + (uint32_t)i * 2u, c->mem_r16(src + (uint32_t)i * 2u));
+    }
     const uint8_t gridW = c->mem_r8(src + 12u);
     const uint8_t gridH = c->mem_r8(src + 13u);
     c->mem_w8(node + 16u, gridW);
@@ -217,7 +228,7 @@ void TileGridLayer::scrollStep(Core* c) {
 }
 
 // FUN_80115598
-void TileGridLayer::emit(Core* c) {
+void TileGridLayer::emit(Core *c) {
   const uint32_t node = c->r[4];
 
   // Real 80B guest-stack frame, 10 callee-save spills. This leaf's own working state lives in C++
@@ -238,16 +249,25 @@ void TileGridLayer::emit(Core* c) {
   c->mem_w32(c->r[29] + 40u, c->r[16]);
 
   const int W = c->mem_r8(node + 0x10u), H = c->mem_r8(node + 0x11u);
-  if (W == 0 || H == 0) { c->r[29] += 80; return; }   // never true in practice (init always sets both), guards the % below
+  if (W == 0 || H == 0) {
+    c->r[29] += 80;
+    return;
+  } // never true in practice (init always sets both), guards the % below
   const int rowstride = W * 2, mapbytes = rowstride * H;
   const int scrollX = c->mem_r16s(node + 0x28u), scrollY = c->mem_r16s(node + 0x2Au);
   const uint32_t tileTable = c->mem_r32(node + 0x14u);
-  const uint16_t clutBase  = c->mem_r16(node + 0x06u);
-  const uint16_t tpage     = c->mem_r16(node + 0x04u);
+  const uint16_t clutBase = c->mem_r16(node + 0x06u);
+  const uint16_t tpage = c->mem_r16(node + 0x04u);
 
-  const int cx = 160, cy = 120, winw = 0x160;   // guest-exact 4:3 geometry (no wide extension here)
-  int rowtile = ((scrollY - cy) >> 4) % H; if (rowtile < 0) rowtile += H;
-  int coltile = ((scrollX - cx) >> 4) % W; if (coltile < 0) coltile += W;
+  const int cx = 160, cy = 120, winw = 0x160; // guest-exact 4:3 geometry (no wide extension here)
+  int rowtile = ((scrollY - cy) >> 4) % H;
+  if (rowtile < 0) {
+    rowtile += H;
+  }
+  int coltile = ((scrollX - cx) >> 4) % W;
+  if (coltile < 0) {
+    coltile += W;
+  }
   int t2 = rowtile * rowstride;
   const int coloff0 = coltile * 2;
   const int xoff = (int16_t)(cx - 8 - scrollX);
@@ -274,7 +294,7 @@ void TileGridLayer::emit(Core* c) {
       const int X = (int16_t)((t1 & 0xFFF0) + xoff);
       const uint16_t tile = c->mem_r16(tileTable + (uint32_t)(t6 + t0));
       const int u = (tile & 0xFu) << 4;
-      const int v = (int)(tile & 0xF0u) + 8;   // field V-bias (+8) — this leaf is field-only
+      const int v = (int)(tile & 0xF0u) + 8; // field V-bias (+8) — this leaf is field-only
 
       // Field offsets are relative to THE TILE'S OWN 16-byte packet base. In the gen body the
       // data-store base register is a2 = s1 - 16 (0x80115744) while s1 advances FIRST (0x80115788),
@@ -282,27 +302,45 @@ void TileGridLayer::emit(Core* c) {
       // the canonical SPRT layout: [tag][color|code][xy][uv|clut]. A first draft copied the a2-based
       // literals as base-relative and shifted every field +16 (SBS f117 packet_pool divergence).
       const uint32_t thisAddr = pool;
-      c->mem_w32(thisAddr + 4u,  0x7D808080u);
-      c->mem_w8 (thisAddr + 7u,  0x7Cu);
-      c->mem_w8 (thisAddr + 3u,  3u);
-      c->mem_w32(thisAddr + 8u,  (uint32_t)(uint16_t)X | ((uint32_t)(uint16_t)Y << 16));
+      c->mem_w32(thisAddr + 4u, 0x7D808080u);
+      c->mem_w8(thisAddr + 7u, 0x7Cu);
+      c->mem_w8(thisAddr + 3u, 3u);
+      c->mem_w32(thisAddr + 8u, (uint32_t)(uint16_t)X | ((uint32_t)(uint16_t)Y << 16));
       c->mem_w16(thisAddr + 12u, (uint16_t)((u & 0xFF) | ((v & 0xFF) << 8)));
       c->mem_w16(thisAddr + 14u, (uint16_t)(clutBase + ((tile & 0xF00u) >> 2)));
       pool += 16u;
       c->mem_w32(thisAddr + 0u, pool | 0x03000000u);
       last = thisAddr;
 
-      if ((emitted++ & 511) == 0)
-        cfg_logf("tileq", "[tilegrid] emit #%ld xy=(%d,%d) tile=%04X uv=(%d,%d) clut=%04X",
-                 emitted, X, Y, tile, u, v, (unsigned)(clutBase + ((tile & 0xF00u) >> 2)));
+      if ((emitted++ & 511) == 0) {
+        cfg_logf("tileq",
+                 "[tilegrid] emit #%ld xy=(%d,%d) tile=%04X uv=(%d,%d) clut=%04X",
+                 emitted,
+                 X,
+                 Y,
+                 tile,
+                 u,
+                 v,
+                 (unsigned)(clutBase + ((tile & 0xF00u) >> 2)));
+      }
 
-      t0 += 2; if (t0 >= rowstride) t0 = 0;
+      t0 += 2;
+      if (t0 >= rowstride) {
+        t0 = 0;
+      }
       t1 += 16;
-      if (!((int16_t)t1 < t5)) break;
+      if (!((int16_t)t1 < t5)) {
+        break;
+      }
     }
-    t2 += rowstride; if ((int16_t)t2 >= mapbytes) t2 -= mapbytes;
+    t2 += rowstride;
+    if ((int16_t)t2 >= mapbytes) {
+      t2 -= mapbytes;
+    }
     t8 += 16;
-    if (!((int16_t)t8 < outer_bound)) break;
+    if (!((int16_t)t8 < outer_bound)) {
+      break;
+    }
   }
 
   // Patch the last tile's tag: keep the length byte, splice in the pre-existing OT[0x7FF] head.
@@ -313,8 +351,11 @@ void TileGridLayer::emit(Core* c) {
   // Trailing DR_TPAGE-reset header packet (func_80083DE0, already RE'd — wide_re_libgpu_leaves.cpp;
   // unowned/substrate, invoked via rec_dispatch exactly like Font::glyphEmit's own tail call).
   const uint32_t header = pool;
-  c->r[4] = header; c->r[5] = 0u; c->r[6] = 0u; c->r[7] = tpage;   // r7 unused by the callee (alias only)
-  c->mem_w32(c->r[29] + 16u, 0u);                                  // 5th arg (stack): texWinSrc = 0
+  c->r[4] = header;
+  c->r[5] = 0u;
+  c->r[6] = 0u;
+  c->r[7] = tpage;                // r7 unused by the callee (alias only)
+  c->mem_w32(c->r[29] + 16u, 0u); // 5th arg (stack): texWinSrc = 0
   rec_dispatch(c, 0x80083DE0u);
   c->mem_w32(header + 0u, first | 0x02000000u);
   c->mem_w32(otBase + kOtBucketBg, header);
@@ -335,10 +376,10 @@ void TileGridLayer::emit(Core* c) {
   c->r[29] += 80;
 }
 
-void TileGridLayer::registerOverrides(Game*) {
-  extern void ov_a00_gen_8011534C(Core*);
-  extern void ov_a00_gen_80115598(Core*);
+void TileGridLayer::registerOverrides(Game *) {
+  extern void ov_a00_gen_8011534C(Core *);
+  extern void ov_a00_gen_80115598(Core *);
   extern void engine_set_override_a00(uint32_t, OverrideFn, OverrideFn);
   engine_set_override_a00(0x8011534Cu, &TileGridLayer::scrollStep, ov_a00_gen_8011534C);
-  engine_set_override_a00(0x80115598u, &TileGridLayer::emit,       ov_a00_gen_80115598);
+  engine_set_override_a00(0x80115598u, &TileGridLayer::emit, ov_a00_gen_80115598);
 }

@@ -28,15 +28,15 @@
 #include "mesh_quads.h"
 #include "core.h"
 #include "game.h"
+#include "proj_params.h"
 #include "render.h"
 #include "render_queue.h"
-#include "proj_params.h"
 
 namespace {
-constexpr uint32_t kTrigLut   = 0x800A6490u;   // word = cos<<16 | sin, 4096 entries
+constexpr uint32_t kTrigLut = 0x800A6490u; // word = cos<<16 | sin, 4096 entries
 constexpr uint32_t kRecStride = 36u;
-constexpr uint32_t kRecMax    = 512u;          // runaway guard; the guest's terminator is word1 bit31
-constexpr uint32_t kSemiBit   = 0x40000000u;
+constexpr uint32_t kRecMax = 512u; // runaway guard; the guest's terminator is word1 bit31
+constexpr uint32_t kSemiBit = 0x40000000u;
 
 // ── the writer's ordering-table arithmetic, in the game's own constants ────────────────────────────
 // AVSZ4 forms the quad's ordering key as `(ZSF4 * (sz0+sz1+sz2+sz3)) >> 12`, and the game's own
@@ -44,11 +44,11 @@ constexpr uint32_t kSemiBit   = 0x40000000u;
 // makes ZSF4 exactly 256 — so the key is the MEAN of the four view depths divided by four, and one
 // unit of the caller's sort bias is therefore FOUR units of view depth. That factor is derived from
 // the game's authored constant, not read back out of a GTE control register.
-constexpr int32_t kZsf4          = 256;
+constexpr int32_t kZsf4 = 256;
 constexpr int32_t kViewPerOtUnit = 4;
 // The writer's own near/far reject: a key outside [kBucketMin, kBucketMin+kBucketSpan) is never linked
 // into the ordering table, so the quad is never drawn.
-constexpr int32_t kBucketMin  = 4;
+constexpr int32_t kBucketMin = 4;
 constexpr int32_t kBucketSpan = 2044;
 
 // The writer's bucket compression, transcribed from gen_func_80027768 including its behaviour on a
@@ -59,7 +59,7 @@ int32_t otBucketOf(int32_t key) {
   return (key >> (shift & 31)) + (shift << 9);
 }
 
-int16_t gpf(int a, int b) {                    // the GPF product-and-clamp the rotmat leaf uses
+int16_t gpf(int a, int b) { // the GPF product-and-clamp the rotmat leaf uses
   int32_t v = ((int32_t)a * b) >> 12;
   return (int16_t)(v < -32768 ? -32768 : v > 32767 ? 32767 : v);
 }
@@ -69,75 +69,124 @@ int16_t gpf(int a, int b) {                    // the GPF product-and-clamp the 
 unsigned char depthCue(int colour, int32_t farColour, int32_t ir0) {
   const int32_t mac = colour << 16;
   int32_t ir = ((farColour << 12) - mac) >> 12;
-  if (ir < -32768) ir = -32768; else if (ir > 32767) ir = 32767;
+  if (ir < -32768) {
+    ir = -32768;
+  } else if (ir > 32767) {
+    ir = 32767;
+  }
   int32_t out = ((ir * ir0 + mac) >> 12) / 16;
-  if (out < 0) out = 0; else if (out > 255) out = 255;
+  if (out < 0) {
+    out = 0;
+  } else if (out > 255) {
+    out = 255;
+  }
   return (unsigned char)out;
 }
-}  // namespace
+} // namespace
 
-void MeshQuads::trig(Core* c, int32_t angle, int* sinOut, int* cosOut) {
+void MeshQuads::trig(Core *c, int32_t angle, int *sinOut, int *cosOut) {
   const int32_t sign = angle >> 31;
   const uint32_t absa = (uint32_t)((angle + sign) ^ sign);
   const uint32_t word = c->mem_r32(kTrigLut + ((absa << 2) & 0x3FFCu));
   *cosOut = (int)((int32_t)word >> 16);
-  uint32_t at = (word << 16); at = (at + (uint32_t)sign) ^ (uint32_t)sign;   // sin is odd in the angle
+  uint32_t at = (word << 16);
+  at = (at + (uint32_t)sign) ^ (uint32_t)sign; // sin is odd in the angle
   *sinOut = (int)(int16_t)(at >> 16);
 }
 
-void MeshQuads::rotmat(Core* c, int16_t ax, int16_t ay, int16_t az, int32_t M[3][3]) {
+void MeshQuads::rotmat(Core *c, int16_t ax, int16_t ay, int16_t az, int32_t M[3][3]) {
   int sx, cx, sy, cy, sz, cz;
-  trig(c, ax, &sx, &cx); trig(c, ay, &sy, &cy); trig(c, az, &sz, &cz);
+  trig(c, ax, &sx, &cx);
+  trig(c, ay, &sy, &cy);
+  trig(c, az, &sz, &cz);
   const int16_t cxsy = gpf(cx, sy), cxsz = gpf(cx, sz), cxcz = gpf(cx, cz);
   const int16_t sxsy = gpf(sx, sy), sxsz = gpf(sx, sz), sxcz = gpf(sx, cz);
   const int16_t czcy = gpf(cz, cy), czSxsy = gpf(cz, sxsy), czCxsy = gpf(cz, cxsy);
   const int16_t szcy = gpf(sz, cy), szSxsy = gpf(sz, sxsy), szCxsy = gpf(sz, cxsy);
   const int16_t cycx = (int16_t)(((int32_t)cy * cx) >> 12), cysx = (int16_t)(((int32_t)cy * sx) >> 12);
-  M[0][0] = czcy;                       M[0][1] = -szcy;                 M[0][2] = sy;
-  M[1][0] = (int16_t)(czSxsy + cxsz);   M[1][1] = (int16_t)(cxcz - szSxsy); M[1][2] = (int16_t)-cysx;
-  M[2][0] = (int16_t)(sxsz - czCxsy);   M[2][1] = (int16_t)(sxcz + szCxsy); M[2][2] = cycx;
+  M[0][0] = czcy;
+  M[0][1] = -szcy;
+  M[0][2] = sy;
+  M[1][0] = (int16_t)(czSxsy + cxsz);
+  M[1][1] = (int16_t)(cxcz - szSxsy);
+  M[1][2] = (int16_t)-cysx;
+  M[2][0] = (int16_t)(sxsz - czCxsy);
+  M[2][1] = (int16_t)(sxcz + szCxsy);
+  M[2][2] = cycx;
 }
 
-void MeshQuads::rotY(Core* c, int16_t angle, int32_t M[3][3]) {
-  int s, co; trig(c, angle, &s, &co); s = -s;             // the rows-0/2 variant flips the sin sign
-  M[0][0] = co; M[0][1] = 0;    M[0][2] = -s;
-  M[1][0] = 0;  M[1][1] = 4096; M[1][2] = 0;
-  M[2][0] = s;  M[2][1] = 0;    M[2][2] = co;
+void MeshQuads::rotY(Core *c, int16_t angle, int32_t M[3][3]) {
+  int s, co;
+  trig(c, angle, &s, &co);
+  s = -s; // the rows-0/2 variant flips the sin sign
+  M[0][0] = co;
+  M[0][1] = 0;
+  M[0][2] = -s;
+  M[1][0] = 0;
+  M[1][1] = 4096;
+  M[1][2] = 0;
+  M[2][0] = s;
+  M[2][1] = 0;
+  M[2][2] = co;
 }
 
-void MeshQuads::rotZ(Core* c, int16_t angle, int32_t M[3][3]) {
-  int s, co; trig(c, angle, &s, &co);
-  M[0][0] = co; M[0][1] = -s; M[0][2] = 0;
-  M[1][0] = s;  M[1][1] = co; M[1][2] = 0;
-  M[2][0] = 0;  M[2][1] = 0;  M[2][2] = 4096;
+void MeshQuads::rotZ(Core *c, int16_t angle, int32_t M[3][3]) {
+  int s, co;
+  trig(c, angle, &s, &co);
+  M[0][0] = co;
+  M[0][1] = -s;
+  M[0][2] = 0;
+  M[1][0] = s;
+  M[1][1] = co;
+  M[1][2] = 0;
+  M[2][0] = 0;
+  M[2][1] = 0;
+  M[2][2] = 4096;
 }
 
-void MeshQuads::fromGuest(Core* c, uint32_t matPtr, int32_t M[3][3]) {
-  for (int i = 0; i < 3; i++)
-    for (int j = 0; j < 3; j++) M[i][j] = c->mem_r16s(matPtr + (uint32_t)(i * 3 + j) * 2u);
-}
-
-void MeshQuads::composeScaled(const int32_t A[3][3], const int32_t B[3][3], const int32_t colScale[3],
-                              float out[3][3]) {
-  for (int i = 0; i < 3; i++)
+void MeshQuads::fromGuest(Core *c, uint32_t matPtr, int32_t M[3][3]) {
+  for (int i = 0; i < 3; i++) {
     for (int j = 0; j < 3; j++) {
-      int32_t s = (int32_t)(((int64_t)A[i][0] * B[0][j] + (int64_t)A[i][1] * B[1][j] +
-                             (int64_t)A[i][2] * B[2][j]) >> 12);
-      if (s < -32768) s = -32768; else if (s > 32767) s = 32767;    // the multiply leaf's IR clamp
+      M[i][j] = c->mem_r16s(matPtr + (uint32_t)(i * 3 + j) * 2u);
+    }
+  }
+}
+
+void MeshQuads::composeScaled(const int32_t A[3][3],
+                              const int32_t B[3][3],
+                              const int32_t colScale[3],
+                              float out[3][3]) {
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) {
+      int32_t s =
+          (int32_t)(((int64_t)A[i][0] * B[0][j] + (int64_t)A[i][1] * B[1][j] + (int64_t)A[i][2] * B[2][j]) >> 12);
+      if (s < -32768) {
+        s = -32768;
+      } else if (s > 32767) {
+        s = 32767; // the multiply leaf's IR clamp
+      }
       out[i][j] = (float)((s * colScale[j]) >> 12);
     }
+  }
 }
 
-int Render::meshQuadRecordsEmit(uint32_t mesh, int uBias, const int32_t farColour[3], int32_t ir0,
-                                const MeshOtBias& ot, float* screenBbox, int clutRowBias) {
-  Core* c = mCore;
+int Render::meshQuadRecordsEmit(uint32_t mesh,
+                                int uBias,
+                                const int32_t farColour[3],
+                                int32_t ir0,
+                                const MeshOtBias &ot,
+                                float *screenBbox,
+                                int clutRowBias) {
+  Core *c = mCore;
   int drawn = 0;
   for (uint32_t n = 0, rec = mesh; n < kRecMax; n++, rec += kRecStride) {
     const uint32_t w0 = c->mem_r32(rec + 0u), w1 = c->mem_r32(rec + 4u), w2 = c->mem_r32(rec + 8u);
-    auto sb = [&](uint32_t off) { return (int)(int8_t)c->mem_r8(rec + off) * 256; };
-    const int vx[4] = { sb(28), sb(29), sb(32), sb(33) };
-    const int vy[4] = { sb(30), sb(31), sb(34), sb(35) };
-    const int vz[4] = { sb(15), sb(19), sb(23), sb(27) };
+    auto sb = [&](uint32_t off) {
+      return (int)(int8_t)c->mem_r8(rec + off) * 256;
+    };
+    const int vx[4] = {sb(28), sb(29), sb(32), sb(33)};
+    const int vy[4] = {sb(30), sb(31), sb(34), sb(35)};
+    const int vz[4] = {sb(15), sb(19), sb(23), sb(27)};
 
     ProjVtx p[4];
     int32_t depthSum = 0;
@@ -152,33 +201,44 @@ int Render::meshQuadRecordsEmit(uint32_t mesh, int uBias, const int32_t farColou
     float depthShift = 0.0f;
     if (ot.known) {
       int32_t avg = (kZsf4 * depthSum) >> 12;
-      if (avg > 0xFFFF) avg = 0xFFFF;                                  // AVSZ4's own OTZ clamp
+      if (avg > 0xFFFF) {
+        avg = 0xFFFF; // AVSZ4's own OTZ clamp
+      }
       const int32_t bucket = otBucketOf(avg + ot.bias);
-      if ((uint32_t)(bucket - kBucketMin) >= (uint32_t)kBucketSpan) { if (last) break; else continue; }
+      if ((uint32_t)(bucket - kBucketMin) >= (uint32_t)kBucketSpan) {
+        if (last) {
+          break;
+        } else {
+          continue;
+        }
+      }
       depthShift = (float)(kViewPerOtUnit * ot.bias);
     }
 
     float px[4], py[4], depth[4];
     for (int k = 0; k < 4; k++) {
-      px[k] = p[k].px; py[k] = p[k].py;
+      px[k] = p[k].px;
+      py[k] = p[k].py;
       float pz = p[k].pz + depthShift;
       const float nearPz = proj_near_pz();
-      if (pz < nearPz) pz = nearPz;
+      if (pz < nearPz) {
+        pz = nearPz;
+      }
       depth[k] = proj_pz_to_ord(pz);
     }
     unsigned char r[4], g[4], b[4];
     for (int k = 0; k < 4; k++) {
       const uint32_t cw = c->mem_r32(rec + 12u + (uint32_t)k * 4u);
-      r[k] = depthCue((int)(cw & 0xFFu),         farColour[0], ir0);
-      g[k] = depthCue((int)((cw >> 8) & 0xFFu),  farColour[1], ir0);
+      r[k] = depthCue((int)(cw & 0xFFu), farColour[0], ir0);
+      g[k] = depthCue((int)((cw >> 8) & 0xFFu), farColour[1], ir0);
       b[k] = depthCue((int)((cw >> 16) & 0xFFu), farColour[2], ir0);
     }
-    const int u[4] = { (int)(uint8_t)((w0 & 0xFFu)         + (unsigned)uBias),
-                       (int)(uint8_t)((w1 & 0xFFu)         + (unsigned)uBias),
-                       (int)(uint8_t)((w2 & 0xFFu)         + (unsigned)uBias),
-                       (int)(uint8_t)(((w2 >> 16) & 0xFFu) + (unsigned)uBias) };
-    const int v[4] = { (int)((w0 >> 8) & 0xFFu), (int)((w1 >> 8) & 0xFFu),
-                       (int)((w2 >> 8) & 0xFFu), (int)((w2 >> 24) & 0xFFu) };
+    const int u[4] = {(int)(uint8_t)((w0 & 0xFFu) + (unsigned)uBias),
+                      (int)(uint8_t)((w1 & 0xFFu) + (unsigned)uBias),
+                      (int)(uint8_t)((w2 & 0xFFu) + (unsigned)uBias),
+                      (int)(uint8_t)(((w2 >> 16) & 0xFFu) + (unsigned)uBias)};
+    const int v[4] = {
+        (int)((w0 >> 8) & 0xFFu), (int)((w1 >> 8) & 0xFFu), (int)((w2 >> 8) & 0xFFu), (int)((w2 >> 24) & 0xFFu)};
     // CLUT, plus the writer's a1 CLUT-ROW bias. The guest adds `a1 << 22` to word0 BEFORE building the
     // packet (gen_func_80027768; see docs/re/impact-plume-288ac.md §3-4), and bit 22 is bit 6 of this
     // `>> 16` field — the CLUT's low 6 bits are its X and the bits above are its Y, so a1 selects a
@@ -186,18 +246,29 @@ int Render::meshQuadRecordsEmit(uint32_t mesh, int uBias, const int32_t farColou
     // shift is exact rather than an approximation: (w0 + (a1<<22)) >> 16 == (w0 >> 16) + (a1 << 6).
     // clutRowBias defaults to 0, at which this is bit-identical to reading the record's own CLUT.
     const uint16_t clut = (uint16_t)((w0 >> 16) + ((unsigned)clutRowBias << 6));
-    const uint16_t tp   = (uint16_t)((w1 >> 16) & 0x7Fu);
+    const uint16_t tp = (uint16_t)((w1 >> 16) & 0x7Fu);
     const int semi = (w1 & kSemiBit) ? 1 : 0;
     c->game->activeRq().drawWorldQuad(c, px, py, depth, u, v, r, g, b, tp, clut, semi, nullptr);
-    if (screenBbox)
+    if (screenBbox) {
       for (int k = 0; k < 4; k++) {
-        if (px[k] < screenBbox[0]) screenBbox[0] = px[k];
-        if (py[k] < screenBbox[1]) screenBbox[1] = py[k];
-        if (px[k] > screenBbox[2]) screenBbox[2] = px[k];
-        if (py[k] > screenBbox[3]) screenBbox[3] = py[k];
+        if (px[k] < screenBbox[0]) {
+          screenBbox[0] = px[k];
+        }
+        if (py[k] < screenBbox[1]) {
+          screenBbox[1] = py[k];
+        }
+        if (px[k] > screenBbox[2]) {
+          screenBbox[2] = px[k];
+        }
+        if (py[k] > screenBbox[3]) {
+          screenBbox[3] = py[k];
+        }
       }
+    }
     drawn++;
-    if (last) break;                                     // the terminal record IS drawn, then stop
+    if (last) {
+      break; // the terminal record IS drawn, then stop
+    }
   }
   return drawn;
 }

@@ -70,88 +70,91 @@
 // is dead below sp on return — so the gate excludes the [sp-0x800, sp) stack window (far above all game
 // data). A 0-diff over many frames is the content-interface gate. See docs/port-progress.md.
 
-#include "core.h"
 #include "actor.h"
 #include "cfg.h"
+#include "core.h"
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
-void rec_super_call(Core*, uint32_t);   // interpret the original PSX body (super-call / A/B reference)
-void rec_dispatch(Core*, uint32_t);     // hybrid call: recomp body if emitted, else interpret (honors overrides)
+void rec_super_call(Core *, uint32_t); // interpret the original PSX body (super-call / A/B reference)
+void rec_dispatch(Core *, uint32_t);   // hybrid call: recomp body if emitted, else interpret (honors overrides)
 
 namespace {
 
-constexpr uint32_t SM_FN        = 0x80024448u;  // FUN_80024448 — the actor move-and-collide SM step
-constexpr uint32_t FN_PROBE     = 0x80046A44u;  // grid move-collide probe                         [leaf]
-constexpr uint32_t FN_SLIDEFIN  = 0x80048654u;  // slide-finalize (atan2/sqrt, writes 0x1A0/0x1A2) [leaf]
-constexpr uint32_t FN_SUBSTEP   = 0x80024AF0u;  // s1==2 floor sub-step (rsin/rcos)                [leaf]
+constexpr uint32_t SM_FN = 0x80024448u;       // FUN_80024448 — the actor move-and-collide SM step
+constexpr uint32_t FN_PROBE = 0x80046A44u;    // grid move-collide probe                         [leaf]
+constexpr uint32_t FN_SLIDEFIN = 0x80048654u; // slide-finalize (atan2/sqrt, writes 0x1A0/0x1A2) [leaf]
+constexpr uint32_t FN_SUBSTEP = 0x80024AF0u;  // s1==2 floor sub-step (rsin/rcos)                [leaf]
 
-constexpr uint32_t SC_TAG_A6 = 0x1F8001A6u;     // probe result tag (floor-type bits at >>11)
-constexpr uint32_t SC_HEAD_A0= 0x1F8001A0u;     // resolved heading (written by FN_SLIDEFIN)
-constexpr uint32_t SC_W84    = 0x1F800084u;     // scratch word cleared on the HIT path
+constexpr uint32_t SC_TAG_A6 = 0x1F8001A6u;  // probe result tag (floor-type bits at >>11)
+constexpr uint32_t SC_HEAD_A0 = 0x1F8001A0u; // resolved heading (written by FN_SLIDEFIN)
+constexpr uint32_t SC_W84 = 0x1F800084u;     // scratch word cleared on the HIT path
 
 enum { R_A0 = 4, R_A1 = 5, R_A2 = 6, R_A3 = 7, R_V0 = 2 };
 
-}  // namespace
+} // namespace
 
 // ------------------------------------------------------------------------------------------------
 // Actor::sm24448(c) — the PC-native body. a0 = obj. Returns its result tag in v0 (0 on miss, 1 on
 // hit), exactly as the PSX body's epilogue does.
 // ------------------------------------------------------------------------------------------------
-void Actor::sm24448(Core* c) {
+void Actor::sm24448(Core *c) {
   const uint32_t obj = c->r[R_A0];
 
   // --- entry: pick maxiter from +0x17E, read velocity, clear floor-type-out ---
-  int16_t  mode  = c->mem_r16s(obj + 0x17E);          // lh +0x17E
-  uint32_t maxit = (mode < 0) ? 0x25u : 0x4Au;                // bltz -> 37 else 74
-  uint16_t yvel  = c->mem_r16(obj + 0x68);                    // lhu +0x68 (Y-vel)
-  int16_t  xvel  = c->mem_r16s(obj + 0x66);           // lh  +0x66 (X-vel = speed)
-  c->mem_w8(obj + 0x17D, 0);                                  // sb zero, +0x17D
-  int32_t  ystep = (int32_t)(int16_t)(uint16_t)(-(int32_t)yvel); // negate, sign-extend 16
+  int16_t mode = c->mem_r16s(obj + 0x17E);                      // lh +0x17E
+  uint32_t maxit = (mode < 0) ? 0x25u : 0x4Au;                  // bltz -> 37 else 74
+  uint16_t yvel = c->mem_r16(obj + 0x68);                       // lhu +0x68 (Y-vel)
+  int16_t xvel = c->mem_r16s(obj + 0x66);                       // lh  +0x66 (X-vel = speed)
+  c->mem_w8(obj + 0x17D, 0);                                    // sb zero, +0x17D
+  int32_t ystep = (int32_t)(int16_t)(uint16_t)(-(int32_t)yvel); // negate, sign-extend 16
 
   // --- the grid move-collide PROBE (leaf, dispatched) ---
   c->r[R_A0] = obj;
-  c->r[R_A1] = (uint32_t)(int32_t)xvel;                       // a1 = X-vel (sign-extended)
-  c->r[R_A2] = (uint32_t)ystep;                               // a2 = -Y-vel (sign-extended)
-  c->r[R_A3] = maxit;                                         // a3 = maxiter
+  c->r[R_A1] = (uint32_t)(int32_t)xvel; // a1 = X-vel (sign-extended)
+  c->r[R_A2] = (uint32_t)ystep;         // a2 = -Y-vel (sign-extended)
+  c->r[R_A3] = maxit;                   // a3 = maxiter
   rec_dispatch(c, FN_PROBE);
-  uint32_t s1 = c->r[R_V0];                                   // probe result tag
+  uint32_t s1 = c->r[R_V0]; // probe result tag
 
-  if (s1 == 0) { c->r[R_V0] = 0; return; }                   // 0x80024530: miss -> return 0
+  if (s1 == 0) {
+    c->r[R_V0] = 0;
+    return;
+  } // 0x80024530: miss -> return 0
 
   // --- HIT: floor-type byte from the result tag, then slide-finalize ---
   uint32_t a6 = c->mem_r16(SC_TAG_A6);
-  c->mem_w8(obj + 0x17D, (uint8_t)((a6 >> 11) & 3));          // sb (tag>>11)&3, +0x17D (delay-slot store)
+  c->mem_w8(obj + 0x17D, (uint8_t)((a6 >> 11) & 3)); // sb (tag>>11)&3, +0x17D (delay-slot store)
   c->r[R_A0] = obj;
-  rec_dispatch(c, FN_SLIDEFIN);                              // writes scratch 0x1A0/0x1A2 + obj 0x48/4A/4C
+  rec_dispatch(c, FN_SLIDEFIN); // writes scratch 0x1A0/0x1A2 + obj 0x48/4A/4C
 
   // --- apply the resolved heading -> angle ---
-  uint16_t head = c->mem_r16(SC_HEAD_A0);                     // lhu 0x1F8001A0
-  uint8_t  flip = c->mem_r8(obj + 0x147);                     // lbu +0x147
-  c->mem_w16(obj + 0x140, head);                              // sh head, +0x140 (always)
-  if (flip != 0)
-    c->mem_w16(obj + 0x56, (uint16_t)((head - 0x800u) & 0xFFFu));  // flipped angle
-  else
-    c->mem_w16(obj + 0x56, head);                                  // raw heading
+  uint16_t head = c->mem_r16(SC_HEAD_A0); // lhu 0x1F8001A0
+  uint8_t flip = c->mem_r8(obj + 0x147);  // lbu +0x147
+  c->mem_w16(obj + 0x140, head);          // sh head, +0x140 (always)
+  if (flip != 0) {
+    c->mem_w16(obj + 0x56, (uint16_t)((head - 0x800u) & 0xFFFu)); // flipped angle
+  } else {
+    c->mem_w16(obj + 0x56, head); // raw heading
+  }
 
   // --- result-tag tail: state-out byte (+0x164) + the s1==2 floor sub-step ---
   if (s1 == 2) {
-    uint8_t ft = c->mem_r8(obj + 0x17D);                     // lbu +0x17D (floor-type)
+    uint8_t ft = c->mem_r8(obj + 0x17D); // lbu +0x17D (floor-type)
     if (ft & 1) {
-      c->mem_w8(obj + 0x164, 7);                             // sb 7, +0x164
+      c->mem_w8(obj + 0x164, 7); // sb 7, +0x164
       c->r[R_A0] = obj;
-      rec_dispatch(c, FN_SUBSTEP);                           // FUN_80024AF0(obj) [leaf]
+      rec_dispatch(c, FN_SUBSTEP); // FUN_80024AF0(obj) [leaf]
     } else {
-      c->mem_w8(obj + 0x164, 4);                             // sb 4, +0x164
+      c->mem_w8(obj + 0x164, 4); // sb 4, +0x164
     }
   } else {
-    c->mem_w8(obj + 0x164, 4);                               // sb 4, +0x164 (default)
+    c->mem_w8(obj + 0x164, 4); // sb 4, +0x164 (default)
   }
 
-  c->mem_w8(obj + 0x15C, (uint8_t)s1);                        // sb s1, +0x15C
-  c->mem_w32(SC_W84, 0);                                     // sw zero, 0x1F800084
-  c->r[R_V0] = 1;                                            // return 1 on the HIT path
+  c->mem_w8(obj + 0x15C, (uint8_t)s1); // sb s1, +0x15C
+  c->mem_w32(SC_W84, 0);               // sw zero, 0x1F800084
+  c->r[R_V0] = 1;                      // return 1 on the HIT path
 }
-

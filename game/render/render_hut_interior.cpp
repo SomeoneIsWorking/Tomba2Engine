@@ -27,18 +27,18 @@
 // writes ONLY the host render queue. DisplayPassGuard aborts on any guest write. No GTE compose, no
 // gte_op, no OT/GP0 packet reading — the picture is rebuilt from object data with real depth.
 #include "core.h"
-#include "game.h"        // c->game->fps60 — tier1 eligibility flag
-#include "game_ctx.h"    // rend(c)
+#include "game.h"     // c->game->fps60 — tier1 eligibility flag
+#include "game_ctx.h" // rend(c)
 #include "render.h"
 
 // #4 HUT/DOOR INTERIOR (task-sm[0x4c]==3): OBJECTS-ONLY reduced world. See file banner.
 void Render::renderHutInterior() {
-  mCore->game->fps60.mTier1EligibleCur = true;      // reduced object set is stable per present -> tier1 60fps
-  DisplayPassGuard displayPass(mCore->rsub.mode);   // read-only invariant: aborts on any guest write
+  mCore->game->fps60.mTier1EligibleCur = true;    // reduced object set is stable per present -> tier1 60fps
+  DisplayPassGuard displayPass(mCore->rsub.mode); // read-only invariant: aborts on any guest write
   // Room 0x800FD850 + NPCs/props (HEADS[0..2]) + Tomba (G block) via perObjFlush -> gt3gt4, real per-pixel
   // depth, live interior camera. Deliberately NO terrainRenderAll / fieldEntityRender(0x800F2418) /
   // backdropRender — those are the VILLAGE-exterior data; drawing them through the interior camera IS the
   // exterior-leak bug this reduced pass exists to avoid.
   fieldObjectsRender();
-  cineBarsRender();     // door-transition letterbox (emits nothing when no cutscene bars are active)
+  cineBarsRender(); // door-transition letterbox (emits nothing when no cutscene bars are active)
 }

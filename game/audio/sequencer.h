@@ -174,7 +174,7 @@ class Core;
 
 class Sequencer {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // frameTick(): 0x800909C0 FUN_800909c0 — per-VBlank libsnd tick wrapper. Faithful to
   //   gen_func_800909C0 (generated/shard_7.c:14127): if the user-cb slot (0x800AC430) is
@@ -187,30 +187,30 @@ public:
   void seqChannelDispatch();
 
   // --- leaves (see header comment for RE detail / confidence) ---
-  void channelPitchSelectDispatch();  // 0x800910F0 — HIGH confidence, thin wrapper
-  void channelReleaseClear();         // 0x80091050 — HIGH confidence
-  void channelStopFlagSet();          // 0x80091910 — HIGH confidence, true leaf
+  void channelPitchSelectDispatch(); // 0x800910F0 — HIGH confidence, thin wrapper
+  void channelReleaseClear();        // 0x80091050 — HIGH confidence
+  void channelStopFlagSet();         // 0x80091910 — HIGH confidence, true leaf
 
   // --- 2026-07-10 wave: the remaining bit4/5/6/7/2 leaves + their own small callees ---
-  void channelPitchSlideTick();       // 0x80090E40 — MEDIUM confidence, portamento ramp (bit4/5)
-  void channelEnvelopeRampTick();     // 0x80092080 — MEDIUM confidence, ADSR ramp (bit6/7), true leaf
-  void channelNoteInit();             // 0x80091970 — MEDIUM confidence, note retrigger (bit2)
-  void channelVolumeSnapshot();       // 0x80095A9C — HIGH confidence, true leaf
-  void channelKeyEventScan();         // 0x80095B90 — LOW-MEDIUM confidence, true-leaf-ish (1 call)
-  void channelKeyRegisterMerge();     // 0x80094B50 — MEDIUM confidence, true leaf
+  void channelPitchSlideTick();   // 0x80090E40 — MEDIUM confidence, portamento ramp (bit4/5)
+  void channelEnvelopeRampTick(); // 0x80092080 — MEDIUM confidence, ADSR ramp (bit6/7), true leaf
+  void channelNoteInit();         // 0x80091970 — MEDIUM confidence, note retrigger (bit2)
+  void channelVolumeSnapshot();   // 0x80095A9C — HIGH confidence, true leaf
+  void channelKeyEventScan();     // 0x80095B90 — LOW-MEDIUM confidence, true-leaf-ish (1 call)
+  void channelKeyRegisterMerge(); // 0x80094B50 — MEDIUM confidence, true leaf
 
   // --- 2026-07-10 (2nd wave): the SPU voice-register write leaf channelPitchSlideTick() still
   //     rec_dispatch()es to, plus its own callee. See header comment for RE detail / confidence.
-  void channelVoiceRegisterWrite();   // 0x80095530 — LOW-MEDIUM confidence, ~320-line KON/pan loop
-  void channelVoiceSelectPrep();      // 0x800962B0 — LOW-MEDIUM confidence, true leaf
+  void channelVoiceRegisterWrite(); // 0x80095530 — LOW-MEDIUM confidence, ~320-line KON/pan loop
+  void channelVoiceSelectPrep();    // 0x800962B0 — LOW-MEDIUM confidence, true leaf
 
   // --- 2026-07-17 wave: six further per-channel leaves (see sequencer.cpp for RE detail) ---
-  void channelStreamAccumulate();     // 0x80090160 — true leaf, VLQ stream read into +136
-  void channelVoiceKeyOn();           // 0x80091810 — true leaf, key-on flag/status init
-  void channelToneRecordCopy();       // 0x80092310 — frame (sp-32), 6B+u16 voice-record copy
-  void channelToneRecordCopyWide();   // 0x80092420 — frame (sp-32), 14B+4xu16 voice-record copy
-  void voiceAllocateOrSteal();        // 0x80094150 — true leaf, LRU voice-steal alloc
-  void channelNotePeriodCompute();    // 0x80094474 — true leaf, note->SPU-period compute
+  void channelStreamAccumulate();   // 0x80090160 — true leaf, VLQ stream read into +136
+  void channelVoiceKeyOn();         // 0x80091810 — true leaf, key-on flag/status init
+  void channelToneRecordCopy();     // 0x80092310 — frame (sp-32), 6B+u16 voice-record copy
+  void channelToneRecordCopyWide(); // 0x80092420 — frame (sp-32), 14B+4xu16 voice-record copy
+  void voiceAllocateOrSteal();      // 0x80094150 — true leaf, LRU voice-steal alloc
+  void channelNotePeriodCompute();  // 0x80094474 — true leaf, note->SPU-period compute
 
   // 2026-07-10 wiring pass (frontier): registers every method above into the process-global
   // g_override[] table via engine_set_override_main (runtime/recomp/override_registry.cpp) —

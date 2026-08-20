@@ -26,127 +26,152 @@
 //   0x800708B4  = sound-command mode (used by FUN_8013AFD8)
 
 #include "core.h"
-#include "game_ctx.h"
 #include "core/engine.h"
+#include "game_ctx.h"
+#include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 #include "render/screen_fade.h"
 #include <cstdint>
-#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 
-extern "C" void rec_dispatch(Core* c, uint32_t addr);
+extern "C" void rec_dispatch(Core *c, uint32_t addr);
 
 namespace {
 
 // External guest globals these fns touch.
-constexpr uint32_t G_BFA22   = 0x800BFA22u;   // set to 0x2B in FUN_80139728 state 4
-constexpr uint32_t G_BE0E4   = 0x800BE0E4u;   // gate byte (bit 7) in FUN_8013B29C
-constexpr uint32_t G_BF8D5   = 0x800BF8D5u;   // gate byte for FUN_8013AEF0
-constexpr uint32_t G_E806C   = 0x800E806Cu;   // set to 7 in state 5, to 2 in FUN_8013B074
-constexpr uint32_t G_E8076   = 0x800E8076u;   // zeroed in FUN_8013B074
-constexpr uint32_t G_E8078   = 0x800E8078u;   // set to 0x800 in FUN_8013B074
-constexpr uint32_t G_E8074   = 0x800E8074u;   // computed in FUN_8013B074
-constexpr uint32_t G_1003F8  = 0x801003F8u;   // read as u32 in FUN_8013B074 (multiplied by 7)
-constexpr uint32_t DAT_8014994C = 0x8014994Cu; // arg to FUN_8006cbd0 (geomblk / cmd list)
-constexpr uint32_t OBJ_A_800E8008 = 0x800E8008u;   // fixed obj arg to FUN_8006cbd0
-constexpr uint32_t SPAD_1F800214  = 0x1F800214u;   // scratchpad ptr slot read by FUN_8013AFD8
+constexpr uint32_t G_BFA22 = 0x800BFA22u;        // set to 0x2B in FUN_80139728 state 4
+constexpr uint32_t G_BE0E4 = 0x800BE0E4u;        // gate byte (bit 7) in FUN_8013B29C
+constexpr uint32_t G_BF8D5 = 0x800BF8D5u;        // gate byte for FUN_8013AEF0
+constexpr uint32_t G_E806C = 0x800E806Cu;        // set to 7 in state 5, to 2 in FUN_8013B074
+constexpr uint32_t G_E8076 = 0x800E8076u;        // zeroed in FUN_8013B074
+constexpr uint32_t G_E8078 = 0x800E8078u;        // set to 0x800 in FUN_8013B074
+constexpr uint32_t G_E8074 = 0x800E8074u;        // computed in FUN_8013B074
+constexpr uint32_t G_1003F8 = 0x801003F8u;       // read as u32 in FUN_8013B074 (multiplied by 7)
+constexpr uint32_t DAT_8014994C = 0x8014994Cu;   // arg to FUN_8006cbd0 (geomblk / cmd list)
+constexpr uint32_t OBJ_A_800E8008 = 0x800E8008u; // fixed obj arg to FUN_8006cbd0
+constexpr uint32_t SPAD_1F800214 = 0x1F800214u;  // scratchpad ptr slot read by FUN_8013AFD8
 
 // Object field offsets used by these fns.
-constexpr uint32_t O_LEVEL_40  = 0x40u;    // fade level (u16)
-constexpr uint32_t O_TIMER_42  = 0x42u;    // countdown timer (u16)
-constexpr uint32_t O_STATE_78  = 0x78u;    // sub-state (u8) — the state-machine variable
-constexpr uint32_t O_D0        = 0xD0u;    // parent-obj ptr (FUN_8013B274 SFX cue)
+constexpr uint32_t O_LEVEL_40 = 0x40u; // fade level (u16)
+constexpr uint32_t O_TIMER_42 = 0x42u; // countdown timer (u16)
+constexpr uint32_t O_STATE_78 = 0x78u; // sub-state (u8) — the state-machine variable
+constexpr uint32_t O_D0 = 0xD0u;       // parent-obj ptr (FUN_8013B274 SFX cue)
 
-inline uint32_t grayRGB(uint32_t u) { return (u << 16) | (u << 8) | u; }
+inline uint32_t grayRGB(uint32_t u) {
+  return (u << 16) | (u << 8) | u;
+}
 
 // Set the ret code v0 the way the guest fn's `jr ra` would leave it — read back by callFnptr.
-inline void setV0(Core* c, uint32_t v) { c->r[2] = v; }
+inline void setV0(Core *c, uint32_t v) {
+  c->r[2] = v;
+}
 
 // Small leaf-call helpers (substrate leaves kept reachable).
-inline void callObj2(Core* c, uint32_t a, uint32_t b, uint32_t addr) {
-  c->r[4] = a; c->r[5] = b; rec_dispatch(c, addr);
+inline void callObj2(Core *c, uint32_t a, uint32_t b, uint32_t addr) {
+  c->r[4] = a;
+  c->r[5] = b;
+  rec_dispatch(c, addr);
 }
-inline void callObj3(Core* c, uint32_t a, uint32_t b, uint32_t d, uint32_t addr) {
-  c->r[4] = a; c->r[5] = b; c->r[6] = d; rec_dispatch(c, addr);
+inline void callObj3(Core *c, uint32_t a, uint32_t b, uint32_t d, uint32_t addr) {
+  c->r[4] = a;
+  c->r[5] = b;
+  c->r[6] = d;
+  rec_dispatch(c, addr);
 }
-inline void callObj4(Core* c, uint32_t a, uint32_t b, uint32_t d, uint32_t e, uint32_t addr) {
-  c->r[4] = a; c->r[5] = b; c->r[6] = d; c->r[7] = e; rec_dispatch(c, addr);
+inline void callObj4(Core *c, uint32_t a, uint32_t b, uint32_t d, uint32_t e, uint32_t addr) {
+  c->r[4] = a;
+  c->r[5] = b;
+  c->r[6] = d;
+  c->r[7] = e;
+  rec_dispatch(c, addr);
 }
-inline uint32_t callObj4Ret(Core* c, uint32_t a, uint32_t b, uint32_t d, uint32_t e, uint32_t addr) {
-  callObj4(c, a, b, d, e, addr); return c->r[2];
+inline uint32_t callObj4Ret(Core *c, uint32_t a, uint32_t b, uint32_t d, uint32_t e, uint32_t addr) {
+  callObj4(c, a, b, d, e, addr);
+  return c->r[2];
 }
 
-}  // namespace
+} // namespace
 
 // ── FUN_80139728 — 8-state additive-gray fade with music/spawn trigger ─────────────────────────
 // obj[+0x78] = state; obj[+0x40] = fade level (u16); obj[+0x42] = state-6 countdown timer.
 // Every non-terminal state ends by writing the current gray on ScreenFade (`gray << 16 | << 8 | u`)
 // and returns 0 (pause loop). State 7 returns 1 (advance) when the ramp reaches 0.
 static constexpr GuestFrameSpill kSpills_80139728[2] = {
-  { 16, 16 },
-  { 31 /*ra*/, 20 },
-};   // frame=24, abi_extract --scaffold --guestabi
-void beh_a06_fade_flash_ramp_80139728(Core* c) {
+    {16, 16},
+    {31 /*ra*/, 20},
+}; // frame=24, abi_extract --scaffold --guestabi
+void beh_a06_fade_flash_ramp_80139728(Core *c) {
   GuestFrame<24, 2> frame(c, kSpills_80139728);
   const uint32_t obj = c->r[4];
   const uint8_t state = c->mem_r8(obj + O_STATE_78);
-  bool done = false;   // set true → jump to LAB_80139880 (advance state, then draw+return 0)
+  bool done = false; // set true → jump to LAB_80139880 (advance state, then draw+return 0)
 
   switch (state) {
-    case 0:
-      c->mem_w16(obj + O_LEVEL_40, 0u);
-      c->mem_w8(obj + O_STATE_78, (uint8_t)(state + 1u));
-      [[fallthrough]];
-    case 1:
-    case 3: {
-      const int16_t v = (int16_t)(c->mem_r16(obj + O_LEVEL_40) + 0x40);
-      c->mem_w16(obj + O_LEVEL_40, (uint16_t)v);
-      if (v >= 0x80) done = true;
-      break;
+  case 0:
+    c->mem_w16(obj + O_LEVEL_40, 0u);
+    c->mem_w8(obj + O_STATE_78, (uint8_t)(state + 1u));
+    [[fallthrough]];
+  case 1:
+  case 3: {
+    const int16_t v = (int16_t)(c->mem_r16(obj + O_LEVEL_40) + 0x40);
+    c->mem_w16(obj + O_LEVEL_40, (uint16_t)v);
+    if (v >= 0x80) {
+      done = true;
     }
-    case 2: {
-      const int16_t v = (int16_t)c->mem_r16(obj + O_LEVEL_40);
-      c->mem_w16(obj + O_LEVEL_40, (uint16_t)(v - 0x40));
-      if (v == 0x40) done = true;
-      break;
-    }
-    case 4: {
-      const int16_t v = (int16_t)c->mem_r16(obj + O_LEVEL_40);
-      c->mem_w16(obj + O_LEVEL_40, (uint16_t)(v - 0x40));
-      if (v == 0x40) {
-        c->mem_w8(obj + O_STATE_78, (uint8_t)(state + 1u));
-        c->mem_w8(G_BFA22, 0x2Bu);
-      }
-      break;
-    }
-    case 5: {
-      const int16_t v = (int16_t)(c->mem_r16(obj + O_LEVEL_40) + 0x10);
-      c->mem_w16(obj + O_LEVEL_40, (uint16_t)v);
-      if (v > 0xFF) {
-        c->mem_w16(obj + O_LEVEL_40, 0xFFu);
-        c->mem_w16(obj + O_TIMER_42, 0x1Eu);
-        c->mem_w8(obj + O_STATE_78, (uint8_t)(state + 1u));
-        c->mem_w8(G_E806C, 7u);
-        // FUN_8006CBD0(0x800E8008, &DAT_8014994C) — geomblk / cmd-list attach; keep as substrate.
-        callObj2(c, OBJ_A_800E8008, DAT_8014994C, 0x8006CBD0u);
-      }
-      break;
-    }
-    case 6: {
-      const int16_t v = (int16_t)(c->mem_r16(obj + O_TIMER_42) - 1);
-      c->mem_w16(obj + O_TIMER_42, (uint16_t)v);
-      if (v == -1) done = true;
-      break;
-    }
-    case 7: {
-      const int16_t v = (int16_t)(c->mem_r16(obj + O_LEVEL_40) - 0x10);
-      c->mem_w16(obj + O_LEVEL_40, (uint16_t)v);
-      // recomp:  (int)((uint)uVar2 << 0x10) < 1 == v <= 0 as int32 — TERMINATE the SM.
-      if (v <= 0) { setV0(c, 1u); return; }
-      break;
-    }
-    default:
-      break;
+    break;
   }
-  if (done) c->mem_w8(obj + O_STATE_78, (uint8_t)(state + 1u));
+  case 2: {
+    const int16_t v = (int16_t)c->mem_r16(obj + O_LEVEL_40);
+    c->mem_w16(obj + O_LEVEL_40, (uint16_t)(v - 0x40));
+    if (v == 0x40) {
+      done = true;
+    }
+    break;
+  }
+  case 4: {
+    const int16_t v = (int16_t)c->mem_r16(obj + O_LEVEL_40);
+    c->mem_w16(obj + O_LEVEL_40, (uint16_t)(v - 0x40));
+    if (v == 0x40) {
+      c->mem_w8(obj + O_STATE_78, (uint8_t)(state + 1u));
+      c->mem_w8(G_BFA22, 0x2Bu);
+    }
+    break;
+  }
+  case 5: {
+    const int16_t v = (int16_t)(c->mem_r16(obj + O_LEVEL_40) + 0x10);
+    c->mem_w16(obj + O_LEVEL_40, (uint16_t)v);
+    if (v > 0xFF) {
+      c->mem_w16(obj + O_LEVEL_40, 0xFFu);
+      c->mem_w16(obj + O_TIMER_42, 0x1Eu);
+      c->mem_w8(obj + O_STATE_78, (uint8_t)(state + 1u));
+      c->mem_w8(G_E806C, 7u);
+      // FUN_8006CBD0(0x800E8008, &DAT_8014994C) — geomblk / cmd-list attach; keep as substrate.
+      callObj2(c, OBJ_A_800E8008, DAT_8014994C, 0x8006CBD0u);
+    }
+    break;
+  }
+  case 6: {
+    const int16_t v = (int16_t)(c->mem_r16(obj + O_TIMER_42) - 1);
+    c->mem_w16(obj + O_TIMER_42, (uint16_t)v);
+    if (v == -1) {
+      done = true;
+    }
+    break;
+  }
+  case 7: {
+    const int16_t v = (int16_t)(c->mem_r16(obj + O_LEVEL_40) - 0x10);
+    c->mem_w16(obj + O_LEVEL_40, (uint16_t)v);
+    // recomp:  (int)((uint)uVar2 << 0x10) < 1 == v <= 0 as int32 — TERMINATE the SM.
+    if (v <= 0) {
+      setV0(c, 1u);
+      return;
+    }
+    break;
+  }
+  default:
+    break;
+  }
+  if (done) {
+    c->mem_w8(obj + O_STATE_78, (uint8_t)(state + 1u));
+  }
   // Tail: apply the current gray level as an ADDITIVE fade rect + return 0 (pause the step loop
   // so the next tick re-enters).
   const uint32_t u = c->mem_r8(obj + O_LEVEL_40);
@@ -164,7 +189,7 @@ void beh_a06_fade_flash_ramp_80139728(Core* c) {
 // to c->r[29] and save the incoming r31, so this fn's frame + the jal-site RA constants must be
 // live or their frame-saves land at the wrong (unpushed) address / wrong RA value — exactly the
 // 0x801FE8xx byte mismatches the strict mirror gate caught.
-void beh_a06_spawn_follow_obj_8013AEF0(Core* c) {
+void beh_a06_spawn_follow_obj_8013AEF0(Core *c) {
   const uint32_t param1 = c->r[4];
   c->r[29] -= 24;
   const uint32_t sp = c->r[29];
@@ -173,12 +198,14 @@ void beh_a06_spawn_follow_obj_8013AEF0(Core* c) {
   callObj4(c, param1, 3u, 3u, 0x3Fu, 0x80072DDCu);
   const uint32_t newObj = c->r[2];
   if (newObj == 0) {
-    c->r[31] = c->mem_r32(sp + 16); c->r[29] += 24;
-    setV0(c, 0u); return;
+    c->r[31] = c->mem_r32(sp + 16);
+    c->r[29] += 24;
+    setV0(c, 0u);
+    return;
   }
   c->mem_w32(newObj + 0x1Cu, 0x8012E194u);
-  c->mem_w8 (newObj + 0x03u, 2u);
-  c->mem_w8 (newObj + 0x28u, (uint8_t)(c->mem_r8(newObj + 0x28u) | 0x80u));
+  c->mem_w8(newObj + 0x03u, 2u);
+  c->mem_w8(newObj + 0x28u, (uint8_t)(c->mem_r8(newObj + 0x28u) | 0x80u));
   if ((int8_t)c->mem_r8(G_BF8D5) != -1) {
     c->r[31] = 0x8013AF4Cu;
     callObj2(c, 0x31u, 1u, 0x8004D604u);
@@ -191,7 +218,7 @@ void beh_a06_spawn_follow_obj_8013AEF0(Core* c) {
 // ── FUN_8013AFD8 — kick a sound-command sequence and wait for scratchpad completion ─────────────
 // Guest packs a 3-halfword struct at sp+0x18 { 0x34E8, 0xE1BA, 30000 } then calls FUN_80070F00
 // (queue play) + FUN_800708B4(3) (mode); on state 1 waits for (*(u8)(*(u32)0x1F800214 + 3) != 0).
-void beh_a06_sound_cmd_wait_8013AFD8(Core* c) {
+void beh_a06_sound_cmd_wait_8013AFD8(Core *c) {
   const uint32_t obj = c->r[4];
   const uint8_t st = c->mem_r8(obj + O_STATE_78);
   if (st == 0) {
@@ -199,7 +226,7 @@ void beh_a06_sound_cmd_wait_8013AFD8(Core* c) {
     // reserve a small guest-stack slot for it (the substrate leaf reads by (u16*)ptr).
     const uint32_t sp_save = c->r[29];
     c->r[29] = sp_save - 24u;
-    const uint32_t scratchArg = c->r[29] + 6u;   // matches recomp's auStack_18 offset
+    const uint32_t scratchArg = c->r[29] + 6u; // matches recomp's auStack_18 offset
     c->mem_w16(scratchArg + 0u, 0x34E8u);
     c->mem_w16(scratchArg + 4u, 0xE1BAu);
     c->mem_w16(scratchArg + 8u, 30000u);
@@ -211,9 +238,15 @@ void beh_a06_sound_cmd_wait_8013AFD8(Core* c) {
     setV0(c, 0u);
     return;
   }
-  if (st != 1) { setV0(c, 0u); return; }
+  if (st != 1) {
+    setV0(c, 0u);
+    return;
+  }
   const uint32_t ptr = c->mem_r32(SPAD_1F800214);
-  if (c->mem_r8(ptr + 3u) == 0) { setV0(c, 1u); return; }
+  if (c->mem_r8(ptr + 3u) == 0) {
+    setV0(c, 1u);
+    return;
+  }
   setV0(c, 0u);
 }
 
@@ -222,7 +255,7 @@ void beh_a06_sound_cmd_wait_8013AFD8(Core* c) {
 // -0x32); sets obj[+0x28] |= 0x80 on the returned obj; then updates a bank of guest globals
 // (0x800E806C=2, 0x800E8076=0, 0x800E8078=0x800, 0x800E8074 = 7 * *(u32)0x801003F8) and calls
 // FUN_8006CBA8(ptr).
-void beh_a06_spawn_subobj_8013B074(Core* c) {
+void beh_a06_spawn_subobj_8013B074(Core *c) {
   const uint32_t sp_save = c->r[29];
   c->r[29] = sp_save - 24u;
   const uint32_t scratchArg = c->r[29] + 6u;
@@ -250,30 +283,37 @@ void beh_a06_spawn_subobj_8013B074(Core* c) {
 //   state 1: level += 0x20; if signed < 0x80: draw+pause; else advance to 2
 //   state 2: level -= 0x20; if was 0x20 → return 1 (done); else draw+pause
 static constexpr GuestFrameSpill kSpills_8013B178[1] = {
-  { 31 /*ra*/, 16 },
-};   // frame=24, abi_extract --scaffold --guestabi
-void beh_a06_fade_ramp_8013B178(Core* c) {
+    {31 /*ra*/, 16},
+}; // frame=24, abi_extract --scaffold --guestabi
+void beh_a06_fade_ramp_8013B178(Core *c) {
   GuestFrame<24, 1> frame(c, kSpills_8013B178);
   const uint32_t obj = c->r[4];
   const uint8_t st = c->mem_r8(obj + O_STATE_78);
-  int8_t goAdvance = 0;   // 1 → advance state before drawing
+  int8_t goAdvance = 0; // 1 → advance state before drawing
 
   if (st == 1) {
     const int16_t v = (int16_t)(c->mem_r16(obj + O_LEVEL_40) + 0x20);
     c->mem_w16(obj + O_LEVEL_40, (uint16_t)v);
-    if (v >= 0x80) goAdvance = 1;
+    if (v >= 0x80) {
+      goAdvance = 1;
+    }
   } else if (st > 1) {
     if (st == 2) {
       const int16_t v = (int16_t)c->mem_r16(obj + O_LEVEL_40);
       c->mem_w16(obj + O_LEVEL_40, (uint16_t)(v - 0x20));
-      if (v == 0x20) { setV0(c, 1u); return; }
+      if (v == 0x20) {
+        setV0(c, 1u);
+        return;
+      }
     }
     // else fall to draw
   } else if (st == 0) {
     c->mem_w16(obj + O_LEVEL_40, 0u);
     goAdvance = 1;
   }
-  if (goAdvance) c->mem_w8(obj + O_STATE_78, (uint8_t)(st + 1u));
+  if (goAdvance) {
+    c->mem_w8(obj + O_STATE_78, (uint8_t)(st + 1u));
+  }
   const uint32_t u = c->mem_r8(obj + O_LEVEL_40);
   fade(eng(c).core).applyLeafCall(grayRGB(u), /*ADDITIVE*/ 1u);
   setV0(c, 0u);
@@ -281,9 +321,9 @@ void beh_a06_fade_ramp_8013B178(Core* c) {
 
 // ── FUN_8013B274 — one-shot music/SFX cue then advance ──────────────────────────────────────────
 static constexpr GuestFrameSpill kSpills_8013B274[1] = {
-  { 31 /*ra*/, 16 },
-};   // frame=24, abi_extract --scaffold --guestabi
-void beh_a06_music_cue_8013B274(Core* c) {
+    {31 /*ra*/, 16},
+}; // frame=24, abi_extract --scaffold --guestabi
+void beh_a06_music_cue_8013B274(Core *c) {
   GuestFrame<24, 1> frame(c, kSpills_8013B274);
   const uint32_t obj = c->r[4];
   const uint32_t parent = c->mem_r32(obj + O_D0);
@@ -295,7 +335,7 @@ void beh_a06_music_cue_8013B274(Core* c) {
 // state 0: obj[+0x40]=60, advance to 1 (fall through)
 // state 1: obj[+0x40]--; if new == -1: return 1 (advance script). Else if (mem[0x800BE0E4]&0x80):
 //          return 0 (gate blocks — pause). Else: return 1 (normal tick advance).
-void beh_a06_timer_gate_8013B29C(Core* c) {
+void beh_a06_timer_gate_8013B29C(Core *c) {
   const uint32_t obj = c->r[4];
   uint8_t st = c->mem_r8(obj + O_STATE_78);
   if (st == 0) {
@@ -304,13 +344,19 @@ void beh_a06_timer_gate_8013B29C(Core* c) {
     st = 1;
     // fall to state 1
   } else if (st != 1) {
-    setV0(c, 0u);   // unknown state — pause
+    setV0(c, 0u); // unknown state — pause
     return;
   }
   // state 1:
   const int16_t v = (int16_t)(c->mem_r16(obj + O_LEVEL_40) - 1);
   c->mem_w16(obj + O_LEVEL_40, (uint16_t)v);
-  if (v == -1) { setV0(c, 1u); return; }
-  if ((c->mem_r8(G_BE0E4) & 0x80u) != 0) { setV0(c, 0u); return; }
+  if (v == -1) {
+    setV0(c, 1u);
+    return;
+  }
+  if ((c->mem_r8(G_BE0E4) & 0x80u) != 0) {
+    setV0(c, 0u);
+    return;
+  }
   setV0(c, 1u);
 }

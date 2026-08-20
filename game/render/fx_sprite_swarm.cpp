@@ -82,77 +82,78 @@ namespace {
 // --- the scene camera the emitters project through ------------------------------------------------
 // Eight consecutive words parked in the scratchpad by the scene pass: the 3x3 rotation matrix
 // (packed two shorts per word) followed by the translation. They land in GTE control registers 0..7.
-constexpr uint32_t kSceneCameraCrs   = 0x1F8000F8u;
+constexpr uint32_t kSceneCameraCrs = 0x1F8000F8u;
 constexpr uint32_t kSceneCameraWords = 8;
 
 // --- GTE registers this body touches, by name -----------------------------------------------------
-constexpr uint32_t kGteVxy0 = 0;   // data  — world X,Y of the vertex to project
-constexpr uint32_t kGteVz0  = 1;   // data  — world Z
-constexpr uint32_t kGteSxy2 = 14;  // data  — projected screen X,Y
-constexpr uint32_t kGteSz3  = 19;  // data  — projected depth
-constexpr uint32_t kGteMac0 = 24;  // data  — the depth-cue product, used here as the pixel scale
-constexpr uint32_t kGteDqa  = 27;  // ctrl  — depth-cue scale numerator
-constexpr uint32_t kGteDqb  = 28;  // ctrl  — depth-cue offset
-constexpr uint32_t kGteFlag = 31;  // ctrl  — saturation/overflow flags; bit31 = any error
-constexpr uint32_t kGteRtps = 0x4A180001u;  // RTPS, sf=1 lm=0 — project one vertex
+constexpr uint32_t kGteVxy0 = 0;           // data  — world X,Y of the vertex to project
+constexpr uint32_t kGteVz0 = 1;            // data  — world Z
+constexpr uint32_t kGteSxy2 = 14;          // data  — projected screen X,Y
+constexpr uint32_t kGteSz3 = 19;           // data  — projected depth
+constexpr uint32_t kGteMac0 = 24;          // data  — the depth-cue product, used here as the pixel scale
+constexpr uint32_t kGteDqa = 27;           // ctrl  — depth-cue scale numerator
+constexpr uint32_t kGteDqb = 28;           // ctrl  — depth-cue offset
+constexpr uint32_t kGteFlag = 31;          // ctrl  — saturation/overflow flags; bit31 = any error
+constexpr uint32_t kGteRtps = 0x4A180001u; // RTPS, sf=1 lm=0 — project one vertex
 
 // --- the depth-cue-as-scale contract ---------------------------------------------------------------
 // DQB is forced to 0, so after RTPS the GTE leaves MAC0 = n*DQA with n the perspective divide. DQA
 // is therefore this node's base sprite size in disguise, and node+3 selects between two size classes.
-constexpr uint32_t kSmallSizeClassTag = 0x21u;  // '!'
-constexpr uint32_t kDqaSmall          = 4;
-constexpr uint32_t kDqaNormal         = 6;
-constexpr int32_t  kDepthCueOff       = 0;      // IR0 = 0 -> the writer's colour cue is the identity
+constexpr uint32_t kSmallSizeClassTag = 0x21u; // '!'
+constexpr uint32_t kDqaSmall = 4;
+constexpr uint32_t kDqaNormal = 6;
+constexpr int32_t kDepthCueOff = 0; // IR0 = 0 -> the writer's colour cue is the identity
 
 // --- the OT bucket key gate ------------------------------------------------------------------------
 // The projected depth is folded into a LOGARITHMIC bucket index: the top bits pick a band, the band
 // index both shifts the key down and offsets it into that band's slice of the table. Keys outside
 // [4, 0x7FF] mean "too near or too far to draw" and the particle is dropped.
-constexpr int32_t  kOtKeyMin      = 4;
-constexpr int32_t  kOtKeyBandBits = 10;
-constexpr int32_t  kOtKeyBandSize = 0x200;
-constexpr uint32_t kOtKeySpan     = 0x7FCu;  // valid keys are kOtKeyMin .. kOtKeyMin+kOtKeySpan-1
-constexpr int32_t  kOtKeyCulled   = -1;
-constexpr int32_t  kOtDepthShift  = 2;       // SZ3 >> 2 before the node's bias is added
+constexpr int32_t kOtKeyMin = 4;
+constexpr int32_t kOtKeyBandBits = 10;
+constexpr int32_t kOtKeyBandSize = 0x200;
+constexpr uint32_t kOtKeySpan = 0x7FCu; // valid keys are kOtKeyMin .. kOtKeyMin+kOtKeySpan-1
+constexpr int32_t kOtKeyCulled = -1;
+constexpr int32_t kOtDepthShift = 2; // SZ3 >> 2 before the node's bias is added
 
 // --- per-particle size ------------------------------------------------------------------------------
-constexpr int32_t kParticleSizeShift = 8;    // scale = MAC0 * particle.sizeMul >> 8
+constexpr int32_t kParticleSizeShift = 8; // scale = MAC0 * particle.sizeMul >> 8
 
 // --- guest ABI (tools/abi_extract.py 800281EC --contract / --scaffold --guestabi) --------------------
 // Return addresses at this function's two jal sites.
-constexpr uint32_t kRaListTailResolve = 0x80028318u;  // jal 0x80031780
-constexpr uint32_t kRaSpriteWriter    = 0x8002842Cu;  // jal 0x80027A4C
+constexpr uint32_t kRaListTailResolve = 0x80028318u; // jal 0x80031780
+constexpr uint32_t kRaSpriteWriter = 0x8002842Cu;    // jal 0x80027A4C
 
 // Guest stack frame: 56 bytes spilling s0..s7, fp and ra, in program order.
 constexpr GuestFrameSpill kSpills[10] = {
-  { 17, 20 },
-  { 21, 36 },
-  { 31 /*ra*/, 52 },
-  { 30, 48 },
-  { 23, 44 },
-  { 22, 40 },
-  { 20, 32 },
-  { 19, 28 },
-  { 18, 24 },
-  { 16, 16 },
+    {17, 20},
+    {21, 36},
+    {31 /*ra*/, 52},
+    {30, 48},
+    {23, 44},
+    {22, 40},
+    {20, 32},
+    {19, 28},
+    {18, 24},
+    {16, 16},
 };
 
 // The scratchpad base the guest keeps in s0 and offsets from; kept as its own constant so the
 // register mirroring below reads as what it is rather than as a bare literal.
 constexpr uint32_t kScratchpadBase = 0x1F800000u;
 
-}  // namespace
+} // namespace
 
-void FxSpriteSwarm::loadSceneCameraToGte(Core* c) {
-  for (uint32_t reg = 0; reg < kSceneCameraWords; reg++)
+void FxSpriteSwarm::loadSceneCameraToGte(Core *c) {
+  for (uint32_t reg = 0; reg < kSceneCameraWords; reg++) {
     gte_write_ctrl(reg, c->mem_r32(kSceneCameraCrs + reg * 4));
+  }
 }
 
 // PORT_GEN: 800281EC generated/shard_2.c:1726-1880
 // ORACLE: gen_func_800281EC
 // FUN_800281EC — stamp this node's sprite cluster once per particle, projecting and sizing each
 // particle independently. a0 = the type-0x20 render node.
-void FxSpriteSwarm::emitPerParticle(Core* c) {
+void FxSpriteSwarm::emitPerParticle(Core *c) {
   GuestFrame<56, 10> frame(c, kSpills);
 
   // The node pointer and the scale-X slot address stay LIVE in callee-saved registers across both
@@ -167,13 +168,14 @@ void FxSpriteSwarm::emitPerParticle(Core* c) {
   FxSpritePublish publish{c};
 
   // No sprite records means nothing to stamp, however many particles the node is carrying.
-  if (node.recordHead() == 0) return;
+  if (node.recordHead() == 0) {
+    return;
+  }
 
   // Project through the pure scene camera, with the depth-cue divide repurposed as the sprite scale:
   // DQB = 0, DQA = this node's size class.
   loadSceneCameraToGte(c);
-  gte_write_ctrl(kGteDqa,
-                 node.sizeClassTag() == kSmallSizeClassTag ? kDqaSmall : kDqaNormal);
+  gte_write_ctrl(kGteDqa, node.sizeClassTag() == kSmallSizeClassTag ? kDqaSmall : kDqaNormal);
   gte_write_ctrl(kGteDqb, 0);
 
   GuestReg<19> particleIndexReg(c);
@@ -181,7 +183,7 @@ void FxSpriteSwarm::emitPerParticle(Core* c) {
   GuestReg<18> particleReg(c);
   particleReg = node.particleArray();
 
-  publish.setDepthCue(kDepthCueOff);   // one cue for the whole swarm
+  publish.setDepthCue(kDepthCueOff); // one cue for the whole swarm
 
   // Capture the record list head BEFORE resolving the tail — the resolver may clear node+0x34, and
   // every particle stamps this same list.
@@ -219,12 +221,16 @@ void FxSpriteSwarm::emitPerParticle(Core* c) {
       const int32_t depth = publish.otKey();
       if (depth > 0) {
         publish.setOtKey((depth >> kOtDepthShift) + otBias);
-        if (publish.otKey() < kOtKeyMin) publish.setOtKey(kOtKeyMin);
+        if (publish.otKey() < kOtKeyMin) {
+          publish.setOtKey(kOtKeyMin);
+        }
 
-        const int32_t key  = publish.otKey();
+        const int32_t key = publish.otKey();
         const int32_t band = key >> kOtKeyBandBits;
         publish.setOtKey((key >> (band & 31)) + band * kOtKeyBandSize);
-        if ((uint32_t)(publish.otKey() - kOtKeyMin) >= kOtKeySpan) publish.setOtKey(kOtKeyCulled);
+        if ((uint32_t)(publish.otKey() - kOtKeyMin) >= kOtKeySpan) {
+          publish.setOtKey(kOtKeyCulled);
+        }
 
         if (publish.otKey() >= 0) {
           publish.setScreenXY(gte_read_data(kGteSxy2));
@@ -240,10 +246,10 @@ void FxSpriteSwarm::emitPerParticle(Core* c) {
       guest_mult(c, publish.scaleX(), particle.sizeMul());
       const int32_t scale = (int32_t)c->lo >> kParticleSizeShift;
 
-      c->r[4] = c->r[22];                                        // a0 = the shared record list
+      c->r[4] = c->r[22]; // a0 = the shared record list
       publish.setScaleX(scale);
-      publish.setScaleY(scale);                                  // square: one size, both axes
-      c->r[5] = (node.texturePage() << 16) | node.clut();        // a1 = the texture binding
+      publish.setScaleY(scale);                           // square: one size, both axes
+      c->r[5] = (node.texturePage() << 16) | node.clut(); // a1 = the texture binding
       guest_call(c, kRaSpriteWriter, func_80027A4C);
     }
 
@@ -254,7 +260,10 @@ void FxSpriteSwarm::emitPerParticle(Core* c) {
   } while ((int32_t)(int16_t)(uint32_t)particleIndexReg < node.particleCount());
 }
 
-void FxSpriteSwarm::registerOverrides(Game*) {
-  overrides::install(0x800281ECu, "FxSpriteSwarm::emitPerParticle", &FxSpriteSwarm::emitPerParticle,
-                     gen_func_800281EC, shard_set_override);
+void FxSpriteSwarm::registerOverrides(Game *) {
+  overrides::install(0x800281ECu,
+                     "FxSpriteSwarm::emitPerParticle",
+                     &FxSpriteSwarm::emitPerParticle,
+                     gen_func_800281EC,
+                     shard_set_override);
 }

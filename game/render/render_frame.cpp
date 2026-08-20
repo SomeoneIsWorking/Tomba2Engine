@@ -17,23 +17,31 @@
 //   0x8003fa44 (transition twin): jal 0x8004fd30, 0x80025d98, 0x8003bf00, 0x8003eec0, 0x8003b588,
 //     0x8003bb50, 0x8003bcf4, 0x8003c048, 0x8003f024.
 
-#include "render.h"    // class Render — methods live here
-#include "core.h"
 #include "cfg.h"
-#include <stdlib.h>
+#include "core.h"
+#include "render.h" // class Render — methods live here
 #include <stdio.h>
+#include <stdlib.h>
 
 // DIAG skippass: PSXPORT_SKIPPASS=0xADDR skips that one rec_dispatch'd render pass, to attribute a prim to
 // the pass producing it. NOTE: useless for PERSISTENT packets (built once at scene-load, re-walked from the
 // OT every frame) — skipping the pass mid-run can't un-link an already-built packet; use PSXPORT_WWATCH on
 // the packet address to find the real builder instead (later-237).
-static inline void d0(Core* c, uint32_t fn) {
+static inline void d0(Core *c, uint32_t fn) {
   static uint32_t skip = 0xFFFFFFFFu;
-  if (skip == 0xFFFFFFFFu) { const char* s = cfg_str("PSXPORT_SKIPPASS"); skip = s ? (uint32_t)strtoul(s, 0, 0) : 0; }
-  if (skip && fn == skip) return;
+  if (skip == 0xFFFFFFFFu) {
+    const char *s = cfg_str("PSXPORT_SKIPPASS");
+    skip = s ? (uint32_t)strtoul(s, 0, 0) : 0;
+  }
+  if (skip && fn == skip) {
+    return;
+  }
   rec_dispatch(c, fn);
 }
-static inline void d1(Core* c, uint32_t fn, uint32_t a0) { c->r[4] = a0; rec_dispatch(c, fn); }
+static inline void d1(Core *c, uint32_t fn, uint32_t a0) {
+  c->r[4] = a0;
+  rec_dispatch(c, fn);
+}
 
 // RENDER-PATH COMPARE SWITCH (diagnostic, user 2026-06-24). When set, the FIELD render runs entirely as
 // the PSX recomp path (rec_dispatch the orchestrator) instead of the native world-coord path — WITHOUT
@@ -55,12 +63,19 @@ static inline void d1(Core* c, uint32_t fn, uint32_t a0) { c->r[4] = a0; rec_dis
 // 2D-overlay OT walk vs the full OT walk. The old pc_render fork here ran a PARTIAL pass list and left
 // the walk cluster to native re-implementations in the display phase (sceneNative) — a different call
 // context than the recomp's, which is exactly what diverged (f26, guest-stack spills at a foreign sp).
-void Render::frame() { Core* c = mCore;
-  if (cfg_dbg("rfprobe")) { static int n=0; if ((n++ % 60)==0) cfg_logf("rfprobe", "ov_render_frame run #%d", n); }
+void Render::frame() {
+  Core *c = mCore;
+  if (cfg_dbg("rfprobe")) {
+    static int n = 0;
+    if ((n++ % 60) == 0) {
+      cfg_logf("rfprobe", "ov_render_frame run #%d", n);
+    }
+  }
   d0(c, 0x8003f9a8u);
 }
 
 // 0x8003fa44 — mid-transition render orchestrator twin (reduced pass set). Same rule: substrate always.
-void Render::frameX() { Core* c = mCore;
+void Render::frameX() {
+  Core *c = mCore;
   d0(c, 0x8003fa44u);
 }

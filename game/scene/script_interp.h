@@ -47,24 +47,24 @@ struct Core;
 
 class ScriptInterp {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // Guest addresses this class owns (registered in BehaviorDispatch::kTable so a native caller can
   // route to this class transparently). Kept as `constexpr` so callers can reference them without
   // magic hex.
-  static constexpr uint32_t kInitAddr    = 0x80040CDCu;  // FUN_80040CDC — init(obj, tableA, scriptPtr)
-  static constexpr uint32_t kLoadAddr    = 0x80040DE0u;  // FUN_80040DE0 — loadCurrentEntry(obj, scriptPtr)
-  static constexpr uint32_t kAdvanceAddr = 0x80040E54u;  // FUN_80040E54 — loadNextEntry(obj, kindArg)
-  static constexpr uint32_t kStepAddr    = 0x80041098u;  // FUN_80041098 — step(obj)
-  static constexpr uint32_t kOp03EAddr   = 0x800412CCu;  // op-table[0x3E] handler — call fnptr
+  static constexpr uint32_t kInitAddr = 0x80040CDCu;    // FUN_80040CDC — init(obj, tableA, scriptPtr)
+  static constexpr uint32_t kLoadAddr = 0x80040DE0u;    // FUN_80040DE0 — loadCurrentEntry(obj, scriptPtr)
+  static constexpr uint32_t kAdvanceAddr = 0x80040E54u; // FUN_80040E54 — loadNextEntry(obj, kindArg)
+  static constexpr uint32_t kStepAddr = 0x80041098u;    // FUN_80041098 — step(obj)
+  static constexpr uint32_t kOp03EAddr = 0x800412CCu;   // op-table[0x3E] handler — call fnptr
 
   // Verified-and-wired opcode handler addresses (frontier tier, 2026-07-10 — see registerOverrides()).
-  static constexpr uint32_t kOp04Addr = 0x8004201Cu;  // op04SceneFlagRendezvous
-  static constexpr uint32_t kOp05Addr = 0x80042090u;  // op05WaitFrames
-  static constexpr uint32_t kOp06Addr = 0x800420ACu;  // op06TestSceneFlag
-  static constexpr uint32_t kOp34Addr = 0x80042E10u;  // op34ClaimGate
-  static constexpr uint32_t kOp36Addr = 0x80043108u;  // op36MoveTowardScriptTarget
-  static constexpr uint32_t kOp31Addr = 0x80041468u;  // op31TurnTowardTarget
+  static constexpr uint32_t kOp04Addr = 0x8004201Cu; // op04SceneFlagRendezvous
+  static constexpr uint32_t kOp05Addr = 0x80042090u; // op05WaitFrames
+  static constexpr uint32_t kOp06Addr = 0x800420ACu; // op06TestSceneFlag
+  static constexpr uint32_t kOp34Addr = 0x80042E10u; // op34ClaimGate
+  static constexpr uint32_t kOp36Addr = 0x80043108u; // op36MoveTowardScriptTarget
+  static constexpr uint32_t kOp31Addr = 0x80041468u; // op31TurnTowardTarget
 
   // The MAIN.EXE handler table base (63 entries, indexed by `opcodeWord & 0x07FF`).
   static constexpr uint32_t kHandlerTableBase = 0x800A3B78u;
@@ -185,10 +185,10 @@ public:
   int advanceStep(uint32_t obj, uint32_t kindArg);
 
   // ==== Wide-RE pass 2026-07-10 (dedicated follow-up session) — op36/op31 movement-script family ==
-  // VERIFIED + WIRED (frontier tier, 2026-07-10 wiring pass). Both cross-checked via Ghidra headless decompile (scratch/decomp/
-  // op36_op31_band.c) against generated/shard_3.c / shard_5.c (instruction-exact ground truth) —
-  // see game/scene/script_interp.cpp for the per-function commentary and the two self-caught
-  // transcription slips (both corrected before landing, documented inline at the fix site).
+  // VERIFIED + WIRED (frontier tier, 2026-07-10 wiring pass). Both cross-checked via Ghidra headless decompile
+  // (scratch/decomp/ op36_op31_band.c) against generated/shard_3.c / shard_5.c (instruction-exact ground truth) — see
+  // game/scene/script_interp.cpp for the per-function commentary and the two self-caught transcription slips (both
+  // corrected before landing, documented inline at the fix site).
 
   // op36 — FUN_80043108 (opcode table index 36, 95 dispatch hits, the highest-traffic unowned leaf
   //   in the original wide-RE band). "Move toward a script-literal target position." The entry's
@@ -243,7 +243,7 @@ public:
   //   packs (lowByte=sfx id, highByte=pitch bend) — matches Sfx::trigger(id, pan, pitchBend)'s ABI
   //   with pan=0. Frame: sp-=24, spills ra only. Faithful from generated/shard_3.c:11682.
   int stepEventPulse(uint32_t obj, uint32_t flagsPtr, uint32_t packedArg);
-  void stepEventPulseFramed();  // guest-ABI twin: obj/flagsPtr/packedArg from c->r[4..6]
+  void stepEventPulseFramed(); // guest-ABI twin: obj/flagsPtr/packedArg from c->r[4..6]
 
   // Wire the §9-verified opcode handlers into the override registry (overrides::install) at their
   // guest addresses (0x80042090/0x800420AC/0x80042E10/0x80043108/0x80041468) — frontier-tier
@@ -258,9 +258,9 @@ public:
   // ---- Resident-leaf sweep (2026-07-17) — five small unowned MAIN.EXE leaves homed here. NOT script
   // opcodes; generic object/scratchpad helpers with no prior native owner. Byte-faithful to their
   // gen_func_* oracles (see script_interp.cpp for the per-function commentary + the ORACLE markers).
-  void refreshCachedTailHi(uint32_t obj);   // FUN_80031708 — cache tail node+4, flag byte @ node+3
-  void refreshCachedTailLo(uint32_t obj);   // FUN_80031744 — cache tail node+1, flag byte @ node+0
-  int  matchesActiveByKind(uint32_t obj);   // FUN_80042170 — self/global match-byte query (0/1)
-  int  mirrorGlobalStatusByte();            // FUN_80044090 — copy 0x800E7EAA -> scratchpad 0x1F800207
-  int  advanceGauge(uint32_t obj, uint32_t rec);  // FUN_80073194 — wrapping gauge + wrap-event pulse (ready-frame)
+  void refreshCachedTailHi(uint32_t obj);       // FUN_80031708 — cache tail node+4, flag byte @ node+3
+  void refreshCachedTailLo(uint32_t obj);       // FUN_80031744 — cache tail node+1, flag byte @ node+0
+  int matchesActiveByKind(uint32_t obj);        // FUN_80042170 — self/global match-byte query (0/1)
+  int mirrorGlobalStatusByte();                 // FUN_80044090 — copy 0x800E7EAA -> scratchpad 0x1F800207
+  int advanceGauge(uint32_t obj, uint32_t rec); // FUN_80073194 — wrapping gauge + wrap-event pulse (ready-frame)
 };

@@ -18,12 +18,14 @@ namespace scene_flags {
 
 // The area/scene global control block. The SAME anchor the area-mode byte, the inventory and the
 // save/state block are all indexed from — see docs/engine_re.md.
-constexpr uint32_t kBlockBase = 0x800BF870u;   // == (32780u << 16) - 1936
+constexpr uint32_t kBlockBase = 0x800BF870u; // == (32780u << 16) - 1936
 
 // The flag byte array within that block. Indexed by a SIGNED script argument, so a negative index
 // deliberately reaches below the array — preserved rather than "cleaned up".
 constexpr uint32_t kFlagTable = kBlockBase + 324u;
 
-inline uint32_t flagAddr(int32_t index) { return kFlagTable + (uint32_t)index; }
+inline uint32_t flagAddr(int32_t index) {
+  return kFlagTable + (uint32_t)index;
+}
 
-}  // namespace scene_flags
+} // namespace scene_flags

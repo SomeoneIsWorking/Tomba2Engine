@@ -17,10 +17,10 @@ class Core;
 
 class Sop {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // Live-spine entry points.
-  void fieldMode();     // was ov_sop_field_mode  (per-frame outer state dispatcher)
+  void fieldMode(); // was ov_sop_field_mode  (per-frame outer state dispatcher)
   // pc_faithful mirror of ov_sop_gen_80109450: guest frame -32 with live ra/s0-s2 spills,
   // per-state substrate leaf dispatch at the RE'd jal sites (fade engine 0x8007E9C8, pool
   // leaves, spawn 0x8007A980, overlay ticks 0x8010A8D4/0x801092B4), the area load through
@@ -32,7 +32,7 @@ public:
   // leaves at their RE'd jal sites; ends with done_flag + selfClose. areaLoad() above is the
   // native_sync sync flavor.
   void areaLoadFaithful();
-  void fieldUpdate();   // was ov_sop_field_update (per-frame gameplay body — states 1/2/3)
+  void fieldUpdate(); // was ov_sop_field_update (per-frame gameplay body — states 1/2/3)
 
   // Sync area-DATA load entry points (both mirror each other; both end with 1f80019b=1).
   // areaLoad         — owned synchronous SOP area-DATA load (replaces LAB_80109164 body).
@@ -70,6 +70,5 @@ public:
 private:
   // sceneGridGather (guest FUN_8010A3AC): scanline-raster the frustum triangle into the scene grid,
   // appending cell ids to table+0x10 / count at table+6. Called only by scenePrepass.
-  void sceneGridGather(uint32_t table, int32_t x0, int32_t y0, int32_t x1, int32_t y1,
-                       int32_t x2, int32_t y2);
+  void sceneGridGather(uint32_t table, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2);
 };

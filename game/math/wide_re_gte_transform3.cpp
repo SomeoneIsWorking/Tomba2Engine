@@ -41,15 +41,15 @@
 #include "core.h"
 #include "game.h"
 #include "gte_transform3.h"
-#include "override_registry.h"   // engine_set_override_main
-#include "rec_decls.h"           // gen_func_80084250 — the body the oracle leg runs
+#include "override_registry.h" // engine_set_override_main
+#include "rec_decls.h"         // gen_func_80084250 — the body the oracle leg runs
 #include <stdint.h>
 
 // gte_write_ctrl/gte_write_data/gte_read_data/gte_op declared in core.h.
 
-void GteTransform3::rotate3AndPackIr(Core* c) {
-  uint32_t mat = c->r[4];   // in/out matrix buffer (a0)
-  uint32_t src = c->r[5];   // 3-vertex source array (a1)
+void GteTransform3::rotate3AndPackIr(Core *c) {
+  uint32_t mat = c->r[4]; // in/out matrix buffer (a0)
+  uint32_t src = c->r[5]; // 3-vertex source array (a1)
 
   gte_write_ctrl(0, c->mem_r32(mat + 0));
   gte_write_ctrl(1, c->mem_r32(mat + 4));
@@ -58,37 +58,38 @@ void GteTransform3::rotate3AndPackIr(Core* c) {
   gte_write_ctrl(4, c->mem_r32(mat + 16));
 
   // --- vertex 0 ---
-  uint32_t vxy0 = (uint32_t)c->mem_r16(src + 0);           // X0, zero-extended
-  uint32_t y0hi = c->mem_r32(src + 4) & 0xFFFF0000u;        // Y0 packed in the high 16 of word@+4
+  uint32_t vxy0 = (uint32_t)c->mem_r16(src + 0);     // X0, zero-extended
+  uint32_t y0hi = c->mem_r32(src + 4) & 0xFFFF0000u; // Y0 packed in the high 16 of word@+4
   vxy0 |= y0hi;
-  uint32_t vz0 = c->mem_r32(src + 12);                      // already GTE-VZ-packed
+  uint32_t vz0 = c->mem_r32(src + 12); // already GTE-VZ-packed
   gte_write_data(0, vxy0);
   gte_write_data(1, vz0);
-  gte_op(c, 0x4A486012u);   // RTPS vertex0
+  gte_op(c, 0x4A486012u); // RTPS vertex0
 
   // --- vertex 1 (reads vertex0's IR1/2/3 BEFORE writing vertex1's data — pipelined as in the gen body) ---
-  uint32_t vxy1 = (uint32_t)c->mem_r16(src + 2);           // X1, zero-extended
-  uint32_t y1lo = (c->mem_r32(src + 8) << 16);              // Y1 packed in the LOW 16 of word@+8, shifted to hi16 here (matches gen: r9<<16)
+  uint32_t vxy1 = (uint32_t)c->mem_r16(src + 2); // X1, zero-extended
+  uint32_t y1lo =
+      (c->mem_r32(src + 8) << 16); // Y1 packed in the LOW 16 of word@+8, shifted to hi16 here (matches gen: r9<<16)
   vxy1 |= y1lo;
-  int32_t vz1 = c->mem_r16s(src + 14);                      // Z1, sign-extended s16 -> s32
+  int32_t vz1 = c->mem_r16s(src + 14); // Z1, sign-extended s16 -> s32
   uint32_t ir1_v0 = gte_read_data(9);
   uint32_t ir2_v0 = gte_read_data(10);
   uint32_t ir3_v0 = gte_read_data(11);
   gte_write_data(0, vxy1);
   gte_write_data(1, (uint32_t)vz1);
-  gte_op(c, 0x4A486012u);   // RTPS vertex1
+  gte_op(c, 0x4A486012u); // RTPS vertex1
 
   // --- vertex 2 (reads vertex1's IR1/2/3 BEFORE writing vertex2's data) ---
-  uint32_t vxy2 = (uint32_t)c->mem_r16(src + 4);            // "X2" = low16 of the SAME word@+4 vertex0 read as Y0's high16
-  uint32_t y2hi = c->mem_r32(src + 8) & 0xFFFF0000u;         // Y2 = high16 of the SAME word@+8 vertex1 read as Y1's low16
+  uint32_t vxy2 = (uint32_t)c->mem_r16(src + 4);     // "X2" = low16 of the SAME word@+4 vertex0 read as Y0's high16
+  uint32_t y2hi = c->mem_r32(src + 8) & 0xFFFF0000u; // Y2 = high16 of the SAME word@+8 vertex1 read as Y1's low16
   vxy2 |= y2hi;
-  uint32_t vz2 = c->mem_r32(src + 16);                       // already GTE-VZ-packed
+  uint32_t vz2 = c->mem_r32(src + 16); // already GTE-VZ-packed
   uint32_t ir1_v1 = gte_read_data(9);
   uint32_t ir2_v1 = gte_read_data(10);
   uint32_t ir3_v1 = gte_read_data(11);
   gte_write_data(0, vxy2);
   gte_write_data(1, vz2);
-  gte_op(c, 0x4A486012u);   // RTPS vertex2
+  gte_op(c, 0x4A486012u); // RTPS vertex2
 
   // --- pack results back into mat[0..16] (in place) ---
   uint32_t out0 = (ir1_v0 & 0xFFFFu) | (ir1_v1 << 16);
@@ -105,11 +106,11 @@ void GteTransform3::rotate3AndPackIr(Core* c) {
   uint32_t out8 = (ir2_v1 & 0xFFFFu) | (ir2_v2 << 16);
   c->mem_w32(mat + 8, out8);
 
-  c->mem_w32(mat + 16, gte_read_data(11));  // vertex2's IR3, whole word, unpacked
+  c->mem_w32(mat + 16, gte_read_data(11)); // vertex2's IR3, whole word, unpacked
 
-  c->r[2] = mat;  // return value = the same buffer pointer (a0)
+  c->r[2] = mat; // return value = the same buffer pointer (a0)
 }
 
-void GteTransform3::registerOverrides(Game*) {
+void GteTransform3::registerOverrides(Game *) {
   engine_set_override_main(0x80084250u, &GteTransform3::rotate3AndPackIr, gen_func_80084250);
 }

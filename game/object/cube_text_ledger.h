@@ -68,7 +68,7 @@
 //                                        waits to reach 0.
 #pragma once
 struct Core;
-class  Game;
+class Game;
 
 class CubeTextLedger {
 public:
@@ -84,7 +84,7 @@ public:
   //            reproduced exactly); SLOT_STATE[slot]=0xFF; DEACTIVATE_COUNT++;
   //            RUNNING_COST += SceneEvents::classSize(slot, /*nibbleLo=*/true) (low nibble = "stop"
   //            cost index); append (slot, event=1); LOG_INDEX++.
-  static void deactivateSlot(Core* c); // a0 = slot; sets v0 (r2)
+  static void deactivateSlot(Core *c); // a0 = slot; sets v0 (r2)
 
   // FUN_80040AA4(value, variant) -> v0 (node ptr, or 0 on freelist exhaustion). a0=value, a1=variant.
   // Allocates a node via the (still-unowned, opaque) freelist call FUN_8007A980(4,3,1), then:
@@ -97,11 +97,11 @@ public:
   //   POPUP_ACTIVE_COUNT (0x800BF849)++
   //   FUN_800727D4(node, value, variant)   (still-unowned init call — invoked, not reimplemented)
   // Returns the node pointer (0 if the allocator returned null).
-  static void spawnPopup(Core* c);     // a0 = value, a1 = variant; sets v0 (r2)
+  static void spawnPopup(Core *c); // a0 = value, a1 = variant; sets v0 (r2)
 
   // Wire activateSlot/deactivateSlot/spawnPopup into the override registry (overrides::install),
   // each with a shard_set_override setter so the substrate's direct func_<addr>(c) calls redirect
   // here too, in addition to ActorReward's rec_dispatch(c, FN_40B48/FN_40C00) calls landing here.
   // lookupCost is deliberately NOT registered — see the file header "WIRED 2026-07-08" note.
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

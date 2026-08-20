@@ -49,14 +49,14 @@
 // the menu template tables) and emit host-only quads into the render queue (the caller wraps them in a
 // DisplayPassGuard). No gte_op / OT / GP0 packet reading anywhere.
 #include "core.h"
+#include "game.h"
 #include "game_ctx.h"
 #include "render.h"
-#include "game.h"
 #include "render_queue.h"
 #include <stdint.h>
 
-static constexpr uint32_t kTaskSmPtr    = 0x1F800138u;   // scratchpad *-> current task state machine
-static constexpr int      kScreenAdjustPage = 3;         // sm[0x50] value of the "Screen adjust" page
+static constexpr uint32_t kTaskSmPtr = 0x1F800138u; // scratchpad *-> current task state machine
+static constexpr int kScreenAdjustPage = 3;         // sm[0x50] value of the "Screen adjust" page
 
 // optionsBackdrop — see render.h. The PICTURE half of FUN_8007FC24 (the guest packet itself is ported
 // in game/ui/options_page.cpp): ONE full-screen POLY_G4 (op 0x38) Gouraud gradient quad covering
@@ -70,19 +70,42 @@ static constexpr int      kScreenAdjustPage = 3;         // sm[0x50] value of th
 // would have the field showing straight through it. OptionsPage::drawCollected pushes this before the
 // page's own chrome, so seq order inside the layer keeps it behind the cursor.
 void Render::optionsBackdrop() {
-  Core* c = mCore;
+  Core *c = mCore;
   // WIDESCREEN PILLARBOX: flat-black full-screen fill (equal vertex colours → STRETCHES to fill the wide
   // FB, blacking the side margins) behind the 4:3 gradient below (non-flat → CENTERS, not stretched). 4:3: no-op.
-  { int xs[4] = { 0, 320, 0, 320 }, ys[4] = { 0, 0, 240, 240 }, z[4] = { 0, 0, 0, 0 };
-    unsigned char k[4] = { 0, 0, 0, 0 };
+  {
+    int xs[4] = {0, 320, 0, 320}, ys[4] = {0, 0, 240, 240}, z[4] = {0, 0, 0, 0};
+    unsigned char k[4] = {0, 0, 0, 0};
     // Producer DB: a PC-ONLY row of its own. This quad has NO guest counterpart, so it must not sit in
     // the guest-keyed scope below — inside it, it would add one native prim against the guest's one and
     // make a faithful producer read 2-vs-1 in the one column the DB exists to compare. It used to be
     // left undeclared for that reason; now that native attribution is 100%, undeclared would mean
     // "a guest producer nobody wrote down", which this is not.
     ProducerScope pillarboxScope(&c->rsub.producerScope, pc_producer("pc/options-pillarbox"));
-    c->game->activeRq().push2dQuad(RQ_OVERLAY, /*order_2d_fg=*/1, xs, ys, z, z, k, k, k,
-                                   0, 0, /*mode=*/3, /*raw=*/0, 0, 0, 0, 0, 0, 0, 0, 0, 1023, 511); }
+    c->game->activeRq().push2dQuad(RQ_OVERLAY,
+                                   /*order_2d_fg=*/1,
+                                   xs,
+                                   ys,
+                                   z,
+                                   z,
+                                   k,
+                                   k,
+                                   k,
+                                   0,
+                                   0,
+                                   /*mode=*/3,
+                                   /*raw=*/0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   1023,
+                                   511);
+  }
   {
     // Producer DB, native leg. Keyed on the guest options backdrop this block reproduces (codemap:
     // 0x8007FC24 -> Render::optionsBackdrop, this function).
@@ -94,16 +117,35 @@ void Render::optionsBackdrop() {
     // stays outside, and since producer_scope.h grew pc_producer() it carries its own PC-only row
     // rather than being undeclared.
     ProducerScope backdropScope(&c->rsub.producerScope, 0x8007FC24u, "optionsBackdrop");
-    int xs[4] = { 0, 320, 0, 320 };
-    int ys[4] = { 0, 0, 240, 240 };
-    int uv[4] = { 0, 0, 0, 0 };
-    unsigned char rr[4] = { 0, 0, 0, 0 };
-    unsigned char gg[4] = { 0, 0, 0, 0 };
-    unsigned char bb[4] = { 70, 70, 70, 16 };
-    c->game->activeRq().push2dQuad(RQ_OVERLAY, /*order_2d_fg=*/1, xs, ys, uv, uv, rr, gg, bb,
-                                   /*tp_x=*/0, /*tp_y=*/0, /*mode=*/3, /*raw=*/0, /*clut_x=*/0, /*clut_y=*/0,
-                                   /*tw_mx=*/0, /*tw_my=*/0, /*tw_ox=*/0, /*tw_oy=*/0,
-                                   /*da_x0=*/0, /*da_y0=*/0, /*da_x1=*/1023, /*da_y1=*/511);
+    int xs[4] = {0, 320, 0, 320};
+    int ys[4] = {0, 0, 240, 240};
+    int uv[4] = {0, 0, 0, 0};
+    unsigned char rr[4] = {0, 0, 0, 0};
+    unsigned char gg[4] = {0, 0, 0, 0};
+    unsigned char bb[4] = {70, 70, 70, 16};
+    c->game->activeRq().push2dQuad(RQ_OVERLAY,
+                                   /*order_2d_fg=*/1,
+                                   xs,
+                                   ys,
+                                   uv,
+                                   uv,
+                                   rr,
+                                   gg,
+                                   bb,
+                                   /*tp_x=*/0,
+                                   /*tp_y=*/0,
+                                   /*mode=*/3,
+                                   /*raw=*/0,
+                                   /*clut_x=*/0,
+                                   /*clut_y=*/0,
+                                   /*tw_mx=*/0,
+                                   /*tw_my=*/0,
+                                   /*tw_ox=*/0,
+                                   /*tw_oy=*/0,
+                                   /*da_x0=*/0,
+                                   /*da_y0=*/0,
+                                   /*da_x1=*/1023,
+                                   /*da_y1=*/511);
   }
 }
 
@@ -113,7 +155,7 @@ void Render::optionsBackdrop() {
 // vertices — when (flags & 0x7F) == 0, and 0 (black) otherwise. Untextured; RQ_OVERLAY so it lands over
 // the title picture but under the page text (RQ_HUD). Screen offset applied, matching the tapped glyphs.
 void Render::optionsSolidBox(int x, int y, int w, int h, uint32_t flags) {
-  Core* c = mCore;
+  Core *c = mCore;
   // Producer DB, native leg. Keyed on the guest tile emitter this reproduces (codemap: 0x8007FCC8 ->
   // Render::optionsSolidBox, this function). NOTE codemap also reports 0x8007FCC8 install-claimed by
   // game/ui/dialog_backdrop.cpp (Panel::pushDialogBackdrop) — two natives reimplementing ONE guest
@@ -121,16 +163,35 @@ void Render::optionsSolidBox(int x, int y, int w, int h, uint32_t flags) {
   ProducerScope solidBoxScope(&c->rsub.producerScope, 0x8007FCC8u, "optionsSolidBox");
   const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
   const unsigned char blue = ((flags & 0x7Fu) == 0) ? 70 : 0;
-  int xs[4] = { x + ox, x + w + ox, x + ox,     x + w + ox };
-  int ys[4] = { y + oy, y + oy,     y + h + oy, y + h + oy };
-  int uv[4] = { 0, 0, 0, 0 };
-  unsigned char rr[4] = { 0, 0, 0, 0 };
-  unsigned char gg[4] = { 0, 0, 0, 0 };
-  unsigned char bb[4] = { blue, blue, blue, blue };
-  c->game->activeRq().push2dQuad(RQ_OVERLAY, /*order_2d_fg=*/1, xs, ys, uv, uv, rr, gg, bb,
-                                 /*tp_x=*/0, /*tp_y=*/0, /*mode=*/3, /*raw=*/0, /*clut_x=*/0, /*clut_y=*/0,
-                                 /*tw_mx=*/0, /*tw_my=*/0, /*tw_ox=*/0, /*tw_oy=*/0,
-                                 /*da_x0=*/0, /*da_y0=*/0, /*da_x1=*/1023, /*da_y1=*/511);
+  int xs[4] = {x + ox, x + w + ox, x + ox, x + w + ox};
+  int ys[4] = {y + oy, y + oy, y + h + oy, y + h + oy};
+  int uv[4] = {0, 0, 0, 0};
+  unsigned char rr[4] = {0, 0, 0, 0};
+  unsigned char gg[4] = {0, 0, 0, 0};
+  unsigned char bb[4] = {blue, blue, blue, blue};
+  c->game->activeRq().push2dQuad(RQ_OVERLAY,
+                                 /*order_2d_fg=*/1,
+                                 xs,
+                                 ys,
+                                 uv,
+                                 uv,
+                                 rr,
+                                 gg,
+                                 bb,
+                                 /*tp_x=*/0,
+                                 /*tp_y=*/0,
+                                 /*mode=*/3,
+                                 /*raw=*/0,
+                                 /*clut_x=*/0,
+                                 /*clut_y=*/0,
+                                 /*tw_mx=*/0,
+                                 /*tw_my=*/0,
+                                 /*tw_ox=*/0,
+                                 /*tw_oy=*/0,
+                                 /*da_x0=*/0,
+                                 /*da_y0=*/0,
+                                 /*da_x1=*/1023,
+                                 /*da_y1=*/511);
 }
 
 // optionsPageNative — see render.h. The page ITSELF is produced at its guest emitters (OptionsPage,
@@ -143,9 +204,12 @@ void Render::optionsSolidBox(int x, int y, int w, int h, uint32_t flags) {
 void Render::optionsPageNative() {
   const uint32_t sm = mCore->mem_r32(kTaskSmPtr);
   const int page = sm ? (int)mCore->mem_r16(sm + 0x50u) : 0;
-  if (page < 0 || page > 4)
+  if (page < 0 || page > 4) {
     abortUnimplemented("DEMO OPTIONS page selector sm[0x50] out of the guest's own 0..4 range");
-  if (page != kScreenAdjustPage) return;
+  }
+  if (page != kScreenAdjustPage) {
+    return;
+  }
   menuChrome();                                   // FUN_80106690(1): black fill + title logos
   menuItemsAndCursor(/*param1=*/1, /*param2=*/1); // FUN_80106824(1,1): the page-1 menu beneath
 }

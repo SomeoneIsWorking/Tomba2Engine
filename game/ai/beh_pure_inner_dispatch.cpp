@@ -14,65 +14,94 @@
 // goto labels = guest addresses). The handler writes no RAM, so the A/B gate (full RAM+scratchpad vs
 // rec_super_call) only confirms the routing chose the same leaves in the same order.
 
+#include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "object/actor.h"     // Actor::boundsCull (FUN_8007778C — thin wrapper native)
-#include "cfg.h"
+#include "guest_abi.h"
+#include "object/actor.h" // Actor::boundsCull (FUN_8007778C — thin wrapper native)
+#include "spawn.h"        // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
-#include "guest_abi.h"
-void rec_super_call(Core*, uint32_t);
-void rec_dispatch(Core*, uint32_t);
+void rec_super_call(Core *, uint32_t);
+void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
 constexpr uint32_t BEH_FN = 0x80136D9Cu;
 
-}  // namespace
+} // namespace
 static constexpr GuestFrameSpill kSpills_80136D9C[2] = {
-  { 16, 16 },
-  { 31 /*ra*/, 20 },
-};   // frame=24, abi_extract --scaffold --guestabi
+    {16, 16},
+    {31 /*ra*/, 20},
+}; // frame=24, abi_extract --scaffold --guestabi
 
-void beh_pure_inner_dispatch(Core* c) {
+void beh_pure_inner_dispatch(Core *c) {
   GuestFrame<24, 2> frame(c, kSpills_80136D9C);
-  uint32_t obj = c->r[4];                         // s0 = a0 (node)
+  uint32_t obj = c->r[4]; // s0 = a0 (node)
 
-  uint8_t st = c->mem_r8(obj + 4);                // node[4] = outer state
-  if (st == 1) goto Le00;
-  if (st < 2) { if (st == 0) goto Ldf0; goto Lret; }   // st<2 -> only st==0 reachable
-  if (st == 2) goto Lret;
-  if (st == 3) goto Lef0;
-  goto Lret;                                       // st >= 4 default
+  uint8_t st = c->mem_r8(obj + 4); // node[4] = outer state
+  if (st == 1) {
+    goto Le00;
+  }
+  if (st < 2) {
+    if (st == 0) {
+      goto Ldf0;
+    }
+    goto Lret;
+  } // st<2 -> only st==0 reachable
+  if (st == 2) {
+    goto Lret;
+  }
+  if (st == 3) {
+    goto Lef0;
+  }
+  goto Lret; // st >= 4 default
 
- Lef0:  eng(c).spawn.despawn(obj); goto Lret;      // STATE 3
- Ldf0:  guest_leaf(c, 0x80136F08u, obj); goto Lret;   // STATE 0
+Lef0:
+  eng(c).spawn.despawn(obj);
+  goto Lret; // STATE 3
+Ldf0:
+  guest_leaf(c, 0x80136F08u, obj);
+  goto Lret; // STATE 0
 
- Le00:                                             // STATE 1
+Le00: // STATE 1
   // call FUN_8007778C unless (0x800BF89C != 2 && node[3]==2 && 0x800E7EAA==1)
-  if (c->mem_r8(0x800BF89Cu) != 2 && c->mem_r8(obj + 3) == 2 && c->mem_r8(0x800E7EAAu) == 1)
+  if (c->mem_r8(0x800BF89Cu) != 2 && c->mem_r8(obj + 3) == 2 && c->mem_r8(0x800E7EAAu) == 1) {
     goto Le3c;
-  Actor(c, obj).boundsCull();          // FUN_8007778C — Actor::boundsCull
- Le3c:
-  {
-    uint8_t n5 = c->mem_r8(obj + 5);              // inner state
-    if (n5 == 1) goto Lea4;
-    if (n5 >= 2) { if (n5 == 2) goto Lec8; goto Led0; }
-    // n5 == 0
-    if (c->mem_r8(obj + 3) == 3) guest_leaf(c, 0x8018CDC4u, obj);
-    else                         guest_leaf(c, 0x80138A64u, obj);
+  }
+  Actor(c, obj).boundsCull(); // FUN_8007778C — Actor::boundsCull
+Le3c: {
+  uint8_t n5 = c->mem_r8(obj + 5); // inner state
+  if (n5 == 1) {
+    goto Lea4;
+  }
+  if (n5 >= 2) {
+    if (n5 == 2) {
+      goto Lec8;
+    }
     goto Led0;
   }
- Lea4:                                             // n5 == 1
-  if (c->mem_r8(0x800BF809u) == 0) guest_leaf(c, 0x80137198u, obj);
+  // n5 == 0
+  if (c->mem_r8(obj + 3) == 3) {
+    guest_leaf(c, 0x8018CDC4u, obj);
+  } else {
+    guest_leaf(c, 0x80138A64u, obj);
+  }
   goto Led0;
- Lec8:                                             // n5 == 2
+}
+Lea4: // n5 == 1
+  if (c->mem_r8(0x800BF809u) == 0) {
+    guest_leaf(c, 0x80137198u, obj);
+  }
+  goto Led0;
+Lec8: // n5 == 2
   guest_leaf(c, 0x8018CA1Cu, obj);
   // fall into Led0
- Led0:
-  if (c->mem_r8(obj + 1) != 0) guest_leaf(c, 0x801389C8u, obj);
- Lret:
+Led0:
+  if (c->mem_r8(obj + 1) != 0) {
+    guest_leaf(c, 0x801389C8u, obj);
+  }
+Lret:
   return;
 }

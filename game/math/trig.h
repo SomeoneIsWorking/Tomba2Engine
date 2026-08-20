@@ -17,9 +17,9 @@ class Core;
 class Trig {
 public:
   static constexpr uint32_t SIN_TAB = 0x800A5AF0u;
-  static constexpr uint32_t ATAN_TAB = 0x800AA490u;   // 1025 int16, atan(k/1024)*4096/2π for k=0..1024
+  static constexpr uint32_t ATAN_TAB = 0x800AA490u; // 1025 int16, atan(k/1024)*4096/2π for k=0..1024
 
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // rsin (guest FUN_80083E80): sin(angle12) -> Q12 in [-4096, 4096].
   int32_t rsin(int32_t angle) const;
@@ -53,5 +53,5 @@ public:
   // leaves. These read the SAME guest tables (SIN_TAB/ATAN_TAB) as the substrate, so byte-exact;
   // MIRROR_VERIFY-gated (102593/79617 passes). angleCmp (0x80077768) deferred — not exercised by
   // current replays (cutscene-camera caller). Found by codemap --substrate-fallthrough.
-  static void registerOverrides(class Game* game);
+  static void registerOverrides(class Game *game);
 };

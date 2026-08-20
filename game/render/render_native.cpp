@@ -9,22 +9,23 @@
 // No GTE, no OT, no GP0 packet. The PSX-vanilla render path stays entirely separate and intact; this is
 // an additive pass invoked only when the `rendernative` diagnostic channel is enabled (see game_tomba2.cpp
 // ov_draw_otag). When the channel is off, none of this runs.
-#include "core.h"
-#include "cfg.h"
 #include "render_native.h"
+#include "cfg.h"
+#include "core.h"
 #include <stdio.h>
 
 void NativeScenePass::run() {
   collect();
 
   int prims = 0;
-  for (int i = 0; i < mScene.count; i++)
+  for (int i = 0; i < mScene.count; i++) {
     prims += drawObject(&mScene.obj[i], &mScene.cam);
+  }
 
   if (cfg_dbg("rendernative")) {
     static long fr = 0;
-    if ((fr++ % 60) == 0)
-      cfg_logf("rendernative", "drew %d objects, %d prims (native decoupled pass)",
-               mScene.count, prims);
+    if ((fr++ % 60) == 0) {
+      cfg_logf("rendernative", "drew %d objects, %d prims (native decoupled pass)", mScene.count, prims);
+    }
   }
 }

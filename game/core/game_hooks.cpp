@@ -50,12 +50,22 @@ static void tomba_renderBbFrameReset(Core *c) {
 static void tomba_fps60ReadSceneCam(Core *c, float R[3][3], float T[3]) {
   Render::readSceneViewMatrix(c, R, T);
 }
-// dev-warp full area load (was native_boot.cpp game_main's
-// eng(c).sop.transitionAreaLoad()).
-static void tomba_devWarpAreaLoad(Core *c) {
+// One complete cold warp shared by the standalone REPL and the SBS oracle. The framework used to
+// split this operation across generic code and two hooks, duplicating Tomba's state-machine layout;
+// SBS then combined the destination preload with an old-area door transition and ran stale objects
+// against the new table. All game addresses and ordering live here now.
+static void tomba_devWarp(Core *c, int area, int sub) {
+  const uint32_t dest = (uint32_t)area & 0x1fu;
+  const uint32_t wsm = c->mem_r32(0x1f800138u);
+  c->mem_w8(wsm + 0x6e, (uint8_t)dest);
+  c->mem_w8(wsm + 0x6d, 2);
   eng(c).sop.transitionAreaLoad();
-}
-static void tomba_devWarpAreaEnter(Core *c) {
+  c->mem_w8(0x800bf871u, (uint8_t)((uint32_t)sub & 0x3fu));
+  c->mem_w8(0x800bf839u, 0); // no pending door transition after a completed cold warp
+  c->mem_w16(wsm + 0x48, 2);
+  c->mem_w16(wsm + 0x4a, 1);
+  c->mem_w16(wsm + 0x4c, c->mem_r8(0x80108f60u + dest));
+  c->mem_w16(wsm + 0x4e, 0);
   eng(c).sop.transitionAreaEnter();
 }
 // dev-warp area index (game/core/dev_areas.cpp) — count / sourced name / "is a
@@ -362,8 +372,7 @@ extern const GameHooks g_tomba_hooks = {
     /* replCamTeleportOff */ tomba_replCamTeleportOff,
     /* renderBbFrameReset */ tomba_renderBbFrameReset,
     /* replCommand        */ tomba_repl_command,
-    /* devWarpAreaLoad    */ tomba_devWarpAreaLoad,
-    /* devWarpAreaEnter   */ tomba_devWarpAreaEnter,
+    /* devWarp            */ tomba_devWarp,
     /* devAreaCount       */ tomba_devAreaCount,
     /* devAreaName        */ tomba_devAreaName,
     /* devWarpAllowed     */ tomba_devWarpAllowed,

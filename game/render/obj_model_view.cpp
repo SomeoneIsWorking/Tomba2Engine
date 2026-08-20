@@ -77,15 +77,15 @@
 // for FUN_80027768 or for their own RTPT run) — so the scratch dataflow below is ordinary C++ locals
 // rather than GuestReg proxies. The three registers that ARE live across the two calls (r16/r17/r18)
 // stay in the register file, because a callee may spill its caller's callee-saved registers.
+#include "obj_model_view.h"
 #include "core.h"
 #include "game.h"
-#include "obj_model_view.h"
-#include "guest_abi.h"           // GuestFrame / GuestReg / guest_call
-#include "override_registry.h"   // overrides::install
-#include "rec_decls.h"           // func_80085480 / func_80084520 / gen_func_800318A0
+#include "guest_abi.h"         // GuestFrame / GuestReg / guest_call
+#include "override_registry.h" // overrides::install
+#include "rec_decls.h"         // func_80085480 / func_80084520 / gen_func_800318A0
 #include <cstdint>
 
-void shard_set_override(uint32_t addr, OverrideFn fn);   // generated/shard_disp.c (C++ linkage)
+void shard_set_override(uint32_t addr, OverrideFn fn); // generated/shard_disp.c (C++ linkage)
 
 namespace {
 
@@ -93,27 +93,27 @@ namespace {
 // Names taken from game/render/perobj_dispatch.cpp, which already documents the same three blocks
 // for the MAIN.EXE sibling of this compose (FUN_8003CDD8) — one vocabulary for one memory layout.
 constexpr uint32_t kScratchpadBase = 0x1F800000u;
-constexpr uint32_t kComposeBase    = kScratchpadBase;          // the composed model-view lives here
-constexpr uint32_t kCamRot         = 0x1F8000F8u;              // scene camera view rotation (CR-packed)
-constexpr uint32_t kCamTrans       = 0x1F80010Cu;              // scene camera view translation (3 s32)
+constexpr uint32_t kComposeBase = kScratchpadBase; // the composed model-view lives here
+constexpr uint32_t kCamRot = 0x1F8000F8u;          // scene camera view rotation (CR-packed)
+constexpr uint32_t kCamTrans = 0x1F80010Cu;        // scene camera view translation (3 s32)
 
 // A PSX MATRIX is a CR-packed 3x3 of s16 (five words) followed by three s32 of translation:
 //   word0 = M00 | M01<<16   word1 = M02 | M10<<16   word2 = M11 | M12<<16
 //   word3 = M20 | M21<<16   word4 = M22
 // so element M[row][col] sits at byte offset kRow<row> + col*kColStride. That is exactly the
 // +0/+6/+12 triple with a +0/+2/+4 column bias that the MVMVA loop below walks.
-constexpr uint32_t kRow0        = 0u;
-constexpr uint32_t kRow1        = 6u;
-constexpr uint32_t kRow2        = 12u;
-constexpr uint32_t kColStride   = 2u;
-constexpr uint32_t kRotWords    = 5u;    // the CR-packed 3x3 occupies words 0..4
+constexpr uint32_t kRow0 = 0u;
+constexpr uint32_t kRow1 = 6u;
+constexpr uint32_t kRow2 = 12u;
+constexpr uint32_t kColStride = 2u;
+constexpr uint32_t kRotWords = 5u; // the CR-packed 3x3 occupies words 0..4
 
 // ── GTE register numbers, so no raw index appears in the body ────────────────────────────────────
-constexpr uint32_t kGteVxy0 = 0,  kGteVz0 = 1;         // data: the vector MVMVA multiplies
-constexpr uint32_t kGteIr1  = 9,  kGteIr2  = 10, kGteIr3 = 11;   // data: MVMVA's IR input/output
-constexpr uint32_t kGteMac1 = 25, kGteMac2 = 26, kGteMac3 = 27;  // data: MVMVA's 32-bit result
-constexpr uint32_t kGteCrRot   = 0;   // control 0..4 — the rotation matrix MVMVA's mx=ROT selects
-constexpr uint32_t kGteCrTrans = 5;   // control 5..7 — TRX/TRY/TRZ
+constexpr uint32_t kGteVxy0 = 0, kGteVz0 = 1;                   // data: the vector MVMVA multiplies
+constexpr uint32_t kGteIr1 = 9, kGteIr2 = 10, kGteIr3 = 11;     // data: MVMVA's IR input/output
+constexpr uint32_t kGteMac1 = 25, kGteMac2 = 26, kGteMac3 = 27; // data: MVMVA's 32-bit result
+constexpr uint32_t kGteCrRot = 0;   // control 0..4 — the rotation matrix MVMVA's mx=ROT selects
+constexpr uint32_t kGteCrTrans = 5; // control 5..7 — TRX/TRY/TRZ
 
 // The two MVMVA encodings, both against the ROTATION control matrix with no translation vector and
 // sf=1 (>>12). They differ only in which vector is multiplied — the same pair perobj_dispatch.cpp
@@ -124,7 +124,7 @@ constexpr uint32_t kMvmvaWorldPos = 0x4A486012u; // mx=ROT, v=V0  — the object
 // ── this function's own guest stack ──────────────────────────────────────────────────────────────
 // Frame contract from `abi_extract.py 800318A0 --contract`, program order. Not hand-derived.
 constexpr uint32_t kFrameBytes = 48;
-constexpr GuestFrameSpill kSpills[4] = { { 18, 40 }, { 17, 36 }, { 16, 32 }, { 31 /*ra*/, 44 } };
+constexpr GuestFrameSpill kSpills[4] = {{18, 40}, {17, 36}, {16, 32}, {31 /*ra*/, 44}};
 // The three scale FACTORS are built as a guest-stack local and passed to Math::matColScale BY
 // ADDRESS, so they must really be written to guest memory — a host-side array would leave these
 // twelve bytes unwritten while substrate core B writes them.
@@ -138,8 +138,8 @@ constexpr uint32_t kLocalScaleCol2 = 24;
 constexpr uint32_t kScaleByteShift = 2;
 
 // jal-site return-address constants, from the same abi_extract contract.
-constexpr uint32_t kRaRotMatrix = 0x800318D0u;   // -> Math::rotmat       0x80085480
-constexpr uint32_t kRaColScale  = 0x80031904u;   // -> Math::matColScale  0x80084520
+constexpr uint32_t kRaRotMatrix = 0x800318D0u; // -> Math::rotmat       0x80085480
+constexpr uint32_t kRaColScale = 0x80031904u;  // -> Math::matColScale  0x80084520
 
 // The scratchpad compose area, reached through the register that identifies it. r16 holds the base
 // for the whole body (callee-saved across both leaf calls), and the lens re-reads it on every access
@@ -148,36 +148,41 @@ constexpr uint32_t kRaColScale  = 0x80031904u;   // -> Math::matColScale  0x8008
 // ComposeArea now lives in obj_model_view.h — see that header for WHY (port_check
 // harvests lens setters from game/**/*.h only).
 
-}  // namespace
+} // namespace
 
 // ORACLE: gen_func_800318A0 (tools/port_check.py equivalence-gate marker; see docs/port-framework.md)
-void ObjModelView::composeIntoGte(Core* c) {
+void ObjModelView::composeIntoGte(Core *c) {
   GuestFrame<kFrameBytes, 4> frame(c, kSpills);
 
   // The three values that must survive the two leaf calls, held where the guest holds them.
-  GuestReg<18> worldPos(c);    worldPos   = c->r[4];   // -> packed VX|VY at +0, VZ at +4
-  GuestReg<17> scaleBytes(c);  scaleBytes = c->r[5];   // -> three per-column scale bytes
-  GuestReg<16> mtx(c);         mtx        = kComposeBase;
-  const ComposeArea compose{ c };
+  GuestReg<18> worldPos(c);
+  worldPos = c->r[4]; // -> packed VX|VY at +0, VZ at +4
+  GuestReg<17> scaleBytes(c);
+  scaleBytes = c->r[5]; // -> three per-column scale bytes
+  GuestReg<16> mtx(c);
+  mtx = kComposeBase;
+  const ComposeArea compose{c};
 
   // 1. LOCAL ROTATION. Math::rotmat(angles = a2, dst = the compose area) turns the object's three
   //    PSX angle units into a CR-packed 3x3.
-  c->r[4] = c->r[6];                 // a0 = the angle vector the caller passed as a2
-  c->r[5] = mtx;                     // a1 = destination
+  c->r[4] = c->r[6]; // a0 = the angle vector the caller passed as a2
+  c->r[5] = mtx;     // a1 = destination
   guest_call(c, kRaRotMatrix, func_80085480);
 
   // 2. LOCAL SCALE, per column, in place. Each authored byte becomes a 1.12 factor.
   c->mem_w32(c->r[29] + kLocalScaleCol0, c->mem_r8(scaleBytes + 0) << kScaleByteShift);
   c->mem_w32(c->r[29] + kLocalScaleCol1, c->mem_r8(scaleBytes + 1) << kScaleByteShift);
   c->mem_w32(c->r[29] + kLocalScaleCol2, c->mem_r8(scaleBytes + 2) << kScaleByteShift);
-  c->r[4] = mtx;                             // a0 = the matrix to scale
-  c->r[5] = c->r[29] + kLocalScaleCol0;      // a1 = the three factors, on our own guest stack
+  c->r[4] = mtx;                        // a0 = the matrix to scale
+  c->r[5] = c->r[29] + kLocalScaleCol0; // a1 = the three factors, on our own guest stack
   guest_call(c, kRaColScale, func_80084520);
 
   // 3. COMPOSE WITH THE CAMERA. Load the scene camera's view rotation into the GTE's rotation
   //    control matrix, then push each COLUMN of the local matrix through MVMVA and store the result
   //    back over that same column: the compose area goes from LOCAL to CAMERA-RELATIVE in place.
-  for (uint32_t i = 0; i < kRotWords; i++) gte_write_ctrl(kGteCrRot + i, c->mem_r32(kCamRot + 4u * i));
+  for (uint32_t i = 0; i < kRotWords; i++) {
+    gte_write_ctrl(kGteCrRot + i, c->mem_r32(kCamRot + 4u * i));
+  }
 
   // Unrolled deliberately, one block per column: the guest emits three straight-line copies and the
   // port_check equivalence gate compares the STATIC store sequence, so a loop here would collapse
@@ -211,7 +216,7 @@ void ObjModelView::composeIntoGte(Core* c) {
   //    in the compose area's translation slots, then add the camera's own translation on top. The
   //    guest really does store twice per axis; both stores are guest-visible state.
   gte_write_data(kGteVxy0, c->mem_r32(worldPos + 0));
-  gte_write_data(kGteVz0,  c->mem_r32(worldPos + 4));
+  gte_write_data(kGteVz0, c->mem_r32(worldPos + 4));
   gte_op(c, kMvmvaWorldPos);
   compose.setTrans(0, gte_read_data(kGteMac1));
   compose.setTrans(1, gte_read_data(kGteMac2));
@@ -222,13 +227,18 @@ void ObjModelView::composeIntoGte(Core* c) {
 
   // 5. PUBLISH. The finished model-view goes into the GTE control registers — R into CR0-4, T into
   //    CR5-7 — which is the state every RTPT/RTPS in the draw that follows projects through.
-  for (uint32_t i = 0; i < kRotWords; i++) gte_write_ctrl(kGteCrRot + i, compose.rotWord(i));
+  for (uint32_t i = 0; i < kRotWords; i++) {
+    gte_write_ctrl(kGteCrRot + i, compose.rotWord(i));
+  }
   gte_write_ctrl(kGteCrTrans + 0, compose.trans(0));
   gte_write_ctrl(kGteCrTrans + 1, compose.trans(1));
   gte_write_ctrl(kGteCrTrans + 2, compose.trans(2));
 }
 
-void ObjModelView::registerOverrides(Game*) {
-  overrides::install(0x800318A0u, "ObjModelView::composeIntoGte",
-                     &ObjModelView::composeIntoGte, gen_func_800318A0, shard_set_override);
+void ObjModelView::registerOverrides(Game *) {
+  overrides::install(0x800318A0u,
+                     "ObjModelView::composeIntoGte",
+                     &ObjModelView::composeIntoGte,
+                     gen_func_800318A0,
+                     shard_set_override);
 }

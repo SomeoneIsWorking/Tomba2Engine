@@ -12,17 +12,17 @@
 // deliberately NOT GTE-driven and NOT guest-writing).
 #pragma once
 struct Core;
-class  Game;
+class Game;
 
 class OverlayGt3Gt4 {
 public:
   // FUN_80146478(block=a0, ot_base=a1) -> first byte past the block's records, in v0.
   // The FIELD SUBMITTER's block dispatcher and the busiest single substrate-dispatch target in the
   // game (127,275 rec_dispatch hits over 6000 frames of the seesaw-weight replay, 4x the runner-up).
-  static void submitBlock(Core* c);
+  static void submitBlock(Core *c);
 
-  static void gt3(Core* c);   // FUN_801465EC(rec=a0, ot_base=a1, count=a2) -> advanced rec ptr in v0
-  static void gt4(Core* c);   // FUN_801467BC(rec=a0, ot_base=a1, count=a2) -> advanced rec ptr in v0
+  static void gt3(Core *c); // FUN_801465EC(rec=a0, ot_base=a1, count=a2) -> advanced rec ptr in v0
+  static void gt4(Core *c); // FUN_801467BC(rec=a0, ot_base=a1, count=a2) -> advanced rec ptr in v0
 
   // All three addresses go into the ONE process-global registry via engine_set_override_a00 ->
   // overrides::install, which carries each address's { native, gen } pair and makes the single
@@ -37,5 +37,5 @@ public:
   // "NOT the process-global registry". That described a wiring the file no longer had — the raw
   // form is precisely what reintroduces the fake-0-diff-on-core-B bug, and only PlatformHle may
   // use it.)
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

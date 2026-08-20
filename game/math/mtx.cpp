@@ -5,12 +5,12 @@
 #include "rec_decls.h"         // gen_func_80051794 — the recompiled body the oracle leg runs
 
 void Mtx::identity(uint32_t addr) {
-  Core* c = this->core;
+  Core *c = this->core;
   // m[0][0]=0x1000 m[0][1]=0 | m[0][2]=0 m[1][0]=0 | m[1][1]=0x1000 m[1][2]=0 |
   // m[2][0]=0 m[2][1]=0    | m[2][2]=0x1000 (pad)   | t[0]=0 t[1]=0 t[2]=0
-  c->mem_w32(addr +  0, 0x00001000u);
-  c->mem_w32(addr +  4, 0);
-  c->mem_w32(addr +  8, 0x00001000u);
+  c->mem_w32(addr + 0, 0x00001000u);
+  c->mem_w32(addr + 4, 0);
+  c->mem_w32(addr + 8, 0x00001000u);
   c->mem_w32(addr + 12, 0);
   c->mem_w32(addr + 16, 0x00001000u);
   c->mem_w32(addr + 20, 0);
@@ -40,11 +40,11 @@ void Mtx::identity(uint32_t addr) {
 // therefore a measure of how much of this leaf's caller set is already native, and it should GROW as
 // more callers are ported. `ovhit`'s "control-flow divergence" label is right for a target whose
 // callers are all still guest code and wrong for one like this.
-static void eov_identity(Core* c) {
+static void eov_identity(Core *c) {
   mtxOf(c).identity(c->r[4]);
   c->r[2] = 4096;
 }
 
-void Mtx::registerOverrides(Game*) {
+void Mtx::registerOverrides(Game *) {
   engine_set_override_main(0x80051794u, &eov_identity, gen_func_80051794);
 }

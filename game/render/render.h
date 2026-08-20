@@ -8,23 +8,23 @@
 // in runtime/recomp/core.cpp; back-pointer `mCore` is wired there, and each embedded sub-subsystem's
 // own back-pointer is wired there too. Callers reach members as `rend(c)->mNodeXform.build(node)`.
 #pragma once
-#include "node_xform.h"
-#include "projection.h"     // EObjXform (per-Core active per-object xform lives on Render below)
-#include "render_native.h"      // class NativeScenePass — the decoupled native render subsystem
-#include "margin_render.h"    // class MarginRenderer — widescreen margin collect-and-flush
-#include "lighting.h"
-#include "fx_motes.h"        // class MoteStreaks — the area-8 streak shadow
+#include "effect_lerp.h" // class EffectLerp — the effect-node actor-transform interpolation tier           // class Lighting — per-area light registry (sun / lava+torch)
+#include "fx_motes.h"    // class MoteStreaks — the area-8 streak shadow
+#include "guest_face_gate.h"  // struct GuestFaceGateCensus — the guest's own per-face draw/no-draw test
 #include "guest_rng_mirror.h" // class GuestRngMirror — read-only stand-in for the guest PRNG
-#include "effect_lerp.h"      // class EffectLerp — the effect-node actor-transform interpolation tier           // class Lighting — per-area light registry (sun / lava+torch)
-#include "mesh_quads.h"       // struct MeshOtBias — the mesh writer's per-caller ordering-bias argument
-#include "guest_face_gate.h" // struct GuestFaceGateCensus — the guest's own per-face draw/no-draw test
+#include "lighting.h"
+#include "margin_render.h" // class MarginRenderer — widescreen margin collect-and-flush
+#include "mesh_quads.h"    // struct MeshOtBias — the mesh writer's per-caller ordering-bias argument
+#include "node_xform.h"
+#include "projection.h"    // EObjXform (per-Core active per-object xform lives on Render below)
+#include "render_native.h" // class NativeScenePass — the decoupled native render subsystem
 #include <unordered_set>
 #include <vector>
 class Core;
 
 class Render {
 public:
-  Core* mCore = nullptr;
+  Core *mCore = nullptr;
 
   // ---- render-side per-Core subsystems ------------------------------------
   // (The host-only render SUBSTRATE members — mode/diag/otAttr/dualviewSnapshot/stats/projprim/
@@ -35,13 +35,13 @@ public:
   // flush (projSetActive), read by the per-vertex projection (projVertexActive), cleared by
   // projClearActive. Was file-scope in projection.cpp; per-Core here so SBS's two cores don't
   // share a transform between their emits (2026-07-03).
-  EObjXform         mActiveXform{};
-  bool              mActiveXformSet = false;
-  NodeXform         mNodeXform;        // scene-node WORLD-TRANSFORM builder (guest FUN_80051844)
+  EObjXform mActiveXform{};
+  bool mActiveXformSet = false;
+  NodeXform mNodeXform; // scene-node WORLD-TRANSFORM builder (guest FUN_80051844)
   // PSXPORT_BDTAG per-node attribution names for the walk dispatch cases (render_walk.cpp).
   // The gp0 classify is deferred one frame, so the names live in a per-Core ring, not walk locals.
-  NativeScenePass   mNativeScene;      // decoupled native render pass (collect + drawObject)
-  MarginRenderer    margin;            // widescreen margin re-include (collect in cull, flush post-walk)
+  NativeScenePass mNativeScene; // decoupled native render pass (collect + drawObject)
+  MarginRenderer margin;        // widescreen margin re-include (collect in cull, flush post-walk)
   // Per-frame tally of faces THIS PORT DRAWS that the real game would have refused to draw, by
   // guest rule. Per-Core so SBS's two cores never share it. Reported by guestGateFlush().
   GuestFaceGateCensus mGuestGate;
@@ -49,10 +49,10 @@ public:
   // guest would drop nothing STILL PRINTS, with its denominator, because "0 drops" and "the census never
   // ran" are the two answers this whole investigation kept confusing for each other.
   void guestGateFlush();
-  Lighting          lighting;          // per-area light registry (selected once per frame by shadeSelect)
+  Lighting lighting; // per-area light registry (selected once per frame by shadeSelect)
   // Light config selected for this frame by shadeSelect(); the hot per-face shading routine reads the
   // cached pointer instead of re-reading guest RAM. Falls back to the SUN default when unset.
-  const LightConfig* mShadeCfg = nullptr;
+  const LightConfig *mShadeCfg = nullptr;
 
   // AREA-SCOPED CACHE trust latches — read-only, host-only (no guest writes). Two guest structures
   // that a per-area/per-beat SETUP step (re)populates and a per-tick STEP function refreshes while its
@@ -74,9 +74,9 @@ public:
   // "count==0 / W==0 -> skip" guard already makes the zero-window itself safe to read. Mirrors the
   // ScreenFade held-fade latch: pure state derived from guest READS, no guest writes, per-Core host
   // memory only.
-  bool mSceneTableTrusted  = false;   // may fieldEntityRender(SCENE_ENT_TABLE) run this frame?
-  bool mBackdropTrusted    = false;   // may render_bg_tilemap_native(PARALLAX_BG_SM) run this frame?
-  bool mAreaCacheWasNarration = false;   // previous frame's sop_narration value (shared edge detector)
+  bool mSceneTableTrusted = false;     // may fieldEntityRender(SCENE_ENT_TABLE) run this frame?
+  bool mBackdropTrusted = false;       // may render_bg_tilemap_native(PARALLAX_BG_SM) run this frame?
+  bool mAreaCacheWasNarration = false; // previous frame's sop_narration value (shared edge detector)
 
   // NATIVE-DRAWN-NODE provenance (bug #48, docs/findings/render.md "Z-fight sweep 2026-07-14"):
   // node addresses Render::sceneNative's object loop WILL draw this frame via perObjFlush (the real
@@ -98,7 +98,7 @@ public:
 
   std::unordered_set<uint32_t> mNativeDrawnNodes;
   int mNativeDrawnFrame = -1;
-  bool nativeObjDrawn(Core* c, uint32_t node);   // cmdListDispatch: will perObjFlush draw this node this frame?
+  bool nativeObjDrawn(Core *c, uint32_t node); // cmdListDispatch: will perObjFlush draw this node this frame?
 
   // WHICH GUEST EMITTER perObjFlush's prims STAND IN FOR, for the graphics-producer DB's native leg
   // (external/psxport/docs/plans/graphics-producer-db.md). perObjFlush is the picture half of guest
@@ -138,30 +138,32 @@ public:
   // FUN_8003F698's routing rule, in ONE place: which guest emitter a cmd with this `flag` reaches.
   // `*caseLabelOut` = the jump-table label used, or 0 for the generic-emitter path. perModeDispatch
   // dispatches through it; the producer DB keys perObjFlush's rows by it.
-  uint32_t resolvePerModeEmitter(Core* c, uint32_t flag, uint32_t* caseLabelOut);
+  uint32_t resolvePerModeEmitter(Core *c, uint32_t flag, uint32_t *caseLabelOut);
 
   // ---- object-render projection ops (impl in projection.cpp) ----------
   // Compose an EObjXform from the object's REAL WORLD coordinates: its world rotation matrix (cmd+0x18)
   // and world position (cmd+0x2C), transformed by the live scene camera (scratchpad view matrix
   // 0x1F8000F8 / translation 0x1F80010C). Projection constants are the camera's (CR24-26). No gte_op.
-  void projComposeObject(uint32_t cmd, EObjXform* out);
+  void projComposeObject(uint32_t cmd, EObjXform *out);
   // Host-supplied-transform variant: composes the same camera-x-object core as projComposeObject, but
   // Robj/Tobj are HOST float values the caller already computed (margin's read-only path — a culled
   // node's cmd+0x18/0x2C are stale, so we can't read them from guest RAM). Camera state is still read
   // from scratchpad (never stale). No guest reads of Robj/Tobj, no guest writes anywhere.
-  void projComposeObjectHost(const float Robj[3][3], const float Tobj[3], EObjXform* out);
+  void projComposeObjectHost(const float Robj[3][3], const float Tobj[3], EObjXform *out);
   // Compose an EObjXform from the scene camera ALONE (no per-object matrix) — for geometry already in
   // WORLD space (field entity render loop), where view = Rcam·world + Tcam directly. No gte_op.
-  void projComposeCamera(EObjXform* out);
+  void projComposeCamera(EObjXform *out);
   // Per-command active xform (owned by the GT3/GT4 submitters).
-  void projSetActive(const EObjXform* w);
+  void projSetActive(const EObjXform *w);
   void projClearActive();
-  bool projActive() const { return mActiveXformSet; }
-  void projVertexActive(int vx, int vy, int vz, ProjVtx* out);
+  bool projActive() const {
+    return mActiveXformSet;
+  }
+  void projVertexActive(int vx, int vy, int vz, ProjVtx *out);
   // Same projection, and additionally report the GTE FLAG (CR31) bits this vertex would have raised.
   // The guest's geometry submitters drop a face whose CR31 error bit is set, so a caller that wants to
   // run the guest's own test needs the report — see game/render/guest_face_gate.h.
-  uint32_t projVertexActiveFlags(int vx, int vy, int vz, ProjVtx* out);
+  uint32_t projVertexActiveFlags(int vx, int vy, int vz, ProjVtx *out);
   // Pack the ACTIVE float xform into the CR0-7 + CR24/25/26 layout the fps60 midpoint reprojection consumes.
   void projActiveCr(uint32_t cr[11]);
   // THE decode of Tomba!2's scratchpad scene view matrix (0x1F8000F8 = CR0-4 halfword packing, T at
@@ -169,7 +171,7 @@ public:
   // knows the layout: the framework's fps60ReadSceneCam seam and the cube-text selftest's
   // camera-composed negative control both call it, so neither can transcribe a halfword wrong on its
   // own. `projection_test.cpp` round-trips pack->unpack to keep the pair honest.
-  static void readSceneViewMatrix(Core* c, float R[3][3], float T[3]);
+  static void readSceneViewMatrix(Core *c, float R[3][3], float T[3]);
 
   // ---- per-frame render orchestrators (called by Engine::fieldFrame/X) ----
   // frame  (guest 0x8003F9A8) — the primary per-frame render orchestrator; runs the non-walk PSX
@@ -185,7 +187,7 @@ public:
   // transcribing the guest OT/GP0: it aborts here with a precise identity (stage / sm[0x4a] / sm[0x4c] /
   // overlay signature) so the crash sequence IS the native-renderer work queue. There is no fallback and
   // no env escape hatch; the guest-OT walk survives ONLY under psx_render (the reference renderer).
-  [[noreturn]] void abortUnimplemented(const char* scene);
+  [[noreturn]] void abortUnimplemented(const char *scene);
 
   // perObjFlush: per-object native GT3/GT4 flush — composes the float camera×object transform from
   // the object's real world coords and submits every geomblk cmd on node+0xC0 through gt3gt4.
@@ -215,14 +217,14 @@ public:
   // (Fps60::tier1Render) so the in-between can never draw a pass the real frame skipped (#67 bug class:
   // the interp re-run bypassing a real-frame gate paints content only every other present). Pure guest
   // READS of state unchanged since the real frame (fps60's present-time invariant).
-  bool worldVoidBeat() const;   // SOP narration VOID beat (0x800bf9b4==5): no terrain/scene-table/backdrop
-  bool fieldAreaInit() const;   // GAME field-area object-placement init frame: models unattached, no world
+  bool worldVoidBeat() const; // SOP narration VOID beat (0x800bf9b4==5): no terrain/scene-table/backdrop
+  bool fieldAreaInit() const; // GAME field-area object-placement init frame: models unattached, no world
   // attractItemLive: does the DEMO-stage attract item's world EXIST this frame? s48==7 also covers the
   // item's LAUNCH frames (the s7 phase machine's cooperative area load yields), and on those the three
   // field entity heads still point at the PREVIOUS item's torn-down nodes — walking them reads whatever
   // the incoming area stream wrote over the freed memory. Reads the phase machine's own "item built"
   // latch; the full RE + the measurement is on the body (game/render/render_attract.cpp), kanban #86.
-  static constexpr uint32_t kAttractItemBuiltLatch = 0x1F80019Au;   // written 1 by phase0's tail
+  static constexpr uint32_t kAttractItemBuiltLatch = 0x1F80019Au; // written 1 by phase0's tail
   bool attractItemLive() const;
 
   // shadeSelect: pick this area's light config once per world frame (cheap guest-RAM fingerprint via
@@ -252,15 +254,15 @@ public:
   // renderScene classifies by stage/sub-state and dispatches. Each producer owns its DisplayPassGuard +
   // fps60 eligibility. A stage with no producer aborts (abortUnimplemented) — the crash IS the backlog.
   enum class SceneKind { Loading, StartBoot, Title, Field, HutInterior, SopNarration, Unknown };
-  SceneKind classifyScene();     // stage 0x801FE00C + sub-state selectors -> which scene this frame is
-  void renderScene();            // classify + dispatch to the producer below
-  void renderLoading();          // #0 task-switch handoff — black loader (task not yet initialized)
-  void renderStartBoot();        // #1 START.BIN loader — black frame
-  void renderTitle();            // #2 DEMO/title front-end (s2 = titleNative; other substates = black)
-  void renderField();            // #3 walkable field — native world (sceneNative)
-  void renderHutInterior();      // #4 hut/door authored sub-scene — objects-only (fieldObjectsRender)
-  void renderSopNarration();     // #5 SOP intro narration — native world (sceneNative + void-beat guard)
-  void renderAttract();          // #6 DEMO/title ATTRACT (sm[0x48]==7) — live 3D field world (sceneNative)
+  SceneKind classifyScene(); // stage 0x801FE00C + sub-state selectors -> which scene this frame is
+  void renderScene();        // classify + dispatch to the producer below
+  void renderLoading();      // #0 task-switch handoff — black loader (task not yet initialized)
+  void renderStartBoot();    // #1 START.BIN loader — black frame
+  void renderTitle();        // #2 DEMO/title front-end (s2 = titleNative; other substates = black)
+  void renderField();        // #3 walkable field — native world (sceneNative)
+  void renderHutInterior();  // #4 hut/door authored sub-scene — objects-only (fieldObjectsRender)
+  void renderSopNarration(); // #5 SOP intro narration — native world (sceneNative + void-beat guard)
+  void renderAttract();      // #6 DEMO/title ATTRACT (sm[0x48]==7) — live 3D field world (sceneNative)
   // fadeTileRender(node): native producer for the full-screen FADE/FLASH tile (guest FUN_800726D4,
   // render-walk case 0x8003C138). Reads the node's level halfword (node+0x10 -> +0, signed; negative
   // = no tile) and draws one full-screen quad, R=G=B=level, blended unless level==255. Read-only.
@@ -283,7 +285,7 @@ public:
   // chrome + a page-1 menu (FUN_80106824(param1=1) -> item templates 0x90/0x91) — NOT the SOP narration.
   // Read-only producer; built from the shared data-driven menu emitter below.
   void s3MenuNative();
-  void renderCardBrowser();      // DEMO/title Load-Game memory-card browser (sm[0x48]==4) — 2D producer
+  void renderCardBrowser(); // DEMO/title Load-Game memory-card browser (sm[0x48]==4) — 2D producer
 
   // --- DEMO/title front-end OPTIONS (sm[0x48]==6) — one producer per page of the 5-page sub-machine.
   // The page is selected by task-sm[0x50] (written by the page controller FUN_8007B45C); each page has
@@ -360,18 +362,18 @@ public:
   // and the depth bias, so a positional argument list stopped being readable at four callers.
   struct AltSprite {
     uint32_t node = 0;
-    uint32_t anchorX = 0;      // world anchor; Y and Z follow at +4 and +8
-    uint32_t rec0 = 0;         // the four-corner record list to emit
+    uint32_t anchorX = 0; // world anchor; Y and Z follow at +4 and +8
+    uint32_t rec0 = 0;    // the four-corner record list to emit
     // SIGNED. FUN_8012D9E8 reads its numerator with a sign-extending lh (`(int16_t)mem_r16(node+0x70)`),
     // and a negative numerator is meaningful — it mirrors the model. Holding it unsigned turned a small
     // negative into ~65536x the intended scale; caught 2026-07-28 by the static-RE verify pass.
     int32_t numerX = 0, numerY = 0;
     int dqa = 6;
-    int gateBias = 0;          // what FUN_800317CC's OT-key range gate is given
-    int depthBias = 0;         // what the controller then applies to the key (often the same, not always)
-    int shift = 8;             // scale = MAC0 * numer >> shift
+    int gateBias = 0;  // what FUN_800317CC's OT-key range gate is given
+    int depthBias = 0; // what the controller then applies to the key (often the same, not always)
+    int shift = 8;     // scale = MAC0 * numer >> shift
   };
-  void altSpriteEmit(const AltSprite& a);
+  void altSpriteEmit(const AltSprite &a);
   void fxAltAnimSpriteRender(uint32_t node);
   void waterJetSpriteRender(uint32_t node);
   void fxRotSpriteTailRender(uint32_t node);
@@ -432,9 +434,15 @@ public:
   // record list drawn about a native-projected float anchor at (scaleX,scaleY), with the writer's DPCS
   // depth cue applied to each record colour (ir0 = 0 -> identity, as the flame emitters program it).
   // Shared by fxSpriteRender and a0fVortexRender. Body in fx_sprite.cpp. Read-only.
-  void spriteRecordsEmit(uint32_t rec0, uint32_t clutPage, float anchorXf, float anchorYf, float od,
-                         int32_t scaleX, int32_t scaleY, int32_t ir0 = 0,
-                         const int32_t* farColour = nullptr);
+  void spriteRecordsEmit(uint32_t rec0,
+                         uint32_t clutPage,
+                         float anchorXf,
+                         float anchorYf,
+                         float od,
+                         int32_t scaleX,
+                         int32_t scaleY,
+                         int32_t ir0 = 0,
+                         const int32_t *farColour = nullptr);
 
   // WORLD LINES — ropes / chains / tethers (game/render/fx_line.cpp, kanban #56 systemic + #54).
   // pc_render had no line primitive at all, so every GP0 line the guest emits (op 0x40..0x5F) was
@@ -485,9 +493,16 @@ public:
   // additive blend. It is kept separate because the guest leaf has ELEVEN call sites — the other ten
   // reach it from the A01/A06/A08/A0J overlays and can be ported onto this same producer. Read-only.
   void impactRingRender(uint32_t node);
-  void impactAnnulusDraw(float cx, float cy, float ord, float scale,
-                         int innerR, int outerR, uint32_t colInner, uint32_t colOuter,
-                         int layer, int orderMode);
+  void impactAnnulusDraw(float cx,
+                         float cy,
+                         float ord,
+                         float scale,
+                         int innerR,
+                         int outerR,
+                         uint32_t colInner,
+                         uint32_t colOuter,
+                         int layer,
+                         int orderMode);
 
   // a0fVortexRender (game/render/fx_vortex.cpp): native producer for area 15's central PORTAL — the
   // type-0x20 node whose custom render fn is the A0F overlay's FUN_801143C4 (kanban #44). Three layers:
@@ -511,8 +526,12 @@ public:
   // MeshOtBias follows, so a caller whose a1 has not been RE'd is never silently claimed to be 0 by
   // this signature having a default. Deliberately named for the CLUT row and not as a general "word0
   // bias": a CLUT row is what is actually RE'd.
-  int meshQuadRecordsEmit(uint32_t mesh, int uBias, const int32_t farColour[3], int32_t ir0,
-                          const MeshOtBias& ot = MeshOtBias{}, float* screenBbox = nullptr,
+  int meshQuadRecordsEmit(uint32_t mesh,
+                          int uBias,
+                          const int32_t farColour[3],
+                          int32_t ir0,
+                          const MeshOtBias &ot = MeshOtBias{},
+                          float *screenBbox = nullptr,
                           int clutRowBias = 0);
 
   // radialPlumeRender (game/render/fx_plume.cpp): native producer for the FOUR-COPY RADIAL PLUME —
@@ -527,14 +546,14 @@ public:
   // position-history TRAIL and the four-copy puff MESH from the node's own ring/age state, projected
   // natively so both layers lerp at fps60. Read-only. Dispatched from fieldObjectsRender's walk.
   void dustEffectRender(uint32_t node);
-  int  dustTrailEmit(const EffectPoints& pts, const EObjXform& cam, int sub);
-  void dustPuffEmit(uint32_t node, const EffectPoints& pts, int sub);
+  int dustTrailEmit(const EffectPoints &pts, const EObjXform &cam, int sub);
+  void dustPuffEmit(uint32_t node, const EffectPoints &pts, int sub);
 
   // The effect-node interpolation tier (game/render/effect_lerp.h): world points the effect producers
   // own, captured on the real frame and blended on the fps60 in-between so effects lerp like the rest.
   EffectLerp mEffectLerp;
-  GuestRngMirror    mRngMirror;     // read-only PRNG stand-in (claim C018) — never writes 0x80105EE8
-  MoteStreaks       mMoteStreaks;   // area-8 streaks: last logic frame's projected mote positions
+  GuestRngMirror mRngMirror; // read-only PRNG stand-in (claim C018) — never writes 0x80105EE8
+  MoteStreaks mMoteStreaks;  // area-8 streaks: last logic frame's projected mote positions
 
   // fieldHudRender (game/render/field_hud.cpp): native producer for the field HUD family
   // FUN_80025D98 -> {FUN_80025744 status row, FUN_80025934 item ring, FUN_80025B78 weapon strip}
@@ -542,9 +561,9 @@ public:
   // state struct 0x800ED058 + the same gate globals the guest dispatcher reads; emits RQ_HUD quads
   // via the generalized emitUiFt4/emitUiSprites cores below. Read-only.
   void fieldHudRender();
-  void fieldHudStatusRow();      // FUN_80025744
-  void fieldHudItemRing(int offsetMode, uint32_t bucketAttr);   // FUN_80025934
-  void fieldHudWeaponStrip();    // FUN_80025B78
+  void fieldHudStatusRow();                                   // FUN_80025744
+  void fieldHudItemRing(int offsetMode, uint32_t bucketAttr); // FUN_80025934
+  void fieldHudWeaponStrip();                                 // FUN_80025B78
   // fieldHudMinimap (game/render/minimap.cpp): native producer for the area MINIMAP the HUD dispatcher
   // routes to the overlay-resident drawers 0x80113628 (area mode 2) / 0x801140A0 (mode 7) — kanban #43.
   // Draws the 64x64 map image plus the blinking player dot, the dot placed by the area's own linear
@@ -554,12 +573,30 @@ public:
   // base + placement {x,y,wOverride,hOverride} + attr {mode/color byte, clut-override|semi-flag}) —
   // the menu wrappers below keep their fixed menu bases. mode-nibble cases other than 0 (flip/rotate
   // variants) are not yet built: those entries draw nothing and warn once (`fieldhud` channel).
-  void emitUiFt4(int x, int y, int wOv, int hOv, uint32_t templPtr, uint32_t dataBase,
-                 uint8_t attrByte, uint16_t clutSemi, int layer,
-                 int daX0 = 0, int daY0 = 0, int daX1 = 1023, int daY1 = 511);
-  void emitUiSprites(int x, int y, uint32_t templPtr, uint32_t dataBase,
-                     uint8_t attrByte, uint16_t clutSemi, int layer,
-                     int daX0 = 0, int daY0 = 0, int daX1 = 1023, int daY1 = 511);
+  void emitUiFt4(int x,
+                 int y,
+                 int wOv,
+                 int hOv,
+                 uint32_t templPtr,
+                 uint32_t dataBase,
+                 uint8_t attrByte,
+                 uint16_t clutSemi,
+                 int layer,
+                 int daX0 = 0,
+                 int daY0 = 0,
+                 int daX1 = 1023,
+                 int daY1 = 511);
+  void emitUiSprites(int x,
+                     int y,
+                     uint32_t templPtr,
+                     uint32_t dataBase,
+                     uint8_t attrByte,
+                     uint16_t clutSemi,
+                     int layer,
+                     int daX0 = 0,
+                     int daY0 = 0,
+                     int daX1 = 1023,
+                     int daY1 = 511);
   // cineBarsRender: native producer for the cinematic LETTERBOX bars (UI-effect manager slot type 1,
   // base 0x80100400). Reads the slot table read-only and emits the top/bottom black bars. Emits nothing
   // when disarmed. See game/render/cine_bars.cpp. Call from cutscene-capable scenes.
@@ -590,14 +627,18 @@ public:
   // whole list instead, which is how geometry vanilla never shows gets on screen. The census measures
   // the arm; it does NOT gate it. Read the banner in render_walk.cpp before changing that — it records
   // the two gates that were tried and measured wrong.
-  bool nodeInCullRenderQueue(Core* c, uint32_t node);   // DIAGNOSTIC ONLY (queues are reset by now)
-  static constexpr int H0_CAP = 128;                    // recorded nodes per frame; beyond it we count
-  struct H0Node { uint32_t node; uint8_t objClass; uint8_t type; };
+  bool nodeInCullRenderQueue(Core *c, uint32_t node); // DIAGNOSTIC ONLY (queues are reset by now)
+  static constexpr int H0_CAP = 128;                  // recorded nodes per frame; beyond it we count
+  struct H0Node {
+    uint32_t node;
+    uint8_t objClass;
+    uint8_t type;
+  };
   struct H0Census {
-    int  frame = -1;
+    int frame = -1;
     long live = 0, queuedNow = 0, overflow = 0;
     long byClass[16] = {0};
-    int  n = 0;
+    int n = 0;
     H0Node node[H0_CAP];
   };
   H0Census mH0;
@@ -617,13 +658,13 @@ public:
   // record through the SAME float camera path the world uses (sceneCam choke — fps60-lerped at the
   // interp present) and emits an RQ_WORLD quad with real per-particle identity (dbg_node=node).
   struct BbRec {
-    uint32_t node, particle;              // identity (node = dbg_node; particle addr = stable key)
-    int16_t  cx[4], cy[4];                // local corner ints (already ×5; z=0 in local space)
-    float    rotR[3][3];                  // the NODE's own object rotation, rebuilt in float from the
-                                          // node's euler/scale fields (BbObjectRot) — unit scale, no
-                                          // camera in it and no GTE register read.
-    float    wx, wy, wz;                  // world anchor = the node's own (s16 +46, +50, +54)
-    uint32_t wColor, wUv0, wUv1, wUv2, wUv3;   // resolved record words BUF+4/+12/+20/+28/+36
+    uint32_t node, particle;                 // identity (node = dbg_node; particle addr = stable key)
+    int16_t cx[4], cy[4];                    // local corner ints (already ×5; z=0 in local space)
+    float rotR[3][3];                        // the NODE's own object rotation, rebuilt in float from the
+                                             // node's euler/scale fields (BbObjectRot) — unit scale, no
+                                             // camera in it and no GTE register read.
+    float wx, wy, wz;                        // world anchor = the node's own (s16 +46, +50, +54)
+    uint32_t wColor, wUv0, wUv1, wUv2, wUv3; // resolved record words BUF+4/+12/+20/+28/+36
   };
 
   // The object rotation the ACTIVE billboard compose variant owns, published by that compose method
@@ -632,17 +673,19 @@ public:
   // see the BbObjectRot banner in perobj_billboard.cpp. `mBbRotValid` is false outside a compose,
   // and billboardEmit records nothing then, so a future 5th compose sibling that forgets to publish
   // drops its particles instead of silently inheriting the previous node's rotation.
-  float mBbRot[3][3] = {{1,0,0},{0,1,0},{0,0,1}};
-  bool  mBbRotValid  = false;
-  std::vector<BbRec> mBbRecs;             // this logic frame's records, guest-walk emit order
+  float mBbRot[3][3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+  bool mBbRotValid = false;
+  std::vector<BbRec> mBbRecs; // this logic frame's records, guest-walk emit order
   // (No BbRec prev buffer: effect particles have no stable cross-frame identity — the sub-lists
   // reuse/walk particle addresses — so they never lerp; they draw at their own frame's state under
   // the lerped camera.)
   //
 
-  void bbFrameReset() { mBbRecs.clear(); }                          // per logic frame, pre-walk
+  void bbFrameReset() {
+    mBbRecs.clear();
+  } // per logic frame, pre-walk
 
-  void billboardsRender();                // display-pass producer: project + emit every BbRec
+  void billboardsRender(); // display-pass producer: project + emit every BbRec
 
   // emitRecordQuad — the shared "already-projected quad + PSX material words" emit used by every
   // display-pass producer (billboardsRender's particles, CubeTextBanner's glyphs and planks). Takes
@@ -650,9 +693,16 @@ public:
   // RAW out of them (NOT from GpuState's live s_tp_*/s_da_*, which hold unrelated stale state at
   // display time) and pushes one RQ_WORLD quad tagged with the owning node.
   //   wCol[0]>>24 = the GP0 op byte (bit0 raw, bit1 semi); wUv0>>16 = clut; wUv1>>16 = tpage.
-  static void emitRecordQuad(Core* c, uint32_t node, const uint32_t wCol[4],
-                             uint32_t wUv0, uint32_t wUv1, uint32_t wUv2, uint32_t wUv3,
-                             const float* px, const float* py, const float* dep);
+  static void emitRecordQuad(Core *c,
+                             uint32_t node,
+                             const uint32_t wCol[4],
+                             uint32_t wUv0,
+                             uint32_t wUv1,
+                             uint32_t wUv2,
+                             uint32_t wUv3,
+                             const float *px,
+                             const float *py,
+                             const float *dep);
 
   // textLabelEmit (FUN_80039F4C, text_label.cpp): the per-character 3D text-label renderer —
   // a faithful substrate-mirror orchestrator (mesh pass + per-char glyph packets, all callees still
@@ -696,7 +746,7 @@ public:
   // the state>=16 areas are ones the guest itself draws no backdrop for. Read-only (no guest writes).
   // `drawerVAOut` (optional) receives the RESIDENT drawer's address, and only when the resolution
   // SUCCEEDS — it is the producer DB's key for backdropRender's prims, per area rather than hardcoded.
-  bool backdropTilemapDrawer(int& vAdd, uint32_t* drawerVAOut = nullptr);
+  bool backdropTilemapDrawer(int &vAdd, uint32_t *drawerVAOut = nullptr);
 
   // ---- SUBSTRATE MIRROR: per-object cmd-list dispatch (guest FUN_8003CDD8 / FUN_8003F698) --------
   // These run UNDER the render-underneath architecture (issue #32): the substrate walk cluster calls
@@ -748,22 +798,22 @@ public:
   // one of these to re-colour / re-blend what was just emitted. They MUTATE GUEST MEMORY (the pool
   // itself), so each is byte-faithful to its guest body — see docs/findings/render.md.
   //   node = the object node carrying the effect parameters; [lo,hi) = the packet span to rewrite.
-  void effectSemiOn   (uint32_t node, uint32_t lo, uint32_t hi);  // FUN_8003F3F4 — set semi bit
-  void effectSemiOff  (uint32_t node, uint32_t lo, uint32_t hi);  // FUN_8003F4C4 — clear semi bit
-  void effectClutSwap (uint32_t node, uint32_t lo, uint32_t hi);  // FUN_8003F344 — node CLUT -> packets
-  void effectFlatTint (uint32_t node, uint32_t lo, uint32_t hi);  // FUN_8003F594 — flat colour + semi
-  void effectColorAdd (uint32_t node, uint32_t lo, uint32_t hi);  // FUN_8003D584 — per-channel modulate
+  void effectSemiOn(uint32_t node, uint32_t lo, uint32_t hi);   // FUN_8003F3F4 — set semi bit
+  void effectSemiOff(uint32_t node, uint32_t lo, uint32_t hi);  // FUN_8003F4C4 — clear semi bit
+  void effectClutSwap(uint32_t node, uint32_t lo, uint32_t hi); // FUN_8003F344 — node CLUT -> packets
+  void effectFlatTint(uint32_t node, uint32_t lo, uint32_t hi); // FUN_8003F594 — flat colour + semi
+  void effectColorAdd(uint32_t node, uint32_t lo, uint32_t hi); // FUN_8003D584 — per-channel modulate
 
   // composeTintGate (FUN_8003EF9C): per-type render gate — snapshots the packet pool, emits the
   // object's geometry, and in mode 2 colour-adds over exactly the primitives just emitted. Modes
   // other than 0/2 draw nothing. See render/compose_tint_gate.cpp.
-  static void composeTintGate(Core* c);
+  static void composeTintGate(Core *c);
 
   // subPartWalk (FUN_8003F174): draws a node built from SUB-PARTS — for each entry of the node's
   // +0xC0 pointer array it loads that sub-part's own GTE transform (8 control words at sub+0x18)
   // and submits its geomblk (sub+0x40). Two distinct counts: node[+8] caps the walk from the top,
   // node[+9] is the do/while bound. See render/subpart_walk.cpp.
-  static void subPartWalk(Core* c);
+  static void subPartWalk(Core *c);
 
   // Set (as a counter) around a guest-time submit whose PICTURE a native display-pass producer has
   // taken over — currently only the cube-text banner's sub-parts (CubeTextBanner). The native GT3/GT4
@@ -776,7 +826,7 @@ public:
   // sharedTransformWalk (FUN_8003F07C): the sibling of subPartWalk — loads ONE transform (the frame's
   // view matrix from scratchpad 0x1F8000F8) and submits every sub-part under it. F174 is the
   // articulated case, this is the rigid one. See render/subpart_walk_shared.cpp.
-  static void sharedTransformWalk(Core* c);
+  static void sharedTransformWalk(Core *c);
   // billboardEmit (FUN_8003C8F4): a0=node (r4), a1=flag (r5). Walks the node's active particle
   // sub-list, RTPT/RTPS-projects each particle's quad corners, culls off-screen, buckets into the OT
   // by averaged depth, and emits a 10-word (tag+9) GT4-style packet into the packet pool.
@@ -817,20 +867,20 @@ public:
   // Guest ABI args are read from c->r[4..7] inside each method (same convention as
   // perObjRenderDispatch/billboardCompose1 above) so the override thunk's `native(Core*)` shape
   // needs no per-address adapter.
-  void gpuDmaQueueEnqueue();  // FUN_80082D04(fn,argValOrPtr,sizeBytes,arg3) -> queue depth / -1 timeout
-  void gpuDmaQueueDrain();    // FUN_80082FB4() — also the GPU-DMA-completion ISR body
-  void gpuDmaQueueSync();     // FUN_80083364(mode) — internal DrawSync-shaped blocking/poll
-  void gpuDmaSend();          // FUN_80082424(arrayPtr,count) — the OT-linked-list DMA kick
+  void gpuDmaQueueEnqueue(); // FUN_80082D04(fn,argValOrPtr,sizeBytes,arg3) -> queue depth / -1 timeout
+  void gpuDmaQueueDrain();   // FUN_80082FB4() — also the GPU-DMA-completion ISR body
+  void gpuDmaQueueSync();    // FUN_80083364(mode) — internal DrawSync-shaped blocking/poll
+  void gpuDmaSend();         // FUN_80082424(arrayPtr,count) — the OT-linked-list DMA kick
 
   // ---- SUBSTRATE MIRROR: libgpu GPU-sys jump-table leaves DrawSync/ClearOTagR (wired 2026-07-10) ---
   // 0x80080F6C / 0x80081458 — see game/render/wide_re_libgpu_leaves.cpp for the full RE.
-  void drawSync();     // FUN_80080F6C(mode)
-  void clearOTagR();   // FUN_80081458(ot,entries)
+  void drawSync();   // FUN_80080F6C(mode)
+  void clearOTagR(); // FUN_80081458(ot,entries)
 
   // ---- SUBSTRATE MIRROR: libgpu LoadImage()-internal chunked GP0-FIFO pixel streamer (wired 2026-07-10)
   // 0x80082734 — see game/render/wide_re_gpu_loadimage_streamer.cpp for the full RE (struct map,
   // control flow, dead-code note). Guest ABI: a0(r4)=rectPtr, a1(r5)=srcPtr; ret v0.
-  void gpuLoadImageStream();  // FUN_80082734(rectPtr,srcPtr) -> -1 timeout/empty, else 0
+  void gpuLoadImageStream(); // FUN_80082734(rectPtr,srcPtr) -> -1 timeout/empty, else 0
 
   // ---- SUBSTRATE MIRROR: the 4 still-substrate OBJECT-LIST WALKERS reached from FUN_8003F9A8's
   // field-frame draw dispatcher (docs/findings/render.md "0x8003F9A8 474-prim attribution resolved") --
@@ -840,14 +890,14 @@ public:
   // (called as plain func_XXXX(c), matching gen), or a per-object vtable slot (rec_dispatch, per
   // CLAUDE.md — never dropped). See game/render/objlist_walk.cpp for the full RE (per-function
   // scratchpad cursor layout, jump-table addresses, case-label maps).
-  void objListWalk1();          // FUN_8003BB50 — list @0x800F2410, cursor 0x1F80013C/146
-  void objListWalk2();          // FUN_8003BCF4 — list @0x800F26C8, cursor 0x1F800148/152 (1st entry only)
-  void objListWalk2Continue();  // FUN_8003BED8 — shared tail: continues objListWalk2's SAME guest frame
-  void objListWalk3();          // FUN_8003BF00 — list @0x800F2738 (positional array), cursor 0x1F800154/15E
-  void objListWalk4();          // FUN_8003EEC0 — list head *0x800F2738 (linked via node+0x24 "next")
+  void objListWalk1();         // FUN_8003BB50 — list @0x800F2410, cursor 0x1F80013C/146
+  void objListWalk2();         // FUN_8003BCF4 — list @0x800F26C8, cursor 0x1F800148/152 (1st entry only)
+  void objListWalk2Continue(); // FUN_8003BED8 — shared tail: continues objListWalk2's SAME guest frame
+  void objListWalk3();         // FUN_8003BF00 — list @0x800F2738 (positional array), cursor 0x1F800154/15E
+  void objListWalk4();         // FUN_8003EEC0 — list head *0x800F2738 (linked via node+0x24 "next")
 
 private:
   // Native POLY_GT3/GT4 submitters (guest-ABI bodies: rec/otbase/count in r4/r5/r6).
-  static void submitPolyGt3Native(Core* c);   // gen_func_8007FDB0
-  static void submitPolyGt4Native(Core* c);   // gen_func_80080114
+  static void submitPolyGt3Native(Core *c); // gen_func_8007FDB0
+  static void submitPolyGt4Native(Core *c); // gen_func_80080114
 };

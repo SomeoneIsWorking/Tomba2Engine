@@ -16,68 +16,75 @@
 // this pass does not second-guess it.
 
 #include "audio/sequencer.h"
-#include "override_registry.h"   // engine_set_override_main
-extern void func_8009A1D0(Core*);
-extern void func_80097E10(Core*);
-extern void func_80099970(Core*);
-extern void func_80098F90(Core*);
-extern void func_80098DB0(Core*);
-#include "game_ctx.h"
+#include "override_registry.h" // engine_set_override_main
+extern void func_8009A1D0(Core *);
+extern void func_80097E10(Core *);
+extern void func_80099970(Core *);
+extern void func_80098F90(Core *);
+extern void func_80098DB0(Core *);
 #include "core.h"
-#include "game.h"           // MV_CHECK / VerifyHarness (frameTick trampoline strict gate)
-#include "guest_abi.h"      // GuestFrame/GuestReg/guest_fn/guest_dispatch — ABI vocabulary
+#include "game.h" // MV_CHECK / VerifyHarness (frameTick trampoline strict gate)
+#include "game_ctx.h"
+#include "guest_abi.h" // GuestFrame/GuestReg/guest_fn/guest_dispatch — ABI vocabulary
 #include <cstdio>
 
-#define SEQ_USER_CB    0x800AC430u   // DAT_800ac430 — optional user callback fn-ptr
-#define SEQ_TICK_FN    0x800AC42Cu   // DAT_800ac42c — *SsSeqCalled fn-ptr (0x80090BD0 today)
+#define SEQ_USER_CB 0x800AC430u // DAT_800ac430 — optional user callback fn-ptr
+#define SEQ_TICK_FN 0x800AC42Cu // DAT_800ac42c — *SsSeqCalled fn-ptr (0x80090BD0 today)
 
 // SsSeqCalled cluster globals (base 32784u<<16 = 0x80100000; offsets are the exact decimal
 // immediates in generated/shard_3.c's gen_func_80090BD0 — see sequencer.h header note on the
 // earlier pass's incorrect 0x8010CCxx/0x80109Exx transcription).
-#define SEQ_REENTRY_FLAG   0x80104C24u   // guard: 1 while SsSeqCalled is running (re-entry no-op)
-#define SEQ_ACTIVE_MASK    0x80104C28u   // bit i set => sequence i is active
-#define SEQ_PTR_ARRAY      0x80104C30u   // 4-byte-stride array of per-sequence channel-table bases
-#define SEQ_COUNT          0x801054B0u   // s16 — number of sequence slots (loop bound, <=7 seen live)
-#define SEQ_CHAN_COUNT     0x801054B2u   // s16 — number of channels per sequence (<=15 seen live)
-#define SEQ_PREP_FN        0x800931C0u   // one-shot prep call before the seq loop (input_dispatch_931c0)
+#define SEQ_REENTRY_FLAG 0x80104C24u // guard: 1 while SsSeqCalled is running (re-entry no-op)
+#define SEQ_ACTIVE_MASK 0x80104C28u  // bit i set => sequence i is active
+#define SEQ_PTR_ARRAY 0x80104C30u    // 4-byte-stride array of per-sequence channel-table bases
+#define SEQ_COUNT 0x801054B0u        // s16 — number of sequence slots (loop bound, <=7 seen live)
+#define SEQ_CHAN_COUNT 0x801054B2u   // s16 — number of channels per sequence (<=15 seen live)
+#define SEQ_PREP_FN 0x800931C0u      // one-shot prep call before the seq loop (input_dispatch_931c0)
 
-#define CH_FLAGS   152u   // per-channel record: bitfield tested/cleared by SsSeqCalled + leaves
-#define CH_STRIDE  176u
+#define CH_FLAGS 152u // per-channel record: bitfield tested/cleared by SsSeqCalled + leaves
+#define CH_STRIDE 176u
 
 // 2026-07-10 wave — globals touched by the bit4/5/6/7/2 leaves (all same 0x80100000 base as the
 // SEQ_* cluster above; offsets are the exact decimal immediates in each gen body, see sequencer.h
 // header for the per-leaf confidence notes).
-#define SEQ_KEYSCAN_VOICE_MASK  0x800AC3F4u   // 32779u<<16-15372 — hw voice-active bitmask (SPU)
-#define SEQ_KEYSCAN_COUNT       0x80105CECu   // s8  @ +23788 — channelKeyEventScan() loop bound
-#define SEQ_KEYSCAN_TABLE       0x801054D8u   // s16 @ +21720, stride 56 — per-voice pitch table
-#define SEQ_KEYSCAN_MATCH       0x80105D10u   // u16 @ +23824 — scratch: matched VOICE INDEX (i), not
-                                               // the pitch value (RE correction, see channelKeyEventScan)
-#define SEQ_KEYMERGE_STATUS     21733u        // u8  offset into the stride-56 voice table (cleared)
-#define SEQ_KON_LO              0x80105BF0u   // u16 @ +23536 — KON-style armed-mask low word
-#define SEQ_KON_HI              0x80105BF2u   // u16 @ +23538 — KON-style armed-mask high word
-#define SEQ_ACTIVE_VOICE_LO     0x801054B8u   // u16 @ +21688 — active-voice mask low word
-#define SEQ_ACTIVE_VOICE_HI     0x801054BAu   // u16 @ +21690 — active-voice mask high word
-#define SEQ_VOLSNAP_SCRATCH     0x80105D0Cu   // u16 @ +23820 — channelVolumeSnapshot() dead-write scratch
+#define SEQ_KEYSCAN_VOICE_MASK 0x800AC3F4u // 32779u<<16-15372 — hw voice-active bitmask (SPU)
+#define SEQ_KEYSCAN_COUNT 0x80105CECu      // s8  @ +23788 — channelKeyEventScan() loop bound
+#define SEQ_KEYSCAN_TABLE 0x801054D8u      // s16 @ +21720, stride 56 — per-voice pitch table
+#define SEQ_KEYSCAN_MATCH                                                                                              \
+  0x80105D10u                           // u16 @ +23824 — scratch: matched VOICE INDEX (i), not
+                                        // the pitch value (RE correction, see channelKeyEventScan)
+#define SEQ_KEYMERGE_STATUS 21733u      // u8  offset into the stride-56 voice table (cleared)
+#define SEQ_KON_LO 0x80105BF0u          // u16 @ +23536 — KON-style armed-mask low word
+#define SEQ_KON_HI 0x80105BF2u          // u16 @ +23538 — KON-style armed-mask high word
+#define SEQ_ACTIVE_VOICE_LO 0x801054B8u // u16 @ +21688 — active-voice mask low word
+#define SEQ_ACTIVE_VOICE_HI 0x801054BAu // u16 @ +21690 — active-voice mask high word
+#define SEQ_VOLSNAP_SCRATCH 0x80105D0Cu // u16 @ +23820 — channelVolumeSnapshot() dead-write scratch
 
-void rec_dispatch(Core*, uint32_t);
+void rec_dispatch(Core *, uint32_t);
 // cpu_div / rec_break already declared in core.h (included above).
 
 namespace {
 
 // Sign-extend a raw register/arg value the way the gen body's `sll rX,16 / sra rX,16` idiom does
 // at every seq/chan-index use — replaces the repeated `(int32_t)(int16_t)(uint16_t)v` cast chain.
-inline int32_t sext16(uint32_t v) { return (int32_t)(int16_t)(uint16_t)v; }
+inline int32_t sext16(uint32_t v) {
+  return (int32_t)(int16_t)(uint16_t)v;
+}
 
 // Per-channel record byte stride is 176 (CH_STRIDE) — gen computes it via the shift-mul idiom
 // `(chan*11)<<4`, which is bit-identical to `chan*176` under mod-2^32 arithmetic (11*16==176,
 // multiplication is associative mod 2^32) for every chan value this file ever sees (0..14 live).
 // Named so call sites read "channel N's byte offset", not a mystery `*11 <<4`.
-inline uint32_t chStride(int32_t chan) { return (uint32_t)(chan * 11) << 4; }
+inline uint32_t chStride(int32_t chan) {
+  return (uint32_t)(chan * 11) << 4;
+}
 
 // SEQ_PTR_ARRAY[seq] slot address. Gen computes the 4-byte-stride index via `(seq<<16)>>14`,
 // which nets out to `sext16(seq) * 4` (shift by 16 sign-extends the low half; shifting right by
 // 14 instead of 16 supplies the implicit *4 stride in one instruction) — named per that meaning.
-inline uint32_t seqPtrSlot(uint32_t seqRaw) { return SEQ_PTR_ARRAY + (uint32_t)(sext16(seqRaw) << 2); }
+inline uint32_t seqPtrSlot(uint32_t seqRaw) {
+  return SEQ_PTR_ARRAY + (uint32_t)(sext16(seqRaw) << 2);
+}
 
 // Typed lens over a per-channel record (base = *SEQ_PTR_ARRAY[seq] + chStride(chan), stride
 // CH_STRIDE=176). Same guest addresses as the raw `channelBase + 0xNN` reads/writes this file used
@@ -92,22 +99,38 @@ inline uint32_t seqPtrSlot(uint32_t seqRaw) { return SEQ_PTR_ARRAY + (uint32_t)(
 // deliberately kept register-literal (see top-of-file note), so adding lens methods only they'd
 // call would be speculative surface with no reader.
 struct ChannelRecord {
-  Core* c;
+  Core *c;
   uint32_t base;
 
-  uint32_t flags() const           { return c->mem_r32(base + CH_FLAGS); }
-  void     setFlags(uint32_t v)    { c->mem_w32(base + CH_FLAGS, v); }
-  void     clearFlagBits(uint32_t mask) { setFlags(flags() & ~mask); }
+  uint32_t flags() const {
+    return c->mem_r32(base + CH_FLAGS);
+  }
+  void setFlags(uint32_t v) {
+    c->mem_w32(base + CH_FLAGS, v);
+  }
+  void clearFlagBits(uint32_t mask) {
+    setFlags(flags() & ~mask);
+  }
 
-  void     setBusy(uint8_t v)      { c->mem_w8(base + 20u, v); }   // release/note-init status byte
+  void setBusy(uint8_t v) {
+    c->mem_w8(base + 20u, v);
+  } // release/note-init status byte
 
-  uint16_t volL() const            { return c->mem_r16(base + 88u); }   // clamped snapshot L
-  uint16_t volR() const            { return c->mem_r16(base + 90u); }   // clamped snapshot R
-  uint32_t snapshotTargetLPtr() const { return base + 92u; }   // channelVolumeSnapshot()'s outL arg
-  uint32_t snapshotTargetRPtr() const { return base + 94u; }   // channelVolumeSnapshot()'s outR arg
+  uint16_t volL() const {
+    return c->mem_r16(base + 88u);
+  } // clamped snapshot L
+  uint16_t volR() const {
+    return c->mem_r16(base + 90u);
+  } // clamped snapshot R
+  uint32_t snapshotTargetLPtr() const {
+    return base + 92u;
+  } // channelVolumeSnapshot()'s outL arg
+  uint32_t snapshotTargetRPtr() const {
+    return base + 94u;
+  } // channelVolumeSnapshot()'s outR arg
 };
 
-}  // namespace
+} // namespace
 
 // 0x800909C0 FUN_800909c0 — libsnd per-VBlank tick wrapper. WIDE-RE DRAFT, UNWIRED (see header).
 // FIX (re-verify pass): gen_func_800909C0 descends sp by 24 and spills s0(r16)/ra BEFORE either
@@ -116,8 +139,8 @@ struct ChannelRecord {
 // address used by nested calls (e.g. seqChannelDispatch's own sp-56 frame) by 24 bytes relative
 // to the oracle. Mirrored per CLAUDE.md's "MIRROR THE GUEST STACK" rule.
 void Sequencer::frameTick() {
-  Core* c = core;
-  static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {31, 20}};   // -24 (abi_extract-verified)
+  Core *c = core;
+  static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {31, 20}}; // -24 (abi_extract-verified)
   GuestFrame<24, 2> frame(c, kSpills);
   // FIX (re-verify pass, same class as channelNoteInit's r16 bug): gen loads r16 = 0x800AC430 (the
   // libsnd cb-slot base it reads +0/-4 from) and keeps it LIVE across both dispatches -- callees
@@ -125,7 +148,9 @@ void Sequencer::frameTick() {
   GuestReg<16> r16(c);
   r16 = SEQ_USER_CB;
   uint32_t cb = c->mem_r32(SEQ_USER_CB);
-  if (cb != 0u) guest_dispatch(c, 0x800909ECu, cb);
+  if (cb != 0u) {
+    guest_dispatch(c, 0x800909ECu, cb);
+  }
   uint32_t seq = c->mem_r32(SEQ_TICK_FN);
   guest_dispatch(c, 0x800909FCu, seq);
 }
@@ -134,12 +159,12 @@ void Sequencer::frameTick() {
 // still-unowned pitch-table leaf 0x80091120. Faithful to gen_func_800910F0
 // (generated/shard_6.c:15995). Guest-stack frame mirrored (sp-24, ra spilled at +16).
 void Sequencer::channelPitchSelectDispatch() {
-  Core* c = core;
-  static constexpr GuestFrameSpill kSpills[] = {{31, 16}};   // -24 (abi_extract-verified)
+  Core *c = core;
+  static constexpr GuestFrameSpill kSpills[] = {{31, 16}}; // -24 (abi_extract-verified)
   GuestFrame<24, 1> frame(c, kSpills);
   c->r[4] = (uint32_t)sext16(c->r[4]);
   c->r[5] = (uint32_t)sext16(c->r[5]);
-  guest_dispatch(c, 0x8009110Cu, 0x80091120u);   // FIX: gen sets the real return-site const before the jal
+  guest_dispatch(c, 0x8009110Cu, 0x80091120u); // FIX: gen sets the real return-site const before the jal
 }
 
 // 0x80091050 — "release"/note-off housekeeping: zeroes the per-channel status byte at +20, clears
@@ -148,12 +173,12 @@ void Sequencer::channelPitchSelectDispatch() {
 // from context). Faithful to gen_func_80091050 (generated/shard_5.c:15597). Guest-stack frame
 // mirrored (sp-32, spill ra/s16/s17/s18 at their RE'd offsets).
 void Sequencer::channelReleaseClear() {
-  Core* c = core;
-  static constexpr GuestFrameSpill kSpills[] = {{18, 24}, {16, 16}, {31, 28}, {17, 20}};   // -32
+  Core *c = core;
+  static constexpr GuestFrameSpill kSpills[] = {{18, 24}, {16, 16}, {31, 28}, {17, 20}}; // -32
   GuestFrame<32, 4> frame(c, kSpills);
   uint32_t seqRaw = c->r[4];
   uint32_t chanRaw = c->r[5];
-  int32_t  chan = sext16(chanRaw);
+  int32_t chan = sext16(chanRaw);
   // gen: a0 = seqRaw | (chanRaw<<8), sign-extended 16 — the combine uses the RAW incoming a0/a1
   // registers (not the sign-extended chan local), matching gen_func_80091050 exactly.
   uint32_t combined = (uint32_t)sext16(seqRaw | (chanRaw << 8));
@@ -162,13 +187,15 @@ void Sequencer::channelReleaseClear() {
   // FIX (re-verify pass, same class as channelNoteInit's r16 bug): gen keeps r18=seqPtrSlot,
   // r16=chanStride, r17=channelBase LIVE across the 0x80095B90 call, and channelKeyEventScan spills
   // r16/r17/r18 into its frame -- mirror the register lifetimes so the spilled bytes match.
-  GuestReg<18> r18(c); GuestReg<16> r16(c); GuestReg<17> r17(c);
+  GuestReg<18> r18(c);
+  GuestReg<16> r16(c);
+  GuestReg<17> r17(c);
   r18 = slot;
   r16 = chStride(chan);
   r17 = ch.base;
   c->r[4] = combined;
-  c->r[31] = 0x800910B0u;   // FIX: gen sets the real return-site const before the jal
-  channelKeyEventScan();    // FIX: 0x80095B90 is now owned -- direct native call, not rec_dispatch
+  c->r[31] = 0x800910B0u; // FIX: gen sets the real return-site const before the jal
+  channelKeyEventScan();  // FIX: 0x80095B90 is now owned -- direct native call, not rec_dispatch
   ch.setBusy(0);
   // gen re-derefs seqArrayPtr fresh here (redundant unless the callee above mutated it) — mirror
   // that re-read for strict register/memory faithfulness rather than reusing the cached pointer.
@@ -180,12 +207,12 @@ void Sequencer::channelReleaseClear() {
 // leaf: no stack frame, no sub-calls in the gen body (generated/shard_3.c:21635). Prior doc pass's
 // "toggles a stop bit + a busy flag" summary matches this shape (busy=+20, stop=bit3).
 void Sequencer::channelStopFlagSet() {
-  Core* c = core;
+  Core *c = core;
   uint32_t seqRaw = c->r[4];
-  int32_t  chan = sext16(c->r[5]);
+  int32_t chan = sext16(c->r[5]);
   uint32_t slot = seqPtrSlot(seqRaw);
   ChannelRecord{c, c->mem_r32(slot) + chStride(chan)}.setBusy(1u);
-  ChannelRecord ch{c, c->mem_r32(slot) + chStride(chan)};   // re-derefed, mirrors gen
+  ChannelRecord ch{c, c->mem_r32(slot) + chStride(chan)}; // re-derefed, mirrors gen
   ch.clearFlagBits(8u);
 }
 
@@ -206,33 +233,51 @@ void Sequencer::channelStopFlagSet() {
 //     stale register bytes in those spill slots. Same bug class as channelNoteInit's r16 (f154).
 // ORACLE: gen_func_80090BD0 (tools/port_check.py equivalence-gate marker; see docs/port-framework.md)
 void Sequencer::seqChannelDispatch() {
-  Core* c = core;
+  Core *c = core;
   // Frame descent + spills are UNCONDITIONAL in the gen prologue (they execute before the
   // reentrancy-guard test), so GuestFrame's ctor runs before the guard check below, exactly
   // matching gen — including on the early-exit path (CLAUDE.md "mirror the guest stack" applies
   // even to the do-nothing path). Internal control flow/register usage kept LITERAL below (see
   // this function's own header comment: a prior restructure introduced two real bugs).
-  static constexpr GuestFrameSpill kSpills[] =
-      {{31, 52}, {30, 48}, {23, 44}, {22, 40}, {21, 36}, {20, 32}, {19, 28}, {18, 24}, {17, 20}, {16, 16}};
+  static constexpr GuestFrameSpill kSpills[] = {
+      {31, 52}, {30, 48}, {23, 44}, {22, 40}, {21, 36}, {20, 32}, {19, 28}, {18, 24}, {17, 20}, {16, 16}};
   GuestFrame<56, 10> frame(c, kSpills);
   c->r[2] = c->mem_r32(SEQ_REENTRY_FLAG);
   c->r[3] = 1u;
-  if (c->r[2] == c->r[3]) goto L_80090E10;
+  if (c->r[2] == c->r[3]) {
+    goto L_80090E10;
+  }
   c->mem_w32(SEQ_REENTRY_FLAG, c->r[3]);
   c->r[31] = 0x80090C1Cu;
   c->r[23] = 0u;
-  rec_dispatch(c, SEQ_PREP_FN);   // 0x800931C0 input_dispatch_931c0 — still-unwired by us
+  rec_dispatch(c, SEQ_PREP_FN); // 0x800931C0 input_dispatch_931c0 — still-unwired by us
   c->r[2] = (uint32_t)c->mem_r16s(SEQ_COUNT);
-  { int _t = ((int32_t)c->r[2] <= 0); if (_t) goto L_80090E08; }
+  {
+    int _t = ((int32_t)c->r[2] <= 0);
+    if (_t) {
+      goto L_80090E08;
+    }
+  }
   c->r[30] = SEQ_PTR_ARRAY;
 L_80090C38:
   c->r[2] = 1u;
   c->r[3] = c->mem_r32(SEQ_ACTIVE_MASK);
   c->r[2] = c->r[2] << (c->r[23] & 31u);
   c->r[3] = c->r[3] & c->r[2];
-  { int _t = (c->r[3] == 0u); if (_t) goto L_80090DF0; }
+  {
+    int _t = (c->r[3] == 0u);
+    if (_t) {
+      goto L_80090DF0;
+    }
+  }
   c->r[2] = (uint32_t)c->mem_r16s(SEQ_CHAN_COUNT);
-  { int _t = ((int32_t)c->r[2] <= 0); c->r[22] = 0u; if (_t) goto L_80090DF0; }
+  {
+    int _t = ((int32_t)c->r[2] <= 0);
+    c->r[22] = 0u;
+    if (_t) {
+      goto L_80090DF0;
+    }
+  }
   c->r[18] = c->r[30];
   c->r[21] = c->r[23] << 16;
   c->r[20] = (uint32_t)((int32_t)c->r[21] >> 16);
@@ -243,7 +288,13 @@ L_80090C7C:
   c->r[2] = c->r[16] + c->r[2];
   c->r[2] = c->mem_r32(c->r[2] + 152u);
   c->r[2] = c->r[2] & 1u;
-  { int _t = (c->r[2] == 0u); c->r[4] = c->r[20]; if (_t) goto L_80090D48; }
+  {
+    int _t = (c->r[2] == 0u);
+    c->r[4] = c->r[20];
+    if (_t) {
+      goto L_80090D48;
+    }
+  }
   c->r[17] = (uint32_t)((int32_t)c->r[19] >> 16);
   c->r[31] = 0x80090CA8u;
   c->r[5] = c->r[17];
@@ -252,83 +303,136 @@ L_80090C7C:
   c->r[2] = c->r[16] + c->r[2];
   c->r[2] = c->mem_r32(c->r[2] + 152u);
   c->r[2] = c->r[2] & 16u;
-  { int _t = (c->r[2] == 0u); c->r[4] = c->r[20]; if (_t) goto L_80090CD0; }
+  {
+    int _t = (c->r[2] == 0u);
+    c->r[4] = c->r[20];
+    if (_t) {
+      goto L_80090CD0;
+    }
+  }
   c->r[31] = 0x80090CD0u;
   c->r[5] = c->r[17];
-  rec_dispatch(c, 0x80090E40u);   // pitch-slide: UNWIRED (never fired in any run -- see findings/audio.md)
+  rec_dispatch(c, 0x80090E40u); // pitch-slide: UNWIRED (never fired in any run -- see findings/audio.md)
 L_80090CD0:
   c->r[2] = c->mem_r32(c->r[18] + 0u);
   c->r[2] = c->r[16] + c->r[2];
   c->r[2] = c->mem_r32(c->r[2] + 152u);
   c->r[2] = c->r[2] & 32u;
-  { int _t = (c->r[2] == 0u); c->r[4] = c->r[20]; if (_t) goto L_80090CF8; }
+  {
+    int _t = (c->r[2] == 0u);
+    c->r[4] = c->r[20];
+    if (_t) {
+      goto L_80090CF8;
+    }
+  }
   c->r[31] = 0x80090CF8u;
   c->r[5] = c->r[17];
-  rec_dispatch(c, 0x80090E40u);   // pitch-slide: UNWIRED (never fired in any run)
+  rec_dispatch(c, 0x80090E40u); // pitch-slide: UNWIRED (never fired in any run)
 L_80090CF8:
   c->r[2] = c->mem_r32(c->r[18] + 0u);
   c->r[2] = c->r[16] + c->r[2];
   c->r[2] = c->mem_r32(c->r[2] + 152u);
   c->r[2] = c->r[2] & 64u;
-  { int _t = (c->r[2] == 0u); c->r[4] = c->r[20]; if (_t) goto L_80090D20; }
+  {
+    int _t = (c->r[2] == 0u);
+    c->r[4] = c->r[20];
+    if (_t) {
+      goto L_80090D20;
+    }
+  }
   c->r[31] = 0x80090D20u;
   c->r[5] = c->r[17];
-  rec_dispatch(c, 0x80092080u);   // envelope ramp: UNWIRED (never fired in any run)
+  rec_dispatch(c, 0x80092080u); // envelope ramp: UNWIRED (never fired in any run)
 L_80090D20:
   c->r[2] = c->mem_r32(c->r[18] + 0u);
   c->r[2] = c->r[16] + c->r[2];
   c->r[2] = c->mem_r32(c->r[2] + 152u);
   c->r[2] = c->r[2] & 128u;
-  { int _t = (c->r[2] == 0u); c->r[4] = c->r[20]; if (_t) goto L_80090D48; }
+  {
+    int _t = (c->r[2] == 0u);
+    c->r[4] = c->r[20];
+    if (_t) {
+      goto L_80090D48;
+    }
+  }
   c->r[31] = 0x80090D48u;
   c->r[5] = c->r[17];
-  rec_dispatch(c, 0x80092080u);   // envelope ramp: UNWIRED (never fired in any run)
+  rec_dispatch(c, 0x80092080u); // envelope ramp: UNWIRED (never fired in any run)
 L_80090D48:
   c->r[2] = c->mem_r32(c->r[18] + 0u);
   c->r[2] = c->r[16] + c->r[2];
   c->r[2] = c->mem_r32(c->r[2] + 152u);
   c->r[2] = c->r[2] & 2u;
-  { int _t = (c->r[2] == 0u); c->r[4] = (uint32_t)((int32_t)c->r[21] >> 16); if (_t) goto L_80090D70; }
+  {
+    int _t = (c->r[2] == 0u);
+    c->r[4] = (uint32_t)((int32_t)c->r[21] >> 16);
+    if (_t) {
+      goto L_80090D70;
+    }
+  }
   c->r[31] = 0x80090D70u;
   c->r[5] = (uint32_t)((int32_t)c->r[19] >> 16);
-  rec_dispatch(c, 0x80091050u);   // release-clear: UNWIRED (never fired in any run)
+  rec_dispatch(c, 0x80091050u); // release-clear: UNWIRED (never fired in any run)
 L_80090D70:
   c->r[2] = c->mem_r32(c->r[18] + 0u);
   c->r[2] = c->r[16] + c->r[2];
   c->r[2] = c->mem_r32(c->r[2] + 152u);
   c->r[2] = c->r[2] & 8u;
-  { int _t = (c->r[2] == 0u); c->r[4] = (uint32_t)((int32_t)c->r[21] >> 16); if (_t) goto L_80090D98; }
+  {
+    int _t = (c->r[2] == 0u);
+    c->r[4] = (uint32_t)((int32_t)c->r[21] >> 16);
+    if (_t) {
+      goto L_80090D98;
+    }
+  }
   c->r[31] = 0x80090D98u;
   c->r[5] = (uint32_t)((int32_t)c->r[19] >> 16);
-  rec_dispatch(c, 0x80091910u);   // stop-flag: UNWIRED (never fired in any run)
+  rec_dispatch(c, 0x80091910u); // stop-flag: UNWIRED (never fired in any run)
 L_80090D98:
   c->r[2] = c->mem_r32(c->r[18] + 0u);
   c->r[2] = c->r[16] + c->r[2];
   c->r[2] = c->mem_r32(c->r[2] + 152u);
   c->r[2] = c->r[2] & 4u;
-  { int _t = (c->r[2] == 0u); c->r[4] = (uint32_t)((int32_t)c->r[21] >> 16); if (_t) goto L_80090DD0; }
+  {
+    int _t = (c->r[2] == 0u);
+    c->r[4] = (uint32_t)((int32_t)c->r[21] >> 16);
+    if (_t) {
+      goto L_80090DD0;
+    }
+  }
   c->r[31] = 0x80090DC0u;
   c->r[5] = (uint32_t)((int32_t)c->r[19] >> 16);
   channelNoteInit();
   c->r[2] = c->mem_r32(c->r[18] + 0u);
   c->r[2] = c->r[16] + c->r[2];
-  c->mem_w32(c->r[2] + 152u, 0u);   // SsSeqCalled's OWN post-call full flags clear
+  c->mem_w32(c->r[2] + 152u, 0u); // SsSeqCalled's OWN post-call full flags clear
 L_80090DD0:
   c->r[2] = 1u << 16;
   c->r[19] = c->r[19] + c->r[2];
   c->r[2] = (uint32_t)c->mem_r16s(SEQ_CHAN_COUNT);
   c->r[22] = c->r[22] + 1u;
   c->r[2] = (uint32_t)((int32_t)c->r[22] < (int32_t)c->r[2]);
-  { int _t = (c->r[2] != 0u); c->r[16] = c->r[16] + 176u; if (_t) goto L_80090C7C; }
+  {
+    int _t = (c->r[2] != 0u);
+    c->r[16] = c->r[16] + 176u;
+    if (_t) {
+      goto L_80090C7C;
+    }
+  }
 L_80090DF0:
   c->r[2] = (uint32_t)c->mem_r16s(SEQ_COUNT);
   c->r[23] = c->r[23] + 1u;
   c->r[2] = (uint32_t)((int32_t)c->r[23] < (int32_t)c->r[2]);
-  { int _t = (c->r[2] != 0u); c->r[30] = c->r[30] + 4u; if (_t) goto L_80090C38; }
+  {
+    int _t = (c->r[2] != 0u);
+    c->r[30] = c->r[30] + 4u;
+    if (_t) {
+      goto L_80090C38;
+    }
+  }
 L_80090E08:
   c->mem_w32(SEQ_REENTRY_FLAG, 0u);
-L_80090E10:
-  ;   // GuestFrame's destructor restores r16..r23/r30/r31 + ascends sp here, both exit paths.
+L_80090E10:; // GuestFrame's destructor restores r16..r23/r30/r31 + ascends sp here, both exit paths.
 }
 
 // ============================================================================
@@ -344,7 +448,7 @@ L_80090E10:
 // raw combined arg to a scratch global (SEQ_VOLSNAP_SCRATCH) that the gen body itself never reads
 // back with effect (the reload 2 lines later is discarded, part of the same dead tail).
 void Sequencer::channelVolumeSnapshot() {
-  Core* c = core;
+  Core *c = core;
   uint32_t combined = c->r[4];
   uint32_t outLPtr = c->r[5];
   uint32_t outRPtr = c->r[6];
@@ -355,7 +459,7 @@ void Sequencer::channelVolumeSnapshot() {
   uint32_t seqLow = combined & 0xFFu;
   uint32_t seqBasePtr = c->mem_r32(SEQ_PTR_ARRAY + (seqLow << 2));
 
-  c->mem_w16(SEQ_VOLSNAP_SCRATCH, (uint16_t)combined);   // dead write, mirrored for fidelity
+  c->mem_w16(SEQ_VOLSNAP_SCRATCH, (uint16_t)combined); // dead write, mirrored for fidelity
 
   int32_t chan = (int32_t)((int32_t)(combined & 0xFF00u) >> 8);
   ChannelRecord ch{c, seqBasePtr + chStride(chan)};
@@ -371,7 +475,7 @@ void Sequencer::channelVolumeSnapshot() {
 // stride-56 voice table, ORs the new bit into the KON lo/hi words, and clears the SAME bit from the
 // active-voice lo/hi mask (classic "arm this voice for key-on, drop it from the active set" idiom).
 void Sequencer::channelKeyRegisterMerge() {
-  Core* c = core;
+  Core *c = core;
   uint32_t value = c->mem_r16(SEQ_KEYSCAN_MATCH);
 
   uint32_t bitLo = 0, bitHi = 0;
@@ -381,7 +485,7 @@ void Sequencer::channelKeyRegisterMerge() {
     bitHi = 1u << ((value - 16u) & 31u);
   }
 
-  uint32_t tableOff = (uint32_t)(value * 7u) << 3;   // value*56 (stride-56 idiom, same as key-scan table)
+  uint32_t tableOff = (uint32_t)(value * 7u) << 3; // value*56 (stride-56 idiom, same as key-scan table)
   uint32_t tableBase = 0x80100000u + tableOff;
   c->mem_w8(tableBase + SEQ_KEYMERGE_STATUS, 0u);
   c->mem_w16(tableBase + 21708u, 0u);
@@ -412,10 +516,10 @@ void Sequencer::channelKeyRegisterMerge() {
 // entry (SEQ_KEYSCAN_TABLE, stride 56) against the target; on a match, stamp the value to
 // SEQ_KEYSCAN_MATCH and call channelKeyRegisterMerge().
 void Sequencer::channelKeyEventScan() {
-  Core* c = core;
+  Core *c = core;
   int8_t count = (int8_t)c->mem_r8(SEQ_KEYSCAN_COUNT);
   // FIX: gen spills s0(r16) here -- prior draft omitted it entirely.
-  static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {31, 28}, {18, 24}, {17, 20}};   // -32
+  static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {31, 28}, {18, 24}, {17, 20}}; // -32
   GuestFrame<32, 4> frame(c, kSpills);
   GuestReg<16> r16(c);
   r16 = 0u;
@@ -423,10 +527,14 @@ void Sequencer::channelKeyEventScan() {
     int32_t target = sext16(c->r[4]);
     for (int32_t i = 0; i < (int32_t)(int8_t)c->mem_r8(SEQ_KEYSCAN_COUNT); i++) {
       uint32_t voiceBit = 1u << (uint32_t)(i & 31);
-      if ((c->mem_r32(SEQ_KEYSCAN_VOICE_MASK) & voiceBit) != 0u) continue;   // voice busy, skip
-      uint32_t tableOff = (uint32_t)(i * 7) << 3;                            // i*56
+      if ((c->mem_r32(SEQ_KEYSCAN_VOICE_MASK) & voiceBit) != 0u) {
+        continue; // voice busy, skip
+      }
+      uint32_t tableOff = (uint32_t)(i * 7) << 3; // i*56
       int32_t tableVal = (int32_t)(int16_t)c->mem_r16(SEQ_KEYSCAN_TABLE + tableOff);
-      if (tableVal != target) continue;
+      if (tableVal != target) {
+        continue;
+      }
       // FIX (re-verify pass, root-caused via SBS bisect to f154 0x801FE928): gen's delay-slot value
       // still live here is `i` (the voice index, set by the branch's delay slot `r2 = r16&255`
       // right before the not-taken fallthrough), NOT tableVal -- the scratch stamp is the matched
@@ -435,7 +543,7 @@ void Sequencer::channelKeyEventScan() {
       // back as `value*56`, the SAME stride channelKeyEventScan just used for `i*56` -- only
       // consistent if the stamped value is the voice index).
       c->mem_w16(SEQ_KEYSCAN_MATCH, (uint16_t)(uint32_t)i);
-      c->r[31] = 0x80095C0Cu;   // FIX: gen sets the real return-site const before the jal
+      c->r[31] = 0x80095C0Cu; // FIX: gen sets the real return-site const before the jal
       channelKeyRegisterMerge();
     }
   }
@@ -462,14 +570,14 @@ void Sequencer::channelKeyEventScan() {
 // (MAPPED, not drafted -- ~320 lines, a KON/pan-table write loop, see docs/engine_re.md), then
 // clears bit4 early too if BOTH clamped values saturated at the SAME extreme (0 or 127).
 void Sequencer::channelPitchSlideTick() {
-  Core* c = core;
+  Core *c = core;
   // GuestFrame declared BEFORE any of r16..r21/ra are touched below (same point the gen prologue's
   // spills logically capture — the interleaved r2/r3/r7/r8 scratch math above them in the original
   // transcription never read/wrote a callee-saved register, so hoisting the frame here captures the
   // identical pre-call values gen's own spill sequence did). Internal control flow/register usage
   // kept LITERAL past this point — see this function's header comment for why.
-  static constexpr GuestFrameSpill kSpills[] =
-      {{21, 44}, {31, 48}, {20, 40}, {19, 36}, {18, 32}, {17, 28}, {16, 24}};   // -56
+  static constexpr GuestFrameSpill kSpills[] = {
+      {21, 44}, {31, 48}, {20, 40}, {19, 36}, {18, 32}, {17, 28}, {16, 24}}; // -56
   GuestFrame<56, 7> frame(c, kSpills);
   c->r[2] = c->r[4] << 16;
   c->r[3] = SEQ_PTR_ARRAY;
@@ -492,7 +600,9 @@ void Sequencer::channelPitchSlideTick() {
   {
     int _t = ((int32_t)c->r[3] < (int32_t)c->r[6]);
     c->mem_w32(c->r[18] + 160u, c->r[6]);
-    if (!_t) goto L_80090EC4;
+    if (!_t) {
+      goto L_80090EC4;
+    }
   }
   c->r[2] = c->mem_r32(c->r[8] + 0u);
   c->r[2] = c->r[7] + c->r[2];
@@ -502,19 +612,26 @@ L_80090EC4:
   c->r[2] = (uint32_t)c->mem_r16s(c->r[18] + 72u);
   {
     int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[6];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[2] = c->lo;
   cpu_div(c, c->r[2], c->r[3]);
-  if (c->r[3] == 0u) rec_break(c, 7168u);
-  if (c->r[3] == 0xFFFFFFFFu && c->r[2] == 0x80000000u) rec_break(c, 6144u);
+  if (c->r[3] == 0u) {
+    rec_break(c, 7168u);
+  }
+  if (c->r[3] == 0xFFFFFFFFu && c->r[2] == 0x80000000u) {
+    rec_break(c, 6144u);
+  }
   c->r[16] = c->lo;
   c->r[2] = (uint32_t)c->mem_r16s(c->r[18] + 74u);
   c->r[3] = (uint32_t)c->mem_r16(c->r[18] + 74u);
   c->r[16] = c->r[16] - c->r[2];
   {
     int _t = (c->r[16] == 0u);
-    if (_t) goto L_80091008;
+    if (_t) {
+      goto L_80091008;
+    }
   }
   c->r[2] = c->r[4] | (c->r[5] << 8);
   c->r[2] = c->r[2] << 16;
@@ -524,38 +641,75 @@ L_80090EC4:
   c->r[6] = c->r[29] + 18u;
   c->r[2] = c->r[3] + c->r[16];
   c->mem_w16(c->r[18] + 74u, (uint16_t)c->r[2]);
-  c->r[31] = 0x80090F40u;   // FIX: gen sets the real return-site const before the jal
+  c->r[31] = 0x80090F40u; // FIX: gen sets the real return-site const before the jal
   channelVolumeSnapshot();
   c->r[2] = (uint32_t)c->mem_r16(c->r[29] + 16u);
   c->r[17] = c->r[2] + c->r[16];
-  { int _t = ((int32_t)c->r[17] < 128); if (_t) goto L_80090F5C; }
+  {
+    int _t = ((int32_t)c->r[17] < 128);
+    if (_t) {
+      goto L_80090F5C;
+    }
+  }
   c->r[17] = 127u;
-L_80090F5C:
-  { int _t = ((int32_t)c->r[17] >= 0); if (_t) goto L_80090F68; }
+L_80090F5C: {
+  int _t = ((int32_t)c->r[17] >= 0);
+  if (_t) {
+    goto L_80090F68;
+  }
+}
   c->r[17] = 0u;
 L_80090F68:
   c->r[2] = (uint32_t)c->mem_r16(c->r[29] + 18u);
   c->r[16] = c->r[2] + c->r[16];
-  { int _t = ((int32_t)c->r[16] < 128); if (_t) goto L_80090F84; }
+  {
+    int _t = ((int32_t)c->r[16] < 128);
+    if (_t) {
+      goto L_80090F84;
+    }
+  }
   c->r[16] = 127u;
-L_80090F84:
-  { int _t = ((int32_t)c->r[16] >= 0); if (_t) goto L_80090F90; }
+L_80090F84: {
+  int _t = ((int32_t)c->r[16] >= 0);
+  if (_t) {
+    goto L_80090F90;
+  }
+}
   c->r[16] = 0u;
 L_80090F90:
   c->r[5] = c->r[17] & 65535u;
   c->r[6] = c->r[16] & 65535u;
   c->r[4] = c->r[19];
   c->r[7] = 1u;
-  c->r[31] = 0x80090FA0u;   // FIX: gen sets the real return-site const before the jal
-  channelVoiceRegisterWrite();   // FIX: 0x80095530 is now owned -- direct native call
+  c->r[31] = 0x80090FA0u;      // FIX: gen sets the real return-site const before the jal
+  channelVoiceRegisterWrite(); // FIX: 0x80095530 is now owned -- direct native call
   {
     int _t = (c->r[17] != 127u);
-    if (_t) goto L_80090FB4;
+    if (_t) {
+      goto L_80090FB4;
+    }
   }
-  { int _t = (c->r[16] == c->r[17]); c->r[4] = c->r[21] << 16; if (_t) goto L_80090FC8; }
-L_80090FB4:
-  { int _t = (c->r[17] != 0u); c->r[4] = c->r[20] << 8; if (_t) goto L_8009100C; }
-  { int _t = (c->r[16] != 0u); c->r[4] = c->r[21] | c->r[4]; if (_t) goto L_80091010; }
+  {
+    int _t = (c->r[16] == c->r[17]);
+    c->r[4] = c->r[21] << 16;
+    if (_t) {
+      goto L_80090FC8;
+    }
+  }
+L_80090FB4: {
+  int _t = (c->r[17] != 0u);
+  c->r[4] = c->r[20] << 8;
+  if (_t) {
+    goto L_8009100C;
+  }
+}
+  {
+    int _t = (c->r[16] != 0u);
+    c->r[4] = c->r[21] | c->r[4];
+    if (_t) {
+      goto L_80091010;
+    }
+  }
   c->r[4] = c->r[21] << 16;
 L_80090FC8:
   c->r[4] = (uint32_t)((int32_t)c->r[4] >> 14);
@@ -580,7 +734,7 @@ L_8009100C:
 L_80091010:
   c->r[4] = (uint32_t)((int32_t)(c->r[4] << 16) >> 16);
   c->r[5] = c->r[18] + 92u;
-  c->r[31] = 0x80091024u;   // FIX: gen sets the real return-site const before the jal
+  c->r[31] = 0x80091024u; // FIX: gen sets the real return-site const before the jal
   c->r[6] = c->r[18] + 94u;
   channelVolumeSnapshot();
   // GuestFrame's destructor restores r16..r21/r31 + ascends sp here.
@@ -608,7 +762,7 @@ L_80091010:
 // envelope value equals the target (whether reached via the div-remainder-zero path above, or was
 // already equal); otherwise leaves both set for next tick.
 void Sequencer::channelEnvelopeRampTick() {
-  Core* c = core;
+  Core *c = core;
   c->r[2] = c->r[4] << 16;
   c->r[3] = SEQ_PTR_ARRAY;
   c->r[2] = (uint32_t)((int32_t)c->r[2] >> 14);
@@ -619,16 +773,18 @@ void Sequencer::channelEnvelopeRampTick() {
   c->r[2] = c->r[2] + c->r[3];
   c->r[2] = c->r[2] << 2;
   c->r[2] = c->r[2] - c->r[3];
-  c->r[8] = c->r[2] << 4;                 // chanStride
+  c->r[8] = c->r[2] << 4; // chanStride
   c->r[3] = c->mem_r32(c->r[9] + 0u);
   c->r[6] = c->r[4];
-  c->r[7] = c->r[3] + c->r[8];            // channelBase
+  c->r[7] = c->r[3] + c->r[8]; // channelBase
   c->r[2] = c->mem_r32(c->r[7] + 168u);
   c->r[2] = c->r[2] - 1u;
   {
     int _t = ((int32_t)c->r[2] >= 0);
     c->mem_w32(c->r[7] + 168u, c->r[2]);
-    if (_t) goto L_800920F8;
+    if (_t) {
+      goto L_800920F8;
+    }
   }
   // counter just went negative -- envelope already finished; clear bit6 only, then finalize.
   c->r[3] = c->mem_r32(c->r[9] + 0u);
@@ -643,84 +799,129 @@ void Sequencer::channelEnvelopeRampTick() {
 
 L_800920F8:
   c->r[4] = (uint32_t)c->mem_r16s(c->r[7] + 78u);
-  { int _t = ((int32_t)c->r[4] <= 0); if (_t) goto L_80092168; }
+  {
+    int _t = ((int32_t)c->r[4] <= 0);
+    if (_t) {
+      goto L_80092168;
+    }
+  }
   cpu_div(c, c->r[2], c->r[4]);
-  if (c->r[4] == 0u) rec_break(c, 7168u);
-  if (c->r[4] == 0xFFFFFFFFu && c->r[2] == 0x80000000u) rec_break(c, 6144u);
+  if (c->r[4] == 0u) {
+    rec_break(c, 7168u);
+  }
+  if (c->r[4] == 0xFFFFFFFFu && c->r[2] == 0x80000000u) {
+    rec_break(c, 6144u);
+  }
   c->r[2] = c->hi;
-  { int _t = (c->r[2] != 0u); if (_t) return; }   // nonzero remainder -- skip EVERYTHING below, return
-  c->r[3] = c->mem_r32(c->r[7] + 148u);            // cur
-  c->r[4] = c->mem_r32(c->r[7] + 172u);            // target
-  c->r[2] = (uint32_t)(c->r[4] < c->r[3]);          // target < cur ?
+  {
+    int _t = (c->r[2] != 0u);
+    if (_t) {
+      return;
+    }
+  } // nonzero remainder -- skip EVERYTHING below, return
+  c->r[3] = c->mem_r32(c->r[7] + 148u);    // cur
+  c->r[4] = c->mem_r32(c->r[7] + 172u);    // target
+  c->r[2] = (uint32_t)(c->r[4] < c->r[3]); // target < cur ?
   {
     int _t = (c->r[2] != 0u);
     c->r[2] = c->r[3] - 1u;
-    if (_t) goto L_80092160;
+    if (_t) {
+      goto L_80092160;
+    }
   }
-  c->r[2] = (uint32_t)(c->r[3] < c->r[4]);          // cur < target ?
+  c->r[2] = (uint32_t)(c->r[3] < c->r[4]); // cur < target ?
   {
     int _t = (c->r[2] == 0u);
     c->r[2] = c->r[3] + 1u;
-    if (_t) goto L_800921B0;                        // cur == target already: no write
+    if (_t) {
+      goto L_800921B0; // cur == target already: no write
+    }
   }
 L_80092160:
   c->mem_w32(c->r[7] + 148u, c->r[2]);
   goto L_800921B0;
 
 L_80092168:
-  c->r[3] = c->mem_r32(c->r[7] + 148u);             // cur
-  c->r[8] = c->mem_r32(c->r[7] + 172u);             // target
-  c->r[2] = (uint32_t)(c->r[8] < c->r[3]);           // target < cur ?
+  c->r[3] = c->mem_r32(c->r[7] + 148u);    // cur
+  c->r[8] = c->mem_r32(c->r[7] + 172u);    // target
+  c->r[2] = (uint32_t)(c->r[8] < c->r[3]); // target < cur ?
   {
     int _t = (c->r[2] == 0u);
-    c->r[2] = c->r[3] + c->r[4];                     // cur + rate  (rate<=0 here -> decreases)
-    if (_t) goto L_8009218C;
+    c->r[2] = c->r[3] + c->r[4]; // cur + rate  (rate<=0 here -> decreases)
+    if (_t) {
+      goto L_8009218C;
+    }
   }
   c->mem_w32(c->r[7] + 148u, c->r[2]);
-  c->r[2] = (uint32_t)(c->r[2] < c->r[8]);            // undershot target?
+  c->r[2] = (uint32_t)(c->r[2] < c->r[8]); // undershot target?
   goto L_800921A4;
 L_8009218C:
-  c->r[2] = (uint32_t)(c->r[3] < c->r[8]);            // cur < target ?
+  c->r[2] = (uint32_t)(c->r[3] < c->r[8]); // cur < target ?
   {
     int _t = (c->r[2] == 0u);
-    c->r[2] = c->r[3] - c->r[4];                      // cur - rate  (rate<=0 here -> increases)
-    if (_t) goto L_800921B0;                          // cur == target already: no write
+    c->r[2] = c->r[3] - c->r[4]; // cur - rate  (rate<=0 here -> increases)
+    if (_t) {
+      goto L_800921B0; // cur == target already: no write
+    }
   }
   c->r[8] = c->mem_r32(c->r[7] + 172u);
   c->mem_w32(c->r[7] + 148u, c->r[2]);
-  c->r[2] = (uint32_t)(c->r[8] < c->r[2]);             // overshot target?
-L_800921A4:
-  { int _t = (c->r[2] == 0u); if (_t) goto L_800921B0; }
-  c->mem_w32(c->r[7] + 148u, c->r[8]);                 // clamp to target exactly
+  c->r[2] = (uint32_t)(c->r[8] < c->r[2]); // overshot target?
+L_800921A4: {
+  int _t = (c->r[2] == 0u);
+  if (_t) {
+    goto L_800921B0;
+  }
+}
+  c->mem_w32(c->r[7] + 148u, c->r[8]); // clamp to target exactly
 
 L_800921B0:
   c->r[2] = (uint32_t)c->mem_r16s(c->r[7] + 80u);
   c->r[3] = c->mem_r32(c->r[7] + 148u);
   {
     int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[3];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
-  c->r[4] = c->mem_r32(0x80100000u + 19500u);   // cluster-adjacent scale field
+  c->r[4] = c->mem_r32(0x80100000u + 19500u); // cluster-adjacent scale field
   c->r[2] = c->lo;
   c->r[3] = c->r[2] << 2;
   c->r[3] = c->r[3] + c->r[2];
-  c->r[3] = c->r[3] << 1;                        // r3 = lo*10
+  c->r[3] = c->r[3] << 1; // r3 = lo*10
   c->r[2] = c->r[4] << 4;
   c->r[2] = c->r[2] - c->r[4];
-  c->r[2] = c->r[2] << 2;                        // r2 = scale*15
+  c->r[2] = c->r[2] << 2; // r2 = scale*15
   cpu_divu(c, c->r[3], c->r[2]);
-  if (c->r[2] == 0u) rec_break(c, 7168u);
+  if (c->r[2] == 0u) {
+    rec_break(c, 7168u);
+  }
   c->r[3] = c->lo;
   c->mem_w16(c->r[7] + 84u, (uint16_t)c->r[3]);
   c->r[3] = c->r[3] << 16;
-  { int _t = ((int32_t)c->r[3] > 0); c->r[2] = 1u; if (_t) goto L_8009220C; }
+  {
+    int _t = ((int32_t)c->r[3] > 0);
+    c->r[2] = 1u;
+    if (_t) {
+      goto L_8009220C;
+    }
+  }
   c->mem_w16(c->r[7] + 84u, (uint16_t)c->r[2]);
 L_8009220C:
   c->r[2] = c->mem_r32(c->r[7] + 168u);
-  { int _t = (c->r[2] == 0u); if (_t) goto L_80092230; }
+  {
+    int _t = (c->r[2] == 0u);
+    if (_t) {
+      goto L_80092230;
+    }
+  }
   c->r[3] = c->mem_r32(c->r[7] + 148u);
   c->r[2] = c->mem_r32(c->r[7] + 172u);
-  { int _t = (c->r[3] != c->r[2]); if (_t) return; }   // still ramping, not at target -- leave bits set
+  {
+    int _t = (c->r[3] != c->r[2]);
+    if (_t) {
+      return;
+    }
+  } // still ramping, not at target -- leave bits set
 L_80092230:
   c->r[6] = c->r[6] << 16;
   c->r[2] = SEQ_PTR_ARRAY;
@@ -765,8 +966,8 @@ L_80092284:
 // per-channel status bytes, reinits several numeric fields, and fills a 16-entry breakpoint-table
 // pair (+39../+55..) plus a 16x u16 array (+96..+126, all set to 127).
 void Sequencer::channelNoteInit() {
-  Core* c = core;
-  static constexpr GuestFrameSpill kSpills[] = {{31, 20}, {16, 16}};   // -24 (abi_extract-verified)
+  Core *c = core;
+  static constexpr GuestFrameSpill kSpills[] = {{31, 20}, {16, 16}}; // -24 (abi_extract-verified)
   GuestFrame<24, 2> frame(c, kSpills);
   int32_t chan = sext16(c->r[5]);
   ChannelRecord ch{c, c->mem_r32(seqPtrSlot(c->r[4])) + chStride(chan)};
@@ -777,24 +978,24 @@ void Sequencer::channelNoteInit() {
   GuestReg<16> r16(c);
   r16 = ch.base;
 
-  ch.clearFlagBits(1u);      // bit0
-  ch.clearFlagBits(2u);      // bit1
-  ch.clearFlagBits(8u);      // bit3
-  ch.clearFlagBits(1025u);   // bits{0,10}
+  ch.clearFlagBits(1u);    // bit0
+  ch.clearFlagBits(2u);    // bit1
+  ch.clearFlagBits(8u);    // bit3
+  ch.clearFlagBits(1025u); // bits{0,10}
 
   uint32_t combined = (uint32_t)sext16(c->r[4] | (c->r[5] << 8));
-  ch.setFlags(ch.flags() | 4u);   // set bit2
+  ch.setFlags(ch.flags() | 4u); // set bit2
 
   c->r[4] = combined;
-  c->r[31] = 0x80091A38u;   // FIX: gen sets the real return-site const before the jal
+  c->r[31] = 0x80091A38u; // FIX: gen sets the real return-site const before the jal
   channelKeyEventScan();
-  c->r[31] = 0x80091A40u;   // FIX: gen sets the real return-site const before the jal
-  rec_dispatch(c, 0x800931A0u);   // input_dispatch_931c0's neighbor, not this wave's target (MAPPED)
+  c->r[31] = 0x80091A40u;       // FIX: gen sets the real return-site const before the jal
+  rec_dispatch(c, 0x800931A0u); // input_dispatch_931c0's neighbor, not this wave's target (MAPPED)
 
   uint32_t f132 = c->mem_r32(ch.base + 132u);
   uint32_t f140 = c->mem_r32(ch.base + 140u);
-  uint32_t f86  = c->mem_r16(ch.base + 86u);
-  uint32_t f4   = c->mem_r32(ch.base + 4u);
+  uint32_t f86 = c->mem_r16(ch.base + 86u);
+  uint32_t f4 = c->mem_r32(ch.base + 4u);
 
   // ~14 per-channel status bytes cleared, in the gen body's own (redundant, re-clears +28) order —
   // not renamed to a loop or a named struct field: none of these bytes has a confirmed semantic
@@ -841,14 +1042,16 @@ void Sequencer::channelNoteInit() {
 // gating 3 pointer-table reads into channelVoiceRegisterWrite()'s scratch fields) are inferred
 // from the surrounding SPU-register cluster, not confirmed against a live dump.
 void Sequencer::channelVoiceSelectPrep() {
-  Core* c = core;
+  Core *c = core;
   c->r[7] = c->r[4] + c->r[0];
   c->r[2] = c->r[7] & 65535u;
   c->r[2] = (uint32_t)(c->r[2] < 16u);
   {
     int _t = (c->r[2] == c->r[0]);
     c->r[8] = c->r[5] + c->r[0];
-    if (_t) goto L_80096300;
+    if (_t) {
+      goto L_80096300;
+    }
   }
   c->r[2] = c->r[4] << 16;
   c->r[4] = (uint32_t)((int32_t)c->r[2] >> 16);
@@ -858,7 +1061,9 @@ void Sequencer::channelVoiceSelectPrep() {
   {
     int _t = (c->r[3] != c->r[2]);
     c->r[2] = (uint32_t)-1;
-    if (_t) goto L_80096368;
+    if (_t) {
+      goto L_80096368;
+    }
   }
   c->r[3] = c->r[5] << 16;
   c->r[2] = 0x80100000u;
@@ -868,7 +1073,9 @@ void Sequencer::channelVoiceSelectPrep() {
   {
     int _t = (c->r[2] != c->r[0]);
     c->r[2] = c->r[4] << 2;
-    if (_t) goto L_80096308;
+    if (_t) {
+      goto L_80096308;
+    }
   }
   c->r[2] = (uint32_t)-1;
   goto L_80096368;
@@ -891,10 +1098,8 @@ L_80096308:
   c->r[3] = (uint32_t)c->mem_r8(c->r[2] + 8u);
   c->r[2] = c->r[0] + c->r[0];
   c->mem_w8(c->r[4] + 6u, (uint8_t)c->r[3]);
-L_80096300:
-  ;
-L_80096368:
-  ;
+L_80096300:;
+L_80096368:;
 }
 
 // 0x80095530 channelVoiceRegisterWrite — the "SPU voice-register write leaf" channelPitchSlideTick()
@@ -909,14 +1114,14 @@ L_80096368:
 // shift-amount error. UNWIRED/pre-gate; a wiring pass must do the line-by-line verify
 // docs/fleet-workflow.md §9 requires before registering this as an override.
 void Sequencer::channelVoiceRegisterWrite() {
-  Core* c = core;
+  Core *c = core;
   // GuestFrame declared BEFORE any of r16..r23/r30/ra are touched below — the r7/r3/r2 scratch
   // math above them never reads/writes a callee-saved register, so hoisting the frame here captures
   // the identical pre-call values gen's own spill sequence did (same reasoning as
   // channelPitchSlideTick's frame comment). Internal control flow/register usage kept LITERAL past
   // this point — see this function's header comment for why.
-  static constexpr GuestFrameSpill kSpills[] =
-      {{31, 60}, {30, 56}, {23, 52}, {22, 48}, {21, 44}, {20, 40}, {19, 36}, {18, 32}, {17, 28}, {16, 24}};
+  static constexpr GuestFrameSpill kSpills[] = {
+      {31, 60}, {30, 56}, {23, 52}, {22, 48}, {21, 44}, {20, 40}, {19, 36}, {18, 32}, {17, 28}, {16, 24}};
   GuestFrame<64, 10> frame(c, kSpills);
   c->r[7] = c->r[4] & 255u;
   c->r[7] = c->r[7] << 2;
@@ -927,9 +1132,9 @@ void Sequencer::channelVoiceRegisterWrite() {
   c->r[2] = c->r[2] << 2;
   c->r[2] = c->r[2] - c->r[3];
   c->r[3] = 0x80100000u + c->r[7];
-  c->r[3] = c->mem_r32(c->r[3] + 19504u);   // SEQ_PTR_ARRAY-relative, matches chBase() convention
+  c->r[3] = c->mem_r32(c->r[3] + 19504u); // SEQ_PTR_ARRAY-relative, matches chBase() convention
   c->r[2] = c->r[2] << 4;
-  c->r[17] = c->r[3] + c->r[2];             // channelBase
+  c->r[17] = c->r[3] + c->r[2]; // channelBase
   c->mem_w16(c->r[17] + 88u, (uint16_t)c->r[5]);
   c->r[2] = (uint32_t)c->mem_r16(c->r[17] + 88u);
   c->r[22] = c->r[4] + c->r[0];
@@ -937,7 +1142,9 @@ void Sequencer::channelVoiceRegisterWrite() {
   {
     int _t = (c->r[2] != c->r[0]);
     c->mem_w16(c->r[17] + 90u, (uint16_t)c->r[6]);
-    if (_t) goto L_800955B0;
+    if (_t) {
+      goto L_800955B0;
+    }
   }
   c->r[2] = c->r[0] + 127u;
   c->mem_w16(c->r[17] + 88u, (uint16_t)c->r[2]);
@@ -947,15 +1154,19 @@ L_800955B0:
   {
     int _t = (c->r[2] != c->r[0]);
     c->r[2] = c->r[0] + 127u;
-    if (_t) goto L_800955C8;
+    if (_t) {
+      goto L_800955C8;
+    }
   }
   c->mem_w16(c->r[17] + 90u, (uint16_t)c->r[2]);
 L_800955C8:
-  c->r[2] = (uint32_t)(int8_t)c->mem_r8(0x80100000u + 23788u);   // SEQ_KEYSCAN_COUNT
+  c->r[2] = (uint32_t)(int8_t)c->mem_r8(0x80100000u + 23788u); // SEQ_KEYSCAN_COUNT
   {
     int _t = ((int32_t)c->r[2] <= 0);
     c->r[18] = c->r[0] + c->r[0];
-    if (_t) goto L_80095A64;
+    if (_t) {
+      goto L_80095A64;
+    }
   }
   c->r[21] = ((uint32_t)516u << 16) | 2065u;
   c->r[23] = c->r[0] + 127u;
@@ -964,7 +1175,7 @@ L_800955C8:
   c->r[30] = 0x80100000u + 23080u;
   c->r[2] = c->r[18] << 16;
 L_80095604:
-  c->r[4] = (uint32_t)((int32_t)c->r[2] >> 16);        // voice index i
+  c->r[4] = (uint32_t)((int32_t)c->r[2] >> 16); // voice index i
   c->r[2] = c->r[0] + 1u;
   c->r[3] = c->mem_r32(SEQ_KEYSCAN_VOICE_MASK);
   c->r[2] = c->r[2] << (c->r[4] & 31u);
@@ -972,11 +1183,13 @@ L_80095604:
   {
     int _t = (c->r[3] != c->r[0]);
     c->r[2] = c->r[18] + 1u;
-    if (_t) goto L_80095A44;                            // voice busy -- skip
+    if (_t) {
+      goto L_80095A44; // voice busy -- skip
+    }
   }
   c->r[2] = c->r[4] << 3;
   c->r[2] = c->r[2] - c->r[4];
-  c->r[16] = c->r[2] << 3;                               // voice*56 (record base, SEQ_KEYSCAN_TABLE-8)
+  c->r[16] = c->r[2] << 3; // voice*56 (record base, SEQ_KEYSCAN_TABLE-8)
   c->r[3] = 0x80100000u + c->r[16];
   c->r[3] = (uint32_t)(int16_t)c->mem_r16(c->r[3] + 21720u);
   c->r[2] = c->r[22] << 16;
@@ -984,7 +1197,9 @@ L_80095604:
   {
     int _t = (c->r[3] != c->r[2]);
     c->r[2] = c->r[18] + 1u;
-    if (_t) goto L_80095A44;
+    if (_t) {
+      goto L_80095A44;
+    }
   }
   c->r[4] = 0x80100000u + c->r[16];
   c->r[4] = (uint32_t)(int16_t)c->mem_r16(c->r[4] + 21728u);
@@ -992,11 +1207,13 @@ L_80095604:
   {
     int _t = (c->r[4] != c->r[2]);
     c->r[2] = c->r[18] + 1u;
-    if (_t) goto L_80095A44;
+    if (_t) {
+      goto L_80095A44;
+    }
   }
   c->r[5] = 0x80100000u + c->r[16];
   c->r[5] = (uint32_t)(int16_t)c->mem_r16(c->r[5] + 21722u);
-  c->r[31] = 0x8009567Cu;   // FIX: gen sets the real return-site const before the jal
+  c->r[31] = 0x8009567Cu; // FIX: gen sets the real return-site const before the jal
   channelVoiceSelectPrep();
   c->r[2] = 0x80100000u + c->r[16];
   c->r[2] = (uint32_t)(int16_t)c->mem_r16(c->r[2] + 21716u);
@@ -1007,13 +1224,15 @@ L_80095604:
   c->r[2] = (uint32_t)(int16_t)c->mem_r16(c->r[2] + 96u);
   {
     int64_t _p = (int64_t)(int32_t)c->r[3] * (int64_t)(int32_t)c->r[2];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[3] = c->lo;
   c->r[2] = ((uint32_t)33026u << 16) | 1033u;
   {
     int64_t _p = (int64_t)(int32_t)c->r[3] * (int64_t)(int32_t)c->r[2];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[7] = c->hi;
   c->r[4] = c->r[7] + c->r[3];
@@ -1026,13 +1245,15 @@ L_80095604:
   c->r[2] = c->r[2] - c->r[4];
   {
     int64_t _p = (int64_t)(int32_t)c->r[3] * (int64_t)(int32_t)c->r[2];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[3] = c->lo;
   c->r[2] = ((uint32_t)33286u << 16) | 4137u;
   {
     int64_t _p = (int64_t)(int32_t)c->r[3] * (int64_t)(int32_t)c->r[2];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[2] = 0x80100000u + c->r[16];
   c->r[2] = (uint32_t)(int16_t)c->mem_r16(c->r[2] + 21724u);
@@ -1047,7 +1268,8 @@ L_80095604:
   c->r[4] = c->r[5] - c->r[3];
   {
     int64_t _p = (int64_t)(int32_t)c->r[4] * (int64_t)(int32_t)c->r[2];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[6] = 0x80100000u + c->r[16];
   c->r[6] = (uint32_t)(int16_t)c->mem_r16(c->r[6] + 21722u);
@@ -1062,13 +1284,15 @@ L_80095604:
   c->r[2] = (uint32_t)c->mem_r8(c->r[6] + 2u);
   {
     int64_t _p = (int64_t)(int32_t)c->r[3] * (int64_t)(int32_t)c->r[2];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[2] = c->lo;
   c->r[3] = ((uint32_t)1036u << 16) | 8273u;
   {
     uint64_t _p = (uint64_t)c->r[2] * (uint64_t)c->r[3];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)(_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)(_p >> 32);
   }
   c->r[3] = c->hi;
   c->r[2] = c->r[2] - c->r[3];
@@ -1078,23 +1302,27 @@ L_80095604:
   c->r[5] = c->r[3] >> 13;
   {
     int64_t _p = (int64_t)(int32_t)c->r[5] * (int64_t)(int32_t)c->r[2];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[2] = c->lo;
   c->r[3] = (uint32_t)c->mem_r16(c->r[17] + 90u);
   {
     int64_t _p = (int64_t)(int32_t)c->r[5] * (int64_t)(int32_t)c->r[3];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[3] = c->lo;
   {
     uint64_t _p = (uint64_t)c->r[2] * (uint64_t)c->r[21];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)(_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)(_p >> 32);
   }
   c->r[4] = c->hi;
   {
     uint64_t _p = (uint64_t)c->r[3] * (uint64_t)c->r[21];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)(_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)(_p >> 32);
   }
   c->r[2] = c->r[2] - c->r[4];
   c->r[2] = c->r[2] >> 1;
@@ -1109,17 +1337,21 @@ L_80095604:
   {
     int _t = (c->r[2] == c->r[0]);
     c->r[5] = c->r[5] >> 6;
-    if (_t) goto L_80095828;
+    if (_t) {
+      goto L_80095828;
+    }
   }
   {
     int64_t _p = (int64_t)(int32_t)c->r[5] * (int64_t)(int32_t)c->r[3];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[2] = c->lo;
   c->r[3] = ((uint32_t)1040u << 16) | 16645u;
   {
     uint64_t _p = (uint64_t)c->r[2] * (uint64_t)c->r[3];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)(_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)(_p >> 32);
   }
   c->r[3] = c->hi;
   c->r[2] = c->r[2] - c->r[3];
@@ -1131,13 +1363,15 @@ L_80095828:
   c->r[2] = c->r[23] - c->r[3];
   {
     int64_t _p = (int64_t)(int32_t)c->r[4] * (int64_t)(int32_t)c->r[2];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[2] = c->lo;
   c->r[3] = ((uint32_t)1040u << 16) | 16645u;
   {
     uint64_t _p = (uint64_t)c->r[2] * (uint64_t)c->r[3];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)(_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)(_p >> 32);
   }
   c->r[3] = c->hi;
   c->r[2] = c->r[2] - c->r[3];
@@ -1160,16 +1394,20 @@ L_80095854:
   {
     int _t = (c->r[2] == c->r[0]);
     c->r[2] = c->r[5] & 65535u;
-    if (_t) goto L_800958BC;
+    if (_t) {
+      goto L_800958BC;
+    }
   }
   {
     int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[3];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[2] = c->lo;
   {
     int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[19];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[8] = c->hi;
   c->r[2] = c->r[8] + c->r[2];
@@ -1180,12 +1418,14 @@ L_800958BC:
   c->r[3] = c->r[23] - c->r[3];
   {
     int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[3];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[2] = c->lo;
   {
     int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[19];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[8] = c->hi;
   c->r[3] = c->r[8] + c->r[2];
@@ -1204,16 +1444,20 @@ L_800958EC:
   {
     int _t = (c->r[2] == c->r[0]);
     c->r[2] = c->r[5] & 65535u;
-    if (_t) goto L_80095940;
+    if (_t) {
+      goto L_80095940;
+    }
   }
   {
     int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[3];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[2] = c->lo;
   {
     int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[19];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[8] = c->hi;
   c->r[2] = c->r[8] + c->r[2];
@@ -1224,12 +1468,14 @@ L_80095940:
   c->r[3] = c->r[23] - c->r[3];
   {
     int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[3];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[2] = c->lo;
   {
     int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[19];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[8] = c->hi;
   c->r[3] = c->r[8] + c->r[2];
@@ -1242,13 +1488,17 @@ L_80095970:
   {
     int _t = (c->r[3] != c->r[2]);
     c->r[2] = c->r[4] & 65535u;
-    if (_t) goto L_800959A4;
+    if (_t) {
+      goto L_800959A4;
+    }
   }
   c->r[3] = c->r[5] & 65535u;
   c->r[2] = (uint32_t)(c->r[2] < c->r[3]);
   {
     int _t = (c->r[2] == c->r[0]);
-    if (_t) goto L_8009599C;
+    if (_t) {
+      goto L_8009599C;
+    }
   }
   c->r[4] = c->r[5] + c->r[0];
   goto L_800959A0;
@@ -1256,26 +1506,29 @@ L_8009599C:
   c->r[5] = c->r[4] + c->r[0];
 L_800959A0:
   c->r[2] = c->r[4] & 65535u;
-L_800959A4:
-  {
-    int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[2];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
-  }
+L_800959A4: {
+  int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[2];
+  c->lo = (uint32_t)_p;
+  c->hi = (uint32_t)((uint64_t)_p >> 32);
+}
   c->r[2] = c->lo;
   c->r[3] = c->r[5] & 65535u;
   {
     int64_t _p = (int64_t)(int32_t)c->r[3] * (int64_t)(int32_t)c->r[3];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[3] = c->lo;
   {
     int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[20];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[9] = c->hi;
   {
     int64_t _p = (int64_t)(int32_t)c->r[3] * (int64_t)(int32_t)c->r[20];
-    c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32);
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
   }
   c->r[6] = c->r[18] << 16;
   c->r[6] = (uint32_t)((int32_t)c->r[6] >> 16);
@@ -1303,13 +1556,15 @@ L_800959A4:
 L_80095A44:
   c->r[18] = c->r[2] + c->r[0];
   c->r[2] = c->r[2] << 16;
-  c->r[3] = (uint32_t)(int8_t)c->mem_r8(0x80100000u + 23788u);   // SEQ_KEYSCAN_COUNT
+  c->r[3] = (uint32_t)(int8_t)c->mem_r8(0x80100000u + 23788u); // SEQ_KEYSCAN_COUNT
   c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
   c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[3]);
   {
     int _t = (c->r[2] != c->r[0]);
     c->r[2] = c->r[18] << 16;
-    if (_t) goto L_80095604;
+    if (_t) {
+      goto L_80095604;
+    }
   }
 L_80095A64:
   // v0 = sext16(chan) — gen's return-value setup; must read r22 BEFORE GuestFrame's destructor
@@ -1334,7 +1589,7 @@ L_80095A64:
 // body's trailing func_80090210(c) after `return` is the usual shard-grouping dead-tail (not ported).
 // ORACLE: gen_func_80090160
 void Sequencer::channelStreamAccumulate() {
-  Core* c = core;
+  Core *c = core;
   c->r[4] = c->r[4] << 16;
   c->r[4] = (uint32_t)((int32_t)c->r[4] >> 14);
   c->r[5] = c->r[5] << 16;
@@ -1352,9 +1607,21 @@ void Sequencer::channelStreamAccumulate() {
   c->r[4] = (uint32_t)c->mem_r8(c->r[2] + 0u);
   c->r[2] = c->r[2] + 1u;
   c->mem_w32(c->r[5] + 0u, c->r[2]);
-  { int _t = (c->r[4] == c->r[0]); c->r[2] = c->r[0] + c->r[0]; if (_t) goto L_800901FC; }
+  {
+    int _t = (c->r[4] == c->r[0]);
+    c->r[2] = c->r[0] + c->r[0];
+    if (_t) {
+      goto L_800901FC;
+    }
+  }
   c->r[2] = c->r[4] & 128u;
-  { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[4] << 2; if (_t) goto L_800901E8; }
+  {
+    int _t = (c->r[2] == c->r[0]);
+    c->r[2] = c->r[4] << 2;
+    if (_t) {
+      goto L_800901E8;
+    }
+  }
   c->r[4] = c->r[4] & 127u;
 L_800901C0:
   c->r[2] = c->mem_r32(c->r[5] + 0u);
@@ -1364,7 +1631,13 @@ L_800901C0:
   c->mem_w32(c->r[5] + 0u, c->r[2]);
   c->r[2] = c->r[3] & 127u;
   c->r[3] = c->r[3] & 128u;
-  { int _t = (c->r[3] != c->r[0]); c->r[4] = c->r[4] + c->r[2]; if (_t) goto L_800901C0; }
+  {
+    int _t = (c->r[3] != c->r[0]);
+    c->r[4] = c->r[4] + c->r[2];
+    if (_t) {
+      goto L_800901C0;
+    }
+  }
   c->r[2] = c->r[4] << 2;
 L_800901E8:
   c->r[2] = c->r[2] + c->r[4];
@@ -1372,8 +1645,7 @@ L_800901E8:
   c->r[2] = c->r[2] << 1;
   c->r[3] = c->r[3] + c->r[2];
   c->mem_w32(c->r[5] + 136u, c->r[3]);
-L_800901FC:
-  ;
+L_800901FC:;
 }
 
 // 0x80091810 channelVoiceKeyOn — true leaf (no stack frame). Faithful to gen_func_80091810
@@ -1383,7 +1655,7 @@ L_800901FC:
 // ORs flags bit0 (|1). Trailing func_80091910(c) after `return` is the shard dead-tail (not ported).
 // ORACLE: gen_func_80091810
 void Sequencer::channelVoiceKeyOn() {
-  Core* c = core;
+  Core *c = core;
   c->r[4] = c->r[4] << 16;
   c->r[2] = (uint32_t)32784u << 16;
   c->r[2] = c->r[2] + 19504u;
@@ -1449,8 +1721,8 @@ void Sequencer::channelVoiceKeyOn() {
 // after `return` is the shard dead-tail (not ported).
 // ORACLE: gen_func_80092310
 void Sequencer::channelToneRecordCopy() {
-  Core* c = core;
-  static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {17, 20}, {31, 24}};   // -32
+  Core *c = core;
+  static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {17, 20}, {31, 24}}; // -32
   GuestFrame<32, 3> frame(c, kSpills);
   c->r[4] = c->r[4] << 16;
   c->r[4] = (uint32_t)((int32_t)c->r[4] >> 16);
@@ -1458,14 +1730,21 @@ void Sequencer::channelToneRecordCopy() {
   c->r[3] = c->r[3] + c->r[4];
   c->r[3] = (uint32_t)c->mem_r8(c->r[3] + 23832u);
   c->r[2] = c->r[0] + 1u;
-  { int _t = (c->r[3] == c->r[2]); c->r[17] = c->r[6] + c->r[0]; if (_t) goto L_80092348; }
-  c->r[2] = c->r[0] + (uint32_t)-1; goto L_80092400;
+  {
+    int _t = (c->r[3] == c->r[2]);
+    c->r[17] = c->r[6] + c->r[0];
+    if (_t) {
+      goto L_80092348;
+    }
+  }
+  c->r[2] = c->r[0] + (uint32_t)-1;
+  goto L_80092400;
 L_80092348:
   c->r[16] = c->r[5] << 16;
   c->r[16] = (uint32_t)((int32_t)c->r[16] >> 16);
-  c->r[31] = 0x80092358u;   // gen sets the real return-site const before the jal
+  c->r[31] = 0x80092358u; // gen sets the real return-site const before the jal
   c->r[5] = c->r[16] + c->r[0];
-  channelVoiceSelectPrep();   // 0x800962B0 owned -- direct native call
+  channelVoiceSelectPrep(); // 0x800962B0 owned -- direct native call
   c->r[2] = (uint32_t)32784u << 16;
   c->r[2] = c->mem_r32(c->r[2] + 23772u);
   c->r[16] = c->r[16] << 4;
@@ -1498,9 +1777,8 @@ L_80092348:
   c->r[3] = (uint32_t)c->mem_r16(c->r[16] + 6u);
   c->r[2] = c->r[0] + c->r[0];
   c->mem_w16(c->r[17] + 6u, (uint16_t)c->r[3]);
-L_80092400:
-  ;   // return value already in r2 (0 on success, -1 on guard fail)
-  // GuestFrame's destructor restores r16/r17/r31 + ascends sp here.
+L_80092400:; // return value already in r2 (0 on success, -1 on guard fail)
+             // GuestFrame's destructor restores r16/r17/r31 + ascends sp here.
 }
 
 // 0x80092420 channelToneRecordCopyWide — stack frame present (sp-32, spill r16@16/r17@20/ra@24;
@@ -1511,8 +1789,8 @@ L_80092400:
 // dead-tail (not ported).
 // ORACLE: gen_func_80092420
 void Sequencer::channelToneRecordCopyWide() {
-  Core* c = core;
-  static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {17, 20}, {31, 24}};   // -32
+  Core *c = core;
+  static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {17, 20}, {31, 24}}; // -32
   GuestFrame<32, 3> frame(c, kSpills);
   c->r[17] = c->r[6] + c->r[0];
   c->r[4] = c->r[4] << 16;
@@ -1521,13 +1799,20 @@ void Sequencer::channelToneRecordCopyWide() {
   c->r[3] = c->r[3] + c->r[4];
   c->r[3] = (uint32_t)c->mem_r8(c->r[3] + 23832u);
   c->r[2] = c->r[0] + 1u;
-  { int _t = (c->r[3] == c->r[2]); c->r[16] = c->r[7] + c->r[0]; if (_t) goto L_8009245C; }
-  c->r[2] = c->r[0] + (uint32_t)-1; goto L_80092644;
+  {
+    int _t = (c->r[3] == c->r[2]);
+    c->r[16] = c->r[7] + c->r[0];
+    if (_t) {
+      goto L_8009245C;
+    }
+  }
+  c->r[2] = c->r[0] + (uint32_t)-1;
+  goto L_80092644;
 L_8009245C:
   c->r[5] = c->r[5] << 16;
-  c->r[31] = 0x80092468u;   // gen sets the real return-site const before the jal
+  c->r[31] = 0x80092468u; // gen sets the real return-site const before the jal
   c->r[5] = (uint32_t)((int32_t)c->r[5] >> 16);
-  channelVoiceSelectPrep();   // 0x800962B0 owned -- direct native call
+  channelVoiceSelectPrep(); // 0x800962B0 owned -- direct native call
   c->r[3] = (uint32_t)32784u << 16;
   c->r[3] = (uint32_t)(int8_t)c->mem_r8(c->r[3] + 23807u);
   c->r[2] = (uint32_t)32784u << 16;
@@ -1616,9 +1901,8 @@ L_8009245C:
   c->r[3] = (uint32_t)c->mem_r16(c->r[3] + 22u);
   c->r[2] = c->r[0] + c->r[0];
   c->mem_w16(c->r[16] + 22u, (uint16_t)c->r[3]);
-L_80092644:
-  ;   // return value already in r2 (0 on success, -1 on guard fail)
-  // GuestFrame's destructor restores r16/r17/r31 + ascends sp here.
+L_80092644:; // return value already in r2 (0 on success, -1 on guard fail)
+             // GuestFrame's destructor restores r16/r17/r31 + ascends sp here.
 }
 
 // 0x80094150 voiceAllocateOrSteal — true leaf (no stack frame). Faithful to gen_func_80094150
@@ -1629,7 +1913,7 @@ L_80092644:
 // alloc (mis-filed under input; belongs to audio). Register-literal — dense multi-label scan.
 // ORACLE: gen_func_80094150
 void Sequencer::voiceAllocateOrSteal() {
-  Core* c = core;
+  Core *c = core;
   c->r[11] = c->r[0] + 99u;
   c->r[12] = c->r[0] | 65535u;
   c->r[10] = c->r[0] + c->r[0];
@@ -1641,7 +1925,13 @@ void Sequencer::voiceAllocateOrSteal() {
   c->r[3] = (uint32_t)32784u << 16;
   c->r[3] = (uint32_t)(int8_t)c->mem_r8(c->r[3] + 23788u);
   c->r[2] = c->r[2] << 24;
-  { int _t = ((int32_t)c->r[3] <= 0); c->r[13] = (uint32_t)((int32_t)c->r[2] >> 24); if (_t) goto L_800942C8; }
+  {
+    int _t = ((int32_t)c->r[3] <= 0);
+    c->r[13] = (uint32_t)((int32_t)c->r[2] >> 24);
+    if (_t) {
+      goto L_800942C8;
+    }
+  }
   c->r[24] = c->r[0] + 1u;
   c->r[15] = (uint32_t)32779u << 16;
   c->r[15] = c->mem_r32(c->r[15] + (uint32_t)-15372);
@@ -1650,18 +1940,37 @@ void Sequencer::voiceAllocateOrSteal() {
 L_80094198:
   c->r[2] = c->r[24] << (c->r[3] & 31);
   c->r[2] = c->r[15] & c->r[2];
-  { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[3] << 3; if (_t) goto L_800942B4; }
+  {
+    int _t = (c->r[2] != c->r[0]);
+    c->r[2] = c->r[3] << 3;
+    if (_t) {
+      goto L_800942B4;
+    }
+  }
   c->r[2] = c->r[2] - c->r[3];
   c->r[3] = c->r[2] << 3;
   c->r[2] = (uint32_t)32784u << 16;
   c->r[2] = c->r[2] + c->r[3];
   c->r[2] = (uint32_t)(int8_t)c->mem_r8(c->r[2] + 21733u);
-  { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[7] & 255u; if (_t) goto L_800941E8; }
+  {
+    int _t = (c->r[2] != c->r[0]);
+    c->r[2] = c->r[7] & 255u;
+    if (_t) {
+      goto L_800941E8;
+    }
+  }
   c->r[2] = (uint32_t)32784u << 16;
   c->r[2] = c->r[2] + c->r[3];
   c->r[2] = (uint32_t)c->mem_r16(c->r[2] + 21710u);
-  { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[7] & 255u; if (_t) goto L_800941E8; }
-  c->r[11] = c->r[7] + c->r[0]; goto L_800942C8;
+  {
+    int _t = (c->r[2] != c->r[0]);
+    c->r[2] = c->r[7] & 255u;
+    if (_t) {
+      goto L_800941E8;
+    }
+  }
+  c->r[11] = c->r[7] + c->r[0];
+  goto L_800942C8;
 L_800941E8:
   c->r[3] = c->r[2] << 3;
   c->r[3] = c->r[3] - c->r[2];
@@ -1674,7 +1983,12 @@ L_800941E8:
   c->r[4] = c->r[4] + c->r[3];
   c->r[4] = (uint32_t)c->mem_r16(c->r[4] + 21730u);
   c->r[2] = (uint32_t)((int32_t)c->r[6] < (int32_t)c->r[5]);
-  { int _t = (c->r[2] == c->r[0]); if (_t) goto L_80094244; }
+  {
+    int _t = (c->r[2] == c->r[0]);
+    if (_t) {
+      goto L_80094244;
+    }
+  }
   c->r[13] = c->r[4] + c->r[0];
   c->r[9] = c->r[7] + c->r[0];
   c->r[12] = (uint32_t)32784u << 16;
@@ -1683,21 +1997,38 @@ L_800941E8:
   c->r[8] = (uint32_t)32784u << 16;
   c->r[8] = c->r[8] + c->r[3];
   c->r[8] = (uint32_t)c->mem_r16(c->r[8] + 21706u);
-  c->r[10] = c->r[0] + 1u; goto L_800942B4;
-L_80094244:
-  { int _t = (c->r[6] != c->r[5]); c->r[4] = c->r[12] & 65535u; if (_t) goto L_800942B4; }
+  c->r[10] = c->r[0] + 1u;
+  goto L_800942B4;
+L_80094244: {
+  int _t = (c->r[6] != c->r[5]);
+  c->r[4] = c->r[12] & 65535u;
+  if (_t) {
+    goto L_800942B4;
+  }
+}
   c->r[6] = (uint32_t)32784u << 16;
   c->r[6] = c->r[6] + c->r[3];
   c->r[6] = (uint32_t)c->mem_r16(c->r[6] + 21710u);
   c->r[5] = c->r[6] & 65535u;
   c->r[2] = (uint32_t)(c->r[5] < c->r[4]);
-  { int _t = (c->r[2] == c->r[0]); c->r[10] = c->r[10] + 1u; if (_t) goto L_80094280; }
+  {
+    int _t = (c->r[2] == c->r[0]);
+    c->r[10] = c->r[10] + 1u;
+    if (_t) {
+      goto L_80094280;
+    }
+  }
   c->r[8] = (uint32_t)32784u << 16;
   c->r[8] = c->r[8] + c->r[3];
   c->r[8] = (uint32_t)c->mem_r16(c->r[8] + 21706u);
-  c->r[12] = c->r[6] + c->r[0]; goto L_800942B0;
-L_80094280:
-  { int _t = (c->r[5] != c->r[4]); if (_t) goto L_800942B4; }
+  c->r[12] = c->r[6] + c->r[0];
+  goto L_800942B0;
+L_80094280: {
+  int _t = (c->r[5] != c->r[4]);
+  if (_t) {
+    goto L_800942B4;
+  }
+}
   c->r[2] = (uint32_t)32784u << 16;
   c->r[2] = c->r[2] + c->r[3];
   c->r[2] = (uint32_t)(int16_t)c->mem_r16(c->r[2] + 21706u);
@@ -1705,7 +2036,12 @@ L_80094280:
   c->r[1] = c->r[1] + c->r[3];
   c->r[3] = (uint32_t)c->mem_r16(c->r[1] + 21706u);
   c->r[2] = (uint32_t)((int32_t)c->r[8] < (int32_t)c->r[2]);
-  { int _t = (c->r[2] == c->r[0]); if (_t) goto L_800942B4; }
+  {
+    int _t = (c->r[2] == c->r[0]);
+    if (_t) {
+      goto L_800942B4;
+    }
+  }
   c->r[8] = c->r[3] + c->r[0];
 L_800942B0:
   c->r[9] = c->r[7] + c->r[0];
@@ -1713,12 +2049,30 @@ L_800942B4:
   c->r[7] = c->r[7] + 1u;
   c->r[2] = c->r[7] & 255u;
   c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[14]);
-  { int _t = (c->r[2] != c->r[0]); c->r[3] = c->r[7] & 255u; if (_t) goto L_80094198; }
+  {
+    int _t = (c->r[2] != c->r[0]);
+    c->r[3] = c->r[7] & 255u;
+    if (_t) {
+      goto L_80094198;
+    }
+  }
 L_800942C8:
   c->r[3] = c->r[11] & 255u;
   c->r[2] = c->r[0] + 99u;
-  { int _t = (c->r[3] != c->r[2]); c->r[2] = c->r[10] & 255u; if (_t) goto L_800942E8; }
-  { int _t = (c->r[2] != c->r[0]); c->r[11] = c->r[9] + c->r[0]; if (_t) goto L_800942E8; }
+  {
+    int _t = (c->r[3] != c->r[2]);
+    c->r[2] = c->r[10] & 255u;
+    if (_t) {
+      goto L_800942E8;
+    }
+  }
+  {
+    int _t = (c->r[2] != c->r[0]);
+    c->r[11] = c->r[9] + c->r[0];
+    if (_t) {
+      goto L_800942E8;
+    }
+  }
   c->r[11] = (uint32_t)32784u << 16;
   c->r[11] = (uint32_t)c->mem_r8(c->r[11] + 23788u);
 L_800942E8:
@@ -1726,8 +2080,19 @@ L_800942E8:
   c->r[3] = (uint32_t)(int8_t)c->mem_r8(c->r[3] + 23788u);
   c->r[2] = c->r[11] & 255u;
   c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[3]);
-  { int _t = (c->r[2] == c->r[0]); if (_t) goto L_800943B8; }
-  { int _t = ((int32_t)c->r[3] <= 0); c->r[7] = c->r[0] + c->r[0]; if (_t) goto L_80094368; }
+  {
+    int _t = (c->r[2] == c->r[0]);
+    if (_t) {
+      goto L_800943B8;
+    }
+  }
+  {
+    int _t = ((int32_t)c->r[3] <= 0);
+    c->r[7] = c->r[0] + c->r[0];
+    if (_t) {
+      goto L_80094368;
+    }
+  }
   c->r[8] = c->r[0] + 1u;
   c->r[6] = (uint32_t)32779u << 16;
   c->r[6] = c->mem_r32(c->r[6] + (uint32_t)-15372);
@@ -1736,7 +2101,13 @@ L_800942E8:
 L_8009431C:
   c->r[2] = c->r[8] << (c->r[4] & 31);
   c->r[2] = c->r[6] & c->r[2];
-  { int _t = (c->r[2] != c->r[0]); c->r[3] = c->r[4] << 3; if (_t) goto L_80094354; }
+  {
+    int _t = (c->r[2] != c->r[0]);
+    c->r[3] = c->r[4] << 3;
+    if (_t) {
+      goto L_80094354;
+    }
+  }
   c->r[3] = c->r[3] - c->r[4];
   c->r[3] = c->r[3] << 3;
   c->r[2] = (uint32_t)32784u << 16;
@@ -1750,7 +2121,13 @@ L_80094354:
   c->r[7] = c->r[7] + 1u;
   c->r[2] = c->r[7] & 255u;
   c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[5]);
-  { int _t = (c->r[2] != c->r[0]); c->r[4] = c->r[7] & 255u; if (_t) goto L_8009431C; }
+  {
+    int _t = (c->r[2] != c->r[0]);
+    c->r[4] = c->r[7] & 255u;
+    if (_t) {
+      goto L_8009431C;
+    }
+  }
 L_80094368:
   c->r[2] = c->r[11] & 255u;
   c->r[3] = c->r[2] << 3;
@@ -1784,12 +2161,18 @@ L_800943B8:
 // (not ported). Register-literal — dense fixed-point pipeline.
 // ORACLE: gen_func_80094474
 void Sequencer::channelNotePeriodCompute() {
-  Core* c = core;
+  Core *c = core;
   c->r[7] = c->r[7] & 255u;
   c->r[7] = c->r[7] + c->r[5];
   c->r[7] = c->r[7] << 16;
   c->r[7] = (uint32_t)((int32_t)c->r[7] >> 16);
-  { int _t = ((int32_t)c->r[7] >= 0); c->r[3] = c->r[7] + c->r[0]; if (_t) goto L_80094490; }
+  {
+    int _t = ((int32_t)c->r[7] >= 0);
+    c->r[3] = c->r[7] + c->r[0];
+    if (_t) {
+      goto L_80094490;
+    }
+  }
   c->r[3] = c->r[7] + 127u;
 L_80094490:
   c->r[3] = (uint32_t)((int32_t)c->r[3] >> 7);
@@ -1800,12 +2183,24 @@ L_80094490:
   c->r[3] = c->r[3] << 7;
   c->r[7] = c->r[7] - c->r[3];
   c->r[2] = c->r[7] << 16;
-  { int _t = ((int32_t)c->r[2] >= 0); c->r[8] = c->r[7] + c->r[0]; if (_t) goto L_800944DC; }
+  {
+    int _t = ((int32_t)c->r[2] >= 0);
+    c->r[8] = c->r[7] + c->r[0];
+    if (_t) {
+      goto L_800944DC;
+    }
+  }
   c->r[2] = c->r[7] + 128u;
   c->r[8] = c->r[2] + c->r[0];
   c->r[2] = c->r[2] << 16;
   c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
-  { int _t = ((int32_t)c->r[2] >= 0); c->r[4] = c->r[4] + (uint32_t)-1; if (_t) goto L_800944D4; }
+  {
+    int _t = ((int32_t)c->r[2] >= 0);
+    c->r[4] = c->r[4] + (uint32_t)-1;
+    if (_t) {
+      goto L_800944D4;
+    }
+  }
   c->r[2] = c->r[2] + 127u;
 L_800944D4:
   c->r[2] = (uint32_t)((int32_t)c->r[2] >> 7);
@@ -1815,7 +2210,11 @@ L_800944DC:
   c->r[3] = c->r[3] | 43691u;
   c->r[2] = c->r[5] << 16;
   c->r[4] = (uint32_t)((int32_t)c->r[2] >> 16);
-  { int64_t _p = (int64_t)(int32_t)c->r[4] * (int64_t)(int32_t)c->r[3]; c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32); }
+  {
+    int64_t _p = (int64_t)(int32_t)c->r[4] * (int64_t)(int32_t)c->r[3];
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
+  }
   c->r[2] = (uint32_t)((int32_t)c->r[2] >> 31);
   c->r[9] = c->hi;
   c->r[3] = (uint32_t)((int32_t)c->r[9] >> 1);
@@ -1826,7 +2225,13 @@ L_800944DC:
   c->r[2] = c->r[2] << 2;
   c->r[4] = c->r[4] - c->r[2];
   c->r[2] = c->r[4] << 16;
-  { int _t = ((int32_t)c->r[2] >= 0); c->r[5] = c->r[4] + c->r[0]; if (_t) goto L_80094528; }
+  {
+    int _t = ((int32_t)c->r[2] >= 0);
+    c->r[5] = c->r[4] + c->r[0];
+    if (_t) {
+      goto L_80094528;
+    }
+  }
   c->r[5] = c->r[4] + 12u;
   c->r[6] = c->r[3] + (uint32_t)-3;
 L_80094528:
@@ -1840,12 +2245,23 @@ L_80094528:
   c->r[1] = (uint32_t)32779u << 16;
   c->r[1] = c->r[1] + c->r[2];
   c->r[2] = (uint32_t)c->mem_r16(c->r[1] + (uint32_t)-15236);
-  { int64_t _p = (int64_t)(int32_t)c->r[3] * (int64_t)(int32_t)c->r[2]; c->lo = (uint32_t)_p; c->hi = (uint32_t)((uint64_t)_p >> 32); }
+  {
+    int64_t _p = (int64_t)(int32_t)c->r[3] * (int64_t)(int32_t)c->r[2];
+    c->lo = (uint32_t)_p;
+    c->hi = (uint32_t)((uint64_t)_p >> 32);
+  }
   c->r[2] = c->r[6] << 16;
   c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
   c->r[9] = c->lo;
-  { int _t = ((int32_t)c->r[2] < 0); c->r[5] = (uint32_t)((int32_t)c->r[9] >> 16); if (_t) goto L_80094574; }
-  c->r[5] = c->r[0] + 16383u; goto L_8009458C;
+  {
+    int _t = ((int32_t)c->r[2] < 0);
+    c->r[5] = (uint32_t)((int32_t)c->r[9] >> 16);
+    if (_t) {
+      goto L_80094574;
+    }
+  }
+  c->r[5] = c->r[0] + 16383u;
+  goto L_8009458C;
 L_80094574:
   c->r[4] = c->r[0] - c->r[2];
   c->r[3] = c->r[4] + (uint32_t)-1;
@@ -1865,18 +2281,42 @@ L_8009458C:
 // `func_800910F0(c)` inside gen_func_80090BD0 ultimately reach for MAIN-shard addresses, so one
 // registration covers both call paths.
 // ============================================================================
-static void nat_channelPitchSelectDispatch(Core* c) { eng(c).sequencer.channelPitchSelectDispatch(); }
-static void nat_channelReleaseClear(Core* c)        { eng(c).sequencer.channelReleaseClear(); }
-static void nat_channelStopFlagSet(Core* c)         { eng(c).sequencer.channelStopFlagSet(); }
-static void nat_channelPitchSlideTick(Core* c)      { eng(c).sequencer.channelPitchSlideTick(); }
-static void nat_channelEnvelopeRampTick(Core* c)    { eng(c).sequencer.channelEnvelopeRampTick(); }
-static void nat_channelNoteInit(Core* c)            { eng(c).sequencer.channelNoteInit(); }
-static void nat_channelVolumeSnapshot(Core* c)      { eng(c).sequencer.channelVolumeSnapshot(); }
-static void nat_channelKeyEventScan(Core* c)        { eng(c).sequencer.channelKeyEventScan(); }
-static void nat_channelKeyRegisterMerge(Core* c)    { eng(c).sequencer.channelKeyRegisterMerge(); }
-static void nat_channelVoiceRegisterWrite(Core* c)  { eng(c).sequencer.channelVoiceRegisterWrite(); }
-static void nat_channelVoiceSelectPrep(Core* c)     { eng(c).sequencer.channelVoiceSelectPrep(); }
-static void nat_seqChannelDispatch(Core* c)         { eng(c).sequencer.seqChannelDispatch(); }
+static void nat_channelPitchSelectDispatch(Core *c) {
+  eng(c).sequencer.channelPitchSelectDispatch();
+}
+static void nat_channelReleaseClear(Core *c) {
+  eng(c).sequencer.channelReleaseClear();
+}
+static void nat_channelStopFlagSet(Core *c) {
+  eng(c).sequencer.channelStopFlagSet();
+}
+static void nat_channelPitchSlideTick(Core *c) {
+  eng(c).sequencer.channelPitchSlideTick();
+}
+static void nat_channelEnvelopeRampTick(Core *c) {
+  eng(c).sequencer.channelEnvelopeRampTick();
+}
+static void nat_channelNoteInit(Core *c) {
+  eng(c).sequencer.channelNoteInit();
+}
+static void nat_channelVolumeSnapshot(Core *c) {
+  eng(c).sequencer.channelVolumeSnapshot();
+}
+static void nat_channelKeyEventScan(Core *c) {
+  eng(c).sequencer.channelKeyEventScan();
+}
+static void nat_channelKeyRegisterMerge(Core *c) {
+  eng(c).sequencer.channelKeyRegisterMerge();
+}
+static void nat_channelVoiceRegisterWrite(Core *c) {
+  eng(c).sequencer.channelVoiceRegisterWrite();
+}
+static void nat_channelVoiceSelectPrep(Core *c) {
+  eng(c).sequencer.channelVoiceSelectPrep();
+}
+static void nat_seqChannelDispatch(Core *c) {
+  eng(c).sequencer.seqChannelDispatch();
+}
 // frameTick's trampoline is MV_CHECK-able: SBS diff_mode skips the whole per-vblank audio block on
 // both cores (game_tomba2.cpp), so NO SBS config can exercise the tick path -- the strict
 // mirror-verify gate (PSXPORT_MIRROR_VERIFY=0x800909C0, normal single-core run with the sequencer
@@ -1884,15 +2324,28 @@ static void nat_seqChannelDispatch(Core* c)         { eng(c).sequencer.seqChanne
 // FULL native subtree (frameTick -> seqChannelDispatch -> all leaves), rewinds, replays the pure
 // substrate subtree (the thunk consults verify.inSubstrateLeg), and byte-compares RAM + scratchpad
 // + ABI regs. See docs/findings/audio.md.
-static void nat_frameTick(Core* c)                  { MV_CHECK(c, 0x800909C0u, eng(c).sequencer.frameTick()); }
+static void nat_frameTick(Core *c) {
+  MV_CHECK(c, 0x800909C0u, eng(c).sequencer.frameTick());
+}
 // 2026-07-17 wave trampolines.
-static void nat_channelStreamAccumulate(Core* c)    { eng(c).sequencer.channelStreamAccumulate(); }
-static void nat_channelVoiceKeyOn(Core* c)          { eng(c).sequencer.channelVoiceKeyOn(); }
-static void nat_channelToneRecordCopy(Core* c)      { eng(c).sequencer.channelToneRecordCopy(); }
-static void nat_channelToneRecordCopyWide(Core* c)  { eng(c).sequencer.channelToneRecordCopyWide(); }
-static void nat_voiceAllocateOrSteal(Core* c)       { eng(c).sequencer.voiceAllocateOrSteal(); }
-static void nat_channelNotePeriodCompute(Core* c)   { eng(c).sequencer.channelNotePeriodCompute(); }
-
+static void nat_channelStreamAccumulate(Core *c) {
+  eng(c).sequencer.channelStreamAccumulate();
+}
+static void nat_channelVoiceKeyOn(Core *c) {
+  eng(c).sequencer.channelVoiceKeyOn();
+}
+static void nat_channelToneRecordCopy(Core *c) {
+  eng(c).sequencer.channelToneRecordCopy();
+}
+static void nat_channelToneRecordCopyWide(Core *c) {
+  eng(c).sequencer.channelToneRecordCopyWide();
+}
+static void nat_voiceAllocateOrSteal(Core *c) {
+  eng(c).sequencer.voiceAllocateOrSteal();
+}
+static void nat_channelNotePeriodCompute(Core *c) {
+  eng(c).sequencer.channelNotePeriodCompute();
+}
 
 // FUN_800931C0 — the sound driver's per-frame SPU voice-state flush. 12,000 substrate dispatches per
 // 6000 replay frames, i.e. exactly twice a frame.
@@ -1903,316 +2356,438 @@ static void nat_channelNotePeriodCompute(Core* c)   { eng(c).sequencer.channelNo
 // class. The draft also carried four defects, two of them guest-RAM divergences.
 // ORACLE: gen_func_800931C0
 void Sequencer::voiceStateFlush() {
-  Core* c = core;
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23468));
-    c->r[29] = c->r[29] + (uint32_t)-120;
-    c->mem_w32((c->r[29] + (uint32_t)80), c->r[16]);
-    c->mem_w32((c->r[29] + (uint32_t)112), c->r[31]);
-    c->mem_w32((c->r[29] + (uint32_t)108), c->r[23]);
-    c->mem_w32((c->r[29] + (uint32_t)104), c->r[22]);
-    c->mem_w32((c->r[29] + (uint32_t)100), c->r[21]);
-    c->mem_w32((c->r[29] + (uint32_t)96), c->r[20]);
-    c->mem_w32((c->r[29] + (uint32_t)92), c->r[19]);
-    c->mem_w32((c->r[29] + (uint32_t)88), c->r[18]);
-    c->mem_w32((c->r[29] + (uint32_t)84), c->r[17]);
-    c->r[2] = c->r[2] + (uint32_t)1;
-    c->r[2] = c->r[2] & 15u;
-    c->r[1] = (uint32_t)32784u << 16;
-    c->mem_w32((c->r[1] + (uint32_t)23468), c->r[2]);
-    c->r[2] = c->r[2] << 2;
-    c->r[1] = (uint32_t)32784u << 16;
-    c->r[1] = c->r[1] + c->r[2];
-    c->mem_w32((c->r[1] + (uint32_t)23472), c->r[0]);
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
-    c->r[3] = (uint32_t)32784u << 16;
-    c->r[3] = c->r[3] + (uint32_t)23472;
-    { int _t = ((int32_t)c->r[2] <= 0); c->r[16] = c->r[0] + c->r[0]; if (_t) goto L_800932A0; }
-    c->r[20] = c->r[3] + c->r[0];
-    c->r[19] = c->r[0] + (uint32_t)1;
-    c->r[18] = (uint32_t)32784u << 16;
-    c->r[18] = c->r[18] + (uint32_t)21710;
-    c->r[17] = c->r[0] + c->r[0];
-  L_8009323C:;
-    c->r[4] = c->r[16] + c->r[0];
-    c->r[31] = 0x80093248u;
-    c->r[5] = c->r[18] + c->r[0]; func_8009A1D0(c);
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = c->r[2] + c->r[17];
-    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21710));
-    { int _t = (c->r[2] != c->r[0]); c->r[4] = c->r[19] << (c->r[16] & 31); if (_t) goto L_80093284; }
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23468));
-    c->r[2] = c->r[2] << 2;
-    c->r[2] = c->r[2] + c->r[20];
-    c->r[3] = c->mem_r32((c->r[2] + (uint32_t)0));
-    c->r[3] = c->r[3] | c->r[4];
-    c->mem_w32((c->r[2] + (uint32_t)0), c->r[3]);
-  L_80093284:;
-    c->r[18] = c->r[18] + (uint32_t)56;
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
-    c->r[16] = c->r[16] + (uint32_t)1;
-    c->r[2] = (uint32_t)((int32_t)c->r[16] < (int32_t)c->r[2]);
-    { int _t = (c->r[2] != c->r[0]); c->r[17] = c->r[17] + (uint32_t)56; if (_t) goto L_8009323C; }
-  L_800932A0:;
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23848));
-    { int _t = (c->r[2] != c->r[0]); c->r[16] = c->r[0] + c->r[0]; if (_t) goto L_8009336C; }
-    c->r[18] = c->r[0] + (uint32_t)-1;
-    c->r[3] = (uint32_t)32784u << 16;
-    c->r[3] = c->r[3] + (uint32_t)23472;
-  L_800932C0:;
-    c->r[2] = c->mem_r32((c->r[3] + (uint32_t)0));
-    c->r[16] = c->r[16] + (uint32_t)1;
-    c->r[18] = c->r[18] & c->r[2];
-    c->r[2] = (uint32_t)((int32_t)c->r[16] < 15);
-    { int _t = (c->r[2] != c->r[0]); c->r[3] = c->r[3] + (uint32_t)4; if (_t) goto L_800932C0; }
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
-    { int _t = ((int32_t)c->r[2] <= 0); c->r[16] = c->r[0] + c->r[0]; if (_t) goto L_80093368; }
-    c->r[19] = c->r[0] + (uint32_t)1;
-    c->r[20] = c->r[0] + (uint32_t)2;
-    c->r[17] = (uint32_t)32784u << 16;
-    c->r[17] = c->r[17] + (uint32_t)21733;
-  L_800932FC:;
-    c->r[5] = c->r[19] << (c->r[16] & 31);
-    c->r[2] = c->r[18] & c->r[5];
-    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80093350; }
-    c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[17] + (uint32_t)0));
-    { int _t = (c->r[2] != c->r[20]); c->r[2] = (uint32_t)((int32_t)c->r[16] < 16); if (_t) goto L_8009334C; }
-    { int _t = (c->r[2] != c->r[0]); c->r[2] = c->r[0] + c->r[0]; if (_t) goto L_80093330; }
-    c->r[5] = c->r[0] + c->r[0];
-    c->r[2] = c->r[16] + (uint32_t)-16;
-    c->r[2] = c->r[19] << (c->r[2] & 31);
-  L_80093330:;
-    c->r[4] = c->r[0] + c->r[0];
-    c->r[2] = c->r[2] & 255u;
-    c->r[2] = c->r[2] << 16;
-    c->r[5] = c->r[5] << 16;
-    c->r[5] = (uint32_t)((int32_t)c->r[5] >> 16);
-    c->r[31] = 0x8009334Cu;
-    c->r[5] = c->r[2] | c->r[5]; func_80097E10(c);
-  L_8009334C:;
-    c->mem_w8((c->r[17] + (uint32_t)0), (uint8_t)c->r[0]);
-  L_80093350:;
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
-    c->r[16] = c->r[16] + (uint32_t)1;
-    c->r[2] = (uint32_t)((int32_t)c->r[16] < (int32_t)c->r[2]);
-    { int _t = (c->r[2] != c->r[0]); c->r[17] = c->r[17] + (uint32_t)56; if (_t) goto L_800932FC; }
-  L_80093368:;
+  Core *c = core;
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23468));
+  c->r[29] = c->r[29] + (uint32_t)-120;
+  c->mem_w32((c->r[29] + (uint32_t)80), c->r[16]);
+  c->mem_w32((c->r[29] + (uint32_t)112), c->r[31]);
+  c->mem_w32((c->r[29] + (uint32_t)108), c->r[23]);
+  c->mem_w32((c->r[29] + (uint32_t)104), c->r[22]);
+  c->mem_w32((c->r[29] + (uint32_t)100), c->r[21]);
+  c->mem_w32((c->r[29] + (uint32_t)96), c->r[20]);
+  c->mem_w32((c->r[29] + (uint32_t)92), c->r[19]);
+  c->mem_w32((c->r[29] + (uint32_t)88), c->r[18]);
+  c->mem_w32((c->r[29] + (uint32_t)84), c->r[17]);
+  c->r[2] = c->r[2] + (uint32_t)1;
+  c->r[2] = c->r[2] & 15u;
+  c->r[1] = (uint32_t)32784u << 16;
+  c->mem_w32((c->r[1] + (uint32_t)23468), c->r[2]);
+  c->r[2] = c->r[2] << 2;
+  c->r[1] = (uint32_t)32784u << 16;
+  c->r[1] = c->r[1] + c->r[2];
+  c->mem_w32((c->r[1] + (uint32_t)23472), c->r[0]);
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
+  c->r[3] = (uint32_t)32784u << 16;
+  c->r[3] = c->r[3] + (uint32_t)23472;
+  {
+    int _t = ((int32_t)c->r[2] <= 0);
     c->r[16] = c->r[0] + c->r[0];
-  L_8009336C:;
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)23536));
-    c->r[3] = (uint32_t)32784u << 16;
-    c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)21688));
-    c->r[2] = ~(c->r[0] | c->r[2]);
-    c->r[3] = c->r[3] & c->r[2];
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)23538));
-    c->r[17] = c->r[0] + c->r[0];
-    c->r[1] = (uint32_t)32784u << 16;
-    c->mem_w16((c->r[1] + (uint32_t)21688), (uint16_t)c->r[3]);
-    c->r[3] = (uint32_t)32784u << 16;
-    c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)21690));
-    c->r[2] = ~(c->r[0] | c->r[2]);
-    c->r[3] = c->r[3] & c->r[2];
-    c->r[1] = (uint32_t)32784u << 16;
-    c->mem_w16((c->r[1] + (uint32_t)21690), (uint16_t)c->r[3]);
-  L_800933B0:;
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = c->r[2] + c->r[17];
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)21734));
-    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_800933DC; }
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23464));
-    c->r[31] = 0x800933DCu;
-    c->r[4] = c->r[16] + c->r[0]; rec_dispatch(c, c->r[2]);
-  L_800933DC:;
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = c->r[2] + c->r[17];
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)21746));
-    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80093408; }
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23072));
-    c->r[31] = 0x80093408u;
-    c->r[4] = c->r[16] + c->r[0]; rec_dispatch(c, c->r[2]);
-  L_80093408:;
-    c->r[16] = c->r[16] + (uint32_t)1;
-    c->r[2] = (uint32_t)((int32_t)c->r[16] < 24);
-    { int _t = (c->r[2] != c->r[0]); c->r[17] = c->r[17] + (uint32_t)56; if (_t) goto L_800933B0; }
+    if (_t) {
+      goto L_800932A0;
+    }
+  }
+  c->r[20] = c->r[3] + c->r[0];
+  c->r[19] = c->r[0] + (uint32_t)1;
+  c->r[18] = (uint32_t)32784u << 16;
+  c->r[18] = c->r[18] + (uint32_t)21710;
+  c->r[17] = c->r[0] + c->r[0];
+L_8009323C:;
+  c->r[4] = c->r[16] + c->r[0];
+  c->r[31] = 0x80093248u;
+  c->r[5] = c->r[18] + c->r[0];
+  func_8009A1D0(c);
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = c->r[2] + c->r[17];
+  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21710));
+  {
+    int _t = (c->r[2] != c->r[0]);
+    c->r[4] = c->r[19] << (c->r[16] & 31);
+    if (_t) {
+      goto L_80093284;
+    }
+  }
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23468));
+  c->r[2] = c->r[2] << 2;
+  c->r[2] = c->r[2] + c->r[20];
+  c->r[3] = c->mem_r32((c->r[2] + (uint32_t)0));
+  c->r[3] = c->r[3] | c->r[4];
+  c->mem_w32((c->r[2] + (uint32_t)0), c->r[3]);
+L_80093284:;
+  c->r[18] = c->r[18] + (uint32_t)56;
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
+  c->r[16] = c->r[16] + (uint32_t)1;
+  c->r[2] = (uint32_t)((int32_t)c->r[16] < (int32_t)c->r[2]);
+  {
+    int _t = (c->r[2] != c->r[0]);
+    c->r[17] = c->r[17] + (uint32_t)56;
+    if (_t) {
+      goto L_8009323C;
+    }
+  }
+L_800932A0:;
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23848));
+  {
+    int _t = (c->r[2] != c->r[0]);
     c->r[16] = c->r[0] + c->r[0];
-    c->r[17] = (uint32_t)32784u << 16;
-    c->r[17] = c->r[17] + (uint32_t)23048;
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = c->r[2] + (uint32_t)23080;
-    c->r[23] = c->r[2] + (uint32_t)10;
-    c->r[22] = c->r[2] + (uint32_t)8;
-    c->r[21] = c->r[2] + (uint32_t)6;
-    c->r[20] = c->r[2] + (uint32_t)4;
-    c->r[19] = c->r[2] + (uint32_t)2;
-    c->r[18] = c->r[2] + c->r[0];
-  L_80093444:;
-    c->r[2] = c->r[0] + (uint32_t)1;
-    c->r[2] = c->r[2] << (c->r[16] & 31);
-    c->mem_w32((c->r[29] + (uint32_t)20), c->r[0]);
-    c->mem_w32((c->r[29] + (uint32_t)16), c->r[2]);
-    c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
-    c->r[2] = c->r[2] & 1u;
-    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)3; if (_t) goto L_80093484; }
-    c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
-    c->r[2] = (uint32_t)c->mem_r16((c->r[18] + (uint32_t)0));
-    c->mem_w16((c->r[29] + (uint32_t)24), (uint16_t)c->r[2]);
-    c->r[2] = (uint32_t)c->mem_r16((c->r[19] + (uint32_t)0));
-    c->mem_w16((c->r[29] + (uint32_t)26), (uint16_t)c->r[2]);
-  L_80093484:;
-    c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
-    c->r[2] = c->r[2] & 4u;
-    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_800934B4; }
-    c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
-    c->r[2] = c->r[2] | 16u;
-    c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
-    c->r[2] = (uint32_t)c->mem_r16((c->r[20] + (uint32_t)0));
-    c->mem_w16((c->r[29] + (uint32_t)36), (uint16_t)c->r[2]);
-  L_800934B4:;
-    c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
-    c->r[2] = c->r[2] & 8u;
-    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_800934E8; }
-    c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
-    c->r[2] = c->r[2] | 128u;
-    c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
-    c->r[2] = (uint32_t)c->mem_r16((c->r[21] + (uint32_t)0));
-    c->r[2] = c->r[2] << 3;
-    c->mem_w32((c->r[29] + (uint32_t)44), c->r[2]);
-  L_800934E8:;
-    c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
-    c->r[2] = c->r[2] & 16u;
-    { int _t = (c->r[2] == c->r[0]); c->r[3] = (uint32_t)6u << 16; if (_t) goto L_80093524; }
-    c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
-    c->r[2] = c->r[2] | c->r[3];
-    c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
-    c->r[2] = (uint32_t)c->mem_r16((c->r[22] + (uint32_t)0));
-    c->mem_w16((c->r[29] + (uint32_t)74), (uint16_t)c->r[2]);
-    c->r[2] = (uint32_t)c->mem_r16((c->r[23] + (uint32_t)0));
-    c->mem_w16((c->r[29] + (uint32_t)76), (uint16_t)c->r[2]);
-  L_80093524:;
-    c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
-    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_8009353C; }
-    c->r[31] = 0x8009353Cu;
-    c->r[4] = c->r[29] + (uint32_t)16; func_80099970(c);
-  L_8009353C:;
-    c->mem_w8((c->r[17] + (uint32_t)0), (uint8_t)c->r[0]);
-    c->r[17] = c->r[17] + (uint32_t)1;
-    c->r[23] = c->r[23] + (uint32_t)16;
-    c->r[22] = c->r[22] + (uint32_t)16;
-    c->r[21] = c->r[21] + (uint32_t)16;
-    c->r[20] = c->r[20] + (uint32_t)16;
-    c->r[19] = c->r[19] + (uint32_t)16;
-    c->r[16] = c->r[16] + (uint32_t)1;
-    c->r[2] = (uint32_t)((int32_t)c->r[16] < 24);
-    { int _t = (c->r[2] != c->r[0]); c->r[18] = c->r[18] + (uint32_t)16; if (_t) goto L_80093444; }
-    c->r[4] = c->r[0] + c->r[0];
-    c->r[5] = (uint32_t)32784u << 16;
-    c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)23538));
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)23536));
-    c->r[5] = c->r[5] << 16;
-    c->r[31] = 0x80093588u;
-    c->r[5] = c->r[5] | c->r[2]; func_80098F90(c);
-    c->r[4] = c->r[0] + (uint32_t)1;
-    c->r[5] = (uint32_t)32784u << 16;
-    c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21690));
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21688));
-    c->r[5] = c->r[5] << 16;
-    c->r[31] = 0x800935A8u;
-    c->r[5] = c->r[5] | c->r[2]; func_80098F90(c);
-    c->r[4] = c->r[0] + (uint32_t)8;
-    c->r[5] = (uint32_t)32784u << 16;
-    c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21694));
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21692));
-    c->r[5] = c->r[5] << 16;
-    c->r[31] = 0x800935C8u;
-    c->r[5] = c->r[5] | c->r[2]; func_80098DB0(c);
-    c->r[4] = c->r[0] + (uint32_t)8;
-    c->r[5] = (uint32_t)32784u << 16;
-    c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21698));
-    c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21696));
-    c->r[5] = c->r[5] << 16;
-    c->r[31] = 0x800935E8u;
-    c->r[5] = c->r[5] | c->r[2]; func_80097E10(c);
-    c->r[1] = (uint32_t)32784u << 16;
-    c->mem_w16((c->r[1] + (uint32_t)23536), (uint16_t)c->r[0]);
-    c->r[1] = (uint32_t)32784u << 16;
-    c->mem_w16((c->r[1] + (uint32_t)23538), (uint16_t)c->r[0]);
-    c->r[1] = (uint32_t)32784u << 16;
-    c->mem_w16((c->r[1] + (uint32_t)21688), (uint16_t)c->r[0]);
-    c->r[1] = (uint32_t)32784u << 16;
-    c->mem_w16((c->r[1] + (uint32_t)21690), (uint16_t)c->r[0]);
-    c->r[1] = (uint32_t)32784u << 16;
-    c->mem_w16((c->r[1] + (uint32_t)21696), (uint16_t)c->r[0]);
-    c->r[1] = (uint32_t)32784u << 16;
-    c->mem_w16((c->r[1] + (uint32_t)21698), (uint16_t)c->r[0]);
-    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)112));
-    c->r[23] = c->mem_r32((c->r[29] + (uint32_t)108));
-    c->r[22] = c->mem_r32((c->r[29] + (uint32_t)104));
-    c->r[21] = c->mem_r32((c->r[29] + (uint32_t)100));
-    c->r[20] = c->mem_r32((c->r[29] + (uint32_t)96));
-    c->r[19] = c->mem_r32((c->r[29] + (uint32_t)92));
-    c->r[18] = c->mem_r32((c->r[29] + (uint32_t)88));
-    c->r[17] = c->mem_r32((c->r[29] + (uint32_t)84));
-    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)80));
-    c->r[29] = c->r[29] + (uint32_t)120; return;
+    if (_t) {
+      goto L_8009336C;
+    }
+  }
+  c->r[18] = c->r[0] + (uint32_t)-1;
+  c->r[3] = (uint32_t)32784u << 16;
+  c->r[3] = c->r[3] + (uint32_t)23472;
+L_800932C0:;
+  c->r[2] = c->mem_r32((c->r[3] + (uint32_t)0));
+  c->r[16] = c->r[16] + (uint32_t)1;
+  c->r[18] = c->r[18] & c->r[2];
+  c->r[2] = (uint32_t)((int32_t)c->r[16] < 15);
+  {
+    int _t = (c->r[2] != c->r[0]);
+    c->r[3] = c->r[3] + (uint32_t)4;
+    if (_t) {
+      goto L_800932C0;
+    }
+  }
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
+  {
+    int _t = ((int32_t)c->r[2] <= 0);
+    c->r[16] = c->r[0] + c->r[0];
+    if (_t) {
+      goto L_80093368;
+    }
+  }
+  c->r[19] = c->r[0] + (uint32_t)1;
+  c->r[20] = c->r[0] + (uint32_t)2;
+  c->r[17] = (uint32_t)32784u << 16;
+  c->r[17] = c->r[17] + (uint32_t)21733;
+L_800932FC:;
+  c->r[5] = c->r[19] << (c->r[16] & 31);
+  c->r[2] = c->r[18] & c->r[5];
+  {
+    int _t = (c->r[2] == c->r[0]);
+    if (_t) {
+      goto L_80093350;
+    }
+  }
+  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[17] + (uint32_t)0));
+  {
+    int _t = (c->r[2] != c->r[20]);
+    c->r[2] = (uint32_t)((int32_t)c->r[16] < 16);
+    if (_t) {
+      goto L_8009334C;
+    }
+  }
+  {
+    int _t = (c->r[2] != c->r[0]);
+    c->r[2] = c->r[0] + c->r[0];
+    if (_t) {
+      goto L_80093330;
+    }
+  }
+  c->r[5] = c->r[0] + c->r[0];
+  c->r[2] = c->r[16] + (uint32_t)-16;
+  c->r[2] = c->r[19] << (c->r[2] & 31);
+L_80093330:;
+  c->r[4] = c->r[0] + c->r[0];
+  c->r[2] = c->r[2] & 255u;
+  c->r[2] = c->r[2] << 16;
+  c->r[5] = c->r[5] << 16;
+  c->r[5] = (uint32_t)((int32_t)c->r[5] >> 16);
+  c->r[31] = 0x8009334Cu;
+  c->r[5] = c->r[2] | c->r[5];
+  func_80097E10(c);
+L_8009334C:;
+  c->mem_w8((c->r[17] + (uint32_t)0), (uint8_t)c->r[0]);
+L_80093350:;
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
+  c->r[16] = c->r[16] + (uint32_t)1;
+  c->r[2] = (uint32_t)((int32_t)c->r[16] < (int32_t)c->r[2]);
+  {
+    int _t = (c->r[2] != c->r[0]);
+    c->r[17] = c->r[17] + (uint32_t)56;
+    if (_t) {
+      goto L_800932FC;
+    }
+  }
+L_80093368:;
+  c->r[16] = c->r[0] + c->r[0];
+L_8009336C:;
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)23536));
+  c->r[3] = (uint32_t)32784u << 16;
+  c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)21688));
+  c->r[2] = ~(c->r[0] | c->r[2]);
+  c->r[3] = c->r[3] & c->r[2];
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)23538));
+  c->r[17] = c->r[0] + c->r[0];
+  c->r[1] = (uint32_t)32784u << 16;
+  c->mem_w16((c->r[1] + (uint32_t)21688), (uint16_t)c->r[3]);
+  c->r[3] = (uint32_t)32784u << 16;
+  c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)21690));
+  c->r[2] = ~(c->r[0] | c->r[2]);
+  c->r[3] = c->r[3] & c->r[2];
+  c->r[1] = (uint32_t)32784u << 16;
+  c->mem_w16((c->r[1] + (uint32_t)21690), (uint16_t)c->r[3]);
+L_800933B0:;
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = c->r[2] + c->r[17];
+  c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)21734));
+  {
+    int _t = (c->r[2] == c->r[0]);
+    if (_t) {
+      goto L_800933DC;
+    }
+  }
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23464));
+  c->r[31] = 0x800933DCu;
+  c->r[4] = c->r[16] + c->r[0];
+  rec_dispatch(c, c->r[2]);
+L_800933DC:;
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = c->r[2] + c->r[17];
+  c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)21746));
+  {
+    int _t = (c->r[2] == c->r[0]);
+    if (_t) {
+      goto L_80093408;
+    }
+  }
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23072));
+  c->r[31] = 0x80093408u;
+  c->r[4] = c->r[16] + c->r[0];
+  rec_dispatch(c, c->r[2]);
+L_80093408:;
+  c->r[16] = c->r[16] + (uint32_t)1;
+  c->r[2] = (uint32_t)((int32_t)c->r[16] < 24);
+  {
+    int _t = (c->r[2] != c->r[0]);
+    c->r[17] = c->r[17] + (uint32_t)56;
+    if (_t) {
+      goto L_800933B0;
+    }
+  }
+  c->r[16] = c->r[0] + c->r[0];
+  c->r[17] = (uint32_t)32784u << 16;
+  c->r[17] = c->r[17] + (uint32_t)23048;
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = c->r[2] + (uint32_t)23080;
+  c->r[23] = c->r[2] + (uint32_t)10;
+  c->r[22] = c->r[2] + (uint32_t)8;
+  c->r[21] = c->r[2] + (uint32_t)6;
+  c->r[20] = c->r[2] + (uint32_t)4;
+  c->r[19] = c->r[2] + (uint32_t)2;
+  c->r[18] = c->r[2] + c->r[0];
+L_80093444:;
+  c->r[2] = c->r[0] + (uint32_t)1;
+  c->r[2] = c->r[2] << (c->r[16] & 31);
+  c->mem_w32((c->r[29] + (uint32_t)20), c->r[0]);
+  c->mem_w32((c->r[29] + (uint32_t)16), c->r[2]);
+  c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
+  c->r[2] = c->r[2] & 1u;
+  {
+    int _t = (c->r[2] == c->r[0]);
+    c->r[2] = c->r[0] + (uint32_t)3;
+    if (_t) {
+      goto L_80093484;
+    }
+  }
+  c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
+  c->r[2] = (uint32_t)c->mem_r16((c->r[18] + (uint32_t)0));
+  c->mem_w16((c->r[29] + (uint32_t)24), (uint16_t)c->r[2]);
+  c->r[2] = (uint32_t)c->mem_r16((c->r[19] + (uint32_t)0));
+  c->mem_w16((c->r[29] + (uint32_t)26), (uint16_t)c->r[2]);
+L_80093484:;
+  c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
+  c->r[2] = c->r[2] & 4u;
+  {
+    int _t = (c->r[2] == c->r[0]);
+    if (_t) {
+      goto L_800934B4;
+    }
+  }
+  c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
+  c->r[2] = c->r[2] | 16u;
+  c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
+  c->r[2] = (uint32_t)c->mem_r16((c->r[20] + (uint32_t)0));
+  c->mem_w16((c->r[29] + (uint32_t)36), (uint16_t)c->r[2]);
+L_800934B4:;
+  c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
+  c->r[2] = c->r[2] & 8u;
+  {
+    int _t = (c->r[2] == c->r[0]);
+    if (_t) {
+      goto L_800934E8;
+    }
+  }
+  c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
+  c->r[2] = c->r[2] | 128u;
+  c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
+  c->r[2] = (uint32_t)c->mem_r16((c->r[21] + (uint32_t)0));
+  c->r[2] = c->r[2] << 3;
+  c->mem_w32((c->r[29] + (uint32_t)44), c->r[2]);
+L_800934E8:;
+  c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
+  c->r[2] = c->r[2] & 16u;
+  {
+    int _t = (c->r[2] == c->r[0]);
+    c->r[3] = (uint32_t)6u << 16;
+    if (_t) {
+      goto L_80093524;
+    }
+  }
+  c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
+  c->r[2] = c->r[2] | c->r[3];
+  c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
+  c->r[2] = (uint32_t)c->mem_r16((c->r[22] + (uint32_t)0));
+  c->mem_w16((c->r[29] + (uint32_t)74), (uint16_t)c->r[2]);
+  c->r[2] = (uint32_t)c->mem_r16((c->r[23] + (uint32_t)0));
+  c->mem_w16((c->r[29] + (uint32_t)76), (uint16_t)c->r[2]);
+L_80093524:;
+  c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
+  {
+    int _t = (c->r[2] == c->r[0]);
+    if (_t) {
+      goto L_8009353C;
+    }
+  }
+  c->r[31] = 0x8009353Cu;
+  c->r[4] = c->r[29] + (uint32_t)16;
+  func_80099970(c);
+L_8009353C:;
+  c->mem_w8((c->r[17] + (uint32_t)0), (uint8_t)c->r[0]);
+  c->r[17] = c->r[17] + (uint32_t)1;
+  c->r[23] = c->r[23] + (uint32_t)16;
+  c->r[22] = c->r[22] + (uint32_t)16;
+  c->r[21] = c->r[21] + (uint32_t)16;
+  c->r[20] = c->r[20] + (uint32_t)16;
+  c->r[19] = c->r[19] + (uint32_t)16;
+  c->r[16] = c->r[16] + (uint32_t)1;
+  c->r[2] = (uint32_t)((int32_t)c->r[16] < 24);
+  {
+    int _t = (c->r[2] != c->r[0]);
+    c->r[18] = c->r[18] + (uint32_t)16;
+    if (_t) {
+      goto L_80093444;
+    }
+  }
+  c->r[4] = c->r[0] + c->r[0];
+  c->r[5] = (uint32_t)32784u << 16;
+  c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)23538));
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)23536));
+  c->r[5] = c->r[5] << 16;
+  c->r[31] = 0x80093588u;
+  c->r[5] = c->r[5] | c->r[2];
+  func_80098F90(c);
+  c->r[4] = c->r[0] + (uint32_t)1;
+  c->r[5] = (uint32_t)32784u << 16;
+  c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21690));
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21688));
+  c->r[5] = c->r[5] << 16;
+  c->r[31] = 0x800935A8u;
+  c->r[5] = c->r[5] | c->r[2];
+  func_80098F90(c);
+  c->r[4] = c->r[0] + (uint32_t)8;
+  c->r[5] = (uint32_t)32784u << 16;
+  c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21694));
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21692));
+  c->r[5] = c->r[5] << 16;
+  c->r[31] = 0x800935C8u;
+  c->r[5] = c->r[5] | c->r[2];
+  func_80098DB0(c);
+  c->r[4] = c->r[0] + (uint32_t)8;
+  c->r[5] = (uint32_t)32784u << 16;
+  c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21698));
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21696));
+  c->r[5] = c->r[5] << 16;
+  c->r[31] = 0x800935E8u;
+  c->r[5] = c->r[5] | c->r[2];
+  func_80097E10(c);
+  c->r[1] = (uint32_t)32784u << 16;
+  c->mem_w16((c->r[1] + (uint32_t)23536), (uint16_t)c->r[0]);
+  c->r[1] = (uint32_t)32784u << 16;
+  c->mem_w16((c->r[1] + (uint32_t)23538), (uint16_t)c->r[0]);
+  c->r[1] = (uint32_t)32784u << 16;
+  c->mem_w16((c->r[1] + (uint32_t)21688), (uint16_t)c->r[0]);
+  c->r[1] = (uint32_t)32784u << 16;
+  c->mem_w16((c->r[1] + (uint32_t)21690), (uint16_t)c->r[0]);
+  c->r[1] = (uint32_t)32784u << 16;
+  c->mem_w16((c->r[1] + (uint32_t)21696), (uint16_t)c->r[0]);
+  c->r[1] = (uint32_t)32784u << 16;
+  c->mem_w16((c->r[1] + (uint32_t)21698), (uint16_t)c->r[0]);
+  c->r[31] = c->mem_r32((c->r[29] + (uint32_t)112));
+  c->r[23] = c->mem_r32((c->r[29] + (uint32_t)108));
+  c->r[22] = c->mem_r32((c->r[29] + (uint32_t)104));
+  c->r[21] = c->mem_r32((c->r[29] + (uint32_t)100));
+  c->r[20] = c->mem_r32((c->r[29] + (uint32_t)96));
+  c->r[19] = c->mem_r32((c->r[29] + (uint32_t)92));
+  c->r[18] = c->mem_r32((c->r[29] + (uint32_t)88));
+  c->r[17] = c->mem_r32((c->r[29] + (uint32_t)84));
+  c->r[16] = c->mem_r32((c->r[29] + (uint32_t)80));
+  c->r[29] = c->r[29] + (uint32_t)120;
+  return;
 }
 
-static void nat_voiceStateFlush(Core* c) { eng(c).sequencer.voiceStateFlush(); }
+static void nat_voiceStateFlush(Core *c) {
+  eng(c).sequencer.voiceStateFlush();
+}
 
 void Sequencer::registerOverrides() {
-  { extern void gen_func_800931C0(Core*);
-    engine_set_override_main(0x800931C0u, nat_voiceStateFlush, gen_func_800931C0); }
+  {
+    extern void gen_func_800931C0(Core *);
+    engine_set_override_main(0x800931C0u, nat_voiceStateFlush, gen_func_800931C0);
+  }
   extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-  extern void gen_func_800910F0(Core*);
-  extern void gen_func_80091050(Core*);
-  extern void gen_func_80091910(Core*);
-  extern void gen_func_80090E40(Core*);
-  extern void gen_func_80092080(Core*);
-  extern void gen_func_80091970(Core*);
-  extern void gen_func_80095A9C(Core*);
-  extern void gen_func_80095B90(Core*);
-  extern void gen_func_80094B50(Core*);
-  extern void gen_func_80095530(Core*);
-  extern void gen_func_800962B0(Core*);
-  extern void gen_func_80090BD0(Core*);
-  extern void gen_func_800909C0(Core*);
-  extern void gen_func_80090160(Core*);
-  extern void gen_func_80091810(Core*);
-  extern void gen_func_80092310(Core*);
-  extern void gen_func_80092420(Core*);
-  extern void gen_func_80094150(Core*);
-  extern void gen_func_80094474(Core*);
+  extern void gen_func_800910F0(Core *);
+  extern void gen_func_80091050(Core *);
+  extern void gen_func_80091910(Core *);
+  extern void gen_func_80090E40(Core *);
+  extern void gen_func_80092080(Core *);
+  extern void gen_func_80091970(Core *);
+  extern void gen_func_80095A9C(Core *);
+  extern void gen_func_80095B90(Core *);
+  extern void gen_func_80094B50(Core *);
+  extern void gen_func_80095530(Core *);
+  extern void gen_func_800962B0(Core *);
+  extern void gen_func_80090BD0(Core *);
+  extern void gen_func_800909C0(Core *);
+  extern void gen_func_80090160(Core *);
+  extern void gen_func_80091810(Core *);
+  extern void gen_func_80092310(Core *);
+  extern void gen_func_80092420(Core *);
+  extern void gen_func_80094150(Core *);
+  extern void gen_func_80094474(Core *);
 
   // Bottom-up (fleet-workflow.md §9): leaves first, then the dispatch loop, then the tick wrapper.
   // Each was gated 0-diff at this tier before the next tier was added (see docs/findings/audio.md).
   engine_set_override_main(0x800910F0u, nat_channelPitchSelectDispatch, gen_func_800910F0);
-  engine_set_override_main(0x80091970u, nat_channelNoteInit,            gen_func_80091970);
-  engine_set_override_main(0x80095B90u, nat_channelKeyEventScan,        gen_func_80095B90);
-  engine_set_override_main(0x80094B50u, nat_channelKeyRegisterMerge,    gen_func_80094B50);
-  engine_set_override_main(0x80095530u, nat_channelVoiceRegisterWrite,  gen_func_80095530);
-  engine_set_override_main(0x800962B0u, nat_channelVoiceSelectPrep,     gen_func_800962B0);
-  engine_set_override_main(0x80090BD0u, nat_seqChannelDispatch,         gen_func_80090BD0);
-  engine_set_override_main(0x800909C0u, nat_frameTick,                  gen_func_800909C0);
+  engine_set_override_main(0x80091970u, nat_channelNoteInit, gen_func_80091970);
+  engine_set_override_main(0x80095B90u, nat_channelKeyEventScan, gen_func_80095B90);
+  engine_set_override_main(0x80094B50u, nat_channelKeyRegisterMerge, gen_func_80094B50);
+  engine_set_override_main(0x80095530u, nat_channelVoiceRegisterWrite, gen_func_80095530);
+  engine_set_override_main(0x800962B0u, nat_channelVoiceSelectPrep, gen_func_800962B0);
+  engine_set_override_main(0x80090BD0u, nat_seqChannelDispatch, gen_func_80090BD0);
+  engine_set_override_main(0x800909C0u, nat_frameTick, gen_func_800909C0);
   // 2026-07-17 wave — six further per-channel leaves, owned bottom-up.
-  engine_set_override_main(0x80090160u, nat_channelStreamAccumulate,    gen_func_80090160);
-  engine_set_override_main(0x80091810u, nat_channelVoiceKeyOn,          gen_func_80091810);
-  engine_set_override_main(0x80092310u, nat_channelToneRecordCopy,      gen_func_80092310);
-  engine_set_override_main(0x80092420u, nat_channelToneRecordCopyWide,  gen_func_80092420);
-  engine_set_override_main(0x80094150u, nat_voiceAllocateOrSteal,       gen_func_80094150);
-  engine_set_override_main(0x80094474u, nat_channelNotePeriodCompute,   gen_func_80094474);
+  engine_set_override_main(0x80090160u, nat_channelStreamAccumulate, gen_func_80090160);
+  engine_set_override_main(0x80091810u, nat_channelVoiceKeyOn, gen_func_80091810);
+  engine_set_override_main(0x80092310u, nat_channelToneRecordCopy, gen_func_80092310);
+  engine_set_override_main(0x80092420u, nat_channelToneRecordCopyWide, gen_func_80092420);
+  engine_set_override_main(0x80094150u, nat_voiceAllocateOrSteal, gen_func_80094150);
+  engine_set_override_main(0x80094474u, nat_channelNotePeriodCompute, gen_func_80094474);
   // DELIBERATELY UNWIRED (2026-07-10 wiring pass, honest-gate rule): 0x80091050 channelReleaseClear,
   // 0x80091910 channelStopFlagSet, 0x80090E40 channelPitchSlideTick, 0x80092080
   // channelEnvelopeRampTick, 0x80095A9C channelVolumeSnapshot. None EVER fired in any run tried
@@ -2221,8 +2796,14 @@ void Sequencer::registerOverrides() {
   // verified drafts stay banked above; seqChannelDispatch routes their bits via rec_dispatch to the
   // substrate body. A future session that reaches SEQ content with releases/slides/envelopes should
   // exercise, wire, and gate them. (nat_ trampolines kept for that pass.) See docs/findings/audio.md.
-  (void)nat_channelReleaseClear; (void)nat_channelStopFlagSet; (void)nat_channelPitchSlideTick;
-  (void)nat_channelEnvelopeRampTick; (void)nat_channelVolumeSnapshot;
-  (void)gen_func_80091050; (void)gen_func_80091910; (void)gen_func_80090E40;
-  (void)gen_func_80092080; (void)gen_func_80095A9C;
+  (void)nat_channelReleaseClear;
+  (void)nat_channelStopFlagSet;
+  (void)nat_channelPitchSlideTick;
+  (void)nat_channelEnvelopeRampTick;
+  (void)nat_channelVolumeSnapshot;
+  (void)gen_func_80091050;
+  (void)gen_func_80091910;
+  (void)gen_func_80090E40;
+  (void)gen_func_80092080;
+  (void)gen_func_80095A9C;
 }

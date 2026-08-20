@@ -25,15 +25,15 @@ class Core;
 
 class Pool {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
-  void init();                          // FUN_8007B18C
-  void resetControlBlock();             // FUN_800796DC
-  void seedAreaObjects();               // FUN_800263E8
-  void reset75240();                    // FUN_80075240
-  void setupViewScroll();               // FUN_800783DC
-  void finalViewInit();                 // FUN_80078610
-  void selectStateIndex(uint8_t area);  // FUN_80074F24 (a0=area byte)
+  void init();                         // FUN_8007B18C
+  void resetControlBlock();            // FUN_800796DC
+  void seedAreaObjects();              // FUN_800263E8
+  void reset75240();                   // FUN_80075240
+  void setupViewScroll();              // FUN_800783DC
+  void finalViewInit();                // FUN_80078610
+  void selectStateIndex(uint8_t area); // FUN_80074F24 (a0=area byte)
 
   // -- Internal init helpers (formerly rec_dispatched from Pool::init) ---------------------
   // Both are Pool::init's own callees; kept separate for clarity + potential re-use. Neither has

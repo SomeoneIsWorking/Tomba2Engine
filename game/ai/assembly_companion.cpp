@@ -100,8 +100,8 @@
 #include "assembly_node.h"
 #include "core.h"
 #include "guest_abi.h"
-#include "override_registry.h"
 #include "ov_a00_decls.h"
+#include "override_registry.h"
 
 namespace {
 // The one stroke phase the companion arms on: the assembly's "first half-stroke reached" code.
@@ -110,16 +110,16 @@ constexpr int32_t kStrokePhaseFirstHalfReached = 1;
 // --- what composeRigAndApplyPartScales below calls, by name ---------------------------------------
 // The three leaves are all in MAIN, all already natively owned, and all reached through the shared
 // dispatch choke point so the override registry decides native-vs-oracle for them too.
-constexpr uint32_t kNodeXformBuildAxis = 0x80051C8Cu;  // NodeXform::buildAxis   (game/render/node_xform.cpp)
-constexpr uint32_t kNodeXformSeedDiag  = 0x800517BCu;  // NodeXform::seedBlock   (game/render/node_xform.cpp)
-constexpr uint32_t kMulMatrix0         = 0x80084250u;  // GteTransform3::rotate3AndPackIr
-                                                       // (game/math/wide_re_gte_transform3.cpp) — libgte
-                                                       // MulMatrix0(dst,src): dst = dst x src, three
-                                                       // MVMVA passes, one per column of src.
+constexpr uint32_t kNodeXformBuildAxis = 0x80051C8Cu; // NodeXform::buildAxis   (game/render/node_xform.cpp)
+constexpr uint32_t kNodeXformSeedDiag = 0x800517BCu;  // NodeXform::seedBlock   (game/render/node_xform.cpp)
+constexpr uint32_t kMulMatrix0 = 0x80084250u;         // GteTransform3::rotate3AndPackIr
+                                                      // (game/math/wide_re_gte_transform3.cpp) — libgte
+                                                      // MulMatrix0(dst,src): dst = dst x src, three
+                                                      // MVMVA passes, one per column of src.
 // The jal-site return addresses, so a nested callee's own `sw ra` spills the guest's value.
 constexpr uint32_t kRaAfterComposeRig = 0x801389ECu;
-constexpr uint32_t kRaAfterSeedDiag   = 0x80138A24u;
-constexpr uint32_t kRaAfterMulMatrix  = 0x80138A30u;
+constexpr uint32_t kRaAfterSeedDiag = 0x80138A24u;
+constexpr uint32_t kRaAfterMulMatrix = 0x80138A30u;
 
 // The scratchpad slot the per-part diagonal scale matrix is built in. Same address
 // game/render/node_xform.cpp:119 names kScrSrcMatrix and uses for exactly the same purpose (the
@@ -129,17 +129,17 @@ constexpr uint32_t kScrDiagScale = 0x1F800000u;
 // Guest-stack frame for ov_a00_gen_801389C8, table in program order — emitted by
 //   python3 external/psxport/tools/abi_extract.py 0x801389C8 --scaffold --guestabi
 constexpr GuestFrameSpill kComposeRigSpills[6] = {
-  { 19, 44 },
-  { 31 /*ra*/, 52 },
-  { 20, 48 },
-  { 18, 40 },
-  { 17, 36 },
-  { 16, 32 },
+    {19, 44},
+    {31 /*ra*/, 52},
+    {20, 48},
+    {18, 40},
+    {17, 36},
+    {16, 32},
 };
-}  // namespace
+} // namespace
 
 // ORACLE: ov_a00_gen_80138A64
-void AssemblyCompanion::endCamHoldAndRearmOnStroke(Core* c) {
+void AssemblyCompanion::endCamHoldAndRearmOnStroke(Core *c) {
   const AssemblyCompanion companion(c, c->r[4]);
 
   // (1) Expire the hold the finished performance left behind. Role 0 never holds the camera, so it
@@ -148,22 +148,27 @@ void AssemblyCompanion::endCamHoldAndRearmOnStroke(Core* c) {
   if (held != 0 && companion.role() != 0) {
     const uint16_t remaining = (uint16_t)(companion.camHoldTimer() - 1u);
     companion.setCamHoldTimer(remaining);
-    if ((int16_t)remaining < 0) {                    // the guest tests the sign of the low 16 bits
-      c->mem_w8(kCamPitchMode, kCamPitchNormal);     // give the camera back
+    if ((int16_t)remaining < 0) {                // the guest tests the sign of the low 16 bits
+      c->mem_w8(kCamPitchMode, kCamPitchNormal); // give the camera back
       companion.setSeqMarker(0);
     }
-    held = companion.seqMarker();                    // re-read: a claim expiring now may re-arm now
+    held = companion.seqMarker(); // re-read: a claim expiring now may re-arm now
   }
 
   const AssemblyNode assembly(c, companion.parent());
-  if (held != 0) return;                             // still holding — stay idle
+  if (held != 0) {
+    return; // still holding — stay idle
+  }
   const int32_t phase = assembly.strokePhase();
-  if (phase != kStrokePhaseFirstHalfReached) return; // wait for the beam's first half-stroke
+  if (phase != kStrokePhaseFirstHalfReached) {
+    return; // wait for the beam's first half-stroke
+  }
   // (2) Re-arm. The claim is the assembly's own phase code copied into the camera mode; it is skipped
   // for role 0 and while the assembly raises any stroke flag, but the sub-state advances either way —
   // the performance starts, it just may start uncinematically.
-  if (companion.role() != 0 && assembly.strokeFlags() == 0)
+  if (companion.role() != 0 && assembly.strokeFlags() == 0) {
     c->mem_w8(kCamPitchMode, (uint8_t)phase);
+  }
   const uint8_t nextSubState = (uint8_t)(companion.subState() + 1u);
   companion.setStep(0);
   companion.setSubState(nextSubState);
@@ -244,10 +249,10 @@ void AssemblyCompanion::endCamHoldAndRearmOnStroke(Core* c) {
 // restores on every exit. All five values the guest keeps live across a nested call (r16..r20) are
 // held in GuestReg proxies rather than C++ locals, so the callees' own spills see the real values.
 // ORACLE: ov_a00_gen_801389C8
-void AssemblyCompanion::composeRigAndApplyPartScales(Core* c) {
+void AssemblyCompanion::composeRigAndApplyPartScales(Core *c) {
   GuestFrame<56, 6> frame(c, kComposeRigSpills);
 
-  GuestReg<19> self(c);                 // the companion node — live across all three calls
+  GuestReg<19> self(c); // the companion node — live across all three calls
   self = c->r[4];
 
   // (1) Pose the rig: the companion's own world matrix, then every sub-part chained off it at unit
@@ -256,25 +261,29 @@ void AssemblyCompanion::composeRigAndApplyPartScales(Core* c) {
 
   const AssemblyCompanion companion(c, self);
   GuestReg<17> partIndex(c);
-  partIndex = 0;                        // guest sets this in the branch delay slot — on both paths
-  if (companion.partCount() == 0) return;   // a rig with no parts: posing it was the whole job
+  partIndex = 0; // guest sets this in the branch delay slot — on both paths
+  if (companion.partCount() == 0) {
+    return; // a rig with no parts: posing it was the whole job
+  }
 
   // (2) Fold each part's own scale into the matrix step 1 just left at unit scale.
-  GuestReg<20> diagScale(c);  diagScale = kScrDiagScale;
-  GuestReg<18> slot(c);       slot = self;   // cursor: slot + kPartTable addresses part [partIndex]
+  GuestReg<20> diagScale(c);
+  diagScale = kScrDiagScale;
+  GuestReg<18> slot(c);
+  slot = self; // cursor: slot + kPartTable addresses part [partIndex]
   GuestReg<16> partAddr(c);
   do {
     partAddr = c->mem_r32(slot + kPartTable);
     const AssemblyChild part(c, partAddr);
 
-    c->r[4] = diagScale;                     // seedBlock(scratch, sx, sy, sz) -> diag(sx,sy,sz)
+    c->r[4] = diagScale; // seedBlock(scratch, sx, sy, sz) -> diag(sx,sy,sz)
     c->r[5] = (uint32_t)part.scaleX();
     c->r[6] = (uint32_t)part.scaleY();
     c->r[7] = (uint32_t)part.scaleZ();
-    slot += 4;                               // guest advances the cursor in the jal's delay slot
+    slot += 4; // guest advances the cursor in the jal's delay slot
     guest_dispatch(c, kRaAfterSeedDiag, kNodeXformSeedDiag);
 
-    c->r[4] = part.frameMatrixPtr();         // MulMatrix0(frameMatrix, diag): scale it, in place
+    c->r[4] = part.frameMatrixPtr(); // MulMatrix0(frameMatrix, diag): scale it, in place
     c->r[5] = diagScale;
     guest_dispatch(c, kRaAfterMulMatrix, kMulMatrix0);
 
@@ -283,10 +292,14 @@ void AssemblyCompanion::composeRigAndApplyPartScales(Core* c) {
 }
 
 void AssemblyCompanion::registerOverrides() {
-  overrides::install(0x80138A64u, "AssemblyCompanion::endCamHoldAndRearmOnStroke",
-                     &AssemblyCompanion::endCamHoldAndRearmOnStroke, ov_a00_gen_80138A64,
+  overrides::install(0x80138A64u,
+                     "AssemblyCompanion::endCamHoldAndRearmOnStroke",
+                     &AssemblyCompanion::endCamHoldAndRearmOnStroke,
+                     ov_a00_gen_80138A64,
                      ov_a00_set_override);
-  overrides::install(0x801389C8u, "AssemblyCompanion::composeRigAndApplyPartScales",
-                     &AssemblyCompanion::composeRigAndApplyPartScales, ov_a00_gen_801389C8,
+  overrides::install(0x801389C8u,
+                     "AssemblyCompanion::composeRigAndApplyPartScales",
+                     &AssemblyCompanion::composeRigAndApplyPartScales,
+                     ov_a00_gen_801389C8,
                      ov_a00_set_override);
 }

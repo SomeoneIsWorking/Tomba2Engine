@@ -57,56 +57,63 @@
 #include "override_registry.h"
 #include "rec_decls.h"
 
-extern void func_80084080(Core*);   // Math::sqrtLzc
-extern void func_80085690(Core*);   // Trig::ratan2
-extern void shard_set_override(uint32_t, void (*)(Core*));
+extern void func_80084080(Core *); // Math::sqrtLzc
+extern void func_80085690(Core *); // Trig::ratan2
+extern void shard_set_override(uint32_t, void (*)(Core *));
 
 namespace {
 
 constexpr GuestFrameSpill kSpills_8001FAE0[5] = {
-  { 19, 28 }, { 31 /*ra*/, 32 }, { 18, 24 }, { 17, 20 }, { 16, 16 },
+    {19, 28},
+    {31 /*ra*/, 32},
+    {18, 24},
+    {17, 20},
+    {16, 16},
 };
 
 constexpr uint32_t kRaAfterDistance = 0x8001FB54u;
-constexpr uint32_t kRaAfterAngle    = 0x8001FBB0u;
+constexpr uint32_t kRaAfterAngle = 0x8001FBB0u;
 
-constexpr uint32_t kScratchpadBase  = 0x1F800000u;
-constexpr uint32_t kContactKindSlot = 311;  // 0x1F800137 — classifyBodyContact publishes here
-constexpr uint32_t kAcquiredAngle   = 396;  // 0x1F80018C
-constexpr uint32_t kAcquiredParam   = 398;  // 0x1F80018E
+constexpr uint32_t kScratchpadBase = 0x1F800000u;
+constexpr uint32_t kContactKindSlot = 311; // 0x1F800137 — classifyBodyContact publishes here
+constexpr uint32_t kAcquiredAngle = 396;   // 0x1F80018C
+constexpr uint32_t kAcquiredParam = 398;   // 0x1F80018E
 
-constexpr uint32_t kAcquireGlobal   = 0x800BF840u;
-constexpr uint8_t  kAcquireSignal   = 68;
+constexpr uint32_t kAcquireGlobal = 0x800BF840u;
+constexpr uint8_t kAcquireSignal = 68;
 constexpr uint32_t kGuardSuppresses = 128;
 
 // The angular window. Angles are 4096 per turn; the window is 769 wide, offset by 1408, so it sits to
 // one side of straight ahead rather than being centred on it.
-constexpr uint32_t kAngleMask    = 4095;
-constexpr uint32_t kArcOffset    = 1408;
-constexpr uint32_t kArcWidth     = 769;
+constexpr uint32_t kAngleMask = 4095;
+constexpr uint32_t kArcOffset = 1408;
+constexpr uint32_t kArcWidth = 769;
 
 // Chosen by the TARGET's type byte. What they mean is not established — see the banner.
-constexpr uint32_t kTypeA        = 14;
-constexpr uint32_t kTypeB        = 57;
+constexpr uint32_t kTypeA = 14;
+constexpr uint32_t kTypeB = 57;
 constexpr uint32_t kParamForTypeAB = 17408;
-constexpr uint32_t kParamOther     = 18432;
+constexpr uint32_t kParamOther = 18432;
 
-}  // namespace
+} // namespace
 
 // ORACLE: gen_func_8001FAE0
-void ActorTargeting::tryAcquireTarget(Core* c) {
+void ActorTargeting::tryAcquireTarget(Core *c) {
   GuestFrame<40, 5> frame(c, kSpills_8001FAE0);
 
-  GuestReg<19> actorReg(c);  actorReg = c->r[4];
+  GuestReg<19> actorReg(c);
+  actorReg = c->r[4];
   GuestReg<18> targetReg(c);
   GuestReg<17> deltaX(c);
   GuestReg<16> deltaZ(c);
 
-  const TargetingBody actor{ c, c->r[19] };
+  const TargetingBody actor{c, c->r[19]};
   targetReg = c->r[5];
-  const TargetingBody target{ c, c->r[18] };
+  const TargetingBody target{c, c->r[18]};
 
-  if (actor.walkState() != 0) return;                       // busy — cannot acquire
+  if (actor.walkState() != 0) {
+    return; // busy — cannot acquire
+  }
 
   deltaX = (uint32_t)(int32_t)(int16_t)(uint16_t)(target.posX() - actor.posX());
   guest_mult(c, (int32_t)(uint32_t)deltaX, (int32_t)(uint32_t)deltaX);
@@ -118,21 +125,28 @@ void ActorTargeting::tryAcquireTarget(Core* c) {
   guest_call(c, kRaAfterDistance, func_80084080);
   const uint32_t distance = c->r[2] & 0xFFFFu;
 
-  if ((target.reach() + actor.reach()) < (int32_t)distance) return;          // out of reach
+  if ((target.reach() + actor.reach()) < (int32_t)distance) {
+    return; // out of reach
+  }
 
-  const uint32_t verticalGap =
-      (actor.posY() - target.posY() + actor.heightOff() + target.heightOff()) & 0xFFFFu;
-  if ((actor.bandY() + target.bandY()) < (int32_t)verticalGap) return;        // outside the band
+  const uint32_t verticalGap = (actor.posY() - target.posY() + actor.heightOff() + target.heightOff()) & 0xFFFFu;
+  if ((actor.bandY() + target.bandY()) < (int32_t)verticalGap) {
+    return; // outside the band
+  }
 
   // The heading from the actor to the target, then the directional window.
   c->r[4] = (uint32_t)(0 - (int32_t)(uint32_t)deltaZ);
   c->r[5] = (uint32_t)deltaX;
   guest_call(c, kRaAfterAngle, func_80085690);
   const uint32_t angle = c->r[2];
-  if (!((((angle - actor.heading()) + kArcOffset) & kAngleMask) < kArcWidth)) return;
+  if (!((((angle - actor.heading()) + kArcOffset) & kAngleMask) < kArcWidth)) {
+    return;
+  }
 
   // Only while nothing else has already claimed a contact this frame.
-  if (c->mem_r8(kScratchpadBase + kContactKindSlot) != 0) return;
+  if (c->mem_r8(kScratchpadBase + kContactKindSlot) != 0) {
+    return;
+  }
 
   c->mem_w16(kScratchpadBase + kAcquiredAngle, (uint16_t)(angle & kAngleMask));
   const uint32_t targetType = target.typeByte();
@@ -140,11 +154,16 @@ void ActorTargeting::tryAcquireTarget(Core* c) {
   const uint32_t param = (targetType == kTypeA || targetType == kTypeB) ? kParamForTypeAB : kParamOther;
   c->mem_w16(kScratchpadBase + kAcquiredParam, (uint16_t)param);
 
-  if (actor.guardByte() == kGuardSuppresses) return;
+  if (actor.guardByte() == kGuardSuppresses) {
+    return;
+  }
   c->mem_w8(kAcquireGlobal, kAcquireSignal);
 }
 
 void ActorTargeting::registerOverrides() {
-  overrides::install(0x8001FAE0u, "ActorTargeting::tryAcquireTarget",
-                     &ActorTargeting::tryAcquireTarget, gen_func_8001FAE0, shard_set_override);
+  overrides::install(0x8001FAE0u,
+                     "ActorTargeting::tryAcquireTarget",
+                     &ActorTargeting::tryAcquireTarget,
+                     gen_func_8001FAE0,
+                     shard_set_override);
 }

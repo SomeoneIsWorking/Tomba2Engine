@@ -15,16 +15,16 @@
 // `SceneObject` in spirit (geometry ref + float transform + texture), expanded with the per-instance
 // fields the mesh drawer needs. `world` is a column-major-ish 3x4 (rotation R[3][3] + translation T[3]).
 struct SceneObject {
-  uint32_t geomblk;     // model-space prim-list (GT3/GT4 records), guest ptr (mem_r* into RAM)
-  float    R[3][3];     // model->view rotation (already composed with the camera; see scene_build)
-  float    T[3];        // model->view translation (camera baked in)
-  uint32_t node;        // source entity node (debug / attribution only)
+  uint32_t geomblk; // model-space prim-list (GT3/GT4 records), guest ptr (mem_r* into RAM)
+  float R[3][3];    // model->view rotation (already composed with the camera; see scene_build)
+  float T[3];       // model->view translation (camera baked in)
+  uint32_t node;    // source entity node (debug / attribution only)
 };
 
 // Float camera projection constants for the frame (screen center + projection-plane distance H).
 struct SceneCamera {
-  float ofx, ofy;       // screen-space projection center (CR24/CR25 in pixels)
-  float H;              // projection-plane distance (CR26) — focal length
+  float ofx, ofy; // screen-space projection center (CR24/CR25 in pixels)
+  float H;        // projection-plane distance (CR26) — focal length
 };
 
 // A whole frame's worth of native draw data.
@@ -32,7 +32,7 @@ struct SceneCamera {
 struct RenderScene {
   SceneCamera cam;
   SceneObject obj[SCENE_MAX_OBJECTS];
-  int         count;
+  int count;
 };
 
 #endif

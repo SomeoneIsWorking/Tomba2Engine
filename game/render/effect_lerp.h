@@ -24,16 +24,16 @@ struct Core;
 // a sprite effect: its single anchor). Counts are per-producer and stable for a given node.
 struct EffectPoints {
   static constexpr int kMax = 8;
-  int   n = 0;
-  int   x[kMax] = {}, y[kMax] = {}, z[kMax] = {};
-  bool  valid[kMax] = {};
+  int n = 0;
+  int x[kMax] = {}, y[kMax] = {}, z[kMax] = {};
+  bool valid[kMax] = {};
 };
 
 class EffectLerp {
 public:
   // Resolve this node's points for the pass currently running. Records `live` as this frame's endpoint
   // and returns it on a real frame; returns the blend with last frame's record on the in-between present.
-  const EffectPoints& resolve(Core* c, uint32_t node, const EffectPoints& live);
+  const EffectPoints &resolve(Core *c, uint32_t node, const EffectPoints &live);
 
 private:
   std::unordered_map<uint32_t, EffectPoints> mCur, mPrev;

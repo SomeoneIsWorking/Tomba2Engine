@@ -23,25 +23,25 @@
 // also see the label addresses appear elsewhere as branch targets. CONSEQUENCE for future wiring:
 // do NOT `rec_dispatch` this table read (there is no real registered function at those raw
 // addresses) — reproduce the per-subtype effect directly, as done below.
-#include "core.h"
 #include "dialog_text_stream.h"
+#include "core.h"
 #include <cstdint>
 
 namespace {
-constexpr uint32_t OFF_SUBTYPE    = 0x03;  // dialog box subtype (0-5 gated, >=6 plain)
-constexpr uint32_t OFF_STATE      = 0x05;  // box top-level state (owned by FUN_8007D594)
-constexpr uint32_t OFF_CURSOR     = 0x14;  // script byte-stream cursor
-constexpr uint32_t OFF_COL        = 0x2A;  // glyph column counter on current line
-constexpr uint32_t OFF_MODE_TIMER = 0x40;  // render-mode timer (applyRenderMode + 0xFC control byte)
-constexpr uint32_t OFF_BOX_TIMER  = 0x42;  // secondary per-box timer (0xF8/0xF9 mode-marker, 0xFF term)
-constexpr uint32_t G_TEXT_SPEED   = 0x800BF8A3u;  // DAT_800bf8a3 -- text-speed/language mode byte
+constexpr uint32_t OFF_SUBTYPE = 0x03;         // dialog box subtype (0-5 gated, >=6 plain)
+constexpr uint32_t OFF_STATE = 0x05;           // box top-level state (owned by FUN_8007D594)
+constexpr uint32_t OFF_CURSOR = 0x14;          // script byte-stream cursor
+constexpr uint32_t OFF_COL = 0x2A;             // glyph column counter on current line
+constexpr uint32_t OFF_MODE_TIMER = 0x40;      // render-mode timer (applyRenderMode + 0xFC control byte)
+constexpr uint32_t OFF_BOX_TIMER = 0x42;       // secondary per-box timer (0xF8/0xF9 mode-marker, 0xFF term)
+constexpr uint32_t G_TEXT_SPEED = 0x800BF8A3u; // DAT_800bf8a3 -- text-speed/language mode byte
 enum { R_A0 = 4, R_A1 = 5, R_V0 = 2 };
-}
+} // namespace
 
 // FUN_8007D0D0(obj a0) -- LEAF (gen_func_8007D0D0 has no `sp` descent). Cross-checked verbatim
 // against generated/shard_1.c:gen_func_8007D0D0.
 // ORACLE: gen_func_8007D0D0
-void DialogTextStream::applyRenderMode(Core* c) {
+void DialogTextStream::applyRenderMode(Core *c) {
   const uint32_t obj = c->r[R_A0];
   uint8_t subtype = c->mem_r8(obj + OFF_SUBTYPE);
   if (subtype == 0 || subtype == 1) {
@@ -50,12 +50,16 @@ void DialogTextStream::applyRenderMode(Core* c) {
     c->mem_w16(obj + OFF_MODE_TIMER, 1);
     return;
   } else {
-    return;  // subtype >= 6: no-op
+    return; // subtype >= 6: no-op
   }
   uint8_t speed = c->mem_r8(G_TEXT_SPEED);
-  if (speed == 0)      c->mem_w16(obj + OFF_MODE_TIMER, 3);
-  else if (speed == 1) c->mem_w16(obj + OFF_MODE_TIMER, 2);
-  else                 c->mem_w16(obj + OFF_MODE_TIMER, 1);
+  if (speed == 0) {
+    c->mem_w16(obj + OFF_MODE_TIMER, 3);
+  } else if (speed == 1) {
+    c->mem_w16(obj + OFF_MODE_TIMER, 2);
+  } else {
+    c->mem_w16(obj + OFF_MODE_TIMER, 1);
+  }
 }
 
 // FUN_8007C0D0(obj a0, mode a1) -> v0. Guest frame MIRRORED per gen_func_8007C0D0: `sp-=32;

@@ -26,10 +26,10 @@ class Core;
 #define LIGHTING_MAX_POINTS 8
 
 struct PointLight {
-  float pos[3];     // VIEW-space position of the source (x right, y DOWN, z into screen)
-  float color[3];   // linear RGB tint, ~[0,1] (e.g. lava = warm orange)
-  float radius;     // falloff radius in view-space units (attenuation reaches ~0 at radius)
-  float intensity;  // peak brightness contribution at the source
+  float pos[3];    // VIEW-space position of the source (x right, y DOWN, z into screen)
+  float color[3];  // linear RGB tint, ~[0,1] (e.g. lava = warm orange)
+  float radius;    // falloff radius in view-space units (attenuation reaches ~0 at radius)
+  float intensity; // peak brightness contribution at the source
 };
 
 struct LightConfig {
@@ -38,23 +38,23 @@ struct LightConfig {
   float dir_color[3];  // directional tint (warm white for the sun)
   float dir_intensity; // diffuse scale (== legacy g_mods.light_diffuse meaning)
   // ambient
-  float ambient;       // ambient level (== legacy g_mods.light_ambient)
+  float ambient;          // ambient level (== legacy g_mods.light_ambient)
   float ambient_color[3]; // ambient tint (sky-fill colour; neutral-ish for outdoor)
   // local point lights (lava / torches); count<=LIGHTING_MAX_POINTS
-  int   num_points;
+  int num_points;
   PointLight points[LIGHTING_MAX_POINTS];
 };
 
 class Lighting {
 public:
   // Compute a stable per-area fingerprint from guest RAM (area_base overlay). 0 if not yet loaded.
-  unsigned areaKeyFrom(Core* c);
+  unsigned areaKeyFrom(Core *c);
 
   // Pick the light config for the given area key. Unknown key -> the village SUN default.
-  const LightConfig* select(unsigned areaKey);
+  const LightConfig *select(unsigned areaKey);
 
   // The default config (village SUN). Exposed so callers can compare / fall back explicitly.
-  const LightConfig* defaultConfig() const;
+  const LightConfig *defaultConfig() const;
 
 private:
   // `debug lighting` once-per-distinct-key diagnostic latch (was a function-local static).

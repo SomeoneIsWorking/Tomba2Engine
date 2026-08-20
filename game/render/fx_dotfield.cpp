@@ -28,14 +28,14 @@
 // Read-only: the guest's packet-pool cursor, OT writes and scratchpad staging are all allocation
 // bookkeeping this producer does not need. It notably does NOT write node+0x50 — the guest reads the
 // LCG seed there and never writes it back, so the pattern is deterministic per node per frame.
-#include "core.h"
-#include "game.h"
-#include "render.h"
-#include "render_queue.h"
-#include "render_internal.h"   // ObjScope / proj_pz_to_ord
-#include "projection.h"        // EObjXform
-#include "fx_node.h"          // FxNode — the walk-owned header lens this controller extends
 #include "cfg.h"
+#include "core.h"
+#include "fx_node.h" // FxNode — the walk-owned header lens this controller extends
+#include "game.h"
+#include "projection.h" // EObjXform
+#include "render.h"
+#include "render_internal.h" // ObjScope / proj_pz_to_ord
+#include "render_queue.h"
 #include <cstdint>
 
 namespace {
@@ -47,25 +47,33 @@ namespace {
 class DotFieldNode : public FxNode {
 public:
   using FxNode::FxNode;
-  int32_t  latticeX() const { return s16(0x2Cu); }   // the world lattice the cube is keyed on
-  int32_t  latticeY() const { return s16(0x2Eu); }
-  int32_t  latticeZ() const { return s16(0x30u); }
-  uint32_t lcgSeed()  const { return u32(0x50u); }   // READ ONLY — the guest never writes it back
+  int32_t latticeX() const {
+    return s16(0x2Cu);
+  } // the world lattice the cube is keyed on
+  int32_t latticeY() const {
+    return s16(0x2Eu);
+  }
+  int32_t latticeZ() const {
+    return s16(0x30u);
+  }
+  uint32_t lcgSeed() const {
+    return u32(0x50u);
+  } // READ ONLY — the guest never writes it back
 };
 
-constexpr uint32_t kDotLcgMulA   = 0x8011C030u;  // A0B overlay data: the LCG multiplier
-constexpr uint32_t kCamViewRow3X = 0x1F800104u;  // third row of the scene view rotation = forward axis
-constexpr uint32_t kCamEyeX      = 0x1F8000D2u;  // camera eye X, then Y at +4, Z at +8 (u16 reads)
-constexpr int      kDotCount     = 513;          // loop runs 512..0 inclusive
-constexpr int      kDotLattice   = 2048;         // the wrap cube edge
-constexpr int      kDotHalfCube  = 1024;
-constexpr int      kDotNearSz    = 1536;         // SZ3 under this -> 2x2 px, else 1x1
-constexpr int      kDotMode      = 3;            // untextured flat
+constexpr uint32_t kDotLcgMulA = 0x8011C030u;   // A0B overlay data: the LCG multiplier
+constexpr uint32_t kCamViewRow3X = 0x1F800104u; // third row of the scene view rotation = forward axis
+constexpr uint32_t kCamEyeX = 0x1F8000D2u;      // camera eye X, then Y at +4, Z at +8 (u16 reads)
+constexpr int kDotCount = 513;                  // loop runs 512..0 inclusive
+constexpr int kDotLattice = 2048;               // the wrap cube edge
+constexpr int kDotHalfCube = 1024;
+constexpr int kDotNearSz = 1536; // SZ3 under this -> 2x2 px, else 1x1
+constexpr int kDotMode = 3;      // untextured flat
 
-}  // namespace
+} // namespace
 
 void Render::fxDotFieldRender(uint32_t node) {
-  Core* c = mCore;
+  Core *c = mCore;
 
   // STEP 1 — the camera-forward half-step. The view matrix's third row IS the camera forward axis in
   // world coords (4096 = 1.0); the guest's (sext16(v) << 11) >> 12 is exactly sext16(v) >> 1.
@@ -75,7 +83,7 @@ void Render::fxDotFieldRender(uint32_t node) {
 
   // STEP 2 — the field origin: half a cube behind the camera eye, pushed forward by the half-step, so
   // the cube straddles the camera. The eye is read UNSIGNED and the sum wraps in 16 bits, as stored.
-  const int originX = (int16_t)(uint16_t)(c->mem_r16(kCamEyeX)      - kDotHalfCube + fx);
+  const int originX = (int16_t)(uint16_t)(c->mem_r16(kCamEyeX) - kDotHalfCube + fx);
   const int originY = (int16_t)(uint16_t)(c->mem_r16(kCamEyeX + 4u) - kDotHalfCube + fy);
   const int originZ = (int16_t)(uint16_t)(c->mem_r16(kCamEyeX + 8u) - kDotHalfCube + fz);
 
@@ -88,8 +96,8 @@ void Render::fxDotFieldRender(uint32_t node) {
 
   // STEP 4 — the field camera: the scene camera pre-translated by the origin. Identity rotation at
   // the GTE's 4096 = 1.0 scale, translation = the origin.
-  const float Robj[3][3] = { { 4096.0f, 0.0f, 0.0f }, { 0.0f, 4096.0f, 0.0f }, { 0.0f, 0.0f, 4096.0f } };
-  const float Tobj[3] = { (float)originX, (float)originY, (float)originZ };
+  const float Robj[3][3] = {{4096.0f, 0.0f, 0.0f}, {0.0f, 4096.0f, 0.0f}, {0.0f, 0.0f, 4096.0f}};
+  const float Tobj[3] = {(float)originX, (float)originY, (float)originZ};
   EObjXform cam;
   projComposeObjectHost(Robj, Tobj, &cam);
 
@@ -99,14 +107,21 @@ void Render::fxDotFieldRender(uint32_t node) {
   // sequence wrong shifts the whole pattern.
   const uint32_t mul = c->mem_r32(kDotLcgMulA);
   uint32_t s = n.lcgSeed();
-  auto axis = [&s]() { return (int32_t)s >> 16; };
-  auto step = [&s, mul]() { s = s * mul + 1u; };
+  auto axis = [&s]() {
+    return (int32_t)s >> 16;
+  };
+  auto step = [&s, mul]() {
+    s = s * mul + 1u;
+  };
 
-  int px = axis(); step();
-  int py = axis(); step();
-  int pz = axis(); step();          // this third step's value is deliberately never read
+  int px = axis();
+  step();
+  int py = axis();
+  step();
+  int pz = axis();
+  step(); // this third step's value is deliberately never read
 
-  RenderQueue& rq = c->game->activeRq();
+  RenderQueue &rq = c->game->activeRq();
   ObjScope objScope(c, node);
   int drawn = 0;
 
@@ -126,28 +141,69 @@ void Render::fxDotFieldRender(uint32_t node) {
     if (pv.sz > 0) {
       const int sx = (int)pv.px, sy = (int)pv.py;
       if (sx >= 0 && sx < 320) {
-        const int sz = (pv.sz < kDotNearSz) ? 2 : 1;   // the only depth cue the effect has
+        const int sz = (pv.sz < kDotNearSz) ? 2 : 1; // the only depth cue the effect has
         const float ord = proj_pz_to_ord(pv.pz);
-        const int xs[4] = { sx, sx + sz, sx, sx + sz };
-        const int ys[4] = { sy, sy, sy + sz, sy + sz };
-        const float xsf[4] = { (float)xs[0], (float)xs[1], (float)xs[2], (float)xs[3] };
-        const float ysf[4] = { (float)ys[0], (float)ys[1], (float)ys[2], (float)ys[3] };
-        const float depth[4] = { ord, ord, ord, ord };
-        const unsigned char w[4] = { 255, 255, 255, 255 };   // GP0 0x60 monochrome 0xFFFFFF, OPAQUE
-        const int uv[4] = { 0, 0, 0, 0 };
-        rq.emitOrQueue(c, /*capture=*/1, RQ_WORLD, RQ_OM_DEPTH, /*nv=*/4, /*semi=*/0, /*raw=*/0,
-                       xs, ys, xsf, ysf, uv, uv, w, w, w, depth,
-                       kDotMode, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1023, 511, 0);
+        const int xs[4] = {sx, sx + sz, sx, sx + sz};
+        const int ys[4] = {sy, sy, sy + sz, sy + sz};
+        const float xsf[4] = {(float)xs[0], (float)xs[1], (float)xs[2], (float)xs[3]};
+        const float ysf[4] = {(float)ys[0], (float)ys[1], (float)ys[2], (float)ys[3]};
+        const float depth[4] = {ord, ord, ord, ord};
+        const unsigned char w[4] = {255, 255, 255, 255}; // GP0 0x60 monochrome 0xFFFFFF, OPAQUE
+        const int uv[4] = {0, 0, 0, 0};
+        rq.emitOrQueue(c,
+                       /*capture=*/1,
+                       RQ_WORLD,
+                       RQ_OM_DEPTH,
+                       /*nv=*/4,
+                       /*semi=*/0,
+                       /*raw=*/0,
+                       xs,
+                       ys,
+                       xsf,
+                       ysf,
+                       uv,
+                       uv,
+                       w,
+                       w,
+                       w,
+                       depth,
+                       kDotMode,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       0,
+                       1023,
+                       511,
+                       0);
         drawn++;
       }
     }
 
-    step(); px = axis();
-    step(); py = axis();
-    step(); pz = axis();
+    step();
+    px = axis();
+    step();
+    py = axis();
+    step();
+    pz = axis();
   }
 
-  if (cfg_dbg("fxdot"))
-    cfg_logf("fxdot", "dotfield node=%08X origin=(%d,%d,%d) d=(%d,%d,%d) drawn=%d/%d",
-             node, originX, originY, originZ, dx, dy, dz, drawn, kDotCount);
+  if (cfg_dbg("fxdot")) {
+    cfg_logf("fxdot",
+             "dotfield node=%08X origin=(%d,%d,%d) d=(%d,%d,%d) drawn=%d/%d",
+             node,
+             originX,
+             originY,
+             originZ,
+             dx,
+             dy,
+             dz,
+             drawn,
+             kDotCount);
+  }
 }

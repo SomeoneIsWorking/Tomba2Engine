@@ -15,8 +15,8 @@
 class Core;
 class Placement {
 public:
-  Core* core = nullptr;
-  void placeAreaObjects();   // FUN_80072A78
-  void spawnWithParent();    // FUN_80072DDC (args in c->r[4..7])
+  Core *core = nullptr;
+  void placeAreaObjects(); // FUN_80072A78
+  void spawnWithParent();  // FUN_80072DDC (args in c->r[4..7])
 };
 #endif

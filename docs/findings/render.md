@@ -162,15 +162,13 @@ Full write-up and the staged plan: `external/psxport/docs/plans/graphics-produce
   352/352 tiles from `bg=0` to `bg=1` with the 3 HUD sprites still `bg=0`.
   pc_render control: unchanged by construction — pc_render never walks the OT, so nothing consumes the
   publish there.
-- **`PSXPORT_ORACLE=1` WAS WORKING THE WHOLE TIME, and is the leg to use.** It implies GATE +
-  RENDER_PSX and additionally forces pure OT painter order (`gpu_native.cpp:870`,
-  `if (pm || core->game->oracle) { is3d = 0; bg = 0; }`), so every prim composites in one band in OT
-  order and no native band/depth decision can reach the picture. Verified: `a0_oracle.png`,
-  `a13_oracle.png`, `a14_oracle.png` all draw the full world and match pc_render to the documented
-  ~28k >8/255 generic baseline (28794 / 28238 / 28171 px of 76800 — the same baseline kanban #42
-  records). Control that the fix does not perturb it: `PSXPORT_ORACLE=1` vs
-  `PSXPORT_ORACLE=1 PSXPORT_PAINTER=1` (PAINTER reproduces the pre-fix `bg=0` sprite banding) differ by
-  **13 px of 76800**, in one 32×13 box.
+- **`PSXPORT_ORACLE=1` is an ordering diagnostic, not a correctness reference.** It forces pure OT
+  painter order, so native band/depth decisions cannot reach the picture. That remains useful for
+  isolating ordering faults, and the recorded area 0/13/14 captures still establish that narrow fact.
+  It nevertheless shares the host Vulkan shader path with pc_render; health-wheel #22 proved the two
+  can agree while both implement the same blend equation incorrectly. Instrument I044 is therefore
+  distrusted for correctness claims. Use I051 for same-command-stream rasterization and I053 for a
+  true interpreter/software-GPU comparison, within their declared scopes.
 - **RESIDUAL, still open (own card):** on the non-oracle `PSXPORT_RENDER_PSX=1` leg the now-`RQ_BACKGROUND`
   backdrop tiles show a **4-px bright-cyan band at each tile's right edge** (measured y=60: sky
   `(120,176,216)` with `(32,224,240)`/`(48,248,248)` runs at x=8..11, 56..59, 72..75, 88..91, 104..107 —
@@ -687,29 +685,64 @@ Full write-up and the staged plan: `external/psxport/docs/plans/graphics-produce
   (`replays/bugs/bucket-softlock.pad` f1200: opaque box, legible "This'll work for carrying the
   Water!"). Diagnostic channel: `debug pausemenu`.
 
-## Health wheel "too transparent" (kanban #22, 2026-07-22, NOT REPRODUCED — dead ends recorded)
+## Health wheel was washed out (kanban #22, 2026-08-21, FIXED)
 
-- **status:** OPEN. No fix attempted, because the wheel could not be brought on screen headlessly this
-  session and guessing at a blend fix without seeing the prims would be exactly the bandaid the
-  no-bandaids rule bans.
-- **dead ends — do not repeat:**
-  - Walking left from AUTO_SKIP free-roam dead-ends at the cliff; walking right dead-ends at the
-    bucket obstacle (10 x 300-frame captures, `scratch/screenshots/uilayer/hunt/montage.png`). No
-    enemy is reachable from the start position with a single held direction.
-  - Poking the damage/invincibility word `0x800ECF54` (the one `ActorTomba::invincibilityFlashStep`,
-    FUN_80060268, reads) with 0x10 / 0x20 / 0x90 / 0xB0 does NOT raise the wheel.
-  - Forcing the field HUD ring state `0x800ED061` to 1 or 3 does not raise it either — the "item ring"
-    (FUN_80025934) is a different element.
-  - Tapping every face/shoulder button does not raise it (`select`/`l1`/`r1`/`l2`/`r2`/square/circle/
-    cross/start). START opens the *other* pause page (Options / Load data / Quit game), which has its
-    own missing-panel problem — see below.
-- **what the next session should do:** record a pad replay that takes damage (`replays/bugs/`), then
-  answer the card's question from the data, not the picture: `debug otattr` + `PSXPORT_PRIMAT` on a
-  wheel pixel, reading the semi bit and the blend bits. NOTE from #21 that is likely to matter: the
-  guest sets blend mode with a SEPARATE GP0 0xE1 draw-mode packet ahead of the prim (that is how the
-  menu's subtractive dim works). Any producer that derives `blend` only from a group's own tpage word
-  will silently fall back to mode 0 (0.5B + 0.5F averaging) — which reads as "too transparent" and is
-  consistent with the card's own reference-image analysis.
+- **repro and owner:** `newgame; run 300; warp 4; run 600` presents the wheel at about f914/f915.
+  `Render::fieldHudItemRing` (guest `0x80025934`) produces exactly nine primitives per frame there:
+  3159 primitives over 351 sampled frames. The previous claim that this function drew a different
+  element was false; sequences 124--132 are the wheel chrome and overlays. The two large halves are
+  raw, semi-transparent ABR0 FT4s (sequences 130/131), and their authored x ranges 8--32 and 31--55
+  overlap at x=31. That one-column overlap explains the visible centre seam but not the washout.
+- **texture evidence:** both halves use texture page `(384,0)` and CLUT `(496,203)`. The captured CLUT
+  words are `0000 fc00 e000 c400 87a0 86c0 8600 001e 1c9e 3d3e 5dde 7e7f 771e 2414 59b4 7614`:
+  entries 1--6 have STP/bit 15 set while entries 7--15 do not. A single textured semi primitive must
+  therefore blend its blue/green texels and overwrite opaquely for its red-gradient texels. Adding an
+  opaque backing primitive, forcing the packet opaque, or special-casing this HUD would be wrong.
+- **root cause:** `trisemi_hw.frag` used fixed-function `src=ONE, dst=SRC_ALPHA`, emitted `F*0.5` for
+  ABR0, but emitted alpha 1 for every STP texel. It consequently computed `F/2+B`, not the PSX integer
+  equation `(F+B)>>1`. STP=0 was already correctly opaque. The shared shader now emits destination
+  coefficient 0.5 for ABR0/STP=1 (0 for STP=0, 1 for ABR1--3) and quantizes the source/equations at
+  PSX 5-bit precision. This is a renderer-wide semantic correction, not a wheel override.
+- **falsifiers and gates:** the production SPIR-V selftest in `GpuVkState::tritest` draws through the
+  shipping semi pipelines and checks ABR0--3 x dark/bright destination x STP1/STP0. Before the fix it
+  passed 14/16, with both ABR0/STP1 cases red; after it passes 16/16. The live bright-scene wheel crop
+  changed 1612/2352 pixels: mean RGB `(155.03,180.10,217.05)` became
+  `(95.68,125.41,189.58)` (`scratch/screenshots/health_wheel_{probe,after}.png`). Dark-background
+  behavior is covered by the production shader gate and is consistent with the retained real-game
+  dark reference; there is not yet a deterministic in-game dark-wheel capture, so do not describe
+  that path as a lockstep game-oracle comparison. Falsify this finding if the semi pipeline factors,
+  `trisemi_hw.frag`, 5-bit output encode, or captured wheel packet/CLUT material changes.
+- **true-interpreter correction:** the initial SBS `oracle` pane was false: B's PSX path was assigned
+  before boot and overwritten by the process Native configuration. Applying per-core mode after boot
+  exposed a second framework fault: the now-real software B was 0/76,800 non-black because SBS
+  readback cleared its empty native batch. Reusing the shipping backdrop policy with both
+  `preserveVramBackdrop` and `sw_path()` yields a real 76,800/76,800 non-black software pane.
+- **second root cause — whole-producer AddPrim order:** true B showed red/white opaque wheel layers on
+  top while A left them below the translucent halves. The guest helpers prepend every group to one OT
+  bucket; native `RenderQueue` appends. `fieldHudItemRing` now submits its complete final guest draw
+  order by reversing the fixed chrome calls, both item-loop families, and each loop index. The exact
+  opaque-red CLUT mask improves from 0/340 matching pixels to 293/340; 565/2,352 pixels change in the
+  full 56x42 crop. Reversing only the chrome substack changed 118/2,352 pixels and fixed the numeral,
+  but left all 340/340 red-mask pixels wrong, a positive control for why the whole producer matters.
+- **third root cause — host fragment-centre UV phase:** the 47/340 opaque-red residual was confined to
+  x=40..52,y=33..45 and stable across f560/f561. Raw guest GP0 and the winning native queue command
+  are byte-identical: FT4 `xy={(39,47),(55,47),(39,31),(55,31)}`,
+  `uv={(56,15),(72,15),(56,31),(72,31)}`, CLUT `(496,203)`, tpage `0x0006`. This rules out the
+  producer's geometry, UVs, material, and order. The shared Vulkan texture shaders truncated
+  `noperspective` UV at host fragment centres; the PSX affine rasterizer evaluates at native integer
+  pixels, so decreasing slopes selected the preceding texel. `psx_uv.glsl` now rewinds the affine
+  plane by each internal-resolution fragment's native-pixel suboffset and snaps the reconstruction to
+  the PSX rasterizer's 12-fractional-bit grid. `tritex.frag`, `trisemi_hw.frag`, and
+  `semi_cover.frag` all consume that one helper; no health-specific adjustment exists.
+- **phase falsifier and final live gate:** the shipping `draw_tritri`/`draw_semi` -> generated SPIR-V
+  -> `render_geom` -> VRAM-readback regression initially passed 2/5 at 1x: positive X/Y passed, while
+  negative X/Y and a mixed non-unit slope failed. Constant-UV controls through the same encode path
+  make the ires comparison independent of box/1555 quantization. The corrected shared path passes
+  20/20 across 1x/3x, opaque/semi, positive/negative X/Y, and mixed non-unit slopes; the semi equation
+  matrix remains 16/16. Final true-SBS captures
+  `scratch/screenshots/oracle_health_uvphase_final_f{560,561}_{A,B}.ppm` have **0/340 differing
+  opaque-red mask pixels at both frames**. Falsify this result if the actual packet, shared helper,
+  any of its three shader consumers, internal-resolution mapping, or production selftest changes.
 
 ## START pause page (Options / Load data / Quit game) drew with no panel (kanban #35, 2026-07-23, FIXED)
 
@@ -5190,14 +5223,15 @@ be used as the guest-write gate here; the 2 MB RAM + scratchpad A/B above was us
 >    four omitted are also list-management), but the method missed 40% of the sites and produced
 >    defect (2).
 >
-> **UPDATE 2026-08-06 — THE REFERENCE IS BACK, so #77 no longer has to be settled from static RE alone.**
-> The reason this investigation fell back on the guest's dispatch tables was kanban #78: the psx leg drew
-> no world geometry. That is root-caused and fixed (see the #78 entry at the top of this file), and the
-> leg to use is **`PSXPORT_ORACLE=1`**, which was never affected. Verified at the settled warp viewpoint:
+> **UPDATE 2026-08-06 — THE ORDERING LEG IS BACK.** The reason this investigation fell back on the
+> guest's dispatch tables was kanban #78: the psx leg drew no world geometry. That is root-caused and
+> fixed (see the #78 entry at the top of this file). `PSXPORT_ORACLE=1` remains useful here only to ask
+> whether the guest OT contains and orders the geometry; it is not a general correctness reference.
+> Verified at the settled warp viewpoint:
 > `scratch/shots/psxref/a13_oracle.png` draws area 13's trunks/cliff/fronds/water and
 > `a14_oracle.png` draws area 14's waterfall wall, pillars and reflections — i.e. **the substrate DOES
 > draw the a14 water wall**, so "T2 is geometry vanilla does not show" must be re-tested against that
-> reference AT T2's own tp position before it is believed. Recipe: the #77 REPL recipe with
+> ordering leg AT T2's own tp position before it is believed. Recipe: the #77 REPL recipe with
 > `PSXPORT_ORACLE=1` instead of `PSXPORT_GATE=1`, one boot per capture.
 >
 > **WHAT IS ACTUALLY LEFT is this file's own pre-existing comment: HEADS[0]'s per-TYPE table is not

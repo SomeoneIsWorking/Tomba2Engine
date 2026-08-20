@@ -5,7 +5,7 @@
 // into the GTE control registers, run RTPS per vertex, pack the results back.
 #pragma once
 struct Core;
-class  Game;
+class Game;
 
 class GteTransform3 {
 public:
@@ -17,7 +17,7 @@ public:
   // The guest PIPELINES the GTE: each vertex's IR1/IR2/IR3 are read back BEFORE the NEXT vertex's
   // operands are written, never after its own RTPS. That ordering is load-bearing (it is what makes
   // the reads observe the right vertex) and is transcribed as-is rather than tidied.
-  static void rotate3AndPackIr(Core* c);
+  static void rotate3AndPackIr(Core *c);
 
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

@@ -110,16 +110,15 @@ Channels reached from `Render::fieldObjectsRender` / the present path (`beamfx`,
 run `PSXPORT_DEBUG=ovhit` and look up the address that owns it — `native=0` means it measured
 nothing.** See `docs/findings/render.md` and instrument I040.
 
-## THE THREE GROUND TRUTHS — and the one we keep forgetting
+## Render evidence — scope every instrument
 
 When a visual is wrong there are exactly three things that can settle it. Reach for them in this order,
 because they get STRONGER down the list, not weaker:
 
-1. **psx_render — and the flag to use is `PSXPORT_ORACLE=1`, NOT `PSXPORT_RENDER_PSX=1`.** Cheapest, and
-   right most of the time. But it is NOT ground truth — it has its own render bugs, and when a fault is
-   shared by both legs the compare returns 0 diff and reads as "nothing to fix". Two measured instances:
-   the triangle menu (both legs pixel-identical and both wrong) and the health wheel. A clean diff is not
-   a clean bill of health.
+1. **`PSXPORT_ORACLE=1` is an OT-order diagnostic, not ground truth.** It is cheap and useful for
+   isolating native band/depth decisions, but it shares psxport's host shaders. The health wheel proved
+   both native and this path could compute the same wrong ABR0 equation. A clean diff is not a clean bill
+   of health; instrument I044 is distrusted for correctness claims.
    **WHICH FLAG, and why it is not a detail (kanban #78, measured 2026-08-06).** `PSXPORT_RENDER_PSX=1`
    walks the guest OT, but every prim it decodes is handed to the NATIVE render queue, which re-bands it
    (`is3d` → `RQ_WORLD`, sprite → `bg ? RQ_BACKGROUND : RQ_HUD`) and re-sorts it. The sprite `bg` test
@@ -132,11 +131,8 @@ because they get STRONGER down the list, not weaker:
    and the natural (wrong) reading of it was "vanilla culls this geometry".
    The tile banding is fixed (`Render::backdropTexpagePublishTick`, ticked from `Engine::drawOTag` before
    the render-mode branch — the same fix shape as `areaCacheTrustTick`/kanban #41), so RENDER_PSX draws
-   the world again. **`PSXPORT_ORACLE=1` is still the leg to reach for**: it implies GATE + RENDER_PSX and
-   additionally forces pure OT painter order (`gpu_native.cpp`: `if (pm || core->game->oracle) { is3d = 0;
-   bg = 0; }`), so no native band or depth decision can touch the picture at all — it was correct through
-   this whole episode, and it is the only psx leg whose fidelity does not depend on a pc_render producer
-   having run. Evidence: `scratch/shots/psxref/{a0,a13,a14}_oracle.png` vs `*_pc.png`.
+   the world again. `PSXPORT_ORACLE=1` additionally forces pure OT painter order, so it remains a useful
+   ordering bisect; it does not independently validate texture, blend, or scanout semantics.
    **The general lesson, which outlives this bug:** an instrument that shares mechanism with the thing it
    is measuring can fail silently in the direction that looks like a finding. Before reading "the
    reference does not draw X" as "vanilla does not draw X", check that the reference draws ANYTHING —
@@ -166,11 +162,14 @@ because they get STRONGER down the list, not weaker:
    two guest bytes they latch on (`ent+6`, `bg+10`) — so "the scene table is missing" can be told apart
    from "the scene table was never allowed to draw", and a `sceneTable=0` negative shows whether the
    reset it waits for has already gone by. That line is what root-caused this card.
-2. **A real-game reference capture** (USER can source one; store in `docs/reference/issues/`). The
-   arbiter when 1 is compromised. Sparse — you get the screens someone happened to photograph — but
-   authoritative for those, and two references of the SAME element over different backgrounds tell you
-   far more than one (see the health-wheel entry below).
-3. **THE GUEST'S OWN SUBMISSION — the one we keep forgetting, and the strongest.** The port OWNS the
+2. **A real-game reference capture** (store it in `docs/reference/issues/`) is authoritative for the
+   pictured state. Two captures of one element over different backgrounds can distinguish blend modes.
+3. **The true interpreter SBS leg** checks upstream game state and packet generation, provided its
+   startup gate confirms B is actually `RenderPath::Psx`. It still shares psxport hardware models, so it
+   is not an external console lockstep. Instrument I053 records both its positive and negative answers.
+4. **The Beetle GPU tee** independently rasterizes the same GP0 stream. It answers rasterization only;
+   it cannot detect a wrong packet. Instrument I051 carries its feed/loss denominators.
+5. **THE GUEST'S OWN SUBMISSION — the one we keep forgetting.** The port OWNS the
    emitters, so what a primitive is SUPPOSED to be is a fact in the data, not a matter of opinion:
    the semi bit and blend mode the guest sets, the CLUT and texpage it selects, the sort key it
    computes, whether an opaque slice is submitted at all. No picture required, and it works precisely
@@ -196,13 +195,11 @@ to fix". That is a false negative, and it is expensive: it retires a real bug as
 So when a symptom might be shared by both legs, get a capture of the REAL game (the user can source
 one) and treat THAT as ground truth. Store it in `docs/reference/issues/` and cite it on the card.
 
-Two things this bought on kanban #22 (health wheel "too transparent") that no amount of engine
-inspection would have:
+Two things this bought on kanban #22 (health wheel "too transparent"):
 - **Two references beat one.** The same wheel over bright sky and over dark ground showed the
   background genuinely modulating it — so the wheel IS semi-transparent in the real game and "make
-  it opaque" would have been the wrong fix. The direction (darker over dark, brighter over bright)
-  is the signature of averaging `0.5B+0.5F` rather than additive, which narrowed the mechanism to a
-  missing OPAQUE BACKING rather than a wrong blend equation.
+  it opaque" would have been wrong. Packet evidence then identified ABR0, and the production shader
+  gate proved the actual fault was `F/2+B` instead of `(F+B)>>1`; there is no opaque backing packet.
 - **A reference scopes the card honestly.** The #21 triangle-menu reference showed the target is not
   just a missing background but a whole stack — opaque fill, border, tabs, legend row, icon tiles,
   divider, scroll arrow, help panel with portrait. "Menu is transparent" alone invites a one-quad

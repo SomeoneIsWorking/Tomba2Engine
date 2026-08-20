@@ -11,46 +11,98 @@
 #include "actor_tomba.h"
 #include "core.h"
 
-void rec_dispatch(Core*, uint32_t);  // overlay_router.cpp — shared dispatch choke point
+void rec_dispatch(Core *, uint32_t); // overlay_router.cpp — shared dispatch choke point
 
 void ActorTomba::actionHandler800531DC() {
-  Core* c = core;
-    c->r[2] = (uint32_t)32780u << 16;
-    c->r[5] = c->r[2] + (uint32_t)-1936;
-    c->r[3] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)-1936));
-    c->r[2] = c->r[0] + (uint32_t)5;
-    { int _t = (c->r[3] == c->r[2]); c->r[2] = (uint32_t)((int32_t)c->r[3] < 6); if (_t) goto L_8005323C; }
-    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)1; if (_t) goto L_8005320C; }
-    { int _t = (c->r[3] == c->r[2]);  if (_t) goto L_80053220; }
-  L_80053204:;
-     return;
-  L_8005320C:;
-    c->r[2] = c->r[0] + (uint32_t)6;
-    { int _t = (c->r[3] == c->r[2]); c->r[2] = c->r[0] + (uint32_t)14; if (_t) goto L_80053270; }
-     return;
-  L_80053220:;
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)50));
-    c->r[2] = (uint32_t)((int32_t)c->r[2] < -10586);
-    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)-10586; if (_t) goto L_80053204; }
-    c->mem_w16((c->r[4] + (uint32_t)50), (uint16_t)c->r[2]); return;
-  L_8005323C:;
-    c->r[2] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)1));
-    c->r[2] = c->r[2] + (uint32_t)-1;
-    c->r[2] = (uint32_t)(c->r[2] < (uint32_t)3);
-    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80053298; }
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)50));
-    c->r[2] = (uint32_t)((int32_t)c->r[2] < -15130);
-    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)-15130; if (_t) goto L_80053204; }
-    c->mem_w16((c->r[4] + (uint32_t)50), (uint16_t)c->r[2]); return;
-  L_80053270:;
-    c->r[3] = (uint32_t)c->mem_r8((c->r[4] + (uint32_t)42));
-    { int _t = (c->r[3] != c->r[2]);  if (_t) goto L_80053298; }
-    c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)50));
-    c->r[2] = (uint32_t)((int32_t)c->r[2] < -7637);
-    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[0] + (uint32_t)-7637; if (_t) goto L_80053204; }
-    c->mem_w16((c->r[4] + (uint32_t)50), (uint16_t)c->r[2]);
-  L_80053298:;
-     return;
-    return;
+  Core *c = core;
+  c->r[2] = (uint32_t)32780u << 16;
+  c->r[5] = c->r[2] + (uint32_t)-1936;
+  c->r[3] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)-1936));
+  c->r[2] = c->r[0] + (uint32_t)5;
+  {
+    int _t = (c->r[3] == c->r[2]);
+    c->r[2] = (uint32_t)((int32_t)c->r[3] < 6);
+    if (_t) {
+      goto L_8005323C;
+    }
+  }
+  {
+    int _t = (c->r[2] == c->r[0]);
+    c->r[2] = c->r[0] + (uint32_t)1;
+    if (_t) {
+      goto L_8005320C;
+    }
+  }
+  {
+    int _t = (c->r[3] == c->r[2]);
+    if (_t) {
+      goto L_80053220;
+    }
+  }
+L_80053204:;
+  return;
+L_8005320C:;
+  c->r[2] = c->r[0] + (uint32_t)6;
+  {
+    int _t = (c->r[3] == c->r[2]);
+    c->r[2] = c->r[0] + (uint32_t)14;
+    if (_t) {
+      goto L_80053270;
+    }
+  }
+  return;
+L_80053220:;
+  c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)50));
+  c->r[2] = (uint32_t)((int32_t)c->r[2] < -10586);
+  {
+    int _t = (c->r[2] == c->r[0]);
+    c->r[2] = c->r[0] + (uint32_t)-10586;
+    if (_t) {
+      goto L_80053204;
+    }
+  }
+  c->mem_w16((c->r[4] + (uint32_t)50), (uint16_t)c->r[2]);
+  return;
+L_8005323C:;
+  c->r[2] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)1));
+  c->r[2] = c->r[2] + (uint32_t)-1;
+  c->r[2] = (uint32_t)(c->r[2] < (uint32_t)3);
+  {
+    int _t = (c->r[2] == c->r[0]);
+    if (_t) {
+      goto L_80053298;
+    }
+  }
+  c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)50));
+  c->r[2] = (uint32_t)((int32_t)c->r[2] < -15130);
+  {
+    int _t = (c->r[2] == c->r[0]);
+    c->r[2] = c->r[0] + (uint32_t)-15130;
+    if (_t) {
+      goto L_80053204;
+    }
+  }
+  c->mem_w16((c->r[4] + (uint32_t)50), (uint16_t)c->r[2]);
+  return;
+L_80053270:;
+  c->r[3] = (uint32_t)c->mem_r8((c->r[4] + (uint32_t)42));
+  {
+    int _t = (c->r[3] != c->r[2]);
+    if (_t) {
+      goto L_80053298;
+    }
+  }
+  c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)50));
+  c->r[2] = (uint32_t)((int32_t)c->r[2] < -7637);
+  {
+    int _t = (c->r[2] == c->r[0]);
+    c->r[2] = c->r[0] + (uint32_t)-7637;
+    if (_t) {
+      goto L_80053204;
+    }
+  }
+  c->mem_w16((c->r[4] + (uint32_t)50), (uint16_t)c->r[2]);
+L_80053298:;
+  return;
+  return;
 }
-

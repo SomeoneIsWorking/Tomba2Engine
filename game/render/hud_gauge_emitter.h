@@ -10,21 +10,21 @@
 // byte-exact state SBS compares.
 #pragma once
 struct Core;
-class  Game;
+class Game;
 
 class HudGaugeEmitter {
 public:
   // FUN_8004FD30() -> void. Frame entry: draws the two fixed HUD viewport/panel DR_AREA clip
   // rects, walks the 0x800BF548 gauge-item table (stride 0x8C, count at +8) calling emitItem()
   // per record.
-  static void emitFrame(Core* c);
+  static void emitFrame(Core *c);
 
   // FUN_8004FB4C(record=a0) -> void. Per-item leaf: forwards two sub-descriptor fields to the
   // still-substrate TEXT-ROW leaf FUN_8004EB94 (RE'd 2026-07-28: it is a centred 8x8-glyph string
   // layout, NOT "segment layout" — see the banner in hud_gauge_emitter.cpp), optionally emits a
   // per-item DR_AREA clip
   // box, then hands off to the still-substrate digit/label leaf FUN_8005019C.
-  static void emitItem(Core* c);
+  static void emitItem(Core *c);
 
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

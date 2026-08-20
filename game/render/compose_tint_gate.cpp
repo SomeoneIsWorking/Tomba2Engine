@@ -24,29 +24,29 @@
 // node[+0x0B] == 0x0F is passed through to the emitter as a bool. It is a sub-type flag; what it
 // selects lives inside FUN_8003F07C, which is not ported yet, so it is forwarded rather than named.
 #include "core.h"
-#include "render.h"
-#include "game_ctx.h"   // rend(c) — the Render instance
+#include "game_ctx.h" // rend(c) — the Render instance
 #include "override_registry.h"
+#include "render.h"
 
-void func_8003F07C(Core*);   // generated/shard_disp.c — the per-object geometry emitter
-void func_8003D584(Core*);   // generated/shard_disp.c — colour-add; the thunk routes to
-                             // Render::effectColorAdd, which already owns this address
+void func_8003F07C(Core *); // generated/shard_disp.c — the per-object geometry emitter
+void func_8003D584(Core *); // generated/shard_disp.c — colour-add; the thunk routes to
+                            // Render::effectColorAdd, which already owns this address
 
 namespace {
 
 constexpr uint32_t PACKET_POOL_PTR = 0x800BF544u;
 
-constexpr uint32_t NODE_SUBTYPE   = 0x0Bu;   // == 0x0F selects the emitter's alternate path
-constexpr uint32_t NODE_MODE      = 0x0Du;   // low nibble gates this handler
-constexpr uint8_t  SUBTYPE_MATCH  = 0x0F;
+constexpr uint32_t NODE_SUBTYPE = 0x0Bu; // == 0x0F selects the emitter's alternate path
+constexpr uint32_t NODE_MODE = 0x0Du;    // low nibble gates this handler
+constexpr uint8_t SUBTYPE_MATCH = 0x0F;
 
-constexpr uint32_t MODE_COMPOSE      = 0u;   // emit only
-constexpr uint32_t MODE_COMPOSE_TINT = 2u;   // emit, then colour-add over what was emitted
+constexpr uint32_t MODE_COMPOSE = 0u;      // emit only
+constexpr uint32_t MODE_COMPOSE_TINT = 2u; // emit, then colour-add over what was emitted
 
-}  // namespace
+} // namespace
 
 // ORACLE: gen_func_8003EF9C
-void Render::composeTintGate(Core* c) {
+void Render::composeTintGate(Core *c) {
   const uint32_t node = c->r[4];
 
   c->r[29] -= 32;
@@ -57,20 +57,20 @@ void Render::composeTintGate(Core* c) {
   c->mem_w32(frame + 16, c->r[16]);
 
   const uint32_t poolBefore = c->mem_r32(PACKET_POOL_PTR);
-  const uint32_t subtype    = (c->mem_r8(node + NODE_SUBTYPE) == SUBTYPE_MATCH) ? 1u : 0u;
-  const uint32_t mode       = c->mem_r8(node + NODE_MODE) & 0x0Fu;
+  const uint32_t subtype = (c->mem_r8(node + NODE_SUBTYPE) == SUBTYPE_MATCH) ? 1u : 0u;
+  const uint32_t mode = c->mem_r8(node + NODE_MODE) & 0x0Fu;
 
   // Two separate branches, as the guest has them — mode 0 emits and stops, mode 2 emits and then
   // tints. They are not merged, because the emit call sites differ in the jal-site ra they publish.
   if (mode == MODE_COMPOSE) {
     c->r[4] = node;
     c->r[5] = subtype;
-    c->r[31] = 0x8003EFE8u;                 // jal-site ra
+    c->r[31] = 0x8003EFE8u; // jal-site ra
     func_8003F07C(c);
   } else if (mode == MODE_COMPOSE_TINT) {
     c->r[4] = node;
     c->r[5] = subtype;
-    c->r[31] = 0x8003EFFCu;                 // jal-site ra
+    c->r[31] = 0x8003EFFCu; // jal-site ra
     func_8003F07C(c);
 
     // tint precisely the primitives just emitted: [poolBefore, poolNow). Called through the thunk,
@@ -78,7 +78,7 @@ void Render::composeTintGate(Core* c) {
     c->r[4] = node;
     c->r[5] = poolBefore;
     c->r[6] = c->mem_r32(PACKET_POOL_PTR);
-    c->r[31] = 0x8003F00Cu;                 // jal-site ra
+    c->r[31] = 0x8003F00Cu; // jal-site ra
     func_8003D584(c);
   }
 
@@ -89,11 +89,13 @@ void Render::composeTintGate(Core* c) {
   c->r[29] += 32;
 }
 
-static void ov_compose_tint_gate(Core* c) { Render::composeTintGate(c); }
+static void ov_compose_tint_gate(Core *c) {
+  Render::composeTintGate(c);
+}
 
 void compose_tint_gate_install() {
-  extern void gen_func_8003EF9C(Core*);
-  extern void shard_set_override(uint32_t, void (*)(Core*));
-  overrides::install(0x8003EF9Cu, "Render::composeTintGate", ov_compose_tint_gate,
-                     gen_func_8003EF9C, shard_set_override);
+  extern void gen_func_8003EF9C(Core *);
+  extern void shard_set_override(uint32_t, void (*)(Core *));
+  overrides::install(
+      0x8003EF9Cu, "Render::composeTintGate", ov_compose_tint_gate, gen_func_8003EF9C, shard_set_override);
 }

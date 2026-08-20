@@ -110,35 +110,35 @@
 #include "render.h"
 #include <stdint.h>
 
-extern "C" void rec_dispatch(Core* c, uint32_t addr);
+extern "C" void rec_dispatch(Core *c, uint32_t addr);
 
 namespace {
-constexpr uint32_t GPU_SYS_BASE = (32778u << 16);              // 0x800A0000
-constexpr uint32_t GPU_CLIP_MAXW      = GPU_SYS_BASE + 22948;  // 0x800A59A4
-constexpr uint32_t GPU_CLIP_MAXH      = GPU_SYS_BASE + 22950;  // 0x800A59A6
-constexpr uint32_t GPU_GP0_PORT_PTR   = GPU_SYS_BASE + 23204;  // 0x800A5AA4
-constexpr uint32_t GPU_DMA_FLAGS_PTR  = GPU_SYS_BASE + 23208;  // 0x800A5AA8
-constexpr uint32_t GPU_DMA_ARG0_PTR   = GPU_SYS_BASE + 23212;  // 0x800A5AAC
-constexpr uint32_t GPU_DMA_ARG1_PTR   = GPU_SYS_BASE + 23216;  // 0x800A5AB0
-constexpr uint32_t GPU_DMA_STATE_PTR  = GPU_SYS_BASE + 23220;  // 0x800A5AB4
+constexpr uint32_t GPU_SYS_BASE = (32778u << 16);            // 0x800A0000
+constexpr uint32_t GPU_CLIP_MAXW = GPU_SYS_BASE + 22948;     // 0x800A59A4
+constexpr uint32_t GPU_CLIP_MAXH = GPU_SYS_BASE + 22950;     // 0x800A59A6
+constexpr uint32_t GPU_GP0_PORT_PTR = GPU_SYS_BASE + 23204;  // 0x800A5AA4
+constexpr uint32_t GPU_DMA_FLAGS_PTR = GPU_SYS_BASE + 23208; // 0x800A5AA8
+constexpr uint32_t GPU_DMA_ARG0_PTR = GPU_SYS_BASE + 23212;  // 0x800A5AAC
+constexpr uint32_t GPU_DMA_ARG1_PTR = GPU_SYS_BASE + 23216;  // 0x800A5AB0
+constexpr uint32_t GPU_DMA_STATE_PTR = GPU_SYS_BASE + 23220; // 0x800A5AB4
 
-constexpr uint32_t GPU_READY_BIT       = (1024u << 16);  // 0x04000000
-constexpr uint32_t GP0_CLEAR_CACHE     = (256u << 16);   // 0x01000000 — GP0(0x01)
-constexpr uint32_t GP0_COPY_CPU_TO_VRAM= (40960u << 16);  // 0xA0000000 — GP0(0xA0) tag
+constexpr uint32_t GPU_READY_BIT = (1024u << 16);         // 0x04000000
+constexpr uint32_t GP0_CLEAR_CACHE = (256u << 16);        // 0x01000000 — GP0(0x01)
+constexpr uint32_t GP0_COPY_CPU_TO_VRAM = (40960u << 16); // 0xA0000000 — GP0(0xA0) tag
 
-constexpr uint32_t FN_GPU_TIMEOUT_ARM = 0x800834A0u;  // native-owned HLE, runtime/recomp/sync_overrides.cpp
-constexpr uint32_t FN_GPU_TIMEOUT_CHK = 0x800834D4u;  // native-owned HLE, runtime/recomp/sync_overrides.cpp
-}  // namespace
+constexpr uint32_t FN_GPU_TIMEOUT_ARM = 0x800834A0u; // native-owned HLE, runtime/recomp/sync_overrides.cpp
+constexpr uint32_t FN_GPU_TIMEOUT_CHK = 0x800834D4u; // native-owned HLE, runtime/recomp/sync_overrides.cpp
+} // namespace
 
 // func_80082734 (0x80082734) — libgpu LoadImage()-internal chunked GP0-FIFO pixel streamer.
 // See file header for the full RE (struct map, control flow, dead-code note, confidence).
 void Render::gpuLoadImageStream() {
-  Core* c = mCore;
+  Core *c = mCore;
   c->r[29] -= 48;
   c->mem_w32(c->r[29] + 20, c->r[17]);
-  const uint32_t rectPtr = c->r[4];   // s1
+  const uint32_t rectPtr = c->r[4]; // s1
   c->mem_w32(c->r[29] + 24, c->r[18]);
-  uint32_t srcPtr = c->r[5];          // s2 (advances as the PIO remainder loop consumes it)
+  uint32_t srcPtr = c->r[5]; // s2 (advances as the PIO remainder loop consumes it)
   c->mem_w32(c->r[29] + 40, c->r[31]);
   c->mem_w32(c->r[29] + 36, c->r[21]);
   c->mem_w32(c->r[29] + 32, c->r[20]);
@@ -193,7 +193,7 @@ void Render::gpuLoadImageStream() {
   int32_t wSignExt = c->mem_r16s(rectPtr + 4);
   int32_t hSignExt = c->mem_r16s(rectPtr + 6);
   int64_t product = (int64_t)wSignExt * (int64_t)hSignExt;
-  uint32_t pixelCount = (uint32_t)(int32_t)product;  // mflo (lo 32 bits)
+  uint32_t pixelCount = (uint32_t)(int32_t)product; // mflo (lo 32 bits)
   // Mirror gen's `mult` side-effect on HI/LO (generated/shard_5.c:13707) — the streamer's own
   // algorithm only reads lo (pixelCount), but HI/LO are ABI registers that persist across calls;
   // MIRROR_VERIFY compares them, and downstream callees (gpuDmaQueueEnqueue's fn dispatch path)
@@ -207,9 +207,12 @@ void Render::gpuLoadImageStream() {
   uint32_t rounded = pixelCount + 1u;
   rounded = rounded + (rounded >> 31);
   int32_t numWords = (int32_t)rounded >> 1;
-  int32_t chunkCountSigned = (int32_t)rounded >> 5;  // == numWords >> 4 (16-word chunks)
+  int32_t chunkCountSigned = (int32_t)rounded >> 5; // == numWords >> 4 (16-word chunks)
 
-  if (!(numWords > 0)) { epilogue((uint32_t)-1); return; }
+  if (!(numWords > 0)) {
+    epilogue((uint32_t)-1);
+    return;
+  }
 
   const uint32_t chunkCount = (uint32_t)chunkCountSigned;
   uint32_t remainder = (uint32_t)numWords - chunkCount * 16u;
@@ -220,19 +223,24 @@ void Render::gpuLoadImageStream() {
     if ((readyWord & GPU_READY_BIT) == 0) {
       for (;;) {
         rec_dispatch(c, FN_GPU_TIMEOUT_CHK);
-        if (c->r[2] != 0) { epilogue((uint32_t)-1); return; }
+        if (c->r[2] != 0) {
+          epilogue((uint32_t)-1);
+          return;
+        }
         uint32_t rw = c->mem_r32(c->mem_r32(GPU_DMA_FLAGS_PTR));
-        if ((rw & GPU_READY_BIT) != 0) break;
+        if ((rw & GPU_READY_BIT) != 0) {
+          break;
+        }
       }
     }
   }
 
   // --- push the fixed header words through the GP0 FIFO port ---
-  c->mem_w32(c->mem_r32(GPU_DMA_FLAGS_PTR), GPU_READY_BIT);       // ack ready
-  c->mem_w32(c->mem_r32(GPU_GP0_PORT_PTR), GP0_CLEAR_CACHE);      // GP0(0x01) ClearCache
-  c->mem_w32(c->mem_r32(GPU_GP0_PORT_PTR), GP0_COPY_CPU_TO_VRAM); // GP0(0xA0) tag (see dead-code note)
-  c->mem_w32(c->mem_r32(GPU_GP0_PORT_PTR), c->mem_r32(rectPtr + 0));  // dest X|Y, forwarded verbatim
-  c->mem_w32(c->mem_r32(GPU_GP0_PORT_PTR), c->mem_r32(rectPtr + 4));  // clamped W|H
+  c->mem_w32(c->mem_r32(GPU_DMA_FLAGS_PTR), GPU_READY_BIT);          // ack ready
+  c->mem_w32(c->mem_r32(GPU_GP0_PORT_PTR), GP0_CLEAR_CACHE);         // GP0(0x01) ClearCache
+  c->mem_w32(c->mem_r32(GPU_GP0_PORT_PTR), GP0_COPY_CPU_TO_VRAM);    // GP0(0xA0) tag (see dead-code note)
+  c->mem_w32(c->mem_r32(GPU_GP0_PORT_PTR), c->mem_r32(rectPtr + 0)); // dest X|Y, forwarded verbatim
+  c->mem_w32(c->mem_r32(GPU_GP0_PORT_PTR), c->mem_r32(rectPtr + 4)); // clamped W|H
 
   // --- PIO-stream the `remainder` leftover words one at a time ---
   if (remainder != 0) {
@@ -244,13 +252,16 @@ void Render::gpuLoadImageStream() {
     } while (remainder != 0);
   }
 
-  if (chunkCount == 0) { epilogue(0); return; }
+  if (chunkCount == 0) {
+    epilogue(0);
+    return;
+  }
 
   // --- hand the remaining chunkCount*16 words to the async GPU-DMA continuation (see file header) ---
-  c->mem_w32(c->mem_r32(GPU_DMA_FLAGS_PTR), GPU_READY_BIT | 2u);        // 0x04000002
-  c->mem_w32(c->mem_r32(GPU_DMA_ARG0_PTR), srcPtr);                     // start of chunk-DMA source
-  c->mem_w32(c->mem_r32(GPU_DMA_ARG1_PTR), (chunkCount << 16) | 16u);   // chunkCount | burst size
-  c->mem_w32(c->mem_r32(GPU_DMA_STATE_PTR), GP0_CLEAR_CACHE | 513u);    // 0x01000201
+  c->mem_w32(c->mem_r32(GPU_DMA_FLAGS_PTR), GPU_READY_BIT | 2u);      // 0x04000002
+  c->mem_w32(c->mem_r32(GPU_DMA_ARG0_PTR), srcPtr);                   // start of chunk-DMA source
+  c->mem_w32(c->mem_r32(GPU_DMA_ARG1_PTR), (chunkCount << 16) | 16u); // chunkCount | burst size
+  c->mem_w32(c->mem_r32(GPU_DMA_STATE_PTR), GP0_CLEAR_CACHE | 513u);  // 0x01000201
 
   epilogue(0);
 }
@@ -263,14 +274,18 @@ void Render::gpuLoadImageStream() {
 // oracle-gated dispatch keeps SBS core B running the pure gen_func_80082734 body while core A
 // dispatches to Render::gpuLoadImageStream().
 namespace {
-void ov_gpuLoadImageStream(Core* c) { rend(c)->gpuLoadImageStream(); }
-}  // namespace
+void ov_gpuLoadImageStream(Core *c) {
+  rend(c)->gpuLoadImageStream();
+}
+} // namespace
 
-extern void gen_func_80082734(Core*);
+extern void gen_func_80082734(Core *);
 
 void gpu_loadimage_streamer_install() {
   static bool done = false;
-  if (done) return;
+  if (done) {
+    return;
+  }
   done = true;
   extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
   engine_set_override_main(0x80082734u, ov_gpuLoadImageStream, gen_func_80082734);

@@ -11,9 +11,9 @@
 // mem_wN width by regex, so `node.setRecordTail(v)` counts as exactly the store it performs. A
 // setter that grew a second statement or a nested brace would silently stop counting.
 #pragma once
-#include <stdint.h>
 #include "core.h"
 #include "fx_sprite_publish.h"
+#include <stdint.h>
 
 class Game;
 
@@ -26,32 +26,48 @@ namespace fxanchored {
 // The node's own SIZE BYTE, read by 0x80027E5C only. It is a 4.4 fixed-point multiplier on the
 // depth-derived scale (see kScaleByteShift in the .cpp), so 16 means "leave the size alone" and the
 // value the controllers actually write, 8-ish, means "half". 0x80027CB4 never reads it.
-constexpr uint32_t kScaleByte     = 0x06;  // u8  — per-node size multiplier, 4.4 fixed point
-constexpr uint32_t kWorldAnchorXY = 0x2C;  // u32 — packed world VX (lo16) | VY (hi16)
+constexpr uint32_t kScaleByte = 0x06;     // u8  — per-node size multiplier, 4.4 fixed point
+constexpr uint32_t kWorldAnchorXY = 0x2C; // u32 — packed world VX (lo16) | VY (hi16)
 // The Z word does double duty, exactly the way the swarm's particle records pack their size into
 // the high half: the emitter feeds the WHOLE 32-bit word to the GTE's VZ0 (which consumes only the
 // low 16 bits) and reads the high half back separately as the OT bucket bias.
-constexpr uint32_t kWorldAnchorZ  = 0x30;  // u32 — world VZ in the low 16 bits
-constexpr uint32_t kOtBias        = 0x32;  // s16 — bias added to the OT bucket key (that word's hi half)
-constexpr uint32_t kRecordHead    = 0x34;  // u32 — head of the 8-byte sprite-record list (writer a0)
-constexpr uint32_t kRecordTail    = 0x38;  // u32 — tail the writer returns; the ONLY guest field written
-constexpr uint32_t kClut          = 0x44;  // u16 — texture CLUT id     } together the writer's a1
-constexpr uint32_t kTexturePage   = 0x46;  // u16 — texture page bits   }
-}  // namespace fxanchored
+constexpr uint32_t kWorldAnchorZ = 0x30; // u32 — world VZ in the low 16 bits
+constexpr uint32_t kOtBias = 0x32;       // s16 — bias added to the OT bucket key (that word's hi half)
+constexpr uint32_t kRecordHead = 0x34;   // u32 — head of the 8-byte sprite-record list (writer a0)
+constexpr uint32_t kRecordTail = 0x38;   // u32 — tail the writer returns; the ONLY guest field written
+constexpr uint32_t kClut = 0x44;         // u16 — texture CLUT id     } together the writer's a1
+constexpr uint32_t kTexturePage = 0x46;  // u16 — texture page bits   }
+} // namespace fxanchored
 
 struct FxAnchoredNode {
-  Core* mCore;
+  Core *mCore;
   uint32_t mBase;
 
-  uint32_t scaleByte()     const { return mCore->mem_r8(mBase + fxanchored::kScaleByte); }
-  uint32_t worldAnchorXY() const { return mCore->mem_r32(mBase + fxanchored::kWorldAnchorXY); }
-  uint32_t worldAnchorZ()  const { return mCore->mem_r32(mBase + fxanchored::kWorldAnchorZ); }
-  int32_t  otBias()        const { return mCore->mem_r16s(mBase + fxanchored::kOtBias); }
-  uint32_t recordHead()    const { return mCore->mem_r32(mBase + fxanchored::kRecordHead); }
-  uint32_t clut()          const { return mCore->mem_r16(mBase + fxanchored::kClut); }
-  uint32_t texturePage()   const { return mCore->mem_r16(mBase + fxanchored::kTexturePage); }
+  uint32_t scaleByte() const {
+    return mCore->mem_r8(mBase + fxanchored::kScaleByte);
+  }
+  uint32_t worldAnchorXY() const {
+    return mCore->mem_r32(mBase + fxanchored::kWorldAnchorXY);
+  }
+  uint32_t worldAnchorZ() const {
+    return mCore->mem_r32(mBase + fxanchored::kWorldAnchorZ);
+  }
+  int32_t otBias() const {
+    return mCore->mem_r16s(mBase + fxanchored::kOtBias);
+  }
+  uint32_t recordHead() const {
+    return mCore->mem_r32(mBase + fxanchored::kRecordHead);
+  }
+  uint32_t clut() const {
+    return mCore->mem_r16(mBase + fxanchored::kClut);
+  }
+  uint32_t texturePage() const {
+    return mCore->mem_r16(mBase + fxanchored::kTexturePage);
+  }
 
-  void setRecordTail(uint32_t v) { mCore->mem_w32(mBase + fxanchored::kRecordTail, v); }
+  void setRecordTail(uint32_t v) {
+    mCore->mem_w32(mBase + fxanchored::kRecordTail, v);
+  }
 };
 
 // ------------------------------------------------------------------------------------------------
@@ -65,18 +81,18 @@ public:
   // FUN_80027CB4 — project the node's own world anchor and stamp its sprite cluster there at the
   // UNIFORM depth-derived scale (no per-node and no per-particle size multiplier: the sprite's size
   // is purely a function of how far away it is). a0 = the type-0x20 render node.
-  static void emitUniformScale(Core* c);
+  static void emitUniformScale(Core *c);
 
   // FUN_80027E5C — the same single stamp at the same anchor, but the depth-derived scale is then
   // multiplied by the node's OWN size byte (node+6) as 4.4 fixed point. Two sprites the same
   // distance away can therefore be different sizes, and stay their own size for the node's whole
   // life. a0 = the type-0x20 render node.
-  static void emitByteScale(Core* c);
+  static void emitByteScale(Core *c);
 
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 
 private:
   // Load the PURE SCENE CAMERA (the rotation matrix + translation the scene pass parks in the
   // scratchpad) into the GTE's control registers, so the RTPS below projects world -> screen.
-  static void loadSceneCameraToGte(Core* c);
+  static void loadSceneCameraToGte(Core *c);
 };

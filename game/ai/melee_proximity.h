@@ -60,7 +60,7 @@ class Game;
 
 class MeleeProximity {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // isAtApproachAnchor (FUN_8001F9DC): native-C-stack call, NOT guest-ABI framed. Returns v0 (0/1).
   int32_t isAtApproachAnchor(uint32_t self, uint32_t other);
@@ -76,6 +76,6 @@ public:
   // shard_set_override (the recompiler's own global call table — the only real callers found are
   // direct `func_8001F9DC(c)` sites) as the setter so both that call shape and rec_dispatch
   // (native-caller tracing) reach the native. See .cpp.
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };
 #endif

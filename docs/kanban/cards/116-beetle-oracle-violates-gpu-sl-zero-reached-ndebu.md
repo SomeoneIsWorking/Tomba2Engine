@@ -1,7 +1,7 @@
 ---
 id: 116
 title: Beetle oracle violates GPU.sl_zero_reached — NDEBUG hides it in every normal build
-status: todo
+status: done
 labels: []
 created: 2026-08-20
 updated: 2026-08-20
@@ -28,3 +28,12 @@ BUT IT IS STILL A REAL DEFECT, for two reasons:
 THE FIX, not yet attempted: give the adapter a real per-frame boundary — call GPU_StartFrame (or clear sl_zero_reached) once per guest frame instead of once at init, so the flag is cleared exactly when beetle expects. gpu_beetle_frame_report already runs at exactly that boundary, so the hook point exists.
 
 VERIFY IT AFTER FIXING by keeping a build WITH asserts live: the whole value here is that an assert-enabled build catches contract violations a Release build cannot. Worth a CI/dev build config that does not define NDEBUG.
+
+**2026-08-20 — FIXED AT THE ACTUAL CAUSE.** Calling `GPU_StartFrame` once per guest frame was necessary
+but not sufficient. The first attempted fix still asserted because the adapter's synthetic `GPU_Update`
+clock could cross scanline zero multiple times during ONE large native texture upload. That clock existed
+only to drain the FIFO, but `GPU_WriteCB` already calls `ProcessFIFO` synchronously after
+`psxport_gpu_grant_drawtime()`. The adapter now feeds commands without advancing Beetle's CPU/scanout clock
+and calls `GPU_StartFrame` only at the real guest boundary. An assert-enabled Clang build completed the
+30-frame reproducer and the full area-4 health run without the assertion. The same run also proved the
+separate GP0(C0) read-drain repair: 19,712 GPUREAD words, 0 mismatches, 0 dropped/starved/queued input.

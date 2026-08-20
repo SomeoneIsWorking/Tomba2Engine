@@ -40,11 +40,9 @@
 #include "world/collision_resolve.h"
 #include "core.h"
 #include "game.h"
-#include "guest_abi.h"           // GuestFrame / GuestReg / guest_call / guest_mult
-#include "override_registry.h"   // engine_set_override_main
-#include "rec_decls.h"           // gen_func_80023D48 — the body the oracle leg runs
-
-
+#include "guest_abi.h"         // GuestFrame / GuestReg / guest_call / guest_mult
+#include "override_registry.h" // engine_set_override_main
+#include "rec_decls.h"         // gen_func_80023D48 — the body the oracle leg runs
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FIELD NAMES for the three records this function walks. r17/r22/r30 hold actor/other/anchor for the
@@ -57,36 +55,36 @@
 // identity; the record is" — after a near-miss converting one struct's offsets with another's lens.
 namespace {
 // actor (a0, held in r17)
-constexpr uint32_t kActorType         = 12;    // 0x0C — case 2 additionally updates the facing byte
-constexpr uint32_t kActorLanded       = 41;    // 0x29 — set to 1 on the "landed on top" outcome
-constexpr uint32_t kActorX            = 46;    // 0x2E
-constexpr uint32_t kActorY32          = 48;    // 0x30 as a 32-bit 16.16 value (NOT anchor's +0x30)
-constexpr uint32_t kActorY            = 50;    // 0x32 as the u16 half
-constexpr uint32_t kActorZ            = 54;    // 0x36
-constexpr uint32_t kActorAngle        = 86;    // 0x56 — rotates the sample offset when flags&1
-constexpr uint32_t kActorSampleRadius = 124;   // 0x7C
-constexpr uint32_t kActorYBias        = 126;   // 0x7E
-constexpr uint32_t kActorHeightLo     = 128;   // 0x80
-constexpr uint32_t kActorHeightHi     = 130;   // 0x82
-constexpr uint32_t kActorExtentLo     = 132;   // 0x84
-constexpr uint32_t kActorExtentHi     = 134;   // 0x86
-constexpr uint32_t kActorFacing       = 95;    // 0x5F — written as angleCmp() + 2
-constexpr uint32_t kActorFacingRef    = 96;    // 0x60
-constexpr uint32_t kActorVelY         = 74;    // 0x4A, SIGNED — negative means launched upward
+constexpr uint32_t kActorType = 12;          // 0x0C — case 2 additionally updates the facing byte
+constexpr uint32_t kActorLanded = 41;        // 0x29 — set to 1 on the "landed on top" outcome
+constexpr uint32_t kActorX = 46;             // 0x2E
+constexpr uint32_t kActorY32 = 48;           // 0x30 as a 32-bit 16.16 value (NOT anchor's +0x30)
+constexpr uint32_t kActorY = 50;             // 0x32 as the u16 half
+constexpr uint32_t kActorZ = 54;             // 0x36
+constexpr uint32_t kActorAngle = 86;         // 0x56 — rotates the sample offset when flags&1
+constexpr uint32_t kActorSampleRadius = 124; // 0x7C
+constexpr uint32_t kActorYBias = 126;        // 0x7E
+constexpr uint32_t kActorHeightLo = 128;     // 0x80
+constexpr uint32_t kActorHeightHi = 130;     // 0x82
+constexpr uint32_t kActorExtentLo = 132;     // 0x84
+constexpr uint32_t kActorExtentHi = 134;     // 0x86
+constexpr uint32_t kActorFacing = 95;        // 0x5F — written as angleCmp() + 2
+constexpr uint32_t kActorFacingRef = 96;     // 0x60
+constexpr uint32_t kActorVelY = 74;          // 0x4A, SIGNED — negative means launched upward
 // other (a1, held in r22)
 // The other object is itself an OBJECT RECORD, so it carries X/Y/Z at the same offsets the actor
 // does. Named separately from the kActor* set because the ROLE differs even where the number does
 // not — see the note above about the record being the identity, not the offset.
-constexpr uint32_t kOtherX            = 46;    // 0x2E
-constexpr uint32_t kOtherY            = 50;    // 0x32
-constexpr uint32_t kOtherZ            = 54;    // 0x36
-constexpr uint32_t kOtherRadius       = 128;   // 0x80
-constexpr uint32_t kOtherExtentLo     = 132;   // 0x84
-constexpr uint32_t kOtherExtentHi     = 134;   // 0x86
+constexpr uint32_t kOtherX = 46;         // 0x2E
+constexpr uint32_t kOtherY = 50;         // 0x32
+constexpr uint32_t kOtherZ = 54;         // 0x36
+constexpr uint32_t kOtherRadius = 128;   // 0x80
+constexpr uint32_t kOtherExtentLo = 132; // 0x84
+constexpr uint32_t kOtherExtentHi = 134; // 0x86
 // anchor (a2, held in r30)
-constexpr uint32_t kAnchorX           = 44;    // 0x2C
-constexpr uint32_t kAnchorY           = 48;    // 0x30
-constexpr uint32_t kAnchorZ           = 52;    // 0x34
+constexpr uint32_t kAnchorX = 44; // 0x2C
+constexpr uint32_t kAnchorY = 48; // 0x30
+constexpr uint32_t kAnchorZ = 52; // 0x34
 
 // HOW THE ACTOR'S HORIZONTAL SIZE IS BUILT, recorded as OBSERVED rather than renamed: this function
 // uses the actor's +0x80/+0x82 pair as XZ radii, not as a height band. The overlap GATE compares the
@@ -101,38 +99,46 @@ constexpr uint32_t kAnchorZ           = 52;    // 0x34
 // hand-derived; regenerate if the gen body changes.
 constexpr uint32_t kResolveFrameBytes = 80;
 constexpr GuestFrameSpill kResolveSpills[10] = {
-  { 17, 44 }, { 22, 64 }, { 30, 72 }, { 31 /*ra*/, 76 }, { 23, 68 },
-  { 21, 60 }, { 20, 56 }, { 19, 52 }, { 18, 48 }, { 16, 40 },
+    {17, 44},
+    {22, 64},
+    {30, 72},
+    {31 /*ra*/, 76},
+    {23, 68},
+    {21, 60},
+    {20, 56},
+    {19, 52},
+    {18, 48},
+    {16, 40},
 };
 // Three s16 locals in that frame. The facing-offset entry writes the offset it applied and the raw
 // X delta; the plain entry writes zeroes for the offsets. All three are read back at the push-out,
 // which is why the offset has to be subtracted out of the final position again.
 constexpr uint32_t kLocalSampleOffsetX = 16;
 constexpr uint32_t kLocalSampleOffsetZ = 24;
-constexpr uint32_t kLocalDeltaX        = 32;
+constexpr uint32_t kLocalDeltaX = 32;
 
 // ── the leaves ───────────────────────────────────────────────────────────────────────────────────
 // Called through their generated func_XXXX wrappers, NEVER the Trig methods — see the header banner
 // for why that is load-bearing rather than laziness. One ra constant per jal site, from the same
 // abi_extract contract.
-constexpr uint32_t kRaSampleCos    = 0x80023D94u;   // Trig::rcos    0x80083F50
-constexpr uint32_t kRaSampleSin    = 0x80023DB0u;   // Trig::rsin    0x80083E80
-constexpr uint32_t kRaSampleDist   = 0x80023E1Cu;   // Math::sqrtLzc 0x80084080
-constexpr uint32_t kRaRawDist      = 0x80023EBCu;   // Math::sqrtLzc 0x80084080
-constexpr uint32_t kRaContactAngle = 0x80023F88u;   // Trig::ratan2  0x80085690
-constexpr uint32_t kRaFacingCmp    = 0x80023FF0u;   // Trig::angleCmp 0x80077768
-constexpr uint32_t kRaPushCos      = 0x80024004u;   // Trig::rcos
-constexpr uint32_t kRaPushSin      = 0x80024028u;   // Trig::rsin
+constexpr uint32_t kRaSampleCos = 0x80023D94u;    // Trig::rcos    0x80083F50
+constexpr uint32_t kRaSampleSin = 0x80023DB0u;    // Trig::rsin    0x80083E80
+constexpr uint32_t kRaSampleDist = 0x80023E1Cu;   // Math::sqrtLzc 0x80084080
+constexpr uint32_t kRaRawDist = 0x80023EBCu;      // Math::sqrtLzc 0x80084080
+constexpr uint32_t kRaContactAngle = 0x80023F88u; // Trig::ratan2  0x80085690
+constexpr uint32_t kRaFacingCmp = 0x80023FF0u;    // Trig::angleCmp 0x80077768
+constexpr uint32_t kRaPushCos = 0x80024004u;      // Trig::rcos
+constexpr uint32_t kRaPushSin = 0x80024028u;      // Trig::rsin
 
 // The contact angle is published to the scratchpad, where the caller reads it back.
-constexpr uint32_t kScratchpadBase    = 0x1F800000u;
-constexpr uint32_t kContactAngleSlot  = 156;        // 0x1F80009C
+constexpr uint32_t kScratchpadBase = 0x1F800000u;
+constexpr uint32_t kContactAngleSlot = 156; // 0x1F80009C
 
 // v0 is an outcome code, not a boolean.
-constexpr uint32_t kNoCollision   = 0;
+constexpr uint32_t kNoCollision = 0;
 constexpr uint32_t kPushedOutInXz = 1;
-constexpr uint32_t kLandedOnTop   = 2;
-constexpr uint32_t kSnappedInY    = 3;
+constexpr uint32_t kLandedOnTop = 2;
+constexpr uint32_t kSnappedInY = 3;
 
 // The one actor type that also re-aims its facing byte at the contact angle.
 constexpr uint32_t kActorTypeTracksFacing = 2;
@@ -140,56 +146,74 @@ constexpr uint32_t kActorTypeTracksFacing = 2;
 // A guest record reached through the register that identifies it — the base is re-read from c->r[N]
 // on every access, exactly as the guest does, so the lens can never go stale across a call.
 struct Rec {
-  Core* c;
-  int   reg;
-  uint32_t base() const { return c->r[reg]; }
-  uint32_t u8 (uint32_t field) const { return c->mem_r8 (base() + field); }
-  uint32_t u16(uint32_t field) const { return c->mem_r16(base() + field); }
-  int32_t  s16(uint32_t field) const { return (int16_t)c->mem_r16(base() + field); }
-  uint32_t u32(uint32_t field) const { return c->mem_r32(base() + field); }
+  Core *c;
+  int reg;
+  uint32_t base() const {
+    return c->r[reg];
+  }
+  uint32_t u8(uint32_t field) const {
+    return c->mem_r8(base() + field);
+  }
+  uint32_t u16(uint32_t field) const {
+    return c->mem_r16(base() + field);
+  }
+  int32_t s16(uint32_t field) const {
+    return (int16_t)c->mem_r16(base() + field);
+  }
+  uint32_t u32(uint32_t field) const {
+    return c->mem_r32(base() + field);
+  }
 };
 
 // ── FUN_8002423C's own frame ─────────────────────────────────────────────────────────────────────
 constexpr uint32_t kLandFrameBytes = 32;
-constexpr GuestFrameSpill kLandSpills[3] = { { 16, 16 }, { 31 /*ra*/, 24 }, { 17, 20 } };
-constexpr uint32_t kRaLandDist   = 0x800242A8u;     // Math::sqrtLzc 0x80084080
-constexpr uint32_t kLandRejected = 0xFFFFFFFFu;     // v0 = -1
+constexpr GuestFrameSpill kLandSpills[3] = {{16, 16}, {31 /*ra*/, 24}, {17, 20}};
+constexpr uint32_t kRaLandDist = 0x800242A8u;   // Math::sqrtLzc 0x80084080
+constexpr uint32_t kLandRejected = 0xFFFFFFFFu; // v0 = -1
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FUN_8001F40C — classifyBodyContact's own tables. Two more actor fields than the pair above needs,
 // both already named elsewhere in the port; the citations are what make them claims with a source.
-constexpr uint32_t kActorStateFlags   = 382;   // 0x17E — game/player/actor_tomba.h's "G+0x17E"
-constexpr uint32_t kActorPausedBit    = 0x200; // the same bit ActorTomba::interactWalk early-outs on
-constexpr uint32_t kActorWalkState    = 325;   // 0x145 — the walk/jump state byte ActorTomba::
-                                               // growthYSnap and type8Interact clear together with
-                                               // +0x4A/+0x50/+0x148. Only `== 1` is tested here.
+constexpr uint32_t kActorStateFlags = 382;  // 0x17E — game/player/actor_tomba.h's "G+0x17E"
+constexpr uint32_t kActorPausedBit = 0x200; // the same bit ActorTomba::interactWalk early-outs on
+constexpr uint32_t kActorWalkState = 325;   // 0x145 — the walk/jump state byte ActorTomba::
+                                            // growthYSnap and type8Interact clear together with
+                                            // +0x4A/+0x50/+0x148. Only `== 1` is tested here.
 
 // Two more shared scratchpad words, alongside kContactAngleSlot above.
-constexpr uint32_t kContactLockSlot = 152;     // 0x1F800098 — the "current lock owner" word
-                                               // ActorMeleeEngage::doIt compares against 1 and
-                                               // ActorTomba::framePreTick republishes every frame
-                                               // from the actor's landed flag (+0x29). Non-zero =
-                                               // some other interaction owns the actor this frame.
-constexpr uint32_t kContactKindSlot = 595;     // 0x1F800253 — a per-frame contact-kind byte.
-                                               // OBSERVED, not sourced: ActorTomba::framePreTick
-                                               // (gen_func_8002288C) masks it `&= 3` once per frame,
-                                               // FUN_800541F4 writes 1/3 there, and its readers
-                                               // (e.g. gen_func_80060C60) gate on `< 2`. Writing 4
-                                               // therefore parks it outside every `< 2` reader for
-                                               // the rest of the frame. No source names this slot,
-                                               // so the constant is named for what this body does
-                                               // with it and nothing more.
+constexpr uint32_t kContactLockSlot = 152; // 0x1F800098 — the "current lock owner" word
+                                           // ActorMeleeEngage::doIt compares against 1 and
+                                           // ActorTomba::framePreTick republishes every frame
+                                           // from the actor's landed flag (+0x29). Non-zero =
+                                           // some other interaction owns the actor this frame.
+constexpr uint32_t kContactKindSlot = 595; // 0x1F800253 — a per-frame contact-kind byte.
+                                           // OBSERVED, not sourced: ActorTomba::framePreTick
+                                           // (gen_func_8002288C) masks it `&= 3` once per frame,
+                                           // FUN_800541F4 writes 1/3 there, and its readers
+                                           // (e.g. gen_func_80060C60) gate on `< 2`. Writing 4
+                                           // therefore parks it outside every `< 2` reader for
+                                           // the rest of the frame. No source names this slot,
+                                           // so the constant is named for what this body does
+                                           // with it and nothing more.
 constexpr uint32_t kContactKindUndersideBump = 4;
 
 // ── this function's own guest stack ──────────────────────────────────────────────────────────────
 // From `abi_extract.py 0x8001F40C --scaffold --guestabi`, program order. Not hand-derived.
 constexpr uint32_t kClassifyFrameBytes = 56;
 constexpr GuestFrameSpill kClassifySpills[10] = {
-  { 17, 20 }, { 20, 32 }, { 31 /*ra*/, 52 }, { 30, 48 }, { 23, 44 },
-  { 22, 40 }, { 21, 36 }, { 19, 28 }, { 18, 24 }, { 16, 16 },
+    {17, 20},
+    {20, 32},
+    {31 /*ra*/, 52},
+    {30, 48},
+    {23, 44},
+    {22, 40},
+    {21, 36},
+    {19, 28},
+    {18, 24},
+    {16, 16},
 };
-constexpr uint32_t kRaBodyDist         = 0x8001F48Cu;   // Math::sqrtLzc 0x80084080
-constexpr uint32_t kRaBodyContactAngle = 0x8001F500u;   // Trig::ratan2  0x80085690
+constexpr uint32_t kRaBodyDist = 0x8001F48Cu;         // Math::sqrtLzc 0x80084080
+constexpr uint32_t kRaBodyContactAngle = 0x8001F500u; // Trig::ratan2  0x80085690
 
 // v0 is a two-bit classification, and BOTH bits are read by callers:
 //   bit 0 — WHICH AXIS is the shorter way out: 0 = push apart in XZ, 1 = resolve in Y.
@@ -197,43 +221,51 @@ constexpr uint32_t kRaBodyContactAngle = 0x8001F500u;   // Trig::ratan2  0x80085
 //   bit 1 — WHICH SIDE the actor is on: clear = clearly above the other body, set = level or below.
 //           ActorTomba::stepModeInteract's "just transitioned" branch tests exactly `v0 < 2`.
 // -1 is the miss, and every caller tests it as `(int32_t)v0 < 0` before looking at the bits.
-constexpr uint32_t kNoContact            = 0xFFFFFFFFu;
-constexpr uint32_t kAboveResolveInXz     = 0;
-constexpr uint32_t kAboveResolveInY      = 1;
-constexpr uint32_t kBelowResolveInXz     = 2;
-constexpr uint32_t kBelowResolveInY      = 3;
+constexpr uint32_t kNoContact = 0xFFFFFFFFu;
+constexpr uint32_t kAboveResolveInXz = 0;
+constexpr uint32_t kAboveResolveInY = 1;
+constexpr uint32_t kBelowResolveInXz = 2;
+constexpr uint32_t kBelowResolveInY = 3;
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FUN_80023A04 — resolveByContactPolicy's own tables. It walks the same two record shapes as
 // landOnObjectTop (both operands are full object records), so it reuses the kActor*/kOther* names
 // above; only the two things landOnObjectTop has no use for are new.
-constexpr uint32_t kActorContactFlags = 191;   // 0xBF — a per-object flag BYTE whose bits are
-                                               // behaviour-scoped, not global: beh_lift_platform
-                                               // toggles it, beh_seaside_prox_substate stamps 0xE0,
-                                               // scene_transition tests it non-zero for an SFX, and
-                                               // script_interp calls it a pulse gate. Policy 4 tests
-                                               // BIT 0 and nothing else, so bit 0 is the only bit
-                                               // named here — the byte's other bits are somebody
-                                               // else's claim to make.
+constexpr uint32_t kActorContactFlags = 191; // 0xBF — a per-object flag BYTE whose bits are
+                                             // behaviour-scoped, not global: beh_lift_platform
+                                             // toggles it, beh_seaside_prox_substate stamps 0xE0,
+                                             // scene_transition tests it non-zero for an SFX, and
+                                             // script_interp calls it a pulse gate. Policy 4 tests
+                                             // BIT 0 and nothing else, so bit 0 is the only bit
+                                             // named here — the byte's other bits are somebody
+                                             // else's claim to make.
 constexpr uint32_t kContactFlagRefusesTop = 0x01;
 
 // The second shared scratchpad output, alongside kContactAngleSlot. ActorTomba names the pair
 // OUT_DIST_SPAD / OUT_HEADING_SPAD (game/player/actor_tomba.cpp) — this body publishes both.
-constexpr uint32_t kContactDistSlot = 140;     // 0x1F80008C — the XZ separation, SIGN-EXTENDED, which
-                                               // is what the guest itself does here (sll/sra 16).
+constexpr uint32_t kContactDistSlot = 140; // 0x1F80008C — the XZ separation, SIGN-EXTENDED, which
+                                           // is what the guest itself does here (sll/sra 16).
 
 // ── this function's own guest stack ──────────────────────────────────────────────────────────────
 // From `abi_extract.py 0x80023A04 --scaffold --guestabi`, program order. Not hand-derived.
 constexpr uint32_t kPolicyFrameBytes = 56;
 constexpr GuestFrameSpill kPolicySpills[10] = {
-  { 18, 24 }, { 19, 28 }, { 31 /*ra*/, 52 }, { 30, 48 }, { 23, 44 },
-  { 22, 40 }, { 21, 36 }, { 20, 32 }, { 17, 20 }, { 16, 16 },
+    {18, 24},
+    {19, 28},
+    {31 /*ra*/, 52},
+    {30, 48},
+    {23, 44},
+    {22, 40},
+    {21, 36},
+    {20, 32},
+    {17, 20},
+    {16, 16},
 };
-constexpr uint32_t kRaPairDist         = 0x80023A8Cu;   // Math::sqrtLzc  0x80084080
-constexpr uint32_t kRaPairContactAngle = 0x80023B58u;   // Trig::ratan2   0x80085690
-constexpr uint32_t kRaPairPushCos      = 0x80023B8Cu;   // Trig::rcos     0x80083F50
-constexpr uint32_t kRaPairPushSin      = 0x80023BB0u;   // Trig::rsin     0x80083E80
-constexpr uint32_t kRaPairFacingCmp    = 0x80023C08u;   // Trig::angleCmp 0x80077768
+constexpr uint32_t kRaPairDist = 0x80023A8Cu;         // Math::sqrtLzc  0x80084080
+constexpr uint32_t kRaPairContactAngle = 0x80023B58u; // Trig::ratan2   0x80085690
+constexpr uint32_t kRaPairPushCos = 0x80023B8Cu;      // Trig::rcos     0x80083F50
+constexpr uint32_t kRaPairPushSin = 0x80023BB0u;      // Trig::rsin     0x80083E80
+constexpr uint32_t kRaPairFacingCmp = 0x80023C08u;    // Trig::angleCmp 0x80077768
 
 // ── the five contact policies ────────────────────────────────────────────────────────────────────
 // a2's low nibble indexes a FIVE-ENTRY jump table in MAIN.EXE's .rodata. The table was read out of
@@ -243,50 +275,50 @@ constexpr uint32_t kRaPairFacingCmp    = 0x80023C08u;   // Trig::angleCmp 0x8007
 // fact from the ROM, not a guess from block order.
 constexpr uint32_t kPolicyTable = 0x80010180u;
 constexpr uint32_t kPolicyCount = 5;
-constexpr uint32_t kPolicySnapToNearerFace       = 0x80023C44u;  // 0
-constexpr uint32_t kPolicyRestOnTopUnlessRising  = 0x80023C5Cu;  // 1
-constexpr uint32_t kPolicySnapIntoApproachedFace = 0x80023C94u;  // 2
-constexpr uint32_t kPolicyRestOnTopAlways        = 0x80023C6Cu;  // 3
-constexpr uint32_t kPolicyRestOnTopUnlessFlagged = 0x80023CE0u;  // 4
+constexpr uint32_t kPolicySnapToNearerFace = 0x80023C44u;       // 0
+constexpr uint32_t kPolicyRestOnTopUnlessRising = 0x80023C5Cu;  // 1
+constexpr uint32_t kPolicySnapIntoApproachedFace = 0x80023C94u; // 2
+constexpr uint32_t kPolicyRestOnTopAlways = 0x80023C6Cu;        // 3
+constexpr uint32_t kPolicyRestOnTopUnlessFlagged = 0x80023CE0u; // 4
 
 // v0 again, and DELIBERATELY not the cylinderResolve codes — 0 and -1 swap roles between the two.
 constexpr uint32_t kPairPushedOutInXz = 0;
-}  // namespace
+} // namespace
 
 // ORACLE: gen_func_80023D48
-void CollisionResolve::cylinderResolve(Core* c) {
-  const uint32_t actorArg  = c->r[4];
-  const uint32_t otherArg  = c->r[5];
+void CollisionResolve::cylinderResolve(Core *c) {
+  const uint32_t actorArg = c->r[4];
+  const uint32_t otherArg = c->r[5];
   const uint32_t anchorArg = c->r[6];
 
   GuestFrame<kResolveFrameBytes, 10> frame(c, kResolveSpills);
   c->r[17] = actorArg;
   c->r[22] = otherArg;
   c->r[30] = anchorArg;
-  c->r[7]  = c->r[7] & 1u;   // gen narrows a3 in place and never writes it again; a3 stays live
-                             // into every callee, so the narrowing has to happen on the register
+  c->r[7] = c->r[7] & 1u; // gen narrows a3 in place and never writes it again; a3 stays live
+                          // into every callee, so the narrowing has to happen on the register
   const bool sampleAtFacingOffset = c->r[7] != 0;
 
-  const Rec actor { c, 17 };
-  const Rec other { c, 22 };
-  const Rec anchor{ c, 30 };
+  const Rec actor{c, 17};
+  const Rec other{c, 22};
+  const Rec anchor{c, 30};
 
   // Values the guest keeps in callee-saved registers because they outlive a call.
-  GuestReg<19> deltaZ(c);       // s3 — sampled point -> anchor, on Z
-  GuestReg<21> xzDistance(c);   // s5 — |sampled point -> anchor| in XZ, from Math::sqrtLzc
-  GuestReg<23> yBias(c);        // s7 — actor +0x7E on the facing-offset entry, 0 on the raw entry
+  GuestReg<19> deltaZ(c);     // s3 — sampled point -> anchor, on Z
+  GuestReg<21> xzDistance(c); // s5 — |sampled point -> anchor| in XZ, from Math::sqrtLzc
+  GuestReg<23> yBias(c);      // s7 — actor +0x7E on the facing-offset entry, 0 on the raw entry
 
   // ── entry geometry ─────────────────────────────────────────────────────────────────────────────
   // flags&1 picks which point is tested. Set: a point pushed `sampleRadius` out along the actor's
   // facing angle (used when the caller is resolving the actor's leading edge rather than its
   // centre). Clear: the actor's own position, and no offset to undo later.
   if (sampleAtFacingOffset) {
-    GuestReg<16> sampleOffsetX(c);   // s0 — live across the rsin call below
+    GuestReg<16> sampleOffsetX(c); // s0 — live across the rsin call below
 
-    c->r[4] = (uint32_t)actor.s16(kActorAngle);                        // a0 = facing angle
+    c->r[4] = (uint32_t)actor.s16(kActorAngle); // a0 = facing angle
     guest_call(c, kRaSampleCos, func_80083F50);
     guest_mult(c, (int32_t)c->r[2], actor.s16(kActorSampleRadius));
-    c->r[4] = (uint32_t)actor.s16(kActorAngle);                        // a0 = facing angle
+    c->r[4] = (uint32_t)actor.s16(kActorAngle); // a0 = facing angle
     sampleOffsetX = (uint32_t)((int32_t)c->lo >> 12);
     guest_call(c, kRaSampleSin, func_80083E80);
     guest_mult(c, (int32_t)c->r[2], actor.s16(kActorSampleRadius));
@@ -300,20 +332,20 @@ void CollisionResolve::cylinderResolve(Core* c) {
 
     const uint32_t sampleOffsetZ = (uint32_t)(sinTimesRadius >> 12);
     const uint32_t dz = actor.u16(kActorZ) - sampleOffsetZ - anchor.u16(kAnchorZ);
-    c->r[6] = deltaXSq;              // gen leaves dx² in a2, and it is still there at the ratan2
-                                     // call further down — keep it on the register, not in a local
+    c->r[6] = deltaXSq; // gen leaves dx² in a2, and it is still there at the ratan2
+                        // call further down — keep it on the register, not in a local
     guest_mult(c, (int16_t)dz, (int16_t)dz);
 
     c->mem_w16(c->r[29] + kLocalSampleOffsetX, (uint16_t)sampleOffsetX);
-    c->mem_w16(c->r[29] + kLocalDeltaX,        (uint16_t)dx);
+    c->mem_w16(c->r[29] + kLocalDeltaX, (uint16_t)dx);
     c->mem_w16(c->r[29] + kLocalSampleOffsetZ, (uint16_t)sampleOffsetZ);
 
-    deltaZ  = dz;
-    c->r[5] = sampleOffsetZ;         // a1 still holds the Z offset at the call below
-    c->r[4] = deltaXSq + c->lo;      // a0 = dx² + dz²
+    deltaZ = dz;
+    c->r[5] = sampleOffsetZ;    // a1 still holds the Z offset at the call below
+    c->r[4] = deltaXSq + c->lo; // a0 = dx² + dz²
     guest_call(c, kRaSampleDist, func_80084080);
     xzDistance = c->r[2];
-    yBias      = actor.u16(kActorYBias);
+    yBias = actor.u16(kActorYBias);
   } else {
     const uint32_t dx = actor.u16(kActorX) - anchor.u16(kAnchorX);
     guest_mult(c, (int16_t)dx, (int16_t)dx);
@@ -321,14 +353,14 @@ void CollisionResolve::cylinderResolve(Core* c) {
     const uint32_t dz = actor.u16(kActorZ) - anchor.u16(kAnchorZ);
     guest_mult(c, (int16_t)dz, (int16_t)dz);
 
-    yBias = 0u;                      // no offset was applied, so nothing to bias the Y test by
+    yBias = 0u; // no offset was applied, so nothing to bias the Y test by
     c->mem_w16(c->r[29] + kLocalSampleOffsetX, 0u);
     c->mem_w16(c->r[29] + kLocalSampleOffsetZ, 0u);
     c->mem_w16(c->r[29] + kLocalDeltaX, (uint16_t)dx);
 
-    deltaZ  = dz;
-    c->r[5] = deltaXSq;              // a1 leftover, exactly as gen leaves it
-    c->r[4] = deltaXSq + c->lo;      // a0 = dx² + dz²
+    deltaZ = dz;
+    c->r[5] = deltaXSq;         // a1 leftover, exactly as gen leaves it
+    c->r[4] = deltaXSq + c->lo; // a0 = dx² + dz²
     guest_call(c, kRaRawDist, func_80084080);
     xzDistance = c->r[2];
   }
@@ -343,10 +375,9 @@ void CollisionResolve::cylinderResolve(Core* c) {
   // ── gate 2: vertical band ──────────────────────────────────────────────────────────────────────
   // restOffsetOnTop is how far above the anchor the actor sits when it is resting on the top face.
   const uint32_t deltaY = actor.u16(kActorY) + yBias - anchor.u16(kAnchorY);
-  const uint32_t restOffsetOnTop =
-      other.u16(kOtherExtentLo) + (actor.u16(kActorExtentHi) - actor.u16(kActorExtentLo));
+  const uint32_t restOffsetOnTop = other.u16(kOtherExtentLo) + (actor.u16(kActorExtentHi) - actor.u16(kActorExtentLo));
   const uint32_t bandProbe = (deltaY + restOffsetOnTop) & 0xFFFFu;
-  const int32_t  bandSpan  = actor.s16(kActorExtentHi) + other.s16(kOtherExtentHi);
+  const int32_t bandSpan = actor.s16(kActorExtentHi) + other.s16(kOtherExtentHi);
   if (bandSpan < (int32_t)bandProbe) {
     c->r[2] = kNoCollision;
     return;
@@ -357,54 +388,52 @@ void CollisionResolve::cylinderResolve(Core* c) {
   // and the resolve is a snap UP onto the top face (a negative offset); Δy >= 0 means it is below,
   // and it gets pushed further under. verticalReach stays positive on both sides — it is the
   // separation the two bands may still have and count as touching.
-  GuestReg<16> verticalSnap(c);    // s0 — SIGNED: < 0 rest on top, > 0 pushed underneath
-  GuestReg<18> verticalGap(c);     // s2 — |Δy|
-  GuestReg<20> verticalReach(c);   // s4
-  verticalSnap  = restOffsetOnTop;
-  verticalGap   = deltaY;
+  GuestReg<16> verticalSnap(c);  // s0 — SIGNED: < 0 rest on top, > 0 pushed underneath
+  GuestReg<18> verticalGap(c);   // s2 — |Δy|
+  GuestReg<20> verticalReach(c); // s4
+  verticalSnap = restOffsetOnTop;
+  verticalGap = deltaY;
   verticalReach = restOffsetOnTop;
   if ((int16_t)deltaY < 0) {
-    verticalGap  = 0u - deltaY;
+    verticalGap = 0u - deltaY;
     verticalSnap = 0u - restOffsetOnTop;
   } else {
-    verticalSnap  = actor.u16(kActorExtentLo) + (other.u16(kOtherExtentHi) - other.u16(kOtherExtentLo));
+    verticalSnap = actor.u16(kActorExtentLo) + (other.u16(kOtherExtentHi) - other.u16(kOtherExtentLo));
     verticalReach = verticalSnap;
   }
 
   // The contact angle from the anchor to the sampled point, published to the scratchpad for the
   // caller. Z is negated because the guest's ratan2 takes (y, x) in screen-ish orientation.
   const int32_t contactDz = (int16_t)(uint32_t)deltaZ;
-  c->r[4] = (uint32_t)(-contactDz);                                            // a0
-  c->r[5] = (uint32_t)(int16_t)c->mem_r16(c->r[29] + kLocalDeltaX);            // a1
+  c->r[4] = (uint32_t)(-contactDz);                                 // a0
+  c->r[5] = (uint32_t)(int16_t)c->mem_r16(c->r[29] + kLocalDeltaX); // a1
   guest_call(c, kRaContactAngle, func_80085690);
-  GuestReg<19> scratchpad(c);      // s3 — dz is consumed, and gen reuses the register as the base
+  GuestReg<19> scratchpad(c); // s3 — dz is consumed, and gen reuses the register as the base
   scratchpad = kScratchpadBase;
   c->mem_w32(scratchpad + kContactAngleSlot, c->r[2]);
 
   // Resolve along whichever axis is LESS deeply penetrated — the shorter way out.
-  const int32_t xzPenetration =
-      (actor.s16(kActorHeightHi) - actor.s16(kActorHeightLo) + other.s16(kOtherRadius))
-      - (int32_t)(int16_t)(uint32_t)xzDistance;
-  const int32_t yPenetration =
-      (int32_t)(int16_t)(uint32_t)verticalReach - (int32_t)(int16_t)(uint32_t)verticalGap;
+  const int32_t xzPenetration = (actor.s16(kActorHeightHi) - actor.s16(kActorHeightLo) + other.s16(kOtherRadius)) -
+                                (int32_t)(int16_t)(uint32_t)xzDistance;
+  const int32_t yPenetration = (int32_t)(int16_t)(uint32_t)verticalReach - (int32_t)(int16_t)(uint32_t)verticalGap;
 
   if (xzPenetration < yPenetration) {
     // ── horizontal push-out: put the actor back on the contact circle around the anchor ──────────
     if (actor.u8(kActorType) == kActorTypeTracksFacing) {
-      c->r[4] = (uint32_t)(int16_t)c->mem_r16(scratchpad + kContactAngleSlot);  // a0 = contact angle
-      c->r[5] = (uint32_t)actor.s16(kActorFacingRef);                           // a1 = reference
-      c->r[6] = 1u;                                                             // a2
+      c->r[4] = (uint32_t)(int16_t)c->mem_r16(scratchpad + kContactAngleSlot); // a0 = contact angle
+      c->r[5] = (uint32_t)actor.s16(kActorFacingRef);                          // a1 = reference
+      c->r[6] = 1u;                                                            // a2
       guest_call(c, kRaFacingCmp, func_80077768);
       c->mem_w8(actor.base() + kActorFacing, (uint8_t)(c->r[2] + 2));
     }
 
     const int32_t contactRadius = actor.s16(kActorHeightLo) + other.s16(kOtherRadius);
-    GuestReg<16> contactOffsetX(c);   // s0 — live across the rsin call
+    GuestReg<16> contactOffsetX(c); // s0 — live across the rsin call
 
-    c->r[4] = c->mem_r32(scratchpad + kContactAngleSlot);                       // a0 = contact angle
+    c->r[4] = c->mem_r32(scratchpad + kContactAngleSlot); // a0 = contact angle
     guest_call(c, kRaPushCos, func_80083F50);
     guest_mult(c, (int32_t)c->r[2], contactRadius);
-    c->r[4] = c->mem_r32(scratchpad + kContactAngleSlot);                       // a0 = contact angle
+    c->r[4] = c->mem_r32(scratchpad + kContactAngleSlot); // a0 = contact angle
     contactOffsetX = (uint32_t)((int32_t)c->lo >> 12);
     guest_call(c, kRaPushSin, func_80083E80);
     guest_mult(c, (int32_t)c->r[2], contactRadius);
@@ -412,31 +441,26 @@ void CollisionResolve::cylinderResolve(Core* c) {
 
     // The facing offset applied on the way in has to come back out of the position written.
     const uint32_t undoOffsetX = c->mem_r16(c->r[29] + kLocalSampleOffsetX);
-    c->mem_w16(actor.base() + kActorX,
-               (uint16_t)(anchor.u16(kAnchorX) + contactOffsetX - undoOffsetX));
+    c->mem_w16(actor.base() + kActorX, (uint16_t)(anchor.u16(kAnchorX) + contactOffsetX - undoOffsetX));
     const uint32_t undoOffsetZ = c->mem_r16(c->r[29] + kLocalSampleOffsetZ);
-    c->mem_w16(actor.base() + kActorZ,
-               (uint16_t)(anchor.u16(kAnchorZ) - contactOffsetZ - undoOffsetZ));
+    c->mem_w16(actor.base() + kActorZ, (uint16_t)(anchor.u16(kAnchorZ) - contactOffsetZ - undoOffsetZ));
     c->r[2] = kPushedOutInXz;
     return;
   }
 
   // ── vertical resolve: sit the actor at the snap offset from the anchor's own Y ─────────────────
-  const int32_t snap    = (int16_t)(uint32_t)verticalSnap;
+  const int32_t snap = (int16_t)(uint32_t)verticalSnap;
   const int32_t biasOut = (int16_t)(uint32_t)yBias;
   if (snap > 0) {
-    c->mem_w32(actor.base() + kActorY32,
-               (anchor.u32(kAnchorY) + (uint32_t)snap - (uint32_t)biasOut) << 16);
+    c->mem_w32(actor.base() + kActorY32, (anchor.u32(kAnchorY) + (uint32_t)snap - (uint32_t)biasOut) << 16);
     c->r[2] = kSnappedInY;
     return;
   }
   // snap <= 0: the actor came to rest ON TOP of the anchor, which is what "landed" means.
   c->mem_w8(actor.base() + kActorLanded, 1u);
-  c->mem_w32(actor.base() + kActorY32,
-             (anchor.u32(kAnchorY) + (uint32_t)snap - (uint32_t)biasOut) << 16);
+  c->mem_w32(actor.base() + kActorY32, (anchor.u32(kAnchorY) + (uint32_t)snap - (uint32_t)biasOut) << 16);
   c->r[2] = kLandedOnTop;
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FUN_8002423C — actor-vs-object VERTICAL LANDING SNAP. The close relative of cylinderResolve above:
@@ -469,7 +493,7 @@ void CollisionResolve::cylinderResolve(Core* c) {
 // than one table being reused for both roles.
 //
 // ORACLE: gen_func_8002423C
-void CollisionResolve::landOnObjectTop(Core* c) {
+void CollisionResolve::landOnObjectTop(Core *c) {
   const uint32_t actorArg = c->r[4];
   const uint32_t otherArg = c->r[5];
 
@@ -477,8 +501,8 @@ void CollisionResolve::landOnObjectTop(Core* c) {
   c->r[16] = actorArg;
   c->r[17] = otherArg;
 
-  const Rec actor{ c, 16 };
-  const Rec other{ c, 17 };
+  const Rec actor{c, 16};
+  const Rec other{c, 17};
 
   // gate 1 — a rising actor never lands on anything.
   if (actor.s16(kActorVelY) < 0) {
@@ -492,20 +516,19 @@ void CollisionResolve::landOnObjectTop(Core* c) {
   const uint32_t deltaXSq = c->lo;
   const uint32_t dz = actor.u16(kActorZ) - other.u16(kOtherZ);
   guest_mult(c, (int16_t)dz, (int16_t)dz);
-  c->r[4] = deltaXSq + c->lo;                    // a0 = dx² + dz²
+  c->r[4] = deltaXSq + c->lo; // a0 = dx² + dz²
   guest_call(c, kRaLandDist, func_80084080);
   const uint32_t xzDistance = c->r[2] & 0xFFFFu;
-  const int32_t  xzReach    = actor.s16(kActorHeightLo) + other.s16(kOtherRadius);
+  const int32_t xzReach = actor.s16(kActorHeightLo) + other.s16(kOtherRadius);
   if (xzReach < (int32_t)xzDistance) {
     c->r[2] = kLandRejected;
     return;
   }
 
   // gate 3 — vertical band. restOffset is where the actor's origin ends up when it rests on top.
-  const uint32_t restOffset =
-      (other.u16(kOtherExtentLo) + actor.u16(kActorExtentHi)) - actor.u16(kActorExtentLo);
+  const uint32_t restOffset = (other.u16(kOtherExtentLo) + actor.u16(kActorExtentHi)) - actor.u16(kActorExtentLo);
   const uint32_t bandProbe = (actor.u16(kActorY) - other.u16(kOtherY) + restOffset) & 0xFFFFu;
-  const int32_t  bandSpan  = actor.s16(kActorExtentHi) + other.s16(kOtherExtentHi);
+  const int32_t bandSpan = actor.s16(kActorExtentHi) + other.s16(kOtherExtentHi);
   if (bandSpan < (int32_t)bandProbe) {
     c->r[2] = kLandRejected;
     return;
@@ -577,9 +600,9 @@ void CollisionResolve::landOnObjectTop(Core* c) {
 // value of ours is observable and the pure scratch becomes ordinary locals.
 //
 // ORACLE: gen_func_8001F40C
-void CollisionResolve::classifyBodyContact(Core* c) {
-  const uint32_t actorArg        = c->r[4];
-  const uint32_t otherArg        = c->r[5];
+void CollisionResolve::classifyBodyContact(Core *c) {
+  const uint32_t actorArg = c->r[4];
+  const uint32_t otherArg = c->r[5];
   const uint32_t suppressSnapArg = c->r[6];
 
   GuestFrame<kClassifyFrameBytes, 10> frame(c, kClassifySpills);
@@ -590,17 +613,17 @@ void CollisionResolve::classifyBodyContact(Core* c) {
   // the sqrt call, which abi_extract's call-site report confirms.
   c->r[30] = suppressSnapArg;
 
-  const Rec actor{ c, 17 };
-  const Rec other{ c, 20 };
+  const Rec actor{c, 17};
+  const Rec other{c, 20};
 
   // Values the guest keeps in callee-saved registers because they outlive a call.
-  GuestReg<19> deltaX(c);         // s3 — actor -> other, on X; live into ratan2
-  GuestReg<18> deltaZ(c);         // s2 — actor -> other, on Z; live into ratan2
-  GuestReg<22> xzDistance(c);     // s6 — |actor -> other| in XZ, from Math::sqrtLzc
-  GuestReg<16> deltaY(c);         // s0
-  GuestReg<21> verticalReach(c);  // s5 — how far apart the two bands may be and still touch
-  GuestReg<23> verticalGap(c);    // s7 — |Δy|
-  GuestReg<30> suppressSnap(c);   // s8 — a2: classify only, do not touch the actor
+  GuestReg<19> deltaX(c);        // s3 — actor -> other, on X; live into ratan2
+  GuestReg<18> deltaZ(c);        // s2 — actor -> other, on Z; live into ratan2
+  GuestReg<22> xzDistance(c);    // s6 — |actor -> other| in XZ, from Math::sqrtLzc
+  GuestReg<16> deltaY(c);        // s0
+  GuestReg<21> verticalReach(c); // s5 — how far apart the two bands may be and still touch
+  GuestReg<23> verticalGap(c);   // s7 — |Δy|
+  GuestReg<30> suppressSnap(c);  // s8 — a2: classify only, do not touch the actor
 
   // World coordinates are stored as u16, so each delta is truncated to 16 bits and sign-extended
   // BEFORE squaring — squaring the raw difference would square a value near 65535 instead of -1.
@@ -611,7 +634,7 @@ void CollisionResolve::classifyBodyContact(Core* c) {
   const uint32_t deltaXSq = c->lo;
   deltaZ = (uint32_t)(int32_t)(int16_t)(actor.u16(kActorZ) - other.u16(kOtherZ));
   guest_mult(c, (int32_t)(uint32_t)deltaZ, (int32_t)(uint32_t)deltaZ);
-  c->r[4] = deltaXSq + c->lo;                    // a0 = dx² + dz²
+  c->r[4] = deltaXSq + c->lo; // a0 = dx² + dz²
   guest_call(c, kRaBodyDist, func_80084080);
   xzDistance = c->r[2];
 
@@ -629,8 +652,8 @@ void CollisionResolve::classifyBodyContact(Core* c) {
   const uint32_t restOffsetUnder = other.u16(kOtherExtentLo) + actor.u16(kActorExtentLo);
   verticalReach = restOffsetUnder;
   const uint32_t bandProbe = ((uint32_t)deltaY + restOffsetUnder) & 0xFFFFu;
-  const int32_t  bandSpan  = actor.s16(kActorExtentHi) + other.s16(kOtherExtentHi);
-  verticalGap = deltaY;            // gen sets s7 in the branch delay slot, i.e. unconditionally
+  const int32_t bandSpan = actor.s16(kActorExtentHi) + other.s16(kOtherExtentHi);
+  verticalGap = deltaY; // gen sets s7 in the branch delay slot, i.e. unconditionally
   if (bandSpan < (int32_t)bandProbe) {
     c->r[2] = kNoContact;
     return;
@@ -639,23 +662,23 @@ void CollisionResolve::classifyBodyContact(Core* c) {
   // ── the contact heading, published for the caller to push along ────────────────────────────────
   // Z is negated because the guest's ratan2 takes (y, x) in screen-ish orientation — same convention
   // as cylinderResolve's own contact-angle call.
-  c->r[4] = 0u - (uint32_t)deltaZ;               // a0
-  c->r[5] = (uint32_t)deltaX;                    // a1
+  c->r[4] = 0u - (uint32_t)deltaZ; // a0
+  c->r[5] = (uint32_t)deltaX;      // a1
   guest_call(c, kRaBodyContactAngle, func_80085690);
   c->mem_w32(kScratchpadBase + kContactAngleSlot, c->r[2]);
 
   // Note the UNSIGNED reads here: gate 1 compared the radii as s16, the penetration uses them as
   // u16. gen genuinely does both, and the difference matters for a negative radius.
-  const uint32_t radiusSum      = actor.u16(kActorHeightLo) + other.u16(kOtherRadius);
-  const uint32_t xzPenetration  = radiusSum - (uint32_t)xzDistance;
-  const int32_t  deltaYs16      = (int16_t)(uint32_t)deltaY;
+  const uint32_t radiusSum = actor.u16(kActorHeightLo) + other.u16(kOtherRadius);
+  const uint32_t xzPenetration = radiusSum - (uint32_t)xzDistance;
+  const int32_t deltaYs16 = (int16_t)(uint32_t)deltaY;
 
   if (deltaYs16 < 0) {
     // Guest Y grows DOWNWARD, so Δy < 0 is the actor ABOVE the other body.
     verticalGap = 0u - (uint32_t)deltaY;
   } else {
-    verticalReach = (other.u16(kOtherExtentHi) - other.u16(kOtherExtentLo))
-                  + (actor.u16(kActorExtentHi) - actor.u16(kActorExtentLo));
+    verticalReach = (other.u16(kOtherExtentHi) - other.u16(kOtherExtentLo)) +
+                    (actor.u16(kActorExtentHi) - actor.u16(kActorExtentLo));
   }
 
   // ── which side, and which way out ──────────────────────────────────────────────────────────────
@@ -663,9 +686,9 @@ void CollisionResolve::classifyBodyContact(Core* c) {
   // extent into the other body before it stops counting as an approach from above. The halving is a
   // signed divide by two rounding toward zero, which is why the sign bit is added back in first.
   const uint32_t actorExtentLo = actor.u16(kActorExtentLo);
-  const uint32_t extentLoSign  = (actorExtentLo << 16) >> 31;
-  const int32_t  halfExtentLo  = ((int32_t)(int16_t)actorExtentLo + (int32_t)extentLoSign) >> 1;
-  const uint32_t yPenetration  = (uint32_t)verticalReach - (uint32_t)verticalGap;
+  const uint32_t extentLoSign = (actorExtentLo << 16) >> 31;
+  const int32_t halfExtentLo = ((int32_t)(int16_t)actorExtentLo + (int32_t)extentLoSign) >> 1;
+  const uint32_t yPenetration = (uint32_t)verticalReach - (uint32_t)verticalGap;
   const bool xzIsShorterWayOut = (int16_t)xzPenetration < (int16_t)yPenetration;
 
   if (deltaYs16 < -halfExtentLo) {
@@ -681,20 +704,29 @@ void CollisionResolve::classifyBodyContact(Core* c) {
   // Three ways to be told "classify only, don't touch him": he is paused, another interaction holds
   // the lock word this frame, or the caller passed a2 != 0. All three still return the code.
   c->r[2] = kBelowResolveInY;
-  if (actor.u16(kActorStateFlags) & kActorPausedBit)          return;
-  if (c->mem_r32(kScratchpadBase + kContactLockSlot) != 0)    return;
-  if ((uint32_t)suppressSnap != 0)                            return;
+  if (actor.u16(kActorStateFlags) & kActorPausedBit) {
+    return;
+  }
+  if (c->mem_r32(kScratchpadBase + kContactLockSlot) != 0) {
+    return;
+  }
+  if ((uint32_t)suppressSnap != 0) {
+    return;
+  }
 
   c->mem_w8(kScratchpadBase + kContactKindSlot, kContactKindUndersideBump);
   c->mem_w16(actor.base() + kActorY,
-             (uint16_t)(other.u16(kOtherY)
-                        + (other.u16(kOtherExtentHi) - other.u16(kOtherExtentLo))
-                        + (actor.u16(kActorExtentHi) - actorExtentLo)));
+             (uint16_t)(other.u16(kOtherY) + (other.u16(kOtherExtentHi) - other.u16(kOtherExtentLo)) +
+                        (actor.u16(kActorExtentHi) - actorExtentLo)));
 
   // Cancel a RISING velocity only — +0x4A is signed and negative means launched upward. A falling
   // actor keeps its velocity, because it is landing on something, not hitting his head on it.
-  if (actor.u8(kActorWalkState) != 1) return;
-  if (actor.s16(kActorVelY) >= 0)     return;
+  if (actor.u8(kActorWalkState) != 1) {
+    return;
+  }
+  if (actor.s16(kActorVelY) >= 0) {
+    return;
+  }
   c->mem_w16(actor.base() + kActorVelY, 0u);
 }
 
@@ -758,26 +790,26 @@ void CollisionResolve::classifyBodyContact(Core* c) {
 // guest-stack reason the header banner gives.
 //
 // ORACLE: gen_func_80023A04
-void CollisionResolve::resolveByContactPolicy(Core* c) {
-  const uint32_t actorArg  = c->r[4];
-  const uint32_t otherArg  = c->r[5];
+void CollisionResolve::resolveByContactPolicy(Core *c) {
+  const uint32_t actorArg = c->r[4];
+  const uint32_t otherArg = c->r[5];
   const uint32_t policyArg = c->r[6];
 
   GuestFrame<kPolicyFrameBytes, 10> frame(c, kPolicySpills);
   c->r[18] = actorArg;
   c->r[19] = otherArg;
 
-  const Rec actor{ c, 18 };
-  const Rec other{ c, 19 };
+  const Rec actor{c, 18};
+  const Rec other{c, 19};
 
   // Values the guest keeps in callee-saved registers because they outlive a call.
-  GuestReg<23> deltaX(c);         // s7 — actor -> other, on X; live into ratan2
-  GuestReg<20> deltaZ(c);         // s4 — actor -> other, on Z; live into ratan2, then REUSED
-  GuestReg<22> xzDistance(c);     // s6 — |actor -> other| in XZ, from Math::sqrtLzc
-  GuestReg<21> xzPenetration(c);  // s5
-  GuestReg<16> yPenetration(c);   // s0 — later REUSED as the push-out X offset
-  GuestReg<17> verticalSnap(c);   // s1 — SIGNED: <= 0 rest on top, > 0 pushed out underneath
-  GuestReg<30> policy(c);         // s8 — a2
+  GuestReg<23> deltaX(c);        // s7 — actor -> other, on X; live into ratan2
+  GuestReg<20> deltaZ(c);        // s4 — actor -> other, on Z; live into ratan2, then REUSED
+  GuestReg<22> xzDistance(c);    // s6 — |actor -> other| in XZ, from Math::sqrtLzc
+  GuestReg<21> xzPenetration(c); // s5
+  GuestReg<16> yPenetration(c);  // s0 — later REUSED as the push-out X offset
+  GuestReg<17> verticalSnap(c);  // s1 — SIGNED: <= 0 rest on top, > 0 pushed out underneath
+  GuestReg<30> policy(c);        // s8 — a2
 
   // World coordinates are stored as u16, so each delta is truncated to 16 bits and sign-extended
   // BEFORE squaring — squaring the raw difference would square a value near 65535 instead of -1.
@@ -787,10 +819,10 @@ void CollisionResolve::resolveByContactPolicy(Core* c) {
   const uint32_t deltaXSq = c->lo;
   const uint32_t dz = actor.u16(kActorZ) - other.u16(kOtherZ);
   guest_mult(c, (int16_t)dz, (int16_t)dz);
-  policy  = policyArg;
-  deltaX  = dx;
-  deltaZ  = dz;
-  c->r[4] = deltaXSq + c->lo;                    // a0 = dx² + dz²
+  policy = policyArg;
+  deltaX = dx;
+  deltaZ = dz;
+  c->r[4] = deltaXSq + c->lo; // a0 = dx² + dz²
   guest_call(c, kRaPairDist, func_80084080);
   const uint32_t distance = c->r[2];
   xzDistance = distance;
@@ -798,7 +830,7 @@ void CollisionResolve::resolveByContactPolicy(Core* c) {
   // ── gate 1: XZ overlap ─────────────────────────────────────────────────────────────────────────
   // Both radii read TWICE, once signed for the gate and once unsigned for the penetration below.
   const uint32_t radiusSumUnsigned = actor.u16(kActorHeightLo) + other.u16(kOtherRadius);
-  const int32_t  xzReach           = actor.s16(kActorHeightLo) + other.s16(kOtherRadius);
+  const int32_t xzReach = actor.s16(kActorHeightLo) + other.s16(kOtherRadius);
   if (xzReach < (int32_t)(distance & 0xFFFFu)) {
     c->r[2] = kNoContact;
     return;
@@ -808,10 +840,9 @@ void CollisionResolve::resolveByContactPolicy(Core* c) {
   // restOffsetOnTop is where the actor's origin ends up when it is resting on the other's top face —
   // the same expression landOnObjectTop calls restOffset.
   const uint32_t deltaY = actor.u16(kActorY) - other.u16(kOtherY);
-  const uint32_t restOffsetOnTop =
-      (other.u16(kOtherExtentLo) + actor.u16(kActorExtentHi)) - actor.u16(kActorExtentLo);
+  const uint32_t restOffsetOnTop = (other.u16(kOtherExtentLo) + actor.u16(kActorExtentHi)) - actor.u16(kActorExtentLo);
   const uint32_t bandProbe = (deltaY + restOffsetOnTop) & 0xFFFFu;
-  const int32_t  bandSpan  = actor.s16(kActorExtentHi) + other.s16(kOtherExtentHi);
+  const int32_t bandSpan = actor.s16(kActorExtentHi) + other.s16(kOtherExtentHi);
   if (bandSpan < (int32_t)bandProbe) {
     c->r[2] = kNoContact;
     return;
@@ -823,14 +854,14 @@ void CollisionResolve::resolveByContactPolicy(Core* c) {
   // level or below and gets pushed out underneath instead. The REACH stays positive on both sides.
   xzPenetration = radiusSumUnsigned - distance;
   const uint32_t otherBandThickness = other.u16(kOtherExtentHi) - other.u16(kOtherExtentLo);
-  uint32_t verticalGap;                          // t4 — |Δy|; caller-saved, and no call reads it
+  uint32_t verticalGap; // t4 — |Δy|; caller-saved, and no call reads it
   if ((int16_t)deltaY < 0) {
-    verticalGap  = 0u - deltaY;
+    verticalGap = 0u - deltaY;
     yPenetration = restOffsetOnTop;
     verticalSnap = 0u - restOffsetOnTop;
   } else {
     const uint32_t restOffsetUnderneath = actor.u16(kActorExtentLo) + otherBandThickness;
-    verticalGap  = deltaY;
+    verticalGap = deltaY;
     yPenetration = restOffsetUnderneath;
     verticalSnap = restOffsetUnderneath;
   }
@@ -838,18 +869,17 @@ void CollisionResolve::resolveByContactPolicy(Core* c) {
   // The contact heading from the other object to the actor, published to the scratchpad for the
   // caller. Z is negated because the guest's ratan2 takes (y, x) in screen-ish orientation — the
   // same convention cylinderResolve and classifyBodyContact use.
-  c->r[4]      = (uint32_t)(0 - (int32_t)(int16_t)(uint32_t)deltaZ);   // a0
-  c->r[5]      = (uint32_t)(int32_t)(int16_t)(uint32_t)deltaX;         // a1
+  c->r[4] = (uint32_t)(0 - (int32_t)(int16_t)(uint32_t)deltaZ); // a0
+  c->r[5] = (uint32_t)(int32_t)(int16_t)(uint32_t)deltaX;       // a1
   yPenetration = (uint32_t)yPenetration - verticalGap;
   guest_call(c, kRaPairContactAngle, func_80085690);
 
-  c->r[4] = c->r[2];               // a0 = the contact heading, and gen leaves it there all the way
-                                   // into the rcos call below — so it stays on the register
+  c->r[4] = c->r[2]; // a0 = the contact heading, and gen leaves it there all the way
+                     // into the rcos call below — so it stays on the register
   const uint32_t contactHeading = c->r[4];
-  GuestReg<20> scratchpad(c);      // s4 — dz is consumed, and gen reuses the register as the base
+  GuestReg<20> scratchpad(c); // s4 — dz is consumed, and gen reuses the register as the base
   scratchpad = kScratchpadBase;
-  c->mem_w32(kScratchpadBase + kContactDistSlot,
-             (uint32_t)(int32_t)(int16_t)(uint32_t)xzDistance);
+  c->mem_w32(kScratchpadBase + kContactDistSlot, (uint32_t)(int32_t)(int16_t)(uint32_t)xzDistance);
 
   // Resolve along whichever axis is LESS deeply penetrated — the shorter way out. Both compared as
   // s16; gen shifts s0 left 16 in place and the contract lists that shifted value as live at every
@@ -861,11 +891,11 @@ void CollisionResolve::resolveByContactPolicy(Core* c) {
 
   if (xzIsShorterWayOut) {
     // ── horizontal push-out: put the actor back on the contact circle around the other object ────
-    GuestReg<16> contactOffsetX(c);   // s0 — live across the rsin call
+    GuestReg<16> contactOffsetX(c); // s0 — live across the rsin call
     guest_call(c, kRaPairPushCos, func_80083F50);
     const int32_t contactRadius = actor.s16(kActorHeightLo) + other.s16(kOtherRadius);
     guest_mult(c, (int32_t)c->r[2], contactRadius);
-    c->r[4] = c->mem_r32(scratchpad + kContactAngleSlot);                     // a0 = the heading again
+    c->r[4] = c->mem_r32(scratchpad + kContactAngleSlot); // a0 = the heading again
     contactOffsetX = (uint32_t)((int32_t)c->lo >> 12);
     guest_call(c, kRaPairPushSin, func_80083E80);
     guest_mult(c, (int32_t)c->r[2], contactRadius);
@@ -875,9 +905,9 @@ void CollisionResolve::resolveByContactPolicy(Core* c) {
     c->mem_w16(actor.base() + kActorZ, (uint16_t)(other.u16(kOtherZ) - contactOffsetZ));
 
     if (actor.u8(kActorType) == kActorTypeTracksFacing) {
-      c->r[4] = (uint32_t)(int16_t)c->mem_r16(scratchpad + kContactAngleSlot);  // a0 = the heading
-      c->r[5] = (uint32_t)actor.s16(kActorFacingRef);                           // a1 = reference
-      c->r[6] = 1u;                                                             // a2
+      c->r[4] = (uint32_t)(int16_t)c->mem_r16(scratchpad + kContactAngleSlot); // a0 = the heading
+      c->r[5] = (uint32_t)actor.s16(kActorFacingRef);                          // a1 = reference
+      c->r[6] = 1u;                                                            // a2
       guest_call(c, kRaPairFacingCmp, func_80077768);
       c->mem_w8(actor.base() + kActorFacing, (uint8_t)(c->r[2] + 2));
     }
@@ -901,77 +931,83 @@ void CollisionResolve::resolveByContactPolicy(Core* c) {
     return;
   }
   switch (c->mem_r32(kPolicyTable + policyIndex * 4u)) {
-    case kPolicySnapToNearerFace:
-      // Policy 0 — resolve into whichever face the actor is already nearer, unconditionally.
-      snapByVerticalOffset();
-      c->r[2] = pushedOutUnderneath ? kSnappedInY : kLandedOnTop;
+  case kPolicySnapToNearerFace:
+    // Policy 0 — resolve into whichever face the actor is already nearer, unconditionally.
+    snapByVerticalOffset();
+    c->r[2] = pushedOutUnderneath ? kSnappedInY : kLandedOnTop;
+    return;
+
+  case kPolicyRestOnTopUnlessRising:
+    // Policy 1 — a rising actor (+0x4A signed, negative means launched upward) is not caught; it
+    // passes straight through. The one-way platform rule. Otherwise policy 3's write.
+    if (actor.s16(kActorVelY) < 0) {
+      c->r[2] = kNoContact;
       return;
+    }
+    [[fallthrough]];
 
-    case kPolicyRestOnTopUnlessRising:
-      // Policy 1 — a rising actor (+0x4A signed, negative means launched upward) is not caught; it
-      // passes straight through. The one-way platform rule. Otherwise policy 3's write.
-      if (actor.s16(kActorVelY) < 0) {
-        c->r[2] = kNoContact;
-        return;
-      }
-      [[fallthrough]];
+  case kPolicyRestOnTopAlways:
+    // Policy 3 — always stand the actor on the top face, whatever side it came from. The
+    // solid-object rule, and the same write landOnObjectTop performs.
+    c->mem_w16(actor.base() + kActorY, (uint16_t)(other.u16(kOtherY) - restOffsetOnTop));
+    c->r[2] = kLandedOnTop;
+    return;
 
-    case kPolicyRestOnTopAlways:
-      // Policy 3 — always stand the actor on the top face, whatever side it came from. The
-      // solid-object rule, and the same write landOnObjectTop performs.
-      c->mem_w16(actor.base() + kActorY, (uint16_t)(other.u16(kOtherY) - restOffsetOnTop));
-      c->r[2] = kLandedOnTop;
-      return;
-
-    case kPolicySnapIntoApproachedFace:
-      // Policy 2 — resolve ONLY into the face the actor is actually moving toward: falling (velY
-      // >= 0) is caught by the top face, rising (velY < 0) is stopped by the underside, and a
-      // contact against the face it is moving AWAY from is refused outright.
-      if (pushedOutUnderneath) {
-        if (actor.s16(kActorVelY) >= 0) {
-          c->r[2] = kNoContact;
-          return;
-        }
-        snapByVerticalOffset();
-        c->r[2] = kSnappedInY;
-        return;
-      }
-      if (actor.s16(kActorVelY) < 0) {
+  case kPolicySnapIntoApproachedFace:
+    // Policy 2 — resolve ONLY into the face the actor is actually moving toward: falling (velY
+    // >= 0) is caught by the top face, rising (velY < 0) is stopped by the underside, and a
+    // contact against the face it is moving AWAY from is refused outright.
+    if (pushedOutUnderneath) {
+      if (actor.s16(kActorVelY) >= 0) {
         c->r[2] = kNoContact;
         return;
       }
       snapByVerticalOffset();
-      c->r[2] = kLandedOnTop;
+      c->r[2] = kSnappedInY;
       return;
+    }
+    if (actor.s16(kActorVelY) < 0) {
+      c->r[2] = kNoContact;
+      return;
+    }
+    snapByVerticalOffset();
+    c->r[2] = kLandedOnTop;
+    return;
 
-    case kPolicyRestOnTopUnlessFlagged:
-      // Policy 4 — policy 3, but the object itself can refuse to be stood on this frame via bit 0
-      // of its +0xBF flag byte.
-      if (actor.u8(kActorContactFlags) & kContactFlagRefusesTop) {
-        c->r[2] = kNoContact;
-        return;
-      }
-      c->mem_w16(actor.base() + kActorY, (uint16_t)(other.u16(kOtherY) - restOffsetOnTop));
-      c->r[2] = kLandedOnTop;
+  case kPolicyRestOnTopUnlessFlagged:
+    // Policy 4 — policy 3, but the object itself can refuse to be stood on this frame via bit 0
+    // of its +0xBF flag byte.
+    if (actor.u8(kActorContactFlags) & kContactFlagRefusesTop) {
+      c->r[2] = kNoContact;
       return;
+    }
+    c->mem_w16(actor.base() + kActorY, (uint16_t)(other.u16(kOtherY) - restOffsetOnTop));
+    c->r[2] = kLandedOnTop;
+    return;
 
-    default:
-      // Unreachable by construction — the table has exactly kPolicyCount entries and the bounds
-      // check above admits only those indices. Kept because the guest's `jr` IS a real indirect
-      // dispatch site and abi_extract's contract reports it as one. NOT kept to satisfy the gate:
-      // measured 2026-07-30, deleting this line still gives port_check a PASS, because its
-      // op-sequence extractor counts the five `guest_call` sites and drops the switch default on
-      // both sides. That blind spot is recorded in docs/re/collision-resolve-23d48.md.
-      rec_dispatch(c, c->mem_r32(kPolicyTable + policyIndex * 4u));
-      return;
+  default:
+    // Unreachable by construction — the table has exactly kPolicyCount entries and the bounds
+    // check above admits only those indices. Kept because the guest's `jr` IS a real indirect
+    // dispatch site and abi_extract's contract reports it as one. NOT kept to satisfy the gate:
+    // measured 2026-07-30, deleting this line still gives port_check a PASS, because its
+    // op-sequence extractor counts the five `guest_call` sites and drops the switch default on
+    // both sides. That blind spot is recorded in docs/re/collision-resolve-23d48.md.
+    rec_dispatch(c, c->mem_r32(kPolicyTable + policyIndex * 4u));
+    return;
   }
 }
 
-void CollisionResolve::registerOverrides(Game*) {
+void CollisionResolve::registerOverrides(Game *) {
   engine_set_override_main(0x80023D48u, &CollisionResolve::cylinderResolve, gen_func_80023D48);
   engine_set_override_main(0x8002423Cu, &CollisionResolve::landOnObjectTop, gen_func_8002423C);
-  overrides::install(0x8001F40Cu, "CollisionResolve::classifyBodyContact",
-                     &CollisionResolve::classifyBodyContact, gen_func_8001F40C, shard_set_override);
-  overrides::install(0x80023A04u, "CollisionResolve::resolveByContactPolicy",
-                     &CollisionResolve::resolveByContactPolicy, gen_func_80023A04, shard_set_override);
+  overrides::install(0x8001F40Cu,
+                     "CollisionResolve::classifyBodyContact",
+                     &CollisionResolve::classifyBodyContact,
+                     gen_func_8001F40C,
+                     shard_set_override);
+  overrides::install(0x80023A04u,
+                     "CollisionResolve::resolveByContactPolicy",
+                     &CollisionResolve::resolveByContactPolicy,
+                     gen_func_80023A04,
+                     shard_set_override);
 }

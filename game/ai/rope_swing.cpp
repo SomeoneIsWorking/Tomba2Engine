@@ -56,18 +56,18 @@
 
 #include "core.h"
 #include "guest_abi.h"
-#include "override_registry.h"
 #include "ov_a00_decls.h"
+#include "override_registry.h"
 
 namespace {
 
 // tools/abi_extract.py 0x801281B8 --scaffold --guestabi, program order
 constexpr GuestFrameSpill kSpills_801281B8[2] = {
-  { 16, 16 },
-  { 31 /*ra*/, 20 },
+    {16, 16},
+    {31 /*ra*/, 20},
 };
 
-constexpr uint32_t kRaAfterPreTick = 0x801281CCu;   // -> ov_a00_func_801284AC, runs before the swing
+constexpr uint32_t kRaAfterPreTick = 0x801281CCu; // -> ov_a00_func_801284AC, runs before the swing
 
 // Stage 1: how hard the spring pulls back per unit of overshoot.
 constexpr int32_t kRestoreGain = 6;
@@ -77,31 +77,31 @@ constexpr int32_t kDecayPerTick = 100;
 constexpr int32_t kSwingSpeedLimit = 15360;
 // Stage 4: angle -> bend. bendUnit = (angle * 5 >> 4) + 25; segment i gets (bendUnit*(i+2) >> 4)
 // minus the shared (bendUnit >> 5).
-constexpr int32_t kBendNumer     = 5;
-constexpr int32_t kBendShift     = 4;
-constexpr int32_t kBendBase      = 25;
-constexpr int32_t kSegmentShift  = 4;
+constexpr int32_t kBendNumer = 5;
+constexpr int32_t kBendShift = 4;
+constexpr int32_t kBendBase = 25;
+constexpr int32_t kSegmentShift = 4;
 constexpr int32_t kBendTrimShift = 5;
-constexpr int32_t kVelToAngleShift = 8;   // angle += velocity / 256
+constexpr int32_t kVelToAngleShift = 8; // angle += velocity / 256
 
-}  // namespace
+} // namespace
 
 // ORACLE: ov_a00_gen_801281B8
-void RopeSwing::swingTickAndBendSegments(Core* c) {
+void RopeSwing::swingTickAndBendSegments(Core *c) {
   GuestFrame<24, 2> frame(c, kSpills_801281B8);
 
-  GuestReg<16> nodeReg(c);                 // s0 — live across the call below
+  GuestReg<16> nodeReg(c); // s0 — live across the call below
   nodeReg = c->r[4];
   guest_call(c, kRaAfterPreTick, ov_a00_func_801284AC);
 
-  const RopeNode       node { c, c->r[16] };
-  const RopeSwingState sw   { c, c->r[16] + ropeswing::kStateBlock };
+  const RopeNode node{c, c->r[16]};
+  const RopeSwingState sw{c, c->r[16] + ropeswing::kStateBlock};
 
   // ── 1. spring: add the impulse, then pull back six times any overshoot past the target ─────────
   const uint32_t pushed = sw.swingVelRaw() + sw.impulse();
-  const int32_t  angle0 = sw.angle();
-  const int32_t  target = sw.targetAngle();
-  sw.setSwingVel((uint16_t)pushed);                       // stored on BOTH arms (guest delay slot)
+  const int32_t angle0 = sw.angle();
+  const int32_t target = sw.targetAngle();
+  sw.setSwingVel((uint16_t)pushed); // stored on BOTH arms (guest delay slot)
   if (target < angle0) {
     const int32_t overshoot = angle0 - target;
     sw.setSwingVel((uint16_t)(pushed - (uint32_t)(overshoot * kRestoreGain)));
@@ -111,11 +111,15 @@ void RopeSwing::swingTickAndBendSegments(Core* c) {
   if (sw.swingVel() >= 0) {
     const uint32_t dec = sw.swingVelRaw() - (uint32_t)kDecayPerTick;
     sw.setSwingVel((uint16_t)dec);
-    if ((int32_t)(dec << 16) < 0) sw.setSwingVel(0);      // went negative -> rest
+    if ((int32_t)(dec << 16) < 0) {
+      sw.setSwingVel(0); // went negative -> rest
+    }
   } else {
     const uint32_t inc = sw.swingVelRaw() + (uint32_t)kDecayPerTick;
     sw.setSwingVel((uint16_t)inc);
-    if ((int32_t)(inc << 16) > 0) sw.setSwingVel(0);      // went positive -> rest
+    if ((int32_t)(inc << 16) > 0) {
+      sw.setSwingVel(0); // went positive -> rest
+    }
   }
 
   // ── 3. speed limit ─────────────────────────────────────────────────────────────────────────────
@@ -125,11 +129,17 @@ void RopeSwing::swingTickAndBendSegments(Core* c) {
   {
     const int32_t v = sw.swingVel();
     int32_t limited = 0;
-    bool    outOfRange = true;
-    if (v < -kSwingSpeedLimit)             limited = -kSwingSpeedLimit;
-    else if (v < kSwingSpeedLimit + 1)     outOfRange = false;
-    else                                   limited = kSwingSpeedLimit;
-    if (outOfRange) sw.setSwingVel((uint16_t)(uint32_t)limited);
+    bool outOfRange = true;
+    if (v < -kSwingSpeedLimit) {
+      limited = -kSwingSpeedLimit;
+    } else if (v < kSwingSpeedLimit + 1) {
+      outOfRange = false;
+    } else {
+      limited = kSwingSpeedLimit;
+    }
+    if (outOfRange) {
+      sw.setSwingVel((uint16_t)(uint32_t)limited);
+    }
   }
 
   // ── 4. integrate the angle, republish, and bend the segments ───────────────────────────────────
@@ -141,20 +151,26 @@ void RopeSwing::swingTickAndBendSegments(Core* c) {
 
   const int32_t bendUnit = ((sw.angle() * kBendNumer) >> kBendShift) + kBendBase;
   const uint32_t count = node.segmentCount();
-  if (count == 0) return;
+  if (count == 0) {
+    return;
+  }
 
   // The bend GROWS with the segment index — the tip travels further than the anchor end.
   const int32_t trim = bendUnit >> kBendTrimShift;
   for (uint32_t i = 0; i < count; i++) {
     guest_mult(c, bendUnit, (int32_t)(i + 2u));
-    const RopeSegment seg{ c, node.segmentPtr(i) };
+    const RopeSegment seg{c, node.segmentPtr(i)};
     seg.setBendZ((uint16_t)(((int32_t)c->lo >> kSegmentShift) - trim));
-    if (!((int32_t)(i + 1u) < (int32_t)node.segmentCount())) break;
+    if (!((int32_t)(i + 1u) < (int32_t)node.segmentCount())) {
+      break;
+    }
   }
 }
 
 void RopeSwing::registerOverrides() {
-  overrides::install(0x801281B8u, "RopeSwing::swingTickAndBendSegments",
-                     &RopeSwing::swingTickAndBendSegments, ov_a00_gen_801281B8,
+  overrides::install(0x801281B8u,
+                     "RopeSwing::swingTickAndBendSegments",
+                     &RopeSwing::swingTickAndBendSegments,
+                     ov_a00_gen_801281B8,
                      ov_a00_set_override);
 }

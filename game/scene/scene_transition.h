@@ -35,17 +35,17 @@ class Core;
 class SceneTransition {
 public:
   // Back-pointer wired once by Core's constructor (same pattern as ScreenFade::core).
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // ── Guest addresses (the swap uses main-RAM registers the still-substrate scene reads) ────
-  static constexpr uint32_t BF817_SWAP_KEY   = 0x800BF817u;
+  static constexpr uint32_t BF817_SWAP_KEY = 0x800BF817u;
   static constexpr uint32_t BF818_SWAP_PHASE = 0x800BF818u;
-  static constexpr uint32_t BF80F_SUSPEND    = 0x800BF80Fu;   // bf80c[3] — non-zero gates every case
-  static constexpr uint32_t E7EA9_ARMED      = 0x800E7EA9u;   // case-0/3 SECOND-branch gate
-  static constexpr uint32_t E7FFB_INHIBIT    = 0x800E7FFBu;   // case-0/3 SECOND-branch gate
-  static constexpr uint32_t E7FC5_FLAG       = 0x800E7FC5u;   // cleared by resetSwap
-  static constexpr uint32_t SCENE_BLOCK      = 0x800E7E80u;   // s0-base cleared by resetSwap
-  static constexpr uint32_t IF800137_PAUSE   = 0x1F800137u;   // case-0/3 tail: latch =2 if 0
+  static constexpr uint32_t BF80F_SUSPEND = 0x800BF80Fu;  // bf80c[3] — non-zero gates every case
+  static constexpr uint32_t E7EA9_ARMED = 0x800E7EA9u;    // case-0/3 SECOND-branch gate
+  static constexpr uint32_t E7FFB_INHIBIT = 0x800E7FFBu;  // case-0/3 SECOND-branch gate
+  static constexpr uint32_t E7FC5_FLAG = 0x800E7FC5u;     // cleared by resetSwap
+  static constexpr uint32_t SCENE_BLOCK = 0x800E7E80u;    // s0-base cleared by resetSwap
+  static constexpr uint32_t IF800137_PAUSE = 0x1F800137u; // case-0/3 tail: latch =2 if 0
 
   // ── FUN_800782F0: area-mask "seen" register + area-mode bit ─────────────────────────────────
   // For area < 9, OR a per-(area,sub) bit into the 32-bit register at 0x800BFE50. Then, if the
@@ -70,7 +70,7 @@ public:
   // node = 68B object base. Walks the sub-state at node[6] (0..5). Returns 0/1 exactly like the
   // guest (only case 5's "consume" returns 1); the JT1[0]==2 caller reads it to decide whether
   // to advance node[5].
-  int  stepSwapWaiter(uint32_t node);
+  int stepSwapWaiter(uint32_t node);
 
   // ── FUN_80054198: clear swap-block ephemerals ─────────────────────────────────────────────
   // Small state-clearing helper called on the SCENE_BLOCK (0x800E7E80) — resetSwap uses it as its

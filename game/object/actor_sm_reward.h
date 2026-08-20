@@ -26,15 +26,15 @@
 // these via rec_dispatch(c, addr) — both paths land here and get traced by the `dispatch` channel.
 #pragma once
 struct Core;
-class  Game;
+class Game;
 
 class ActorReward {
 public:
-  static void smWindowScroll(Core* c);   // FUN_80049A60(obj a0, side a1)
-  static void smTallyTick(Core* c);      // FUN_80049E54(obj a0, step a1) -> v0
-  static void smEventDispatch(Core* c);  // FUN_8004A3D4(obj a0) -> v0
-  static void smBlinkA(Core* c);         // FUN_8004B150(obj a0, side a1)
-  static void smBlinkB(Core* c);         // FUN_8004B208(obj a0, side a1)
+  static void smWindowScroll(Core *c);  // FUN_80049A60(obj a0, side a1)
+  static void smTallyTick(Core *c);     // FUN_80049E54(obj a0, step a1) -> v0
+  static void smEventDispatch(Core *c); // FUN_8004A3D4(obj a0) -> v0
+  static void smBlinkA(Core *c);        // FUN_8004B150(obj a0, side a1)
+  static void smBlinkB(Core *c);        // FUN_8004B208(obj a0, side a1)
 
   // --- WIDE-RE DRAFT (2026-07-08, region 0x80070000-0x8007FFFF) --- UNWIRED, UNVERIFIED. ---
   // FUN_80070018 is the reward/score-gem actor's TOP-LEVEL per-frame update: it drives the same
@@ -43,13 +43,13 @@ public:
   // GraphicsBind::renderUpdateBody or the Spawn/Trig cull wrapper (FN_77B5C) depending on obj+0x5f
   // bit 0x80. Not independently wired: no override registration, no SBS run. See actor_sm_reward.cpp
   // for the field map and docs/engine_re.md for the region survey.
-  static void update(Core* c);           // FUN_80070018(obj a0)
-  static void resolvePosition(Core* c);  // FUN_800702C0(obj a0) -- position-source switch (obj+0x5e)
-  static void approachTargetX(Core* c);  // FUN_80070650(obj a0) -- ease obj+0x2e toward obj+0x60
+  static void update(Core *c);          // FUN_80070018(obj a0)
+  static void resolvePosition(Core *c); // FUN_800702C0(obj a0) -- position-source switch (obj+0x5e)
+  static void approachTargetX(Core *c); // FUN_80070650(obj a0) -- ease obj+0x2e toward obj+0x60
 
   // Wire all five guest addresses into the override registry (overrides::install), each with a
   // shard_set_override setter so the substrate's direct func_<addr>(c) calls from FUN_8004AAC4
   // redirect here too — a native caller reaching these via rec_dispatch also lands here and gets
   // `dispatch`-channel traced.
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

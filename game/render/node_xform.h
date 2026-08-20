@@ -16,12 +16,12 @@ class Game;
 
 class NodeXform {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // registerOverrides — dual-wire seedBlock/propagateRotmat/propagateAxis/buildAxis onto `game`
   // via the process-global override registry (overrides::install + shard_set_override). Called
   // once per Game — including SBS's own separately-constructed Games.
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 
   // build (guest FUN_80051844): compose this node's world matrix at node+0x98 from its local
   // euler+translation, copy the world-pos triple, and propagate to children via propagate().

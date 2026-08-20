@@ -18,12 +18,12 @@ class Core;
 
 class Array8Dispatch {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // Guest constants for the fixed array + type dispatch table.
-  static constexpr uint32_t ARRAY_BASE   = 0x80100400u;   // slot 0 base
-  static constexpr uint32_t SLOT_STRIDE  = 0x4Cu;         // 76-byte slots, 8 total
-  static constexpr uint32_t METHOD_TABLE = 0x8009D314u;   // type byte -> u32 handler
+  static constexpr uint32_t ARRAY_BASE = 0x80100400u;   // slot 0 base
+  static constexpr uint32_t SLOT_STRIDE = 0x4Cu;        // 76-byte slots, 8 total
+  static constexpr uint32_t METHOD_TABLE = 0x8009D314u; // type byte -> u32 handler
 
   // tick: one call = one full sweep of the 8-slot array. Was `ov_arr8_dispatch_26368` /
   // rec_dispatch(0x80026368).

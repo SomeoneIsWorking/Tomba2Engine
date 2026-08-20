@@ -83,7 +83,7 @@ class Game;
 
 class ActorMeleeEngage {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // doIt (FUN_80112188): native-C-stack call, NOT guest-ABI framed. Use this from any future NATIVE
   // caller (no guest stack frame needed). Returns v0 (0/1/2), see the .h banner above.
@@ -98,6 +98,6 @@ public:
   // (the recompiler's own per-overlay call table — the only real callers found are direct
   // `ov_a00_func_80112188(c)` sites) as the setter so both that call shape and rec_dispatch
   // (native-caller tracing) reach the native. See .cpp.
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };
 #endif

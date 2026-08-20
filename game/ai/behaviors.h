@@ -12,5 +12,5 @@ public:
   // areaSeasidePerframe (FUN_80113C5C, A00 overlay): the seaside per-area per-frame handler —
   // Tomba's mode-gated pre-update, the fixed mid-update trio, the aux-list walk, and the fixed
   // post-update pair. a0-free (reads the master G block directly). See area_seaside_perframe.cpp.
-  static void areaSeasidePerframe(Core* c);
+  static void areaSeasidePerframe(Core *c);
 };

@@ -25,69 +25,83 @@
 // node[6]/node[7] are signed char (int8); node[0x34]/node[0x38] are 32-bit; DAT_800E7FFE is a signed
 // short (lh). The byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net.
 
+#include "cfg.h"
+#include "collision.h" // Collision::listScan (FUN_80031780)
 #include "core.h"
 #include "game_ctx.h"
-#include "cfg.h"
+#include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
-#include "collision.h"  // Collision::listScan (FUN_80031780)
-#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-void rec_super_call(Core*, uint32_t);
-void rec_dispatch(Core*, uint32_t);
+void rec_super_call(Core *, uint32_t);
+void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
 constexpr uint32_t BEH_FN = 0x8002918Cu;
 
-static inline void     leaf1(Core* c, uint32_t a0, uint32_t fn) { c->r[4] = a0; rec_dispatch(c, fn); }
-static inline uint32_t call0(Core* c, uint32_t fn) { rec_dispatch(c, fn); return c->r[2]; }
-static inline uint32_t call1(Core* c, uint32_t a0, uint32_t fn) { c->r[4] = a0; rec_dispatch(c, fn); return c->r[2]; }
+static inline void leaf1(Core *c, uint32_t a0, uint32_t fn) {
+  c->r[4] = a0;
+  rec_dispatch(c, fn);
+}
+static inline uint32_t call0(Core *c, uint32_t fn) {
+  rec_dispatch(c, fn);
+  return c->r[2];
+}
+static inline uint32_t call1(Core *c, uint32_t a0, uint32_t fn) {
+  c->r[4] = a0;
+  rec_dispatch(c, fn);
+  return c->r[2];
+}
 
-}  // namespace
+} // namespace
 static constexpr GuestFrameSpill kSpills_8002918C[2] = {
-  { 16, 16 },
-  { 31 /*ra*/, 20 },
-};   // frame=24, from abi_extract --scaffold --guestabi
+    {16, 16},
+    {31 /*ra*/, 20},
+}; // frame=24, from abi_extract --scaffold --guestabi
 
-void beh_rand_phase_cull(Core* c) {
+void beh_rand_phase_cull(Core *c) {
   GuestFrame<24, 2> frame(c, kSpills_8002918C);
   uint32_t nd = c->r[4];
-  uint8_t  st = c->mem_r8(nd + 4);              // bVar1 = node[4] (unsigned byte)
+  uint8_t st = c->mem_r8(nd + 4); // bVar1 = node[4] (unsigned byte)
 
   if (st != 1) {
-    if (st > 1) {                                // 1 < bVar1
-      if (st > 3) return;                        // 3 < bVar1 -> nothing
-      eng(c).spawn.despawn(nd);                 // STATE 2/3: FUN_8007A624(node)
+    if (st > 1) { // 1 < bVar1
+      if (st > 3) {
+        return; // 3 < bVar1 -> nothing
+      }
+      eng(c).spawn.despawn(nd); // STATE 2/3: FUN_8007A624(node)
       return;
     }
-    if (st != 0) return;                         // st < 2, not 1, not 0 -> nothing
+    if (st != 0) {
+      return; // st < 2, not 1, not 0 -> nothing
+    }
     // ---- STATE 0: init ----
     c->mem_w8(nd + 4, 1);
     c->mem_w8(nd + 7, 0);
-    c->mem_w32(nd + 0x34, c->mem_r32(nd + 0x38));            // 32-bit copy
-    int32_t r = (int32_t)call0(c, 0x8009a450u);             // rand() draw
+    c->mem_w32(nd + 0x34, c->mem_r32(nd + 0x38)); // 32-bit copy
+    int32_t r = (int32_t)call0(c, 0x8009a450u);   // rand() draw
     c->mem_w8(nd + 6, (uint8_t)((int8_t)(int32_t)(r >> 0xb) + 8));
-    if (c->mem_r8(nd + 3) == 0x35u && c->mem_r16s(0x800E7FFEu) < 0) {  // node[3]=='5' && DAT_800E7FFE < 0
-      int32_t r2 = (int32_t)call0(c, 0x8009a450u);          // rand() draw
+    if (c->mem_r8(nd + 3) == 0x35u && c->mem_r16s(0x800E7FFEu) < 0) { // node[3]=='5' && DAT_800E7FFE < 0
+      int32_t r2 = (int32_t)call0(c, 0x8009a450u);                    // rand() draw
       c->mem_w8(nd + 6, (uint8_t)((int8_t)(int32_t)(r2 >> 0xc) + 3));
     }
     // FALLTHROUGH into the common tail
   }
 
   // ---- COMMON TAIL (STATE 1, or after STATE-0 init) ----
-  int32_t r3 = (int32_t)call0(c, 0x8009a450u);              // rand() draw
+  int32_t r3 = (int32_t)call0(c, 0x8009a450u); // rand() draw
   c->mem_w8(nd + 7, (uint8_t)(c->mem_r8s(nd + 7) + (int8_t)(int32_t)(r3 >> 9)));
-  int16_t cull = (int16_t)call1(c, nd, 0x8002b278u);        // sVar2 = FUN_8002B278(node) (short)
+  int16_t cull = (int16_t)call1(c, nd, 0x8002b278u); // sVar2 = FUN_8002B278(node) (short)
   if (c->mem_r8s(nd + 7) < 0) {
-    c->mem_w8(nd + 7, (uint8_t)(c->mem_r8(nd + 7) - 0x80));  // (int8)node[7] += -0x80  == clear sign bit
+    c->mem_w8(nd + 7, (uint8_t)(c->mem_r8(nd + 7) - 0x80)); // (int8)node[7] += -0x80  == clear sign bit
   } else {
     c->mem_w32(nd + 0x34, c->mem_r32(nd + 0x38));
     if (c->mem_r32(nd + 0x38) == 0) {
       c->mem_w8(nd + 4, 2);
     } else if (cull == 0) {
-      eng(c).collision.listScan(nd);                     // FUN_80031780(node) — native
+      eng(c).collision.listScan(nd); // FUN_80031780(node) — native
     }
   }
 }

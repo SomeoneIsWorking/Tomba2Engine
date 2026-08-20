@@ -1,2 +1,0 @@
-/usr/bin/llvm-ar qc liblucent.a CMakeFiles/lucent.dir/src/config.cpp.o CMakeFiles/lucent.dir/src/log.cpp.o
-/usr/bin/llvm-ranlib liblucent.a

@@ -88,20 +88,20 @@
 #include "core.h"
 #include <stdint.h>
 
-extern "C" void rec_dispatch(Core* c, uint32_t addr);
+extern "C" void rec_dispatch(Core *c, uint32_t addr);
 
 namespace {
-constexpr uint32_t GPU_SYS_BASE = (32778u << 16);              // 0x800A0000
-constexpr uint32_t GPU_SYS_TABLE      = GPU_SYS_BASE + 22936;  // 0x800A5998
-constexpr uint32_t GPU_SYS_INIT_FN    = GPU_SYS_BASE + 22940;  // 0x800A599C
-constexpr uint32_t GPU_BOOT_FLAG      = GPU_SYS_BASE + 22946;  // 0x800A59A2
-constexpr uint32_t GPU_CLIP_MAXW      = GPU_SYS_BASE + 22948;  // 0x800A59A4
-constexpr uint32_t GPU_CLIP_MAXH      = GPU_SYS_BASE + 22950;  // 0x800A59A6
-constexpr uint32_t GPU_CURRENT_ENV    = GPU_SYS_BASE + 22960;  // 0x800A59B0 (GPU_BOOT_FLAG+14)
+constexpr uint32_t GPU_SYS_BASE = (32778u << 16);          // 0x800A0000
+constexpr uint32_t GPU_SYS_TABLE = GPU_SYS_BASE + 22936;   // 0x800A5998
+constexpr uint32_t GPU_SYS_INIT_FN = GPU_SYS_BASE + 22940; // 0x800A599C
+constexpr uint32_t GPU_BOOT_FLAG = GPU_SYS_BASE + 22946;   // 0x800A59A2
+constexpr uint32_t GPU_CLIP_MAXW = GPU_SYS_BASE + 22948;   // 0x800A59A4
+constexpr uint32_t GPU_CLIP_MAXH = GPU_SYS_BASE + 22950;   // 0x800A59A6
+constexpr uint32_t GPU_CURRENT_ENV = GPU_SYS_BASE + 22960; // 0x800A59B0 (GPU_BOOT_FLAG+14)
 
-constexpr uint32_t FN_PUTDRAWENV_PACK = 0x80081FB0u;  // MAPPED not drafted, see file header
-constexpr uint32_t FN_MEMCPY_92       = 0x8009A3E0u;  // shared memcpy-like primitive, not drafted (out of band)
-}  // namespace
+constexpr uint32_t FN_PUTDRAWENV_PACK = 0x80081FB0u; // MAPPED not drafted, see file header
+constexpr uint32_t FN_MEMCPY_92 = 0x8009A3E0u;       // shared memcpy-like primitive, not drafted (out of band)
+} // namespace
 
 // func_80082240 (0x80082240) — SetDrawAreaTopLeft(x,y) word builder. DRAFT. RE'd from
 // generated/shard_6.c gen_func_80082240 (37 gen-C ln, no calls, no branches beyond the clip, no stack
@@ -109,7 +109,7 @@ constexpr uint32_t FN_MEMCPY_92       = 0x8009A3E0u;  // shared memcpy-like prim
 // GPU_CLIP_MAXW/MAXH (the SAME globals func_80082734's rect clip uses — offsets 22948/22950),
 // negative values clamp to 0. Returns 0xE3000000 (GP0(0xE3) SetDrawAreaTopLeft tag) |
 // (clampedY&1023)<<10 | (clampedX&1023).
-static void func_80082240(Core* c) {
+static void func_80082240(Core *c) {
   int32_t x = (int16_t)c->r[4];
   int32_t y = (int16_t)c->r[5];
 
@@ -138,7 +138,7 @@ static void func_80082240(Core* c) {
 // generated/shard_7.c gen_func_800822D8 (37 gen-C ln). IDENTICAL shape/clamp logic to func_80082240
 // above (same GPU_CLIP_MAXW/MAXH globals), only the tag differs: 0xE4000000 (GP0(0xE4)
 // SetDrawAreaBottomRight) instead of 0xE3000000.
-static void func_800822D8(Core* c) {
+static void func_800822D8(Core *c) {
   int32_t x = (int16_t)c->r[4];
   int32_t y = (int16_t)c->r[5];
 
@@ -167,7 +167,7 @@ static void func_800822D8(Core* c) {
 // generated/shard_0.c gen_func_80082370 (9 gen-C ln, fully self-contained, no clamp — offsets are
 // signed 11-bit HW fields, no range-check in the gen body). Guest ABI: a0(r4)=x, a1(r5)=y. Returns
 // 0xE5000000 (GP0(0xE5) SetDrawingOffset) | (y&2047)<<11 | (x&2047).
-static void func_80082370(Core* c) {
+static void func_80082370(Core *c) {
   uint32_t x = c->r[4] & 2047u;
   uint32_t y = c->r[5] & 2047u;
   c->r[2] = 0xE5000000u | (y << 11) | x;
@@ -181,16 +181,20 @@ static void func_80082370(Core* c) {
 // half), a1(r5)=ditherFlag (bool: nonzero ORs 0x200 into the tag half), a2(r6)=rgbBits (masked to
 // 0x9FF). Returns 0xE1000000 [|0x200 if ditherFlag!=0] | (rgbBits&0x9FF) [|0x400 if modeFlag!=0].
 // (Caller func_80081FB0 passes a0=*(drawEnv+23), a1=*(drawEnv+22), a2=*(drawEnv+20).)
-static void func_80082220(Core* c) {
+static void func_80082220(Core *c) {
   uint32_t modeFlag = c->r[4];
   uint32_t ditherFlag = c->r[5];
   uint32_t rgbBits = c->r[6];
 
   uint32_t tagHalf = 0xE1000000u;
-  if (ditherFlag != 0) tagHalf |= 0x200u;
+  if (ditherFlag != 0) {
+    tagHalf |= 0x200u;
+  }
 
   uint32_t lowHalf = rgbBits & 0x9FFu;
-  if (modeFlag != 0) lowHalf |= 0x400u;
+  if (modeFlag != 0) {
+    lowHalf |= 0x400u;
+  }
 
   c->r[2] = tagHalf | lowHalf;
 }
@@ -205,26 +209,29 @@ static void func_80082220(Core* c) {
 // ((-offY)&0xFF)>>3<<5 | ((-offX)&0xFF)>>3 — algebraically IDENTICAL to func_80083DE0's DR_TWIN tail
 // (verified: `((x&0xFF)>>3)<<5 == (x<<2)&0x3E0` for the Y-offset term, since both formulas only
 // depend on bits[3..7] of x).
-static void func_8008238C(Core* c) {
+static void func_8008238C(Core *c) {
   const uint32_t texWinSrc = c->r[4];
-  if (texWinSrc == 0) { c->r[2] = 0; return; }
+  if (texWinSrc == 0) {
+    c->r[2] = 0;
+    return;
+  }
 
-  c->r[29] -= 16;  // local scratch frame — dead stores, mirrored for stack-byte fidelity (see above)
+  c->r[29] -= 16; // local scratch frame — dead stores, mirrored for stack-byte fidelity (see above)
 
   uint32_t maskX = c->mem_r8(texWinSrc + 0);
   uint32_t maskXShifted = maskX >> 3;
-  c->mem_w32(c->r[29] + 0, maskXShifted);  // dead store
+  c->mem_w32(c->r[29] + 0, maskXShifted); // dead store
 
   int32_t offX = c->mem_r16s(texWinSrc + 4);
   uint32_t negOffX = (uint32_t)(0 - offX);
   negOffX &= 255u;
   negOffX = (uint32_t)((int32_t)negOffX >> 3);
-  c->mem_w32(c->r[29] + 8, negOffX);  // dead store
+  c->mem_w32(c->r[29] + 8, negOffX); // dead store
 
   uint32_t maskY = c->mem_r8(texWinSrc + 2);
   uint32_t twin = (maskXShifted << 10);
   uint32_t maskYShifted = maskY >> 3;
-  c->mem_w32(c->r[29] + 4, maskYShifted);  // dead store
+  c->mem_w32(c->r[29] + 4, maskYShifted); // dead store
   twin |= (maskYShifted << 15);
 
   int32_t offY = c->mem_r16s(texWinSrc + 6);
@@ -235,7 +242,7 @@ static void func_8008238C(Core* c) {
   negOffY = (uint32_t)((int32_t)negOffY >> 3);
   twin |= (negOffY << 5);
   twin |= negOffX;
-  c->mem_w32(c->r[29] + 12, negOffY);  // dead store
+  c->mem_w32(c->r[29] + 12, negOffY); // dead store
 
   c->r[29] += 16;
   c->r[2] = twin;
@@ -255,14 +262,14 @@ static void func_8008238C(Core* c) {
 // into their own guest frames, so those registers must hold the values the real machine had at each
 // call site (s2/r18 = &bootFlag global, s1/r17 = drawEnvPtr, s0/r16 = dstPacket) for the callee
 // frames to byte-match. Same doctrine as faithful-execution.md's "ABI slots hold live values".
-static void func_800815D0(Core* c) {
+static void func_800815D0(Core *c) {
   c->r[29] -= 32;
   c->mem_w32(c->r[29] + 24, c->r[18]);
-  c->r[18] = GPU_BOOT_FLAG;             // s2 = &bootFlag global (0x800A59A2), live across all calls
+  c->r[18] = GPU_BOOT_FLAG; // s2 = &bootFlag global (0x800A59A2), live across all calls
   c->mem_w32(c->r[29] + 28, c->r[31]);
   c->mem_w32(c->r[29] + 20, c->r[17]);
   c->mem_w32(c->r[29] + 16, c->r[16]);
-  c->r[17] = c->r[4];                   // s1 = drawEnvPtr (delay-slot write, unconditional)
+  c->r[17] = c->r[4]; // s1 = drawEnvPtr (delay-slot write, unconditional)
 
   auto epilogue = [&](uint32_t retVal) {
     c->r[2] = retVal;
@@ -277,18 +284,18 @@ static void func_800815D0(Core* c) {
   if (bootFlag >= 2) {
     // NOTE: this is the FALLTHROUGH arm of `if (bootFlag < 2) goto <skip>` in the raw gen-C — i.e.
     // the hook fires when bootFlag>=2, NOT <2. See the file header's polarity correction note.
-    c->r[4] = (32770u << 16) + (uint32_t)(int32_t)(-16492);  // 0x8001BF94, fixed BIOS-window hook arg
+    c->r[4] = (32770u << 16) + (uint32_t)(int32_t)(-16492); // 0x8001BF94, fixed BIOS-window hook arg
     uint32_t initFn = c->mem_r32(GPU_SYS_INIT_FN);
     c->r[5] = c->r[17];
-    c->r[31] = 0x8008161Cu;  // guest call-site return address — callees spill ra to their own frames
+    c->r[31] = 0x8008161Cu; // guest call-site return address — callees spill ra to their own frames
     rec_dispatch(c, initFn);
   }
 
-  c->r[16] = c->r[17] + 28;  // s0 = dstPacket, live across the remaining calls
+  c->r[16] = c->r[17] + 28; // s0 = dstPacket, live across the remaining calls
   c->r[4] = c->r[16];
   c->r[5] = c->r[17];
   c->r[31] = 0x8008162Cu;
-  rec_dispatch(c, FN_PUTDRAWENV_PACK);  // func_80081FB0, MAPPED not drafted — see file header
+  rec_dispatch(c, FN_PUTDRAWENV_PACK); // func_80081FB0, MAPPED not drafted — see file header
 
   c->mem_w32(c->r[17] + 28, c->mem_r32(c->r[17] + 28) | 0x00FFFFFFu);
 
@@ -298,8 +305,8 @@ static void func_800815D0(Core* c) {
   // indirection bug already found+fixed in DrawSync/ClearOTagR (wide_re_libgpu_leaves.cpp). The
   // original draft here read `mem_r32(GPU_SYS_TABLE + 24/8)` directly (single deref) — wrong.
   uint32_t tableBase = c->mem_r32(GPU_SYS_TABLE);
-  uint32_t drawOTagFnValue = c->mem_r32(tableBase + 24);  // table+0x18 = DrawOTag slot's VALUE, passed as DATA
-  uint32_t dmaSendFn = c->mem_r32(tableBase + 8);         // table+0x08 = DMA-send slot
+  uint32_t drawOTagFnValue = c->mem_r32(tableBase + 24); // table+0x18 = DrawOTag slot's VALUE, passed as DATA
+  uint32_t dmaSendFn = c->mem_r32(tableBase + 8);        // table+0x08 = DMA-send slot
   c->r[4] = drawOTagFnValue;
   c->r[5] = c->r[16];
   c->r[6] = 64u;
@@ -307,11 +314,11 @@ static void func_800815D0(Core* c) {
   c->r[31] = 0x80081664u;
   rec_dispatch(c, dmaSendFn);
 
-  c->r[4] = c->r[18] + 14;  // &bootFlag + 14 = GPU_CURRENT_ENV (0x800A59B0), exactly as the gen computes it
+  c->r[4] = c->r[18] + 14; // &bootFlag + 14 = GPU_CURRENT_ENV (0x800A59B0), exactly as the gen computes it
   c->r[5] = c->r[17];
   c->r[6] = 92u;
   c->r[31] = 0x80081674u;
-  rec_dispatch(c, FN_MEMCPY_92);  // func_8009A3E0, out-of-band shared primitive, not drafted
+  rec_dispatch(c, FN_MEMCPY_92); // func_8009A3E0, out-of-band shared primitive, not drafted
 
   epilogue(c->r[17]);
 }
@@ -324,16 +331,18 @@ static void func_800815D0(Core* c) {
 // intra-shard C calls (func_X(c), not rec_dispatch) at their call sites in generated/, so they wire
 // via the oracle-gated engine_set_override_main thunk (same shape as gpu_libgpu_leaves_install) —
 // this keeps SBS core B running the pure gen_func_* body.
-extern void gen_func_800815D0(Core*);
-extern void gen_func_80082240(Core*);
-extern void gen_func_800822D8(Core*);
-extern void gen_func_80082370(Core*);
-extern void gen_func_80082220(Core*);
-extern void gen_func_8008238C(Core*);
+extern void gen_func_800815D0(Core *);
+extern void gen_func_80082240(Core *);
+extern void gen_func_800822D8(Core *);
+extern void gen_func_80082370(Core *);
+extern void gen_func_80082220(Core *);
+extern void gen_func_8008238C(Core *);
 
 void gpu_putdrawenv_install() {
   static bool done = false;
-  if (done) return;
+  if (done) {
+    return;
+  }
   done = true;
   extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
   engine_set_override_main(0x800815D0u, func_800815D0, gen_func_800815D0);

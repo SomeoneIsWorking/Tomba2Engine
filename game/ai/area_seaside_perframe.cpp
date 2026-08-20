@@ -35,39 +35,42 @@
 //
 // Ghidra decomp scratch/decomp/seaside_perframe_113c5c.c.
 
-#include "core.h"
-#include "game_ctx.h"
-#include "cfg.h"
 #include "behaviors.h"
+#include "cfg.h"
+#include "core.h"
 #include "core/engine.h"
-void rec_dispatch(Core*, uint32_t);
-#include "player/actor_tomba.h"                // eng(c).actorTomba.interactWalk (FUN_80022760)
+#include "game_ctx.h"
+void rec_dispatch(Core *, uint32_t);
+#include "player/actor_tomba.h" // eng(c).actorTomba.interactWalk (FUN_80022760)
 
 namespace {
 
-constexpr uint32_t G                       = 0x800E7E80u;   // master G block (= Tomba's node)
-constexpr uint32_t AUX_LIST_HEAD_SPAD      = 0x1F800154u;   // ptr to aux-list u32 array
-constexpr uint32_t AUX_LIST_COUNT_SPAD     = 0x1F80015Cu;   // u8 count of items in that array
-constexpr uint32_t AUX_WALK_COUNTER_SPAD   = 0x1F800183u;   // per-frame counter DAT_1F800183
+constexpr uint32_t G = 0x800E7E80u;                     // master G block (= Tomba's node)
+constexpr uint32_t AUX_LIST_HEAD_SPAD = 0x1F800154u;    // ptr to aux-list u32 array
+constexpr uint32_t AUX_LIST_COUNT_SPAD = 0x1F80015Cu;   // u8 count of items in that array
+constexpr uint32_t AUX_WALK_COUNTER_SPAD = 0x1F800183u; // per-frame counter DAT_1F800183
 
 // Guest addresses of sub-behavior leaves this handler dispatches.
-constexpr uint32_t LEAF_G_TOMBA_TICK_22760 = 0x80022760u;   // Tomba tick on G (default mode)
+constexpr uint32_t LEAF_G_TOMBA_TICK_22760 = 0x80022760u; // Tomba tick on G (default mode)
 // (LEAF_G_POST_130C4 = FUN_801130C4 → moved to ActorTomba::postInteractWalk)
-constexpr uint32_t LEAF_G_MODE2_1334C      = 0x8011334Cu;   // mode-2-only tick on G (gated by 800E7FD8<2)
-constexpr uint32_t LEAF_TRIO_22554         = 0x80022554u;   // fixed trio 1/3 (no-arg engine tick)
-constexpr uint32_t LEAF_TRIO_113700        = 0x80113700u;   // fixed trio 2/3
-constexpr uint32_t LEAF_TRIO_1138E8        = 0x801138E8u;   // fixed trio 3/3
-constexpr uint32_t LEAF_AUX_ITEM_112A60    = 0x80112A60u;   // per-aux-item leaf (interaction)
-constexpr uint32_t LEAF_POST_112C0C        = 0x80112C0Cu;   // fixed post 1/2
-constexpr uint32_t LEAF_POST_112F14        = 0x80112F14u;   // fixed post 2/2
-constexpr uint32_t LEAF_G_POSTFRAME_10E904 = 0x8010E904u;   // Tomba post-frame tick on G
+constexpr uint32_t LEAF_G_MODE2_1334C = 0x8011334Cu;      // mode-2-only tick on G (gated by 800E7FD8<2)
+constexpr uint32_t LEAF_TRIO_22554 = 0x80022554u;         // fixed trio 1/3 (no-arg engine tick)
+constexpr uint32_t LEAF_TRIO_113700 = 0x80113700u;        // fixed trio 2/3
+constexpr uint32_t LEAF_TRIO_1138E8 = 0x801138E8u;        // fixed trio 3/3
+constexpr uint32_t LEAF_AUX_ITEM_112A60 = 0x80112A60u;    // per-aux-item leaf (interaction)
+constexpr uint32_t LEAF_POST_112C0C = 0x80112C0Cu;        // fixed post 1/2
+constexpr uint32_t LEAF_POST_112F14 = 0x80112F14u;        // fixed post 2/2
+constexpr uint32_t LEAF_G_POSTFRAME_10E904 = 0x8010E904u; // Tomba post-frame tick on G
 
 // Dispatch a G-arg sub-leaf.
-inline void gLeaf(Core* c, uint32_t leaf) { c->r[4] = G; rec_dispatch(c, leaf); }
+inline void gLeaf(Core *c, uint32_t leaf) {
+  c->r[4] = G;
+  rec_dispatch(c, leaf);
+}
 
 // Walk the aux render list, dispatching FUN_80112A60(item) per item type-gate.
 // Returns after the counter reaches 0 or an item's dispatch decides not to continue.
-inline void aux_list_walk(Core* c) {
+inline void aux_list_walk(Core *c) {
   const uint32_t listPtr = c->mem_r32(AUX_LIST_HEAD_SPAD);
   c->mem_w8(AUX_WALK_COUNTER_SPAD, c->mem_r8(AUX_LIST_COUNT_SPAD));
   uint32_t cursor = listPtr;
@@ -75,35 +78,41 @@ inline void aux_list_walk(Core* c) {
     const uint32_t item = c->mem_r32(cursor);
     c->mem_w8(AUX_WALK_COUNTER_SPAD, (uint8_t)(c->mem_r8(AUX_WALK_COUNTER_SPAD) - 1));
     cursor += 4;
-    if (c->mem_r8(item) & 2) continue;                    // already-processed guard
+    if (c->mem_r8(item) & 2) {
+      continue; // already-processed guard
+    }
     const uint8_t typ = c->mem_r8(item + 2);
-    if (typ == 1) {                                        // guarded skip on subtype==1
-      if (c->mem_r8(item + 3) != 1) continue;
+    if (typ == 1) { // guarded skip on subtype==1
+      if (c->mem_r8(item + 3) != 1) {
+        continue;
+      }
       // fall through into leaf dispatch (matches the recomp's LAB_80113D8C join point)
     } else if (typ >= 2) {
-      if (typ != 4 && typ != 7) continue;                  // only types 4/7 dispatch beyond
+      if (typ != 4 && typ != 7) {
+        continue; // only types 4/7 dispatch beyond
+      }
     } // typ == 0 → dispatch below
     c->r[4] = item;
     rec_dispatch(c, LEAF_AUX_ITEM_112A60);
   }
 }
 
-}  // namespace
+} // namespace
 
-void Behaviors::areaSeasidePerframe(Core* c) {
+void Behaviors::areaSeasidePerframe(Core *c) {
   // Pre-tick now NATIVE (ActorTomba::framePreTick, port_check PASS vs gen_func_8002288C). The body
   // reads its object out of r4 exactly as the guest does, so the argument is still set the same way.
   c->r[4] = G;
-  eng(c).actorTomba.framePreTick();                       // was gLeaf(LEAF_G_PRE_2288C)
+  eng(c).actorTomba.framePreTick(); // was gLeaf(LEAF_G_PRE_2288C)
 
   const uint8_t mode = c->mem_r8(G);
   const bool defaultMode = !(mode == 0 || mode == 2 || mode == 6);
   bool runMode2Tick = (mode == 2);
 
   if (defaultMode) {
-    eng(c).actorTomba.interactWalk();                   // native FUN_80022760 (Tomba interaction walk)
-    eng(c).actorTomba.postInteractWalk();               // native FUN_801130C4 (default-mode post-tick)
-    runMode2Tick = true;                                   // recomp falls through into `case 2`
+    eng(c).actorTomba.interactWalk();     // native FUN_80022760 (Tomba interaction walk)
+    eng(c).actorTomba.postInteractWalk(); // native FUN_801130C4 (default-mode post-tick)
+    runMode2Tick = true;                  // recomp falls through into `case 2`
   }
   // G+0x158 is the RIDE/ATTACH POINTER — the object Tomba is currently holding onto (written by
   // FUN_80057a68 as `player[0x158] = FUN_80024548(player, 0)`), 0 when he is attached to nothing.
@@ -118,7 +127,7 @@ void Behaviors::areaSeasidePerframe(Core* c) {
   // sinking under Tomba's weight); verified against the instruction stream, not the decompiler, which
   // rendered the operand as a pointer comparison.
   if (runMode2Tick && c->mem_r32(0x800E7FD8u) < 2u) {
-    gLeaf(c, LEAF_G_MODE2_1334C);                          // mode-2 sub-tick (gated)
+    gLeaf(c, LEAF_G_MODE2_1334C); // mode-2 sub-tick (gated)
   }
 
   // `cullq` — sample the CONTACT-STAMP GATE at the only phase where it means anything. FUN_80113700
@@ -135,25 +144,36 @@ void Behaviors::areaSeasidePerframe(Core* c) {
     uint32_t head = c->mem_r32(0x800F2738u), node = head;
     int len = 0, hit = -1;
     while (node >= 0x80000000u && node < 0x80200000u && len < 256) {
-      if (want && node == want) hit = len;
+      if (want && node == want) {
+        hit = len;
+      }
       node = c->mem_r32(node + 0x24u);
       len++;
-      if (node == head) break;                          // defensive: cyclic chain
+      if (node == head) {
+        break; // defensive: cyclic chain
+      }
     }
-    cfg_logf("cullq", "pre-trio: qA=%u qB=%u qC=%u gate=%08X mode=%u outer{head=%08X len=%d idx=%d}",
-             c->mem_r8(0x1F800144u), c->mem_r8(0x1F800150u), c->mem_r8(0x1F80015Cu),
-             c->mem_r32(0x1F800080u), mode, head, len, hit);
+    cfg_logf("cullq",
+             "pre-trio: qA=%u qB=%u qC=%u gate=%08X mode=%u outer{head=%08X len=%d idx=%d}",
+             c->mem_r8(0x1F800144u),
+             c->mem_r8(0x1F800150u),
+             c->mem_r8(0x1F80015Cu),
+             c->mem_r32(0x1F800080u),
+             mode,
+             head,
+             len,
+             hit);
   }
 
   // Fixed mid-update trio (fires in every mode 0/2/6 + default's fall-through).
-  rec_dispatch(c, LEAF_TRIO_22554);                        // no-args engine tick
-  rec_dispatch(c, LEAF_TRIO_113700);                       // no-args
-  rec_dispatch(c, LEAF_TRIO_1138E8);                       // no-args
+  rec_dispatch(c, LEAF_TRIO_22554);  // no-args engine tick
+  rec_dispatch(c, LEAF_TRIO_113700); // no-args
+  rec_dispatch(c, LEAF_TRIO_1138E8); // no-args
 
   aux_list_walk(c);
 
   // Fixed post-update pair + Tomba post-frame tick.
   rec_dispatch(c, LEAF_POST_112C0C);
   rec_dispatch(c, LEAF_POST_112F14);
-  eng(c).actorTomba.postFrameWaterCheck();                        // native FUN_8010E904 (Tomba post-frame water/sea)
+  eng(c).actorTomba.postFrameWaterCheck(); // native FUN_8010E904 (Tomba post-frame water/sea)
 }

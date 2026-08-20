@@ -7,29 +7,27 @@
 // rec_dispatch (each honors its own override identically). NO GTE, NO render packets. Extracted verbatim
 // from game_tomba2.cpp (one behavior, byte-identical) into its own module for PC-game code structure.
 // Diagnostic A/B gates (child40410/disp26c88/sm40558/fd10) are REPL channels, unchanged.
+#include "entity.h"
+#include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "object/actor.h"    // Actor::boundsCull (FUN_8007778C)
-#include "cfg.h"
+#include "graphics_bind.h" // ov_obj_render_update
+#include "object/actor.h"  // Actor::boundsCull (FUN_8007778C)
+#include "render/cull.h"   // class Cull (eng(c).cull.enqueueQueueA — FUN_80077E7C)
+#include "rng.h"           // class Rng (via rngOf(c).next())
+#include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "entity.h"
-#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
-#include "graphics_bind.h"   // ov_obj_render_update
-#include "rng.h"       // class Rng (via rngOf(c).next())
-#include "render/cull.h"     // class Cull (eng(c).cull.enqueueQueueA — FUN_80077E7C)
-void rec_super_call(Core*, uint32_t);
-void rec_dispatch(Core*, uint32_t);
+void rec_super_call(Core *, uint32_t);
+void rec_dispatch(Core *, uint32_t);
 
 // (removed 55 lines: child_spawn_40410 — sm40558 was its ONLY caller, so it died with it. 0x80040410 is
 //  reached from the new port through its generated func_80040410 wrapper.)
 
-
 // (removed 231 lines: the hand-transliterated sm40558 draft for 0x80040558 — REPLACED by PlacedPropSm::step
 //  (game/ai/placed_prop_sm.cpp). It had five defects, one a MISSING GUEST WRITE of node[95]=0
 //  on every state-1 exit. Do not resurrect it.)
-
 
 // FUN_8003FD10 — per-object OSCILLATE / FRAME-TOGGLE sub-behavior (PlacedPropSm STATE-1's node[5] jump-table
 // handlers JT1[0], reached ~thousands×/run from the hot active-behavior path). a0 = obj. NO GTE, NO render
@@ -46,34 +44,38 @@ void rec_dispatch(Core*, uint32_t);
 //   stores of v0*6 == (v0*3)<<1. `fd10` gate = full RAM+scratchpad A/B vs rec_super_call (same family
 //   rationale as sm40558: the dispatched ov_rand runs in BOTH passes + this fn's 24-byte frame is dead below
 //   entry sp on return -> exclude [sp-0x800, sp)).
-static void osc_fd10(Core* c) {
+static void osc_fd10(Core *c) {
   const uint32_t obj = c->r[4];
   uint8_t p6 = c->mem_r8(obj + 6);
-  if (p6 == 0) {                                  // @fd40
-    if (c->mem_r8(obj + 43) == 0) return;         // @fdf0
-    c->mem_w8 (obj + 6, 1);
+  if (p6 == 0) { // @fd40
+    if (c->mem_r8(obj + 43) == 0) {
+      return; // @fdf0
+    }
+    c->mem_w8(obj + 6, 1);
     c->mem_w16(obj + 64, 16);
-    c->mem_w8 (obj + 43, 0);
+    c->mem_w8(obj + 43, 0);
     return;
   }
-  if (p6 != 1) return;                            // @fdf0
+  if (p6 != 1) {
+    return; // @fdf0
+  }
   // @fd64
   if (c->mem_r8(obj + 43) != 0) {
-    c->mem_w8 (obj + 43, 0);
+    c->mem_w8(obj + 43, 0);
     c->mem_w16(obj + 64, 16);
   }
   // @fd7c
   uint16_t cnt = c->mem_r16(obj + 64);
   cnt = (uint16_t)(cnt - 1);
   c->mem_w16(obj + 64, cnt);
-  if ((int16_t)cnt == -1) {                       // @fda4 (obj[6] += -1)
+  if ((int16_t)cnt == -1) { // @fda4 (obj[6] += -1)
     c->mem_w8(obj + 6, (uint8_t)(c->mem_r8(obj + 6) - 1));
   }
   // @fdb0
-  uint32_t r = c->mem_r16(0x1F80017Cu) & 1u;      // scratchpad halfword & 1
+  uint32_t r = c->mem_r16(0x1F80017Cu) & 1u; // scratchpad halfword & 1
   uint32_t node = c->mem_r32(obj + 0xC0);
-  c->mem_w16(node + 2, (uint16_t)(r * 6u));       // sh in the ov_rand delay slot (pre-call node/value)
-  uint32_t rr = (uint32_t)rngOf(c).next() & 3u;   // FUN_8009A450 -> native class Rng
+  c->mem_w16(node + 2, (uint16_t)(r * 6u));     // sh in the ov_rand delay slot (pre-call node/value)
+  uint32_t rr = (uint32_t)rngOf(c).next() & 3u; // FUN_8009A450 -> native class Rng
   uint32_t v0 = (uint32_t)((int32_t)rr - 2);
   c->mem_w16(node + 0, (uint16_t)(v0 * 6u));
 }
@@ -96,16 +98,16 @@ static void osc_fd10(Core* c) {
 //   }
 // NB only TWO lists are walked here (list0 then list1); the third pool/list 0x800F2738 is not driven by
 // this function. `walkverify` gate = full main-RAM + scratchpad A/B vs rec_super_call(0x8007a904).
-static void entity_walk_7a904(Core* c) {
-  static const uint32_t HEAD[2] = { 0x800FB168u, 0x800F2624u };
+static void entity_walk_7a904(Core *c) {
+  static const uint32_t HEAD[2] = {0x800FB168u, 0x800F2624u};
   for (int L = 0; L < 2; L++) {
     uint32_t n = c->mem_r32(HEAD[L]);
     while (n) {
-      uint32_t next    = c->mem_r32(n + 0x24);   // capture next FIRST (handler may unlink/free n)
+      uint32_t next = c->mem_r32(n + 0x24); // capture next FIRST (handler may unlink/free n)
       uint32_t handler = c->mem_r32(n + 0x1C);
-      c->mem_w8(n + 1, 0);                        // clear per-frame render flag (delay slot of the call)
-      c->r[4] = n;                                // a0 = node
-      rec_dispatch(c, handler);                   // run the per-type handler (stays PSX / owned override)
+      c->mem_w8(n + 1, 0);      // clear per-frame render flag (delay slot of the call)
+      c->r[4] = n;              // a0 = node
+      rec_dispatch(c, handler); // run the per-type handler (stays PSX / owned override)
       n = next;
     }
   }

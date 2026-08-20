@@ -39,7 +39,7 @@ class Core;
 
 class AttackOrbitSubstate {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // orbitTargetMotion (FUN_801458E0): node[3]==0x81 handler. A 6-phase machine on node[7]:
   //   0: acquire target (FUN_8011740C) into node[0x10]/node[0x14], seed direction flag + angle=0,

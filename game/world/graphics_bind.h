@@ -14,11 +14,14 @@
 // stay as reference / super-call for the byte-A/B verify gates.
 #ifndef GAME_WORLD_GRAPHICS_BIND_CLASS_H
 #define GAME_WORLD_GRAPHICS_BIND_CLASS_H
+
+#include <cstdint>
+
 class Core;
 class Game;
 class GraphicsBind {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // registerOverrides — wires recordArrayInit into the override registry (overrides::install,
   // with shard_set_override so direct substrate callers redirect too). Unlike this class's OTHER
@@ -27,14 +30,14 @@ public:
   // their callers have ALREADY been converted to direct native calls), recordArrayInit's callers
   // are still guest-ABI rec_dispatch(c, 0x800519E0u) sites in several un-ported AI beh_ handlers,
   // so it needs the standard dual-wire reach (same pattern as NodeXform::registerOverrides).
-  static void registerOverrides(Game* game);
-  int mTrace = -1;   // PSXPORT_RECALLOC_TRACE latch (-1 = not read yet); recordAlloc caller-attribution
-  void recordAlloc();     // FUN_8007AAE8
-  void recordInit();      // FUN_80051B70
-  void renderUpdate();    // FUN_800517F8
-  void setGeom();         // FUN_80077B38
-  void setXformBlk();     // FUN_8006CBD0
-  void posCompose();      // FUN_8004BD64
+  static void registerOverrides(Game *game);
+  int mTrace = -1;     // PSXPORT_RECALLOC_TRACE latch (-1 = not read yet); recordAlloc caller-attribution
+  void recordAlloc();  // FUN_8007AAE8
+  void recordInit();   // FUN_80051B70
+  void renderUpdate(); // FUN_800517F8
+  void setGeom();      // FUN_80077B38
+  void setXformBlk();  // FUN_8006CBD0
+  void posCompose();   // FUN_8004BD64
 
   // installSceneRecord(rec, classArg, itemArg): FUN_80051B04 — two-level pointer resolve into the
   //   scene-data table at 0x800ECF58 (same table Spawn::sceneEntity reads at offset +8). Reads
@@ -58,11 +61,11 @@ public:
 
 private:
   // Guest-ABI bodies (plain fn-pointer shape for the verify gate).
-  static uint32_t recordAllocBody(Core* c);      // FUN_8007AAE8
-  static uint32_t recordInitBody(Core* c);       // FUN_80051B70
-  static uint32_t renderUpdateBody(Core* c);     // FUN_800517F8
-  static uint32_t setGeomBody(Core* c);          // FUN_80077B38
-  static uint32_t setXformBlkBody(Core* c);      // FUN_8006CBD0
-  static uint32_t posComposeBody(Core* c);       // FUN_8004BD64
+  static uint32_t recordAllocBody(Core *c);  // FUN_8007AAE8
+  static uint32_t recordInitBody(Core *c);   // FUN_80051B70
+  static uint32_t renderUpdateBody(Core *c); // FUN_800517F8
+  static uint32_t setGeomBody(Core *c);      // FUN_80077B38
+  static uint32_t setXformBlkBody(Core *c);  // FUN_8006CBD0
+  static uint32_t posComposeBody(Core *c);   // FUN_8004BD64
 };
 #endif

@@ -17,7 +17,7 @@ class Core;
 
 class Animation {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // step(node): advance node's animation-VM one frame. Returns v0 via c->r[2] (some callers
   // read the returned "keep-going" flag). Retains the `animvm` A/B verify gate against the

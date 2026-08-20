@@ -27,74 +27,92 @@
 // rec_super_call) is the safety net. a0/a1/a2 written into c->r only for the leaf calls (= the guest
 // writes there). v0 (handler return) is NOT reproduced.
 
+#include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "render/cull.h"    // Cull::coneCull2b278 (FUN_8002B278)
-#include "cfg.h"
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "render/cull.h" // Cull::coneCull2b278 (FUN_8002B278)
+#include "spawn.h"       // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
-#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-void rec_super_call(Core*, uint32_t);
-void rec_dispatch(Core*, uint32_t);
+void rec_super_call(Core *, uint32_t);
+void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
 constexpr uint32_t BEH_FN = 0x8013C9C0u;
 
-}  // namespace
+} // namespace
 static constexpr GuestFrameSpill kSpills_8013C9C0[2] = {
-  { 16, 16 },
-  { 31 /*ra*/, 20 },
-};   // frame=24, abi_extract --scaffold --guestabi
+    {16, 16},
+    {31 /*ra*/, 20},
+}; // frame=24, abi_extract --scaffold --guestabi
 
-void beh_scatter_ramp_machine(Core* c) {
+void beh_scatter_ramp_machine(Core *c) {
   GuestFrame<24, 2> frame(c, kSpills_8013C9C0);
-  uint32_t obj = c->r[4];                        // s0 = a0 (node)
-  uint32_t a3 = obj + 0x50;                      // a3 = node+0x50 (c9dc, constant)
+  uint32_t obj = c->r[4];   // s0 = a0 (node)
+  uint32_t a3 = obj + 0x50; // a3 = node+0x50 (c9dc, constant)
   uint32_t v0, v1;
 
-  uint8_t st = c->mem_r8(obj + 4);               // node[4] = outer state
-  if (st == 1) goto Lcabc;
-  if (st < 2) { if (st == 0) goto Lca10; goto Lret; }  // st<2 -> only st==0 reachable
-  if (st < 4) goto Lcdbc;                              // st in {2,3}
-  goto Lret;                                           // st >= 4 default
+  uint8_t st = c->mem_r8(obj + 4); // node[4] = outer state
+  if (st == 1) {
+    goto Lcabc;
+  }
+  if (st < 2) {
+    if (st == 0) {
+      goto Lca10;
+    }
+    goto Lret;
+  } // st<2 -> only st==0 reachable
+  if (st < 4) {
+    goto Lcdbc; // st in {2,3}
+  }
+  goto Lret; // st >= 4 default
 
- Lcdbc:                                          // STATE 2/3 — FUN_8007A624(node)
+Lcdbc: // STATE 2/3 — FUN_8007A624(node)
   eng(c).spawn.despawn(obj);
   goto Lret;
 
- Lca10:                                          // STATE 0 — seed from the overlay tables
-  {
-    uint8_t n3 = c->mem_r8(obj + 3);
-    v1 = c->mem_r32(0x80109FC4u + ((uint32_t)(n3 - 1) << 2));   // word table[node[3]-1]
-    c->mem_w32(obj + 4, 0x00010001u);            // sw a0=0x00010001 -> node[4]=1,5=0,6=1,7=0
-    c->mem_w32(a3 + 0, v1);                       // node[0x50] = tableword
-    uint32_t t1 = 0x80109FD6u + (uint32_t)(n3 * 6);            // stride-6 table[node[3]]
-    c->mem_w16(obj + 0x2c, c->mem_r16(t1 + 0));
-    c->mem_w16(obj + 0x2e, c->mem_r16(t1 + 2));
-    v1 = c->mem_r16(t1 + 4);
-    c->mem_w32(obj + 0x3c, 0x80109FC0u);
-    c->mem_w16(obj + 0x32, (uint16_t)(int16_t)-70);
-    c->mem_w32(obj + 0x48, 0);
-    c->mem_w16(obj + 0x4c, 0);
-    c->mem_w16(obj + 0x30, (uint16_t)v1);
-  }
-  if (c->mem_r8(0x800BF9E0u) < 6) {              // val < 6
+Lca10: // STATE 0 — seed from the overlay tables
+{
+  uint8_t n3 = c->mem_r8(obj + 3);
+  v1 = c->mem_r32(0x80109FC4u + ((uint32_t)(n3 - 1) << 2)); // word table[node[3]-1]
+  c->mem_w32(obj + 4, 0x00010001u);                         // sw a0=0x00010001 -> node[4]=1,5=0,6=1,7=0
+  c->mem_w32(a3 + 0, v1);                                   // node[0x50] = tableword
+  uint32_t t1 = 0x80109FD6u + (uint32_t)(n3 * 6);           // stride-6 table[node[3]]
+  c->mem_w16(obj + 0x2c, c->mem_r16(t1 + 0));
+  c->mem_w16(obj + 0x2e, c->mem_r16(t1 + 2));
+  v1 = c->mem_r16(t1 + 4);
+  c->mem_w32(obj + 0x3c, 0x80109FC0u);
+  c->mem_w16(obj + 0x32, (uint16_t)(int16_t)-70);
+  c->mem_w32(obj + 0x48, 0);
+  c->mem_w16(obj + 0x4c, 0);
+  c->mem_w16(obj + 0x30, (uint16_t)v1);
+}
+  if (c->mem_r8(0x800BF9E0u) < 6) { // val < 6
     c->mem_w8(obj + 5, 0);
     c->mem_w8(0x80109FC0u, 16);
-  } else {                                       // val >= 6
+  } else { // val >= 6
     c->mem_w8(obj + 5, 7);
     c->mem_w8(0x80109FC0u, 8);
   }
   // fall through to STATE 1
 
- Lcabc:                                          // STATE 1
-  if (c->mem_r8(0x800E7FEBu) == 1) goto Lret;
-  if (!(c->mem_r8(0x800BF9E0u) < 20)) { c->mem_w8(obj + 4, 3); goto Lret; }   // >= 20 -> node[4]=3
-  if (c->mem_r8(0x800BF816u) == 1) goto Lret;
-  if (!(c->mem_r8(0x800E7EAAu) < 17)) goto Lret;                              // >= 17 exit
+Lcabc: // STATE 1
+  if (c->mem_r8(0x800E7FEBu) == 1) {
+    goto Lret;
+  }
+  if (!(c->mem_r8(0x800BF9E0u) < 20)) {
+    c->mem_w8(obj + 4, 3);
+    goto Lret;
+  } // >= 20 -> node[4]=3
+  if (c->mem_r8(0x800BF816u) == 1) {
+    goto Lret;
+  }
+  if (!(c->mem_r8(0x800E7EAAu) < 17)) {
+    goto Lret; // >= 17 exit
+  }
   // node[6]/node[7] countdown timer
   v0 = (uint8_t)(c->mem_r8(obj + 6) - 1);
   c->mem_w8(obj + 6, (uint8_t)v0);
@@ -102,51 +120,83 @@ void beh_scatter_ramp_machine(Core* c) {
     c->mem_w8(obj + 6, 3);
     v0 = (uint8_t)(c->mem_r8(obj + 7) + 1);
     c->mem_w8(obj + 7, (uint8_t)v0);
-    if (!((v0 & 0xff) < 6)) c->mem_w8(obj + 7, 0);
+    if (!((v0 & 0xff) < 6)) {
+      c->mem_w8(obj + 7, 0);
+    }
   }
   {
-    uint8_t n5 = c->mem_r8(obj + 5);             // INNER sub-state
-    if (!(n5 < 11)) goto Lcd60;
+    uint8_t n5 = c->mem_r8(obj + 5); // INNER sub-state
+    if (!(n5 < 11)) {
+      goto Lcd60;
+    }
     switch (n5) {
-      case 0:  goto Lcb88; case 1:  goto Lcb94; case 2:  goto Lcbc8; case 3:  goto Lcbe4;
-      case 4:  goto Lcc04; case 5:  goto Lcc30; case 6:  goto Lcc6c; case 7:  goto Lcc98;
-      case 8:  goto Lcce4; case 9:  goto Lcd20; default: goto Lcd58;   // 10
+    case 0:
+      goto Lcb88;
+    case 1:
+      goto Lcb94;
+    case 2:
+      goto Lcbc8;
+    case 3:
+      goto Lcbe4;
+    case 4:
+      goto Lcc04;
+    case 5:
+      goto Lcc30;
+    case 6:
+      goto Lcc6c;
+    case 7:
+      goto Lcc98;
+    case 8:
+      goto Lcce4;
+    case 9:
+      goto Lcd20;
+    default:
+      goto Lcd58; // 10
     }
   }
 
- Lcb88:                                          // sub-state 0
+Lcb88: // sub-state 0
   c->mem_w8(obj + 5, 1);
-  c->mem_w16(a3 + 6, 0);                          // node[0x56] = 0
-  // fall into sub-state 1
- Lcb94:                                          // sub-state 1
-  if (c->mem_r8(0x800BF9E0u) < 6) goto Lcd60;     // val < 6
-  c->mem_w8(a3 + 4, 24);                          // node[0x54] = 24
+  c->mem_w16(a3 + 6, 0); // node[0x56] = 0
+                         // fall into sub-state 1
+Lcb94:                   // sub-state 1
+  if (c->mem_r8(0x800BF9E0u) < 6) {
+    goto Lcd60; // val < 6
+  }
+  c->mem_w8(a3 + 4, 24); // node[0x54] = 24
   c->mem_w8(obj + 5, 2);
-  goto Lccc4;                                      // (a0/a1/a2 = 7,0,0 set in Lccc4)
+  goto Lccc4; // (a0/a1/a2 = 7,0,0 set in Lccc4)
 
- Lcbc8:                                          // sub-state 2
-  if (c->mem_r16s(a3 + 6) < -199) { c->mem_w8(obj + 5, 3); goto Lcc24; }
+Lcbc8: // sub-state 2
+  if (c->mem_r16s(a3 + 6) < -199) {
+    c->mem_w8(obj + 5, 3);
+    goto Lcc24;
+  }
   goto Lcc44;
 
- Lcbe4:                                          // sub-state 3
-  if (c->mem_r16s(a3 + 6) < 0) goto Lcc7c;
-  c->mem_w8(obj + 5, 4);
-  c->mem_w8(a3 + 4, 96);                          // node[0x54] = 96
-  goto Lcd60;
-
- Lcc04:                                          // sub-state 4
-  {
-    uint8_t nv = (uint8_t)(c->mem_r8(a3 + 4) - 1);
-    c->mem_w8(a3 + 4, nv);
-    if ((int8_t)nv >= 0) goto Lcd60;
-    c->mem_w8(obj + 5, 5);
+Lcbe4: // sub-state 3
+  if (c->mem_r16s(a3 + 6) < 0) {
+    goto Lcc7c;
   }
-  // fall into Lcc24
- Lcc24:
-  c->mem_w8(a3 + 4, 24);                          // node[0x54] = 24
+  c->mem_w8(obj + 5, 4);
+  c->mem_w8(a3 + 4, 96); // node[0x54] = 96
   goto Lcd60;
 
- Lcc30:                                          // sub-state 5
+Lcc04: // sub-state 4
+{
+  uint8_t nv = (uint8_t)(c->mem_r8(a3 + 4) - 1);
+  c->mem_w8(a3 + 4, nv);
+  if ((int8_t)nv >= 0) {
+    goto Lcd60;
+  }
+  c->mem_w8(obj + 5, 5);
+}
+  // fall into Lcc24
+Lcc24:
+  c->mem_w8(a3 + 4, 24); // node[0x54] = 24
+  goto Lcd60;
+
+Lcc30: // sub-state 5
   if (c->mem_r16s(a3 + 6) < -199) {
     c->mem_w8(obj + 5, 6);
     c->mem_w8(a3 + 4, 24);
@@ -154,74 +204,90 @@ void beh_scatter_ramp_machine(Core* c) {
     goto Lcd60;
   }
   // fall into Lcc44
- Lcc44:
+Lcc44:
   v1 = c->mem_r16(a3 + 6);
-  c->mem_w16(a3 + 6, (uint16_t)(v1 - 6));         // node[0x56] -= 6
+  c->mem_w16(a3 + 6, (uint16_t)(v1 - 6)); // node[0x56] -= 6
   goto Lcd60;
 
- Lcc6c:                                          // sub-state 6
+Lcc6c: // sub-state 6
   if (c->mem_r16s(a3 + 6) >= 0) {
     c->mem_w8(0x800BF9E0u, 7);
     c->mem_w8(obj + 5, 7);
     goto Lcd60;
   }
   // fall into Lcc7c
- Lcc7c:
+Lcc7c:
   v1 = c->mem_r16(a3 + 6);
-  c->mem_w16(a3 + 6, (uint16_t)(v1 + 6));         // node[0x56] += 6
+  c->mem_w16(a3 + 6, (uint16_t)(v1 + 6)); // node[0x56] += 6
   goto Lcd60;
 
- Lcc98:                                          // sub-state 7
-  if (c->mem_r8(0x800BF9E0u) != 16) goto Lcd60;
+Lcc98: // sub-state 7
+  if (c->mem_r8(0x800BF9E0u) != 16) {
+    goto Lcd60;
+  }
   c->mem_w8(obj + 5, 8);
-  c->mem_w8(a3 + 4, 30);                          // node[0x54] = 30
-  // fall into Lccc4
- Lccc4:
-  eng(c).sfx.trigger(7, 0, 0);     // FUN_80074590 (native)
-  eng(c).sfx.trigger(148, 0, 0);   // FUN_80074590 (native; id 148 → path A per-area)
+  c->mem_w8(a3 + 4, 30); // node[0x54] = 30
+                         // fall into Lccc4
+Lccc4:
+  eng(c).sfx.trigger(7, 0, 0);   // FUN_80074590 (native)
+  eng(c).sfx.trigger(148, 0, 0); // FUN_80074590 (native; id 148 → path A per-area)
   goto Lcd60;
 
- Lcce4:                                          // sub-state 8
+Lcce4: // sub-state 8
   if (c->mem_r16s(a3 + 6) < -199) {
     c->mem_w8(0x800BF9E0u, 17);
     c->mem_w8(obj + 5, 9);
-    c->mem_w8(a3 + 4, 120);                       // node[0x54] = 120
+    c->mem_w8(a3 + 4, 120); // node[0x54] = 120
     goto Lcd60;
   }
   v1 = c->mem_r16(a3 + 6);
-  c->mem_w16(a3 + 6, (uint16_t)(v1 - 3));         // node[0x56] -= 3
+  c->mem_w16(a3 + 6, (uint16_t)(v1 - 3)); // node[0x56] -= 3
   goto Lcd60;
 
- Lcd20:                                          // sub-state 9
-  if (c->mem_r16s(a3 + 6) < 0)
-    c->mem_w16(a3 + 6, (uint16_t)(c->mem_r16(a3 + 6) + 3));   // node[0x56] += 3
+Lcd20: // sub-state 9
+  if (c->mem_r16s(a3 + 6) < 0) {
+    c->mem_w16(a3 + 6, (uint16_t)(c->mem_r16(a3 + 6) + 3)); // node[0x56] += 3
+  }
   {
     uint8_t nv = (uint8_t)(c->mem_r8(a3 + 4) - 1);
     c->mem_w8(a3 + 4, nv);
-    if ((int8_t)nv >= 0) goto Lcd60;
+    if ((int8_t)nv >= 0) {
+      goto Lcd60;
+    }
     c->mem_w8(obj + 5, 10);
   }
   goto Lcd60;
 
- Lcd58:                                          // sub-state 10
+Lcd58: // sub-state 10
   c->mem_w8(obj + 4, 3);
   // fall into Lcd60
 
- Lcd60:                                          // TAIL
-  {
-    uint8_t n3 = c->mem_r8(obj + 3);
-    if (n3 != 1 && n3 != 3) goto Lcdac;
-    uint8_t n5 = c->mem_r8(obj + 5);
-    uint32_t idx = (uint8_t)(n5 - 1);
-    if (!(idx < 10)) goto Lcdac;
-    // jt1 @0x8010A030: {0,1,5,6,7}->Lcdac (call), {2,3,4,8,9}->exit
-    switch (idx) {
-      case 2: case 3: case 4: case 8: case 9: goto Lret;
-      default: goto Lcdac;
-    }
+Lcd60: // TAIL
+{
+  uint8_t n3 = c->mem_r8(obj + 3);
+  if (n3 != 1 && n3 != 3) {
+    goto Lcdac;
   }
- Lcdac:
-  c->r[4] = obj; eng(c).cull.coneCull2b278();     // FUN_8002B278 (native)
- Lret:
+  uint8_t n5 = c->mem_r8(obj + 5);
+  uint32_t idx = (uint8_t)(n5 - 1);
+  if (!(idx < 10)) {
+    goto Lcdac;
+  }
+  // jt1 @0x8010A030: {0,1,5,6,7}->Lcdac (call), {2,3,4,8,9}->exit
+  switch (idx) {
+  case 2:
+  case 3:
+  case 4:
+  case 8:
+  case 9:
+    goto Lret;
+  default:
+    goto Lcdac;
+  }
+}
+Lcdac:
+  c->r[4] = obj;
+  eng(c).cull.coneCull2b278(); // FUN_8002B278 (native)
+Lret:
   return;
 }

@@ -54,9 +54,9 @@ public:
   // sw s1,0x14(sp)` on entry (s0=obj, s1=mode) and the symmetric restore on every return path.
   // Byte-faithful re-derivation of the same guest function via tools/port_gen.py (frame_size=32,
   // the guest frame advanceByte above never mirrored). This is the one to wire.
-  static void advanceByteGen(Core* c);
+  static void advanceByteGen(Core *c);
 
   // FUN_8007D0D0(obj a0) — sets modeTimer (obj+0x40) from subtype (obj+3) crossed with the global
   // text-speed/language byte DAT_800bf8a3. LEAF: gen_func_8007D0D0 has no `sp` descent at all.
-  static void applyRenderMode(Core* c);
+  static void applyRenderMode(Core *c);
 };

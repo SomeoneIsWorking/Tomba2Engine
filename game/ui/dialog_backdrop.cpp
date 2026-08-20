@@ -31,29 +31,29 @@
 //   0x7F  -> any of these set means "no fill colour" (black); all clear means the panel blue.
 #include "core.h"
 #include "game.h"
-#include "ui/panel.h"
-#include "ui/options_page.h"   // OptionsPage::noteBox — the Screen-adjust page's boxes (#38)
 #include "override_registry.h"
+#include "ui/options_page.h" // OptionsPage::noteBox — the Screen-adjust page's boxes (#38)
+#include "ui/panel.h"
 
 namespace {
 
-constexpr uint32_t PACKET_POOL_PTR = 0x800BF544u;  // u32: bump allocator for GPU packets
-constexpr uint32_t OT_TABLE_PTR    = 0x800ED8C8u;  // u32 -> base of the ordering table
-constexpr uint32_t PACKET_BYTES    = 16u;          // tag + 3 command words
+constexpr uint32_t PACKET_POOL_PTR = 0x800BF544u; // u32: bump allocator for GPU packets
+constexpr uint32_t OT_TABLE_PTR = 0x800ED8C8u;    // u32 -> base of the ordering table
+constexpr uint32_t PACKET_BYTES = 16u;            // tag + 3 command words
 
-constexpr uint8_t  GP0_FLAT_RECT   = 0x60;         // monochrome rectangle, variable size
-constexpr uint8_t  TAG_WORD_COUNT  = 3;
-constexpr uint32_t PANEL_FILL_RGB  = 0x460000u;    // the box blue (BGR order: R=0x00 G=0x00 B=0x46)
+constexpr uint8_t GP0_FLAT_RECT = 0x60; // monochrome rectangle, variable size
+constexpr uint8_t TAG_WORD_COUNT = 3;
+constexpr uint32_t PANEL_FILL_RGB = 0x460000u; // the box blue (BGR order: R=0x00 G=0x00 B=0x46)
 
 constexpr uint32_t MODE_FAR_BUCKET = 0x80u;
-constexpr uint32_t MODE_NO_FILL    = 0x7Fu;
-constexpr uint32_t OT_BUCKET_FAR   = 0x7FFu;
-constexpr uint32_t OT_BUCKET_NEAR  = 1u;
+constexpr uint32_t MODE_NO_FILL = 0x7Fu;
+constexpr uint32_t OT_BUCKET_FAR = 0x7FFu;
+constexpr uint32_t OT_BUCKET_NEAR = 1u;
 
-}  // namespace
+} // namespace
 
 // ORACLE: gen_func_8007FCC8
-void Panel::pushDialogBackdrop(Core* c, int16_t x, int16_t y, int16_t w, int16_t h, uint32_t mode) {
+void Panel::pushDialogBackdrop(Core *c, int16_t x, int16_t y, int16_t w, int16_t h, uint32_t mode) {
   const uint32_t bucket = (mode & MODE_FAR_BUCKET) ? OT_BUCKET_FAR : OT_BUCKET_NEAR;
 
   // Take a packet off the pool and bump it, exactly as the guest allocator does.
@@ -63,11 +63,14 @@ void Panel::pushDialogBackdrop(Core* c, int16_t x, int16_t y, int16_t w, int16_t
   // Written as two branches rather than one ternary because that is the shape of the guest code —
   // it stores the colour word on one path and zero on the other, and the store sequence is part of
   // what port_check proves equivalent.
-  if (mode & MODE_NO_FILL) c->mem_w32(packet + 4, 0u);
-  else                     c->mem_w32(packet + 4, PANEL_FILL_RGB);
-  c->mem_w8(packet + 3, TAG_WORD_COUNT);         // size field of the tag word
-  c->mem_w8(packet + 7, GP0_FLAT_RECT);          // opcode byte of the colour word
-  c->mem_w16(packet + 8,  (uint16_t)x);
+  if (mode & MODE_NO_FILL) {
+    c->mem_w32(packet + 4, 0u);
+  } else {
+    c->mem_w32(packet + 4, PANEL_FILL_RGB);
+  }
+  c->mem_w8(packet + 3, TAG_WORD_COUNT); // size field of the tag word
+  c->mem_w8(packet + 7, GP0_FLAT_RECT);  // opcode byte of the colour word
+  c->mem_w16(packet + 8, (uint16_t)x);
   c->mem_w16(packet + 10, (uint16_t)y);
   c->mem_w16(packet + 12, (uint16_t)w);
   c->mem_w16(packet + 14, (uint16_t)h);
@@ -84,7 +87,7 @@ void Panel::pushDialogBackdrop(Core* c, int16_t x, int16_t y, int16_t w, int16_t
 // pc_render has no other producer for them — so the display half hangs HERE rather than on a second
 // overrides::install for 0x8007FCC8 (dual ownership is what broke the dialog box in kanban #28).
 // OptionsPage::noteBox is a no-op unless that page's scope is raised, so the dialog path is untouched.
-static void ov_push_dialog_backdrop(Core* c) {
+static void ov_push_dialog_backdrop(Core *c) {
   const int16_t x = (int16_t)c->r[4], y = (int16_t)c->r[5];
   const int16_t w = (int16_t)c->r[6], h = (int16_t)c->r[7];
   const uint32_t mode = c->mem_r32(c->r[29] + 16u);
@@ -93,8 +96,8 @@ static void ov_push_dialog_backdrop(Core* c) {
 }
 
 void dialog_backdrop_install() {
-  extern void gen_func_8007FCC8(Core*);
-  extern void shard_set_override(uint32_t, void (*)(Core*));
-  overrides::install(0x8007FCC8u, "Panel::pushDialogBackdrop", ov_push_dialog_backdrop,
-                     gen_func_8007FCC8, shard_set_override);
+  extern void gen_func_8007FCC8(Core *);
+  extern void shard_set_override(uint32_t, void (*)(Core *));
+  overrides::install(
+      0x8007FCC8u, "Panel::pushDialogBackdrop", ov_push_dialog_backdrop, gen_func_8007FCC8, shard_set_override);
 }

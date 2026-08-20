@@ -17,7 +17,7 @@ class Core;
 
 class BgSceneTransitionSm {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // step: one call = one frame of the transition machine (state 0 init/select, 1 fade-in, 2 hold,
   // 3 fade-out, 4 commit/restart). Ships with the `bgscenesmverify` byte-A/B gate.
@@ -36,22 +36,22 @@ public:
   // two-step wait: state 0 arms a scene event via SceneEvents::arm(node+114) and, once armed and
   // node+116 has settled to 0, bumps the sub-state; state 1 polls the readyForProgress predicate
   // (FUN_80042728). Returns the opcode-progress result in v0. READY-FRAME (sp-24, spills s0/ra).
-  static void opSceneEventArmWait(Core* c);
+  static void opSceneEventArmWait(Core *c);
 
   // opClearSceneFlag80a (FUN_80042884): cutscene-script opcode leaf — clears the scene sub-state
   // flag byte at 0x800BF80A and returns 1.
-  static void opClearSceneFlag80a(Core* c);
+  static void opClearSceneFlag80a(Core *c);
 
 private:
   // Guest-ABI SM body + verify harness + the tiny native sub-leaves it calls (see .cpp for RE).
-  static void body(Core* c);                            // FUN_8002655C
-  static void verifyBody(Core* c);                      // bgscenesmverify A/B wrapper
-  static void fadeRect(Core* c, uint32_t color);        // host-side fade delivery (same arg shape as
-                                                        // the guest fade leaf; owner = ScreenFade tap)
-  static void audioFadeTarget(Core* c, int32_t v);      // FUN_80075CEC
-  static bool midTransitionGate(Core* c);               // shared 26470/26510/264BC guard
-  static void audioStub26470(Core* c);                  // FUN_80026470
-  static void audioStub26510(Core* c);                  // FUN_80026510
-  static void audioStub264BC(Core* c);                  // FUN_800264BC
-  static void bf816Dispatch(Core* c);                   // FUN_80050970
+  static void body(Core *c);                       // FUN_8002655C
+  static void verifyBody(Core *c);                 // bgscenesmverify A/B wrapper
+  static void fadeRect(Core *c, uint32_t color);   // host-side fade delivery (same arg shape as
+                                                   // the guest fade leaf; owner = ScreenFade tap)
+  static void audioFadeTarget(Core *c, int32_t v); // FUN_80075CEC
+  static bool midTransitionGate(Core *c);          // shared 26470/26510/264BC guard
+  static void audioStub26470(Core *c);             // FUN_80026470
+  static void audioStub26510(Core *c);             // FUN_80026510
+  static void audioStub264BC(Core *c);             // FUN_800264BC
+  static void bf816Dispatch(Core *c);              // FUN_80050970
 };

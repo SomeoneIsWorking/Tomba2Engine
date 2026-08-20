@@ -10,7 +10,7 @@
 // picture; these write the guest packet the substrate's renderer consumes.
 #pragma once
 struct Core;
-class  Game;
+class Game;
 
 class UiFt4Layout {
 public:
@@ -27,16 +27,16 @@ public:
   // "fixed": this is a `j`, not a `jal`. r31 has to keep the value it arrived with, which is
   // FUN_8007E1B8's caller's return address. Writing an ra constant here would return into the middle
   // of this block. port_gen emits it absent, which is correct.
-  static void plainQuadVerts(Core* c);
+  static void plainQuadVerts(Core *c);
 
   // FUN_0x8007E36C — layout mode 1 — X-MIRRORED. Base XY goes to VERTEX 1 rather than 0 and the width is added to the
-  static void xMirroredQuadVerts(Core* c);
+  static void xMirroredQuadVerts(Core *c);
   // FUN_0x8007E410 — layout mode 2.
-  static void vMirroredQuadVerts(Core* c);
+  static void vMirroredQuadVerts(Core *c);
   // FUN_0x8007E4A8 — layout mode 3.
-  static void flipXYQuadVerts(Core* c);
+  static void flipXYQuadVerts(Core *c);
   // FUN_0x8007E584 — layout mode 4.
-  static void vMirroredPlusQuadVerts(Core* c);
+  static void vMirroredPlusQuadVerts(Core *c);
 
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

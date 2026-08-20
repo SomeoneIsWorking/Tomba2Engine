@@ -22,36 +22,64 @@
 // Sign-extension goes through Core::mem_r16s / mem_r8s (they already exist) — no producer should
 // write `(int16_t)c->mem_r16(...)` again.
 #pragma once
-#include <cstdint>
 #include "core.h"
+#include <cstdint>
 
 class FxNode {
 public:
   static constexpr uint8_t kTypeCustomRenderFn = 0x20u;
 
-  FxNode(Core* c, uint32_t at) : mCore(c), mAt(at) {}
+  FxNode(Core *c, uint32_t at) : mCore(c), mAt(at) {}
 
-  uint32_t addr() const { return mAt; }
-  Core*    core() const { return mCore; }
+  uint32_t addr() const {
+    return mAt;
+  }
+  Core *core() const {
+    return mCore;
+  }
 
   // ---- walk-owned header: identical meaning for every type-0x20 node ----------------------------
-  bool     visible()  const { return mCore->mem_r8(mAt + 0x01u) != 0; }  // per-frame marker the walk gates on
-  uint8_t  variant()  const { return mCore->mem_r8(mAt + 0x03u); }       // selector byte; its VALUES are per controller
-  uint8_t  state()    const { return mCore->mem_r8(mAt + 0x04u); }
-  uint8_t  subState() const { return mCore->mem_r8(mAt + 0x05u); }
-  uint8_t  type()     const { return mCore->mem_r8(mAt + 0x0Bu); }
-  uint32_t renderFn() const { return mCore->mem_r32(mAt + 0x18u); }
-  uint32_t next()     const { return mCore->mem_r32(mAt + 0x24u); }
+  bool visible() const {
+    return mCore->mem_r8(mAt + 0x01u) != 0;
+  } // per-frame marker the walk gates on
+  uint8_t variant() const {
+    return mCore->mem_r8(mAt + 0x03u);
+  } // selector byte; its VALUES are per controller
+  uint8_t state() const {
+    return mCore->mem_r8(mAt + 0x04u);
+  }
+  uint8_t subState() const {
+    return mCore->mem_r8(mAt + 0x05u);
+  }
+  uint8_t type() const {
+    return mCore->mem_r8(mAt + 0x0Bu);
+  }
+  uint32_t renderFn() const {
+    return mCore->mem_r32(mAt + 0x18u);
+  }
+  uint32_t next() const {
+    return mCore->mem_r32(mAt + 0x24u);
+  }
 
 protected:
   // The ONLY way a derived controller lens reaches its own fields — so every such read is NAMED in
   // the derived class instead of being an anonymous offset at the call site.
-  int32_t  s16(uint32_t off) const { return mCore->mem_r16s(mAt + off); }
-  uint32_t u16(uint32_t off) const { return mCore->mem_r16 (mAt + off); }
-  int32_t  s8 (uint32_t off) const { return mCore->mem_r8s (mAt + off); }
-  uint32_t u8 (uint32_t off) const { return mCore->mem_r8  (mAt + off); }
-  uint32_t u32(uint32_t off) const { return mCore->mem_r32 (mAt + off); }
+  int32_t s16(uint32_t off) const {
+    return mCore->mem_r16s(mAt + off);
+  }
+  uint32_t u16(uint32_t off) const {
+    return mCore->mem_r16(mAt + off);
+  }
+  int32_t s8(uint32_t off) const {
+    return mCore->mem_r8s(mAt + off);
+  }
+  uint32_t u8(uint32_t off) const {
+    return mCore->mem_r8(mAt + off);
+  }
+  uint32_t u32(uint32_t off) const {
+    return mCore->mem_r32(mAt + off);
+  }
 
-  Core*    mCore;
+  Core *mCore;
   uint32_t mAt;
 };

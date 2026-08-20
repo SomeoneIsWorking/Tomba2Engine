@@ -47,10 +47,10 @@ Cite the source in the row. `USER` is authoritative.
 
 ## Reaching an area
 
-Cold warp is broken (kanban #36): it self-destructs ~50 frames later — the area byte `DAT_800BF870`
-resets to 0 and the wrong overlay's handler gets dispatched — and it renders black for ~45 frames
-because the fade never completes. Reproduces identically under `PSXPORT_GATE=1`, so it is a
-dev-tool defect, not a port defect.
+Cold warp is one game-owned operation exposed through `GameHooks::devWarp`. The older framework
+implementation split it between generic preloads and two Tomba hooks; SBS then combined a destination
+overlay with an old-area door transition. The unified hook now performs the task-state update, area
+load, destination subarea state, and area entry in the same order for both REPL and SBS.
 
 The recipe that works:
 
@@ -60,14 +60,12 @@ The recipe that works:
 | PSXPORT_REPL=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 ./scratch/bin/tomba2_port
 ```
 
-Add **`PSXPORT_ORACLE=1`** for the substrate reference on the same exec leg — same execution, only the
-renderer differs, which is the one clean pc-vs-psx comparison. **Not `PSXPORT_RENDER_PSX=1`**: that leg
-walks the guest OT but still hands every prim to the native render queue's layer split, which needs a
-pc_render producer to have published the backdrop texpage — so on that leg the guest's own 16x16
-backdrop tiles land in the topmost band and paint over the whole world (kanban #78; the tile banding is
-fixed now, but ORACLE is still the leg with no native ordering decision in it at all). See
-`docs/driving-the-game.md` for the full REPL command set and `docs/gfx-debug.md` for the three ground
-truths.
+Do not treat **`PSXPORT_ORACLE=1`** as a correctness reference. It is useful for guest-OT ordering
+diagnostics, but still uses the host Vulkan shader path; health-wheel #22 proved both legs can agree
+while both are wrong. Use SBS oracle mode (instrument I053) for a true interpreter/software-GPU
+comparison, or the Beetle command-stream tee (I051) when the question is rasterization of an identical
+packet stream. See `docs/driving-the-game.md` for the REPL command set and `docs/gfx-debug.md` for the
+evidence hierarchy.
 
 ## The SETTLED camera triple per area — for resolving a USER coordinate report
 

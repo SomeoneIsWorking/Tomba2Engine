@@ -178,27 +178,27 @@ namespace {
 // --- the scene camera the emitters project through ------------------------------------------------
 // Eight consecutive words parked in the scratchpad by the scene pass: the 3x3 rotation matrix
 // (packed two shorts per word) followed by the translation. They land in GTE control registers 0..7.
-constexpr uint32_t kSceneCameraCrs   = 0x1F8000F8u;
+constexpr uint32_t kSceneCameraCrs = 0x1F8000F8u;
 constexpr uint32_t kSceneCameraWords = 8;
 
 // --- GTE registers this body touches, by name -----------------------------------------------------
-constexpr uint32_t kGteVxy0 = 0;   // data  — world X,Y of the vertex to project
-constexpr uint32_t kGteVz0  = 1;   // data  — world Z
-constexpr uint32_t kGteSxy2 = 14;  // data  — projected screen X,Y
-constexpr uint32_t kGteSz3  = 19;  // data  — projected depth
-constexpr uint32_t kGteMac0 = 24;  // data  — the depth-cue product, used here as the pixel scale
-constexpr uint32_t kGteDqa  = 27;  // ctrl  — depth-cue scale numerator
-constexpr uint32_t kGteDqb  = 28;  // ctrl  — depth-cue offset
-constexpr uint32_t kGteFlag = 31;  // ctrl  — saturation/overflow flags; bit31 = any error
-constexpr uint32_t kGteRtps = 0x4A180001u;  // RTPS, sf=1 lm=0 — project one vertex
+constexpr uint32_t kGteVxy0 = 0;           // data  — world X,Y of the vertex to project
+constexpr uint32_t kGteVz0 = 1;            // data  — world Z
+constexpr uint32_t kGteSxy2 = 14;          // data  — projected screen X,Y
+constexpr uint32_t kGteSz3 = 19;           // data  — projected depth
+constexpr uint32_t kGteMac0 = 24;          // data  — the depth-cue product, used here as the pixel scale
+constexpr uint32_t kGteDqa = 27;           // ctrl  — depth-cue scale numerator
+constexpr uint32_t kGteDqb = 28;           // ctrl  — depth-cue offset
+constexpr uint32_t kGteFlag = 31;          // ctrl  — saturation/overflow flags; bit31 = any error
+constexpr uint32_t kGteRtps = 0x4A180001u; // RTPS, sf=1 lm=0 — project one vertex
 
 // --- the depth-cue-as-scale contract ---------------------------------------------------------------
 // DQB is forced to 0, so after RTPS the GTE leaves MAC0 = n*DQA with n the perspective divide. DQA
 // is therefore the base sprite size in disguise. BOTH single-anchor members hard-code the same 6:
 // emitUniformScale publishes that base untouched (hence "uniform"), emitByteScale then rescales it
 // by the node's own byte. Only the swarm sibling picks DQA from a node tag.
-constexpr uint32_t kDqaBase     = 6;
-constexpr int32_t  kDepthCueOff = 0;  // IR0 = 0 -> the writer's colour cue is the identity
+constexpr uint32_t kDqaBase = 6;
+constexpr int32_t kDepthCueOff = 0; // IR0 = 0 -> the writer's colour cue is the identity
 
 // --- emitByteScale's per-node size multiplier ------------------------------------------------------
 // node+6 is a 4.4 fixed-point numerator: the published pixel scale becomes (MAC0 * node[6]) >> 4, so
@@ -210,39 +210,40 @@ constexpr int32_t kScaleByteShift = 4;
 // The projected depth is folded into a LOGARITHMIC bucket index: the top bits pick a band, the band
 // index both shifts the key down and offsets it into that band's slice of the table. Keys outside
 // [4, 0x7FF] mean "too near or too far to draw" and the node is dropped.
-constexpr int32_t  kOtKeyMin      = 4;
-constexpr int32_t  kOtKeyBandBits = 10;
-constexpr int32_t  kOtKeyBandSize = 0x200;
-constexpr uint32_t kOtKeySpan     = 0x7FCu;  // valid keys are kOtKeyMin .. kOtKeyMin+kOtKeySpan-1
-constexpr int32_t  kOtKeyCulled   = -1;
-constexpr int32_t  kOtDepthShift  = 2;       // SZ3 >> 2 before the node's bias is added
+constexpr int32_t kOtKeyMin = 4;
+constexpr int32_t kOtKeyBandBits = 10;
+constexpr int32_t kOtKeyBandSize = 0x200;
+constexpr uint32_t kOtKeySpan = 0x7FCu; // valid keys are kOtKeyMin .. kOtKeyMin+kOtKeySpan-1
+constexpr int32_t kOtKeyCulled = -1;
+constexpr int32_t kOtDepthShift = 2; // SZ3 >> 2 before the node's bias is added
 
 // --- guest ABI (tools/abi_extract.py <addr> --contract / --scaffold --guestabi) ----------------------
 // Return addresses at each member's two jal sites. See the TOOL DEFECT note in the banner: the
 // contract dump omits the second jal of each member, so these come from the gen body + disassembly.
-constexpr uint32_t kRaUniformListTailResolve = 0x80027E20u;  // 0x80027CB4: jal 0x80031780
-constexpr uint32_t kRaUniformSpriteWriter    = 0x80027E48u;  // 0x80027CB4: jal 0x80027A4C
-constexpr uint32_t kRaByteListTailResolve    = 0x80027FC8u;  // 0x80027E5C: jal 0x80031780
-constexpr uint32_t kRaByteSpriteWriter       = 0x80028008u;  // 0x80027E5C: jal 0x80027A4C
+constexpr uint32_t kRaUniformListTailResolve = 0x80027E20u; // 0x80027CB4: jal 0x80031780
+constexpr uint32_t kRaUniformSpriteWriter = 0x80027E48u;    // 0x80027CB4: jal 0x80027A4C
+constexpr uint32_t kRaByteListTailResolve = 0x80027FC8u;    // 0x80027E5C: jal 0x80031780
+constexpr uint32_t kRaByteSpriteWriter = 0x80028008u;       // 0x80027E5C: jal 0x80027A4C
 
 // Guest stack frame: 24 bytes spilling s0 and ra, in program order. Identical for both members.
 constexpr GuestFrameSpill kSpills[2] = {
-  { 16, 16 },
-  { 31 /*ra*/, 20 },
+    {16, 16},
+    {31 /*ra*/, 20},
 };
 
-}  // namespace
+} // namespace
 
-void FxSpriteAnchored::loadSceneCameraToGte(Core* c) {
-  for (uint32_t reg = 0; reg < kSceneCameraWords; reg++)
+void FxSpriteAnchored::loadSceneCameraToGte(Core *c) {
+  for (uint32_t reg = 0; reg < kSceneCameraWords; reg++) {
     gte_write_ctrl(reg, c->mem_r32(kSceneCameraCrs + reg * 4));
+  }
 }
 
 // PORT_GEN: 80027CB4 generated/shard_7.c:1966-2062
 // ORACLE: gen_func_80027CB4
 // FUN_80027CB4 — stamp this node's sprite cluster ONCE at the node's own world anchor, sized purely
 // by distance. a0 = the type-0x20 render node.
-void FxSpriteAnchored::emitUniformScale(Core* c) {
+void FxSpriteAnchored::emitUniformScale(Core *c) {
   GuestFrame<24, 2> frame(c, kSpills);
 
   // The node pointer stays LIVE in a callee-saved register across the calls below. Callees spill
@@ -255,7 +256,9 @@ void FxSpriteAnchored::emitUniformScale(Core* c) {
   FxSpritePublish publish{c};
 
   // No sprite records means there is nothing to stamp and nothing to retire.
-  if (node.recordHead() == 0) return;
+  if (node.recordHead() == 0) {
+    return;
+  }
 
   // Project through the pure scene camera, with the depth-cue divide repurposed as the sprite scale:
   // DQB = 0, DQA = the one and only size this member has.
@@ -265,7 +268,7 @@ void FxSpriteAnchored::emitUniformScale(Core* c) {
 
   gte_write_data(kGteVxy0, node.worldAnchorXY());
   gte_write_data(kGteVz0, node.worldAnchorZ());
-  const int32_t otBias = node.otBias();   // the high half of the word just fed to VZ0
+  const int32_t otBias = node.otBias(); // the high half of the word just fed to VZ0
   gte_op(c, kGteRtps);
 
   // The OT key slot IS the working variable — see the gate trap in the banner.
@@ -276,12 +279,16 @@ void FxSpriteAnchored::emitUniformScale(Core* c) {
     const int32_t depth = publish.otKey();
     if (depth > 0) {
       publish.setOtKey((depth >> kOtDepthShift) + otBias);
-      if (publish.otKey() < kOtKeyMin) publish.setOtKey(kOtKeyMin);
+      if (publish.otKey() < kOtKeyMin) {
+        publish.setOtKey(kOtKeyMin);
+      }
 
-      const int32_t key  = publish.otKey();
+      const int32_t key = publish.otKey();
       const int32_t band = key >> kOtKeyBandBits;
       publish.setOtKey((key >> (band & 31)) + band * kOtKeyBandSize);
-      if ((uint32_t)(publish.otKey() - kOtKeyMin) >= kOtKeySpan) publish.setOtKey(kOtKeyCulled);
+      if ((uint32_t)(publish.otKey() - kOtKeyMin) >= kOtKeySpan) {
+        publish.setOtKey(kOtKeyCulled);
+      }
 
       if (publish.otKey() >= 0) {
         publish.setScreenXY(gte_read_data(kGteSxy2));
@@ -305,8 +312,8 @@ void FxSpriteAnchored::emitUniformScale(Core* c) {
   publish.setDepthCue(kDepthCueOff);
   publish.setScaleY(scale);
 
-  c->r[4] = node.recordHead();                          // a0 = the sprite-record list
-  c->r[5] = (node.texturePage() << 16) | node.clut();   // a1 = the texture binding
+  c->r[4] = node.recordHead();                        // a0 = the sprite-record list
+  c->r[5] = (node.texturePage() << 16) | node.clut(); // a1 = the texture binding
   guest_call(c, kRaUniformSpriteWriter, func_80027A4C);
 
   // Emitting once means the writer's returned list tail is meaningful; remember it on the node.
@@ -317,7 +324,7 @@ void FxSpriteAnchored::emitUniformScale(Core* c) {
 // ORACLE: gen_func_80027E5C
 // FUN_80027E5C — stamp this node's sprite cluster ONCE at the node's own world anchor, at the
 // distance-derived size RESCALED by the node's own 4.4 size byte. a0 = the type-0x20 render node.
-void FxSpriteAnchored::emitByteScale(Core* c) {
+void FxSpriteAnchored::emitByteScale(Core *c) {
   GuestFrame<24, 2> frame(c, kSpills);
 
   // Same reason as member one: the node pointer must live in the real callee-saved register, because
@@ -329,7 +336,9 @@ void FxSpriteAnchored::emitByteScale(Core* c) {
   FxSpritePublish publish{c};
 
   // No sprite records means there is nothing to stamp and nothing to retire.
-  if (node.recordHead() == 0) return;
+  if (node.recordHead() == 0) {
+    return;
+  }
 
   // Project through the pure scene camera, with the depth-cue divide repurposed as the sprite scale:
   // DQB = 0, DQA = the family's base size. The node's own byte modulates the result, not DQA.
@@ -339,7 +348,7 @@ void FxSpriteAnchored::emitByteScale(Core* c) {
 
   gte_write_data(kGteVxy0, node.worldAnchorXY());
   gte_write_data(kGteVz0, node.worldAnchorZ());
-  const int32_t otBias = node.otBias();   // the high half of the word just fed to VZ0
+  const int32_t otBias = node.otBias(); // the high half of the word just fed to VZ0
   gte_op(c, kGteRtps);
 
   // The OT key slot IS the working variable — see the gate trap in member one's banner. Identical
@@ -351,12 +360,16 @@ void FxSpriteAnchored::emitByteScale(Core* c) {
     const int32_t depth = publish.otKey();
     if (depth > 0) {
       publish.setOtKey((depth >> kOtDepthShift) + otBias);
-      if (publish.otKey() < kOtKeyMin) publish.setOtKey(kOtKeyMin);
+      if (publish.otKey() < kOtKeyMin) {
+        publish.setOtKey(kOtKeyMin);
+      }
 
-      const int32_t key  = publish.otKey();
+      const int32_t key = publish.otKey();
       const int32_t band = key >> kOtKeyBandBits;
       publish.setOtKey((key >> (band & 31)) + band * kOtKeyBandSize);
-      if ((uint32_t)(publish.otKey() - kOtKeyMin) >= kOtKeySpan) publish.setOtKey(kOtKeyCulled);
+      if ((uint32_t)(publish.otKey() - kOtKeyMin) >= kOtKeySpan) {
+        publish.setOtKey(kOtKeyCulled);
+      }
 
       if (publish.otKey() >= 0) {
         publish.setScreenXY(gte_read_data(kGteSxy2));
@@ -379,22 +392,28 @@ void FxSpriteAnchored::emitByteScale(Core* c) {
   // is the one extra store that separates the two bodies. The guest multiplies with a real MIPS
   // `mult` and takes LO only, so the product is truncated to 32 bits before the arithmetic shift.
   const int64_t product = guest_mult(c, publish.scaleX(), (int32_t)node.scaleByte());
-  const int32_t scale   = (int32_t)(uint32_t)product >> kScaleByteShift;
+  const int32_t scale = (int32_t)(uint32_t)product >> kScaleByteShift;
   publish.setDepthCue(kDepthCueOff);
   publish.setScaleX(scale);
   publish.setScaleY(scale);
 
-  c->r[4] = node.recordHead();                          // a0 = the sprite-record list
-  c->r[5] = (node.texturePage() << 16) | node.clut();   // a1 = the texture binding
+  c->r[4] = node.recordHead();                        // a0 = the sprite-record list
+  c->r[5] = (node.texturePage() << 16) | node.clut(); // a1 = the texture binding
   guest_call(c, kRaByteSpriteWriter, func_80027A4C);
 
   // Emitting once means the writer's returned list tail is meaningful; remember it on the node.
   node.setRecordTail(c->r[2]);
 }
 
-void FxSpriteAnchored::registerOverrides(Game*) {
-  overrides::install(0x80027CB4u, "FxSpriteAnchored::emitUniformScale",
-                     &FxSpriteAnchored::emitUniformScale, gen_func_80027CB4, shard_set_override);
-  overrides::install(0x80027E5Cu, "FxSpriteAnchored::emitByteScale",
-                     &FxSpriteAnchored::emitByteScale, gen_func_80027E5C, shard_set_override);
+void FxSpriteAnchored::registerOverrides(Game *) {
+  overrides::install(0x80027CB4u,
+                     "FxSpriteAnchored::emitUniformScale",
+                     &FxSpriteAnchored::emitUniformScale,
+                     gen_func_80027CB4,
+                     shard_set_override);
+  overrides::install(0x80027E5Cu,
+                     "FxSpriteAnchored::emitByteScale",
+                     &FxSpriteAnchored::emitByteScale,
+                     gen_func_80027E5C,
+                     shard_set_override);
 }

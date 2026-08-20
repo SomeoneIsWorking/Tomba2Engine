@@ -10,22 +10,22 @@
 // sole caller is substrate and calls by a direct C function pointer).
 #pragma once
 struct Core;
-class  Game;
+class Game;
 
 class ActorZonedAttacker {
 public:
-  static void gateCheck(Core* c);                // FUN_8014047C(node) -> bool v0
-  static void typeInit(Core* c);                  // FUN_80140544(node)
-  static void pickAttackByRange(Core* c);         // FUN_801409C0(node[, unused a1]) -> byte v0
-  static void defaultSubStateMachine(Core* c);    // FUN_80143A00(node)
-  static void approachAndFace(Core* c);           // FUN_80144928(node) -> v0
-  static void idleTick(Core* c);                  // FUN_80144B50(node)
+  static void gateCheck(Core *c);              // FUN_8014047C(node) -> bool v0
+  static void typeInit(Core *c);               // FUN_80140544(node)
+  static void pickAttackByRange(Core *c);      // FUN_801409C0(node[, unused a1]) -> byte v0
+  static void defaultSubStateMachine(Core *c); // FUN_80143A00(node)
+  static void approachAndFace(Core *c);        // FUN_80144928(node) -> v0
+  static void idleTick(Core *c);               // FUN_80144B50(node)
 
   // Install all six guest addresses in the shared override registry so rec_dispatch(c, addr) from
   // the (native) caller lands here, traced via the `dispatch` debug channel.
   // FUN_80145C78 — classify (u8 record+0x2A, s16 record+0x36) into a {0,1,2} zone band. Named for
   // the mechanism only; see the implementation banner for why "phaseZone" was rejected.
-  static void zoneClassify(Core* c);
+  static void zoneClassify(Core *c);
 
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

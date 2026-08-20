@@ -19,11 +19,13 @@ struct Core;
 
 // A pool free-list descriptor: the guest address of the free-list HEAD pointer (u32) and of the free
 // COUNT byte (u8). Used by the spawn variants + the despawn free-push.
-struct PoolDesc { uint32_t free_head, cnt; };
+struct PoolDesc {
+  uint32_t free_head, cnt;
+};
 
 class Spawn {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // dispatch(cls, type, list): FUN_8007A980 per-type spawn dispatcher. cls picks the per-type spawn
   //   VARIANT; type and list are the object's type byte + destination linked-list. Returns node ptr
@@ -90,12 +92,12 @@ public:
   //   TYPED-CHILD SPAWN leaves below — allocate via the owned dispatch(cls, type=4, list=0), then on
   //   success stamp the fresh node's per-object handler [+0x1C], owner back-pointer [+0x10], content-
   //   type byte [+2], and (when hasSub) a caller sub-index byte [+3]. Returns 0 on pool-empty.
-  uint32_t spawnTypedChild(uint32_t owner, uint32_t cls, uint32_t handlerAddr, uint8_t typeByte,
-                           bool hasSub, uint32_t sub);
-  uint32_t spawnQuadRecordChild(uint32_t owner, uint32_t sub);    // FUN_801360F4
-  uint32_t spawnSiblingAngleChild(uint32_t owner, uint32_t sub);  // FUN_80139838
-  uint32_t spawnChildTrigChild(uint32_t owner, uint32_t sub);     // FUN_8013AC34
-  uint32_t spawnLiftPlatformChild(uint32_t owner);                // FUN_8013A730
+  uint32_t
+  spawnTypedChild(uint32_t owner, uint32_t cls, uint32_t handlerAddr, uint8_t typeByte, bool hasSub, uint32_t sub);
+  uint32_t spawnQuadRecordChild(uint32_t owner, uint32_t sub);   // FUN_801360F4
+  uint32_t spawnSiblingAngleChild(uint32_t owner, uint32_t sub); // FUN_80139838
+  uint32_t spawnChildTrigChild(uint32_t owner, uint32_t sub);    // FUN_8013AC34
+  uint32_t spawnLiftPlatformChild(uint32_t owner);               // FUN_8013A730
 
   // spawnEffectChild(owner, sub): FUN_80031558 — MAIN.EXE "spawn a child effect object" leaf. Allocate
   //   an effect node via the per-type dispatcher FUN_8007A980 (cls=0, type=6, list=1), then on success
@@ -103,7 +105,7 @@ public:
   //   pointer at [+0x10], effect data-table ptr 0x80029F6C at [+0x18], caller sub-index (low byte) at
   //   [+3], and OR 0x80 into the flag byte at [+0x28]. Returns the node ptr, or 0 on pool exhaustion.
   //   READY-FRAME leaf (frame=32, spills ra/s1/s0). Wired via registerTypedChildOverrides().
-  uint32_t spawnEffectChild(uint32_t owner, uint32_t sub);        // FUN_80031558
+  uint32_t spawnEffectChild(uint32_t owner, uint32_t sub); // FUN_80031558
 
   // Wire the 4 typed-child spawners above into the override registry (overrides::install) at their
   // guest addresses so substrate/native rec_dispatch callers (beh_box_seed_phase_gate,
@@ -113,15 +115,14 @@ public:
 
 private:
   // Guest-ABI bodies + shared pool helpers (static: plain fn-pointer shape for the verify gate).
-  static void spawnLinkStamp(Core* c, uint32_t node, uint32_t ref, uint32_t type, uint32_t mode,
-                             uint32_t list);
-  static uint32_t entitySpawnBody(Core* c);                 // FUN_80079C3C
-  static uint32_t spawnPool2Body(Core* c);                  // FUN_80079DDC
-  static uint32_t poolSpawn(Core* c, const PoolDesc& p);    // FUN_80079F90 / 8007A12C / 8007A2C8 shared
-  static uint32_t spawnVariantNative(Core* c, uint32_t cls);
-  static uint32_t spawnAndInitBody(Core* c);                // FUN_8003116C
-  static uint32_t sceneEntityBody(Core* c);                 // FUN_8007E110
-  static uint32_t spawnOverlayVariantBody(Core* c);         // FUN_8007E038
+  static void spawnLinkStamp(Core *c, uint32_t node, uint32_t ref, uint32_t type, uint32_t mode, uint32_t list);
+  static uint32_t entitySpawnBody(Core *c);              // FUN_80079C3C
+  static uint32_t spawnPool2Body(Core *c);               // FUN_80079DDC
+  static uint32_t poolSpawn(Core *c, const PoolDesc &p); // FUN_80079F90 / 8007A12C / 8007A2C8 shared
+  static uint32_t spawnVariantNative(Core *c, uint32_t cls);
+  static uint32_t spawnAndInitBody(Core *c);        // FUN_8003116C
+  static uint32_t sceneEntityBody(Core *c);         // FUN_8007E110
+  static uint32_t spawnOverlayVariantBody(Core *c); // FUN_8007E038
 };
 
 #endif

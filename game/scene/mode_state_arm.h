@@ -13,7 +13,7 @@ struct Core;
 
 class ModeStateArm {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // arm(a, b, c): guest FUN_8005082C. The engine's MODE-STATE ARM primitive — writes a
   //   3-byte payload (a, b, c) into two mirrored triples at 0x800EA0D5..D7 and 0x800EC145..147,

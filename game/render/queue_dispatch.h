@@ -55,8 +55,13 @@ public:
   // The arm the guest's own walk would take for this node, and the raw table target it came from.
   // `table` reads are plain guest reads of static jump-table data (a diagnostic and a routing model,
   // never a source of pixels).
-  struct Route { Queue queue; uint8_t type; uint32_t target; Arm arm; };
-  static Route routeFor(Core* c, uint32_t node);
+  struct Route {
+    Queue queue;
+    uint8_t type;
+    uint32_t target;
+    Arm arm;
+  };
+  static Route routeFor(Core *c, uint32_t node);
 
   // ---- THE FRAME'S SUBMISSION LIST, readable at display time -----------------------------------
   // The trap this exists to close (measured 2026-08-06): the queue the CULL pushes onto is an
@@ -71,13 +76,16 @@ public:
   //     C    0x1F800154 / 0x1F80015C  0x1F800158 / 0x1F80015E  0x800F2738
   // RE: the refresh block at the head of gen_func_8003BB50 / 8003BCF4 / 8003BF00 (and the native
   // mirrors in objlist_walk.cpp, which write the same six words).
-  struct QueueSnapshot { uint32_t ptr; int count; };
-  static QueueSnapshot snapshotOf(Core* c, Queue q);
+  struct QueueSnapshot {
+    uint32_t ptr;
+    int count;
+  };
+  static QueueSnapshot snapshotOf(Core *c, Queue q);
   // Was this node on the frame's submission list for the queue its class routes it to?
-  static bool submittedThisFrame(Core* c, uint32_t node, Queue q);
+  static bool submittedThisFrame(Core *c, uint32_t node, Queue q);
   // Total entries across the three snapshots — the DENOMINATOR every negative membership answer
   // must be reported with, so "not submitted" can never be confused with "nothing was submitted".
-  static int submittedTotal(Core* c);
+  static int submittedTotal(Core *c);
 
   // Does the guest's own dispatch flush this node's render commands (the display pass's mesh path)?
   //
@@ -92,12 +100,16 @@ public:
   //
   // Hence the node, not just the route: the guest's mesh call is CONDITIONAL, and on `== 1` precisely —
   // the walk's own entry gate only guarantees non-zero, so do not relax it to `!= 0`.
-  static bool guestFlushesMesh(Core* c, uint32_t node, const Route& r);
+  static bool guestFlushesMesh(Core *c, uint32_t node, const Route &r);
 
-  static const char* armName(Arm a);
-  static char        queueName(Queue q);
+  static const char *armName(Arm a);
+  static char queueName(Queue q);
 
 private:
-  struct Walk { uint32_t table; uint32_t typeBound; uint32_t noOpTarget; };
-  static const Walk* walkFor(Queue q);
+  struct Walk {
+    uint32_t table;
+    uint32_t typeBound;
+    uint32_t noOpTarget;
+  };
+  static const Walk *walkFor(Queue q);
 };

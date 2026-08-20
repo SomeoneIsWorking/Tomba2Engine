@@ -30,9 +30,9 @@
 
 namespace {
 // The cull's three render queues, as the walks read them (objlist_walk.cpp owns the walks themselves).
-constexpr uint32_t QUEUE_A_TABLE = 0x80014A70u;   // FUN_8003BB50
-constexpr uint32_t QUEUE_B_TABLE = 0x80014CB0u;   // FUN_8003BCF4
-constexpr uint32_t QUEUE_C_TABLE = 0x80014D38u;   // FUN_8003BF00
+constexpr uint32_t QUEUE_A_TABLE = 0x80014A70u; // FUN_8003BB50
+constexpr uint32_t QUEUE_B_TABLE = 0x80014CB0u; // FUN_8003BCF4
+constexpr uint32_t QUEUE_C_TABLE = 0x80014D38u; // FUN_8003BF00
 constexpr uint32_t QUEUE_A_TYPE_BOUND = 144u;
 constexpr uint32_t QUEUE_B_TYPE_BOUND = 33u;
 constexpr uint32_t QUEUE_C_TYPE_BOUND = 32u;
@@ -40,8 +40,8 @@ constexpr uint32_t QUEUE_A_NOOP = 0x8003BCD0u;
 constexpr uint32_t QUEUE_B_NOOP = 0x8003BED8u;
 constexpr uint32_t QUEUE_C_NOOP = 0x8003C028u;
 
-constexpr uint32_t NODE_CLASS = 0x0Cu;   // the cull's queue-routing key
-constexpr uint32_t NODE_TYPE  = 0x0Bu;   // the walks' per-type dispatch key
+constexpr uint32_t NODE_CLASS = 0x0Cu; // the cull's queue-routing key
+constexpr uint32_t NODE_TYPE = 0x0Bu;  // the walks' per-type dispatch key
 
 // The per-frame SNAPSHOT pair each consumer walk takes of its accumulator (see queue_dispatch.h).
 // This is the list the walk consumes, and it is what survives to display time.
@@ -51,17 +51,21 @@ constexpr uint32_t QUEUE_C_SNAP_PTR = 0x1F800158u, QUEUE_C_SNAP_CNT = 0x1F80015E
 // The cull's own caps (Cull::performBaseCull) — a snapshot count above its cap means the counter is
 // garbage, not that the list is longer, so it is clamped rather than trusted.
 constexpr int QUEUE_A_CAP = 24, QUEUE_B_CAP = 40, QUEUE_C_CAP = 28;
-}  // namespace
+} // namespace
 
-const GuestQueueDispatch::Walk* GuestQueueDispatch::walkFor(Queue q) {
-  static const Walk kA{ QUEUE_A_TABLE, QUEUE_A_TYPE_BOUND, QUEUE_A_NOOP };
-  static const Walk kB{ QUEUE_B_TABLE, QUEUE_B_TYPE_BOUND, QUEUE_B_NOOP };
-  static const Walk kC{ QUEUE_C_TABLE, QUEUE_C_TYPE_BOUND, QUEUE_C_NOOP };
+const GuestQueueDispatch::Walk *GuestQueueDispatch::walkFor(Queue q) {
+  static const Walk kA{QUEUE_A_TABLE, QUEUE_A_TYPE_BOUND, QUEUE_A_NOOP};
+  static const Walk kB{QUEUE_B_TABLE, QUEUE_B_TYPE_BOUND, QUEUE_B_NOOP};
+  static const Walk kC{QUEUE_C_TABLE, QUEUE_C_TYPE_BOUND, QUEUE_C_NOOP};
   switch (q) {
-    case Queue::A: return &kA;
-    case Queue::B: return &kB;
-    case Queue::C: return &kC;
-    default:       return nullptr;
+  case Queue::A:
+    return &kA;
+  case Queue::B:
+    return &kB;
+  case Queue::C:
+    return &kC;
+  default:
+    return nullptr;
   }
 }
 
@@ -71,101 +75,188 @@ const GuestQueueDispatch::Walk* GuestQueueDispatch::walkFor(Queue q) {
 // three below is marked visible and then consumed by nobody.
 GuestQueueDispatch::Queue GuestQueueDispatch::queueForClass(uint8_t objClass) {
   switch (objClass) {
-    case 2: case 9: return Queue::A;
-    case 4:         return Queue::B;
-    case 5:         return Queue::C;
-    default:        return Queue::None;
+  case 2:
+  case 9:
+    return Queue::A;
+  case 4:
+    return Queue::B;
+  case 5:
+    return Queue::C;
+  default:
+    return Queue::None;
   }
 }
 
-GuestQueueDispatch::Route GuestQueueDispatch::routeFor(Core* c, uint32_t node) {
+GuestQueueDispatch::Route GuestQueueDispatch::routeFor(Core *c, uint32_t node) {
   Route r{};
-  r.type  = c->mem_r8(node + NODE_TYPE);
+  r.type = c->mem_r8(node + NODE_TYPE);
   r.queue = queueForClass(c->mem_r8(node + NODE_CLASS));
-  const Walk* w = walkFor(r.queue);
-  if (!w) { r.arm = Arm::OutOfRange; return r; }          // no queue => no consumer at all
-  if (r.type >= w->typeBound) { r.arm = Arm::OutOfRange; return r; }
+  const Walk *w = walkFor(r.queue);
+  if (!w) {
+    r.arm = Arm::OutOfRange;
+    return r;
+  } // no queue => no consumer at all
+  if (r.type >= w->typeBound) {
+    r.arm = Arm::OutOfRange;
+    return r;
+  }
   r.target = c->mem_r32(w->table + (uint32_t)r.type * 4u);
-  if (r.target == w->noOpTarget) { r.arm = Arm::NoOp; return r; }
+  if (r.target == w->noOpTarget) {
+    r.arm = Arm::NoOp;
+    return r;
+  }
   switch (r.target) {
-    case 0x8003BC00u:                       r.arm = Arm::MeshThenFlash; break;
-    case 0x8003BDACu: case 0x8003BFACu:     r.arm = Arm::Mesh;          break;
-    case 0x8003BC24u:                       r.arm = Arm::TetherLine;    break;
-    case 0x8003BC6Cu: case 0x8003BE84u: case 0x8003BFBCu: r.arm = Arm::Billboard1;  break;
-    case 0x8003BC7Cu: case 0x8003BEA4u: case 0x8003BFCCu: r.arm = Arm::Billboard2;  break;
-    case 0x8003BC8Cu: case 0x8003BC9Cu:
-    case 0x8003BFDCu: case 0x8003BFECu:     r.arm = Arm::PreComposed;   break;
-    case 0x8003BCACu: case 0x8003BCB4u: case 0x8003BCC0u:
-    case 0x8003BEB4u: case 0x8003BEBCu: case 0x8003BE94u:
-    case 0x8003BEC8u:                       r.arm = Arm::CustomFn;      break;
-    case 0x8003BDBCu: case 0x8003BDF4u: case 0x8003BE74u: r.arm = Arm::OverlayFn;   break;
-    case 0x8003BFFCu:                       r.arm = Arm::ModeDispatch;  break;
-    default:                                r.arm = Arm::Unknown;       break;
+  case 0x8003BC00u:
+    r.arm = Arm::MeshThenFlash;
+    break;
+  case 0x8003BDACu:
+  case 0x8003BFACu:
+    r.arm = Arm::Mesh;
+    break;
+  case 0x8003BC24u:
+    r.arm = Arm::TetherLine;
+    break;
+  case 0x8003BC6Cu:
+  case 0x8003BE84u:
+  case 0x8003BFBCu:
+    r.arm = Arm::Billboard1;
+    break;
+  case 0x8003BC7Cu:
+  case 0x8003BEA4u:
+  case 0x8003BFCCu:
+    r.arm = Arm::Billboard2;
+    break;
+  case 0x8003BC8Cu:
+  case 0x8003BC9Cu:
+  case 0x8003BFDCu:
+  case 0x8003BFECu:
+    r.arm = Arm::PreComposed;
+    break;
+  case 0x8003BCACu:
+  case 0x8003BCB4u:
+  case 0x8003BCC0u:
+  case 0x8003BEB4u:
+  case 0x8003BEBCu:
+  case 0x8003BE94u:
+  case 0x8003BEC8u:
+    r.arm = Arm::CustomFn;
+    break;
+  case 0x8003BDBCu:
+  case 0x8003BDF4u:
+  case 0x8003BE74u:
+    r.arm = Arm::OverlayFn;
+    break;
+  case 0x8003BFFCu:
+    r.arm = Arm::ModeDispatch;
+    break;
+  default:
+    r.arm = Arm::Unknown;
+    break;
   }
   return r;
 }
 
-GuestQueueDispatch::QueueSnapshot GuestQueueDispatch::snapshotOf(Core* c, Queue q) {
-  uint32_t ptrAddr = 0, cntAddr = 0; int cap = 0;
+GuestQueueDispatch::QueueSnapshot GuestQueueDispatch::snapshotOf(Core *c, Queue q) {
+  uint32_t ptrAddr = 0, cntAddr = 0;
+  int cap = 0;
   switch (q) {
-    case Queue::A: ptrAddr = QUEUE_A_SNAP_PTR; cntAddr = QUEUE_A_SNAP_CNT; cap = QUEUE_A_CAP; break;
-    case Queue::B: ptrAddr = QUEUE_B_SNAP_PTR; cntAddr = QUEUE_B_SNAP_CNT; cap = QUEUE_B_CAP; break;
-    case Queue::C: ptrAddr = QUEUE_C_SNAP_PTR; cntAddr = QUEUE_C_SNAP_CNT; cap = QUEUE_C_CAP; break;
-    default:       return QueueSnapshot{ 0, 0 };
+  case Queue::A:
+    ptrAddr = QUEUE_A_SNAP_PTR;
+    cntAddr = QUEUE_A_SNAP_CNT;
+    cap = QUEUE_A_CAP;
+    break;
+  case Queue::B:
+    ptrAddr = QUEUE_B_SNAP_PTR;
+    cntAddr = QUEUE_B_SNAP_CNT;
+    cap = QUEUE_B_CAP;
+    break;
+  case Queue::C:
+    ptrAddr = QUEUE_C_SNAP_PTR;
+    cntAddr = QUEUE_C_SNAP_CNT;
+    cap = QUEUE_C_CAP;
+    break;
+  default:
+    return QueueSnapshot{0, 0};
   }
   int n = (int)c->mem_r16s(cntAddr);
-  if (n < 0)   n = 0;
-  if (n > cap) n = cap;
-  return QueueSnapshot{ c->mem_r32(ptrAddr), n };
+  if (n < 0) {
+    n = 0;
+  }
+  if (n > cap) {
+    n = cap;
+  }
+  return QueueSnapshot{c->mem_r32(ptrAddr), n};
 }
 
-bool GuestQueueDispatch::submittedThisFrame(Core* c, uint32_t node, Queue q) {
+bool GuestQueueDispatch::submittedThisFrame(Core *c, uint32_t node, Queue q) {
   const QueueSnapshot s = snapshotOf(c, q);
-  for (int i = 0; i < s.count; i++)
-    if (c->mem_r32(s.ptr + (uint32_t)i * 4u) == node) return true;
+  for (int i = 0; i < s.count; i++) {
+    if (c->mem_r32(s.ptr + (uint32_t)i * 4u) == node) {
+      return true;
+    }
+  }
   return false;
 }
 
-int GuestQueueDispatch::submittedTotal(Core* c) {
+int GuestQueueDispatch::submittedTotal(Core *c) {
   return snapshotOf(c, Queue::A).count + snapshotOf(c, Queue::B).count + snapshotOf(c, Queue::C).count;
 }
 
 // The visibility byte the tether arm's callee tests before flushing the mesh (FUN_80122974's
 // `lbu r2,1(r16)` / `addiu r18,1` / `bne r2,r18`). Same byte the walk's entry gate reads, but the gate
 // only requires non-zero and this requires exactly 1.
-static constexpr uint32_t kNodeVisible   = 1u;
-static constexpr uint32_t kNodeVisibleOff = 1u;   // node + 1
+static constexpr uint32_t kNodeVisible = 1u;
+static constexpr uint32_t kNodeVisibleOff = 1u; // node + 1
 
-bool GuestQueueDispatch::guestFlushesMesh(Core* c, uint32_t node, const Route& r) {
-  if (r.arm == Arm::Mesh || r.arm == Arm::MeshThenFlash) return true;
+bool GuestQueueDispatch::guestFlushesMesh(Core *c, uint32_t node, const Route &r) {
+  if (r.arm == Arm::Mesh || r.arm == Arm::MeshThenFlash) {
+    return true;
+  }
   // The tether arm flushes the mesh too, from inside FUN_80122974 — see the header.
-  if (r.arm == Arm::TetherLine)
+  if (r.arm == Arm::TetherLine) {
     return c && c->mem_r8(node + kNodeVisibleOff) == kNodeVisible;
+  }
   return false;
 }
 
-const char* GuestQueueDispatch::armName(Arm a) {
+const char *GuestQueueDispatch::armName(Arm a) {
   switch (a) {
-    case Arm::OutOfRange:    return "out-of-range";
-    case Arm::NoOp:          return "NO-OP";
-    case Arm::Mesh:          return "mesh";
-    case Arm::MeshThenFlash: return "mesh+flash";
-    case Arm::TetherLine:    return "tether";
-    case Arm::Billboard1:    return "billboard1";
-    case Arm::Billboard2:    return "billboard2";
-    case Arm::PreComposed:   return "pre-composed";
-    case Arm::CustomFn:      return "custom-fn";
-    case Arm::OverlayFn:     return "overlay-fn";
-    case Arm::ModeDispatch:  return "mode-dispatch";
-    default:                 return "UNKNOWN-TARGET";
+  case Arm::OutOfRange:
+    return "out-of-range";
+  case Arm::NoOp:
+    return "NO-OP";
+  case Arm::Mesh:
+    return "mesh";
+  case Arm::MeshThenFlash:
+    return "mesh+flash";
+  case Arm::TetherLine:
+    return "tether";
+  case Arm::Billboard1:
+    return "billboard1";
+  case Arm::Billboard2:
+    return "billboard2";
+  case Arm::PreComposed:
+    return "pre-composed";
+  case Arm::CustomFn:
+    return "custom-fn";
+  case Arm::OverlayFn:
+    return "overlay-fn";
+  case Arm::ModeDispatch:
+    return "mode-dispatch";
+  default:
+    return "UNKNOWN-TARGET";
   }
 }
 
 char GuestQueueDispatch::queueName(Queue q) {
   switch (q) {
-    case Queue::A: return 'A';
-    case Queue::B: return 'B';
-    case Queue::C: return 'C';
-    default:       return '-';
+  case Queue::A:
+    return 'A';
+  case Queue::B:
+    return 'B';
+  case Queue::C:
+    return 'C';
+  default:
+    return '-';
   }
 }

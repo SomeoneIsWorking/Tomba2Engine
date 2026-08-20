@@ -75,56 +75,60 @@
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
-#include "render.h"
-#include "render_queue.h"
-#include "render_internal.h"   // ObjScope, render_field_native_active
-#include "gpu_native_internal.h"   // gpu_frame_no — declared THERE, never re-declared here
+#include "gpu_native_internal.h" // gpu_frame_no — declared THERE, never re-declared here
+#include "proj_params.h"         // proj_pz_to_ord
 #include "projection.h"
-#include "proj_params.h"       // proj_pz_to_ord
-#include <lucent/log.h>
+#include "render.h"
+#include "render_internal.h" // ObjScope, render_field_native_active
+#include "render_queue.h"
 #include <cstdint>
+#include <lucent/log.h>
 
-extern void ov_a00_gen_801365C4(Core*);
+extern void ov_a00_gen_801365C4(Core *);
 
 namespace {
 
 // ── the emitter's own constants, named rather than open-coded at the use site ──────────────────────
-constexpr int32_t  kSegment   = 120;    // one texture tile's height in world units; also the divisor
-constexpr int32_t  kOtzBias   = 32;     // a2 to FUN_8003B320 — the substrate's OT bias, mirrored in
-                                        // spirit by the native depth sort rather than reproduced
-constexpr bool     kRawTexture = true;  // GP0 code 0x2D bit 0
-constexpr bool     kSemi       = false; // GP0 code 0x2D bit 1 is clear
+constexpr int32_t kSegment = 120;  // one texture tile's height in world units; also the divisor
+constexpr int32_t kOtzBias = 32;   // a2 to FUN_8003B320 — the substrate's OT bias, mirrored in
+                                   // spirit by the native depth sort rather than reproduced
+constexpr bool kRawTexture = true; // GP0 code 0x2D bit 0
+constexpr bool kSemi = false;      // GP0 code 0x2D bit 1 is clear
 
 // The node's own fields (byte offsets).
-constexpr uint32_t kNodeTpage  = 0x60u;   // u16
-constexpr uint32_t kNodeClut   = 0x62u;   // u16
-constexpr uint32_t kNodeUv0    = 0x64u;   // u16 each, packed (u | v<<8), one per corner
-constexpr uint32_t kNodeWidth  = 0x6Cu;   // s16 — FULL width; the emitter halves it toward zero
-constexpr uint32_t kNodeRecPtr = 200u;    // *this = the record carrying the world anchor
+constexpr uint32_t kNodeTpage = 0x60u; // u16
+constexpr uint32_t kNodeClut = 0x62u;  // u16
+constexpr uint32_t kNodeUv0 = 0x64u;   // u16 each, packed (u | v<<8), one per corner
+constexpr uint32_t kNodeWidth = 0x6Cu; // s16 — FULL width; the emitter halves it toward zero
+constexpr uint32_t kNodeRecPtr = 200u; // *this = the record carrying the world anchor
 
 // The anchor record's world position, and the emitter's own +46 Z bias (a literal in FUN_80136748).
-constexpr uint32_t kRecPosX    = 44u;     // s16 (Y at +48, Z at +52)
-constexpr int32_t  kRecZBias   = 46;
+constexpr uint32_t kRecPosX = 44u; // s16 (Y at +48, Z at +52)
+constexpr int32_t kRecZBias = 46;
 
 // Halve toward zero, exactly as the guest writes it (`v += (unsigned)v >> 31; v >>= 1`).
-inline int32_t halveTowardZero(int32_t v) { return (v + (int32_t)((uint32_t)v >> 31)) >> 1; }
+inline int32_t halveTowardZero(int32_t v) {
+  return (v + (int32_t)((uint32_t)v >> 31)) >> 1;
+}
 
 // Every corner the emitter builds lands in an s16 packet slot, so it wraps the same way.
-inline int32_t s16of(int32_t v) { return (int16_t)(uint16_t)v; }
+inline int32_t s16of(int32_t v) {
+  return (int16_t)(uint16_t)v;
+}
 
-}  // namespace
+} // namespace
 
 // ropeStripRender — FUN_801365C4's picture. Read-only; emits world quads with real per-vertex depth
 // through the native camera, so the strip interpolates at fps60 like every other native producer.
 void Render::ropeStripRender(uint32_t node, int32_t length) {
-  Core* c = mCore;
+  Core *c = mCore;
 
   const uint32_t rec = c->mem_r32(node + kNodeRecPtr);
   if (!rec) {
     // The emitter's caller would have read through address 0x2C. Say so — a producer that returns
     // silently here is indistinguishable from one that was never reached.
-    lucent::debug("ropefx", "f{} node={:08X} len={} DECLINED: node+200 record pointer is null",
-                  gpu_frame_no(c), node, length);
+    lucent::debug(
+        "ropefx", "f{} node={:08X} len={} DECLINED: node+200 record pointer is null", gpu_frame_no(c), node, length);
     return;
   }
 
@@ -137,82 +141,129 @@ void Render::ropeStripRender(uint32_t node, int32_t length) {
   // MIRRORS THE GUEST'S DIVISION, including its sign behaviour: the emitter sign-extends the length
   // to 32 bits and divides by 120, so a negative length yields a non-positive quotient and the whole
   // loop is skipped, leaving only the remainder tile. Reproduced rather than guarded away.
-  const int32_t len  = (int16_t)(uint16_t)length;
+  const int32_t len = (int16_t)(uint16_t)length;
   const int32_t whole = len / kSegment;
-  const int32_t rem   = len % kSegment;
+  const int32_t rem = len % kSegment;
 
   const int32_t half = halveTowardZero((int16_t)c->mem_r16(node + kNodeWidth));
 
   // ── the material ────────────────────────────────────────────────────────────────────────────────
   const uint16_t tpage = c->mem_r16(node + kNodeTpage);
-  const uint16_t clut  = c->mem_r16(node + kNodeClut);
+  const uint16_t clut = c->mem_r16(node + kNodeClut);
   int us[4], vs[4];
   for (int i = 0; i < 4; i++) {
     const uint16_t uv = c->mem_r16(node + kNodeUv0 + (uint32_t)i * 2u);
-    us[i] = uv & 0xFFu;          // PSX packs a UV slot as u in the low byte, v in the high byte
+    us[i] = uv & 0xFFu; // PSX packs a UV slot as u in the low byte, v in the high byte
     vs[i] = (uv >> 8) & 0xFFu;
   }
 
   EObjXform cam;
   projComposeCamera(&cam);
   ObjScope objScope(c, node);
-  RenderQueue& rq = c->game->activeRq();
+  RenderQueue &rq = c->game->activeRq();
 
   // ── one quad per tile, top-down, exactly as the emitter walks it ────────────────────────────────
   // The guest emits `whole` full tiles stepping Y down by kSegment, then one tile spanning the
   // remainder. Tile i therefore covers [yTop - height, yTop] with yTop = len - i*kSegment.
   const int32_t tiles = (whole > 0 ? whole : 0) + 1;
   int emitted = 0, behindCount = 0;
-  float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f;   // screen bbox of what actually got emitted
+  float bx0 = 1e9f, by0 = 1e9f, bx1 = -1e9f, by1 = -1e9f; // screen bbox of what actually got emitted
   for (int32_t i = 0; i < tiles; i++) {
-    const int32_t yTop    = len - i * kSegment;
-    const bool    lastOne = (i == tiles - 1);
-    const int32_t height  = lastOne ? rem : kSegment;
-    const int32_t yBot    = yTop - height;
+    const int32_t yTop = len - i * kSegment;
+    const bool lastOne = (i == tiles - 1);
+    const int32_t height = lastOne ? rem : kSegment;
+    const int32_t yBot = yTop - height;
 
     // World-space corners: the model quad (0, y, +/-half) offset by the object's world position.
-    const int32_t cx[4] = { px, px, px, px };
-    const int32_t cy[4] = { s16of(yTop) + py, s16of(yTop) + py, s16of(yBot) + py, s16of(yBot) + py };
-    const int32_t cz[4] = { s16of(-half) + pz, s16of(half) + pz, s16of(-half) + pz, s16of(half) + pz };
+    const int32_t cx[4] = {px, px, px, px};
+    const int32_t cy[4] = {s16of(yTop) + py, s16of(yTop) + py, s16of(yBot) + py, s16of(yBot) + py};
+    const int32_t cz[4] = {s16of(-half) + pz, s16of(half) + pz, s16of(-half) + pz, s16of(half) + pz};
 
     ProjVtx p[4];
     bool behind = false;
     for (int k = 0; k < 4 && !behind; k++) {
       cam.project(cx[k], cy[k], cz[k], &p[k]);
-      behind = p[k].sz <= 0;                 // the emitter's own GTE-flag reject
+      behind = p[k].sz <= 0; // the emitter's own GTE-flag reject
     }
-    if (behind) { behindCount++; continue; }
+    if (behind) {
+      behindCount++;
+      continue;
+    }
 
     float xsf[4], ysf[4], depth[4];
     int xs[4], ys[4];
     for (int k = 0; k < 4; k++) {
-      xsf[k] = p[k].px; ysf[k] = p[k].py;
-      bx0 = bx0 < p[k].px ? bx0 : p[k].px;  bx1 = bx1 > p[k].px ? bx1 : p[k].px;
-      by0 = by0 < p[k].py ? by0 : p[k].py;  by1 = by1 > p[k].py ? by1 : p[k].py;
+      xsf[k] = p[k].px;
+      ysf[k] = p[k].py;
+      bx0 = bx0 < p[k].px ? bx0 : p[k].px;
+      bx1 = bx1 > p[k].px ? bx1 : p[k].px;
+      by0 = by0 < p[k].py ? by0 : p[k].py;
+      by1 = by1 > p[k].py ? by1 : p[k].py;
       xs[k] = (int)(p[k].px < 0 ? p[k].px - 0.5f : p[k].px + 0.5f);
       ys[k] = (int)(p[k].py < 0 ? p[k].py - 0.5f : p[k].py + 0.5f);
       depth[k] = proj_pz_to_ord(p[k].pz);
     }
     // Raw texture (GP0 0x2D bit 0): the texel passes through unmodulated, and the neutral colour
     // below is what "unmodulated" means to the rasterizer — the same (128,128,128) the guest writes.
-    const unsigned char neutral[4] = { 0x80, 0x80, 0x80, 0x80 };
-    rq.emitOrQueue(c, /*capture=*/1, RQ_WORLD, RQ_OM_DEPTH, /*nv=*/4, kSemi ? 1 : 0, kRawTexture ? 1 : 0,
-                   xs, ys, xsf, ysf, us, vs, neutral, neutral, neutral, depth,
+    const unsigned char neutral[4] = {0x80, 0x80, 0x80, 0x80};
+    rq.emitOrQueue(c,
+                   /*capture=*/1,
+                   RQ_WORLD,
+                   RQ_OM_DEPTH,
+                   /*nv=*/4,
+                   kSemi ? 1 : 0,
+                   kRawTexture ? 1 : 0,
+                   xs,
+                   ys,
+                   xsf,
+                   ysf,
+                   us,
+                   vs,
+                   neutral,
+                   neutral,
+                   neutral,
+                   depth,
                    /*mode=*/(int)((tpage >> 7) & 3u),
-                   /*tp_x=*/(int)(tpage & 0xFu) * 64, /*tp_y=*/(int)((tpage >> 4) & 1u) * 256,
-                   /*clut_x=*/(int)(clut & 0x3Fu) * 16, /*clut_y=*/(int)((clut >> 6) & 0x1FFu),
-                   0, 0, 0, 0, 0, 0, 1023, 511, /*tp_blend=*/(int)((tpage >> 5) & 3u));
+                   /*tp_x=*/(int)(tpage & 0xFu) * 64,
+                   /*tp_y=*/(int)((tpage >> 4) & 1u) * 256,
+                   /*clut_x=*/(int)(clut & 0x3Fu) * 16,
+                   /*clut_y=*/(int)((clut >> 6) & 0x1FFu),
+                   0,
+                   0,
+                   0,
+                   0,
+                   0,
+                   0,
+                   1023,
+                   511,
+                   /*tp_blend=*/(int)((tpage >> 5) & 3u));
     emitted++;
   }
 
   // DENOMINATOR ON EVERY RATIO. tiles is what the emitter asked for, emitted is what reached the
   // queue, behind is why the difference exists. "tiles=9 emitted=0 behind=9" and the producer never
   // running at all are different findings and this line keeps them different.
-  lucent::debug("ropefx", "f{} node={:08X} len={} -> {} whole + rem {} = {} tiles | half={} P=({},{},{}) "
-                          "tpage={:04X} clut={:04X} | emitted={} behind={} screen=[{:.1f},{:.1f}]..[{:.1f},{:.1f}]",
-                gpu_frame_no(c), node, len, whole, rem, tiles, half, px, py, pz, tpage, clut,
-                emitted, behindCount,
-                emitted ? bx0 : 0.0f, emitted ? by0 : 0.0f, emitted ? bx1 : 0.0f, emitted ? by1 : 0.0f);
+  lucent::debug("ropefx",
+                "f{} node={:08X} len={} -> {} whole + rem {} = {} tiles | half={} P=({},{},{}) "
+                "tpage={:04X} clut={:04X} | emitted={} behind={} screen=[{:.1f},{:.1f}]..[{:.1f},{:.1f}]",
+                gpu_frame_no(c),
+                node,
+                len,
+                whole,
+                rem,
+                tiles,
+                half,
+                px,
+                py,
+                pz,
+                tpage,
+                clut,
+                emitted,
+                behindCount,
+                emitted ? bx0 : 0.0f,
+                emitted ? by0 : 0.0f,
+                emitted ? bx1 : 0.0f,
+                emitted ? by1 : 0.0f);
 }
 
 namespace {
@@ -220,15 +271,17 @@ namespace {
 // see exactly what they saw before), then the native picture, and only inside pc_render's native
 // field-pass window. Outside that window the full guest-OT walk IS the picture, so adding a native
 // draw there would double-draw — the same gate, for the same reason, as the per-object redirect.
-void ov_ropeStrip(Core* c) {
-  const uint32_t node   = c->r[4];
-  const int32_t  length = (int32_t)c->r[5];
-  ov_a00_gen_801365C4(c);                       // unchanged substrate emission
-  if (!render_field_native_active(c)) return;
-  DisplayPassGuard displayPass(c->rsub.mode);   // this addition is display-pass only: no guest writes
+void ov_ropeStrip(Core *c) {
+  const uint32_t node = c->r[4];
+  const int32_t length = (int32_t)c->r[5];
+  ov_a00_gen_801365C4(c); // unchanged substrate emission
+  if (!render_field_native_active(c)) {
+    return;
+  }
+  DisplayPassGuard displayPass(c->rsub.mode); // this addition is display-pass only: no guest writes
   rend(c)->ropeStripRender(node, length);
 }
-}  // namespace
+} // namespace
 
 void fx_rope_strip_install() {
   extern void engine_set_override_a00(uint32_t, OverrideFn, OverrideFn);

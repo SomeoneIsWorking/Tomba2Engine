@@ -70,30 +70,30 @@
 // the gate excludes the top-of-RAM stack window [sp-0x800, sp) — far above all game data — exactly as the
 // dispatcher/state-machine family gates do (disp26c88 / sm40558). See docs/port-progress.md §SAVE.
 
+#include "save_menu.h"
+#include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "cfg.h"
-#include "save_menu.h"
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
-void rec_super_call(Core*, uint32_t);   // interpret the original PSX body (super-call / A/B oracle)
-void rec_dispatch(Core*, uint32_t);     // hybrid call: recomp body if emitted, else interpret
+void rec_super_call(Core *, uint32_t); // interpret the original PSX body (super-call / A/B oracle)
+void rec_dispatch(Core *, uint32_t);   // hybrid call: recomp body if emitted, else interpret
 
 namespace {
 
 // Save-system constants RE'd above.
-constexpr uint32_t SAVE_DISPATCH_FN = 0x80036DFCu;  // FUN_80036DFC — the save/load-flow head dispatcher
-constexpr uint32_t SAVE_HANDLER_TBL = 0x80010668u;  // 6-entry handler table (stride 4)
-constexpr uint32_t SAVE_CTX_BASE    = 0x800D1E68u;  // save-system context struct (s0 in the prologue)
-constexpr int      SAVE_NUM_STATES  = 6;            // load-select/run, save-confirm/execute, format, delete
+constexpr uint32_t SAVE_DISPATCH_FN = 0x80036DFCu; // FUN_80036DFC — the save/load-flow head dispatcher
+constexpr uint32_t SAVE_HANDLER_TBL = 0x80010668u; // 6-entry handler table (stride 4)
+constexpr uint32_t SAVE_CTX_BASE = 0x800D1E68u;    // save-system context struct (s0 in the prologue)
+constexpr int SAVE_NUM_STATES = 6;                 // load-select/run, save-confirm/execute, format, delete
 
 // Register file indices (raw MIPS abi slots, matching the rest of the engine overrides).
 enum { R_A0 = 4, R_S0 = 16, R_S1 = 17, R_S2 = 18, R_SP = 29, R_RA = 31 };
 
-}  // namespace
+} // namespace
 
 // ------------------------------------------------------------------------------------------------
 // SaveMenu::runHandler(task) — resolve and run ONE save-menu page handler for the given
@@ -103,18 +103,18 @@ enum { R_A0 = 4, R_S0 = 16, R_S1 = 17, R_S2 = 18, R_SP = 29, R_RA = 31 };
 // would. Out-of-range substate (>=6) is the dispatcher's no-op return path.
 // ------------------------------------------------------------------------------------------------
 void SaveMenu::runHandler(uint32_t task) {
-  Core* c = core;
+  Core *c = core;
   // ---- prologue (FUN_80036DFC 0x80036dfc..0x80036e1c) ----
-  uint32_t sp = c->r[R_SP] - 0x30u;            // addiu sp,-0x30
-  c->mem_w32(sp + 0x24, c->r[R_S1]);           // sw s1, 0x24(sp)
-  c->mem_w32(sp + 0x2C, c->r[R_RA]);           // sw ra, 0x2c(sp)
-  c->mem_w32(sp + 0x28, c->r[R_S2]);           // sw s2, 0x28(sp)
-  c->mem_w32(sp + 0x20, c->r[R_S0]);           // sw s0, 0x20(sp)
+  uint32_t sp = c->r[R_SP] - 0x30u;  // addiu sp,-0x30
+  c->mem_w32(sp + 0x24, c->r[R_S1]); // sw s1, 0x24(sp)
+  c->mem_w32(sp + 0x2C, c->r[R_RA]); // sw ra, 0x2c(sp)
+  c->mem_w32(sp + 0x28, c->r[R_S2]); // sw s2, 0x28(sp)
+  c->mem_w32(sp + 0x20, c->r[R_S0]); // sw s0, 0x20(sp)
   c->r[R_SP] = sp;
-  c->r[R_S1] = task;                           // addu s1, a0, zero  (s1 = task struct)
-  c->r[R_S0] = SAVE_CTX_BASE;                  // addiu s0, v0, 0x1e68 (s0 = save-system context)
+  c->r[R_S1] = task;          // addu s1, a0, zero  (s1 = task struct)
+  c->r[R_S0] = SAVE_CTX_BASE; // addiu s0, v0, 0x1e68 (s0 = save-system context)
 
-  uint32_t substate = c->mem_r8(task + 1);     // lbu v1, 1(s1)
+  uint32_t substate = c->mem_r8(task + 1); // lbu v1, 1(s1)
 
   if (substate >= (uint32_t)SAVE_NUM_STATES) {
     // ---- out-of-range / epilogue (0x800376d4): restore + return (no-op) ----
@@ -128,13 +128,12 @@ void SaveMenu::runHandler(uint32_t task) {
 
   // ---- dispatch: handler = table[substate]; jr handler (tail-call, frame + regs live) ----
   uint32_t handler = c->mem_r32(SAVE_HANDLER_TBL + substate * 4u);
-  rec_dispatch(c, handler);  // the page handler runs the load/save page logic + unwinds the frame itself
+  rec_dispatch(c, handler); // the page handler runs the load/save page logic + unwinds the frame itself
 }
 
 // ------------------------------------------------------------------------------------------------
 // SaveMenu::dispatchBody(c) — native entry replacing FUN_80036DFC. a0 = the save-menu task struct.
 // ------------------------------------------------------------------------------------------------
-void SaveMenu::dispatchBody(Core* c) {
+void SaveMenu::dispatchBody(Core *c) {
   saveMenuOf(c).runHandler(c->r[R_A0]);
 }
-

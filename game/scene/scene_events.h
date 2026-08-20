@@ -22,7 +22,7 @@ struct Core;
 
 class SceneEvents {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // arm(eventId): FUN_80040B48 — idempotent scene-event arm. Returns:
   //    1 on fresh arm (this call armed the slot; caller may treat as "consumed → advance"),
@@ -46,7 +46,7 @@ public:
   // cube_text_ledger.cpp's CubeTextLedger::activateSlot used to be an independent second copy of this
   // exact body (found via `codemap.py --conflicts`); it was deduped onto this owner, the same way
   // FUN_80040A58 was deduped onto classSize.
-  static void armOverride(Core* c);
+  static void armOverride(Core *c);
 
   // Scene-command record handlers (r4 = pointer to a command record; ret in r2). Both are leaves —
   // pure guest-state readers/writers, no frame, no sub-calls.
@@ -56,15 +56,15 @@ public:
   //     reaches 500, else keeps waiting (returns 0). Returns 0 for any other phase.
   //   applyFlagOp   (FUN_80042448): set/OR/AND a byte in the flag table (scene_flags::kFlagTable, entry
   //     @ +argA+324) selected by the record's op mode (0=set, 1=OR, 2=AND); always returns 1.
-  static void delayedTriggerOverride(Core* c);   // FUN_80042258
-  static void applyFlagOpOverride(Core* c);      // FUN_80042448
+  static void delayedTriggerOverride(Core *c); // FUN_80042258
+  static void applyFlagOpOverride(Core *c);    // FUN_80042448
 
-  static void registerOverrides(class Game* game);
+  static void registerOverrides(class Game *game);
 
 private:
   // Guest-ABI arm body (plain fn-pointer shape for the verify gate).
-  static uint32_t armBody(Core* c);   // FUN_80040B48
+  static uint32_t armBody(Core *c); // FUN_80040B48
 
-  static uint32_t delayedTrigger(Core* c);   // FUN_80042258 body
-  static uint32_t applyFlagOp(Core* c);      // FUN_80042448 body
+  static uint32_t delayedTrigger(Core *c); // FUN_80042258 body
+  static uint32_t applyFlagOp(Core *c);    // FUN_80042448 body
 };

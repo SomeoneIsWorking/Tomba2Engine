@@ -13,7 +13,7 @@ class Core;
 
 class NativeScenePass {
 public:
-  Core* mCore = nullptr;
+  Core *mCore = nullptr;
 
   // Orchestrate one native-decoupled render pass: collect() -> drawObject() per scene entry.
   void run();
@@ -25,7 +25,7 @@ public:
   // Draw one SceneObject's geomblk: transform each GT3/GT4 prim's model verts by the object's float
   // model->view matrix, project with the camera, and submit as a textured quad/tri with real depth.
   // Returns the number of prims drawn. (impl: mesh/mesh_draw.cpp)
-  int drawObject(const SceneObject* o, const SceneCamera* cam);
+  int drawObject(const SceneObject *o, const SceneCamera *cam);
 
   // The PC-native float terrain render pass (guest 0x8002AB5C's render half). Taxi-parameter
   // mCore->r[4] = the terrain render-list node. (impl: native_terrain.cpp)

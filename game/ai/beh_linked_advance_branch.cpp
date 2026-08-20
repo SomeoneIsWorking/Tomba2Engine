@@ -16,82 +16,110 @@
 // a register machine (the two near-identical branches share the L883c node[5]==1 test). The byte-exact
 // A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net. NO GTE/render.
 
+#include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "cfg.h"
+#include "guest_abi.h"
+#include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
-#include "guest_abi.h"
-void rec_super_call(Core*, uint32_t);
-void rec_dispatch(Core*, uint32_t);
+void rec_super_call(Core *, uint32_t);
+void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
 constexpr uint32_t BEH_FN = 0x80128760u;
 
-}  // namespace
+} // namespace
 static constexpr GuestFrameSpill kSpills_80128760[2] = {
-  { 16, 16 },
-  { 31 /*ra*/, 20 },
-};   // frame=24, abi_extract --scaffold --guestabi
+    {16, 16},
+    {31 /*ra*/, 20},
+}; // frame=24, abi_extract --scaffold --guestabi
 
-void beh_linked_advance_branch(Core* c) {
+void beh_linked_advance_branch(Core *c) {
   GuestFrame<24, 2> frame(c, kSpills_80128760);
-  uint32_t s0 = c->r[4];                            // s0 = a0 (node)
-  uint32_t v1 = c->mem_r8(s0 + 4);                  // node[4] = outer state
+  uint32_t s0 = c->r[4];           // s0 = a0 (node)
+  uint32_t v1 = c->mem_r8(s0 + 4); // node[4] = outer state
   uint8_t n5;
   uint32_t rec;
 
-  if (v1 == 1) goto S1;
-  if ((int32_t)v1 < 2) { if (v1 == 0) { guest_leaf(c, 0x80128308u, s0); } goto Lret; }  // STATE 0
-  if (v1 == 2) goto Lret;                           // STATE 2 nothing
-  if (v1 == 3) { eng(c).spawn.despawn(s0); goto Lret; }  // STATE 3
-  goto Lret;                                        // v1 >= 4
-
- // ---------------- STATE 1 ----------------
- S1: {
-    uint8_t n3 = c->mem_r8(s0 + 3);
-    if (n3 == 0) goto BA;                            // 0x801287e4
-    if (n3 == 1) goto BB;                            // 0x8012882c (n3 == node[4] == 1)
-    goto Lret;
+  if (v1 == 1) {
+    goto S1;
   }
+  if ((int32_t)v1 < 2) {
+    if (v1 == 0) {
+      guest_leaf(c, 0x80128308u, s0);
+    }
+    goto Lret;
+  } // STATE 0
+  if (v1 == 2) {
+    goto Lret; // STATE 2 nothing
+  }
+  if (v1 == 3) {
+    eng(c).spawn.despawn(s0);
+    goto Lret;
+  } // STATE 3
+  goto Lret; // v1 >= 4
 
- BA:                                                // node[3]==0
+// ---------------- STATE 1 ----------------
+S1: {
+  uint8_t n3 = c->mem_r8(s0 + 3);
+  if (n3 == 0) {
+    goto BA; // 0x801287e4
+  }
+  if (n3 == 1) {
+    goto BB; // 0x8012882c (n3 == node[4] == 1)
+  }
+  goto Lret;
+}
+
+BA: // node[3]==0
   n5 = c->mem_r8(s0 + 5);
-  if (n5 != 0) goto L883c;
-  rec = c->mem_r32(s0 + 0x10);                       // node[0x10]
-  if (rec != 0) { if (c->mem_r8(rec + 0x5E) != 2) goto Ltail88b0; }
+  if (n5 != 0) {
+    goto L883c;
+  }
+  rec = c->mem_r32(s0 + 0x10); // node[0x10]
+  if (rec != 0) {
+    if (c->mem_r8(rec + 0x5E) != 2) {
+      goto Ltail88b0;
+    }
+  }
   // 0x80128814: advance reset -> then Ltail
-  c->mem_w8 (s0 + 11, 0);
+  c->mem_w8(s0 + 11, 0);
   c->mem_w32(s0 + 0x10, 0);
-  c->mem_w8 (s0 + 5, (uint8_t)(n5 + 1));
+  c->mem_w8(s0 + 5, (uint8_t)(n5 + 1));
   goto Ltail88b0;
 
- L883c:                                             // node[5]!=0 (shared by A and B)
-  if (c->mem_r8(s0 + 5) == 1) goto Ltail88b0;
+L883c: // node[5]!=0 (shared by A and B)
+  if (c->mem_r8(s0 + 5) == 1) {
+    goto Ltail88b0;
+  }
   goto Lret;
 
- BB:                                                // node[3]==1
+BB: // node[3]==1
   n5 = c->mem_r8(s0 + 5);
-  if (n5 != 0) goto L883c;
+  if (n5 != 0) {
+    goto L883c;
+  }
   // 0x8012884c
   rec = c->mem_r32(s0 + 0x10);
-  if (rec != 0 && c->mem_r8(rec + 0x5E) != 2) goto L88884;
+  if (rec != 0 && c->mem_r8(rec + 0x5E) != 2) {
+    goto L88884;
+  }
   // 0x8012886c: advance reset -> fall to L88884
-  c->mem_w8 (s0 + 11, 0);
+  c->mem_w8(s0 + 11, 0);
   c->mem_w32(s0 + 0x10, 0);
-  c->mem_w8 (s0 + 5, (uint8_t)(n5 + 1));
- L88884:
-  if (c->mem_r8(0x1F800207u) < 6) {                  // scratchpad byte
+  c->mem_w8(s0 + 5, (uint8_t)(n5 + 1));
+L88884:
+  if (c->mem_r8(0x1F800207u) < 6) { // scratchpad byte
     guest_leaf(c, 0x801281B8u, s0);
     guest_leaf(c, 0x801285ECu, s0);
   }
   goto Lret;
 
- Ltail88b0:
-  guest_leaf(c, 0x801281B8u, s0);                    // FUN_801281B8(node)
- Lret:
+Ltail88b0:
+  guest_leaf(c, 0x801281B8u, s0); // FUN_801281B8(node)
+Lret:
   return;
 }

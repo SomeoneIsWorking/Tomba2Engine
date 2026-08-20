@@ -34,39 +34,41 @@
 // a jump table, but every arm only chooses four constants, so it is a table here. An index of 5 or
 // more skips the UVs entirely and leaves whatever the packet already held — that is the guest's
 // behaviour, not an oversight.
-#include "ui/panel.h"
 #include "core.h"
+#include "ui/panel.h"
 
 namespace {
 
 constexpr uint32_t PACKET_POOL_PTR = 0x800BF544u;
-constexpr uint32_t OT_TABLE_PTR    = 0x800ED8C8u;
-constexpr uint32_t PACKET_BYTES    = 40u;
-constexpr uint32_t TAG_9_WORDS     = 9u << 24;
+constexpr uint32_t OT_TABLE_PTR = 0x800ED8C8u;
+constexpr uint32_t PACKET_BYTES = 40u;
+constexpr uint32_t TAG_9_WORDS = 9u << 24;
 
-constexpr uint8_t  GP0_QUAD        = 0x2C;   // textured quad
-constexpr uint8_t  GP0_QUAD_SEMI   = 0x2E;   // ...semi-transparent
-constexpr uint8_t  RAW_TEXTURE_BIT = 0x01;
-constexpr uint8_t  FLAT_SHADE_LVL  = 0x40;
-constexpr uint16_t TPAGE           = 95;
+constexpr uint8_t GP0_QUAD = 0x2C;      // textured quad
+constexpr uint8_t GP0_QUAD_SEMI = 0x2E; // ...semi-transparent
+constexpr uint8_t RAW_TEXTURE_BIT = 0x01;
+constexpr uint8_t FLAT_SHADE_LVL = 0x40;
+constexpr uint16_t TPAGE = 95;
 
-constexpr uint16_t ATTR_SEMI       = 0x80;
-constexpr uint16_t ATTR_CLUT_ALT   = 0x40;
+constexpr uint16_t ATTR_SEMI = 0x80;
+constexpr uint16_t ATTR_CLUT_ALT = 0x40;
 constexpr uint16_t ATTR_FLAT_SHADE = 0x20;
-constexpr uint16_t ATTR_CLUT_ROW   = 0x1F;
-constexpr uint16_t CLUT_ROW_BASE   = 496;
+constexpr uint16_t ATTR_CLUT_ROW = 0x1F;
+constexpr uint16_t CLUT_ROW_BASE = 496;
 
 // The five atlas rectangles uvIndex selects between.
-struct UvSet { uint8_t uLeft, uRight, vTop, vBottom; };
+struct UvSet {
+  uint8_t uLeft, uRight, vTop, vBottom;
+};
 constexpr UvSet kUvSets[5] = {
-  { 192, 200, 136, 144 },
-  { 240, 248, 136, 144 },
-  { 208, 216, 137, 143 },
-  { 224, 232, 137, 143 },
-  { 216, 223, 136, 143 },
+    {192, 200, 136, 144},
+    {240, 248, 136, 144},
+    {208, 216, 137, 143},
+    {224, 232, 137, 143},
+    {216, 223, 136, 143},
 };
 
-}  // namespace
+} // namespace
 
 // EQUIVALENCE. This is a REBUILD, not a transcription, so `port_check` cannot pass it: it compares
 // STATIC store sequences, and the guest's five-arm jump table has 12 store sites where the table
@@ -76,20 +78,22 @@ constexpr UvSet kUvSets[5] = {
 // dumps at frame 1200: ZERO differing bytes, 2026-07-22. Re-run that A/B if this file is edited.
 //
 // FUN_8004FFB4(rect r4 {s16 x,y,w,h}, uvIndex r5, attr r6, otBucket r7)
-void Panel::fillQuad(Core* c) {
-  const uint32_t rect     = c->r[4];
-  const uint32_t uvIndex  = c->r[5];
-  const uint16_t attr     = (uint16_t)c->r[6];
+void Panel::fillQuad(Core *c) {
+  const uint32_t rect = c->r[4];
+  const uint32_t uvIndex = c->r[5];
+  const uint16_t attr = (uint16_t)c->r[6];
   const uint32_t otBucket = c->r[7];
 
   const uint32_t packet = c->mem_r32(PACKET_POOL_PTR);
   c->mem_w32(PACKET_POOL_PTR, packet + PACKET_BYTES);
 
   c->mem_w8(packet + 7, GP0_QUAD);
-  if (attr & ATTR_SEMI) c->mem_w8(packet + 7, GP0_QUAD_SEMI);
+  if (attr & ATTR_SEMI) {
+    c->mem_w8(packet + 7, GP0_QUAD_SEMI);
+  }
 
-  const uint16_t clut = (uint16_t)((((attr & ATTR_CLUT_ROW) + CLUT_ROW_BASE) << 6) |
-                                   ((attr & ATTR_CLUT_ALT) ? 63u : 62u));
+  const uint16_t clut =
+      (uint16_t)((((attr & ATTR_CLUT_ROW) + CLUT_ROW_BASE) << 6) | ((attr & ATTR_CLUT_ALT) ? 63u : 62u));
   c->mem_w16(packet + 14, clut);
 
   if (attr & ATTR_FLAT_SHADE) {
@@ -104,7 +108,7 @@ void Panel::fillQuad(Core* c) {
   // four corners of the rect, in the order the guest writes them
   const uint16_t x = c->mem_r16(rect + 0), y = c->mem_r16(rect + 2);
   const uint16_t w = c->mem_r16(rect + 4), h = c->mem_r16(rect + 6);
-  c->mem_w16(packet + 8,  x);
+  c->mem_w16(packet + 8, x);
   c->mem_w16(packet + 10, y);
   c->mem_w16(packet + 16, (uint16_t)(x + w));
   c->mem_w16(packet + 18, y);
@@ -114,8 +118,8 @@ void Panel::fillQuad(Core* c) {
   c->mem_w16(packet + 34, (uint16_t)(y + h));
 
   if (uvIndex < 5) {
-    const UvSet& uv = kUvSets[uvIndex];
-    c->mem_w8(packet + 13, uv.vTop);        // v0.v and v1.v share the top edge
+    const UvSet &uv = kUvSets[uvIndex];
+    c->mem_w8(packet + 13, uv.vTop); // v0.v and v1.v share the top edge
     c->mem_w8(packet + 21, uv.vTop);
     c->mem_w8(packet + 12, uv.uLeft);
     c->mem_w8(packet + 20, uv.uRight);

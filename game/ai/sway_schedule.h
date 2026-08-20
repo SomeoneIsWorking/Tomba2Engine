@@ -12,8 +12,8 @@
 // second statement or a nested brace would silently stop counting, and the gate would then compare a
 // short store sequence against the oracle's full one (see docs/findings/tooling.md).
 #pragma once
-#include <cstdint>
 #include "core.h"
+#include <cstdint>
 
 // ------------------------------------------------------------------------------------------------
 // The rocking object's node. Standard object-node shape (game/object/actor.h): +3 is the per-object
@@ -26,24 +26,36 @@
 // velY/accelY. Offsets in the 0x48..0x5A block are reused per object family; this lens names them
 // only for the family measured here.
 namespace swaynode {
-constexpr uint32_t kVariant = 0x03;  // u8  — which of the three sway bodies runs (Actor::type)
-constexpr uint32_t kPhase   = 0x05;  // u8  — schedule phase, 0..5, the jump-table selector
-constexpr uint32_t kRate    = 0x50;  // u16 — the oscillator's per-frame phase step ("how fast it rocks")
-}  // namespace swaynode
+constexpr uint32_t kVariant = 0x03; // u8  — which of the three sway bodies runs (Actor::type)
+constexpr uint32_t kPhase = 0x05;   // u8  — schedule phase, 0..5, the jump-table selector
+constexpr uint32_t kRate = 0x50;    // u16 — the oscillator's per-frame phase step ("how fast it rocks")
+} // namespace swaynode
 
 struct SwayNode {
-  Core*    mCore;
+  Core *mCore;
   uint32_t mAt;
 
-  uint8_t variant() const { return mCore->mem_r8(mAt + swaynode::kVariant); }
-  uint8_t phase()   const { return mCore->mem_r8(mAt + swaynode::kPhase); }
+  uint8_t variant() const {
+    return mCore->mem_r8(mAt + swaynode::kVariant);
+  }
+  uint8_t phase() const {
+    return mCore->mem_r8(mAt + swaynode::kPhase);
+  }
   // The guest reads the rate BOTH ways in the same breath — signed for the "have we wound down far
   // enough" compare, unsigned for the subtraction that produces the next rate. Keep both.
-  int16_t  rate()   const { return mCore->mem_r16s(mAt + swaynode::kRate); }
-  uint16_t rate_u() const { return mCore->mem_r16(mAt + swaynode::kRate); }
+  int16_t rate() const {
+    return mCore->mem_r16s(mAt + swaynode::kRate);
+  }
+  uint16_t rate_u() const {
+    return mCore->mem_r16(mAt + swaynode::kRate);
+  }
 
-  void setPhase(uint8_t v)  const { mCore->mem_w8(mAt + swaynode::kPhase, v); }
-  void setRate(uint16_t v)  const { mCore->mem_w16(mAt + swaynode::kRate, v); }
+  void setPhase(uint8_t v) const {
+    mCore->mem_w8(mAt + swaynode::kPhase, v);
+  }
+  void setRate(uint16_t v) const {
+    mCore->mem_w16(mAt + swaynode::kRate, v);
+  }
 };
 
 // ------------------------------------------------------------------------------------------------
@@ -55,22 +67,26 @@ constexpr uint32_t kBlockBase = 0x800BF870u;
 // +0x48: a "this scripted sequence is already over" sentinel. Read-only here; 0xFF means done.
 // game/ai/beh_two_child_steer.cpp (guest 0x80131D08) tests the SAME byte for the SAME 255 and also
 // uses it to skip a state forward, so the sentinel reading is not local to this leaf.
-constexpr uint32_t kFinishedFlag = kBlockBase + 0x48u;    // 0x800BF8B8
+constexpr uint32_t kFinishedFlag = kBlockBase + 0x48u; // 0x800BF8B8
 // +0x170: the area's scripted EVENT-STEP counter. Incremented by exactly 1 at guest 0x80117084
 // (generated/ov_a00_shard_0.c:6461, inside ov_a00_gen_80116F64) when a scene event completes, and
 // compared against ascending thresholds by several already-owned behaviours (6/16/28 in
 // beh_area_threshold_ptr_swap.cpp, 20 elsewhere). That is what makes it a progress counter rather
 // than a mode byte: one writer, +1, many ascending readers.
-constexpr uint32_t kEventStep = kBlockBase + 0x170u;      // 0x800BF9E0
+constexpr uint32_t kEventStep = kBlockBase + 0x170u; // 0x800BF9E0
 
 constexpr uint8_t kFinishedSentinel = 255;
-}  // namespace areaseq
+} // namespace areaseq
 
 struct AreaSequence {
-  Core* mCore;
+  Core *mCore;
 
-  uint8_t eventStep()  const { return mCore->mem_r8(areaseq::kEventStep); }
-  bool    isFinished() const { return mCore->mem_r8(areaseq::kFinishedFlag) == areaseq::kFinishedSentinel; }
+  uint8_t eventStep() const {
+    return mCore->mem_r8(areaseq::kEventStep);
+  }
+  bool isFinished() const {
+    return mCore->mem_r8(areaseq::kFinishedFlag) == areaseq::kFinishedSentinel;
+  }
 };
 
 // ------------------------------------------------------------------------------------------------
@@ -78,7 +94,7 @@ class SwaySchedule {
 public:
   // 0x8012D27C — the per-type tick of behaviour FUN_8012D404 (game/ai/beh_cull_tick_render.cpp),
   // called with a0 = the object node once the object survives the frame's cull.
-  static void advanceRateThenSway(Core* c);
+  static void advanceRateThenSway(Core *c);
 
   static void registerOverrides();
 };

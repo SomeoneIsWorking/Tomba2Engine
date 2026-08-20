@@ -14,7 +14,7 @@ struct Core;
 
 class AudioDispatch {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // dispatch3Way(idx): guest FUN_800750D8. 3-branch dispatcher used by area-machine state 0
   //   (idx = 0x2C) and Pool::selectStateIndex (idx = s0):

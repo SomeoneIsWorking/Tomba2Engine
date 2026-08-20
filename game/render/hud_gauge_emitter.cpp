@@ -36,73 +36,73 @@
 // layout, FUN_8005019C digit/label draw) stay un-owned; calls route through `guest_fn` exactly
 // like gen's own `c->r[31] = <jal-site>; func_XXXXXXXX(c);` idiom, so SBS sees byte-identical
 // substrate execution underneath.
+#include "hud_gauge_emitter.h"
+#include "cfg.h" // cfg_logf gaugeq probe
 #include "core.h"
 #include "game.h"
 #include "guest_abi.h"
-#include "hud_gauge_emitter.h"
-#include "render.h"   // Render::mode.psxRender() — gaugeTextRowTap's read-only overlay gate
-#include "producer_scope.h"   // ProducerScope — graphics-producer DB, native leg
-#include "render_queue.h"    // RenderQueue::push2dQuad + RQ_HUD — the tap's host half
-#include "cfg.h"             // cfg_logf gaugeq probe
+#include "producer_scope.h" // ProducerScope — graphics-producer DB, native leg
+#include "render.h"         // Render::mode.psxRender() — gaugeTextRowTap's read-only overlay gate
+#include "render_queue.h"   // RenderQueue::push2dQuad + RQ_HUD — the tap's host half
 #include <cstdint>
 
-extern void gen_func_8004EB94(Core*);   // guest text-row leaf body (see gaugeTextRowTap below)
+extern void gen_func_8004EB94(Core *); // guest text-row leaf body (see gaugeTextRowTap below)
 
 namespace {
 
 // -------------------------------------------------------------------------------------------
 // Guest addresses / constants (named, not inline hex — CLAUDE.md "no magic constant offsets").
-constexpr uint32_t kHudGaugeBase   = 0x800BF548u; // DAT_800bf548: the gauge table header + array
-constexpr uint32_t kFlagOff        = 1u;          // DAT_800bf549: draw-enable flag byte (==1 to draw)
-constexpr uint32_t kCountOff       = 8u;          // DAT_800bf550: active-item count (signed s16)
-constexpr uint32_t kRecordsOff     = 12u;          // first record = kHudGaugeBase + kRecordsOff
-constexpr uint32_t kRecordStride   = 140u;         // 0x8C, per docs/findings/render.md census note
+constexpr uint32_t kHudGaugeBase = 0x800BF548u; // DAT_800bf548: the gauge table header + array
+constexpr uint32_t kFlagOff = 1u;               // DAT_800bf549: draw-enable flag byte (==1 to draw)
+constexpr uint32_t kCountOff = 8u;              // DAT_800bf550: active-item count (signed s16)
+constexpr uint32_t kRecordsOff = 12u;           // first record = kHudGaugeBase + kRecordsOff
+constexpr uint32_t kRecordStride = 140u;        // 0x8C, per docs/findings/render.md census note
 
 constexpr uint32_t kPktPoolBaseReg = 0x800C0000u; // 32780<<16 — the "packet-pool base" register gen
-                                                   // loads (r20) and derives kPktPoolPtr from as
-                                                   // base-2748; held live across the item's nested
-                                                   // leaves and spilled by FUN_8005019C.
-constexpr uint32_t kPktPoolPtr     = 0x800BF544u; // packet-pool bump-allocator cursor — SAME pool
-                                                   // WidescreenMarginQuad/OverlayGt3Gt4 write into.
-constexpr uint32_t kOtBaseReg      = 0x800F0000u; // 32783<<16 — gen's r19; kOtBase == this - 0x2738.
-                                                   // Held live (spilled by FUN_8004EB94/FUN_8005019C).
-constexpr uint32_t kOtBase         = 0x800ED8C8u; // guest word holding the live OT array base
-                                                   // pointer — SAME address WidescreenMarginQuad
-                                                   // reads as `otBase` for its Z-bucketed insert.
-constexpr uint32_t kHudOtBucketIndex = 3u;         // this emitter always tail-appends into the
-                                                   // FIXED near/HUD bucket otBase[3] (word offset
-                                                   // +12), never a Z-derived index — traced as
-                                                   // `mem32(mem32(kOtBase) + 12)` at every link site.
-constexpr uint32_t kDrawAreaOtTag  = 0x02000000u; // OT tag: 2 data words follow the tag (DR_AREA's
-                                                   // top-left + bottom-right words) — same len<<24
-                                                   // encoding as WidescreenMarginQuad's kPktTag.
+                                                  // loads (r20) and derives kPktPoolPtr from as
+                                                  // base-2748; held live across the item's nested
+                                                  // leaves and spilled by FUN_8005019C.
+constexpr uint32_t kPktPoolPtr = 0x800BF544u;     // packet-pool bump-allocator cursor — SAME pool
+                                                  // WidescreenMarginQuad/OverlayGt3Gt4 write into.
+constexpr uint32_t kOtBaseReg = 0x800F0000u;      // 32783<<16 — gen's r19; kOtBase == this - 0x2738.
+                                                  // Held live (spilled by FUN_8004EB94/FUN_8005019C).
+constexpr uint32_t kOtBase = 0x800ED8C8u;         // guest word holding the live OT array base
+                                                  // pointer — SAME address WidescreenMarginQuad
+                                                  // reads as `otBase` for its Z-bucketed insert.
+constexpr uint32_t kHudOtBucketIndex = 3u;        // this emitter always tail-appends into the
+                                                  // FIXED near/HUD bucket otBase[3] (word offset
+                                                  // +12), never a Z-derived index — traced as
+                                                  // `mem32(mem32(kOtBase) + 12)` at every link site.
+constexpr uint32_t kDrawAreaOtTag = 0x02000000u;  // OT tag: 2 data words follow the tag (DR_AREA's
+                                                  // top-left + bottom-right words) — same len<<24
+                                                  // encoding as WidescreenMarginQuad's kPktTag.
 constexpr uint32_t kDrawAreaPacketBytes = 12u;    // tag word + 2 data words = 3 words = 12 bytes;
-                                                   // matches FUN_80081CF8 setting its length byte to 2.
+                                                  // matches FUN_80081CF8 setting its length byte to 2.
 
 constexpr uint32_t kFunBuildDrawArea = 0x80081CF8u; // FUN_80081cf8(pkt, ushort rect[4]{x,y,w,h}):
-                                                   // still-substrate DR_AREA packet-header builder
-                                                   // (SetDrawAreaTopLeft/BottomRight word builders
-                                                   // at 0x80082240/0x800822D8 are already owned —
-                                                   // see game/render/wide_re_gpu_putdrawenv.cpp —
-                                                   // but the packet-header assembly leaf itself
-                                                   // isn't; called exactly as gen calls it).
+                                                    // still-substrate DR_AREA packet-header builder
+                                                    // (SetDrawAreaTopLeft/BottomRight word builders
+                                                    // at 0x80082240/0x800822D8 are already owned —
+                                                    // see game/render/wide_re_gpu_putdrawenv.cpp —
+                                                    // but the packet-header assembly leaf itself
+                                                    // isn't; called exactly as gen calls it).
 constexpr uint32_t kFunSegmentLayout = 0x8004EB94u; // FUN_8004eb94(descAddr, signed16 span): still-
-                                                   // substrate per-segment layout leaf.
+                                                    // substrate per-segment layout leaf.
 constexpr uint32_t kFunLabelOrDigits = 0x8005019Cu; // FUN_8005019c(rectAddr, byte, 0, 3): still-
-                                                   // substrate digit/label draw leaf.
+                                                    // substrate digit/label draw leaf.
 
 // jal-site return-address constants, one per call site, in program order (mirrors gen exactly —
 // FUN_80081CF8's own callee-saved footprint spills r16/r17/r31, so a wrong/garbage r31 here would
 // surface as a genuine SBS diff in that leaf's own stack spill).
-constexpr uint32_t kRaFrameTileA   = 0x8004FDA8u;
+constexpr uint32_t kRaFrameTileA = 0x8004FDA8u;
 constexpr uint32_t kRaFrameCallItem = 0x8004FDE4u;
-constexpr uint32_t kRaFrameTileB   = 0x8004FE4Cu;
-constexpr uint32_t kRaItemTileA    = 0x8004FC08u;
-constexpr uint32_t kRaItemSeg1     = 0x8004FC44u;
-constexpr uint32_t kRaItemSeg2     = 0x8004FC74u;
-constexpr uint32_t kRaItemTileB    = 0x8004FCB8u;
-constexpr uint32_t kRaItemSegElse  = 0x8004FCF4u;
-constexpr uint32_t kRaItemFinal    = 0x8004FD08u;
+constexpr uint32_t kRaFrameTileB = 0x8004FE4Cu;
+constexpr uint32_t kRaItemTileA = 0x8004FC08u;
+constexpr uint32_t kRaItemSeg1 = 0x8004FC44u;
+constexpr uint32_t kRaItemSeg2 = 0x8004FC74u;
+constexpr uint32_t kRaItemTileB = 0x8004FCB8u;
+constexpr uint32_t kRaItemSegElse = 0x8004FCF4u;
+constexpr uint32_t kRaItemFinal = 0x8004FD08u;
 
 // Full-viewport scissor reset (FD30, before the item loop) — dims match the task's "0x140x0xf0".
 constexpr uint16_t kViewportX = 0, kViewportW = 0x140, kViewportH = 0xF0;
@@ -112,32 +112,42 @@ constexpr uint16_t kPanelX = 0x10, kPanelW = 0x120, kPanelH = 0x36;
 constexpr uint16_t kPanelYBias = 0x99; // 153
 
 // Item record byte offsets within the 0x8C-stride array (see HudGaugeItemRecord below).
-constexpr uint32_t kSegPrimaryOff   = 16u; // 0x10 — first segment-layout leaf's descriptor arg
+constexpr uint32_t kSegPrimaryOff = 16u;   // 0x10 — first segment-layout leaf's descriptor arg
 constexpr uint32_t kSegSecondaryOff = 61u; // 0x3D — second segment-layout leaf's descriptor arg
-constexpr uint32_t kLabelByteOff    = 136u; // 0x88 — byte forwarded to the digit/label leaf
+constexpr uint32_t kLabelByteOff = 136u;   // 0x88 — byte forwarded to the digit/label leaf
 
 // -------------------------------------------------------------------------------------------
 // Scratchpad camera/vertical-scroll byte (DAT_1f800135) — read at every DR_AREA rect this
 // emitter builds; always packed as the rect's Y in an 8.8-style fixed point (byte << 8).
-uint16_t hudViewportY(Core* c) { return (uint16_t)(c->mem_r8(0x1F800135u) << 8); }
+uint16_t hudViewportY(Core *c) {
+  return (uint16_t)(c->mem_r8(0x1F800135u) << 8);
+}
 
 // Item record lens: 0x8C-byte-stride gauge-item record (see docs/findings/render.md census
 // note). Field roles below are exactly what gen reads at each offset, traced instruction-by-
 // instruction against gen_func_8004FB4C.
 struct HudGaugeItemRecord {
-  Core* c;
+  Core *c;
   uint32_t addr;
 
-  uint8_t kind()      const { return c->mem_r8(addr + 10); }  // 0/>=3 = single-segment; 1/2 = also
-                                                                // draws its own item-box + tile A.
-  uint16_t spanBase()  const { return c->mem_r16(addr + 2); }  // segment span base
-  uint8_t  spanBias()  const { return c->mem_r8(addr + 11); }  // segment span bias byte, added in
-  uint8_t  labelByte() const { return c->mem_r8(addr + kLabelByteOff); }
+  uint8_t kind() const {
+    return c->mem_r8(addr + 10);
+  } // 0/>=3 = single-segment; 1/2 = also
+    // draws its own item-box + tile A.
+  uint16_t spanBase() const {
+    return c->mem_r16(addr + 2);
+  } // segment span base
+  uint8_t spanBias() const {
+    return c->mem_r8(addr + 11);
+  } // segment span bias byte, added in
+  uint8_t labelByte() const {
+    return c->mem_r8(addr + kLabelByteOff);
+  }
 };
 
 // -------------------------------------------------------------------------------------------
 // Build the {x,y,w,h} ushort rect FUN_80081CF8 reads as its param_2, at sp+off..off+6.
-void buildDrawAreaRect(Core* c, uint32_t spOff, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+void buildDrawAreaRect(Core *c, uint32_t spOff, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
   uint32_t sp = c->r[29];
   c->mem_w16(sp + spOff + 0, x);
   c->mem_w16(sp + spOff + 2, y);
@@ -149,7 +159,7 @@ void buildDrawAreaRect(Core* c, uint32_t spOff, uint16_t x, uint16_t y, uint16_t
 // it into the fixed HUD OT bucket. GuestReg<16> mirrors gen's own r16 = old-pool-cursor
 // assignment (FUN_80081CF8's callee-saved footprint spills r16/r17 — a wrong live value there is
 // a real SBS diff, not residual scratch: CLAUDE.md "MIRROR THE GUEST STACK").
-void emitDrawAreaAndLink(Core* c, uint32_t raConst, uint32_t rectOff) {
+void emitDrawAreaAndLink(Core *c, uint32_t raConst, uint32_t rectOff) {
   GuestReg<16> pktAddr(c);
   pktAddr = c->mem_r32(kPktPoolPtr);
   c->mem_w32(kPktPoolPtr, (uint32_t)pktAddr + kDrawAreaPacketBytes);
@@ -174,27 +184,30 @@ void emitDrawAreaAndLink(Core* c, uint32_t raConst, uint32_t rectOff) {
 
 // FUN_8004eb94(descAddr, sign_extend16(spanBase + spanBias + bias)) call shape, shared by all
 // three segment-layout call sites (primary/secondary/else).
-void emitSegmentLayout(Core* c, uint32_t raConst, uint32_t descAddr,
-                        const HudGaugeItemRecord& rec, int32_t bias) {
+void emitSegmentLayout(Core *c, uint32_t raConst, uint32_t descAddr, const HudGaugeItemRecord &rec, int32_t bias) {
   const uint16_t sum = (uint16_t)(rec.spanBase() + rec.spanBias() + bias);
   guest_fn(c, kFunSegmentLayout, raConst, descAddr, (uint32_t)(int32_t)(int16_t)sum);
 }
 
 } // namespace
 
-void HudGaugeEmitter::emitFrame(Core* c) {
+void HudGaugeEmitter::emitFrame(Core *c) {
   // Frame: sp -= 40, spill s0..s2/ra at their RE'd offsets (tools/abi_extract.py --contract).
-  static constexpr GuestFrameSpill kSpills[] = { {18, 32}, {31, 36}, {17, 28}, {16, 24} };
+  static constexpr GuestFrameSpill kSpills[] = {{18, 32}, {31, 36}, {17, 28}, {16, 24}};
   GuestFrame<40, 4> frame(c, kSpills);
   constexpr uint32_t kRectOff = 16; // sp+16..22, reused for both DR_AREA rects this leaf builds
 
-  GuestReg<18> recordsBase(c); recordsBase = kHudGaugeBase; // callee-saved footprint mirror
+  GuestReg<18> recordsBase(c);
+  recordsBase = kHudGaugeBase; // callee-saved footprint mirror
 
   const int32_t count = c->mem_r16s(kHudGaugeBase + kCountOff);
   // gen's `count == 0` branch fires with r2 = 1 already live in its delay slot (`c->r[2] =
   // c->r[0] + 1` executes unconditionally right before the branch) — a v0 residue on this
   // early-return path, mirrored explicitly (MIRROR_VERIFY gates this).
-  if (count == 0) { c->r[2] = 1; return; }
+  if (count == 0) {
+    c->r[2] = 1;
+    return;
+  }
 
   if (c->mem_r8(kHudGaugeBase + kFlagOff) == 1) {
     buildDrawAreaRect(c, kRectOff, kViewportX, hudViewportY(c), kViewportW, kViewportH);
@@ -230,17 +243,25 @@ void HudGaugeEmitter::emitFrame(Core* c) {
   }
 }
 
-void HudGaugeEmitter::emitItem(Core* c) {
+void HudGaugeEmitter::emitItem(Core *c) {
   // Frame: sp -= 64, spill s0..s6/ra at their RE'd offsets.
   static constexpr GuestFrameSpill kSpills[] = {
-    {17, 36}, {31, 60}, {22, 56}, {21, 52}, {20, 48}, {19, 44}, {18, 40}, {16, 32},
+      {17, 36},
+      {31, 60},
+      {22, 56},
+      {21, 52},
+      {20, 48},
+      {19, 44},
+      {18, 40},
+      {16, 32},
   };
   GuestFrame<64, 8> frame(c, kSpills);
   constexpr uint32_t kWord0Off = 16; // sp+16..19 — record's word0, inset -4 (rect x / y-high)
   constexpr uint32_t kWord1Off = 20; // sp+20..23 — record's word1, inset +8 (rect w / h)
-  constexpr uint32_t kRectOff  = 24; // sp+24..30 — {x,y,w,h} scratch for FUN_80081CF8's param_2
+  constexpr uint32_t kRectOff = 24;  // sp+24..30 — {x,y,w,h} scratch for FUN_80081CF8's param_2
 
-  GuestReg<17> rec(c); rec = c->r[4]; // record address, held live for the whole leaf
+  GuestReg<17> rec(c);
+  rec = c->r[4]; // record address, held live for the whole leaf
   const uint32_t sp = c->r[29];
   const HudGaugeItemRecord item{c, (uint32_t)rec};
 
@@ -258,7 +279,9 @@ void HudGaugeEmitter::emitItem(Core* c) {
   // FUN_8005019C spills it (sp+48). For kind>=3 gen branches out one instruction earlier and never
   // loads it, so r20 stays the incoming value. Mirror exactly (SBS core A MIRROR_VERIFY caught this
   // as native r20=0 vs substrate 0x800C0000 in FUN_8005019C's spill).
-  if (kind < 3) c->r[20] = kPktPoolBaseReg;
+  if (kind < 3) {
+    c->r[20] = kPktPoolBaseReg;
+  }
   if (kind < 3 && kind != 0) {
     // This item also owns its own scissor box: the fixed full-viewport tile (identical to
     // emitFrame's tile A) plus a per-item "itemBox" tile derived from the inset rect staged
@@ -309,12 +332,16 @@ void HudGaugeEmitter::emitItem(Core* c) {
 // and pushes RQ_HUD quads — same tap shape as game/ui/panel.cpp. This gives the gauge text/digits
 // row its pc_render picture (the 9-slice box comes via the panelBuild tap).
 namespace {
-void gaugeTextRowTap(Core* c) {
+void gaugeTextRowTap(Core *c) {
   const uint32_t desc = c->r[4];
   const int y = (int32_t)(int16_t)(uint16_t)c->r[5];
   gen_func_8004EB94(c);
-  if (c->game->oracle || c->rsub.mode.psxRender()) return;   // guest OT walk owns the picture
-  if (c->mem_r8(desc) == 0xFFu) return;                          // empty row (gen early-exit)
+  if (c->game->oracle || c->rsub.mode.psxRender()) {
+    return; // guest OT walk owns the picture
+  }
+  if (c->mem_r8(desc) == 0xFFu) {
+    return; // empty row (gen early-exit)
+  }
 
   // Producer DB, native leg. Keyed on the guest row emitter this tap replaces the picture for
   // (codemap: 0x8004EB94 -> this file, installed at the tap below). Opened AFTER both early returns so a
@@ -326,43 +353,72 @@ void gaugeTextRowTap(Core* c) {
   int width = 0;
   for (uint32_t p = desc;; p++) {
     const uint8_t b = c->mem_r8(p);
-    if (b == 0xFAu || b == 0xFFu) break;
-    if (b < 192u || b == 0xFBu) width += 8;
+    if (b == 0xFAu || b == 0xFFu) {
+      break;
+    }
+    if (b < 192u || b == 0xFBu) {
+      width += 8;
+    }
   }
   int x = 160 - (width >> 1);
 
   const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
   unsigned paletteRow = 0;
   static long rows = 0;
-  if ((rows++ & 63) == 0)
+  if ((rows++ & 63) == 0) {
     cfg_logf("gaugeq", "text row desc=%08X y=%d width=%d first=%02X", desc, y, width, c->mem_r8(desc));
+  }
   for (uint32_t p = desc;; p++) {
     const uint8_t b = c->mem_r8(p);
-    if (b == 0xFFu) break;
-    if (((unsigned)(b + 16) & 0xFFu) < 8u) { paletteRow = (unsigned)(b + 16) & 0xFFu; continue; }
+    if (b == 0xFFu) {
+      break;
+    }
+    if (((unsigned)(b + 16) & 0xFFu) < 8u) {
+      paletteRow = (unsigned)(b + 16) & 0xFFu;
+      continue;
+    }
     if (b != 0xFBu) {
       const int u = (b & 31) << 3, v = (b >> 5) << 3;
       const uint32_t clut = ((paletteRow + 496u) << 6) | 63u;
-      int xs[4] = { x + ox, x + 8 + ox, x + ox, x + 8 + ox };
-      int ys[4] = { y + oy, y + oy, y + 8 + oy, y + 8 + oy };
-      int us[4] = { u, u + 8, u, u + 8 };
-      int vs[4] = { v, v, v + 8, v + 8 };
-      unsigned char cc[4] = { 0x80, 0x80, 0x80, 0x80 };
-      c->game->activeRq().push2dQuad(RQ_HUD, /*order_2d_fg=*/1, xs, ys, us, vs, cc, cc, cc,
-                                     /*tp_x=*/960, /*tp_y=*/256, /*mode=*/0, /*raw=*/1,
-                                     (int)(clut & 0x3F) * 16, (int)(clut >> 6) & 0x1FF,
-                                     0, 0, 0, 0, 0, 0, 1023, 511);
+      int xs[4] = {x + ox, x + 8 + ox, x + ox, x + 8 + ox};
+      int ys[4] = {y + oy, y + oy, y + 8 + oy, y + 8 + oy};
+      int us[4] = {u, u + 8, u, u + 8};
+      int vs[4] = {v, v, v + 8, v + 8};
+      unsigned char cc[4] = {0x80, 0x80, 0x80, 0x80};
+      c->game->activeRq().push2dQuad(RQ_HUD,
+                                     /*order_2d_fg=*/1,
+                                     xs,
+                                     ys,
+                                     us,
+                                     vs,
+                                     cc,
+                                     cc,
+                                     cc,
+                                     /*tp_x=*/960,
+                                     /*tp_y=*/256,
+                                     /*mode=*/0,
+                                     /*raw=*/1,
+                                     (int)(clut & 0x3F) * 16,
+                                     (int)(clut >> 6) & 0x1FF,
+                                     0,
+                                     0,
+                                     0,
+                                     0,
+                                     0,
+                                     0,
+                                     1023,
+                                     511);
     }
     x += 8;
   }
 }
 } // namespace
 
-void HudGaugeEmitter::registerOverrides(Game*) {
-  extern void gen_func_8004FD30(Core*);
-  extern void gen_func_8004FB4C(Core*);
+void HudGaugeEmitter::registerOverrides(Game *) {
+  extern void gen_func_8004FD30(Core *);
+  extern void gen_func_8004FB4C(Core *);
   extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
   engine_set_override_main(0x8004FD30u, &HudGaugeEmitter::emitFrame, gen_func_8004FD30);
-  engine_set_override_main(0x8004FB4Cu, &HudGaugeEmitter::emitItem,  gen_func_8004FB4C);
-  engine_set_override_main(0x8004EB94u, gaugeTextRowTap,             gen_func_8004EB94);
+  engine_set_override_main(0x8004FB4Cu, &HudGaugeEmitter::emitItem, gen_func_8004FB4C);
+  engine_set_override_main(0x8004EB94u, gaugeTextRowTap, gen_func_8004EB94);
 }

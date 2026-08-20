@@ -16,7 +16,7 @@ class Core;
 class Rng {
 public:
   static constexpr uint32_t SEED_ADDR = 0x80105EE8u;
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // Advance the LFSR and return the classic PSX rand() value in [0, 0x7FFF].
   int32_t next();

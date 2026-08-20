@@ -20,35 +20,34 @@
 // The guest tests both, and it tests [+8] first, so a node with [+8] == 0 draws nothing even if [+9]
 // is large. Collapsing them into one loop bound would change behaviour for any node where they differ.
 #include "core.h"
-#include "render.h"
-#include "game_ctx.h"           // rend()
-#include "game.h"               // c->game->oracle
-#include "cube_text_banner.h"   // the one native producer that owns a sub-part node's picture
+#include "cube_text_banner.h" // the one native producer that owns a sub-part node's picture
+#include "game.h"             // c->game->oracle
+#include "game_ctx.h"         // rend()
 #include "override_registry.h"
+#include "render.h"
 
-void func_8003F698(Core*);   // generated/shard_disp.c — geometry-block submit
+void func_8003F698(Core *); // generated/shard_disp.c — geometry-block submit
 // gte_write_ctrl is declared in core.h (uint32_t, uint32_t) — included above
 
 namespace {
 
-constexpr uint32_t OT_TABLE_PTR   = 0x800ED8C8u;  // u32 -> ordering-table base
-constexpr uint32_t OT_PTR_PAGE    = 0x800F0000u;  // gen's s3: OT_TABLE_PTR == OT_PTR_PAGE - 10040
-constexpr uint32_t SUBPART_ARRAY  = 0xC0u;        // node+0xC0: array of sub-part pointers, stride 4
-constexpr uint32_t SUB_TRANSFORM  = 0x18u;        // sub+0x18: 8 GTE control words
-constexpr uint32_t SUB_GEOMBLK    = 0x40u;        // sub+0x40: geometry block to submit
-constexpr uint32_t NODE_LIMIT     = 8u;           // checked at the top of each iteration
-constexpr uint32_t NODE_COUNT     = 9u;           // do/while bound at the bottom
+constexpr uint32_t OT_TABLE_PTR = 0x800ED8C8u; // u32 -> ordering-table base
+constexpr uint32_t OT_PTR_PAGE = 0x800F0000u;  // gen's s3: OT_TABLE_PTR == OT_PTR_PAGE - 10040
+constexpr uint32_t SUBPART_ARRAY = 0xC0u;      // node+0xC0: array of sub-part pointers, stride 4
+constexpr uint32_t SUB_TRANSFORM = 0x18u;      // sub+0x18: 8 GTE control words
+constexpr uint32_t SUB_GEOMBLK = 0x40u;        // sub+0x40: geometry block to submit
+constexpr uint32_t NODE_LIMIT = 8u;            // checked at the top of each iteration
+constexpr uint32_t NODE_COUNT = 9u;            // do/while bound at the bottom
 
-}  // namespace
+} // namespace
 
 // ORACLE: gen_func_8003F174
-void Render::subPartWalk(Core* c) {
+void Render::subPartWalk(Core *c) {
   const uint32_t node = c->r[4];
   // Does a NATIVE producer own this node's picture? Only the cube-text banner does (CubeTextBanner,
   // selected by the same behaviour pointer it selects on — structural identity, not a tag). On the
   // oracle leg nothing native draws at all, so the handover must not fire there either.
-  const bool nativeOwnsPicture = !c->game->oracle &&
-      c->mem_r32(node + 0x1Cu) == CubeTextBanner::kBehCubeTextSpawn;
+  const bool nativeOwnsPicture = !c->game->oracle && c->mem_r32(node + 0x1Cu) == CubeTextBanner::kBehCubeTextSpawn;
   const uint32_t passThrough = c->r[5];
 
   c->r[29] -= 80;
@@ -70,21 +69,23 @@ void Render::subPartWalk(Core* c) {
   // STALE values the previous native code had parked there: the f169 SBS-full divergence at
   // 0x801FE808 (kanban #61 — A spilled a leftover pointer pair, B spilled index/cursor). Same class,
   // same fix as the r16..r23 mirror in Render::cmdListDispatch (game/render/perobj_dispatch.cpp).
-  uint32_t& index  = c->r[16];
-  uint32_t& cursor = c->r[17];   // walks the +0xC0 array, 4 bytes per sub-part
+  uint32_t &index = c->r[16];
+  uint32_t &cursor = c->r[17]; // walks the +0xC0 array, 4 bytes per sub-part
   c->r[18] = node;
   c->r[20] = passThrough;
 
   if (c->mem_r8(node + NODE_LIMIT) != 0 && c->mem_r8(node + NODE_COUNT) != 0) {
-    index    = 0;
-    cursor   = node;
-    c->r[19] = OT_PTR_PAGE;                 // gen addresses OT_TABLE_PTR as s3-10040
+    index = 0;
+    cursor = node;
+    c->r[19] = OT_PTR_PAGE; // gen addresses OT_TABLE_PTR as s3-10040
 
     do {
-      if ((int32_t)index >= (int32_t)(uint32_t)c->mem_r8(node + NODE_LIMIT)) break;  // top-of-loop limit
+      if ((int32_t)index >= (int32_t)(uint32_t)c->mem_r8(node + NODE_LIMIT)) {
+        break; // top-of-loop limit
+      }
 
       const uint32_t sub = c->mem_r32(cursor + SUBPART_ARRAY);
-      const uint32_t xf  = sub + SUB_TRANSFORM;
+      const uint32_t xf = sub + SUB_TRANSFORM;
 
       // this sub-part's transform: rotation (0..4) then translation (5..7)
       gte_write_ctrl(0, c->mem_r32(xf + 0));
@@ -112,11 +113,15 @@ void Render::subPartWalk(Core* c) {
       cursor += 4;
       c->r[4] = c->mem_r32(sub + SUB_GEOMBLK);
       c->r[5] = c->mem_r32(OT_TABLE_PTR);
-      c->r[31] = 0x8003F230u;               // jal-site ra
+      c->r[31] = 0x8003F230u; // jal-site ra
       c->r[6] = passThrough;
-      if (nativeOwnsPicture) rend(c)->mNativeDrawSuppress++;
+      if (nativeOwnsPicture) {
+        rend(c)->mNativeDrawSuppress++;
+      }
       func_8003F698(c);
-      if (nativeOwnsPicture) rend(c)->mNativeDrawSuppress--;
+      if (nativeOwnsPicture) {
+        rend(c)->mNativeDrawSuppress--;
+      }
 
       index += 1;
     } while ((int32_t)index < (int32_t)(uint32_t)c->mem_r8(node + NODE_COUNT));
@@ -131,11 +136,12 @@ void Render::subPartWalk(Core* c) {
   c->r[29] += 80;
 }
 
-static void ov_subpart_walk(Core* c) { Render::subPartWalk(c); }
+static void ov_subpart_walk(Core *c) {
+  Render::subPartWalk(c);
+}
 
 void subpart_walk_install() {
-  extern void gen_func_8003F174(Core*);
-  extern void shard_set_override(uint32_t, void (*)(Core*));
-  overrides::install(0x8003F174u, "Render::subPartWalk", ov_subpart_walk,
-                     gen_func_8003F174, shard_set_override);
+  extern void gen_func_8003F174(Core *);
+  extern void shard_set_override(uint32_t, void (*)(Core *));
+  overrides::install(0x8003F174u, "Render::subPartWalk", ov_subpart_walk, gen_func_8003F174, shard_set_override);
 }

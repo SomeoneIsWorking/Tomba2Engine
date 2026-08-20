@@ -16,55 +16,59 @@
 // So an unnamed area shows as "Area N" here rather than a guess. See docs/areas.md; add a row there in
 // the same commit as a name added below.
 #include "core.h"
-#include "game.h"
 #include "engine.h"
+#include "game.h"
 
 namespace {
 
 // Guest stage pointer + the GAME stage's entry: a warp is only legal from the field, which is where the
 // running field-run machine can carry out the game's own door transition (fade-out, teardown, CD settle,
 // reload). Same gate the REPL `warp` command applies.
-constexpr uint32_t STAGE_PTR      = 0x801FE00Cu;
-constexpr uint32_t STAGE_GAME     = 0x8010637Cu;
+constexpr uint32_t STAGE_PTR = 0x801FE00Cu;
+constexpr uint32_t STAGE_GAME = 0x8010637Cu;
 
-constexpr int      AREA_COUNT     = 22;   // ids 0..21
+constexpr int AREA_COUNT = 22; // ids 0..21
 
 // Sourced names only. Blank = not established; the selector renders "Area N".
-const char* const kAreaNames[AREA_COUNT] = {
-  /*  0 */ "",
-  /*  1 */ "",
-  /*  2 */ "",
-  /*  3 */ "",
-  /*  4 */ "",
-  /*  5 */ "",
-  /*  6 */ "",
-  /*  7 */ "",
-  /*  8 */ "Water Temple",            // USER 2026-07-23
-  /*  9 */ "",
-  /* 10 */ "",
-  /* 11 */ "",
-  /* 12 */ "Ghost Pig boss",          // USER 2026-07-23
-  /* 13 */ "",
-  /* 14 */ "",
-  /* 15 */ "",
-  /* 16 */ "",
-  /* 17 */ "",
-  /* 18 */ "",
-  /* 19 */ "",
-  /* 20 */ "",
-  /* 21 */ "",
+const char *const kAreaNames[AREA_COUNT] = {
+    /*  0 */ "",
+    /*  1 */ "",
+    /*  2 */ "",
+    /*  3 */ "",
+    /*  4 */ "",
+    /*  5 */ "",
+    /*  6 */ "",
+    /*  7 */ "",
+    /*  8 */ "Water Temple", // USER 2026-07-23
+    /*  9 */ "",
+    /* 10 */ "",
+    /* 11 */ "",
+    /* 12 */ "Ghost Pig boss", // USER 2026-07-23
+    /* 13 */ "",
+    /* 14 */ "",
+    /* 15 */ "",
+    /* 16 */ "",
+    /* 17 */ "",
+    /* 18 */ "",
+    /* 19 */ "",
+    /* 20 */ "",
+    /* 21 */ "",
 };
 
-}  // namespace
+} // namespace
 
-int Engine::devAreaCount() { return AREA_COUNT; }
+int Engine::devAreaCount() {
+  return AREA_COUNT;
+}
 
 // Display label for the selector row. Static storage: the caller only formats it into a row value.
-const char* Engine::devAreaName(int area) {
-  if (area < 0 || area >= AREA_COUNT) return "";
+const char *Engine::devAreaName(int area) {
+  if (area < 0 || area >= AREA_COUNT) {
+    return "";
+  }
   return kAreaNames[area];
 }
 
-bool Engine::devWarpAllowed(Core* c) {
+bool Engine::devWarpAllowed(Core *c) {
   return c->mem_r32(STAGE_PTR) == STAGE_GAME;
 }

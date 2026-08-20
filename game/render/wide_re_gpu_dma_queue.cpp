@@ -116,46 +116,49 @@
 #include "render.h"
 #include <stdint.h>
 
-extern "C" void rec_dispatch(Core* c, uint32_t addr);
+extern "C" void rec_dispatch(Core *c, uint32_t addr);
 
 namespace {
-constexpr uint32_t GPU_SYS_BASE = (32778u << 16);        // 0x800A0000
-constexpr uint32_t GPU_QSTAT_BASE      = GPU_SYS_BASE + 22944; // 0x800A59A0
-constexpr uint32_t GPU_QSTAT_STARTED   = GPU_QSTAT_BASE + 1;   // 0x800A59A1
-constexpr uint32_t GPU_QSTAT_ACTIVE    = GPU_QSTAT_BASE + 8;   // 0x800A59A8
-constexpr uint32_t GPU_QSTAT_HANDLER   = GPU_QSTAT_BASE + 12;  // 0x800A59AC
-constexpr uint32_t GPU_DMA_READY_PTR   = GPU_SYS_BASE + 23208; // 0x800A5AA8
-constexpr uint32_t GPU_DMA_LASTADDR_PTR= GPU_SYS_BASE + 23224; // 0x800A5AB8
-constexpr uint32_t GPU_DMA_COUNT_PTR   = GPU_SYS_BASE + 23228; // 0x800A5ABC
-constexpr uint32_t GPU_DMA_STATE_PTR   = GPU_SYS_BASE + 23220; // 0x800A5AB4
-constexpr uint32_t GPU_DMA_CHCR_PTR    = GPU_SYS_BASE + 23232; // 0x800A5AC0
-constexpr uint32_t GPU_DMA_ENABLE_PTR  = GPU_SYS_BASE + 23236; // 0x800A5AC4
-constexpr uint32_t RING_HEAD           = GPU_SYS_BASE + 23240; // 0x800A5AC8
-constexpr uint32_t RING_TAIL           = GPU_SYS_BASE + 23244; // 0x800A5ACC
-constexpr uint32_t ENQ_SAVED_MASK      = GPU_SYS_BASE + 23248; // 0x800A5AD0
-constexpr uint32_t DRAIN_SAVED_MASK    = GPU_SYS_BASE + 23252; // 0x800A5AD4
+constexpr uint32_t GPU_SYS_BASE = (32778u << 16);               // 0x800A0000
+constexpr uint32_t GPU_QSTAT_BASE = GPU_SYS_BASE + 22944;       // 0x800A59A0
+constexpr uint32_t GPU_QSTAT_STARTED = GPU_QSTAT_BASE + 1;      // 0x800A59A1
+constexpr uint32_t GPU_QSTAT_ACTIVE = GPU_QSTAT_BASE + 8;       // 0x800A59A8
+constexpr uint32_t GPU_QSTAT_HANDLER = GPU_QSTAT_BASE + 12;     // 0x800A59AC
+constexpr uint32_t GPU_DMA_READY_PTR = GPU_SYS_BASE + 23208;    // 0x800A5AA8
+constexpr uint32_t GPU_DMA_LASTADDR_PTR = GPU_SYS_BASE + 23224; // 0x800A5AB8
+constexpr uint32_t GPU_DMA_COUNT_PTR = GPU_SYS_BASE + 23228;    // 0x800A5ABC
+constexpr uint32_t GPU_DMA_STATE_PTR = GPU_SYS_BASE + 23220;    // 0x800A5AB4
+constexpr uint32_t GPU_DMA_CHCR_PTR = GPU_SYS_BASE + 23232;     // 0x800A5AC0
+constexpr uint32_t GPU_DMA_ENABLE_PTR = GPU_SYS_BASE + 23236;   // 0x800A5AC4
+constexpr uint32_t RING_HEAD = GPU_SYS_BASE + 23240;            // 0x800A5AC8
+constexpr uint32_t RING_TAIL = GPU_SYS_BASE + 23244;            // 0x800A5ACC
+constexpr uint32_t ENQ_SAVED_MASK = GPU_SYS_BASE + 23248;       // 0x800A5AD0
+constexpr uint32_t DRAIN_SAVED_MASK = GPU_SYS_BASE + 23252;     // 0x800A5AD4
 
-constexpr uint32_t RING_BASE = (32784u << 16);  // 0x80100000
-constexpr uint32_t RING_ENTRY_OFF = 3120;       // 0xC30 — entry(i) = RING_BASE + i*0x60 + RING_ENTRY_OFF
+constexpr uint32_t RING_BASE = (32784u << 16); // 0x80100000
+constexpr uint32_t RING_ENTRY_OFF = 3120;      // 0xC30 — entry(i) = RING_BASE + i*0x60 + RING_ENTRY_OFF
 
 constexpr uint32_t GPU_DMA_READY_BIT = (1024u << 16); // 0x04000000
-constexpr uint32_t GPU_DMA_BUSY_BIT  = (256u << 16);  // 0x01000000
+constexpr uint32_t GPU_DMA_BUSY_BIT = (256u << 16);   // 0x01000000
 
-inline uint32_t ringEntry(uint32_t idx) { return RING_BASE + idx * 0x60u + RING_ENTRY_OFF; }
+inline uint32_t ringEntry(uint32_t idx) {
+  return RING_BASE + idx * 0x60u + RING_ENTRY_OFF;
+}
 
 // The 4 leaf platform primitives this cluster shares with the rest of libgpu — none drafted this
 // session (still substrate), reached uniformly via rec_dispatch so a future native port of any of
 // them is picked up automatically without touching this file.
 constexpr uint32_t FN_GPU_TIMEOUT_ARM = 0x800834A0u;
 constexpr uint32_t FN_GPU_TIMEOUT_CHK = 0x800834D4u;
-constexpr uint32_t FN_INT_MASK_SET    = 0x80085C9Cu;  // enter/restore interrupt mask, returns old in v0
-constexpr uint32_t FN_ISR_REGISTER    = 0x80085B80u;  // (mode, fnPtr) install/uninstall an interrupt handler
-constexpr uint32_t FN_DRAIN           = 0x80082FB4u;  // this cluster's own Drain, see below
-}  // namespace
+constexpr uint32_t FN_INT_MASK_SET = 0x80085C9Cu; // enter/restore interrupt mask, returns old in v0
+constexpr uint32_t FN_ISR_REGISTER = 0x80085B80u; // (mode, fnPtr) install/uninstall an interrupt handler
+constexpr uint32_t FN_DRAIN = 0x80082FB4u;        // this cluster's own Drain, see below
+} // namespace
 
-// func_80082D04 (0x80082D04) — GpuDmaQueueEnqueue(fn, argValOrPtr, sizeBytes, arg3). VERIFIED & WIRED 2026-07-10 (see the install-fn note at the bottom of this file; the prior register-liveness bug is documented in docs/findings/render.md).
-// RE'd from generated/shard_5.c:13804 gen_func_80082D04 (~165 gen-C ln). The single highest-value
-// target in the band (824 free-roam rec_dispatch hits / 600 frames). Guest ABI: a0=fn-ptr to later
+// func_80082D04 (0x80082D04) — GpuDmaQueueEnqueue(fn, argValOrPtr, sizeBytes, arg3). VERIFIED & WIRED 2026-07-10 (see
+// the install-fn note at the bottom of this file; the prior register-liveness bug is documented in
+// docs/findings/render.md). RE'd from generated/shard_5.c:13804 gen_func_80082D04 (~165 gen-C ln). The single
+// highest-value target in the band (824 free-roam rec_dispatch hits / 600 frames). Guest ABI: a0=fn-ptr to later
 // dispatch, a1=scalar value OR pointer-to-data (shape picked by a2), a2=size in BYTES of data to
 // copy inline (0 = a1 is used as a raw scalar), a3=a second scalar passed through verbatim. Returns
 // v0: -1 on timeout, 0 on the fast/immediate-dispatch path, else the post-enqueue queue depth.
@@ -164,17 +167,17 @@ constexpr uint32_t FN_DRAIN           = 0x80082FB4u;  // this cluster's own Drai
 // sp+32=ra) — s3=fn, s0=argValOrPtr, s1=sizeBytes, s2=arg3 (the guest ABI args, moved into
 // callee-saves because the body calls out repeatedly).
 void Render::gpuDmaQueueEnqueue() {
-  Core* c = mCore;
+  Core *c = mCore;
   c->r[29] -= 40;
   c->mem_w32(c->r[29] + 28, c->r[19]);
-  c->r[19] = c->r[4];             // s3 = fn
+  c->r[19] = c->r[4]; // s3 = fn
   c->mem_w32(c->r[29] + 16, c->r[16]);
-  c->r[16] = c->r[5];             // s0 = argValOrPtr
+  c->r[16] = c->r[5]; // s0 = argValOrPtr
   c->mem_w32(c->r[29] + 20, c->r[17]);
-  c->r[17] = c->r[6];             // s1 = sizeBytes
+  c->r[17] = c->r[6]; // s1 = sizeBytes
   c->mem_w32(c->r[29] + 24, c->r[18]);
   c->mem_w32(c->r[29] + 32, c->r[31]);
-  c->r[18] = c->r[7];             // s2 = arg3
+  c->r[18] = c->r[7]; // s2 = arg3
 
   // BUG FIX (2026-07-10, streamer-wiring re-isolation): s0-s3 MUST stay LIVE in the emulated
   // register file (c->r[16..19]), not just captured as C++ locals + stack spills. gen keeps
@@ -189,10 +192,10 @@ void Render::gpuDmaQueueEnqueue() {
   // proving the streamer's spill of ITS caller's r17 was reading Enqueue's genuinely-live s1
   // register in gen but a STALE one in native. Aliases below read straight from c->r[] so every
   // access (including the retry-loop's re-reads) sees the SAME live storage gen uses.
-  const uint32_t& fn = c->r[19];
-  const uint32_t& argValOrPtr = c->r[16];
-  const uint32_t& sizeBytes = c->r[17];
-  const uint32_t& arg3 = c->r[18];
+  const uint32_t &fn = c->r[19];
+  const uint32_t &argValOrPtr = c->r[16];
+  const uint32_t &sizeBytes = c->r[17];
+  const uint32_t &arg3 = c->r[18];
 
   auto epilogue = [&](uint32_t retVal) {
     c->r[2] = retVal;
@@ -212,11 +215,16 @@ void Render::gpuDmaQueueEnqueue() {
     uint32_t head = c->mem_r32(RING_HEAD);
     uint32_t tail = c->mem_r32(RING_TAIL);
     uint32_t next = (head + 1) & 63u;
-    if (next != tail) break;  // room available
+    if (next != tail) {
+      break; // room available
+    }
     // L_80082D38: full — timeout-check, then drain and retry
     c->r[31] = 0x80082D40u;
     rec_dispatch(c, FN_GPU_TIMEOUT_CHK);
-    if (c->r[2] != 0) { epilogue((uint32_t)-1); return; }
+    if (c->r[2] != 0) {
+      epilogue((uint32_t)-1);
+      return;
+    }
     // Drain (FN_DRAIN) pushes its own guest-stack frame and spills the caller's ra — the guest
     // return address MUST be live in r31 before this call or Drain's spilled-ra byte diverges
     // from gen (SBS-fatal). Same for every other non-HLE-leaf call below.
@@ -261,7 +269,8 @@ void Render::gpuDmaQueueEnqueue() {
 
   if (fastPath) {
     // L_80082DE4: busy-wait for DMA ready, dispatch fn synchronously, restore mask, return 0.
-    while ((c->mem_r32(c->mem_r32(GPU_DMA_READY_PTR)) & GPU_DMA_READY_BIT) == 0) {}
+    while ((c->mem_r32(c->mem_r32(GPU_DMA_READY_PTR)) & GPU_DMA_READY_BIT) == 0) {
+    }
     c->r[4] = argValOrPtr;
     c->r[5] = arg3;
     // `fn` is an arbitrary caller-supplied dispatch target — it may push its own guest-stack
@@ -278,7 +287,7 @@ void Render::gpuDmaQueueEnqueue() {
   // (if sizeBytes!=0) into the ring slot's inline storage, write the entry's fixed fields, advance
   // HEAD, restore the mask, kick a Drain pass, and return the new queue depth.
   c->r[4] = 2;
-  c->r[5] = FN_DRAIN;  // install THIS cluster's Drain as the ISR
+  c->r[5] = FN_DRAIN; // install THIS cluster's Drain as the ISR
   // FN_ISR_REGISTER (func_80085B80) pushes a -24 guest frame and spills ra — mirror gen's r31.
   c->r[31] = 0x80082E38u;
   rec_dispatch(c, FN_ISR_REGISTER);
@@ -295,10 +304,10 @@ void Render::gpuDmaQueueEnqueue() {
       c->mem_w32(ringEntry(head) + 0x0C + (uint32_t)i * 4, word);
     }
     uint32_t head = c->mem_r32(RING_HEAD);
-    c->mem_w32(ringEntry(head) + 4, ringEntry(head) + 0x0C);  // +4 = pointer to the copied payload
+    c->mem_w32(ringEntry(head) + 4, ringEntry(head) + 0x0C); // +4 = pointer to the copied payload
   } else {
     uint32_t head = c->mem_r32(RING_HEAD);
-    c->mem_w32(ringEntry(head) + 4, argValOrPtr);  // +4 = raw scalar
+    c->mem_w32(ringEntry(head) + 4, argValOrPtr); // +4 = raw scalar
   }
 
   {
@@ -313,7 +322,7 @@ void Render::gpuDmaQueueEnqueue() {
   }
   c->r[4] = c->mem_r32(ENQ_SAVED_MASK);
   rec_dispatch(c, FN_INT_MASK_SET);
-  c->r[31] = 0x80082F7Cu;  // FN_DRAIN spills ra — mirror gen's return address.
+  c->r[31] = 0x80082F7Cu; // FN_DRAIN spills ra — mirror gen's return address.
   rec_dispatch(c, FN_DRAIN);
 
   {
@@ -323,12 +332,12 @@ void Render::gpuDmaQueueEnqueue() {
   }
 }
 
-// func_80082FB4 (0x80082FB4) — GpuDmaQueueDrain(). VERIFIED & WIRED 2026-07-10 (was DRAFT; see ovhit caveat at the install site — fires 0x0 in current autonav coverage). RE'd from generated/shard_6.c:14620
-// gen_func_80082FB4 (~130 gen-C ln). This is the completion-callback ring's DRAIN body — both
-// called synchronously (by Enqueue and Sync) AND installed as the GPU-DMA-completion INTERRUPT
-// HANDLER itself (Enqueue's deferred path registers `&0x80082FB4` via func_80085B80(mode=2, ...)).
-// Guest ABI: no args. Returns v0: 1 if the DMA channel was already busy on entry (nothing drained),
-// -1 on timeout, else the remaining queue depth after draining.
+// func_80082FB4 (0x80082FB4) — GpuDmaQueueDrain(). VERIFIED & WIRED 2026-07-10 (was DRAFT; see ovhit caveat at the
+// install site — fires 0x0 in current autonav coverage). RE'd from generated/shard_6.c:14620 gen_func_80082FB4 (~130
+// gen-C ln). This is the completion-callback ring's DRAIN body — both called synchronously (by Enqueue and Sync) AND
+// installed as the GPU-DMA-completion INTERRUPT HANDLER itself (Enqueue's deferred path registers `&0x80082FB4` via
+// func_80085B80(mode=2, ...)). Guest ABI: no args. Returns v0: 1 if the DMA channel was already busy on entry (nothing
+// drained), -1 on timeout, else the remaining queue depth after draining.
 //
 // Frame -32, spills ra (sp+24), s1/r17 (sp+20), s0/r16 (sp+16) — the gen body reuses r16/r17 as
 // bitmask temporaries (BUSY_BIT/READY_BIT) live across the drain loop's nested dispatch calls
@@ -340,7 +349,7 @@ void Render::gpuDmaQueueEnqueue() {
 // not just local C++ variables. (The prior "only the STACK BYTES need to match, not host-register
 // contents" comment was WRONG — proven by the Enqueue residual — corrected here.)
 void Render::gpuDmaQueueDrain() {
-  Core* c = mCore;
+  Core *c = mCore;
   uint32_t stateWordEarly = c->mem_r32(c->mem_r32(GPU_DMA_STATE_PTR));
   c->r[29] -= 32;
   c->mem_w32(c->r[29] + 24, c->r[31]);
@@ -355,28 +364,34 @@ void Render::gpuDmaQueueDrain() {
     c->r[29] += 32;
   };
 
-  if ((stateWordEarly & GPU_DMA_BUSY_BIT) != 0) { epilogue(1); return; }
+  if ((stateWordEarly & GPU_DMA_BUSY_BIT) != 0) {
+    epilogue(1);
+    return;
+  }
 
   c->r[4] = 0;
   rec_dispatch(c, FN_INT_MASK_SET);
-  c->mem_w32(DRAIN_SAVED_MASK, c->r[2]);  // unconditional (matches gen delay-slot write)
+  c->mem_w32(DRAIN_SAVED_MASK, c->r[2]); // unconditional (matches gen delay-slot write)
 
   bool doDrain = true;
   {
     uint32_t head = c->mem_r32(RING_HEAD);
     uint32_t tail = c->mem_r32(RING_TAIL);
-    if (head == tail) doDrain = false;
-    else {
+    if (head == tail) {
+      doDrain = false;
+    } else {
       uint32_t stateWord = c->mem_r32(c->mem_r32(GPU_DMA_STATE_PTR));
-      if ((stateWord & GPU_DMA_BUSY_BIT) != 0) doDrain = false;
+      if ((stateWord & GPU_DMA_BUSY_BIT) != 0) {
+        doDrain = false;
+      }
     }
   }
 
   if (doDrain) {
     // gen sets these live right before the loop (shard_6.c:14644-45) — kept live in the register
     // file (not locals) so the loop's nested dispatch calls spill the correct bytes (see header).
-    c->r[17] = GPU_DMA_READY_BIT;  // 0x04000000
-    c->r[16] = GPU_DMA_BUSY_BIT;   // 0x01000000
+    c->r[17] = GPU_DMA_READY_BIT; // 0x04000000
+    c->r[16] = GPU_DMA_BUSY_BIT;  // 0x01000000
     // L_8008302C drain loop.
     for (;;) {
       uint32_t tail = c->mem_r32(RING_TAIL);
@@ -394,7 +409,8 @@ void Render::gpuDmaQueueDrain() {
         }
       }
 
-      while ((c->mem_r32(c->mem_r32(GPU_DMA_READY_PTR)) & GPU_DMA_READY_BIT) == 0) {}
+      while ((c->mem_r32(c->mem_r32(GPU_DMA_READY_PTR)) & GPU_DMA_READY_BIT) == 0) {
+      }
 
       uint32_t curTail = c->mem_r32(RING_TAIL);
       uint32_t entry = ringEntry(curTail);
@@ -412,10 +428,14 @@ void Render::gpuDmaQueueDrain() {
       c->mem_w32(RING_TAIL, newTail);
 
       uint32_t headNow = c->mem_r32(RING_HEAD);
-      if (headNow == newTail) break;  // queue now empty -> shared tail
+      if (headNow == newTail) {
+        break; // queue now empty -> shared tail
+      }
       uint32_t stateWord = c->mem_r32(c->mem_r32(GPU_DMA_STATE_PTR));
-      if ((stateWord & GPU_DMA_BUSY_BIT) == 0) continue;  // not busy -> keep draining
-      break;  // busy -> stop, fall to shared tail
+      if ((stateWord & GPU_DMA_BUSY_BIT) == 0) {
+        continue; // not busy -> keep draining
+      }
+      break; // busy -> stop, fall to shared tail
     }
   }
 
@@ -451,18 +471,17 @@ void Render::gpuDmaQueueDrain() {
   }
 }
 
-// func_80083364 (0x80083364) — GpuDmaQueueSync(mode). VERIFIED & WIRED 2026-07-10 (was DRAFT). RE'd from generated/shard_0.c:12956
-// gen_func_80083364 (~70 gen-C ln). Same mode-0-BLOCKS / mode-nonzero-POLLS shape as the real SDK
-// `DrawSync(mode)` (a DIFFERENT function, already drafted as func_80080F6C in
-// wide_re_libgpu_leaves.cpp) — this is an internal sync primitive scoped to THIS queue. Guest ABI:
-// a0=mode. Returns v0: -1 on timeout; mode==0 success returns the (nonzero) ready-bit mask value
-// 0x04000000 (transcribed literally — the gen body really does return the raw AND-masked bit, not a
-// normalized bool); mode!=0 returns the queue depth (or 1 if depth was 0 and the channel wasn't
-// idle+ready).
+// func_80083364 (0x80083364) — GpuDmaQueueSync(mode). VERIFIED & WIRED 2026-07-10 (was DRAFT). RE'd from
+// generated/shard_0.c:12956 gen_func_80083364 (~70 gen-C ln). Same mode-0-BLOCKS / mode-nonzero-POLLS shape as the real
+// SDK `DrawSync(mode)` (a DIFFERENT function, already drafted as func_80080F6C in wide_re_libgpu_leaves.cpp) — this is
+// an internal sync primitive scoped to THIS queue. Guest ABI: a0=mode. Returns v0: -1 on timeout; mode==0 success
+// returns the (nonzero) ready-bit mask value 0x04000000 (transcribed literally — the gen body really does return the
+// raw AND-masked bit, not a normalized bool); mode!=0 returns the queue depth (or 1 if depth was 0 and the channel
+// wasn't idle+ready).
 //
 // Frame -24, spills ra (sp+20), s0/r16 (sp+16, holds the pre-drain depth across the mode!=0 branch).
 void Render::gpuDmaQueueSync() {
-  Core* c = mCore;
+  Core *c = mCore;
   const uint32_t mode = c->r[4];
   c->r[29] -= 24;
   c->mem_w32(c->r[29] + 20, c->r[31]);
@@ -470,17 +489,17 @@ void Render::gpuDmaQueueSync() {
 
   auto epilogue = [&](uint32_t retVal, uint32_t retR3) {
     c->r[2] = retVal;
-    c->r[3] = retR3;   // gen publishes v1 (r3): 0x04000000 on normal exits (1024<<16, the ready-mask
-                       // it ANDs at shard_0.c:34/58), or the GPU state word on the timeout (-1) path
-                       // (shard_0.c:14-15). The prior draft left r3 stale (MIRROR_VERIFY on the
-                       // DrawSync caller saw v1 drift because this fn is drawSync's dispatch target).
+    c->r[3] = retR3; // gen publishes v1 (r3): 0x04000000 on normal exits (1024<<16, the ready-mask
+                     // it ANDs at shard_0.c:34/58), or the GPU state word on the timeout (-1) path
+                     // (shard_0.c:14-15). The prior draft left r3 stale (MIRROR_VERIFY on the
+                     // DrawSync caller saw v1 drift because this fn is drawSync's dispatch target).
     c->r[31] = c->mem_r32(c->r[29] + 20);
     c->r[16] = c->mem_r32(c->r[29] + 16);
     c->r[29] += 24;
   };
   // gen's final r3 per exit path (gen_func_80083364 shard_0.c): normal exits (both modes) have
   // r3 = 1024<<16 (0x04000000); timeout exits have r3 = mem_r32(0x800A5AC8) (GPU state global).
-  constexpr uint32_t R3_NORMAL = 1024u << 16;   // 0x04000000
+  constexpr uint32_t R3_NORMAL = 1024u << 16; // 0x04000000
 
   if (mode == 0) {
     rec_dispatch(c, FN_GPU_TIMEOUT_ARM);
@@ -493,7 +512,10 @@ void Render::gpuDmaQueueSync() {
         c->r[31] = 0x8008338Cu;
         rec_dispatch(c, FN_DRAIN);
         rec_dispatch(c, FN_GPU_TIMEOUT_CHK);
-        if (c->r[2] != 0) { epilogue((uint32_t)-1, c->mem_r32(0x800A5AC8u)); return; }
+        if (c->r[2] != 0) {
+          epilogue((uint32_t)-1, c->mem_r32(0x800A5AC8u));
+          return;
+        }
         continue;
       }
       // L_800833D0: empty -> wait for channel idle (busy bit clear) AND ready
@@ -501,14 +523,20 @@ void Render::gpuDmaQueueSync() {
         uint32_t stateWord = c->mem_r32(c->mem_r32(GPU_DMA_STATE_PTR));
         if ((stateWord & GPU_DMA_BUSY_BIT) != 0) {
           rec_dispatch(c, FN_GPU_TIMEOUT_CHK);
-          if (c->r[2] != 0) { epilogue((uint32_t)-1, c->mem_r32(0x800A5AC8u)); return; }
+          if (c->r[2] != 0) {
+            epilogue((uint32_t)-1, c->mem_r32(0x800A5AC8u));
+            return;
+          }
           continue;
         }
         uint32_t readyWord = c->mem_r32(c->mem_r32(GPU_DMA_READY_PTR));
         uint32_t readyBit = readyWord & GPU_DMA_READY_BIT;
         if (readyBit == 0) {
           rec_dispatch(c, FN_GPU_TIMEOUT_CHK);
-          if (c->r[2] != 0) { epilogue((uint32_t)-1, c->mem_r32(0x800A5AC8u)); return; }
+          if (c->r[2] != 0) {
+            epilogue((uint32_t)-1, c->mem_r32(0x800A5AC8u));
+            return;
+          }
           continue;
         }
         // gen mode==0 success path (L_800833D0 -> L_80083490): line 36 does `r2 = r0+r0` (=0)
@@ -530,23 +558,29 @@ void Render::gpuDmaQueueSync() {
   // frame, so r16 must carry the real depth value here, not just a C++ local, or Drain's spilled
   // byte diverges from gen (same bug PSXPORT_SBS_PREWATCH=0x801FF154 found in Enqueue).
   c->r[16] = (head0 - tail0) & 63u;
-  const uint32_t& depth = c->r[16];
+  const uint32_t &depth = c->r[16];
   // FN_DRAIN spills ra — mirror gen's r31 (0x80083444).
-  if (depth != 0) { c->r[31] = 0x80083444u; rec_dispatch(c, FN_DRAIN); }
+  if (depth != 0) {
+    c->r[31] = 0x80083444u;
+    rec_dispatch(c, FN_DRAIN);
+  }
 
   uint32_t stateWord = c->mem_r32(c->mem_r32(GPU_DMA_STATE_PTR));
   if ((stateWord & GPU_DMA_BUSY_BIT) == 0) {
     uint32_t readyWord = c->mem_r32(c->mem_r32(GPU_DMA_READY_PTR));
-    if ((readyWord & GPU_DMA_READY_BIT) != 0) { epilogue(depth, R3_NORMAL); return; }
+    if ((readyWord & GPU_DMA_READY_BIT) != 0) {
+      epilogue(depth, R3_NORMAL);
+      return;
+    }
   }
   // gen mode!=0 tail (shard_0.c:60-63): ready+anyDepth -> depth; notReady+depth!=0 -> depth;
   // notReady+depth==0 -> 0. The prior draft returned 1 in the last case; gen returns 0.
   epilogue(depth, R3_NORMAL);
 }
 
-// func_80082424 (0x80082424) — GpuDmaSend(arrayPtr, count). VERIFIED & WIRED 2026-07-10 (was DRAFT). RE'd from generated/shard_3.c:19562
-// gen_func_80082424 (~50 gen-C ln, self-contained). The actual OT-linked-list DMA KICK: programs the
-// last-element address + count into the status block, writes the DMA channel control register
+// func_80082424 (0x80082424) — GpuDmaSend(arrayPtr, count). VERIFIED & WIRED 2026-07-10 (was DRAFT). RE'd from
+// generated/shard_3.c:19562 gen_func_80082424 (~50 gen-C ln, self-contained). The actual OT-linked-list DMA KICK:
+// programs the last-element address + count into the status block, writes the DMA channel control register
 // (CHCR-shaped) with the start/chop value 0x11000002, arms the timeout, then busy-waits
 // (timeout-checked) for the CHCR busy bit (0x01000000) to clear. Does not touch the ring buffer —
 // shares only the status-block globals with the queue cluster. Guest ABI: a0=arrayPtr (linked-list
@@ -558,11 +592,11 @@ void Render::gpuDmaQueueSync() {
 // Frame -32, spills ra (sp+24), s1/r17 (sp+20, holds the busy-bit mask constant across the wait
 // loop), s0/r16 (sp+16, holds `count`).
 void Render::gpuDmaSend() {
-  Core* c = mCore;
+  Core *c = mCore;
   const uint32_t arrayPtr = c->r[4];
   c->r[29] -= 32;
   c->mem_w32(c->r[29] + 16, c->r[16]);
-  const uint32_t count = c->r[5];  // s0
+  const uint32_t count = c->r[5]; // s0
   const uint32_t enableRegPtr = c->mem_r32(GPU_DMA_ENABLE_PTR);
   c->mem_w32(c->r[29] + 24, c->r[31]);
   c->mem_w32(c->r[29] + 20, c->r[17]);
@@ -586,18 +620,26 @@ void Render::gpuDmaSend() {
   const uint32_t countFieldPtr = c->mem_r32(GPU_DMA_COUNT_PTR);
   c->mem_w32(countFieldPtr, count);
 
-  c->mem_w32(chcrPtr, 0x11000002u);  // KICK
+  c->mem_w32(chcrPtr, 0x11000002u); // KICK
   rec_dispatch(c, FN_GPU_TIMEOUT_ARM);
 
   uint32_t chcrWord = c->mem_r32(chcrPtr);
-  if ((chcrWord & GPU_DMA_BUSY_BIT) == 0) { epilogue(count); return; }
+  if ((chcrWord & GPU_DMA_BUSY_BIT) == 0) {
+    epilogue(count);
+    return;
+  }
 
   for (;;) {
     rec_dispatch(c, FN_GPU_TIMEOUT_CHK);
-    if (c->r[2] != 0) { epilogue((uint32_t)-1); return; }
+    if (c->r[2] != 0) {
+      epilogue((uint32_t)-1);
+      return;
+    }
     uint32_t busy = c->mem_r32(chcrPtr) & GPU_DMA_BUSY_BIT;
-    if (busy != 0) continue;
-    epilogue(busy);  // busy == 0 here
+    if (busy != 0) {
+      continue;
+    }
+    epilogue(busy); // busy == 0 here
     return;
   }
 }
@@ -616,20 +658,30 @@ void Render::gpuDmaSend() {
 // overrides::install) is the correct install path: it keeps SBS core B running the pure gen_func_*
 // body via the registry's oracle-gated dispatch.
 namespace {
-void ov_gpuDmaQueueEnqueue(Core* c) { rend(c)->gpuDmaQueueEnqueue(); }
-void ov_gpuDmaQueueDrain(Core* c)   { rend(c)->gpuDmaQueueDrain(); }
-void ov_gpuDmaQueueSync(Core* c)    { rend(c)->gpuDmaQueueSync(); }
-void ov_gpuDmaSend(Core* c)         { rend(c)->gpuDmaSend(); }
-}  // namespace
+void ov_gpuDmaQueueEnqueue(Core *c) {
+  rend(c)->gpuDmaQueueEnqueue();
+}
+void ov_gpuDmaQueueDrain(Core *c) {
+  rend(c)->gpuDmaQueueDrain();
+}
+void ov_gpuDmaQueueSync(Core *c) {
+  rend(c)->gpuDmaQueueSync();
+}
+void ov_gpuDmaSend(Core *c) {
+  rend(c)->gpuDmaSend();
+}
+} // namespace
 
-extern void gen_func_80082D04(Core*);
-extern void gen_func_80082FB4(Core*);
-extern void gen_func_80083364(Core*);
-extern void gen_func_80082424(Core*);
+extern void gen_func_80082D04(Core *);
+extern void gen_func_80082FB4(Core *);
+extern void gen_func_80083364(Core *);
+extern void gen_func_80082424(Core *);
 
 void gpu_dma_queue_install() {
   static bool done = false;
-  if (done) return;
+  if (done) {
+    return;
+  }
   done = true;
   extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
   // 0x80082D04 (GpuDmaQueueEnqueue) — WIRED 2026-07-10. History: isolation testing (SBS-full,
@@ -653,7 +705,7 @@ void gpu_dma_queue_install() {
   // above, not the SBS gate, per fleet-workflow.md §9. Enqueue/Sync/Send/the streamer all fire and
   // match — see docs/findings/render.md for the current ovhit counts.
   engine_set_override_main(0x80082D04u, ov_gpuDmaQueueEnqueue, gen_func_80082D04);
-  engine_set_override_main(0x80082FB4u, ov_gpuDmaQueueDrain,   gen_func_80082FB4);
-  engine_set_override_main(0x80083364u, ov_gpuDmaQueueSync,    gen_func_80083364);
-  engine_set_override_main(0x80082424u, ov_gpuDmaSend,         gen_func_80082424);
+  engine_set_override_main(0x80082FB4u, ov_gpuDmaQueueDrain, gen_func_80082FB4);
+  engine_set_override_main(0x80083364u, ov_gpuDmaQueueSync, gen_func_80083364);
+  engine_set_override_main(0x80082424u, ov_gpuDmaSend, gen_func_80082424);
 }

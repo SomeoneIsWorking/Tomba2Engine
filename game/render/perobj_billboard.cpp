@@ -64,16 +64,16 @@
 //      (*0x800ED8C8 + depth*4) — the identical packet-chain mechanism perobj_dispatch.cpp's
 //      cmdListDispatch/perModeDispatch already documents.
 #include "core.h"
-#include "game_ctx.h"
 #include "game.h"
+#include "game_ctx.h"
+#include "proj_params.h" // ProjParams::pzToOrd — billboardsRender depth normalize
 #include "render.h"
-#include "render_internal.h"   // withObjScope / cur_render_node
-#include "proj_params.h"       // ProjParams::pzToOrd — billboardsRender depth normalize
-#include <lucent/log.h>        // `bbrot` — the node-rotation rebuild instrument (see BbObjectRot)
+#include "render_internal.h" // withObjScope / cur_render_node
 #include <cmath>
+#include <lucent/log.h> // `bbrot` — the node-rotation rebuild instrument (see BbObjectRot)
 
-void rec_dispatch(Core*, uint32_t);
-void shard_set_override(uint32_t addr, OverrideFn fn);   // generated/shard_disp.c (C++ linkage)
+void rec_dispatch(Core *, uint32_t);
+void shard_set_override(uint32_t addr, OverrideFn fn); // generated/shard_disp.c (C++ linkage)
 
 // gen_func_* fallbacks for the psx_fallback gate. g_override[] is a single PROCESS-GLOBAL table
 // shared by EVERY Core (SBS core A AND core B), so the trampolines below MUST defer to the real
@@ -81,19 +81,19 @@ void shard_set_override(uint32_t addr, OverrideFn fn);   // generated/shard_disp
 // mirror and SBS compares native-vs-native (a false 0-div) instead of native-vs-substrate. Same
 // discipline as every other shard_set_override cluster (gte_math/node_xform/cull/...). The oracle
 // may carry ONLY async→sync conversions (sync_overrides.cpp) + HLE BIOS — nothing engine/game.
-extern void gen_func_8003CCA4(Core*);
-extern void gen_func_8003C2D4(Core*);
-extern void gen_func_8003C464(Core*);
-extern void gen_func_8003C788(Core*);
-extern void gen_func_8003C5F8(Core*);
-extern void gen_func_8003C8F4(Core*);
+extern void gen_func_8003CCA4(Core *);
+extern void gen_func_8003C2D4(Core *);
+extern void gen_func_8003C464(Core *);
+extern void gen_func_8003C788(Core *);
+extern void gen_func_8003C5F8(Core *);
+extern void gen_func_8003C8F4(Core *);
 
 // Still-substrate leaves called by these 4 (declared, called via plain guest-ABI intra-shard calls —
 // exactly as the generated code reaches them; g_override still gates each, so if one is ever owned
 // later these calls transparently pick that up).
-void func_800517BC(Core*);   // C464's MAT_A seed (node+122/124/126 s16 xyz)
-void func_8003B220(Core*);   // billboardEmit's quad-corner builder (writes real guest stack memory)
-void func_8003B054(Core*);   // billboardEmit's color/UV fill
+void func_800517BC(Core *); // C464's MAT_A seed (node+122/124/126 s16 xyz)
+void func_8003B220(Core *); // billboardEmit's quad-corner builder (writes real guest stack memory)
+void func_8003B054(Core *); // billboardEmit's color/UV fill
 
 namespace {
 
@@ -135,35 +135,41 @@ namespace {
 // The `bbrot` channel prints each variant's recomputation beside the s16 matrix at node+152. It is a
 // diagnostic and never feeds the picture — and it is the instrument that caught the compose3 error,
 // which is why it stays.
-constexpr float kFixedOne = 4096.0f;      // libgte 1.3.12: 4096 == 1.0
-constexpr uint32_t kAngleTurn = 4096u;    // libgte angle unit: 4096 == one full turn
+constexpr float kFixedOne = 4096.0f;   // libgte 1.3.12: 4096 == 1.0
+constexpr uint32_t kAngleTurn = 4096u; // libgte angle unit: 4096 == one full turn
 
-constexpr uint32_t NODE_ROT_Z      = 90u;    // s16 — compose1/2's single Z angle
-constexpr uint32_t NODE_EULER      = 84u;    // 3× s16 — compose3/C5F8's Euler triple (= node+0x54)
-constexpr uint32_t NODE_SCALE_DIAG = 122u;   // 3× s16 — compose2's diagonal scale (1.3.12)
-constexpr uint32_t NODE_WORLD_X    = 46u;    // s16 ×3 (+46/+50/+54) — the node's own world position,
-constexpr uint32_t NODE_WORLD_Y    = 50u;    //   the exact halfwords billboardComposeTail copies into
-constexpr uint32_t NODE_WORLD_Z    = 54u;    //   WORLD_POS before composing the camera onto them
-constexpr uint32_t NODE_OWN_MATRIX = 152u;   // the node's own 3×3 (diagnostic cross-check only)
+constexpr uint32_t NODE_ROT_Z = 90u;       // s16 — compose1/2's single Z angle
+constexpr uint32_t NODE_EULER = 84u;       // 3× s16 — compose3/C5F8's Euler triple (= node+0x54)
+constexpr uint32_t NODE_SCALE_DIAG = 122u; // 3× s16 — compose2's diagonal scale (1.3.12)
+constexpr uint32_t NODE_WORLD_X = 46u;     // s16 ×3 (+46/+50/+54) — the node's own world position,
+constexpr uint32_t NODE_WORLD_Y = 50u;     //   the exact halfwords billboardComposeTail copies into
+constexpr uint32_t NODE_WORLD_Z = 54u;     //   WORLD_POS before composing the camera onto them
+constexpr uint32_t NODE_OWN_MATRIX = 152u; // the node's own 3×3 (diagnostic cross-check only)
 
-struct Mat3f { float m[3][3]; };
+struct Mat3f {
+  float m[3][3];
+};
 
-Mat3f mul3(const Mat3f& a, const Mat3f& b) {           // a · b
+Mat3f mul3(const Mat3f &a, const Mat3f &b) { // a · b
   Mat3f o{};
-  for (int i = 0; i < 3; i++)
-    for (int j = 0; j < 3; j++)
-      o.m[i][j] = a.m[i][0]*b.m[0][j] + a.m[i][1]*b.m[1][j] + a.m[i][2]*b.m[2][j];
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) {
+      o.m[i][j] = a.m[i][0] * b.m[0][j] + a.m[i][1] * b.m[1][j] + a.m[i][2] * b.m[2][j];
+    }
+  }
   return o;
 }
 
-float angleToRadians(int16_t a) { return (float)a * 6.28318530718f / (float)kAngleTurn; }
+float angleToRadians(int16_t a) {
+  return (float)a * 6.28318530718f / (float)kAngleTurn;
+}
 
 // Math::rotZ (FUN_80085050) applied to the identity: rotpair rotates matrix ROWS 0 and 1 as
 // row0' = cos·row0 − sin·row1, row1' = sin·row0 + cos·row1, which on the identity leaves the plain
 // Z rotation. Float instead of the s16/LUT chain because a native producer owns its own precision.
 Mat3f rotZ3(int16_t angle) {
   const float a = angleToRadians(angle), s = std::sin(a), c = std::cos(a);
-  return Mat3f{{{ c, -s, 0 }, { s, c, 0 }, { 0, 0, 1 }}};
+  return Mat3f{{{c, -s, 0}, {s, c, 0}, {0, 0, 1}}};
 }
 
 // Math::rotMatSoft (FUN_800847F0) / Math::rotmat (FUN_80085480) — Rx(vx)·Ry(vy)·Rz(vz), transcribed
@@ -175,15 +181,21 @@ Mat3f rotEuler3(int16_t ax, int16_t ay, int16_t az) {
   const float sB = std::sin(B), cB = std::cos(B);
   const float sC = std::sin(C), cC = std::cos(C);
   Mat3f r{};
-  r.m[0][0] =  cC*cB;              r.m[0][1] = -sC*cB;              r.m[0][2] =  sB;
-  r.m[1][0] =  sC*cA + cC*sB*sA;   r.m[1][1] =  cC*cA - sC*sB*sA;   r.m[1][2] = -cB*sA;
-  r.m[2][0] =  sC*sA - cC*sB*cA;   r.m[2][1] =  cC*sA + sC*sB*cA;   r.m[2][2] =  cB*cA;
+  r.m[0][0] = cC * cB;
+  r.m[0][1] = -sC * cB;
+  r.m[0][2] = sB;
+  r.m[1][0] = sC * cA + cC * sB * sA;
+  r.m[1][1] = cC * cA - sC * sB * sA;
+  r.m[1][2] = -cB * sA;
+  r.m[2][0] = sC * sA - cC * sB * cA;
+  r.m[2][1] = cC * sA + sC * sB * cA;
+  r.m[2][2] = cB * cA;
   return r;
 }
 
 // FUN_800517BC's diagonal scale, in unit scale.
 Mat3f diagScale3(int16_t x, int16_t y, int16_t z) {
-  return Mat3f{{{ (float)x/kFixedOne, 0, 0 }, { 0, (float)y/kFixedOne, 0 }, { 0, 0, (float)z/kFixedOne }}};
+  return Mat3f{{{(float)x / kFixedOne, 0, 0}, {0, (float)y / kFixedOne, 0}, {0, 0, (float)z / kFixedOne}}};
 }
 
 // Publish the active compose variant's object rotation for billboardEmit's record capture, and clear
@@ -191,10 +203,13 @@ Mat3f diagScale3(int16_t x, int16_t y, int16_t z) {
 // method has several exits once its epilogue restore is counted.
 class BbRotScope {
 public:
-  BbRotScope(Core* c, uint32_t node, const char* variant, const Mat3f& r) : mCore(c) {
-    Render* rr = rend(c);
-    for (int i = 0; i < 3; i++)
-      for (int j = 0; j < 3; j++) rr->mBbRot[i][j] = r.m[i][j];
+  BbRotScope(Core *c, uint32_t node, const char *variant, const Mat3f &r) : mCore(c) {
+    Render *rr = rend(c);
+    for (int i = 0; i < 3; i++) {
+      for (int j = 0; j < 3; j++) {
+        rr->mBbRot[i][j] = r.m[i][j];
+      }
+    }
     rr->mBbRotValid = true;
     // The instrument for the node+152 claim in the banner above: it prints the recomputation NEXT TO
     // the s16 matrix the guest holds, so "these are the same matrix" is checkable on live data. The
@@ -203,37 +218,53 @@ public:
     // guest_node152 is only the NODE'S OWN matrix for the compose3 variant (the only one that reads
     // it); for the others that memory belongs to something else, which is why the variant is printed
     // beside it — a reader comparing the two columns on a compose1 line would be comparing noise.
-    lucent::debug("bbrot", "node={:08X} variant={} rebuilt=[{:.4f} {:.4f} {:.4f} | {:.4f} {:.4f} {:.4f} | "
-                           "{:.4f} {:.4f} {:.4f}] guest_node152=[{} {} {} | {} {} {} | {} {} {}]",
-                  node, variant,
-                  r.m[0][0], r.m[0][1], r.m[0][2], r.m[1][0], r.m[1][1], r.m[1][2],
-                  r.m[2][0], r.m[2][1], r.m[2][2],
-                  c->mem_r16s(node + NODE_OWN_MATRIX + 0),  c->mem_r16s(node + NODE_OWN_MATRIX + 2),
-                  c->mem_r16s(node + NODE_OWN_MATRIX + 4),  c->mem_r16s(node + NODE_OWN_MATRIX + 6),
-                  c->mem_r16s(node + NODE_OWN_MATRIX + 8),  c->mem_r16s(node + NODE_OWN_MATRIX + 10),
-                  c->mem_r16s(node + NODE_OWN_MATRIX + 12), c->mem_r16s(node + NODE_OWN_MATRIX + 14),
+    lucent::debug("bbrot",
+                  "node={:08X} variant={} rebuilt=[{:.4f} {:.4f} {:.4f} | {:.4f} {:.4f} {:.4f} | "
+                  "{:.4f} {:.4f} {:.4f}] guest_node152=[{} {} {} | {} {} {} | {} {} {}]",
+                  node,
+                  variant,
+                  r.m[0][0],
+                  r.m[0][1],
+                  r.m[0][2],
+                  r.m[1][0],
+                  r.m[1][1],
+                  r.m[1][2],
+                  r.m[2][0],
+                  r.m[2][1],
+                  r.m[2][2],
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 0),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 2),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 4),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 6),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 8),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 10),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 12),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 14),
                   c->mem_r16s(node + NODE_OWN_MATRIX + 16));
   }
-  ~BbRotScope() { rend(mCore)->mBbRotValid = false; }
+  ~BbRotScope() {
+    rend(mCore)->mBbRotValid = false;
+  }
+
 private:
-  Core* mCore;
+  Core *mCore;
 };
 
-constexpr uint32_t CUR_NODE_SCR = 0x1F80028Cu;   // "current render node" scratch
-constexpr uint32_t PKT_POOL_PTR = 0x800BF544u;   // packet-pool bump-allocator write pointer
-constexpr uint32_t OTBASE_PTR   = 0x800ED8C8u;   // *this = the active ordering-table base
-constexpr uint32_t BUF          = 0x1F800000u;   // SCRATCHPAD MATRIX-compose buffer (C2D4/C464/C8F4) —
-                                                  // gen_func_8003C2D4/8003C8F4 base r16/r17 = 8064<<16
-                                                  // = 0x1F800000, NOT main RAM. (Was wrongly 0x800C0000;
-                                                  // the mis-base made every emitted packet's data differ
-                                                  // from the substrate — the f117 divergence, masked by the
-                                                  // false 0-div until the oracle-gate fix surfaced it.)
-constexpr uint32_t MAT_A        = BUF + 0x00u;
-constexpr uint32_t MAT_ROTZ     = BUF + 0x20u;
-constexpr uint32_t MAT_OUT      = BUF + 0x40u;
-constexpr uint32_t WORLD_POS    = BUF + 0xC0u;
-constexpr uint32_t CAM2         = BUF + 0xF8u;   // persistent camera MATRIX mirror (read-only here)
-constexpr uint32_t MVMVA_TRANS  = 0x4A486012u;   // same opcode cmdListDispatch uses for the world-translate
+constexpr uint32_t CUR_NODE_SCR = 0x1F80028Cu; // "current render node" scratch
+constexpr uint32_t PKT_POOL_PTR = 0x800BF544u; // packet-pool bump-allocator write pointer
+constexpr uint32_t OTBASE_PTR = 0x800ED8C8u;   // *this = the active ordering-table base
+constexpr uint32_t BUF = 0x1F800000u;          // SCRATCHPAD MATRIX-compose buffer (C2D4/C464/C8F4) —
+                                               // gen_func_8003C2D4/8003C8F4 base r16/r17 = 8064<<16
+                                               // = 0x1F800000, NOT main RAM. (Was wrongly 0x800C0000;
+                                               // the mis-base made every emitted packet's data differ
+                                               // from the substrate — the f117 divergence, masked by the
+                                               // false 0-div until the oracle-gate fix surfaced it.)
+constexpr uint32_t MAT_A = BUF + 0x00u;
+constexpr uint32_t MAT_ROTZ = BUF + 0x20u;
+constexpr uint32_t MAT_OUT = BUF + 0x40u;
+constexpr uint32_t WORLD_POS = BUF + 0xC0u;
+constexpr uint32_t CAM2 = BUF + 0xF8u;        // persistent camera MATRIX mirror (read-only here)
+constexpr uint32_t MVMVA_TRANS = 0x4A486012u; // same opcode cmdListDispatch uses for the world-translate
 
 // RAII guest-stack frame: real recomp bodies allocate their own stack frame (r29 -= size) before
 // running, and callees compute their OWN frame relative to the CALLER'S post-allocation r29 — so a
@@ -243,9 +274,14 @@ constexpr uint32_t MVMVA_TRANS  = 0x4A486012u;   // same opcode cmdListDispatch 
 // push/pop (found empirically: 8003C2D4/8003C464 omitting this shifted 8003C8F4's frame by their own
 // size and produced a real, reproducible SBS diff at f118 in the task-0 stack region).
 struct GuestFrame {
-  Core* c; uint32_t size;
-  GuestFrame(Core* c_, uint32_t size_) : c(c_), size(size_) { c->r[29] -= size; }
-  ~GuestFrame() { c->r[29] += size; }
+  Core *c;
+  uint32_t size;
+  GuestFrame(Core *c_, uint32_t size_) : c(c_), size(size_) {
+    c->r[29] -= size;
+  }
+  ~GuestFrame() {
+    c->r[29] += size;
+  }
 };
 
 // FUN_8003CCA4's REAL prologue (register-faithfulness, f118 root cause, 2026-07-09): unlike the
@@ -263,9 +299,9 @@ struct GuestFrame {
 // are pure save/restore (this function's own body never sets them — case 0x8003CD00, the only case
 // seaside objects hit, doesn't either, per gen).
 struct CCA4Frame {
-  Core* c; uint32_t s16, s17, s18, sra;
-  explicit CCA4Frame(Core* c_)
-    : c(c_), s16(c_->r[16]), s17(c_->r[17]), s18(c_->r[18]), sra(c_->r[31]) {
+  Core *c;
+  uint32_t s16, s17, s18, sra;
+  explicit CCA4Frame(Core *c_) : c(c_), s16(c_->r[16]), s17(c_->r[17]), s18(c_->r[18]), sra(c_->r[31]) {
     c->r[29] -= 32;
     c->mem_w32(c->r[29] + 24, s18);
     c->mem_w32(c->r[29] + 28, sra);
@@ -286,9 +322,9 @@ struct CCA4Frame {
 // ==================================================================================================
 // FUN_8003CCA4
 void Render::perObjRenderDispatch() {
-  Core* c = mCore;
+  Core *c = mCore;
   const uint32_t node = c->r[4];
-  withObjScope(c, node, [](Core* c) {
+  withObjScope(c, node, [](Core *c) {
     CCA4Frame frame(c);
     const uint32_t node = c->r[4];
     // Register-faithfulness (2026-07-10, the f118 residual root cause — one level deeper than the
@@ -313,7 +349,9 @@ void Render::perObjRenderDispatch() {
     const uint32_t flag = ((c->mem_r8(node + 11) ^ 15u) < 1u) ? 1u : 0u;
     c->mem_w32(CUR_NODE_SCR, node);
     const uint32_t sel = c->mem_r8(node + 13) & 11u;
-    if (sel >= 9u) return;
+    if (sel >= 9u) {
+      return;
+    }
     constexpr uint32_t TABLE = 0x80014EC8u;
     const uint32_t target = c->mem_r32(TABLE + sel * 4u);
     // RE'd return-address constants gen sets in r31 immediately before each nested call (see
@@ -324,54 +362,85 @@ void Render::perObjRenderDispatch() {
     // several frames deep in this call chain. Mirrored per CLAUDE.md ("MIRROR THE GUEST STACK...
     // register-faithfulness"), same discipline as billboardCompose1/2's own fix (commit bef7769).
     switch (target) {
-      case 0x8003CD00u: {
-        c->r[4] = node; c->r[5] = flag; c->r[31] = 0x8003CD08u; rend(c)->cmdListDispatch();
-        break;
+    case 0x8003CD00u: {
+      c->r[4] = node;
+      c->r[5] = flag;
+      c->r[31] = 0x8003CD08u;
+      rend(c)->cmdListDispatch();
+      break;
+    }
+    case 0x8003CD10u: {
+      const uint32_t pre = c->mem_r32(PKT_POOL_PTR);
+      c->r[4] = node;
+      c->r[5] = flag;
+      c->r[31] = 0x8003CD20u;
+      rend(c)->cmdListDispatch();
+      const uint32_t post = c->mem_r32(PKT_POOL_PTR);
+      c->r[4] = node;
+      c->r[5] = pre;
+      c->r[6] = post;
+      c->r[31] = 0x8003CD30u;
+      rend(c)->effectColorAdd(node, pre, post);
+      break;
+    }
+    case 0x8003CD38u: {
+      const uint32_t pre = c->mem_r32(PKT_POOL_PTR);
+      c->r[4] = node;
+      c->r[5] = flag;
+      c->r[31] = 0x8003CD48u;
+      rend(c)->cmdListDispatch();
+      const uint32_t post = c->mem_r32(PKT_POOL_PTR);
+      c->r[4] = node;
+      c->r[5] = pre;
+      c->r[6] = post;
+      c->r[31] = 0x8003CD58u;
+      rend(c)->effectClutSwap(node, pre, post);
+      break;
+    }
+    case 0x8003CD60u: {
+      const uint32_t pre = c->mem_r32(PKT_POOL_PTR);
+      c->r[4] = node;
+      c->r[5] = flag;
+      c->r[31] = 0x8003CD70u;
+      rend(c)->cmdListDispatch();
+      const uint32_t post = c->mem_r32(PKT_POOL_PTR);
+      c->r[4] = node;
+      c->r[5] = pre;
+      c->r[6] = post;
+      // Branch polarity (2026-07-09, found during the same audit): gen_func_8003CCA4 L_8003CD60
+      // tests node+27==0 -> func_8003F4C4 (the L_8003CD90 target), node+27!=0 -> func_8003F3F4 —
+      // a prior draft had this INVERTED. Neither leaf fires at seaside (this file's own banner),
+      // so the flip was never caught by the autonav gate; fixed here to match gen exactly.
+      if (c->mem_r8(node + 27) == 0) {
+        c->r[31] = 0x8003CD98u;
+        rend(c)->effectSemiOff(node, pre, post);
+      } else {
+        c->r[31] = 0x8003CD88u;
+        rend(c)->effectSemiOn(node, pre, post);
       }
-      case 0x8003CD10u: {
-        const uint32_t pre = c->mem_r32(PKT_POOL_PTR);
-        c->r[4] = node; c->r[5] = flag; c->r[31] = 0x8003CD20u; rend(c)->cmdListDispatch();
-        const uint32_t post = c->mem_r32(PKT_POOL_PTR);
-        c->r[4] = node; c->r[5] = pre; c->r[6] = post; c->r[31] = 0x8003CD30u;
-        rend(c)->effectColorAdd(node, pre, post);
-        break;
-      }
-      case 0x8003CD38u: {
-        const uint32_t pre = c->mem_r32(PKT_POOL_PTR);
-        c->r[4] = node; c->r[5] = flag; c->r[31] = 0x8003CD48u; rend(c)->cmdListDispatch();
-        const uint32_t post = c->mem_r32(PKT_POOL_PTR);
-        c->r[4] = node; c->r[5] = pre; c->r[6] = post; c->r[31] = 0x8003CD58u;
-        rend(c)->effectClutSwap(node, pre, post);
-        break;
-      }
-      case 0x8003CD60u: {
-        const uint32_t pre = c->mem_r32(PKT_POOL_PTR);
-        c->r[4] = node; c->r[5] = flag; c->r[31] = 0x8003CD70u; rend(c)->cmdListDispatch();
-        const uint32_t post = c->mem_r32(PKT_POOL_PTR);
-        c->r[4] = node; c->r[5] = pre; c->r[6] = post;
-        // Branch polarity (2026-07-09, found during the same audit): gen_func_8003CCA4 L_8003CD60
-        // tests node+27==0 -> func_8003F4C4 (the L_8003CD90 target), node+27!=0 -> func_8003F3F4 —
-        // a prior draft had this INVERTED. Neither leaf fires at seaside (this file's own banner),
-        // so the flip was never caught by the autonav gate; fixed here to match gen exactly.
-        if (c->mem_r8(node + 27) == 0) { c->r[31] = 0x8003CD98u; rend(c)->effectSemiOff(node, pre, post); }
-        else                            { c->r[31] = 0x8003CD88u; rend(c)->effectSemiOn (node, pre, post); }
-        break;
-      }
-      case 0x8003CDA0u: {
-        const uint32_t pre = c->mem_r32(PKT_POOL_PTR);
-        c->r[4] = node; c->r[5] = flag; c->r[31] = 0x8003CDB0u; rend(c)->cmdListDispatch();
-        const uint32_t post = c->mem_r32(PKT_POOL_PTR);
-        c->r[4] = node; c->r[5] = pre; c->r[6] = post; c->r[31] = 0x8003CDC0u;
-        rend(c)->effectFlatTint(node, pre, post);
-        break;
-      }
-      case 0x8003CDC0u:
-        break;   // no-op case: the recomp body falls straight to the epilogue
-      default:
-        // Defensive mirror of the recomp's raw `jr` fallback for an unrecognized table entry — never
-        // hit by live game data (only the 6 cases above ever appear in the live table).
-        rec_dispatch(c, target);
-        return;
+      break;
+    }
+    case 0x8003CDA0u: {
+      const uint32_t pre = c->mem_r32(PKT_POOL_PTR);
+      c->r[4] = node;
+      c->r[5] = flag;
+      c->r[31] = 0x8003CDB0u;
+      rend(c)->cmdListDispatch();
+      const uint32_t post = c->mem_r32(PKT_POOL_PTR);
+      c->r[4] = node;
+      c->r[5] = pre;
+      c->r[6] = post;
+      c->r[31] = 0x8003CDC0u;
+      rend(c)->effectFlatTint(node, pre, post);
+      break;
+    }
+    case 0x8003CDC0u:
+      break; // no-op case: the recomp body falls straight to the epilogue
+    default:
+      // Defensive mirror of the recomp's raw `jr` fallback for an unrecognized table entry — never
+      // hit by live game data (only the 6 cases above ever appear in the live table).
+      rec_dispatch(c, target);
+      return;
     }
   });
 }
@@ -382,7 +451,7 @@ void Render::perObjRenderDispatch() {
 // outMat = the BUF slot holding the composed matrix. C2D4/C464 land it in MAT_OUT (BUF+0x40); C788
 // (billboardCompose3) composes in place in MAT_ROTZ (BUF+0x20) — its gen loads CR0-7 from BUF+0x20,
 // not BUF+0x40 — so the tail is parameterized by that slot instead of hardcoding MAT_OUT.
-static void billboardComposeTail(Core* c, uint32_t node, uint32_t flag, uint32_t outMat = MAT_OUT) {
+static void billboardComposeTail(Core *c, uint32_t node, uint32_t flag, uint32_t outMat = MAT_OUT) {
   c->mem_w16(WORLD_POS + 0, c->mem_r16(node + 46));
   c->mem_w16(WORLD_POS + 2, c->mem_r16(node + 50));
   c->mem_w16(WORLD_POS + 4, c->mem_r16(node + 54));
@@ -408,23 +477,28 @@ static void billboardComposeTail(Core* c, uint32_t node, uint32_t flag, uint32_t
   gte_write_ctrl(5, c->mem_r32(outMat + 0x14));
   gte_write_ctrl(6, c->mem_r32(outMat + 0x18));
   gte_write_ctrl(7, c->mem_r32(outMat + 0x1C));
-  c->r[4] = node; c->r[5] = flag;
+  c->r[4] = node;
+  c->r[5] = flag;
   rend(c)->billboardEmit();
 }
 
 // FUN_8003C2D4
 void Render::billboardCompose1() {
-  Core* c = mCore;
+  Core *c = mCore;
   const uint32_t node = c->r[4];
-  if (c->mem_r32(node + 56) == 0) return;
-  withObjScope(c, node, [](Core* c) {
+  if (c->mem_r32(node + 56) == 0) {
+    return;
+  }
+  withObjScope(c, node, [](Core *c) {
     GuestFrame frame(c, 40);
     // Register-faithfulness (gen_func_8003C2D4 prologue, L4509-4514): spill the caller's
     // r16..r19/ra at sp+16..+32. The GuestFrame only allocates the frame; the spill BYTES are
     // what SBS compares (gen writes them; the bare RAII left stale bytes there).
     const uint32_t sp = c->r[29];
-    c->mem_w32(sp + 16, c->r[16]); c->mem_w32(sp + 20, c->r[17]);
-    c->mem_w32(sp + 24, c->r[18]); c->mem_w32(sp + 28, c->r[19]);
+    c->mem_w32(sp + 16, c->r[16]);
+    c->mem_w32(sp + 20, c->r[17]);
+    c->mem_w32(sp + 24, c->r[18]);
+    c->mem_w32(sp + 28, c->r[19]);
     c->mem_w32(sp + 32, c->r[31]);
     const uint32_t node = c->r[4];
     mtxOf(c).identity(MAT_A);
@@ -436,31 +510,40 @@ void Render::billboardCompose1() {
     BbRotScope bbRot(c, node, "compose1_rotZ", rotZ3(c->mem_r16s(node + NODE_ROT_Z)));
     // gen's live callee-saved state at the func_8003C8F4 call site (L4593-4595): billboardEmit
     // spills these as its "caller" registers, so they must hold gen's values here.
-    c->r[16] = MAT_OUT; c->r[17] = MAT_A; c->r[18] = flag; c->r[19] = node;
+    c->r[16] = MAT_OUT;
+    c->r[17] = MAT_A;
+    c->r[18] = flag;
+    c->r[19] = node;
     c->r[31] = 0x8003C448u;
     billboardComposeTail(c, node, flag);
     // Epilogue restore (gen_func_8003C2D4 L4597-4601): read the caller's values back from the spill
     // slots. MUST restore — the reassignments above (esp. r31=0x8003C448) would otherwise leak to the
     // substrate render-walk caller and corrupt its control flow (registers aren't SBS-compared, but
     // the substrate reads them).
-    c->r[16] = c->mem_r32(sp + 16); c->r[17] = c->mem_r32(sp + 20);
-    c->r[18] = c->mem_r32(sp + 24); c->r[19] = c->mem_r32(sp + 28);
+    c->r[16] = c->mem_r32(sp + 16);
+    c->r[17] = c->mem_r32(sp + 20);
+    c->r[18] = c->mem_r32(sp + 24);
+    c->r[19] = c->mem_r32(sp + 28);
     c->r[31] = c->mem_r32(sp + 32);
   });
 }
 
 // FUN_8003C464
 void Render::billboardCompose2() {
-  Core* c = mCore;
+  Core *c = mCore;
   const uint32_t node = c->r[4];
-  if (c->mem_r32(node + 56) == 0) return;
-  withObjScope(c, node, [](Core* c) {
+  if (c->mem_r32(node + 56) == 0) {
+    return;
+  }
+  withObjScope(c, node, [](Core *c) {
     GuestFrame frame(c, 32);
     // Register-faithfulness (gen_func_8003C464 prologue, L5907-5911): spill caller's
     // r16/r17/r18/ra at sp+16/+20/+24/+28. (C464's prologue does NOT spill r19 — it passes through.)
     const uint32_t sp = c->r[29];
-    c->mem_w32(sp + 16, c->r[16]); c->mem_w32(sp + 20, c->r[17]);
-    c->mem_w32(sp + 24, c->r[18]); c->mem_w32(sp + 28, c->r[31]);
+    c->mem_w32(sp + 16, c->r[16]);
+    c->mem_w32(sp + 20, c->r[17]);
+    c->mem_w32(sp + 24, c->r[18]);
+    c->mem_w32(sp + 28, c->r[31]);
     const uint32_t node = c->r[4];
     c->r[4] = MAT_A;
     c->r[5] = (uint32_t)c->mem_r16s(node + 122);
@@ -472,7 +555,9 @@ void Render::billboardCompose2() {
     const uint32_t flag = c->mem_r8(node + 71) & 1u;
     mathOf(c).matMul(MAT_ROTZ, MAT_A, MAT_OUT);
     // MAT_A is FUN_800517BC's diagonal scale, so the object transform is the Z rotation times it.
-    BbRotScope bbRot(c, node, "compose2_rotZ_diag",
+    BbRotScope bbRot(c,
+                     node,
+                     "compose2_rotZ_diag",
                      mul3(rotZ3(c->mem_r16s(node + NODE_ROT_Z)),
                           diagScale3(c->mem_r16s(node + NODE_SCALE_DIAG + 0),
                                      c->mem_r16s(node + NODE_SCALE_DIAG + 2),
@@ -480,13 +565,17 @@ void Render::billboardCompose2() {
     // gen's live callee-saved state at the func_8003C8F4 call site (L5993-5995) — NOTE C464 differs
     // from C2D4: r17=flag (not MAT_A) and r18=node (gen reassigns r17 to flag at L5931 and keeps
     // r18=node from the prologue). billboardEmit spills these, so match gen exactly.
-    c->r[16] = MAT_OUT; c->r[17] = flag; c->r[18] = node;
+    c->r[16] = MAT_OUT;
+    c->r[17] = flag;
+    c->r[18] = node;
     c->r[31] = 0x8003C5E0u;
     billboardComposeTail(c, node, flag);
     // Epilogue restore (gen_func_8003C464): read the caller's values back from the spill slots
     // (r16/r17/r18/ra — C464 does not save r19). Same anti-leak discipline as billboardCompose1.
-    c->r[16] = c->mem_r32(sp + 16); c->r[17] = c->mem_r32(sp + 20);
-    c->r[18] = c->mem_r32(sp + 24); c->r[31] = c->mem_r32(sp + 28);
+    c->r[16] = c->mem_r32(sp + 16);
+    c->r[17] = c->mem_r32(sp + 20);
+    c->r[18] = c->mem_r32(sp + 24);
+    c->r[31] = c->mem_r32(sp + 28);
   });
 }
 
@@ -499,20 +588,24 @@ void Render::billboardCompose2() {
 // billboardEmit (0x8003C8F4). Frame 32, spills r16/r17/r18/ra like C464 (no r19). See abi_extract
 // 0x8003C788 --contract + generated/shard_3.c.
 void Render::billboardCompose3() {
-  Core* c = mCore;
+  Core *c = mCore;
   const uint32_t node = c->r[4];
-  if (c->mem_r32(node + 56) == 0) return;
-  withObjScope(c, node, [](Core* c) {
+  if (c->mem_r32(node + 56) == 0) {
+    return;
+  }
+  withObjScope(c, node, [](Core *c) {
     GuestFrame frame(c, 32);
     // Register-faithfulness (gen_func_8003C788 prologue): spill caller's r16/r17/r18/ra at
     // sp+16/+20/+24/+28 — same 32-byte / 4-spill shape as C464.
     const uint32_t sp = c->r[29];
-    c->mem_w32(sp + 16, c->r[16]); c->mem_w32(sp + 20, c->r[17]);
-    c->mem_w32(sp + 24, c->r[18]); c->mem_w32(sp + 28, c->r[31]);
+    c->mem_w32(sp + 16, c->r[16]);
+    c->mem_w32(sp + 20, c->r[17]);
+    c->mem_w32(sp + 24, c->r[18]);
+    c->mem_w32(sp + 28, c->r[31]);
     const uint32_t node = c->r[4];
     mtxOf(c).identity(MAT_A);
     const uint32_t flag = c->mem_r8(node + 71) & 1u;
-    mathOf(c).matMul(node + 152, MAT_A, MAT_ROTZ);   // MAT_ROTZ = (node+152 matrix) x identity
+    mathOf(c).matMul(node + 152, MAT_A, MAT_ROTZ); // MAT_ROTZ = (node+152 matrix) x identity
     // NO ROTATION IS PUBLISHED FOR THIS VARIANT, so its particles are NOT recorded and this class's
     // billboard layer stays ABSENT. Reason, measured not assumed (portmap
     // render-producer-billboard-compose3): compose3's transform is the node's OWN matrix at node+152,
@@ -525,23 +618,35 @@ void Render::billboardCompose3() {
     // writer owns node+152 for this node class and it has not been identified yet. Reading node+152
     // back would be reading a matrix the engine composed, which is the banned mechanism; inventing a
     // plausible substitute is worse. The layer is left honestly missing until that writer is RE'd.
-    lucent::debug("bbrot", "node={:08X} variant=compose3_node152 NOT PUBLISHED (writer of node+152 "
-                           "unidentified; particles not recorded) guest_node152=[{} {} {} | {} {} {} "
-                           "| {} {} {}] node84={} node86={} node88={}",
+    lucent::debug("bbrot",
+                  "node={:08X} variant=compose3_node152 NOT PUBLISHED (writer of node+152 "
+                  "unidentified; particles not recorded) guest_node152=[{} {} {} | {} {} {} "
+                  "| {} {} {}] node84={} node86={} node88={}",
                   node,
-                  c->mem_r16s(node + NODE_OWN_MATRIX + 0),  c->mem_r16s(node + NODE_OWN_MATRIX + 2),  c->mem_r16s(node + NODE_OWN_MATRIX + 4),
-                  c->mem_r16s(node + NODE_OWN_MATRIX + 6),  c->mem_r16s(node + NODE_OWN_MATRIX + 8),  c->mem_r16s(node + NODE_OWN_MATRIX + 10),
-                  c->mem_r16s(node + NODE_OWN_MATRIX + 12), c->mem_r16s(node + NODE_OWN_MATRIX + 14), c->mem_r16s(node + NODE_OWN_MATRIX + 16),
-                  c->mem_r16s(node + NODE_EULER + 0), c->mem_r16s(node + NODE_EULER + 2),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 0),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 2),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 4),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 6),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 8),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 10),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 12),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 14),
+                  c->mem_r16s(node + NODE_OWN_MATRIX + 16),
+                  c->mem_r16s(node + NODE_EULER + 0),
+                  c->mem_r16s(node + NODE_EULER + 2),
                   c->mem_r16s(node + NODE_EULER + 4));
     // gen's live callee-saved state at the billboardEmit call site (abi_extract call [2]): r16=MAT_ROTZ,
     // r17=flag, r18=node. billboardEmit spills these as its caller regs, so match gen exactly.
-    c->r[16] = MAT_ROTZ; c->r[17] = flag; c->r[18] = node;
+    c->r[16] = MAT_ROTZ;
+    c->r[17] = flag;
+    c->r[18] = node;
     c->r[31] = 0x8003C8DCu;
-    billboardComposeTail(c, node, flag, MAT_ROTZ);   // same GTE world-translate tail as C2D4/C464, on MAT_ROTZ
+    billboardComposeTail(c, node, flag, MAT_ROTZ); // same GTE world-translate tail as C2D4/C464, on MAT_ROTZ
     // Epilogue restore (gen_func_8003C788 L_8003C8DC): read the caller's r16/r17/r18/ra back.
-    c->r[16] = c->mem_r32(sp + 16); c->r[17] = c->mem_r32(sp + 20);
-    c->r[18] = c->mem_r32(sp + 24); c->r[31] = c->mem_r32(sp + 28);
+    c->r[16] = c->mem_r32(sp + 16);
+    c->r[17] = c->mem_r32(sp + 20);
+    c->r[18] = c->mem_r32(sp + 24);
+    c->r[31] = c->mem_r32(sp + 28);
   });
 }
 
@@ -555,36 +660,48 @@ void Render::billboardCompose3() {
 // r19/ra like C2D4. All callees owned: Mtx::identity (0x80051794), Math::rotMatSoft (0x800847F0),
 // Math::matMul (0x80084110), billboardEmit (0x8003C8F4). See generated/shard_2.c gen_func_8003C5F8.
 void Render::billboardComposeC5F8() {
-  Core* c = mCore;
+  Core *c = mCore;
   const uint32_t node = c->r[4];
-  if (c->mem_r32(node + 56) == 0) return;
-  withObjScope(c, node, [](Core* c) {
+  if (c->mem_r32(node + 56) == 0) {
+    return;
+  }
+  withObjScope(c, node, [](Core *c) {
     GuestFrame frame(c, 40);
     // Register-faithfulness (gen_func_8003C5F8 prologue): spill caller's r16..r19/ra at sp+16..+32 —
     // same 40-byte / 5-spill shape as C2D4.
     const uint32_t sp = c->r[29];
-    c->mem_w32(sp + 16, c->r[16]); c->mem_w32(sp + 20, c->r[17]);
-    c->mem_w32(sp + 24, c->r[18]); c->mem_w32(sp + 28, c->r[19]);
+    c->mem_w32(sp + 16, c->r[16]);
+    c->mem_w32(sp + 20, c->r[17]);
+    c->mem_w32(sp + 24, c->r[18]);
+    c->mem_w32(sp + 28, c->r[19]);
     c->mem_w32(sp + 32, c->r[31]);
     const uint32_t node = c->r[4];
     mtxOf(c).identity(MAT_A);
     mtxOf(c).identity(MAT_ROTZ);
-    mathOf(c).rotMatSoft(node + 84, MAT_ROTZ);       // MAT_ROTZ = software RotMatrix(SVECTOR @ node+84)
+    mathOf(c).rotMatSoft(node + 84, MAT_ROTZ); // MAT_ROTZ = software RotMatrix(SVECTOR @ node+84)
     const uint32_t flag = c->mem_r8(node + 71) & 1u;
     mathOf(c).matMul(MAT_ROTZ, MAT_A, MAT_OUT);
     // MAT_A is the identity here, so the object rotation is rotMatSoft's own Euler product.
-    BbRotScope bbRot(c, node, "composeC5F8_euler", rotEuler3(c->mem_r16s(node + NODE_EULER + 0),
-                                        c->mem_r16s(node + NODE_EULER + 2),
-                                        c->mem_r16s(node + NODE_EULER + 4)));
+    BbRotScope bbRot(c,
+                     node,
+                     "composeC5F8_euler",
+                     rotEuler3(c->mem_r16s(node + NODE_EULER + 0),
+                               c->mem_r16s(node + NODE_EULER + 2),
+                               c->mem_r16s(node + NODE_EULER + 4)));
     // gen's live callee-saved state at the billboardEmit (func_8003C8F4) call site: r16=MAT_OUT,
     // r17=MAT_A, r18=flag, r19=node — identical to C2D4. billboardEmit spills these as its caller regs.
-    c->r[16] = MAT_OUT; c->r[17] = MAT_A; c->r[18] = flag; c->r[19] = node;
+    c->r[16] = MAT_OUT;
+    c->r[17] = MAT_A;
+    c->r[18] = flag;
+    c->r[19] = node;
     c->r[31] = 0x8003C76Cu;
     billboardComposeTail(c, node, flag);
     // Epilogue restore (gen_func_8003C5F8 L_8003C76C): read the caller's r16..r19/ra back from the
     // spill slots — same anti-leak discipline as C2D4.
-    c->r[16] = c->mem_r32(sp + 16); c->r[17] = c->mem_r32(sp + 20);
-    c->r[18] = c->mem_r32(sp + 24); c->r[19] = c->mem_r32(sp + 28);
+    c->r[16] = c->mem_r32(sp + 16);
+    c->r[17] = c->mem_r32(sp + 20);
+    c->r[18] = c->mem_r32(sp + 24);
+    c->r[19] = c->mem_r32(sp + 28);
     c->r[31] = c->mem_r32(sp + 32);
   });
 }
@@ -592,26 +709,34 @@ void Render::billboardComposeC5F8() {
 // ==================================================================================================
 // FUN_8003C8F4
 void Render::billboardEmit() {
-  Core* c = mCore;
+  Core *c = mCore;
   const uint32_t node = c->r[4];
   const uint32_t flag = c->r[5];
-  if (c->mem_r32(node + 56) == 0) return;
-  withObjScope(c, node, [](Core* c) {
-    GuestFrame frame(c, 96);   // real guest stack frame: func_8003B220 writes through this as a real
-                                // guest address, and callers' own frames must already be allocated
-                                // (see GuestFrame's comment) for this base to land on the same bytes
-                                // the recomp path uses.
+  if (c->mem_r32(node + 56) == 0) {
+    return;
+  }
+  withObjScope(c, node, [](Core *c) {
+    GuestFrame frame(c, 96); // real guest stack frame: func_8003B220 writes through this as a real
+                             // guest address, and callers' own frames must already be allocated
+                             // (see GuestFrame's comment) for this base to land on the same bytes
+                             // the recomp path uses.
     // Register-faithfulness (gen_func_8003C8F4 prologue, L4367-4376): spill the caller's
     // r16..r22/ra at sp+64..+92. The spilled values are the caller's (billboardCompose1/2) live
     // callee-saved registers — which this port now sets correctly before the call (see above).
     const uint32_t sp = c->r[29];
-    c->mem_w32(sp + 64, c->r[16]); c->mem_w32(sp + 68, c->r[17]);
-    c->mem_w32(sp + 72, c->r[18]); c->mem_w32(sp + 76, c->r[19]);
-    c->mem_w32(sp + 80, c->r[20]); c->mem_w32(sp + 84, c->r[21]);
-    c->mem_w32(sp + 88, c->r[22]); c->mem_w32(sp + 92, c->r[31]);
+    c->mem_w32(sp + 64, c->r[16]);
+    c->mem_w32(sp + 68, c->r[17]);
+    c->mem_w32(sp + 72, c->r[18]);
+    c->mem_w32(sp + 76, c->r[19]);
+    c->mem_w32(sp + 80, c->r[20]);
+    c->mem_w32(sp + 84, c->r[21]);
+    c->mem_w32(sp + 88, c->r[22]);
+    c->mem_w32(sp + 92, c->r[31]);
     const uint32_t node = c->r[4];
     const uint32_t flag = c->r[5];
-    auto FR = [c](uint32_t off) { return c->r[29] + off; };
+    auto FR = [c](uint32_t off) {
+      return c->r[29] + off;
+    };
     constexpr int32_t DEFAULT_DEPTH = -1;
 
     // Resolve the active particle sub-list.
@@ -622,10 +747,12 @@ void Render::billboardEmit() {
     const int16_t byteOff = (int16_t)c->mem_r16(entry + 2);
     int count = (int16_t)c->mem_r16(entry + 0);
     uint32_t particle = listBase + (uint32_t)(int32_t)byteOff;
-    int bbIt = 0;   // particle index within THIS billboardEmit call (bbord diag: same-call grouping)
+    int bbIt = 0; // particle index within THIS billboardEmit call (bbord diag: same-call grouping)
     for (; count != 0; count--, particle += 16u, bbIt++) {
       // 1) Build the quad's 4 corner vectors (still-substrate; writes real guest stack memory).
-      c->r[4] = FR(16); c->r[5] = 0; c->r[6] = particle;
+      c->r[4] = FR(16);
+      c->r[5] = 0;
+      c->r[6] = particle;
       func_8003B220(c);
 
       gte_write_data(0, c->mem_r32(FR(16) + 0));
@@ -634,26 +761,26 @@ void Render::billboardEmit() {
       gte_write_data(3, c->mem_r32(FR(16) + 12));
       gte_write_data(4, c->mem_r32(FR(16) + 16));
       gte_write_data(5, c->mem_r32(FR(16) + 20));
-      gte_op(c, 0x4A280030u);                    // RTPT: project V0-2 -> SXY0-2
+      gte_op(c, 0x4A280030u); // RTPT: project V0-2 -> SXY0-2
       int32_t ctrl31 = (int32_t)gte_read_ctrl(31);
       c->mem_w32(FR(48), (uint32_t)ctrl31);
       int32_t depth;
       if (ctrl31 < 0) {
         depth = DEFAULT_DEPTH;
       } else {
-        c->mem_w32(BUF + 8,  gte_read_data(12));
+        c->mem_w32(BUF + 8, gte_read_data(12));
         c->mem_w32(BUF + 16, gte_read_data(13));
         c->mem_w32(BUF + 24, gte_read_data(14));
-        gte_op(c, 0x4B400006u);                  // AVSZ3
+        gte_op(c, 0x4B400006u); // AVSZ3
         c->mem_w32(FR(48), gte_read_data(24));
         gte_write_data(0, c->mem_r32(FR(40) + 0));
         gte_write_data(1, c->mem_r32(FR(40) + 4));
-        gte_op(c, 0x4A180001u);                  // RTPS: project V3
+        gte_op(c, 0x4A180001u); // RTPS: project V3
         ctrl31 = (int32_t)gte_read_ctrl(31);
         c->mem_w32(FR(48), (uint32_t)ctrl31);
         if (ctrl31 >= 0) {
           c->mem_w32(BUF + 32, gte_read_data(14));
-          gte_op(c, 0x4B68002Eu);                // AVSZ4 -> OTZ
+          gte_op(c, 0x4B68002Eu); // AVSZ4 -> OTZ
           c->mem_w32(FR(52), gte_read_data(7));
           depth = (int32_t)c->mem_r32(FR(52));
         } else {
@@ -668,18 +795,18 @@ void Render::billboardEmit() {
       // genuine engine-wide FOV (OFX=nw/2, already a sanctioned wide-mode guest deviation; SBS legs
       // run 4:3 so byte-exactness is untouched) the screen extends to the wide width — the stock 320
       // gate was culling this class out of the right wide band.
-      int gpu_vk_wide_engine(Core*), gpu_vk_wide_engine_w(Core*);
+      int gpu_vk_wide_engine(Core *), gpu_vk_wide_engine_w(Core *);
       const uint32_t xmax = gpu_vk_wide_engine(c) ? (uint32_t)gpu_vk_wide_engine_w(c) : 320u;
-      bool onX = (uint32_t)c->mem_r16(BUF + 8)  < xmax ||
-                 (uint32_t)c->mem_r16(BUF + 16) < xmax ||
-                 (uint32_t)c->mem_r16(BUF + 24) < xmax ||
-                 (uint32_t)c->mem_r16(BUF + 32) < xmax;
-      if (!onX) continue;
-      bool onY = (uint32_t)c->mem_r16(BUF + 10) < 240u ||
-                 (uint32_t)c->mem_r16(BUF + 18) < 240u ||
-                 (uint32_t)c->mem_r16(BUF + 26) < 240u ||
-                 (uint32_t)c->mem_r16(BUF + 34) < 240u;
-      if (!onY) continue;
+      bool onX = (uint32_t)c->mem_r16(BUF + 8) < xmax || (uint32_t)c->mem_r16(BUF + 16) < xmax ||
+                 (uint32_t)c->mem_r16(BUF + 24) < xmax || (uint32_t)c->mem_r16(BUF + 32) < xmax;
+      if (!onX) {
+        continue;
+      }
+      bool onY = (uint32_t)c->mem_r16(BUF + 10) < 240u || (uint32_t)c->mem_r16(BUF + 18) < 240u ||
+                 (uint32_t)c->mem_r16(BUF + 26) < 240u || (uint32_t)c->mem_r16(BUF + 34) < 240u;
+      if (!onY) {
+        continue;
+      }
 
       // 3) Quantize into an OT bucket: node's signed per-node depth-bias byte, >>10/<<9 rebucket into
       // the valid range, else reset to invalid (-1).
@@ -689,42 +816,55 @@ void Render::billboardEmit() {
         int32_t bucketed = a >> (shiftAmt & 31);
         int32_t d = bucketed + (shiftAmt << 9);
         c->mem_w32(FR(56), (uint32_t)d);
-        if ((uint32_t)(d - 4) >= 2044u) c->mem_w32(FR(56), (uint32_t)DEFAULT_DEPTH);
+        if ((uint32_t)(d - 4) >= 2044u) {
+          c->mem_w32(FR(56), (uint32_t)DEFAULT_DEPTH);
+        }
       }
-      if ((int32_t)c->mem_r32(FR(56)) < 0) continue;
+      if ((int32_t)c->mem_r32(FR(56)) < 0) {
+        continue;
+      }
 
       // 4) Fill color/UV (still-substrate), then optional overrides.
-      c->r[4] = BUF; c->r[5] = particle; c->r[6] = flag;
+      c->r[4] = BUF;
+      c->r[5] = particle;
+      c->r[6] = flag;
       func_8003B054(c);
-      if (c->mem_r16(node + 92) != 0) c->mem_w16(BUF + 14, c->mem_r16(node + 92));
+      if (c->mem_r16(node + 92) != 0) {
+        c->mem_w16(BUF + 14, c->mem_r16(node + 92));
+      }
 
       const uint32_t caseSel = c->mem_r8(node + 13);
       if (caseSel < 33u) {
         constexpr uint32_t CASE_TABLE = 0x80014E40u;
         const uint32_t caseTarget = c->mem_r32(CASE_TABLE + caseSel * 4u);
         switch (caseTarget) {
-          case 0x8003CB60u: c->mem_w8(BUF + 7, 45); break;
-          case 0x8003CB6Cu: c->mem_w8(BUF + 7, 47); break;
-          case 0x8003CB78u:
-            c->mem_w32(BUF + 4, c->mem_r32(node + 24));
-            c->mem_w8(BUF + 7, 44);
-            break;
-          case 0x8003CB90u:
-            c->mem_w32(BUF + 4, c->mem_r32(node + 24));
-            c->mem_w8(BUF + 7, 46);
-            break;
-          case 0x8003CBA8u:
-            c->mem_w8(BUF + 7, 45);
-            c->mem_w16(BUF + 14, c->mem_r8(node + 24) != 0 ? 16507u : 16443u);
-            break;
-          case 0x8003CBC8u: break;   // explicit no-op case: falls through to packet emission
-          default:
-            // Defensive mirror of the recomp's raw `jr` fallback for an unrecognized table entry: the
-            // recomp body does `rec_dispatch(c, caseTarget); return` here — a FULL early return, NOT a
-            // fallthrough to packet emission. Never hit by live game data (this 33-entry table's slots
-            // all resolve to one of the 5 cases above or the CBC8 no-op).
-            rec_dispatch(c, caseTarget);
-            return;
+        case 0x8003CB60u:
+          c->mem_w8(BUF + 7, 45);
+          break;
+        case 0x8003CB6Cu:
+          c->mem_w8(BUF + 7, 47);
+          break;
+        case 0x8003CB78u:
+          c->mem_w32(BUF + 4, c->mem_r32(node + 24));
+          c->mem_w8(BUF + 7, 44);
+          break;
+        case 0x8003CB90u:
+          c->mem_w32(BUF + 4, c->mem_r32(node + 24));
+          c->mem_w8(BUF + 7, 46);
+          break;
+        case 0x8003CBA8u:
+          c->mem_w8(BUF + 7, 45);
+          c->mem_w16(BUF + 14, c->mem_r8(node + 24) != 0 ? 16507u : 16443u);
+          break;
+        case 0x8003CBC8u:
+          break; // explicit no-op case: falls through to packet emission
+        default:
+          // Defensive mirror of the recomp's raw `jr` fallback for an unrecognized table entry: the
+          // recomp body does `rec_dispatch(c, caseTarget); return` here — a FULL early return, NOT a
+          // fallthrough to packet emission. Never hit by live game data (this 33-entry table's slots
+          // all resolve to one of the 5 cases above or the CBC8 no-op).
+          rec_dispatch(c, caseTarget);
+          return;
         }
       }
 
@@ -754,20 +894,30 @@ void Render::billboardEmit() {
       // the untouched reference).
       if (!c->game->oracle && rend(c)->mBbRotValid) {
         Render::BbRec rb;
-        rb.node = node; rb.particle = particle;
+        rb.node = node;
+        rb.particle = particle;
         const uint32_t vbase = FR(16);
-        rb.cx[0] = c->mem_r16s(vbase + 0);  rb.cy[0] = c->mem_r16s(vbase + 2);
-        rb.cx[1] = c->mem_r16s(vbase + 8);  rb.cy[1] = c->mem_r16s(vbase + 10);
-        rb.cx[2] = c->mem_r16s(vbase + 16); rb.cy[2] = c->mem_r16s(vbase + 18);
-        rb.cx[3] = c->mem_r16s(vbase + 24); rb.cy[3] = c->mem_r16s(vbase + 26);
-        for (int i = 0; i < 3; i++)
-          for (int j = 0; j < 3; j++) rb.rotR[i][j] = rend(c)->mBbRot[i][j];
+        rb.cx[0] = c->mem_r16s(vbase + 0);
+        rb.cy[0] = c->mem_r16s(vbase + 2);
+        rb.cx[1] = c->mem_r16s(vbase + 8);
+        rb.cy[1] = c->mem_r16s(vbase + 10);
+        rb.cx[2] = c->mem_r16s(vbase + 16);
+        rb.cy[2] = c->mem_r16s(vbase + 18);
+        rb.cx[3] = c->mem_r16s(vbase + 24);
+        rb.cy[3] = c->mem_r16s(vbase + 26);
+        for (int i = 0; i < 3; i++) {
+          for (int j = 0; j < 3; j++) {
+            rb.rotR[i][j] = rend(c)->mBbRot[i][j];
+          }
+        }
         rb.wx = (float)c->mem_r16s(node + NODE_WORLD_X);
         rb.wy = (float)c->mem_r16s(node + NODE_WORLD_Y);
         rb.wz = (float)c->mem_r16s(node + NODE_WORLD_Z);
         rb.wColor = c->mem_r32(BUF + 4);
-        rb.wUv0 = c->mem_r32(BUF + 12); rb.wUv1 = c->mem_r32(BUF + 20);
-        rb.wUv2 = c->mem_r32(BUF + 28); rb.wUv3 = c->mem_r32(BUF + 36);
+        rb.wUv0 = c->mem_r32(BUF + 12);
+        rb.wUv1 = c->mem_r32(BUF + 20);
+        rb.wUv2 = c->mem_r32(BUF + 28);
+        rb.wUv3 = c->mem_r32(BUF + 36);
         rend(c)->mBbRecs.push_back(rb);
       }
     }
@@ -781,13 +931,25 @@ namespace {
 // so it can't be forgotten cluster-by-cluster. engine_set_override_main() installs into that
 // registry, which runs the real gen_func_* body on the oracle (psx_fallback) and the native
 // everywhere else.
-void ov_perObjRenderDispatch(Core* c) { rend(c)->perObjRenderDispatch(); }
-void ov_billboardCompose1(Core* c)    { rend(c)->billboardCompose1(); }
-void ov_billboardCompose2(Core* c)    { rend(c)->billboardCompose2(); }
-void ov_billboardCompose3(Core* c)    { rend(c)->billboardCompose3(); }
-void ov_billboardComposeC5F8(Core* c) { rend(c)->billboardComposeC5F8(); }
-void ov_billboardEmit(Core* c)        { rend(c)->billboardEmit(); }
+void ov_perObjRenderDispatch(Core *c) {
+  rend(c)->perObjRenderDispatch();
 }
+void ov_billboardCompose1(Core *c) {
+  rend(c)->billboardCompose1();
+}
+void ov_billboardCompose2(Core *c) {
+  rend(c)->billboardCompose2();
+}
+void ov_billboardCompose3(Core *c) {
+  rend(c)->billboardCompose3();
+}
+void ov_billboardComposeC5F8(Core *c) {
+  rend(c)->billboardComposeC5F8();
+}
+void ov_billboardEmit(Core *c) {
+  rend(c)->billboardEmit();
+}
+} // namespace
 
 // ==================================================================================================
 // billboardsRender — the DISPLAY-PASS billboard producer. Projects every BbRec billboardEmit captured
@@ -807,24 +969,32 @@ void ov_billboardEmit(Core* c)        { rend(c)->billboardEmit(); }
 // half; neutral texture-window, full draw-area) — NOT from GpuState's live s_tp_*/s_da_* fields,
 // which hold unrelated stale state at display time. Float verts + real per-vertex depth + the
 // drawWorldQuad draw-offset convention; dbg_node = the owning node (real identity).
-void Render::emitRecordQuad(Core* c, uint32_t node, const uint32_t wCol[4],
-                            uint32_t wUv0, uint32_t wUv1, uint32_t wUv2, uint32_t wUv3,
-                            const float* px, const float* py, const float* dep) {
-  const uint8_t  op   = (uint8_t)(wCol[0] >> 24);
+void Render::emitRecordQuad(Core *c,
+                            uint32_t node,
+                            const uint32_t wCol[4],
+                            uint32_t wUv0,
+                            uint32_t wUv1,
+                            uint32_t wUv2,
+                            uint32_t wUv3,
+                            const float *px,
+                            const float *py,
+                            const float *dep) {
+  const uint8_t op = (uint8_t)(wCol[0] >> 24);
   const uint32_t clut = wUv0 >> 16;
-  const uint32_t tp   = wUv1 >> 16;
-  int us[4] = { (int)(wUv0 & 0xFFu), (int)(wUv1 & 0xFFu), (int)(wUv2 & 0xFFu), (int)(wUv3 & 0xFFu) };
-  int vs[4] = { (int)((wUv0 >> 8) & 0xFFu), (int)((wUv1 >> 8) & 0xFFu),
-                (int)((wUv2 >> 8) & 0xFFu), (int)((wUv3 >> 8) & 0xFFu) };
+  const uint32_t tp = wUv1 >> 16;
+  int us[4] = {(int)(wUv0 & 0xFFu), (int)(wUv1 & 0xFFu), (int)(wUv2 & 0xFFu), (int)(wUv3 & 0xFFu)};
+  int vs[4] = {
+      (int)((wUv0 >> 8) & 0xFFu), (int)((wUv1 >> 8) & 0xFFu), (int)((wUv2 >> 8) & 0xFFu), (int)((wUv3 >> 8) & 0xFFu)};
   unsigned char rs[4], gsv[4], bs[4];
   for (int i = 0; i < 4; i++) {
-    rs[i]  = (unsigned char)(wCol[i] & 0xFF);
+    rs[i] = (unsigned char)(wCol[i] & 0xFF);
     gsv[i] = (unsigned char)((wCol[i] >> 8) & 0xFF);
-    bs[i]  = (unsigned char)((wCol[i] >> 16) & 0xFF);
+    bs[i] = (unsigned char)((wCol[i] >> 16) & 0xFF);
   }
-  GpuState& gs = c->game->gpu;
+  GpuState &gs = c->game->gpu;
   gs.s_seen3d = 1;
-  int xs[4], ys[4]; float xsf[4], ysf[4];
+  int xs[4], ys[4];
+  float xsf[4], ysf[4];
   for (int i = 0; i < 4; i++) {
     xsf[i] = px[i] + (float)gs.s_off_x;
     ysf[i] = py[i] + (float)gs.s_off_y;
@@ -832,26 +1002,58 @@ void Render::emitRecordQuad(Core* c, uint32_t node, const uint32_t wCol[4],
     ys[i] = (int)(py[i] < 0 ? py[i] - 0.5f : py[i] + 0.5f) + gs.s_off_y;
   }
   c->rsub.diag.beginObject(node);
-  c->game->activeRq().emitOrQueue(c, 1, RQ_WORLD, RQ_OM_DEPTH, 4,
-                   (op & 2) ? 1 : 0, (op & 1) ? 1 : 0,
-                   xs, ys, xsf, ysf, us, vs, rs, gsv, bs, dep,
-                   (int)((tp >> 7) & 3u),
-                   (int)(tp & 0xFu) * 64, (int)((tp >> 4) & 1u) * 256,
-                   (int)(clut & 0x3Fu) * 16, (int)((clut >> 6) & 0x1FFu),
-                   0, 0, 0, 0, 0, 0, 1023, 511, (int)((tp >> 5) & 3u));
+  c->game->activeRq().emitOrQueue(c,
+                                  1,
+                                  RQ_WORLD,
+                                  RQ_OM_DEPTH,
+                                  4,
+                                  (op & 2) ? 1 : 0,
+                                  (op & 1) ? 1 : 0,
+                                  xs,
+                                  ys,
+                                  xsf,
+                                  ysf,
+                                  us,
+                                  vs,
+                                  rs,
+                                  gsv,
+                                  bs,
+                                  dep,
+                                  (int)((tp >> 7) & 3u),
+                                  (int)(tp & 0xFu) * 64,
+                                  (int)((tp >> 4) & 1u) * 256,
+                                  (int)(clut & 0x3Fu) * 16,
+                                  (int)((clut >> 6) & 0x1FFu),
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  1023,
+                                  511,
+                                  (int)((tp >> 5) & 3u));
   c->rsub.diag.endObject();
 }
 
 void Render::billboardsRender() {
-  Core* c = mCore;
-  if (mBbRecs.empty()) return;
+  Core *c = mCore;
+  if (mBbRecs.empty()) {
+    return;
+  }
 
   float Ri[3][3], T[3], ofx, ofy, H;
-  c->game->fps60.sceneCam(c, Ri, T, ofx, ofy, H);   // raw int16-unit rows, the sceneCam convention
-  if (H <= 0.0f) return;
+  c->game->fps60.sceneCam(c, Ri, T, ofx, ofy, H); // raw int16-unit rows, the sceneCam convention
+  if (H <= 0.0f) {
+    return;
+  }
   constexpr float FX = 1.0f / 4096.0f;
   float R[3][3];
-  for (int i = 0; i < 3; i++) for (int j = 0; j < 3; j++) R[i][j] = Ri[i][j] * FX;
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) {
+      R[i][j] = Ri[i][j] * FX;
+    }
+  }
 
   // BbRec PARTICLES do NOT lerp — the effect sub-lists reuse/walk particle addresses every frame, so
   // no stable cross-frame identity exists; a particle-addr-keyed lerp blended DIFFERENT sprites'
@@ -859,43 +1061,57 @@ void Render::billboardsRender() {
   // A particle draws at its own frame's state under the LERPED camera: world-glued, no ghosting;
   // its animation steps at the logic rate, which is what the state actually says.
 
-  for (const BbRec& rc : mBbRecs) {
+  for (const BbRec &rc : mBbRecs) {
     // This frame's own state (no per-particle lerp — see banner above); camera lerp comes via R/T.
     const float wx = rc.wx, wy = rc.wy, wz = rc.wz;
     float cxf[4], cyf[4];
-    for (int i = 0; i < 4; i++) { cxf[i] = rc.cx[i]; cyf[i] = rc.cy[i]; }
+    for (int i = 0; i < 4; i++) {
+      cxf[i] = rc.cx[i];
+      cyf[i] = rc.cy[i];
+    }
     // rc.rotR is already unit-scale float (rebuilt from the node's fields), so it needs no 1/4096.
     const float (&rot)[3][3] = rc.rotR;
 
     // t = Rcam·anchor + Tcam (the MVMVA CAM2 compose, in float).
-    const float ax = R[0][0]*wx + R[0][1]*wy + R[0][2]*wz + T[0];
-    const float ay = R[1][0]*wx + R[1][1]*wy + R[1][2]*wz + T[1];
-    const float az = R[2][0]*wx + R[2][1]*wy + R[2][2]*wz + T[2];
+    const float ax = R[0][0] * wx + R[0][1] * wy + R[0][2] * wz + T[0];
+    const float ay = R[1][0] * wx + R[1][1] * wy + R[1][2] * wz + T[1];
+    const float az = R[2][0] * wx + R[2][1] * wy + R[2][2] * wz + T[2];
 
     float px[4], py[4], dep[4];
     bool behind = false;
     for (int i = 0; i < 4; i++) {
-      const float vx = rot[0][0]*cxf[i] + rot[0][1]*cyf[i] + ax;   // corner z==0 in local space
-      const float vy = rot[1][0]*cxf[i] + rot[1][1]*cyf[i] + ay;
-      const float vz = rot[2][0]*cxf[i] + rot[2][1]*cyf[i] + az;
-      if (vz <= 0.0f) { behind = true; break; }
-      float pz = H * 0.5f; if (vz > pz) pz = vz;                   // near-plane clamp (world convention)
+      const float vx = rot[0][0] * cxf[i] + rot[0][1] * cyf[i] + ax; // corner z==0 in local space
+      const float vy = rot[1][0] * cxf[i] + rot[1][1] * cyf[i] + ay;
+      const float vz = rot[2][0] * cxf[i] + rot[2][1] * cyf[i] + az;
+      if (vz <= 0.0f) {
+        behind = true;
+        break;
+      }
+      float pz = H * 0.5f;
+      if (vz > pz) {
+        pz = vz; // near-plane clamp (world convention)
+      }
       const float ph = H / pz;
       px[i] = ofx + vx * ph;
       py[i] = ofy + vy * ph;
       dep[i] = c->rsub.projParams.pzToOrd(vz);
     }
-    if (behind) continue;
+    if (behind) {
+      continue;
+    }
 
-    { const uint32_t wc[4] = { rc.wColor, rc.wColor, rc.wColor, rc.wColor };
-      emitRecordQuad(c, rc.node, wc, rc.wUv0, rc.wUv1, rc.wUv2, rc.wUv3, px, py, dep); }
+    {
+      const uint32_t wc[4] = {rc.wColor, rc.wColor, rc.wColor, rc.wColor};
+      emitRecordQuad(c, rc.node, wc, rc.wUv0, rc.wUv1, rc.wUv2, rc.wUv3, px, py, dep);
+    }
   }
-
 }
 
 void perobj_billboard_install() {
   static bool done = false;
-  if (done) return;
+  if (done) {
+    return;
+  }
   done = true;
   // engine_set_override_main (runtime/recomp/override_registry.h) installs into the ONE
   // process-global override registry, which runs gen_func_* on the oracle leg (core B) and the
@@ -903,9 +1119,9 @@ void perobj_billboard_install() {
   // natives and the oracle must run the pure recompiled body for them.
   extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
   engine_set_override_main(0x8003CCA4u, ov_perObjRenderDispatch, gen_func_8003CCA4);
-  engine_set_override_main(0x8003C2D4u, ov_billboardCompose1,    gen_func_8003C2D4);
-  engine_set_override_main(0x8003C464u, ov_billboardCompose2,    gen_func_8003C464);
-  engine_set_override_main(0x8003C788u, ov_billboardCompose3,    gen_func_8003C788);
+  engine_set_override_main(0x8003C2D4u, ov_billboardCompose1, gen_func_8003C2D4);
+  engine_set_override_main(0x8003C464u, ov_billboardCompose2, gen_func_8003C464);
+  engine_set_override_main(0x8003C788u, ov_billboardCompose3, gen_func_8003C788);
   engine_set_override_main(0x8003C5F8u, ov_billboardComposeC5F8, gen_func_8003C5F8);
-  engine_set_override_main(0x8003C8F4u, ov_billboardEmit,        gen_func_8003C8F4);
+  engine_set_override_main(0x8003C8F4u, ov_billboardEmit, gen_func_8003C8F4);
 }

@@ -20,7 +20,7 @@ struct Core;
 
 class BehaviorDispatch {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // dispatchObj(obj, handler): route ONE object's per-frame tick — set the fps60 current-object
   //   bookkeeping, then run either the native behavior (if registered in the table) or the recomp
@@ -46,7 +46,7 @@ public:
   // nativeName(handler): the short slug for the native behavior at `handler`, or nullptr if the
   //   object's logic still runs as the recomp substrate. Used by the `ents` REPL diagnostic to
   //   flag which objects are owned.
-  const char* nativeName(uint32_t handler) const;
+  const char *nativeName(uint32_t handler) const;
 
   // ---- COVERAGE (`PSXPORT_DEBUG=behcov`) --------------------------------------------------------
   // Which native behaviour handlers a given scenario/replay actually REACHES. A rebuilt beh_* body
@@ -59,7 +59,7 @@ public:
   // Emits one line the FIRST time each handler runs natively, then at log-scale milestones
   // (10/100/1000/…), so the log doubles as an order-of-magnitude hit count without spamming a
   // handler that fires for every object every frame.
-  void noteNativeHit(uint32_t handler, const char* name);
+  void noteNativeHit(uint32_t handler, const char *name);
 
   // ---- PER-INVOCATION NODE DELTA (`PSXPORT_BEH_TRACE=<hex addr>`) -------------------------------
   // The A/B tool that ATTRIBUTES a divergence once tools/beh_ab.sh has found one. Wraps the dispatch
@@ -74,12 +74,15 @@ public:
   bool traceDispatch(uint32_t obj, uint32_t handler);
 
 private:
-  static constexpr uint32_t kTraceNodeBytes = 0x80;   // node block width the delta log covers
-  uint32_t mTraceAddr = 0;    // 0 = unparsed, 0xFFFFFFFF = off
+  static constexpr uint32_t kTraceNodeBytes = 0x80; // node block width the delta log covers
+  uint32_t mTraceAddr = 0;                          // 0 = unparsed, 0xFFFFFFFF = off
 
   static constexpr int kMaxCov = 128;
-  struct Cov { uint32_t addr; uint64_t hits; };
+  struct Cov {
+    uint32_t addr;
+    uint64_t hits;
+  };
   Cov mCov[kMaxCov] = {};
   int mNCov = 0;
-  int mCovOn = -1;            // latched cfg_dbg("behcov") (-1 = not latched yet)
+  int mCovOn = -1; // latched cfg_dbg("behcov") (-1 = not latched yet)
 };

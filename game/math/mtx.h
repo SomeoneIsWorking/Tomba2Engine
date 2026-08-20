@@ -15,7 +15,7 @@ class Core;
 
 class Mtx {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // MR_init (guest FUN_80051794): write identity (diag 0x1000 in 4.12 fixed, all else zero) at
   //   `addr`. 8 word stores, faithful to the guest.
@@ -31,7 +31,7 @@ public:
   // Safe to wire where Trig::registerOverrides deliberately is NOT: abi_extract reports frame_size 0
   // for this address, so there is no guest stack frame for the native to fail to mirror, which is
   // exactly the hazard that keeps rsin/rcos unregistered (see game/math/trig.cpp's banner).
-  static void registerOverrides(class Game* game);
+  static void registerOverrides(class Game *game);
 
   // NOTE: the diagonal-scale matrix write (guest FUN_800517BC) is owned by
   // `NodeXform::seedBlock` (game/render/node_xform.h) — that is the wired dispatch target for

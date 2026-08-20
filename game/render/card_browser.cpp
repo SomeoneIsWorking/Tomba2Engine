@@ -39,29 +39,73 @@
 // renderCardBrowser — see render.h. Read-only native producer for the DEMO/title Load-Game memory-card
 // browser (sm[0x48]==4). Backdrop gradient + slot cursor; the card-screen TEXT arrives from the global
 // font glyph tap during s4 execution. Called from Render::renderTitle under its DisplayPassGuard.
-void Render::renderCardBrowser() { Core* c = mCore;
+void Render::renderCardBrowser() {
+  Core *c = mCore;
   // WIDESCREEN PILLARBOX: a flat-black full-screen fill (all vertex colours equal → it STRETCHES to the
   // wide FB, painting the side margins black) behind the 4:3 gradient below (which is non-flat → it
   // CENTERS instead of stretching). Without this the pillarbox bars would show stale VRAM. 4:3: no-op.
-  { int xs[4] = { 0, 320, 0, 320 }, ys[4] = { 0, 0, 240, 240 }, z[4] = { 0, 0, 0, 0 };
-    unsigned char k[4] = { 0, 0, 0, 0 };
-    c->game->activeRq().push2dQuad(RQ_BACKGROUND, /*order_2d_fg=*/0, xs, ys, z, z, k, k, k,
-                                   0, 0, /*mode=*/3, /*raw=*/0, 0, 0, 0, 0, 0, 0, 0, 0, 1023, 511); }
+  {
+    int xs[4] = {0, 320, 0, 320}, ys[4] = {0, 0, 240, 240}, z[4] = {0, 0, 0, 0};
+    unsigned char k[4] = {0, 0, 0, 0};
+    c->game->activeRq().push2dQuad(RQ_BACKGROUND,
+                                   /*order_2d_fg=*/0,
+                                   xs,
+                                   ys,
+                                   z,
+                                   z,
+                                   k,
+                                   k,
+                                   k,
+                                   0,
+                                   0,
+                                   /*mode=*/3,
+                                   /*raw=*/0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   1023,
+                                   511);
+  }
   // BACKDROP — reproduce FUN_8007fc24: opaque full-screen dark-blue vertical gradient (per-vertex color).
   // Screen-space fill (no display offset, exactly like Render::menuChrome's backdrop quad).
   {
-    int xs[4] = { 0, 320, 0, 320 };
-    int ys[4] = { 0,   0, 240, 240 };
-    int uv[4] = { 0,   0,   0,   0 };
-    unsigned char rz[4] = { 0, 0, 0, 0 };                 // R = 0 on every vertex
-    unsigned char gz[4] = { 0, 0, 0, 0 };                 // G = 0 on every vertex
-    unsigned char bs[4] = { 0x46, 0x46, 0x46, 0x10 };     // B: TL,TR,BL bright, BR darker (the gradient)
-    c->game->activeRq().push2dQuad(RQ_BACKGROUND, /*order_2d_fg=*/0, xs, ys, uv, uv, rz, gz, bs,
-                                   /*tp_x=*/0, /*tp_y=*/0, /*mode=*/3, /*raw=*/0, 0, 0,
-                                   0, 0, 0, 0, 0, 0, 1023, 511);
+    int xs[4] = {0, 320, 0, 320};
+    int ys[4] = {0, 0, 240, 240};
+    int uv[4] = {0, 0, 0, 0};
+    unsigned char rz[4] = {0, 0, 0, 0};             // R = 0 on every vertex
+    unsigned char gz[4] = {0, 0, 0, 0};             // G = 0 on every vertex
+    unsigned char bs[4] = {0x46, 0x46, 0x46, 0x10}; // B: TL,TR,BL bright, BR darker (the gradient)
+    c->game->activeRq().push2dQuad(RQ_BACKGROUND,
+                                   /*order_2d_fg=*/0,
+                                   xs,
+                                   ys,
+                                   uv,
+                                   uv,
+                                   rz,
+                                   gz,
+                                   bs,
+                                   /*tp_x=*/0,
+                                   /*tp_y=*/0,
+                                   /*mode=*/3,
+                                   /*raw=*/0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   1023,
+                                   511);
   }
   // CURSOR — reproduce FUN_8007e998(44, slotY[sel]+4) with the resident cursor template 0x98 (raw/bright).
-  static const int SLOTY[2] = { 96, 128 };                // FUN_8007f250 auStack_20 = {0x60, 0x80}
-  const int sel = c->mem_r8(0x800BF808u) & 1;             // highlight/selection index (0 or 1)
+  static const int SLOTY[2] = {96, 128};      // FUN_8007f250 auStack_20 = {0x60, 0x80}
+  const int sel = c->mem_r8(0x800BF808u) & 1; // highlight/selection index (0 or 1)
   emitMenuFt4(/*anchorX=*/44, /*anchorY=*/SLOTY[sel] + 4, /*templateIdx=*/0x98u, /*attr=*/0u, RQ_OVERLAY);
 }

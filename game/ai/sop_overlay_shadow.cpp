@@ -45,41 +45,43 @@
 // substrate body via rec_dispatch (BehaviorDispatch::dispatchObj's `!native_sync` term), so this cannot
 // affect the byte-exact gate.
 
-#include "core.h"
-#include "game_ctx.h"
 #include "cfg.h"
-#include "core/engine.h"   // eng(c).spawn
-#include "spawn.h"          // Spawn::dispatch / despawn (FUN_8007A980 / FUN_8007A624, native)
-#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "core.h"
+#include "core/engine.h" // eng(c).spawn
+#include "game_ctx.h"
+#include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "spawn.h"     // Spawn::dispatch / despawn (FUN_8007A980 / FUN_8007A624, native)
 
 namespace {
-constexpr uint32_t SHADOW_HANDLER = 0x8010AB38u;   // this file's own per-frame tick (node+0x1C)
-constexpr uint32_t SHADOW_DRAWFN  = 0x8002AB5Cu;   // resident terrain quad-draw addr (content-interface value; not called)
-constexpr uint32_t SCENE_BEAT     = 0x800BF9B4u;   // shared SOP scene-beat byte
-constexpr uint8_t  BEAT_LIMIT     = 5;             // ramp updates run while beat < 5 (matches narration's beat==5 gate)
-}  // namespace
+constexpr uint32_t SHADOW_HANDLER = 0x8010AB38u; // this file's own per-frame tick (node+0x1C)
+constexpr uint32_t SHADOW_DRAWFN = 0x8002AB5Cu; // resident terrain quad-draw addr (content-interface value; not called)
+constexpr uint32_t SCENE_BEAT = 0x800BF9B4u;    // shared SOP scene-beat byte
+constexpr uint8_t BEAT_LIMIT = 5;               // ramp updates run while beat < 5 (matches narration's beat==5 gate)
+} // namespace
 
 // FUN_8010AE30(parent) -> node ptr (0 on pool exhaustion).
-uint32_t native_sop_overlay_shadow_spawn(Core* c, uint32_t parent) {   // FUN_8010AE30
-  uint32_t node = eng(c).spawn.dispatch(/*cls=*/0, /*type=*/6, /*list=*/1);   // FUN_8007A980
-  if (node == 0) return 0;
+uint32_t native_sop_overlay_shadow_spawn(Core *c, uint32_t parent) {        // FUN_8010AE30
+  uint32_t node = eng(c).spawn.dispatch(/*cls=*/0, /*type=*/6, /*list=*/1); // FUN_8007A980
+  if (node == 0) {
+    return 0;
+  }
 
   c->mem_w32(node + 0x1Cu, SHADOW_HANDLER);
-  c->mem_w8 (node + 0x0Bu, 0x20);
+  c->mem_w8(node + 0x0Bu, 0x20);
   c->mem_w32(node + 0x10u, parent);
   c->mem_w32(node + 0x18u, SHADOW_DRAWFN);
-  c->mem_w8 (node + 0x28u, (uint8_t)(c->mem_r8(node + 0x28u) | 0x80u));
+  c->mem_w8(node + 0x28u, (uint8_t)(c->mem_r8(node + 0x28u) | 0x80u));
   return node;
 }
 
 // FUN_8010AB38(node) — per-frame tick, dispatched via node+0x1C.
 static constexpr GuestFrameSpill kSpills_8010AB38[1] = {
-  { 31 /*ra*/, 16 },
-};   // frame=24, abi_extract --scaffold --guestabi
-void beh_sop_overlay_shadow(Core* c) {
+    {31 /*ra*/, 16},
+}; // frame=24, abi_extract --scaffold --guestabi
+void beh_sop_overlay_shadow(Core *c) {
   GuestFrame<24, 1> frame(c, kSpills_8010AB38);
-  const uint32_t node   = c->r[4];
-  const uint8_t  state  = c->mem_r8(node + 4u);
+  const uint32_t node = c->r[4];
+  const uint8_t state = c->mem_r8(node + 4u);
   const uint32_t parent = c->mem_r32(node + 0x10u);
 
   if (state == 1) {
@@ -94,7 +96,7 @@ void beh_sop_overlay_shadow(Core* c) {
         c->mem_w32(node + 0x34u, c->mem_r32(parent + 0x34u));
         c->mem_w16(node + 0x48u, c->mem_r16(parent + 0x2Eu));
         const int16_t anchorY = (int16_t)c->mem_r16(parent + 0x32u);
-        const int16_t elev    = (int16_t)c->mem_r16(parent + 0x84u);
+        const int16_t elev = (int16_t)c->mem_r16(parent + 0x84u);
         const int16_t yAnchor = (int16_t)(anchorY + elev);
         c->mem_w16(node + 0x4Au, (uint16_t)yAnchor);
         c->mem_w16(node + 0x4Cu, c->mem_r16(parent + 0x36u));
@@ -102,17 +104,25 @@ void beh_sop_overlay_shadow(Core* c) {
         // Both ramps key off (yAnchor - anchorY) == elev (the anchorY term cancels — matches the
         // recomp's `*(param_1+0x4a) - *(iVar4+0x32)` reduction exactly since 0x4a was just stamped
         // anchorY+elev above).
-        const int32_t diff = (int32_t)yAnchor - (int32_t)anchorY;   // == elev
+        const int32_t diff = (int32_t)yAnchor - (int32_t)anchorY; // == elev
 
         int16_t ramp80 = (int16_t)(0x80 - ((diff - 0x78) >> 2));
         c->mem_w16(node + 0x4Eu, (uint16_t)ramp80);
-        if (ramp80 < 0)       { c->mem_w16(node + 0x4Eu, 0);      c->mem_w8(node + 1u, 0); }
-        else if (ramp80 > 0x80) { c->mem_w16(node + 0x4Eu, 0x80); }
+        if (ramp80 < 0) {
+          c->mem_w16(node + 0x4Eu, 0);
+          c->mem_w8(node + 1u, 0);
+        } else if (ramp80 > 0x80) {
+          c->mem_w16(node + 0x4Eu, 0x80);
+        }
 
         int16_t ramp100 = (int16_t)(0x100 - ((diff - 0x78) >> 2));
         c->mem_w16(node + 0x50u, (uint16_t)ramp100);
-        if (ramp100 < 0)        { c->mem_w16(node + 0x50u, 0);       c->mem_w8(node + 1u, 0); }
-        else if (ramp100 > 0x100) { c->mem_w16(node + 0x50u, 0x100); }
+        if (ramp100 < 0) {
+          c->mem_w16(node + 0x50u, 0);
+          c->mem_w8(node + 1u, 0);
+        } else if (ramp100 > 0x100) {
+          c->mem_w16(node + 0x50u, 0x100);
+        }
       }
     } else {
       c->mem_w8(node + 4u, 2);
@@ -120,7 +130,7 @@ void beh_sop_overlay_shadow(Core* c) {
   } else if (state < 2) {
     if (state == 0) {
       c->mem_w16(node + 0x40u, 0x50);
-      c->mem_w8 (node + 4u,    1);
+      c->mem_w8(node + 4u, 1);
       c->mem_w16(node + 0x54u, 0);
       c->mem_w16(node + 0x42u, 0x6E);
       c->mem_w16(node + 0x0Eu, 0);

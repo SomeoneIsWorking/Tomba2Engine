@@ -2,35 +2,48 @@
 #include "core.h"
 
 int32_t Trig::rsin(int32_t angle) const {
-  Core* c = this->core;
+  Core *c = this->core;
   int32_t sign = 1;
-  if (angle < 0) { sign = -1; angle = -angle; }
+  if (angle < 0) {
+    sign = -1;
+    angle = -angle;
+  }
   angle &= 0xFFF;
-  auto lh = [&](uint32_t off) -> int32_t { return c->mem_r16s(SIN_TAB + off); };
+  auto lh = [&](uint32_t off) -> int32_t {
+    return c->mem_r16s(SIN_TAB + off);
+  };
   int32_t r;
   if (angle < 1025) {
-    r = lh((uint32_t)angle * 2u);                        // Q1: sin(a) = tab[a]
+    r = lh((uint32_t)angle * 2u); // Q1: sin(a) = tab[a]
   } else if (angle < 2049) {
-    r = lh((uint32_t)(2048 - angle) * 2u);               // Q2: sin(a) = tab[2048-a]
+    r = lh((uint32_t)(2048 - angle) * 2u); // Q2: sin(a) = tab[2048-a]
   } else if (angle < 3073) {
-    r = -lh((uint32_t)(angle - 2048) * 2u);              // Q3: sin(a) = -tab[a-2048]
+    r = -lh((uint32_t)(angle - 2048) * 2u); // Q3: sin(a) = -tab[a-2048]
   } else {
-    r = -lh((uint32_t)(4096 - angle) * 2u);              // Q4: sin(a) = -tab[4096-a]
+    r = -lh((uint32_t)(4096 - angle) * 2u); // Q4: sin(a) = -tab[4096-a]
   }
   return sign * r;
 }
 
 int32_t Trig::ratan2(int32_t y_in, int32_t x_in) const {
-  Core* c = this->core;
+  Core *c = this->core;
   // Guest FUN_80085690. MIPS convention: a0=y, a1=x. Returns 12-bit angle (4096 == 2π).
   // Two flags — a2 = "x was negative", a3 = "y was negative"; sign-strip both, table-lookup atan on the
   // first octant, quadrant fixup at the tail. `q * 2` is the table offset (int16 entries at guest 0x800AA490).
   uint32_t a0 = (uint32_t)y_in;
   uint32_t a1 = (uint32_t)x_in;
   int32_t x_neg = 0, y_neg = 0;
-  if ((int32_t)a1 < 0) { x_neg = 1; a1 = 0u - a1; }
-  if ((int32_t)a0 < 0) { y_neg = 1; a0 = 0u - a0; }
-  if (a1 == 0 && a0 == 0) return 0;
+  if ((int32_t)a1 < 0) {
+    x_neg = 1;
+    a1 = 0u - a1;
+  }
+  if ((int32_t)a0 < 0) {
+    y_neg = 1;
+    a0 = 0u - a0;
+  }
+  if (a1 == 0 && a0 == 0) {
+    return 0;
+  }
   auto lh = [&](uint32_t idx) -> int32_t {
     return c->mem_r16s(ATAN_TAB + idx * 2u);
   };
@@ -55,8 +68,12 @@ int32_t Trig::ratan2(int32_t y_in, int32_t x_in) const {
     }
     v1 = 1024 - lh(q);
   }
-  if (x_neg) v1 = 2048 - v1;
-  if (y_neg) v1 = -v1;
+  if (x_neg) {
+    v1 = 2048 - v1;
+  }
+  if (y_neg) {
+    v1 = -v1;
+  }
   return v1;
 }
 
@@ -67,18 +84,22 @@ int32_t Trig::angleCmp(int32_t a, int32_t b, int32_t mode) {
 }
 
 int32_t Trig::rcos(int32_t angle) const {
-  Core* c = this->core;
-  if (angle < 0) angle = -angle;                         // cos is even; guest's bgez wrapper
+  Core *c = this->core;
+  if (angle < 0) {
+    angle = -angle; // cos is even; guest's bgez wrapper
+  }
   angle &= 0xFFF;
-  auto lh = [&](uint32_t off) -> int32_t { return c->mem_r16s(SIN_TAB + off); };
+  auto lh = [&](uint32_t off) -> int32_t {
+    return c->mem_r16s(SIN_TAB + off);
+  };
   if (angle < 1025) {
-    return lh((uint32_t)(1024 - angle) * 2u);            // Q1: cos(a) = tab[1024-a]
+    return lh((uint32_t)(1024 - angle) * 2u); // Q1: cos(a) = tab[1024-a]
   } else if (angle < 2049) {
-    return -lh((uint32_t)(angle - 1024) * 2u);           // Q2: cos(a) = -tab[a-1024]
+    return -lh((uint32_t)(angle - 1024) * 2u); // Q2: cos(a) = -tab[a-1024]
   } else if (angle < 3073) {
-    return -lh((uint32_t)(3072 - angle) * 2u);           // Q3: cos(a) = -tab[3072-a]
+    return -lh((uint32_t)(3072 - angle) * 2u); // Q3: cos(a) = -tab[3072-a]
   } else {
-    return lh((uint32_t)(angle - 3072) * 2u);            // Q4: cos(a) = tab[a-3072]
+    return lh((uint32_t)(angle - 3072) * 2u); // Q4: cos(a) = tab[a-3072]
   }
 }
 
@@ -89,11 +110,25 @@ int32_t Trig::rcos(int32_t angle) const {
 // negative. Pure computation, no Core access, no guest stack — direct callers only (the substrate body
 // keeps running for any dispatch caller, same rule as rsin above).
 int32_t Trig::vecLen(int32_t x, int32_t y, int32_t z) {
-  if (x < 0) x = -x;
-  if (y < 0) y = -y;
-  if (z < 0) z = -z;
-  if (x < y) { const int32_t t = x; x = y; y = t; }   // largest component into x ...
-  if (x < z) { const int32_t t = x; x = z; z = t; }   // ... in the guest's two-compare order
+  if (x < 0) {
+    x = -x;
+  }
+  if (y < 0) {
+    y = -y;
+  }
+  if (z < 0) {
+    z = -z;
+  }
+  if (x < y) {
+    const int32_t t = x;
+    x = y;
+    y = t;
+  } // largest component into x ...
+  if (x < z) {
+    const int32_t t = x;
+    x = z;
+    z = t;
+  } // ... in the guest's two-compare order
   const int32_t rest = y + z;
   return x - (x >> 4) + (rest >> 2) + (rest >> 3);
 }
@@ -111,4 +146,4 @@ int32_t Trig::vecLen(int32_t x, int32_t y, int32_t z) {
 // chain (its own + func_80083EBC's), defeating the point. So the overrides stay OFF: dispatch/substrate
 // callers keep running substrate (correct), and the Trig methods remain for DIRECT callers (which run
 // native on both SBS cores → no split). Do NOT re-register without full guest-stack-frame mirroring.
-void Trig::registerOverrides(Game* /*game*/) {}
+void Trig::registerOverrides(Game * /*game*/) {}

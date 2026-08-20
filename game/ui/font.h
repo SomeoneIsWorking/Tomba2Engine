@@ -18,7 +18,7 @@ class Core;
 
 class Font {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // init: FUN_80075130 — font / text system init orchestrator (no args, no return). Called
   //   once from native_boot.cpp's game_init prefix. Owns the direct engine-state writes +
@@ -53,7 +53,7 @@ public:
   //   FUN_8007aae8 carries a0 through unset). This native version reproduces that leftover by
   //   writing c->r[4] = end-of-string, exactly matching what a dispatched call would leave.
   //   Body from disas 0x80073750..0x80073798 (no sub-calls; a plain byte scan).
-  static int32_t measureLineWidth(Core* c, uint32_t strAddr);
+  static int32_t measureLineWidth(Core *c, uint32_t strAddr);
 
   // drawText(x, y, w, str, color): FUN_80079374 — WIDE-RE TIER DRAFT (2026-07-09), re-verified and
   //   WIRED. A thin arg-packing wrapper around the still-unowned font/glyph emitter FUN_80078CA8
@@ -90,7 +90,7 @@ public:
   //   each 32-bit arg — this wrapper does NOT decode them into separate ints, it reproduces the
   //   exact bit operations the guest performs, since sign-extension order matters for negative
   //   on-screen coordinates).
-  static void drawText(Core* c, int32_t x, int32_t y, int32_t w, uint32_t str, uint32_t color);
+  static void drawText(Core *c, int32_t x, int32_t y, int32_t w, uint32_t str, uint32_t color);
 
   // drawTextSmall(x, y, w, str, color): FUN_80079324 — SIBLING of drawText (0x80079374). Identical
   //   arg-packing wrapper around the same font/glyph emitter FUN_80078CA8, differing ONLY in the two
@@ -105,7 +105,7 @@ public:
   //   Everything else is identical: a0' = (int16)x | (y<<16) packed vertex, a2' = (int16)w, a3' = str,
   //   stack[+16] = color; mirrors the guest frame (sp-=32, ra spilled at sp+24) and tail-calls
   //   FUN_80078CA8 with ra = 0x80079364. See drawText's doc above for the full ABI trace.
-  static void drawTextSmall(Core* c, int32_t x, int32_t y, int32_t w, uint32_t str, uint32_t color);
+  static void drawTextSmall(Core *c, int32_t x, int32_t y, int32_t w, uint32_t str, uint32_t color);
 
   // glyphEmit(): FUN_80078CA8 — the font/glyph EMITTER drawText() tail-calls. WIDE-RE TIER DRAFT
   //   (2026-07-10, disjoint band), UNWIRED/UNVERIFIED (docs/fleet-workflow.md §6/§9 — no override
@@ -171,10 +171,10 @@ public:
   //   (direct re-read of the gen body); individual field ROLES beyond what's stated above (esp.
   //   struct+18 "line height", which is never WRITTEN anywhere in this function — it must be
   //   initialized by a caller-adjacent leaf this wave did not trace) are inferred, not confirmed.
-  static void glyphEmit(Core* c);
+  static void glyphEmit(Core *c);
 
   // Host half of glyphEmit's dual-emit: push the just-built glyph SPRT to the native render queue
   // (RQ_HUD) so pc_render draws text without transcribing the guest OT. Reads the completed scratch
   // struct at 0x800C0000; writes no guest byte; no-op under psx_render/oracle.
-  static void glyphQueuePush(Core* c);
+  static void glyphQueuePush(Core *c);
 };

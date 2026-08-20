@@ -46,9 +46,9 @@
 // Read-only overlay: the guest half is a byte-exact port / the untouched gen bodies; the display half
 // writes host memory only and is skipped on the oracle and psx_render legs.
 #pragma once
+#include "ui_group_capture.h"
 #include <cstdint>
 #include <vector>
-#include "ui_group_capture.h"
 class Core;
 
 class OptionsPage {
@@ -62,7 +62,10 @@ public:
   bool mBackdrop = false;
 
   // FUN_8007FCC8 rectangles staged inside the scope, in CALL order (page 3's header/row/footer boxes).
-  struct Box { int x, y, w, h; uint32_t flags; };
+  struct Box {
+    int x, y, w, h;
+    uint32_t flags;
+  };
   std::vector<Box> mBoxes;
 
   // install(): the five page-builder scope wrappers + the backdrop emitter FUN_8007FC24. Idempotent;
@@ -72,13 +75,13 @@ public:
   // pushBackdrop: the PORT of FUN_8007FC24 — one 36-byte POLY_G4 packet (the 320x240 dark-blue
   // gradient) allocated off the guest packet pool and linked at ordering-table bucket 1. Guest half
   // only; the picture is Render::optionsBackdrop, deferred to drawCollected for paint order.
-  static void pushBackdrop(Core* c);
+  static void pushBackdrop(Core *c);
 
   // noteBox: called by the FUN_8007FCC8 owner (Panel::pushDialogBackdrop's guest-ABI entry) after the
   // guest packet is staged. A no-op unless this page's scope is raised, so the dialog box is untouched.
-  static void noteBox(Core* c, int x, int y, int w, int h, uint32_t flags);
+  static void noteBox(Core *c, int x, int y, int w, int h, uint32_t flags);
 
   // drawCollected: push the frame's backdrop, boxes and captured groups to the render queue in the
   // guest's paint order at RQ_OVERLAY. Called once per page-builder run.
-  void drawCollected(Core* c);
+  void drawCollected(Core *c);
 };

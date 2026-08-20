@@ -19,24 +19,24 @@
 // bottom, and `node[+8] == 0` draws nothing however large `node[+9]` is. Note also that this function
 // checks `node[+8]` BEFORE loading the transform at all, so an empty node costs nothing.
 #include "core.h"
-#include "render.h"
 #include "override_registry.h"
+#include "render.h"
 
-void func_8003F698(Core*);   // generated/shard_disp.c — geometry-block submit
+void func_8003F698(Core *); // generated/shard_disp.c — geometry-block submit
 
 namespace {
 
-constexpr uint32_t VIEW_TRANSFORM = 0x1F8000F8u;  // scratchpad: 8 GTE control words (the frame's view)
-constexpr uint32_t OT_TABLE_PTR   = 0x800ED8C8u;
-constexpr uint32_t SUBPART_ARRAY  = 0xC0u;        // node+0xC0: sub-part pointers, stride 4
-constexpr uint32_t SUB_GEOMBLK    = 0x40u;
-constexpr uint32_t NODE_LIMIT     = 8u;
-constexpr uint32_t NODE_COUNT     = 9u;
+constexpr uint32_t VIEW_TRANSFORM = 0x1F8000F8u; // scratchpad: 8 GTE control words (the frame's view)
+constexpr uint32_t OT_TABLE_PTR = 0x800ED8C8u;
+constexpr uint32_t SUBPART_ARRAY = 0xC0u; // node+0xC0: sub-part pointers, stride 4
+constexpr uint32_t SUB_GEOMBLK = 0x40u;
+constexpr uint32_t NODE_LIMIT = 8u;
+constexpr uint32_t NODE_COUNT = 9u;
 
-}  // namespace
+} // namespace
 
 // ORACLE: gen_func_8003F07C
-void Render::sharedTransformWalk(Core* c) {
+void Render::sharedTransformWalk(Core *c) {
   const uint32_t node = c->r[4];
   const uint32_t passThrough = c->r[5];
 
@@ -61,16 +61,18 @@ void Render::sharedTransformWalk(Core* c) {
     gte_write_ctrl(7, c->mem_r32(VIEW_TRANSFORM + 28));
 
     if (c->mem_r8(node + NODE_COUNT) != 0) {
-      int32_t  index  = 0;
+      int32_t index = 0;
       uint32_t cursor = node;
 
       do {
-        if (index >= (int32_t)(uint32_t)c->mem_r8(node + NODE_LIMIT)) break;
+        if (index >= (int32_t)(uint32_t)c->mem_r8(node + NODE_LIMIT)) {
+          break;
+        }
 
         const uint32_t sub = c->mem_r32(cursor + SUBPART_ARRAY);
         c->r[4] = c->mem_r32(sub + SUB_GEOMBLK);
         c->r[5] = c->mem_r32(OT_TABLE_PTR);
-        c->r[31] = 0x8003F140u;             // jal-site ra
+        c->r[31] = 0x8003F140u; // jal-site ra
         c->r[6] = passThrough;
         func_8003F698(c);
 
@@ -89,11 +91,13 @@ void Render::sharedTransformWalk(Core* c) {
   c->r[29] += 40;
 }
 
-static void ov_shared_transform_walk(Core* c) { Render::sharedTransformWalk(c); }
+static void ov_shared_transform_walk(Core *c) {
+  Render::sharedTransformWalk(c);
+}
 
 void shared_transform_walk_install() {
-  extern void gen_func_8003F07C(Core*);
-  extern void shard_set_override(uint32_t, void (*)(Core*));
-  overrides::install(0x8003F07Cu, "Render::sharedTransformWalk", ov_shared_transform_walk,
-                     gen_func_8003F07C, shard_set_override);
+  extern void gen_func_8003F07C(Core *);
+  extern void shard_set_override(uint32_t, void (*)(Core *));
+  overrides::install(
+      0x8003F07Cu, "Render::sharedTransformWalk", ov_shared_transform_walk, gen_func_8003F07C, shard_set_override);
 }

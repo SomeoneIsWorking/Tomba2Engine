@@ -1,7 +1,7 @@
 // libcd_native.cpp — see header.
 #include "libcd_native.h"
 #include "core.h"
-#include "guest_call.h"  // rc0/rc1/rc2 wrappers around rec_dispatch
+#include "guest_call.h" // rc0/rc1/rc2 wrappers around rec_dispatch
 
 // Recompiled substrate leaves (declared in generated/rec_decls.h). Callable directly — they are
 // leaf-ish (no coroutine yields inside) and preserve the caller-save contract, so we can enter
@@ -19,9 +19,8 @@ uint32_t LibcdNative::cacheFile(uint32_t dir_index) {
   return core->r[2];
 }
 
-uint32_t LibcdNative::searchFile(uint32_t out_cdlfile_guest_addr, uint32_t path_guest_addr,
-                                 uint32_t ra) {
-  core->r[31] = ra;                     // guest call-site — spilled by CdSearchFile's prologue
+uint32_t LibcdNative::searchFile(uint32_t out_cdlfile_guest_addr, uint32_t path_guest_addr, uint32_t ra) {
+  core->r[31] = ra; // guest call-site — spilled by CdSearchFile's prologue
   rc2(core, 0x8008B8F0u, out_cdlfile_guest_addr, path_guest_addr);
   return core->r[2];
 }

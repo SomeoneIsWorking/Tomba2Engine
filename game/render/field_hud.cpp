@@ -24,50 +24,50 @@
 //
 // Read-only: reads guest RAM only, emits host-side RQ_HUD quads. Called from Render::renderField()
 // (the same field-frame scope FUN_8003F9A8 owns on the guest side).
-#include "core.h"
-#include "producer_scope.h"   // ProducerScope — graphics-producer DB, native leg
-#include "game.h"
 #include "cfg.h"
-#include "render_internal.h"   // render_queue.h / cur_render_node / render.h
-#include "game_ctx.h"          // eng(c) — PauseMenu frame gate
+#include "core.h"
 #include "engine.h"
+#include "game.h"
+#include "game_ctx.h"        // eng(c) — PauseMenu frame gate
+#include "producer_scope.h"  // ProducerScope — graphics-producer DB, native leg
+#include "render_internal.h" // render_queue.h / cur_render_node / render.h
 
 namespace {
 
 // ---- Guest addresses (named per CLAUDE.md; all RE'd from the decomps cited in the banner) ----
-constexpr uint32_t kHudState        = 0x800ED058u; // the HUD state struct FUN_80025D98 dispatches on
-constexpr uint32_t kHudEnable      = 0x800ED059u; // u8: HUD master enable
-constexpr uint32_t kHudSuppress    = 0x800ED060u; // u8: mode-2/7 suppress flag
-constexpr uint32_t kHudRingState   = 0x800ED061u; // u8: &3 -> item-ring visibility state
-constexpr uint32_t kHudRowEnable   = 0x800ED065u; // u8: status-row enable
-constexpr uint32_t kAreaMode       = 0x800BF870u; // u8: field area mode byte
-constexpr uint32_t kAreaSub        = 0x800BF871u; // u8: area sub-state
-constexpr uint32_t kUiBusy         = 0x800BF816u; // u8: UI-busy latch (dialog/menu up)
-constexpr uint32_t kUiFlags822     = 0x800BF822u; // u8: &4 suppresses the status row
-constexpr uint32_t kUiFlags880     = 0x800BF880u; // u16: &0x600/&0x100 suppress the weapon strip
-constexpr uint32_t kScrollByte87D  = 0x800BF87Du; // u8: item-ring second-loop count
-constexpr uint32_t kCount87E       = 0x800BF87Eu; // u8: status-row counter value
-constexpr uint32_t kScroll87F      = 0x800BF87Fu; // u8: status-row width scroll
-constexpr uint32_t kTaskSmPtr      = 0x1F800138u; // i32: live task state-machine ptr
+constexpr uint32_t kHudState = 0x800ED058u;       // the HUD state struct FUN_80025D98 dispatches on
+constexpr uint32_t kHudEnable = 0x800ED059u;      // u8: HUD master enable
+constexpr uint32_t kHudSuppress = 0x800ED060u;    // u8: mode-2/7 suppress flag
+constexpr uint32_t kHudRingState = 0x800ED061u;   // u8: &3 -> item-ring visibility state
+constexpr uint32_t kHudRowEnable = 0x800ED065u;   // u8: status-row enable
+constexpr uint32_t kAreaMode = 0x800BF870u;       // u8: field area mode byte
+constexpr uint32_t kAreaSub = 0x800BF871u;        // u8: area sub-state
+constexpr uint32_t kUiBusy = 0x800BF816u;         // u8: UI-busy latch (dialog/menu up)
+constexpr uint32_t kUiFlags822 = 0x800BF822u;     // u8: &4 suppresses the status row
+constexpr uint32_t kUiFlags880 = 0x800BF880u;     // u16: &0x600/&0x100 suppress the weapon strip
+constexpr uint32_t kScrollByte87D = 0x800BF87Du;  // u8: item-ring second-loop count
+constexpr uint32_t kCount87E = 0x800BF87Eu;       // u8: status-row counter value
+constexpr uint32_t kScroll87F = 0x800BF87Fu;      // u8: status-row width scroll
+constexpr uint32_t kTaskSmPtr = 0x1F800138u;      // i32: live task state-machine ptr
 constexpr uint32_t kOverlayFlag137 = 0x1F800137u; // u8: ==1 suppresses the status row
-constexpr uint32_t kPauseLevel     = 0x1F800136u; // u8: >=2 -> the world render orchestrator is skipped
-constexpr uint32_t kFrameCounter   = 0x1F80017Cu; // u32: guest frame counter (blink phase)
-constexpr uint32_t kEquipKind      = 0x800E7EEFu; // u8: equipped-item kind (0x12..0x16 ammo classes)
+constexpr uint32_t kPauseLevel = 0x1F800136u;     // u8: >=2 -> the world render orchestrator is skipped
+constexpr uint32_t kFrameCounter = 0x1F80017Cu;   // u32: guest frame counter (blink phase)
+constexpr uint32_t kEquipKind = 0x800E7EEFu;      // u8: equipped-item kind (0x12..0x16 ammo classes)
 constexpr uint32_t kAmmoThreshBase = 0x800A4554u; // u8[5]: per-kind low-ammo blink thresholds
-constexpr uint32_t kRingCount      = 0x800E7FEEu; // s16: item-ring first-loop count
-constexpr uint32_t kTemplPtrTable  = 0x80017334u; // u32[]: UI template pointer table (menu + field)
-constexpr uint32_t kRingTableBase  = 0x8009D30Cu; // u32[]: per-ring item tables (idx = hudState[10])
-constexpr uint32_t kIconTemplIdx   = 0x8009D286u; // s16[] stride 4: weapon icon -> template index
-constexpr uint32_t kRowTemplA      = 0x800173D8u; // u32: status-row segment template ptrs
-constexpr uint32_t kRowTemplB      = 0x800173DCu;
-constexpr uint32_t kSelTemplA      = 0x800173BCu; // u32: counter templates (normal / blink)
-constexpr uint32_t kSelTemplB      = 0x800173C0u;
+constexpr uint32_t kRingCount = 0x800E7FEEu;      // s16: item-ring first-loop count
+constexpr uint32_t kTemplPtrTable = 0x80017334u;  // u32[]: UI template pointer table (menu + field)
+constexpr uint32_t kRingTableBase = 0x8009D30Cu;  // u32[]: per-ring item tables (idx = hudState[10])
+constexpr uint32_t kIconTemplIdx = 0x8009D286u;   // s16[] stride 4: weapon icon -> template index
+constexpr uint32_t kRowTemplA = 0x800173D8u;      // u32: status-row segment template ptrs
+constexpr uint32_t kRowTemplB = 0x800173DCu;
+constexpr uint32_t kSelTemplA = 0x800173BCu; // u32: counter templates (normal / blink)
+constexpr uint32_t kSelTemplB = 0x800173C0u;
 // FUN_80025B78's DR_AREA scroll window: rect {0x90, page<<8, 0x20, 0xE0}; BR = TL + wh - 1.
 constexpr int kStripWinX = 0x90, kStripWinW = 0x20, kStripWinH = 0xE0;
-constexpr int kStripY    = 0xD4;   // icon row y
-constexpr int kStripBaseX = 0xA0;  // current-icon x before the scroll offset (hudState+6)
+constexpr int kStripY = 0xD4;     // icon row y
+constexpr int kStripBaseX = 0xA0; // current-icon x before the scroll offset (hudState+6)
 
-}  // namespace
+} // namespace
 
 // ---- emitUiFt4 — general FUN_8007E1B8 (POLY_FT4 template group) ---------------------------------
 // templPtr -> {s16 headerIdx, s16 dataOff} resolved against dataBase; entries 16 bytes:
@@ -89,47 +89,81 @@ constexpr int kStripBaseX = 0xA0;  // current-icon x before the scroll offset (h
 // here. But it is a DIAGNOSTIC, not a filter: it is far above any real group, and reaching it is
 // reported rather than absorbed.
 static int pieceCount(int cnt, uint32_t templPtr) {
-  constexpr int kSane = 256;              // no real group is anywhere near this
-  if (cnt < 0) return 0;
-  if (cnt <= kSane) return cnt;
+  constexpr int kSane = 256; // no real group is anywhere near this
+  if (cnt < 0) {
+    return 0;
+  }
+  if (cnt <= kSane) {
+    return cnt;
+  }
   static bool warned = false;
-  if (!warned) { warned = true;
-    cfg_logw("fieldhud", "template group at %08X claims %d pieces — refusing past %d. That is a bad "
-                         "count read out of guest memory, not a big group; the picture is INCOMPLETE.",
-             templPtr, cnt, kSane); }
+  if (!warned) {
+    warned = true;
+    cfg_logw("fieldhud",
+             "template group at %08X claims %d pieces — refusing past %d. That is a bad "
+             "count read out of guest memory, not a big group; the picture is INCOMPLETE.",
+             templPtr,
+             cnt,
+             kSane);
+  }
   return kSane;
 }
 
-void Render::emitUiFt4(int x, int y, int wOv, int hOv, uint32_t templPtr, uint32_t dataBase,
-                       uint8_t attrByte, uint16_t clutSemi, int layer,
-                       int daX0, int daY0, int daX1, int daY1) {
-  Core* c = mCore;
-  if (!templPtr || !dataBase) return;
+void Render::emitUiFt4(int x,
+                       int y,
+                       int wOv,
+                       int hOv,
+                       uint32_t templPtr,
+                       uint32_t dataBase,
+                       uint8_t attrByte,
+                       uint16_t clutSemi,
+                       int layer,
+                       int daX0,
+                       int daY0,
+                       int daX1,
+                       int daY1) {
+  Core *c = mCore;
+  if (!templPtr || !dataBase) {
+    return;
+  }
   const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
-  const int  hdr  = (int16_t)c->mem_r16(templPtr);
+  const int hdr = (int16_t)c->mem_r16(templPtr);
   const uint32_t psv = dataBase + (uint32_t)hdr * 4u;
-  const int  cnt  = (int16_t)c->mem_r16(psv);
+  const int cnt = (int16_t)c->mem_r16(psv);
   const uint32_t data = dataBase + c->mem_r16(psv + 2u);
-  const int mode  = attrByte & 0xF;
-  const int raw   = ((attrByte & 0xF0u) == 0) ? 1 : 0;
-  const unsigned char col = raw ? 0x80 : (unsigned char)(attrByte & 0xF0u);   // guest: bytes = attr & 0xF0
+  const int mode = attrByte & 0xF;
+  const int raw = ((attrByte & 0xF0u) == 0) ? 1 : 0;
+  const unsigned char col = raw ? 0x80 : (unsigned char)(attrByte & 0xF0u); // guest: bytes = attr & 0xF0
   const int semi = (clutSemi & 0x8000u) ? 1 : 0;
   // Layout mode (attr low nibble) — vertex arrangement + a ±1 texel inset, transcribed from the
   // FUN_8007E1B8 switch (scratch/decomp/ui_sprite_leaves.c): 0 = plain (TL,TR,BL,BR); 1 = mirror X
   // (u bytes -1); 2 = flip Y (v bytes -1); 3 = 180° rotation (u,v bytes -1); 5 = flip Y (v bytes +1).
   int du = 0, dv = 0;
   switch (mode) {
-    case 0: case 1: case 2: case 3: case 5: break;
-    default: {
-      static bool warned = false;
-      if (!warned) { warned = true;
-        cfg_logw("fieldhud", "emitUiFt4 layout mode %d not built — group skipped (templ=%08X)", mode, templPtr); }
-      return;
+  case 0:
+  case 1:
+  case 2:
+  case 3:
+  case 5:
+    break;
+  default: {
+    static bool warned = false;
+    if (!warned) {
+      warned = true;
+      cfg_logw("fieldhud", "emitUiFt4 layout mode %d not built — group skipped (templ=%08X)", mode, templPtr);
     }
+    return;
   }
-  if (mode == 1 || mode == 3) du = -1;
-  if (mode == 2 || mode == 3) dv = -1;
-  if (mode == 5)              dv = 1;
+  }
+  if (mode == 1 || mode == 3) {
+    du = -1;
+  }
+  if (mode == 2 || mode == 3) {
+    dv = -1;
+  }
+  if (mode == 5) {
+    dv = 1;
+  }
   // Entries are walked BACK-TO-FRONT, exactly like emitUiSprites: the guest links each packet into
   // its OT bucket with AddPrim, which prepends, so the LAST entry of a group is drawn FIRST and
   // entry 0 ends up on top. Measured on the pause menu's help-panel portrait (kanban #21): the four
@@ -141,32 +175,111 @@ void Render::emitUiFt4(int x, int y, int wOv, int hOv, uint32_t templPtr, uint32
   for (int k = n - 1; k >= 0; k--) {
     const uint32_t e = data + (uint32_t)k * 16u;
     int w = c->mem_r8(e + 10u), h = c->mem_r8(e + 11u);
-    if (wOv > 0) w = wOv; else if (wOv < 0) w += wOv;
-    if (hOv > 0) h = hOv; else if (hOv < 0) h += hOv;
+    if (wOv > 0) {
+      w = wOv;
+    } else if (wOv < 0) {
+      w += wOv;
+    }
+    if (hOv > 0) {
+      h = hOv;
+    } else if (hOv < 0) {
+      h += hOv;
+    }
     const int x0 = x + (int8_t)c->mem_r8(e + 14u);
     const int y0 = y + (int8_t)c->mem_r8(e + 15u);
     uint16_t clut = c->mem_r16(e + 2u);
-    if (clutSemi & 0x7FFFu) clut = clutSemi;
+    if (clutSemi & 0x7FFFu) {
+      clut = clutSemi;
+    }
     const uint16_t tpage = c->mem_r16(e + 6u);
     const int XL = x0 + ox, XR = x0 + w + ox, YT = y0 + oy, YB = y0 + h + oy;
     int xs[4], ys[4];
     switch (mode) {
-      case 0:  xs[0]=XL; xs[1]=XR; xs[2]=XL; xs[3]=XR; ys[0]=YT; ys[1]=YT; ys[2]=YB; ys[3]=YB; break;
-      case 1:  xs[0]=XR; xs[1]=XL; xs[2]=XR; xs[3]=XL; ys[0]=YT; ys[1]=YT; ys[2]=YB; ys[3]=YB; break;
-      case 2:
-      case 5:  xs[0]=XL; xs[1]=XR; xs[2]=XL; xs[3]=XR; ys[0]=YB; ys[1]=YB; ys[2]=YT; ys[3]=YT; break;
-      default: xs[0]=XR; xs[1]=XL; xs[2]=XR; xs[3]=XL; ys[0]=YB; ys[1]=YB; ys[2]=YT; ys[3]=YT; break;   // 3
+    case 0:
+      xs[0] = XL;
+      xs[1] = XR;
+      xs[2] = XL;
+      xs[3] = XR;
+      ys[0] = YT;
+      ys[1] = YT;
+      ys[2] = YB;
+      ys[3] = YB;
+      break;
+    case 1:
+      xs[0] = XR;
+      xs[1] = XL;
+      xs[2] = XR;
+      xs[3] = XL;
+      ys[0] = YT;
+      ys[1] = YT;
+      ys[2] = YB;
+      ys[3] = YB;
+      break;
+    case 2:
+    case 5:
+      xs[0] = XL;
+      xs[1] = XR;
+      xs[2] = XL;
+      xs[3] = XR;
+      ys[0] = YB;
+      ys[1] = YB;
+      ys[2] = YT;
+      ys[3] = YT;
+      break;
+    default:
+      xs[0] = XR;
+      xs[1] = XL;
+      xs[2] = XR;
+      xs[3] = XL;
+      ys[0] = YB;
+      ys[1] = YB;
+      ys[2] = YT;
+      ys[3] = YT;
+      break; // 3
     }
-    int us[4] = { (c->mem_r8(e+0u)+du)&0xFF, (c->mem_r8(e+4u)+du)&0xFF, (c->mem_r8(e+8u)+du)&0xFF,  (c->mem_r8(e+12u)+du)&0xFF };
-    int vs[4] = { (c->mem_r8(e+1u)+dv)&0xFF, (c->mem_r8(e+5u)+dv)&0xFF, (c->mem_r8(e+9u)+dv)&0xFF,  (c->mem_r8(e+13u)+dv)&0xFF };
-    unsigned char cc[4] = { col, col, col, col };
+    int us[4] = {(c->mem_r8(e + 0u) + du) & 0xFF,
+                 (c->mem_r8(e + 4u) + du) & 0xFF,
+                 (c->mem_r8(e + 8u) + du) & 0xFF,
+                 (c->mem_r8(e + 12u) + du) & 0xFF};
+    int vs[4] = {(c->mem_r8(e + 1u) + dv) & 0xFF,
+                 (c->mem_r8(e + 5u) + dv) & 0xFF,
+                 (c->mem_r8(e + 9u) + dv) & 0xFF,
+                 (c->mem_r8(e + 13u) + dv) & 0xFF};
+    unsigned char cc[4] = {col, col, col, col};
     const int tp_x = (tpage & 0xF) * 64, tp_y = ((tpage >> 4) & 1) * 256;
     const int tmode = (tpage >> 7) & 3, blend = (tpage >> 5) & 3;
     const int clut_x = (clut & 0x3F) * 16, clut_y = (clut >> 6) & 0x1FF;
-    c->game->activeRq().emitOrQueue(c, /*capture=*/1, layer, RQ_OM_2D_FG, 4, semi, raw,
-                                    xs, ys, nullptr, nullptr, us, vs, cc, cc, cc, nullptr,
-                                    tmode, tp_x, tp_y, clut_x, clut_y,
-                                    0, 0, 0, 0, daX0, daY0, daX1, daY1, blend);
+    c->game->activeRq().emitOrQueue(c,
+                                    /*capture=*/1,
+                                    layer,
+                                    RQ_OM_2D_FG,
+                                    4,
+                                    semi,
+                                    raw,
+                                    xs,
+                                    ys,
+                                    nullptr,
+                                    nullptr,
+                                    us,
+                                    vs,
+                                    cc,
+                                    cc,
+                                    cc,
+                                    nullptr,
+                                    tmode,
+                                    tp_x,
+                                    tp_y,
+                                    clut_x,
+                                    clut_y,
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    daX0,
+                                    daY0,
+                                    daX1,
+                                    daY1,
+                                    blend);
   }
 }
 
@@ -174,18 +287,28 @@ void Render::emitUiFt4(int x, int y, int wOv, int hOv, uint32_t templPtr, uint32
 // Entry layout matches emitUiFt4 with a single texture corner ([0,1]=u,v). One tpage for the whole
 // group from entry 0's [6,7]. Groups are authored FRONT-FIRST (see emitMenuSprites) — walked
 // back-to-front so queue order gives the same layering.
-void Render::emitUiSprites(int x, int y, uint32_t templPtr, uint32_t dataBase,
-                           uint8_t attrByte, uint16_t clutSemi, int layer,
-                           int daX0, int daY0, int daX1, int daY1) {
-  Core* c = mCore;
-  if (!templPtr || !dataBase) return;
+void Render::emitUiSprites(int x,
+                           int y,
+                           uint32_t templPtr,
+                           uint32_t dataBase,
+                           uint8_t attrByte,
+                           uint16_t clutSemi,
+                           int layer,
+                           int daX0,
+                           int daY0,
+                           int daX1,
+                           int daY1) {
+  Core *c = mCore;
+  if (!templPtr || !dataBase) {
+    return;
+  }
   const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
-  const int  hdr  = (int16_t)c->mem_r16(templPtr);
+  const int hdr = (int16_t)c->mem_r16(templPtr);
   const uint32_t psv = dataBase + (uint32_t)hdr * 4u;
-  const int  cnt  = (int16_t)c->mem_r16(psv);
+  const int cnt = (int16_t)c->mem_r16(psv);
   const uint32_t data = dataBase + c->mem_r16(psv + 2u);
   const uint16_t tpage = c->mem_r16(data + 6u);
-  const int raw   = ((attrByte & 0xF0u) == 0) ? 1 : 0;
+  const int raw = ((attrByte & 0xF0u) == 0) ? 1 : 0;
   const unsigned char col = raw ? 0x80 : (unsigned char)(attrByte & 0xF0u);
   const int semi = (clutSemi & 0x8000u) ? 1 : 0;
   const int tp_x = (tpage & 0xF) * 64, tp_y = ((tpage >> 4) & 1) * 256;
@@ -195,26 +318,55 @@ void Render::emitUiSprites(int x, int y, uint32_t templPtr, uint32_t dataBase,
     const uint32_t e = data + (uint32_t)k * 16u;
     const int x0 = x + (int8_t)c->mem_r8(e + 14u);
     const int y0 = y + (int8_t)c->mem_r8(e + 15u);
-    const int w  = c->mem_r8(e + 10u), h = c->mem_r8(e + 11u);
-    const int u0 = c->mem_r8(e + 0u),  v0 = c->mem_r8(e + 1u);
+    const int w = c->mem_r8(e + 10u), h = c->mem_r8(e + 11u);
+    const int u0 = c->mem_r8(e + 0u), v0 = c->mem_r8(e + 1u);
     uint16_t clut = c->mem_r16(e + 2u);
-    if (clutSemi & 0x7FFFu) clut = clutSemi;
-    int xs[4] = { x0 + ox, x0 + w + ox, x0 + ox,     x0 + w + ox };
-    int ys[4] = { y0 + oy, y0 + oy,     y0 + h + oy, y0 + h + oy };
-    int us[4] = { u0, u0 + w, u0,     u0 + w };
-    int vs[4] = { v0, v0,     v0 + h, v0 + h };
-    unsigned char cc[4] = { col, col, col, col };
+    if (clutSemi & 0x7FFFu) {
+      clut = clutSemi;
+    }
+    int xs[4] = {x0 + ox, x0 + w + ox, x0 + ox, x0 + w + ox};
+    int ys[4] = {y0 + oy, y0 + oy, y0 + h + oy, y0 + h + oy};
+    int us[4] = {u0, u0 + w, u0, u0 + w};
+    int vs[4] = {v0, v0, v0 + h, v0 + h};
+    unsigned char cc[4] = {col, col, col, col};
     const int clut_x = (clut & 0x3F) * 16, clut_y = (clut >> 6) & 0x1FF;
-    c->game->activeRq().emitOrQueue(c, /*capture=*/1, layer, RQ_OM_2D_FG, 4, semi, raw,
-                                    xs, ys, nullptr, nullptr, us, vs, cc, cc, cc, nullptr,
-                                    tmode, tp_x, tp_y, clut_x, clut_y,
-                                    0, 0, 0, 0, daX0, daY0, daX1, daY1, blend);
+    c->game->activeRq().emitOrQueue(c,
+                                    /*capture=*/1,
+                                    layer,
+                                    RQ_OM_2D_FG,
+                                    4,
+                                    semi,
+                                    raw,
+                                    xs,
+                                    ys,
+                                    nullptr,
+                                    nullptr,
+                                    us,
+                                    vs,
+                                    cc,
+                                    cc,
+                                    cc,
+                                    nullptr,
+                                    tmode,
+                                    tp_x,
+                                    tp_y,
+                                    clut_x,
+                                    clut_y,
+                                    0,
+                                    0,
+                                    0,
+                                    0,
+                                    daX0,
+                                    daY0,
+                                    daX1,
+                                    daY1,
+                                    blend);
   }
 }
 
 // ---- FUN_80025744 — status row ------------------------------------------------------------------
 void Render::fieldHudStatusRow() {
-  Core* c = mCore;
+  Core *c = mCore;
   // Producer DB, native leg. Keyed on the guest emitter this reimplements (codemap --addr 0x80025744
   // -> Render::fieldHudStatusRow). Found by PSXPORT_DEBUG=unscoped, which names the CALL SITE of every prim that
   // arrives with no producer declared — this one reached the queue through a SHARED emitter
@@ -231,7 +383,9 @@ void Render::fieldHudStatusRow() {
   emitUiFt4(0x20 + 0x18 + wA, 200, 0, 0, c->mem_r32(kRowTemplB), base, 0, 0, RQ_HUD);
   // 4: counter at (0x32, 0xCC), width = the count; blinks when ammo is at/below half threshold.
   const uint8_t count = c->mem_r8(kCount87E);
-  if (!count) return;
+  if (!count) {
+    return;
+  }
   bool low = false;
   const uint8_t kind = c->mem_r8(kEquipKind);
   if (kind >= 0x12 && kind <= 0x16) {
@@ -244,7 +398,7 @@ void Render::fieldHudStatusRow() {
 
 // ---- FUN_80025934 — item ring -------------------------------------------------------------------
 void Render::fieldHudItemRing(int offsetMode, uint32_t /*bucketAttr*/) {
-  Core* c = mCore;
+  Core *c = mCore;
   // Producer DB, native leg. Keyed on the guest ring emitter this reimplements (codemap --addr
   // 0x80025934 -> Render::fieldHudItemRing, this function), mirroring its two already-scoped siblings
   // in this file. Found by PSXPORT_DEBUG=unscoped: its prims reached the queue through the SHARED
@@ -256,29 +410,49 @@ void Render::fieldHudItemRing(int offsetMode, uint32_t /*bucketAttr*/) {
   const uint32_t tab = c->mem_r32(kRingTableBase + (uint32_t)c->mem_r8(p + 10u) * 4u);
   const int n1 = (int16_t)c->mem_r16(kRingCount);
   const int n2 = (int)c->mem_r8(kScrollByte87D);
-  for (int i = 0; i < n1; i++) {
-    const uint32_t e = tab + (uint32_t)i * 4u;
-    emitUiFt4(c->mem_r8(e + 1u) + dx, c->mem_r8(e + 2u) + dy, 0, 0,
-              c->mem_r32(kTemplPtrTable + (uint32_t)c->mem_r8(e) * 4u), base,
-              c->mem_r8(e + 3u), 0, RQ_HUD);
-  }
-  for (int i = n1; i < n2; i++) {
-    const uint32_t e = tab + (uint32_t)i * 4u;
-    emitUiFt4(c->mem_r8(e + 1u) + dx, c->mem_r8(e + 2u) + dy, 0, 0,
-              c->mem_r32(kTemplPtrTable + ((uint32_t)c->mem_r8(e) + 1u) * 4u), base,
-              c->mem_r8(e + 3u), 0, RQ_HUD);
-  }
-  // Ring chrome: one sprite group + two semi FT4 groups at (dx+0x20, dy+0x20).
+  // Every helper call here prepends all of its packets to one guest OT bucket, whereas RenderQueue
+  // appends. Submit the ENTIRE producer in final guest draw order: reverse the fixed chrome calls,
+  // both loop families, and each loop index. Reversing only the overlapping chrome substack leaves
+  // the loop-authored opaque red wedges underneath its translucent halves.
   const int rx = dx + 0x20, ry = dy + 0x20;
-  emitUiSprites(rx, ry, c->mem_r32(kTemplPtrTable + ((uint32_t)(int16_t)c->mem_r16(kRingCount) + 0x11u) * 4u),
-                base, 0, 0, RQ_HUD);
-  emitUiFt4(rx, ry, 0, 0, c->mem_r32(kTemplPtrTable + 4u * 4u), base, 0, 0x8000u, RQ_HUD);
   emitUiFt4(rx, ry, 0, 0, c->mem_r32(kTemplPtrTable + 3u * 4u), base, 0, 0x8000u, RQ_HUD);
+  emitUiFt4(rx, ry, 0, 0, c->mem_r32(kTemplPtrTable + 4u * 4u), base, 0, 0x8000u, RQ_HUD);
+  emitUiSprites(rx,
+                ry,
+                c->mem_r32(kTemplPtrTable + ((uint32_t)(int16_t)c->mem_r16(kRingCount) + 0x11u) * 4u),
+                base,
+                0,
+                0,
+                RQ_HUD);
+  for (int i = n2 - 1; i >= n1; i--) {
+    const uint32_t e = tab + (uint32_t)i * 4u;
+    emitUiFt4(c->mem_r8(e + 1u) + dx,
+              c->mem_r8(e + 2u) + dy,
+              0,
+              0,
+              c->mem_r32(kTemplPtrTable + ((uint32_t)c->mem_r8(e) + 1u) * 4u),
+              base,
+              c->mem_r8(e + 3u),
+              0,
+              RQ_HUD);
+  }
+  for (int i = n1 - 1; i >= 0; i--) {
+    const uint32_t e = tab + (uint32_t)i * 4u;
+    emitUiFt4(c->mem_r8(e + 1u) + dx,
+              c->mem_r8(e + 2u) + dy,
+              0,
+              0,
+              c->mem_r32(kTemplPtrTable + (uint32_t)c->mem_r8(e) * 4u),
+              base,
+              c->mem_r8(e + 3u),
+              0,
+              RQ_HUD);
+  }
 }
 
 // ---- FUN_80025B78 — equipped-weapon strip (the kanban #13 layer) --------------------------------
 void Render::fieldHudWeaponStrip() {
-  Core* c = mCore;
+  Core *c = mCore;
   // Producer DB, native leg. Keyed on the guest emitter this reimplements (codemap --addr 0x80025B78
   // -> Render::fieldHudWeaponStrip). Found by PSXPORT_DEBUG=unscoped, which names the CALL SITE of every prim that
   // arrives with no producer declared — this one reached the queue through a SHARED emitter
@@ -296,69 +470,87 @@ void Render::fieldHudWeaponStrip() {
   auto icon = [&](int x, uint32_t slot) {
     const uint8_t weapon = c->mem_r8(p + slot + 0x22u);
     const int templIdx = (int16_t)c->mem_r16(kIconTemplIdx + (uint32_t)weapon * 4u);
-    emitUiSprites(x, kStripY, c->mem_r32(kTemplPtrTable + (uint32_t)templIdx * 4u), base,
-                  0, 0, RQ_HUD, daX0, daY0, daX1, daY1);
+    emitUiSprites(
+        x, kStripY, c->mem_r32(kTemplPtrTable + (uint32_t)templIdx * 4u), base, 0, 0, RQ_HUD, daX0, daY0, daX1, daY1);
   };
   const uint32_t cur = c->mem_r8(p + 8u);
   int x = (int8_t)c->mem_r8(p + 6u) + kStripBaseX;
-  icon(x, cur);                                     // current
+  icon(x, cur); // current
   int prev = (int)cur - 1;
-  if (prev < 0) prev = (int)c->mem_r8(p + 7u) - 1;
+  if (prev < 0) {
+    prev = (int)c->mem_r8(p + 7u) - 1;
+  }
   x -= 0x20;
-  icon(x, (uint32_t)prev);                          // previous
+  icon(x, (uint32_t)prev); // previous
   uint32_t next = cur + 1u;
-  if (c->mem_r8(p + 7u) <= next) next = 0;
+  if (c->mem_r8(p + 7u) <= next) {
+    next = 0;
+  }
   x += 0x40;
-  icon(x, next);                                    // next
+  icon(x, next); // next
 }
 
 // ---- FUN_80025D98 — the HUD dispatcher gate (transcribed 1:1) -----------------------------------
 void Render::fieldHudRender() {
-  Core* c = mCore;
+  Core *c = mCore;
   // While the in-game pause/item menu is up the guest replaces the whole frame with menu chrome —
   // no world, no HUD (measured: all 421 ordering-table packets that frame come from the menu
   // controller FUN_800346BC). PauseMenu is the native producer for that frame; the field HUD stands
   // down, exactly as the guest's own HUD dispatcher does.
-  if (eng(c).pauseMenu.upThisFrame()) return;
+  if (eng(c).pauseMenu.upThisFrame()) {
+    return;
+  }
   // THE GUEST'S OWN GATE (kanban #38). This dispatcher lives inside the world render orchestrator
   // 0x8003F9A8, which Engine::fieldFrame runs only while the PAUSE LEVEL is < 2 — so at level 2 the
   // frame carries no world and no HUD at all. The in-game OPTIONS page raises the level to 2 (probed
   // 0x1F800136 == 2 on Select Options / Messages / Sound / Controls, and == 1 on Screen adjust, which
   // is why that one page does composite over the live field). Without this the weapon strip painted
   // over the page's footer — the last 306 px of the #38 diff.
-  if (c->mem_r8(kPauseLevel) >= 2) return;
+  if (c->mem_r8(kPauseLevel) >= 2) {
+    return;
+  }
   const uint8_t mode = c->mem_r8(kAreaMode);
-  const uint8_t sub  = c->mem_r8(kAreaSub);
-  const bool subEarly = (uint8_t)(sub - 1u) <= 2u;   // guest: 2 < sub-1 means NOT early
+  const uint8_t sub = c->mem_r8(kAreaSub);
+  const bool subEarly = (uint8_t)(sub - 1u) <= 2u; // guest: 2 < sub-1 means NOT early
 
-  if (c->mem_r8(kHudRowEnable) != 0 &&
-      (mode != 5 || !subEarly) && mode != 3 && mode != 0x14 &&
-      c->mem_r8(kOverlayFlag137) != 1 && !(c->mem_r8(kUiFlags822) & 4u))
+  if (c->mem_r8(kHudRowEnable) != 0 && (mode != 5 || !subEarly) && mode != 3 && mode != 0x14 &&
+      c->mem_r8(kOverlayFlag137) != 1 && !(c->mem_r8(kUiFlags822) & 4u)) {
     fieldHudStatusRow();
+  }
 
   const uint8_t ring = c->mem_r8(kHudRingState) & 3u;
   bool ringDrawn = false;
   if (ring == 1) {
     if ((mode != 5 || !subEarly) && mode != 2 && mode != 7 && mode != 0x14) {
-      if (c->mem_r8(kHudEnable) == 0) goto tail;
-      fieldHudItemRing(0, 0); ringDrawn = true;
+      if (c->mem_r8(kHudEnable) == 0) {
+        goto tail;
+      }
+      fieldHudItemRing(0, 0);
+      ringDrawn = true;
     }
   } else if (ring == 3) {
-    fieldHudItemRing(0, 0); ringDrawn = true;
+    fieldHudItemRing(0, 0);
+    ringDrawn = true;
   }
   (void)ringDrawn;
 
-  if (c->mem_r8(kHudEnable) == 0 || mode == 3) goto tail;
+  if (c->mem_r8(kHudEnable) == 0 || mode == 3) {
+    goto tail;
+  }
   if (mode == 2 || mode == 7) {
     // The area MINIMAP (#43): the guest's mode-2 / mode-7 branches call the overlay-resident drawers
     // 0x80113628 / 0x801140A0 behind these same two gates. Both are now owned natively (minimap.cpp).
-    if (c->mem_r8(kUiBusy) == 0 && c->mem_r8(kHudSuppress) == 0) fieldHudMinimap(mode);
+    if (c->mem_r8(kUiBusy) == 0 && c->mem_r8(kHudSuppress) == 0) {
+      fieldHudMinimap(mode);
+    }
     goto tail;
   }
-  if (mode == 0x14) goto tail;
-  if (!(c->mem_r16(kUiFlags880) & 0x600u) && !(c->mem_r16(kUiFlags880) & 0x100u) &&
-      c->mem_r8(kUiBusy) == 0)
+  if (mode == 0x14) {
+    goto tail;
+  }
+  if (!(c->mem_r16(kUiFlags880) & 0x600u) && !(c->mem_r16(kUiFlags880) & 0x100u) && c->mem_r8(kUiBusy) == 0) {
     fieldHudWeaponStrip();
+  }
 
 tail:
   // task-sm[0x4C]==6 special pages (0x801121AC / 0x8010F8CC) are overlay-resident and unowned —

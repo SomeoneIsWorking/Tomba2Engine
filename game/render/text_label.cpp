@@ -26,47 +26,54 @@
 // display-pass capture that used to live here factored the scene camera out of the pre-composed
 // matrix at cmd+0x18; that is the tap the USER banned on 2026-08-04 and the measured cause of
 // kanban #71's vibration, and it is deleted.
-#include "core.h"
-#include "game_ctx.h"
-#include "game.h"
-#include "render.h"
-#include "render_internal.h"   // withObjScope / cur_render_node
-#include "guest_abi.h"         // GuestFrame / GuestFrameSpill / guest_call
 #include "cfg.h"
+#include "core.h"
+#include "game.h"
+#include "game_ctx.h"
+#include "guest_abi.h" // GuestFrame / GuestFrameSpill / guest_call
+#include "render.h"
+#include "render_internal.h" // withObjScope / cur_render_node
 #include <stdint.h>
 
-void func_8003F174(Core*);   // still-substrate: the node's pre-composed-matrix mesh pass
-void func_80039E80(Core*);   // still-substrate: per-char glyph UV fill (space → -1)
-void func_8003F7D8(Core*);   // still-substrate: RTPT/RTPS/AVSZ4 glyph projector
-void func_80084660(Core*);   // libgte SetRotMatrix  (CR0-4 <- MATRIX.m)
-void func_80084690(Core*);   // libgte SetTransMatrix(CR5-7 <- MATRIX.t)
-void func_8009A5B0(Core*);   // libc strcpy (substrate)
-void func_8009A490(Core*);   // libc strcat (substrate)
-int  gpu_vk_wide_engine(Core*);     // gpu_vk.cpp — genuine engine-wide FOV active
-int  gpu_vk_wide_engine_w(Core*);   // gpu_vk.cpp — the wide screen width (nw)
+void func_8003F174(Core *);       // still-substrate: the node's pre-composed-matrix mesh pass
+void func_80039E80(Core *);       // still-substrate: per-char glyph UV fill (space → -1)
+void func_8003F7D8(Core *);       // still-substrate: RTPT/RTPS/AVSZ4 glyph projector
+void func_80084660(Core *);       // libgte SetRotMatrix  (CR0-4 <- MATRIX.m)
+void func_80084690(Core *);       // libgte SetTransMatrix(CR5-7 <- MATRIX.t)
+void func_8009A5B0(Core *);       // libc strcpy (substrate)
+void func_8009A490(Core *);       // libc strcat (substrate)
+int gpu_vk_wide_engine(Core *);   // gpu_vk.cpp — genuine engine-wide FOV active
+int gpu_vk_wide_engine_w(Core *); // gpu_vk.cpp — the wide screen width (nw)
 
 namespace {
-constexpr uint32_t PKT_POOL_PTR = 0x800BF544u;   // packet-pool bump-allocator write pointer
-constexpr uint32_t OTBASE_PTR   = 0x800ED8C8u;   // *this = the active ordering-table base
+constexpr uint32_t PKT_POOL_PTR = 0x800BF544u; // packet-pool bump-allocator write pointer
+constexpr uint32_t OTBASE_PTR = 0x800ED8C8u;   // *this = the active ordering-table base
 
 // Guest-stack frame contract — tools/abi_extract.py 0x80039F4C --scaffold --guestabi (ground truth).
 constexpr GuestFrameSpill kSpills_80039F4C[7] = {
-  { 20, 104 }, { 31 /*ra*/, 112 }, { 21, 108 }, { 19, 100 }, { 18, 96 }, { 17, 92 }, { 16, 88 },
+    {20, 104},
+    {31 /*ra*/, 112},
+    {21, 108},
+    {19, 100},
+    {18, 96},
+    {17, 92},
+    {16, 88},
 };
 
 // The fixed glyph template (model space, s16) the guest builds at sp+16..47 every call.
-constexpr int16_t kGlyphX[4] = { -3, 5, -3, 5 };
-constexpr int16_t kGlyphY[4] = { -7, -7, 9, 9 };
-constexpr int16_t kGlyphZ    = -1;
+constexpr int16_t kGlyphX[4] = {-3, 5, -3, 5};
+constexpr int16_t kGlyphY[4] = {-7, -7, 9, 9};
+constexpr int16_t kGlyphZ = -1;
 
-void textLabelBody(Core* c) {
+void textLabelBody(Core *c) {
   GuestFrame<120, 7> frame(c, kSpills_80039F4C);
-  const uint32_t sp   = c->r[29];
+  const uint32_t sp = c->r[29];
   const uint32_t node = c->r[4];
-  c->r[20] = node;                                  // gen keeps the node live in r20
+  c->r[20] = node; // gen keeps the node live in r20
 
   // (1) mesh pass: per-cmd pre-composed-matrix geomblk submit (still substrate).
-  c->r[4] = node; c->r[5] = 1;
+  c->r[4] = node;
+  c->r[5] = 1;
   guest_call(c, 0x80039F78u, func_8003F174);
 
   // (2) glyph template into the REAL guest stack (sp+16..47) — byte order per gen.
@@ -79,10 +86,12 @@ void textLabelBody(Core* c) {
   // (3) label text pointer: "Clear"+suffix into the guest stack buffer (sp+48), or the string table.
   uint32_t text;
   if (c->mem_r8(node + 3u) == 2u) {
-    c->r[4] = sp + 48u; c->r[5] = c->mem_r32(0x800A3A8Cu);          // strcpy(buf, "Clear")
-    c->r[18] = sp + 48u;                                            // gen: r18 = buf (live)
+    c->r[4] = sp + 48u;
+    c->r[5] = c->mem_r32(0x800A3A8Cu); // strcpy(buf, "Clear")
+    c->r[18] = sp + 48u;               // gen: r18 = buf (live)
     guest_call(c, 0x80039FE4u, func_8009A5B0);
-    c->r[4] = c->r[18]; c->r[5] = 0x80014A1Cu;                      // strcat(buf, suffix)
+    c->r[4] = c->r[18];
+    c->r[5] = 0x80014A1Cu; // strcat(buf, suffix)
     guest_call(c, 0x80039FF4u, func_8009A490);
     text = c->r[18];
   } else {
@@ -95,38 +104,50 @@ void textLabelBody(Core* c) {
   c->r[18] = text;
 
   // (4) per-character loop — counts re-read from the node each iteration, exactly like gen.
-  if (c->mem_r8(node + 9u) == 0u) return;
+  if (c->mem_r8(node + 9u) == 0u) {
+    return;
+  }
   c->r[17] = 0;
-  if ((int32_t)c->mem_r8(node + 8u) <= 0) return;
-  c->r[21] = (uint32_t)32780u << 16;                // gen's live pool-base register (callees spill it)
-  c->r[19] = node;                                   // cmd cursor (node + i*4; cmd read at +0xC0)
+  if ((int32_t)c->mem_r8(node + 8u) <= 0) {
+    return;
+  }
+  c->r[21] = (uint32_t)32780u << 16; // gen's live pool-base register (callees spill it)
+  c->r[19] = node;                   // cmd cursor (node + i*4; cmd read at +0xC0)
   for (;;) {
     const uint32_t ch = c->mem_r8(c->r[18]);
-    if (ch == 0u) break;
+    if (ch == 0u) {
+      break;
+    }
     // glyph UV fill into the packet at the pool tail (space → v0=-1 → skip).
-    c->r[4] = c->r[18]; c->r[5] = c->mem_r32(PKT_POOL_PTR);
+    c->r[4] = c->r[18];
+    c->r[5] = c->mem_r32(PKT_POOL_PTR);
     guest_call(c, 0x8003A05Cu, func_80039E80);
     if ((int32_t)c->r[2] != -1) {
       const uint32_t cmd = c->mem_r32(c->r[19] + 192u);
-      c->r[16] = c->mem_r32(PKT_POOL_PTR);                          // this glyph's packet
-      c->mem_w32(PKT_POOL_PTR, c->r[16] + 40u);                     // bump
-      c->r[4] = cmd + 24u;  guest_call(c, 0x8003A080u, func_80084660);   // SetRotMatrix(cmd+0x18)
+      c->r[16] = c->mem_r32(PKT_POOL_PTR);      // this glyph's packet
+      c->mem_w32(PKT_POOL_PTR, c->r[16] + 40u); // bump
+      c->r[4] = cmd + 24u;
+      guest_call(c, 0x8003A080u, func_80084660); // SetRotMatrix(cmd+0x18)
       c->r[4] = c->mem_r32(c->r[19] + 192u) + 24u;
-      guest_call(c, 0x8003A08Cu, func_80084690);                    // SetTransMatrix(cmd+0x18)
-      c->r[4] = c->r[16]; c->r[5] = sp + 16u; c->r[6] = sp + 80u;
-      guest_call(c, 0x8003A09Cu, func_8003F7D8);                    // project the template
+      guest_call(c, 0x8003A08Cu, func_80084690); // SetTransMatrix(cmd+0x18)
+      c->r[4] = c->r[16];
+      c->r[5] = sp + 16u;
+      c->r[6] = sp + 80u;
+      guest_call(c, 0x8003A09Cu, func_8003F7D8); // project the template
       const int32_t otzm1 = (int32_t)c->r[2] - 1;
       if (otzm1 >= 0) {
         const uint32_t pk = c->r[16];
-        auto sx = [&](uint32_t off) { return (uint32_t)c->mem_r16(pk + off); };
+        auto sx = [&](uint32_t off) {
+          return (uint32_t)c->mem_r16(pk + off);
+        };
         // xmax widened under the engine-wide FOV (submit_xmax precedent; SBS legs run 4:3).
         const uint32_t xmax = gpu_vk_wide_engine(c) ? (uint32_t)gpu_vk_wide_engine_w(c) : 320u;
         const bool xok = sx(8) < xmax || sx(16) < xmax || sx(24) < xmax || sx(32) < xmax;
         const bool yok = sx(10) < 240u || sx(18) < 240u || sx(26) < 240u || sx(34) < 240u;
         if (xok && yok) {
-          c->mem_w8(pk + 7u, 45u);                                  // code 0x2D (textured raw)
-          c->mem_w16(pk + 22u, 31u);                                // tpage half
-          c->mem_w16(pk + 14u, c->mem_r8(node + 3u) == 2u ? 31871u : 32255u);   // clut
+          c->mem_w8(pk + 7u, 45u);                                            // code 0x2D (textured raw)
+          c->mem_w16(pk + 22u, 31u);                                          // tpage half
+          c->mem_w16(pk + 14u, c->mem_r8(node + 3u) == 2u ? 31871u : 32255u); // clut
           const uint32_t otbase = c->mem_r32(OTBASE_PTR);
           const uint32_t slot = otbase + (uint32_t)otzm1 * 4u;
           c->mem_w32(pk + 0u, c->mem_r32(slot) | 0x09000000u);
@@ -140,24 +161,32 @@ void textLabelBody(Core* c) {
         }
       }
     }
-    c->r[19] += 4u; c->r[17] += 1u; c->r[18] += 1u;
-    if ((int32_t)c->r[17] >= (int32_t)c->mem_r8(node + 9u)) break;
-    if ((int32_t)c->r[17] >= (int32_t)c->mem_r8(node + 8u)) break;
+    c->r[19] += 4u;
+    c->r[17] += 1u;
+    c->r[18] += 1u;
+    if ((int32_t)c->r[17] >= (int32_t)c->mem_r8(node + 9u)) {
+      break;
+    }
+    if ((int32_t)c->r[17] >= (int32_t)c->mem_r8(node + 8u)) {
+      break;
+    }
   }
 }
 
-void ov_textLabelEmit(Core* c) { rend(c)->textLabelEmit(); }
+void ov_textLabelEmit(Core *c) {
+  rend(c)->textLabelEmit();
+}
 } // namespace
 
 void Render::textLabelEmit() {
-  Core* c = mCore;
+  Core *c = mCore;
   // Oracle runs the body pure (the engine_set_override_main thunk routes core B to gen); everyone
   // else gets the dbg_node diagnostic scope around the body.
   withObjScope(c, c->r[4], textLabelBody);
 }
 
 void text_label_install() {
-  extern void gen_func_80039F4C(Core*);
+  extern void gen_func_80039F4C(Core *);
   extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
   engine_set_override_main(0x80039F4Cu, ov_textLabelEmit, gen_func_80039F4C);
 }

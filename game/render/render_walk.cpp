@@ -10,31 +10,31 @@
 //
 // Split out of submit.cpp (the geometry-SUBMIT subsystem) so the scene renderer is its own PC-game
 // file. Shared helpers (withObjScope/cur_render_node) live in render_internal.h.
-#include "core.h"
-#include "game_ctx.h"
-#include "render.h"
-#include "game.h"
 #include "cfg.h"
-#include "mods.h"
-#include "render_queue.h"
-#include "projection.h"   // EObjXform (per-object world-coord float projection; ops on Render)
-#include "render_internal.h"
-#include "producer_scope.h"   // ProducerScope — graphics-producer DB, native leg
+#include "core.h"
 #include "cube_text_banner.h"
-#include "queue_dispatch.h"   // the guest's own class->queue->per-type render routing (kanban #77)
-#include "cull.h"             // Cull::submittedThisFrame — the PUSH-TIME submission record
-#include "player/actor_tomba.h"   // ActorTomba::G_ADDR — Tomba's node, outside the 3 generic entity lists
+#include "cull.h" // Cull::submittedThisFrame — the PUSH-TIME submission record
+#include "game.h"
+#include "game_ctx.h"
+#include "mods.h"
+#include "player/actor_tomba.h" // ActorTomba::G_ADDR — Tomba's node, outside the 3 generic entity lists
+#include "producer_scope.h"     // ProducerScope — graphics-producer DB, native leg
+#include "projection.h"         // EObjXform (per-object world-coord float projection; ops on Render)
+#include "queue_dispatch.h"     // the guest's own class->queue->per-type render routing (kanban #77)
+#include "render.h"
+#include "render_internal.h"
+#include "render_queue.h"
+#include <lucent/log.h> // `ringcensus` diagnostic channel (kanban #72)
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include <math.h>
 #include <string_view>
-#include <lucent/log.h>   // `ringcensus` diagnostic channel (kanban #72)
 
-void rec_dispatch(Core*, uint32_t);
-void rec_super_call(Core*, uint32_t);
-int  rec_addr_has_entry(Core*, uint32_t);   // overlay_router.cpp — is fn a real entry in the resident module?
-#define OTBASE_PTR   0x800ED8C8u             // *this = the active ordering-table base
-#define SCR          0x1F800000u             // PSX scratchpad base (the engine's GTE-compose temp area)
+void rec_dispatch(Core *, uint32_t);
+void rec_super_call(Core *, uint32_t);
+int rec_addr_has_entry(Core *, uint32_t); // overlay_router.cpp — is fn a real entry in the resident module?
+#define OTBASE_PTR 0x800ED8C8u            // *this = the active ordering-table base
+#define SCR 0x1F800000u                   // PSX scratchpad base (the engine's GTE-compose temp area)
 
 // The per-object render path is FULLY native (no PSX fallback): submit_perobj_flush composes the float
 // world transform and calls Render::gt3gt4 directly. The old gen_func_8003F698 per-mode dispatcher (which
@@ -55,17 +55,21 @@ int  rec_addr_has_entry(Core*, uint32_t);   // overlay_router.cpp — is fn a re
 // derived from the same already-stable guest state (game logic for this frame has already run by the
 // time either pass reads it), not a heuristic. Cached per s_frame (computed once, lazily, on first
 // query) so repeated per-cmd queries in cmdListDispatch's loop are O(1) after the first.
-bool Render::nativeObjDrawn(Core* c, uint32_t node) {
+bool Render::nativeObjDrawn(Core *c, uint32_t node) {
   const int frame = c->game->gpu.s_frame;
   if (mNativeDrawnFrame != frame) {
     mNativeDrawnNodes.clear();
     mNativeDrawnFrame = frame;
-    static const uint32_t HEADS[3] = { 0x800FB168u, 0x800F2624u, 0x800F2738u };
+    static const uint32_t HEADS[3] = {0x800FB168u, 0x800F2624u, 0x800F2738u};
     for (int h = 0; h < 3; h++) {
       uint32_t n = c->mem_r32(HEADS[h]);
       for (int g = 0; n && g < 400; g++, n = c->mem_r32(n + 0x24)) {
-        if (c->mem_r8(n + 1) == 0) continue;                            // dead / not-live this frame
-        if (c->mem_r8(n + 8) == 0 || c->mem_r8(n + 9) == 0) continue;   // no render commands
+        if (c->mem_r8(n + 1) == 0) {
+          continue; // dead / not-live this frame
+        }
+        if (c->mem_r8(n + 8) == 0 || c->mem_r8(n + 9) == 0) {
+          continue; // no render commands
+        }
         mNativeDrawnNodes.insert(n);
       }
     }
@@ -74,17 +78,21 @@ bool Render::nativeObjDrawn(Core* c, uint32_t node) {
 }
 
 void Render::perObjFlush() {
-  Core* c = mCore;
+  Core *c = mCore;
   uint32_t node = c->r[4];
-  if (c->mem_r8(node + 8) == 0) return;
-  if (c->mem_r8(node + 9) == 0) return;
+  if (c->mem_r8(node + 8) == 0) {
+    return;
+  }
+  if (c->mem_r8(node + 9) == 0) {
+    return;
+  }
   // NOTE (bug #48): this node's cmd list (node+8 count, node+0xC0 array, geomblk=cmd+0x40) is drawn
   // natively below via gt3gt4 — the SAME array cmdListDispatch's substrate mirror walks for whichever
   // walker (perObjRenderDispatch) reaches this node. cmdListDispatch's coverage decision does NOT
   // depend on this call having run (the substrate walk runs BEFORE this display pass in the same
   // logic frame) — it queries Render::nativeObjDrawn, which re-derives this same node set straight
   // from guest state instead. See nativeObjDrawn's banner above.
-  uint32_t otbase_ptr = c->mem_r32(OTBASE_PTR);              // *0x800ED8C8
+  uint32_t otbase_ptr = c->mem_r32(OTBASE_PTR); // *0x800ED8C8
   // kanban #33: guest-time capture-only. The present re-renders this object from mSink under lerped inputs
   // (both frames), so the ONLY state it reads back from the guest-time pass is mObjCur (the per-object raw
   // transform, keyed by cmd). Capture it straight through the projObj choke — SKIP the camera×object compose
@@ -93,8 +101,13 @@ void Render::perObjFlush() {
   if (c->game->fps60.mWorldCaptureOnly) {
     for (int i = 0; i < (int)c->mem_r8(node + 8); i++) {
       uint32_t cmd = c->mem_r32(node + 0xC0 + i * 4);
-      if (c->mem_r32(cmd + 0x40) != 0) { float Robj[3][3], Tobj[3]; c->game->fps60.projObj(c, cmd, Robj, Tobj); }
-      if (i + 1 >= (int)c->mem_r8(node + 9)) break;
+      if (c->mem_r32(cmd + 0x40) != 0) {
+        float Robj[3][3], Tobj[3];
+        c->game->fps60.projObj(c, cmd, Robj, Tobj);
+      }
+      if (i + 1 >= (int)c->mem_r8(node + 9)) {
+        break;
+      }
     }
     return;
   }
@@ -129,19 +142,23 @@ void Render::perObjFlush() {
       // PC-NATIVE: compose the camera × object transform in FLOAT from the object's REAL WORLD coordinates
       // (its world matrix cmd+0x18 + world position cmd+0x2c, transformed by the scene camera) and make it
       // the ACTIVE projection. The submitters project every vertex through it — NO gte_op, NO CR0-7.
-      EObjXform w; rend(c)->projComposeObject(cmd, &w);
+      EObjXform w;
+      rend(c)->projComposeObject(cmd, &w);
       rend(c)->projSetActive(&w);
       // OT base: node[0xd]&0xf == 4 selects a per-command sub-bucket (cmd[0x3f]*4 offset), else the base.
       uint32_t otbase = otbase_ptr;
-      if ((c->mem_r8(node + 0xD) & 0xF) == 4)
+      if ((c->mem_r8(node + 0xD) & 0xF) == 4) {
         otbase = otbase_ptr + ((c->mem_r8s(cmd + 0x3F)) << 2);
+      }
       // fps60 TRUE per-object tier: the object's world transform was captured (keyed by cmd) inside
       // projComposeObject above; the GT3/GT4 submit projects it. No per-prim key needed anymore.
-      rend(c)->gt3gt4(geomblk, otbase);              // fully-native generic GT3/GT4 submit (no PSX fallback)
+      rend(c)->gt3gt4(geomblk, otbase); // fully-native generic GT3/GT4 submit (no PSX fallback)
       rend(c)->projClearActive();
     }
     i++;
-    if (i >= (int)c->mem_r8(node + 9)) break;
+    if (i >= (int)c->mem_r8(node + 9)) {
+      break;
+    }
   }
 }
 
@@ -157,20 +174,20 @@ void Render::perObjFlush() {
 // Resolve the resident backdrop tilemap drawer exactly as the guest field dispatcher does
 // (gen_func_8003DF04 @0x8003DF04) and confirm it is the SHARED tilemap routine, reporting its baked
 // per-tile V bias. See render.h for the contract. Read-only (guest RAM + resident code words only).
-bool Render::backdropTilemapDrawer(int& vAdd, uint32_t* drawerVAOut) {
-  Core* c = mCore;
-  constexpr uint32_t kBgGate       = 0x800BF873u;  // field dispatch gate (!=0 -> no backdrop this beat)
-  constexpr uint32_t kBgSelector   = 0x800BF870u;  // field bg-state selector (== the area's bg-state)
-  constexpr uint32_t kBgJumpTable  = 0x80014FC0u;  // 16-entry bg-state -> MAIN dispatch-stub table
-  constexpr uint32_t kBgStateCount = 16u;          // guest draws nothing for state >= this
-  constexpr uint32_t kBgStateComposite = 21u;      // wolf-ride: gradient+tilemap composite (see below)
-  constexpr uint32_t kSopSig       = 0x80109450u;  // SOP overlay first-instruction signature word
-  constexpr uint32_t kSopSigVal    = 0x3C021F80u;
-  constexpr uint32_t kSopDrawer    = 0x8010C26Cu;  // SOP narration's own tilemap drawer (V bias 0)
-  constexpr uint32_t kJalOp        = 0x03u;        // MIPS jal opcode (top 6 bits)
-  constexpr uint32_t kVDecodeAndi  = 0x30E200F0u;  // `andi r2,r7,0xF0` — the tilemap V-decode site
-  constexpr uint32_t kVAdd8Insn    = 0x24420008u;  // `addiu r2,r2,8` immediately after it (V bias 8)
-  constexpr uint32_t kDrawerScan   = 0x400u;       // drawer body size to search for the V-decode
+bool Render::backdropTilemapDrawer(int &vAdd, uint32_t *drawerVAOut) {
+  Core *c = mCore;
+  constexpr uint32_t kBgGate = 0x800BF873u;      // field dispatch gate (!=0 -> no backdrop this beat)
+  constexpr uint32_t kBgSelector = 0x800BF870u;  // field bg-state selector (== the area's bg-state)
+  constexpr uint32_t kBgJumpTable = 0x80014FC0u; // 16-entry bg-state -> MAIN dispatch-stub table
+  constexpr uint32_t kBgStateCount = 16u;        // guest draws nothing for state >= this
+  constexpr uint32_t kBgStateComposite = 21u;    // wolf-ride: gradient+tilemap composite (see below)
+  constexpr uint32_t kSopSig = 0x80109450u;      // SOP overlay first-instruction signature word
+  constexpr uint32_t kSopSigVal = 0x3C021F80u;
+  constexpr uint32_t kSopDrawer = 0x8010C26Cu;   // SOP narration's own tilemap drawer (V bias 0)
+  constexpr uint32_t kJalOp = 0x03u;             // MIPS jal opcode (top 6 bits)
+  constexpr uint32_t kVDecodeAndi = 0x30E200F0u; // `andi r2,r7,0xF0` — the tilemap V-decode site
+  constexpr uint32_t kVAdd8Insn = 0x24420008u;   // `addiu r2,r2,8` immediately after it (V bias 8)
+  constexpr uint32_t kDrawerScan = 0x400u;       // drawer body size to search for the V-decode
 
   uint32_t drawerVA;
   if (c->mem_r32(kSopSig) == kSopSigVal) {
@@ -178,7 +195,9 @@ bool Render::backdropTilemapDrawer(int& vAdd, uint32_t* drawerVAOut) {
     // points at 0x80115598, which is NOT resident under the SOP overlay), so resolve it directly.
     drawerVA = kSopDrawer;
   } else {
-    if (c->mem_r8(kBgGate) != 0) return false;
+    if (c->mem_r8(kBgGate) != 0) {
+      return false;
+    }
     const uint32_t st = c->mem_r8(kBgSelector);
     // State 21 (wolf-ride) is special-cased ahead of the table by the guest to a COMPOSITE drawer
     // (0x8010BE30): a gouraud-gradient sky base (helper 0x8010BB64) with the tilemap as a CLOUD overlay
@@ -186,24 +205,34 @@ bool Render::backdropTilemapDrawer(int& vAdd, uint32_t* drawerVAOut) {
     // ALONE (opaque, no gradient base) paints a bright full sky where the real backdrop is the darker
     // gradient — measured WORSE than leaving it black (61375 -> 64650 px >8/255). Left as an honest
     // missing-producer gap until the gradient base + overlay are ported together (kanban #48).
-    if (st == kBgStateComposite) return false;
-    if (st >= kBgStateCount) return false;
+    if (st == kBgStateComposite) {
+      return false;
+    }
+    if (st >= kBgStateCount) {
+      return false;
+    }
     const uint32_t stub = c->mem_r32(kBgJumpTable + st * 4);
     // The dispatch stub's 2nd instruction is `jal <overlay drawer>`; the no-backdrop stub (0x8003E020)
     // has none. Decode the jal target rather than hardcoding each overlay's drawer address.
     const uint32_t jal = c->mem_r32(stub + 4);
-    if ((jal >> 26) != kJalOp) return false;
+    if ((jal >> 26) != kJalOp) {
+      return false;
+    }
     drawerVA = (stub & 0xF0000000u) | ((jal & 0x03FFFFFFu) << 2);
   }
   // Scan the resident drawer for the tilemap V-decode. Absent -> not the shared tilemap routine (a
   // different, still-unported backdrop mechanism) -> no native producer, the far plane stays black.
   for (uint32_t p = drawerVA; p < drawerVA + kDrawerScan; p += 4) {
-    if (c->mem_r32(p) != kVDecodeAndi) continue;
+    if (c->mem_r32(p) != kVDecodeAndi) {
+      continue;
+    }
     vAdd = (c->mem_r32(p + 4) == kVAdd8Insn) ? 8 : 0;
     // Report the drawer only on SUCCESS — on any reject path above it is either undecoded or a routine
     // this producer does not draw, and handing that address to the producer DB would key real native
     // prims to a guest function that emits something else entirely.
-    if (drawerVAOut) *drawerVAOut = drawerVA;
+    if (drawerVAOut) {
+      *drawerVAOut = drawerVA;
+    }
     return true;
   }
   return false;
@@ -236,9 +265,9 @@ bool Render::backdropTilemapDrawer(int& vAdd, uint32_t* drawerVAOut) {
 // the guest emitted its tiles from this struct whether or not we trust it, so the page it sampled is a
 // fact about what is in the OT. Read-only: guest RAM + resident code words, no guest write.
 void Render::backdropTexpagePublishTick() {
-  Core* c = mCore;
-  constexpr uint32_t kParallaxBgSm  = 0x800ED018u;  // the backdrop tilemap state struct (see banner below)
-  constexpr uint32_t kBgTpageOff    = 0x04u;        // +0x04 hword tpage
+  Core *c = mCore;
+  constexpr uint32_t kParallaxBgSm = 0x800ED018u; // the backdrop tilemap state struct (see banner below)
+  constexpr uint32_t kBgTpageOff = 0x04u;         // +0x04 hword tpage
   int vAdd = 0;
   const bool tilemapBackdrop = backdropTilemapDrawer(vAdd);
   int tp_x = -1, tp_y = -1;
@@ -246,15 +275,21 @@ void Render::backdropTexpagePublishTick() {
     const uint16_t tpage = c->mem_r16(kParallaxBgSm + kBgTpageOff);
     tp_x = (tpage & 0xF) * 64;
     tp_y = ((tpage >> 4) & 1) * 256;
-    void gpu_bg_texpage_set(Core*, int, int); gpu_bg_texpage_set(c, tp_x, tp_y);
+    void gpu_bg_texpage_set(Core *, int, int);
+    gpu_bg_texpage_set(c, tp_x, tp_y);
   }
   // A silent negative here is indistinguishable from "the tick never ran", and the consequence of a
   // negative is invisible-world, so the line always carries WHICH branch was taken and the guest bytes
   // it turned on: tilemap=0 means the resident drawer is not the shared tilemap routine (area 14/21 and
   // the state>=16 areas — an honest unported-backdrop gap, and those areas' guest tiles, if any, will
   // still band as HUD), tilemap=1 names the page that was published.
-  lucent::debug("bgtp", "tilemap={} tp=({},{}) bgstate={} bggate={}", (int)tilemapBackdrop, tp_x, tp_y,
-                c->mem_r8(0x800BF870u), c->mem_r8(0x800BF873u));
+  lucent::debug("bgtp",
+                "tilemap={} tp=({},{}) bgstate={} bggate={}",
+                (int)tilemapBackdrop,
+                tp_x,
+                tp_y,
+                c->mem_r8(0x800BF870u),
+                c->mem_r8(0x800BF873u));
 }
 
 // NATIVE BACKDROP tilemap drawer — overlay FUN_80115598 (the seaside field's state-0 background drawer,
@@ -279,15 +314,18 @@ void Render::backdropTexpagePublishTick() {
 // frame call (which also captures the result into Fps60::mBgCur); during Tier-1's present-time backdrop
 // re-render (Fps60::tier1Render, fps60.cpp) it instead returns wrapLerp(mBgPrev,mBgCur,t), no guest read.
 void Render::backdropRender(uint32_t t4) {
-  Core* c = mCore;
+  Core *c = mCore;
   int W = c->mem_r8(t4 + 0x10), H = c->mem_r8(t4 + 0x11);
-  if (W == 0 || H == 0) return;
+  if (W == 0 || H == 0) {
+    return;
+  }
   // kanban #33: guest-time capture-only. The only per-frame-varying state the present-time backdrop
   // re-render reads back is the scroll offset (mBgCur) — everything else (tilemap/tpage/wrap moduli) is
   // static per-area config it re-reads directly. Capture the scroll (bgScroll self-captures on a real,
   // non-override call) and skip drawing every tile; the present re-renders the backdrop from mSink.
   if (c->game->fps60.mWorldCaptureOnly) {
-    int sx, sy; c->game->fps60.bgScroll(c, t4, sx, sy);
+    int sx, sy;
+    c->game->fps60.bgScroll(c, t4, sx, sy);
     // The backdrop texpage publish that used to live here (and in the draw path below) is gone: it is
     // per-frame guest-state tracking, so it belongs to backdropTexpagePublishTick, which Engine::drawOTag
     // runs BEFORE the render-mode branch. Publishing it from a producer made it a function of which
@@ -317,18 +355,21 @@ void Render::backdropRender(uint32_t t4) {
   // tilemap routine, or the resolver could not decode one) those prims stay in the census's counted
   // unscopedNative() total. This pass still draws in that case only when the caller decided to call it,
   // so the honest outcome is an undeclared count, never a row keyed to an unidentified drawer.
-  ProducerScope backdropScope((isTilemapDrawer && drawerVA) ? &c->rsub.producerScope : nullptr,
-                              drawerVA, "backdropRender");
+  ProducerScope backdropScope(
+      (isTilemapDrawer && drawerVA) ? &c->rsub.producerScope : nullptr, drawerVA, "backdropRender");
 
-  int rowstride = W * 2;                          // s0 — bytes per map row
-  int mapbytes  = rowstride * H;                  // s3 — total map bytes (wrap modulus)
+  int rowstride = W * 2;        // s0 — bytes per map row
+  int mapbytes = rowstride * H; // s3 — total map bytes (wrap modulus)
   int scrollX, scrollY;
   c->game->fps60.bgScroll(c, t4, scrollX, scrollY);
-  uint32_t map      = c->mem_r32(t4 + 0x14);
-  uint16_t tpage    = c->mem_r16(t4 + 0x04);
+  uint32_t map = c->mem_r32(t4 + 0x14);
+  uint16_t tpage = c->mem_r16(t4 + 0x04);
   uint16_t clutbase = c->mem_r16(t4 + 0x06);
   int tp_x = (tpage & 0xF) * 64, tp_y = ((tpage >> 4) & 1) * 256;
-  int mode = (tpage >> 7) & 3; if (mode > 2) mode = 2;
+  int mode = (tpage >> 7) & 3;
+  if (mode > 2) {
+    mode = 2;
+  }
   // (This frame's backdrop texpage is published by backdropTexpagePublishTick, before the render-mode
   // branch — not from here. See that function.)
   // WIDESCREEN backdrop coverage (root-cause fix for the [320,nw) atlas-garbage band): the PSX body tiles
@@ -339,17 +380,27 @@ void Render::backdropRender(uint32_t t4) {
   // centre (cx=nw/2) and widen the tiled window to nw+32 so it fills the full wide FB, matching the
   // world's OFX shift. cx/winw reduce to the exact 4:3 values (160 / 0x160) when not wide, so the 4:3
   // path stays byte-identical. Gated on gpu_vk_wide_engine() (false at 4:3 / oracle / SBS legs).
-  int gpu_vk_wide_engine(Core*), gpu_vk_wide_engine_w(Core*);
-  int cx = 160, winw = 0x160;                       // screen-centre X / tiled window width (4:3 defaults)
-  if (gpu_vk_wide_engine(c)) { int nw = gpu_vk_wide_engine_w(c); cx = nw / 2; winw = nw + 0x20; }
+  int gpu_vk_wide_engine(Core *), gpu_vk_wide_engine_w(Core *);
+  int cx = 160, winw = 0x160; // screen-centre X / tiled window width (4:3 defaults)
+  if (gpu_vk_wide_engine(c)) {
+    int nw = gpu_vk_wide_engine_w(c);
+    cx = nw / 2;
+    winw = nw + 0x20;
+  }
   // Starting tile row/col = (scroll - screen-center) >> 4, wrapped into [0,H) / [0,W).
-  int rowtile = ((scrollY - 120) >> 4) % H; if (rowtile < 0) rowtile += H;
-  int coltile = ((scrollX - cx) >> 4) % W; if (coltile < 0) coltile += W;
-  int t2 = rowtile * rowstride;                   // current row byte offset (wraps mod mapbytes)
-  int coloff0 = coltile * 2;                       // starting col byte offset (wraps mod rowstride)
-  int xoff = (int16_t)(cx - 8 - scrollX);          // t9 — sub-tile X scroll remainder + screen offset
-  int yoff = (int16_t)(112 - scrollY);             // s7 — sub-tile Y scroll remainder + screen offset
-  unsigned char col[4] = { 0x80, 0x80, 0x80, 0x80 };  // 0x7d is raw-texture: color ignored
+  int rowtile = ((scrollY - 120) >> 4) % H;
+  if (rowtile < 0) {
+    rowtile += H;
+  }
+  int coltile = ((scrollX - cx) >> 4) % W;
+  if (coltile < 0) {
+    coltile += W;
+  }
+  int t2 = rowtile * rowstride;                       // current row byte offset (wraps mod mapbytes)
+  int coloff0 = coltile * 2;                          // starting col byte offset (wraps mod rowstride)
+  int xoff = (int16_t)(cx - 8 - scrollX);             // t9 — sub-tile X scroll remainder + screen offset
+  int yoff = (int16_t)(112 - scrollY);                // s7 — sub-tile Y scroll remainder + screen offset
+  unsigned char col[4] = {0x80, 0x80, 0x80, 0x80};    // 0x7d is raw-texture: color ignored
   int outer_bound = (int16_t)(scrollY - 120) + 0x100; // 16 rows
   int t5 = (int16_t)(scrollX - cx) + winw;            // wide-covering column window (4:3: ~22 cols)
   // Tag every backdrop tile with the reserved kBackdropDbgNode sentinel (render_queue.h) — NOT the
@@ -363,34 +414,65 @@ void Render::backdropRender(uint32_t t4) {
   // node id is an IDENTITY, not a coordinate space, and using it as one meant every other producer
   // with wide-final coordinates was silently centred a second time (kanban #73). The declaration
   // belongs here, at the producer that knows.
-  RenderQueue& bgRq = c->game->rqRedirect ? *c->game->rqRedirect : c->game->rq;
+  RenderQueue &bgRq = c->game->rqRedirect ? *c->game->rqRedirect : c->game->rq;
   RenderQueue::Space2dScope wideFinal(bgRq, RQ_2D_WIDE_FINAL);
   for (int t8 = scrollY - 120;;) {
     int Y = (int16_t)((t8 & 0xFFF0) + yoff);
-    int t6 = (int16_t)t2;                          // row byte offset (sign-extended)
+    int t6 = (int16_t)t2; // row byte offset (sign-extended)
     int t0 = coloff0;
     for (int t1 = scrollX - cx;;) {
       int X = (int16_t)((t1 & 0xFFF0) + xoff);
       uint16_t tile = c->mem_r16(map + (uint32_t)(t6 + t0));
-      int u = (tile & 0xF) << 4, v = (tile & 0xF0) + vAdd;   // field +8 / SOP narration +0 (see top of fn)
+      int u = (tile & 0xF) << 4, v = (tile & 0xF0) + vAdd; // field +8 / SOP narration +0 (see top of fn)
       uint16_t clut = (uint16_t)(clutbase + ((tile & 0xF00) >> 2));
       int clut_x = (clut & 0x3F) * 16, clut_y = (clut >> 6) & 0x1FF;
-      int xs[4] = { X, X + 16, X, X + 16 }, ys[4] = { Y, Y, Y + 16, Y + 16 };
-      int us[4] = { u, u + 16, u, u + 16 }, vs[4] = { v, v, v + 16, v + 16 };
+      int xs[4] = {X, X + 16, X, X + 16}, ys[4] = {Y, Y, Y + 16, Y + 16};
+      int us[4] = {u, u + 16, u, u + 16}, vs[4] = {v, v, v + 16, v + 16};
       sil_bbox_log_i("bg_tilemap", xs, ys, 4);
       // Tier-1 redirect (mirrors native_terrain.cpp / fieldEntityRender's fix — see fps60-rework.md
       // "Tier 1 extended"): route through rqRedirect so re-invoking this fn at present time (Fps60::
       // tier1Render) lands in the isolated mSink, never the live queue the next real frame will build.
-      bgRq.push2dQuad(RQ_BACKGROUND, /*order_2d_fg=*/0, xs, ys, us, vs, col, col, col,
-                             tp_x, tp_y, mode, /*raw=*/1, clut_x, clut_y, 0, 0, 0, 0, 0, 0, 1023, 511);
+      bgRq.push2dQuad(RQ_BACKGROUND,
+                      /*order_2d_fg=*/0,
+                      xs,
+                      ys,
+                      us,
+                      vs,
+                      col,
+                      col,
+                      col,
+                      tp_x,
+                      tp_y,
+                      mode,
+                      /*raw=*/1,
+                      clut_x,
+                      clut_y,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      1023,
+                      511);
       c->rsub.stats.snCmds++;
-      t0 += 2; if (t0 >= rowstride) t0 = 0;        // column wrap
+      t0 += 2;
+      if (t0 >= rowstride) {
+        t0 = 0; // column wrap
+      }
       t1 += 16;
-      if (!((int16_t)t1 < t5)) break;
+      if (!((int16_t)t1 < t5)) {
+        break;
+      }
     }
-    t2 += rowstride; if ((int16_t)t2 >= mapbytes) t2 -= mapbytes;  // row wrap
+    t2 += rowstride;
+    if ((int16_t)t2 >= mapbytes) {
+      t2 -= mapbytes; // row wrap
+    }
     t8 += 16;
-    if (!((int16_t)t8 < outer_bound)) break;
+    if (!((int16_t)t8 < outer_bound)) {
+      break;
+    }
   }
   c->rsub.diag.endObject();
 }
@@ -398,7 +480,7 @@ void Render::backdropRender(uint32_t t4) {
 // ---- pc_render scene DISPATCH (see render.h) --------------------------------------------------------
 // Classify the current scene from the resident stage (0x801FE00C) + its sub-state selectors.
 Render::SceneKind Render::classifyScene() {
-  Core* c = mCore;
+  Core *c = mCore;
   // TASK-SWITCH HANDOFF GUARD (RE'd from the cooperative scheduler FUN_80051e60): a task slot's state
   // field @+0x00 is 0=empty, 2=ready, 3=re-registered/needs-fresh-context, 4=running. When task0 is in
   // state 3, its entry (+0x0c) was just reassigned (e.g. START.BIN -> DEMO front-end) but the new entry's
@@ -406,17 +488,27 @@ Render::SceneKind Render::classifyScene() {
   // values. Classifying by (entry, substate) here would misread that stale substate as a real scene (this
   // is why the START->DEMO handoff frame, entry=DEMO with sm[0x48]=3 left over from START, looked like a
   // bogus "DEMO substate 3"). During the 1-frame handoff the reference draws the black loader; do the same.
-  constexpr uint32_t TASK0_STATE = 0x801FE000u;   // task0 slot, state @+0x00 (u16)
-  constexpr uint16_t TASK_REINIT = 3;             // scheduler: entry (re)assigned, code not yet run
-  if (c->mem_r16(TASK0_STATE) == TASK_REINIT) return SceneKind::Loading;
+  constexpr uint32_t TASK0_STATE = 0x801FE000u; // task0 slot, state @+0x00 (u16)
+  constexpr uint16_t TASK_REINIT = 3;           // scheduler: entry (re)assigned, code not yet run
+  if (c->mem_r16(TASK0_STATE) == TASK_REINIT) {
+    return SceneKind::Loading;
+  }
   const uint32_t stage = c->mem_r32(0x801FE00Cu);
-  if (stage == 0x8010649Cu) return SceneKind::StartBoot;     // START.BIN loader
-  if (stage == 0x801062E4u) return SceneKind::Title;         // DEMO/title front-end (title + substates)
-  if (stage == 0x8010637Cu) {                                // GAME field stage
+  if (stage == 0x8010649Cu) {
+    return SceneKind::StartBoot; // START.BIN loader
+  }
+  if (stage == 0x801062E4u) {
+    return SceneKind::Title; // DEMO/title front-end (title + substates)
+  }
+  if (stage == 0x8010637Cu) { // GAME field stage
     const uint32_t task_sm = c->mem_r32(0x1F800138u);
-    if (task_sm && c->mem_r16(task_sm + 0x4Cu) == 3) return SceneKind::HutInterior;   // authored sub-scene
-    if (c->mem_r32(0x80109450u) == 0x3C021F80u)      return SceneKind::SopNarration;  // SOP overlay loaded
-    return SceneKind::Field;                                                          // walkable free-roam
+    if (task_sm && c->mem_r16(task_sm + 0x4Cu) == 3) {
+      return SceneKind::HutInterior; // authored sub-scene
+    }
+    if (c->mem_r32(0x80109450u) == 0x3C021F80u) {
+      return SceneKind::SopNarration; // SOP overlay loaded
+    }
+    return SceneKind::Field; // walkable free-roam
   }
   return SceneKind::Unknown;
 }
@@ -425,16 +517,28 @@ Render::SceneKind Render::classifyScene() {
 // picture from game state and emits to the render queue. A stage with no producer aborts with its identity.
 void Render::renderScene() {
   switch (classifyScene()) {
-    case SceneKind::Loading:      renderLoading();      break;
-    case SceneKind::StartBoot:    renderStartBoot();    break;
-    case SceneKind::Title:        renderTitle();        break;
-    case SceneKind::Field:        renderField();        break;
-    case SceneKind::HutInterior:  renderHutInterior();  break;
-    case SceneKind::SopNarration: renderSopNarration(); break;
-    case SceneKind::Unknown:
-    default:
-      mCore->game->fps60.mTier1EligibleCur = false;
-      abortUnimplemented("stage with no native producer");
+  case SceneKind::Loading:
+    renderLoading();
+    break;
+  case SceneKind::StartBoot:
+    renderStartBoot();
+    break;
+  case SceneKind::Title:
+    renderTitle();
+    break;
+  case SceneKind::Field:
+    renderField();
+    break;
+  case SceneKind::HutInterior:
+    renderHutInterior();
+    break;
+  case SceneKind::SopNarration:
+    renderSopNarration();
+    break;
+  case SceneKind::Unknown:
+  default:
+    mCore->game->fps60.mTier1EligibleCur = false;
+    abortUnimplemented("stage with no native producer");
   }
 }
 
@@ -449,40 +553,46 @@ void Render::renderLoading() {
 // it builds the file table / preloads. Native producer = a black loading frame (the observable result).
 void Render::renderStartBoot() {
   mCore->game->fps60.mTier1EligibleCur = false;
-  mCore->game->gpu.gpu_blank_display();     // zero the display FB -> present shows black
+  mCore->game->gpu.gpu_blank_display(); // zero the display FB -> present shows black
 }
 
 // #2 DEMO/TITLE front-end (stage 0x801062E4). Substate s2 (sm[0x48]==2) = the static title (logo + New/Load
 // menu + copyright) via titleNative (emits from source state). Other substates = the loading ramp / OP.STR
 // movie / attract, FMV/CD states shown black headless (the movie is skipped) — the honest result.
 void Render::renderTitle() {
-  Core* c = mCore;
+  Core *c = mCore;
   c->game->fps60.mTier1EligibleCur = false;
   const uint16_t s48 = c->mem_r16(0x801FE048u);
   if (s48 == 2 || s48 == 3) {
-    DisplayPassGuard displayPass(c->rsub.mode);   // read-only: reads source state, emits host-only
-    if (s48 == 2) titleNative();     // page 0 — New/Load title menu
-    else          s3MenuNative();    // page 1 — the post-New-Game menu (Demo::s3)
+    DisplayPassGuard displayPass(c->rsub.mode); // read-only: reads source state, emits host-only
+    if (s48 == 2) {
+      titleNative(); // page 0 — New/Load title menu
+    } else {
+      s3MenuNative(); // page 1 — the post-New-Game menu (Demo::s3)
+    }
     return;
   }
   // Black LOADING/TEARDOWN substates (verified black on the reference — NOT "missing rendering"):
   //  · s48 < 2 : the OP.FMV/SCEA boot ramp (movie skipped, accepted deferral — docs/tomba2-fmv-skip.md).
   //  · s48 == 5: `demo_frame_s5` LEAVE-DEMO — a ~2-frame task teardown (jal 0x80052078(2)) that kills the
   //    demo task and kicks the GAME load; the OT is empty, the screen holds black until GAME s48=2 (field).
-  if (s48 < 2 || s48 == 5) { c->game->gpu.gpu_blank_display(); return; }
+  if (s48 < 2 || s48 == 5) {
+    c->game->gpu.gpu_blank_display();
+    return;
+  }
   // Real front-end substates with native producers (each a read-only 2D/world pass):
-  if (s48 == 4) {   // Load-Game memory-card BROWSER
+  if (s48 == 4) { // Load-Game memory-card BROWSER
     DisplayPassGuard displayPass(c->rsub.mode);
     renderCardBrowser();
     return;
   }
-  if (s48 == 6) {   // OPTIONS page (page0)
+  if (s48 == 6) { // OPTIONS page (page0)
     DisplayPassGuard displayPass(c->rsub.mode);
     optionsPageNative();
     return;
   }
-  if (s48 == 7) {   // ATTRACT — live 3D field world under the DEMO stage
-    renderAttract();   // owns its own DisplayPassGuard (world pass, like renderField)
+  if (s48 == 7) {    // ATTRACT — live 3D field world under the DEMO stage
+    renderAttract(); // owns its own DisplayPassGuard (world pass, like renderField)
     return;
   }
   // Any OTHER front-end substate is still unbuilt: missing rendering CRASHES (no silent black-fill),
@@ -493,12 +603,12 @@ void Render::renderTitle() {
 // #3 WALKABLE FIELD — native WORLD: terrain + entity/scene tables + objects + backdrop, real per-pixel
 // depth. The 2D layer (HUD/text/dialog/billboards) comes from its own native producers, not the OT.
 void Render::renderField() {
-  mCore->game->fps60.mTier1EligibleCur = true;   // native field render runs -> fps60 tier-1 may re-render it
-  DisplayPassGuard displayPass(mCore->rsub.mode);   // read-only invariant: aborts on any guest write
+  mCore->game->fps60.mTier1EligibleCur = true;    // native field render runs -> fps60 tier-1 may re-render it
+  DisplayPassGuard displayPass(mCore->rsub.mode); // read-only invariant: aborts on any guest write
   sceneNative();
-  fieldHudRender();     // field HUD family (FUN_80025D98 gate: status row / item ring / weapon strip, #13)
+  fieldHudRender(); // field HUD family (FUN_80025D98 gate: status row / item ring / weapon strip, #13)
   // dialog/prompt text arrives via the FUN_8007CC00 tap (Panel::pushDialogGlyphs) at emit time
-  cineBarsRender();     // cinematic letterbox bars (emits nothing when no cutscene bars are active)
+  cineBarsRender(); // cinematic letterbox bars (emits nothing when no cutscene bars are active)
 }
 
 // #4 HUT/DOOR INTERIOR (task-sm[0x4c]==3): renderHutInterior() is defined in
@@ -512,21 +622,32 @@ void Render::renderSopNarration() {
   mCore->game->fps60.mTier1EligibleCur = true;
   DisplayPassGuard displayPass(mCore->rsub.mode);
   sceneNative();
-  cineBarsRender();     // cinematic letterbox bars (the SOP narration is a cutscene)
+  cineBarsRender(); // cinematic letterbox bars (the SOP narration is a cutscene)
 }
 
 // FAIL-FAST for the one native renderer (USER 2026-07-15): no OT/GP0 fallback — a scene/layer lacking a
 // native producer crashes with its identity, so the crash list is the rebuild backlog. See render.h.
-void Render::abortUnimplemented(const char* scene) {
-  Core* c = mCore;
-  uint32_t stage   = c->mem_r32(0x801FE00Cu);
-  uint32_t sm      = c->mem_r32(0x1F800138u);
-  uint16_t sm4a    = c->mem_r16(0x801FE04Au);
-  uint16_t sm4c    = c->mem_r16(0x801FE04Cu);
-  uint32_t ovsig   = c->mem_r32(0x80109450u);   // loaded MODE overlay's first instruction (scene signature)
-  uint16_t sm48    = c->mem_r16(0x801FE048u);    // DEMO/front-end substate selector
-  uint16_t subm4c  = sm ? c->mem_r16(sm + 0x4Cu) : 0xFFFFu;
-  cfg_logw("FATAL", "\nunimplemented native rendering: %s\n        stage=0x%08X sm[0x48]=%u sm[0x4a]=%u sm[0x4c]=%u (task-sm[0x4c]=%u) overlay_sig=0x%08X\n        pc_render has no native producer for this scene/layer. Build it (native scene render) or\n        drive with PSXPORT_RENDER_PSX=1 (the reference renderer) to reach it. No OT-walk fallback.\n", scene, stage, sm48, sm4a, sm4c, subm4c, ovsig);
+void Render::abortUnimplemented(const char *scene) {
+  Core *c = mCore;
+  uint32_t stage = c->mem_r32(0x801FE00Cu);
+  uint32_t sm = c->mem_r32(0x1F800138u);
+  uint16_t sm4a = c->mem_r16(0x801FE04Au);
+  uint16_t sm4c = c->mem_r16(0x801FE04Cu);
+  uint32_t ovsig = c->mem_r32(0x80109450u); // loaded MODE overlay's first instruction (scene signature)
+  uint16_t sm48 = c->mem_r16(0x801FE048u);  // DEMO/front-end substate selector
+  uint16_t subm4c = sm ? c->mem_r16(sm + 0x4Cu) : 0xFFFFu;
+  cfg_logw("FATAL",
+           "\nunimplemented native rendering: %s\n        stage=0x%08X sm[0x48]=%u sm[0x4a]=%u sm[0x4c]=%u "
+           "(task-sm[0x4c]=%u) overlay_sig=0x%08X\n        pc_render has no native producer for this scene/layer. "
+           "Build it (native scene render) or\n        drive with PSXPORT_RENDER_PSX=1 (the reference renderer) to "
+           "reach it. No OT-walk fallback.\n",
+           scene,
+           stage,
+           sm48,
+           sm4a,
+           sm4c,
+           subm4c,
+           ovsig);
   fflush(stderr);
   abort();
 }
@@ -537,20 +658,20 @@ void Render::abortUnimplemented(const char* scene) {
 // sprite data base = *(0x800ECF58). Decoder validated field-for-field against the title's known-good
 // quads (docs/findings/render.md '#2b') and the Controls pad diagram (template 225).
 void Render::emitMenuFt4(int anchorX, int anchorY, uint32_t templateIdx, uint32_t attr, int layer) {
-  Core* c = mCore;
-  emitUiFt4(anchorX, anchorY, 0, 0, c->mem_r32(0x80017334u + templateIdx * 4u), 0x80158000u,
-            (uint8_t)attr, 0, layer);
+  Core *c = mCore;
+  emitUiFt4(anchorX, anchorY, 0, 0, c->mem_r32(0x80017334u + templateIdx * 4u), 0x80158000u, (uint8_t)attr, 0, layer);
 }
 
 void Render::emitMenuSprites(int anchorX, int anchorY, uint32_t templateIdx, uint32_t attr, int layer) {
-  Core* c = mCore;
-  emitUiSprites(anchorX, anchorY, c->mem_r32(0x80017334u + templateIdx * 4u), c->mem_r32(0x800ECF58u),
-                (uint8_t)attr, 0, layer);
+  Core *c = mCore;
+  emitUiSprites(
+      anchorX, anchorY, c->mem_r32(0x80017334u + templateIdx * 4u), c->mem_r32(0x800ECF58u), (uint8_t)attr, 0, layer);
 }
 
 // menuChrome — see render.h. The black backdrop + the 2 logo sprites (FUN_80106690), shared by every
 // front-end menu page. The logos are op-0x65 raw sprites (fixed layout, decoded packet constants).
-void Render::menuChrome() { Core* c = mCore;
+void Render::menuChrome() {
+  Core *c = mCore;
   // Producer DB, native leg. Keyed on the guest emitter this reimplements (codemap --addr 0x80106690
   // -> Render::menuChrome). Found by PSXPORT_DEBUG=unscoped, which names the CALL SITE of every prim that
   // arrives with no producer declared — this one reached the queue through a SHARED emitter
@@ -558,44 +679,71 @@ void Render::menuChrome() { Core* c = mCore;
   // producer, never on the emitter, which would shadow every one of its callers.
   ProducerScope menuChromeScope(&c->rsub.producerScope, 0x80106690u, "menuChrome");
   const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
-  { int xs[4] = { 0, 320, 0, 320 }, ys[4] = { 0, 0, 240, 240 }, z[4] = { 0, 0, 0, 0 };
-    unsigned char k[4] = { 0, 0, 0, 0 };
-    c->game->activeRq().push2dQuad(RQ_BACKGROUND, 0, xs, ys, z, z, k, k, k,
-                                   0, 0, /*mode=*/3, /*raw=*/0, 0, 0, 0, 0, 0, 0, 0, 0, 1023, 511); }
-  auto logo = [&](int x, int w, int tp_x) {                          // tpage 0x9A(640)/0x9C(768), 8bpp
-    int xs[4] = { x+ox, x+w+ox, x+ox, x+w+ox }, ys[4] = { -8+oy, -8+oy, 232+oy, 232+oy };
-    int us[4] = { 0, w, 0, w }, vs[4] = { 0, 0, 240, 240 };
-    unsigned char cc[4] = { 0x80, 0x80, 0x80, 0x80 };
-    c->game->activeRq().push2dQuad(RQ_BACKGROUND, 1, xs, ys, us, vs, cc, cc, cc,
-                                   tp_x, 256, /*mode=*/1, /*raw=*/1, 640, 511, 0, 0, 0, 0, 0, 0, 1023, 511); };
-  logo(0, 256, 640); logo(256, 64, 768);
+  {
+    int xs[4] = {0, 320, 0, 320}, ys[4] = {0, 0, 240, 240}, z[4] = {0, 0, 0, 0};
+    unsigned char k[4] = {0, 0, 0, 0};
+    c->game->activeRq().push2dQuad(
+        RQ_BACKGROUND, 0, xs, ys, z, z, k, k, k, 0, 0, /*mode=*/3, /*raw=*/0, 0, 0, 0, 0, 0, 0, 0, 0, 1023, 511);
+  }
+  auto logo = [&](int x, int w, int tp_x) { // tpage 0x9A(640)/0x9C(768), 8bpp
+    int xs[4] = {x + ox, x + w + ox, x + ox, x + w + ox}, ys[4] = {-8 + oy, -8 + oy, 232 + oy, 232 + oy};
+    int us[4] = {0, w, 0, w}, vs[4] = {0, 0, 240, 240};
+    unsigned char cc[4] = {0x80, 0x80, 0x80, 0x80};
+    c->game->activeRq().push2dQuad(RQ_BACKGROUND,
+                                   1,
+                                   xs,
+                                   ys,
+                                   us,
+                                   vs,
+                                   cc,
+                                   cc,
+                                   cc,
+                                   tp_x,
+                                   256,
+                                   /*mode=*/1,
+                                   /*raw=*/1,
+                                   640,
+                                   511,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   1023,
+                                   511);
+  };
+  logo(0, 256, 640);
+  logo(256, 64, 768);
 }
 
 // menuItemsAndCursor — see render.h. Reproduces FUN_80106824(param1, param2): the cursor (template 0x98
 // at the game's cursor-X table @0x80107704) then the two item text-images (page-0 {0x8e,0x8f} title, or
 // page-1 {0x90,0x91} s3), the param2-selected item RAW/bright and the other modulated 0x50/dim.
-void Render::menuItemsAndCursor(int param1, int param2) { Core* c = mCore;
+void Render::menuItemsAndCursor(int param1, int param2) {
+  Core *c = mCore;
   // Producer DB, native leg. Keyed on the guest menu emitter this reimplements (0x80106824, ov_demo
   // overlay-resident with no overlay collision). Its prims arrived through the SHARED emitters
   // emitUiFt4 / emitMenuFt4, which must not be scoped themselves.
   ProducerScope menuScope(&c->rsub.producerScope, 0x80106824u, "menuItemsAndCursor");
-  static const uint32_t TMPL[2][2] = { { 0x8Eu, 0x8Fu }, { 0x90u, 0x91u } };
+  static const uint32_t TMPL[2][2] = {{0x8Eu, 0x8Fu}, {0x90u, 0x91u}};
   const uint32_t t0 = TMPL[param1 & 1][0], t1 = TMPL[param1 & 1][1];
   const uint32_t a0 = (param2 == 0) ? 0u : 0x50u, a1 = (param2 == 0) ? 0x50u : 0u;
-  const int cx = (int16_t)c->mem_r16(0x80107704u + (uint32_t)(param2 * 2 + param1 * 4));  // cursor anchor X
+  const int cx = (int16_t)c->mem_r16(0x80107704u + (uint32_t)(param2 * 2 + param1 * 4)); // cursor anchor X
   // Draw items first, cursor last: where a wide item (page-1 item0 at x43) overlaps the cursor (x32..48),
   // the reference draws the cursor ON TOP (verified by pixel-diff: cursor-last -> RMSE ~0; cursor-first
   // left a 15px seam at the overlap). The guest OT links cursor after the items but is walked cursor-first.
-  emitMenuFt4(90,  180, t0, a0, RQ_OVERLAY);      // item 0 anchor (90,180)
-  emitMenuFt4(230, 180, t1, a1, RQ_OVERLAY);      // item 1 anchor (230,180)
-  emitMenuFt4(cx, 0xB0, 0x98u, 0u, RQ_OVERLAY);   // cursor (template 0x98, raw), y anchor 176
+  emitMenuFt4(90, 180, t0, a0, RQ_OVERLAY);     // item 0 anchor (90,180)
+  emitMenuFt4(230, 180, t1, a1, RQ_OVERLAY);    // item 1 anchor (230,180)
+  emitMenuFt4(cx, 0xB0, 0x98u, 0u, RQ_OVERLAY); // cursor (template 0x98, raw), y anchor 176
 }
 
 // titleNative — see render.h. Read-only producer for the DEMO/title front-end page 0 (sm[0x48]==2, the
 // New/Load menu). Chrome (backdrop + logos) + the page-0 menu, entirely data-driven off the guest menu
 // templates (no hand-decoded constants). Selection sel = sm[0x68] (Demo::s2SubMachine writes it); the
 // guest calls FUN_80106824(0, sm[0x68]!=0).
-void Render::titleNative() { Core* c = mCore;
+void Render::titleNative() {
+  Core *c = mCore;
   menuChrome();
   uint32_t sm = c->mem_r32(0x1F800138u);
   int sel = sm ? c->mem_r8(sm + 0x68u) : 0;
@@ -604,7 +752,8 @@ void Render::titleNative() { Core* c = mCore;
 
 // s3MenuNative — see render.h. The page-1 menu (sm[0x48]==3, reached by confirming New Game). Same chrome,
 // page-1 templates; the guest (Demo::s3 -> s3SubMachine) calls FUN_80106824(1, sm[0x68]!=2).
-void Render::s3MenuNative() { Core* c = mCore;
+void Render::s3MenuNative() {
+  Core *c = mCore;
   menuChrome();
   uint32_t sm = c->mem_r32(0x1F800138u);
   int s68 = sm ? c->mem_r8(sm + 0x68u) : 2;
@@ -617,18 +766,20 @@ void Render::s3MenuNative() { Core* c = mCore;
 // The backdrop struct (0x800ED018) and scene-table (0x800F2418) still hold the PRIOR beat's field data,
 // so terrain/scene-table/backdrop would paint a stale field/sea behind the swirl (later-281). beat!=5
 // everywhere else, so this is a no-op for the walkable field.
-bool Render::worldVoidBeat() const { return mCore->mem_r8(0x800bf9b4u) == 5; }
+bool Render::worldVoidBeat() const {
+  return mCore->mem_r8(0x800bf9b4u) == 5;
+}
 // AREA-INIT SUPPRESSION: on the GAME field-area-machine OBJECT-PLACEMENT init frame (sm[0x48]==2 RUNNING,
 // sm[0x4a]==1 field-area-machine, sm[0x4e]==0 init), the new area's objects are spawned but their MODELS
 // are NOT yet attached — each cmd's geomblk (cmd+0x40) still holds an unrelocated area-data pointer. The
 // real game holds the screen faded black here; drawing feeds garbage prim counts into gt3gt4 and
 // overflows the render queue (later-275). Read from task0's GAME state machine (persistent guest RAM).
 bool Render::fieldAreaInit() const {
-  Core* c = mCore;
-  return c->mem_r32(0x801fe00cu) == 0x8010637Cu   // GAME stage resident
-      && c->mem_r16(0x801fe048u) == 2             // sm[0x48] == RUNNING
-      && c->mem_r16(0x801fe04au) == 1             // sm[0x4a] == field area machine
-      && c->mem_r16(0x801fe04eu) == 0;            // sm[0x4e] == object-placement init (pre-attach)
+  Core *c = mCore;
+  return c->mem_r32(0x801fe00cu) == 0x8010637Cu // GAME stage resident
+         && c->mem_r16(0x801fe048u) == 2        // sm[0x48] == RUNNING
+         && c->mem_r16(0x801fe04au) == 1        // sm[0x4a] == field area machine
+         && c->mem_r16(0x801fe04eu) == 0;       // sm[0x4e] == object-placement init (pre-attach)
 }
 
 // AREA-SCOPED CACHE trust latches (see render.h mSceneTableTrusted/mBackdropTrusted) — the shared edge
@@ -660,35 +811,53 @@ bool Render::fieldAreaInit() const {
 // sceneTable/backdrop = 0/0 on the toggled leg vs 1/1 on a pure pc_render leg, and 0 of 704 RQ_BACKGROUND
 // items emitted. Ticking it per logic frame in BOTH modes makes the latch a property of the frame, which
 // is what it always was.
-void Render::areaCacheTrustTick() { Core* c = mCore;
+void Render::areaCacheTrustTick() {
+  Core *c = mCore;
   // Reach: exactly the scenes whose producer calls sceneNative() — the field, the SOP narration, and the
   // DEMO-stage attract world. Elsewhere task0's sm[0x4a]/sm[0x4c] belong to another stage's state machine
   // and are not this edge detector's inputs.
   const SceneKind kind = classifyScene();
-  const bool worldScene = kind == SceneKind::Field || kind == SceneKind::SopNarration
-                          || (kind == SceneKind::Title && c->mem_r16(0x801FE048u) == 7);
-  if (!worldScene) return;
+  const bool worldScene = kind == SceneKind::Field || kind == SceneKind::SopNarration ||
+                          (kind == SceneKind::Title && c->mem_r16(0x801FE048u) == 7);
+  if (!worldScene) {
+    return;
+  }
   uint16_t sm4a = c->mem_r16(0x801fe04au), sm4c = c->mem_r16(0x801fe04cu);
   bool sop_narration_now = (sm4a == 0) && (sm4c == 0);
   if (sop_narration_now) {
-    mSceneTableTrusted = true; mBackdropTrusted = true;      // narration's own prepass/scroller ticks both every tick
+    mSceneTableTrusted = true;
+    mBackdropTrusted = true; // narration's own prepass/scroller ticks both every tick
     mAreaCacheWasNarration = true;
   } else {
-    if (mAreaCacheWasNarration) { mSceneTableTrusted = false; mBackdropTrusted = false; mAreaCacheWasNarration = false; }  // handoff edge
-    if (!mSceneTableTrusted && c->mem_r8(0x800F2418u + 6u) == 0) mSceneTableTrusted = true;      // SCENE_ENT_TABLE owner reset seen
-    if (!mBackdropTrusted   && c->mem_r8(0x800ed018u + 0x10u) == 0) mBackdropTrusted = true;     // PARALLAX_BG_SM owner reset seen (W==0)
+    if (mAreaCacheWasNarration) {
+      mSceneTableTrusted = false;
+      mBackdropTrusted = false;
+      mAreaCacheWasNarration = false;
+    } // handoff edge
+    if (!mSceneTableTrusted && c->mem_r8(0x800F2418u + 6u) == 0) {
+      mSceneTableTrusted = true; // SCENE_ENT_TABLE owner reset seen
+    }
+    if (!mBackdropTrusted && c->mem_r8(0x800ed018u + 0x10u) == 0) {
+      mBackdropTrusted = true; // PARALLAX_BG_SM owner reset seen (W==0)
+    }
   }
   // These two latches decide whether the scene table and the backdrop draw AT ALL, so a picture missing
   // either is indistinguishable from "no producer exists" unless their state is observable. The line
   // carries both latch values AND the two guest bytes they latch on, so a negative ("sceneTable=0") also
   // shows whether the reset it is waiting for has already gone by unobserved.
-  lucent::debug("areatrust", "scene={} sceneTable={} backdrop={} wasNarr={} ent+6={} bg+10={}",
-                (int)kind, (int)mSceneTableTrusted, (int)mBackdropTrusted, (int)mAreaCacheWasNarration,
-                c->mem_r8(0x800F2418u + 6u), c->mem_r8(0x800ed018u + 0x10u));
+  lucent::debug("areatrust",
+                "scene={} sceneTable={} backdrop={} wasNarr={} ent+6={} bg+10={}",
+                (int)kind,
+                (int)mSceneTableTrusted,
+                (int)mBackdropTrusted,
+                (int)mAreaCacheWasNarration,
+                c->mem_r8(0x800F2418u + 6u),
+                c->mem_r8(0x800ed018u + 0x10u));
 }
 
-void Render::sceneNative() { Core* c = mCore;
-  static const uint32_t HEADS[3] = { 0x800FB168u, 0x800F2624u, 0x800F2738u };
+void Render::sceneNative() {
+  Core *c = mCore;
+  static const uint32_t HEADS[3] = {0x800FB168u, 0x800F2624u, 0x800F2738u};
   uint32_t saved = c->r[4];
   c->rsub.stats.snObjs = c->rsub.stats.snCmds = 0;
   // kanban #33: on a tier1-eligible scene under fps60, the world this walk builds into the live queue is
@@ -701,8 +870,8 @@ void Render::sceneNative() { Core* c = mCore;
   // is capture-only in both — that is what makes fps60=0 and fps60=1 the same renderer rather than two
   // (USER 2026-08-16: "the only difference would be whether to add the extra lerp frames or not"). It is
   // also not a cost: the world is drawn ONCE either way, just at the present instead of at guest time.
-  c->game->fps60.mWorldCaptureOnly = c->game->fps60.mTier1EligibleCur
-                                     && !c->game->diff_mode && !c->rsub.mode.psxRender();
+  c->game->fps60.mWorldCaptureOnly =
+      c->game->fps60.mTier1EligibleCur && !c->game->diff_mode && !c->rsub.mode.psxRender();
   // AREA-SCOPED CACHE trust latches: the EDGE DETECTOR now lives in areaCacheTrustTick(), ticked once
   // per logic frame from Engine::drawOTag BEFORE the render-mode branch (it is guest-state tracking, not
   // picture-building — see that function). Here we only READ mSceneTableTrusted / mBackdropTrusted.
@@ -722,16 +891,43 @@ void Render::sceneNative() { Core* c = mCore;
   // background; only the object pass runs (the vortex node 0x800FBA68).
   const bool voidBeat = worldVoidBeat();
   if (voidBeat) {
-    int xs[4] = { 0, 320, 0, 320 }, ys[4] = { 0, 0, 240, 240 }, z[4] = { 0, 0, 0, 0 };
-    unsigned char k[4] = { 0, 0, 0, 0 };
-    c->game->activeRq().push2dQuad(RQ_BACKGROUND, /*order_2d_fg=*/0, xs, ys, z, z, k, k, k,
-                                   0, 0, /*mode=*/3, /*raw=*/0, 0, 0, 0, 0, 0, 0, 0, 0, 1023, 511);
+    int xs[4] = {0, 320, 0, 320}, ys[4] = {0, 0, 240, 240}, z[4] = {0, 0, 0, 0};
+    unsigned char k[4] = {0, 0, 0, 0};
+    c->game->activeRq().push2dQuad(RQ_BACKGROUND,
+                                   /*order_2d_fg=*/0,
+                                   xs,
+                                   ys,
+                                   z,
+                                   z,
+                                   k,
+                                   k,
+                                   k,
+                                   0,
+                                   0,
+                                   /*mode=*/3,
+                                   /*raw=*/0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   1023,
+                                   511);
   }
   if (!voidBeat && mBackdropTrusted) {
-    int vAdd;   // resolved+used inside backdropRender; here only gates whether a native producer exists
-    if (backdropTilemapDrawer(vAdd)) backdropRender(0x800ed018u);
+    int vAdd; // resolved+used inside backdropRender; here only gates whether a native producer exists
+    if (backdropTilemapDrawer(vAdd)) {
+      backdropRender(0x800ed018u);
+    }
   }
-  if (cfg_dbg("bgonly")) { c->r[4] = saved; c->game->fps60.mWorldCaptureOnly = false; return; }  // PROBE: backdrop only (test if ov_render_frame already drew the world)
+  if (cfg_dbg("bgonly")) {
+    c->r[4] = saved;
+    c->game->fps60.mWorldCaptureOnly = false;
+    return;
+  } // PROBE: backdrop only (test if ov_render_frame already drew the world)
   // AREA-INIT SUPPRESSION (fieldAreaInit above): skip the field scene for the object-placement init frame
   // (models not yet attached — drawing overflows the queue, later-275); the backdrop above still draws.
   bool field_area_init = fieldAreaInit();
@@ -751,19 +947,32 @@ void Render::sceneNative() { Core* c = mCore;
     // substrate walk performs; the draw computes its matrices in host memory (native_terrain.cpp).
     // Enumeration+call moved to Render::terrainRenderAll() (submit.cpp) so Fps60's Tier-1 present-time
     // camera-lerp re-render (fps60.cpp) runs the identical sequence, not a hand-duplicated copy.
-    if (!voidBeat) terrainRenderAll();
+    if (!voidBeat) {
+      terrainRenderAll();
+    }
     // (b) SCENE TABLE (grass / props / sky-sea backdrop) — native world-coord render of 0x800F2418.
     // Gated on mSceneTableTrusted (computed once, top of this function — see render.h for the writeup).
     // Also skipped on the SOP void beat (stale field data — see the voidBeat guard above).
-    if (mSceneTableTrusted && !voidBeat) fieldEntityRender(0x800F2418u);
+    if (mSceneTableTrusted && !voidBeat) {
+      fieldEntityRender(0x800F2418u);
+    }
     // (c)+(d) the field's OBJECTS + Tomba — factored into fieldObjectsRender() so Fps60's interp present
     // can re-run the SAME walk under lerped per-object transforms (docs/fps60-rework.md step 2b).
     fieldObjectsRender();
   }
   c->r[4] = saved;
-  c->game->fps60.mWorldCaptureOnly = false;   // kanban #33: capture-only scope ends with the guest world walk
-  if (cfg_dbg("scenenative")) { int gpu_seen3d_this_frame(Core*); static int f = 0; if ((f++ % 60) == 0)
-    cfg_logf("scenenative", "objs=%ld cmds=%ld seen3d=%d", c->rsub.stats.snObjs, c->rsub.stats.snCmds, gpu_seen3d_this_frame(c)); }
+  c->game->fps60.mWorldCaptureOnly = false; // kanban #33: capture-only scope ends with the guest world walk
+  if (cfg_dbg("scenenative")) {
+    int gpu_seen3d_this_frame(Core *);
+    static int f = 0;
+    if ((f++ % 60) == 0) {
+      cfg_logf("scenenative",
+               "objs=%ld cmds=%ld seen3d=%d",
+               c->rsub.stats.snObjs,
+               c->rsub.stats.snCmds,
+               gpu_seen3d_this_frame(c));
+    }
+  }
 }
 
 // The field OBJECT pass — the (c)+(d) walk factored out of sceneNative (above) so it can be re-run at the
@@ -777,9 +986,11 @@ void Render::sceneNative() { Core* c = mCore;
 // walk answers the question the others cannot even ask.
 void Render::ringNodeCensus() {
   static const lucent::Channel ch{"ringcensus"};
-  if (!ch) return;                       // guards the WALK (expensive), not a log call
-  Core* c = mCore;
-  static const uint32_t HEADS[3] = { 0x800FB168u, 0x800F2624u, 0x800F2738u };
+  if (!ch) {
+    return; // guards the WALK (expensive), not a log call
+  }
+  Core *c = mCore;
+  static const uint32_t HEADS[3] = {0x800FB168u, 0x800F2624u, 0x800F2738u};
   // Behaviour 0x8002B7B0 / render fn 0x8002B3A4 = descriptor entry 15 at 0x800A2168 (MAIN.EXE
   // +0x92968), reached as type code obj[+2]+12 from the stun reaction FUN_8006BE88.
   constexpr uint32_t kRingRenderFn = 0x8002B3A4u, kRingBeh = 0x8002B7B0u;
@@ -792,14 +1003,18 @@ void Render::ringNodeCensus() {
     uint32_t n = c->mem_r32(HEADS[h]);
     for (int g = 0; n && g < 400; g++, n = c->mem_r32(n + 0x24)) {
       walked++;
-      if (c->mem_r8(n + kNodeType) == 0x20u) type20++;
+      if (c->mem_r8(n + kNodeType) == 0x20u) {
+        type20++;
+      }
       // Match on EITHER field rather than assuming which one identifies the ring: FUN_80028E10 writes
       // descriptor[0] -> node+0x1C (behaviour 0x8002B7B0) and descriptor[4] -> node+0x18 (render fn
       // 0x8002B3A4). Matching only one would make a node the other field still identifies invisible to
       // this census, which is the exact failure mode this instrument exists to rule out.
       const bool byRender = c->mem_r32(n + kNodeRenderFn) == kRingRenderFn;
-      const bool byBeh    = c->mem_r32(n + kNodeBeh) == kRingBeh;
-      if (!byRender && !byBeh) continue;
+      const bool byBeh = c->mem_r32(n + kNodeBeh) == kRingBeh;
+      if (!byRender && !byBeh) {
+        continue;
+      }
       rings++;
       const uint32_t owner = c->mem_r32(n + kNodeOwner);
       // The behaviour dereferences the owner unconditionally; with owner==0 these are reads of guest
@@ -807,13 +1022,24 @@ void Render::ringNodeCensus() {
       const uint8_t flags = c->mem_r8(owner + kOwnerFlags);
       found.add("[node={:08X} by={} type={:02X} vis={} state={} rfn={:08X} beh={:08X} owner={:08X} "
                 "*(owner+0x1B)={:02X} stunbit={} *(owner+1)={:02X}] ",
-                n, byRender ? (byBeh ? "both" : "rfn") : "beh", c->mem_r8(n + kNodeType),
-                c->mem_r8(n + kNodeVisible), c->mem_r8(n + kNodeState),
-                c->mem_r32(n + kNodeRenderFn), c->mem_r32(n + kNodeBeh), owner,
-                flags, (flags & kOwnerStunBit) ? 1 : 0, c->mem_r8(owner + kOwnerVisible));
+                n,
+                byRender ? (byBeh ? "both" : "rfn") : "beh",
+                c->mem_r8(n + kNodeType),
+                c->mem_r8(n + kNodeVisible),
+                c->mem_r8(n + kNodeState),
+                c->mem_r32(n + kNodeRenderFn),
+                c->mem_r32(n + kNodeBeh),
+                owner,
+                flags,
+                (flags & kOwnerStunBit) ? 1 : 0,
+                c->mem_r8(owner + kOwnerVisible));
     }
   }
-  lucent::debug(ch, "walked={} type20={} rings={} {}", walked, type20, rings,
+  lucent::debug(ch,
+                "walked={} type20={} rings={} {}",
+                walked,
+                type20,
+                rings,
                 rings ? found.view() : std::string_view{"(no ring node live this frame)"});
 }
 
@@ -864,43 +1090,66 @@ void Render::ringNodeCensus() {
 // answer is `onFrameSubmitList`, which reads the walks' snapshot pair. The VERDICT line then carries
 // `frameSubmitListEntries` and `nativeCullPushes`: a zero in either is a fact about the INSTRUMENT
 // (nothing on the list at all / the cull ran as the substrate), never a verdict about the nodes.
-void Render::heads0Census(uint32_t node) { Core* c = mCore;
+void Render::heads0Census(uint32_t node) {
+  Core *c = mCore;
   mH0.live++;
   mH0.byClass[c->mem_r8(node + 0xC) & 0xF]++;
-  if (nodeInCullRenderQueue(c, node)) mH0.queuedNow++;
-  if (mH0.n >= H0_CAP) { mH0.overflow++; return; }
-  mH0.node[mH0.n++] = H0Node{ node, c->mem_r8(node + 0xC), c->mem_r8(node + 0xB) };
+  if (nodeInCullRenderQueue(c, node)) {
+    mH0.queuedNow++;
+  }
+  if (mH0.n >= H0_CAP) {
+    mH0.overflow++;
+    return;
+  }
+  mH0.node[mH0.n++] = H0Node{node, c->mem_r8(node + 0xC), c->mem_r8(node + 0xB)};
 }
 
 // Queue layout (RE'd, same constants Cull::performBaseCull writes): the pointer grows DOWNWARD, so a
 // queue of `cnt` entries occupies ptr[0 .. cnt-1]. DIAGNOSTIC USE ONLY — see trap 1 above.
-bool Render::nodeInCullRenderQueue(Core* c, uint32_t node) {
-  static const uint32_t QPTR[3] = { 0x1F80013Cu, 0x1F800148u, 0x1F800154u };
-  static const uint32_t QCNT[3] = { 0x1F800144u, 0x1F800150u, 0x1F80015Cu };
-  static const int      QCAP[3] = { 24, 40, 28 };
+bool Render::nodeInCullRenderQueue(Core *c, uint32_t node) {
+  static const uint32_t QPTR[3] = {0x1F80013Cu, 0x1F800148u, 0x1F800154u};
+  static const uint32_t QCNT[3] = {0x1F800144u, 0x1F800150u, 0x1F80015Cu};
+  static const int QCAP[3] = {24, 40, 28};
   for (int q = 0; q < 3; q++) {
     int cnt = (int)c->mem_r16s(QCNT[q]);
-    if (cnt > QCAP[q]) cnt = QCAP[q];                  // a counter past its cap means the cull capped
+    if (cnt > QCAP[q]) {
+      cnt = QCAP[q]; // a counter past its cap means the cull capped
+    }
     const uint32_t p = c->mem_r32(QPTR[q]);
-    for (int i = 0; i < cnt; i++)
-      if (c->mem_r32(p + (uint32_t)i * 4u) == node) return true;
+    for (int i = 0; i < cnt; i++) {
+      if (c->mem_r32(p + (uint32_t)i * 4u) == node) {
+        return true;
+      }
+    }
   }
   return false;
 }
 
-void Render::heads0Flush(int frame) { Core* c = mCore;
+void Render::heads0Flush(int frame) {
+  Core *c = mCore;
   if (!mH0.live) {
-    lucent::debug("heads0", "f{} HEADS[0] had NO live render nodes this frame — nothing was measured, "
-                            "this is not evidence the arm is clean", frame);
+    lucent::debug("heads0",
+                  "f{} HEADS[0] had NO live render nodes this frame — nothing was measured, "
+                  "this is not evidence the arm is clean",
+                  frame);
     return;
   }
   lucent::Line cls;
-  for (int i = 0; i < 16; i++) if (mH0.byClass[i]) cls.add("cls{}={} ", i, mH0.byClass[i]);
-  lucent::debug("heads0", "f{} HEADS[0] flushed={} classes[{}] queueCounters(A,B,C)=({},{},{}) "
-                          "matchedAQueueNow={} (0 here means the queues are already reset at this "
-                          "sample point, NOT that the nodes are unsubmitted)",
-                frame, mH0.live, cls.view(),
-                (int)c->mem_r16s(0x1F800144u), (int)c->mem_r16s(0x1F800150u), (int)c->mem_r16s(0x1F80015Cu),
+  for (int i = 0; i < 16; i++) {
+    if (mH0.byClass[i]) {
+      cls.add("cls{}={} ", i, mH0.byClass[i]);
+    }
+  }
+  lucent::debug("heads0",
+                "f{} HEADS[0] flushed={} classes[{}] queueCounters(A,B,C)=({},{},{}) "
+                "matchedAQueueNow={} (0 here means the queues are already reset at this "
+                "sample point, NOT that the nodes are unsubmitted)",
+                frame,
+                mH0.live,
+                cls.view(),
+                (int)c->mem_r16s(0x1F800144u),
+                (int)c->mem_r16s(0x1F800150u),
+                (int)c->mem_r16s(0x1F80015Cu),
                 mH0.queuedNow);
   // The axis the class census could not see (kanban #77): for each node the arm drew, what the
   // GUEST's own queue walk would have done with it — the queue its class routes it to, the per-type
@@ -911,35 +1160,58 @@ void Render::heads0Flush(int frame) { Core* c = mCore;
   const long cullPushes = eng(c).cull.submitLog().routed;
   long meshArm = 0, submitted = 0, drawnByGuest = 0;
   for (int i = 0; i < mH0.n; i++) {
-    const H0Node& hn = mH0.node[i];
+    const H0Node &hn = mH0.node[i];
     const GuestQueueDispatch::Route r = GuestQueueDispatch::routeFor(c, hn.node);
     const bool meshes = GuestQueueDispatch::guestFlushesMesh(c, hn.node, r);
     const bool onList = GuestQueueDispatch::submittedThisFrame(c, hn.node, r.queue);
-    if (meshes) meshArm++;
-    if (onList) submitted++;
-    if (meshes && onList) drawnByGuest++;
-    lucent::debug("heads0", "f{}   node={:08X} class={} type={} queue={} target={:08X} arm={} "
-                            "meshArm={} onFrameSubmitList={}",
-                  frame, hn.node, hn.objClass, hn.type, GuestQueueDispatch::queueName(r.queue),
-                  r.target, GuestQueueDispatch::armName(r.arm), meshes ? 1 : 0, onList ? 1 : 0);
+    if (meshes) {
+      meshArm++;
+    }
+    if (onList) {
+      submitted++;
+    }
+    if (meshes && onList) {
+      drawnByGuest++;
+    }
+    lucent::debug("heads0",
+                  "f{}   node={:08X} class={} type={} queue={} target={:08X} arm={} "
+                  "meshArm={} onFrameSubmitList={}",
+                  frame,
+                  hn.node,
+                  hn.objClass,
+                  hn.type,
+                  GuestQueueDispatch::queueName(r.queue),
+                  r.target,
+                  GuestQueueDispatch::armName(r.arm),
+                  meshes ? 1 : 0,
+                  onList ? 1 : 0);
   }
   // The verdict line carries EVERY denominator a negative needs: how many nodes were examined, how
   // many entries the guest's own submission snapshot held this frame at all (0 there means the read
   // itself found nothing — NOT that these nodes were rejected), and how many pushes the NATIVE cull
   // recorded (0 on the PSXPORT_GATE leg, where the cull runs as the substrate and the push-site
   // record is structurally blind — see docs/findings/render.md).
-  lucent::debug("heads0", "f{} VERDICT examined={} (overflow={}) meshArm={} onSubmitList={} "
-                          "drawnByGuest={} | frameSubmitListEntries={} nativeCullPushes={}",
-                frame, mH0.n, mH0.overflow, meshArm, submitted, drawnByGuest,
-                submittedTotal, cullPushes);
+  lucent::debug("heads0",
+                "f{} VERDICT examined={} (overflow={}) meshArm={} onSubmitList={} "
+                "drawnByGuest={} | frameSubmitListEntries={} nativeCullPushes={}",
+                frame,
+                mH0.n,
+                mH0.overflow,
+                meshArm,
+                submitted,
+                drawnByGuest,
+                submittedTotal,
+                cullPushes);
 }
 
 void Render::fieldObjectsRender() {
-  Core* c = mCore;
-  static const uint32_t HEADS[3] = { 0x800FB168u, 0x800F2624u, 0x800F2738u };
+  Core *c = mCore;
+  static const uint32_t HEADS[3] = {0x800FB168u, 0x800F2624u, 0x800F2738u};
   // `heads0` frame boundary — same frame counter Render::nativeObjDrawn reads, no local extern.
   if (const int f = c->game->gpu.s_frame; f != mH0.frame) {
-    if (mH0.frame >= 0) heads0Flush(mH0.frame);
+    if (mH0.frame >= 0) {
+      heads0Flush(mH0.frame);
+    }
     mH0 = H0Census{};
     mH0.frame = f;
   }
@@ -959,7 +1231,9 @@ void Render::fieldObjectsRender() {
   for (int h = 0; h < 3; h++) {
     uint32_t n = c->mem_r32(HEADS[h]);
     for (int g = 0; n && g < 400; g++, n = c->mem_r32(n + 0x24)) {
-      if (c->mem_r8(n + 1) == 0) continue;                             // per-frame visibility marker
+      if (c->mem_r8(n + 1) == 0) {
+        continue; // per-frame visibility marker
+      }
       const uint32_t type = c->mem_r8(n + 0xB);
       // CUSTOM-RENDER-FN node (type 0x20): the node draws via a render fn at n+0x18 (substrate default-
       // case dispatch), NOT the cmd array. Known: the SOP narration SWIRL (0x8010BF54) — draw it natively
@@ -969,7 +1243,9 @@ void Render::fieldObjectsRender() {
       if (type == 0x20) {
         // kanban #33: the SOP narration swirl draws via drawWorldQuad (tier1-owned, has_xyf) and captures
         // nothing (host compose) — the present re-renders it from mSink, so its guest-time draw is dead.
-        if (c->game->fps60.mWorldCaptureOnly) continue;
+        if (c->game->fps60.mWorldCaptureOnly) {
+          continue;
+        }
         const uint32_t rfn = c->mem_r32(n + 0x18);
         // THE graphics-producer DB's native leg, for the whole type-0x20 effect family in ONE place
         // (external/psxport/docs/plans/graphics-producer-db.md). `rfn` IS the node's guest render fn,
@@ -984,9 +1260,8 @@ void Render::fieldObjectsRender() {
         if (rfn == 0x8010BF54u && c->mem_r32(0x80109450u) == 0x3C021F80u) {
           c->rsub.stats.snObjs++;
           rend(c)->narrationSwirlRender(n);
-        } else if (rfn == 0x80027CB4u || rfn == 0x80027E5Cu || rfn == 0x800281ECu ||
-                   rfn == 0x8002801Cu ||
-                   rfn == 0x8002B3A4u) {   // 801C = separate-XY-scale, B3A4 = rotated 4-point ring (#65)
+        } else if (rfn == 0x80027CB4u || rfn == 0x80027E5Cu || rfn == 0x800281ECu || rfn == 0x8002801Cu ||
+                   rfn == 0x8002B3A4u) { // 801C = separate-XY-scale, B3A4 = rotated 4-point ring (#65)
           // FUN_80027A4C world-anchored scaled-sprite family (torch / hut-roof flames, #12/#23):
           // project the node's own world anchor(s) natively so the flame lerps at fps60 (fx_sprite.cpp).
           c->rsub.stats.snObjs++;
@@ -1106,9 +1381,13 @@ void Render::fieldObjectsRender() {
           // Why it earns its keep: the alternative was a static census over the callers of ONE
           // shared writer (kanban #15), which cannot see effects using a different emitter and
           // cannot tell you which ones a given scene actually reaches. See kanban #65.
-          if (rend(c)->mNofxSeen.insert(rfn).second)
-            cfg_logf("nofx", "type-0x20 node %08X: render fn 0x%08X is NOT on the whitelist — "
-                             "this walk skips it", n, rfn);
+          if (rend(c)->mNofxSeen.insert(rfn).second) {
+            cfg_logf("nofx",
+                     "type-0x20 node %08X: render fn 0x%08X is NOT on the whitelist — "
+                     "this walk skips it",
+                     n,
+                     rfn);
+          }
         }
         continue;
       }
@@ -1132,9 +1411,14 @@ void Render::fieldObjectsRender() {
       // rebuilds it under the lerped camera).
       if (h == 2 && !c->game->fps60.mWorldCaptureOnly) {
         beamCand++;
-        if (rend(c)->beamNodeReached(n)) { beamHit++; rend(c)->beamQuadRender(n); }
+        if (rend(c)->beamNodeReached(n)) {
+          beamHit++;
+          rend(c)->beamQuadRender(n);
+        }
       }
-      if (c->mem_r8(n + 8) == 0 || c->mem_r8(n + 9) == 0) continue;    // no render commands
+      if (c->mem_r8(n + 8) == 0 || c->mem_r8(n + 9) == 0) {
+        continue; // no render commands
+      }
       // TYPE-CORRECT ROUTING (#67 cont.; tables RE'd from the LIVE walk jump tables — the substrate
       // routes each node TYPE to a class-specific renderer, and the cmd+0x18 field's MEANING differs
       // by class). Only the perObjRenderDispatch family stores an OBJECT rotation there (camera∘object
@@ -1148,9 +1432,12 @@ void Render::fieldObjectsRender() {
       //   HEADS[2] 0x800F2738 (objListWalk4 0x80015000): mesh {0,1,15} (1 = EF30 mesh + B704 beams)
       //   HEADS[0] 0x800FB168: no table of its own — routed via the CULL QUEUES (queue_dispatch.h).
       bool mesh = true, pre = false;
-      if (h == 1) { mesh = (type == 0 || type == 15); pre = (type == 1 || type == 4); }
-      else if (h == 2) { mesh = (type == 0 || type == 1 || type == 15); }
-      else {
+      if (h == 1) {
+        mesh = (type == 0 || type == 15);
+        pre = (type == 1 || type == 4);
+      } else if (h == 2) {
+        mesh = (type == 0 || type == 1 || type == 15);
+      } else {
         // HEADS[0] (kanban #77). This list has NO render walk of its own, so its nodes reach
         // vanilla's picture only by being on one of the three CULL RENDER QUEUES, whose consumer
         // walk then routes each entry by its TYPE byte. Reproduce exactly that pair of guest
@@ -1162,8 +1449,11 @@ void Render::fieldObjectsRender() {
         mesh = GuestQueueDispatch::guestFlushesMesh(c, n, route) &&
                GuestQueueDispatch::submittedThisFrame(c, n, route.queue);
       }
-      if (!mesh && !pre) continue;
-      c->rsub.stats.snObjs++; c->rsub.stats.snCmds += c->mem_r8(n + 8);
+      if (!mesh && !pre) {
+        continue;
+      }
+      c->rsub.stats.snObjs++;
+      c->rsub.stats.snCmds += c->mem_r8(n + 8);
       c->r[4] = n;
       // DECLARE THE OBJECT (kanban #11). This walk knows exactly whose faces are about to be submitted —
       // it is holding the node — but never said so, and every quad the flush emitted therefore reached the
@@ -1177,18 +1467,21 @@ void Render::fieldObjectsRender() {
       // its transform from its own state instead of factoring the composed matrix; CubeTextBanner
       // self-filters on the behaviour pointer, so any OTHER pre-composed class draws nothing rather
       // than a guessed-transform mesh.
-      if (pre) { CubeTextBanner::render(c, n); continue; }
+      if (pre) {
+        CubeTextBanner::render(c, n);
+        continue;
+      }
       perObjFlush();
     }
   }
-  lucent::debug("beamfx", "SUMMARY objListWalk4 live nodes inspected={} routed to FUN_8003B704={}",
-                beamCand, beamHit);
+  lucent::debug("beamfx", "SUMMARY objListWalk4 live nodes inspected={} routed to FUN_8003B704={}", beamCand, beamHit);
   {
     uint32_t g = ActorTomba::G_ADDR;
     if (c->mem_r8(g + 8) != 0 && c->mem_r8(g + 9) != 0) {
-      c->rsub.stats.snObjs++; c->rsub.stats.snCmds += c->mem_r8(g + 8);
+      c->rsub.stats.snObjs++;
+      c->rsub.stats.snCmds += c->mem_r8(g + 8);
       c->r[4] = g;
-      ObjScope objScope(c, g);      // Tomba himself — same declaration as every other object above
+      ObjScope objScope(c, g); // Tomba himself — same declaration as every other object above
       perObjFlush();
     }
   }

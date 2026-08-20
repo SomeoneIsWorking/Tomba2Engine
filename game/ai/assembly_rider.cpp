@@ -86,37 +86,37 @@
 #include "assembly_node.h"
 #include "core.h"
 #include "guest_abi.h"
-#include "override_registry.h"
 #include "ov_a00_decls.h"
+#include "override_registry.h"
 
 namespace {
 
 // ---- guest stack (tools/abi_extract.py 0x80118B10 --scaffold --guestabi) ----------------------
 constexpr GuestFrameSpill kSpills_80118B10[4] = {
-  { 16, 16 },
-  { 31 /*ra*/, 28 },
-  { 18, 24 },
-  { 17, 20 },
+    {16, 16},
+    {31 /*ra*/, 28},
+    {18, 24},
+    {17, 20},
 };
 
 // ---- the rider's own state machine -------------------------------------------------------------
 // The guest dispatches it through a five-entry jump table; the addresses below ARE that table's
 // contents, so the switch reproduces the `jr v0` exactly rather than re-deriving the mapping.
-constexpr uint32_t kRideStateJumpTable = 0x8010970Cu;   // lui 0x8011 / addiu -0x68F4
-constexpr uint32_t kRideStateCount     = 5;
-constexpr uint8_t  kRideStateRide      = 1;
-constexpr uint8_t  kRideStateHop       = 2;
-constexpr uint8_t  kRideStateFling     = 3;
-constexpr uint8_t  kRideStateDormant   = 4;
-constexpr uint32_t kEntryInit    = 0x80118B7Cu;
-constexpr uint32_t kEntryRide    = 0x80118BC8u;
-constexpr uint32_t kEntryHop     = 0x80118C6Cu;
-constexpr uint32_t kEntryFling   = 0x80118D5Cu;
+constexpr uint32_t kRideStateJumpTable = 0x8010970Cu; // lui 0x8011 / addiu -0x68F4
+constexpr uint32_t kRideStateCount = 5;
+constexpr uint8_t kRideStateRide = 1;
+constexpr uint8_t kRideStateHop = 2;
+constexpr uint8_t kRideStateFling = 3;
+constexpr uint8_t kRideStateDormant = 4;
+constexpr uint32_t kEntryInit = 0x80118B7Cu;
+constexpr uint32_t kEntryRide = 0x80118BC8u;
+constexpr uint32_t kEntryHop = 0x80118C6Cu;
+constexpr uint32_t kEntryFling = 0x80118D5Cu;
 constexpr uint32_t kEntryDormant = 0x80118D7Cu;
 
 // ---- the two rider variants (see the measured table in assembly_rider.h) -----------------------
-constexpr int32_t kVariantTagSlot3 = 200;   // -> rides the assembly's sub-part slot 3 (owner+0xCC)
-constexpr int32_t kVariantTagSlot2 = 204;   // -> rides the assembly's sub-part slot 2 (owner+0xC8)
+constexpr int32_t kVariantTagSlot3 = 200; // -> rides the assembly's sub-part slot 3 (owner+0xCC)
+constexpr int32_t kVariantTagSlot2 = 204; // -> rides the assembly's sub-part slot 2 (owner+0xC8)
 constexpr int32_t kArmEndSlotForTag200 = 3;
 constexpr int32_t kArmEndSlotForTag204 = 2;
 constexpr uint8_t kSceneTagSlot3 = 10;
@@ -125,33 +125,33 @@ constexpr uint8_t kSceneTagSlot2 = 1;
 // ---- riding, hopping, and being thrown ---------------------------------------------------------
 // How far above the arm-end the rider sits. The RIDE state writes it into the position and the HOP
 // state uses the same height as the ground it lands back on, which is why one constant serves both.
-constexpr int32_t  kRiderHeightAboveArmEnd = 140;
+constexpr int32_t kRiderHeightAboveArmEnd = 140;
 // Upward launch speed of BOTH bounces, in 1/256 world units per frame (negative Y is up).
 constexpr uint16_t kHopLaunchVelY = (uint16_t)-2048;
 // Gravity for bounce 1 and bounce 2. Doubling it halves the height and the airtime — the little
 // second hop.
-constexpr uint16_t kHopGravityFirstBounce  = 384;
+constexpr uint16_t kHopGravityFirstBounce = 384;
 constexpr uint16_t kHopGravitySecondBounce = 768;
-constexpr uint8_t  kHopPhaseLaunch       = 0;
-constexpr uint8_t  kHopPhaseFirstBounce  = 1;
-constexpr uint8_t  kHopPhaseSecondBounce = 2;
+constexpr uint8_t kHopPhaseLaunch = 0;
+constexpr uint8_t kHopPhaseFirstBounce = 1;
+constexpr uint8_t kHopPhaseSecondBounce = 2;
 
 // The pump's mode byte value that means "the stroke is starting"; modes 2 and 3 are the two
 // commanded-arm modes, which is why the fling test is a 2-wide window rather than two comparisons.
-constexpr uint32_t kModeStrokeStarting  = 1;
-constexpr uint32_t kModeCommandedFirst  = 2;
+constexpr uint32_t kModeStrokeStarting = 1;
+constexpr uint32_t kModeCommandedFirst = 2;
 constexpr uint32_t kModeCommandedWindow = 2;
 // The contact byte value that parks the rider (the same "player bearing on it" value the pump's own
 // contactWeightApply consumes).
 constexpr uint32_t kContactPlayerBearing = 2;
 
 // ---- call sites (jal-site return addresses; abi_extract 0x80118B10 --contract) ------------------
-constexpr uint32_t kCullEnqueueQueueC = 0x80077EFCu;   // Cull::enqueueQueueC — the class-5 submit
-constexpr uint32_t kActorBoundsCull   = 0x8007778Cu;   // Actor::boundsCull
-constexpr uint32_t kRaAfterSubmit      = 0x80118C64u;
-constexpr uint32_t kRaAfterHopCull     = 0x80118C74u;
-constexpr uint32_t kRaAfterFlingCull   = 0x80118D64u;
-constexpr uint32_t kRaAfterFling       = 0x80118D74u;
+constexpr uint32_t kCullEnqueueQueueC = 0x80077EFCu; // Cull::enqueueQueueC — the class-5 submit
+constexpr uint32_t kActorBoundsCull = 0x8007778Cu;   // Actor::boundsCull
+constexpr uint32_t kRaAfterSubmit = 0x80118C64u;
+constexpr uint32_t kRaAfterHopCull = 0x80118C74u;
+constexpr uint32_t kRaAfterFlingCull = 0x80118D64u;
+constexpr uint32_t kRaAfterFling = 0x80118D74u;
 constexpr uint32_t kRaAfterDormantCull = 0x80118D84u;
 
 // v0 on every reachable exit: the guest loads 4 into it in the delay slot of the tail's branch, so
@@ -159,49 +159,59 @@ constexpr uint32_t kRaAfterDormantCull = 0x80118D84u;
 // v0 spills the same byte.
 constexpr uint32_t kExitV0 = 4;
 
-}  // namespace
+} // namespace
 
 // ORACLE: ov_a00_gen_80118B10
 // PORT_GEN: 80118B10 generated/ov_a00_shard_1.c:7482-7633
-void AssemblyRider::rideSlotAndReactToStroke(Core* c) {
+void AssemblyRider::rideSlotAndReactToStroke(Core *c) {
   GuestFrame<32, 4> frame(c, kSpills_80118B10);
 
-  c->r[16] = c->r[4];                                  // s0 — the rider node
+  c->r[16] = c->r[4]; // s0 — the rider node
   const AssemblyRider rider(c, c->r[16]);
-  c->r[17] = rider.owner();                            // s1 — the pump assembly it is perched on
+  c->r[17] = rider.owner(); // s1 — the pump assembly it is perched on
   const RiddenAssembly assembly(c, c->r[17]);
   // s2 — the arm-end sub-part it rides. Which one is fixed at placement time by the variant tag.
-  c->r[18] = assembly.childPtr(rider.variantTag() == kVariantTagSlot3 ? kArmEndSlotForTag200
-                                                                     : kArmEndSlotForTag204);
+  c->r[18] = assembly.childPtr(rider.variantTag() == kVariantTagSlot3 ? kArmEndSlotForTag200 : kArmEndSlotForTag204);
   const AssemblyPartAnchor anchor(c, c->r[18]);
 
   const uint32_t state = rider.rideState();
-  if (state >= kRideStateCount) goto tail;
+  if (state >= kRideStateCount) {
+    goto tail;
+  }
   {
     const uint32_t entry = c->mem_r32(kRideStateJumpTable + state * 4u);
     switch (entry) {
-      case kEntryInit:    goto state_init;
-      case kEntryRide:    goto state_ride;
-      case kEntryHop:     goto state_hop;
-      case kEntryFling:   goto state_fling;
-      case kEntryDormant: goto state_dormant;
-      // The guest's `jr v0` into an entry outside its own five-word table — unreachable unless that
-      // table is corrupt, and modelled by the recompiler as a tail dispatch with no epilogue.
-      default: rec_dispatch(c, entry); return;
+    case kEntryInit:
+      goto state_init;
+    case kEntryRide:
+      goto state_ride;
+    case kEntryHop:
+      goto state_hop;
+    case kEntryFling:
+      goto state_fling;
+    case kEntryDormant:
+      goto state_dormant;
+    // The guest's `jr v0` into an entry outside its own five-word table — unreachable unless that
+    // table is corrupt, and modelled by the recompiler as a tail dispatch with no epilogue.
+    default:
+      rec_dispatch(c, entry);
+      return;
     }
   }
 
   // ── INIT: bind this rider to one of the pump's two arm-ends ────────────────────────────────────
 state_init: {
   rider.setAlive(1);
-  rider.setRideState((uint8_t)(rider.rideState() + 1u));      // -> RIDE
+  rider.setRideState((uint8_t)(rider.rideState() + 1u)); // -> RIDE
   const int32_t tag = rider.variantTag();
   if (tag == kVariantTagSlot3) {
     rider.setSceneTag(kSceneTagSlot3);
     rider.setSlot(kArmEndSlotForTag200);
     goto tail;
   }
-  if (tag != kVariantTagSlot2) goto tail;                     // an unknown tag binds to nothing
+  if (tag != kVariantTagSlot2) {
+    goto tail; // an unknown tag binds to nothing
+  }
   rider.setSceneTag(kSceneTagSlot2);
   rider.setSlot(kArmEndSlotForTag204);
   goto tail;
@@ -211,18 +221,20 @@ state_init: {
 state_ride: {
   const uint32_t pumpVisible = assembly.visible();
   rider.setVisible((uint8_t)pumpVisible);
-  if (pumpVisible == 0) goto tail;                            // pump culled -> rider does nothing
+  if (pumpVisible == 0) {
+    goto tail; // pump culled -> rider does nothing
+  }
   const uint32_t mode = assembly.modeByte();
   if (mode == kModeStrokeStarting) {
     rider.setRideState(kRideStateHop);
     rider.setMotionPhase(kHopPhaseLaunch);
-    goto submit;                                              // still re-seated + submitted today
+    goto submit; // still re-seated + submitted today
   }
   if (((mode - kModeCommandedFirst) & 0xffu) < kModeCommandedWindow &&
-      assembly.angleSelector() == (int32_t)rider.slot()) {     // the pump names THIS arm
+      assembly.angleSelector() == (int32_t)rider.slot()) { // the pump names THIS arm
     rider.setRideState(kRideStateFling);
     rider.setMotionPhase(kHopPhaseLaunch);
-    rider.setFlingSide((uint8_t)assembly.modeByte());          // which way it gets thrown
+    rider.setFlingSide((uint8_t)assembly.modeByte()); // which way it gets thrown
   }
 }
   // Re-seat on the arm-end and push onto cull queue C. Reached from the ride tick and from the frame
@@ -241,13 +253,19 @@ state_hop: {
   c->r[4] = c->r[16];
   guest_dispatch(c, kRaAfterHopCull, kActorBoundsCull);
   const uint32_t phase = rider.motionPhase();
-  if (phase == kHopPhaseFirstBounce) goto hop_bounce_one;
+  if (phase == kHopPhaseFirstBounce) {
+    goto hop_bounce_one;
+  }
   if ((int32_t)phase >= 2) {
-    if (phase == kHopPhaseSecondBounce) goto hop_bounce_two;
+    if (phase == kHopPhaseSecondBounce) {
+      goto hop_bounce_two;
+    }
     goto tail;
   }
-  if (phase != kHopPhaseLaunch) goto tail;
-  rider.setVelY(kHopLaunchVelY);                              // launch, then fall through and move
+  if (phase != kHopPhaseLaunch) {
+    goto tail;
+  }
+  rider.setVelY(kHopLaunchVelY); // launch, then fall through and move
   rider.setMotionPhase(kHopPhaseFirstBounce);
   rider.setAccelY(kHopGravityFirstBounce);
 }
@@ -256,8 +274,10 @@ hop_bounce_one: {
   rider.setVelY((uint16_t)(rider.velY_u() + rider.accelY_u()));
   // Landed once the rider has fallen back BELOW its rest height above the arm-end (Y grows
   // downward), which is exactly the guest's `slt (anchorY - 140), posY`.
-  if ((anchor.y32() - kRiderHeightAboveArmEnd) >= rider.posY()) goto tail;   // still airborne
-  rider.setVelY(kHopLaunchVelY);                              // landed -> the smaller second hop
+  if ((anchor.y32() - kRiderHeightAboveArmEnd) >= rider.posY()) {
+    goto tail; // still airborne
+  }
+  rider.setVelY(kHopLaunchVelY); // landed -> the smaller second hop
   rider.setAccelY(kHopGravitySecondBounce);
   rider.setMotionPhase((uint8_t)(rider.motionPhase() + 1u));
   goto tail;
@@ -265,8 +285,10 @@ hop_bounce_one: {
 hop_bounce_two: {
   rider.setPosYFixed(rider.posYFixed() + (((uint32_t)rider.velY()) << 8));
   rider.setVelY((uint16_t)(rider.velY_u() + rider.accelY_u()));
-  if ((anchor.y32() - kRiderHeightAboveArmEnd) >= rider.posY()) goto tail;   // still airborne
-  rider.setRideState(kRideStateRide);                         // landed -> re-attach to the arm-end
+  if ((anchor.y32() - kRiderHeightAboveArmEnd) >= rider.posY()) {
+    goto tail; // still airborne
+  }
+  rider.setRideState(kRideStateRide); // landed -> re-attach to the arm-end
   rider.setMotionPhase(kHopPhaseLaunch);
   goto tail;
 }
@@ -290,11 +312,15 @@ state_dormant: {
 
 tail:
   c->r[2] = kExitV0;
-  if (rider.contactState() == kContactPlayerBearing) rider.setRideState(kRideStateDormant);
+  if (rider.contactState() == kContactPlayerBearing) {
+    rider.setRideState(kRideStateDormant);
+  }
 }
 
 void AssemblyRider::registerOverrides() {
-  overrides::install(0x80118B10u, "AssemblyRider::rideSlotAndReactToStroke",
-                     &AssemblyRider::rideSlotAndReactToStroke, ov_a00_gen_80118B10,
+  overrides::install(0x80118B10u,
+                     "AssemblyRider::rideSlotAndReactToStroke",
+                     &AssemblyRider::rideSlotAndReactToStroke,
+                     ov_a00_gen_80118B10,
                      ov_a00_set_override);
 }

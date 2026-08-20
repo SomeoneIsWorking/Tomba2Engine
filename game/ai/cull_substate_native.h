@@ -5,7 +5,7 @@
 // this project keeps introducing defects (claim C021). These bodies are port_gen output.
 #pragma once
 struct Core;
-class  Game;
+class Game;
 
 class CullSubstateLeaves {
 public:
@@ -16,19 +16,21 @@ public:
   // unjustified by the body and asked for the axis the code actually touches, which node_xform.cpp
   // already calls childEulerZ. This name follows that existing vocabulary rather than inventing a
   // second word for the same field.
-  static void tickChildEulerZSwing(Core* c);
+  static void tickChildEulerZSwing(Core *c);
 
   // FUN_80132A88 — phase-advancing sibling of tickChildEulerZSwing. Replaces a 5-defect draft.
-  static void tickChildEulerZSwingPhase(Core* c);
+  static void tickChildEulerZSwingPhase(Core *c);
   // FUN_80132954 — sub-state-zero tick. Replaces a 6-defect draft.
-  static void tickSubstateZero(Core* c);
+  static void tickSubstateZero(Core *c);
 
-  // FUN_0x80133700 — ARMS the one-shot decaying Euler-Z swing on the node's slot-0 sub-part, and returns a 3-valued edge.
-  static void armChildEulerZSwing(Core* c);
+  // FUN_0x80133700 — ARMS the one-shot decaying Euler-Z swing on the node's slot-0 sub-part, and returns a 3-valued
+  // edge.
+  static void armChildEulerZSwing(Core *c);
   // FUN_0x80133610 — sets the swing profile/scale parameters the arm and tick above operate with.
-  static void setScaleSwingProfile(Core* c);
-  // FUN_0x801332C4 — reverses the swing when the driven value crosses, and caches the peer swing bit the sub-state-zero tick reads.
-  static void reverseSwingOnCrossing(Core* c);
+  static void setScaleSwingProfile(Core *c);
+  // FUN_0x801332C4 — reverses the swing when the driven value crosses, and caches the peer swing bit the sub-state-zero
+  // tick reads.
+  static void reverseSwingOnCrossing(Core *c);
 
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

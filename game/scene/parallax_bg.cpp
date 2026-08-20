@@ -10,50 +10,54 @@
 
 namespace {
 
-constexpr uint32_t BG_PARAMS_PTR   = 0x800ECF84u;   // *u16 — per-area BG parameter block ptr
-constexpr uint32_t YAW_ADDR        = 0x1F8000F2u;   // s16
-constexpr uint32_t PITCH_ADDR      = 0x1F8000F0u;   // s16
+constexpr uint32_t BG_PARAMS_PTR = 0x800ECF84u; // *u16 — per-area BG parameter block ptr
+constexpr uint32_t YAW_ADDR = 0x1F8000F2u;      // s16
+constexpr uint32_t PITCH_ADDR = 0x1F8000F0u;    // s16
 
 // SOP-overlay animation counters cleared on INIT.
-constexpr uint32_t ANIM_COUNTER_0  = 0x8010D390u;
-constexpr uint32_t ANIM_COUNTER_1  = 0x8010D391u;
-constexpr uint32_t ANIM_COUNTER_2  = 0x8010D392u;
+constexpr uint32_t ANIM_COUNTER_0 = 0x8010D390u;
+constexpr uint32_t ANIM_COUNTER_1 = 0x8010D391u;
+constexpr uint32_t ANIM_COUNTER_2 = 0x8010D392u;
 
 // Wrap `v` into [0, mod). Faithful to the recomp's over-then-rollback loops (a normal `v % mod`
 // would produce the same bytes for the values we see; kept explicit for byte-exact fidelity).
 inline int32_t wrapMod(int32_t v, int32_t mod) {
   if (v < 0) {
     v += mod;
-    while (v < 0) v += mod;
+    while (v < 0) {
+      v += mod;
+    }
     v -= mod;
   }
   if (mod <= v) {
     v -= mod;
-    while (mod <= v) v -= mod;
+    while (mod <= v) {
+      v -= mod;
+    }
     v += mod;
   }
   return v;
 }
 
-}  // namespace
+} // namespace
 
 void ParallaxBg::step() {
-  Core* c = core;
+  Core *c = core;
   const uint32_t sm = SM_ADDR;
   const uint8_t state = c->mem_r8(sm + 0);
 
   if (state == 1) {
     // ---- RUNNING ---------------------------------------------------------------------------
-    const int32_t yaw    = (int32_t)c->mem_r16s(YAW_ADDR);
-    const int32_t pitch  = (int32_t)c->mem_r16s(PITCH_ADDR);
-    const uint16_t sX    = c->mem_r16(sm + 0x2Cu);   // X scroll speed (×yaw   >>12)
-    const uint16_t sY    = c->mem_r16(sm + 0x2Eu);   // Y scroll speed (×pitch >>12)
-    const uint16_t modX  = c->mem_r16(sm + 0x30u);   // X wrap modulus (grid_w × 16)
-    const uint16_t modY  = c->mem_r16(sm + 0x32u);   // Y wrap modulus ((grid_h×0x8e8)/0x90)
-    const uint8_t  tileH = c->mem_r8 (sm + 0x11u);
+    const int32_t yaw = (int32_t)c->mem_r16s(YAW_ADDR);
+    const int32_t pitch = (int32_t)c->mem_r16s(PITCH_ADDR);
+    const uint16_t sX = c->mem_r16(sm + 0x2Cu);   // X scroll speed (×yaw   >>12)
+    const uint16_t sY = c->mem_r16(sm + 0x2Eu);   // Y scroll speed (×pitch >>12)
+    const uint16_t modX = c->mem_r16(sm + 0x30u); // X wrap modulus (grid_w × 16)
+    const uint16_t modY = c->mem_r16(sm + 0x32u); // Y wrap modulus ((grid_h×0x8e8)/0x90)
+    const uint8_t tileH = c->mem_r8(sm + 0x11u);
 
     const int32_t tileW = (int32_t)(int16_t)c->mem_r16(sm + 0x2Cu);
-    int32_t x = ((tileW + 0x140) >> 1) - ((yaw   * (int32_t)(uint32_t)sX) >> 12);
+    int32_t x = ((tileW + 0x140) >> 1) - ((yaw * (int32_t)(uint32_t)sX) >> 12);
     int32_t y = ((pitch * (int32_t)(uint32_t)sY) >> 12) + (int32_t)(uint32_t)tileH * 8 - 0x20;
 
     x = wrapMod(x, (int32_t)(uint32_t)modX);
@@ -62,7 +66,9 @@ void ParallaxBg::step() {
     // Counter tick — signed-byte underflow → SM[3] = 1 (frame settled).
     const uint8_t cnt1 = (uint8_t)(c->mem_r8(sm + 0x38u) - 1);
     c->mem_w8(sm + 0x38u, cnt1);
-    if ((int8_t)cnt1 <= 0) c->mem_w8(sm + 3u, 1);
+    if ((int8_t)cnt1 <= 0) {
+      c->mem_w8(sm + 3u, 1);
+    }
 
     c->mem_w16(sm + 0x28u, (uint16_t)(int16_t)x);
     c->mem_w16(sm + 0x2Au, (uint16_t)(int16_t)y);
@@ -72,8 +78,8 @@ void ParallaxBg::step() {
   if (state == 0) {
     // ---- INIT ------------------------------------------------------------------------------
     const uint32_t P = c->mem_r32(BG_PARAMS_PTR);
-    c->mem_w8 (sm + 0u, 1);
-    c->mem_w8 (sm + 3u, 0);
+    c->mem_w8(sm + 0u, 1);
+    c->mem_w8(sm + 3u, 0);
 
     // Header: 6 u16s copied verbatim from the per-area BG params block.
     for (int i = 0; i < 6; i++) {

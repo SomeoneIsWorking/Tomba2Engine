@@ -51,29 +51,29 @@
 //   depends on (same class of bug as perobj_dispatch.cpp's CmdListFrame banner / f62 residual) survives
 //   the native<->substrate boundary in either direction.
 #include "core.h"
-#include "game_ctx.h"
 #include "game.h"
+#include "game_ctx.h"
 #include "render.h"
 #include <cstdint>
 
-void rec_dispatch(Core*, uint32_t);          // overlay_router.cpp — shared choke point for owned/substrate leaves
-void func_8002AE0C(Core*);   // still-substrate: BB50's "flash"/highlight sub-dispatch (a0=cmd,a1=arg,a2=0)
-void func_8003C5F8(Core*);   // still-substrate: BB50/BF00 case leaf
-void func_8003C788(Core*);   // still-substrate: BB50/BF00 case leaf
-void func_8004CC88(Core*);   // still-substrate: BF00's default-mode leaf
-void func_8003B704(Core*);   // still-substrate: EEC0's case-1/0x10 shared tail
-void shard_set_override(uint32_t addr, OverrideFn fn);   // generated/shard_disp.c (C++ linkage)
+void rec_dispatch(Core *, uint32_t); // overlay_router.cpp — shared choke point for owned/substrate leaves
+void func_8002AE0C(Core *);          // still-substrate: BB50's "flash"/highlight sub-dispatch (a0=cmd,a1=arg,a2=0)
+void func_8003C5F8(Core *);          // still-substrate: BB50/BF00 case leaf
+void func_8003C788(Core *);          // still-substrate: BB50/BF00 case leaf
+void func_8004CC88(Core *);          // still-substrate: BF00's default-mode leaf
+void func_8003B704(Core *);          // still-substrate: EEC0's case-1/0x10 shared tail
+void shard_set_override(uint32_t addr, OverrideFn fn); // generated/shard_disp.c (C++ linkage)
 
 // gen_func_* fallbacks for the oracle-gated thunk — SBS core B (the pure oracle) must keep running the
 // real recompiled body; see render_walk_dispatch.cpp's identical banner for the full rationale.
-extern void gen_func_8003BB50(Core*);
-extern void gen_func_8003BCF4(Core*);
-extern void gen_func_8003BED8(Core*);
-extern void gen_func_8003BDAC(Core*);
-extern void func_8003CCA4(Core*);   // perObjRenderDispatch's generated wrapper
-extern void func_8003BED8(Core*);   // objListWalk2Continue's generated wrapper
-extern void gen_func_8003BF00(Core*);
-extern void gen_func_8003EEC0(Core*);
+extern void gen_func_8003BB50(Core *);
+extern void gen_func_8003BCF4(Core *);
+extern void gen_func_8003BED8(Core *);
+extern void gen_func_8003BDAC(Core *);
+extern void func_8003CCA4(Core *); // perObjRenderDispatch's generated wrapper
+extern void func_8003BED8(Core *); // objListWalk2Continue's generated wrapper
+extern void gen_func_8003BF00(Core *);
+extern void gen_func_8003EEC0(Core *);
 
 namespace {
 // Shared "already refreshed this field frame" flag (BB50/BCF4 both gate their cursor-refresh on it;
@@ -81,47 +81,50 @@ namespace {
 constexpr uint32_t FRAME_FRESH_FLAG = 0x1F800136u;
 
 // ---- FUN_8003BB50 -------------------------------------------------------------------------------
-constexpr uint32_t W1_PTR_A  = 0x1F80013Cu;   // persistent cursor pointer (reset to LIST_HEAD each frame)
-constexpr uint32_t W1_CNT_A  = 0x1F800144u;   // persistent cursor count  (reset to 0 each frame)
-constexpr uint32_t W1_PTR_B  = 0x1F800140u;   // this-call working pointer (= old W1_PTR_A on refresh)
-constexpr uint32_t W1_CNT_B  = 0x1F800146u;   // this-call working count   (= old W1_CNT_A on refresh)
+constexpr uint32_t W1_PTR_A = 0x1F80013Cu; // persistent cursor pointer (reset to LIST_HEAD each frame)
+constexpr uint32_t W1_CNT_A = 0x1F800144u; // persistent cursor count  (reset to 0 each frame)
+constexpr uint32_t W1_PTR_B = 0x1F800140u; // this-call working pointer (= old W1_PTR_A on refresh)
+constexpr uint32_t W1_CNT_B = 0x1F800146u; // this-call working count   (= old W1_CNT_A on refresh)
 constexpr uint32_t W1_LIST_HEAD = 0x800F2410u;
-constexpr uint32_t W1_TABLE     = 0x80014A70u;   // 144-entry (idx<144) target-address table
+constexpr uint32_t W1_TABLE = 0x80014A70u; // 144-entry (idx<144) target-address table
 
 // ---- FUN_8003BCF4 / FUN_8003BED8 ----------------------------------------------------------------
-constexpr uint32_t W2_PTR_A  = 0x1F800148u;
-constexpr uint32_t W2_CNT_A  = 0x1F800150u;
-constexpr uint32_t W2_PTR_B  = 0x1F80014Cu;
-constexpr uint32_t W2_CNT_B  = 0x1F800152u;
+constexpr uint32_t W2_PTR_A = 0x1F800148u;
+constexpr uint32_t W2_CNT_A = 0x1F800150u;
+constexpr uint32_t W2_PTR_B = 0x1F80014Cu;
+constexpr uint32_t W2_CNT_B = 0x1F800152u;
 constexpr uint32_t W2_LIST_HEAD = 0x800F26C8u;
-constexpr uint32_t W2_TABLE     = 0x80014CB0u;   // 33-entry (idx<33) target-address table
+constexpr uint32_t W2_TABLE = 0x80014CB0u; // 33-entry (idx<33) target-address table
 
 // ---- FUN_8003BF00 --------------------------------------------------------------------------------
-constexpr uint32_t W3_PTR_A  = 0x1F800154u;
-constexpr uint32_t W3_CNT_A  = 0x1F80015Cu;
-constexpr uint32_t W3_PTR_B  = 0x1F800158u;
-constexpr uint32_t W3_CNT_B  = 0x1F80015Eu;
+constexpr uint32_t W3_PTR_A = 0x1F800154u;
+constexpr uint32_t W3_CNT_A = 0x1F80015Cu;
+constexpr uint32_t W3_PTR_B = 0x1F800158u;
+constexpr uint32_t W3_CNT_B = 0x1F80015Eu;
 constexpr uint32_t W3_LIST_HEAD = 0x800F2738u;
-constexpr uint32_t W3_TABLE     = 0x80014D38u;   // 32-entry (idx<32) target-address table
-constexpr uint32_t W3_MODE_BYTE = 0x800BF870u;   // render-mode-select byte (shared with perModeDispatch)
+constexpr uint32_t W3_TABLE = 0x80014D38u;     // 32-entry (idx<32) target-address table
+constexpr uint32_t W3_MODE_BYTE = 0x800BF870u; // render-mode-select byte (shared with perModeDispatch)
 
 // ---- FUN_8003EEC0 --------------------------------------------------------------------------------
-constexpr uint32_t W4_LIST_HEAD_VAR = 0x800F2738u;   // *this = head-of-chain object pointer (SAME
-                                                       // storage FUN_8003BF00 treats as an array base —
-                                                       // here dereferenced ONCE for the chain head)
-constexpr uint32_t W4_TABLE = 0x80015000u;            // 33-entry (idx<33) target-address table
+constexpr uint32_t W4_LIST_HEAD_VAR = 0x800F2738u; // *this = head-of-chain object pointer (SAME
+                                                   // storage FUN_8003BF00 treats as an array base —
+                                                   // here dereferenced ONCE for the chain head)
+constexpr uint32_t W4_TABLE = 0x80015000u;         // 33-entry (idx<33) target-address table
 } // namespace
 
 // ===================================================================================================
 // FUN_8003BB50 (Render::objListWalk1) — no args (guest ABI).
 // ORACLE: gen_func_8003BB50
 void Render::objListWalk1() {
-  Core* c = mCore;
+  Core *c = mCore;
   // Real -40 guest frame (RE: gen_func_8003BB50 prologue) — spills r16/r17/r18/r19/ra.
   const uint32_t s16 = c->r[16], s17 = c->r[17], s18 = c->r[18], s19 = c->r[19], sra = c->r[31];
   c->r[29] -= 40;
-  c->mem_w32(c->r[29] + 32, sra); c->mem_w32(c->r[29] + 28, s19); c->mem_w32(c->r[29] + 24, s18);
-  c->mem_w32(c->r[29] + 20, s17); c->mem_w32(c->r[29] + 16, s16);
+  c->mem_w32(c->r[29] + 32, sra);
+  c->mem_w32(c->r[29] + 28, s19);
+  c->mem_w32(c->r[29] + 24, s18);
+  c->mem_w32(c->r[29] + 20, s17);
+  c->mem_w32(c->r[29] + 16, s16);
 
   if (c->mem_r8(FRAME_FRESH_FLAG) == 0) {
     const uint16_t oldCnt = c->mem_r16(W1_CNT_A);
@@ -141,76 +144,118 @@ void Render::objListWalk1() {
   // f119..f156, healed once r19 is set here. (Found via bisected SBS-full; baseline forced-gen = 0-diff.)
   c->r[17] = (uint32_t)(int16_t)c->mem_r16(W1_CNT_B);
   c->r[18] = c->mem_r32(W1_PTR_B);
-  if (c->r[17] == 0u) goto epilogue;
+  if (c->r[17] == 0u) {
+    goto epilogue;
+  }
   c->r[19] = W1_TABLE;
 
   while (c->r[17] != 0u) {
-    c->r[16] = c->mem_r32(c->r[18]); c->r[18] += 4; c->r[17]--;
+    c->r[16] = c->mem_r32(c->r[18]);
+    c->r[18] += 4;
+    c->r[17]--;
     const uint32_t cmd = c->r[16];
-    if (c->mem_r8(cmd + 1) == 0) continue;
+    if (c->mem_r8(cmd + 1) == 0) {
+      continue;
+    }
     const uint32_t type = c->mem_r8(cmd + 0xB);
-    if (type >= 144u) continue;
+    if (type >= 144u) {
+      continue;
+    }
     const uint32_t target = c->mem_r32(c->r[19] + type * 4u);
     c->r[4] = cmd;
     switch (target) {
-      case 0x8003BC00u: {
-        c->r[31] = 0x8003BC08u; perObjRenderDispatch();
-        const uint32_t attr = c->mem_r8(cmd + 0xB);
-        if ((attr & 0x40u) == 0u) {
-          if ((attr & 0x80u) == 0u) break;
-          c->r[4] = cmd; c->r[5] = (uint32_t)c->mem_r16s(cmd + 0x80u);
-        } else {
-          c->r[4] = cmd; c->r[5] = 0x50u;
+    case 0x8003BC00u: {
+      c->r[31] = 0x8003BC08u;
+      perObjRenderDispatch();
+      const uint32_t attr = c->mem_r8(cmd + 0xB);
+      if ((attr & 0x40u) == 0u) {
+        if ((attr & 0x80u) == 0u) {
+          break;
         }
-        c->r[31] = 0x8003BC64u; c->r[6] = 0u; func_8002AE0C(c);
-        break;
+        c->r[4] = cmd;
+        c->r[5] = (uint32_t)c->mem_r16s(cmd + 0x80u);
+      } else {
+        c->r[4] = cmd;
+        c->r[5] = 0x50u;
       }
-      case 0x8003BC24u: {
-        c->r[31] = 0x8003BC2Cu; rec_dispatch(c, 0x80122974u);
-        const uint32_t attr = c->mem_r8(cmd + 0xB);
-        if ((attr & 0x40u) == 0u) {
-          if ((attr & 0x80u) == 0u) break;
-          c->r[4] = cmd; c->r[5] = (uint32_t)c->mem_r16s(cmd + 0x80u);
-        } else {
-          c->r[4] = cmd; c->r[5] = 0x50u;
+      c->r[31] = 0x8003BC64u;
+      c->r[6] = 0u;
+      func_8002AE0C(c);
+      break;
+    }
+    case 0x8003BC24u: {
+      c->r[31] = 0x8003BC2Cu;
+      rec_dispatch(c, 0x80122974u);
+      const uint32_t attr = c->mem_r8(cmd + 0xB);
+      if ((attr & 0x40u) == 0u) {
+        if ((attr & 0x80u) == 0u) {
+          break;
         }
-        c->r[31] = 0x8003BC64u; c->r[6] = 0u; func_8002AE0C(c);
-        break;
+        c->r[4] = cmd;
+        c->r[5] = (uint32_t)c->mem_r16s(cmd + 0x80u);
+      } else {
+        c->r[4] = cmd;
+        c->r[5] = 0x50u;
       }
-      case 0x8003BC6Cu: c->r[31] = 0x8003BC74u; billboardCompose1(); break;
-      case 0x8003BC7Cu: c->r[31] = 0x8003BC84u; billboardCompose2(); break;
-      case 0x8003BC8Cu: c->r[31] = 0x8003BC94u; func_8003C5F8(c); break;
-      case 0x8003BC9Cu: c->r[31] = 0x8003BCA4u; func_8003C788(c); break;
-      case 0x8003BCACu:
-        c->r[31] = 0x8003BCB4u; billboardCompose1();
-        [[fallthrough]];   // gen: L_8003BCAC falls straight into L_8003BCB4 (no separate advance)
-      case 0x8003BCB4u: {
-        // L_8003BCB4 is ALSO a directly-reachable switch target (Ghidra's case 0x16, vtable+0x7C
-        // WITHOUT the preceding billboardCompose1 call BCAC/case-0x15 makes) — a genuinely separate
-        // table entry, not merely BCAC's fallthrough tail. Read cmd+124 either way.
-        const uint32_t vt = c->mem_r32(cmd + 124u);
-        c->r[31] = 0x8003BCD0u; c->r[4] = cmd; rec_dispatch(c, vt);
-        break;
-      }
-      case 0x8003BCC0u: {
-        const uint32_t vt = c->mem_r32(cmd + 24u);
-        c->r[31] = 0x8003BCD0u; c->r[4] = cmd; rec_dispatch(c, vt);
-        break;
-      }
-      case 0x8003BCD0u:
-        break;   // no-op table entry: skip (matches gen's dedicated loop-continue case value)
-      default:
-        // Defensive mirror of the recompiler's own indirect-jump fallback (generated/shard_1.c:5835's
-        // `default: rec_dispatch(c, c->r[2]); return;`) — a full RETURN bypassing the frame epilogue.
-        // Never hit by live game data: the live 144-slot table only ever holds the case values above.
-        rec_dispatch(c, target);
-        return;
+      c->r[31] = 0x8003BC64u;
+      c->r[6] = 0u;
+      func_8002AE0C(c);
+      break;
+    }
+    case 0x8003BC6Cu:
+      c->r[31] = 0x8003BC74u;
+      billboardCompose1();
+      break;
+    case 0x8003BC7Cu:
+      c->r[31] = 0x8003BC84u;
+      billboardCompose2();
+      break;
+    case 0x8003BC8Cu:
+      c->r[31] = 0x8003BC94u;
+      func_8003C5F8(c);
+      break;
+    case 0x8003BC9Cu:
+      c->r[31] = 0x8003BCA4u;
+      func_8003C788(c);
+      break;
+    case 0x8003BCACu:
+      c->r[31] = 0x8003BCB4u;
+      billboardCompose1();
+      [[fallthrough]]; // gen: L_8003BCAC falls straight into L_8003BCB4 (no separate advance)
+    case 0x8003BCB4u: {
+      // L_8003BCB4 is ALSO a directly-reachable switch target (Ghidra's case 0x16, vtable+0x7C
+      // WITHOUT the preceding billboardCompose1 call BCAC/case-0x15 makes) — a genuinely separate
+      // table entry, not merely BCAC's fallthrough tail. Read cmd+124 either way.
+      const uint32_t vt = c->mem_r32(cmd + 124u);
+      c->r[31] = 0x8003BCD0u;
+      c->r[4] = cmd;
+      rec_dispatch(c, vt);
+      break;
+    }
+    case 0x8003BCC0u: {
+      const uint32_t vt = c->mem_r32(cmd + 24u);
+      c->r[31] = 0x8003BCD0u;
+      c->r[4] = cmd;
+      rec_dispatch(c, vt);
+      break;
+    }
+    case 0x8003BCD0u:
+      break; // no-op table entry: skip (matches gen's dedicated loop-continue case value)
+    default:
+      // Defensive mirror of the recompiler's own indirect-jump fallback (generated/shard_1.c:5835's
+      // `default: rec_dispatch(c, c->r[2]); return;`) — a full RETURN bypassing the frame epilogue.
+      // Never hit by live game data: the live 144-slot table only ever holds the case values above.
+      rec_dispatch(c, target);
+      return;
     }
   }
 epilogue:
-  c->r[31] = c->mem_r32(c->r[29] + 32); c->r[19] = c->mem_r32(c->r[29] + 28);
-  c->r[18] = c->mem_r32(c->r[29] + 24); c->r[17] = c->mem_r32(c->r[29] + 20);
-  c->r[16] = c->mem_r32(c->r[29] + 16); c->r[29] += 40;
+  c->r[31] = c->mem_r32(c->r[29] + 32);
+  c->r[19] = c->mem_r32(c->r[29] + 28);
+  c->r[18] = c->mem_r32(c->r[29] + 24);
+  c->r[17] = c->mem_r32(c->r[29] + 20);
+  c->r[16] = c->mem_r32(c->r[29] + 16);
+  c->r[29] += 40;
 }
 
 // ===================================================================================================
@@ -219,13 +264,17 @@ epilogue:
 // pop happens in objListWalk2Continue, possibly several rec_dispatch hops later.
 // ORACLE: gen_func_8003BCF4
 void Render::objListWalk2() {
-  Core* c = mCore;
+  Core *c = mCore;
   // Real -40 guest frame (RE: gen_func_8003BCF4 prologue) — spills r16/r17/r18/r19/r20/ra. Pushed here,
   // popped ONLY by objListWalk2Continue (see banner) — never in this function.
   const uint32_t s16 = c->r[16], s17 = c->r[17], s18 = c->r[18], s19 = c->r[19], s20 = c->r[20], sra = c->r[31];
   c->r[29] -= 40;
-  c->mem_w32(c->r[29] + 36, sra); c->mem_w32(c->r[29] + 32, s20); c->mem_w32(c->r[29] + 28, s19);
-  c->mem_w32(c->r[29] + 24, s18); c->mem_w32(c->r[29] + 20, s17); c->mem_w32(c->r[29] + 16, s16);
+  c->mem_w32(c->r[29] + 36, sra);
+  c->mem_w32(c->r[29] + 32, s20);
+  c->mem_w32(c->r[29] + 28, s19);
+  c->mem_w32(c->r[29] + 24, s18);
+  c->mem_w32(c->r[29] + 20, s17);
+  c->mem_w32(c->r[29] + 16, s16);
 
   if (c->mem_r8(FRAME_FRESH_FLAG) == 0) {
     const uint16_t oldCnt = c->mem_r16(W2_CNT_A);
@@ -247,19 +296,30 @@ void Render::objListWalk2() {
   // packet-pool divergence from f180 on).
   c->r[17] = (uint32_t)(int16_t)c->mem_r16(W2_CNT_B);
   c->r[18] = c->mem_r32(W2_PTR_B);
-  c->r[19] = 0x800C0000u;   // RE'd: gen sets this loop-invariant constant too (unused by this function's
-                             // own body but callee-save-live for downstream substrate leaves).
+  c->r[19] = 0x800C0000u; // RE'd: gen sets this loop-invariant constant too (unused by this function's
+                          // own body but callee-save-live for downstream substrate leaves).
   c->r[20] = W2_TABLE;
 
-  if (c->r[17] == 0u) { objListWalk2Continue(); return; }   // count already 0: BED8 pops immediately
-  c->r[16] = c->mem_r32(c->r[18]); c->r[18] += 4; c->r[17]--;
+  if (c->r[17] == 0u) {
+    objListWalk2Continue();
+    return;
+  } // count already 0: BED8 pops immediately
+  c->r[16] = c->mem_r32(c->r[18]);
+  c->r[18] += 4;
+  c->r[17]--;
   const uint32_t cmd = c->r[16];
-  if (c->mem_r8(cmd + 1) == 0u) { objListWalk2Continue(); return; }
+  if (c->mem_r8(cmd + 1) == 0u) {
+    objListWalk2Continue();
+    return;
+  }
   const uint32_t type = c->mem_r8(cmd + 0xB);
-  if (type >= 33u) { objListWalk2Continue(); return; }
+  if (type >= 33u) {
+    objListWalk2Continue();
+    return;
+  }
   const uint32_t target = c->mem_r32(c->r[20] + type * 4u);
-  rec_dispatch(c, target);   // NOTE: on return, the walk is fully consumed and the shared frame already
-                              // popped (target's own tail eventually reaches objListWalk2Continue).
+  rec_dispatch(c, target); // NOTE: on return, the walk is fully consumed and the shared frame already
+                           // popped (target's own tail eventually reaches objListWalk2Continue).
 }
 
 // FUN_8003BED8 (Render::objListWalk2Continue) — the walk's shared "process the rest of the list, pop
@@ -267,24 +327,33 @@ void Render::objListWalk2() {
 // still-substrate leaves the type table can resolve to end by calling func_8003BED8(c) directly.
 // ORACLE: gen_func_8003BED8
 void Render::objListWalk2Continue() {
-  Core* c = mCore;
+  Core *c = mCore;
   for (;;) {
     if (c->r[17] == 0u) {
-      c->r[31] = c->mem_r32(c->r[29] + 36); c->r[20] = c->mem_r32(c->r[29] + 32);
-      c->r[19] = c->mem_r32(c->r[29] + 28); c->r[18] = c->mem_r32(c->r[29] + 24);
-      c->r[17] = c->mem_r32(c->r[29] + 20); c->r[16] = c->mem_r32(c->r[29] + 16);
+      c->r[31] = c->mem_r32(c->r[29] + 36);
+      c->r[20] = c->mem_r32(c->r[29] + 32);
+      c->r[19] = c->mem_r32(c->r[29] + 28);
+      c->r[18] = c->mem_r32(c->r[29] + 24);
+      c->r[17] = c->mem_r32(c->r[29] + 20);
+      c->r[16] = c->mem_r32(c->r[29] + 16);
       c->r[29] += 40;
       return;
     }
-    c->r[16] = c->mem_r32(c->r[18]); c->r[18] += 4; c->r[17]--;
-    const uint32_t cmd = c->r[16];   // register-faithfulness: see objListWalk2's banner — dispatched
-                                       // targets read the object pointer from r16, never r4.
-    if (c->mem_r8(cmd + 1) == 0u) continue;   // skip: loop
+    c->r[16] = c->mem_r32(c->r[18]);
+    c->r[18] += 4;
+    c->r[17]--;
+    const uint32_t cmd = c->r[16]; // register-faithfulness: see objListWalk2's banner — dispatched
+                                   // targets read the object pointer from r16, never r4.
+    if (c->mem_r8(cmd + 1) == 0u) {
+      continue; // skip: loop
+    }
     const uint32_t type = c->mem_r8(cmd + 0xB);
-    if (type >= 33u) continue;                // out of range: loop
+    if (type >= 33u) {
+      continue; // out of range: loop
+    }
     const uint32_t target = c->mem_r32(c->r[20] + type * 4u);
-    rec_dispatch(c, target);   // recognized: dispatch and return WITHOUT popping — target's own tail
-    return;                    // will re-enter objListWalk2Continue (via func_8003BED8) to keep going.
+    rec_dispatch(c, target); // recognized: dispatch and return WITHOUT popping — target's own tail
+    return;                  // will re-enter objListWalk2Continue (via func_8003BED8) to keep going.
   }
 }
 
@@ -292,12 +361,14 @@ void Render::objListWalk2Continue() {
 // FUN_8003BF00 (Render::objListWalk3) — no args (guest ABI).
 // ORACLE: gen_func_8003BF00
 void Render::objListWalk3() {
-  Core* c = mCore;
+  Core *c = mCore;
   // Real -32 guest frame (RE: gen_func_8003BF00 prologue) — spills r16/r17/r18/ra.
   const uint32_t s16 = c->r[16], s17 = c->r[17], s18 = c->r[18], sra = c->r[31];
   c->r[29] -= 32;
-  c->mem_w32(c->r[29] + 28, sra); c->mem_w32(c->r[29] + 24, s18);
-  c->mem_w32(c->r[29] + 20, s17); c->mem_w32(c->r[29] + 16, s16);
+  c->mem_w32(c->r[29] + 28, sra);
+  c->mem_w32(c->r[29] + 24, s18);
+  c->mem_w32(c->r[29] + 20, s17);
+  c->mem_w32(c->r[29] + 16, s16);
 
   if (c->mem_r8(FRAME_FRESH_FLAG) == 0) {
     const uint16_t oldCnt = c->mem_r16(W3_CNT_A);
@@ -312,41 +383,76 @@ void Render::objListWalk3() {
   // nested dispatch (generated/shard_6.c:5061/5063/5065) — downstream substrate leaves spill them.
   c->r[16] = (uint32_t)(int16_t)c->mem_r16(W3_CNT_B);
   c->r[17] = c->mem_r32(W3_PTR_B);
-  if (c->r[16] == 0u) goto epilogue;
+  if (c->r[16] == 0u) {
+    goto epilogue;
+  }
   c->r[18] = W3_TABLE;
 
   while (c->r[16] != 0u) {
-    const uint32_t cmd = c->mem_r32(c->r[17]); c->r[17] += 4; c->r[16]--;
-    if (c->mem_r8(cmd + 1) == 0) continue;
+    const uint32_t cmd = c->mem_r32(c->r[17]);
+    c->r[17] += 4;
+    c->r[16]--;
+    if (c->mem_r8(cmd + 1) == 0) {
+      continue;
+    }
     const uint32_t type = c->mem_r8(cmd + 0xB);
-    if (type >= 32u) continue;
+    if (type >= 32u) {
+      continue;
+    }
     const uint32_t target = c->mem_r32(c->r[18] + type * 4u);
     switch (target) {
-      case 0x8003BFACu: c->r[31] = 0x8003BFB4u; c->r[4] = cmd; perObjRenderDispatch(); break;
-      case 0x8003BFBCu: c->r[31] = 0x8003BFC4u; c->r[4] = cmd; billboardCompose1(); break;
-      case 0x8003BFCCu: c->r[31] = 0x8003BFD4u; c->r[4] = cmd; billboardCompose2(); break;
-      case 0x8003BFDCu: c->r[31] = 0x8003BFE4u; c->r[4] = cmd; func_8003C5F8(c); break;
-      case 0x8003BFECu: c->r[31] = 0x8003BFF4u; c->r[4] = cmd; func_8003C788(c); break;
-      case 0x8003BFFCu: {
-        if (c->mem_r8(W3_MODE_BYTE) == 0x14u) {
-          c->r[31] = 0x8003C018u; c->r[4] = cmd; rec_dispatch(c, 0x8010FC70u);
-        } else {
-          c->r[31] = 0x8003C028u; c->r[4] = cmd; func_8004CC88(c);
-        }
-        break;
+    case 0x8003BFACu:
+      c->r[31] = 0x8003BFB4u;
+      c->r[4] = cmd;
+      perObjRenderDispatch();
+      break;
+    case 0x8003BFBCu:
+      c->r[31] = 0x8003BFC4u;
+      c->r[4] = cmd;
+      billboardCompose1();
+      break;
+    case 0x8003BFCCu:
+      c->r[31] = 0x8003BFD4u;
+      c->r[4] = cmd;
+      billboardCompose2();
+      break;
+    case 0x8003BFDCu:
+      c->r[31] = 0x8003BFE4u;
+      c->r[4] = cmd;
+      func_8003C5F8(c);
+      break;
+    case 0x8003BFECu:
+      c->r[31] = 0x8003BFF4u;
+      c->r[4] = cmd;
+      func_8003C788(c);
+      break;
+    case 0x8003BFFCu: {
+      if (c->mem_r8(W3_MODE_BYTE) == 0x14u) {
+        c->r[31] = 0x8003C018u;
+        c->r[4] = cmd;
+        rec_dispatch(c, 0x8010FC70u);
+      } else {
+        c->r[31] = 0x8003C028u;
+        c->r[4] = cmd;
+        func_8004CC88(c);
       }
-      case 0x8003C028u:
-        break;   // no-op table entry: skip (matches gen's dedicated loop-continue case value)
-      default:
-        // Defensive mirror of the recompiler's own indirect-jump fallback (generated/shard_6.c:5076's
-        // `default: rec_dispatch(c, c->r[2]); return;`) — a full RETURN bypassing the frame epilogue.
-        c->r[4] = cmd; rec_dispatch(c, target);
-        return;
+      break;
+    }
+    case 0x8003C028u:
+      break; // no-op table entry: skip (matches gen's dedicated loop-continue case value)
+    default:
+      // Defensive mirror of the recompiler's own indirect-jump fallback (generated/shard_6.c:5076's
+      // `default: rec_dispatch(c, c->r[2]); return;`) — a full RETURN bypassing the frame epilogue.
+      c->r[4] = cmd;
+      rec_dispatch(c, target);
+      return;
     }
   }
 epilogue:
-  c->r[31] = c->mem_r32(c->r[29] + 28); c->r[18] = c->mem_r32(c->r[29] + 24);
-  c->r[17] = c->mem_r32(c->r[29] + 20); c->r[16] = c->mem_r32(c->r[29] + 16);
+  c->r[31] = c->mem_r32(c->r[29] + 28);
+  c->r[18] = c->mem_r32(c->r[29] + 24);
+  c->r[17] = c->mem_r32(c->r[29] + 20);
+  c->r[16] = c->mem_r32(c->r[29] + 16);
   c->r[29] += 32;
 }
 
@@ -356,12 +462,14 @@ epilogue:
 // chain head is re-read fresh from W4_LIST_HEAD_VAR every call.
 // ORACLE: gen_func_8003EEC0
 void Render::objListWalk4() {
-  Core* c = mCore;
+  Core *c = mCore;
   // Real -32 guest frame (RE: gen_func_8003EEC0 prologue) — spills r16/r17/r18/ra.
   const uint32_t s16 = c->r[16], s17 = c->r[17], s18 = c->r[18], sra = c->r[31];
   c->r[29] -= 32;
-  c->mem_w32(c->r[29] + 28, sra); c->mem_w32(c->r[29] + 24, s18);
-  c->mem_w32(c->r[29] + 20, s17); c->mem_w32(c->r[29] + 16, s16);
+  c->mem_w32(c->r[29] + 28, sra);
+  c->mem_w32(c->r[29] + 24, s18);
+  c->mem_w32(c->r[29] + 20, s17);
+  c->mem_w32(c->r[29] + 16, s16);
 
   // Live loop state in c->r[] (register-faithfulness, same rationale as objListWalk1): gen keeps
   // r16=current node, r17=next node, r18=table base LIVE across every nested dispatch
@@ -371,59 +479,93 @@ void Render::objListWalk4() {
   if (c->r[16] != 0u) {
     c->r[18] = W4_TABLE;
     while (c->r[16] != 0u) {
-      const uint32_t node   = c->r[16];
+      const uint32_t node = c->r[16];
       const uint32_t active = c->mem_r8(node + 1u);
-      c->r[17] = c->mem_r32(node + 0x24u);   // next: ALWAYS loaded, regardless of active/type
-      if (active == 0u) { c->r[16] = c->r[17]; continue; }
+      c->r[17] = c->mem_r32(node + 0x24u); // next: ALWAYS loaded, regardless of active/type
+      if (active == 0u) {
+        c->r[16] = c->r[17];
+        continue;
+      }
       const uint32_t type = c->mem_r8(node + 0xB);
-      if (type >= 33u) { c->r[16] = c->r[17]; continue; }
+      if (type >= 33u) {
+        c->r[16] = c->r[17];
+        continue;
+      }
       const uint32_t target = c->mem_r32(c->r[18] + type * 4u);
       switch (target) {
-        case 0x8003EF20u:
-          c->r[31] = 0x8003EF28u; c->r[4] = node; perObjRenderDispatch();
-          c->r[16] = c->r[17];
-          continue;
-        case 0x8003EF30u:
-          c->r[31] = 0x8003EF38u; c->r[4] = node; perObjRenderDispatch();
-          c->r[31] = 0x8003EF60u; c->r[4] = node; func_8003B704(c);
-          c->r[16] = c->r[17];
-          continue;
-        case 0x8003EF40u: {
-          c->r[31] = 0x8003EF48u; c->r[4] = node; billboardCompose1();
-          if (c->mem_r8(node + 2u) != 1u) { c->r[16] = c->r[17]; continue; }
-          c->r[31] = 0x8003EF60u; c->r[4] = node; func_8003B704(c);
+      case 0x8003EF20u:
+        c->r[31] = 0x8003EF28u;
+        c->r[4] = node;
+        perObjRenderDispatch();
+        c->r[16] = c->r[17];
+        continue;
+      case 0x8003EF30u:
+        c->r[31] = 0x8003EF38u;
+        c->r[4] = node;
+        perObjRenderDispatch();
+        c->r[31] = 0x8003EF60u;
+        c->r[4] = node;
+        func_8003B704(c);
+        c->r[16] = c->r[17];
+        continue;
+      case 0x8003EF40u: {
+        c->r[31] = 0x8003EF48u;
+        c->r[4] = node;
+        billboardCompose1();
+        if (c->mem_r8(node + 2u) != 1u) {
           c->r[16] = c->r[17];
           continue;
         }
-        case 0x8003EF68u: {
-          const uint32_t vt = c->mem_r32(node + 24u);
-          c->r[31] = 0x8003EF78u; c->r[4] = node; rec_dispatch(c, vt);
-          c->r[16] = c->r[17];
-          continue;
-        }
-        case 0x8003EF78u:
-          c->r[16] = c->r[17];
-          continue;   // no-op table entry: skip (matches gen's dedicated loop-continue case value)
-        default:
-          // Defensive mirror of the recompiler's own indirect-jump fallback (generated/shard_3.c:11006's
-          // `default: rec_dispatch(c, c->r[2]); return;`) — a full RETURN bypassing the frame epilogue.
-          c->r[4] = node; rec_dispatch(c, target);
-          return;
+        c->r[31] = 0x8003EF60u;
+        c->r[4] = node;
+        func_8003B704(c);
+        c->r[16] = c->r[17];
+        continue;
+      }
+      case 0x8003EF68u: {
+        const uint32_t vt = c->mem_r32(node + 24u);
+        c->r[31] = 0x8003EF78u;
+        c->r[4] = node;
+        rec_dispatch(c, vt);
+        c->r[16] = c->r[17];
+        continue;
+      }
+      case 0x8003EF78u:
+        c->r[16] = c->r[17];
+        continue; // no-op table entry: skip (matches gen's dedicated loop-continue case value)
+      default:
+        // Defensive mirror of the recompiler's own indirect-jump fallback (generated/shard_3.c:11006's
+        // `default: rec_dispatch(c, c->r[2]); return;`) — a full RETURN bypassing the frame epilogue.
+        c->r[4] = node;
+        rec_dispatch(c, target);
+        return;
       }
     }
   }
-  c->r[31] = c->mem_r32(c->r[29] + 28); c->r[18] = c->mem_r32(c->r[29] + 24);
-  c->r[17] = c->mem_r32(c->r[29] + 20); c->r[16] = c->mem_r32(c->r[29] + 16);
+  c->r[31] = c->mem_r32(c->r[29] + 28);
+  c->r[18] = c->mem_r32(c->r[29] + 24);
+  c->r[17] = c->mem_r32(c->r[29] + 20);
+  c->r[16] = c->mem_r32(c->r[29] + 16);
   c->r[29] += 32;
 }
 
 // ===================================================================================================
 namespace {
-void ov_objListWalk1(Core* c)         { rend(c)->objListWalk1(); }
-void ov_objListWalk2(Core* c)         { rend(c)->objListWalk2(); }
-void ov_objListWalk2Continue(Core* c) { rend(c)->objListWalk2Continue(); }
-void ov_objListWalk3(Core* c)         { rend(c)->objListWalk3(); }
-void ov_objListWalk4(Core* c)         { rend(c)->objListWalk4(); }
+void ov_objListWalk1(Core *c) {
+  rend(c)->objListWalk1();
+}
+void ov_objListWalk2(Core *c) {
+  rend(c)->objListWalk2();
+}
+void ov_objListWalk2Continue(Core *c) {
+  rend(c)->objListWalk2Continue();
+}
+void ov_objListWalk3(Core *c) {
+  rend(c)->objListWalk3();
+}
+void ov_objListWalk4(Core *c) {
+  rend(c)->objListWalk4();
+}
 
 // 0x8003BDAC — jump-table case 0/15 of the object-type table at 0x80014CB0. NOT A FUNCTION: four
 // instructions that run INSIDE objListWalk2's 40-byte frame, pushed by objListWalk2 and popped by
@@ -436,19 +578,23 @@ void ov_objListWalk4(Core* c)         { rend(c)->objListWalk4(); }
 // left. So it is written every time rather than relied upon — a point established by the adversarial
 // verify pass over the RE spec, which had claimed entry r31 was the caller's ra.
 // ORACLE: gen_func_8003BDAC
-void ov_objListWalk2Case0(Core* c) {
-    c->r[31] = 0x8003BDB4u;
-    c->r[4] = c->r[16] + c->r[0]; func_8003CCA4(c);
-     func_8003BED8(c); return;
+void ov_objListWalk2Case0(Core *c) {
+  c->r[31] = 0x8003BDB4u;
+  c->r[4] = c->r[16] + c->r[0];
+  func_8003CCA4(c);
+  func_8003BED8(c);
+  return;
 }
-}
+} // namespace
 
 // ORACLE-PURITY: installed via engine_set_override_main (never the raw shard_set_override), so SBS
 // core B (the pure gen_func_* oracle) always runs the real recompiled body while core A / standalone
 // runs these native methods — see perobj_dispatch.cpp's identical banner for the full rationale.
 void objlist_walk_install() {
   static bool done = false;
-  if (done) return;
+  if (done) {
+    return;
+  }
   done = true;
   extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
   engine_set_override_main(0x8003BB50u, ov_objListWalk1, gen_func_8003BB50);

@@ -32,36 +32,36 @@
 // the one-frame-delayed "previous sample" — that structural role is solid regardless of what
 // produces the sample. FUN_800524B4 and FUN_8005229C themselves stay un-owned (rec_dispatch).
 #include "core.h"
-#include "game_ctx.h"
 #include "core/engine.h"
+#include "game_ctx.h"
 
-void rec_dispatch(Core*, uint32_t);
-void func_80087E2C(Core*);
-void func_80087AEC(Core*);
-void func_80087EAC(Core*);
+void rec_dispatch(Core *, uint32_t);
+void func_80087E2C(Core *);
+void func_80087AEC(Core *);
+void func_80087EAC(Core *);
 
-#define CUR_PREV_BASE   0x800ECF54u   // +0 = cur (u16), +2 = prev (u16)
-#define POLL_FLAG       0x1F80019Au   // scratchpad u8 — gates queue-pop vs FUN_800524B4(0) path
-#define QUEUE_COUNTDOWN 0x800BED8Cu   // u16 countdown to next queue pop
-#define QUEUE_CURSOR    0x800BED88u   // u32 pointer into the queue (4 bytes/entry: u16 @+0, u16 tag @+2)
-#define PRESSED_OUT     0x800E7E68u   // u16 — cur & ~prev (newly-set bits)
-#define RELEASED_OUT    0x800F23A4u   // u16 — prev & ~cur (newly-cleared bits)
-#define FN_PAD_SAMPLE   0x800524B4u   // FUN_800524B4 — un-owned (see confidence note above)
-#define FN_CD_SM        0x8005229Cu   // FUN_8005229C — un-owned CD/load sub-state-machine
+#define CUR_PREV_BASE 0x800ECF54u   // +0 = cur (u16), +2 = prev (u16)
+#define POLL_FLAG 0x1F80019Au       // scratchpad u8 — gates queue-pop vs FUN_800524B4(0) path
+#define QUEUE_COUNTDOWN 0x800BED8Cu // u16 countdown to next queue pop
+#define QUEUE_CURSOR 0x800BED88u    // u32 pointer into the queue (4 bytes/entry: u16 @+0, u16 tag @+2)
+#define PRESSED_OUT 0x800E7E68u     // u16 — cur & ~prev (newly-set bits)
+#define RELEASED_OUT 0x800F23A4u    // u16 — prev & ~cur (newly-cleared bits)
+#define FN_PAD_SAMPLE 0x800524B4u   // FUN_800524B4 — un-owned (see confidence note above)
+#define FN_CD_SM 0x8005229Cu        // FUN_8005229C — un-owned CD/load sub-state-machine
 
 // FUN_800788AC — per-frame input-edge fence. See the file header above for the full RE + confidence
 // notes.
 void Engine::padEdgeFence() {
-  Core* c = this->core;
+  Core *c = this->core;
   uint32_t saved_sp = c->r[29];
   uint32_t saved_ra = c->r[31];
-  c->r[29] = saved_sp - 24;                 // addiu sp,sp,-24
-  c->mem_w32(c->r[29] + 16, c->r[16]);      // sw s0,16(sp)  (LIVE incoming s0)
-  c->mem_w32(c->r[29] + 20, saved_ra);      // sw ra,20(sp)
-  c->r[16] = 0x800F0000u;                   // gen: s0 = 32783<<16, live across BOTH dispatches —
-                                            // callees spill s0, so a stale native r16 diverges the
-                                            // guest stack (wave-3 f12 lesson; restored from sp+16
-                                            // in the epilogue below like gen)
+  c->r[29] = saved_sp - 24;            // addiu sp,sp,-24
+  c->mem_w32(c->r[29] + 16, c->r[16]); // sw s0,16(sp)  (LIVE incoming s0)
+  c->mem_w32(c->r[29] + 20, saved_ra); // sw ra,20(sp)
+  c->r[16] = 0x800F0000u;              // gen: s0 = 32783<<16, live across BOTH dispatches —
+                                       // callees spill s0, so a stale native r16 diverges the
+                                       // guest stack (wave-3 f12 lesson; restored from sp+16
+                                       // in the epilogue below like gen)
 
   // prev := cur (BEFORE this frame's sample is written)
   uint16_t cur0 = c->mem_r16(CUR_PREV_BASE);
@@ -72,8 +72,8 @@ void Engine::padEdgeFence() {
     // Not in queue-poll mode: call FUN_800524B4(0), store its return into "cur".
     c->r[31] = 0x80078940u;
     c->r[4] = 0;
-    c->r[2] = 1u;                           // live at the jal (the ==1 compare literal)
-    c->r[3] = pollFlag;                     // live at the jal (the loaded poll byte)
+    c->r[2] = 1u;       // live at the jal (the ==1 compare literal)
+    c->r[3] = pollFlag; // live at the jal (the loaded poll byte)
     rec_dispatch(c, FN_PAD_SAMPLE);
     c->mem_w16(CUR_PREV_BASE, (uint16_t)c->r[2]);
   } else {
@@ -97,16 +97,16 @@ void Engine::padEdgeFence() {
   }
 
   uint16_t prev = c->mem_r16(CUR_PREV_BASE + 2);
-  uint16_t cur  = c->mem_r16(CUR_PREV_BASE);
-  uint16_t pressed  = (uint16_t)(cur & (uint16_t)~prev);
+  uint16_t cur = c->mem_r16(CUR_PREV_BASE);
+  uint16_t pressed = (uint16_t)(cur & (uint16_t)~prev);
   uint16_t released = (uint16_t)(prev & (uint16_t)~cur);
   c->mem_w16(PRESSED_OUT, pressed);
   c->mem_w16(RELEASED_OUT, released);
 
-  c->r[31] = 0x80078978u;                   // jal-site ra
-  c->r[4]  = released;                      // a0 leftover from the release-mask compute — the gen
-                                             // body calls FUN_8005229C with a0 still holding this
-                                             // value (not explicitly reset), so it IS the argument.
+  c->r[31] = 0x80078978u; // jal-site ra
+  c->r[4] = released;     // a0 leftover from the release-mask compute — the gen
+                          // body calls FUN_8005229C with a0 still holding this
+                          // value (not explicitly reset), so it IS the argument.
   // LIVE caller-saved registers at the tail call — the callee's frame SPILLS these to the guest
   // stack, so leaving them stale diverges SBS even though no conforming code reads them (found at
   // wave-3 wiring: f12 two 2-byte diffs at 0x801FFFAA/CA, B=0x800F upper halves = gen's r2). Gen
@@ -115,11 +115,11 @@ void Engine::padEdgeFence() {
   c->r[2] = 0x800F0000u;
   c->r[3] = ~(uint32_t)cur;
   c->r[5] = 0x800E0000u;
-  rec_dispatch(c, FN_CD_SM);                // FUN_8005229C — CD/load sub-state-machine tail-call
+  rec_dispatch(c, FN_CD_SM); // FUN_8005229C — CD/load sub-state-machine tail-call
 
-  c->r[31] = c->mem_r32(c->r[29] + 20);     // lw ra,20(sp)
-  c->r[16] = c->mem_r32(c->r[29] + 16);     // lw s0,16(sp)
-  c->r[29] = saved_sp;                      // addiu sp,sp,24
+  c->r[31] = c->mem_r32(c->r[29] + 20); // lw ra,20(sp)
+  c->r[16] = c->mem_r32(c->r[29] + 16); // lw s0,16(sp)
+  c->r[29] = saved_sp;                  // addiu sp,sp,24
 }
 
 // Override wrapper + install (guest ABI is all-implicit — the fence takes no args, returns
@@ -143,114 +143,226 @@ void Engine::padEdgeFence() {
 // the argument for the neutral name, not against it. Whoever resolves it should fix FN_CD_SM too.
 // ORACLE: gen_func_8005229C
 void Engine::padFenceTail() {
-  Core* c = core;
-    c->r[29] = c->r[29] + (uint32_t)-24;
-    c->r[2] = (uint32_t)32783u << 16;
-    c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
-    c->r[16] = c->r[2] + (uint32_t)-12472;
-    c->r[2] = (uint32_t)8064u << 16;
-    c->r[2] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)410));
-    c->r[4] = c->r[0] + (uint32_t)1;
-    { int _t = (c->r[2] != c->r[4]); c->mem_w32((c->r[29] + (uint32_t)20), c->r[31]); if (_t) goto L_800522C4; }
-    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]);
-  L_800522C4:;
+  Core *c = core;
+  c->r[29] = c->r[29] + (uint32_t)-24;
+  c->r[2] = (uint32_t)32783u << 16;
+  c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);
+  c->r[16] = c->r[2] + (uint32_t)-12472;
+  c->r[2] = (uint32_t)8064u << 16;
+  c->r[2] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)410));
+  c->r[4] = c->r[0] + (uint32_t)1;
+  {
+    int _t = (c->r[2] != c->r[4]);
+    c->mem_w32((c->r[29] + (uint32_t)20), c->r[31]);
+    if (_t) {
+      goto L_800522C4;
+    }
+  }
+  c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]);
+L_800522C4:;
+  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)-20121));
+  {
+    int _t = (c->r[2] != c->r[0]);
     c->r[2] = (uint32_t)32784u << 16;
-    c->r[2] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)-20121));
-    { int _t = (c->r[2] != c->r[0]); c->r[2] = (uint32_t)32784u << 16; if (_t) goto L_800523E4; }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)2));
-    { int _t = (c->r[2] == c->r[0]); c->r[2] = (uint32_t)32784u << 16; if (_t) goto L_800523E4; }
-    c->r[3] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)6));
-    { int _t = (c->r[3] == c->r[4]); c->r[2] = (uint32_t)((int32_t)c->r[3] < 2); if (_t) goto L_80052378; }
-    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_80052310; }
-    { int _t = (c->r[3] == c->r[0]);  if (_t) goto L_8005232C; }
-     goto L_8005244C;
-  L_80052310:;
-    c->r[2] = c->r[0] + (uint32_t)2;
-    { int _t = (c->r[3] == c->r[2]); c->r[2] = c->r[0] + (uint32_t)3; if (_t) goto L_800523A4; }
-    { int _t = (c->r[3] == c->r[2]);  if (_t) goto L_80052428; }
-     goto L_8005244C;
-  L_8005232C:;
-    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)4));
-    { int _t = (c->r[2] == c->r[0]); c->r[4] = c->r[0] + c->r[0]; if (_t) goto L_80052350; }
-    c->r[5] = c->r[16] + (uint32_t)4;
-    c->r[6] = c->r[0] + (uint32_t)2;
-    c->mem_w8((c->r[16] + (uint32_t)4), (uint8_t)c->r[0]);
-    c->r[31] = 0x80052350u;
-    c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[0]); func_80087EAC(c);
-  L_80052350:;
-    c->r[31] = 0x80052358u;
-    c->r[4] = c->r[0] + c->r[0]; func_80087AEC(c);
-    c->r[3] = c->r[0] + (uint32_t)6;
-    { int _t = (c->r[2] != c->r[3]); c->r[4] = c->r[0] + c->r[0]; if (_t) goto L_8005244C; }
-    c->r[5] = (uint32_t)32778u << 16;
-    c->r[31] = 0x80052370u;
-    c->r[5] = c->r[5] + (uint32_t)16280; func_80087E2C(c);
-     goto L_8005244C;
-  L_80052378:;
-    c->r[31] = 0x80052380u;
-    c->r[4] = c->r[0] + c->r[0]; func_80087AEC(c);
-    c->r[3] = c->r[0] + (uint32_t)6;
-    { int _t = (c->r[2] != c->r[3]); c->r[4] = c->r[0] + c->r[0]; if (_t) goto L_8005244C; }
-    c->r[5] = (uint32_t)32778u << 16;
-    c->r[31] = 0x80052398u;
-    c->r[5] = c->r[5] + (uint32_t)16280; func_80087E2C(c);
-    c->r[2] = c->r[0] + (uint32_t)2;
-    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]); goto L_8005244C;
-  L_800523A4:;
-    c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)7));
-    { int _t = (c->r[2] == c->r[0]); c->r[2] = c->r[2] + (uint32_t)-1; if (_t) goto L_800523BC; }
-    c->mem_w8((c->r[16] + (uint32_t)7), (uint8_t)c->r[2]); goto L_8005244C;
-  L_800523BC:;
-    c->r[4] = c->r[0] + c->r[0];
-    c->r[5] = c->r[16] + (uint32_t)4;
-    c->r[6] = c->r[0] + (uint32_t)2;
-    c->mem_w8((c->r[16] + (uint32_t)4), (uint8_t)c->r[0]);
-    c->r[31] = 0x800523D4u;
-    c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[0]); func_80087EAC(c);
+    if (_t) {
+      goto L_800523E4;
+    }
+  }
+  c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)2));
+  {
+    int _t = (c->r[2] == c->r[0]);
+    c->r[2] = (uint32_t)32784u << 16;
+    if (_t) {
+      goto L_800523E4;
+    }
+  }
+  c->r[3] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)6));
+  {
+    int _t = (c->r[3] == c->r[4]);
+    c->r[2] = (uint32_t)((int32_t)c->r[3] < 2);
+    if (_t) {
+      goto L_80052378;
+    }
+  }
+  {
+    int _t = (c->r[2] == c->r[0]);
+    if (_t) {
+      goto L_80052310;
+    }
+  }
+  {
+    int _t = (c->r[3] == c->r[0]);
+    if (_t) {
+      goto L_8005232C;
+    }
+  }
+  goto L_8005244C;
+L_80052310:;
+  c->r[2] = c->r[0] + (uint32_t)2;
+  {
+    int _t = (c->r[3] == c->r[2]);
     c->r[2] = c->r[0] + (uint32_t)3;
-    c->mem_w8((c->r[16] + (uint32_t)7), (uint8_t)c->r[0]);
-    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]); goto L_8005244C;
-  L_800523E4:;
-    c->r[3] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)-20121));
-    c->r[2] = c->r[0] + (uint32_t)1;
-    { int _t = (c->r[3] != c->r[2]);  if (_t) goto L_8005244C; }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)2));
-    { int _t = (c->r[2] == c->r[0]);  if (_t) goto L_8005244C; }
-    c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)4));
-    { int _t = (c->r[2] == c->r[0]); c->r[4] = c->r[0] + c->r[0]; if (_t) goto L_80052428; }
-    c->r[5] = c->r[16] + (uint32_t)4;
-    c->r[6] = c->r[0] + (uint32_t)2;
-    c->mem_w8((c->r[16] + (uint32_t)4), (uint8_t)c->r[0]);
-    c->r[31] = 0x80052428u;
-    c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[0]); func_80087EAC(c);
-  L_80052428:;
-    c->r[31] = 0x80052430u;
-    c->r[4] = c->r[0] + c->r[0]; func_80087AEC(c);
-    c->r[3] = c->r[0] + (uint32_t)6;
-    { int _t = (c->r[2] != c->r[3]); c->r[4] = c->r[0] + c->r[0]; if (_t) goto L_8005244C; }
-    c->r[5] = (uint32_t)32778u << 16;
-    c->r[31] = 0x80052448u;
-    c->r[5] = c->r[5] + (uint32_t)16280; func_80087E2C(c);
-    c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]);
-  L_8005244C:;
-    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)20));
-    c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
-    c->r[29] = c->r[29] + (uint32_t)24; return;
-    return;
+    if (_t) {
+      goto L_800523A4;
+    }
+  }
+  {
+    int _t = (c->r[3] == c->r[2]);
+    if (_t) {
+      goto L_80052428;
+    }
+  }
+  goto L_8005244C;
+L_8005232C:;
+  c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)4));
+  {
+    int _t = (c->r[2] == c->r[0]);
+    c->r[4] = c->r[0] + c->r[0];
+    if (_t) {
+      goto L_80052350;
+    }
+  }
+  c->r[5] = c->r[16] + (uint32_t)4;
+  c->r[6] = c->r[0] + (uint32_t)2;
+  c->mem_w8((c->r[16] + (uint32_t)4), (uint8_t)c->r[0]);
+  c->r[31] = 0x80052350u;
+  c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[0]);
+  func_80087EAC(c);
+L_80052350:;
+  c->r[31] = 0x80052358u;
+  c->r[4] = c->r[0] + c->r[0];
+  func_80087AEC(c);
+  c->r[3] = c->r[0] + (uint32_t)6;
+  {
+    int _t = (c->r[2] != c->r[3]);
+    c->r[4] = c->r[0] + c->r[0];
+    if (_t) {
+      goto L_8005244C;
+    }
+  }
+  c->r[5] = (uint32_t)32778u << 16;
+  c->r[31] = 0x80052370u;
+  c->r[5] = c->r[5] + (uint32_t)16280;
+  func_80087E2C(c);
+  goto L_8005244C;
+L_80052378:;
+  c->r[31] = 0x80052380u;
+  c->r[4] = c->r[0] + c->r[0];
+  func_80087AEC(c);
+  c->r[3] = c->r[0] + (uint32_t)6;
+  {
+    int _t = (c->r[2] != c->r[3]);
+    c->r[4] = c->r[0] + c->r[0];
+    if (_t) {
+      goto L_8005244C;
+    }
+  }
+  c->r[5] = (uint32_t)32778u << 16;
+  c->r[31] = 0x80052398u;
+  c->r[5] = c->r[5] + (uint32_t)16280;
+  func_80087E2C(c);
+  c->r[2] = c->r[0] + (uint32_t)2;
+  c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]);
+  goto L_8005244C;
+L_800523A4:;
+  c->r[2] = (uint32_t)c->mem_r8((c->r[16] + (uint32_t)7));
+  {
+    int _t = (c->r[2] == c->r[0]);
+    c->r[2] = c->r[2] + (uint32_t)-1;
+    if (_t) {
+      goto L_800523BC;
+    }
+  }
+  c->mem_w8((c->r[16] + (uint32_t)7), (uint8_t)c->r[2]);
+  goto L_8005244C;
+L_800523BC:;
+  c->r[4] = c->r[0] + c->r[0];
+  c->r[5] = c->r[16] + (uint32_t)4;
+  c->r[6] = c->r[0] + (uint32_t)2;
+  c->mem_w8((c->r[16] + (uint32_t)4), (uint8_t)c->r[0]);
+  c->r[31] = 0x800523D4u;
+  c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[0]);
+  func_80087EAC(c);
+  c->r[2] = c->r[0] + (uint32_t)3;
+  c->mem_w8((c->r[16] + (uint32_t)7), (uint8_t)c->r[0]);
+  c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]);
+  goto L_8005244C;
+L_800523E4:;
+  c->r[3] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)-20121));
+  c->r[2] = c->r[0] + (uint32_t)1;
+  {
+    int _t = (c->r[3] != c->r[2]);
+    if (_t) {
+      goto L_8005244C;
+    }
+  }
+  c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)2));
+  {
+    int _t = (c->r[2] == c->r[0]);
+    if (_t) {
+      goto L_8005244C;
+    }
+  }
+  c->r[2] = (uint32_t)c->mem_r16((c->r[16] + (uint32_t)4));
+  {
+    int _t = (c->r[2] == c->r[0]);
+    c->r[4] = c->r[0] + c->r[0];
+    if (_t) {
+      goto L_80052428;
+    }
+  }
+  c->r[5] = c->r[16] + (uint32_t)4;
+  c->r[6] = c->r[0] + (uint32_t)2;
+  c->mem_w8((c->r[16] + (uint32_t)4), (uint8_t)c->r[0]);
+  c->r[31] = 0x80052428u;
+  c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[0]);
+  func_80087EAC(c);
+L_80052428:;
+  c->r[31] = 0x80052430u;
+  c->r[4] = c->r[0] + c->r[0];
+  func_80087AEC(c);
+  c->r[3] = c->r[0] + (uint32_t)6;
+  {
+    int _t = (c->r[2] != c->r[3]);
+    c->r[4] = c->r[0] + c->r[0];
+    if (_t) {
+      goto L_8005244C;
+    }
+  }
+  c->r[5] = (uint32_t)32778u << 16;
+  c->r[31] = 0x80052448u;
+  c->r[5] = c->r[5] + (uint32_t)16280;
+  func_80087E2C(c);
+  c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]);
+L_8005244C:;
+  c->r[31] = c->mem_r32((c->r[29] + (uint32_t)20));
+  c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));
+  c->r[29] = c->r[29] + (uint32_t)24;
+  return;
+  return;
 }
 
 namespace {
 
-void ov_padEdgeFence(Core* c) { eng(c).padEdgeFence(); }
-void ov_padFenceTail(Core* c) { eng(c).padFenceTail(); }
+void ov_padEdgeFence(Core *c) {
+  eng(c).padEdgeFence();
 }
-extern void gen_func_800788AC(Core*);
+void ov_padFenceTail(Core *c) {
+  eng(c).padFenceTail();
+}
+} // namespace
+extern void gen_func_800788AC(Core *);
 void pad_edge_fence_install() {
-  { extern void gen_func_8005229C(Core*);
+  {
+    extern void gen_func_8005229C(Core *);
     extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-    engine_set_override_main(0x8005229Cu, ov_padFenceTail, gen_func_8005229C); }
+    engine_set_override_main(0x8005229Cu, ov_padFenceTail, gen_func_8005229C);
+  }
   static bool done = false;
-  if (done) return;
+  if (done) {
+    return;
+  }
   done = true;
   extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
   engine_set_override_main(0x800788ACu, ov_padEdgeFence, gen_func_800788AC);

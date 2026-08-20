@@ -26,61 +26,79 @@
 // calls inherit whatever the prior leaf left, exactly as the recomp does). v0 (handler return) is NOT
 // reproduced (the per-object dispatcher ignores it; the gate compares only RAM+scratchpad).
 
+#include "cfg.h"
+#include "collision.h" // Collision::listScan (FUN_80031780)
 #include "core.h"
 #include "game_ctx.h"
-#include "render/cull.h"    // Cull::coneCull2b278 (FUN_8002B278)
-#include "cfg.h"
+#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "render/cull.h" // Cull::coneCull2b278 (FUN_8002B278)
+#include "rng.h"         // class Rng (via rngOf(c).next())
+#include "spawn.h"       // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
-#include "rng.h"       // class Rng (via rngOf(c).next())
-#include "collision.h"  // Collision::listScan (FUN_80031780)
-#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-void rec_super_call(Core*, uint32_t);
-void rec_dispatch(Core*, uint32_t);
+void rec_super_call(Core *, uint32_t);
+void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
 constexpr uint32_t BEH_FN = 0x8013C538u;
 
-}  // namespace
+} // namespace
 static constexpr GuestFrameSpill kSpills_8013C538[5] = {
-  { 19, 28 },
-  { 31 /*ra*/, 32 },
-  { 18, 24 },
-  { 17, 20 },
-  { 16, 16 },
-};   // frame=40, abi_extract --scaffold --guestabi
+    {19, 28},
+    {31 /*ra*/, 32},
+    {18, 24},
+    {17, 20},
+    {16, 16},
+}; // frame=40, abi_extract --scaffold --guestabi
 
-void beh_scatter_record_dither(Core* c) {
+void beh_scatter_record_dither(Core *c) {
   GuestFrame<40, 5> frame(c, kSpills_8013C538);
-  uint32_t obj = c->r[4];                        // s3 = a0 (node)
+  uint32_t obj = c->r[4]; // s3 = a0 (node)
   uint32_t v0, v1;
-  int s0 = 0, s1 = 0, s2 = 0;                    // guest s0/s2 = running record ptrs, s1 = counter
+  int s0 = 0, s1 = 0, s2 = 0; // guest s0/s2 = running record ptrs, s1 = counter
   // c558 sets a0=1 right after the prologue; it survives only into the STATE 0 < 28 / >= 6 branch
   // (node[0x4e] = a0 = 1) — handled inline there. We don't mirror it into c->r since no leaf reads
   // a0 before it is overwritten (L63c writes a0 = 0x800E7E80).
 
-  uint8_t st = c->mem_r8(obj + 4);               // node[4] = state
-  if (st == 1) goto L63c;
-  if (st < 2) { if (st == 0) goto L590; goto L7d4; }  // st<2 -> only st==0 reachable
-  if (st < 4) goto L7cc;                              // st in {2,3}
-  goto L7d4;                                          // st >= 4 default
+  uint8_t st = c->mem_r8(obj + 4); // node[4] = state
+  if (st == 1) {
+    goto L63c;
+  }
+  if (st < 2) {
+    if (st == 0) {
+      goto L590;
+    }
+    goto L7d4;
+  } // st<2 -> only st==0 reachable
+  if (st < 4) {
+    goto L7cc; // st in {2,3}
+  }
+  goto L7d4; // st >= 4 default
 
- L7cc:                                           // STATE 2/3 — FUN_8007A624(node)
+L7cc: // STATE 2/3 — FUN_8007A624(node)
   eng(c).spawn.despawn(obj);
   goto L7d4;
 
- L590:                                           // STATE 0 — seed the scatter record list
+L590: // STATE 0 — seed the scatter record list
   v1 = c->mem_r8(0x800BF9E0u);
-  if (!(v1 < 28)) goto L678;                     // >= 28 -> node[4]=3
-  if (v1 < 6) { c->mem_w16(obj + 0x4e, 7); s1 = 7; }
-  else        { c->mem_w16(obj + 0x4e, 1); s1 = 1; }   // a0==1 here
-  if (s1 <= 0) goto L634;
+  if (!(v1 < 28)) {
+    goto L678; // >= 28 -> node[4]=3
+  }
+  if (v1 < 6) {
+    c->mem_w16(obj + 0x4e, 7);
+    s1 = 7;
+  } else {
+    c->mem_w16(obj + 0x4e, 1);
+    s1 = 1;
+  } // a0==1 here
+  if (s1 <= 0) {
+    goto L634;
+  }
   s2 = (int)(obj + 0x50);
   s0 = (int)(obj + 0x56);
- L5cc:
+L5cc:
   // FUN_80032A44 = Rng::inRange (native). Each call scales the shared PSX rand() into a range.
   v0 = rngOf(c).inRange(0, 128);
   s1 -= 1;
@@ -95,34 +113,46 @@ void beh_scatter_record_dither(Core* c) {
   c->mem_w16((uint32_t)s0 - 2, v1);
   v0 = rngOf(c).inRange(224, 288);
   c->mem_w16((uint32_t)s0 + 0, (uint16_t)v0);
-  s0 += 8;                                       // c630 delay slot (always executes)
-  if (s1 > 0) goto L5cc;
- L634:
+  s0 += 8; // c630 delay slot (always executes)
+  if (s1 > 0) {
+    goto L5cc;
+  }
+L634:
   c->mem_w8(obj + 4, 1);
   // fall through to STATE 1
 
- L63c:                                           // STATE 1
-  c->r[4] = 0x800E7E80u;                         // a0 = area block base
-  v1 = c->mem_r8(0x800E7FEBu);                   // lbu 363(a0)
-  if (v1 == 1) goto L7d4;
-  v0 = c->mem_r8(0x800E7EAAu);                   // lbu 42(a0)
-  if (!(v0 < 12)) goto L678;                     // >= 12 -> node[4]=3
+L63c:                          // STATE 1
+  c->r[4] = 0x800E7E80u;       // a0 = area block base
+  v1 = c->mem_r8(0x800E7FEBu); // lbu 363(a0)
+  if (v1 == 1) {
+    goto L7d4;
+  }
+  v0 = c->mem_r8(0x800E7EAAu); // lbu 42(a0)
+  if (!(v0 < 12)) {
+    goto L678; // >= 12 -> node[4]=3
+  }
   v0 = c->mem_r32(obj + 0x38);
-  c->mem_w32(obj + 0x34, v0);                    // node[0x34] = node[0x38]
-  if (v0 != 0) goto L684;
+  c->mem_w32(obj + 0x34, v0); // node[0x34] = node[0x38]
+  if (v0 != 0) {
+    goto L684;
+  }
   // node[0x38] == 0 -> fall into L678
- L678:
+L678:
   c->mem_w8(obj + 4, 3);
   goto L7d4;
 
- L684:
+L684:
   v0 = c->mem_r8(0x800BF9E0u);
-  if (!(v0 < 6)) goto L728;                      // >= 6 -> the &7 jitter loop
+  if (!(v0 < 6)) {
+    goto L728; // >= 6 -> the &7 jitter loop
+  }
   s2 = (int)(obj + 0x50);
-  if (c->mem_r16s(obj + 0x4e) <= 0) goto L7ac;
+  if (c->mem_r16s(obj + 0x4e) <= 0) {
+    goto L7ac;
+  }
   s1 = 0;
   s0 = (int)(obj + 0x54);
- L6b0:
+L6b0:
   v0 = (uint32_t)rngOf(c).next();
   s1 += 1;
   v1 = (uint16_t)(c->mem_r16((uint32_t)s2 + 0) - 1 + (uint32_t)(((int32_t)v0 >> 7) & 3));
@@ -134,14 +164,18 @@ void beh_scatter_record_dither(Core* c) {
   s2 += 8;
   v1 = (uint16_t)(c->mem_r16((uint32_t)s0 + 0) - 2 + (uint32_t)(((int32_t)v0 >> 7) & 3));
   c->mem_w16((uint32_t)s0 + 0, v1);
-  s0 += 8;                                       // c71c delay slot
-  if (s1 < c->mem_r16s(obj + 0x4e)) goto L6b0;
+  s0 += 8; // c71c delay slot
+  if (s1 < c->mem_r16s(obj + 0x4e)) {
+    goto L6b0;
+  }
   goto L7ac;
- L728:
-  if (c->mem_r16s(obj + 0x4e) <= 0) goto L7ac;
+L728:
+  if (c->mem_r16s(obj + 0x4e) <= 0) {
+    goto L7ac;
+  }
   s1 = 0;
   s0 = (int)(obj + 0x54);
- L73c:
+L73c:
   v0 = (uint32_t)rngOf(c).next();
   s1 += 1;
   v1 = (uint16_t)(c->mem_r16((uint32_t)s2 + 0) - 3 + (uint32_t)(((int32_t)v0 >> 7) & 7));
@@ -153,12 +187,17 @@ void beh_scatter_record_dither(Core* c) {
   s2 += 8;
   v1 = (uint16_t)(c->mem_r16((uint32_t)s0 + 0) - 4 + (uint32_t)(((int32_t)v0 >> 7) & 7));
   c->mem_w16((uint32_t)s0 + 0, v1);
-  s0 += 8;                                       // c7a8 delay slot
-  if (s1 < c->mem_r16s(obj + 0x4e)) goto L73c;
- L7ac:
-  c->r[4] = obj; eng(c).cull.coneCull2b278();   // FUN_8002B278 (native)
-  if (c->r[2] != 0) goto L7d4;
+  s0 += 8; // c7a8 delay slot
+  if (s1 < c->mem_r16s(obj + 0x4e)) {
+    goto L73c;
+  }
+L7ac:
+  c->r[4] = obj;
+  eng(c).cull.coneCull2b278(); // FUN_8002B278 (native)
+  if (c->r[2] != 0) {
+    goto L7d4;
+  }
   eng(c).collision.listScan(obj);
- L7d4:
+L7d4:
   return;
 }

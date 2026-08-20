@@ -20,40 +20,55 @@
 // full-grown bar matches the guest's — h/kGuestFullH of the frame at each edge. READ-ONLY (the substrate
 // manager still runs underneath and owns the guest packets; this only reads the slot table).
 #include "core.h"
-#include "producer_scope.h"   // ProducerScope — graphics-producer DB, native leg
 #include "game.h"
+#include "producer_scope.h" // ProducerScope — graphics-producer DB, native leg
 #include "render.h"
 #include "render_queue.h"
 
 // Wide-render-target width (428 @16:9, 560 @21:9, 320 @4:3); ofx used elsewhere. Declared in gpu_vk.cpp.
-int gpu_vk_wide_engine(Core* c);
-int gpu_vk_wide_engine_w(Core* c);
+int gpu_vk_wide_engine(Core *c);
+int gpu_vk_wide_engine_w(Core *c);
 
 // cineBarsRender — emit the cinematic letterbox as a native full-width overlay. Emits nothing when no
 // letterbox is armed. Call from any cutscene-capable scene.
 void Render::cineBarsRender() {
-  Core* c = mCore;
-  if (c->mem_r8(0x1F80019Au) != 2) return;               // UI-effect manager not armed -> no bars
+  Core *c = mCore;
+  if (c->mem_r8(0x1F80019Au) != 2) {
+    return; // UI-effect manager not armed -> no bars
+  }
 
   // Find the active letterbox slot's progress (0..1). The guest grows h to kGuestFullH over its intro.
-  constexpr int kGuestFullH = 12;                        // guest bar height at full (FUN_80026864 caps h>11)
+  constexpr int kGuestFullH = 12; // guest bar height at full (FUN_80026864 caps h>11)
   float progress = 0.0f;
   for (int i = 0; i < 8; i++) {
     const uint32_t slot = 0x80100400u + (uint32_t)i * 0x4Cu;
-    if (c->mem_r8(slot) == 0 || c->mem_r8(slot + 2) != 1) continue;   // active + type-1 (letterbox)
+    if (c->mem_r8(slot) == 0 || c->mem_r8(slot + 2) != 1) {
+      continue; // active + type-1 (letterbox)
+    }
     const uint8_t state = c->mem_r8(slot + 4);
-    if (state < 1 || state > 3) continue;                            // 1/2/3 draw; 0 armed-not-drawing
+    if (state < 1 || state > 3) {
+      continue; // 1/2/3 draw; 0 armed-not-drawing
+    }
     const int h = (int16_t)c->mem_r16(slot + 8);
-    if (h > 0) { float p = (float)h / (float)kGuestFullH; progress = p > progress ? p : progress; }
+    if (h > 0) {
+      float p = (float)h / (float)kGuestFullH;
+      progress = p > progress ? p : progress;
+    }
   }
-  if (progress <= 0.0f) return;
-  if (progress > 1.0f) progress = 1.0f;
+  if (progress <= 0.0f) {
+    return;
+  }
+  if (progress > 1.0f) {
+    progress = 1.0f;
+  }
 
   // Native bar geometry, sized to the DISPLAY (not the PSX 320x224). Thickness = the guest's cinematic
   // frame fraction (kGuestFullH of 240) scaled by progress, applied symmetrically at top and bottom.
-  const int H = 240;                                     // present framebuffer height (native draw units)
+  const int H = 240; // present framebuffer height (native draw units)
   const int barPx = (int)(progress * (float)kGuestFullH + 0.5f);
-  if (barPx <= 0) return;
+  if (barPx <= 0) {
+    return;
+  }
 
   // Producer DB, native leg. Keyed on guest 0x80026864 — and that address is not a guess or a comment:
   // it is the value the GUEST'S OWN type->handler table holds, read out of the binary
@@ -70,13 +85,37 @@ void Render::cineBarsRender() {
   const int oy = c->game->gpu.s_off_y;
 
   auto bar = [&](int yTop, int yBot) {
-    if (yBot <= yTop) return;
-    int xs[4] = { xL, xR, xL, xR };
-    int ys[4] = { yTop + oy, yTop + oy, yBot + oy, yBot + oy };
-    int z[4] = { 0, 0, 0, 0 }; unsigned char k[4] = { 0, 0, 0, 0 };
-    c->game->activeRq().push2dQuad(RQ_OVERLAY, /*order_2d_fg=*/1, xs, ys, z, z, k, k, k,
-                                   0, 0, /*mode=*/3, /*raw=*/0, 0, 0, 0, 0, 0, 0, 0, 0, 1023, 511);
+    if (yBot <= yTop) {
+      return;
+    }
+    int xs[4] = {xL, xR, xL, xR};
+    int ys[4] = {yTop + oy, yTop + oy, yBot + oy, yBot + oy};
+    int z[4] = {0, 0, 0, 0};
+    unsigned char k[4] = {0, 0, 0, 0};
+    c->game->activeRq().push2dQuad(RQ_OVERLAY,
+                                   /*order_2d_fg=*/1,
+                                   xs,
+                                   ys,
+                                   z,
+                                   z,
+                                   k,
+                                   k,
+                                   k,
+                                   0,
+                                   0,
+                                   /*mode=*/3,
+                                   /*raw=*/0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   0,
+                                   1023,
+                                   511);
   };
-  bar(0, barPx);             // top bar, flush to the top edge
-  bar(H - barPx, H);         // bottom bar, flush to the bottom edge (symmetric — no floating gap)
+  bar(0, barPx);     // top bar, flush to the top edge
+  bar(H - barPx, H); // bottom bar, flush to the bottom edge (symmetric — no floating gap)
 }

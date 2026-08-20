@@ -5,10 +5,10 @@
 // SUBSTRATE's own GTE + scratchpad transform composer, not pc_render. It executes underneath on
 // both SBS cores and every guest write it performs is part of the byte-exact state SBS compares.
 #pragma once
-#include <cstdint>
 #include "core.h"
+#include <cstdint>
 
-class  Game;
+class Game;
 
 // The composed model-view lives in the scratchpad: a 3x3 rotation as 16-bit elements from +0,
 // followed by the three 32-bit translation components.
@@ -26,13 +26,25 @@ constexpr uint32_t kComposeTrans = 20u;
 // with a store count far short of the oracle's. A setter that grew a second statement or a nested
 // brace would fail the same way. (Both traps were hit while porting this very function.)
 struct ComposeArea {
-  Core* c;
-  uint32_t base() const { return c->r[16]; }
-  uint32_t elem(uint32_t off) const { return c->mem_r16(base() + off); }
-  void setElem(uint32_t off, uint32_t v) const { c->mem_w16(base() + off, (uint16_t)v); }
-  uint32_t rotWord(uint32_t i) const { return c->mem_r32(base() + 4u * i); }
-  uint32_t trans(uint32_t axis) const { return c->mem_r32(base() + kComposeTrans + 4u * axis); }
-  void setTrans(uint32_t axis, uint32_t v) const { c->mem_w32(base() + kComposeTrans + 4u * axis, v); }
+  Core *c;
+  uint32_t base() const {
+    return c->r[16];
+  }
+  uint32_t elem(uint32_t off) const {
+    return c->mem_r16(base() + off);
+  }
+  void setElem(uint32_t off, uint32_t v) const {
+    c->mem_w16(base() + off, (uint16_t)v);
+  }
+  uint32_t rotWord(uint32_t i) const {
+    return c->mem_r32(base() + 4u * i);
+  }
+  uint32_t trans(uint32_t axis) const {
+    return c->mem_r32(base() + kComposeTrans + 4u * axis);
+  }
+  void setTrans(uint32_t axis, uint32_t v) const {
+    c->mem_w32(base() + kComposeTrans + 4u * axis, v);
+  }
 };
 
 class ObjModelView {
@@ -51,7 +63,7 @@ public:
   // On return the GTE control registers hold the composed model-view transform (R in CR0-4, T in
   // CR5-7) and the scratchpad compose area at 0x1F800000 holds the same thing, which is what the
   // per-record RTPT/RTPS calls downstream consume.
-  static void composeIntoGte(Core* c);
+  static void composeIntoGte(Core *c);
 
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

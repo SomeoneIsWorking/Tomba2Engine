@@ -20,8 +20,8 @@
 //
 // That is 20 guest stack writes these drafts omit. (0x8012F494 was the fourth; it has since been
 // REPLACED by a port_gen body in game/ai/substate_edge_native.cpp and deleted from here — a second
-// analysis found EIGHT defects in it, of which the missing spills were only one.) Wiring any of them as-is is a GUARANTEED SBS
-// divergence: the native leg leaves those bytes stale while the substrate leg writes them, and the
+// analysis found EIGHT defects in it, of which the missing spills were only one.) Wiring any of them as-is is a
+// GUARANTEED SBS divergence: the native leg leaves those bytes stale while the substrate leg writes them, and the
 // byte-compare covers the stack. This is the "MIRROR THE GUEST STACK" rule in CLAUDE.md — descending
 // sp without reproducing the spills is the exact failure it names, and a C local is not a mirror.
 //
@@ -45,24 +45,22 @@
 //   obj[4]=state, obj[5]=substate, obj[8]=childCount(u8), obj[0xC0+4*i]=child-pointer table (SAME
 //   table NodeXform::propagate walks) — obj[0x60] here is 0x1F800137 (fixed CD/controller-state
 //   scratchpad byte guarded by case 1 of the orchestrator, unrelated to this file's obj fields).
+#include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "cfg.h"
-#include "math/gte_math.h"   // Math::rotmat/matMul/applyMatlv/applyMatrixLV/rotY/rotZ (mathOf(c))
-#include "math/mtx.h"        // Mtx::identity (mtxOf(c))
+#include "math/gte_math.h" // Math::rotmat/matMul/applyMatlv/applyMatrixLV/rotY/rotZ (mathOf(c))
+#include "math/mtx.h"      // Mtx::identity (mtxOf(c))
 #include <stdint.h>
 
-extern "C" void rec_dispatch(Core* c, uint32_t addr);
+extern "C" void rec_dispatch(Core *c, uint32_t addr);
 
 namespace {
-constexpr uint32_t SCR_A = 0x1F800000u;  // scratch matrix A (rotmat/identity dest)
-constexpr uint32_t SCR_B = 0x1F800020u;  // scratch matrix B (identity/rotZ/rotY compose dest)
-}  // namespace
+constexpr uint32_t SCR_A = 0x1F800000u; // scratch matrix A (rotmat/identity dest)
+constexpr uint32_t SCR_B = 0x1F800020u; // scratch matrix B (identity/rotZ/rotY compose dest)
+} // namespace
 
 // (removed 99 lines: the hand draft — REPLACED by a port_gen body in game/ai/substate_edge_native.cpp. This file's
 //  drafts omit their guest stack spills (see the banner above); do not resurrect it.)
 
-
 // (removed 461 lines: the hand draft — REPLACED by a port_gen body in game/ai/substate_edge_native.cpp. This file's
 //  drafts omit their guest stack spills (see the banner above); do not resurrect it.)
-

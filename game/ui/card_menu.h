@@ -50,5 +50,5 @@ public:
   // within a bucket) at RQ_OVERLAY — ONE layer for the whole screen, one band below the RQ_HUD
   // glyphs the Font taps produce, so chrome can never paint over its own text (kanban #28 / #64).
   // The stacking WITHIN the page is the guest's ordering table and nothing else.
-  void drawCollected(Core* c);
+  void drawCollected(Core *c);
 };

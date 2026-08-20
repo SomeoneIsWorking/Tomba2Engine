@@ -21,7 +21,7 @@ class Core;
 
 class Math {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // matMul(rPtr, mPtr, outPtr): FUN_80084110 — 3x3 matrix multiply P = R x M written to outPtr
   //   in CR-packed layout (5 words). Also CTC2-loads R into GTE CR0-4 so a following MVMVA

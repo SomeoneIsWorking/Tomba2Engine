@@ -1419,120 +1419,35 @@ anything — note the pad replay CANNOT be used to compare legs (below).
 **refs:** kanban #60 (and #2/#58, same family); logs `scratch/logs/{sched60,flagw,cursor,obj2,
 partner,behall,fgall}.log`; repro `replays/bugs/sequence-softlock-2.pad`.
 
-## Why a dev-warped area never runs its OWN per-area handler (traced 2026-07-30)
-This is the concrete reason boss-area (and any warped area's) code sits idle, and it is NOT the
-kanban #36 symptom. Traced end to end; each step measured rather than assumed.
+## Dev warp is one game-owned cold operation (verified 2026-08-21)
 
-- **The overlay IS loaded and IS routed correctly.** `PSXPORT_DEBUG=ovload` across
-  `newgame; skip 3000; warp 12` prints `slot 1 <- A0C`. The router identifies the resident overlay by
-  a 32-byte signature read out of guest RAM (generated/overlay_table.c sig_a0c), and it matches. The
-  area byte 0x800BF870 reads 0x0C after the warp and STAYS 12 — so the "#36 resets bf870 to 0"
-  symptom is NOT occurring on this path either.
-- **Each area has a handler, in the table at 0x800A45B8.** Entry 12 = 0x8010CC28, which is inside
-  A0C's range. That handler gates on bit 2 of the byte at 0x800BFA1A; on a fresh save that byte reads
-  0x00, so the gate is OPEN and the handler's main block would run.
-- **But the handler is never invoked.** Zero dispatches to 0x8010CC28 after the warp.
-- **WHO invokes it:** the table is read in exactly ONE place across all of generated/ —
-  `gen_func_80058648`, which does `area = mem_r8(0x800BF870); rec_dispatch(table[area])`. That
-  function is `ActorTomba::enterOuterState0`, ALREADY NATIVELY OWNED
-  (game/player/actor_tomba.cpp:2304-2358), and the native DOES reproduce the table dispatch. So the
-  mechanism is present and correct on both legs.
-- **ROOT CAUSE: the dev warp skips the transition that would call it.** enterOuterState0 runs on
-  ENTERING outer state 0 and only takes the table-dispatch path when its mode argument is 0. The dev
-  warp (external/psxport/runtime/recomp/native_boot.cpp, the warpArmed block) deliberately forces the
-  area machine straight into a RUNNING state — `sm[0x48]=2, sm[0x4a]=1, sm[0x4c]=nexttab[dest]` —
-  after calling devWarpAreaLoad. A real walk-in reaches the destination through state 0; the warp
-  jumps past it. So the area's data and code are resident, and nothing ever calls the area's own
-  entry handler, which is what would arm its objects.
-- **THAT "1 of 170" FIGURE WAS WRONG — corrected same day, and the error was mine.** `recdep` prints
-  only the TOP 40 dispatch targets by call count (`cap = cfg_dbg("recdep-all") ? v.size() : 40` in
-  overlay_router.cpp). A function called ONCE per area entry can never appear in a top-40 list
-  dominated by per-frame work, so counting A0C members of that list measured the cap, not the game.
-  Re-measured with `PSXPORT_DEBUG=recdep-all`: **17 of A0C's 170 functions are reached** after
-  `warp 12`, and the area handler 0x8010CC28 is among them. ALWAYS use recdep-all for a reach or
-  coverage question; plain recdep is a hotness ranking and nothing else.
-- **NOT YET DONE / the next step:** drive the outer-state-0 entry after the area load so the per-area
-  handler fires, then re-measure A0C reach. That is a change to the dev-warp path in native_boot.cpp,
-  and it should be validated by the A0C reach count going up, not by the screenshot looking right.
-- **INSTRUMENT CAVEAT that bit me twice in this investigation:** `recdep` prints a CUMULATIVE
-  histogram at exit, so a `newgame; skip 3000; warp N` run mixes field-phase hits with post-warp ones.
-  I twice read A00 field hits as "A00 code running in the warped area". Diff against a no-warp
-  baseline before drawing any conclusion. It also counts only SUBSTRATE dispatch targets, so a
-  natively-owned function (enterOuterState0 itself) never appears at all — absence there is not
-  evidence of absence.
-- **refs:** generated/shard_7.c:7636 (the only table read); game/player/actor_tomba.cpp:2304-2358;
-  external/psxport/runtime/recomp/native_boot.cpp warpArmed block; generated/ov_a0c_shard_0.c
-  ov_a0c_gen_8010CC28; scratch/logs/boss_probe.log
+The standalone REPL and SBS harness used to implement different pieces of a Tomba area transition.
+The REPL synchronously loaded the destination and forced the area machine into its running state;
+SBS preloaded that destination and then injected an old-area door record. The SBS hybrid retained
+old-area objects while replacing their overlay and handler tables. Their next indirect dispatch
+therefore interpreted an address from the old overlay in the destination overlay.
 
-### dev-warp now runs the destination area's entry handler (2026-07-30)
-Added `GameHooks::devWarpAreaEnter` (framework) -> `Sop::transitionAreaEnter` (game), called from the
-warpArmed block in native_boot.cpp after the area load. It reads the per-area handler table at
-0x800A45B8 with the area byte and dispatches the entry with a0 = ActorTomba::G_ADDR — the same
-indexing ActorTomba::enterOuterState0 does, which is the only other reader of that table in the whole
-binary. Game-side because the framework must not know where a game keeps that table; null-guarded, so
-a game without one is unaffected.
+`GameHooks::devWarp` is now the one authority for a complete cold warp. Tomba owns the guest layout
+and ordering in `game/core/game_hooks.cpp`: publish the load slot, run `transitionAreaLoad`, publish
+the sub-area, clear any pending door transition, select the destination running state, then run
+`transitionAreaEnter`. Framework REPL and SBS code own only command timing and range validation.
 
-VERIFIED: the handler now provably dispatches (`[sop] AREA-ENTER: area 12 -> handler 0x8010CC28`, and
-0x8010CC28 appears in a recdep-all run). SBS unaffected — 50/50 identical, zero divergence, as
-expected since the hook only fires on a dev warp and no replay warps.
+Measured gates:
 
-NOT ESTABLISHED, and deliberately not claimed: whether this INCREASED A0C reach. The pre-change
-baselines were taken with the capped `recdep` meter and are invalid as a comparison, so there is no
-sound before/after. The change is justified on its own terms — an area entered by any route should
-run its own entry handler, and it demonstrably now does — not on a measured delta. A real A/B needs a
-recdep-all baseline built from the parent commit in a SEPARATE CLONE (never a temporary revert in the
-shared tree).
+- standalone `newgame; run 300; warp 4 0; run 600` reached area 4, ran to f927, dispatched
+  `fieldHudItemRing` nine times per frame, reconciled 926 frame ledgers, and had no recomp miss;
+- true-oracle SBS reached player control at f246 on both cores, cold-warped both at f300, captured
+  both panes at f560/f650/f800/f900, and exited cleanly at f930 with no recomp miss.
 
-### SBS warp into a DIFFERENT-overlay area: half fixed, and the remaining half named (2026-07-30)
-`PSXPORT_SBS_WARP` previously aborted for area 12 because it wrote the door record and let the game
-transition, without ever making the destination's code overlay resident — so
-ActorTomba::enterOuterState0's per-area dispatch hit "no recompiled fn for 0x8010CC28".
+### Why A04 `0x801158E0` must never be seeded
 
-FIXED HALF: the warp block now primes the load-task slot and runs the synchronous area load on BOTH
-cores (the same `devWarpAreaLoad` the REPL `warp` uses) before writing the door record. Null-guarded,
-identical on both legs so lockstep holds. MEASURED EFFECT: both cores now actually reach the
-destination — `WARP fired ... (curA=12 curB=12)`, where before the fix it read `curA=0 curB=0`. The
-0x8010CC28 miss is gone.
+The former hybrid failed at `0x801158E0`, but adding that address to A04's recomp seeds merely changed
+the fail-fast miss into stack corruption. MAIN's resident type-2 table word at `0x8009D31C` names a
+valid A00 entry at that address. A04 instead contains the middle of `FUN_80115708`: its caller-owned
+48-byte frame and saved s0/s1/s2/ra are prerequisites, and the shared epilogue at `0x80115960`
+restores them. Ghidra did not discover a function entry there; forced decompilation exposed the
+inherited registers and positive stack accesses. Calling that tail with the resident walker's
+32-byte frame restored `s0=0x0800CE70` from unrelated memory and corrupted subsequent dispatch.
 
-REMAINING HALF, and it is a different problem: the run now aborts on
-`no recompiled fn for 0x801158E0 (caller ra=0x800263C0, a0=0x80100498)`. **0x801158E0 is an A00
-address, not A0C.** So with A0C correctly resident, a node left over from the FIELD area is still
-registered with its A00 handler and the entity walk dispatches it into the wrong overlay. This is
-exactly the caveat native_boot.cpp's warp block already states about itself — "some stale prior-area
-object state may linger, acceptable for a debug warp" — which is true for a screenshot and false for
-SBS, where the stale dispatch is fatal.
-
-So the missing piece is the OLD AREA'S OBJECT TEARDOWN. The door-record path was supposed to supply it
-(the record's trigger type 3 routes to the full area machine, which "tears down the old area's object
-tasks BEFORE swapping the overlay"), but running the synchronous load up front pre-empts that ordering.
-Whoever picks this up: either drive the teardown explicitly before the load, or let the door-record
-machine run to the point of teardown and only then force the load — do NOT just suppress the miss.
-
-NO REGRESSION: the ordinary no-warp SBS gate still reports 50/50 A/B identical, zero divergence, so
-the change is safe to leave in while the teardown half is solved.
-
-### DEAD END: you cannot fix the SBS cross-overlay warp by REORDERING the load (tried 2026-07-30)
-Recorded so the next session does not spend the same hour. Two orderings were tried; both fail, and
-they fail in OPPOSITE ways, which is what makes the frame-delay idea unfixable rather than untuned:
-
-- **Load first, then write the door record** (this is what is committed): both cores DO reach the
-  destination — `WARP fired ... (curA=12 curB=12)` — but the run then misses the A00 address
-  0x801158E0. A node left over from the field area still carries its old-overlay handler and the
-  entity walk dispatches it into the now-resident A0C. The up-front load pre-empted the area machine's
-  teardown of the old area's object tasks.
-- **Door record first, load deferred by 60 frames** (tried, reverted, NOT committed): the teardown
-  gets its chance, but the machine dispatches the per-area handler well inside those 60 frames, so the
-  miss returns to 0x8010CC28 with `curA=0 curB=0` — i.e. worse than the committed version.
-
-So the teardown and the per-area handler dispatch BOTH happen inside the same short window, and there
-is no delay value that sits between them reliably. Picking one would be a magic constant tuned to one
-replay — the exact thing CLAUDE.md bans — and it would silently rot the moment the timing shifted.
-
-**Do not tune the delay.** The real question, still unanswered, is why the game's OWN area machine
-does not bring the destination overlay in under SBS when it evidently does in real play. That is where
-the next attempt should go: instrument the machine's load path (sm[0x4c] cycle, the CD/overlay read)
-on the SBS leg and find where it diverges from the REPL-warp leg, rather than forcing the load from
-outside. Three attempts have now failed from the outside; the fourth should go inside.
-
-Kept: the committed load-first version, because it is strictly closer (both cores reach the area) and
-the ordinary no-warp gate is unaffected at 50/50 identical, zero divergence.
+The seed and its temporary gate were removed. Falsify this finding only with executable evidence of
+a callable A04 prologue/ABI at `0x801158E0`; an eliminated miss is not such evidence.

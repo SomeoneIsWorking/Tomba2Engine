@@ -18,7 +18,7 @@
 // generated/ ground truth, not a port DECISION differentially validated core-vs-core).
 #pragma once
 struct Core;
-class  Game;
+class Game;
 
 class QuadRtptSubmit {
 public:
@@ -27,7 +27,7 @@ public:
   // maps to which logical slot of `dst` based on cornerIndex (0..3 — the quad's "which edge is up"
   // orientation, e.g. a rope/flame segment whose facing rotates as it sways). Pure data movement +
   // a few "-1" bias adjustments on two of the four rotations; NO GTE, NO memory outside dst/src.
-  static void rotateQuadCorners(Core* c);   // FUN_8003B054: a0=dst, a1=src, a2=cornerIndex(0..3)
+  static void rotateQuadCorners(Core *c); // FUN_8003B054: a0=dst, a1=src, a2=cornerIndex(0..3)
 
   // FUN_8003B320(out=a0, composedXform=a1, otzBias=a2): the shared "project a quad through an
   // already-composed transform and link it into the OT" leaf used by the rope/flame per-quad
@@ -49,7 +49,7 @@ public:
   // claimed "no NCLIP/backface test here"; the call exists, it's just a no-op here). Real 16-byte
   // guest stack frame (RE: `addiu sp,-16`, pure scratch, no saved registers) MIRRORED per
   // CLAUDE.md — see .cpp.
-  static void submitQuad(Core* c);          // FUN_8003B320: a0=out, a1=composedXform(6 words), a2=otzBias
+  static void submitQuad(Core *c); // FUN_8003B320: a0=out, a1=composedXform(6 words), a2=otzBias
 
   // Wire both leaf addresses into the recompiler's OWN process-global override table
   // (shard_set_override -> g_override[], generated/shard_disp.c) via overrides::install
@@ -57,5 +57,5 @@ public:
   // direct C call the recompiler generates (`func_8003B054(c)`/`func_8003B320(c)`), never
   // rec_dispatch, so this ONE registration (called once per Game) covers every call site,
   // including both SBS cores.
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

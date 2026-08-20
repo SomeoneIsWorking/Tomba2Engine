@@ -41,26 +41,28 @@
 //
 // 0x80027A4C now runs its plain gen body for guest-state fidelity (SBS stays byte-exact — the guest still
 // executes it; pc_render simply no longer scrapes it). Read-only overlay: no guest write.
-#include "core.h"
-#include "game.h"
-#include "render.h"
-#include "render_queue.h"
-#include "mesh_quads.h"      // host-side Math::rotmat / trig for the rotated ring member
-#include "render_internal.h"   // ObjScope / cur_render_node / proj_pz_to_ord
-#include "effect_lerp.h"
-#include "fx_sprite.h"         // SpriteAnchor — the family's shared scale / OT-gate / depth-cue relations
-#include "game_ctx.h"          // trigOf(c)
-#include "trig.h"              // Trig::rsin / rcos — the ports of FUN_80083E80 / FUN_80083F50
-#include <lucent/log.h>        // `fxsprite` diagnostic channel
+#include "fx_sprite.h" // SpriteAnchor — the family's shared scale / OT-gate / depth-cue relations
 #include "cfg.h"
+#include "core.h"
+#include "effect_lerp.h"
+#include "game.h"
+#include "game_ctx.h"   // trigOf(c)
+#include "mesh_quads.h" // host-side Math::rotmat / trig for the rotated ring member
+#include "render.h"
+#include "render_internal.h" // ObjScope / cur_render_node / proj_pz_to_ord
+#include "render_queue.h"
+#include "trig.h"       // Trig::rsin / rcos — the ports of FUN_80083E80 / FUN_80083F50
+#include <lucent/log.h> // `fxsprite` diagnostic channel
 
 // --- the family's shared relations (fx_sprite.h) ---------------------------------------------------
 // The emitters set DQA to a small integer and DQB to 0 before RTPS, so the depth-cue MAC0 becomes a
 // per-Z sprite scale. baseScale reproduces MAC0 = n·DQA, n=(H·0x20000/SZ3 + 1)/2 (the RTPS perspective
 // divide, integer-faithful; the GTE's UNR reciprocal differs by <1 ULP and never changes a pixel here).
 int32_t SpriteAnchor::baseScale(uint32_t H, int sz, int dqa) {
-  int64_t div = ((int64_t)H << 17) / sz;          // H * 0x20000 / SZ3
-  if (div > 0x1FFFF) div = 0x1FFFF;               // GTE divide saturates (also the SZ3-too-small case)
+  int64_t div = ((int64_t)H << 17) / sz; // H * 0x20000 / SZ3
+  if (div > 0x1FFFF) {
+    div = 0x1FFFF; // GTE divide saturates (also the SZ3-too-small case)
+  }
   const int64_t n = (div + 1) >> 1;
   return (int32_t)(n * dqa);
 }
@@ -68,9 +70,13 @@ int32_t SpriteAnchor::baseScale(uint32_t H, int sz, int dqa) {
 // The emitter's OT-key range gate (its emit/skip decision), reproduced on the native SZ3 so a producer
 // draws exactly the anchors the guest would. Logarithmic bucket map, valid range [4, 0x7FF].
 bool SpriteAnchor::otKeyInRange(int sz, int bias) {
-  if (sz <= 0) return false;
+  if (sz <= 0) {
+    return false;
+  }
   int k = (sz >> 2) + bias;
-  if (k < 4) k = 4;
+  if (k < 4) {
+    k = 4;
+  }
   k = (k >> ((k >> 10) & 0x1f)) + (k >> 10) * 0x200;
   return (uint32_t)(k - 4) <= 0x7FBu;
 }
@@ -81,32 +87,40 @@ uint8_t SpriteAnchor::depthCue(uint8_t comp, int32_t ir0, int32_t farComp) {
   const int64_t mac = (int64_t)comp << 16;
   int64_t ir = (((int64_t)farComp << 12) - mac) >> 12;
   ir = ((ir * ir0) + mac) >> 12;
-  if (ir > 32767) ir = 32767;
-  if (ir < -32768) ir = -32768;
+  if (ir > 32767) {
+    ir = 32767;
+  }
+  if (ir < -32768) {
+    ir = -32768;
+  }
   int64_t out = ir / 16;
-  if (out < 0) out = 0;
-  if (out > 255) out = 255;
+  if (out < 0) {
+    out = 0;
+  }
+  if (out > 255) {
+    out = 255;
+  }
   return (uint8_t)out;
 }
 
 namespace {
 
 // --- node field layout (RE'd; confirmed live) ------------------------------------------------------
-constexpr uint32_t kAnchorXY = 0x2Cu;   // packed VX (lo16) | VY (hi16), world
-constexpr uint32_t kAnchorZ  = 0x30u;   // VZ in lo16, world
-constexpr uint32_t kOtBias   = 0x32u;   // s16 OT-key bias
-constexpr uint32_t kRecList  = 0x34u;   // 8-byte record list (a0 to the packet writer)
-constexpr uint32_t kClutPage = 0x44u;   // clut (lo16) | tpage (hi16) (a1)
-constexpr uint32_t kRenderFn = 0x18u;   // custom render fn = the emitter address
-constexpr uint32_t kE5cScale = 0x06u;   // u8 extra scale numerator (FUN_80027E5C)
-constexpr uint32_t kVariant3 = 0x03u;   // '!' selects DQA=4 in the FUN_800281EC variant
-constexpr uint32_t kPartCount= 0x4Eu;   // s16 particle count (FUN_800281EC)
-constexpr uint32_t kPartArray= 0x50u;   // particle array base, stride 8 (FUN_800281EC)
-constexpr uint32_t kPartScale= 0x06u;   // s16 per-particle scale numerator (particle+6)
+constexpr uint32_t kAnchorXY = 0x2Cu;  // packed VX (lo16) | VY (hi16), world
+constexpr uint32_t kAnchorZ = 0x30u;   // VZ in lo16, world
+constexpr uint32_t kOtBias = 0x32u;    // s16 OT-key bias
+constexpr uint32_t kRecList = 0x34u;   // 8-byte record list (a0 to the packet writer)
+constexpr uint32_t kClutPage = 0x44u;  // clut (lo16) | tpage (hi16) (a1)
+constexpr uint32_t kRenderFn = 0x18u;  // custom render fn = the emitter address
+constexpr uint32_t kE5cScale = 0x06u;  // u8 extra scale numerator (FUN_80027E5C)
+constexpr uint32_t kVariant3 = 0x03u;  // '!' selects DQA=4 in the FUN_800281EC variant
+constexpr uint32_t kPartCount = 0x4Eu; // s16 particle count (FUN_800281EC)
+constexpr uint32_t kPartArray = 0x50u; // particle array base, stride 8 (FUN_800281EC)
+constexpr uint32_t kPartScale = 0x06u; // s16 per-particle scale numerator (particle+6)
 
-constexpr uint32_t FN_UNIFORM   = 0x80027CB4u;   // scaleX = MAC0
-constexpr uint32_t FN_BYTESCALE = 0x80027E5Cu;   // scaleX = MAC0 * node[6] >> 4
-constexpr uint32_t FN_PARTICLE  = 0x800281ECu;   // per-particle loop
+constexpr uint32_t FN_UNIFORM = 0x80027CB4u;   // scaleX = MAC0
+constexpr uint32_t FN_BYTESCALE = 0x80027E5Cu; // scaleX = MAC0 * node[6] >> 4
+constexpr uint32_t FN_PARTICLE = 0x800281ECu;  // per-particle loop
 // FOURTH member of the family, found 2026-07-28 by PSXPORT_DEBUG=nofx (kanban #65) — it reaches the
 // same writer 0x80027A4C but was on no whitelist, so its effect drew NOTHING at all (the tap this
 // producer replaced is gone, so an un-whitelisted emitter has no other path to a picture).
@@ -115,7 +129,7 @@ constexpr uint32_t FN_PARTICLE  = 0x800281ECu;   // per-particle loop
 // then FUN_80027A4C(node+0x34, node+0x44). What is NEW is the scale: it is the first emitter with a
 // SEPARATE X and Y multiplier — scaleX = MAC0*(s16)node+0x48 >> 8 and scaleY = MAC0*(s16)node+0x4A
 // >> 8 (the guest writes both 0x1F800084 and 0x1F800088; the other three write only the X slot).
-constexpr uint32_t FN_XYSCALE   = 0x8002801Cu;   // scaleX/Y = MAC0 * node+0x48 / node+0x4A >> 8
+constexpr uint32_t FN_XYSCALE = 0x8002801Cu; // scaleX/Y = MAC0 * node+0x48 / node+0x4A >> 8
 // FIFTH member, ported 2026-07-28 (kanban #65 / portmap fx-sprite-emitter-b3a4). It reaches the same
 // writer 0x80027A4C but does NOT fit the scale-rule switch, because it is the only one that composes
 // a PER-NODE ROTATION instead of loading the pure scene camera: Math::rotmat from node+0x48, three
@@ -126,15 +140,15 @@ constexpr uint32_t FN_XYSCALE   = 0x8002801Cu;   // scaleX/Y = MAC0 * node+0x48 
 // in the delay slot; bound `slti r2, r18, 4` at 0x8002B770), i.e. 0/1024/2048/3072 over a 0..0xFFF
 // domain = the four cardinal directions. Radius comes from (trig * 0x19) >> 4 and the height is the
 // constant (s16)node+0x50 << 6.
-constexpr uint32_t FN_RINGROT   = 0x8002B3A4u;
-constexpr uint32_t kRingAngles  = 0x48u;   // 3 x s16 Euler angles for the node's own rotation
-constexpr uint32_t kRingHeight  = 0x50u;   // s16; << 6 gives the ring's constant Y
-constexpr int      kRingPoints  = 4;       // slti r18, 4
-constexpr int      kRingRadiusN = 0x19;    // (trig * 0x19) >> 4
-constexpr uint32_t kXScaleMul   = 0x48u;
-constexpr uint32_t kYScaleMul   = 0x4Au;
+constexpr uint32_t FN_RINGROT = 0x8002B3A4u;
+constexpr uint32_t kRingAngles = 0x48u; // 3 x s16 Euler angles for the node's own rotation
+constexpr uint32_t kRingHeight = 0x50u; // s16; << 6 gives the ring's constant Y
+constexpr int kRingPoints = 4;          // slti r18, 4
+constexpr int kRingRadiusN = 0x19;      // (trig * 0x19) >> 4
+constexpr uint32_t kXScaleMul = 0x48u;
+constexpr uint32_t kYScaleMul = 0x4Au;
 
-}  // namespace
+} // namespace
 
 // Walk the 8-byte quad records at rec0 and draw each as a textured world quad, sized by (scaleX,scaleY)
 // about the native-projected float anchor (anchorXf,anchorYf) at view depth `od`. Corners are kept in
@@ -142,13 +156,18 @@ constexpr uint32_t kYScaleMul   = 0x4Au;
 // RenderQueue::drawWorldQuad (has_xyf=1 -> tier1-owned -> re-rendered under the lerped camera).
 // ir0/farColour reproduce the packet writer's DPCS on each record colour — 0 for the flame emitters
 // (identity cue), driven for the portal. Read-only.
-void Render::spriteRecordsEmit(uint32_t rec0, uint32_t clutPage,
-                               float anchorXf, float anchorYf, float od,
-                               int32_t scaleX, int32_t scaleY, int32_t ir0,
-                               const int32_t* farColour) {
-  Core* c = mCore;
+void Render::spriteRecordsEmit(uint32_t rec0,
+                               uint32_t clutPage,
+                               float anchorXf,
+                               float anchorYf,
+                               float od,
+                               int32_t scaleX,
+                               int32_t scaleY,
+                               int32_t ir0,
+                               const int32_t *farColour) {
+  Core *c = mCore;
   const float sxf = (float)scaleX / 65536.0f, syf = (float)scaleY / 65536.0f;
-  const float depth[4] = { od, od, od, od };
+  const float depth[4] = {od, od, od, od};
   uint32_t rec = rec0;
   for (int guard = 0; guard < 256; guard++) {
     const uint32_t w0 = c->mem_r32(rec);
@@ -156,8 +175,8 @@ void Render::spriteRecordsEmit(uint32_t rec0, uint32_t clutPage,
     const uint32_t flags = w1 >> 16;
 
     // Corners: float anchor + signed-byte offset * scale (the guest's (s8*scale)>>16, kept in float).
-    const float xL = anchorXf + (float)(int8_t)(w0)       * sxf;
-    const float xR = anchorXf + (float)(int8_t)(w0 >> 8)  * sxf;
+    const float xL = anchorXf + (float)(int8_t)(w0)*sxf;
+    const float xR = anchorXf + (float)(int8_t)(w0 >> 8) * sxf;
     const float yT = anchorYf + (float)(int8_t)(w0 >> 16) * syf;
     const float yB = anchorYf + (float)(int8_t)(w0 >> 24) * syf;
 
@@ -166,30 +185,42 @@ void Render::spriteRecordsEmit(uint32_t rec0, uint32_t clutPage,
     const int ub = (int)(u & 0xF8u), uw = (int)(u & 7u) * 8;
     const int vb = (int)(v & 0xF8u), vh = (int)(v & 7u) * 8;
     int u02, u13, v01, v23;
-    if (!(flags & 0x2000u)) { u02 = ub + 1;      u13 = ub + uw + 7; }
-    else                    { u02 = ub + uw + 6; u13 = ub + 1;      }
-    if (!(flags & 0x1000u)) { v01 = vb + 1;      v23 = vb + vh + 7; }
-    else                    { v01 = vb + vh + 7; v23 = vb + 1;      }
+    if (!(flags & 0x2000u)) {
+      u02 = ub + 1;
+      u13 = ub + uw + 7;
+    } else {
+      u02 = ub + uw + 6;
+      u13 = ub + 1;
+    }
+    if (!(flags & 0x1000u)) {
+      v01 = vb + 1;
+      v23 = vb + vh + 7;
+    } else {
+      v01 = vb + vh + 7;
+      v23 = vb + 1;
+    }
 
     // Flat grey brightness, run through the writer's DPCS depth cue (identity when ir0 == 0, which is
     // what the flame emitters program; the portal drives it toward its far colour).
     const unsigned char lvl = (unsigned char)(flags & 0xFFu);
     const int semi = (int)(flags & 1u);
-    const uint16_t clut  = (uint16_t)((clutPage & 0xFFFFu) + ((flags & 0xF00u) >> 2));
+    const uint16_t clut = (uint16_t)((clutPage & 0xFFFFu) + ((flags & 0xF00u) >> 2));
     const uint16_t tpage = (uint16_t)((clutPage >> 16) | ((flags & 6u) << 4));
 
-    float px[4] = { xL, xR, xL, xR };
-    float py[4] = { yT, yT, yB, yB };
-    int   us[4] = { u02, u13, u02, u13 };
-    int   vs[4] = { v01, v01, v23, v23 };
+    float px[4] = {xL, xR, xL, xR};
+    float py[4] = {yT, yT, yB, yB};
+    int us[4] = {u02, u13, u02, u13};
+    int vs[4] = {v01, v01, v23, v23};
     const unsigned char cr = ir0 ? SpriteAnchor::depthCue(lvl, ir0, farColour ? farColour[0] : 0) : lvl;
     const unsigned char cg = ir0 ? SpriteAnchor::depthCue(lvl, ir0, farColour ? farColour[1] : 0) : lvl;
     const unsigned char cb = ir0 ? SpriteAnchor::depthCue(lvl, ir0, farColour ? farColour[2] : 0) : lvl;
-    unsigned char rr[4] = { cr, cr, cr, cr }, gg[4] = { cg, cg, cg, cg }, bb[4] = { cb, cb, cb, cb };
+    unsigned char rr[4] = {cr, cr, cr, cr}, gg[4] = {cg, cg, cg, cg}, bb[4] = {cb, cb, cb, cb};
     c->game->activeRq().drawWorldQuad(c, px, py, depth, us, vs, rr, gg, bb, tpage, clut, semi, nullptr);
 
     rec += 8u;
-    if (flags & 0xC000u) break;   // the terminal record IS drawn (gen's post-condition), then stop
+    if (flags & 0xC000u) {
+      break; // the terminal record IS drawn (gen's post-condition), then stop
+    }
   }
 }
 
@@ -218,11 +249,11 @@ namespace {
 // IR0 (scratchpad 0x1F800090) to 0, at which the cue is the identity — so the record colours pass
 // through unchanged and no far-colour read is needed here. The GP0 op is a fixed 0x3E: every quad in
 // this family is semi-transparent.
-constexpr uint32_t kAnimScale  = 0x34u;   // packed 8.8 scale pair: scaleY (hi16) | scaleX (lo16)
-constexpr uint32_t kAnimScript = 0x3Cu;   // -> current animation-script byte
-constexpr uint32_t kAnimTable  = 0x50u;   // table of per-animation-frame record lists
-constexpr uint32_t kAnimStride = 36u;     // one four-corner record
-constexpr uint32_t kAnimDqa    = 6u;      // the depth-cue constant this emitter programs
+constexpr uint32_t kAnimScale = 0x34u;  // packed 8.8 scale pair: scaleY (hi16) | scaleX (lo16)
+constexpr uint32_t kAnimScript = 0x3Cu; // -> current animation-script byte
+constexpr uint32_t kAnimTable = 0x50u;  // table of per-animation-frame record lists
+constexpr uint32_t kAnimStride = 36u;   // one four-corner record
+constexpr uint32_t kAnimDqa = 6u;       // the depth-cue constant this emitter programs
 
 // ── The FUN_800328EC family: the SAME four-corner writer, on a different node layout ─────────────
 // FUN_800328EC is not a writer at all — it is three instructions: zero the depth-cue IR0 at
@@ -240,12 +271,12 @@ constexpr uint32_t kAnimDqa    = 6u;      // the depth-cue constant this emitter
 //                       game/render/fx_ring.cpp documents for FUN_8002ECD8 — one publisher, and
 //                       FUN_8002ECD8 simply inlines it.
 // The controller then scales the published MAC0 into 0x1F800084/0x1F800088 and calls the wrapper.
-constexpr uint32_t kAltAnchorX = 0x2Eu;   // three SEPARATE s16s — not the packed pair at 0x2C
+constexpr uint32_t kAltAnchorX = 0x2Eu; // three SEPARATE s16s — not the packed pair at 0x2C
 constexpr uint32_t kAltAnchorY = 0x32u;
 constexpr uint32_t kAltAnchorZ = 0x36u;
-constexpr uint32_t kAltScale   = 0x60u;   // packed 8.8 pair: scaleY (hi16) | scaleX (lo16)
-constexpr uint32_t kAltScript  = 0x64u;   // -> current animation-script byte (bit 7 = loop marker)
-constexpr uint32_t kAltTable   = 0x6Cu;   // table of per-animation-frame record lists
+constexpr uint32_t kAltScale = 0x60u;  // packed 8.8 pair: scaleY (hi16) | scaleX (lo16)
+constexpr uint32_t kAltScript = 0x64u; // -> current animation-script byte (bit 7 = loop marker)
+constexpr uint32_t kAltTable = 0x6Cu;  // table of per-animation-frame record lists
 
 // FUN_8013D454's sprite branch. The controller has two modes on (s16)node+0x60: non-zero draws the
 // water jet's MESH through FUN_80027768, zero draws this sprite.
@@ -253,29 +284,29 @@ constexpr uint32_t kAltTable   = 0x6Cu;   // table of per-animation-frame record
 // was deleted with the GTE-register render taps on 2026-08-05 (commit abf3cf9) — correctly, it was a
 // tap. Nothing replaced it, so under pc_render the jet's mesh is honestly absent. Tracked as port-map
 // step `render-producer-effect-mesh-family`; do NOT restore a scope to get the picture back.
-constexpr uint32_t kJetMode     = 0x60u;        // (s16) 0 selects the sprite branch
-constexpr uint32_t kJetScale    = 0x62u;        // u16 uniform scale numerator, applied >> 8
-constexpr uint32_t kJetModelTab = 0x8010A058u;  // 6 record-list pointers; the sprite branch takes [0]
-constexpr int      kJetDqa      = 4;            // this one programs 4, not the family's usual 6
-constexpr int      kJetBias     = -64;
+constexpr uint32_t kJetMode = 0x60u;           // (s16) 0 selects the sprite branch
+constexpr uint32_t kJetScale = 0x62u;          // u16 uniform scale numerator, applied >> 8
+constexpr uint32_t kJetModelTab = 0x8010A058u; // 6 record-list pointers; the sprite branch takes [0]
+constexpr int kJetDqa = 4;                     // this one programs 4, not the family's usual 6
+constexpr int kJetBias = -64;
 
 // FUN_8012D9E8's sprite tail (see the producer for why each of these is a field, not a constant).
-constexpr uint32_t kRotTailAnchor    = 0x60u;        // packed VX|VY here, VZ at +0x64
-constexpr uint32_t kRotTailScale     = 0x70u;        // s16 uniform scale numerator, applied >> 11
-constexpr uint32_t kRotTailIndex     = 0x40u;        // model index = the SIGNED HIGH BYTE of this s16
-constexpr uint32_t kRotTailTableA    = 0x801387A8u;  // chosen when node+3 == 8
-constexpr uint32_t kRotTailTableB    = 0x80138790u;
-constexpr int      kRotTailTableN    = 6;            // both tables are six record-list pointers
-constexpr uint8_t  kRotTailAltSel    = 8u;
-constexpr int      kRotTailShift     = 11;
-constexpr int      kRotTailDepthBias = -100;
+constexpr uint32_t kRotTailAnchor = 0x60u;       // packed VX|VY here, VZ at +0x64
+constexpr uint32_t kRotTailScale = 0x70u;        // s16 uniform scale numerator, applied >> 11
+constexpr uint32_t kRotTailIndex = 0x40u;        // model index = the SIGNED HIGH BYTE of this s16
+constexpr uint32_t kRotTailTableA = 0x801387A8u; // chosen when node+3 == 8
+constexpr uint32_t kRotTailTableB = 0x80138790u;
+constexpr int kRotTailTableN = 6; // both tables are six record-list pointers
+constexpr uint8_t kRotTailAltSel = 8u;
+constexpr int kRotTailShift = 11;
+constexpr int kRotTailDepthBias = -100;
 
 // FUN_80113768's fields (the depth-cued member; see the producer for the RE).
-constexpr uint32_t kCuedRecList  = 0x34u;   // same slot as the family's kRecList, reached via 0x800328BC
-constexpr uint32_t kCuedScaleX   = 0x48u;   // s16 multipliers, applied to MAC0 >> 8
-constexpr uint32_t kCuedScaleY   = 0x4Au;
-constexpr uint32_t kCuedCueByte  = 0x07u;   // u8 -> IR0 = byte << 5, the depth-cue strength
-constexpr int      kCuedCueShift = 5;
+constexpr uint32_t kCuedRecList = 0x34u; // same slot as the family's kRecList, reached via 0x800328BC
+constexpr uint32_t kCuedScaleX = 0x48u;  // s16 multipliers, applied to MAC0 >> 8
+constexpr uint32_t kCuedScaleY = 0x4Au;
+constexpr uint32_t kCuedCueByte = 0x07u; // u8 -> IR0 = byte << 5, the depth-cue strength
+constexpr int kCuedCueShift = 5;
 
 // Walk the 36-byte records at rec0, sizing each corner about the native-projected float anchor. Same
 // float-corner / drawWorldQuad treatment as emitSpriteRecords (has_xyf = 1 -> tier1-owned -> re-drawn
@@ -285,31 +316,37 @@ constexpr int      kCuedCueShift = 5;
 // Most emitters in this family force IR0 = 0, at which the cue is the identity and the record colours
 // pass through — so those callers omit both arguments. FUN_8010C7F4's particle field is the one that
 // DRIVES it, feeding a per-particle distance so the field fades to black with range.
-int emitAnimQuadRecords(Core* c, uint32_t rec0, float anchorXf, float anchorYf, float od,
-                        int32_t scaleX, int32_t scaleY,
-                        int32_t ir0 = 0, const int32_t* farColour = nullptr) {
+int emitAnimQuadRecords(Core *c,
+                        uint32_t rec0,
+                        float anchorXf,
+                        float anchorYf,
+                        float od,
+                        int32_t scaleX,
+                        int32_t scaleY,
+                        int32_t ir0 = 0,
+                        const int32_t *farColour = nullptr) {
   const float sxf = (float)scaleX / 65536.0f, syf = (float)scaleY / 65536.0f;
-  const float depth[4] = { od, od, od, od };
+  const float depth[4] = {od, od, od, od};
   uint32_t rec = rec0;
   int drawn = 0;
   for (int guard = 0; guard < 256; guard++, rec += kAnimStride) {
     const uint32_t uv0 = c->mem_r32(rec + 0u);
-    const uint32_t uv1 = c->mem_r32(rec + 4u);       // bit31 = "this is the last record" (still drawn)
+    const uint32_t uv1 = c->mem_r32(rec + 4u); // bit31 = "this is the last record" (still drawn)
     const uint32_t uv2 = c->mem_r32(rec + 8u);
     const uint32_t uv3 = (uint32_t)((int32_t)uv2 >> 16);
 
-    auto sb = [&](uint32_t off) { return (float)(int8_t)c->mem_r8(rec + off); };
-    float px[4] = { anchorXf + sb(28) * sxf, anchorXf + sb(29) * sxf,
-                    anchorXf + sb(32) * sxf, anchorXf + sb(33) * sxf };
-    float py[4] = { anchorYf + sb(30) * syf, anchorYf + sb(31) * syf,
-                    anchorYf + sb(34) * syf, anchorYf + sb(35) * syf };
-    int us[4] = { (int)(uv0 & 0xFFu), (int)(uv1 & 0xFFu), (int)(uv2 & 0xFFu), (int)(uv3 & 0xFFu) };
-    int vs[4] = { (int)((uv0 >> 8) & 0xFFu), (int)((uv1 >> 8) & 0xFFu),
-                  (int)((uv2 >> 8) & 0xFFu), (int)((uv3 >> 8) & 0xFFu) };
+    auto sb = [&](uint32_t off) {
+      return (float)(int8_t)c->mem_r8(rec + off);
+    };
+    float px[4] = {anchorXf + sb(28) * sxf, anchorXf + sb(29) * sxf, anchorXf + sb(32) * sxf, anchorXf + sb(33) * sxf};
+    float py[4] = {anchorYf + sb(30) * syf, anchorYf + sb(31) * syf, anchorYf + sb(34) * syf, anchorYf + sb(35) * syf};
+    int us[4] = {(int)(uv0 & 0xFFu), (int)(uv1 & 0xFFu), (int)(uv2 & 0xFFu), (int)(uv3 & 0xFFu)};
+    int vs[4] = {
+        (int)((uv0 >> 8) & 0xFFu), (int)((uv1 >> 8) & 0xFFu), (int)((uv2 >> 8) & 0xFFu), (int)((uv3 >> 8) & 0xFFu)};
 
     unsigned char rr[4], gg[4], bb[4];
     for (int k = 0; k < 4; k++) {
-      const uint32_t col = c->mem_r32(rec + 12u + (uint32_t)k * 4u);   // IR0 = 0 -> cue is the identity
+      const uint32_t col = c->mem_r32(rec + 12u + (uint32_t)k * 4u); // IR0 = 0 -> cue is the identity
       const unsigned char cr = (unsigned char)(col & 0xFFu);
       const unsigned char cg = (unsigned char)((col >> 8) & 0xFFu);
       const unsigned char cb = (unsigned char)((col >> 16) & 0xFFu);
@@ -320,17 +357,30 @@ int emitAnimQuadRecords(Core* c, uint32_t rec0, float anchorXf, float anchorYf, 
       gg[k] = ir0 ? SpriteAnchor::depthCue(cg, ir0, fg) : cg;
       bb[k] = ir0 ? SpriteAnchor::depthCue(cb, ir0, fb) : cb;
     }
-    const uint16_t clut  = (uint16_t)(uv0 >> 16);
+    const uint16_t clut = (uint16_t)(uv0 >> 16);
     const uint16_t tpage = (uint16_t)((uv1 >> 16) & 0x7Fu);
-    c->game->activeRq().drawWorldQuad(c, px, py, depth, us, vs, rr, gg, bb, tpage, clut,
-                                      /*semi=*/1, nullptr);
+    c->game->activeRq().drawWorldQuad(c,
+                                      px,
+                                      py,
+                                      depth,
+                                      us,
+                                      vs,
+                                      rr,
+                                      gg,
+                                      bb,
+                                      tpage,
+                                      clut,
+                                      /*semi=*/1,
+                                      nullptr);
     drawn++;
-    if ((int32_t)uv1 <= 0) break;                    // the terminal record IS drawn, then stop
+    if ((int32_t)uv1 <= 0) {
+      break; // the terminal record IS drawn, then stop
+    }
   }
   return drawn;
 }
 
-}  // namespace
+} // namespace
 
 // The node's own render fn IS the emitter for every plain member of the family. It stops being so for
 // a COMPOSITE dispatcher (see impactBurstRender below), which is why the emitter is a parameter of
@@ -361,47 +411,64 @@ void Render::impactBurstRender(uint32_t node) {
 }
 
 void Render::fxSpriteEmit(uint32_t node, uint32_t rfn) {
-  Core* c = mCore;
+  Core *c = mCore;
   const uint32_t rec0 = c->mem_r32(node + kRecList);
-  if (!rec0) return;                                        // no record list -> the emitter emits nothing
+  if (!rec0) {
+    return; // no record list -> the emitter emits nothing
+  }
   const uint32_t clutPage = c->mem_r32(node + kClutPage);
-  const int bias          = (int16_t)c->mem_r16(node + kOtBias);
+  const int bias = (int16_t)c->mem_r16(node + kOtBias);
 
   // The scene camera, fps60-lerped at the interp present (the whole reason this producer interpolates).
-  EObjXform cam; projComposeCamera(&cam);
+  EObjXform cam;
+  projComposeCamera(&cam);
   const uint32_t H = (uint32_t)cam.H;
 
-  ObjScope objScope(c, node);   // prim identity (dbg_node) = the emitting flame object
+  ObjScope objScope(c, node); // prim identity (dbg_node) = the emitting flame object
 
   // numerY defaults to numer — every emitter but FN_XYSCALE scales both axes by the same modulator.
-  auto projectEmit = [&](int vx, int vy, int vz, int dqa, int32_t numer, int shift,
-                         int32_t numerY, bool haveY = false) {
-    ProjVtx pv; cam.project(vx, vy, vz, &pv);
-    if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) return;   // same emit/skip gate the emitter applies
-    const int32_t base = SpriteAnchor::baseScale(H, pv.sz, dqa);
-    int32_t sx = base, sy = base;
-    if (shift) {                                            // E5C / per-particle / XY modulation
-      sx = (int32_t)(((int64_t)base * numer) >> shift);
-      sy = (int32_t)(((int64_t)base * (haveY ? numerY : numer)) >> shift);
-    }
-    spriteRecordsEmit(rec0, clutPage, pv.px, pv.py, proj_pz_to_ord(pv.pz), sx, sy);
-    // `PSXPORT_DEBUG=fxsprite` — the family's counterpart to fxmesh/fxanim. It answers the one
-    // question a whitelist change raises: did this producer fire for this node, and with what
-    // geometry? A silently-skipped emitter (record list empty, anchor behind the camera, OT key out
-    // of range) and a producer that was never dispatched look identical in the picture.
-    if (cfg_dbg("fxsprite"))
-      cfg_logf("fxsprite", "node=%08X emitter=%08X anchor=(%d,%d,%d) -> (%.1f,%.1f) sz=%d scale=%d,%d",
-               node, rfn, vx, vy, vz, (double)pv.px, (double)pv.py, pv.sz, sx, sy);
-  };
+  auto projectEmit =
+      [&](int vx, int vy, int vz, int dqa, int32_t numer, int shift, int32_t numerY, bool haveY = false) {
+        ProjVtx pv;
+        cam.project(vx, vy, vz, &pv);
+        if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) {
+          return; // same emit/skip gate the emitter applies
+        }
+        const int32_t base = SpriteAnchor::baseScale(H, pv.sz, dqa);
+        int32_t sx = base, sy = base;
+        if (shift) { // E5C / per-particle / XY modulation
+          sx = (int32_t)(((int64_t)base * numer) >> shift);
+          sy = (int32_t)(((int64_t)base * (haveY ? numerY : numer)) >> shift);
+        }
+        spriteRecordsEmit(rec0, clutPage, pv.px, pv.py, proj_pz_to_ord(pv.pz), sx, sy);
+        // `PSXPORT_DEBUG=fxsprite` — the family's counterpart to fxmesh/fxanim. It answers the one
+        // question a whitelist change raises: did this producer fire for this node, and with what
+        // geometry? A silently-skipped emitter (record list empty, anchor behind the camera, OT key out
+        // of range) and a producer that was never dispatched look identical in the picture.
+        if (cfg_dbg("fxsprite")) {
+          cfg_logf("fxsprite",
+                   "node=%08X emitter=%08X anchor=(%d,%d,%d) -> (%.1f,%.1f) sz=%d scale=%d,%d",
+                   node,
+                   rfn,
+                   vx,
+                   vy,
+                   vz,
+                   (double)pv.px,
+                   (double)pv.py,
+                   pv.sz,
+                   sx,
+                   sy);
+        }
+      };
 
   if (rfn == FN_PARTICLE) {
-    const int dqa   = (c->mem_r8(node + kVariant3) == '!') ? 4 : 6;
+    const int dqa = (c->mem_r8(node + kVariant3) == '!') ? 4 : 6;
     const int count = (int16_t)c->mem_r16(node + kPartCount);
     for (int i = 0; i < count; i++) {
-      const uint32_t p   = node + kPartArray + (uint32_t)i * 8u;
+      const uint32_t p = node + kPartArray + (uint32_t)i * 8u;
       const uint32_t axy = c->mem_r32(p);
-      const uint32_t az  = c->mem_r32(p + 4u);
-      const int16_t  mod = (int16_t)c->mem_r16(p + kPartScale);
+      const uint32_t az = c->mem_r32(p + 4u);
+      const int16_t mod = (int16_t)c->mem_r16(p + kPartScale);
       projectEmit((int16_t)axy, (int16_t)(axy >> 16), (int16_t)az, dqa, mod, 8, 0);
     }
     return;
@@ -410,16 +477,22 @@ void Render::fxSpriteEmit(uint32_t node, uint32_t rfn) {
   if (rfn == FN_RINGROT) {
     // The node's own rotated frame, built host-side from the same LUT Math::rotmat reads.
     int32_t M[3][3];
-    MeshQuads::rotmat(c, (int16_t)c->mem_r16(node + kRingAngles),
-                         (int16_t)c->mem_r16(node + kRingAngles + 2),
-                         (int16_t)c->mem_r16(node + kRingAngles + 4), M);
+    MeshQuads::rotmat(c,
+                      (int16_t)c->mem_r16(node + kRingAngles),
+                      (int16_t)c->mem_r16(node + kRingAngles + 2),
+                      (int16_t)c->mem_r16(node + kRingAngles + 4),
+                      M);
     float Robj[3][3];
-    for (int i = 0; i < 3; i++)
-      for (int j = 0; j < 3; j++) Robj[i][j] = (float)M[i][j] / 4096.0f;
+    for (int i = 0; i < 3; i++) {
+      for (int j = 0; j < 3; j++) {
+        Robj[i][j] = (float)M[i][j] / 4096.0f;
+      }
+    }
     const uint32_t pxy = c->mem_r32(node + kAnchorXY);
-    const float Tobj[3] = { (float)(int16_t)pxy, (float)(int16_t)(pxy >> 16),
-                            (float)(int16_t)c->mem_r32(node + kAnchorZ) };
-    EObjXform ring; projComposeObjectHost(Robj, Tobj, &ring);
+    const float Tobj[3] = {
+        (float)(int16_t)pxy, (float)(int16_t)(pxy >> 16), (float)(int16_t)c->mem_r32(node + kAnchorZ)};
+    EObjXform ring;
+    projComposeObjectHost(Robj, Tobj, &ring);
     const int height = (int)(int16_t)c->mem_r16(node + kRingHeight) << 6;
     const uint32_t ringH = (uint32_t)ring.H;
     // A DROPPED RING POINT USED TO BE SILENT. `otKeyInRange` can reject all four points and this
@@ -432,10 +505,11 @@ void Render::fxSpriteEmit(uint32_t node, uint32_t rfn) {
     lucent::Line pts;
     int drawn = 0;
     for (int i = 0; i < kRingPoints; i++) {
-      int sn, cs; MeshQuads::trig(c, i << 10, &sn, &cs);       // 0/1024/2048/3072 = the 4 cardinals
+      int sn, cs;
+      MeshQuads::trig(c, i << 10, &sn, &cs); // 0/1024/2048/3072 = the 4 cardinals
       ProjVtx pv;
       ring.project((cs * kRingRadiusN) >> 4, height, (sn * kRingRadiusN) >> 4, &pv);
-      if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) {          // the emitter's own per-point gate
+      if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) { // the emitter's own per-point gate
         pts.add("{}:DROP(sz={}) ", i, pv.sz);
         continue;
       }
@@ -451,17 +525,28 @@ void Render::fxSpriteEmit(uint32_t node, uint32_t rfn) {
     // clutPage is node+0x44, and that slot is NOT among the writers the #72 RE enumerated for this
     // spawn path (+0x18/+0x1C/+0x38 from FUN_80028E10, +0x2C/0x2E/0x30/0x32 from FUN_8003116C), so
     // "nothing ever writes it" is a live hypothesis with a specific consequence: tpage=0, clut=0.
-    lucent::debug("fxsprite", "ringrot node={:08X} drawn={}/{} rec0={:08X} clutPage={:08X} "
-                              "(tpage={:04X} clut={:04X}) height={} bias={} anchor=({},{},{}) {}",
-                  node, drawn, kRingPoints, rec0, clutPage,
-                  (unsigned)(clutPage >> 16), (unsigned)(clutPage & 0xFFFFu), height, bias,
-                  (int)Tobj[0], (int)Tobj[1], (int)Tobj[2], pts.view());
+    lucent::debug("fxsprite",
+                  "ringrot node={:08X} drawn={}/{} rec0={:08X} clutPage={:08X} "
+                  "(tpage={:04X} clut={:04X}) height={} bias={} anchor=({},{},{}) {}",
+                  node,
+                  drawn,
+                  kRingPoints,
+                  rec0,
+                  clutPage,
+                  (unsigned)(clutPage >> 16),
+                  (unsigned)(clutPage & 0xFFFFu),
+                  height,
+                  bias,
+                  (int)Tobj[0],
+                  (int)Tobj[1],
+                  (int)Tobj[2],
+                  pts.view());
     return;
   }
 
   // FN_UNIFORM / FN_BYTESCALE / FN_XYSCALE: one world anchor.
   const uint32_t axy = c->mem_r32(node + kAnchorXY);
-  const uint32_t az  = c->mem_r32(node + kAnchorZ);
+  const uint32_t az = c->mem_r32(node + kAnchorZ);
   if (rfn == FN_XYSCALE) {
     const int16_t mx = (int16_t)c->mem_r16(node + kXScaleMul);
     const int16_t my = (int16_t)c->mem_r16(node + kYScaleMul);
@@ -478,33 +563,44 @@ void Render::fxSpriteEmit(uint32_t node, uint32_t rfn) {
 // nothing writes guest memory — the guest still executes its own emitter underneath for state fidelity,
 // this producer simply owns the picture.
 void Render::fxAnimSpriteRender(uint32_t node) {
-  Core* c = mCore;
+  Core *c = mCore;
   const uint32_t script = c->mem_r32(node + kAnimScript);
-  const uint32_t table  = c->mem_r32(node + kAnimTable);
-  if (!script || !table) return;                              // no animation -> the emitter emits nothing
-  const uint32_t animFrame = (uint32_t)c->mem_r8(script) & 0x7Fu;    // bit 7 = the guest's loop marker
+  const uint32_t table = c->mem_r32(node + kAnimTable);
+  if (!script || !table) {
+    return; // no animation -> the emitter emits nothing
+  }
+  const uint32_t animFrame = (uint32_t)c->mem_r8(script) & 0x7Fu; // bit 7 = the guest's loop marker
   const uint32_t rec0 = c->mem_r32(table + animFrame * 4u);
-  if (!rec0) return;
+  if (!rec0) {
+    return;
+  }
 
   // The scene camera, fps60-lerped at the interp present — the reason the puff interpolates.
-  EObjXform cam; projComposeCamera(&cam);
+  EObjXform cam;
+  projComposeCamera(&cam);
   const uint32_t H = (uint32_t)cam.H;
   const int bias = (int16_t)c->mem_r16(node + kOtBias);
   const uint32_t axy = c->mem_r32(node + kAnchorXY);
-  const uint32_t az  = c->mem_r32(node + kAnchorZ);
+  const uint32_t az = c->mem_r32(node + kAnchorZ);
 
   // The anchor through the actor-transform interpolation tier: on the fps60 in-between present it comes
   // back blended with last frame's, so a puff that is travelling moves between the two real frames.
   EffectPoints live;
-  live.n = 1; live.valid[0] = true;
-  live.x[0] = (int16_t)axy; live.y[0] = (int16_t)(axy >> 16); live.z[0] = (int16_t)az;
-  const EffectPoints& pts = mEffectLerp.resolve(c, node, live);
+  live.n = 1;
+  live.valid[0] = true;
+  live.x[0] = (int16_t)axy;
+  live.y[0] = (int16_t)(axy >> 16);
+  live.z[0] = (int16_t)az;
+  const EffectPoints &pts = mEffectLerp.resolve(c, node, live);
 
-  ProjVtx pv; cam.project(pts.x[0], pts.y[0], pts.z[0], &pv);
-  if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) return;       // the emitter's own emit/skip decision
+  ProjVtx pv;
+  cam.project(pts.x[0], pts.y[0], pts.z[0], &pv);
+  if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) {
+    return; // the emitter's own emit/skip decision
+  }
 
   const int32_t mac0 = SpriteAnchor::baseScale(H, pv.sz, kAnimDqa);
-  const uint32_t sc  = c->mem_r32(node + kAnimScale);
+  const uint32_t sc = c->mem_r32(node + kAnimScale);
   const int32_t scaleX = (int32_t)(((int64_t)mac0 * (int64_t)(uint16_t)sc) >> 8);
   const int32_t scaleY = (int32_t)(((int64_t)mac0 * (int64_t)(uint16_t)(sc >> 16)) >> 8);
 
@@ -514,13 +610,25 @@ void Render::fxAnimSpriteRender(uint32_t node) {
   // fudge. (Without it a flat anchor-depth sprite loses its near half to whatever it is bursting on.)
   float pz = pv.pz + (float)(4 * bias);
   const float nearPz = proj_near_pz();
-  if (pz < nearPz) pz = nearPz;
+  if (pz < nearPz) {
+    pz = nearPz;
+  }
 
-  ObjScope objScope(c, node);   // prim identity (dbg_node) = the emitting effect object
+  ObjScope objScope(c, node); // prim identity (dbg_node) = the emitting effect object
   const int quads = emitAnimQuadRecords(c, rec0, pv.px, pv.py, proj_pz_to_ord(pz), scaleX, scaleY);
-  if (cfg_dbg("fxanim"))
-    cfg_logf("fxanim", "node=%08X frame=%u rec0=%08X anchor=(%.1f,%.1f) sz=%d scale=(%d,%d) quads=%d",
-             node, animFrame, rec0, (double)pv.px, (double)pv.py, pv.sz, scaleX, scaleY, quads);
+  if (cfg_dbg("fxanim")) {
+    cfg_logf("fxanim",
+             "node=%08X frame=%u rec0=%08X anchor=(%.1f,%.1f) sz=%d scale=(%d,%d) quads=%d",
+             node,
+             animFrame,
+             rec0,
+             (double)pv.px,
+             (double)pv.py,
+             pv.sz,
+             scaleX,
+             scaleY,
+             quads);
+  }
 }
 
 // ── FUN_800328EC family producers ────────────────────────────────────────────────────────────────
@@ -529,15 +637,22 @@ void Render::fxAnimSpriteRender(uint32_t node) {
 // fxAnimSpriteRender uses. Nothing runs a gen body; nothing writes guest memory — in particular the
 // guest's own animation-cursor store at node+0x68 stays the guest's, since its body still executes
 // underneath. Read-only.
-void Render::altSpriteEmit(const AltSprite& a) {
-  Core* c = mCore;
-  if (!a.rec0) return;
+void Render::altSpriteEmit(const AltSprite &a) {
+  Core *c = mCore;
+  if (!a.rec0) {
+    return;
+  }
 
-  EObjXform cam; projComposeCamera(&cam);
+  EObjXform cam;
+  projComposeCamera(&cam);
   ProjVtx pv;
-  cam.project((int16_t)c->mem_r16(a.node + a.anchorX), (int16_t)c->mem_r16(a.node + a.anchorX + 4),
-              (int16_t)c->mem_r16(a.node + a.anchorX + 8), &pv);
-  if (!SpriteAnchor::otKeyInRange(pv.sz, a.gateBias)) return;   // FUN_800317CC's emit/skip decision
+  cam.project((int16_t)c->mem_r16(a.node + a.anchorX),
+              (int16_t)c->mem_r16(a.node + a.anchorX + 4),
+              (int16_t)c->mem_r16(a.node + a.anchorX + 8),
+              &pv);
+  if (!SpriteAnchor::otKeyInRange(pv.sz, a.gateBias)) {
+    return; // FUN_800317CC's emit/skip decision
+  }
 
   const int32_t mac0 = SpriteAnchor::baseScale((uint32_t)cam.H, pv.sz, a.dqa);
   const int32_t sx = (int32_t)(((int64_t)mac0 * (int64_t)a.numerX) >> a.shift);
@@ -549,31 +664,49 @@ void Render::altSpriteEmit(const AltSprite& a) {
   // and only then subtracts 100 from the resulting key — gating and depth-biasing are two decisions.
   float pz = pv.pz + (float)(4 * a.depthBias);
   const float nearPz = proj_near_pz();
-  if (pz < nearPz) pz = nearPz;
+  if (pz < nearPz) {
+    pz = nearPz;
+  }
 
   ObjScope objScope(c, a.node);
   const int quads = emitAnimQuadRecords(c, a.rec0, pv.px, pv.py, proj_pz_to_ord(pz), sx, sy);
-  if (cfg_dbg("fxsprite"))
-    cfg_logf("fxsprite", "alt node=%08X rec0=%08X dqa=%d gate=%d depth=%d anchor=(%.1f,%.1f) sz=%d "
-                         "scale=(%d,%d) quads=%d",
-             a.node, a.rec0, a.dqa, a.gateBias, a.depthBias,
-             (double)pv.px, (double)pv.py, pv.sz, sx, sy, quads);
+  if (cfg_dbg("fxsprite")) {
+    cfg_logf("fxsprite",
+             "alt node=%08X rec0=%08X dqa=%d gate=%d depth=%d anchor=(%.1f,%.1f) sz=%d "
+             "scale=(%d,%d) quads=%d",
+             a.node,
+             a.rec0,
+             a.dqa,
+             a.gateBias,
+             a.depthBias,
+             (double)pv.px,
+             (double)pv.py,
+             pv.sz,
+             sx,
+             sy,
+             quads);
+  }
 }
 
 // FUN_8012E868 (A01 overlay) — the animation-script member of the family. Same shape as
 // fxAnimSpriteRender, different offsets: anchor as three separate s16s, scale pair at node+0x60,
 // script pointer at node+0x64, per-frame record table at node+0x6C, DQA 6 and no OT bias.
 void Render::fxAltAnimSpriteRender(uint32_t node) {
-  Core* c = mCore;
+  Core *c = mCore;
   const uint32_t script = c->mem_r32(node + kAltScript);
-  const uint32_t table  = c->mem_r32(node + kAltTable);
-  if (!script || !table) return;                      // the guest's own `if (ptr == 0) return`
-  const uint32_t frame = (uint32_t)c->mem_r8(script) & 0x7Fu;   // bit 7 = the loop marker
+  const uint32_t table = c->mem_r32(node + kAltTable);
+  if (!script || !table) {
+    return; // the guest's own `if (ptr == 0) return`
+  }
+  const uint32_t frame = (uint32_t)c->mem_r8(script) & 0x7Fu; // bit 7 = the loop marker
   const uint32_t sc = c->mem_r32(node + kAltScale);
   AltSprite a;
-  a.node = node; a.anchorX = kAltAnchorX; a.dqa = 6;
+  a.node = node;
+  a.anchorX = kAltAnchorX;
+  a.dqa = 6;
   a.rec0 = c->mem_r32(table + frame * 4u);
-  a.numerX = (uint16_t)sc; a.numerY = (uint16_t)(sc >> 16);
+  a.numerX = (uint16_t)sc;
+  a.numerY = (uint16_t)(sc >> 16);
   altSpriteEmit(a);
 }
 
@@ -583,14 +716,20 @@ void Render::fxAltAnimSpriteRender(uint32_t node) {
 // mutually exclusive, so there is no double-draw — and with the mesh branch unowned, this is the
 // only half of the jet that draws at all under pc_render.
 void Render::waterJetSpriteRender(uint32_t node) {
-  Core* c = mCore;
-  if ((int16_t)c->mem_r16(node + kJetMode) != 0) return;        // the mesh branch: not ours
+  Core *c = mCore;
+  if ((int16_t)c->mem_r16(node + kJetMode) != 0) {
+    return; // the mesh branch: not ours
+  }
   const uint32_t numer = (uint16_t)c->mem_r16(node + kJetScale);
   AltSprite a;
-  a.node = node; a.anchorX = kAltAnchorX; a.dqa = kJetDqa;
-  a.gateBias = kJetBias; a.depthBias = kJetBias;
+  a.node = node;
+  a.anchorX = kAltAnchorX;
+  a.dqa = kJetDqa;
+  a.gateBias = kJetBias;
+  a.depthBias = kJetBias;
   a.rec0 = c->mem_r32(kJetModelTab);
-  a.numerX = numer; a.numerY = numer;
+  a.numerX = numer;
+  a.numerY = numer;
   altSpriteEmit(a);
 }
 
@@ -606,16 +745,21 @@ void Render::waterJetSpriteRender(uint32_t node) {
 // The model comes from one of two tables chosen by node+3, indexed by the signed high byte of
 // node+0x40.
 void Render::fxRotSpriteTailRender(uint32_t node) {
-  Core* c = mCore;
+  Core *c = mCore;
   const uint32_t table = (c->mem_r8(node + 3) == kRotTailAltSel) ? kRotTailTableA : kRotTailTableB;
-  const int idx = (int)(int16_t)c->mem_r16(node + kRotTailIndex) >> 8;   // the signed high byte
-  if (idx < 0 || idx >= kRotTailTableN) return;
+  const int idx = (int)(int16_t)c->mem_r16(node + kRotTailIndex) >> 8; // the signed high byte
+  if (idx < 0 || idx >= kRotTailTableN) {
+    return;
+  }
   AltSprite a;
-  a.node = node; a.anchorX = kRotTailAnchor; a.dqa = 6;
-  a.gateBias = 0; a.depthBias = kRotTailDepthBias;
+  a.node = node;
+  a.anchorX = kRotTailAnchor;
+  a.dqa = 6;
+  a.gateBias = 0;
+  a.depthBias = kRotTailDepthBias;
   a.shift = kRotTailShift;
   a.rec0 = c->mem_r32(table + (uint32_t)idx * 4u);
-  a.numerX = a.numerY = c->mem_r16s(node + kRotTailScale);   // SIGNED: gen uses lh, not lhu
+  a.numerX = a.numerY = c->mem_r16s(node + kRotTailScale); // SIGNED: gen uses lh, not lhu
   altSpriteEmit(a);
 }
 
@@ -637,29 +781,42 @@ void Render::fxRotSpriteTailRender(uint32_t node) {
 // The gate's FAIL path calls FUN_80031780, which only advances the node's own record cursor at
 // node+0x38 — guest state, no drawing — so a skipped emit correctly produces no picture here.
 void Render::fxCuedSpriteRender(uint32_t node) {
-  Core* c = mCore;
+  Core *c = mCore;
   const uint32_t rec0 = c->mem_r32(node + kCuedRecList);
-  if (!rec0) return;                                  // the guest's own `if (list == 0) return`
+  if (!rec0) {
+    return; // the guest's own `if (list == 0) return`
+  }
 
-  EObjXform cam; projComposeCamera(&cam);
+  EObjXform cam;
+  projComposeCamera(&cam);
   const int bias = (int16_t)c->mem_r16(node + kOtBias);
   const uint32_t axy = c->mem_r32(node + kAnchorXY), az = c->mem_r32(node + kAnchorZ);
   ProjVtx pv;
   cam.project((int16_t)axy, (int16_t)(axy >> 16), (int16_t)az, &pv);
-  if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) return;
+  if (!SpriteAnchor::otKeyInRange(pv.sz, bias)) {
+    return;
+  }
 
-  const int32_t base = SpriteAnchor::baseScale((uint32_t)cam.H, pv.sz, 6) >> 8;   // shift, THEN scale
+  const int32_t base = SpriteAnchor::baseScale((uint32_t)cam.H, pv.sz, 6) >> 8; // shift, THEN scale
   const int32_t sx = base * (int32_t)(int16_t)c->mem_r16(node + kCuedScaleX);
   const int32_t sy = base * (int32_t)(int16_t)c->mem_r16(node + kCuedScaleY);
   const int32_t ir0 = (int32_t)(uint32_t)c->mem_r8(node + kCuedCueByte) << kCuedCueShift;
-  const int32_t farBlack[3] = { 0, 0, 0 };            // the guest zeroes CR21-23 before the writer
+  const int32_t farBlack[3] = {0, 0, 0}; // the guest zeroes CR21-23 before the writer
 
   ObjScope objScope(c, node);
-  spriteRecordsEmit(rec0, c->mem_r32(node + kClutPage), pv.px, pv.py, proj_pz_to_ord(pv.pz),
-                    sx, sy, ir0, farBlack);
-  if (cfg_dbg("fxsprite"))
-    cfg_logf("fxsprite", "cued node=%08X rec0=%08X anchor=(%.1f,%.1f) sz=%d scale=(%d,%d) ir0=%d",
-             node, rec0, (double)pv.px, (double)pv.py, pv.sz, sx, sy, ir0);
+  spriteRecordsEmit(rec0, c->mem_r32(node + kClutPage), pv.px, pv.py, proj_pz_to_ord(pv.pz), sx, sy, ir0, farBlack);
+  if (cfg_dbg("fxsprite")) {
+    cfg_logf("fxsprite",
+             "cued node=%08X rec0=%08X anchor=(%.1f,%.1f) sz=%d scale=(%d,%d) ir0=%d",
+             node,
+             rec0,
+             (double)pv.px,
+             (double)pv.py,
+             pv.sz,
+             sx,
+             sy,
+             ir0);
+  }
 }
 
 // ── FUN_80110C14 (A0D overlay, area 13) — the ORBITING SPRITE RING ────────────────────────────────
@@ -688,46 +845,47 @@ void Render::fxCuedSpriteRender(uint32_t node) {
 // The guest builds each anchor as three 16-bit stores and lets them wrap, so the arithmetic is done in
 // uint16_t here and read back signed — the same treatment fx_vortex.cpp's particle sphere gives its
 // ring points. Read-only: nothing here writes guest memory.
-constexpr uint32_t kRingTable     = 0x34u;        // 21 x { u8 spread, u8 bob, u8 phase, u8 size }
-constexpr uint32_t kRingItemSize  = 4u;
-constexpr int      kRingItems     = 21;
-constexpr uint32_t kRingAnchorVX  = 0x2Cu;        // three consecutive u16: VX, VY at +2, VZ at +4
-constexpr uint32_t kRingBaseRadius = 0x32u;       // s16 radius added to every item's spread
-constexpr int      kRingAngle0    = 1024;
-constexpr int      kRingAngleStep = 97;
-constexpr int      kRingGateBias  = -50;          // the emitter's authored near bias, in OT buckets
-constexpr int      kRingDqa       = 6;
-constexpr uint32_t kRingRecBank   = 0x8009D5FCu;  // MAIN.EXE-resident record bank, 16-byte slots
-constexpr uint32_t kRingClutPtr   = 0x8009D5F8u;  // -> the bank's shared clut (lo16) | tpage (hi16)
+constexpr uint32_t kRingTable = 0x34u; // 21 x { u8 spread, u8 bob, u8 phase, u8 size }
+constexpr uint32_t kRingItemSize = 4u;
+constexpr int kRingItems = 21;
+constexpr uint32_t kRingAnchorVX = 0x2Cu;   // three consecutive u16: VX, VY at +2, VZ at +4
+constexpr uint32_t kRingBaseRadius = 0x32u; // s16 radius added to every item's spread
+constexpr int kRingAngle0 = 1024;
+constexpr int kRingAngleStep = 97;
+constexpr int kRingGateBias = -50; // the emitter's authored near bias, in OT buckets
+constexpr int kRingDqa = 6;
+constexpr uint32_t kRingRecBank = 0x8009D5FCu; // MAIN.EXE-resident record bank, 16-byte slots
+constexpr uint32_t kRingClutPtr = 0x8009D5F8u; // -> the bank's shared clut (lo16) | tpage (hi16)
 
 void Render::fxRingSpriteRender(uint32_t node) {
-  Core* c = mCore;
+  Core *c = mCore;
 
-  EObjXform cam; projComposeCamera(&cam);
+  EObjXform cam;
+  projComposeCamera(&cam);
   const uint32_t H = (uint32_t)cam.H;
   const uint32_t clutPage = c->mem_r32(kRingClutPtr);
   const int baseRadius = (int16_t)c->mem_r16(node + kRingBaseRadius);
   const uint16_t anchorX = c->mem_r16(node + kRingAnchorVX);
   const uint16_t anchorY = c->mem_r16(node + kRingAnchorVX + 2u);
   const uint16_t anchorZ = c->mem_r16(node + kRingAnchorVX + 4u);
-  const Trig& trig = trigOf(c);
+  const Trig &trig = trigOf(c);
 
   // The authored near bias, in the units the rest of this file uses: the gate states it in OT buckets
   // and the bucket key is SZ3>>2, so one unit is four of view depth. -50 is the same value the impact
   // starburst carries, and it means the same thing — draw the ring in front of what it surrounds.
   const float nearPz = proj_near_pz();
 
-  ObjScope objScope(c, node);   // prim identity for the whole ring = the emitting effect object
+  ObjScope objScope(c, node); // prim identity for the whole ring = the emitting effect object
   int drawn = 0;
-  float minPx = 0, maxPx = 0, minPy = 0, maxPy = 0;   // screen extent of what was actually emitted
+  float minPx = 0, maxPx = 0, minPy = 0, maxPy = 0; // screen extent of what was actually emitted
   for (int i = 0; i < kRingItems; i++) {
     const uint32_t item = node + kRingTable + (uint32_t)i * kRingItemSize;
     const uint32_t spread = c->mem_r8(item + 0u);
-    const uint32_t bob    = c->mem_r8(item + 1u);
-    const uint32_t phase  = c->mem_r8(item + 2u);
-    const uint32_t size   = c->mem_r8(item + 3u);
+    const uint32_t bob = c->mem_r8(item + 1u);
+    const uint32_t phase = c->mem_r8(item + 2u);
+    const uint32_t size = c->mem_r8(item + 3u);
 
-    const int angle  = (int16_t)(kRingAngle0 + kRingAngleStep * i);
+    const int angle = (int16_t)(kRingAngle0 + kRingAngleStep * i);
     const int radius = (int)(((int32_t)(phase * spread)) >> 5) + baseRadius;
 
     const int32_t offX = (int32_t)(((int64_t)trig.rsin(angle) * radius) >> 12);
@@ -740,30 +898,57 @@ void Render::fxRingSpriteRender(uint32_t node) {
 
     ProjVtx pv;
     cam.project(vx, vy, vz, &pv);
-    if (!SpriteAnchor::otKeyInRange(pv.sz, kRingGateBias)) continue;   // the emitter's own skip
+    if (!SpriteAnchor::otKeyInRange(pv.sz, kRingGateBias)) {
+      continue; // the emitter's own skip
+    }
 
     const int32_t scale = (int32_t)(((int64_t)SpriteAnchor::baseScale(H, pv.sz, kRingDqa) * size) >> 7);
     const uint32_t recList = kRingRecBank + (phase & 0xF0u);
 
     float pz = pv.pz + (float)(4 * kRingGateBias);
-    if (pz < nearPz) pz = nearPz;
+    if (pz < nearPz) {
+      pz = nearPz;
+    }
     spriteRecordsEmit(recList, clutPage, pv.px, pv.py, proj_pz_to_ord(pz), scale, scale, 0, nullptr);
-    if (!drawn) { minPx = maxPx = pv.px; minPy = maxPy = pv.py; }
-    else {
-      if (pv.px < minPx) minPx = pv.px;  if (pv.px > maxPx) maxPx = pv.px;
-      if (pv.py < minPy) minPy = pv.py;  if (pv.py > maxPy) maxPy = pv.py;
+    if (!drawn) {
+      minPx = maxPx = pv.px;
+      minPy = maxPy = pv.py;
+    } else {
+      if (pv.px < minPx) {
+        minPx = pv.px;
+      }
+      if (pv.px > maxPx) {
+        maxPx = pv.px;
+      }
+      if (pv.py < minPy) {
+        minPy = pv.py;
+      }
+      if (pv.py > maxPy) {
+        maxPy = pv.py;
+      }
     }
     drawn++;
   }
 
   // Log the SCREEN extent, the way the rest of the family logs its anchor — a ring that passes the OT
   // gate can still land wholly off-frame, and world coordinates cannot tell you which happened.
-  if (cfg_dbg("fxsprite"))
-    cfg_logf("fxsprite", "ring node=%08X world=(%d,%d,%d) baseR=%d clut=%08X drawn=%d/%d "
-                         "screen x[%.1f..%.1f] y[%.1f..%.1f]",
-             node, (int)(int16_t)anchorX, (int)(int16_t)anchorY, (int)(int16_t)anchorZ,
-             baseRadius, clutPage, drawn, kRingItems,
-             (double)minPx, (double)maxPx, (double)minPy, (double)maxPy);
+  if (cfg_dbg("fxsprite")) {
+    cfg_logf("fxsprite",
+             "ring node=%08X world=(%d,%d,%d) baseR=%d clut=%08X drawn=%d/%d "
+             "screen x[%.1f..%.1f] y[%.1f..%.1f]",
+             node,
+             (int)(int16_t)anchorX,
+             (int)(int16_t)anchorY,
+             (int)(int16_t)anchorZ,
+             baseRadius,
+             clutPage,
+             drawn,
+             kRingItems,
+             (double)minPx,
+             (double)maxPx,
+             (double)minPy,
+             (double)maxPy);
+  }
 }
 
 // ── FUN_8010C7F4 (A0L overlay, area 21) — the PARTICLE FIELD ──────────────────────────────────────
@@ -786,24 +971,25 @@ void Render::fxRingSpriteRender(uint32_t node) {
 //     from a reference point, which is why the field thins out with range.
 //   * gate FUN_800317CC(0), then the published MAC0 is DOUBLED into both axis slots.
 // Read-only: the LCG is a local register in the guest too, so nothing here writes guest memory.
-constexpr uint32_t kFieldRecTable  = 0x80109068u;   // four record-list pointers, cycled by i & 3
-constexpr uint32_t kFieldWindAngle = 0x800E7ED6u;   // s16 wind angle
-constexpr uint32_t kFieldMagnitude = 0x50u;         // node+0x50, the wind magnitude
-constexpr uint32_t kFieldBaseXYZ   = 0x1F800160u;   // three s16: the field's centre
-constexpr uint32_t kFieldDistRef   = 0x1F8000D2u;   // three s16 at +0/+4/+8: the depth-cue origin
-constexpr uint32_t kFieldLcgMult   = 0x80115894u;
-constexpr uint32_t kFieldLcgSeed   = 0x0012D687u;
-constexpr int      kFieldCount     = 64;
-constexpr int      kFieldDqa       = 6;
-constexpr uint32_t kFieldSpread    = 0x3FFFu;       // 14-bit mask ...
-constexpr int32_t  kFieldCentre    = 8192;          // ... centred, so offsets run [-8192, 8191]
+constexpr uint32_t kFieldRecTable = 0x80109068u;  // four record-list pointers, cycled by i & 3
+constexpr uint32_t kFieldWindAngle = 0x800E7ED6u; // s16 wind angle
+constexpr uint32_t kFieldMagnitude = 0x50u;       // node+0x50, the wind magnitude
+constexpr uint32_t kFieldBaseXYZ = 0x1F800160u;   // three s16: the field's centre
+constexpr uint32_t kFieldDistRef = 0x1F8000D2u;   // three s16 at +0/+4/+8: the depth-cue origin
+constexpr uint32_t kFieldLcgMult = 0x80115894u;
+constexpr uint32_t kFieldLcgSeed = 0x0012D687u;
+constexpr int kFieldCount = 64;
+constexpr int kFieldDqa = 6;
+constexpr uint32_t kFieldSpread = 0x3FFFu; // 14-bit mask ...
+constexpr int32_t kFieldCentre = 8192;     // ... centred, so offsets run [-8192, 8191]
 
 void Render::fxParticleFieldRender(uint32_t node) {
-  Core* c = mCore;
+  Core *c = mCore;
 
-  EObjXform cam; projComposeCamera(&cam);
+  EObjXform cam;
+  projComposeCamera(&cam);
   const uint32_t H = (uint32_t)cam.H;
-  const Trig& trig = trigOf(c);
+  const Trig &trig = trigOf(c);
 
   // The wind drift: doubled cos/sin of the scene's wind angle against ten times the node's magnitude.
   const int windAngle = (int16_t)c->mem_r16(kFieldWindAngle);
@@ -814,13 +1000,15 @@ void Render::fxParticleFieldRender(uint32_t node) {
   const int32_t baseX = (int16_t)c->mem_r16(kFieldBaseXYZ);
   const int32_t baseY = (int16_t)c->mem_r16(kFieldBaseXYZ + 2u);
   const int32_t baseZ = (int16_t)c->mem_r16(kFieldBaseXYZ + 4u);
-  const int32_t refX  = (int16_t)c->mem_r16(kFieldDistRef);
-  const int32_t refY  = (int16_t)c->mem_r16(kFieldDistRef + 4u);
-  const int32_t refZ  = (int16_t)c->mem_r16(kFieldDistRef + 8u);
-  const int32_t farBlack[3] = { 0, 0, 0 };            // the guest zeroes CR21-23 before the writer
+  const int32_t refX = (int16_t)c->mem_r16(kFieldDistRef);
+  const int32_t refY = (int16_t)c->mem_r16(kFieldDistRef + 4u);
+  const int32_t refZ = (int16_t)c->mem_r16(kFieldDistRef + 8u);
+  const int32_t farBlack[3] = {0, 0, 0}; // the guest zeroes CR21-23 before the writer
 
   uint32_t recList[4];
-  for (int k = 0; k < 4; k++) recList[k] = c->mem_r32(kFieldRecTable + (uint32_t)k * 4u);
+  for (int k = 0; k < 4; k++) {
+    recList[k] = c->mem_r32(kFieldRecTable + (uint32_t)k * 4u);
+  }
 
   const uint32_t lcgMult = c->mem_r32(kFieldLcgMult);
   uint32_t lcg = kFieldLcgSeed;
@@ -831,9 +1019,12 @@ void Render::fxParticleFieldRender(uint32_t node) {
   for (int i = 0; i < kFieldCount; i++) {
     // THREE LCG steps per particle, and the axes read it at three different points in that chain —
     // reproduced in the guest's order because the sequence is what places the field.
-    const int32_t rx = (int32_t)((lcg + (uint32_t)windX) & kFieldSpread);  lcg = lcg * lcgMult + 1u;
-    const int32_t ry = (int32_t)(lcg & kFieldSpread);                      lcg = lcg * lcgMult + 1u;
-    const int32_t rz = (int32_t)((lcg + (uint32_t)windZ) & kFieldSpread);  lcg = lcg * lcgMult + 1u;
+    const int32_t rx = (int32_t)((lcg + (uint32_t)windX) & kFieldSpread);
+    lcg = lcg * lcgMult + 1u;
+    const int32_t ry = (int32_t)(lcg & kFieldSpread);
+    lcg = lcg * lcgMult + 1u;
+    const int32_t rz = (int32_t)((lcg + (uint32_t)windZ) & kFieldSpread);
+    lcg = lcg * lcgMult + 1u;
 
     const int16_t vx = (int16_t)(uint16_t)(baseX + rx - kFieldCentre);
     const int16_t vy = (int16_t)(uint16_t)(baseY + ry - kFieldCentre);
@@ -843,22 +1034,49 @@ void Render::fxParticleFieldRender(uint32_t node) {
 
     ProjVtx pv;
     cam.project(vx, vy, vz, &pv);
-    if (!SpriteAnchor::otKeyInRange(pv.sz, 0)) continue;   // the emitter's own emit/skip decision
+    if (!SpriteAnchor::otKeyInRange(pv.sz, 0)) {
+      continue; // the emitter's own emit/skip decision
+    }
 
     const int32_t scale = SpriteAnchor::baseScale(H, pv.sz, kFieldDqa) << 1;
-    quads += emitAnimQuadRecords(c, recList[i & 3], pv.px, pv.py, proj_pz_to_ord(pv.pz),
-                                 scale, scale, ir0, farBlack);
-    if (!drawn) { minPx = maxPx = pv.px; minPy = maxPy = pv.py; }
-    else {
-      if (pv.px < minPx) minPx = pv.px;  if (pv.px > maxPx) maxPx = pv.px;
-      if (pv.py < minPy) minPy = pv.py;  if (pv.py > maxPy) maxPy = pv.py;
+    quads += emitAnimQuadRecords(c, recList[i & 3], pv.px, pv.py, proj_pz_to_ord(pv.pz), scale, scale, ir0, farBlack);
+    if (!drawn) {
+      minPx = maxPx = pv.px;
+      minPy = maxPy = pv.py;
+    } else {
+      if (pv.px < minPx) {
+        minPx = pv.px;
+      }
+      if (pv.px > maxPx) {
+        maxPx = pv.px;
+      }
+      if (pv.py < minPy) {
+        minPy = pv.py;
+      }
+      if (pv.py > maxPy) {
+        maxPy = pv.py;
+      }
     }
     drawn++;
   }
 
-  if (cfg_dbg("fxsprite"))
-    cfg_logf("fxsprite", "field node=%08X base=(%d,%d,%d) wind=(%d,%d)@%d drawn=%d/%d quads=%d "
-                         "screen x[%.1f..%.1f] y[%.1f..%.1f]",
-             node, baseX, baseY, baseZ, windX, windZ, windAngle, drawn, kFieldCount, quads,
-             (double)minPx, (double)maxPx, (double)minPy, (double)maxPy);
+  if (cfg_dbg("fxsprite")) {
+    cfg_logf("fxsprite",
+             "field node=%08X base=(%d,%d,%d) wind=(%d,%d)@%d drawn=%d/%d quads=%d "
+             "screen x[%.1f..%.1f] y[%.1f..%.1f]",
+             node,
+             baseX,
+             baseY,
+             baseZ,
+             windX,
+             windZ,
+             windAngle,
+             drawn,
+             kFieldCount,
+             quads,
+             (double)minPx,
+             (double)maxPx,
+             (double)minPy,
+             (double)maxPy);
+  }
 }

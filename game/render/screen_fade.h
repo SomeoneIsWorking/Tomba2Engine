@@ -58,19 +58,22 @@ class Core;
 class ScreenFade {
 public:
   enum Mode : uint8_t {
-    NONE        = 0,   // no fade this frame -> scene renders normally
-    ADDITIVE    = 1,   // dst += (r,g,b) clamped -> fade to/from white
-    SUBTRACTIVE = 2,   // dst -= (r,g,b) clamped -> fade to/from black
+    NONE = 0,        // no fade this frame -> scene renders normally
+    ADDITIVE = 1,    // dst += (r,g,b) clamped -> fade to/from white
+    SUBTRACTIVE = 2, // dst -= (r,g,b) clamped -> fade to/from black
   };
 
-  struct State { Mode mode; uint8_t r, g, b; };
+  struct State {
+    Mode mode;
+    uint8_t r, g, b;
+  };
 
   // Canonical OT slot for full-screen fades — every substrate caller in Tomba passes 4. Callers
   // that pass a different slot override via the explicit `otSlot` parameter of applyLeafCall.
   static constexpr uint32_t DEFAULT_OT_SLOT = 4;
 
   // Back-pointer set once by Game's constructor. Not owned; ScreenFade never outlives its Core.
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // Called ONCE at the top of each logic frame. Resets the FRAME-SCOPED state to NONE. Does NOT
   // touch the held fully-faded state — that persists across admin frames.
@@ -107,15 +110,15 @@ public:
 private:
   // Host-owned state (was previously shadowed at guest 0x800E7DE0..7, an invented BSS address that
   // the substrate never touched — see class header note for the removal rationale).
-  Mode    mFrameMode = NONE;
-  uint8_t mFrameR    = 0;
-  uint8_t mFrameG    = 0;
-  uint8_t mFrameB    = 0;
+  Mode mFrameMode = NONE;
+  uint8_t mFrameR = 0;
+  uint8_t mFrameG = 0;
+  uint8_t mFrameB = 0;
 
   // `debug fadetrace` channel — logs every native-path fade call with the calling context; prints
   // the C++ backtrace only on FIRST occurrence of a given (op,mode,rgb) tuple (mSeen dedupe).
-  void fadetrace(const char* op, uint8_t mode, uint32_t rgb, const char* extra);
-  int      mTraceOn = -1;      // lazy cfg latch
-  uint32_t mSeen[64] = {};     // first-time (op,mode,rgb) dedupe keys
-  int      mSeenN = 0;
+  void fadetrace(const char *op, uint8_t mode, uint32_t rgb, const char *extra);
+  int mTraceOn = -1;       // lazy cfg latch
+  uint32_t mSeen[64] = {}; // first-time (op,mode,rgb) dedupe keys
+  int mSeenN = 0;
 };

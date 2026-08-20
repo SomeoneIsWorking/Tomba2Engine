@@ -12,26 +12,35 @@
 // tier1Render); this body is only the gate reads + the world-pass draws, plus the backdrop wrap-lerp that
 // writes the framework Fps60's (public) bg-override state that Render::backdropRender reads back.
 #include "core.h"
-#include "game.h"        // c->game->fps60 — the framework Fps60 (public bg/obj-override state written here)
-#include "game_ctx.h"    // rend(c) — the game's Render umbrella accessor
-#include "render.h"      // Render::worldVoidBeat/fieldAreaInit/terrainRenderAll/fieldEntityRender/backdropRender/...
-#include "fps60.h"       // Fps60 — the override struct fields
+#include "fps60.h"    // Fps60 — the override struct fields
+#include "game.h"     // c->game->fps60 — the framework Fps60 (public bg/obj-override state written here)
+#include "game_ctx.h" // rend(c) — the game's Render umbrella accessor
+#include "render.h"   // Render::worldVoidBeat/fieldAreaInit/terrainRenderAll/fieldEntityRender/backdropRender/...
 #include <math.h>
 
 // wrapLerp — copy of the framework helper (fps60.cpp): shortest-signed-path lerp across a [0,mod) wrap
 // (ParallaxBg::step's wrapMod). A naive prev+(cur-prev)*t sweeps the long way around a wrap boundary.
 static int wrapLerp(int prev, int cur, int mod, float t) {
-  if (mod <= 0) return prev + (int)lroundf((float)(cur - prev) * t);
+  if (mod <= 0) {
+    return prev + (int)lroundf((float)(cur - prev) * t);
+  }
   int diff = cur - prev;
-  if (diff >  mod / 2) diff -= mod;
-  if (diff < -mod / 2) diff += mod;
+  if (diff > mod / 2) {
+    diff -= mod;
+  }
+  if (diff < -mod / 2) {
+    diff += mod;
+  }
   int v = prev + (int)lroundf((float)diff * t);
-  v %= mod; if (v < 0) v += mod;
+  v %= mod;
+  if (v < 0) {
+    v += mod;
+  }
   return v;
 }
 
-void tomba_fps60_world_pass(Core* c, float t) {
-  Fps60& f = c->game->fps60;
+void tomba_fps60_world_pass(Core *c, float t) {
+  Fps60 &f = c->game->fps60;
   // #67 GATE PARITY: mirror the REAL frame's world-pass gates (Render::worldVoidBeat / fieldAreaInit —
   // the same reads sceneNative made this interval). Re-running past a gate the real frame honored paints
   // that pass on interp presents only (30Hz flicker of the whole layer).
@@ -42,10 +51,14 @@ void tomba_fps60_world_pass(Core* c, float t) {
   // presents redraw the village exterior on the in-between frames (documented interior flicker). The
   // object walk below stays UNGATED so the interp frames draw the identical reduced object set.
   const bool hutInterior = rend(c)->classifyScene() == Render::SceneKind::HutInterior;
-  if (!voidBeat && !areaInit && !hutInterior) rend(c)->terrainRenderAll();
+  if (!voidBeat && !areaInit && !hutInterior) {
+    rend(c)->terrainRenderAll();
+  }
   // SCENE TABLE (grass/terrain props): camera-only, same gate as terrain (mSceneTableTrusted, per the
   // present-time invariant — no tick has run since the real frame computed it).
-  if (!voidBeat && !areaInit && !hutInterior && rend(c)->mSceneTableTrusted) rend(c)->fieldEntityRender(0x800F2418u);
+  if (!voidBeat && !areaInit && !hutInterior && rend(c)->mSceneTableTrusted) {
+    rend(c)->fieldEntityRender(0x800F2418u);
+  }
   // BACKDROP (game-logic scroll, LAYER-TRANSFORM lerp — not camera-projected): mirrors sceneNative's own
   // gate (mBackdropTrusted && the resident drawer is the shared tilemap routine — seaside + areas 10/11/21,
   // kanban #42). The wrap moduli (t4+0x30/+0x32) are static per-area config, safe to re-read directly here.
@@ -68,4 +81,6 @@ void tomba_fps60_world_pass(Core* c, float t) {
   }
 }
 
-void tomba_fps60_bb_swap_prev(Core* c) { (void)c; }
+void tomba_fps60_bb_swap_prev(Core *c) {
+  (void)c;
+}

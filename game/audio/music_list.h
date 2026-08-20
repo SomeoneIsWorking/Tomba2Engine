@@ -18,30 +18,34 @@ class Core;
 
 class MusicList {
 public:
-  Core* core = nullptr;   // back-pointer wired by tomba_ctx_create (game_ctx.cpp)
+  Core *core = nullptr; // back-pointer wired by tomba_ctx_create (game_ctx.cpp)
   ~MusicList();
 
-  int         count() const { return 10; }
-  const char* name(int i) const;      // NULL if out of range
-  int         play(int i);            // 0 ok, -1 err
-  void        stop();
-  int         nowPlaying();           // -1 if none / stopped (also clears cached value if playback ended)
+  int count() const {
+    return 10;
+  }
+  const char *name(int i) const; // NULL if out of range
+  int play(int i);               // 0 ok, -1 err
+  void stop();
+  int nowPlaying(); // -1 if none / stopped (also clears cached value if playback ended)
 
   // IN-GAME: play the field BGM for `song` (0..9) from the LIVE area bundle. The bundle is copied
   // into a Game-owned buffer so playback survives area data churn. Returns 0 ok, -1 on error.
-  int         playArea(const uint8_t* bundle, long bundle_len, int song);
+  int playArea(const uint8_t *bundle, long bundle_len, int song);
 
 private:
-  int  loadContainer();
+  int loadContainer();
   long seqOff(int si) const;
-  long vabOff(int vi) const { return (long)(mBuf[vi*2] | (mBuf[vi*2+1] << 8)) * 0x800; }
+  long vabOff(int vi) const {
+    return (long)(mBuf[vi * 2] | (mBuf[vi * 2 + 1] << 8)) * 0x800;
+  }
   long areaSeqOff(int si) const;
 
-  uint8_t* mBuf  = nullptr;   // TOMBA2.SND contents (Sound Test catalogue)
-  long     mSize = 0;
-  int      mNow  = -1;
-  uint8_t* mArea    = nullptr;   // per-Game copy of the live area bundle (in-game BGM)
-  long     mAreaLen = 0;
+  uint8_t *mBuf = nullptr; // TOMBA2.SND contents (Sound Test catalogue)
+  long mSize = 0;
+  int mNow = -1;
+  uint8_t *mArea = nullptr; // per-Game copy of the live area bundle (in-game BGM)
+  long mAreaLen = 0;
 };
 #endif // __cplusplus
 #endif

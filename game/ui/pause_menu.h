@@ -33,15 +33,15 @@
 // (guest OT bucket, LIFO within a bucket) and the RQ_OVERLAY layer choice live in
 // ui_group_capture.h, shared with the in-game START page producer (StartPage, kanban #35).
 #pragma once
-#include <cstdint>
-#include "ui_group_capture.h"
-#include <vector>
 #include "ui_group_args.h"
+#include "ui_group_capture.h"
+#include <cstdint>
+#include <vector>
 class Core;
 
 class PauseMenu {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // The menu's chrome groups, captured off the two shared 2D group emitters for as long as the
   // controller FUN_800346BC is on the stack (see menuTick). Per-Core, so SBS's two cores cannot see
@@ -65,8 +65,6 @@ public:
   // leaf tap that feeds collect() is owned by UiFt4Tap (one install per address — see
   // ui_ft4_tap.h). Idempotent; called from games_tomba2_init with the other *_install() wirings.
   static void install();
-
-
 
   // drawCollected: sort the collected groups into the guest's paint order and push them, plus the
   // menu's own two full-screen quads, to the render queue at RQ_OVERLAY. Called once per controller

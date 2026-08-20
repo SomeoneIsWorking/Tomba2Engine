@@ -20,18 +20,18 @@ public:
   // Bind the SEP sequence at seqOff using the VAB at vabOff, both byte offsets into `data`. `data`
   // must remain valid for the lifetime of playback (no copy). Stops any current track first.
   // Returns 0 on success, -1 if the seq/VAB headers are invalid.
-  int  play(const uint8_t* data, long seqOff, long vabOff);
+  int play(const uint8_t *data, long seqOff, long vabOff);
   // Stop the active track (subsequent renders are silent).
   void stop();
   // Is a track currently playing (and not yet drained)?
   bool active();
   // Render `nframes` stereo frames @44100 into `out` (interleaved L,R int16), advancing the
   // sequence. Writes zeros (and returns 0) when nothing is playing.
-  int  render(int16_t* out, int nframes);
+  int render(int16_t *out, int nframes);
 
 private:
   pthread_mutex_t mLock = PTHREAD_MUTEX_INITIALIZER;
-  bool  mPlaying = false;     // a track is bound and not yet drained
+  bool mPlaying = false; // a track is bound and not yet drained
   NaVab mVab;
   NaSeq mSeq;
 };

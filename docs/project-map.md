@@ -7,6 +7,17 @@
 
 The repository-level `game/` is Tomba! 2-specific. Tomba! 1 does not share that game layer.
 
+## Build, launch, and C++ policy
+
+| surface | owner | verified behavior |
+|---|---|---|
+| default launcher | `run.sh` → `tools/run.py` | no arguments resolve the user's disc and launch `tomba2_port`; `--resume [recording.pad]` is preserved |
+| build graph | `CMakeLists.txt`, `cmake/tomba2_port.cmake` | configure refuses non-Clang C++; build identity and `compile_commands.json` come from the real target |
+| C++ verifier | `external/psxport/tools/check_cpp_style.py` via CTest | one shared implementation checks all first-party formatting, all compile-backed C++ TUs with clang-tidy, and 1,200-line/default shrink-only caps |
+
+Tomba carries the authoritative tracked `.clang-format` and `.clang-tidy` profiles. The normal CTest
+does not install a pre-commit hook and does not duplicate the verifier in this repo.
+
 ## Shared render ordering
 
 Tomba! 2 submits native world faces through psxport's `runtime/recomp/render_queue.{h,cpp}`. Equal-key
@@ -14,6 +25,12 @@ opaque ties use `runtime/recomp/ot_lifo_depth.{h,cpp}`, which encodes the PSX `A
 order as raster-distinct authored depths; `gpu_vk_next_distinct_3d_depth` owns the Vulkan `ord3d` mapping
 needed to prove those depths remain distinct after conversion. Game code must not duplicate or
 special-case that ordering policy.
+
+Textured raster sampling is framework-owned. `external/psxport/runtime/recomp/shaders_gpu/psx_uv.glsl`
+is the one integer-native-pixel UV-phase implementation shared by opaque, semi-transparent, and
+semi-cover shaders. `gpu_vk_texture_phase_selftest.cpp` drives the shipping queue/shader/readback path
+at 1x and 3x for positive/negative X/Y and mixed slopes; game producers must preserve guest packet UVs
+instead of compensating for host sampling phase.
 
 ## Publication cleanliness audit (2026-07-23)
 

@@ -44,64 +44,64 @@
 //     rec_dispatch's it; case's own r31/table-value 0x8003C2AC is a pure no-op (skip) entry.
 //   - advance: r16 = r17; loop while r16 != 0.
 //   - epilogue: restore r31/r19/r18/r17/r16 from their spill slots, sp += 112, return.
-#include "core.h"
-#include "game_ctx.h"
-#include "game.h"
-#include "render.h"
-#include "render_internal.h"   // withObjScope (dbg_node identity for the RCASE_DEFAULT custom renderer)
 #include "cfg.h"
+#include "core.h"
+#include "game.h"
+#include "game_ctx.h"
+#include "render.h"
+#include "render_internal.h" // withObjScope (dbg_node identity for the RCASE_DEFAULT custom renderer)
 #include <stdio.h>
 
-void rec_dispatch(Core*, uint32_t);          // overlay_router.cpp — shared choke point for owned/substrate leaves
-void func_8003F174(Core*);   // still-substrate: case 0x8003C0C4 (a0=node, a1=0)
-void func_8003EF9C(Core*);   // still-substrate: case 0x8003C0D8
-void func_80039F4C(Core*);   // still-substrate: case 0x8003C0E8
-void func_800726D4(Core*);   // guest packet/OT state for case 0x8003C138; the PICTURE is native (Render::fadeTileRender)
-void func_8003C5F8(Core*);   // owned: billboardComposeC5F8 via override registry (case 0x8003C168)
-void func_8003C788(Core*);   // owned: billboardCompose3 via override registry (case 0x8003C178)
-void func_8003B054(Core*);   // still-substrate: case 0x8003C188's particle color/UV fill
-void func_80084660(Core*);   // still-substrate: case 0x8003C188's pool-span bracket (open)
-void func_80084690(Core*);   // still-substrate: case 0x8003C188's pool-span bracket (close)
-void func_8003B320(Core*);   // still-substrate: case 0x8003C188's packet emit
-void shard_set_override(uint32_t addr, OverrideFn fn);   // generated/shard_disp.c (C++ linkage)
+void rec_dispatch(Core *, uint32_t); // overlay_router.cpp — shared choke point for owned/substrate leaves
+void func_8003F174(Core *);          // still-substrate: case 0x8003C0C4 (a0=node, a1=0)
+void func_8003EF9C(Core *);          // still-substrate: case 0x8003C0D8
+void func_80039F4C(Core *);          // still-substrate: case 0x8003C0E8
+void func_800726D4(Core *); // guest packet/OT state for case 0x8003C138; the PICTURE is native (Render::fadeTileRender)
+void func_8003C5F8(Core *); // owned: billboardComposeC5F8 via override registry (case 0x8003C168)
+void func_8003C788(Core *); // owned: billboardCompose3 via override registry (case 0x8003C178)
+void func_8003B054(Core *); // still-substrate: case 0x8003C188's particle color/UV fill
+void func_80084660(Core *); // still-substrate: case 0x8003C188's pool-span bracket (open)
+void func_80084690(Core *); // still-substrate: case 0x8003C188's pool-span bracket (close)
+void func_8003B320(Core *); // still-substrate: case 0x8003C188's packet emit
+void shard_set_override(uint32_t addr, OverrideFn fn); // generated/shard_disp.c (C++ linkage)
 
 // gen_func_8003C048 fallback for the oracle-gated thunk. g_override[] is process-global (shared by
 // SBS core A and core B), so the oracle side MUST keep running the real recompiled body — see
 // perobj_billboard.cpp's identical banner for the full rationale.
-extern void gen_func_8003C048(Core*);
+extern void gen_func_8003C048(Core *);
 
 namespace {
-constexpr uint32_t RENDER_LIST_HEAD = 0x800F2624u;   // *this = head of the global render-node list
-constexpr uint32_t JUMP_TABLE       = 0x80014DB8u;   // 33-entry (idx<33) per-node case-target table
-                                                      // (32769<<16 + 19896 = 0x80010000 + 0x4DB8 —
-                                                      // adjacent to CCA4's own 9-slot table at
-                                                      // 0x80014EC8, part of the same shared jump-table
-                                                      // data region. An earlier draft mis-added the low
-                                                      // 16 bits and used 0x800104B8, landing on an
-                                                      // UNRELATED table belonging to a different
-                                                      // function and crashing on a bogus dispatch —
-                                                      // caught by cross-checking the live table content
-                                                      // against generated/shard_7.c's neighboring
-                                                      // gen_func_8003D0BC (same 32769<<16 base).
-constexpr uint32_t CASE188_SCR      = 0x1F8000F8u;   // scratch buffer used only by case 0x8003C188
+constexpr uint32_t RENDER_LIST_HEAD = 0x800F2624u; // *this = head of the global render-node list
+constexpr uint32_t JUMP_TABLE = 0x80014DB8u;       // 33-entry (idx<33) per-node case-target table
+                                                   // (32769<<16 + 19896 = 0x80010000 + 0x4DB8 —
+                                                   // adjacent to CCA4's own 9-slot table at
+                                                   // 0x80014EC8, part of the same shared jump-table
+                                                   // data region. An earlier draft mis-added the low
+                                                   // 16 bits and used 0x800104B8, landing on an
+                                                   // UNRELATED table belonging to a different
+                                                   // function and crashing on a bogus dispatch —
+                                                   // caught by cross-checking the live table content
+                                                   // against generated/shard_7.c's neighboring
+                                                   // gen_func_8003D0BC (same 32769<<16 base).
+constexpr uint32_t CASE188_SCR = 0x1F8000F8u;      // scratch buffer used only by case 0x8003C188
 // perobj_dispatch.cpp's MODE_BYTE (0x800BF870) — case 0x8003C188 reads the SAME render-mode-select
 // byte perModeDispatch does, confirming both are part of the one per-area render-mode mechanism.
-constexpr uint32_t MODE_BYTE_188    = 0x800BF870u;
+constexpr uint32_t MODE_BYTE_188 = 0x800BF870u;
 
 // Real -112 guest-stack frame (RE: gen_func_8003C048's prologue) — see CLAUDE.md "MIRROR THE GUEST
 // STACK". Spills the CALLER's live r16/r17/r18/r19/r31 (whatever the render-frame orchestrator that
 // reaches FUN_8003C048 had at that call site) and restores them on every exit, matching gen's real
 // callee-save prologue/epilogue exactly (order per generated/shard_7.c:4425-4436,4564-4569).
 struct WalkFrame {
-  Core* c; uint32_t s16, s31, s19, s18, s17;
-  explicit WalkFrame(Core* c_)
-    : c(c_), s16(c_->r[16]), s31(c_->r[31]), s19(c_->r[19]), s18(c_->r[18]), s17(c_->r[17]) {
+  Core *c;
+  uint32_t s16, s31, s19, s18, s17;
+  explicit WalkFrame(Core *c_) : c(c_), s16(c_->r[16]), s31(c_->r[31]), s19(c_->r[19]), s18(c_->r[18]), s17(c_->r[17]) {
     c->r[29] -= 112;
-    c->mem_w32(c->r[29] + 88,  s16);
+    c->mem_w32(c->r[29] + 88, s16);
     c->mem_w32(c->r[29] + 104, s31);
     c->mem_w32(c->r[29] + 100, s19);
-    c->mem_w32(c->r[29] + 96,  s18);
-    c->mem_w32(c->r[29] + 92,  s17);
+    c->mem_w32(c->r[29] + 96, s18);
+    c->mem_w32(c->r[29] + 92, s17);
   }
   ~WalkFrame() {
     c->r[31] = c->mem_r32(c->r[29] + 104);
@@ -124,38 +124,54 @@ struct WalkFrame {
 //    to 45, copy 11 halfwords of node+96..118 vertex/UV data to sp+56..84, bracket with
 //    func_80084660/func_80084690 (r4=CASE188_SCR — pool-span open/close markers, the guest-side
 //    counterpart), then emit via func_8003B320(sp+16, sp+56, count=16).
-void renderWalkCase188(Core* c) {
+void renderWalkCase188(Core *c) {
   const uint32_t node = c->r[16];
-  const uint32_t sp   = c->r[29];
+  const uint32_t sp = c->r[29];
   if (c->mem_r8(MODE_BYTE_188) == 4u) {
-    c->r[4] = node; c->r[31] = 0x8003C1A4u; rec_dispatch(c, 0x8011BE5Cu);
+    c->r[4] = node;
+    c->r[31] = 0x8003C1A4u;
+    rec_dispatch(c, 0x8011BE5Cu);
     return;
   }
   const uint32_t tbl = c->mem_r32(node + 56u);
-  if (tbl == 0u) return;
-  const int idx           = (int16_t)c->mem_r16(tbl + 0u);
+  if (tbl == 0u) {
+    return;
+  }
+  const int idx = (int16_t)c->mem_r16(tbl + 0u);
   const uint32_t listBase = c->mem_r32(node + 60u);
-  const uint32_t entry    = listBase + (uint32_t)(idx << 2);
-  const int16_t byteOff   = (int16_t)c->mem_r16(entry + 2u);
-  c->r[4] = sp + 16u; c->r[5] = listBase + (uint32_t)(int32_t)byteOff; c->r[6] = 0u;
+  const uint32_t entry = listBase + (uint32_t)(idx << 2);
+  const int16_t byteOff = (int16_t)c->mem_r16(entry + 2u);
+  c->r[4] = sp + 16u;
+  c->r[5] = listBase + (uint32_t)(int32_t)byteOff;
+  c->r[6] = 0u;
   c->r[31] = 0x8003C1E0u;
   func_8003B054(c);
   c->mem_w8(sp + 23u, 45u);
-  for (uint32_t i = 0; i < 11u; i++)
+  for (uint32_t i = 0; i < 11u; i++) {
     c->mem_w16(sp + 56u + i * 2u, c->mem_r16(node + 96u + i * 2u));
-  c->r[4] = c->r[18]; c->r[31] = 0x8003C27Cu; func_80084660(c);
-  c->r[4] = c->r[18]; c->r[31] = 0x8003C284u; func_80084690(c);
-  c->r[4] = sp + 16u; c->r[5] = sp + 56u; c->r[6] = 16u; c->r[31] = 0x8003C294u;
+  }
+  c->r[4] = c->r[18];
+  c->r[31] = 0x8003C27Cu;
+  func_80084660(c);
+  c->r[4] = c->r[18];
+  c->r[31] = 0x8003C284u;
+  func_80084690(c);
+  c->r[4] = sp + 16u;
+  c->r[5] = sp + 56u;
+  c->r[6] = 16u;
+  c->r[31] = 0x8003C294u;
   func_8003B320(c);
 }
 } // namespace
 
 // FUN_8003C048
 void Render::renderWalk() {
-  Core* c = mCore;
+  Core *c = mCore;
   WalkFrame frame(c);
   c->r[16] = c->mem_r32(RENDER_LIST_HEAD);
-  if (c->r[16] == 0u) return;   // empty list -> straight to epilogue (WalkFrame restores)
+  if (c->r[16] == 0u) {
+    return; // empty list -> straight to epilogue (WalkFrame restores)
+  }
   c->r[19] = JUMP_TABLE;
   c->r[18] = CASE188_SCR;
   for (;;) {
@@ -169,90 +185,126 @@ void Render::renderWalk() {
         const uint32_t target = c->mem_r32(c->r[19] + idxByte * 4u);
         cfg_logf("walk", "node=%08x idx=%u table=%08x target=%08x", node, idxByte, c->r[19], target);
         switch (target) {
-          case 0x8003C0B4u:
-            c->r[4] = c->r[16]; c->r[31] = 0x8003C0BCu; perObjRenderDispatch();
-            break;
-          case 0x8003C0C4u:
-            c->r[4] = c->r[16]; c->r[5] = 0u; c->r[31] = 0x8003C0D0u; func_8003F174(c);
-            break;
-          case 0x8003C0D8u:
-            c->r[4] = c->r[16]; c->r[31] = 0x8003C0E0u; func_8003EF9C(c);
-            break;
-          case 0x8003C0E8u:
-            c->r[4] = c->r[16]; c->r[31] = 0x8003C0F0u; func_80039F4C(c);
-            break;
-          case 0x8003C0F8u:
-            c->r[4] = c->r[16]; c->r[31] = 0x8003C100u; rec_dispatch(c, 0x8012A43Cu);
-            break;
-          case 0x8003C108u:
-            c->r[4] = c->r[16]; c->r[31] = 0x8003C110u; rec_dispatch(c, 0x801295B4u);
-            break;
-          case 0x8003C118u:
-            c->r[4] = c->r[16]; c->r[31] = 0x8003C120u; rec_dispatch(c, 0x80129114u);
-            break;
-          case 0x8003C128u:
-            c->r[4] = c->r[16]; c->r[31] = 0x8003C130u; rec_dispatch(c, 0x8013DD58u);
-            break;
-          case 0x8003C138u: {
-            // Full-screen FADE/FLASH tile. The substrate body still runs for its guest packet-pool +
-            // OT writes (byte-exact state pc_render must not disturb); the PICTURE is rebuilt natively
-            // from the same level halfword by fadeTileRender — otherwise the fade would not appear at
-            // all now that the renderer composites only native submits.
-            const uint32_t node = c->r[16];
-            c->r[4] = node; c->r[31] = 0x8003C140u; func_800726D4(c);
-            rend(c)->fadeTileRender(node);
-            break;
-          }
-          case 0x8003C148u:
-            c->r[4] = c->r[16]; c->r[31] = 0x8003C150u; billboardCompose1();
-            break;
-          case 0x8003C158u:
-            c->r[4] = c->r[16]; c->r[31] = 0x8003C160u; billboardCompose2();
-            break;
-          case 0x8003C168u:
-            c->r[4] = c->r[16]; c->r[31] = 0x8003C170u; func_8003C5F8(c);
-            break;
-          case 0x8003C178u:
-            c->r[4] = c->r[16]; c->r[31] = 0x8003C180u; func_8003C788(c);
-            break;
-          case 0x8003C188u:
-            renderWalkCase188(c);
-            break;
-          case 0x8003C29Cu: {
-            // Fully dynamic per-node dispatch through a function pointer at node+24 (the RCASE_DEFAULT
-            // class documented in older render findings — a per-object-type custom renderer). Wrapped
-            // in withObjScope so the emitted prims carry the owning node as dbg_node identity.
-            withObjScope(c, c->r[16], [](Core* c) {
-              const uint32_t fn = c->mem_r32(c->r[16] + 24u);
-              c->r[4] = c->r[16]; c->r[31] = 0x8003C2ACu; rec_dispatch(c, fn);
-            });
-            break;
-          }
-          case 0x8003C2ACu:
-            break;   // no-op table entry: skip (matches gen's dedicated L_8003C2AC case value)
-          default:
-            // Defensive mirror of the recompiler's own indirect-jump fallback (generated/shard_7.c:
-            // 4446's `default: rec_dispatch(c, c->r[2]); return;`) — a full RETURN from the whole
-            // function, not a loop-continue, exactly like perObjRenderDispatch's and billboardEmit's
-            // own default cases. Never hit by live game data: the live 33-slot table only ever holds
-            // the case values enumerated above.
-            c->r[4] = c->r[16]; rec_dispatch(c, target);
-            return;
+        case 0x8003C0B4u:
+          c->r[4] = c->r[16];
+          c->r[31] = 0x8003C0BCu;
+          perObjRenderDispatch();
+          break;
+        case 0x8003C0C4u:
+          c->r[4] = c->r[16];
+          c->r[5] = 0u;
+          c->r[31] = 0x8003C0D0u;
+          func_8003F174(c);
+          break;
+        case 0x8003C0D8u:
+          c->r[4] = c->r[16];
+          c->r[31] = 0x8003C0E0u;
+          func_8003EF9C(c);
+          break;
+        case 0x8003C0E8u:
+          c->r[4] = c->r[16];
+          c->r[31] = 0x8003C0F0u;
+          func_80039F4C(c);
+          break;
+        case 0x8003C0F8u:
+          c->r[4] = c->r[16];
+          c->r[31] = 0x8003C100u;
+          rec_dispatch(c, 0x8012A43Cu);
+          break;
+        case 0x8003C108u:
+          c->r[4] = c->r[16];
+          c->r[31] = 0x8003C110u;
+          rec_dispatch(c, 0x801295B4u);
+          break;
+        case 0x8003C118u:
+          c->r[4] = c->r[16];
+          c->r[31] = 0x8003C120u;
+          rec_dispatch(c, 0x80129114u);
+          break;
+        case 0x8003C128u:
+          c->r[4] = c->r[16];
+          c->r[31] = 0x8003C130u;
+          rec_dispatch(c, 0x8013DD58u);
+          break;
+        case 0x8003C138u: {
+          // Full-screen FADE/FLASH tile. The substrate body still runs for its guest packet-pool +
+          // OT writes (byte-exact state pc_render must not disturb); the PICTURE is rebuilt natively
+          // from the same level halfword by fadeTileRender — otherwise the fade would not appear at
+          // all now that the renderer composites only native submits.
+          const uint32_t node = c->r[16];
+          c->r[4] = node;
+          c->r[31] = 0x8003C140u;
+          func_800726D4(c);
+          rend(c)->fadeTileRender(node);
+          break;
+        }
+        case 0x8003C148u:
+          c->r[4] = c->r[16];
+          c->r[31] = 0x8003C150u;
+          billboardCompose1();
+          break;
+        case 0x8003C158u:
+          c->r[4] = c->r[16];
+          c->r[31] = 0x8003C160u;
+          billboardCompose2();
+          break;
+        case 0x8003C168u:
+          c->r[4] = c->r[16];
+          c->r[31] = 0x8003C170u;
+          func_8003C5F8(c);
+          break;
+        case 0x8003C178u:
+          c->r[4] = c->r[16];
+          c->r[31] = 0x8003C180u;
+          func_8003C788(c);
+          break;
+        case 0x8003C188u:
+          renderWalkCase188(c);
+          break;
+        case 0x8003C29Cu: {
+          // Fully dynamic per-node dispatch through a function pointer at node+24 (the RCASE_DEFAULT
+          // class documented in older render findings — a per-object-type custom renderer). Wrapped
+          // in withObjScope so the emitted prims carry the owning node as dbg_node identity.
+          withObjScope(c, c->r[16], [](Core *c) {
+            const uint32_t fn = c->mem_r32(c->r[16] + 24u);
+            c->r[4] = c->r[16];
+            c->r[31] = 0x8003C2ACu;
+            rec_dispatch(c, fn);
+          });
+          break;
+        }
+        case 0x8003C2ACu:
+          break; // no-op table entry: skip (matches gen's dedicated L_8003C2AC case value)
+        default:
+          // Defensive mirror of the recompiler's own indirect-jump fallback (generated/shard_7.c:
+          // 4446's `default: rec_dispatch(c, c->r[2]); return;`) — a full RETURN from the whole
+          // function, not a loop-continue, exactly like perObjRenderDispatch's and billboardEmit's
+          // own default cases. Never hit by live game data: the live 33-slot table only ever holds
+          // the case values enumerated above.
+          c->r[4] = c->r[16];
+          rec_dispatch(c, target);
+          return;
         }
       }
     }
     c->r[16] = c->r[17];
-    if (c->r[16] == 0u) break;
+    if (c->r[16] == 0u) {
+      break;
+    }
   }
 }
 
 namespace {
-void ov_renderWalk(Core* c) { rend(c)->renderWalk(); }
+void ov_renderWalk(Core *c) {
+  rend(c)->renderWalk();
 }
+} // namespace
 
 void render_walk_dispatch_install() {
   static bool done = false;
-  if (done) return;
+  if (done) {
+    return;
+  }
   done = true;
   extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
   engine_set_override_main(0x8003C048u, ov_renderWalk, gen_func_8003C048);

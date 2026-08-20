@@ -23,7 +23,7 @@ class Core;
 class TransitionState3 {
 public:
   // Back-pointer wired once by Core's constructor (same pattern as ScreenFade::core).
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // walkOnce: one call of the state-3 walker (guest FUN_8007B04C).
   void walkOnce();

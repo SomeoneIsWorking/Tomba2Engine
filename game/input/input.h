@@ -20,12 +20,12 @@ public:
   // pan/env fields) and calls the SPU key-off / channel-reset helpers (func_80099970/func_80094B50).
   // ready-FRAME: mirrors the gen 112-byte stack frame (spills r16..r21,r31, marshals a per-voice
   // struct at sp+16 for func_80099970). Byte-faithful to gen_func_80093650 (tools/port_check.py gate).
-  static void voiceTableInit(Core* c);   // guest ABI: voice-count cap (int8) in r4
+  static void voiceTableInit(Core *c); // guest ABI: voice-count cap (int8) in r4
 
   // registerOverrides(): install voiceTableInit by guest address into the ONE override registry.
   // FUN_80092E3C — SPU voice-attribute stage: sets the volume fields of one voice slot.
-  static void setVoiceVolume(Core* c);
+  static void setVoiceVolume(Core *c);
 
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };
 #endif

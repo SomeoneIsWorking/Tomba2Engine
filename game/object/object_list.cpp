@@ -5,58 +5,83 @@
 // TransitionState3::walkOnce. The `behhist` diagnostic (from the pre-restructure call_handler)
 // is preserved in the main walk since it feeds top-down ownership decisions.
 #include "object_list.h"
-#include "game_ctx.h"
-#include "core.h"
 #include "cfg.h"
-#include "game.h"                 // Fps60::current_object
-#include "tomba2_types.h"         // T2_OBJLIST_HEAD_1/2, T2OBJ_HANDLER/NEXT/RENDER_FLAG
-#include "render.h"               // rend(c)->margin.flush (native widescreen margin pass)
+#include "core.h"
+#include "game.h" // Fps60::current_object
+#include "game_ctx.h"
+#include "render.h"       // rend(c)->margin.flush (native widescreen margin pass)
+#include "tomba2_types.h" // T2_OBJLIST_HEAD_1/2, T2OBJ_HANDLER/NEXT/RENDER_FLAG
 #include <stdint.h>
 #include <stdio.h>
 
-void rec_dispatch(Core* c, uint32_t addr);
+void rec_dispatch(Core *c, uint32_t addr);
 
 namespace {
 
 // Per-node handler dispatch: fps60 current-object bookkeeping + native-or-substrate route via
 // BehaviorDispatch (was static call_handler + walk_list helpers). Local to this TU. The `behhist`
 // diagnostic feeds top-down ownership decisions, so it lives here on the main walk path.
-inline void call_handler(Core* c, uint32_t node) {
+inline void call_handler(Core *c, uint32_t node) {
   uint32_t h = c->mem_r32(node + T2OBJ_HANDLER);
   if (cfg_dbg("behhist")) {
-    ObjectList& ol = eng(c).objectList;
-    uint32_t* addr = ol.mBehAddr; long* cnt = ol.mBehCnt; int& nh = ol.mBehN; long& w = ol.mBehW;
-    int i=0; for(; i<nh; i++) if(addr[i]==h) break;
-    if(i==nh && nh<64){ addr[nh]=h; cnt[nh]=0; nh++; }
-    if(i<64) cnt[i]++;
-    if((++w % 300)==0){ cfg_logi("behhist", "distinct=%d handlers:", nh);
-      for(int j=0;j<nh;j++) cfg_logi("behhist", "   %08X  x%ld", addr[j], cnt[j]); }
+    ObjectList &ol = eng(c).objectList;
+    uint32_t *addr = ol.mBehAddr;
+    long *cnt = ol.mBehCnt;
+    int &nh = ol.mBehN;
+    long &w = ol.mBehW;
+    int i = 0;
+    for (; i < nh; i++) {
+      if (addr[i] == h) {
+        break;
+      }
+    }
+    if (i == nh && nh < 64) {
+      addr[nh] = h;
+      cnt[nh] = 0;
+      nh++;
+    }
+    if (i < 64) {
+      cnt[i]++;
+    }
+    if ((++w % 300) == 0) {
+      cfg_logi("behhist", "distinct=%d handlers:", nh);
+      for (int j = 0; j < nh; j++) {
+        cfg_logi("behhist", "   %08X  x%ld", addr[j], cnt[j]);
+      }
+    }
   }
   eng(c).behaviors.dispatchObj(node, h);
 }
 
-inline void walk_list(Core* c, uint32_t head, long* count) {
-  for (uint32_t n = head; n; ) {
+inline void walk_list(Core *c, uint32_t head, long *count) {
+  for (uint32_t n = head; n;) {
     uint32_t next = c->mem_r32(n + T2OBJ_NEXT);
-    c->mem_w8 (n + T2OBJ_RENDER_FLAG, 0);
+    c->mem_w8(n + T2OBJ_RENDER_FLAG, 0);
     call_handler(c, n);
-    n = next; (*count)++;
+    n = next;
+    (*count)++;
   }
 }
 
-}  // namespace
+} // namespace
 
 void ObjectList::walkAll() {
-  Core* c = core;
-  if (c->game && !c->game->native_sync) { MV_CHECK(c, 0x8007A904u, walkAllFaithful()); return; }
+  Core *c = core;
+  if (c->game && !c->game->native_sync) {
+    MV_CHECK(c, 0x8007A904u, walkAllFaithful());
+    return;
+  }
   long nodes = 0;
   walk_list(c, c->mem_r32(T2_OBJLIST_HEAD_1), &nodes);
   walk_list(c, c->mem_r32(T2_OBJLIST_HEAD_2), &nodes);
   rend(c)->margin.flush(c);
 
-  if (mDbg < 0) mDbg = cfg_dbg("engine") ? 1 : 0;
-  if (mDbg && (mWalksAll % 300) == 0)
+  if (mDbg < 0) {
+    mDbg = cfg_dbg("engine") ? 1 : 0;
+  }
+  if (mDbg && (mWalksAll % 300) == 0) {
     cfg_logi("engine", "objwalk #%ld: %ld nodes", mWalksAll, nodes);
+  }
   mWalksAll++;
 }
 
@@ -68,7 +93,7 @@ void ObjectList::walkAll() {
 // gen_func_8007A904 never calls it (that's a render-overlay addition, deferred — see the
 // unconditional call still in walkAll() above for the native_sync=true path).
 void ObjectList::walkAllFaithful() {
-  Core* c = core;
+  Core *c = core;
   uint32_t node = c->mem_r32(T2_OBJLIST_HEAD_1);
   c->r[29] -= 24;
   const uint32_t sp = c->r[29];
@@ -76,8 +101,8 @@ void ObjectList::walkAllFaithful() {
   c->mem_w32(sp + 16, c->r[16]);
 
   while (node) {
-    c->r[16] = c->mem_r32(node + T2OBJ_NEXT);   // s0 = next — live value for a callee's own spill
-    c->r[31] = 0x8007A930u;                     // jal-site ra (list-1 loop)
+    c->r[16] = c->mem_r32(node + T2OBJ_NEXT); // s0 = next — live value for a callee's own spill
+    c->r[31] = 0x8007A930u;                   // jal-site ra (list-1 loop)
     c->mem_w8(node + T2OBJ_RENDER_FLAG, 0);
     call_handler(c, node);
     node = c->r[16];
@@ -86,7 +111,7 @@ void ObjectList::walkAllFaithful() {
   node = c->mem_r32(T2_OBJLIST_HEAD_2);
   while (node) {
     c->r[16] = c->mem_r32(node + T2OBJ_NEXT);
-    c->r[31] = 0x8007A964u;                     // jal-site ra (list-2 loop)
+    c->r[31] = 0x8007A964u; // jal-site ra (list-2 loop)
     c->mem_w8(node + T2OBJ_RENDER_FLAG, 0);
     call_handler(c, node);
     node = c->r[16];
@@ -98,24 +123,30 @@ void ObjectList::walkAllFaithful() {
 }
 
 void ObjectList::walkList2() {
-  Core* c = core;
+  Core *c = core;
   long nodes = 0;
   walk_list(c, c->mem_r32(T2_OBJLIST_HEAD_2), &nodes);
   // NB: no MarginRenderer::flush here — that belongs to walkAll (walkList2 is a distinct call site
   // from Sop::fieldUpdate, not a replacement of the whole entity walk).
 
-  if (mDbg < 0) mDbg = cfg_dbg("engine") ? 1 : 0;
-  if (mDbg && (mWalksL2 % 300) == 0)
+  if (mDbg < 0) {
+    mDbg = cfg_dbg("engine") ? 1 : 0;
+  }
+  if (mDbg && (mWalksL2 % 300) == 0) {
     cfg_logi("engine", "objwalk_l2 #%ld: %ld nodes", mWalksL2, nodes);
+  }
   mWalksL2++;
 }
 
 void ObjectList::walkAux() {
-  Core* c = core;
-  if (c->game && !c->game->native_sync) { MV_CHECK(c, 0x80069B28u, walkAuxFaithful()); return; }
+  Core *c = core;
+  if (c->game && !c->game->native_sync) {
+    MV_CHECK(c, 0x80069B28u, walkAuxFaithful());
+    return;
+  }
   // FUN_80069B28: does NOT clear the render flag; dispatches per handler ptr via the shared path.
-  for (uint32_t n = c->mem_r32(AUX_LIST_HEAD); n; ) {
-    uint32_t h    = c->mem_r32(n + 0x1Cu);
+  for (uint32_t n = c->mem_r32(AUX_LIST_HEAD); n;) {
+    uint32_t h = c->mem_r32(n + 0x1Cu);
     uint32_t next = c->mem_r32(n + 0x24u);
     eng(c).behaviors.dispatchObj(n, h);
     n = next;
@@ -133,11 +164,11 @@ void ObjectList::walkAux() {
 // substrate handler's s0 spill also byte-matches. Does NOT clear the render flag (only
 // walkAll/walkList2 do that).
 void ObjectList::walkAuxFaithful() {
-  Core* c = core;
-  c->r[2] = (uint32_t)32783u << 16;    // gen's LUI half of the AUX_LIST_HEAD address load — clobbers
-                                        // v0 unconditionally (even on the empty-list fast path), so it
-                                        // must be reproduced here or v0 is left stale from an earlier
-                                        // computation instead of 0x800F0000.
+  Core *c = core;
+  c->r[2] = (uint32_t)32783u << 16; // gen's LUI half of the AUX_LIST_HEAD address load — clobbers
+                                    // v0 unconditionally (even on the empty-list fast path), so it
+                                    // must be reproduced here or v0 is left stale from an earlier
+                                    // computation instead of 0x800F0000.
   uint32_t node = c->mem_r32(AUX_LIST_HEAD);
   c->r[29] -= 24;
   const uint32_t sp = c->r[29];
@@ -145,8 +176,8 @@ void ObjectList::walkAuxFaithful() {
   c->mem_w32(sp + 16, c->r[16]);
   while (node != 0) {
     uint32_t h = c->mem_r32(node + 0x1Cu);
-    c->r[16] = c->mem_r32(node + 0x24u);   // next — carried in s0 across the call, matches gen
-    c->r[31] = 0x80069B50u;                // jal-site ra — matches gen's spill target for callees
+    c->r[16] = c->mem_r32(node + 0x24u); // next — carried in s0 across the call, matches gen
+    c->r[31] = 0x80069B50u;              // jal-site ra — matches gen's spill target for callees
     eng(c).behaviors.dispatchObj(node, h);
     node = c->r[16];
   }

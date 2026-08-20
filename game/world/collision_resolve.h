@@ -6,7 +6,7 @@
 #pragma once
 #include <cstdint>
 struct Core;
-class  Game;
+class Game;
 
 class CollisionResolve {
 public:
@@ -19,13 +19,13 @@ public:
   // flags&1 selects the entry geometry: clear uses the actor's raw position, set offsets the sample
   // point by radius(+0x7C) rotated by angle(+0x56) and carries that offset back out of the final
   // write.
-  static void cylinderResolve(Core* c);
+  static void cylinderResolve(Core *c);
 
   // FUN_8002423C(actor = a0, other = a1) -> v0: 2 = landed (actor Y snapped onto the object's rest
   // height, landed flag at +0x29 set), -1 = rejected by any of the three gates. v0 IS LIVE — overlay
   // a06 tests it against 2 and zeroes a node-scan counter on a hit, so it drives guest writes, not
   // just a register compare. See the implementation banner.
-  static void landOnObjectTop(Core* c);
+  static void landOnObjectTop(Core *c);
 
   // FUN_8001F40C(actor = a0, other = a1, suppressSnap = a2) -> v0. The CLASSIFIER of the family:
   // it answers how a body-vs-body contact should be resolved and lets the CALLER do the horizontal
@@ -40,7 +40,7 @@ public:
   // Bit 0 is the axis and bit 1 is the side, and callers read them separately — ActorTomba::
   // type8Interact switches on `v0 & 1`, ::stepModeInteract gates on `v0 < 2`. See the .cpp banner
   // for the identification evidence and for the grown-state sibling FUN_8001EC3C.
-  static void classifyBodyContact(Core* c);
+  static void classifyBodyContact(Core *c);
 
   // FUN_80023A04(actor = a0, other = a1, policy = a2) -> v0. The OBJECT-vs-OBJECT member of the
   // family: two full object records, no separate anchor, and a POLICY index in a2 that picks which
@@ -52,7 +52,7 @@ public:
   // NOTE the return codes are NOT cylinderResolve's: there, 0 is the miss and 1 is the push-out.
   // Here 0 IS the push-out and the miss is -1. Unlike cylinderResolve this body also does NOT set
   // the landed flag itself — its caller does, on v0 == 2. See the .cpp banner.
-  static void resolveByContactPolicy(Core* c);
+  static void resolveByContactPolicy(Core *c);
 
   // WHY THIS CANNOT CALL THE Trig METHODS DIRECTLY, even though all five of its callees are owned
   // natively (Math::sqrtLzc, Trig::rcos/rsin/ratan2/angleCmp): Trig::registerOverrides is
@@ -61,5 +61,5 @@ public:
   // below this function's sp unwritten while substrate core B writes them, and SBS compares that
   // memory. The body therefore invokes them through their generated func_XXXX wrappers, which is
   // what port_gen emits and what keeps the guest stack byte-identical.
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

@@ -57,5 +57,5 @@ public:
   // drawCollected: push the captured groups in the guest's paint order (descending OT bucket, LIFO
   // within a bucket — which puts the cursor, emitted first, on top) at RQ_OVERLAY, one band below
   // the RQ_HUD glyphs the Font taps produce.
-  void drawCollected(Core* c);
+  void drawCollected(Core *c);
 };

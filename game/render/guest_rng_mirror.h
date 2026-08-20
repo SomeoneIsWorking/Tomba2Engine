@@ -40,13 +40,13 @@ public:
   // Re-seed from guest RAM if this is a new logic frame, then return the next draw, exactly as
   // FUN_8009A450 computes it: (seed >> 16) & 0x7FFF, i.e. [0, 32767]. Safe to call any number of
   // times per frame; the sequence restarts from the guest value at each new frame.
-  int32_t next(Core* c);
+  int32_t next(Core *c);
 
   // The raw 32-bit state after stepping, for a caller that wants its own masking.
-  uint32_t nextRaw(Core* c);
+  uint32_t nextRaw(Core *c);
 
 private:
-  void frameSync(Core* c);
+  void frameSync(Core *c);
   uint32_t mState = 0;
   int mFrame = -1;
 };

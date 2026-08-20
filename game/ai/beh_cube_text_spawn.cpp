@@ -24,41 +24,41 @@
 // leaves a0=rec); we therefore must NOT write c->r[4] before each FUN_8007aae8, exactly as the recomp
 // doesn't. Byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net.
 
+#include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "render/cull.h"    // Cull::cullWrap77acc / installSceneRecord
-#include "cfg.h"
+#include "graphics_bind.h" // ov_obj_render_update (FUN_800517F8)
+#include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "render/cull.h"   // Cull::cullWrap77acc / installSceneRecord
+#include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "ui/font.h"       // Font::measureLineWidth (FUN_80073750)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
-#include "graphics_bind.h"   // ov_obj_render_update (FUN_800517F8)
-#include "ui/font.h"   // Font::measureLineWidth (FUN_80073750)
-#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-void rec_super_call(Core*, uint32_t);
-void rec_dispatch(Core*, uint32_t);
+void rec_super_call(Core *, uint32_t);
+void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
 constexpr uint32_t BEH_FN = 0x8003AD48u;
 
 // string-table entry pointer: mem32(0x800a33c8 + (node[0x60]*3 << 2) + 4)   (node[0x60] is signed lh)
-static inline uint32_t tbl_strp(Core* c, uint32_t nd) {
+static inline uint32_t tbl_strp(Core *c, uint32_t nd) {
   int32_t i = c->mem_r16s(nd + 0x60);
   uint32_t off = (uint32_t)(i * 3) << 2;
   return c->mem_r32(0x800A33C8u + off + 4);
 }
 
-}  // namespace
+} // namespace
 static constexpr GuestFrameSpill kSpills_8003AD48[5] = {
-  { 18, 24 },
-  { 31 /*ra*/, 32 },
-  { 19, 28 },
-  { 17, 20 },
-  { 16, 16 },
-};   // frame=40, abi_extract --scaffold --guestabi
+    {18, 24},
+    {31 /*ra*/, 32},
+    {19, 28},
+    {17, 20},
+    {16, 16},
+}; // frame=40, abi_extract --scaffold --guestabi
 
-void beh_cube_text_spawn(Core* c) {
+void beh_cube_text_spawn(Core *c) {
   GuestFrame<40, 5> frame(c, kSpills_8003AD48);
   const uint32_t nd = c->r[4];
   uint8_t st = c->mem_r8(nd + 4);
@@ -66,42 +66,57 @@ void beh_cube_text_spawn(Core* c) {
   if (st == 1) {
     // ---------- STATE 1 (tick) ----------
     uint8_t type = c->mem_r8(nd + 3);
-    if (type == 1)      { c->r[4] = nd; rec_dispatch(c, 0x8003A9A0u); }
-    else if (type == 0) { c->r[4] = nd; rec_dispatch(c, 0x8003A790u); }
-    else if (type == 2) { c->r[4] = nd; rec_dispatch(c, 0x8003ABE4u); }
+    if (type == 1) {
+      c->r[4] = nd;
+      rec_dispatch(c, 0x8003A9A0u);
+    } else if (type == 0) {
+      c->r[4] = nd;
+      rec_dispatch(c, 0x8003A790u);
+    } else if (type == 2) {
+      c->r[4] = nd;
+      rec_dispatch(c, 0x8003ABE4u);
+    }
     c->mem_w8(nd + 1, 1);
-    c->r[4] = nd; eng(c).graphicsBind.renderUpdate();                 // FUN_800517f8
+    c->r[4] = nd;
+    eng(c).graphicsBind.renderUpdate(); // FUN_800517f8
     return;
   }
   if (st >= 2) {
-    if (st == 2) {                                              // STATE 2
+    if (st == 2) { // STATE 2
       c->mem_w8(nd + 4, 3);
       c->mem_w8(0x800BF849u, (uint8_t)(c->mem_r8(0x800BF849u) - 1));
       c->mem_w8(0x800ED06Cu, (uint8_t)(c->mem_r8(0x800ED06Cu) - 1));
       return;
     }
-    if (st == 3) { eng(c).spawn.despawn(nd); }  // STATE 3
+    if (st == 3) {
+      eng(c).spawn.despawn(nd);
+    } // STATE 3
     return;
   }
-  if (st != 0) return;
+  if (st != 0) {
+    return;
+  }
 
   // ---------- STATE 0 (init) ----------
   uint32_t uVar7;
   uint8_t type = c->mem_r8(nd + 3);
   if (type == 2) {
     // "Clear" branch
-    uint32_t len = (uint32_t)Font::measureLineWidth(c, c->mem_r32(0x800A3A8Cu));  // FUN_80073750(PTR_s_Clear)
+    uint32_t len = (uint32_t)Font::measureLineWidth(c, c->mem_r32(0x800A3A8Cu)); // FUN_80073750(PTR_s_Clear)
     uVar7 = 0x16;
     c->mem_w8(nd + 8, (uint8_t)(len + 1));
   } else {
     // table branch
     uVar7 = 0xf;
-    uint32_t len = (uint32_t)Font::measureLineWidth(c, tbl_strp(c, nd));         // FUN_80073750(table str)
+    uint32_t len = (uint32_t)Font::measureLineWidth(c, tbl_strp(c, nd)); // FUN_80073750(table str)
     c->mem_w8(nd + 8, (uint8_t)len);
     if ((len & 0xff) >= 33) {
       // overflow: log + bail to state 2
-      c->r[4] = 0x80014A54u; rec_dispatch(c, 0x8009A730u);             // s_cube_moji_over_flow
-      c->r[4] = 0x80014A6Cu; c->r[5] = tbl_strp(c, nd); rec_dispatch(c, 0x8009A730u);
+      c->r[4] = 0x80014A54u;
+      rec_dispatch(c, 0x8009A730u); // s_cube_moji_over_flow
+      c->r[4] = 0x80014A6Cu;
+      c->r[5] = tbl_strp(c, nd);
+      rec_dispatch(c, 0x8009A730u);
       c->mem_w8(nd + 4, 2);
       return;
     }
@@ -115,15 +130,16 @@ void beh_cube_text_spawn(Core* c) {
   c->mem_w8(nd + 9, c->mem_r8(nd + 8));
   c->mem_w8(nd + 0x0b, 4);
   c->mem_w8(nd + 0x0d, 0);
-  c->mem_w8(nd + 4, (uint8_t)(c->mem_r8(nd + 4) + 1));          // node[4] 0 -> 1
+  c->mem_w8(nd + 4, (uint8_t)(c->mem_r8(nd + 4) + 1)); // node[4] 0 -> 1
   c->mem_w32(nd + 0x3c, c->mem_r32(0x800ECF58u));
 
   // ---- glyph record-alloc loop ----
   uint8_t n = c->mem_r8(nd + 8);
   if (n != 0) {
-    uint32_t s0 = nd; int i6 = 0;
+    uint32_t s0 = nd;
+    int i6 = 0;
     do {
-      eng(c).graphicsBind.recordAlloc();                            // FUN_8007aae8() — DO NOT set a0 (leftover)
+      eng(c).graphicsBind.recordAlloc(); // FUN_8007aae8() — DO NOT set a0 (leftover)
       uint32_t rec = c->r[2];
       c->mem_w32(s0 + 0xc0, rec);
       c->mem_w16(rec + 6, 0xffff);
@@ -133,7 +149,7 @@ void beh_cube_text_spawn(Core* c) {
       c->mem_w16(c->mem_r32(s0 + 0xc0) + 8, 0);
       c->mem_w16(c->mem_r32(s0 + 0xc0) + 0xa, 0);
       c->mem_w16(c->mem_r32(s0 + 0xc0) + 0xc, 0);
-      eng(c).graphicsBind.installSceneRecord(c->mem_r32(s0 + 0xc0), 1, uVar7);   // FUN_80051B04 (native)
+      eng(c).graphicsBind.installSceneRecord(c->mem_r32(s0 + 0xc0), 1, uVar7); // FUN_80051B04 (native)
       c->mem_w8(c->mem_r32(s0 + 0xc0) + 0x3e, 0);
       c->mem_w8(c->mem_r32(s0 + 0xc0) + 0x3f, (uint8_t)i6);
       i6++;

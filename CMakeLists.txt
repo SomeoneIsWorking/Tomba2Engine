@@ -5,6 +5,14 @@
 cmake_minimum_required(VERSION 3.21)
 project(tomba2engine CXX C)
 
+if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Apple)?Clang$")
+  message(FATAL_ERROR
+          "Tomba2Engine requires clang++ (configured C++ compiler: ${CMAKE_CXX_COMPILER_ID})")
+endif()
+
+include(CTest)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
 # PSXPORT_DIR — WHERE THE FRAMEWORK SOURCE COMES FROM. Defaults to external/psxport, which is NOT a
 # git submodule any more: it is a symlink to the workspace's shared framework clone (local — so a
 # framework edit is live in every port at once), or a private clone at psxport.pin (fresh machine, CI,
@@ -66,3 +74,38 @@ include(${PSXPORT_DIR}/cmake/psxport.cmake)
 
 # The game binary (tomba2_port): game/** + generated/** linking libpsxport. Output: scratch/bin/tomba2_port.
 include(cmake/tomba2_port.cmake)
+include(cmake/tomba2_tools.cmake)
+
+if(BUILD_TESTING)
+  set(TOMBA_CPP_POLICY_CAPS
+      game/core/field_owned_leaves.cpp=20838
+      game/core/engine.cpp=4404
+      game/core/engine.h=661
+      game/core/game_hooks.cpp=386
+      game/player/actor_tomba.cpp=4282
+      game/ai/substate_edge_native.cpp=4639
+      game/audio/sequencer.cpp=2809
+      game/ai/actor_zoned_attacker.cpp=1546
+      game/scene/demo.cpp=1280
+      game/scene/demo.h=87
+      game/scene/sop.cpp=962
+      game/player/collision.cpp=1841
+      game/render/render_walk.cpp=1502
+      game/camera/cutscene_camera.cpp=1619
+      game/scene/script_interp.cpp=1333)
+  set(TOMBA_CPP_POLICY_ARGS)
+  foreach(cap IN LISTS TOMBA_CPP_POLICY_CAPS)
+    list(APPEND TOMBA_CPP_POLICY_ARGS --cap "${cap}")
+  endforeach()
+
+  add_test(
+    NAME tomba_cpp_policy
+    COMMAND
+      "${Python3_EXECUTABLE}" "${PSXPORT_DIR}/tools/check_cpp_style.py"
+      --root "${CMAKE_SOURCE_DIR}"
+      --compile-commands "${CMAKE_BINARY_DIR}"
+      ${TOMBA_CPP_POLICY_ARGS})
+  add_test(
+    NAME tomba_launcher_selftest
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_run.py")
+endif()

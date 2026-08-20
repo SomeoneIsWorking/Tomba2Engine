@@ -6,5 +6,5 @@ class Core;
 
 class LoadingText {
 public:
-  static void draw(Core* c); // guest body, byte-exact (port_check vs gen_func_8007FD54)
+  static void draw(Core *c); // guest body, byte-exact (port_check vs gen_func_8007FD54)
 };

@@ -34,16 +34,16 @@
 // owner. The original goto structure (Lc70/Lca0/Ld90/Ld98/Lda8/Lddc/Lde0) is preserved exactly. The
 // byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net.
 
+#include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "cfg.h"
+#include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
-#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-void rec_super_call(Core*, uint32_t);
-void rec_dispatch(Core*, uint32_t);
+void rec_super_call(Core *, uint32_t);
+void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -51,7 +51,7 @@ constexpr uint32_t BEH_FN = 0x80029B40u;
 
 // Shift the 6-slot ring at node+0x38 forward by one slot: slot[i] <- slot[i-1] for i=5..1 (each slot is
 // two 32-bit words, copied high-to-low exactly as the decompile's iVar7=5..1 loop).
-static inline void ring_shift_forward(Core* c, uint32_t nd) {
+static inline void ring_shift_forward(Core *c, uint32_t nd) {
   for (int i = 5; i >= 1; i--) {
     uint32_t d = nd + 0x38u + 8u * (uint32_t)i;
     c->mem_w32(d, c->mem_r32(d - 8));
@@ -59,20 +59,22 @@ static inline void ring_shift_forward(Core* c, uint32_t nd) {
   }
 }
 
-}  // namespace
+} // namespace
 static constexpr GuestFrameSpill kSpills_80029B40[1] = {
-  { 31 /*ra*/, 16 },
-};   // frame=24, from abi_extract --scaffold --guestabi
+    {31 /*ra*/, 16},
+}; // frame=24, from abi_extract --scaffold --guestabi
 
-void beh_pos_history_trail(Core* c) {
+void beh_pos_history_trail(Core *c) {
   GuestFrame<24, 1> frame(c, kSpills_80029B40);
   uint32_t nd = c->r[4];
-  uint32_t tgt = c->mem_r32(nd + 0x10);          // pcVar8 = *(char**)(node+0x10)
+  uint32_t tgt = c->mem_r32(nd + 0x10); // pcVar8 = *(char**)(node+0x10)
   uint8_t st = c->mem_r8(nd + 4);
 
   if (st != 1) {
     if (st < 2) {
-      if (st != 0) return;
+      if (st != 0) {
+        return;
+      }
       // ---- STATE 0 : INIT ----
       c->mem_w8(nd + 0x2c, 4);
       c->mem_w8(nd + 4, 1);
@@ -81,7 +83,7 @@ void beh_pos_history_trail(Core* c) {
       c->mem_w8(nd + 7, 0);
       c->mem_w8(nd + 1, 0);
       c->mem_w8(nd + 0x2e, 0xa0);
-      for (int i = 0; i < 5; i++) {              // zero ring slots 0..4 (node+0x38..0x60)
+      for (int i = 0; i < 5; i++) { // zero ring slots 0..4 (node+0x38..0x60)
         uint32_t d = nd + 0x38u + 8u * (uint32_t)i;
         c->mem_w32(d, 0);
         c->mem_w32(d + 4, 0);
@@ -94,30 +96,40 @@ void beh_pos_history_trail(Core* c) {
       return;
     }
     if (st != 2) {
-      if (st != 3) return;
+      if (st != 3) {
+        return;
+      }
       // ---- STATE 3 ----
-      eng(c).spawn.despawn(nd);                 // FUN_8007A624 (still-PSX leaf)
+      eng(c).spawn.despawn(nd); // FUN_8007A624 (still-PSX leaf)
       return;
     }
     // ---- STATE 2 : RETIRE-WALK ----
     ring_shift_forward(c, nd);
-    c->mem_w16(nd + 0x38, 0);                     // *puVar10 = 0
+    c->mem_w16(nd + 0x38, 0); // *puVar10 = 0
     c->mem_w16(nd + 0x3a, 0);
     c->mem_w16(nd + 0x3c, 0);
     c->mem_w8(nd + 1, 1);
-    if (c->mem_r8(nd + 5) > 1) {                  // (byte)node[5] > 1
+    if (c->mem_r8(nd + 5) > 1) { // (byte)node[5] > 1
       int8_t cv = c->mem_r8s(nd + 0x2c);
       int8_t nv = (int8_t)(cv + 1);
-      if (nv > 4) nv = 0;                         // 0..4 wrap (matches '\x04' < (char)(cv+1))
+      if (nv > 4) {
+        nv = 0; // 0..4 wrap (matches '\x04' < (char)(cv+1))
+      }
       c->mem_w8(nd + 0x2c, (uint8_t)nv);
       c->mem_w16(nd + 0x38u + 2u * ((uint32_t)(int32_t)nv * 4u + 3u), 0); // puVar10[nv*4+3] = 0
       uint16_t m36 = c->mem_r16(nd + 0x36);
-      if ((m36 & 7) < 3) c->mem_w16(nd + 0x36, (uint16_t)(m36 + 1));
-      if (c->mem_r8s(nd + 0x2c) != c->mem_r8s(nd + 0x2d)) return;
+      if ((m36 & 7) < 3) {
+        c->mem_w16(nd + 0x36, (uint16_t)(m36 + 1));
+      }
+      if (c->mem_r8s(nd + 0x2c) != c->mem_r8s(nd + 0x2d)) {
+        return;
+      }
       c->mem_w8(nd + 4, 3);
       return;
     }
-    if (c->mem_r32(nd + 0x58) != 0) return;       // slot-4 int
+    if (c->mem_r32(nd + 0x58) != 0) {
+      return; // slot-4 int
+    }
     c->mem_w8(nd + 4, 3);
     return;
   }
@@ -127,70 +139,86 @@ void beh_pos_history_trail(Core* c) {
   uint8_t n3 = 0;
   if (n5 == 1) {
     goto Lc70;
-  } else if (n5 < 2) {                            // n5 == 0
+  } else if (n5 < 2) { // n5 == 0
     if (c->mem_r8s(tgt + 0) == 2) {
       c->mem_w8(nd + 5, 1);
       goto Lc70;
     }
     goto Lddc;
   } else {
-    if (n5 == 2) goto Lca0;
-    if (n5 != 3) { c->mem_w8(nd + 1, 1); goto Lde0; }
-    goto Lda8;                                    // n5 == 3
+    if (n5 == 2) {
+      goto Lca0;
+    }
+    if (n5 != 3) {
+      c->mem_w8(nd + 1, 1);
+      goto Lde0;
+    }
+    goto Lda8; // n5 == 3
   }
 
- Lc70:
-  if (!(c->mem_r8s(tgt + 0) == 1 && c->mem_r8s(tgt + 0x5e) == 1)) goto Lddc;
+Lc70:
+  if (!(c->mem_r8s(tgt + 0) == 1 && c->mem_r8s(tgt + 0x5e) == 1)) {
+    goto Lddc;
+  }
   c->mem_w8(nd + 5, (uint8_t)(c->mem_r8(nd + 5) + 1));
- Lca0:
+Lca0:
   c->mem_w16(nd + 0x30, c->mem_r16(tgt + 0x2e));
   c->mem_w16(nd + 0x32, c->mem_r16(tgt + 0x32));
   c->mem_w16(nd + 0x34, c->mem_r16(tgt + 0x36));
   c->mem_w16(nd + 0x36, (uint16_t)(c->mem_r16(tgt + 0x6a) & 0xff0));
   n3 = c->mem_r8(nd + 3);
   if (n3 == 0) {
-    if (c->mem_r8s(tgt + 0) != 1) goto Ld98;
+    if (c->mem_r8s(tgt + 0) != 1) {
+      goto Ld98;
+    }
   } else {
     if (n3 > 2) {
-      if (n3 < 6) {                               // node[3] in {3,4,5}
+      if (n3 < 6) { // node[3] in {3,4,5}
         if (c->mem_r8s(tgt + 0x2b) != 2) {
           uint8_t n6 = c->mem_r8(nd + 6);
           c->mem_w8(nd + 6, (uint8_t)(n6 + 1));
-          if (n6 < 4) goto Lddc;
+          if (n6 < 4) {
+            goto Lddc;
+          }
         }
-      } else if (c->mem_r8s(tgt + 0x2b) != 3) {  // node[3] >= 6
+      } else if (c->mem_r8s(tgt + 0x2b) != 3) { // node[3] >= 6
         uint8_t n6 = c->mem_r8(nd + 6);
         c->mem_w8(nd + 6, (uint8_t)(n6 + 1));
-        if (n6 < 3) goto Lddc;
+        if (n6 < 3) {
+          goto Lddc;
+        }
       }
       goto Ld98;
     }
     // node[3] in {1,2}
-    if (c->mem_r8s(tgt + 0) != 1 || c->mem_r8s(tgt + 0x29) != 0) goto Ld98;
+    if (c->mem_r8s(tgt + 0) != 1 || c->mem_r8s(tgt + 0x29) != 0) {
+      goto Ld98;
+    }
   }
   c->mem_w8(nd + 6, (uint8_t)(c->mem_r8(nd + 6) + 1));
   goto Lddc;
 
- Ld98:
+Ld98:
   c->mem_w8(nd + 5, (uint8_t)(c->mem_r8(nd + 5) + 1));
- Lda8:
-  {
-    uint16_t m36 = c->mem_r16(nd + 0x36);
-    if ((m36 & 7) < 3) c->mem_w16(nd + 0x36, (uint16_t)(m36 + 1));
-    else c->mem_w8(nd + 5, (uint8_t)(c->mem_r8(nd + 5) + 1));
+Lda8: {
+  uint16_t m36 = c->mem_r16(nd + 0x36);
+  if ((m36 & 7) < 3) {
+    c->mem_w16(nd + 0x36, (uint16_t)(m36 + 1));
+  } else {
+    c->mem_w8(nd + 5, (uint8_t)(c->mem_r8(nd + 5) + 1));
   }
- Lddc:
+}
+Lddc:
   c->mem_w8(nd + 1, 1);
- Lde0:
-  {
-    uint8_t dat = c->mem_r8(0x800e7fc6u);         // DAT_800E7FC6 (byte global)
-    if (((uint8_t)c->mem_r8(tgt + 4) > 1) || ((dat & 4) != 0) || (dat == 0)) {
-      c->mem_w8(nd + 0x2d, c->mem_r8(nd + 0x2c));
-      c->mem_w8(nd + 4, 2);
-    }
-    ring_shift_forward(c, nd);                    // iVar7 == 5 in every path that reaches here
-    c->mem_w16(nd + 0x38, c->mem_r16(tgt + 0x2e));
-    c->mem_w16(nd + 0x3a, c->mem_r16(tgt + 0x32));
-    c->mem_w16(nd + 0x3c, c->mem_r16(tgt + 0x36));
+Lde0: {
+  uint8_t dat = c->mem_r8(0x800e7fc6u); // DAT_800E7FC6 (byte global)
+  if (((uint8_t)c->mem_r8(tgt + 4) > 1) || ((dat & 4) != 0) || (dat == 0)) {
+    c->mem_w8(nd + 0x2d, c->mem_r8(nd + 0x2c));
+    c->mem_w8(nd + 4, 2);
   }
+  ring_shift_forward(c, nd); // iVar7 == 5 in every path that reaches here
+  c->mem_w16(nd + 0x38, c->mem_r16(tgt + 0x2e));
+  c->mem_w16(nd + 0x3a, c->mem_r16(tgt + 0x32));
+  c->mem_w16(nd + 0x3c, c->mem_r16(tgt + 0x36));
+}
 }

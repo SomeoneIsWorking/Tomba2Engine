@@ -63,8 +63,8 @@
 // TRAP — r16 MUST STAY LIVE. The node pointer lives in s0 for the whole body and every callee that
 // mirrors its own frame spills its caller's s0. It is held in GuestReg<16>, never in a C++ local.
 #pragma once
-#include <cstdint>
 #include "core.h"
+#include <cstdint>
 
 class Game;
 
@@ -72,54 +72,94 @@ class Game;
 // Typed lens over the guest ObjectNode block this state machine owns. Read/write accessors only —
 // no state of its own, so it costs nothing and every guest store in the port reads as a field write.
 struct PlacedProp {
-  Core* c;
-  uint32_t n;                                   // guest address of the node
-  PlacedProp(Core* c_, uint32_t n_) : c(c_), n(n_) {}
+  Core *c;
+  uint32_t n; // guest address of the node
+  PlacedProp(Core *c_, uint32_t n_) : c(c_), n(n_) {}
 
-  static constexpr uint32_t kOffActive     = 0x00;  // u8  flags, bit0 = active
-  static constexpr uint32_t kOffVisible    = 0x01;  // u8  visible / submitted-this-frame marker
-  static constexpr uint32_t kOffVariant    = 0x03;  // u8  placement-record variant
-  static constexpr uint32_t kOffState      = 0x04;  // u8  SM state    (0 spawn / 1 active / 2 finish / 3 despawn)
-  static constexpr uint32_t kOffSub        = 0x05;  // u8  SM sub-state
-  static constexpr uint32_t kOffOwner      = 0x10;  // u32 partner / owner node ptr
-  static constexpr uint32_t kOffFlags28    = 0x28;  // u8  bit 0x80 = skip cull, always submit
-  static constexpr uint32_t kOffGate       = 0x29;  // u8  per-frame SM gate / contact byte
-  static constexpr uint32_t kOffCollHandled= 0x2B;  // u8  collision-handled state
-  static constexpr uint32_t kOffFlag46     = 0x46;  // u8  flag(bit0)
-  static constexpr uint32_t kOffKind       = 0x5E;  // u8  dispatcher case selector (the placement "kind")
-  static constexpr uint32_t kOffStatus     = 0x5F;  // u8  status byte
-  static constexpr uint32_t kOffRoomId     = 0x6A;  // s16 room / section id, vs global 0x800BF817
-  static constexpr uint32_t kOffXzRadius   = 0x80;  // u16 XZ collision radius
-  static constexpr uint32_t kOffHeight     = 0x82;  // u16 paired with the radius (collision height)
-  static constexpr uint32_t kOffYBandLo    = 0x84;  // u16 Y-band lo  (grid probe uses hi - lo)
-  static constexpr uint32_t kOffYBandHi    = 0x86;  // u16 Y-band hi
+  static constexpr uint32_t kOffActive = 0x00;      // u8  flags, bit0 = active
+  static constexpr uint32_t kOffVisible = 0x01;     // u8  visible / submitted-this-frame marker
+  static constexpr uint32_t kOffVariant = 0x03;     // u8  placement-record variant
+  static constexpr uint32_t kOffState = 0x04;       // u8  SM state    (0 spawn / 1 active / 2 finish / 3 despawn)
+  static constexpr uint32_t kOffSub = 0x05;         // u8  SM sub-state
+  static constexpr uint32_t kOffOwner = 0x10;       // u32 partner / owner node ptr
+  static constexpr uint32_t kOffFlags28 = 0x28;     // u8  bit 0x80 = skip cull, always submit
+  static constexpr uint32_t kOffGate = 0x29;        // u8  per-frame SM gate / contact byte
+  static constexpr uint32_t kOffCollHandled = 0x2B; // u8  collision-handled state
+  static constexpr uint32_t kOffFlag46 = 0x46;      // u8  flag(bit0)
+  static constexpr uint32_t kOffKind = 0x5E;        // u8  dispatcher case selector (the placement "kind")
+  static constexpr uint32_t kOffStatus = 0x5F;      // u8  status byte
+  static constexpr uint32_t kOffRoomId = 0x6A;      // s16 room / section id, vs global 0x800BF817
+  static constexpr uint32_t kOffXzRadius = 0x80;    // u16 XZ collision radius
+  static constexpr uint32_t kOffHeight = 0x82;      // u16 paired with the radius (collision height)
+  static constexpr uint32_t kOffYBandLo = 0x84;     // u16 Y-band lo  (grid probe uses hi - lo)
+  static constexpr uint32_t kOffYBandHi = 0x86;     // u16 Y-band hi
 
-  uint8_t  state()    const { return c->mem_r8 (n + kOffState); }
-  uint8_t  sub()      const { return c->mem_r8 (n + kOffSub); }
-  uint8_t  variant()  const { return c->mem_r8 (n + kOffVariant); }
-  uint8_t  kind()     const { return c->mem_r8 (n + kOffKind); }
-  uint8_t  flags28()  const { return c->mem_r8 (n + kOffFlags28); }
-  uint32_t owner()    const { return c->mem_r32(n + kOffOwner); }
-  int32_t  roomId()   const { return c->mem_r16s(n + kOffRoomId); }   // guest compares the SIGN-EXTENDED s16
+  uint8_t state() const {
+    return c->mem_r8(n + kOffState);
+  }
+  uint8_t sub() const {
+    return c->mem_r8(n + kOffSub);
+  }
+  uint8_t variant() const {
+    return c->mem_r8(n + kOffVariant);
+  }
+  uint8_t kind() const {
+    return c->mem_r8(n + kOffKind);
+  }
+  uint8_t flags28() const {
+    return c->mem_r8(n + kOffFlags28);
+  }
+  uint32_t owner() const {
+    return c->mem_r32(n + kOffOwner);
+  }
+  int32_t roomId() const {
+    return c->mem_r16s(n + kOffRoomId);
+  } // guest compares the SIGN-EXTENDED s16
 
-  void setPropActive   (uint8_t  v) { c->mem_w8(n + kOffActive,      v); }
-  void setPropVisible  (uint8_t  v) { c->mem_w8(n + kOffVisible,     v); }
-  void setPropState    (uint8_t  v) { c->mem_w8(n + kOffState,       v); }
-  void setPropSub      (uint8_t  v) { c->mem_w8(n + kOffSub,         v); }
-  void setPropGate     (uint8_t  v) { c->mem_w8(n + kOffGate,        v); }
-  void setPropCollDone (uint8_t  v) { c->mem_w8(n + kOffCollHandled, v); }
-  void setPropFlag46   (uint8_t  v) { c->mem_w8(n + kOffFlag46,      v); }
-  void setPropKind     (uint8_t  v) { c->mem_w8(n + kOffKind,        v); }
-  void setPropStatus   (uint8_t  v) { c->mem_w8(n + kOffStatus,      v); }
-  void setPropXzRadius (uint16_t v) { c->mem_w16(n + kOffXzRadius,    v); }
-  void setPropHeight   (uint16_t v) { c->mem_w16(n + kOffHeight,      v); }
-  void setPropYBandLo  (uint16_t v) { c->mem_w16(n + kOffYBandLo,     v); }
-  void setPropYBandHi  (uint16_t v) { c->mem_w16(n + kOffYBandHi,     v); }
+  void setPropActive(uint8_t v) {
+    c->mem_w8(n + kOffActive, v);
+  }
+  void setPropVisible(uint8_t v) {
+    c->mem_w8(n + kOffVisible, v);
+  }
+  void setPropState(uint8_t v) {
+    c->mem_w8(n + kOffState, v);
+  }
+  void setPropSub(uint8_t v) {
+    c->mem_w8(n + kOffSub, v);
+  }
+  void setPropGate(uint8_t v) {
+    c->mem_w8(n + kOffGate, v);
+  }
+  void setPropCollDone(uint8_t v) {
+    c->mem_w8(n + kOffCollHandled, v);
+  }
+  void setPropFlag46(uint8_t v) {
+    c->mem_w8(n + kOffFlag46, v);
+  }
+  void setPropKind(uint8_t v) {
+    c->mem_w8(n + kOffKind, v);
+  }
+  void setPropStatus(uint8_t v) {
+    c->mem_w8(n + kOffStatus, v);
+  }
+  void setPropXzRadius(uint16_t v) {
+    c->mem_w16(n + kOffXzRadius, v);
+  }
+  void setPropHeight(uint16_t v) {
+    c->mem_w16(n + kOffHeight, v);
+  }
+  void setPropYBandLo(uint16_t v) {
+    c->mem_w16(n + kOffYBandLo, v);
+  }
+  void setPropYBandHi(uint16_t v) {
+    c->mem_w16(n + kOffYBandHi, v);
+  }
 };
 
 // The per-frame behaviour handler itself. Guest ABI: node in a0 (c->r[4]), no return value.
 class PlacedPropSm {
 public:
-  static void step(Core* c);
-  static void registerOverrides(Game* game);
+  static void step(Core *c);
+  static void registerOverrides(Game *game);
 };

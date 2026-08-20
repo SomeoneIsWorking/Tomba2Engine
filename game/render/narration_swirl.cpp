@@ -28,30 +28,29 @@
 // advance + spad writes — this producer only reads); picture from game state with real depth.
 #include "core.h"
 #include "game.h"
+#include "mesh_quads.h" // MeshQuads: the shared host-side 1.3.12 rotation builders + record walk
+#include "proj_params.h"
 #include "render.h"
 #include "render_queue.h"
-#include "proj_params.h"
-#include "mesh_quads.h"   // MeshQuads: the shared host-side 1.3.12 rotation builders + record walk
-
 
 // narrationSwirlRender — draw the SOP swirl node natively (see banner). `node` is the type-0x20 render
 // node whose custom render fn is the SOP swirl renderer; `yawBias` selects the blade (the substrate
 // render fn advanced node[0x4e] by +0x800 per blade during exec, so blade k of THIS frame used
 // yaw = node[0x4e] - 0x1000 + k*0x800).
 void Render::narrationSwirlRender(uint32_t node) {
-  Core* c = mCore;
-  const uint32_t MESH = 0x8010CC08u;                      // SOP overlay swirl mesh (RE'd constant of 0x8010BF54)
+  Core *c = mCore;
+  const uint32_t MESH = 0x8010CC08u; // SOP overlay swirl mesh (RE'd constant of 0x8010BF54)
   // transform inputs (all read-only)
   const int16_t ax = (int16_t)c->mem_r16(node + 0x48);
   const int16_t ay = (int16_t)c->mem_r16(node + 0x4a);
   const int16_t az = (int16_t)c->mem_r16(node + 0x4c);
-  const int16_t yawNow = (int16_t)c->mem_r16(node + 0x4e);  // post-exec value (both blades already added)
-  const uint8_t uScroll = c->mem_r8(node + 0x50);           // animated texture U scroll
+  const int16_t yawNow = (int16_t)c->mem_r16(node + 0x4e); // post-exec value (both blades already added)
+  const uint8_t uScroll = c->mem_r8(node + 0x50);          // animated texture U scroll
   const uint32_t posw0 = c->mem_r32(node + 0x2c), posw1 = c->mem_r32(node + 0x30);
-  const float Tobj[3] = { (float)(int16_t)posw0, (float)(int16_t)(posw0 >> 16), (float)(int16_t)posw1 };
-  const uint32_t scw = c->mem_r32(0x80108ff0u);             // base col-scale bytes (<<2): (32,64,32)<<2
-  const int32_t colScale[3] = { (int32_t)((scw & 0xFF) << 2), (int32_t)(((scw >> 8) & 0xFF) << 2),
-                                (int32_t)(((scw >> 16) & 0xFF) << 2) };
+  const float Tobj[3] = {(float)(int16_t)posw0, (float)(int16_t)(posw0 >> 16), (float)(int16_t)posw1};
+  const uint32_t scw = c->mem_r32(0x80108ff0u); // base col-scale bytes (<<2): (32,64,32)<<2
+  const int32_t colScale[3] = {
+      (int32_t)((scw & 0xFF) << 2), (int32_t)(((scw >> 8) & 0xFF) << 2), (int32_t)(((scw >> 16) & 0xFF) << 2)};
 
   for (int blade = 0; blade < 2; blade++) {
     // Robj = colScale( rotmat(ax,ay,az) · rotY(yaw) )  — integer 1.3.12 math mirroring the guest chain.
@@ -64,12 +63,13 @@ void Render::narrationSwirlRender(uint32_t node) {
     MeshQuads::rotY(c, yaw, M2);
     float Robj[3][3];
     MeshQuads::composeScaled(M1, M2, colScale, Robj);
-    EObjXform w; projComposeObjectHost(Robj, Tobj, &w);
+    EObjXform w;
+    projComposeObjectHost(Robj, Tobj, &w);
     projSetActive(&w);
 
     // mesh records (36 B): the shared walk. IR0 = 0 here, so the depth cue is a pass-through and the
     // record colours reach the screen unchanged; uBias = the guest's animated U scroll.
-    const int32_t noFarColour[3] = { 0, 0, 0 };
+    const int32_t noFarColour[3] = {0, 0, 0};
     meshQuadRecordsEmit(MESH, (int)uScroll, noFarColour, /*ir0=*/0);
     projClearActive();
   }

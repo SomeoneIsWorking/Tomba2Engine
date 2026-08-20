@@ -69,17 +69,17 @@
 // NO GTE, NO render packets here. Gated byte-exact (full RAM+scratchpad A/B vs rec_super_call) via
 // channel "typed_table_seed_gateverify".
 
+#include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "cfg.h"
-#include "spawn.h"            // class Spawn (eng(c).spawn.despawn)
-#include "graphics_bind.h"    // GraphicsBind::recordInit / renderUpdate
-#include "rng.h"              // class Rng (rngOf(c).next()) — FUN_8009A450 (seed 0x80105EE8)
-#include "trig.h"             // class Trig (trigOf(c).rcos)  — FUN_80083F50 (Q12 cos LUT)
-#include "object/actor.h"     // class Actor + scene_phase / osc_base_table
-#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-void rec_super_call(Core*, uint32_t);
-void rec_dispatch(Core*, uint32_t);
+#include "graphics_bind.h" // GraphicsBind::recordInit / renderUpdate
+#include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "object/actor.h"  // class Actor + scene_phase / osc_base_table
+#include "rng.h"           // class Rng (rngOf(c).next()) — FUN_8009A450 (seed 0x80105EE8)
+#include "spawn.h"         // class Spawn (eng(c).spawn.despawn)
+#include "trig.h"          // class Trig (trigOf(c).rcos)  — FUN_80083F50 (Q12 cos LUT)
+void rec_super_call(Core *, uint32_t);
+void rec_dispatch(Core *, uint32_t);
 
 namespace {
 constexpr uint32_t BEH_FN = 0x80133C14u;
@@ -94,10 +94,10 @@ enum class Sta : uint8_t { Init = 0, Active = 1, DespawnA = 2, DespawnB = 3 };
 constexpr uint32_t SUB_TILE_MOVE_STEP = 0x8004766Cu;
 
 // Pilot-actor region (0x800E7E80..) — read by state_one_tick's TURN sub-states.
-constexpr uint32_t PILOT_BASE      = 0x800E7E80u;
-constexpr uint32_t PILOT_YAW_OFF   = 0x58;   // halfword
-constexpr uint32_t PILOT_MODE_OFF  = 0x147;  // byte
-constexpr uint32_t PILOT_STATE_OFF = 0x168;  // byte
+constexpr uint32_t PILOT_BASE = 0x800E7E80u;
+constexpr uint32_t PILOT_YAW_OFF = 0x58;    // halfword
+constexpr uint32_t PILOT_MODE_OFF = 0x147;  // byte
+constexpr uint32_t PILOT_STATE_OFF = 0x168; // byte
 
 // Per-type CLAMP-BAND halfword pair {lo, hi} for oscBase in case [2]. Stride 4.
 constexpr uint32_t TBL_A6F4 = 0x8014A6F4u;
@@ -105,11 +105,11 @@ constexpr uint32_t TBL_A6F4 = 0x8014A6F4u;
 // state_one_tick's subFlagX turn-setup path — shared by case [1] and case [4]. Reads obj[+0x56] /
 // obj[+0x5F], sets subState=4, dispatches SUB_TURN_LOOKUP, writes targetDelta = ±256, clears subFlagX.
 // Returns true when the turn-setup ran (caller should return to epilogue).
-bool run_turn_setup(Actor& a) {
-  Core* c = a.core();
+bool run_turn_setup(Actor &a) {
+  Core *c = a.core();
   const uint32_t obj = a.addr();
   int16_t rotY = a.rotY();
-  uint8_t facing = c->mem_r8(obj + 0x5F);            // per-actor "target facing" byte (angle >> 4)
+  uint8_t facing = c->mem_r8(obj + 0x5F); // per-actor "target facing" byte (angle >> 4)
   a.setSubState(4);
   // Turn direction: signed-half angle compare — "does target-facing lead current rotY by π/4..3π/4?"
   // Returns 1 for TURN LEFT (+256), 0 for TURN RIGHT (-256). Was rec_dispatch(0x80077768); now native
@@ -123,14 +123,14 @@ bool run_turn_setup(Actor& a) {
 // state_one_tick — PC-native port of FUN_801337E4 (guest overlay 0x801337E4..0x80133C10). 5-way
 // sub-state machine dispatched on Actor::subState via the guest jumptable at 0x80109E58. See file
 // docstring + docs/findings/sbs.md for the semantic model.
-void state_one_tick(Actor& a) {
-  Core* c = a.core();
+void state_one_tick(Actor &a) {
+  Core *c = a.core();
   const uint32_t obj = a.addr();
 
   // ---- Section A — reset transients when stateEcho != 0 -----------------------------------------
   if (a.stateEcho() != 0) {
-    uint16_t seed = osc_base_table(c, a.type());   // per-type oscBase seed
-    uint32_t rec  = a.renderRec();
+    uint16_t seed = osc_base_table(c, a.type()); // per-type oscBase seed
+    uint32_t rec = a.renderRec();
     a.setStateEcho(0);
     a.setSubState(0);
     a.setOscBase(seed);
@@ -140,7 +140,9 @@ void state_one_tick(Actor& a) {
 
   // ---- Section B — dispatch on subState ---------------------------------------------------------
   uint8_t sub = a.subState();
-  if (sub >= 5) return;                              // no-op epilogue
+  if (sub >= 5) {
+    return; // no-op epilogue
+  }
 
   // Case [0] INIT (0x80133868): clear oscPhase, advance to subState=1, then FALL INTO case [1] body.
   if (sub == 0) {
@@ -167,9 +169,9 @@ void state_one_tick(Actor& a) {
         return;
       }
       // THE OSCILLATOR TICK — target-#4 hot path.
-      int32_t cos_q12 = trigOf(c).rcos((int32_t)a.oscPhase());   // Trig::rcos(oscPhase) → Q12 signed
-      c->mem_w16(a.renderRec() + 0xC, (uint16_t)((uint32_t)cos_q12 >> 5));   // guest srl (unsigned)
-      int32_t r = rngOf(c).next();                               // Rng::next() → [0, 0x7FFF]
+      int32_t cos_q12 = trigOf(c).rcos((int32_t)a.oscPhase());             // Trig::rcos(oscPhase) → Q12 signed
+      c->mem_w16(a.renderRec() + 0xC, (uint16_t)((uint32_t)cos_q12 >> 5)); // guest srl (unsigned)
+      int32_t r = rngOf(c).next();                                         // Rng::next() → [0, 0x7FFF]
       uint16_t newPhase = (uint16_t)(a.oscPhase_u() + 68 + ((uint32_t)r >> 8));
       a.setOscPhase(newPhase);
       return;
@@ -185,21 +187,20 @@ void state_one_tick(Actor& a) {
       a.setSubState(3);
       return;
     }
-    uint8_t  pilotMode  = c->mem_r8 (PILOT_BASE + PILOT_MODE_OFF);
-    uint16_t pilotYaw   = c->mem_r16(PILOT_BASE + PILOT_YAW_OFF);
-    uint32_t rec        = a.renderRec();
-    uint16_t angleWrite = (pilotMode != 0) ? (uint16_t)(uint32_t)(-(int32_t)pilotYaw)
-                                            : pilotYaw;
+    uint8_t pilotMode = c->mem_r8(PILOT_BASE + PILOT_MODE_OFF);
+    uint16_t pilotYaw = c->mem_r16(PILOT_BASE + PILOT_YAW_OFF);
+    uint32_t rec = a.renderRec();
+    uint16_t angleWrite = (pilotMode != 0) ? (uint16_t)(uint32_t)(-(int32_t)pilotYaw) : pilotYaw;
     c->mem_w16(rec + 0xC, angleWrite);
 
     uint8_t pilotState = c->mem_r8(PILOT_BASE + PILOT_STATE_OFF);
-    if (pilotState < 3) return;
+    if (pilotState < 3) {
+      return;
+    }
 
     // pilotState >= 3: recompute oscBase.
     uint16_t delta = (uint16_t)((pilotState - 2u) * 6u);
-    uint16_t newOscBase = (pilotMode != 0)
-      ? (uint16_t)(a.oscBase_u() - delta)
-      : (uint16_t)(a.oscBase_u() + delta);
+    uint16_t newOscBase = (pilotMode != 0) ? (uint16_t)(a.oscBase_u() - delta) : (uint16_t)(a.oscBase_u() + delta);
     a.setOscBase(newOscBase);
 
     // Clamp band {lo, hi} at TBL_A6F4[type*4]. Guest logic (from disas 0x801339E0..0x80133A38):
@@ -208,10 +209,12 @@ void state_one_tick(Actor& a) {
     uint8_t type = a.type();
     uint32_t tblRow = TBL_A6F4 + (uint32_t)type * 4u;
     uint16_t hi_u = c->mem_r16(tblRow + 2);
-    int16_t  hi_s = (int16_t)hi_u;
-    if ((int16_t)newOscBase < hi_s) a.setOscBase(hi_u);
+    int16_t hi_s = (int16_t)hi_u;
+    if ((int16_t)newOscBase < hi_s) {
+      a.setOscBase(hi_u);
+    }
     uint16_t lo_u = c->mem_r16(tblRow + 0);
-    int16_t  lo_s = (int16_t)lo_u;
+    int16_t lo_s = (int16_t)lo_u;
     if (lo_s < a.oscBase()) {
       a.setOscBase(lo_u);
     }
@@ -223,13 +226,20 @@ void state_one_tick(Actor& a) {
   if (sub == 3) {
     uint8_t pilotState = c->mem_r8(PILOT_BASE + PILOT_STATE_OFF);
     int16_t seed;
-    if (pilotState == 1)      seed = 48;
-    else if (pilotState == 0) seed = 32;
-    else if (pilotState == 2) seed = 64;
-    else                      seed = 128;   // pilotState >= 3
+    if (pilotState == 1) {
+      seed = 48;
+    } else if (pilotState == 0) {
+      seed = 32;
+    } else if (pilotState == 2) {
+      seed = 64;
+    } else {
+      seed = 128; // pilotState >= 3
+    }
     a.setTargetDelta(seed);
     uint8_t pilotMode = c->mem_r8(PILOT_BASE + PILOT_MODE_OFF);
-    if (pilotMode != 0) a.setTargetDelta((int16_t)-a.targetDelta());
+    if (pilotMode != 0) {
+      a.setTargetDelta((int16_t)-a.targetDelta());
+    }
     a.setSubState(4);
     return;
   }
@@ -248,8 +258,8 @@ void state_one_tick(Actor& a) {
       return;
     }
     uint32_t rec = a.renderRec();
-    uint16_t curDelta_u = (uint16_t)a.targetDelta();     // lhu 68(s0) — unsigned in guest
-    uint16_t curAngle_u = c->mem_r16(rec + 0xC);         // lhu 12(v0)
+    uint16_t curDelta_u = (uint16_t)a.targetDelta(); // lhu 68(s0) — unsigned in guest
+    uint16_t curAngle_u = c->mem_r16(rec + 0xC);     // lhu 12(v0)
 
     // Sum + wrap-into-signed-12-bit — v1 = a1 + a0 (unsigned add), test (v1+2048) & 0xFFFF < 4097.
     uint16_t newAngle_u = (uint16_t)(curAngle_u + curDelta_u);
@@ -288,15 +298,15 @@ void state_one_tick(Actor& a) {
     return;
   }
 }
-}  // namespace
+} // namespace
 static constexpr GuestFrameSpill kSpills_80133C14[4] = {
-  { 17, 20 },
-  { 31 /*ra*/, 28 },
-  { 18, 24 },
-  { 16, 16 },
-};   // frame=32, abi_extract --scaffold --guestabi
+    {17, 20},
+    {31 /*ra*/, 28},
+    {18, 24},
+    {16, 16},
+}; // frame=32, abi_extract --scaffold --guestabi
 
-void beh_typed_table_seed_gate(Core* c) {
+void beh_typed_table_seed_gate(Core *c) {
   GuestFrame<32, 4> frame(c, kSpills_80133C14);
   Actor a(c, c->r[4]);
   const Sta st = (Sta)a.state();
@@ -304,53 +314,67 @@ void beh_typed_table_seed_gate(Core* c) {
   // ---- dispatch (state -> branch) ------------------------------------------------------------------
   if (st != Sta::Active) {
     if ((uint8_t)st >= (uint8_t)Sta::DespawnA) {
-      if ((uint8_t)st >= 4) return;                                // state>=4: no-op epilogue
-      eng(c).spawn.despawn(a.addr());                           // 2 or 3: despawn
+      if ((uint8_t)st >= 4) {
+        return; // state>=4: no-op epilogue
+      }
+      eng(c).spawn.despawn(a.addr()); // 2 or 3: despawn
       return;
     }
-    if (st != Sta::Init) return;                                   // impossible slot: no-op
+    if (st != Sta::Init) {
+      return; // impossible slot: no-op
+    }
 
     // ---- STATE 0 (INIT): allocate cull record + seed trigger box + oscillation params ------------
-    c->r[4] = a.addr(); c->r[5] = 0xc; c->r[6] = 0x14;             // cls=0xc, sub=0x14
+    c->r[4] = a.addr();
+    c->r[5] = 0xc;
+    c->r[6] = 0x14; // cls=0xc, sub=0x14
     eng(c).graphicsBind.recordInit();
-    if (c->r[2] != 0) return;                                      // record pool busy — retry next tick
+    if (c->r[2] != 0) {
+      return; // record pool busy — retry next tick
+    }
 
-    a.setSceneMode(0x22);                                          // participates when scene_phase()==0x22
-    a.setBoxX(0x1e); a.setBoxY(0x3c); a.setBoxZ(0x32); a.setBoxW(0x64);
+    a.setSceneMode(0x22); // participates when scene_phase()==0x22
+    a.setBoxX(0x1e);
+    a.setBoxY(0x3c);
+    a.setBoxZ(0x32);
+    a.setBoxW(0x64);
     a.setState((uint8_t)Sta::Active);
     a.setAlive(1);
     a.setCounterA(0);
     a.setCounterB(0);
-    c->r[4] = a.addr(); rec_dispatch(c, SUB_TILE_MOVE_STEP);       // init snap: seed posX/posZ via tile step
-    a.setOscPhase((int16_t)0);                                     // target-#4 accumulator reset
-    uint16_t seed = osc_base_table(c, a.type());                   // per-type oscBase seed
-    a.setTriggerParam(-0xc8);                                      // -200 world units (Y offset?)
+    c->r[4] = a.addr();
+    rec_dispatch(c, SUB_TILE_MOVE_STEP);         // init snap: seed posX/posZ via tile step
+    a.setOscPhase((int16_t)0);                   // target-#4 accumulator reset
+    uint16_t seed = osc_base_table(c, a.type()); // per-type oscBase seed
+    a.setTriggerParam(-0xc8);                    // -200 world units (Y offset?)
     a.setOscBase(seed);
     return;
   }
 
   // ---- STATE 1 (ACTIVE): tick the sub-state machine (native), then gate on global scene phase ----
-  state_one_tick(a);                                               // native — was rec_dispatch(0x801337E4)
+  state_one_tick(a); // native — was rec_dispatch(0x801337E4)
   const uint8_t phase = scene_phase(c);
 
   if (phase < 0x1c) {
-    a.setStateEcho((uint16_t)(uint8_t)st);                         // scene not yet in gate range: latch and skip
+    a.setStateEcho((uint16_t)(uint8_t)st); // scene not yet in gate range: latch and skip
     return;
   }
 
   if (phase == 0x22) {
-    a.setRenderMode((uint8_t)st);                                  // "this actor's phase" branch
-    eng(c).cull.enqueueVisibleClass4(a.addr());                  // FUN_80077EBC — Cull::enqueueVisibleClass4 (was rec_dispatch)
+    a.setRenderMode((uint8_t)st);               // "this actor's phase" branch
+    eng(c).cull.enqueueVisibleClass4(a.addr()); // FUN_80077EBC — Cull::enqueueVisibleClass4 (was rec_dispatch)
     // fall through to render tail
   } else {
-    if (a.boundsCullYOffset(a.triggerParam()) == 0) {              // FUN_800778E4 — Actor::boundsCullYOffset (native)
-      a.setStateEcho((uint16_t)(uint8_t)st);                       // OUT: latch stateEcho and skip
+    if (a.boundsCullYOffset(a.triggerParam()) == 0) { // FUN_800778E4 — Actor::boundsCullYOffset (native)
+      a.setStateEcho((uint16_t)(uint8_t)st);          // OUT: latch stateEcho and skip
       return;
     }
     // IN: fall through to render tail
   }
 
   // ---- render tail: per-frame tile move (integrates posX/posZ) + render-state update ---------------
-  c->r[4] = a.addr(); rec_dispatch(c, SUB_TILE_MOVE_STEP);
-  c->r[4] = a.addr(); eng(c).graphicsBind.renderUpdate();
+  c->r[4] = a.addr();
+  rec_dispatch(c, SUB_TILE_MOVE_STEP);
+  c->r[4] = a.addr();
+  eng(c).graphicsBind.renderUpdate();
 }

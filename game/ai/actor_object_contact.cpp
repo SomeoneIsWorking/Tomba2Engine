@@ -55,50 +55,55 @@
 
 #include "core.h"
 #include "guest_abi.h"
-#include "override_registry.h"
 #include "ov_a00_decls.h"
+#include "override_registry.h"
 
 namespace {
 
 // tools/abi_extract.py 0x8010E258 --scaffold --guestabi, in the guest's program order
 constexpr GuestFrameSpill kSpills_8010E258[6] = {
-  { 19, 28 }, { 20, 32 }, { 31 /*ra*/, 36 }, { 18, 24 }, { 17, 20 }, { 16, 16 },
+    {19, 28},
+    {20, 32},
+    {31 /*ra*/, 36},
+    {18, 24},
+    {17, 20},
+    {16, 16},
 };
 
 // Return addresses at this function's four jal sites.
-constexpr uint32_t kRaAfterHitTest   = 0x8010E284u;   // -> ov_a00_func_8010DFD8
-constexpr uint32_t kRaAfterDistance  = 0x8010E300u;   // -> Math::sqrtLzc   0x80084080
-constexpr uint32_t kRaAfterAngle     = 0x8010E354u;   // -> Trig::ratan2    0x80085690
-constexpr uint32_t kRaAfterProximity = 0x8010E388u;   // -> 0x80022D08
-constexpr uint32_t kRaAfterHitApply  = 0x8010E3A0u;   // -> 0x8001FF7C
+constexpr uint32_t kRaAfterHitTest = 0x8010E284u;   // -> ov_a00_func_8010DFD8
+constexpr uint32_t kRaAfterDistance = 0x8010E300u;  // -> Math::sqrtLzc   0x80084080
+constexpr uint32_t kRaAfterAngle = 0x8010E354u;     // -> Trig::ratan2    0x80085690
+constexpr uint32_t kRaAfterProximity = 0x8010E388u; // -> 0x80022D08
+constexpr uint32_t kRaAfterHitApply = 0x8010E3A0u;  // -> 0x8001FF7C
 
-constexpr uint32_t kSqrtLzc          = 0x80084080u;
-constexpr uint32_t kRatan2           = 0x80085690u;
+constexpr uint32_t kSqrtLzc = 0x80084080u;
+constexpr uint32_t kRatan2 = 0x80085690u;
 constexpr uint32_t kProximityFollowUp = 0x80022D08u;
-constexpr uint32_t kHitFollowUp      = 0x8001FF7Cu;
+constexpr uint32_t kHitFollowUp = 0x8001FF7Cu;
 
 // The shared contact-angle publication slot — the same word collision_resolve.cpp calls
 // kContactAngleSlot and writes from cylinderResolve.
-constexpr uint32_t kScratchpadBase   = 0x1F800000u;
-constexpr uint32_t kContactAngleSlot = 156;          // 0x1F80009C
+constexpr uint32_t kScratchpadBase = 0x1F800000u;
+constexpr uint32_t kContactAngleSlot = 156; // 0x1F80009C
 
 // Slack added to each reach before the test, and the shift that turns the published angle into the
 // byte the contact field carries.
-constexpr int32_t kReachSlackXZ   = 100;
-constexpr int32_t kHeightSlack    = 50;
-constexpr int32_t kReachSlackY    = 100;
-constexpr int32_t kAngleToByte    = 4;
+constexpr int32_t kReachSlackXZ = 100;
+constexpr int32_t kHeightSlack = 50;
+constexpr int32_t kReachSlackY = 100;
+constexpr int32_t kAngleToByte = 4;
 // Half a turn (4096 units), added before the shift so a struck object is pushed AWAY from the
 // contact rather than toward it.
-constexpr int32_t kOppositeTurn   = 2048;
+constexpr int32_t kOppositeTurn = 2048;
 
 // Object state values the hit reaction writes.
-constexpr uint8_t kObjKindReacts  = 129;  // 0x81 — see the delay-slot note at the use site
-constexpr uint8_t kObjPhaseReady  = 1;
+constexpr uint8_t kObjKindReacts = 129; // 0x81 — see the delay-slot note at the use site
+constexpr uint8_t kObjPhaseReady = 1;
 constexpr uint8_t kObjStateStruck = 3;
 constexpr uint8_t kObjPhaseStruck = 2;
 
-}  // namespace
+} // namespace
 
 // ORACLE: ov_a00_gen_8010E258
 //
@@ -107,17 +112,19 @@ constexpr uint8_t kObjPhaseStruck = 2;
 // block). That ordering is not cosmetic — the equivalence gate compares call sites and stores in
 // STATIC program order, so writing the hit path first reorders both and fails, which is exactly what
 // my first draft did.
-void ActorObjectContact::resolveHitOrProximity(Core* c) {
+void ActorObjectContact::resolveHitOrProximity(Core *c) {
   GuestFrame<40, 6> frame(c, kSpills_8010E258);
 
-  GuestReg<19> actorReg(c);  actorReg = c->r[4];
-  GuestReg<20> objReg(c);    objReg   = c->r[5];
+  GuestReg<19> actorReg(c);
+  actorReg = c->r[4];
+  GuestReg<20> objReg(c);
+  objReg = c->r[5];
   GuestReg<16> deltaZ(c);
   GuestReg<17> bodyReg(c);
   GuestReg<18> deltaX(c);
 
-  const ContactActor  actor{ c, c->r[19] };
-  const ContactObject obj  { c, c->r[20] };
+  const ContactActor actor{c, c->r[19]};
+  const ContactObject obj{c, c->r[20]};
 
   c->r[6] = 1;
   guest_call(c, kRaAfterHitTest, ov_a00_func_8010DFD8);
@@ -125,11 +132,15 @@ void ActorObjectContact::resolveHitOrProximity(Core* c) {
 
   if (hit < 0) {
     // ── no hit: is he close enough to count as touching it? ──────────────────────────────────────
-    if (actor.paused()) return;
-    if (!obj.inProximitySet()) return;
+    if (actor.paused()) {
+      return;
+    }
+    if (!obj.inProximitySet()) {
+      return;
+    }
 
     bodyReg = obj.bodyRecord();
-    const ContactBody body{ c, c->r[17] };
+    const ContactBody body{c, c->r[17]};
 
     deltaX = (uint32_t)(int32_t)(int16_t)(uint16_t)(actor.posX() - body.posX());
     guest_mult(c, (int32_t)(uint32_t)deltaX, (int32_t)(uint32_t)deltaX);
@@ -154,7 +165,9 @@ void ActorObjectContact::resolveHitOrProximity(Core* c) {
         touching = 1;
       }
     }
-    if (touching == 0) return;
+    if (touching == 0) {
+      return;
+    }
 
     c->r[4] = c->r[19];
     c->r[5] = c->r[20];
@@ -176,8 +189,12 @@ void ActorObjectContact::resolveHitOrProximity(Core* c) {
   // branch's delay slot then leaves 129 in the same register, so the SECOND comparison — the kind
   // byte — is against 129. Reading it as 1 would gate the whole hit reaction on the wrong value, and
   // only the delay slot says so.
-  if (obj.phase() != kObjPhaseReady) return;
-  if (obj.kind()  != kObjKindReacts) return;
+  if (obj.phase() != kObjPhaseReady) {
+    return;
+  }
+  if (obj.kind() != kObjKindReacts) {
+    return;
+  }
   obj.setState(kObjStateStruck);
   const uint32_t angle = c->mem_r32(kScratchpadBase + kContactAngleSlot);
   obj.setPhase(kObjPhaseStruck);
@@ -188,7 +205,9 @@ void ActorObjectContact::resolveHitOrProximity(Core* c) {
 }
 
 void ActorObjectContact::registerOverrides() {
-  overrides::install(0x8010E258u, "ActorObjectContact::resolveHitOrProximity",
-                     &ActorObjectContact::resolveHitOrProximity, ov_a00_gen_8010E258,
+  overrides::install(0x8010E258u,
+                     "ActorObjectContact::resolveHitOrProximity",
+                     &ActorObjectContact::resolveHitOrProximity,
+                     ov_a00_gen_8010E258,
                      ov_a00_set_override);
 }

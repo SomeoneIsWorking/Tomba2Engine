@@ -8,15 +8,15 @@
 // tail — the actual note-on into the audio driver).
 
 #include "audio/sfx.h"
-#include "game_ctx.h"
 #include "core.h"
-#include "override_registry.h"   // overrides::install — the one native-override registry
+#include "game_ctx.h"
+#include "override_registry.h" // overrides::install — the one native-override registry
 
-void rec_dispatch(Core*, uint32_t);
-void func_80074590(Core*);        // generated/shard_disp.c — the SFX firing primitive (substrate)
+void rec_dispatch(Core *, uint32_t);
+void func_80074590(Core *); // generated/shard_disp.c — the SFX firing primitive (substrate)
 
 void Sfx::trigger(int id, int pan, int pitchBend) {
-  Core* c = core;
+  Core *c = core;
 
   // Prologue: sp adjust + ra save (mirrors the recomp so any downstream leaf reading its own
   // stack args lands on the right offsets).
@@ -24,7 +24,7 @@ void Sfx::trigger(int id, int pan, int pitchBend) {
   const uint32_t ra_save = c->r[31];
   c->r[29] = sp_save - 40u;
   const uint32_t sp = c->r[29];
-  c->mem_w32(sp + 32u, ra_save);               // gen prologue: sw ra,32(sp) (abi_extract contract)
+  c->mem_w32(sp + 32u, ra_save); // gen prologue: sw ra,32(sp) (abi_extract contract)
 
   const uint32_t idb = (uint32_t)(id & 0xFF);
 
@@ -37,29 +37,31 @@ void Sfx::trigger(int id, int pan, int pitchBend) {
     //   jt[10..12]: ids 10, 11, 12  (dup — a0=122..124 alias to a0=118..120)
     //   jt[13/14] : error path (silent)                        (a0=125/126)
     //   jt[15]    : jal FUN_80074EEC — different leaf          (a0=127)
-    static constexpr int8_t remap[16] = { 2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 10, 11, 12, -1, -1, -1 };
+    static constexpr int8_t remap[16] = {2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 10, 11, 12, -1, -1, -1};
     const uint32_t idx = idb - 112u;
     if (idx == 15u) {
-      rec_dispatch(c, 0x80074EECu);                    // FUN_80074EEC — menu/UI SFX leaf
+      rec_dispatch(c, 0x80074EECu); // FUN_80074EEC — menu/UI SFX leaf
     } else if (remap[idx] >= 0) {
       c->r[4] = (uint32_t)(int32_t)remap[idx];
-      rec_dispatch(c, 0x80074BF8u);                    // FUN_80074BF8 — music/track leaf
+      rec_dispatch(c, 0x80074BF8u); // FUN_80074BF8 — music/track leaf
     }
     // idx == 13 or 14: silent error path (recomp jumps to 0x800746D8 which returns v0=0).
-    c->r[29] = sp_save; c->r[31] = ra_save;
+    c->r[29] = sp_save;
+    c->r[31] = ra_save;
     return;
   }
 
   // ---- PATH SELECTION: t1 = &fx_table[id], plus the flag byte a3 (0 for path B, 128 for A) ----
   uint32_t t1;
-  int32_t  a3_flag;
+  int32_t a3_flag;
   if ((idb & 0x80u) != 0) {
     // PATH A (id 128..224): per-area indirection.
-    if (idb >= 225u) {                                 // 225..255 → silent error (recomp's sltiu 225)
-      c->r[29] = sp_save; c->r[31] = ra_save;
+    if (idb >= 225u) { // 225..255 → silent error (recomp's sltiu 225)
+      c->r[29] = sp_save;
+      c->r[31] = ra_save;
       return;
     }
-    const uint8_t  area = c->mem_r8(0x800BF870u);
+    const uint8_t area = c->mem_r8(0x800BF870u);
     const uint32_t area_table_ptr = c->mem_r32(0x800A4EF8u + (uint32_t)area * 4u);
     t1 = area_table_ptr + (idb & 0x7Fu) * 8u;
     a3_flag = 128;
@@ -74,8 +76,8 @@ void Sfx::trigger(int id, int pan, int pitchBend) {
   //   kind == 4         → t0 = 4  (fx passes through even when paused)
   //   paused (!= 4)     → t0 = 1  (marker: SPU driver knows this fired under pause)
   //   not paused (!= 4) → t0 = kind (untouched)
-  const uint8_t kind    = c->mem_r8(t1);
-  const bool    paused  = (c->mem_r8(0x1F800137u) != 0);
+  const uint8_t kind = c->mem_r8(t1);
+  const bool paused = (c->mem_r8(0x1F800137u) != 0);
   const uint32_t t0_final = (kind == 4u) ? 4u : (paused ? 1u : (uint32_t)kind);
 
   // ---- PITCH BEND MATH ----
@@ -90,17 +92,21 @@ void Sfx::trigger(int id, int pan, int pitchBend) {
     pitch_final = 0;
   } else {
     const int32_t bent = byte6_ext + pitchBend_ext;
-    const int16_t bent16 = (int16_t)bent;                                        // recomp: sll 16 ; sra 16
-    const int32_t product = (int32_t)bent16 * (int32_t)(uint32_t)global_scale;   // 16 × u8
-    const int16_t product16 = (int16_t)product;                                  // recomp: sll 16 ; sra 16
+    const int16_t bent16 = (int16_t)bent;                                      // recomp: sll 16 ; sra 16
+    const int32_t product = (int32_t)bent16 * (int32_t)(uint32_t)global_scale; // 16 × u8
+    const int16_t product16 = (int16_t)product;                                // recomp: sll 16 ; sra 16
     const int64_t bigProd = (int64_t)product16 * (int64_t)0x38E38E39;
     const int32_t hi = (int32_t)(bigProd >> 32);
-    const int32_t signBit = ((int32_t)product16 < 0) ? -1 : 0;                   // recomp: (mflo<<16) >> 31
+    const int32_t signBit = ((int32_t)product16 < 0) ? -1 : 0; // recomp: (mflo<<16) >> 31
     const int32_t divBy9 = (hi >> 1) - signBit;
-    const int16_t clamped = (int16_t)divBy9;                                     // recomp: sll 16 ; sra 16
-    if (clamped < 0)          pitch_final = 0;
-    else if (clamped >= 128)  pitch_final = 127;
-    else                      pitch_final = (int32_t)clamped;
+    const int16_t clamped = (int16_t)divBy9; // recomp: sll 16 ; sra 16
+    if (clamped < 0) {
+      pitch_final = 0;
+    } else if (clamped >= 128) {
+      pitch_final = 127;
+    } else {
+      pitch_final = (int32_t)clamped;
+    }
   }
 
   // ---- ASSEMBLE ARGS FOR FUN_80075E04 (SPU voice-fire) ----
@@ -115,9 +121,9 @@ void Sfx::trigger(int id, int pan, int pitchBend) {
   const uint8_t b1 = c->mem_r8(t1 + 1u);
   const uint8_t b2 = c->mem_r8(t1 + 2u);
   const uint8_t b3 = c->mem_r8(t1 + 3u);
-  const int8_t  b4 = (int8_t)c->mem_r8(t1 + 4u);
+  const int8_t b4 = (int8_t)c->mem_r8(t1 + 4u);
   const uint8_t b5 = c->mem_r8(t1 + 5u);
-  const int8_t  pan_ext = (int8_t)(pan & 0xFF);
+  const int8_t pan_ext = (int8_t)(pan & 0xFF);
   const int32_t stack16 = (int32_t)b4 + (int32_t)pan_ext;
 
   c->r[4] = t0_final;
@@ -157,34 +163,34 @@ void Sfx::trigger(int id, int pan, int pitchBend) {
 // native reproduces exactly what gen_func_80074810 does at runtime (first body only), so it is
 // 0-diff by construction.
 void Sfx::triggerPanned(int id, int pan) {
-  Core* c = core;
+  Core *c = core;
 
   const uint32_t ra_save = c->r[31];
-  c->r[29] -= 24u;                                 // gen: addiu sp,-24
+  c->r[29] -= 24u; // gen: addiu sp,-24
   const uint32_t sp = c->r[29];
 
-  const uint32_t idb  = (uint32_t)(id & 0xFF);            // andi a0,0xFF
-  const int32_t  panx = (int32_t)(int8_t)(pan & 0xFF);    // sll 24 ; sra 24 — sign-extend low byte
+  const uint32_t idb = (uint32_t)(id & 0xFF);         // andi a0,0xFF
+  const int32_t panx = (int32_t)(int8_t)(pan & 0xFF); // sll 24 ; sra 24 — sign-extend low byte
 
-  c->mem_w32(sp + 16u, ra_save);                  // sw ra,16(sp)
+  c->mem_w32(sp + 16u, ra_save); // sw ra,16(sp)
 
   // Assemble FUN_80074590(id & 0xFF, sext8(pan), 0) and fire.
   c->r[4] = idb;
   c->r[5] = (uint32_t)panx;
-  c->r[6] = 0u;                                   // pitchBend = 0 (a2 = zero)
-  c->r[31] = 0x8007482Cu;                         // gen return-address constant for the call
-  func_80074590(c);                               // FUN_80074590 — SFX firing primitive (substrate)
+  c->r[6] = 0u;           // pitchBend = 0 (a2 = zero)
+  c->r[31] = 0x8007482Cu; // gen return-address constant for the call
+  func_80074590(c);       // FUN_80074590 — SFX firing primitive (substrate)
 
-  c->r[31] = c->mem_r32(sp + 16u);                // lw ra,16(sp)
-  c->r[29] += 24u;                                 // addiu sp,+24 (restore)
+  c->r[31] = c->mem_r32(sp + 16u); // lw ra,16(sp)
+  c->r[29] += 24u;                 // addiu sp,+24 (restore)
 }
 
-static void eov_triggerPanned(Core* c) {
+static void eov_triggerPanned(Core *c) {
   eng(c).sfx.triggerPanned((int)c->r[4], (int)c->r[5]);
   // gen_func_80074810's first body writes no return value (r2 dead); nothing to mirror.
 }
 
-extern void gen_func_80074810(Core*);
+extern void gen_func_80074810(Core *);
 
 void Sfx::registerOverrides() {
   using overrides::install;

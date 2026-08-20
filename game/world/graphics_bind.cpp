@@ -1,14 +1,14 @@
 // game/world/graphics_bind.cpp — PC-native OBJECT RENDER-BIND subsystem. See graphics_bind.h.
-#include "core.h"
-#include "game_ctx.h"
+#include "graphics_bind.h"
 #include "cfg.h"
+#include "core.h"
+#include "game.h" // c->game->verify — the shared A/B verify scaffold
+#include "game_ctx.h"
+#include "gte_math.h"          // Math::rotmat — libgte RotMatrix (native, static)
+#include "override_registry.h" // overrides::install — the one native-override registry
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "graphics_bind.h"
-#include "game.h"              // c->game->verify — the shared A/B verify scaffold
-#include "gte_math.h"       // Math::rotmat — libgte RotMatrix (native, static)
-#include "override_registry.h"   // overrides::install — the one native-override registry
 
 // (The native scene-data record this subsystem will fill per visible entity is the real
 // SceneObject in game/render/scene_data.h, now in scope via game_ctx.h → render.h. The former
@@ -24,9 +24,11 @@
 // tracks remaining slots. RE'd from disas 0x8007AAE8:
 //   if ((s16)cnt <= 0) return 0;                      // pool empty
 //   record = *cursor; cursor += 4; cnt--; return record;
-uint32_t GraphicsBind::recordAllocBody(Core* c) {
+uint32_t GraphicsBind::recordAllocBody(Core *c) {
   int16_t cnt = c->mem_r16s(0x800ED098u);
-  if (cnt <= 0) return 0;
+  if (cnt <= 0) {
+    return 0;
+  }
   uint32_t cursor = c->mem_r32(0x800E7E74u);
   c->mem_w16(0x800ED098u, (uint16_t)(cnt - 1));
   uint32_t record = c->mem_r32(cursor);
@@ -44,36 +46,55 @@ uint32_t GraphicsBind::recordAllocBody(Core* c) {
 //   rec[+6]=-1; rec[+0]=rec[+2]=rec[+4]=rec[+8]=rec[+0xa]=rec[+0xc]=0; rec[+0x38]=rec[+0x3a]=rec[+0x3c]=0x1000;
 //   base = *(0x800ECF58 + a1*4);  rec[+0x40] = base + *(base + a2*4 + 4);
 //   return 0;
-uint32_t GraphicsBind::recordInitBody(Core* c) {
+uint32_t GraphicsBind::recordInitBody(Core *c) {
   uint32_t obj = c->r[4], a1 = c->r[5], a2 = c->r[6];
-  if (c->mem_r16s(0x800ED098u) <= 0) { c->mem_w8(obj + 4, 3); return 1; }
+  if (c->mem_r16s(0x800ED098u) <= 0) {
+    c->mem_w8(obj + 4, 3);
+    return 1;
+  }
   c->mem_w8(obj + 8, 1);
   c->mem_w8(obj + 9, 1);
   c->mem_w8(obj + 0xd, 0);
   c->mem_w16(obj + 0xbc, 0x1000);
   c->mem_w16(obj + 0xba, 0x1000);
   c->mem_w16(obj + 0xb8, 0x1000);
-  uint32_t rec = recordAllocBody(c);                // native (was rec_dispatch(0x8007AAE8u); recordAllocBody defined above)
+  uint32_t rec = recordAllocBody(c); // native (was rec_dispatch(0x8007AAE8u); recordAllocBody defined above)
   c->mem_w32(obj + 0xc0, rec);
-  c->mem_w16(rec + 6, 0xffff);                   // -1
-  c->mem_w16(rec + 0, 0);  c->mem_w16(rec + 2, 0);  c->mem_w16(rec + 4, 0);
-  c->mem_w16(rec + 8, 0);  c->mem_w16(rec + 0xa, 0); c->mem_w16(rec + 0xc, 0);
-  c->mem_w16(rec + 0x38, 0x1000); c->mem_w16(rec + 0x3a, 0x1000); c->mem_w16(rec + 0x3c, 0x1000);
-  eng(c).graphicsBind.installSceneRecord(rec, a1, a2);   // FUN_80051B04 inlined here in the recomp
+  c->mem_w16(rec + 6, 0xffff); // -1
+  c->mem_w16(rec + 0, 0);
+  c->mem_w16(rec + 2, 0);
+  c->mem_w16(rec + 4, 0);
+  c->mem_w16(rec + 8, 0);
+  c->mem_w16(rec + 0xa, 0);
+  c->mem_w16(rec + 0xc, 0);
+  c->mem_w16(rec + 0x38, 0x1000);
+  c->mem_w16(rec + 0x3a, 0x1000);
+  c->mem_w16(rec + 0x3c, 0x1000);
+  eng(c).graphicsBind.installSceneRecord(rec, a1, a2); // FUN_80051B04 inlined here in the recomp
   return 0;
 }
-void GraphicsBind::recordAlloc() { Core* c = core;
+void GraphicsBind::recordAlloc() {
+  Core *c = core;
   // Attack (a) attribution: log the C return-address (caller of recordAlloc()) when
   // PSXPORT_RECALLOC_TRACE=1. Combined with the [sbs] core-map line, tallies A-only ra's
   // to name the native caller responsible for the +3 pool delta at 0x800ED098.
-  if (mTrace < 0) mTrace = getenv("PSXPORT_RECALLOC_TRACE") ? 1 : 0;
-  if (mTrace) {
-    void* ra = __builtin_return_address(0);
-    cfg_logi("recalloc", "core=%p ra=%p cnt_before=%d stage=%08X", (void*)c, ra, (int)c->mem_r16s(0x800ED098u), c->mem_r32(0x801fe00c));
+  if (mTrace < 0) {
+    mTrace = getenv("PSXPORT_RECALLOC_TRACE") ? 1 : 0;
   }
-  c->game->verify.run(&GraphicsBind::recordAllocBody, 0x8007AAE8u, "recallocverify", c->game->verify.on("recallocverify"));
+  if (mTrace) {
+    void *ra = __builtin_return_address(0);
+    cfg_logi("recalloc",
+             "core=%p ra=%p cnt_before=%d stage=%08X",
+             (void *)c,
+             ra,
+             (int)c->mem_r16s(0x800ED098u),
+             c->mem_r32(0x801fe00c));
+  }
+  c->game->verify.run(
+      &GraphicsBind::recordAllocBody, 0x8007AAE8u, "recallocverify", c->game->verify.on("recallocverify"));
 }
-void GraphicsBind::recordInit() { Core* c = core;
+void GraphicsBind::recordInit() {
+  Core *c = core;
   c->game->verify.run(&GraphicsBind::recordInitBody, 0x80051B70u, "recinitverify", c->game->verify.on("recinitverify"));
 }
 
@@ -83,9 +104,9 @@ void GraphicsBind::recordInit() { Core* c = core;
 // and stashes (base + off) at rec[+0x40]. The recomp's FUN_80051B70 (recordInit) inlines the same
 // body at its tail — the extraction dedupes.
 void GraphicsBind::installSceneRecord(uint32_t rec, uint32_t classArg, uint32_t itemArg) {
-  Core* c = core;
+  Core *c = core;
   uint32_t base = c->mem_r32(0x800ECF58u + classArg * 4u);
-  uint32_t off  = c->mem_r32(base + itemArg * 4u + 4u);
+  uint32_t off = c->mem_r32(base + itemArg * 4u + 4u);
   c->mem_w32(rec + 0x40, base + off);
 }
 
@@ -105,7 +126,7 @@ void GraphicsBind::installSceneRecord(uint32_t rec, uint32_t classArg, uint32_t 
 // for the duration of the call, propagateRotmat's spill captures stale/wrong bytes -- a real,
 // reproducible SBS residual. Mirrored per docs/faithful-execution.md (same pattern as
 // game/render/node_xform.cpp's BuildFrame).
-uint32_t GraphicsBind::renderUpdateBody(Core* c) {
+uint32_t GraphicsBind::renderUpdateBody(Core *c) {
   uint32_t obj = c->r[4];
   uint32_t s16 = c->r[16], sra = c->r[31];
   c->r[29] -= 24;
@@ -128,21 +149,24 @@ uint32_t GraphicsBind::renderUpdateBody(Core* c) {
   c->r[29] += 24;
   return ret;
 }
-void GraphicsBind::renderUpdate() { Core* c = core;
-  c->game->verify.run(&GraphicsBind::renderUpdateBody, 0x800517F8u, "rendupdverify", c->game->verify.on("rendupdverify"));
+void GraphicsBind::renderUpdate() {
+  Core *c = core;
+  c->game->verify.run(
+      &GraphicsBind::renderUpdateBody, 0x800517F8u, "rendupdverify", c->game->verify.on("rendupdverify"));
 }
 
 // FUN_80077B38 — set an object's GEOMETRY-BLOCK pointer from a table. RE'd from disas 0x80077B38 (leaf):
 //   ent = *(a1 + a2*4);  obj[+0x38] = ent;  obj[+0x0e] = (u16)ent[+2] & 0x3fff;  return that value.
-uint32_t GraphicsBind::setGeomBody(Core* c) {
+uint32_t GraphicsBind::setGeomBody(Core *c) {
   uint32_t obj = c->r[4], tbl = c->r[5], idx = c->r[6];
   uint32_t ent = c->mem_r32(tbl + idx * 4u);
   uint32_t cnt = (uint32_t)(c->mem_r16(ent + 2) & 0x3fffu);
   c->mem_w32(obj + 0x38, ent);
   c->mem_w16(obj + 0x0e, (uint16_t)cnt);
-  return cnt;   // incidental v0 the recomp leaves (callers treat this void)
+  return cnt; // incidental v0 the recomp leaves (callers treat this void)
 }
-void GraphicsBind::setGeom() { Core* c = core;
+void GraphicsBind::setGeom() {
+  Core *c = core;
   c->game->verify.run(&GraphicsBind::setGeomBody, 0x80077B38u, "setgeomverify", c->game->verify.on("setgeomverify"));
 }
 
@@ -150,7 +174,7 @@ void GraphicsBind::setGeom() { Core* c = core;
 // (0x1F8000D2/D6/DA) + the object's rotation fields (obj+0x3a/0x3e/0x42). RE'd from disas 0x8006CBD0 (leaf):
 //   *0x1F8000D2 = a1[0]; *0x1F8000D6 = a1[1]; *0x1F8000DA = a1[2];
 //   obj[+0x3a] = a1[3]; obj[+0x3e] = a1[4]; obj[+0x42] = a1[5];
-uint32_t GraphicsBind::setXformBlkBody(Core* c) {
+uint32_t GraphicsBind::setXformBlkBody(Core *c) {
   uint32_t obj = c->r[4], src = c->r[5];
   c->mem_w16(0x1F8000D2u, c->mem_r16(src + 0));
   c->mem_w16(0x1F8000D6u, c->mem_r16(src + 2));
@@ -159,10 +183,12 @@ uint32_t GraphicsBind::setXformBlkBody(Core* c) {
   c->mem_w16(obj + 0x3e, c->mem_r16(src + 8));
   uint32_t last = c->mem_r16(src + 0xa);
   c->mem_w16(obj + 0x42, (uint16_t)last);
-  return last;   // incidental v0
+  return last; // incidental v0
 }
-void GraphicsBind::setXformBlk() { Core* c = core;
-  c->game->verify.run(&GraphicsBind::setXformBlkBody, 0x8006CBD0u, "setxblkverify", c->game->verify.on("setxblkverify"));
+void GraphicsBind::setXformBlk() {
+  Core *c = core;
+  c->game->verify.run(
+      &GraphicsBind::setXformBlkBody, 0x8006CBD0u, "setxblkverify", c->game->verify.on("setxblkverify"));
 }
 
 // FUN_8004BD64 — per-object POSITION-COMPOSE + render-state refresh. RE'd from disas 0x8004BD64
@@ -174,10 +200,10 @@ void GraphicsBind::setXformBlk() { Core* c = core;
 //   if ((obj[+0x28] & 0x7f) != 0) FUN_800517F8(obj);                     // refresh render-state (owned)
 // v0 the recomp incidentally leaves = the last full (un-truncated) computed value (or 0x800517F8's return
 // if the tail ran); we mirror it so the A/B v0 compare holds.
-uint32_t GraphicsBind::posComposeBody(Core* c) {
+uint32_t GraphicsBind::posComposeBody(Core *c) {
   uint32_t obj = c->r[4], mode = c->r[5] & 0xffu, srcA = c->r[6], srcB = c->r[7];
   uint32_t t0 = c->mem_r32(c->r[29] + 0x10);
-  uint32_t last = c->r[2];   // default (other mode): v0 unchanged
+  uint32_t last = c->r[2]; // default (other mode): v0 unchanged
   if (mode == 0) {
     for (int i = 0; i < 3; i++) {
       uint32_t so = 0x2c + (uint32_t)i * 4, oo = 0x2e + (uint32_t)i * 4;
@@ -202,8 +228,10 @@ uint32_t GraphicsBind::posComposeBody(Core* c) {
   }
   return last;
 }
-void GraphicsBind::posCompose() { Core* c = core;
-  c->game->verify.run(&GraphicsBind::posComposeBody, 0x8004BD64u, "poscomposeverify", c->game->verify.on("poscomposeverify"));
+void GraphicsBind::posCompose() {
+  Core *c = core;
+  c->game->verify.run(
+      &GraphicsBind::posComposeBody, 0x8004BD64u, "poscomposeverify", c->game->verify.on("poscomposeverify"));
 }
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
@@ -235,9 +263,11 @@ namespace {
 // -48: +16 r16, +20 r17, +24 r18, +28 r19, +32 r20, +36 r21, +40 r22, +44 ra (recordArrayInit
 // 0x800519E0, confirmed against generated/shard_1.c gen_func_800519E0).
 struct RecordArrayInitFrame {
-  Core* c; uint32_t s16, s17, s18, s19, s20, s21, s22, sra;
-  explicit RecordArrayInitFrame(Core* c_) : c(c_), s16(c_->r[16]), s17(c_->r[17]), s18(c_->r[18]),
-      s19(c_->r[19]), s20(c_->r[20]), s21(c_->r[21]), s22(c_->r[22]), sra(c_->r[31]) {
+  Core *c;
+  uint32_t s16, s17, s18, s19, s20, s21, s22, sra;
+  explicit RecordArrayInitFrame(Core *c_)
+      : c(c_), s16(c_->r[16]), s17(c_->r[17]), s18(c_->r[18]), s19(c_->r[19]), s20(c_->r[20]), s21(c_->r[21]),
+        s22(c_->r[22]), sra(c_->r[31]) {
     c->r[29] -= 48;
     c->mem_w32(c->r[29] + 16, s16);
     c->mem_w32(c->r[29] + 20, s17);
@@ -260,10 +290,10 @@ struct RecordArrayInitFrame {
     c->r[29] += 48;
   }
 };
-}  // namespace
+} // namespace
 
 uint32_t GraphicsBind::recordArrayInit(uint32_t obj, uint32_t count, uint32_t sceneBase, uint32_t tmpl) {
-  Core* c = core;
+  Core *c = core;
   RecordArrayInitFrame frame(c);
   if (c->mem_r16s(0x800ED098u) < (int32_t)count) {
     c->mem_w8(obj + 9, 0);
@@ -301,15 +331,15 @@ uint32_t GraphicsBind::recordArrayInit(uint32_t obj, uint32_t count, uint32_t sc
 // game/ai/beh_a06_scripted_actor.cpp, beh_sop_intro_lifted.cpp, beh_sop_intro_pilot.cpp,
 // beh_sop_intro_narration.cpp, actor_zoned_attacker.cpp, beh_variant_actor_sm.cpp,
 // beh_id_routed_dispatch.cpp, beh_flagbit_timer_machine.cpp.
-extern void gen_func_800519E0(Core*);
-extern void shard_set_override(uint32_t, void (*)(Core*));
+extern void gen_func_800519E0(Core *);
+extern void shard_set_override(uint32_t, void (*)(Core *));
 namespace {
-void eov_recordArrayInit(Core* c) {
+void eov_recordArrayInit(Core *c) {
   c->r[2] = eng(c).graphicsBind.recordArrayInit(c->r[4], c->r[5], c->r[6], c->r[7]);
 }
-}  // namespace
+} // namespace
 
-void GraphicsBind::registerOverrides(Game* /*game*/) {
-  overrides::install(0x800519E0u, "GraphicsBind::recordArrayInit",
-                     eov_recordArrayInit, gen_func_800519E0, shard_set_override);
+void GraphicsBind::registerOverrides(Game * /*game*/) {
+  overrides::install(
+      0x800519E0u, "GraphicsBind::recordArrayInit", eov_recordArrayInit, gen_func_800519E0, shard_set_override);
 }

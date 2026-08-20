@@ -34,14 +34,14 @@
 // LAYER: RQ_OVERLAY, above the world and one band below the glyph text's RQ_HUD — the bug #64 /
 // kanban #28 lesson recorded in game/ui/panel.cpp.
 #pragma once
+#include "ui_group_args.h"
 #include <cstdint>
 #include <vector>
-#include "ui_group_args.h"
 class Core;
 
 class ScorePopup {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // Raised for the duration of the guest popup handler FUN_80072520 (see popupTick). Per-Core (never
   // a file-scope flag) so SBS's two cores cannot see each other's scope.
@@ -55,7 +55,7 @@ public:
 
   // collect: record one group if the popup scope is up and this is the pc_render leg. Called from
   // the shared leaf taps.
-  static void collect(Core* c, const UiGroupArgs& a);
+  static void collect(Core *c, const UiGroupArgs &a);
 
   // drawCollected: sort the collected groups into the guest's paint order and push them to the
   // render queue at RQ_OVERLAY. Called once per handler run, by popupTick.

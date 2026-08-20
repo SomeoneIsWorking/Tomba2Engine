@@ -2,18 +2,17 @@
 // that identified the missing layer, and ui_group_capture.h for why paint order comes from the
 // guest's OT bucket.
 #include "pause_menu.h"
+#include "cfg.h" // `pausemenu` diagnostic channel
 #include "core.h"
-#include "game.h"
-#include "game_ctx.h"        // eng(c) / rend(c)
 #include "engine.h"
-#include "render.h"          // Render::emitUiFt4 / emitUiSprites
-#include "render_queue.h"    // RQ_OVERLAY
-#include "screen_fade.h"     // ScreenFade — the global present-time fade this page's dim must NOT reach
-#include "cfg.h"             // `pausemenu` diagnostic channel
+#include "game.h"
+#include "game_ctx.h"     // eng(c) / rend(c)
+#include "render.h"       // Render::emitUiFt4 / emitUiSprites
+#include "render_queue.h" // RQ_OVERLAY
+#include "screen_fade.h"  // ScreenFade — the global present-time fade this page's dim must NOT reach
 
-extern void gen_func_800346BC(Core*);
+extern void gen_func_800346BC(Core *);
 extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-
 
 // The OT bucket the guest links its full-screen subtractive dim into (see drawCollected). Everything
 // in a HIGHER bucket is painted before it and therefore dimmed.
@@ -23,20 +22,47 @@ constexpr uint8_t kDimBucket = 132;
 // emits the GP0 pair `E1000040` + `62404040` — so the OT rect and the fade leaf's argument carry the
 // SAME 0x40, and that identity is what lets releaseGlobalDim() below recognise its own call.
 constexpr uint8_t kDimLevel = 0x40;
-}  // namespace
+} // namespace
 
 // One full-screen quad, shared by the menu's opaque black backdrop and its subtractive dim.
 void PauseMenu::pushScreenQuad(unsigned char level, int semi, int blend) {
-  Core* c = core;
+  Core *c = core;
   const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
-  int xs[4] = { ox, 320 + ox, ox, 320 + ox };
-  int ys[4] = { oy, oy, 240 + oy, 240 + oy };
-  int z[4] = { 0, 0, 0, 0 };
-  unsigned char cc[4] = { level, level, level, level };
-  c->game->activeRq().emitOrQueue(c, /*capture=*/1, RQ_OVERLAY, RQ_OM_2D_FG, /*nv=*/4, semi,
-                                  /*raw=*/0, xs, ys, nullptr, nullptr, z, z, cc, cc, cc,
-                                  /*depth=*/nullptr, /*mode=*/3, 0, 0, 0, 0,
-                                  0, 0, 0, 0, 0, 0, 1023, 511, blend);
+  int xs[4] = {ox, 320 + ox, ox, 320 + ox};
+  int ys[4] = {oy, oy, 240 + oy, 240 + oy};
+  int z[4] = {0, 0, 0, 0};
+  unsigned char cc[4] = {level, level, level, level};
+  c->game->activeRq().emitOrQueue(c,
+                                  /*capture=*/1,
+                                  RQ_OVERLAY,
+                                  RQ_OM_2D_FG,
+                                  /*nv=*/4,
+                                  semi,
+                                  /*raw=*/0,
+                                  xs,
+                                  ys,
+                                  nullptr,
+                                  nullptr,
+                                  z,
+                                  z,
+                                  cc,
+                                  cc,
+                                  cc,
+                                  /*depth=*/nullptr,
+                                  /*mode=*/3,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  0,
+                                  1023,
+                                  511,
+                                  blend);
 }
 
 // DOUBLE OWNERSHIP OF THE MENU DIM (kanban #59 — the "menu chrome too dark" fault). The guest builds
@@ -54,10 +80,11 @@ void PauseMenu::pushScreenQuad(unsigned char level, int semi, int blend) {
 // Only the fade this page itself produced is released — a genuine scene fade running underneath the
 // menu carries a different value and is left alone.
 void PauseMenu::releaseGlobalDim() {
-  Core* c = core;
+  Core *c = core;
   const ScreenFade::State s = fade(c).get();
-  if (s.mode == ScreenFade::SUBTRACTIVE && s.r == kDimLevel && s.g == kDimLevel && s.b == kDimLevel)
+  if (s.mode == ScreenFade::SUBTRACTIVE && s.r == kDimLevel && s.g == kDimLevel && s.b == kDimLevel) {
     fade(c).set(ScreenFade::NONE, 0, 0, 0);
+  }
 }
 
 void PauseMenu::pushSubtractiveDim() {
@@ -65,15 +92,19 @@ void PauseMenu::pushSubtractiveDim() {
   releaseGlobalDim();
 }
 
-namespace { constexpr uint32_t kGuestFrameCounter = 0x1F80017Cu; }
+namespace {
+constexpr uint32_t kGuestFrameCounter = 0x1F80017Cu;
+}
 
 bool PauseMenu::upThisFrame() const {
   return core && mLastDrawFrame == core->mem_r32(kGuestFrameCounter);
 }
 
 void PauseMenu::drawCollected() {
-  Core* c = core;
-  if (capture.empty()) return;
+  Core *c = core;
+  if (capture.empty()) {
+    return;
+  }
   mLastDrawFrame = c->mem_r32(kGuestFrameCounter);
 
   // The menu's own FULL-SCREEN BLACK BACKDROP, painted before every other menu element. The guest
@@ -88,8 +119,8 @@ void PauseMenu::drawCollected() {
 
   bool dimDone = false;
   for (int i : capture.paintOrder()) {
-    const PageChromeItem& it = capture.mItems[i];
-    const UiGroupArgs& a = it.group;
+    const PageChromeItem &it = capture.mItems[i];
+    const UiGroupArgs &a = it.group;
     // The menu's SUBTRACTIVE full-screen dim, linked at OT bucket kDimBucket ahead of that bucket's
     // own groups — so it paints over everything in higher buckets (the drop shadow, the outer frame,
     // the tab labels and the rule under them) and under everything below (the panel interior, the
@@ -97,14 +128,28 @@ void PauseMenu::drawCollected() {
     // draw-mode word `E1000040` (blend bits = 2, i.e. B - F) followed by `62404040 00000000 00F00140`
     // — colour 0x404040 over the whole 320x240 screen. Without it every element above the panel came
     // out exactly 0x40 too bright on all three channels (measured at the tab glyphs and the rule).
-    if (!dimDone && it.otBucket < kDimBucket) { dimDone = true; pushSubtractiveDim(); }
-    cfg_logf("pausemenu", "%s bucket=%3u templ=%08X at (%d,%d) wh=(%d,%d) attr=%02X clutSemi=%04X",
+    if (!dimDone && it.otBucket < kDimBucket) {
+      dimDone = true;
+      pushSubtractiveDim();
+    }
+    cfg_logf("pausemenu",
+             "%s bucket=%3u templ=%08X at (%d,%d) wh=(%d,%d) attr=%02X clutSemi=%04X",
              it.kind != PageChromeItem::Kind::Group ? "PANEL"
-                 : a.sprite ? "SPR" : "FT4",
-             it.otBucket, a.templPtr, a.x, a.y, a.wOv, a.hOv, a.attrByte, a.clutSemi);
+             : a.sprite                             ? "SPR"
+                                                    : "FT4",
+             it.otBucket,
+             a.templPtr,
+             a.x,
+             a.y,
+             a.wOv,
+             a.hOv,
+             a.attrByte,
+             a.clutSemi);
     capture.emit(c, it, RQ_OVERLAY);
   }
-  if (!dimDone) pushSubtractiveDim();   // every group sat at or above kDimBucket
+  if (!dimDone) {
+    pushSubtractiveDim(); // every group sat at or above kDimBucket
+  }
   capture.clear();
 }
 
@@ -112,22 +157,28 @@ namespace {
 
 // FUN_800346BC — the pause/item-menu controller. Scope wrapper: it owns no guest state of its own,
 // so the guest half is the untouched gen body.
-void menuTick(Core* c) {
-  PauseMenu& menu = eng(c).pauseMenu;
+void menuTick(Core *c) {
+  PauseMenu &menu = eng(c).pauseMenu;
   const bool outer = !menu.capture.capturing();
-  if (outer) menu.capture.clear();
+  if (outer) {
+    menu.capture.clear();
+  }
   menu.capture.begin();
-  gen_func_800346BC(c);          // byte-exact: the whole menu state machine + its packet emission
-  if (!outer) return;
+  gen_func_800346BC(c); // byte-exact: the whole menu state machine + its packet emission
+  if (!outer) {
+    return;
+  }
   menu.capture.end();
   menu.drawCollected();
 }
 
-}  // namespace
+} // namespace
 
 void PauseMenu::install() {
   static bool done = false;
-  if (done) return;
+  if (done) {
+    return;
+  }
   done = true;
   engine_set_override_main(0x800346BCu, menuTick, gen_func_800346BC);
   // The FT4 leaf FUN_8007E1B8 is owned by UiFt4Tap (game/render/ui_ft4_tap.cpp), which routes each

@@ -60,40 +60,44 @@
 
 namespace {
 // libgpu's framebuffer clip limits, read by this function and by the 0xE3/0xE4 word builders.
-constexpr uint32_t kFrameBufferLimitX = 0x800A59A4u;  // 1024
-constexpr uint32_t kFrameBufferLimitY = 0x800A59A6u;  // 512
+constexpr uint32_t kFrameBufferLimitX = 0x800A59A4u; // 1024
+constexpr uint32_t kFrameBufferLimitY = 0x800A59A6u; // 512
 
 // GP0 command bytes this function emits directly (the rest come back from the five builders).
-constexpr uint32_t kGp0SetMaskBits  = 0xE6000000u;  // mask-bit setting, both bits clear
-constexpr uint32_t kGp0FillVram     = 0x02000000u;  // fill rectangle in VRAM — absolute coords
-constexpr uint32_t kGp0FlatRect     = 0x60000000u;  // monochrome rectangle — offset-relative
+constexpr uint32_t kGp0SetMaskBits = 0xE6000000u; // mask-bit setting, both bits clear
+constexpr uint32_t kGp0FillVram = 0x02000000u;    // fill rectangle in VRAM — absolute coords
+constexpr uint32_t kGp0FlatRect = 0x60000000u;    // monochrome rectangle — offset-relative
 
 // GP0(0x02) can only fill on a 64-pixel grid, which is what selects between the two clear prims.
 constexpr uint32_t kVramFillAlignMask = 63u;
 
 // Words following the DR_ENV tag: the six state commands, plus the 3-word clear primitive.
-constexpr uint32_t kPacketWordsPlain      = 6;
-constexpr uint32_t kPacketWordsWithClear  = 9;
+constexpr uint32_t kPacketWordsPlain = 6;
+constexpr uint32_t kPacketWordsWithClear = 9;
 
 // Guest return addresses at this function's five jal sites (abi_extract --contract).
-constexpr uint32_t kRaClipTopLeft     = 0x80081FD8u;
+constexpr uint32_t kRaClipTopLeft = 0x80081FD8u;
 constexpr uint32_t kRaClipBottomRight = 0x80082010u;
-constexpr uint32_t kRaDrawOffset      = 0x80082024u;
-constexpr uint32_t kRaDrawMode        = 0x8008203Cu;
-constexpr uint32_t kRaTexWindow       = 0x80082048u;
+constexpr uint32_t kRaDrawOffset = 0x80082024u;
+constexpr uint32_t kRaDrawMode = 0x8008203Cu;
+constexpr uint32_t kRaTexWindow = 0x80082048u;
 
 // Guest stack frame: 40 bytes, spilling s0/s1/ra (abi_extract --scaffold --guestabi).
 constexpr GuestFrameSpill kSpills[3] = {
-  { 16, 24 },
-  { 17, 28 },
-  { 31 /*ra*/, 32 },
+    {16, 24},
+    {17, 28},
+    {31 /*ra*/, 32},
 };
-}  // namespace
+} // namespace
 
-uint32_t LibgpuDrawEnv::clampToFrameBuffer(Core* c, int32_t value, uint32_t limitAddr) {
-  if (value < 0) return 0;
+uint32_t LibgpuDrawEnv::clampToFrameBuffer(Core *c, int32_t value, uint32_t limitAddr) {
+  if (value < 0) {
+    return 0;
+  }
   const int32_t limitSigned = c->mem_r16s(limitAddr);
-  if ((limitSigned - 1) < value) return c->mem_r16(limitAddr) - 1u;
+  if ((limitSigned - 1) < value) {
+    return c->mem_r16(limitAddr) - 1u;
+  }
   return (uint32_t)value;
 }
 
@@ -101,7 +105,7 @@ uint32_t LibgpuDrawEnv::clampToFrameBuffer(Core* c, int32_t value, uint32_t limi
 // ORACLE: gen_func_80081FB0
 // libgpu SetDrawEnv(DR_ENV *packet, DRAWENV *env) — compile the frame's drawing environment (clip
 // rect, drawing origin, texture page/window, optional background clear) into the GP0 command packet.
-void LibgpuDrawEnv::setDrawEnv(Core* c) {
+void LibgpuDrawEnv::setDrawEnv(Core *c) {
   GuestFrame<40, 3> frame(c, kSpills);
 
   // s0/s1 stay LIVE in the register file across the five calls: the callees are guest functions that
@@ -109,8 +113,8 @@ void LibgpuDrawEnv::setDrawEnv(Core* c) {
   // stale bytes on the guest stack (guest_abi.h's raison d'etre).
   GuestReg<16> envReg(c);
   GuestReg<17> packetReg(c);
-  envReg = c->r[5];     // a1 = the DRAWENV being compiled
-  packetReg = c->r[4];  // a0 = the DR_ENV packet to fill
+  envReg = c->r[5];    // a1 = the DRAWENV being compiled
+  packetReg = c->r[4]; // a0 = the DR_ENV packet to fill
 
   const DrawEnvFields env{c, c->r[16]};
   DrawEnvPacket packet{c, c->r[17]};
@@ -158,8 +162,8 @@ void LibgpuDrawEnv::setDrawEnv(Core* c) {
     clear.setClearW((uint16_t)clampToFrameBuffer(c, env.clipW(), kFrameBufferLimitX));
     clear.setClearH((uint16_t)clampToFrameBuffer(c, clear.clearHSigned(), kFrameBufferLimitY));
 
-    const bool vramFillEligible = ((clear.clearX() & kVramFillAlignMask) == 0) &&
-                                  ((clear.clearW() & kVramFillAlignMask) == 0);
+    const bool vramFillEligible =
+        ((clear.clearX() & kVramFillAlignMask) == 0) && ((clear.clearW() & kVramFillAlignMask) == 0);
     if (!vramFillEligible) {
       // GP0(0x60) is an ordinary primitive: the GPU adds the drawing offset to its vertices, so the
       // absolute clip origin has to be pulled back into drawing-area space first.
@@ -178,10 +182,10 @@ void LibgpuDrawEnv::setDrawEnv(Core* c) {
   }
 
   packet.setTagWordCount(packetWords);
-  c->r[2] = packetWords;  // v0 — the guest returns the word count it just stored
+  c->r[2] = packetWords; // v0 — the guest returns the word count it just stored
 }
 
-void LibgpuDrawEnv::registerOverrides(Game*) {
-  overrides::install(0x80081FB0u, "LibgpuDrawEnv::setDrawEnv", &LibgpuDrawEnv::setDrawEnv,
-                     gen_func_80081FB0, shard_set_override);
+void LibgpuDrawEnv::registerOverrides(Game *) {
+  overrides::install(
+      0x80081FB0u, "LibgpuDrawEnv::setDrawEnv", &LibgpuDrawEnv::setDrawEnv, gen_func_80081FB0, shard_set_override);
 }

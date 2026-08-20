@@ -47,23 +47,25 @@
 // counts a setter as the stores it performs (port_check.py find_lens_setters). Keep every setter a
 // single statement with its mem_wN visible, or the converted body silently stops being gate-able.
 #pragma once
-#include <cstdint>
 #include "assembly_node.h"
 #include "core.h"
+#include <cstdint>
 
 // The assembly as the RIDER sees it. AssemblyNode already owns the two fields the rider reads to
 // decide what to do (modeByte +0x5E, angleSelector +0x6C); the only thing missing is the render
 // visibility byte the rider copies, so this view adds exactly that and nothing else.
 class RiddenAssembly : public AssemblyNode {
 public:
-  RiddenAssembly(Core* c, uint32_t at) : AssemblyNode(c, at) {}
+  RiddenAssembly(Core *c, uint32_t at) : AssemblyNode(c, at) {}
 
   // visible (+0x01, u8): the assembly's own "submitted this frame" byte, written by the shared
   //   visibility gate in beh_visibility_gate_dispatch (game/ai/beh_visibility_gate_dispatch.cpp
   //   state1_gate writes node[1] = 1 on the match path). The rider does not run its own cull test in
   //   its ride state — it INHERITS this byte, so a rider is drawn exactly when the pump it sits on
   //   is, and goes dormant with it.
-  uint32_t visible() const { return mCore->mem_r8(mAt + 0x01u); }
+  uint32_t visible() const {
+    return mCore->mem_r8(mAt + 0x01u);
+  }
 };
 
 // One arm-end sub-part of the assembly, reached through AssemblyNode::childPtr(slot). This is a
@@ -84,30 +86,44 @@ public:
 //   * Measured: 0x800F308C reads (5727, -1757, 5548) — real world coordinates, not fixed-point.
 class AssemblyPartAnchor {
 public:
-  AssemblyPartAnchor(Core* c, uint32_t at) : mCore(c), mAt(at) {}
-  uint32_t addr() const { return mAt; }
+  AssemblyPartAnchor(Core *c, uint32_t at) : mCore(c), mAt(at) {}
+  uint32_t addr() const {
+    return mAt;
+  }
 
   // The part's world position truncated to the 16 bits the rider's own position fields hold. The
   // guest uses `lhu` here (a plain 32->16 narrowing of the coordinate), so these stay unsigned.
-  uint32_t x16() const { return mCore->mem_r16(mAt + 0x2Cu); }
-  uint32_t y16() const { return mCore->mem_r16(mAt + 0x30u); }
-  uint32_t z16() const { return mCore->mem_r16(mAt + 0x34u); }
+  uint32_t x16() const {
+    return mCore->mem_r16(mAt + 0x2Cu);
+  }
+  uint32_t y16() const {
+    return mCore->mem_r16(mAt + 0x30u);
+  }
+  uint32_t z16() const {
+    return mCore->mem_r16(mAt + 0x34u);
+  }
   // The part's world Y at full width — what the rider's landing test compares against.
-  int32_t  y32() const { return (int32_t)mCore->mem_r32(mAt + 0x30u); }
+  int32_t y32() const {
+    return (int32_t)mCore->mem_r32(mAt + 0x30u);
+  }
 
 private:
-  Core*    mCore;
+  Core *mCore;
   uint32_t mAt;
 };
 
 class AssemblyRider {
 public:
-  AssemblyRider(Core* c, uint32_t at) : mCore(c), mAt(at) {}
-  uint32_t addr() const { return mAt; }
+  AssemblyRider(Core *c, uint32_t at) : mCore(c), mAt(at) {}
+  uint32_t addr() const {
+    return mAt;
+  }
 
   // owner (+0x10, u32): the assembly this rider is perched on. Verified on live state (see the
   //   banner above) — both riders' +0x10 points at a node whose own handler is 0x8012EB54.
-  uint32_t owner() const { return mCore->mem_r32(mAt + 0x10u); }
+  uint32_t owner() const {
+    return mCore->mem_r32(mAt + 0x10u);
+  }
 
   // variantTag (+0x62, s16): the placement-data tag that says WHICH of the two arm-end riders this
   //   is. Only two values occur, 200 and 204, and the state-0 init turns them into the slot index
@@ -115,78 +131,124 @@ public:
   //   CROSSED with respect to the numbers (the 200 rider reads owner+0xCC = slot 3), so the tag is
   //   an identifier, not an offset; anything else about it would be a guess. Read SIGNED: the guest
   //   uses `lh` and compares the full 32-bit register against 200/204.
-  int32_t variantTag() const { return mCore->mem_r16s(mAt + 0x62u); }
+  int32_t variantTag() const {
+    return mCore->mem_r16s(mAt + 0x62u);
+  }
 
   // slot (+0x18, u8): which of the assembly's sub-part slots this rider rides — 3 or 2, exactly the
   //   childPtr() index it reads its anchor from. Its OTHER job is to answer the assembly: the fling
   //   only starts when the assembly's angleSelector (+0x6C, "the part being commanded") equals this.
   //   Seeded by the state-0 init from variantTag; measured live as 3 and 2.
-  uint32_t slot() const           { return mCore->mem_r8(mAt + 0x18u); }
-  void     setSlot(uint8_t v) const { mCore->mem_w8(mAt + 0x18u, v); }
+  uint32_t slot() const {
+    return mCore->mem_r8(mAt + 0x18u);
+  }
+  void setSlot(uint8_t v) const {
+    mCore->mem_w8(mAt + 0x18u, v);
+  }
 
   // alive (+0x00, u8) / visible (+0x01, u8): the standard node pair (see game/object/actor.h). The
   //   init raises alive; the ride state copies the ASSEMBLY's visible byte into this one every frame.
-  void setAlive(uint8_t v) const   { mCore->mem_w8(mAt + 0x00u, v); }
-  void setVisible(uint8_t v) const { mCore->mem_w8(mAt + 0x01u, v); }
+  void setAlive(uint8_t v) const {
+    mCore->mem_w8(mAt + 0x00u, v);
+  }
+  void setVisible(uint8_t v) const {
+    mCore->mem_w8(mAt + 0x01u, v);
+  }
 
   // rideState (+0x05, u8): this leaf's own 5-way state machine, dispatched through the jump table at
   //   kRideStateJumpTable. 0 = init, 1 = riding the arm-end, 2 = the hop, 3 = the fling,
   //   4 = dormant. Measured live as 1 on both riders (both pumps at rest).
-  uint32_t rideState() const           { return mCore->mem_r8(mAt + 0x05u); }
-  void     setRideState(uint8_t v) const { mCore->mem_w8(mAt + 0x05u, v); }
+  uint32_t rideState() const {
+    return mCore->mem_r8(mAt + 0x05u);
+  }
+  void setRideState(uint8_t v) const {
+    mCore->mem_w8(mAt + 0x05u, v);
+  }
 
   // motionPhase (+0x06, u8): the step counter WITHIN the hop and the fling. In the hop it is
   //   0 = launch, 1 = first bounce airborne, 2 = second bounce airborne. Both movements zero it when
   //   they are entered.
-  uint32_t motionPhase() const             { return mCore->mem_r8(mAt + 0x06u); }
-  void     setMotionPhase(uint8_t v) const { mCore->mem_w8(mAt + 0x06u, v); }
+  uint32_t motionPhase() const {
+    return mCore->mem_r8(mAt + 0x06u);
+  }
+  void setMotionPhase(uint8_t v) const {
+    mCore->mem_w8(mAt + 0x06u, v);
+  }
 
   // sceneTag (+0x2A, u8): the per-object scene-mode tag (Actor::setSceneMode's field), seeded per
   //   variant by the init — 10 for the tag-200 rider, 1 for the tag-204 one. NOT read anywhere in
   //   this leaf; it is published for whatever consumes the scene-mode byte. Measured live at exactly
   //   those two values, which is what confirms the init ran.
-  void setSceneTag(uint8_t v) const { mCore->mem_w8(mAt + 0x2Au, v); }
+  void setSceneTag(uint8_t v) const {
+    mCore->mem_w8(mAt + 0x2Au, v);
+  }
 
   // contactState (+0x2B, u8): the shared object CONTACT/interaction byte (Actor::interactState).
   //   Value 2 is the "player is bearing on this object" case — the same value the contact producer
   //   FUN_80111304 stamps and that SubstateEdgeLeaves::contactWeightApply turns into the pump's
   //   weight (docs/kanban/cards/008-…). This leaf's tail reads it and, on 2, forces the rider
   //   dormant: touch a rider and it stops riding, hopping or flying.
-  uint32_t contactState() const { return mCore->mem_r8(mAt + 0x2Bu); }
+  uint32_t contactState() const {
+    return mCore->mem_r8(mAt + 0x2Bu);
+  }
 
   // Position. posX/posY/posZ (+0x2E/+0x32/+0x36, i16) are the integer world coordinates every other
   //   engine subsystem reads; posYFixed (+0x30, u32) is the 16.16 view whose HIGH halfword IS posY
   //   (docs/findings/object.md, game/object/actor.h) — which is why the hop integrates 32-bit at
   //   +0x30 and then tests 16-bit at +0x32. Same field, two views.
-  int32_t posY() const              { return mCore->mem_r16s(mAt + 0x32u); }
-  uint32_t posYFixed() const        { return mCore->mem_r32(mAt + 0x30u); }
-  void setPosX(uint16_t v) const     { mCore->mem_w16(mAt + 0x2Eu, v); }
-  void setPosY(uint16_t v) const     { mCore->mem_w16(mAt + 0x32u, v); }
-  void setPosZ(uint16_t v) const     { mCore->mem_w16(mAt + 0x36u, v); }
-  void setPosYFixed(uint32_t v) const { mCore->mem_w32(mAt + 0x30u, v); }
+  int32_t posY() const {
+    return mCore->mem_r16s(mAt + 0x32u);
+  }
+  uint32_t posYFixed() const {
+    return mCore->mem_r32(mAt + 0x30u);
+  }
+  void setPosX(uint16_t v) const {
+    mCore->mem_w16(mAt + 0x2Eu, v);
+  }
+  void setPosY(uint16_t v) const {
+    mCore->mem_w16(mAt + 0x32u, v);
+  }
+  void setPosZ(uint16_t v) const {
+    mCore->mem_w16(mAt + 0x36u, v);
+  }
+  void setPosYFixed(uint32_t v) const {
+    mCore->mem_w32(mAt + 0x30u, v);
+  }
 
   // velY (+0x4A, i16) / accelY (+0x50, i16): the vertical velocity and gravity the hop integrates,
   //   in 1/256 world units per frame — hence the `<< 8` when velY is folded into the 16.16 position
   //   (the shared arc-motion convention, game/object/actor.h velY/accelY, release_trigger_motion.cpp).
   //   The fling (guest 0x801189B8) reuses the same two fields with its own seeds.
-  int32_t  velY() const             { return mCore->mem_r16s(mAt + 0x4Au); }
-  uint32_t velY_u() const           { return mCore->mem_r16(mAt + 0x4Au); }
-  uint32_t accelY_u() const         { return mCore->mem_r16(mAt + 0x50u); }
-  void     setVelY(uint16_t v) const   { mCore->mem_w16(mAt + 0x4Au, v); }
-  void     setAccelY(uint16_t v) const { mCore->mem_w16(mAt + 0x50u, v); }
+  int32_t velY() const {
+    return mCore->mem_r16s(mAt + 0x4Au);
+  }
+  uint32_t velY_u() const {
+    return mCore->mem_r16(mAt + 0x4Au);
+  }
+  uint32_t accelY_u() const {
+    return mCore->mem_r16(mAt + 0x50u);
+  }
+  void setVelY(uint16_t v) const {
+    mCore->mem_w16(mAt + 0x4Au, v);
+  }
+  void setAccelY(uint16_t v) const {
+    mCore->mem_w16(mAt + 0x50u, v);
+  }
 
   // flingSide (+0x47, u8): copied from the assembly's modeByte at the instant the fling starts, and
   //   read by the fling itself (guest 0x801189B8) as the ONLY thing that decides which way the rider
   //   spirals out — mode 2 turns one way (+256 seed, +4 per frame), anything else the other. So the
   //   pump's stroke direction is what throws the rider left or right.
-  void setFlingSide(uint8_t v) const { mCore->mem_w8(mAt + 0x47u, v); }
+  void setFlingSide(uint8_t v) const {
+    mCore->mem_w8(mAt + 0x47u, v);
+  }
 
   // 0x80118B10 — the rider's whole per-frame tick. See the banner in assembly_rider.cpp.
-  static void rideSlotAndReactToStroke(Core* c);
+  static void rideSlotAndReactToStroke(Core *c);
 
   static void registerOverrides();
 
 private:
-  Core*    mCore;
+  Core *mCore;
   uint32_t mAt;
 };

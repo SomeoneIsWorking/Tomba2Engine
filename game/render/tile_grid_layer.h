@@ -24,18 +24,18 @@
 // picture the guest packets would produce.
 #pragma once
 struct Core;
-class  Game;
+class Game;
 
 class TileGridLayer {
 public:
-  static void scrollStep(Core* c);  // FUN_8011534C(node=a0) — state 0: one-time init from
-                                     // *0x800ECF84; state 1: recompute wrapped scroll X/Y into
-                                     // node+0x28/+0x2A from scratchpad 0x1F8000F2/F0.
-  static void emit(Core* c);        // FUN_80115598(node=a0) — walk the W×H tile grid, emit one
-                                     // 16-byte op-0x7C sprite packet per visible tile into the
-                                     // shared packet pool (0x800BF544), splice into OT bucket
-                                     // 0x7FF, append a trailing DR_TPAGE reset packet via the
-                                     // already-RE'd func_80083DE0.
+  static void scrollStep(Core *c); // FUN_8011534C(node=a0) — state 0: one-time init from
+                                   // *0x800ECF84; state 1: recompute wrapped scroll X/Y into
+                                   // node+0x28/+0x2A from scratchpad 0x1F8000F2/F0.
+  static void emit(Core *c);       // FUN_80115598(node=a0) — walk the W×H tile grid, emit one
+                                   // 16-byte op-0x7C sprite packet per visible tile into the
+                                   // shared packet pool (0x800BF544), splice into OT bucket
+                                   // 0x7FF, append a trailing DR_TPAGE reset packet via the
+                                   // already-RE'd func_80083DE0.
 
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

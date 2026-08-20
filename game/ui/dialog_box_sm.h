@@ -5,7 +5,7 @@ class Core;
 
 class DialogBoxSm {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
-  static void step(Core* c);
+  static void step(Core *c);
 };

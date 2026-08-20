@@ -25,7 +25,7 @@ class Game;
 
 class ActorTomba {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // Guest address of Tomba's node = the master G block.
   static constexpr uint32_t G_ADDR = 0x800E7E80u;
@@ -103,52 +103,52 @@ public:
   // rec_dispatch(c, 0x8005950C) is the only core-A reacher of frameTick (the sole direct
   // func_8005950C caller is gen_func_80059D28 = the substrate frameStartTickFaithful, core-B only),
   // so a rec_dispatch-only registration (no shard_set_override setter) is sufficient for all 5.
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 
 private:
   // EngineOverrideFn-shaped trampolines for registerOverrides (need class access to the private
   // sub-handlers below).
-  static void ov_stepModeInteract(Core* c);
-  static void ov_type8Interact(Core* c);
-  static void ov_type7Interact(Core* c);
-  static void ov_growthYSnap(Core* c);
-  static void ov_frameTick(Core* c);
-  static void ov_turnBiasCompute(Core* c);
-  static void ov_outerTransitionGate(Core* c);
-  static void ov_outerTransitionCommit(Core* c);
-  static void ov_assetReady(Core* c);
+  static void ov_stepModeInteract(Core *c);
+  static void ov_type8Interact(Core *c);
+  static void ov_type7Interact(Core *c);
+  static void ov_growthYSnap(Core *c);
+  static void ov_frameTick(Core *c);
+  static void ov_turnBiasCompute(Core *c);
+  static void ov_outerTransitionGate(Core *c);
+  static void ov_outerTransitionCommit(Core *c);
+  static void ov_assetReady(Core *c);
   // shard_set_override setter trampolines (psx_fallback-gated — see .cpp banner).
-  static void gov_turnBiasCompute(Core* c);
-  static void gov_outerTransitionGate(Core* c);
-  static void gov_outerTransitionCommit(Core* c);
-  static void gov_assetReady(Core* c);
-  static void gov_matrixComposeAttached(Core* c);
-  static void gov_enterOuterState0(Core* c);
-  static void gov_mode0ActionGate(Core* c);
-  static void gov_mode0WalkHandler(Core* c);
-  static void gov_actionHandler8005ACC8(Core* c);
-  static void gov_actionHandler8005AEE4(Core* c);
-  static void gov_actionHandler8005F1B0(Core* c);
-  static void gov_actionHandler800588BC(Core* c);
-  static void gov_actionHandler800531DC(Core* c);
-  static void gov_actionHandler800660AC(Core* c);
-  static void gov_actionHandler8005EF48(Core* c);
+  static void gov_turnBiasCompute(Core *c);
+  static void gov_outerTransitionGate(Core *c);
+  static void gov_outerTransitionCommit(Core *c);
+  static void gov_assetReady(Core *c);
+  static void gov_matrixComposeAttached(Core *c);
+  static void gov_enterOuterState0(Core *c);
+  static void gov_mode0ActionGate(Core *c);
+  static void gov_mode0WalkHandler(Core *c);
+  static void gov_actionHandler8005ACC8(Core *c);
+  static void gov_actionHandler8005AEE4(Core *c);
+  static void gov_actionHandler8005F1B0(Core *c);
+  static void gov_actionHandler800588BC(Core *c);
+  static void gov_actionHandler800531DC(Core *c);
+  static void gov_actionHandler800660AC(Core *c);
+  static void gov_actionHandler8005EF48(Core *c);
 
   // Four unowned per-frame leaves ported byte-faithfully 2026-07-17 (guest ABI: a0=r4 etc; body
   // reads/writes c->r[] directly). gov_ trampolines wire them via engine_set_override_main.
-  void proximityAngleWalk(Core* c);      // FUN_80053968 — aux-list angle-window proximity walk (frame 56)
-  void limbFrameLoad(Core* c);           // FUN_80054790 — per-state limb frame-offset loader (frameless)
-  void invincibilityFlashStep(Core* c);  // FUN_80060268 — invincibility/hit blink-flash cadence (frameless)
-  void rampOffsetStep(Core* c);          // FUN_80063098 — +32 ramp folded into a0+66/+86, spawn at <1025 (frame 24)
-  static void gov_proximityAngleWalk(Core* c);
-  static void gov_limbFrameLoad(Core* c);
-  static void gov_invincibilityFlashStep(Core* c);
-  static void gov_rampOffsetStep(Core* c);
+  void proximityAngleWalk(Core *c);     // FUN_80053968 — aux-list angle-window proximity walk (frame 56)
+  void limbFrameLoad(Core *c);          // FUN_80054790 — per-state limb frame-offset loader (frameless)
+  void invincibilityFlashStep(Core *c); // FUN_80060268 — invincibility/hit blink-flash cadence (frameless)
+  void rampOffsetStep(Core *c);         // FUN_80063098 — +32 ramp folded into a0+66/+86, spawn at <1025 (frame 24)
+  static void gov_proximityAngleWalk(Core *c);
+  static void gov_limbFrameLoad(Core *c);
+  static void gov_invincibilityFlashStep(Core *c);
+  static void gov_rampOffsetStep(Core *c);
 
   // Sub-handlers of interactWalk — kept private since the type-dispatch loop is the only caller.
-  void proximityCheck    (uint32_t item);     // FUN_80022060
-  void type4GuardedCheck (uint32_t item);     // FUN_80114E74
-  void subHitboxCheck    (uint32_t item);     // FUN_80022190
+  void proximityCheck(uint32_t item);    // FUN_80022060
+  void type4GuardedCheck(uint32_t item); // FUN_80114E74
+  void subHitboxCheck(uint32_t item);    // FUN_80022190
 
   // ----------------------------------------------------------------------------
   // Sub-handlers of postInteractWalk (band 0x80020000-0x8002FFFF; RE'd + drafted 2026-07-08,
@@ -283,7 +283,7 @@ private:
   //   Faithful port from gen_func_80055C9C (generated/shard_1.c:9208, ground truth) — all 3
   //   goto-chains fully traced and consolidated into one boolean; safe to restructure (unlike a
   //   dense/DAG-shaped function) because every path was hand-verified against the recompiled C.
-  static void turnBiasCompute(Core* c, int16_t facing);
+  static void turnBiasCompute(Core *c, int16_t facing);
 
   // outerTransitionGate() — guest FUN_80053E50(G). The gate outerTransitionCommit (and case 4)
   //   call first: bails (false) while G+0x16E (a pending-frame counter) is still positive.
@@ -322,14 +322,14 @@ private:
   //   0x8018A000/DAT_800A3EC8) to the substrate loader-status leaf FUN_80044CD4, returning
   //   whether it reported a positive (>0) status. Faithful port from gen_func_80045580
   //   (generated/shard_6.c:6274, ground truth — matches Ghidra 1:1).
-  static bool assetReady(Core* c, int32_t slot);
+  static bool assetReady(Core *c, int32_t slot);
 
   // resetLoadGate(c) — guest FUN_80042310. Frameless-except-ra leaf: fires a niladic substrate
   //   cue (FUN_8001CF78), an SFX/cue trigger (FUN_80074590(0x7F,0,0)), clears the pause latch
   //   0x1F800137, then forwards the current area/mode byte (DAT_800BF870) into FUN_80074F24
   //   (an already-substrate "commit area mode" leaf). Faithful port from gen_func_80042310
   //   (generated/shard_5.c:5613, ground truth — matches Ghidra 1:1).
-  static void resetLoadGate(Core* c);
+  static void resetLoadGate(Core *c);
 
   // ----------------------------------------------------------------------------
   // 2026-07-10 wide-RE dedicated pass — frameTick's two "too large for the first pass" direct
@@ -356,15 +356,15 @@ private:
   //   translate into item+0x2C/30/34. Faithful from generated/shard_5.c:8654. Guest frame:
   //   addiu sp,-64; spill r16-r23,r30(scratch, not fp),ra.
   void matrixComposeAttached();
-  void mode0ActionGate();            // FUN_8005A910 — mode-0 (walk) action gate; picks FUN_8005A970 vs swim 0x80112B50
-  void mode0WalkHandler();            // FUN_8005A970 — mode-0 normal walk handler (PORT_GEN verbatim, wired via 8005A910)
-  void actionHandler8005ACC8();       // FUN_8005ACC8 — mode-N action handler (PORT_GEN verbatim)
-  void actionHandler8005AEE4();       // FUN_8005AEE4 — mode-N action handler (PORT_GEN verbatim)
-  void actionHandler8005F1B0();       // FUN_8005F1B0 — mode-N action handler (PORT_GEN verbatim)
-  void actionHandler800588BC();       // FUN_800588BC — mode-N action leaf (PORT_GEN verbatim)
-  void actionHandler800531DC();       // FUN_800531DC — mode-N action leaf (PORT_GEN verbatim)
-  void actionHandler800660AC();       // FUN_800660AC — mode-N action leaf (PORT_GEN verbatim)
-  void actionHandler8005EF48();       // FUN_8005EF48 — mode-N action handler (PORT_GEN verbatim)
+  void mode0ActionGate();       // FUN_8005A910 — mode-0 (walk) action gate; picks FUN_8005A970 vs swim 0x80112B50
+  void mode0WalkHandler();      // FUN_8005A970 — mode-0 normal walk handler (PORT_GEN verbatim, wired via 8005A910)
+  void actionHandler8005ACC8(); // FUN_8005ACC8 — mode-N action handler (PORT_GEN verbatim)
+  void actionHandler8005AEE4(); // FUN_8005AEE4 — mode-N action handler (PORT_GEN verbatim)
+  void actionHandler8005F1B0(); // FUN_8005F1B0 — mode-N action handler (PORT_GEN verbatim)
+  void actionHandler800588BC(); // FUN_800588BC — mode-N action leaf (PORT_GEN verbatim)
+  void actionHandler800531DC(); // FUN_800531DC — mode-N action leaf (PORT_GEN verbatim)
+  void actionHandler800660AC(); // FUN_800660AC — mode-N action leaf (PORT_GEN verbatim)
+  void actionHandler8005EF48(); // FUN_8005EF48 — mode-N action handler (PORT_GEN verbatim)
 
   // ----------------------------------------------------------------------------
   // 2026-07-10 wide-RE pass — mode-N dispatch table A/B (FUN_80058918/FUN_80058F5C) case-target

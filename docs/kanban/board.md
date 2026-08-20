@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (44)
+## TODO (41)
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
 - **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
@@ -43,24 +43,20 @@
 - **#107 renderpath toggle shifts the picture centre when widescreen is on**  `render,bug`
 - **#108 Objects from a previous area stay loaded/rendered over the ocean after its terrain unloads**  `render,gameplay,bug`
 - **#109 Costume change: native render explodes into full-screen garbage polygons (PSX path is correct)**  `render,bug`
-- **#110 Make psx_render a TRUE oracle: wire beetle's vendored GPU rasterizer (not PsyCross)**  `render,oracle`
 - **#111 Guest render paths at the item menu: gte is missing 58% of the picture, psx draws NOTHING**  `render,oracle,bug`
 - **#114 psx_render: ~561 px still differ from real hardware, incl. 357 by more than one LSB**  ``
-- **#115 Adopt clang + clang-format, drop extern C, drop beetle**  ``
-- **#116 Beetle oracle violates GPU.sl_zero_reached — NDEBUG hides it in every normal build**  ``
 - **#117 Performance: ~43% of the frame is render-queue ORDERING, ~9% is a diagnostic**  ``
 - **#118 Performance is an ALTITUDE problem: the game costs 0.00ms, our machinery costs 4.42ms**  ``
 
-## DOING (7)
+## DOING (6)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
-- **#22 Health wheel is too transparent — reproduces on psx_render too, so the oracle is NOT the reference**  `render` — 📎 docs/reference/issues/issue22_health_wheel_reference.png,            docs/reference/issues/issue22_health_wheel_reference_dark.png
 - **#45 CAMPAIGN: render everything natively — retire the substrate-GTE projection producers to float-native**  `render,campaign`
 - **#47 pc_skip: entering 'House on the Point' corrupts state (music stops, camera unfollows, interior vibrates)**  `bug,pc-skip`
 - **#74 Interior wall decors missing (suspect depth / coincident-face ordering)**  `render` — 📎 docs/reference/issues/issue74_house_pc_render_decor_missing.png,     docs/reference/issues/issue74_house_psx_render_decor_present.png
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 - **#103 Cutscene machinery + fisherman + bridge ropes invisible under pc_render (area 0, live)**  `render,bug`
 
-## DONE (67)
+## DONE (72)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -77,6 +73,7 @@
 - **#19 Dialog text-box background missing — only the panel corners render**  `render` — 📎 docs/reference/issues/issue19_panel_fill_missing.png
 - **#20 Pause (P) shows a black screen at fps60 — the pause loop RE-RENDERED the frame instead of re-showing it**  `render,fps60`
 - **#21 Triangle menu renders fully transparent — its opaque background is missing**  `render` — 📎 docs/reference/issues/issue21_triangle_menu_reference.png
+- **#22 Health wheel native blend and AddPrim order differ from the PSX**  `render`
 - **#23 Roof flames do not lerp at fps60 while the burning-rope flame does**  `render,fps60` — 📎 docs/reference/issues/issue23_flame_no_lerp.png
 - **#24 Area 22 aborts on entry: rec_dispatch miss 0x80109200**  `bug,recomp`
 - **#25 pc_render area sweep: 24 of 32 areas sampled clean, coverage recorded**  `render`
@@ -126,5 +123,9 @@
 - **#102 Save/load card browser under pc_render: backdrop, Save title badge, button-prompt icons and the slot save-icon are all missing**  `render,bug,ui`
 - **#104 Continue from a pad recording — ./run.sh --resume (PSXPORT_PAD_RESUME)**  `tooling`
 - **#106 PSX/oracle path showed 16 rows below the cutscene letterbox — the display height was the framework's default, not the game's**  `render,psxport`
+- **#110 Make psx_render a TRUE oracle: wire beetle's vendored GPU rasterizer (not PsyCross)**  `render,oracle`
 - **#112 psx_render's blue channel is one 5-bit step low vs real hardware on gradient fills**  ``
 - **#113 psx_render's dither does not match the PSX's on 3D scenes**  ``
+- **#115 Adopt clang + clang-format, drop extern C, drop beetle**  ``
+- **#116 Beetle oracle violates GPU.sl_zero_reached — NDEBUG hides it in every normal build**  ``
+- **#119 SBS oracle booted the wrong render path and cleared software VRAM during pane readback**  `oracle,tooling`

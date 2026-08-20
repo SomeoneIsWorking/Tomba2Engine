@@ -1,2 +1,0 @@
-/usr/bin/llvm-ar qc libchdr-lzma.a "CMakeFiles/chdr-lzma.dir/src/LzmaDec.c.o"
-/usr/bin/llvm-ranlib libchdr-lzma.a

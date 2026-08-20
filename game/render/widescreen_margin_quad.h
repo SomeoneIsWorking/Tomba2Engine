@@ -7,13 +7,13 @@
 // SBS cores and every guest write below is part of the byte-exact state SBS compares.
 #pragma once
 struct Core;
-class  Game;
+class Game;
 
 class WidescreenMarginQuad {
 public:
   // FUN_8013CDD4(obj=a0) -> void. Walks obj's single margin-node + its 36-byte-stride quad
   // record array, GTE-transforms each into a POLY_GT4 packet, and links it into the OT.
-  static void emit(Core* c);
+  static void emit(Core *c);
 
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

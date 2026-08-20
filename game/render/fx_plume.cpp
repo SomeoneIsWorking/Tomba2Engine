@@ -46,13 +46,13 @@
 // subtype byte on every call, so a scene that reaches the sprite half is visible rather than silent.
 #include "core.h"
 #include "game.h"
-#include "render.h"
-#include "render_internal.h"   // ObjScope — prim identity is the emitting node
-#include "producer_scope.h"    // ProducerScope — producer identity for the graphics-producer DB
 #include "mesh_quads.h"
+#include "producer_scope.h" // ProducerScope — producer identity for the graphics-producer DB
 #include "projection.h"
-#include <lucent/log.h>
+#include "render.h"
+#include "render_internal.h" // ObjScope — prim identity is the emitting node
 #include <cstdint>
+#include <lucent/log.h>
 
 namespace {
 
@@ -61,24 +61,24 @@ namespace {
 // dispatches to, and therefore the row the guest leg attributes its prims to (see ProducerScope below).
 constexpr uint32_t kGuestControllerAddr = 0x8002BC9Cu;
 
-constexpr uint32_t kNodeSubtype    = 0x03u;   // u8  — 0x14/0x15 additionally enable the sprite half
-constexpr uint32_t kNodePosX       = 0x2Cu;   // s16 world position; Y and Z follow at +0x2E and +0x30
-constexpr uint32_t kNodeSortBias   = 0x32u;   // s16 the controller hands the writer as its sort bias
-constexpr uint32_t kNodeAnimScript = 0x3Cu;   // u32 -> the animation script's current byte
-constexpr uint32_t kNodeAngles     = 0x48u;   // s16 x3 Euler angles (X at +0x48, Y at +0x4A, Z at +0x4C)
-constexpr uint32_t kNodeMeshTable  = 0x50u;   // u32 -> array of mesh pointers, indexed by the script byte
+constexpr uint32_t kNodeSubtype = 0x03u;    // u8  — 0x14/0x15 additionally enable the sprite half
+constexpr uint32_t kNodePosX = 0x2Cu;       // s16 world position; Y and Z follow at +0x2E and +0x30
+constexpr uint32_t kNodeSortBias = 0x32u;   // s16 the controller hands the writer as its sort bias
+constexpr uint32_t kNodeAnimScript = 0x3Cu; // u32 -> the animation script's current byte
+constexpr uint32_t kNodeAngles = 0x48u;     // s16 x3 Euler angles (X at +0x48, Y at +0x4A, Z at +0x4C)
+constexpr uint32_t kNodeMeshTable = 0x50u;  // u32 -> array of mesh pointers, indexed by the script byte
 
 // ── authored data the controller reads ────────────────────────────────────────────────────────────
-constexpr uint32_t kColumnScale = 0x800A1CD4u;  // three bytes, each << 2 = a per-column 1.3.12 factor
-constexpr uint8_t  kScriptLast  = 0x80u;        // script byte bit 7: this is the script's final frame
-constexpr uint8_t  kScriptIndex = 0x7Fu;        // ...and its low bits are the mesh-table index
-constexpr int      kCopies      = 4;
-constexpr int      kQuarterTurn = 0x400;        // 4096 angle units to the turn
-constexpr int      kUScroll     = 0;            // this controller animates by MESH, not by texture scroll
+constexpr uint32_t kColumnScale = 0x800A1CD4u; // three bytes, each << 2 = a per-column 1.3.12 factor
+constexpr uint8_t kScriptLast = 0x80u;         // script byte bit 7: this is the script's final frame
+constexpr uint8_t kScriptIndex = 0x7Fu;        // ...and its low bits are the mesh-table index
+constexpr int kCopies = 4;
+constexpr int kQuarterTurn = 0x400; // 4096 angle units to the turn
+constexpr int kUScroll = 0;         // this controller animates by MESH, not by texture scroll
 
 // The cue the controller programs before every call: identity, so the mesh keeps its own colours.
 constexpr int32_t kCueOff = 0;
-const int32_t     kNoFarColour[3] = { 0, 0, 0 };
+const int32_t kNoFarColour[3] = {0, 0, 0};
 
 // The gate on the unported sprite half, kept as a named range so the diagnostic can say "this call
 // reached a branch this producer does not draw" instead of leaving it invisible.
@@ -86,38 +86,43 @@ constexpr uint8_t kSpriteHalfSubtypeLo = 0x14u, kSpriteHalfSubtypeHi = 0x15u;
 
 // The controller column-scales its rotation with nothing else composed in; composeScaled multiplies two
 // matrices before scaling, so the second one is the identity in the engine's 1.3.12 units.
-const int32_t kIdentity[3][3] = { { 4096, 0, 0 }, { 0, 4096, 0 }, { 0, 0, 4096 } };
+const int32_t kIdentity[3][3] = {{4096, 0, 0}, {0, 4096, 0}, {0, 0, 4096}};
 
-}  // namespace
+} // namespace
 
 // The four-copy radial plume of guest FUN_8002BC9C, rebuilt from the node's own state. Read-only;
 // dispatched from Render::fieldObjectsRender's type-0x20 walk, so it runs in the DISPLAY pass and is
 // re-run under the lerped camera on an fps60 in-between frame.
 void Render::radialPlumeRender(uint32_t node) {
-  Core* c = mCore;
+  Core *c = mCore;
 
   const uint32_t script = c->mem_r32(node + kNodeAnimScript);
-  const uint32_t table  = c->mem_r32(node + kNodeMeshTable);
-  const uint8_t  subtype = c->mem_r8(node + kNodeSubtype);
-  if (!script || !table) {                      // the guest's own `if (script == 0)` skip of the loop
-    lucent::debug("plumefx", "f{} node={:08X} sub={:02X} script={:08X} table={:08X} — no mesh loop",
-                  c->game->gpu.s_frame, node, subtype, script, table);
+  const uint32_t table = c->mem_r32(node + kNodeMeshTable);
+  const uint8_t subtype = c->mem_r8(node + kNodeSubtype);
+  if (!script || !table) { // the guest's own `if (script == 0)` skip of the loop
+    lucent::debug("plumefx",
+                  "f{} node={:08X} sub={:02X} script={:08X} table={:08X} — no mesh loop",
+                  c->game->gpu.s_frame,
+                  node,
+                  subtype,
+                  script,
+                  table);
     return;
   }
 
-  const uint8_t frame  = c->mem_r8(script);
-  const uint32_t mesh  = c->mem_r32(table + (uint32_t)(frame & kScriptIndex) * 4u);
-  const MeshOtBias ot{ /*known=*/true, /*bias=*/(int32_t)c->mem_r16s(node + kNodeSortBias) };
+  const uint8_t frame = c->mem_r8(script);
+  const uint32_t mesh = c->mem_r32(table + (uint32_t)(frame & kScriptIndex) * 4u);
+  const MeshOtBias ot{/*known=*/true, /*bias=*/(int32_t)c->mem_r16s(node + kNodeSortBias)};
 
-  const int32_t colScale[3] = { (int32_t)c->mem_r8(kColumnScale + 0u) << 2,
-                                (int32_t)c->mem_r8(kColumnScale + 1u) << 2,
-                                (int32_t)c->mem_r8(kColumnScale + 2u) << 2 };
+  const int32_t colScale[3] = {(int32_t)c->mem_r8(kColumnScale + 0u) << 2,
+                               (int32_t)c->mem_r8(kColumnScale + 1u) << 2,
+                               (int32_t)c->mem_r8(kColumnScale + 2u) << 2};
   const int16_t angleX = c->mem_r16s(node + kNodeAngles + 0u);
   const int16_t angleY = c->mem_r16s(node + kNodeAngles + 2u);
   const int16_t angleZ = c->mem_r16s(node + kNodeAngles + 4u);
-  const float pos[3] = { (float)c->mem_r16s(node + kNodePosX + 0u),
-                         (float)c->mem_r16s(node + kNodePosX + 2u),
-                         (float)c->mem_r16s(node + kNodePosX + 4u) };
+  const float pos[3] = {(float)c->mem_r16s(node + kNodePosX + 0u),
+                        (float)c->mem_r16s(node + kNodePosX + 2u),
+                        (float)c->mem_r16s(node + kNodePosX + 4u)};
 
   // The graphics-producer DB's NATIVE leg (external/psxport/docs/plans/graphics-producer-db.md).
   // KEYED BY THE CONTROLLER'S GUEST ADDRESS, NOT THE WRITER'S, and that is not a style choice: on the
@@ -132,7 +137,7 @@ void Render::radialPlumeRender(uint32_t node) {
   ProducerScope producerScope(&c->rsub.producerScope, kGuestControllerAddr, "radialPlumeRender");
   ObjScope objScope(c, node);
   int drawn = 0;
-  float bbox[4] = { 1e9f, 1e9f, -1e9f, -1e9f };   // seeded inverted; the walk unions what it emits
+  float bbox[4] = {1e9f, 1e9f, -1e9f, -1e9f}; // seeded inverted; the walk unions what it emits
   for (int i = 0; i < kCopies; i++) {
     int32_t rot[3][3];
     MeshQuads::rotmat(c, angleX, (int16_t)(angleY + i * kQuarterTurn), angleZ, rot);
@@ -151,16 +156,31 @@ void Render::radialPlumeRender(uint32_t node) {
   // — and `sprite-half` names the branch of this controller that is deliberately not ported. `screen=`
   // is the box this call actually emitted into, so an A/B pixel diff is checkable against the
   // producer's own prediction rather than merely being non-zero somewhere.
-  lucent::debug("plumefx", "f{} t={:.2f} node={:08X} sub={:02X} frame={:02X}{} mesh={:08X} bias={} "
-                           "ang=({},{},{}) pos=({:.0f},{:.0f},{:.0f}) copies={} quads={} "
-                           "screen=[{:.1f},{:.1f}]..[{:.1f},{:.1f}]{}",
-                c->game->gpu.s_frame, (double)c->game->fps60.mT,
-                node, subtype, (unsigned)(frame & kScriptIndex),
-                (frame & kScriptLast) ? " last" : "", mesh, ot.bias,
-                angleX, angleY, angleZ, (double)pos[0], (double)pos[1], (double)pos[2],
-                kCopies, drawn,
-                (double)(drawn ? bbox[0] : 0.0f), (double)(drawn ? bbox[1] : 0.0f),
-                (double)(drawn ? bbox[2] : 0.0f), (double)(drawn ? bbox[3] : 0.0f),
+  lucent::debug("plumefx",
+                "f{} t={:.2f} node={:08X} sub={:02X} frame={:02X}{} mesh={:08X} bias={} "
+                "ang=({},{},{}) pos=({:.0f},{:.0f},{:.0f}) copies={} quads={} "
+                "screen=[{:.1f},{:.1f}]..[{:.1f},{:.1f}]{}",
+                c->game->gpu.s_frame,
+                (double)c->game->fps60.mT,
+                node,
+                subtype,
+                (unsigned)(frame & kScriptIndex),
+                (frame & kScriptLast) ? " last" : "",
+                mesh,
+                ot.bias,
+                angleX,
+                angleY,
+                angleZ,
+                (double)pos[0],
+                (double)pos[1],
+                (double)pos[2],
+                kCopies,
+                drawn,
+                (double)(drawn ? bbox[0] : 0.0f),
+                (double)(drawn ? bbox[1] : 0.0f),
+                (double)(drawn ? bbox[2] : 0.0f),
+                (double)(drawn ? bbox[3] : 0.0f),
                 (subtype >= kSpriteHalfSubtypeLo && subtype <= kSpriteHalfSubtypeHi)
-                    ? " [sprite-half reached — NOT PORTED]" : "");
+                    ? " [sprite-half reached — NOT PORTED]"
+                    : "");
 }

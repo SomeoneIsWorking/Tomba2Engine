@@ -22,51 +22,62 @@
 // `goto LAB_8011db74` (state-1 cases 0/1 -> case 4's FUN_8012185C) are preserved exactly. The byte-exact
 // A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net.
 
+#include "animation.h" // Animation::step (FUN_80076D68)
+#include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "render/render.h"       // Core::mRender (NodeXform)
-#include "object/actor.h"     // Actor::boundsCull (FUN_8007778C — thin wrapper native)
-#include "cfg.h"
+#include "guest_abi.h"
+#include "object/actor.h"  // Actor::boundsCull (FUN_8007778C — thin wrapper native)
+#include "render/render.h" // Core::mRender (NodeXform)
+#include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
-#include "animation.h" // Animation::step (FUN_80076D68)
-#include "guest_abi.h"
-void rec_super_call(Core*, uint32_t);
-void rec_dispatch(Core*, uint32_t);
+void rec_super_call(Core *, uint32_t);
+void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
 constexpr uint32_t BEH_FN = 0x8011D988u;
 
-static inline uint32_t leafr3(Core* c, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t fn) {
-  c->r[4] = a0; c->r[5] = a1; c->r[6] = a2; rec_dispatch(c, fn); return c->r[2];
+static inline uint32_t leafr3(Core *c, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t fn) {
+  c->r[4] = a0;
+  c->r[5] = a1;
+  c->r[6] = a2;
+  rec_dispatch(c, fn);
+  return c->r[2];
 }
 
-}  // namespace
+} // namespace
 static constexpr GuestFrameSpill kSpills_8011D988[2] = {
-  { 16, 16 },
-  { 31 /*ra*/, 20 },
-};   // frame=24, abi_extract --scaffold --guestabi
+    {16, 16},
+    {31 /*ra*/, 20},
+}; // frame=24, abi_extract --scaffold --guestabi
 
-void beh_actor_move_sm(Core* c) {
+void beh_actor_move_sm(Core *c) {
   GuestFrame<24, 2> frame(c, kSpills_8011D988);
   uint32_t nd = c->r[4];
   uint8_t st = c->mem_r8(nd + 4);
 
   if (st != 1) {
     if (st < 2) {
-      if (st == 0) guest_leaf(c, 0x8011dcacu, nd);            // FUN_8011DCAC (init)
+      if (st == 0) {
+        guest_leaf(c, 0x8011dcacu, nd); // FUN_8011DCAC (init)
+      }
       return;
     }
     if (st != 2) {
-      if (st != 3) return;
+      if (st != 3) {
+        return;
+      }
       // STATE 3
       uint8_t f = c->mem_r8(nd + 0x1b);
-      if (f & 0x40) { c->mem_w8(nd + 0x1b, (uint8_t)(f & 0xbf)); return; }
+      if (f & 0x40) {
+        c->mem_w8(nd + 0x1b, (uint8_t)(f & 0xbf));
+        return;
+      }
       c->mem_w32(c->mem_r32(nd + 0x10) + 0xc, 0);
-      eng(c).spawn.despawn(nd);                          // FUN_8007A624
+      eng(c).spawn.despawn(nd); // FUN_8007A624
       return;
     }
     // STATE 2
@@ -77,34 +88,45 @@ void beh_actor_move_sm(Core* c) {
     // leg allocating graphics records this leg never allocated (freelist cursor 0x800E7E74 + count
     // 0x800ED098 + 2 KB of record bytes diverged) with the missing `Cull::cullWrapper ra=8011D9F4`
     // call as the first difference in the dispatch trace.
-    guest_fn(c, 0x8007778Cu, 0x8011DBA4u, nd);             // FUN_8007778C          [0x8011DBA0]
+    guest_fn(c, 0x8007778Cu, 0x8011DBA4u, nd); // FUN_8007778C          [0x8011DBA0]
     {
       uint8_t n5 = c->mem_r8(nd + 5);
       uint8_t bf809 = c->mem_r8(0x800bf809u);
       uint8_t s137 = c->mem_r8(0x1f800137u);
       switch (n5) {
-        case 0: case 4: case 5: case 6:
-          if (bf809 == 0 && s137 == 0) guest_leaf(c, 0x801206f4u, nd);   // FUN_801206F4
-          break;
-        case 1:
-          guest_leaf(c, 0x8012175cu, nd);                      // FUN_8012175C
-          break;
-        case 0xb:
-          guest_leaf(c, 0x801217f4u, nd);                      // FUN_801217F4
-          if (leafr3(c, nd, 0, 0, 0x80080750u) != 0) { c->mem_w8(nd + 4, 3); return; }  // FUN_80080750
-          c->mem_w8(nd + 5, 2);
-          /* fallthrough */
-        case 2: case 7: case 8:
-          guest_leaf(c, 0x80120a64u, nd);                      // FUN_80120A64
-          break;
-        default: break;
+      case 0:
+      case 4:
+      case 5:
+      case 6:
+        if (bf809 == 0 && s137 == 0) {
+          guest_leaf(c, 0x801206f4u, nd); // FUN_801206F4
+        }
+        break;
+      case 1:
+        guest_leaf(c, 0x8012175cu, nd); // FUN_8012175C
+        break;
+      case 0xb:
+        guest_leaf(c, 0x801217f4u, nd); // FUN_801217F4
+        if (leafr3(c, nd, 0, 0, 0x80080750u) != 0) {
+          c->mem_w8(nd + 4, 3);
+          return;
+        } // FUN_80080750
+        c->mem_w8(nd + 5, 2);
+        /* fallthrough */
+      case 2:
+      case 7:
+      case 8:
+        guest_leaf(c, 0x80120a64u, nd); // FUN_80120A64
+        break;
+      default:
+        break;
       }
     }
     goto Lcommon;
   }
 
   // STATE 1
-  guest_fn(c, 0x8007778Cu, 0x8011D9F4u, nd);              // FUN_8007778C          [0x8011D9EC]
+  guest_fn(c, 0x8007778Cu, 0x8011D9F4u, nd); // FUN_8007778C          [0x8011D9EC]
   if (c->mem_r8(nd + 0x2b) != 0) {
     c->mem_w8(nd + 0x2b, (uint8_t)(c->mem_r8(nd + 0x2b) - 1));
     goto Lcommon;
@@ -115,44 +137,57 @@ void beh_actor_move_sm(Core* c) {
     uint8_t s137 = c->mem_r8(0x1f800137u);
     uint8_t n3 = c->mem_r8(nd + 3);
     switch (n5) {
-      case 0:
-        eng(c).animation.step(nd);                 // FUN_80076D68 (native)
-        if (n3 != 3 && (bf809 != 0 || s137 != 0)) break;
-        if ((n3 & 1) == 0) guest_leaf(c, 0x8011dfc0u, nd);     // FUN_8011DFC0
-        else               guest_leaf(c, 0x8011e340u, nd);     // FUN_8011E340
-        goto Ldb74;
-      case 1:
-        if (n3 == 3) guest_leaf(c, 0x8011f088u, nd);           // FUN_8011F088
-        else {
-          if (bf809 != 0 || s137 != 0) break;
-          guest_leaf(c, 0x8011ead0u, nd);                      // FUN_8011EAD0
+    case 0:
+      eng(c).animation.step(nd); // FUN_80076D68 (native)
+      if (n3 != 3 && (bf809 != 0 || s137 != 0)) {
+        break;
+      }
+      if ((n3 & 1) == 0) {
+        guest_leaf(c, 0x8011dfc0u, nd); // FUN_8011DFC0
+      } else {
+        guest_leaf(c, 0x8011e340u, nd); // FUN_8011E340
+      }
+      goto Ldb74;
+    case 1:
+      if (n3 == 3) {
+        guest_leaf(c, 0x8011f088u, nd); // FUN_8011F088
+      } else {
+        if (bf809 != 0 || s137 != 0) {
+          break;
         }
-        goto Ldb74;
-      case 2:
-        if (bf809 == 0) guest_leaf(c, 0x8011f278u, nd);        // FUN_8011F278
-        break;
-      case 3:
-        if (n3 == 3 || (bf809 == 0 && s137 == 0)) {
-          guest_leaf(c, 0x8011f998u, nd);                      // FUN_8011F998
-          eng(c).animation.step(nd);               // FUN_80076D68 (native)
-          eng(c).animation.step(nd);
-          eng(c).animation.step(nd);
-        }
-        break;
-      case 4:
-        guest_leaf(c, 0x8011fc78u, nd);                        // FUN_8011FC78
-       Ldb74:
-        guest_leaf(c, 0x8012185cu, nd);                        // FUN_8012185C
-        break;
-      case 5:
-        eng(c).animation.step(nd);                 // FUN_80076D68 (native)
-        guest_leaf(c, 0x80120c50u, nd);                        // FUN_80120C50
-        break;
-      default: break;
+        guest_leaf(c, 0x8011ead0u, nd); // FUN_8011EAD0
+      }
+      goto Ldb74;
+    case 2:
+      if (bf809 == 0) {
+        guest_leaf(c, 0x8011f278u, nd); // FUN_8011F278
+      }
+      break;
+    case 3:
+      if (n3 == 3 || (bf809 == 0 && s137 == 0)) {
+        guest_leaf(c, 0x8011f998u, nd); // FUN_8011F998
+        eng(c).animation.step(nd);      // FUN_80076D68 (native)
+        eng(c).animation.step(nd);
+        eng(c).animation.step(nd);
+      }
+      break;
+    case 4:
+      guest_leaf(c, 0x8011fc78u, nd); // FUN_8011FC78
+    Ldb74:
+      guest_leaf(c, 0x8012185cu, nd); // FUN_8012185C
+      break;
+    case 5:
+      eng(c).animation.step(nd);      // FUN_80076D68 (native)
+      guest_leaf(c, 0x80120c50u, nd); // FUN_80120C50
+      break;
+    default:
+      break;
     }
   }
 
- Lcommon:
+Lcommon:
   c->mem_w8(nd + 0x29, 0);
-  if (c->mem_r8(nd + 1) != 0) rend(c)->mNodeXform.buildWithOffset(nd);   // FUN_800518FC (native)
+  if (c->mem_r8(nd + 1) != 0) {
+    rend(c)->mNodeXform.buildWithOffset(nd); // FUN_800518FC (native)
+  }
 }

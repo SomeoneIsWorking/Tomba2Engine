@@ -29,16 +29,16 @@
 //
 // Read-only: the guest's packet-pool cursor and OT writes are allocation bookkeeping this producer
 // does not need.
-#include "core.h"
-#include "game.h"
-#include "render.h"
-#include "render_queue.h"
-#include "render_internal.h"   // ObjScope / proj_pz_to_ord
-#include "projection.h"        // EObjXform
-#include "fx_node.h"          // FxNode — the walk-owned header lens this controller extends
-#include "fx_sprite.h"         // SpriteAnchor — the spark half is FUN_80027A4C family
-#include "mesh_quads.h"        // MeshQuads::rotmat — host-output 3x3 from three Euler angles
 #include "cfg.h"
+#include "core.h"
+#include "fx_node.h"   // FxNode — the walk-owned header lens this controller extends
+#include "fx_sprite.h" // SpriteAnchor — the spark half is FUN_80027A4C family
+#include "game.h"
+#include "mesh_quads.h" // MeshQuads::rotmat — host-output 3x3 from three Euler angles
+#include "projection.h" // EObjXform
+#include "render.h"
+#include "render_internal.h" // ObjScope / proj_pz_to_ord
+#include "render_queue.h"
 #include <cstdint>
 
 namespace {
@@ -49,30 +49,42 @@ namespace {
 class PlaneNode : public FxNode {
 public:
   using FxNode::FxNode;
-  int32_t posX() const { return s16(0x2Cu); }
-  int32_t posY() const { return s16(0x2Eu); }
-  int32_t posZ() const { return s16(0x30u); }
-  int32_t rotX() const { return s16(0x48u); }   // Euler angles, NOT a cube base
-  int32_t rotY() const { return s16(0x4Au); }
-  int32_t rotZ() const { return s16(0x4Cu); }
+  int32_t posX() const {
+    return s16(0x2Cu);
+  }
+  int32_t posY() const {
+    return s16(0x2Eu);
+  }
+  int32_t posZ() const {
+    return s16(0x30u);
+  }
+  int32_t rotX() const {
+    return s16(0x48u);
+  } // Euler angles, NOT a cube base
+  int32_t rotY() const {
+    return s16(0x4Au);
+  }
+  int32_t rotZ() const {
+    return s16(0x4Cu);
+  }
 };
 
-constexpr uint32_t kTickWord    = 0x1F80017Cu;  // the frame tick the scroll is derived from
-constexpr int      kTpage       = 45;
-constexpr int      kClut        = 16190;        // 0x3F3E
+constexpr uint32_t kTickWord = 0x1F80017Cu; // the frame tick the scroll is derived from
+constexpr int kTpage = 45;
+constexpr int kClut = 16190; // 0x3F3E
 
 // Grid A extents, in model units.
 constexpr int kRowY0 = -7200, kRowY1 = 7200, kRowStep = 2400;
-constexpr int kColX0 = -6000, kColX1 = 6000,  kColStep = 1200;
-constexpr int kBandZ = 1200;                    // grid B's depth on the local Y = 0 plane
+constexpr int kColX0 = -6000, kColX1 = 6000, kColStep = 1200;
+constexpr int kBandZ = 1200; // grid B's depth on the local Y = 0 plane
 
 // FUN_801104D0's spark pool (A0E overlay data).
-constexpr uint32_t kSparkState    = 0x8012686Cu;  // u32 per slot: record list, non-zero = live
-constexpr uint32_t kSparkPos      = 0x80125BECu;  // {u16 x, y, z} per slot
-constexpr uint32_t kSparkClut     = 0x8011B224u;  // shared clut | tpage
-constexpr int      kSparkSlots    = 200;
-constexpr int      kSparkGateBias = -50;
-constexpr int      kSparkDqa      = 6;
+constexpr uint32_t kSparkState = 0x8012686Cu; // u32 per slot: record list, non-zero = live
+constexpr uint32_t kSparkPos = 0x80125BECu;   // {u16 x, y, z} per slot
+constexpr uint32_t kSparkClut = 0x8011B224u;  // shared clut | tpage
+constexpr int kSparkSlots = 200;
+constexpr int kSparkGateBias = -50;
+constexpr int kSparkDqa = 6;
 
 // The guest's screen bounding test is TWO SEPARATE "any vertex passes" tests, not a per-vertex
 // conjunction, and it reads the packed screen words UNSIGNED so a negative coordinate reads as
@@ -80,15 +92,17 @@ constexpr int      kSparkDqa      = 6;
 inline bool anyUnder(const float v[4], int limit) {
   for (int i = 0; i < 4; i++) {
     const int s = (int)v[i];
-    if (s >= 0 && s < limit) return true;
+    if (s >= 0 && s < limit) {
+      return true;
+    }
   }
   return false;
 }
 
-}  // namespace
+} // namespace
 
 void Render::fxBackdropPlaneRender(uint32_t node) {
-  Core* c = mCore;
+  Core *c = mCore;
 
   // Scroll: U advances one 64-texel step every 2 ticks (cycle 8), V one every 8 ticks (cycle 32).
   // Computed once, before any geometry, and never mutated inside the loops.
@@ -103,29 +117,41 @@ void Render::fxBackdropPlaneRender(uint32_t node) {
   int32_t M[3][3];
   MeshQuads::rotmat(c, (int16_t)pn.rotX(), (int16_t)pn.rotY(), (int16_t)pn.rotZ(), M);
   float Robj[3][3];
-  for (int i = 0; i < 3; i++)
-    for (int j = 0; j < 3; j++) Robj[i][j] = (float)M[i][j];
-  const float Tobj[3] = { (float)pn.posX(), (float)pn.posY(), (float)pn.posZ() };
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) {
+      Robj[i][j] = (float)M[i][j];
+    }
+  }
+  const float Tobj[3] = {(float)pn.posX(), (float)pn.posY(), (float)pn.posZ()};
   EObjXform cam;
   projComposeObjectHost(Robj, Tobj, &cam);
 
-  RenderQueue& rq = c->game->activeRq();
+  RenderQueue &rq = c->game->activeRq();
   ObjScope objScope(c, node);
   int drawnA = 0, drawnB = 0;
 
   // emit one quad from four model-space corners, with per-vertex UV and colour.
-  auto emitQuad = [&](const int mx[4], const int my[4], const int mz[4],
-                      const int us[4], const int vs[4],
-                      const uint32_t cols[4], int semi) -> bool {
+  auto emitQuad = [&](const int mx[4],
+                      const int my[4],
+                      const int mz[4],
+                      const int us[4],
+                      const int vs[4],
+                      const uint32_t cols[4],
+                      int semi) -> bool {
     ProjVtx pv[4];
     float px[4], py[4], depth[4];
     for (int k = 0; k < 4; k++) {
       cam.project((int16_t)mx[k], (int16_t)my[k], (int16_t)mz[k], &pv[k]);
-      if (pv[k].sz <= 0) return false;    // the guest's GTE FLAG cull, in the form a float path has
-      px[k] = pv[k].px; py[k] = pv[k].py;
+      if (pv[k].sz <= 0) {
+        return false; // the guest's GTE FLAG cull, in the form a float path has
+      }
+      px[k] = pv[k].px;
+      py[k] = pv[k].py;
       depth[k] = proj_pz_to_ord(pv[k].pz);
     }
-    if (!anyUnder(px, 321) || !anyUnder(py, 241)) return false;   // the guest's two "any" tests
+    if (!anyUnder(px, 321) || !anyUnder(py, 241)) {
+      return false; // the guest's two "any" tests
+    }
 
     unsigned char rr[4], gg[4], bb[4];
     for (int k = 0; k < 4; k++) {
@@ -133,8 +159,7 @@ void Render::fxBackdropPlaneRender(uint32_t node) {
       gg[k] = (unsigned char)((cols[k] >> 8) & 0xFFu);
       bb[k] = (unsigned char)((cols[k] >> 16) & 0xFFu);
     }
-    rq.drawWorldQuad(c, px, py, depth, us, vs, rr, gg, bb, (uint16_t)kTpage, (uint16_t)kClut,
-                     semi, nullptr);
+    rq.drawWorldQuad(c, px, py, depth, us, vs, rr, gg, bb, (uint16_t)kTpage, (uint16_t)kClut, semi, nullptr);
     return true;
   };
 
@@ -142,46 +167,63 @@ void Render::fxBackdropPlaneRender(uint32_t node) {
   for (int y = kRowY0; y < kRowY1 + 1; y += kRowStep) {
     int col = 0;
     for (int x = kColX0; x < kColX1; x += kColStep, col++) {
-      const int mx[4] = { x, x + kColStep, x, x + kColStep };
-      const int my[4] = { y - kRowStep, y - kRowStep, y, y };
-      const int mz[4] = { 0, 0, 0, 0 };
+      const int mx[4] = {x, x + kColStep, x, x + kColStep};
+      const int my[4] = {y - kRowStep, y - kRowStep, y, y};
+      const int mz[4] = {0, 0, 0, 0};
 
       // U by column parity — a continuous 64-texel tile spanning every TWO columns.
       int us[4], vs[4];
-      if (col & 1) { us[0] = us[2] = uBase;      us[1] = us[3] = uBase + 32; }
-      else         { us[0] = us[2] = uBase + 32; us[1] = us[3] = uBase + 63; }
+      if (col & 1) {
+        us[0] = us[2] = uBase;
+        us[1] = us[3] = uBase + 32;
+      } else {
+        us[0] = us[2] = uBase + 32;
+        us[1] = us[3] = uBase + 63;
+      }
 
       uint32_t cols[4];
-      if (y <= 0) {                       // upper half: the surface itself
-        vs[0] = vs[1] = vBase; vs[2] = vs[3] = vBase + 62;
+      if (y <= 0) { // upper half: the surface itself
+        vs[0] = vs[1] = vBase;
+        vs[2] = vs[3] = vBase + 62;
         cols[0] = cols[1] = 0x00808080u;
-        cols[2] = cols[3] = (y == 0) ? 0x00DFDFDFu : 0x00808080u;   // bright seam row
-      } else {                            // lower half: the reflection — V mirrored, tinted dark blue
-        vs[3] = vs[2] = vBase; vs[1] = vs[0] = vBase + 62;
+        cols[2] = cols[3] = (y == 0) ? 0x00DFDFDFu : 0x00808080u; // bright seam row
+      } else { // lower half: the reflection — V mirrored, tinted dark blue
+        vs[3] = vs[2] = vBase;
+        vs[1] = vs[0] = vBase + 62;
         cols[0] = cols[1] = (y == kRowStep) ? 0x00808080u : 0x00201000u;
         cols[2] = cols[3] = 0x00201000u;
       }
-      if (emitQuad(mx, my, mz, us, vs, cols, /*semi=*/0)) drawnA++;
+      if (emitQuad(mx, my, mz, us, vs, cols, /*semi=*/0)) {
+        drawnA++;
+      }
     }
   }
 
   // ---- GRID B: the additive glow band along the seam -------------------------------------------
   int col2 = 0;
   for (int x = kColX0; x < kColX1; x += kColStep, col2++) {
-    const int mx[4] = { x, x + kColStep, x, x + kColStep };
-    const int my[4] = { 0, 0, 0, 0 };
-    const int mz[4] = { 0, 0, kBandZ, kBandZ };
+    const int mx[4] = {x, x + kColStep, x, x + kColStep};
+    const int my[4] = {0, 0, 0, 0};
+    const int mz[4] = {0, 0, kBandZ, kBandZ};
     int us[4], vs[4];
-    if (col2 & 1) { us[0] = us[2] = uBase;      us[1] = us[3] = uBase + 32; }
-    else          { us[0] = us[2] = uBase + 32; us[1] = us[3] = uBase + 63; }
-    vs[0] = vs[1] = vBase; vs[2] = vs[3] = vBase + 62;
-    const uint32_t cols[4] = { 0x00808080u, 0x00808080u, 0x00000000u, 0x00000000u };
-    if (emitQuad(mx, my, mz, us, vs, cols, /*semi=*/1)) drawnB++;   // additive
+    if (col2 & 1) {
+      us[0] = us[2] = uBase;
+      us[1] = us[3] = uBase + 32;
+    } else {
+      us[0] = us[2] = uBase + 32;
+      us[1] = us[3] = uBase + 63;
+    }
+    vs[0] = vs[1] = vBase;
+    vs[2] = vs[3] = vBase + 62;
+    const uint32_t cols[4] = {0x00808080u, 0x00808080u, 0x00000000u, 0x00000000u};
+    if (emitQuad(mx, my, mz, us, vs, cols, /*semi=*/1)) {
+      drawnB++; // additive
+    }
   }
 
-  if (cfg_dbg("fxplane"))
-    cfg_logf("fxplane", "backdrop node=%08X uv=(%d,%d) gridA=%d/70 gridB=%d/10",
-             node, uBase, vBase, drawnA, drawnB);
+  if (cfg_dbg("fxplane")) {
+    cfg_logf("fxplane", "backdrop node=%08X uv=(%d,%d) gridA=%d/70 gridB=%d/10", node, uBase, vBase, drawnA, drawnB);
+  }
 
   // The guest render fn TAIL-CALLS 0x801104D0 with the same node; reproduce that here so one walk
   // dispatch owns the whole effect, exactly as the guest does.
@@ -208,35 +250,43 @@ void Render::fxBackdropPlaneRender(uint32_t node) {
 // Gate bias is -50 and DQA is 6, both from the guest; IR0 is programmed 0, so the depth cue is the
 // identity and record colours pass through.
 void Render::fxBackdropSparkRender(uint32_t node) {
-  Core* c = mCore;
-  EObjXform cam; projComposeCamera(&cam);
+  Core *c = mCore;
+  EObjXform cam;
+  projComposeCamera(&cam);
   const uint32_t H = (uint32_t)cam.H;
   const uint32_t clutPage = c->mem_r32(kSparkClut);
   const float nearPz = proj_near_pz();
 
-  RenderQueue& rq = c->game->activeRq();
+  RenderQueue &rq = c->game->activeRq();
   (void)rq;
   ObjScope objScope(c, node);
   int live = 0, drawn = 0;
   for (int i = 0; i < kSparkSlots; i++) {
     const uint32_t rec0 = c->mem_r32(kSparkState + (uint32_t)i * 4u);
-    if (!rec0) continue;                        // free slot
+    if (!rec0) {
+      continue; // free slot
+    }
     live++;
     const uint32_t p = kSparkPos + (uint32_t)i * 8u;
     ProjVtx pv;
     cam.project((int16_t)c->mem_r16(p), (int16_t)c->mem_r16(p + 2u), (int16_t)c->mem_r16(p + 4u), &pv);
-    if (!SpriteAnchor::otKeyInRange(pv.sz, kSparkGateBias)) continue;   // the emitter's own skip
+    if (!SpriteAnchor::otKeyInRange(pv.sz, kSparkGateBias)) {
+      continue; // the emitter's own skip
+    }
 
     // The authored near bias, in the units the rest of the family uses: the gate states it in OT
     // buckets and the bucket key is SZ3>>2, so one unit is four of view depth.
     float pz = pv.pz + (float)(4 * kSparkGateBias);
-    if (pz < nearPz) pz = nearPz;
+    if (pz < nearPz) {
+      pz = nearPz;
+    }
 
     const int32_t scale = SpriteAnchor::baseScale(H, pv.sz, kSparkDqa);
     spriteRecordsEmit(rec0, clutPage, pv.px, pv.py, proj_pz_to_ord(pz), scale, scale, 0, nullptr);
     drawn++;
   }
 
-  if (cfg_dbg("fxplane"))
+  if (cfg_dbg("fxplane")) {
     cfg_logf("fxplane", "sparks node=%08X live=%d drawn=%d/%d", node, live, drawn, kSparkSlots);
+  }
 }

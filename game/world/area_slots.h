@@ -12,7 +12,7 @@ struct Core;
 
 class AreaSlots {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // updateTail: the last direct child of ov_field_frame's gameplay block — per-frame area-slot
   //   state machine at guest 0x80075A80. Iterates a 24-entry × 12-byte slot table at 0x800BE238

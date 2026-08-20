@@ -33,31 +33,33 @@
 // applies each of these clamps (projection.cpp) — it just never reported that it had, so the caller
 // could not run the guest's test. `GteFlag` is that missing report.
 #pragma once
-#include <stdint.h>
 #include "proj_vtx.h"
+#include <stdint.h>
 
 // ── GTE FLAG (CR31) ────────────────────────────────────────────────────────────────────────────────
 // The bits an RTPS/RTPT can raise for ONE vertex, named. Layout per the GTE register documentation;
 // the game only ever tests the summary bit, but the individual bits are what makes a drop explicable
 // ("dropped for divide overflow" is a fact about the scene, "dropped" is not).
 namespace GteFlag {
-constexpr uint32_t MAC3_OVF   = 1u << 25 | 1u << 28;   // MAC3 result outside 43 bits (neg | pos)
-constexpr uint32_t MAC2_OVF   = 1u << 26 | 1u << 29;
-constexpr uint32_t MAC1_OVF   = 1u << 27 | 1u << 30;
-constexpr uint32_t IR3_SAT    = 1u << 22;              // IR3 clamped to -8000h..+7FFFh
-constexpr uint32_t IR2_SAT    = 1u << 23;
-constexpr uint32_t IR1_SAT    = 1u << 24;
-constexpr uint32_t SZ3_SAT    = 1u << 18;              // SZ3/OTZ clamped to 0..FFFFh
-constexpr uint32_t DIV_OVF    = 1u << 17;              // H/SZ3 saturated to 1FFFFh — THE NEAR PLANE
-constexpr uint32_t MAC0_OVF   = 1u << 15 | 1u << 16;   // MAC0 result outside 31 bits (neg | pos)
-constexpr uint32_t SX2_SAT    = 1u << 14;              // screen X clamped to -400h..+3FFh
-constexpr uint32_t SY2_SAT    = 1u << 13;              // screen Y clamped to -400h..+3FFh
+constexpr uint32_t MAC3_OVF = 1u << 25 | 1u << 28; // MAC3 result outside 43 bits (neg | pos)
+constexpr uint32_t MAC2_OVF = 1u << 26 | 1u << 29;
+constexpr uint32_t MAC1_OVF = 1u << 27 | 1u << 30;
+constexpr uint32_t IR3_SAT = 1u << 22; // IR3 clamped to -8000h..+7FFFh
+constexpr uint32_t IR2_SAT = 1u << 23;
+constexpr uint32_t IR1_SAT = 1u << 24;
+constexpr uint32_t SZ3_SAT = 1u << 18;             // SZ3/OTZ clamped to 0..FFFFh
+constexpr uint32_t DIV_OVF = 1u << 17;             // H/SZ3 saturated to 1FFFFh — THE NEAR PLANE
+constexpr uint32_t MAC0_OVF = 1u << 15 | 1u << 16; // MAC0 result outside 31 bits (neg | pos)
+constexpr uint32_t SX2_SAT = 1u << 14;             // screen X clamped to -400h..+3FFh
+constexpr uint32_t SY2_SAT = 1u << 13;             // screen Y clamped to -400h..+3FFh
 
 // CR31 bit31 — "Error Flag: bits 30..23 and 18..13 ORed together". The guest tests `(int32_t)CR31 < 0`,
 // which is exactly this OR. Note bit 12 (IR0 saturation) is deliberately OUTSIDE the mask, as on hardware.
 constexpr uint32_t ERROR_MASK = 0x7F800000u | 0x0007E000u;
-inline bool isError(uint32_t f) { return (f & ERROR_MASK) != 0u; }
-}  // namespace GteFlag
+inline bool isError(uint32_t f) {
+  return (f & ERROR_MASK) != 0u;
+}
+} // namespace GteFlag
 
 // ── Depth key ──────────────────────────────────────────────────────────────────────────────────────
 // The submitter's key computation has two outcomes the caller must not confuse, and conflating them is
@@ -65,14 +67,20 @@ inline bool isError(uint32_t f) { return (f & ERROR_MASK) != 0u; }
 // CULL, while "this port could not work out which bucket the guest would have used" is an UNKNOWN and
 // must never cull anything. `SortKey` keeps them apart by construction.
 struct SortKey {
-  int  key;         // OT bucket the guest files this face under; meaningful only when `linked`
-  bool linked;      // the guest links it: the key passed the [4,2048) range test
-  bool guestDrop;   // the guest DROPPED it: the key failed that range test. A real cull.
+  int key;        // OT bucket the guest files this face under; meaningful only when `linked`
+  bool linked;    // the guest links it: the key passed the [4,2048) range test
+  bool guestDrop; // the guest DROPPED it: the key failed that range test. A real cull.
   // !linked && !guestDrop  =>  unknown to this port (no ZSF captured yet, foreign OT base). Draw it:
   // an unknown must not become a cull, or a bookkeeping gap would masquerade as the game's own rule.
-  static SortKey linkedAt(int k)  { return SortKey{ k, true,  false }; }
-  static SortKey droppedByGuest() { return SortKey{ -1, false, true  }; }
-  static SortKey unknown()        { return SortKey{ -1, false, false }; }
+  static SortKey linkedAt(int k) {
+    return SortKey{k, true, false};
+  }
+  static SortKey droppedByGuest() {
+    return SortKey{-1, false, true};
+  }
+  static SortKey unknown() {
+    return SortKey{-1, false, false};
+  }
 };
 
 // ── The census ─────────────────────────────────────────────────────────────────────────────────────
@@ -91,14 +99,24 @@ struct GuestFaceGateCensus {
   long dropOtKey = 0;     // ... dropped at gate 4, the OT-key range test (counted among gate-1 survivors)
   long unknownKey = 0;    // ... NOT dropped: faces whose key this port could not compute. Never a cull.
   uint32_t flagsSeen = 0; // OR of every CR31 bit raised, so a drop can be named by its cause
-  void reset() { faces = dropGte = dropOtKey = unknownKey = 0; flagsSeen = 0; }
+  void reset() {
+    faces = dropGte = dropOtKey = unknownKey = 0;
+    flagsSeen = 0;
+  }
   // Gate 1, called on EVERY projected face (before backface/screen), which is where the guest reads CR31.
   void noteGte(bool dropped, uint32_t faceFlags) {
-    faces++; flagsSeen |= faceFlags; if (dropped) dropGte++;
+    faces++;
+    flagsSeen |= faceFlags;
+    if (dropped) {
+      dropGte++;
+    }
   }
   // Gate 4, called on the faces that reached the key computation.
-  void noteKey(const SortKey& k) {
-    if (k.guestDrop) dropOtKey++;
-    else if (!k.linked) unknownKey++;
+  void noteKey(const SortKey &k) {
+    if (k.guestDrop) {
+      dropOtKey++;
+    } else if (!k.linked) {
+      unknownKey++;
+    }
   }
 };

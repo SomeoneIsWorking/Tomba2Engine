@@ -23,7 +23,7 @@ struct Core;
 struct MoteFrame {
   static constexpr int kMotes = 32;
   float sx[kMotes] = {}, sy[kMotes] = {};
-  bool  valid[kMotes] = {};      // false = this mote had no drawable position that frame
+  bool valid[kMotes] = {}; // false = this mote had no drawable position that frame
 };
 
 class MoteStreaks {
@@ -31,7 +31,7 @@ public:
   // Record this node's live positions for the current logic frame and hand back LAST frame's record
   // (nullptr the first time a node is seen, which is the guest's 0x7FFF7FFF sentinel case — no streak,
   // just seed the history).
-  const MoteFrame* submit(Core* c, uint32_t node, const MoteFrame& live);
+  const MoteFrame *submit(Core *c, uint32_t node, const MoteFrame &live);
 
 private:
   std::unordered_map<uint32_t, MoteFrame> mCur, mPrev;

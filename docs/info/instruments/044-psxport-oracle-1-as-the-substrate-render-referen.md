@@ -1,8 +1,9 @@
 ---
 id: I044
 kind: instrument
-status: trusted
+status: DISTRUSTED
 created: 2026-08-06
+distrusted_on: 2026-08-21
 ---
 
 ## Instrument
@@ -16,3 +17,9 @@ Ran it against BOTH classes. POSITIVE: areas 0/13/14 at the settled warp viewpoi
 ## Known failure modes
 
 (none recorded yet)
+
+## DISTRUSTED 2026-08-21
+
+Health wheel #22 proved PSXPORT_ORACLE/GTE shares the host Vulkan semi-texture shader: both the native and so-called oracle picture computed ABR0 as F/2+B. Its painter-order controls validate ordering only, not console-correct pixel semantics. Use I051 for independent GPU rasterization and I053 for interpreter-state comparison within their stated limits.
+
+> Every result this instrument produced is suspect until it is re-validated.

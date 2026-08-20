@@ -21,7 +21,7 @@ class Core;
 
 class Asset {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // lzDecompress(desc, dst, src, srclen): FUN_80044D8C — the LZ image decompressor. Returns
   //   bytes written into dst. desc[+4] = row stride (s16) used for row-neighbour back-refs via

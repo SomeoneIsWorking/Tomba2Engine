@@ -46,26 +46,27 @@
 //     FIFO streamer) — still MAPPED only, see the new file's header.
 #include "core.h"
 #include "game_ctx.h"
+#include "override_registry.h" // engine_set_override_main — declared, not locally extern'd
+#include "rec_decls.h"         // the gen_func_* bodies handed to the registry
 #include "render.h"
 #include <stdint.h>
-#include "override_registry.h"  // engine_set_override_main — declared, not locally extern'd
-#include "rec_decls.h"          // the gen_func_* bodies handed to the registry
 
-extern "C" void rec_dispatch(Core* c, uint32_t addr);
+extern "C" void rec_dispatch(Core *c, uint32_t addr);
 
 namespace {
-constexpr uint32_t GPU_SYS_BASE = (32778u << 16);       // 0x800A0000
-constexpr uint32_t GPU_SYS_TABLE = GPU_SYS_BASE + 22936; // 0x800A5998 — libgpu fn-ptr jump table
-constexpr uint32_t GPU_SYS_INIT_FN = GPU_SYS_BASE + 22940; // 0x800A599C — one-time init hook fn-ptr
-constexpr uint32_t GPU_BOOT_FLAG = GPU_SYS_BASE + 22946; // 0x800A59A2 — boot/reset flag byte
-constexpr uint32_t GPU_DMA_FLAGS_PTR  = GPU_SYS_BASE + 23208; // 0x800A5AA8
-constexpr uint32_t GPU_DMA_ARG0_PTR   = GPU_SYS_BASE + 23212; // 0x800A5AAC
-constexpr uint32_t GPU_DMA_ARG1_PTR   = GPU_SYS_BASE + 23216; // 0x800A5AB0
-constexpr uint32_t GPU_DMA_STATE_PTR  = GPU_SYS_BASE + 23220; // 0x800A5AB4
-}  // namespace
+constexpr uint32_t GPU_SYS_BASE = (32778u << 16);            // 0x800A0000
+constexpr uint32_t GPU_SYS_TABLE = GPU_SYS_BASE + 22936;     // 0x800A5998 — libgpu fn-ptr jump table
+constexpr uint32_t GPU_SYS_INIT_FN = GPU_SYS_BASE + 22940;   // 0x800A599C — one-time init hook fn-ptr
+constexpr uint32_t GPU_BOOT_FLAG = GPU_SYS_BASE + 22946;     // 0x800A59A2 — boot/reset flag byte
+constexpr uint32_t GPU_DMA_FLAGS_PTR = GPU_SYS_BASE + 23208; // 0x800A5AA8
+constexpr uint32_t GPU_DMA_ARG0_PTR = GPU_SYS_BASE + 23212;  // 0x800A5AAC
+constexpr uint32_t GPU_DMA_ARG1_PTR = GPU_SYS_BASE + 23216;  // 0x800A5AB0
+constexpr uint32_t GPU_DMA_STATE_PTR = GPU_SYS_BASE + 23220; // 0x800A5AB4
+} // namespace
 
-// func_80080F6C (0x80080F6C) — DrawSync(mode). VERIFIED & WIRED 2026-07-10 (was DRAFT). RE'd from generated/shard_2.c gen_func_80080F6C (25 gen-C
-// ln). CONFIRMED identity via docs/engine_re.md's per-frame-loop RE ("FUN_80080f6c(0) = DrawSync(0)
+// func_80080F6C (0x80080F6C) — DrawSync(mode). VERIFIED & WIRED 2026-07-10 (was DRAFT). RE'd from generated/shard_2.c
+// gen_func_80080F6C (25 gen-C ln). CONFIRMED identity via docs/engine_re.md's per-frame-loop RE ("FUN_80080f6c(0) =
+// DrawSync(0)
 // // WAIT for previous frame's draw to finish"). Guest ABI: a0=mode (arg not read by this leaf body
 // itself — passed straight through to the callee as the 2nd dispatch's a1).
 //
@@ -88,7 +89,7 @@ constexpr uint32_t GPU_DMA_STATE_PTR  = GPU_SYS_BASE + 23220; // 0x800A5AB4
 // off from gen's, which is an immediate SBS-fatal divergence. Mirrored below (frame + both r31
 // return-address literals, per CLAUDE.md "mirror the guest stack, never omit it").
 void Render::drawSync() {
-  Core* c = mCore;
+  Core *c = mCore;
   const uint32_t mode = c->r[4];
   c->r[29] -= 24;
   c->mem_w32(c->r[29] + 16, c->r[16]);
@@ -103,7 +104,7 @@ void Render::drawSync() {
 
   uint8_t bootFlag = c->mem_r8(GPU_BOOT_FLAG);
   if (bootFlag >= 2) {
-    c->r[4] = (32770u << 16) + (uint32_t)(int32_t)(-16676);  // 0x8001BEDC — fixed BIOS-window arg
+    c->r[4] = (32770u << 16) + (uint32_t)(int32_t)(-16676); // 0x8001BEDC — fixed BIOS-window arg
     uint32_t initFn = c->mem_r32(GPU_SYS_INIT_FN);
     c->r[5] = c->r[16];
     c->r[31] = 0x80080FA8u;
@@ -118,16 +119,16 @@ void Render::drawSync() {
   // the whole downstream OT chain. GPU_SYS_INIT_FN below is NOT a pointer-to-pointer (single deref
   // is correct there — confirmed against gen, no second indirection on that field).
   uint32_t tableBase = c->mem_r32(GPU_SYS_TABLE);
-  uint32_t tableSlot60 = c->mem_r32(tableBase + 60);  // table+0x3C, the DrawSync entry itself
+  uint32_t tableSlot60 = c->mem_r32(tableBase + 60); // table+0x3C, the DrawSync entry itself
   c->r[4] = c->r[16];
   c->r[31] = 0x80080FC4u;
   rec_dispatch(c, tableSlot60);
   epilogue();
 }
 
-// func_80081458 (0x80081458) — ClearOTagR(OT, entries). VERIFIED & WIRED 2026-07-10 (was DRAFT). RE'd from generated/shard_7.c gen_func_80081458
-// (64 gen-C ln). CONFIRMED identity via docs/engine_re.md ("FUN_80081458=ClearOTagR (table+0x2c)";
-// per-frame loop calls it as `FUN_80081458(ctx, 0x800)` = 2048 OT entries).
+// func_80081458 (0x80081458) — ClearOTagR(OT, entries). VERIFIED & WIRED 2026-07-10 (was DRAFT). RE'd from
+// generated/shard_7.c gen_func_80081458 (64 gen-C ln). CONFIRMED identity via docs/engine_re.md
+// ("FUN_80081458=ClearOTagR (table+0x2c)"; per-frame loop calls it as `FUN_80081458(ctx, 0x800)` = 2048 OT entries).
 //
 // NOTE: the guest C emission for this address contains a SECOND, unreachable-from-here prologue/
 // epilogue pair after this function's `return` (a recompiler artifact — the shard groups adjacent
@@ -152,16 +153,16 @@ void Render::drawSync() {
 // Frame -32, spills ra/s17/s16 at +24/+20/+16 (s16=OT ptr kept live across the hook call,
 // s17=entryCount).
 void Render::clearOTagR() {
-  Core* c = mCore;
+  Core *c = mCore;
   c->r[29] -= 32;
   c->mem_w32(c->r[29] + 16, c->r[16]);
-  c->r[16] = c->r[4];                       // s16 = OT
+  c->r[16] = c->r[4]; // s16 = OT
   c->mem_w32(c->r[29] + 20, c->r[17]);
-  c->r[17] = c->r[5];                       // s17 = entryCount
+  c->r[17] = c->r[5]; // s17 = entryCount
   uint8_t bootFlag = c->mem_r8(GPU_BOOT_FLAG);
-  c->mem_w32(c->r[29] + 24, c->r[31]);  // ra spill happens unconditionally (branch-delay-slot write)
+  c->mem_w32(c->r[29] + 24, c->r[31]); // ra spill happens unconditionally (branch-delay-slot write)
   if (bootFlag >= 2) {
-    c->r[4] = (32770u << 16) + (uint32_t)(int32_t)(-16536);  // 0x8001BF68 — fixed BIOS-window arg
+    c->r[4] = (32770u << 16) + (uint32_t)(int32_t)(-16536); // 0x8001BF68 — fixed BIOS-window arg
     c->r[5] = c->r[16];
     uint32_t initFn = c->mem_r32(GPU_SYS_INIT_FN);
     c->r[6] = c->r[17];
@@ -172,18 +173,18 @@ void Render::clearOTagR() {
   // dereferenced once to get the table's real base, THEN +44 dereferenced again (generated/
   // shard_7.c:12284 lines 19-22: `r2=mem_r32(base+22936); r2=mem_r32(r2+44)`).
   uint32_t tableBase = c->mem_r32(GPU_SYS_TABLE);
-  uint32_t tableSlot44 = c->mem_r32(tableBase + 44);  // table+0x2C, ClearOTagR's own entry
+  uint32_t tableSlot44 = c->mem_r32(tableBase + 44); // table+0x2C, ClearOTagR's own entry
   c->r[4] = c->r[16];
   c->r[5] = c->r[17];
   c->r[31] = 0x800814BCu;
   rec_dispatch(c, tableSlot44);
 
-  const uint32_t mask24 = (255u << 16) | 65535u;  // 0x00FFFFFF
-  constexpr uint32_t kDummyTagAddr = 0x800A0000u + 23136u;     // 0x800A5A60 (gen-C decimal, CORRECTED — see header)
-  constexpr uint32_t kDummyTagContent = 0x800A0000u + 23116u;  // 0x800A5A4C (gen-C decimal, CORRECTED)
-  uint32_t tag = (kDummyTagContent & mask24) | (1024u << 16);  // 0x04000000 | low24
+  const uint32_t mask24 = (255u << 16) | 65535u;              // 0x00FFFFFF
+  constexpr uint32_t kDummyTagAddr = 0x800A0000u + 23136u;    // 0x800A5A60 (gen-C decimal, CORRECTED — see header)
+  constexpr uint32_t kDummyTagContent = 0x800A0000u + 23116u; // 0x800A5A4C (gen-C decimal, CORRECTED)
+  uint32_t tag = (kDummyTagContent & mask24) | (1024u << 16); // 0x04000000 | low24
   c->mem_w32(kDummyTagAddr, tag);
-  c->mem_w32(c->r[16], kDummyTagAddr & mask24);  // *OT = low24(0x800A5A60)
+  c->mem_w32(c->r[16], kDummyTagAddr & mask24); // *OT = low24(0x800A5A60)
   // gen publishes v0 (r2) = s16 = the OT pointer (arg r4) — its final r2 after `r2 = r16+0` right
   // before the *OT store. The prior draft left r2 stale (MIRROR_VERIFY: native=0x800
   // substrate=<OT ptr e.g. 0x800E80A8>) because it wrote *OT via c->r[16] without also publishing r2.
@@ -221,20 +222,26 @@ void Render::clearOTagR() {
 // libgpuDmaStatusReset joined on the same day after a re-verify found its draft already faithful.
 // vertexHeaderRepack remains an unwired, un-re-verified wide-RE draft.
 namespace {
-void ov_drawSync(Core* c)    { rend(c)->drawSync(); }
-void ov_clearOTagR(Core* c)  { rend(c)->clearOTagR(); }
-}  // namespace
+void ov_drawSync(Core *c) {
+  rend(c)->drawSync();
+}
+void ov_clearOTagR(Core *c) {
+  rend(c)->clearOTagR();
+}
+} // namespace
 
-static void libgpuSetDrawMode(Core* c);      // SetDrawMode — defined below, wired here
-static void libgpuDmaStatusReset(Core* c);   // GPU-DMA status-block reset — ditto
+static void libgpuSetDrawMode(Core *c);    // SetDrawMode — defined below, wired here
+static void libgpuDmaStatusReset(Core *c); // GPU-DMA status-block reset — ditto
 
 void gpu_libgpu_leaves_install() {
   static bool done = false;
-  if (done) return;
+  if (done) {
+    return;
+  }
   done = true;
-  engine_set_override_main(0x80080F6Cu, ov_drawSync,     gen_func_80080F6C);
-  engine_set_override_main(0x80081458u, ov_clearOTagR,   gen_func_80081458);
-  engine_set_override_main(0x80083DE0u, libgpuSetDrawMode,    gen_func_80083DE0);
+  engine_set_override_main(0x80080F6Cu, ov_drawSync, gen_func_80080F6C);
+  engine_set_override_main(0x80081458u, ov_clearOTagR, gen_func_80081458);
+  engine_set_override_main(0x80083DE0u, libgpuSetDrawMode, gen_func_80083DE0);
   engine_set_override_main(0x80082C68u, libgpuDmaStatusReset, gen_func_80082C68);
 }
 
@@ -251,7 +258,7 @@ void gpu_libgpu_leaves_install() {
 //
 // Writes: *GPU_DMA_FLAGS_PTR = (1024u<<16) | 2  (0x04000002); *GPU_DMA_ARG0_PTR = a0;
 // *GPU_DMA_ARG1_PTR = 0; *GPU_DMA_STATE_PTR = (256u<<16) | 1025  (0x01000401).
-static void libgpuDmaStatusReset(Core* c) {
+static void libgpuDmaStatusReset(Core *c) {
   uint32_t a0 = c->r[4];
   uint32_t flagsPtr = c->mem_r32(GPU_DMA_FLAGS_PTR);
   c->mem_w32(flagsPtr, (1024u << 16) | 2u);
@@ -261,7 +268,7 @@ static void libgpuDmaStatusReset(Core* c) {
   c->mem_w32(arg1Ptr, 0);
   uint32_t statePtr = c->mem_r32(GPU_DMA_STATE_PTR);
   c->mem_w32(statePtr, (256u << 16) | 1025u);
-  c->r[2] = statePtr;   // v0: the gen body's last pointer load is left in r2 at return
+  c->r[2] = statePtr; // v0: the gen body's last pointer load is left in r2 at return
 }
 
 // libgpuSetDrawMode (0x80083DE0) — libgpu **SetDrawMode(DR_MODE* p, int dfe, int dtd, int tpage,
@@ -289,38 +296,42 @@ static void libgpuDmaStatusReset(Core* c) {
 // v0 IS REPRODUCED even though it is junk on both paths (the mode word when tw == 0, the low bits of
 // the negated X offset otherwise). It is junk that a caller could still read, and it costs one
 // assignment to be exact instead of leaving whatever the previous call left in r2.
-static void libgpuSetDrawMode(Core* c) {
-  const uint32_t p     = c->r[4];
-  const uint32_t dfe   = c->r[5];
-  const uint32_t dtd   = c->r[6];
+static void libgpuSetDrawMode(Core *c) {
+  const uint32_t p = c->r[4];
+  const uint32_t dfe = c->r[5];
+  const uint32_t dtd = c->r[6];
   const uint32_t tpage = c->r[7];
-  const uint32_t tw    = c->mem_r32(c->r[29] + 16);   // 5th arg, o32 outgoing-arg stack slot
+  const uint32_t tw = c->mem_r32(c->r[29] + 16); // 5th arg, o32 outgoing-arg stack slot
 
-  c->mem_w8(p + 3, 2u);   // packet length tag; unconditional (both arms write it before branching)
+  c->mem_w8(p + 3, 2u); // packet length tag; unconditional (both arms write it before branching)
 
-  uint32_t mode = 0xE1000000u;                 // DR_TPAGE command tag
-  if (dtd != 0) mode |= 0x200u;                // dither
-  uint32_t page = tpage & 0x9FFu;              // tpage bits, from a3
-  if (dfe != 0) page |= 0x400u;                // draw-to-display-area
+  uint32_t mode = 0xE1000000u; // DR_TPAGE command tag
+  if (dtd != 0) {
+    mode |= 0x200u; // dither
+  }
+  uint32_t page = tpage & 0x9FFu; // tpage bits, from a3
+  if (dfe != 0) {
+    page |= 0x400u; // draw-to-display-area
+  }
   mode |= page;
   c->mem_w32(p + 4, mode);
 
   if (tw == 0) {
     c->mem_w32(p + 8, 0);
-    c->r[2] = mode;                            // v0 on this path (see banner)
+    c->r[2] = mode; // v0 on this path (see banner)
     return;
   }
 
   // PSX texture-window encoding, from the RECT at `tw`: {u8 maskX@+0, u8 maskY@+2, s16 offX@+4,
   // s16 offY@+6}. Masks are in 8-pixel units, offsets are negated.
-  uint32_t twin = 0xE2000000u;                 // DR_TWIN command tag
-  twin |= (c->mem_r8(tw + 2) >> 3) << 15;      // maskY
-  twin |= (c->mem_r8(tw + 0) >> 3) << 10;      // maskX
-  twin |= ((uint32_t)(0 - c->mem_r16s(tw + 6)) << 2) & 0x3E0u;   // offY
+  uint32_t twin = 0xE2000000u;                                 // DR_TWIN command tag
+  twin |= (c->mem_r8(tw + 2) >> 3) << 15;                      // maskY
+  twin |= (c->mem_r8(tw + 0) >> 3) << 10;                      // maskX
+  twin |= ((uint32_t)(0 - c->mem_r16s(tw + 6)) << 2) & 0x3E0u; // offY
   const uint32_t negOffX = (uint32_t)((int32_t)((uint32_t)(0 - c->mem_r16s(tw + 4)) & 0xFFu) >> 3);
   twin |= negOffX;
   c->mem_w32(p + 8, twin);
-  c->r[2] = negOffX;                           // v0 on this path (see banner)
+  c->r[2] = negOffX; // v0 on this path (see banner)
 }
 
 // vertexHeaderRepack (0x800847B0) — 20-byte SoA->AoS vertex-header REPACK. DRAFT. RE'd from generated/shard_4.c
@@ -334,7 +345,7 @@ static void libgpuSetDrawMode(Core* c) {
 // that family, but NOT confirmed against a caller this session (no direct caller found in
 // generated/shard_*.c; reached only via rec_dispatch, consistent with the free-roam dispatch count).
 // Guest ABI: a0=src (20 B), a1=dst (20 B); no return value read by any caller pattern seen.
-static void vertexHeaderRepack(Core* c) {
+static void vertexHeaderRepack(Core *c) {
   uint32_t src = c->r[4];
   uint32_t dst = c->r[5];
 

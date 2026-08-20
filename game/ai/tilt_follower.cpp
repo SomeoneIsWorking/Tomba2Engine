@@ -62,14 +62,14 @@
 
 #include "core.h"
 #include "guest_abi.h"
-#include "override_registry.h"
 #include "ov_a00_decls.h"
+#include "override_registry.h"
 
 namespace {
 
 // tools/abi_extract.py 0x80125FE0 --scaffold --guestabi
 constexpr GuestFrameSpill kSpills_80125FE0[1] = {
-  { 31 /*ra*/, 16 },
+    {31 /*ra*/, 16},
 };
 
 // Which of the owner's sub-parts supplies the pitch. Slot 1 = owner+0xC0 + 1*4 = owner+0xC4.
@@ -77,37 +77,41 @@ constexpr int kTiltSourceSlot = 1;
 
 // PSX angles are 4096 units per full turn, so anything strictly above half a turn is represented as
 // negative. 2049 is the guest's own threshold (`slti 2049`, i.e. "is it at most 2048").
-constexpr int32_t  kWrapThreshold = 2049;
-constexpr uint32_t kWrapToNegative = 0xF000u;   // ORs a 12-bit angle down by exactly 4096
+constexpr int32_t kWrapThreshold = 2049;
+constexpr uint32_t kWrapToNegative = 0xF000u; // ORs a 12-bit angle down by exactly 4096
 
 // The sub-behaviour that runs only while something is touching this node.
 constexpr uint32_t kRaAfterContactBehaviour = 0x80126030u;
 
-}  // namespace
+} // namespace
 
 // ORACLE: ov_a00_gen_80125FE0
-void TiltFollower::applyHalvedOwnerPartPitch(Core* c) {
+void TiltFollower::applyHalvedOwnerPartPitch(Core *c) {
   GuestFrame<24, 1> frame(c, kSpills_80125FE0);
 
-  const TiltFollowerNode self{ c, c->r[4] };
-  const TiltSourcePart source{
-    c, c->mem_r32(self.owner() + tiltpart::kChildTable + (uint32_t)kTiltSourceSlot * 4u)
-  };
+  const TiltFollowerNode self{c, c->r[4]};
+  const TiltSourcePart source{c, c->mem_r32(self.owner() + tiltpart::kChildTable + (uint32_t)kTiltSourceSlot * 4u)};
 
   // Wrap the part's pitch out of the unsigned turn and into a signed one, then take half of it.
   uint32_t angle = (uint32_t)source.childEulerX();
-  if (!((int32_t)angle < kWrapThreshold)) angle |= kWrapToNegative;
+  if (!((int32_t)angle < kWrapThreshold)) {
+    angle |= kWrapToNegative;
+  }
   const int32_t halfPitch = (int32_t)(angle << 16) >> 17;
   self.setPitch((uint16_t)halfPitch);
 
   // Only while something is in contact — otherwise the follower just leans and is done.
-  if (self.contactState() == 0) return;
+  if (self.contactState() == 0) {
+    return;
+  }
   c->r[4] = self.mAt;
   guest_call(c, kRaAfterContactBehaviour, ov_a00_func_80125C4C);
 }
 
 void TiltFollower::registerOverrides() {
-  overrides::install(0x80125FE0u, "TiltFollower::applyHalvedOwnerPartPitch",
-                     &TiltFollower::applyHalvedOwnerPartPitch, ov_a00_gen_80125FE0,
+  overrides::install(0x80125FE0u,
+                     "TiltFollower::applyHalvedOwnerPartPitch",
+                     &TiltFollower::applyHalvedOwnerPartPitch,
+                     ov_a00_gen_80125FE0,
                      ov_a00_set_override);
 }

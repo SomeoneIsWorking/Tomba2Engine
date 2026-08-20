@@ -29,7 +29,7 @@ struct Core;
 
 class Sfx {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // trigger(id, pan, pitchBend): FUN_80074590. Fire the SFX by id with optional pan and pitch bend.
   //   * id        : 0..255 — dispatches per the id-space split above.

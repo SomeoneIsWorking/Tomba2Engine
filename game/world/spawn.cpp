@@ -41,24 +41,24 @@
 // stack frame is dead below entry sp on return; exclude [sp-0x800, sp) (sp ~0x1FExxx, RAM end 0x200000 —
 // far above all pool/game data; a real divergence alters persistent state). v0 (the node ptr) is compared.
 
-#include "core.h"
-#include "game_ctx.h"
+#include "spawn.h"
 #include "cfg.h"
+#include "core.h"
+#include "game.h"
+#include "game_ctx.h"
+#include "override_registry.h" // overrides::install — the one native-override registry       // c->game->verify — the shared A/B verify scaffold
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "spawn.h"
-#include "game.h"
-#include "override_registry.h"   // overrides::install — the one native-override registry       // c->game->verify — the shared A/B verify scaffold
-void rec_super_call(Core*, uint32_t);
+void rec_super_call(Core *, uint32_t);
 
 // Pool addresses.
 static const uint32_t FREE_HEAD = 0x800E8098u;
-static const uint32_t FREE_CNT  = 0x800E7E7Cu;
+static const uint32_t FREE_CNT = 0x800E7E7Cu;
 
 // (head, tail) per list index a3 (0..2). Indices outside 0..2 land on list 0 (the MIPS default branch).
-static const uint32_t LIST_HEAD[3] = { 0x800FB168u, 0x800F2624u, 0x800F2738u };
-static const uint32_t LIST_TAIL[3] = { 0x800F23A8u, 0x800F239Cu, 0x800F23A0u };
+static const uint32_t LIST_HEAD[3] = {0x800FB168u, 0x800F2624u, 0x800F2738u};
+static const uint32_t LIST_TAIL[3] = {0x800F23A8u, 0x800F239Cu, 0x800F23A0u};
 
 // Link `node` into active list `list` at position `mode` relative to `ref`, then stamp identity. This is
 // the body shared by ALL FIVE pool spawn primitives — pool-208 FUN_80079C3C, pool-2 FUN_80079DDC, and the
@@ -66,75 +66,92 @@ static const uint32_t LIST_TAIL[3] = { 0x800F23A8u, 0x800F239Cu, 0x800F23A0u };
 // disasms); only the free-list they pop from differs. When the target active list is EMPTY, the recomp
 // initializes BOTH end pointers (a head-insert also writes *tail, a tail-insert also writes *head); we match
 // that (caught by spawnvarverify: empty-list inserts that the seaside-only spawnverify never exercised).
-void Spawn::spawnLinkStamp(Core* c, uint32_t node, uint32_t ref, uint32_t type, uint32_t mode, uint32_t list) {
+void Spawn::spawnLinkStamp(Core *c, uint32_t node, uint32_t ref, uint32_t type, uint32_t mode, uint32_t list) {
   // Resolve the selected active list's head/tail vars (MIPS: a3==1 -> list1, a3==2 -> list2, else list0).
   uint32_t head, tail;
-  if (list == 1)      { head = LIST_HEAD[1]; tail = LIST_TAIL[1]; }
-  else if (list == 2) { head = LIST_HEAD[2]; tail = LIST_TAIL[2]; }
-  else                { head = LIST_HEAD[0]; tail = LIST_TAIL[0]; }
+  if (list == 1) {
+    head = LIST_HEAD[1];
+    tail = LIST_TAIL[1];
+  } else if (list == 2) {
+    head = LIST_HEAD[2];
+    tail = LIST_TAIL[2];
+  } else {
+    head = LIST_HEAD[0];
+    tail = LIST_TAIL[0];
+  }
 
   // Insert by mode. Both "before" and "after" fall through to a head/tail insert when the neighbor link
   // is null (matches the recomp's branch-to-0x80079d28 / 0x80079d90 fallbacks).
   bool do_head = false, do_tail = false;
-  if (mode == 0) {                                  // insert BEFORE ref
+  if (mode == 0) { // insert BEFORE ref
     uint32_t prev = c->mem_r32(ref + 32);
-    if (prev == 0) do_head = true;
-    else {
-      c->mem_w32(node + 32, prev);                  // node->prev = ref->prev
-      c->mem_w32(node + 36, ref);                   // node->next = ref
-      c->mem_w32(prev + 36, node);                  // ref->prev->next = node
-      c->mem_w32(ref  + 32, node);                  // ref->prev = node
+    if (prev == 0) {
+      do_head = true;
+    } else {
+      c->mem_w32(node + 32, prev); // node->prev = ref->prev
+      c->mem_w32(node + 36, ref);  // node->next = ref
+      c->mem_w32(prev + 36, node); // ref->prev->next = node
+      c->mem_w32(ref + 32, node);  // ref->prev = node
     }
-  } else if (mode == 1) {                           // insert at HEAD
+  } else if (mode == 1) { // insert at HEAD
     do_head = true;
-  } else if (mode == 2) {                           // insert AFTER ref
+  } else if (mode == 2) { // insert AFTER ref
     uint32_t next = c->mem_r32(ref + 36);
-    if (next == 0) do_tail = true;
-    else {
-      c->mem_w32(node + 32, ref);                   // node->prev = ref
-      c->mem_w32(node + 36, next);                  // node->next = ref->next
-      c->mem_w32(next + 32, node);                  // ref->next->prev = node
-      c->mem_w32(ref  + 36, node);                  // ref->next = node
+    if (next == 0) {
+      do_tail = true;
+    } else {
+      c->mem_w32(node + 32, ref);  // node->prev = ref
+      c->mem_w32(node + 36, next); // node->next = ref->next
+      c->mem_w32(next + 32, node); // ref->next->prev = node
+      c->mem_w32(ref + 36, node);  // ref->next = node
     }
-  } else if (mode == 3) {                           // insert at TAIL
+  } else if (mode == 3) { // insert at TAIL
     do_tail = true;
   }
   // else: no link.
 
   if (do_head) {
-    c->mem_w32(node + 32, 0);                        // node->prev = 0
+    c->mem_w32(node + 32, 0); // node->prev = 0
     uint32_t old = c->mem_r32(head);
-    c->mem_w32(node + 36, old);                      // node->next = *head
-    if (old != 0) c->mem_w32(old + 32, node);        // (*head)->prev = node
-    else          c->mem_w32(tail, node);            // list was EMPTY -> also init the tail ptr (recomp does this)
-    c->mem_w32(head, node);                          // *head = node
+    c->mem_w32(node + 36, old); // node->next = *head
+    if (old != 0) {
+      c->mem_w32(old + 32, node); // (*head)->prev = node
+    } else {
+      c->mem_w32(tail, node); // list was EMPTY -> also init the tail ptr (recomp does this)
+    }
+    c->mem_w32(head, node); // *head = node
   } else if (do_tail) {
-    c->mem_w32(node + 36, 0);                        // node->next = 0
+    c->mem_w32(node + 36, 0); // node->next = 0
     uint32_t old = c->mem_r32(tail);
-    c->mem_w32(node + 32, old);                      // node->prev = *tail
-    if (old != 0) c->mem_w32(old + 36, node);        // (*tail)->next = node
-    else          c->mem_w32(head, node);            // list was EMPTY -> also init the head ptr (recomp does this)
-    c->mem_w32(tail, node);                          // *tail = node
+    c->mem_w32(node + 32, old); // node->prev = *tail
+    if (old != 0) {
+      c->mem_w32(old + 36, node); // (*tail)->next = node
+    } else {
+      c->mem_w32(head, node); // list was EMPTY -> also init the head ptr (recomp does this)
+    }
+    c->mem_w32(tail, node); // *tail = node
   }
 
   // Stamp identity (all paths).
   c->mem_w8(node + 10, (uint8_t)list);
-  c->mem_w8(node + 0,  2);
+  c->mem_w8(node + 0, 2);
   c->mem_w8(node + 12, (uint8_t)type);
 }
 
-uint32_t Spawn::entitySpawnBody(Core* c) {
-  const uint32_t ref  = c->r[4];          // a0
-  const uint32_t type = c->r[5] & 0xffu;  // a1 (stored as u8 -> node[12])
-  const uint32_t mode = c->r[6];          // a2 (insertion mode)
-  const uint32_t list = c->r[7];          // a3 (list id -> node[10])
+uint32_t Spawn::entitySpawnBody(Core *c) {
+  const uint32_t ref = c->r[4];          // a0
+  const uint32_t type = c->r[5] & 0xffu; // a1 (stored as u8 -> node[12])
+  const uint32_t mode = c->r[6];         // a2 (insertion mode)
+  const uint32_t list = c->r[7];         // a3 (list id -> node[10])
 
   uint32_t cnt = c->mem_r8(FREE_CNT);
-  if (cnt < 3) return 0;                   // pool-low guard
+  if (cnt < 3) {
+    return 0; // pool-low guard
+  }
 
   uint32_t node = c->mem_r32(FREE_HEAD);
   c->mem_w8(FREE_CNT, (uint8_t)(cnt - 1));
-  c->mem_w32(FREE_HEAD, c->mem_r32(node + 36));   // free head = node->next
+  c->mem_w32(FREE_HEAD, c->mem_r32(node + 36)); // free head = node->next
 
   spawnLinkStamp(c, node, ref, type, mode, list);
   return node;
@@ -145,17 +162,18 @@ uint32_t Spawn::entitySpawnBody(Core* c) {
 // is EMPTY it DELEGATES to variant 2 (FUN_80079F90) — POOL_VAR2, owned natively via poolSpawn (byte-perfect
 // per spawnVariantNative, proven by the spawn_dispatch A/B wire in af27fd8).
 static const uint32_t POOL2_HEAD = 0x800E80A0u, POOL2_CNT = 0x800E7E7Du;
-uint32_t Spawn::spawnPool2Body(Core* c) {
+uint32_t Spawn::spawnPool2Body(Core *c) {
   const uint32_t ref = c->r[4], type = c->r[5] & 0xffu, mode = c->r[6], list = c->r[7];
   uint32_t node = c->mem_r32(POOL2_HEAD);
-  if (node == 0) {                                  // pool empty -> delegate to POOL_VAR2 (FUN_80079F90) natively
-    c->r[4] = ref; c->r[5] = type;                  // a2/a3 already hold mode/list, untouched
-    static const PoolDesc P = { 0x800F2398u, 0x800ED8CCu };   // POOL_VAR2 (FUN_80079F90) — see defn below
+  if (node == 0) { // pool empty -> delegate to POOL_VAR2 (FUN_80079F90) natively
+    c->r[4] = ref;
+    c->r[5] = type;                                       // a2/a3 already hold mode/list, untouched
+    static const PoolDesc P = {0x800F2398u, 0x800ED8CCu}; // POOL_VAR2 (FUN_80079F90) — see defn below
     return poolSpawn(c, P);
   }
   uint32_t cnt = c->mem_r8(POOL2_CNT);
   c->mem_w8(POOL2_CNT, (uint8_t)(cnt - 1));
-  c->mem_w32(POOL2_HEAD, c->mem_r32(node + 36));    // free head = node->next
+  c->mem_w32(POOL2_HEAD, c->mem_r32(node + 36)); // free head = node->next
   spawnLinkStamp(c, node, ref, type, mode, list);
   return node;
 }
@@ -172,21 +190,27 @@ uint32_t Spawn::spawnPool2Body(Core* c) {
 //     cls = a0 & 0xff;  if (cls >= 5) return 0;
 //     variant = VAR[cls];                      // 0x80079c3c / 79ddc / 79f90 / 7a12c / 7a2c8
 //     return variant(0, a1 & 0xff, 3, a2);     // ref=0, type, mode=3 (tail), list=a2
-static const uint32_t SPAWN_VAR[5] = { 0x80079C3Cu, 0x80079DDCu, 0x80079F90u, 0x8007A12Cu, 0x8007A2C8u };
+static const uint32_t SPAWN_VAR[5] = {0x80079C3Cu, 0x80079DDCu, 0x80079F90u, 0x8007A12Cu, 0x8007A2C8u};
 // Run the per-class spawn VARIANT NATIVELY (the 5 bodies are all owned in this TU) reading ref/type/mode/
 // list from r4..r7 and returning the node ptr. Replaces the former rec_dispatch(SPAWN_VAR[cls]) into the
 // PSX body — keeps the placement→spawn path fully native (PC calls PC). Defined after poolSpawn/POOL_VAR.
 uint32_t Spawn::dispatch(uint32_t cls_in, uint32_t type_in, uint32_t list) {
-  Core* c = this->core;
+  Core *c = this->core;
   uint32_t cls = cls_in & 0xffu;
-  if (cls >= 5) { c->r[2] = 0; return 0; }
+  if (cls >= 5) {
+    c->r[2] = 0;
+    return 0;
+  }
   uint32_t type = type_in & 0xffu;
-  c->r[4] = 0; c->r[5] = type; c->r[6] = 3; c->r[7] = list;   // handler sets ref=0, type&0xff, mode=3, a3=list
-  uint32_t node = spawnVariantNative(c, cls);               // run the per-type spawn variant (native)
+  c->r[4] = 0;
+  c->r[5] = type;
+  c->r[6] = 3;
+  c->r[7] = list;                             // handler sets ref=0, type&0xff, mode=3, a3=list
+  uint32_t node = spawnVariantNative(c, cls); // run the per-type spawn variant (native)
   c->r[2] = node;
   return node;
 }
-void rec_dispatch(Core*, uint32_t);
+void rec_dispatch(Core *, uint32_t);
 
 // FUN_80079F90 / FUN_8007A12C / FUN_8007A2C8 — the remaining three pool spawn primitives (dispatcher
 // classes 2/3/4). RE'd from disas (0x80079F90 / 0x8007A12C / 0x8007A2C8): each is byte-identical to the
@@ -194,30 +218,37 @@ void rec_dispatch(Core*, uint32_t);
 // pool is EMPTY it returns 0 (jr ra; v0=zero at the 0x8007a124/0x8007a2c0/0x8007a45c tails) — NO delegation
 // (unlike pool-2, which delegates to 0x80079F90). The link/stamp (list head/tail by a3, insert by a2, stamp
 // node+10/+0/+12) is the shared spawnLinkStamp. No pool-low guard (only 0x80079C3C has the cnt<3 guard).
-static const PoolDesc POOL_VAR2 = { 0x800F2398u, 0x800ED8CCu };   // FUN_80079F90 (class 2)
-static const PoolDesc POOL_VAR3 = { 0x800ED8D4u, 0x800ED8C5u };   // FUN_8007A12C (class 3)
-static const PoolDesc POOL_VAR4 = { 0x800ED8D0u, 0x800ED8C4u };   // FUN_8007A2C8 (class 4)
+static const PoolDesc POOL_VAR2 = {0x800F2398u, 0x800ED8CCu}; // FUN_80079F90 (class 2)
+static const PoolDesc POOL_VAR3 = {0x800ED8D4u, 0x800ED8C5u}; // FUN_8007A12C (class 3)
+static const PoolDesc POOL_VAR4 = {0x800ED8D0u, 0x800ED8C4u}; // FUN_8007A2C8 (class 4)
 
-uint32_t Spawn::poolSpawn(Core* c, const PoolDesc& p) {
+uint32_t Spawn::poolSpawn(Core *c, const PoolDesc &p) {
   const uint32_t ref = c->r[4], type = c->r[5] & 0xffu, mode = c->r[6], list = c->r[7];
   uint32_t node = c->mem_r32(p.free_head);
-  if (node == 0) return 0;                          // pool empty -> v0 = 0 (no delegation)
+  if (node == 0) {
+    return 0; // pool empty -> v0 = 0 (no delegation)
+  }
   uint32_t cnt = c->mem_r8(p.cnt);
   c->mem_w8(p.cnt, (uint8_t)(cnt - 1));
-  c->mem_w32(p.free_head, c->mem_r32(node + 36));   // free head = node->next
+  c->mem_w32(p.free_head, c->mem_r32(node + 36)); // free head = node->next
   spawnLinkStamp(c, node, ref, type, mode, list);
   return node;
 }
 
 // Native per-class spawn-variant dispatch (forward-declared above spawn_dispatch). All 5 variant bodies are
 // owned in this TU; they read ref/type/mode/list from r4..r7. cls is pre-validated (<5) by the callers.
-uint32_t Spawn::spawnVariantNative(Core* c, uint32_t cls) {
+uint32_t Spawn::spawnVariantNative(Core *c, uint32_t cls) {
   switch (cls) {
-    case 0:  return entitySpawnBody(c);            // FUN_80079C3C (pool-208, with pool-low guard)
-    case 1:  return spawnPool2Body(c);             // FUN_80079DDC (pool-2, delegates to var2 when empty)
-    case 2:  return poolSpawn(c, POOL_VAR2);   // FUN_80079F90
-    case 3:  return poolSpawn(c, POOL_VAR3);   // FUN_8007A12C
-    default: return poolSpawn(c, POOL_VAR4);   // FUN_8007A2C8 (cls==4)
+  case 0:
+    return entitySpawnBody(c); // FUN_80079C3C (pool-208, with pool-low guard)
+  case 1:
+    return spawnPool2Body(c); // FUN_80079DDC (pool-2, delegates to var2 when empty)
+  case 2:
+    return poolSpawn(c, POOL_VAR2); // FUN_80079F90
+  case 3:
+    return poolSpawn(c, POOL_VAR3); // FUN_8007A12C
+  default:
+    return poolSpawn(c, POOL_VAR4); // FUN_8007A2C8 (cls==4)
   }
 }
 
@@ -229,18 +260,23 @@ uint32_t Spawn::spawnVariantNative(Core* c, uint32_t cls) {
 //   if (a1) { node[+0x2c]=a1[+2]; node[+0x2e]=a1[+6]; node[+0x30]=a1[+0xa]; }
 //   node[+0x32] = (u16)a2;  FUN_80028E10(node, a0);  return node;
 // The owned spawn dispatcher does the alloc; the per-object init FUN_80028E10 stays content (rec_dispatch).
-uint32_t Spawn::spawnAndInitBody(Core* c) {
+uint32_t Spawn::spawnAndInitBody(Core *c) {
   uint32_t a0 = c->r[4], a1 = c->r[5], a2 = c->r[6];
-  if (c->mem_r8(0x800E7E7Cu) < 7) return 0;
-  uint32_t node = eng(c).spawn.dispatch(/*cls=*/0, /*type=*/6, /*list=*/1);   // FUN_8007A980 — native
-  if (node == 0) return 0;
+  if (c->mem_r8(0x800E7E7Cu) < 7) {
+    return 0;
+  }
+  uint32_t node = eng(c).spawn.dispatch(/*cls=*/0, /*type=*/6, /*list=*/1); // FUN_8007A980 — native
+  if (node == 0) {
+    return 0;
+  }
   if (a1 != 0) {
     c->mem_w16(node + 0x2c, c->mem_r16(a1 + 2));
     c->mem_w16(node + 0x2e, c->mem_r16(a1 + 6));
     c->mem_w16(node + 0x30, c->mem_r16(a1 + 0xa));
   }
   c->mem_w16(node + 0x32, (uint16_t)a2);
-  c->r[4] = node; c->r[5] = a0;
+  c->r[4] = node;
+  c->r[5] = a0;
   rec_dispatch(c, 0x80028E10u);
   return node;
 }
@@ -258,21 +294,22 @@ uint32_t Spawn::spawnAndInitBody(Core* c) {
 //   (4) EPILOGUE (all classes incl. cls>=5): node[+0] = 0; node[+4] = 0  (deactivate).
 // The 5 pool descriptors are exactly the spawn-side free-lists (pool0/2 + the three variants).
 static const PoolDesc DESPAWN_POOL[5] = {
-  { 0x800E8098u, 0x800E7E7Cu },   // class 0 (FUN_80079C3C pool-208)
-  { 0x800E80A0u, 0x800E7E7Du },   // class 1 (FUN_80079DDC pool-2)
-  { 0x800F2398u, 0x800ED8CCu },   // class 2 (FUN_80079F90)
-  { 0x800ED8D4u, 0x800ED8C5u },   // class 3 (FUN_8007A12C)
-  { 0x800ED8D0u, 0x800ED8C4u },   // class 4 (FUN_8007A2C8) + cleanup 0x8007ADDC
+    {0x800E8098u, 0x800E7E7Cu}, // class 0 (FUN_80079C3C pool-208)
+    {0x800E80A0u, 0x800E7E7Du}, // class 1 (FUN_80079DDC pool-2)
+    {0x800F2398u, 0x800ED8CCu}, // class 2 (FUN_80079F90)
+    {0x800ED8D4u, 0x800ED8C5u}, // class 3 (FUN_8007A12C)
+    {0x800ED8D0u, 0x800ED8C4u}, // class 4 (FUN_8007A2C8) + cleanup 0x8007ADDC
 };
 void Spawn::despawn(uint32_t node) {
-  Core* c = this->core;
+  Core *c = this->core;
   int s_v = c->game->verify.on("despawnverify");
-  uint8_t* ram0 = nullptr;
-  uint8_t* ramN = nullptr;
+  uint8_t *ram0 = nullptr;
+  uint8_t *ramN = nullptr;
   uint8_t spad0[0x400], spadN[0x400];
   uint32_t regs0[32];
   if (s_v) {
-    ram0 = c->game->verify.ram0(); ramN = c->game->verify.ramN();
+    ram0 = c->game->verify.ram0();
+    ramN = c->game->verify.ramN();
     memcpy(regs0, c->r, sizeof regs0);
     memcpy(ram0, c->ram, 0x200000);
     memcpy(spad0, c->scratch, 0x400);
@@ -283,19 +320,31 @@ void Spawn::despawn(uint32_t node) {
   uint32_t tail = (list == 0) ? LIST_TAIL[0] : LIST_TAIL[1];
   uint32_t prev = c->mem_r32(node + 32);
   uint32_t next = c->mem_r32(node + 36);
-  if (prev != 0) c->mem_w32(prev + 36, next);            // prev->next = next
-  else { c->mem_w32(head, next); if (next != 0) c->mem_w32(next + 32, 0); }   // *head = next; new head->prev = 0
-  if (next != 0) c->mem_w32(next + 32, prev);            // next->prev = prev
-  else { c->mem_w32(tail, prev); if (prev != 0) c->mem_w32(prev + 36, 0); }   // *tail = prev; new tail->next = 0
+  if (prev != 0) {
+    c->mem_w32(prev + 36, next); // prev->next = next
+  } else {
+    c->mem_w32(head, next);
+    if (next != 0) {
+      c->mem_w32(next + 32, 0);
+    }
+  } // *head = next; new head->prev = 0
+  if (next != 0) {
+    c->mem_w32(next + 32, prev); // next->prev = prev
+  } else {
+    c->mem_w32(tail, prev);
+    if (prev != 0) {
+      c->mem_w32(prev + 36, 0);
+    }
+  } // *tail = prev; new tail->next = 0
   // (2) clear high bit, (3) free-push by class
   uint32_t v = c->mem_r8(node + 0x28) & 0x7fu;
   c->mem_w8(node + 0x28, (uint8_t)v);
   uint32_t cls = v & 0xffu;
   if (cls < 5) {
-    const PoolDesc& p = DESPAWN_POOL[cls];
-    c->mem_w32(node + 36, c->mem_r32(p.free_head));      // node->next = *free_head
-    c->mem_w32(p.free_head, node);                        // *free_head = node
-    c->mem_w8(p.cnt, (uint8_t)(c->mem_r8(p.cnt) + 1));    // cnt++
+    const PoolDesc &p = DESPAWN_POOL[cls];
+    c->mem_w32(node + 36, c->mem_r32(p.free_head));    // node->next = *free_head
+    c->mem_w32(p.free_head, node);                     // *free_head = node
+    c->mem_w8(p.cnt, (uint8_t)(c->mem_r8(p.cnt) + 1)); // cnt++
     if (cls == 4) {
       // FUN_8007ADDC — pool-4 child-record cleanup, inlined (disas 0x8007ADDC..0x8007AE2C).
       // Class-4 nodes own N child GraphicsBind records at node[+0xC0..+0xC0+4*(N-1)]; on despawn
@@ -306,7 +355,7 @@ void Spawn::despawn(uint32_t node) {
       while (n != 0) {
         uint16_t freeCnt = c->mem_r16(0x800ED098u);
         uint32_t freePtr = c->mem_r32(0x800E7E74u);
-        uint32_t child   = c->mem_r32(node + 0xC0u + ((uint32_t)n - 1u) * 4u);
+        uint32_t child = c->mem_r32(node + 0xC0u + ((uint32_t)n - 1u) * 4u);
         c->mem_w16(0x800ED098u, (uint16_t)(freeCnt + 1));
         c->mem_w32(0x800E7E74u, freePtr - 4);
         c->mem_w32(freePtr - 4, child);
@@ -318,34 +367,64 @@ void Spawn::despawn(uint32_t node) {
   // (4) epilogue (0x8007a7d0): deactivate — zero node header words 0/4/8/c/10/14/18/38 (active byte +0,
   // state +4, list-id +0x0a, type +0x0c) + bytes +0x29/+0x2a/+0x2b/+0x5e. The free-list link (+0x24) is
   // deliberately NOT cleared (it must survive in the free-list).
-  const uint32_t zw[] = { 0, 4, 8, 0xc, 0x10, 0x14, 0x18, 0x38 };
-  for (uint32_t o : zw) c->mem_w32(node + o, 0);
+  const uint32_t zw[] = {0, 4, 8, 0xc, 0x10, 0x14, 0x18, 0x38};
+  for (uint32_t o : zw) {
+    c->mem_w32(node + o, 0);
+  }
   c->mem_w8(node + 0x2a, 0);
   c->mem_w8(node + 0x2b, 0);
   c->mem_w8(node + 0x29, 0);
   c->mem_w8(node + 0x5e, 0);
 
-  if (!s_v) return;
+  if (!s_v) {
+    return;
+  }
   // `despawnverify` A/B: snapshot the native result, roll back, super-call the recomp, diff.
-  memcpy(ramN, c->ram, 0x200000); memcpy(spadN, c->scratch, 0x400);
-  memcpy(c->ram, ram0, 0x200000); memcpy(c->scratch, spad0, 0x400); memcpy(c->r, regs0, sizeof regs0);
+  memcpy(ramN, c->ram, 0x200000);
+  memcpy(spadN, c->scratch, 0x400);
+  memcpy(c->ram, ram0, 0x200000);
+  memcpy(c->scratch, spad0, 0x400);
+  memcpy(c->r, regs0, sizeof regs0);
   c->r[4] = node;
   rec_super_call(c, 0x8007A624u);
   uint32_t sp = regs0[29] & 0x1FFFFFu, flo = (sp >= 0x800) ? sp - 0x800 : 0;
-  int ro = -1; for (uint32_t a = 0; a < 0x200000; a++) if (c->ram[a] != ramN[a] && !(a >= flo && a < sp)) { ro = (int)a; break; }
-  int so = -1; for (uint32_t a = 0; a < 0x400; a++) if (c->scratch[a] != spadN[a]) { so = (int)a; break; }
-  VerifyHarness::Check& chk = c->game->verify.check("despawnverify");
+  int ro = -1;
+  for (uint32_t a = 0; a < 0x200000; a++) {
+    if (c->ram[a] != ramN[a] && !(a >= flo && a < sp)) {
+      ro = (int)a;
+      break;
+    }
+  }
+  int so = -1;
+  for (uint32_t a = 0; a < 0x400; a++) {
+    if (c->scratch[a] != spadN[a]) {
+      so = (int)a;
+      break;
+    }
+  }
+  VerifyHarness::Check &chk = c->game->verify.check("despawnverify");
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0) {
-    if (nb++ < 40) cfg_logi("despawnverify", "MISMATCH node=%08x list=%u ram@%x spad@%x sp=%x", node, c->mem_r8(node + 0x0au), ro, so, sp);
-  } else if (++ng % 20 == 0) cfg_logi("despawnverify", "%ld matches", ng);
+    if (nb++ < 40) {
+      cfg_logi("despawnverify",
+               "MISMATCH node=%08x list=%u ram@%x spad@%x sp=%x",
+               node,
+               c->mem_r8(node + 0x0au),
+               ro,
+               so,
+               sp);
+    }
+  } else if (++ng % 20 == 0) {
+    cfg_logi("despawnverify", "%ld matches", ng);
+  }
 }
 
-uint32_t Spawn::spawnAndInit(uint32_t a0, uint32_t posSrc, uint32_t a2) {   // FUN_8003116C
-  Core* c = this->core;
-  c->r[4] = a0; c->r[5] = posSrc; c->r[6] = a2;
-  c->game->verify.run(&Spawn::spawnAndInitBody, 0x8003116Cu, "spawninitverify",
-                      c->game->verify.on("spawninitverify"));
+uint32_t Spawn::spawnAndInit(uint32_t a0, uint32_t posSrc, uint32_t a2) { // FUN_8003116C
+  Core *c = this->core;
+  c->r[4] = a0;
+  c->r[5] = posSrc;
+  c->r[6] = a2;
+  c->game->verify.run(&Spawn::spawnAndInitBody, 0x8003116Cu, "spawninitverify", c->game->verify.on("spawninitverify"));
   return c->r[2];
 }
 
@@ -370,27 +449,31 @@ uint32_t Spawn::spawnAndInit(uint32_t a0, uint32_t posSrc, uint32_t a2) {   // F
 //                           child[2]=17; child[3]=sub.
 //   FUN_8013A730(node):     dispatch(cls=3,4,0); child[0x1C]=0x8013A330 (beh_lift_platform);
 //                           child[2]=16.  (single-arg variant — no [+3] write.)
-uint32_t Spawn::spawnTypedChild(uint32_t owner, uint32_t cls, uint32_t handlerAddr, uint8_t typeByte,
-                                 bool hasSub, uint32_t sub) {
-  Core* c = this->core;
+uint32_t Spawn::spawnTypedChild(
+    uint32_t owner, uint32_t cls, uint32_t handlerAddr, uint8_t typeByte, bool hasSub, uint32_t sub) {
+  Core *c = this->core;
   uint32_t child = dispatch(cls, /*type=*/4, /*list=*/0);
-  if (child == 0) return 0;
+  if (child == 0) {
+    return 0;
+  }
   c->mem_w32(child + 0x1c, handlerAddr);
   c->mem_w32(child + 0x10, owner);
-  c->mem_w8 (child + 2, typeByte);
-  if (hasSub) c->mem_w8(child + 3, (uint8_t)sub);
+  c->mem_w8(child + 2, typeByte);
+  if (hasSub) {
+    c->mem_w8(child + 3, (uint8_t)sub);
+  }
   return child;
 }
-uint32_t Spawn::spawnQuadRecordChild(uint32_t owner, uint32_t sub) {   // FUN_801360F4
-  return spawnTypedChild(owner, /*cls=*/2, 0x80135D64u, /*type=*/7,  /*hasSub=*/true, sub);
+uint32_t Spawn::spawnQuadRecordChild(uint32_t owner, uint32_t sub) { // FUN_801360F4
+  return spawnTypedChild(owner, /*cls=*/2, 0x80135D64u, /*type=*/7, /*hasSub=*/true, sub);
 }
-uint32_t Spawn::spawnSiblingAngleChild(uint32_t owner, uint32_t sub) {   // FUN_80139838
+uint32_t Spawn::spawnSiblingAngleChild(uint32_t owner, uint32_t sub) { // FUN_80139838
   return spawnTypedChild(owner, /*cls=*/1, 0x801395C0u, /*type=*/13, /*hasSub=*/true, sub);
 }
-uint32_t Spawn::spawnChildTrigChild(uint32_t owner, uint32_t sub) {   // FUN_8013AC34
+uint32_t Spawn::spawnChildTrigChild(uint32_t owner, uint32_t sub) { // FUN_8013AC34
   return spawnTypedChild(owner, /*cls=*/2, 0x8013A900u, /*type=*/17, /*hasSub=*/true, sub);
 }
-uint32_t Spawn::spawnLiftPlatformChild(uint32_t owner) {   // FUN_8013A730
+uint32_t Spawn::spawnLiftPlatformChild(uint32_t owner) { // FUN_8013A730
   return spawnTypedChild(owner, /*cls=*/3, 0x8013A330u, /*type=*/16, /*hasSub=*/false, 0);
 }
 
@@ -405,44 +488,56 @@ uint32_t Spawn::spawnLiftPlatformChild(uint32_t owner) {   // FUN_8013A730
 // saved regs ra/s1/s0 (r31/r17/r16) at sp+24/+20/+16 with their LIVE incoming values, restoring them
 // before return — the native port mirrors that guest stack frame exactly (docs/faithful-execution.md).
 // ORACLE: gen_func_80031558
-extern void func_8007A980(Core*);   // generated/shard_disp.c — per-type spawn dispatcher (FUN_8007A980)
+extern void func_8007A980(Core *); // generated/shard_disp.c — per-type spawn dispatcher (FUN_8007A980)
 uint32_t Spawn::spawnEffectChild(uint32_t owner, uint32_t sub) {
-  Core* c = this->core;
-  cfg_logf("fxspawn", "spawnEffectChild owner=%08x type=%u state=%u sub=%u ra=%08x",
-           owner, c->mem_r8(owner + 2), c->mem_r8(owner + 4), sub, c->r[31]);
+  Core *c = this->core;
+  cfg_logf("fxspawn",
+           "spawnEffectChild owner=%08x type=%u state=%u sub=%u ra=%08x",
+           owner,
+           c->mem_r8(owner + 2),
+           c->mem_r8(owner + 4),
+           sub,
+           c->r[31]);
   c->r[4] = owner;
   c->r[5] = sub;
-  c->r[29] = c->r[29] + (uint32_t)-32;               // addiu sp,-0x20 — descend the guest frame
-  c->mem_w32((c->r[29] + (uint32_t)20), c->r[17]);   // sw s1,0x14(sp) — LIVE incoming s1
-  c->r[17] = c->r[4] + c->r[0];                       // s1 = owner
-  c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]);   // sw s0,0x10(sp) — LIVE incoming s0
-  c->r[16] = c->r[5] + c->r[0];                       // s0 = sub
-  c->r[4] = c->r[0] + c->r[0];                        // dispatch arg cls = 0
-  c->r[5] = c->r[0] + (uint32_t)6;                    // dispatch arg type = 6
-  c->mem_w32((c->r[29] + (uint32_t)24), c->r[31]);   // sw ra,0x18(sp)
+  c->r[29] = c->r[29] + (uint32_t)-32;             // addiu sp,-0x20 — descend the guest frame
+  c->mem_w32((c->r[29] + (uint32_t)20), c->r[17]); // sw s1,0x14(sp) — LIVE incoming s1
+  c->r[17] = c->r[4] + c->r[0];                    // s1 = owner
+  c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]); // sw s0,0x10(sp) — LIVE incoming s0
+  c->r[16] = c->r[5] + c->r[0];                    // s0 = sub
+  c->r[4] = c->r[0] + c->r[0];                     // dispatch arg cls = 0
+  c->r[5] = c->r[0] + (uint32_t)6;                 // dispatch arg type = 6
+  c->mem_w32((c->r[29] + (uint32_t)24), c->r[31]); // sw ra,0x18(sp)
   c->r[31] = 0x80031580u;
-  c->r[6] = c->r[0] + (uint32_t)1; func_8007A980(c);  // dispatch arg list = 1 — FUN_8007A980
-  { int poolEmpty = (c->r[2] == c->r[0]); c->r[3] = (uint32_t)32771u << 16; if (poolEmpty) goto L_poolEmpty; }
-  c->r[3] = c->r[3] + (uint32_t)-25792;               // r3 = 0x80029B40 (per-frame effect handler)
-  c->mem_w32((c->r[2] + (uint32_t)28), c->r[3]);      // child[+0x1C] = handler
+  c->r[6] = c->r[0] + (uint32_t)1;
+  func_8007A980(c); // dispatch arg list = 1 — FUN_8007A980
+  {
+    int poolEmpty = (c->r[2] == c->r[0]);
+    c->r[3] = (uint32_t)32771u << 16;
+    if (poolEmpty) {
+      goto L_poolEmpty;
+    }
+  }
+  c->r[3] = c->r[3] + (uint32_t)-25792;          // r3 = 0x80029B40 (per-frame effect handler)
+  c->mem_w32((c->r[2] + (uint32_t)28), c->r[3]); // child[+0x1C] = handler
   c->r[3] = c->r[0] + (uint32_t)32;
-  c->mem_w8((c->r[2] + (uint32_t)11), (uint8_t)c->r[3]);  // child[+0x0B] = 32
+  c->mem_w8((c->r[2] + (uint32_t)11), (uint8_t)c->r[3]); // child[+0x0B] = 32
   c->r[3] = (uint32_t)32771u << 16;
-  c->r[4] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)40));  // r4 = child[+0x28] flag byte
-  c->r[3] = c->r[3] + (uint32_t)-24724;               // r3 = 0x80029F6C (effect data table)
-  c->mem_w32((c->r[2] + (uint32_t)16), c->r[17]);     // child[+0x10] = owner
-  c->mem_w32((c->r[2] + (uint32_t)24), c->r[3]);      // child[+0x18] = data table ptr
-  c->mem_w8((c->r[2] + (uint32_t)3), (uint8_t)c->r[16]);  // child[+3] = sub (low byte)
+  c->r[4] = (uint32_t)c->mem_r8((c->r[2] + (uint32_t)40)); // r4 = child[+0x28] flag byte
+  c->r[3] = c->r[3] + (uint32_t)-24724;                    // r3 = 0x80029F6C (effect data table)
+  c->mem_w32((c->r[2] + (uint32_t)16), c->r[17]);          // child[+0x10] = owner
+  c->mem_w32((c->r[2] + (uint32_t)24), c->r[3]);           // child[+0x18] = data table ptr
+  c->mem_w8((c->r[2] + (uint32_t)3), (uint8_t)c->r[16]);   // child[+3] = sub (low byte)
   c->r[4] = c->r[4] | 128u;
-  c->mem_w8((c->r[2] + (uint32_t)40), (uint8_t)c->r[4]);  // child[+0x28] |= 0x80
+  c->mem_w8((c->r[2] + (uint32_t)40), (uint8_t)c->r[4]); // child[+0x28] |= 0x80
   goto L_epilogue;
 L_poolEmpty:;
-  c->r[2] = c->r[0] + c->r[0];                        // return 0 (pool empty)
+  c->r[2] = c->r[0] + c->r[0]; // return 0 (pool empty)
 L_epilogue:;
-  c->r[31] = c->mem_r32((c->r[29] + (uint32_t)24));   // lw ra,0x18(sp)
-  c->r[17] = c->mem_r32((c->r[29] + (uint32_t)20));   // lw s1,0x14(sp)
-  c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16));   // lw s0,0x10(sp)
-  c->r[29] = c->r[29] + (uint32_t)32;                 // addiu sp,0x20 — ascend the guest frame
+  c->r[31] = c->mem_r32((c->r[29] + (uint32_t)24)); // lw ra,0x18(sp)
+  c->r[17] = c->mem_r32((c->r[29] + (uint32_t)20)); // lw s1,0x14(sp)
+  c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16)); // lw s0,0x10(sp)
+  c->r[29] = c->r[29] + (uint32_t)32;               // addiu sp,0x20 — ascend the guest frame
   return c->r[2];
 }
 
@@ -457,29 +552,31 @@ L_epilogue:;
 // set up the same registers (r4=cls, r5=4, r6=0, r16=owner, r31=jal-site), call
 // rec_dispatch(0x8007A980), then do the child-field writes. Each variant's jal-site ra and post-
 // dispatch writes come from the substrate gen_ body (generated/ov_a00_shard_0.c).
-static constexpr uint32_t SPAWN_DISPATCH = 0x8007A980u;   // gen_func_8007A980 — the table dispatch
-static constexpr uint32_t HANDLER_LIFT    = 0x8013A330u;  // child+0x1C handler (beh_lift_platform)
+static constexpr uint32_t SPAWN_DISPATCH = 0x8007A980u; // gen_func_8007A980 — the table dispatch
+static constexpr uint32_t HANDLER_LIFT = 0x8013A330u;   // child+0x1C handler (beh_lift_platform)
 static constexpr uint32_t HANDLER_QUADREC = 0x80135D64u;
-static constexpr uint32_t HANDLER_SIBANG  = 0x801395C0u;
+static constexpr uint32_t HANDLER_SIBANG = 0x801395C0u;
 static constexpr uint32_t HANDLER_CHILDTRIG = 0x8013A900u;
 // 0x8013A730 — spawnLiftPlatformChild: frame=24, spills r16@16, r31@20; dispatch(cls=3); single-arg.
-static void eov_spawnLiftPlatformChild(Core* c) {
+static void eov_spawnLiftPlatformChild(Core *c) {
   const uint32_t owner = c->r[4];
   c->r[29] -= 24;
   c->mem_w32(c->r[29] + 16, c->r[16]);
   c->r[16] = owner;
-  c->r[4] = 3; c->r[5] = 4; c->r[6] = 0;
+  c->r[4] = 3;
+  c->r[5] = 4;
+  c->r[6] = 0;
   c->mem_w32(c->r[29] + 20, c->r[31]);
   c->r[31] = 0x8013A750u;
   rec_dispatch(c, SPAWN_DISPATCH);
-  c->r[3] = (uint32_t)32788u << 16;   // r3 = 0x80140000 (set before null-check, per substrate)
+  c->r[3] = (uint32_t)32788u << 16; // r3 = 0x80140000 (set before null-check, per substrate)
   if (c->r[2] != 0) {
     c->mem_w32(c->r[2] + 0x1Cu, HANDLER_LIFT);
     c->r[3] = 16;
     c->mem_w32(c->r[2] + 0x10u, c->r[16]);
-    c->mem_w8 (c->r[2] + 2u, (uint8_t)c->r[3]);
+    c->mem_w8(c->r[2] + 2u, (uint8_t)c->r[3]);
   } else {
-    c->r[2] = 0;   // explicit return 0 (matches substrate L_8013A770)
+    c->r[2] = 0; // explicit return 0 (matches substrate L_8013A770)
   }
   c->r[31] = c->mem_r32(c->r[29] + 20);
   c->r[16] = c->mem_r32(c->r[29] + 16);
@@ -487,24 +584,26 @@ static void eov_spawnLiftPlatformChild(Core* c) {
 }
 // 0x801360F4 — spawnQuadRecordChild: frame=32, spills r16@16, r17@20, r31@24; dispatch(cls=2).
 // Substrate swaps: r17=owner(r4), r16=sub(r5). child+16=r17(owner), child+3=r16(sub).
-static void eov_spawnQuadRecordChild(Core* c) {
+static void eov_spawnQuadRecordChild(Core *c) {
   const uint32_t owner = c->r[4], sub = c->r[5];
   c->r[29] -= 32;
   c->mem_w32(c->r[29] + 20, c->r[17]);
   c->r[17] = owner;
   c->mem_w32(c->r[29] + 16, c->r[16]);
   c->r[16] = sub;
-  c->r[4] = 2; c->r[5] = 4; c->r[6] = 0;
+  c->r[4] = 2;
+  c->r[5] = 4;
+  c->r[6] = 0;
   c->mem_w32(c->r[29] + 24, c->r[31]);
   c->r[31] = 0x8013611Cu;
   rec_dispatch(c, SPAWN_DISPATCH);
-  c->r[3] = (uint32_t)32787u << 16;   // 32787 (not 32788) per substrate
+  c->r[3] = (uint32_t)32787u << 16; // 32787 (not 32788) per substrate
   if (c->r[2] != 0) {
     c->mem_w32(c->r[2] + 0x1Cu, HANDLER_QUADREC);
     c->r[3] = 7;
     c->mem_w32(c->r[2] + 0x10u, c->r[17]);
-    c->mem_w8 (c->r[2] + 2u, (uint8_t)c->r[3]);
-    c->mem_w8 (c->r[2] + 3u, (uint8_t)c->r[16]);
+    c->mem_w8(c->r[2] + 2u, (uint8_t)c->r[3]);
+    c->mem_w8(c->r[2] + 3u, (uint8_t)c->r[16]);
   } else {
     c->r[2] = 0;
   }
@@ -514,14 +613,16 @@ static void eov_spawnQuadRecordChild(Core* c) {
   c->r[29] += 32;
 }
 // 0x80139838 — spawnSiblingAngleChild: frame=32, spills r16@16, r17@20, r31@24; dispatch(cls=1).
-static void eov_spawnSiblingAngleChild(Core* c) {
+static void eov_spawnSiblingAngleChild(Core *c) {
   const uint32_t owner = c->r[4], sub = c->r[5];
   c->r[29] -= 32;
   c->mem_w32(c->r[29] + 20, c->r[17]);
   c->r[17] = owner;
   c->mem_w32(c->r[29] + 16, c->r[16]);
   c->r[16] = sub;
-  c->r[4] = 1; c->r[5] = 4; c->r[6] = 0;
+  c->r[4] = 1;
+  c->r[5] = 4;
+  c->r[6] = 0;
   c->mem_w32(c->r[29] + 24, c->r[31]);
   c->r[31] = 0x80139860u;
   rec_dispatch(c, SPAWN_DISPATCH);
@@ -530,8 +631,8 @@ static void eov_spawnSiblingAngleChild(Core* c) {
     c->mem_w32(c->r[2] + 0x1Cu, HANDLER_SIBANG);
     c->r[3] = 13;
     c->mem_w32(c->r[2] + 0x10u, c->r[17]);
-    c->mem_w8 (c->r[2] + 2u, (uint8_t)c->r[3]);
-    c->mem_w8 (c->r[2] + 3u, (uint8_t)c->r[16]);
+    c->mem_w8(c->r[2] + 2u, (uint8_t)c->r[3]);
+    c->mem_w8(c->r[2] + 3u, (uint8_t)c->r[16]);
   } else {
     c->r[2] = 0;
   }
@@ -541,14 +642,16 @@ static void eov_spawnSiblingAngleChild(Core* c) {
   c->r[29] += 32;
 }
 // 0x8013AC34 — spawnChildTrigChild: frame=32, spills r16@16, r17@20, r31@24; dispatch(cls=2).
-static void eov_spawnChildTrigChild(Core* c) {
+static void eov_spawnChildTrigChild(Core *c) {
   const uint32_t owner = c->r[4], sub = c->r[5];
   c->r[29] -= 32;
   c->mem_w32(c->r[29] + 20, c->r[17]);
   c->r[17] = owner;
   c->mem_w32(c->r[29] + 16, c->r[16]);
   c->r[16] = sub;
-  c->r[4] = 2; c->r[5] = 4; c->r[6] = 0;
+  c->r[4] = 2;
+  c->r[5] = 4;
+  c->r[6] = 0;
   c->mem_w32(c->r[29] + 24, c->r[31]);
   c->r[31] = 0x8013AC5Cu;
   rec_dispatch(c, SPAWN_DISPATCH);
@@ -557,8 +660,8 @@ static void eov_spawnChildTrigChild(Core* c) {
     c->mem_w32(c->r[2] + 0x1Cu, HANDLER_CHILDTRIG);
     c->r[3] = 17;
     c->mem_w32(c->r[2] + 0x10u, c->r[17]);
-    c->mem_w8 (c->r[2] + 2u, (uint8_t)c->r[3]);
-    c->mem_w8 (c->r[2] + 3u, (uint8_t)c->r[16]);
+    c->mem_w8(c->r[2] + 2u, (uint8_t)c->r[3]);
+    c->mem_w8(c->r[2] + 3u, (uint8_t)c->r[16]);
   } else {
     c->r[2] = 0;
   }
@@ -567,23 +670,25 @@ static void eov_spawnChildTrigChild(Core* c) {
   c->r[16] = c->mem_r32(c->r[29] + 16);
   c->r[29] += 32;
 }
-extern void ov_a00_gen_801360F4(Core*);
-extern void ov_a00_gen_80139838(Core*);
-extern void ov_a00_gen_8013AC34(Core*);
-extern void ov_a00_gen_8013A730(Core*);
+extern void ov_a00_gen_801360F4(Core *);
+extern void ov_a00_gen_80139838(Core *);
+extern void ov_a00_gen_8013AC34(Core *);
+extern void ov_a00_gen_8013A730(Core *);
 
 // FUN_80031558 — guest-ABI adapter (args in c->r[4]/c->r[5], return in c->r[2]).
-extern void gen_func_80031558(Core*);
-extern void shard_set_override(uint32_t, void (*)(Core*));
-static void eov_spawnEffectChild(Core* c) { c->r[2] = eng(c).spawn.spawnEffectChild(c->r[4], c->r[5]); }
+extern void gen_func_80031558(Core *);
+extern void shard_set_override(uint32_t, void (*)(Core *));
+static void eov_spawnEffectChild(Core *c) {
+  c->r[2] = eng(c).spawn.spawnEffectChild(c->r[4], c->r[5]);
+}
 
 void Spawn::registerTypedChildOverrides() {
   using overrides::install;
-  install(0x801360F4u, "Spawn::spawnQuadRecordChild",   eov_spawnQuadRecordChild,   ov_a00_gen_801360F4);
+  install(0x801360F4u, "Spawn::spawnQuadRecordChild", eov_spawnQuadRecordChild, ov_a00_gen_801360F4);
   install(0x80139838u, "Spawn::spawnSiblingAngleChild", eov_spawnSiblingAngleChild, ov_a00_gen_80139838);
-  install(0x8013AC34u, "Spawn::spawnChildTrigChild",    eov_spawnChildTrigChild,    ov_a00_gen_8013AC34);
+  install(0x8013AC34u, "Spawn::spawnChildTrigChild", eov_spawnChildTrigChild, ov_a00_gen_8013AC34);
   install(0x8013A730u, "Spawn::spawnLiftPlatformChild", eov_spawnLiftPlatformChild, ov_a00_gen_8013A730);
-  install(0x80031558u, "Spawn::spawnEffectChild",       eov_spawnEffectChild,       gen_func_80031558, shard_set_override);
+  install(0x80031558u, "Spawn::spawnEffectChild", eov_spawnEffectChild, gen_func_80031558, shard_set_override);
 }
 
 // FUN_8007E110 — SCENE-ENTITY SPAWN primitive. RE'd from disas 0x8007E110..0x8007E1B4.
@@ -622,30 +727,35 @@ void Spawn::registerTypedChildOverrides() {
 //
 // Return: node ptr on success, 0 on freelist exhaustion (caller stashes in Actor::sceneHandle).
 // A/B'd via `sceneentityverify` (full main-RAM + scratchpad diff vs rec_super_call(0x8007E110u)).
-uint32_t Spawn::sceneEntityBody(Core* c) {
+uint32_t Spawn::sceneEntityBody(Core *c) {
   const uint32_t sceneId = c->r[4] & 0xFFFFu;
   const uint32_t subtype = c->r[5] & 0xFFu;
   // ---- FUN_8007A5A8: alloc class-3 tail-insert into list 1 ------------------------------------
   uint32_t node = c->mem_r32(FREE_HEAD);
-  if (node == 0) return 0;
+  if (node == 0) {
+    return 0;
+  }
   uint32_t nextFree = c->mem_r32(node + 36);
-  uint32_t tail     = c->mem_r32(LIST_TAIL[1]);
+  uint32_t tail = c->mem_r32(LIST_TAIL[1]);
   c->mem_w32(node + 36, 0);
   c->mem_w8(FREE_CNT, (uint8_t)(c->mem_r8(FREE_CNT) - 1));
   c->mem_w32(FREE_HEAD, nextFree);
   c->mem_w32(node + 32, tail);
-  if (tail == 0) c->mem_w32(LIST_HEAD[1], node);
-  else           c->mem_w32(tail + 36, node);
+  if (tail == 0) {
+    c->mem_w32(LIST_HEAD[1], node);
+  } else {
+    c->mem_w32(tail + 36, node);
+  }
   c->mem_w32(LIST_TAIL[1], node);
   c->mem_w8(node + 10, 1);
-  c->mem_w8(node + 0,  2);
+  c->mem_w8(node + 0, 2);
   c->mem_w8(node + 12, 3);
   // ---- FUN_8007E110: scene-entity init on the fresh node --------------------------------------
-  c->mem_w8 (node + 0x47, 2);
+  c->mem_w8(node + 0x47, 2);
   c->mem_w32(node + 0x1C, 0x8007DDE0u);
-  c->mem_w8 (node + 3,    (uint8_t)subtype);
-  c->mem_w8 (node + 0x28, (uint8_t)(c->mem_r8(node + 0x28) | 0x80));
-  uint32_t base   = c->mem_r32(0x800ECF60u);
+  c->mem_w8(node + 3, (uint8_t)subtype);
+  c->mem_w8(node + 0x28, (uint8_t)(c->mem_r8(node + 0x28) | 0x80));
+  uint32_t base = c->mem_r32(0x800ECF60u);
   uint16_t hCount = c->mem_r16(base);
   c->mem_w32(node + 0x48, base);
   c->mem_w32(node + 0x4C, base + 0x10);
@@ -655,11 +765,11 @@ uint32_t Spawn::sceneEntityBody(Core* c) {
   return node;
 }
 uint32_t Spawn::sceneEntity(uint16_t sceneId, uint8_t subtype) {
-  Core* c = this->core;
+  Core *c = this->core;
   c->r[4] = sceneId;
   c->r[5] = subtype;
-  c->game->verify.run(&Spawn::sceneEntityBody, 0x8007E110u, "sceneentityverify",
-                      c->game->verify.on("sceneentityverify"));
+  c->game->verify.run(
+      &Spawn::sceneEntityBody, 0x8007E110u, "sceneentityverify", c->game->verify.on("sceneentityverify"));
   return c->r[2];
 }
 
@@ -677,11 +787,13 @@ uint32_t Spawn::sceneEntity(uint16_t sceneId, uint8_t subtype) {
 // FUN_80071B44's own conditional double-bump is gated on its param_3, which is always 0 here —
 // so the wrapper's single unconditional bump is the entire delta observed.
 void Spawn::dropScoreGem(uint32_t sourceNode, int32_t value) {
-  Core* c = this->core;
+  Core *c = this->core;
   c->mem_w32(0x800BF874u, c->mem_r32(0x800BF874u) + (uint32_t)value);
-  c->r[4] = sourceNode; c->r[5] = (uint32_t)value; c->r[6] = 0;
+  c->r[4] = sourceNode;
+  c->r[5] = (uint32_t)value;
+  c->r[6] = 0;
   rec_dispatch(c, 0x80071B44u);
-  c->r[2] = 1;   // recomp returns v0 = 1 (unread by every current callsite, but faithful)
+  c->r[2] = 1; // recomp returns v0 = 1 (unread by every current callsite, but faithful)
 }
 
 // FUN_8007E038 — VARIANT-OVERLAY SPAWN primitive. RE'd from disas 0x8007E038..0x8007E10C.
@@ -700,31 +812,38 @@ void Spawn::dropScoreGem(uint32_t sourceNode, int32_t value) {
 //   node[0x50] = base + 0x10 + (*(u16)base)*4;
 // Return: node ptr on success, 0 on guard-miss or freelist exhaustion.
 // A/B'd via `spawnoverlayverify` (full main-RAM + scratchpad diff vs rec_super_call(0x8007E038u)).
-uint32_t Spawn::spawnOverlayVariantBody(Core* c) {
+uint32_t Spawn::spawnOverlayVariantBody(Core *c) {
   const uint16_t recordIndex = (uint16_t)(c->r[4] & 0xFFFFu);
-  const int16_t  variant     = (int16_t)(c->r[5] & 0xFFFFu);   // guard needs the full 16-bit value
-  if (!(c->mem_r8(0x800BF81Eu) == 2 || variant != 0 || c->mem_r8(0x800BF822u) == 0)) return 0;
+  const int16_t variant = (int16_t)(c->r[5] & 0xFFFFu); // guard needs the full 16-bit value
+  if (!(c->mem_r8(0x800BF81Eu) == 2 || variant != 0 || c->mem_r8(0x800BF822u) == 0)) {
+    return 0;
+  }
   // ---- FUN_8007A5A8: alloc class-3 tail-insert into list 1 (identical to sceneEntityBody) ------
   uint32_t node = c->mem_r32(FREE_HEAD);
-  if (node == 0) return 0;
+  if (node == 0) {
+    return 0;
+  }
   uint32_t nextFree = c->mem_r32(node + 36);
-  uint32_t tail     = c->mem_r32(LIST_TAIL[1]);
+  uint32_t tail = c->mem_r32(LIST_TAIL[1]);
   c->mem_w32(node + 36, 0);
   c->mem_w8(FREE_CNT, (uint8_t)(c->mem_r8(FREE_CNT) - 1));
   c->mem_w32(FREE_HEAD, nextFree);
   c->mem_w32(node + 32, tail);
-  if (tail == 0) c->mem_w32(LIST_HEAD[1], node);
-  else           c->mem_w32(tail + 36, node);
+  if (tail == 0) {
+    c->mem_w32(LIST_HEAD[1], node);
+  } else {
+    c->mem_w32(tail + 36, node);
+  }
   c->mem_w32(LIST_TAIL[1], node);
   c->mem_w8(node + 10, 1);
-  c->mem_w8(node + 0,  2);
+  c->mem_w8(node + 0, 2);
   c->mem_w8(node + 12, 3);
   // ---- FUN_8007E038: variant-overlay init on the fresh node -------------------------------------
-  c->mem_w8 (node + 0x47, 1);
-  c->mem_w8 (node + 3,    (uint8_t)variant);
+  c->mem_w8(node + 0x47, 1);
+  c->mem_w8(node + 3, (uint8_t)variant);
   c->mem_w32(node + 0x1C, 0x8007DC38u);
-  c->mem_w8 (node + 0x28, (uint8_t)(c->mem_r8(node + 0x28) | 0x80));
-  uint32_t base   = c->mem_r32(0x800ECF60u);
+  c->mem_w8(node + 0x28, (uint8_t)(c->mem_r8(node + 0x28) | 0x80));
+  uint32_t base = c->mem_r32(0x800ECF60u);
   uint16_t hCount = c->mem_r16(base);
   c->mem_w32(node + 0x48, base);
   c->mem_w32(node + 0x4C, base + 0x10);
@@ -734,11 +853,11 @@ uint32_t Spawn::spawnOverlayVariantBody(Core* c) {
   return node;
 }
 uint32_t Spawn::spawnOverlayVariant(uint16_t recordIndex, int16_t variant) {
-  Core* c = this->core;
+  Core *c = this->core;
   c->r[4] = recordIndex;
   c->r[5] = (uint32_t)(int32_t)variant;
-  c->game->verify.run(&Spawn::spawnOverlayVariantBody, 0x8007E038u, "spawnoverlayverify",
-                      c->game->verify.on("spawnoverlayverify"));
+  c->game->verify.run(
+      &Spawn::spawnOverlayVariantBody, 0x8007E038u, "spawnoverlayverify", c->game->verify.on("spawnoverlayverify"));
   return c->r[2];
 }
 
@@ -757,7 +876,7 @@ uint32_t Spawn::spawnOverlayVariant(uint16_t recordIndex, int16_t variant) {
 // deliberately dereferenced unconditionally exactly as the recomp does (no defensive null-check:
 // the state invariant guarantees obj[0x14] is non-null whenever state==1 is reached).
 void Spawn::tickLinkedOverlay(uint32_t obj, int16_t recordId) {
-  Core* c = this->core;
+  Core *c = this->core;
   uint8_t st = c->mem_r8(obj + 7);
   if (st == 1) {
     if (c->mem_r8(0x800BF816u) != 0 && c->mem_r8(0x800BF80Fu) == 0) {
@@ -771,7 +890,9 @@ void Spawn::tickLinkedOverlay(uint32_t obj, int16_t recordId) {
     }
     int16_t countdown = (int16_t)(c->mem_r16(obj + 0x40) - 1);
     c->mem_w16(obj + 0x40, (uint16_t)countdown);
-    if (countdown != -1) return;
+    if (countdown != -1) {
+      return;
+    }
     uint32_t child = c->mem_r32(obj + 0x14);
     if (c->mem_r8(child + 4) < 2) {
       c->mem_w8(child + 4, 2);
@@ -781,17 +902,27 @@ void Spawn::tickLinkedOverlay(uint32_t obj, int16_t recordId) {
     return;
   }
   if (st > 1) {
-    if (st != 2) return;
-    if (c->mem_r8(obj + 0x29) != 0) return;
+    if (st != 2) {
+      return;
+    }
+    if (c->mem_r8(obj + 0x29) != 0) {
+      return;
+    }
     c->mem_w8(obj + 7, 0);
     return;
   }
   // st == 0
-  if (c->mem_r8(0x800BF816u) != 0) return;
-  if (c->mem_r8(obj + 0x29) == 0) return;
+  if (c->mem_r8(0x800BF816u) != 0) {
+    return;
+  }
+  if (c->mem_r8(obj + 0x29) == 0) {
+    return;
+  }
   uint32_t node = spawnOverlayVariant((uint16_t)(uint32_t)(int32_t)recordId, 2);
   c->mem_w32(obj + 0x14, node);
-  if (node == 0) return;
+  if (node == 0) {
+    return;
+  }
   c->mem_w16(obj + 0x40, 0x46);
   c->mem_w8(obj + 7, (uint8_t)(c->mem_r8(obj + 7) + 1));
 }

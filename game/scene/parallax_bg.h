@@ -30,7 +30,7 @@ class Core;
 
 class ParallaxBg {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // Guest-RAM address of the parallax BG state-machine struct (60 bytes at 0x800ED018).
   static constexpr uint32_t SM_ADDR = 0x800ED018u;

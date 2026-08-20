@@ -1,10 +1,10 @@
 ---
 id: 115
 title: Adopt clang + clang-format, drop extern C, drop beetle
-status: todo
+status: done
 labels: []
 created: 2026-08-20
-updated: 2026-08-20
+updated: 2026-08-21
 ---
 
 USER DECISIONS, 2026-08-20, taken while ending a session mid-change: "apply clang format and use clang from now on", "I don't think we need extern \"C\"", "Don't use beetle". Not proposals — do not re-open them as questions.
@@ -78,3 +78,11 @@ TWO TRAPS I FELL INTO AND FIXED, both recorded because they invalidate a naive A
 run.sh DEFAULTS TO CLANG and carries the measurement in a comment so the next person does not have to re-derive why. Override with CC/CXX in the environment to compare against gcc again. It also detects a stale compiler cache and re-configures from scratch: CMake REFUSES to change compiler on an existing cache, so without that guard this change would have broken the very next ./run.sh on any tree configured before it.
 
 STILL OPEN ON THIS CARD: game_iface.h at 520 lines against its 500-line ownership cap — the one remaining test failure, pre-existing, unrelated to formatting or to the compiler.
+
+**2026-08-21 — completed.** Tomba now refuses non-Clang C++ at configure time, tracks the same
+authoritative `.clang-format` and `.clang-tidy` profiles as psxport, and invokes psxport's single shared
+`check_cpp_style.py` from normal CTest against the real compile database. Clean-tree mode lints every
+compile-backed first-party C++ TU; format and structure checks cover all tracked first-party C/C++
+files while excluding generated/vendor/external trees. Existing sub-1,200 ratchets were preserved and
+every pre-policy file above 1,200 received its measured shrink-only cap. `game_iface.h` is now 495/500
+in psxport, so the last stated blocker is gone. No pre-commit hook was added.

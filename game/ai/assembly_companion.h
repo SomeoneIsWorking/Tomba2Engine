@@ -11,8 +11,8 @@
 // lens over the separate node the assembly SPAWNS at its own position, whose own behaviour handler is
 // FUN_80136D9C. The two are linked parent->child, and the leaf below reads across that link.
 #pragma once
-#include <cstdint>
 #include "core.h"
+#include <cstdint>
 
 // The global camera vertical-look MODE byte. It is not this companion's own state — it is a shared,
 // one-at-a-time channel into the field camera, and this family is one of its only two writers in the
@@ -41,8 +41,10 @@ constexpr uint8_t kCamPitchNormal = 0;
 
 class AssemblyCompanion {
 public:
-  AssemblyCompanion(Core* c, uint32_t at) : mCore(c), mAt(at) {}
-  uint32_t addr() const { return mAt; }
+  AssemblyCompanion(Core *c, uint32_t at) : mCore(c), mAt(at) {}
+  uint32_t addr() const {
+    return mAt;
+  }
 
   // --- how this node comes into existence, which is where every field meaning below comes from ----
   // The assembly calls SubstateEdgeLeaves::spawnInnerDispatchChild (0x8013892C) once its role byte is
@@ -54,7 +56,9 @@ public:
   // world position, and sets the child's role byte from the parent's.
 
   // parent (+0x10, u32): the ASSEMBLY node that spawned this companion. Read it through AssemblyNode.
-  uint32_t parent() const { return mCore->mem_r32(mAt + 0x10u); }
+  uint32_t parent() const {
+    return mCore->mem_r32(mAt + 0x10u);
+  }
 
   // role (+0x03, u8): copied from the parent assembly's own role byte at spawn, EXCEPT that a role-0
   //   parent yields role 3 while the scripted-sequence mode byte 0x800BF89C == 2. That fork is what
@@ -67,15 +71,23 @@ public:
   //   part-count byte table at 0x8014A9A4 and a blueprint-pointer table at 0x8014A994 by this byte,
   //   giving 6, 9, 10 and 9 sub-parts for roles 0..3 (roles 1 and 3 share the blueprint at
   //   0x8014A888), each blueprint a list of per-part local offsets, Euler angles and a part id.
-  uint8_t role() const { return mCore->mem_r8(mAt + 0x03u); }
+  uint8_t role() const {
+    return mCore->mem_r8(mAt + 0x03u);
+  }
 
   // subState (+0x05, u8) / step (+0x06, u8): the two-level sub-state the dispatcher walks. subState
   //   0 = idle (this leaf), 1 = the performance (guest 0x80137198), 2 = 0x8018CA1C. `step` is the
   //   performance's own step counter; the performance zeroes both when it ends, which is what hands
   //   control back to this leaf with the camera mode still held.
-  uint8_t subState() const { return mCore->mem_r8(mAt + 0x05u); }
-  void setSubState(uint8_t v) const { mCore->mem_w8(mAt + 0x05u, v); }
-  void setStep(uint8_t v) const { mCore->mem_w8(mAt + 0x06u, v); }
+  uint8_t subState() const {
+    return mCore->mem_r8(mAt + 0x05u);
+  }
+  void setSubState(uint8_t v) const {
+    mCore->mem_w8(mAt + 0x05u, v);
+  }
+  void setStep(uint8_t v) const {
+    mCore->mem_w8(mAt + 0x06u, v);
+  }
 
   // --- the companion's own RIG: a table of sub-part records it owns and poses every visible frame -
   // partCount (+0x08, u8): how many sub-parts the rig has. Written by the state-0 init
@@ -83,7 +95,9 @@ public:
   //   already described on role() above (6, 9, 10, 9 for roles 0..3) — and mirrored into node[9]
   //   immediately after. game/render/node_xform.cpp's Node lens calls the same pair
   //   childCount(0x08)/childCountGuard(0x09), which is what NodeXform's transform loops bound on.
-  uint8_t partCount() const { return mCore->mem_r8(mAt + 0x08u); }
+  uint8_t partCount() const {
+    return mCore->mem_r8(mAt + 0x08u);
+  }
   // kPartTable (+0xC0): the sub-part POINTER array, one u32 per part, in the standard scene-node
   //   place. The same init loop fills it: for each part it calls the generic child spawner
   //   0x8007AAE8 and stores the result into node+0xC0+4*i. Read each entry through AssemblyChild
@@ -94,8 +108,12 @@ public:
   //   here on every path that drops back to subState 0, and this leaf counts it down one per frame,
   //   testing the SIGN OF THE LOW 16 BITS — so the release fires on the frame the counter passes
   //   below zero, i.e. 31 frames after the performance ended, not 30.
-  uint16_t camHoldTimer() const { return mCore->mem_r16(mAt + 0x40u); }
-  void setCamHoldTimer(uint16_t v) const { mCore->mem_w16(mAt + 0x40u, v); }
+  uint16_t camHoldTimer() const {
+    return mCore->mem_r16(mAt + 0x40u);
+  }
+  void setCamHoldTimer(uint16_t v) const {
+    mCore->mem_w16(mAt + 0x40u, v);
+  }
 
   // seqMarker (+0x6A, s16): the performance's own sequence marker. FUN_80136F08 (state-0 init) zeroes
   //   it; FUN_80137198 sets it to 1 when it starts the routine (together with +0x6C) and steps it
@@ -107,18 +125,22 @@ public:
   //   on each (a group id compared against 0x800BF817 in beh_visibility_gate_dispatch, a count, a
   //   packed nibble pair for SFX ids, a matrix column scale, an angle). Nothing from those transfers
   //   here; the meaning above comes only from this family's own sibling leaf.
-  int32_t seqMarker() const { return mCore->mem_r16s(mAt + 0x6Au); }
-  void setSeqMarker(uint16_t v) const { mCore->mem_w16(mAt + 0x6Au, v); }
+  int32_t seqMarker() const {
+    return mCore->mem_r16s(mAt + 0x6Au);
+  }
+  void setSeqMarker(uint16_t v) const {
+    mCore->mem_w16(mAt + 0x6Au, v);
+  }
 
   // FUN_80138A64 — the idle-sub-state tick. See the banner in assembly_companion.cpp.
-  static void endCamHoldAndRearmOnStroke(Core* c);
+  static void endCamHoldAndRearmOnStroke(Core *c);
 
   // FUN_801389C8 — the per-visible-frame rig pose. See the banner in assembly_companion.cpp.
-  static void composeRigAndApplyPartScales(Core* c);
+  static void composeRigAndApplyPartScales(Core *c);
 
   static void registerOverrides();
 
 private:
-  Core*    mCore;
+  Core *mCore;
   uint32_t mAt;
 };

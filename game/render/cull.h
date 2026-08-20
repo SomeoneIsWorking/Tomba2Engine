@@ -14,7 +14,7 @@ class Core;
 
 class Cull {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // objectCull (FUN_8007712C): per-object cull body + widescreen margin re-include. Taxi-parameter
   // c->r[4] = object, c->r[5]/[6]/[7] = camera-relative dx/dz/dy (s16 each). Was ov_object_cull.
@@ -93,24 +93,32 @@ public:
   // report a false "queued by nobody, 45/45". This record is HOST MEMORY ONLY (no guest write, so
   // the SBS byte-compare is untouched) and it is per-Cull-instance, so the two SBS cores never share
   // it. `PSXPORT_DEBUG=cullpush` prints it, with its denominators.
-  static constexpr int SUBMIT_CAP = 256;                 // beyond this we count, we do not store
-  struct QueueSubmission { uint32_t node; uint8_t queue; uint8_t objClass; uint8_t type; bool accepted; };
+  static constexpr int SUBMIT_CAP = 256; // beyond this we count, we do not store
+  struct QueueSubmission {
+    uint32_t node;
+    uint8_t queue;
+    uint8_t objClass;
+    uint8_t type;
+    bool accepted;
+  };
   struct SubmitLog {
-    int  frame = -1;
+    int frame = -1;
     long culled = 0, kept = 0, routed = 0, capRejected = 0, overflow = 0;
-    int  n = 0;
+    int n = 0;
     QueueSubmission entry[SUBMIT_CAP];
   };
   // True iff this frame's cull pushed `node` onto a render queue AND the queue accepted it.
   bool submittedThisFrame(uint32_t node) const;
-  const SubmitLog& submitLog() const { return mSubmit; }
+  const SubmitLog &submitLog() const {
+    return mSubmit;
+  }
 
   // enqueueVisibleClass4 (FUN_80077EBC): MANUAL push of `obj` onto render class 4's list — the same
   // list-add tail performBaseCull runs when the base cull KEEPS a class-4 object, but callable
   // directly by beh_ handlers whose scene-specific logic decides an object should render this frame
   // (bypassing the base cull test). Respects the cap-40 limit at *(0x1F800150). Callers set obj[+1]=1
   // themselves; this method only manipulates the queue. Was rec_dispatch(0x80077EBCu) in 5+ handlers.
-  uint32_t enqueueVisibleClass4(uint32_t obj);   // returns v0 (new count on push, 0 on cap-hit)
+  uint32_t enqueueVisibleClass4(uint32_t obj); // returns v0 (new count on push, 0 on cap-hit)
 
   // cullWrapperFlag1 (FUN_80077870): CULL WRAPPER variant of cullWrapper — same taxi shape (obj in
   // c->r[4], camera-relative delta computed from obj+0x2E/0x32/0x36 vs cam@0x1F8000D2/D6/DA), but
@@ -166,7 +174,11 @@ private:
 
   // Pure (read-only) cull decision — reproduces FUN_8007712c's control flow without committing
   // writes. queue: 0=none, 1=A, 2=B, 3=C.
-  struct Decision { int kept; int wrote_state2; int queue; };
+  struct Decision {
+    int kept;
+    int wrote_state2;
+    int queue;
+  };
   Decision decide();
 
   // coneCull2b278's body; commit!=0 also sets the node visible flag on keep.
@@ -183,14 +195,14 @@ private:
   // Records one queue push (or one cap-rejected push) into mSubmit, rolling the log at the frame
   // boundary and emitting the `cullpush` census for the frame that just ended.
   void noteQueuePush(uint32_t obj, int queue, bool accepted);
-  void submitLogRoll();                          // frame boundary: flush the census, reset the log
-  void submitLogFlush(const SubmitLog& log) const;
+  void submitLogRoll(); // frame boundary: flush the census, reset the log
+  void submitLogFlush(const SubmitLog &log) const;
   SubmitLog mSubmit;
 
   // Lazily-initialized cfg caches (-1/-2 = not read yet). Per-instance so the two SBS cores don't
   // share diagnostic state.
-  int mObjLog = -1;                              // PSXPORT_DEBUG=obj per-object log
-  int mCullEnvRead = -1, mCullFar = 0, mCullFov = 0;   // PSXPORT_CULL_FAR / PSXPORT_CULL_FOV
-  int mFarMult = -1;                             // skip-mode far multiplier
-  int mOnlyType = -2, mSkipType = -2;            // PSXPORT_CULL_ONLY_TYPE / PSXPORT_CULL_SKIP_TYPE
+  int mObjLog = -1;                                  // PSXPORT_DEBUG=obj per-object log
+  int mCullEnvRead = -1, mCullFar = 0, mCullFov = 0; // PSXPORT_CULL_FAR / PSXPORT_CULL_FOV
+  int mFarMult = -1;                                 // skip-mode far multiplier
+  int mOnlyType = -2, mSkipType = -2;                // PSXPORT_CULL_ONLY_TYPE / PSXPORT_CULL_SKIP_TYPE
 };

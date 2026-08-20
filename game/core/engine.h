@@ -12,11 +12,9 @@
 // implementation; this class is the public interface (called by the scheduler
 // and by the state-machine handlers themselves once fully migrated).
 //
-// Migration is progressive: methods are added here as pieces of engine.cpp are
-// class-ified. The existing static helpers in engine.cpp keep working meanwhile
-// — an Engine method may currently be a thin forwarder to a static ov_*
-// function in that TU. As each is class-ified in place, the forwarder
-// collapses.
+// Migration is progressive: existing static helpers keep working while methods
+// are added here. An Engine method may be a thin forwarder to a static ov_* in
+// engine.cpp until that body is class-ified in place and the forwarder collapses.
 #pragma once
 #include "ai/actor_melee_engage.h"     // Engine owns the ActorMeleeEngage AI leaf (FUN_80112188)
 #include "ai/attack_orbit_substate.h"  // Engine owns the A00-overlay AttackOrbitSubstate sub-behaviors
@@ -46,11 +44,11 @@
 #include "scene_transition.h"         // Engine owns the SceneTransition subsystem instance
 #include "sop.h"                      // Engine owns the Sop intro-cutscene field stage machine
 #include "transition_state3.h"        // Engine owns the TransitionState3 walker instance
+#include "ui/card_menu.h"             // Engine owns the CardMenu save/load browser producer (#102)
 #include "ui/font.h"                  // Engine owns the Font boot-time init subsystem
 #include "ui/options_page.h"          // Engine owns the OptionsPage five-page producer (#38 / #7)
 #include "ui/pause_menu.h"            // Engine owns the PauseMenu in-game menu display producer (#21)
 #include "ui/start_page.h"            // Engine owns the StartPage in-game START page producer (#35)
-#include "ui/card_menu.h"             // Engine owns the CardMenu save/load browser producer (#102)
 #include "world/area_slots.h"         // Engine owns the AreaSlots slot-table state machine
 #include "world/graphics_bind.h"      // Engine owns the GraphicsBind object render-bind subsystem
 #include "world/placement.h"          // Engine owns the Placement field-object driver
@@ -163,8 +161,7 @@ public:
   PauseMenu pauseMenu;                       // in-game pause/item menu native display producer
                                              // (FUN_800346BC)
   StartPage startPage;                       // in-game START page native display producer (FUN_8007EAE4)
-  CardMenu cardMenu;                         // memory-card save/load menu native display producer
-                                             // (CRD overlay FUN_8018FBCC)
+  CardMenu cardMenu;                         // memory-card save/load producer (CRD overlay FUN_8018FBCC)
   OptionsPage optionsPage;                   // OPTIONS five-page native display producer
                                              // (FUN_8007F104..F8F8)
   ScorePopup scorePopup;                     // score/AP-gem pickup popup native display producer

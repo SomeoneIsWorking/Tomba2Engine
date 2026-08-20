@@ -28,7 +28,7 @@
 #include "core.h"
 #include "game.h"
 #include "render.h"
-#include <lucent/log.h>   // `attract` diagnostic channel (the gate decision + its denominators)
+#include <lucent/log.h> // `attract` diagnostic channel (the gate decision + its denominators)
 
 // attractItemLive — IS THERE AN ATTRACT WORLD THIS FRAME? (kanban #86, the fix for the pre-existing
 // "UNMAPPED RAM read8 @ 0x07035D41 in fieldObjectsRender <- renderAttract" abort.)
@@ -89,7 +89,7 @@ bool Render::attractItemLive() const {
 // field. renderTitle sets fps60.mTier1EligibleCur = FALSE at its top, so re-set it TRUE here (a real 3D
 // world → tier-1-eligible → 60fps). The 2D 'DEMO' watermark is a deferred 2D layer (see file banner).
 void Render::renderAttract() {
-  Core* c = mCore;
+  Core *c = mCore;
   const bool live = attractItemLive();
   // A frame this producer DECLINED to draw must be as visible as one it drew, or "the attract world is
   // missing" and "there is no attract world yet" read identically in a log. So the line carries the
@@ -97,12 +97,19 @@ void Render::renderAttract() {
   // heads with head[0]'s link word — the exact bytes that make the launch-frame list dead.
   const uint32_t h0 = c->mem_r32(0x800FB168u);
   const bool h0InRam = h0 >= 0x80010000u && h0 < 0x80200000u;
-  lucent::debug("attract", "f{} world={} itemBuilt={} phase={} item={} heads={:08X}/{:08X}/{:08X} "
-                           "head0.link={:08X} (head0 in RAM={})",
-                c->game->gpu.s_frame, live ? "DRAWN" : "SKIPPED(item not built)",
-                c->mem_r8(kAttractItemBuiltLatch), c->mem_r16(0x801FE04Au), c->mem_r8(0x800bf870u),
-                h0, c->mem_r32(0x800F2624u), c->mem_r32(0x800F2738u),
-                h0InRam ? c->mem_r32(h0 + 0x24u) : 0u, h0InRam ? 1 : 0);
+  lucent::debug("attract",
+                "f{} world={} itemBuilt={} phase={} item={} heads={:08X}/{:08X}/{:08X} "
+                "head0.link={:08X} (head0 in RAM={})",
+                c->game->gpu.s_frame,
+                live ? "DRAWN" : "SKIPPED(item not built)",
+                c->mem_r8(kAttractItemBuiltLatch),
+                c->mem_r16(0x801FE04Au),
+                c->mem_r8(0x800bf870u),
+                h0,
+                c->mem_r32(0x800F2624u),
+                c->mem_r32(0x800F2738u),
+                h0InRam ? c->mem_r32(h0 + 0x24u) : 0u,
+                h0InRam ? 1 : 0);
   // LAUNCH / TEARDOWN frames: the item's area is still streaming in (or is gone), so there is no world to
   // build a picture from — every world structure sceneNative reads (entity lists, terrain nodes, scene
   // table, backdrop struct) belongs to the item being torn down or the one not yet loaded. Draw nothing.
@@ -117,9 +124,11 @@ void Render::renderAttract() {
   // rather than repeated. If the reference turns out to blank instead, the correct change is a
   // gpu_blank_display() on this path — it cannot reintroduce the crash either way, since the crash was the
   // WALK, not the presentation. Open question, not a hidden assumption.
-  if (!live) return;
-  c->game->fps60.mTier1EligibleCur = true;   // native world render runs → fps60 tier-1 may re-render it
-  DisplayPassGuard displayPass(c->rsub.mode);   // read-only invariant: aborts on any guest write
+  if (!live) {
+    return;
+  }
+  c->game->fps60.mTier1EligibleCur = true;    // native world render runs → fps60 tier-1 may re-render it
+  DisplayPassGuard displayPass(c->rsub.mode); // read-only invariant: aborts on any guest write
   sceneNative();
-  cineBarsRender();     // cinematic letterbox bars (emits nothing when no cutscene bars are active)
+  cineBarsRender(); // cinematic letterbox bars (emits nothing when no cutscene bars are active)
 }

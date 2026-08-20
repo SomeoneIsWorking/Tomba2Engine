@@ -5,7 +5,7 @@ class Core;
 
 class DemoLeafA {
 public:
-  Core* mCore = nullptr;
+  Core *mCore = nullptr;
 
   void run();
 };

@@ -17,7 +17,7 @@ struct Core;
 
 class LibcdNative {
 public:
-  explicit LibcdNative(Core* c) : core(c) {}
+  explicit LibcdNative(Core *c) : core(c) {}
 
   // FUN_8008BBE8 — CdNewMedia. Reads PVD sector 16, walks the path-table, populates the guest
   // in-memory directory table at 0x80102D68 (0x2C stride, up to 128 entries). Returns 1 on
@@ -48,5 +48,5 @@ public:
   uint32_t posToInt(uint32_t cdlfile_guest_addr, uint32_t ra);
 
 private:
-  Core* core;
+  Core *core;
 };

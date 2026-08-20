@@ -65,16 +65,16 @@
 // callback that spills its caller's callee-saved registers must spill the cursor/index the
 // substrate would have spilled, not whatever the previous native code parked there. Hence
 // GuestReg<16>/<17> rather than a `for (int i...)`.
+#include "libapi_intr.h"
 #include "core.h"
 #include "game.h"
-#include "guest_abi.h"           // GuestFrame / GuestReg / guest_dispatch — the ABI vocabulary
-#include "libapi_intr.h"
-#include "override_registry.h"   // engine_set_override_main / overrides::install
+#include "guest_abi.h"         // GuestFrame / GuestReg / guest_dispatch — the ABI vocabulary
+#include "override_registry.h" // engine_set_override_main / overrides::install
 #include "rec_decls.h"
-#include "recomp_iface.h"        // psxport_recomp()->shard_set_override
-extern void func_80086320(Core*);
-extern void func_80085B50(Core*);   // callees of initVblankCallbacks, reached through their
-                                    // generated wrappers so each keeps its own guest frame
+#include "recomp_iface.h" // psxport_recomp()->shard_set_override
+extern void func_80086320(Core *);
+extern void func_80085B50(Core *); // callees of initVblankCallbacks, reached through their
+                                   // generated wrappers so each keeps its own guest frame
 
 namespace {
 // libapi's hardware-register pointer table. Entry 0 is I_MASK (0x1F801074); entry 1 is DPCR
@@ -87,34 +87,34 @@ constexpr uint32_t kLibapiDataBase = 0x800B0000u;
 
 // libapi's VSyncCallback table: 8 function-pointer slots, zeroed by initVblankCallbacks() (which
 // calls clearWords(table, 8)) and walked by runVblankCallbacks().
-constexpr uint32_t kVsyncCallbackTable = kLibapiDataBase - 16960u;   // 0x800ABDC0
+constexpr uint32_t kVsyncCallbackTable = kLibapiDataBase - 16960u; // 0x800ABDC0
 constexpr uint32_t kVsyncCallbackSlots = 8;
 
 // The libetc VSync tick counter: zeroed by initVblankCallbacks(), +1 per VBlank by
 // runVblankCallbacks(). This is DAT_800abde0 — the value libetc's VSync(-1) query returns.
-constexpr uint32_t kVblankTickCount = kLibapiDataBase - 16928u;      // 0x800ABDE0
+constexpr uint32_t kVblankTickCount = kLibapiDataBase - 16928u; // 0x800ABDE0
 
 // A pointer slot immediately above the counter, in the same family as kLibapiHwPtrTable: a live
 // headless read after 400 frames shows [0x800ABDE4] = 0x1F801114, the root-counter 1 (Timer 1)
 // MODE register. initVblankCallbacks() writes 0x100 through it — bit 8 is Timer 1's clock-source
 // select, i.e. count HBLANKs, which is the counter libetc's VSync(1) "hblank delta" query reads.
-constexpr uint32_t kTimer1ModePtrSlot = kLibapiDataBase - 16924u;    // 0x800ABDE4 -> 0x1F801114
+constexpr uint32_t kTimer1ModePtrSlot = kLibapiDataBase - 16924u; // 0x800ABDE4 -> 0x1F801114
 constexpr uint32_t kTimer1ModeHblankSource = 0x100;
 
 // Guest code addresses this file names.
-constexpr uint32_t kVblankHandler = 0x80086288u;   // runVblankCallbacks — the handler installed...
-constexpr uint32_t kIrqVblank = 0;                 // ...for IRQ 0 (VBLANK)...
-constexpr uint32_t kInitVblankRetValue = 0x800862F4u;  // ...and initVblankCallbacks' own v0.
+constexpr uint32_t kVblankHandler = 0x80086288u;      // runVblankCallbacks — the handler installed...
+constexpr uint32_t kIrqVblank = 0;                    // ...for IRQ 0 (VBLANK)...
+constexpr uint32_t kInitVblankRetValue = 0x800862F4u; // ...and initVblankCallbacks' own v0.
 
 // jal-site return addresses (the r31 constants the gen bodies load before each call).
 constexpr uint32_t kRaClearWords = 0x80086260u;
 constexpr uint32_t kRaInterruptCallback = 0x80086270u;
 constexpr uint32_t kRaCallbackSlot = 0x800862D0u;
-}  // namespace
+} // namespace
 
-void LibapiIntr::setIntrMask(Core* c) {
+void LibapiIntr::setIntrMask(Core *c) {
   const uint32_t imaskPtr = c->mem_r32(kLibapiHwPtrTable);
-  const uint32_t previous = c->mem_r16(imaskPtr);      // lhu — zero-extended, see the banner
+  const uint32_t previous = c->mem_r16(imaskPtr); // lhu — zero-extended, see the banner
   c->mem_w16(imaskPtr, (uint16_t)c->r[4]);
   c->r[2] = previous;
 }
@@ -122,21 +122,21 @@ void LibapiIntr::setIntrMask(Core* c) {
 // FUN_0x80086230 — VBlank-callback subsystem init: clear the 8-slot VSyncCallback table and its
 // tick counter, then install runVblankCallbacks() below as the IRQ-0 (VBLANK) handler.
 // ORACLE: gen_func_80086230
-void LibapiIntr::initVblankCallbacks(Core* c) {
-  static constexpr GuestFrameSpill kSpills[] = {{31 /*ra*/, 16}};   // -24, abi_extract-verified
+void LibapiIntr::initVblankCallbacks(Core *c) {
+  static constexpr GuestFrameSpill kSpills[] = {{31 /*ra*/, 16}}; // -24, abi_extract-verified
   GuestFrame<24, 1> frame(c, kSpills);
 
-  c->r[4] = kVsyncCallbackTable;   // a0 for the clearWords() call below — set early, kept live
+  c->r[4] = kVsyncCallbackTable; // a0 for the clearWords() call below — set early, kept live
   c->mem_w32(c->mem_r32(kTimer1ModePtrSlot), kTimer1ModeHblankSource);
-  c->r[1] = kLibapiDataBase;       // $at, see kLibapiDataBase
+  c->r[1] = kLibapiDataBase; // $at, see kLibapiDataBase
   c->mem_w32(kVblankTickCount, 0);
 
   c->r[5] = kVsyncCallbackSlots;
-  guest_call(c, kRaClearWords, func_80086320);          // clearWords(table, 8)
+  guest_call(c, kRaClearWords, func_80086320); // clearWords(table, 8)
 
   c->r[5] = kVblankHandler;
   c->r[4] = kIrqVblank;
-  guest_call(c, kRaInterruptCallback, func_80085B50);   // InterruptCallback(IRQ_VBLANK, handler)
+  guest_call(c, kRaInterruptCallback, func_80085B50); // InterruptCallback(IRQ_VBLANK, handler)
 
   c->r[2] = kInitVblankRetValue;
 }
@@ -145,51 +145,68 @@ void LibapiIntr::initVblankCallbacks(Core* c) {
 // registered in the 8-slot table. See this file's second banner for the identification, the
 // PlatformHle determination and the LIVE-REGISTER note.
 // ORACLE: gen_func_80086288
-void LibapiIntr::runVblankCallbacks(Core* c) {
+void LibapiIntr::runVblankCallbacks(Core *c) {
   // Read before the frame descends sp, exactly as the gen body does (lw into v0, then addiu sp).
   const uint32_t ticks = c->mem_r32(kVblankTickCount);
 
   static constexpr GuestFrameSpill kSpills[] = {{17, 20}, {16, 16}, {31 /*ra*/, 24}};
-  GuestFrame<32, 3> frame(c, kSpills);   // -32, abi_extract-verified (program order preserved)
+  GuestFrame<32, 3> frame(c, kSpills); // -32, abi_extract-verified (program order preserved)
 
-  GuestReg<17> slotIndex(c);   // s1 — 0..7, live across every callback dispatch
-  GuestReg<16> slotAddr(c);    // s0 — &table[slotIndex], live across every callback dispatch
-  GuestReg<2>  v0(c);          // v0 — the loaded handler, then the loop condition (0 on return)
+  GuestReg<17> slotIndex(c); // s1 — 0..7, live across every callback dispatch
+  GuestReg<16> slotAddr(c);  // s0 — &table[slotIndex], live across every callback dispatch
+  GuestReg<2> v0(c);         // v0 — the loaded handler, then the loop condition (0 on return)
 
   slotIndex = 0;
   slotAddr = kVsyncCallbackTable;
-  c->r[1] = kLibapiDataBase;   // $at, see kLibapiDataBase
+  c->r[1] = kLibapiDataBase; // $at, see kLibapiDataBase
   c->mem_w32(kVblankTickCount, ticks + 1u);
 
   // do-while: all 8 slots are visited unconditionally; the null test is per-slot, inside the loop.
   do {
     v0 = c->mem_r32(slotAddr);
-    if (v0 != 0u) guest_dispatch(c, kRaCallbackSlot, v0);
+    if (v0 != 0u) {
+      guest_dispatch(c, kRaCallbackSlot, v0);
+    }
     slotIndex += 1u;
     v0 = (uint32_t)((int32_t)(uint32_t)slotIndex < (int32_t)kVsyncCallbackSlots);
-    slotAddr += 4u;            // branch-delay slot — advanced on every iteration, taken or not
+    slotAddr += 4u; // branch-delay slot — advanced on every iteration, taken or not
   } while (v0 != 0u);
 }
 
 // FUN_0x80086320 — the word-fill helper: writes N words of a constant.
 // ORACLE: gen_func_80086320
-void LibapiIntr::clearWords(Core* c) {
-    { int _t = (c->r[5] == c->r[0]); c->r[2] = c->r[5] + (uint32_t)-1; if (_t) goto L_8008633C; }
-    c->r[3] = c->r[0] + (uint32_t)-1;
-  L_8008632C:;
-    c->mem_w32((c->r[4] + (uint32_t)0), c->r[0]);
-    c->r[2] = c->r[2] + (uint32_t)-1;
-    { int _t = (c->r[2] != c->r[3]); c->r[4] = c->r[4] + (uint32_t)4; if (_t) goto L_8008632C; }
-  L_8008633C:;
-     return;
+void LibapiIntr::clearWords(Core *c) {
+  {
+    int _t = (c->r[5] == c->r[0]);
+    c->r[2] = c->r[5] + (uint32_t)-1;
+    if (_t) {
+      goto L_8008633C;
+    }
+  }
+  c->r[3] = c->r[0] + (uint32_t)-1;
+L_8008632C:;
+  c->mem_w32((c->r[4] + (uint32_t)0), c->r[0]);
+  c->r[2] = c->r[2] + (uint32_t)-1;
+  {
+    int _t = (c->r[2] != c->r[3]);
+    c->r[4] = c->r[4] + (uint32_t)4;
+    if (_t) {
+      goto L_8008632C;
+    }
+  }
+L_8008633C:;
+  return;
 }
 
-void LibapiIntr::registerOverrides(Game*) {
+void LibapiIntr::registerOverrides(Game *) {
   engine_set_override_main(0x80085C9Cu, &LibapiIntr::setIntrMask, gen_func_80085C9C);
   engine_set_override_main(0x80086320u, &LibapiIntr::clearWords, gen_func_80086320);
   engine_set_override_main(0x80086230u, &LibapiIntr::initVblankCallbacks, gen_func_80086230);
   // Named install so PSXPORT_DEBUG=ovhit reports this one in game terms rather than as a bare
   // address — it is the hottest thing in this file (~2 hits per frame, forever).
-  overrides::install(kVblankHandler, "LibapiIntr::runVblankCallbacks", &LibapiIntr::runVblankCallbacks,
-                     gen_func_80086288, psxport_recomp()->shard_set_override);
+  overrides::install(kVblankHandler,
+                     "LibapiIntr::runVblankCallbacks",
+                     &LibapiIntr::runVblankCallbacks,
+                     gen_func_80086288,
+                     psxport_recomp()->shard_set_override);
 }

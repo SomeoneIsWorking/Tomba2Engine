@@ -20,7 +20,7 @@ struct Core;
 
 class Collision {
 public:
-  Core* core = nullptr;
+  Core *core = nullptr;
 
   // listScan(obj): FUN_80031780 — list-tail resolver / reset for the 8-byte-stride linked list
   //   rooted at obj+52. Walks entries until a terminator tag (bit30|bit31) is hit; either clears
@@ -33,11 +33,11 @@ public:
 
   // gridQuery(): FUN_80047CBC — collision-grid cell query / neighbor-walk. Reads scratchpad probe
   //   coords and walks cells; returns 0 (off-grid/blocked) or 1 (resolved).
-  int  gridQuery();
+  int gridQuery();
 
   // gridResolve(obj): FUN_800498C8 — resolve loop pairing step + setup + query for a probe object.
   //   Returns 0 (query blocked / off-grid) or 1 (resolved / terminal cell reached).
-  int  gridResolve(uint32_t obj);
+  int gridResolve(uint32_t obj);
 
   // gridStep(obj): FUN_8004798C — per-step grid-origin/index setup. Reloads the grid for the
   //   probe object's recorded id if needed, then clamps + recomputes probe coords.

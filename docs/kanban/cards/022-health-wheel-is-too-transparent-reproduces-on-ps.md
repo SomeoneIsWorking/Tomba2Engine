@@ -1,99 +1,92 @@
 ---
 id: 22
-title: Health wheel is too transparent — reproduces on psx_render too, so the oracle is NOT the reference
-status: doing
+title: Health wheel native blend and AddPrim order differ from the PSX
+status: done
 labels: [render]
 created: 2026-07-22
-updated: 2026-07-29
-evidence: docs/reference/issues/issue22_health_wheel_reference.png,           docs/reference/issues/issue22_health_wheel_reference_dark.png
+updated: 2026-08-21
+evidence:
+  - docs/reference/issues/issue22_health_wheel_reference.png
+  - docs/reference/issues/issue22_health_wheel_reference_dark.png
+  - scratch/screenshots/health_wheel_probe.png
+  - scratch/screenshots/health_wheel_after.png
+  - scratch/screenshots/oracle_health_fullorderfix_f560_A.ppm
+  - scratch/screenshots/oracle_health_fullorderfix_f560_B.ppm
+  - scratch/screenshots/oracle_health_uvphase_final_f560_A.ppm
+  - scratch/screenshots/oracle_health_uvphase_final_f560_B.ppm
+  - scratch/screenshots/oracle_health_uvphase_final_f561_A.ppm
+  - scratch/screenshots/oracle_health_uvphase_final_f561_B.ppm
 ---
 
-USER 2026-07-22: the health display shown when taking damage is TOO TRANSPARENT, and - crucially - the user believes psx_render shows the SAME. Reference is docs/reference/issues/issue22_health_wheel_reference.png, a capture of the REAL GAME (sourced externally by the user): a near-SOLID blue/red segmented wheel with a green centre disc and a yellow numeral, over which the sky and sea barely read through at all. READ THIS BEFORE STARTING - the usual method DOES NOT APPLY HERE. Every other render card this week is verified by comparing pc_render against psx_render in one process via the renderpsx toggle, on the principle that the oracle is right and we are wrong. If this bug reproduces on BOTH legs then the oracle is WRONG TOO and that comparison will show 0 diff and read as 'nothing to fix' - a false negative. FIRST STEP is therefore to establish which it is: capture the wheel on both legs and against the reference image. If both legs match each other and neither matches the reference, the fault is UPSTREAM of the renderer split - i.e. in code both legs share. This is the documented case where psx_render is not ground truth (see the standing note that the oracle has its own render bugs; the USER's eye, or a real-game reference like this one, is the arbiter for visuals). PRIME SUSPECT given both legs agree: semi-transparency handling rather than geometry. PSX semi modes are 0.5B+0.5F, B+F, B-F, B+0.25F - selecting the wrong one, or applying semi to a primitive the guest draws opaque, yields exactly 'too transparent'. Check the semi bit and blend-mode decode on the wheel's primitives (RqItem::semi / tp_blend, the GP0 opcode's semi bit) against what the guest packet actually asks for. Repro: take damage in free-roam, shot the frames while the wheel is up.
+USER 2026-08-21: "Please do oracle compare for Tomba! 2 health indicator"
 
-**2026-07-22:** SECOND REFERENCE (USER 2026-07-22): docs/reference/issues/issue22_health_wheel_reference_dark.png - the same wheel over a DARK green/black background, where the first reference has it over bright sky/sea. Comparing the two is worth more than either alone and narrows the mechanism: over bright sky the wheel reads BRIGHT royal blue with vivid red/pink segments; over dark ground the SAME wheel reads DARK navy with muted red. So the background genuinely modulates it - the wheel IS semi-transparent in the real game, and 'make it opaque' would be the WRONG fix. The direction of that modulation (darker over dark, brighter over bright) is the signature of the AVERAGING mode 0.5*B+0.5*F, not additive B+F (which would keep the wheel bright over a dark background) and not subtractive. So the reference behaviour is: semi mode 0, over what still reads as a fairly solid disc. THEREFORE the likely fault is NOT the blend equation but a MISSING OPAQUE BACKING - the wheel is probably an opaque disc with semi segments composited over it, and if the opaque layer has no native producer we would see only the semi layers over the world, which is exactly 'too transparent'. That puts this in the SAME family as #19 and #21 (panel fills whose opaque slice never reaches the picture) rather than in blend-mode decode. Check that first: enumerate the wheel's prims on both legs and look for an opaque primitive present on one and absent on the other, before touching any blend code.
+USER 2026-08-21: "True oracle, not the oracle renderer"
 
-**2026-07-22:** 2026-07-22 NOT REPRODUCED — no fix attempted, and no blend code touched, because guessing without seeing the prims is the bandaid this repo bans. DEAD ENDS (do not repeat): walking left from AUTO_SKIP free-roam dead-ends at the cliff and walking right dead-ends at the bucket obstacle, so no enemy is reachable with a held direction (10x300-frame sweep, scratch/screenshots/uilayer/hunt/montage.png); poking the damage/invincibility word 0x800ECF54 that ActorTomba::invincibilityFlashStep (FUN_80060268) reads with 0x10/0x20/0x90/0xB0 does not raise the wheel; forcing the field-HUD ring state 0x800ED061 to 1 or 3 does not (FUN_80025934 'item ring' is a different element); tapping select/l1/r1/l2/r2/square/circle/cross/start does not. NEXT STEP: record a damage replay under replays/bugs/, then answer from the data (debug otattr + PSXPORT_PRIMAT on a wheel pixel: semi bit + blend bits). LEAD carried over from #21, worth checking first: the guest sets blend mode with a SEPARATE GP0 0xE1 draw-mode packet ahead of the prim (that is exactly how the pause menu's subtractive dim works), so any producer deriving blend only from a group's own tpage word silently falls back to mode 0 = 0.5B+0.5F averaging — which reads as 'too transparent' and matches the card's own two-reference analysis.
+USER 2026-08-21: "Yes we don't have lockstep oracle, just find out why our port draws it wrong"
 
-**2026-07-28:** 2026-07-28 STATIC PROGRESS (USER: don't try to reproduce by play — it is statically reachable, and Tomba should be hurtable via REPL). Symptoms restated by USER: (a) too transparent / wrong blend, (b) POSSIBLE SPRITE POSITIONING FAULT — 'two halves overlapped on a 1px line'. (b) is new and is a geometry claim, checkable independently of the blend question: if the wheel is emitted as two half-sprites, a 1px overlap/gap at the seam is a quad-position or UV-inset bug, NOT a blend bug — check the seam before touching any blend code.
+## Resolution
 
-MECHANISM MAP (static, no gameplay needed):
-- HUD gauge emitter = FUN_8004FD30 (frame) + FUN_8004FB4C (item), already native as HudGaugeEmitter. Table at 0x800BF548.
-- 0x800BF548 is NOT a bare 'enable flag' as hud_gauge_emitter.h describes it — it is a STATE byte (values 0/1/2) driven by FUN_8004FE84, with a SUB-STATE byte at 0x800BF549. Correct that header when this lands.
-- FUN_8004FE84 is the show/hide controller (the only lui-based writer of 0x800BF548 besides FUN_8005019C). On the 0->1 edge it loads a POINTER P from 0x800ECF64 and publishes P -> 0x800BF7F8, P+16 -> 0x800BF7FC, and P+16+(*(u16*)P << 1) -> 0x800BF800. So P is the gauge's DATA SOURCE: count at *P, array at P+16.
-- The item count the emitter walks is at 0x800BF550 (base+8) and it has NO lui-based writer anywhere in the dump (find_refs, validated against the known-hot 0x800BF544 which returns 6 hits) — so it is written through a base register, most likely from P.
+The health wheel was washed out because psxport's Vulkan semi-texture shader implemented ABR0 as
+`F/2+B`, not the PSX equation `(F+B)>>1`. `trisemi_hw.frag` emitted a half-strength source but alpha
+1, while its fixed-function pipeline uses source alpha as the destination coefficient. The shared
+shader now emits destination coefficient 0.5 for ABR0/STP=1, 0 for opaque STP=0 texels, and 1 for
+ABR1--3. The 5-bit source and integer AVG/ADD_FOURTH rules are quantized in that same shipping path.
+No HUD-specific override, opaque backing, or guessed positioning adjustment was added.
 
-MEASURED: in field free-roam (walk-dust-puff.pad f300) the table reads 0x800BF548 = {01 00 ...}: state ALREADY 1, sub-state 0, and COUNT AT +8 IS ZERO. Forcing the sub-state byte to 1 via REPL 'w8 800BF549 1' takes (verified: byte reads back 01) but draws nothing, because the item count is still 0. So the HP/status gauge is EMPTY in field free-roam — this table is not by itself the damage wheel, and flag-forcing alone is NOT a repro. DEAD END, do not repeat.
+The repaired true interpreter/software-GPU B pane then falsified the claim that blend math was the
+whole defect. The native producer emitted `fieldHudItemRing` groups in guest call order, but the guest
+helpers use `AddPrim`, which prepends every packet to one OT bucket; the final PSX draw order is the
+reverse. `RenderQueue` appends and preserves submission order. The producer now submits its entire
+group sequence in final guest draw order: fixed chrome calls reversed, both item-loop families
+reversed, and each loop index reversed. Reversing only the three chrome calls fixed the centre numeral
+but left the red wedges beneath the translucent halves, which positively controlled the full-function
+fix.
 
-NEXT CONCRETE STEP: read P = *(u32*)0x800ECF64 live, dump the structure at P (count at +0, array at +16), and populate/raise it from the REPL — that is the statically reachable handle the USER means. Then answer the seam question (b) first with PSXPORT_PRIMAT on the two halves' quad coords, before the blend question (a).
+The final 47-pixel lower-right residual was not producer geometry, UV, material, or another ordering
+fault. A raw guest GP0 capture and the native queue contain the same winning FT4 byte-for-byte:
+`xy={(39,47),(55,47),(39,31),(55,31)}`, `uv={(56,15),(72,15),(56,31),(72,31)}`, CLUT `(496,203)`,
+tpage `0x0006`. The Vulkan shaders instead truncated a UV interpolated at fragment centres, whereas
+the PSX affine rasterizer evaluates at native integer pixels. Decreasing slopes therefore selected
+the preceding texel. The shared opaque, semi, and semi-cover shader paths now reconstruct the
+integer-pixel UV at 1x and internal resolutions, then snap it to the PSX rasterizer's
+12-fractional-bit grid before texel selection. No game-specific UV adjustment was added.
 
-ALSO CORRECTED THIS SESSION: actor_tomba.cpp's invincibilityFlashStep comment said the damage word is at 0x800A5354; the gen body loads 32783<<16 - 12460 = 0x800ECF54 (tools/gen_annotate.py 80060268). Fixed in-tree.
+The retained bright and dark real-game references prove the wheel is intentionally
+background-modulated; making it opaque would be wrong.
 
-**2026-07-28:** 2026-07-28 (cont). TWO HYPOTHESES FALSIFIED — do not retry either.
+## Reproduction and packet evidence
 
-(1) 'P is the life values.' FALSE. P = *(u32*)0x800ECF64 = 0x801601D4 in field free-roam; its header reads u16[0]=120, u16[1]=117, which looked like max/current life. It is not: FUN_8004FE84 computes the table END as P+16+(*(u16*)P << 1) and publishes 0x801602D4, which equals P+16+240 exactly — so *(u16*)P = 120 is an ENTRY COUNT and what follows is a 120-entry u16 LOOKUP TABLE (values monotonically increasing 0,11,18,29,39,47,62,69,89,95,107,117,135,185,211,265,...). PROVEN by experiment, not by argument: writing 0x00280078 to P (current=40, max=120) and re-shooting at the SAME replay frame as an unpoked control gives 0 px differ. The naive before/after comparison shows 75151/76800 px changed and means NOTHING — that is just 6 frames of a walking replay; always compare against a same-frame control here.
+`newgame; run 300; warp 4; run 600` presents the wheel around f914/f915. The actual owner is
+`Render::fieldHudItemRing` (`0x80025934`): 3,159 primitives over 351 sampled frames, exactly nine per
+frame. The two large halves are raw, semi-transparent ABR0 textured quads using texture page
+`(384,0)` and CLUT `(496,203)`. That CLUT mixes STP and non-STP entries, so the same primitive must
+blend blue/green texels and overwrite its red gradient texels opaquely.
 
-(2) 'Forcing the gauge state draws the wheel.' FALSE, recorded earlier: state is already 1, count at 0x800BF550 is 0, and forcing the sub-state byte draws nothing.
+The authored halves span x=8..32 and x=31..55. Their one-column overlap explains the visible centre
+seam, which is also present in the real-game reference; it is not the washout cause.
 
-DAMAGE-WORD WRITE CHAIN (new, from tools/find_refs.py on a field free-roam dump, tool validated against the known-hot 0x800BF544): the damage/state word 0x800ECF54 is WRITTEN by exactly four functions — FUN_8005950C (5 stores, the densest and the best candidate for the damage entry point), FUN_80059D28, FUN_800788AC, FUN_80079464. It is READ by FUN_80036DFC, FUN_800387E8, FUN_800399FC, FUN_80054E80, FUN_80055390, FUN_8005563C, FUN_8005570C, FUN_80055E28 and FUN_80060268. Card already records that poking this word directly with 0x10/0x20/0x90/0xB0 does NOT raise the wheel, so the wheel is gated on something downstream of one of those four writers, not on the word alone. NEXT: RE FUN_8005950C (tools/gen_annotate.py 8005950C) and find what state it sets BESIDES the damage word — that is the missing gate.
+## Falsifiers
 
-ALSO: the HUD gauge (0x800BF548) is driven from the GAME and DEMO overlays (rec_dispatch 0x8004FE84 in ov_game_shard_0/1 and ov_demo_shard_0/1), so it is the general HUD gauge system, not a damage-specific element — which is consistent with the wheel being a separate client rather than this table.
+- The production SPIR-V selftest renders through the shipping shader and fixed-function pipelines.
+  Before the fix it passed 14/16 cases, failing only ABR0/STP=1 over both dark and bright
+  destinations. After the fix it passes 16/16: ABR0--3 × dark/bright × STP1/STP0.
+- In the live bright scene, 1,612/2,352 wheel-crop pixels changed. Mean RGB changed from
+  `(155.03,180.10,217.05)` to `(95.68,125.41,189.58)`, removing the pale background wash.
+- In the bounded true-SBS area-4 capture at f560, software B is 76,800/76,800 non-black. Before the
+  AddPrim-order correction, native A mismatched all 340/340 pixels whose B value is exactly one of the
+  wheel CLUT's nine opaque red-gradient entries. The full-function reversal reduces that to 47/340;
+  the other 293 agree exactly. The full 56x42 crop changes 565/2,352 pixels from the pre-order A.
+- Before the shared UV-phase correction, the residual is stable at f560/f561: 47/340 pixels in
+  x=40..52,y=33..45. The production shipping-path phase test initially passes only 2/5 at 1x:
+  positive X/Y pass while negative X/Y and a mixed non-unit slope fail. It now passes 20/20 across
+  1x/3x, opaque/semi, positive/negative X/Y, and mixed non-unit slopes; the established 16/16
+  semi-equation matrix remains green.
+- Final true-SBS captures `oracle_health_uvphase_final_f{560,561}_{A,B}.ppm` are exact on the same
+  nine-word wheel palette mask: **0/340 differing pixels at f560 and 0/340 at f561**.
+- Falsify the landed parts if the semi pipeline factors, `trisemi_hw.frag`, 5-bit output encoder,
+  shared `psx_uv.glsl` helper, captured wheel packet/CLUT material, or `fieldHudItemRing`'s AddPrim
+  call sequence changes.
 
-Cross-check worth keeping: G_ADDR (Tomba's state block) = 0x800E7E80, and the area-21 particle field ported today reads its wind angle from 0x800E7ED6 = G_ADDR+86, i.e. that effect leans with a field of Tomba's own state.
-
-**2026-07-28:** 2026-07-28 (autonomous tick). WHY THE ORACLE SHARES THE FAULT — structural answer, and it re-points the whole investigation.
-
-field_hud.cpp (the pc_render field-HUD producer) owns exactly four things: fieldHudStatusRow, fieldHudItemRing, fieldHudWeaponStrip, fieldHudRender. THERE IS NO HEALTH-WHEEL PRODUCER IN IT. If the wheel had no producer at all it would be MISSING under pc_render — but USER reports it as PRESENT-but-wrong on BOTH legs. So the wheel is not drawn by pc_render at all: it is drawn by a FAITHFUL-SUBSTRATE-MIRROR emitter, i.e. code that writes the SUBSTRATE's own packet pool + OT and therefore executes identically on both legs. HudGaugeEmitter (FUN_8004FD30/FUN_8004FB4C) is documented in its own header as exactly that carve-out. That is a complete explanation of 'the oracle has the same issue because it is not a true oracle in every sense' — the two legs share the emitter, so no pc-vs-psx diff can ever see this bug, by construction.
-
-CONSEQUENCE FOR METHOD: stop looking for a missing/incorrect pc_render producer and stop looking at blend decode in the RenderQueue. The fault is in the SHARED emitter chain: HudGaugeEmitter::emitFrame/emitItem (ours) and its three still-substrate leaves — FUN_80081CF8 (DR_AREA packet builder), FUN_8004EB94 (SEGMENT LAYOUT) and FUN_8005019C (digit/label draw). USER's 'two halves overlapped on a 1px line' is a SEGMENT LAYOUT symptom, which puts FUN_8004EB94 first in line.
-
-DAMAGE-WORD PAIR (new): FUN_8005950C is NOT the damage setter — it is a SAVE/RESTORE. It reads 0x800ECF54 and 0x800E7E68 into a register pair, zeroes both, and later writes them back (a suspend/restore of Tomba's damage state, e.g. across a cutscene). So the damage word has a COMPANION at 0x800E7E68 (= G_ADDR-24) that is always manipulated with it, and the card's earlier attempts poked 0x800ECF54 ALONE.
-
-WHY THE OLD POKES WERE NO-OPS — measured: in normal field free-roam 0x800ECF54 already reads 0xC020, i.e. bit 0x20 is ALREADY SET all the time. Poking it with 0x20/0x90/0xB0 (as recorded on this card) was therefore writing a value it largely already had. Companion 0x800E7E68 reads 0x0000 in the same frame. Readers of the companion are mostly the SAME functions that read the damage word (FUN_80036DFC, FUN_800387E8, FUN_800399FC) plus FUN_800251F0 (=Engine::fieldTargetCursor), FUN_80025588 (=Engine::sceneEventFifo) and FUN_80026148 (unowned) — none of which touch the packet pool or OT, so the companion is gameplay state, NOT a render gate.
-
-**2026-07-28:** 2026-07-28 (autonomous tick 2). RE'd FUN_8004EB94 — the leaf this card's chain named as 'segment layout'. IT IS NOT SEGMENT LAYOUT. It is a CENTRED 8x8-GLYPH TEXT ROW (generated/shard_3.c:12761-12852):
-  a0 = byte string terminated by 0xFF, a1 = Y.
-  width = FUN_8004EA4C(str, 0); x = 160 - (width >> 1)  <-- an ODD width loses a half pixel, so the row sits 0.5px left of true centre. That is the GUEST's own rounding, not ours.
-  per char: emit one sprite at x, then x += 8.
-  atlas is 32 cells per row: u = (ch & 31) << 3, v = (ch >> 5) << 3, cells 8x8.
-  ch == 0xFB is skipped but still advances x by 8.
-  any ch with ((ch + 16) & 255) < 8 is a CONTROL CODE latching the palette for following glyphs; clut word = ((code & 255) + 496) << 6 | 63.
-  The emitted packet is code 117 (0x75) with X at +(-5), Y at +(-3), clut at +1, u at +(-1), v at +0 relative to the running pointer.
-
-WHY THIS MATTERS FOR THE SYMPTOM: every atlas cell is 8 PIXELS WIDE, so any glyph wider than 8px MUST be drawn as TWO ADJACENT CELLS advancing 8 apart. That is precisely the shape of the USER's 'two halves overlapped on a 1px line'. So the seam claim is checkable HERE, on the pair advance / the atlas cell width, and it is upstream of anything to do with blend. CHECK THE PAIR ADVANCE FIRST.
-
-The two candidate seam mechanisms, both testable statically: (a) the glyph is 9px of ink in an 8px cell, so consecutive cells overlap by 1 — a content/atlas issue; (b) the advance should be 8 but the sprite is emitted 9 wide (or vice versa) — an emit-width issue. Neither is a blend bug.
-
-DOC FIX LANDED: hud_gauge_emitter.h/.cpp both described FUN_8004EB94 as the 'segment-layout leaf' and the emitter as making 'two segment-layout calls per active item (the individual gauge/HP segments)'. That wording is what sent this card hunting for gauge segments. Both banners now say TEXT ROW and carry the RE above.
-
-**2026-07-29:** 2026-07-28/29 (autonomous tick 3). RE'd FUN_8004EA4C, the width measurement FUN_8004EB94 centres with. THE TWO LEAVES DISAGREE ABOUT WHICH CHARACTERS OCCUPY SPACE.
-
-FUN_8004EA4C(str a0, outCountPtr a1) -> width in v0 (generated/shard_1.c:8490-8521):
-  terminates on 0xFF or 0xFA (and if a1 != 0 stores the character COUNT there);
-  0xFB adds 8 (tested before everything else);
-  every other char adds 8 ONLY IF ch < 0xC0 — chars >= 0xC0 add ZERO.
-
-FUN_8004EB94 (layout) advances 8 for every char EXCEPT the control codes 0xF0-0xF7, and terminates only on 0xFF.
-
-Enumerated all 256 codes: they disagree on FIFTY-FOUR of them — 0xC0-0xEF, 0xF8-0xFA, 0xFC-0xFE. For each such character in a HUD string the measured width UNDERCOUNTS by 8 while the row still advances 8. Since the row is centred as x = 160 - (width >> 1), every such character shifts the whole row 4px RIGHT of true centre and makes it extend 8px further right than the centring assumed. 0xFA is worse than a miscount: MEASURE STOPS THERE but LAYOUT KEEPS DRAWING, so a string containing 0xFA is measured as a prefix and drawn in full.
-
-STATUS OF THIS AS A CAUSE — BE HONEST ABOUT IT: both leaves are still-substrate and run identically on both legs, so this asymmetry is the GUEST's own behaviour and is faithful by construction. It therefore CANNOT be the bug unless the real console differs. What it IS: a concrete, exact mechanism by which a HUD text row ends up horizontally misaligned in a way BOTH legs share, which is the property #22 needs to explain. It is a candidate, not a verdict.
-
-NEXT STEP, and it is cheap and decisive: find the actual byte string the wheel/gauge row draws and check whether it contains ANY code in 0xC0-0xEF / 0xF8-0xFA / 0xFC-0xFE. If it does not, this mechanism is IRRELEVANT to #22 and should be dropped from the card rather than left as a plausible-sounding lead. If it does, the misalignment is quantifiable from the string alone (4px right per such char) and can be compared against the USER's reference image.
-
-**2026-07-29:** 2026-07-29 (autonomous tick 4). TWO CORRECTIONS, ONE OF THEM TO MY OWN TICK-1 CONCLUSION. Read the first live gauge record found in any dump (scratch/raw/bucket_f470.bin is the only one with count != 0: state=1 sub=2 count=1).
-
-(1) STRIKE THE 54-CODE WIDTH-MISMATCH LEAD. The descriptor at record+16 is not a pointer — it is the INLINE byte string. It reads F3 22 55 43 4B 45 54 F0 FB 41 43 51 55 49 52 45 44 01 FF = a palette-latch, a special first glyph, 'UCKET', a palette-latch, a space, 'ACQUIRED', terminator — i.e. 'BUCKET ACQUIRED'. It contains ZERO codes from the 0xC0-0xEF / 0xF8-0xFA / 0xFC-0xFE mismatch set: the only high bytes are F3 and F0 (control codes, where measure and layout AGREE on zero width) and FB (where they agree on 8). So the measure/layout disagreement is real in the code but does not fire on this string. As promised on the card, it is struck rather than left sitting there sounding plausible.
-
-(2) HudGaugeEmitter IS NOT THE HEALTH WHEEL'S EMITTER — my tick-1 structural claim was WRONG. The record header is x=96 y=158 w=128 h=8 and the payload is a text banner. This table is the on-screen TEXT BANNER system (quest/pickup messages — 'BUCKET ACQUIRED' is literally kanban #64's quest-update banner), not an HP display. hud_gauge_emitter.cpp's own banner claims it draws 'the individual gauge/HP segments' and 'the HP/status gauge segments'; the live data contradicts that outright. That is the FOURTH misleading annotation this bug has turned up (after 0x800A5354, 'draw-enable flag', and 'segment layout').
-
-CONSEQUENCE: the tick-1 explanation — 'the wheel is drawn by HudGaugeEmitter, a faithful-substrate-mirror carve-out, which is why both legs share the fault' — DOES NOT HOLD. The mechanism it described (a substrate-mirror emitter running identically on both legs) is still the only shape that explains a both-legs-identical fault, but the emitter is NOT this one and remains UNIDENTIFIED. Do not build on tick 1's conclusion.
-
-WHERE THAT LEAVES THE HUNT: the wheel's emitter is still unknown. field_hud.cpp owns four producers and none is the wheel; HudGaugeEmitter is the banner system. The next move is to identify the wheel's emitter directly rather than by elimination — capture a frame with the wheel actually up (still the unsolved prerequisite) and use PSXPORT_DEBUG=nofx / otattr to name what emits it, or find the emitter statically by looking for a producer that draws a radial/segmented primitive set.
-
-**2026-07-29:** 2026-07-29 (autonomous tick 5). LOOKED AT THE REFERENCE IMAGE PROPERLY (docs/reference/issues/issue22_health_wheel_reference.png) — it settles what the element IS and corroborates the USER's seam claim. The wheel is a DISC drawn as a LEFT HALF and a RIGHT HALF with a visible vertical seam down the centre: left half solid blue, right half divided into radial red/pink segments by blue dividers, a GREEN CIRCULAR HUB in the middle carrying a large yellow NUMERAL (the reference shows '4' = remaining life). So 'two halves overlapped on a 1px line' is literally the vertical centre seam between the two half-disc sprites. Whatever the emitter turns out to be, the geometry to check is the X of the right half vs the X+width of the left half.
-
-STATE-SWEEP EXPERIMENT (method works, range was wrong): poked 0x800ED050-0x800ED06F all to 1 in field free-roam and compared against a SAME-FRAME control (the control discipline this card now requires). Result: 1025 px changed at x[16..120] y[184..206] — and the crop shows it drew the ITEM RING / WEAPON STRIP (the pin-shaped element with the item icon), not the wheel. So that region is the item-ring/weapon-strip HUD state, consistent with 0x800ED061 already being known as the ring state, and THE WHEEL'S STATE IS NOT IN 0x800ED050-6F. Recorded as a bounded negative so the next session sweeps elsewhere.
-
-The poke-sweep-with-same-frame-control IS a working instrument for this hunt — it found and drew a real HUD element on the first try. What is missing is the right address range, not the technique.
-
-STILL BLOCKED on the prerequisite: getting the wheel on screen. USER stated it is statically reachable and that Tomba should be hurtable via REPL; five ticks of static RE have not located the life value or the damage entry point that raises it. Damage-word write chain is mapped (FUN_8005950C is a save/restore of the pair 0x800ECF54 + 0x800E7E68; other writers FUN_80059D28, FUN_800788AC, FUN_80079464, and overlay FUN_80106A2C) but none has been shown to raise the wheel.
+The GPU-only Beetle tee is not called a true oracle here: it consumes the port's GP0 stream and
+cannot detect upstream state or packet-generation faults. Card #119 records the repaired
+interpreter/software-GPU oracle path and its limits.

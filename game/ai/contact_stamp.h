@@ -25,12 +25,12 @@
 // every check. Only the mechanics are repeated here.
 #pragma once
 struct Core;
-class  Game;
+class Game;
 
 class ContactStamp {
 public:
   // FUN_80111304(G = a0, item = a1). Writes item+0x2B on overlap; G+0x2E / G+0x36 on the snap path.
-  static void stampAndSnap(Core* c);
+  static void stampAndSnap(Core *c);
 
-  static void registerOverrides(Game* game);
+  static void registerOverrides(Game *game);
 };

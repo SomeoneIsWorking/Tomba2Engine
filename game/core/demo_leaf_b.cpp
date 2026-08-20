@@ -11,17 +11,17 @@
 #include "core/demo_leaf_b.h"
 #include "core.h"
 
-void rec_dispatch(Core*, uint32_t);  // overlay_router.cpp — shared dispatch choke point
-void func_8001EC3C(Core*);  // generated/shard_disp.c
+void rec_dispatch(Core *, uint32_t); // overlay_router.cpp — shared dispatch choke point
+void func_8001EC3C(Core *);          // generated/shard_disp.c
 
 void DemoLeafB::run() {
-  Core* c = mCore;
-    c->r[29] = c->r[29] + (uint32_t)-24;
-    c->mem_w32((c->r[29] + (uint32_t)16), c->r[31]);
-    c->r[31] = 0x8002312Cu;
-     func_8001EC3C(c);
-    c->r[31] = c->mem_r32((c->r[29] + (uint32_t)16));
-    c->r[29] = c->r[29] + (uint32_t)24; return;
-    return;
+  Core *c = mCore;
+  c->r[29] = c->r[29] + (uint32_t)-24;
+  c->mem_w32((c->r[29] + (uint32_t)16), c->r[31]);
+  c->r[31] = 0x8002312Cu;
+  func_8001EC3C(c);
+  c->r[31] = c->mem_r32((c->r[29] + (uint32_t)16));
+  c->r[29] = c->r[29] + (uint32_t)24;
+  return;
+  return;
 }
-

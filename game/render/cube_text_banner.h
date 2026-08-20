@@ -28,5 +28,5 @@ public:
   // (render_walk.cpp) for every pre-composed-matrix node; self-filters on the behaviour pointer, so
   // a non-banner node of the same render class produces nothing rather than a guessed-transform mesh.
   // READ-ONLY: guest memory is only read, no c->r[] is touched, nothing runs on the oracle leg.
-  static void render(Core* c, uint32_t node);
+  static void render(Core *c, uint32_t node);
 };

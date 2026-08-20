@@ -51,73 +51,82 @@
 
 #include "core.h"
 #include "guest_abi.h"
-#include "override_registry.h"
 #include "ov_a00_decls.h"
+#include "override_registry.h"
 
 namespace {
 
 constexpr GuestFrameSpill kSpills_8010EA80[4] = {
-  { 17, 20 }, { 31 /*ra*/, 28 }, { 18, 24 }, { 16, 16 },
+    {17, 20},
+    {31 /*ra*/, 28},
+    {18, 24},
+    {16, 16},
 };
 
 constexpr uint32_t kRaAfterClassify = 0x8010EAC8u;
-constexpr uint32_t kRaAfterSpecial  = 0x8010EB20u;
-constexpr uint32_t kRaAfterGeneric  = 0x8010EB3Cu;
-constexpr uint32_t kRaAfterCos      = 0x8010EB50u;
-constexpr uint32_t kRaAfterSin      = 0x8010EB74u;
+constexpr uint32_t kRaAfterSpecial = 0x8010EB20u;
+constexpr uint32_t kRaAfterGeneric = 0x8010EB3Cu;
+constexpr uint32_t kRaAfterCos = 0x8010EB50u;
+constexpr uint32_t kRaAfterSin = 0x8010EB74u;
 constexpr uint32_t kRaAfterAngleCmp = 0x8010EBF8u;
 
-constexpr uint32_t kClassifyBodyContact = 0x8001F40Cu;   // CollisionResolve::classifyBodyContact
-constexpr uint32_t kSpecialInteract     = 0x8001F830u;
-constexpr uint32_t kGenericInteract     = 0x8001FDB4u;
-constexpr uint32_t kRcos                = 0x80083F50u;   // Trig::rcos
-constexpr uint32_t kRsin                = 0x80083E80u;   // Trig::rsin
-constexpr uint32_t kAngleCmp            = 0x80077768u;   // Trig::angleCmp
+constexpr uint32_t kClassifyBodyContact = 0x8001F40Cu; // CollisionResolve::classifyBodyContact
+constexpr uint32_t kSpecialInteract = 0x8001F830u;
+constexpr uint32_t kGenericInteract = 0x8001FDB4u;
+constexpr uint32_t kRcos = 0x80083F50u;     // Trig::rcos
+constexpr uint32_t kRsin = 0x80083E80u;     // Trig::rsin
+constexpr uint32_t kAngleCmp = 0x80077768u; // Trig::angleCmp
 
-constexpr uint32_t kScratchpadBase    = 0x1F800000u;
-constexpr uint32_t kContactAngleSlot  = 156;  // 0x1F80009C — shared with cylinderResolve
-constexpr uint32_t kContactKindSlot   = 311;  // 0x1F800137 — classifyBodyContact publishes here
-constexpr uint32_t kContactFlagSlot   = 386;  // 0x1F800182 — cleared once a contact is accepted
+constexpr uint32_t kScratchpadBase = 0x1F800000u;
+constexpr uint32_t kContactAngleSlot = 156; // 0x1F80009C — shared with cylinderResolve
+constexpr uint32_t kContactKindSlot = 311;  // 0x1F800137 — classifyBodyContact publishes here
+constexpr uint32_t kContactFlagSlot = 386;  // 0x1F800182 — cleared once a contact is accepted
 
-constexpr uint32_t kGlobalGate = 0x800BF841u;  // non-zero suppresses the whole response
+constexpr uint32_t kGlobalGate = 0x800BF841u; // non-zero suppresses the whole response
 
-constexpr int32_t  kTrigShift    = 12;         // trig terms are 12-bit fixed
-constexpr int32_t  kAngleToByte  = 4;
-constexpr int32_t  kOppositeTurn = 2048;       // half a turn
-constexpr uint8_t  kOtherReceptive = 1;
-constexpr uint8_t  kWalkReady      = 1;
-constexpr int32_t  kContactClassLimit = 2;
-constexpr uint8_t  kRecoilState    = 3;
-constexpr uint8_t  kRecoilPhase    = 2;
-constexpr uint16_t kRecoilTicks    = 120;
+constexpr int32_t kTrigShift = 12; // trig terms are 12-bit fixed
+constexpr int32_t kAngleToByte = 4;
+constexpr int32_t kOppositeTurn = 2048; // half a turn
+constexpr uint8_t kOtherReceptive = 1;
+constexpr uint8_t kWalkReady = 1;
+constexpr int32_t kContactClassLimit = 2;
+constexpr uint8_t kRecoilState = 3;
+constexpr uint8_t kRecoilPhase = 2;
+constexpr uint16_t kRecoilTicks = 120;
 
-}  // namespace
+} // namespace
 
 // ORACLE: ov_a00_gen_8010EA80
-void ActorBump::respondToContact(Core* c) {
+void ActorBump::respondToContact(Core *c) {
   GuestFrame<32, 4> frame(c, kSpills_8010EA80);
 
-  GuestReg<17> actorReg(c);  actorReg = c->r[4];
+  GuestReg<17> actorReg(c);
+  actorReg = c->r[4];
   GuestReg<18> otherReg(c);
   GuestReg<16> scratch(c);
 
-  const BumpActor actor{ c, c->r[17] };
+  const BumpActor actor{c, c->r[17]};
   otherReg = c->r[5];
-  const BumpOther other{ c, c->r[18] };
+  const BumpOther other{c, c->r[18]};
 
-  if (actor.paused()) return;
-  if (c->mem_r8(kGlobalGate) != 0) return;
+  if (actor.paused()) {
+    return;
+  }
+  if (c->mem_r8(kGlobalGate) != 0) {
+    return;
+  }
 
   c->r[6] = 1;
   guest_dispatch(c, kRaAfterClassify, kClassifyBodyContact);
   const int32_t contactClass = (int32_t)c->r[2];
-  if (contactClass < 0) return;
+  if (contactClass < 0) {
+    return;
+  }
 
   c->mem_w8(kScratchpadBase + kContactFlagSlot, 0);
 
   if (other.state() == kOtherReceptive) {
-    const bool ready = actor.walkState() == kOtherReceptive
-                    && contactClass < kContactClassLimit;
+    const bool ready = actor.walkState() == kOtherReceptive && contactClass < kContactClassLimit;
     if (ready) {
       // ── INTERACT ─────────────────────────────────────────────────────────────────────────────
       if ((actor.stateFlags() & (int32_t)actorbump::kSpecialBit) != 0) {
@@ -141,7 +150,7 @@ void ActorBump::respondToContact(Core* c) {
     guest_mult(c, (int32_t)c->r[2], actor.reach() + other.reach());
     c->r[4] = c->mem_r32(scratch + kContactAngleSlot);
     const int32_t offsetX = (int32_t)c->lo >> kTrigShift;
-    scratch = (uint32_t)offsetX;                       // s0 carries it across the rsin call
+    scratch = (uint32_t)offsetX; // s0 carries it across the rsin call
     guest_dispatch(c, kRaAfterSin, kRsin);
     guest_mult(c, (int32_t)c->r[2], actor.reach() + other.reach());
     actor.setPosX((uint16_t)(other.posX() + (uint32_t)scratch));
@@ -151,9 +160,15 @@ void ActorBump::respondToContact(Core* c) {
   }
 
   // ── RECOIL: the other object was not receptive, so the actor takes the hit ───────────────────
-  if (c->mem_r8(kScratchpadBase + kContactKindSlot) != 0) return;
-  if ((actor.state() & actorbump::kStateBusyMask) != 0) return;
-  if (!(actor.walkState() < 2u)) return;
+  if (c->mem_r8(kScratchpadBase + kContactKindSlot) != 0) {
+    return;
+  }
+  if ((actor.state() & actorbump::kStateBusyMask) != 0) {
+    return;
+  }
+  if (!(actor.walkState() < 2u)) {
+    return;
+  }
 
   scratch = kScratchpadBase;
   c->r[4] = (uint32_t)actor.facing();
@@ -163,8 +178,8 @@ void ActorBump::respondToContact(Core* c) {
   // Hit from one side reads the angle straight; from the other it is biased half a turn, so the
   // recoil always drives him away from whatever struck him.
   const uint32_t angle = c->mem_r32(scratch + kContactAngleSlot);
-  const int32_t stamped = (c->r[2] != 0) ? ((int32_t)angle >> kAngleToByte)
-                                         : ((int32_t)(angle + (uint32_t)kOppositeTurn) >> kAngleToByte);
+  const int32_t stamped =
+      (c->r[2] != 0) ? ((int32_t)angle >> kAngleToByte) : ((int32_t)(angle + (uint32_t)kOppositeTurn) >> kAngleToByte);
   actor.setContact((uint8_t)stamped);
   actor.setPhase(kRecoilPhase);
   actor.setSubPhase(kRecoilPhase);
@@ -174,6 +189,9 @@ void ActorBump::respondToContact(Core* c) {
 }
 
 void ActorBump::registerOverrides() {
-  overrides::install(0x8010EA80u, "ActorBump::respondToContact", &ActorBump::respondToContact,
-                     ov_a00_gen_8010EA80, ov_a00_set_override);
+  overrides::install(0x8010EA80u,
+                     "ActorBump::respondToContact",
+                     &ActorBump::respondToContact,
+                     ov_a00_gen_8010EA80,
+                     ov_a00_set_override);
 }
