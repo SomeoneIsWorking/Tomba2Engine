@@ -148,3 +148,68 @@ SO THE 13.5% IS NOT AN OPTIMISATION TARGET. These are posted stores to write-com
 I WAS WRONG EARLIER ON THIS CARD in the other direction too: I reported the snapshot-gating result as "the memcpy is not the cost". The cut was 0.5 MB of 3 MB — about 2% of the frame — which was below my noise floor at the time, so that test could not have shown an effect either way. The conclusion happened to be right; the reasoning was not.
 
 WHAT THIS LEAVES. The frame is 3.30 ms and the two biggest NAMED items we own are the ordering contest (rq_faces_in_contest_ext 11.6%) and OtAttr (7.6%). Beyond that the profile is telling us where the PC is, not where the time goes — and the next honest step is a different KIND of instrument: something that measures WAITING (GPU fence/submit latency), not sampling. `ioctl` at 1.6% of samples with a 3.3 ms frame is a hint that submission is involved, but a sampled PC cannot size it.
+
+**2026-08-20:** 2026-08-20 — THE FRAME IS NOT GPU-BOUND. psxport 139521a4 (no kanban note existed for this commit).
+
+The previous note ended by saying the honest next step was a different KIND of instrument: one that
+measures WAITING, not sampling. Built it — gpu_submit and gpu_submit_and_wait are timed per frame on
+`debug gpuwait`. Measured, 3D field scene:
+
+    submit                 ~30 us/frame, 1 call
+    fenced submit + wait      0 us,      0 calls
+
+0.9% of a 3,300 us frame, and nothing ever blocks on a fence. THE HYPOTHESIS IS CLOSED: the remaining
+time is genuinely our CPU work, and the sampled profile can now be read at face value. That is the
+useful outcome of the instrument, not a speedup.
+
+STILL UNRESOLVED, and honest about it: after the dirty-row staging change memmove went 13.49% ->
+12.30%. A 28% cut in staged BYTES moved its share ~1.2 points, so VRAM staging is a MINORITY of
+memmove time and a LARGER COPY SOURCE HAS NOT BEEN FOUND. `debug vramcopy` counts only those two
+copies, so it structurally cannot see the rest. The instrument that would finish it is a
+linker-wrapped memcpy (-Wl,--wrap=memcpy) attributing bytes to __builtin_return_address(0) — turning
+"12% is in memmove" into "these call sites move these bytes". RECORDED, NOT BUILT.
+
+NEXT TARGETS, both things we own and both larger than what is left of memmove:
+    rq_faces_in_contest_ext   11.7%
+    OtAttr                     9.8%
+
+**2026-08-20:** 2026-08-20 — PROFILE THE GAME, NOT THE CPU (USER). The host profile said WHERE the program counter
+is; it never said what the game ASKS FOR. Measured the second thing, on the same 1,100-frame scene
+(`PSXPORT_DEBUG=keyord`, 942 logic frames), and it reframes the whole card.
+
+WHAT THE GAME SUBMITS, AND WHAT WE DO ABOUT IT, per call:
+
+    caller          calls  faces/c   prims/c  pairtests/c
+    fps60-tier1      1959      274       942        14103
+    flush             942      124       127        10625
+
+Per LOGIC FRAME that is 10,625 + 2 x 14,103 = 38,831 pair tests, to order roughly 270 faces out of
+~940 submitted prims. The PSX ordered those same prims with an ordering table — a bucket sort, O(n),
+which the game HANDED US. We reconstruct the answer with ~39,000 pairwise screen-space tests.
+
+WHERE THOSE 38.7 MILLION PAIR TESTS (whole run) ACTUALLY GO:
+
+    bbox-reject     32,150,457    83.0%   the two faces do not overlap on screen AT ALL
+    depth-reject     2,118,619     5.5%   ord ranges cannot cross
+    reached clip     4,444,522    11.5%
+    FOUND INVERSION    192,639     0.50%  <- of ALL pair tests
+
+83% of the work is a SPATIAL OVERLAP QUERY ANSWERED BY BRUTE FORCE, and half a percent of it finds
+anything. The loop is O(n^2) within each node group (render_queue.cpp:2128-2151), so cost scales with
+the square of faces per object rather than with how many faces actually overlap. THAT is the
+structural item, and it is why micro-optimising rq_faces_in_contest_ext (12.6% of frame) is the wrong
+altitude: the fix is not to make a pair test faster, it is to stop offering pairs that cannot touch.
+A screen-space index (uniform grid, or a sweep on x) removes the 83% by construction.
+
+NOTE flush's shape: 124 faces from only 127 prims, yet 10,625 pair tests — 27% of the frame's pair
+tests for 13% of its prims. Its faces sit in essentially ONE node group, so it is the maximally
+quadratic case.
+
+TWO THINGS I SUSPECTED AND MEASURED TO BE FALSE, recorded so nobody re-derives them:
+  * "the contest runs 3x per frame, so 2/3 is redundant" — NO. finalize() has exactly two callers by
+    design (flush for the real frame, Fps60::tier1Render for the interpolated one; kanban #17 is what
+    happens when only one runs it). The two tier1 contests are two DIFFERENT in-between renders: at
+    f900 they see 250 vs 253 faces. They looked identical at f1090 only because the options page
+    freezes the world. Not redundancy.
+  * `finalize()` now takes a `who` label and the keyord census prints it, because prim counts alone
+    could not say which site the third contest came from and I guessed wrong from them first.
