@@ -153,3 +153,28 @@ WHERE THE FRAME ACTUALLY GOES, on a 3D scene, best current estimate:
     rest  actual game + render work
 
 NEXT, in value order: (1) make resolveClaimedFrame cheaper — it walks a shadow stack per prim and is 13.31% alone, and unlike the ordering quadratic nobody has looked at it yet; (2) the spatial index for the ordering group. (1) is now clearly the bigger and simpler win.
+
+**2026-08-20:** 2026-08-20 — THE DB IS CACHED NOW, and that was the USER's point, not mine. psxport 743e21fe.
+
+USER: "but the DB is supposed to be cached so same effect doesn't keep hammering the framerate". Right, and it was not. I had made the LOOKUP O(1); the actual problem was that the lookup was happening at all, every frame, for effects already resolved.
+
+resolveClaimedFrame runs once per SPAN (10,188 spans on a terrain-heavy frame) and walked the shadow stack doing a claim lookup at each level EVERY FRAME. Its answer is a pure function of (visible stack prefix, claim set) — neither of which changes between frames for the same effect.
+
+    OtAttr::resolveClaimedFrame   13.31%  ->  3.81%
+    OtAttr::trackStoreSlow         3.91%  ->  3.78%   (a different function, untouched)
+    OtAttr TOTAL                  17.2%   ->  7.6%
+
+TWO CHANGES:
+  1. ProducerCensus::claims() was a LINEAR SCAN, called up to 8x per span — ~224 comparisons per span at 28 claims. Now an open-addressed mirror of the same array (~1 probe), rebuilt lazily when the set grows. mClaims stays the truth so everything handing out claim POSITIONS is untouched.
+  2. resolveClaimedFrame caches on the call-chain prefix, invalidated when the claim set grows (claims are append-only, so nothing else can change an answer). A hit re-compares the WHOLE stored prefix — never "the hash agreed". Silently wrong attribution is the one failure a producer DB must not have.
+
+METHODOLOGY NOTE WORTH KEEPING: wall-clock A/B was USELESS for this. Load average was 5.3 with another process pinned at 99% CPU, and the timings came back 5.63/5.95/5.91 s against 5.35/5.43 earlier — i.e. the "after" looked like a regression purely from machine noise. The host profiler measures THIS process's CPU time (ITIMER_PROF) and is immune to that; it is the instrument to use on a shared machine. I nearly recorded a regression that did not exist.
+
+CORRECTNESS GATE: the DB still answers identically — 400 frames, 2 rows, prims seen 2364 = attributed 2364, nothing unaccounted, 5,502 spans joined. And the resolved/unresolved tallies are incremented on cache HITS too: counting only misses would have shrunk every number the report prints the moment the cache started working, so the report would have "improved" because the counter broke.
+
+WHERE A 3D FRAME NOW GOES:
+    ~29%  render-queue ordering   (rq_ord_at_setup 20.8 + contest 6.9 + resolve 1.8)
+    ~7.6% producer census         (was 17.2%)
+    ~25%  shared libraries        (unresolved by symbol)
+    rest  game + render work
+The ordering contest is now unambiguously the biggest thing we own, and the remaining lever there is the quadratic itself — a spatial index over the precomputed extents.
