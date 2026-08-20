@@ -70,3 +70,29 @@ THE REVISED PICTURE, and it is less dramatic but still bad:
 A REALISTIC TARGET, stated as arithmetic rather than ambition: renderer to ~0.2 ms and substrate to ~0.3 ms gives ~0.9 ms/frame -> ~1,100 fps, ~37x realtime. That is a 5x improvement available, not the 15-30x I claimed. The claim of 3,000-6,000 fps rested on the game being free and is withdrawn.
 
 FIRST ACTION FOR WHOEVER PICKS THIS UP: fix phase 0 — either point it at where the work went or delete it. A counter that reads 0.00 for "not measured" will mislead the next person exactly as it misled me. That is a workflow defect and it outranks the optimisation.
+
+**2026-08-20:** 2026-08-20 — PRESENTER FIXED, the way the card said to fix it. psxport 26974cd4.
+
+USER: "fix the presenter, it makes no sense to have intensive contest CPU thing". Right — and the fix was not to make the sampling faster but to stop sampling.
+
+ord is AFFINE per triangle, so (ord_far - ord_near) is affine over the region both faces cover, that region is convex, and an affine function's maximum over a convex polygon is at a VERTEX. Clip one triangle by the other, evaluate at the survivors. Exact, and a handful of evaluations instead of 128.
+
+    wall clock    5.044 -> 4.071 s      -19.3%
+    PRESENT-cpu   2.42  -> 1.75 ms      -27.7%
+    frame         4.42  -> 3.29 ms      226 -> 304 fps
+
+IT CHANGES WHAT IS DRAWN, deliberately. 118 of 262 faces snap where the grid snapped 109; 192,639 inversions found where the grid found 152,304. The grid was missing REAL inversions — the "sub-sample sliver" residual the file documented was not theoretical. On screen that is 19 pixels of 691,200 at f1090 (0.003%), so it removes latent depth-fighting rather than restyling anything.
+
+TWO BUGS ON THE WAY, both caught by the SNAP COUNT and neither by the hermetic oracle test:
+  * boundary points: clipping admits points ON an edge, so mesh-adjacent faces survived as a zero-area sliver and reported an inversion for every adjacent pair — 221 of 262 snapped. Fixed by requiring the shared region to have AREA.
+  * (in a separating-axis pre-filter, since removed) separating on <= treated edge-touching faces as disjoint and silently DROPPED inversions — 98 of 262.
+The oracle test passed through both because it does not exercise edge-touching pairs. THE REAL SCENE'S SNAP COUNT IS THE GATE for anything touching this code; record it before and after, every time.
+
+SESSION TOTAL ON THIS CARD'S TWO ITEMS:
+    item                       before      after
+    PRESENT-cpu (renderer)     2.42 ms     1.75 ms
+    GAME-LOGIC (the game)      1.28 ms     1.01 ms   (unchanged code — cache effects)
+    frame                      4.42 ms     3.29 ms
+    fps                        226         304
+
+STILL OPEN, and item 2 of this card is untouched: SCHED-LOGIC / GAME-LOGIC at ~1.0 ms for a three-slot cooperative scheduler plus the recompiled substrate. That is now the largest remaining item after the renderer, and nobody has looked at it. The renderer at 1.75 ms is still ~10x what submitting a few hundred quads should cost, so it is not finished either — but the cheap structural win there has been taken.
