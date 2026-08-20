@@ -96,3 +96,31 @@ SESSION TOTAL ON THIS CARD'S TWO ITEMS:
     fps                        226         304
 
 STILL OPEN, and item 2 of this card is untouched: SCHED-LOGIC / GAME-LOGIC at ~1.0 ms for a three-slot cooperative scheduler plus the recompiled substrate. That is now the largest remaining item after the renderer, and nobody has looked at it. The renderer at 1.75 ms is still ~10x what submitting a few hundred quads should cost, so it is not finished either — but the cheap structural win there has been taken.
+
+**2026-08-20:** 2026-08-20 — MORE PROFILING, per the USER. The quarter of the frame that resolved to nothing now has a name, and one confident guess about it was wrong.
+
+THE PROFILER NAMES SHARED OBJECTS NOW (psxport ad4cea5b). hostprof captures /proc/self/maps at dump time — that correspondence exists only inside the live process — and prof_hot.py attributes out-of-executable samples to the module, plus a symbol within it where one is exported WITH A SIZE.
+
+    [libc.so.6]              16.96%
+    [libstdc++.so.6.0.35]     3.34%
+    [libvulkan_radeon.so]     2.73%
+
+NOT the GPU driver, which was the obvious guess. It is memory work, and it is the single largest entry in the profile — larger than any function we wrote.
+
+A WRONG NAME, CAUGHT: the first version of the symbol lookup fell back to "nearest preceding export" and reported 15.6% of the frame in libc's `_dl_mcount_wrapper` — a profiling hook that cannot be hot. Names inside a shared object are now claimed only when the sample is INSIDE the symbol's own extent; libc's hot paths are IFUNC-resolved and frequently are not where the exported name sits. Same failure the tool already guards against for `data_start`.
+
+WHAT IS KNOWN ABOUT THE libc TIME: 62% of its samples fall inside a 0x26-BYTE SPAN — one tight loop, the signature of a bulk copy, at a rate consistent with write-combined memory.
+
+WHAT IT IS NOT — and this is the useful negative. The obvious suspect was render_geom's 1 MB whole-VRAM snapshot memcpy into a WC transfer buffer, unconditional, every frame. Gating it on the existing s_vram_writes counter SKIPPED IT ON 50.0% OF CALLS (1,096 of 2,192) and changed the frame by nothing:
+    4.071 -> 4.112 s wall, PRESENT-cpu 1.75 -> 1.74 ms — both inside noise.
+So halving that copy is free, which means the copy is not what costs. The gate was reverted rather than kept: by the same standard that removed a 1.6% separating-axis filter earlier today, a 0% change does not earn its state.
+
+NEXT STEP, precisely: install glibc debug symbols (`dnf debuginfo-install glibc`) and re-run prof_hot.py, which will then resolve that span by name instead of by extent. Everything else here is guesswork until it has a name — I have now been wrong about it once.
+
+CURRENT FRAME, for the record:
+    PRESENT-cpu   1.74 ms
+    GAME-LOGIC    1.03 ms
+    audio         0.30 ms
+    post          0.20 ms
+    frame         3.30 ms   ->  303 fps  (10.1x realtime)
+Started the session at 226 fps / 4.42 ms.
