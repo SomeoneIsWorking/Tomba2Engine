@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (45)
+## TODO (46)
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
 - **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
@@ -51,6 +51,7 @@
 - **#115 Adopt clang + clang-format, drop extern C, drop beetle**  ``
 - **#116 Beetle oracle violates GPU.sl_zero_reached — NDEBUG hides it in every normal build**  ``
 - **#117 Performance: ~43% of the frame is render-queue ORDERING, ~9% is a diagnostic**  ``
+- **#118 Performance is an ALTITUDE problem: the game costs 0.00ms, our machinery costs 4.42ms**  ``
 
 ## DOING (7)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
