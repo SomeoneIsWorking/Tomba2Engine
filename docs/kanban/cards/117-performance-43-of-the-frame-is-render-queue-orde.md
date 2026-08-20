@@ -84,3 +84,20 @@ WHERE THAT LEAVES THE 20% UNRESOLVED: identified. Those samples are at 0x7f4b6a7
 WHAT IS STILL NOT MEASURED: whether OtAttr's 9.1% is real (it is an extern symbol so the attribution is more robust, but it has not been cross-checked against a counter the way this was), and the whole picture on a 3D field scene rather than this menu.
 
 THE INSTRUMENT IS NOT DISTRUSTED. The previous note marked it so on a false premise; that is withdrawn. prof_hot.py's symbol attribution was verified correct here by two independent means — sized-range containment, and an in-code counter that agrees with it.
+
+**2026-08-20:** 2026-08-20 — FIRST FIX LANDED: 18.1% faster. psxport 3416594f.
+
+rq_faces_in_contest recomputed BOTH faces' extents on every call. An extent depends only on the face, but the contest is asked about PAIRS — so one face's extent was recomputed once per partner it was tested against. At f1201 that is 29,544 computations of 262 distinct values in a single frame, which is exactly why rq_face_extent showed as 16.18%.
+
+The caller has the whole group in hand, so it now computes each face's extent once per frame. The rule moved into rq_faces_in_contest_ext (takes precomputed extents); the public two-argument rq_faces_in_contest computes them and delegates, so there is ONE implementation and the brute-force oracle test keeps calling the same entry point.
+
+    before   7.922  7.980  7.939 s   mean 7.947
+    after    6.508  6.574  6.455 s   mean 6.512     -> 18.1% faster
+Every after-run beat every before-run. tests/test_render_queue_keyorder.cpp (brute-force oracle) passes, which is the gate that matters for a change claiming to be pure memoisation. Suite 62/63, the one failure being the pre-existing game_iface.h cap.
+
+WHAT THIS DOES NOT DO, stated so nobody reads the card as closed: the QUADRATIC IS UNTOUCHED. Still 14,772 pair tests for 262 faces, and rq_ord_at's interior-grid sampling is still the largest single entry at 18.81%. Two follow-ups, in order of expected value:
+
+  1. EXTENT-OVERLAP PRUNE BEFORE THE GRID. The cheap rejects (bbox overlap, depth-range overlap) already exist INSIDE the contest, but every pair still pays a function call and both extent lookups to reach them. With extents now precomputed and contiguous, the caller can reject non-overlapping pairs without calling the contest at all — and on a mesh most pairs in a group do not overlap. This is the change that should actually cut the 18.81%.
+  2. THE GROUP ITSELF. 262 faces in one node's group is the real driver. A spatial index (grid or interval list over the precomputed extents) turns "scan the whole group" into "scan the neighbours", which is the only way the 153 faces that never find a witness stop costing a full scan each.
+
+Do 1 before 2: it is small, it composes with the memoisation just landed, and it will show whether the grid sampling or the pair enumeration is the remaining cost.
