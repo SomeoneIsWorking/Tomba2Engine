@@ -40,3 +40,47 @@ REPRO:
   PSXPORT_NATIVE_FRAMES=2000 PSXPORT_PAD_REPLAY=replays/bugs/ingame-item-menu.pad \
   PSXPORT_PROF=1 ./scratch/bin/tomba2_port
   python3 external/psxport/tools/prof_hot.py scratch/raw/prof_host.txt scratch/bin/tomba2_port
+
+**2026-08-20:** 2026-08-20 — CORRECTION: THE HEADLINE FINDING ON THIS CARD IS WRONG. Do not act on it. I published "~43% of the frame is render-queue ORDERING" and it cannot be true.
+
+HOW IT WAS CAUGHT — by checking the instrument against a denominator the code already keeps. resolveKeyOrderFaces prints a per-frame census on `PSXPORT_DEBUG=keyord`. Over the SAME 2,000-frame run that produced the profile:
+
+    6,000 keyord lines, and EVERY ONE says "0 keyed faces of 0 queued prims — nothing to contest"
+
+So the contest loop did ZERO work for the entire run. And rq_face_extent / rq_ord_at are reachable from NOWHERE ELSE — call-site check: rq_face_extent only at render_queue.cpp:1822/1823 and rq_ord_at only at :1848/:1851, both inside rq_faces_in_contest, which is called only at :1935 inside that loop. Functions that are never called cannot be 35% of the frame.
+
+WHAT IS ACTUALLY WRONG: the SYMBOL ATTRIBUTION, not the sampling. The sampler is fine — 11,469 samples, 0 dropped, and ITIMER_PROF is CPU time. The mapping from host PC to name is what lies: these are `static` functions in an -O3 build, so they are inlined or folded, and their nm symbol addresses no longer bound the code that actually sits there. prof_hot.py credits a sample to the nearest preceding symbol within range, which is exactly wrong when the symbol table and the code layout have diverged.
+
+SO EVERY NAME IN THAT TABLE IS SUSPECT, not only the top two. OtAttr at 9.1% and SPU_UpdateFromCDC at 3.3% are extern, non-static symbols and are more likely to be real — but "more likely" is not measured, and I am not going to repeat the mistake of reporting a ranking this tool produced as if it were established.
+
+THE INSTRUMENT IS MARKED DISTRUSTED at symbol granularity. It is trustworthy for: total sample count, dropped count, and the unresolved fraction. It is NOT trustworthy for: which function.
+
+WHAT WOULD FIX IT, in order of preference:
+  1. perf record + perf report, which symbolises through inlining using DWARF rather than guessing from nm ranges. Needs the build to keep frame pointers or use --call-graph dwarf.
+  2. Failing that, profile a build with -fno-inline for the render queue TU only — but note that changes the thing being measured, so it can locate a hot region and must not be quoted as a percentage of the real build.
+  3. Cross-check any candidate against a counter the code already keeps, the way keyord just falsified this one. That check is cheap and it is what should have run BEFORE the card was written.
+
+WHAT REMAINS TRUE AND UNAFFECTED: the profiler was dead (hostprof_init called from nowhere) and its reader did not exist; both are genuinely fixed (psxport e3ecffa9), and the run does now produce 11,469 real samples. The repair stands; the interpretation does not.
+
+THE ACTUAL PERFORMANCE QUESTION IS THEREFORE STILL OPEN, with no measured answer yet.
+
+**2026-08-20:** 2026-08-20 — THE CORRECTION ABOVE WAS ITSELF WRONG. The original finding STANDS, and is now confirmed by a counter rather than by the profiler alone. Read this note, not the one before it.
+
+WHAT I GOT WRONG IN THE CORRECTION: I compared two runs that used DIFFERENT RENDER PATHS and treated the disagreement as proof the profiler was lying.
+    the profile run   had NO PSXPORT_RENDER_PATH  -> NATIVE path
+    the keyord run    had PSXPORT_RENDER_PATH=psx -> psx software rasteriser
+On the psx path the render queue is empty by construction (the software rasteriser draws directly), so "0 keyed faces of 0 queued prims" was the correct answer FOR THAT PATH and said nothing whatever about the native one. Both measurements were right; putting them side by side was not.
+
+CONFIRMED ON THE NATIVE PATH, same replay, PSXPORT_DEBUG=keyord, 1,200 frames — 6,010 of 7,751 keyord lines report real work, and a representative frame reads:
+
+    f1201 resolveKeyOrder: 109/262 keyed faces snapped (14772 pair tests, 911 queued prims)
+
+14,772 PAIR TESTS IN ONE FRAME, for 262 keyed faces out of 911 queued prims. Each pair test is rq_faces_in_contest, which calls rq_face_extent TWICE and then samples an interior grid calling rq_ord_at per sample. That is the 18.81% + 16.18% + 6.39% the profiler reported, and the profiler was right: the samples fall INSIDE the sized nm ranges of those symbols (checked explicitly — rq_ord_at spans 0xe3dcc0+350 and the hot PCs are at +0x1f, +0x7a, +0xa6, +0xab, +0x110, +0x114).
+
+SO THE MECHANISM IS ESTABLISHED, not hypothesised: the contest is quadratic in the size of a single node's face group. 262 faces in one group is ~14.8k tests even WITH the existing witness/early-break optimisation, because that optimisation only helps faces that get snapped (109 of 262 here) — the 153 that never find a witness each scan their whole group.
+
+WHERE THAT LEAVES THE 20% UNRESOLVED: identified. Those samples are at 0x7f4b6a75xxxx — SHARED LIBRARY addresses, outside the executable's text entirely. prof_hot.py correctly refuses to name them. They are libc/SDL/driver work, not a missing hot function of ours.
+
+WHAT IS STILL NOT MEASURED: whether OtAttr's 9.1% is real (it is an extern symbol so the attribution is more robust, but it has not been cross-checked against a counter the way this was), and the whole picture on a 3D field scene rather than this menu.
+
+THE INSTRUMENT IS NOT DISTRUSTED. The previous note marked it so on a false premise; that is withdrawn. prof_hot.py's symbol attribution was verified correct here by two independent means — sized-range containment, and an in-code counter that agrees with it.
