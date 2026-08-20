@@ -25,3 +25,43 @@ NEXT STEP, cheap and decisive: re-enter the costume change and toggle renderpath
 TOOL GAP FOUND WHILE INVESTIGATING, worth fixing regardless of this bug: 'provat' cannot attribute a NATIVELY-drawn pixel. It reads guest VRAM, and under pc_render the native producers never write VRAM, so every probe into the corruption returned '<never written> rgb(0,0,0)' for pixels that are plainly not black on screen. The one instrument for 'which prim drew this pixel' is blind on the only render path we ship. It needs a native-leg answer sourced from the RenderQueue (each RqItem already carries dbg_node and a producer scope), or it will keep returning a confident, wrong-looking negative.
 
 ALSO OBSERVED on the live session, relevant to #108: 127 entities on the list, 27 with the render flag set.
+
+**2026-08-20 — THE RETAINED REPLAY DOES NOT REPRODUCE THIS FRAME. Do not use `f8471` as a replay
+coordinate.** A direct replay of `replays/bugs/long-session-many-bugs.pad` with the existing Clang-built
+binary shows an ordinary outdoor field-dialogue frame at present 8471, not an
+outfit transition or corrupt geometry. This is not a timing-near-miss around an input: the replay's raw
+16-bit pad words are `0xFFFF` (PAD_NONE) continuously from pad frame 6500 through 13194. The live
+present-frame label in the original report belonged to that already-running debug session; it is not a
+coordinate in the retained pad file. No pad cut, guest-RAM dump, or producer trace from the 01:24 live
+failure survives alongside `costume_now.png`. Therefore the screenshot plus aggregate vkstats can prove
+the native/guest split, but cannot identify which native producer or which transform/state contract was
+active. The earlier `submitQuad` paragraph is a hypothesis, not a root cause.
+
+STATIC RE NARROWING, NOT A CAUSE CLAIM: MAIN `gen_func_8004DF94` is an equippable-item controller. It
+subtracts 102 from its item id and dispatches a nine-way table. One branch reads
+`*(u32*)0x800BF880 & 0x3000` and calls `Engine::gStateMutate(G=0x800E7E80, op=4)` when clear or `op=5`
+when set. The native `gStateMutate` body shows op 4 setting `G+0x174` bit `0x10` and `G+0x0D` bits
+`0x12`, while op 5 clears the two `G+0x174` costume-shaped bits (`0x30`) and conditionally clears the
+same `G+0x0D` bits. Separately, `Render::fieldObjectsRender` draws Tomba whenever `G+8` and `G+9` are
+nonzero by calling the generic `perObjFlush`, without an outfit-specific branch. That is a concrete
+place where a state-dependent guest render contract could diverge from the generic native walk, but the
+failed frame's `G` bytes and command records were not captured, so changing a gate here would be a guess.
+
+EXACT EVIDENCE NEEDED ON THE NEXT LIVE REPRO, captured for the corrupt frame and one adjacent clean frame:
+
+1. `G=0x800E7E80`: bytes `G+0x0D`, `G+0x174`, command counts `G+8/G+9`, every command pointer at
+   `G+0xC0`, and each command's `cmd+0x40` geomblk pointer/count word;
+2. whether the guest's own per-object submission path submitted Tomba on that frame (including its
+   per-object early gate and resolved emitter), rather than only the final guest-OT primitive census;
+3. native RenderQueue counts grouped by producer/debug node for that single frame, so the 57,626
+   textured and 21,388 semi triangles can be assigned to a producer instead of inferred from appearance;
+4. a `padrec save` cut or RAM snapshot before leaving the frame, so the clean/corrupt comparison can be
+replayed under both render paths.
+
+Until that evidence exists, this card remains `todo`: the live bug is real, but a systemic transform or
+producer fix is not yet proven.
+
+VERIFICATION LIMIT: a fresh CMake tree configured successfully with Clang 22.1.8 for both C and C++ and
+resolved psxport exactly to `b80e115c5a6c25950763e3a51a40ab32d068bd37`. Its full link was stopped at
+88% when the investigation was ended to free the agent slot, so no claim here depends on a new
+`b80e115c` runtime capture.

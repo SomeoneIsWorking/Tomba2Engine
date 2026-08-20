@@ -7,6 +7,14 @@
 
 The repository-level `game/` is Tomba! 2-specific. Tomba! 1 does not share that game layer.
 
+## Shared render ordering
+
+Tomba! 2 submits native world faces through psxport's `runtime/recomp/render_queue.{h,cpp}`. Equal-key
+opaque ties use `runtime/recomp/ot_lifo_depth.{h,cpp}`, which encodes the PSX `AddPrim` head-insertion
+order as raster-distinct authored depths; `gpu_vk_next_distinct_3d_depth` owns the Vulkan `ord3d` mapping
+needed to prove those depths remain distinct after conversion. Game code must not duplicate or
+special-case that ordering policy.
+
 ## Publication cleanliness audit (2026-07-23)
 
 `git push` publishes the FULL HISTORY, so a machine path or copyrighted blob committed once is

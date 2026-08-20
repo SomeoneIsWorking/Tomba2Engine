@@ -1,10 +1,10 @@
 ---
 id: 51
 title: beh_* A/B: 3 localised divergences still open (0x8013C9C0, 0x8011D988, 0x80121978)
-status: todo
+status: done
 labels: [verification, bug]
 created: 2026-07-23
-updated: 2026-07-28
+updated: 2026-08-20
 ---
 
 Split from #10's sweep 2026-07-23. The A/B rig (tools/beh_ab.sh, PSXPORT_BEH_SUBSTRATE + 2MB RAM + .spad diff) got 52 of 54 reached handlers to zero-diff on bucket-softlock. These three remain localised but unexplained — each is a REAL divergence between the native rebuild and the guest body, i.e. the same confirmed bug class that produced #2, #1/#30 and the ZonedAttacker arm-shift.
@@ -14,3 +14,9 @@ Split from #10's sweep 2026-07-23. The A/B rig (tools/beh_ab.sh, PSXPORT_BEH_SUB
 Rig + instruments to reuse: tools/beh_ab.sh (cov/base/one/sweep), PSXPORT_DEBUG=behcov (per-handler reach counter), PSXPORT_BEH_TRACE=<addr> + behtrace (per-invocation node-byte delta logged at the dispatch site so both legs' logs are line-aligned and diff names the first divergent invocation/object/field).
 
 **2026-07-28:** 2026-07-28: 0x8011D988 HAS A MUCH CHEAPER REPRO NOW — and a visible symptom. At the plain PSXPORT_AUTO_SKIP start position (no replay, both legs reach free-roam at frame 216), node 0x800FD118's visibility marker node+1 reads 1 on the reference leg and 0 on the pc leg, consistently across samples. PSXPORT_BEH_SUBSTRATE=8011D988 flips it to 1. That is this handler's divergence reproducing in two seconds instead of on the 2071-byte house-on-the-point capture, and it matches this card's own diagnosis ('a different NUMBER of graphics records bound' at 0x800E7E74/0x800ED098) — an object that never gets marked renderable is an object whose record was never bound. Render::fieldObjectsRender skips node+1 == 0, so the consequence is visible: that object is culled out of the native object pass entirely. Found while chasing kanban #63 (missing flying bird); note #63's caveat that fixing the marker alone did NOT make the bird appear, so do not merge the two cards without confirming the node's identity on screen first.
+
+**2026-08-20:** CLOSED because every recorded residual now produces the other answer under the same
+end-state instrument. Fresh coverage first: house-on-the-point 700f reaches 0x8011D988 and 0x80121978;
+bucket-softlock 2100f reaches 0x8013C9C0. Fresh `tools/beh_ab.sh` base/one pairs then report `ram=0
+spad=0` for all three. The former 2,069/30/100-byte differences are no longer present on their own
+recorded repros. Reopen only with positive coverage plus a new end-state byte difference.

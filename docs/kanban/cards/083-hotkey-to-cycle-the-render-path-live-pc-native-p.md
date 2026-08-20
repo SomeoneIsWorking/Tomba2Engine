@@ -4,7 +4,7 @@ title: Hotkey to cycle the render path live: PC-native / PC-from-GTE / pure PSX 
 status: done
 labels: [render]
 created: 2026-08-12
-updated: 2026-08-19
+updated: 2026-08-20
 ---
 
 USER ASK, first message of the 2026-08-11 session, verbatim: "one more thing, need a toggle to switch between PC render native, PC render from GTE and pure PSX restraizer".
@@ -24,3 +24,5 @@ VERIFIED live over the wire, headless instance at AUTO_SKIP free-roam f3102, and
 Also closed a TRAP found while doing it: `cvar PSXPORT_RENDER_PATH <v>` reports ok and changes NOTHING, because render_path_install() consumes that knob once at boot. The dbg `cvar` handler now says so and points at `renderpath`.
 
 STILL UNVERIFIED: the F5 key read itself (needs a window; unchanged since this card was closed).
+
+**2026-08-20:** USER reports that selecting GTE/PSX from the live RmlUi menu inside the first hut freezes everything and authorizes removing it. ROOT CAUSE OF THE PLAYER-FACING DEFECT: card #83 promoted the software-rasterized Psx oracle/diagnostic path into the shipping live cycle on evidence limited to area-0 headless screenshots; C028's window/other-area falsifier has now fired. psxport removes Psx from the RmlUi player cycle (Native/PC <-> GTE/PC) while preserving explicit PSXPORT_RENDER_PATH=psx and REPL/debug-server diagnostics for oracle work.

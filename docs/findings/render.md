@@ -815,7 +815,7 @@ Full write-up and the staged plan: `external/psxport/docs/plans/graphics-produce
   `gpu_native.cpp` (`GpuState::gpu_repaint`), `native_boot.cpp` (pause loop),
   `gpu_vk.h`/`gpu_vk_internal.h`. Harness recipe: `docs/driving-the-game.md` §HEADLESS INTERACTIVE.
 
-## Hut-interior wall decals "z-fight the wall" (kanban #29) FIXED 2026-07-22 — coincident faces in the SAME OT bucket, not a cross-object OT problem
+## Hut-interior wall decals "z-fight the wall" (kanban #29) FIXED 2026-08-20 — Native lost AddPrim LIFO order inside one OT bucket
 
 - **symptom (USER):** in the fisherman's-hut interior the wall decorations z-fight against the wall they
   hang on. USER's proposed mechanism: "use OT when things have the same depth".
@@ -823,38 +823,38 @@ Full write-up and the staged plan: `external/psxport/docs/plans/graphics-produce
   NO `newgame`, `run 1200` → standing in the interior with the decorations on screen. (`hut-entry-alt.pad`
   is too short — 535 frames — and leaves Tomba outside the door.) `press left` + `run 80` gives a second
   interior viewpoint; `press right` walks back out to the field.
-- **PREMISE FALSIFIED — the OT cannot break these ties, and cross-object widening is irrelevant.**
+- **Cross-object widening remains irrelevant.**
   Measured with `PSXPORT_ZFIGHT=1 PSXPORT_ZFIGHT_FRAME=1200 PSXPORT_DEBUG=zfight` at f1200. Every top
   contesting pair is: SAME guest node (`800FD850`, the room object) — so `resolveKeyOrder`'s within-object
   scoping was never the limiter — and SAME game sort key (408/408, 433/433, 376/376, …), i.e. the game
-  files both faces in the SAME OT bucket. The key carries zero ordering information between them.
-  Widening kanban #11's rule to cross-object pairs would have fixed nothing.
-- **actual cause:** the pairs are EXACTLY COINCIDENT quads — a decal filed on the wall quad it decorates:
+  files both faces in the SAME OT bucket. Widening kanban #11's rule to cross-object pairs would have
+  fixed nothing, but the old conclusion that the bucket carried no usable order was wrong.
+- **actual geometry:** the pairs are EXACTLY COINCIDENT quads — a decal filed on the wall quad it decorates:
   identical four projected corners, identical four depths, different texpage UV/CLUT (`PSXPORT_PRIMAT`
   at 243,90 confirms two distinct materials, cluts 880,245 vs 880,197) — listed with ROTATED vertex
   order. Our quad triangulation is fixed at (0,1,2)+(1,2,3), so a rotation splits the two faces on
-  OPPOSITE diagonals; their interiors then interpolate differently and the EARLIER-submitted face wins
-  the half where its diagonal runs nearer. At f1200 that was 115 of 541 pixels on the worst pair, painted
-  against the guest's own intra-bucket order. Within a bucket the guest resolves purely by LINK order,
-  which our submission order (`RqItem::seq`) already reproduces — GREATER_OR_EQUAL hands the pixel to the
-  later face wherever the two interpolate equal, and only the diagonal split breaks that.
-- **fix** (`RenderQueue::resolveKeyOrder`, render_queue.cpp — inside `finalize`, so it reaches the
-  interpolated frame too): the `A.sort_key == B.sort_key` early-out now first tests EXACT coincidence
-  (`rq_faces_coincident`: same vertex count, and every vertex of one matching a vertex of the other in
-  screen position AND depth, order ignored). A coincident pair carries no depth information to preserve,
-  so both faces snap to their key's shared `key_ord` — depth becomes exactly equal everywhere and
-  submission order decides every pixel, which IS the guest's bucket link order. No epsilon, no tuned
-  constant; ordinary geometry cannot satisfy an exact vertex-multiset match.
-- **verification (all cited, all headless):**
-  - hut f1200: 281 pixels change; on those 281, the OLD picture matched the psx_render oracle at 0/281
-    and the NEW picture matches at 281/281. Second viewpoint (`press left`, run 80): 214 changed,
-    0/214 → 214/214. Shots `scratch/screenshots/hut29/{pc,pc_after,psx_after}.png`, crops `z_*.png`.
-  - kanban #11 barrel repro unchanged: pixel (165,92) = (40,152,248) blue water (correct).
-  - fps60 frame-kind symmetry: `PSXPORT_FPS60_TFORCE=1` + `debug fps60dump`, 10 logic frames on the
-    seesaw replay — every `*_interp.png` is 0/76800 pixels from its `*_real.png`.
-  - no general-case regression: 4 unrelated scenes (first field f3000, `warp 12`, `warp 5`, `warp 2`)
-    are pixel-IDENTICAL before vs after (0 changed px each), captured by toggling the new branch off,
-    rebuilding, and re-running the same script. The rule is a discriminator, not a re-order.
+  OPPOSITE diagonals, so merely snapping them to one input depth did not guarantee one Vulkan D32 value.
+- **actual ordering cause (the 2026-07-22 finding got this backwards):** PSX `AddPrim` inserts at the
+  head of an OT bucket. If the guest submits A then B, the GPU walks B then A; the earlier submission A
+  therefore draws last and wins an opaque equal-depth tie. Native kept `RqItem::seq` in submission order,
+  so its later submission won instead. The old sentence claiming `seq` already reproduced guest link
+  order was false.
+- **systemic fix:** `ot_lifo_depth.{h,cpp}` owns the shared ordering rule. For authored/snap-selected
+  opaque world faces, it sorts equal-key faces by descending sequence and assigns strictly increasing
+  depths in guest draw order. `gpu_vk_next_distinct_3d_depth` advances until the exact `ord3d` transform
+  maps to a distinct Vulkan D32 value; `render_queue.cpp` suppresses its generic later-draw bias only for
+  these authored depths. Thus earlier submissions are nearer and win without a hut-specific switch or
+  tuned epsilon.
+- **verification (all headless, 2026-08-20):**
+  - hut f1200: Native pixel (140,80) changed from `srgb(32,32,16)` to `srgb(24,64,64)`, exactly matching
+    GTE; 2,657/76,800 Native pixels changed. The second (`left`, 80-frame) view has neither double draw nor
+    camera obstruction.
+  - kanban #11/#17 barrel repro: pixel (165,92) remains `srgb(40,152,248)` blue water through 12/12 real
+    and 12/12 interpolated presents. Eleven steady-state real/interpolated pairs are 0/76,800 pixels; the
+    first channel-arm pair differs at 6/76,800 pixels away from the probe.
+  - five forced HUT interpolation pairs (f1281..f1285) are each 0/76,800 pixels.
+  - unrelated cliff-fisherman, in-game item-menu, and weapon-impact-bucket replays all reconcile every
+    frame with zero dropped layers and show no obstruction.
 - **DEAD ENDS / negative results worth not repeating:**
   - A static pc-vs-psx frame diff in the hut looks CLEAN (only the animated NPCs differ) — the artifact
     is a small wedge on a decal and drowns in animation noise. Do not conclude "no bug" from it; use the
@@ -867,6 +867,11 @@ Full write-up and the staged plan: `external/psxport/docs/plans/graphics-produce
     gives a comparable oracle frame.
   - `PSXPORT_WIDE=1` on the REPL/headless leg did not widen the shot (still 320x240); wide was not
     needed to reproduce.
+  - Removing the `FN_SUBSCENE` gate made the HUT draw 17/119 guest primitives but changed 0/76,800
+    presented pixels; that diagnostic edit was reverted. It does not fix kanban #51.
+  - A floating-point `PSXPORT_PRIMAT` coverage approximation did not change the candidate set and was
+    reverted. `provat` reported pixel (140,80) as never written even while the visible result changed;
+    it is not a trustworthy Vulkan presentation-provenance instrument.
 
 ## Area-set missing-layer sweep — 2026-07-22 version was pc-vs-pc (RETRACTED); RE-RUN 2026-07-23 finds real gaps
 

@@ -4,7 +4,7 @@ title: Interior wall decors missing (suspect depth / coincident-face ordering)
 status: doing
 labels: [render]
 created: 2026-08-04
-updated: 2026-08-05
+updated: 2026-08-20
 evidence: docs/reference/issues/issue74_house_pc_render_decor_missing.png,    docs/reference/issues/issue74_house_psx_render_decor_present.png
 ---
 
@@ -67,3 +67,10 @@ Distinguish (a) from (b) with one instrumented run; do not guess between them.
 
 NOT YET DONE: 0x8012C910 has not been decompiled. Do (a)/(b) first — if collect() is being truncated or
 run too early, the emitter's identity does not matter yet.
+
+**2026-08-20 CORRECTION TO THE HUT EXONERATION:** the current deterministic HUT replay DOES reproduce
+the user's live missing central hanging decoration. The old screenshot-based conclusion trusted a
+different visual target and the packet-present probe did not establish the final painter. Same-scene
+queue/presentation evidence now shows both HUT materials reach Native, but same-bucket order is reversed
+relative to the GTE OT walk because AddPrim head insertion was not modeled; fixed under #57. This does
+not close this card's separate House on the Point producer gap, which remains the next work here.

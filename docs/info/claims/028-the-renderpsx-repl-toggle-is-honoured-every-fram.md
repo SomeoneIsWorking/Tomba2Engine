@@ -1,10 +1,11 @@
 ---
 id: C028
 kind: claim
-status: holds
+status: falsified
 created: 2026-08-05
 tags: render
 depends: game/render/render_walk.cpp#areaCacheTrustTick
+falsified_on: 2026-08-20
 ---
 
 ## Claim
@@ -18,3 +19,9 @@ kanban #41 close, 2026-08-05: PSXPORT_DEBUG=areatrust read sceneTable=0 backdrop
 ## What would falsify it
 
 a mid-scene renderpsx flip in any OTHER area, in a window, or across a scene transition that does NOT reproduce the boot-time reference — only area 0 free-roam, headless, was measured
+
+## FALSIFIED 2026-08-20
+
+USER 2026-08-20 reports that selecting GTE/PSX during live gameplay inside the first hut freezes everything. C028 proved only area-0 headless picture equivalence and explicitly named a window/other-area live-switch failure as its falsifier; it did not prove gameplay progress or windowed switching.
+
+> Anything that cited this claim as proof must be re-checked. Grep the repo for it.
