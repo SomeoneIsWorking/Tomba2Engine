@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (37)
+## TODO (41)
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
 - **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
@@ -43,6 +43,10 @@
 - **#101 Present ledger caught a real one-frame world drop at the hut door transition (f390)**  `bug,render`
 - **#105 Hut interior: the two fishermen are gone after exiting and re-entering the house (live)**  `bug`
 - **#107 renderpath toggle shifts the picture centre when widescreen is on**  `render,bug`
+- **#108 Objects from a previous area stay loaded/rendered over the ocean after its terrain unloads**  `render,gameplay,bug`
+- **#109 Costume change: native render explodes into full-screen garbage polygons (PSX path is correct)**  `render,bug`
+- **#110 Make psx_render a TRUE oracle: wire beetle's vendored GPU rasterizer (not PsyCross)**  `render,oracle`
+- **#111 Guest render paths at the item menu: gte is missing 58% of the picture, psx draws NOTHING**  `render,oracle,bug`
 
 ## DOING (7)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
