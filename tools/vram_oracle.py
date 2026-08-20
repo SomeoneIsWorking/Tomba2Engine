@@ -85,10 +85,32 @@ def main():
     if args.selftest:
         env["PSXPORT_GPU_BEETLE_SELFTEST"] = "1"
 
+    # STREAM AND FILTER. The oracle emits a census line for EVERY frame, so capturing the whole run
+    # produced a 161 MB log per measurement — slow to write, and pure noise around the four lines that
+    # answer the question. Keep the lines about the requested frame, plus a rolling tail so a run that
+    # died still shows how it died.
+    want = (f"f{args.frame} ", f"frame {args.frame}:")
+    kept, tail = [], []
     t0 = time.time()
-    proc = subprocess.run([str(BIN)], cwd=ROOT, env=env, timeout=args.timeout,
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    log = proc.stdout.decode("utf-8", "replace")
+    proc = subprocess.Popen([str(BIN)], cwd=ROOT, env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    try:
+        for raw in proc.stdout:
+            line = raw.decode("utf-8", "replace")
+            if any(w in line for w in want):
+                kept.append(line)
+            tail.append(line)
+            if len(tail) > 400:
+                del tail[:200]
+            if time.time() - t0 > args.timeout:
+                proc.kill()
+                print(f"REFUSED: the run exceeded --timeout {args.timeout}s", file=sys.stderr)
+                break
+        proc.wait(timeout=30)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    log = "".join(kept) + "\n---- last lines of the run ----\n" + "".join(tail)
     logpath = Path(args.keep_log) if args.keep_log else (
         ROOT / f"scratch/logs/vram_oracle_{Path(args.replay).stem}_f{args.frame}_{args.path}.log")
     logpath.parent.mkdir(parents=True, exist_ok=True)
