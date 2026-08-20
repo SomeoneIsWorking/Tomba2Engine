@@ -193,3 +193,19 @@ Spread is now 0.04-0.10 s per group; under load it was 0.3 s+, which is why the 
 THE LESSON, worth more than the number: on a shared machine, ITIMER_PROF (PSXPORT_PROF, per-process CPU time) is the trustworthy instrument and wall clock is not. Check `uptime` before believing any timing A/B — I nearly recorded a regression that did not exist, and the only reason I did not is that the two instruments disagreed and I went with the one that could not see other processes.
 
 CUMULATIVE, all three landed fixes (extent memo, setup memo, producer-DB cache): 30.9% on a 3D scene. On the menu scene the first two alone measured 22.6%, also under load, so that figure is a floor rather than a result.
+
+**2026-08-20:** 2026-08-20 — NO VISUAL REGRESSION, verified against the oracle on all four screens after every perf change, on the quiet machine:
+
+    screen                     before perf work   after
+    item menu      f1120              0             0
+    START page     f1090            561           561
+    options page   f1160             15            15
+    title options  f1027              0             0
+
+Not "close" — IDENTICAL, including the 561 and 15 residuals (#114's known floor). Feed complete on every one (368=368, 971=971, 70=70, 5=5). Together with the pixel-identical presented frame at f1120 (0 of 691,200), that is the strongest available statement that the 30.9% came out of redundant work and nothing else.
+
+STATUS OF THIS CARD: three fixes landed, all verified, 30.9% on a 3D scene (plus the separate 15% from clang). The instrument that found them was dead when this started.
+
+WHAT IS LEFT, and why I stopped rather than continuing:
+  * rq_ord_at_setup is still 20.8% — the 8x8 interior grid. A SPATIAL INDEX WOULD NOT HELP IT, and this is the second time that trap has come up on this card: the index removes pairs that FAIL the bbox reject, and those are already cheap (a few float compares). The expensive pairs are the ones that PASS and run all 64 samples finding no inversion. Reducing that means either fewer grid steps (changes the documented sliver residual) or a cheaper conservative pre-test — both change behaviour, and behaviour here is gated by an oracle that currently reads 0 differing pixels on two of four screens. That is worth being careful with rather than fast.
+  * The quadratic (14,772 pair tests) is unchanged and is NOT the main cost — the per-pair work was.
