@@ -178,3 +178,18 @@ WHERE A 3D FRAME NOW GOES:
     ~25%  shared libraries        (unresolved by symbol)
     rest  game + render work
 The ordering contest is now unambiguously the biggest thing we own, and the remaining lever there is the quadratic itself — a spatial index over the precomputed extents.
+
+**2026-08-20:** 2026-08-20 — CLEAN NUMBERS, and every wall-clock figure recorded earlier on this card was taken on a LOADED MACHINE and is superseded.
+
+A leftover tomba2_port (PID 410756) had been running since Wed 22:23 — 17.8 HOURS at 99.4% CPU. I had assumed all session that it was the USER's live game and worked around it; the USER confirmed nothing was running, so it was an orphan. Killed. Load average 5.34 -> 1.24.
+
+RE-MEASURED on the quiet machine, 3D field scene (1,100 frames of ingame-options-page.pad), baseline = the binary from before the first render-queue fix (so this EXCLUDES the separate 15% clang win):
+
+    before   7.316  7.275  7.300 s   mean 7.297
+    after    5.002  5.099  5.030 s   mean 5.044     -> 30.9% FASTER
+
+Spread is now 0.04-0.10 s per group; under load it was 0.3 s+, which is why the census-cache A/B came back looking like a REGRESSION (5.63/5.95/5.91 vs 5.35/5.43) when the profiler showed a 71% cut in that function. The profiler was right; the clock was measuring the other process.
+
+THE LESSON, worth more than the number: on a shared machine, ITIMER_PROF (PSXPORT_PROF, per-process CPU time) is the trustworthy instrument and wall clock is not. Check `uptime` before believing any timing A/B — I nearly recorded a regression that did not exist, and the only reason I did not is that the two instruments disagreed and I went with the one that could not see other processes.
+
+CUMULATIVE, all three landed fixes (extent memo, setup memo, producer-DB cache): 30.9% on a 3D scene. On the menu scene the first two alone measured 22.6%, also under load, so that figure is a floor rather than a result.
