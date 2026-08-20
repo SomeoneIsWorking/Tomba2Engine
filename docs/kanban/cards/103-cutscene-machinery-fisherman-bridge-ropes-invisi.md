@@ -106,3 +106,16 @@ ALSO FIXED, per the USER's never-duplicate rule: gpu_frame_no was declared THREE
 THE WORKFLOW COST, measured, because the card understates it: this repro is documented as '~4.7 min at ~110 fps'. It actually took ~25 MINUTES of wall clock, and the ropefx channel itself roughly halved the rate (1,000s of formatted lines). That is the same defect the USER called out on 2026-08-20 ('this ~5 mins to reproduce is totally unacceptable'), and it is worse than recorded. A savestate/scene-warp for this scene would pay for itself immediately.
 
 NEXT: with the frame number now in the log, re-run and check whether ropefx fires DURING the cutscene frames (~31,000+) or only earlier. If it fires there and the ropes are still not visible, the producer emits into a queue whose prims are not presented — which is #98's ledger question, not an RE question.
+
+**2026-08-20:** 2026-08-20 (follow-up) — WITH FRAME NUMBERS IN THE LOG, the producer's firing pattern is now readable, and it settles half the card.
+
+    first emission   f1239
+    still emitting   f11403 (continuously, tracking the frame counter)
+So fx_rope_strip is NOT a one-off: it produces the rope/cable strip throughout area 0, from early free-roam onward. The BRIDGE ROPES half of this card is therefore produced now; the MACHINERY half is not, and they were always two different submitters sharing one card.
+
+A CLEAN NEGATIVE, worth recording so nobody re-runs it: the producer does NOT fire at all in the first 600 frames of replays/bugs/seesaw-weight.pad. That is correct (no rope strip in that scene) and it is why a cheap short replay cannot substitute for the area-0 resume when testing this producer.
+
+WHAT IS LEFT ON THE MACHINERY, and it is no longer an RE question about 0x801365C4:
+  * 0x80136748 — the caller that composes the transform and then calls BOTH 0x8003CCA4 (the mesh) and 0x801365C4 (the rope) — has NO NATIVE OWNER (codemap --addr 80136748, checked against 1033 indexed natives / 474 install sites; the tool prints its own blind spots and none of them apply here).
+  * The mesh path through 0x8003CCA4 IS covered by the per-object redirect — the redirdiag census on this card measured 100.00% coverage of the cmd-list path with zero empty draws.
+So the machinery's prims are produced and the redirect claims them, yet nothing appears. That makes this a PRODUCED-VS-PRESENTED question (#98), not a missing-producer one: either the prims never reach the screen, or they reach it with a transform/depth that puts them outside the view. Next measurement is the ledger at the cutscene frame, not more RE.
