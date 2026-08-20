@@ -284,7 +284,8 @@ Launch with `PSXPORT_DEBUG_SERVER=1` (port 5959) **and a high `PSXPORT_NATIVE_FR
   `native` = PC producers + PC rasterizer; `gte` = the guest's own GTE/OT geometry on the PC
   rasterizer; `psx` = the guest's own GTE/OT on the PSX software rasterizer. This is THE way to answer
   "is it missing because our producer doesn't draw it, or because the object isn't there": pause, shoot,
-  `renderpath gte`, `step 2`, shoot. Same switch as the F5 window hotkey and the REPL's `renderpath`
+  `renderpath gte`, `step 2`, shoot. Same switch as Display → Renderer in RmlUi and the REPL's
+  `renderpath`
   (one cycle order, `render_mode.h`); refuses out loud under ORACLE/SBS. NOTE `cvar PSXPORT_RENDER_PATH`
   does NOT do this — that knob is consumed once at boot by `render_path_install()`.
   Take the shot 2 frames after the switch, not 1 (the one-present lag, kanban #41).
