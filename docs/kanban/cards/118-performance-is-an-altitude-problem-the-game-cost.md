@@ -213,3 +213,39 @@ TWO THINGS I SUSPECTED AND MEASURED TO BE FALSE, recorded so nobody re-derives t
     freezes the world. Not redundancy.
   * `finalize()` now takes a `who` label and the keyord census prints it, because prim counts alone
     could not say which site the third contest came from and I guessed wrong from them first.
+
+**2026-08-20:** 2026-08-20 — THE ORDERING CONTEST IS NO LONGER THE TOP ITEM. psxport 29d7699c.
+
+Acted on this card's own item 1 at the altitude the game-level census pointed to: not "make the pair
+test faster" but "stop offering pairs that cannot touch". Each object's faces are sorted by bbox x0
+and swept — for face `a`, only partners whose x0 is still below a.x1 can meet it, and the ascending
+order means the first failure ends the scan. y is one inline compare.
+
+    pair tests offered   12,973 -> 1,104 per contest   (-91.5%)
+    bbox-reject                    -> 0                 by construction
+    rq_faces_in_contest_ext   445 -> 202 samples        (ITIMER_PROF 1 kHz, same scene)
+    ordering system total     509 -> 292 samples        (-43%)
+    wall clock              3.796 -> 3.671 s            (-3.3%, interleaved A/B, no overlap
+                                                         between the two groups' runs)
+
+THE SPEEDUP IS SMALLER THAN THE CALL REDUCTION, and that is the honest half. The pairs removed were
+the CHEAP ones — a pair rejected on bbox never reached the exact clip anyway — so reached-clip fell
+only 31% (2,222,261 -> 1,541,383). Removing 91.5% of the calls buys 3.3% of the frame, not 11%. What
+it buys structurally is that cost now scales with actual overlap instead of faces-squared.
+
+GATED THREE WAYS: the brute-force oracle test (6/6, including its not-quadratic assertion); all 2,901
+contests in the 1,100-frame run report the SAME snapped/total; and the full run log is identical line
+for line — per-frame state, producer census rows, warnings.
+
+A COUNTER THIS CARD QUOTED WAS LYING. g_contest_grid was incremented TWICE with no branch between, so
+every "REACHED GRID" figure printed by this census — including the 4,444,522 quoted in an earlier note
+here — was exactly 2x the truth. Real value was 2,222,261. Fixed, and the broadphase now prints its own
+denominators (examined / skip-settled / y-reject) so "pair tests dropped 91%" and "the search stopped
+looking" cannot render as the same number.
+
+WHERE THE FRAME STANDS NOW — the ordering contest is no longer the largest named item:
+    [libc] __memmove_avx_unaligned_erms   10.7%   still unattributed to call sites (--wrap=memcpy)
+    EObjXform::projectFlags                6.3%
+    OtAttr::resolveClaimedFrame            6.0%   the producer census, a diagnostic we choose to pay for
+    rq_faces_in_contest_ext                5.9%   now genuinely-overlapping pairs doing exact clipping
+    SPU_UpdateFromCDC                      5.9%   NOTE: this run sets PSXPORT_NOAUDIO=1
