@@ -101,3 +101,21 @@ WHAT THIS DOES NOT DO, stated so nobody reads the card as closed: the QUADRATIC 
   2. THE GROUP ITSELF. 262 faces in one node's group is the real driver. A spatial index (grid or interval list over the precomputed extents) turns "scan the whole group" into "scan the neighbours", which is the only way the 153 faces that never find a witness stop costing a full scan each.
 
 Do 1 before 2: it is small, it composes with the memoisation just landed, and it will show whether the grid sampling or the pair enumeration is the remaining cost.
+
+**2026-08-20:** 2026-08-20 — SECOND FIX: 22.6% FASTER OVERALL. psxport 71b4689b.
+
+rq_ord_at recomputed, for EVERY sample of the 8x8 interior grid, values that depend only on the face — six vertex fetches and the triangle determinant. The contest asks two faces for their ord at 64 points, so that work repeated 64x per face per PAIR, with 14,772 pairs in a frame. That is why it was the single largest entry at 18.81%.
+
+rq_face_setup() now computes it once per face per frame (alongside the extent from the first fix) and rq_ord_at_setup() samples from it. The arithmetic is character-for-character the old per-sample code, INCLUDING keeping the division by `den` rather than folding in a reciprocal — the contest's answer is a comparison, so a boundary case that rounds the other way flips a snap decision.
+
+    original            7.922  7.980  7.939 s   mean 7.947
+    after extent memo   6.508  6.574  6.455 s   mean 6.512     -18.1%
+    after setup memo    6.151  6.132  6.182 s   mean 6.155     -22.6% from original
+
+TWO GATES, NOT ONE, because "pure memoisation" is a claim and claims get tested:
+  * tests/test_render_queue_keyorder.cpp — the rule against a brute-force oracle. Passes.
+  * THE PRESENTED FRAME at f1120 of the item menu is PIXEL-IDENTICAL to the pre-optimisation capture: 0 of 691,200 differing. An unchanged picture is the strongest available statement that nothing about the ordering decision moved.
+
+A NOTE ON MY OWN CORRECTION EARLIER ON THIS CARD: I predicted the next win would be an extent-overlap prune in the caller. That was WRONG and I checked before writing it — the cheap bbox/depth rejects already run inside the contest before the grid, so a caller-side prune would duplicate work already done. The reason rq_ord_at stayed hot is that many pairs genuinely PASS those rejects and pay the full 64-sample grid. Recorded so the next person does not implement the prune I talked myself out of.
+
+WHAT IS STILL NOT DONE: the quadratic. 14,772 pair tests for 262 faces is unchanged — both fixes made each test cheaper, neither reduced the count. The remaining lever is a spatial index over the precomputed extents so a face scans its neighbours rather than its whole group; that is what would help the 153 of 262 faces that never find a witness and so scan everything. Worth doing only if a 3D field scene shows the same shape — this measurement is still one menu scene.
