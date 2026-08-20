@@ -119,3 +119,37 @@ TWO GATES, NOT ONE, because "pure memoisation" is a claim and claims get tested:
 A NOTE ON MY OWN CORRECTION EARLIER ON THIS CARD: I predicted the next win would be an extent-overlap prune in the caller. That was WRONG and I checked before writing it — the cheap bbox/depth rejects already run inside the contest before the grid, so a caller-side prune would duplicate work already done. The reason rq_ord_at stayed hot is that many pairs genuinely PASS those rejects and pay the full 64-sample grid. Recorded so the next person does not implement the prune I talked myself out of.
 
 WHAT IS STILL NOT DONE: the quadratic. 14,772 pair tests for 262 faces is unchanged — both fixes made each test cheaper, neither reduced the count. The remaining lever is a spatial index over the precomputed extents so a face scans its neighbours rather than its whole group; that is what would help the 153 of 262 faces that never find a witness and so scan everything. Worth doing only if a 3D field scene shows the same shape — this measurement is still one menu scene.
+
+**2026-08-20:** 2026-08-20 — THE 3D SCENE CHANGES THE PRIORITY, and falsifies a recorded claim. psxport 513fc6a6.
+
+Profiled the START page (f1090 of ingame-options-page.pad, 971 prims of real 3D), native path, 5,777 samples, 78.1% resolved — and the shape differs from the menu:
+
+    %tot   symbol                                      menu scene   3D field
+   18.54   rq_ord_at_setup                                18.81        18.54
+   13.31   OtAttr::resolveClaimedFrame                     6.66        13.31
+    6.27   rq_faces_in_contest_ext                         6.39         6.27
+    3.91   OtAttr::trackStoreSlow                          2.48         3.91
+    1.44   RenderQueue::resolveKeyOrderFaces               1.32         1.44
+   21.90   <unresolved — shared libraries>
+
+  ordering total   ~41% (menu)  ->  ~26% (3D)
+  OtAttr total      ~9% (menu)  ->  ~17% (3D)
+
+THE DIAGNOSTIC IS NOW THE SECOND-BIGGEST ITEM, and on a field scene it is bigger than any single ordering function.
+
+A/B, DIRECT: the census could not be switched off at all — g_producer_census_armed was a hardcoded `inline bool = true` — so PSXPORT_PRODUCERS was added. Same 3D workload, three runs each:
+    armed (default)   5.662  5.789  5.757 s   mean 5.736
+    off               4.784  4.631  4.695 s   mean 4.703      -> THE CENSUS COSTS 18.0%
+Two independent methods agree: the A/B says 18.0%, the profile says 17.2%.
+
+A RECORDED CLAIM IS FALSIFIED. ot_attr.h and docs/plans/graphics-producer-db.md both stated the census costs "+0.26%" and concluded "no opt-in flag is needed". That figure came from a run doing 300 frames in 77.7 s — 3.9 fps, a pace at which almost any fixed cost measures as free — and it conflated two things: the inline GATE in trackStore (genuinely near-free) with the WORK the gate lets through (18%). Both documents corrected in place, and the conclusion withdrawn.
+
+IT STAYS ON BY DEFAULT. The USER asked for the producer database and it answers a question nothing else can. This is not a case for deleting it; it is a case for knowing the price and being able to switch it off while measuring something else.
+
+WHERE THE FRAME ACTUALLY GOES, on a 3D scene, best current estimate:
+    ~26%  render-queue ordering  (two fixes already landed; the quadratic is untouched)
+    ~18%  producer census        (a diagnostic, now switchable)
+    ~22%  shared libraries       (unresolved by symbol — driver/libc, not ours to fix directly)
+    rest  actual game + render work
+
+NEXT, in value order: (1) make resolveClaimedFrame cheaper — it walks a shadow stack per prim and is 13.31% alone, and unlike the ordering quadratic nobody has looked at it yet; (2) the spatial index for the ordering group. (1) is now clearly the bigger and simpler win.
