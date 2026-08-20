@@ -249,3 +249,47 @@ WHERE THE FRAME STANDS NOW — the ordering contest is no longer the largest nam
     OtAttr::resolveClaimedFrame            6.0%   the producer census, a diagnostic we choose to pay for
     rq_faces_in_contest_ext                5.9%   now genuinely-overlapping pairs doing exact clipping
     SPU_UpdateFromCDC                      5.9%   NOTE: this run sets PSXPORT_NOAUDIO=1
+
+**2026-08-20:** 2026-08-20 — THE memmove QUESTION IS CLOSED: BYTES ARE NOT THE COST. psxport 74c879a0.
+
+Built the instrument this card recorded as "the one that would finish this" and never built:
+-Wl,--wrap=memcpy/memmove attributing every byte to __builtin_return_address(0)
+(runtime/recomp/memcensus.cpp, PSXPORT_MEMCENSUS=1), resolved by tools/prof_hot.py — which now takes
+either input shape rather than growing a second copy of the symbol machinery.
+
+FIRST RUN, 100% RESOLVED, 12.29 GB over the 1,100-frame scene:
+
+    33.4%  4.11 GB  std::__move_merge<RqItem*, sortQueue()::lambda>
+    27.9%  3.42 GB  render_geom
+    16.7%  2.05 GB  dv_save          <- fps60's 2 MB guest-RAM snapshot, ~once per logic frame
+     7.6%  940 MB   std::__insertion_sort<RqItem*, sortQueue()::lambda>
+
+NOT VRAM STAGING — which is precisely what BOTH earlier attempts on this card had cut. The largest
+byte mover in the whole port was SORTING THE RENDER QUEUE: sizeof(RqItem) = 264 bytes, ~900 per frame,
+and stable_sort moved the payloads to order a key that is (layer, seq). Fixed by sorting packed
+16-byte keys and permuting once:
+
+    total bytes moved   12.29 GB -> 7.61 GB   (-38%)
+    sortQueue's share    5.72 GB -> 1.04 GB   (-82%)
+    wall clock           3.598 s -> 3.567 s   (-0.86%, interleaved A/B, 10 pairs each, ~3 SE)
+
+THE CONCLUSION IS THE NEGATIVE, and it closes this line rather than opening one. THREE independent
+byte reductions have now been measured on this frame — gating the render_geom snapshot (0.5 MB/frame),
+staging only dirty rows (0.87 MB/frame), and this one (4.3 MB/frame, by far the largest) — and all
+three moved the frame by nothing or nearly nothing. Removing 38% of every byte the port copies buys
+under 1%. The profile's "10-13% in memmove" is NOT 10-13% of frame available to be won by moving fewer
+bytes. DO NOT SPEND ANOTHER SESSION ASSUMING IT IS. The sort change was kept because it is strictly
+less work with better asymptotics and identical output, not because it was a speedup.
+
+WHAT THE CENSUS ALSO SHOWS, recorded rather than acted on:
+  * dv_save copies all 2 MB of guest RAM about once per logic frame — that is fps60's
+    snapshot-and-restore. psxport/CLAUDE.md already documents Dusklight's alternative
+    (RECORD-AND-REPLACE: never snapshot guest state) and why the precision argument gates adopting it
+    against a GTE-side s16 matrix. This is the measured size of what that would remove.
+  * SPU_UpdateFromCDC at ~5.9% under PSXPORT_NOAUDIO=1 is NOT waste: NOAUDIO only suppresses OPENING
+    the SDL device. Beetle's SPU still mixes because the guest reads those registers back and CD/XA
+    streaming depends on it — guest-visible state, not discardable output. Ruled out as a target.
+
+BLIND SPOTS OF THE CENSUS, stated because a small total must not read as a closed accounting:
+compiler-INLINED copies (no call to wrap), copies made INSIDE a shared object (--wrap only rewrites
+this link's references), and anything outside the armed window.
