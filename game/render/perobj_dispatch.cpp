@@ -58,6 +58,7 @@
 #include "cfg.h"
 #include "guest_abi.h"   // GuestFrame/guest_dispatch — perModeDispatch's demo migration (docs/port-framework.md)
 #include "render_internal.h"   // render_field_native_active (REDIRECT below)
+#include "gpu_native_internal.h"   // gpu_frame_no — declared THERE, never re-declared here
 #include "producer_scope.h"    // ProducerScope — graphics-producer DB, native leg
 #include <lucent/log.h>
 
@@ -290,7 +291,6 @@ void Render::cmdListDispatch() {
     const int fnReason = render_field_native_reason(c);
     const bool fieldNative = (fnReason == FN_ON);
     if (cfg_dbg("redirdiag")) {
-      extern int gpu_frame_no(Core*);
       g_redir.begin(gpu_frame_no(c));
       g_redir.cmds++;
       if (!fieldNative) { g_redir.gate_off++; if (fnReason < 8) g_redir.off_reason[fnReason]++; }

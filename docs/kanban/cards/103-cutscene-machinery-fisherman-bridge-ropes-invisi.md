@@ -4,7 +4,7 @@ title: Cutscene machinery + fisherman + bridge ropes invisible under pc_render (
 status: doing
 labels: [render, bug]
 created: 2026-08-19
-updated: 2026-08-19
+updated: 2026-08-20
 ---
 
 USER 2026-08-19, live windowed run (pc_faithful + pc_render), area 0, pad frame ~30150 of replays/bugs/machinery-invisible.pad (cut from the live session with padrec save). A cutscene where an NPC works a piece of MACHINERY: the machinery is INVISIBLE, the FISHERMAN the user expects in the scene is absent, and the user also reports the BRIDGE ROPES missing.
@@ -84,3 +84,25 @@ WHY IT IS NOT ONE GLOBAL FIX AT 0x8003B320: 11 distinct guest fns call it (0x801
 So the producer needs only the node's own world state + the scene camera the native renderer already holds. Same situation FUN_8003B704's beams were in, and those were solved this way (Render::beamQuadRender, game/render/fx_beam.cpp) — that is the precedent to copy.
 
 INSTRUMENT NOTE — one lied and was caught. The first prim census differenced RenderQueue::n across the draw and reported 'prims=-51 ... EMPTY=1'. RenderQueue::push() lazily resets n=0 on the first push of a queue frame, so any draw straddling that reset reads negative and would have been reported as 'this draw emitted nothing'. Fixed by adding RenderQueue::pushed_total, a monotonic odometer that is never reset (external/psxport/runtime/recomp/render_queue.h/.cpp). The negative values are also the proof the expression tracks reality rather than being stuck at a constant.
+
+**2026-08-20:** 2026-08-20 — THE ROPE PRODUCER WAS DISABLED THIS WHOLE TIME, and re-enabling it does NOT fix the machinery. Both halves matter.
+
+MY OWN LEFTOVER. game_tomba2.cpp carried:
+    void fx_rope_strip_install();
+    // DISABLED FOR BISECT
+    // fx_rope_strip_install();
+I commented it out for a bisect on 2026-08-20 and never restored it, so fx_rope_strip.cpp — the FUN_801365C4 producer written FOR this card — has never actually run. Restored.
+
+IT FIRES, AND IT EMITS ON SCREEN. PSXPORT_DEBUG=ropefx over the machinery-cutscene resume: 1,077 emissions, each 'emitted=3 behind=0', screen=[111.1,83.3]..[118.8,126.8] — inside the 320x240 view, nothing culled behind the camera.
+
+AND THE MACHINERY IS STILL INVISIBLE. Screenshot at f31100 of the resume (scratch/screenshots/present_31100.ppm, composite scratch/screenshots/mach_rope_ab.png) shows the same scene as the card's recorded pc_30150.png with the machine still absent. So 0x801365C4 is NOT the machinery's submitter — it is the rope/cable strip, and it is now produced. The machinery remains one of the other unowned rows, exactly as the card's earlier analysis said.
+
+DO NOT READ THE COMPOSITE AS A PIXEL A/B. The two shots are 950 frames apart (30150 vs 31100), so characters have moved and a pixel diff between them is meaningless. It is a VISUAL check of one thing only: is the machine there. It is not.
+
+A DIAGNOSTIC BUG OF MINE, FIXED: the ropefx line hardcoded 'f0' instead of the frame, so 1,077 lines all claimed frame 0 and there was no way to tell WHEN the producer ran — whether the emissions were the bridge ropes early in area 0 or the cutscene ropes. It now prints gpu_frame_no(c). That matters for the next step, because 'it emits' and 'it emits IN THIS SCENE' are different claims and the log could not separate them.
+
+ALSO FIXED, per the USER's never-duplicate rule: gpu_frame_no was declared THREE times — once properly in the framework's gpu_native_internal.h and again as a local `extern int gpu_frame_no(Core*);` in both fx_rope_strip.cpp and perobj_dispatch.cpp. Both local re-declarations deleted, header included instead.
+
+THE WORKFLOW COST, measured, because the card understates it: this repro is documented as '~4.7 min at ~110 fps'. It actually took ~25 MINUTES of wall clock, and the ropefx channel itself roughly halved the rate (1,000s of formatted lines). That is the same defect the USER called out on 2026-08-20 ('this ~5 mins to reproduce is totally unacceptable'), and it is worse than recorded. A savestate/scene-warp for this scene would pay for itself immediately.
+
+NEXT: with the frame number now in the log, re-run and check whether ropefx fires DURING the cutscene frames (~31,000+) or only earlier. If it fires there and the ropes are still not visible, the producer emits into a queue whose prims are not presented — which is #98's ledger question, not an RE question.

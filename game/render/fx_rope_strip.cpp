@@ -78,13 +78,13 @@
 #include "render.h"
 #include "render_queue.h"
 #include "render_internal.h"   // ObjScope, render_field_native_active
+#include "gpu_native_internal.h"   // gpu_frame_no — declared THERE, never re-declared here
 #include "projection.h"
 #include "proj_params.h"       // proj_pz_to_ord
 #include <lucent/log.h>
 #include <cstdint>
 
 extern void ov_a00_gen_801365C4(Core*);
-extern int gpu_frame_no(Core*);   // the frame a line belongs to — without it a diagnostic cannot be re-found
 
 namespace {
 
@@ -123,7 +123,8 @@ void Render::ropeStripRender(uint32_t node, int32_t length) {
   if (!rec) {
     // The emitter's caller would have read through address 0x2C. Say so — a producer that returns
     // silently here is indistinguishable from one that was never reached.
-    lucent::debug("ropefx", "f{} node={:08X} len={} DECLINED: node+200 record pointer is null", 0, node, length);
+    lucent::debug("ropefx", "f{} node={:08X} len={} DECLINED: node+200 record pointer is null",
+                  gpu_frame_no(c), node, length);
     return;
   }
 
@@ -209,7 +210,7 @@ void Render::ropeStripRender(uint32_t node, int32_t length) {
   // running at all are different findings and this line keeps them different.
   lucent::debug("ropefx", "f{} node={:08X} len={} -> {} whole + rem {} = {} tiles | half={} P=({},{},{}) "
                           "tpage={:04X} clut={:04X} | emitted={} behind={} screen=[{:.1f},{:.1f}]..[{:.1f},{:.1f}]",
-                0, node, len, whole, rem, tiles, half, px, py, pz, tpage, clut,
+                gpu_frame_no(c), node, len, whole, rem, tiles, half, px, py, pz, tpage, clut,
                 emitted, behindCount,
                 emitted ? bx0 : 0.0f, emitted ? by0 : 0.0f, emitted ? bx1 : 0.0f, emitted ? by1 : 0.0f);
 }
