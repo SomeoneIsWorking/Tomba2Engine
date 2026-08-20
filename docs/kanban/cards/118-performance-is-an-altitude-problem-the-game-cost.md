@@ -124,3 +124,27 @@ CURRENT FRAME, for the record:
     post          0.20 ms
     frame         3.30 ms   ->  303 fps  (10.1x realtime)
 Started the session at 226 fps / 4.42 ms.
+
+**2026-08-20:** 2026-08-20 — THE libc LOOP HAS A NAME, AND IT IS A DEAD END. psxport d5b179c3.
+
+prof_hot.py now fetches debug symbols through debuginfod itself (no root, Fedora ships it configured), so the shared-object share resolves by name:
+
+    13.49%  [libc.so.6] __memmove_avx_unaligned_erms      <- largest single entry in the whole profile
+     1.6%   [libc.so.6] ioctl                             <- GPU submission syscalls
+
+A BYTE CENSUS (`debug vramcopy`) locates the copies exactly: ~3 MB per frame across the two whole-VRAM staging copies, 3,287 MiB over the 1,100-frame scene, at a rate consistent with write-combined memory.
+
+FIXED THE OBVIOUS WASTE: upload_vram copied the entire 1 MB canvas and then uploaded only the dirty rects out of it. It now copies only the rows those rects name (the full row stride is kept — the existing comment is right that the GPU copy addresses the buffer with srci.offset + pixels_per_row, but that is about LAYOUT, not about which rows to copy).
+    staged per frame   1024 KiB -> 150 KiB
+    staged per run     3,287 MiB -> 2,352 MiB
+    presented frame    PIXEL-IDENTICAL, 0 of 691,200
+
+AND IT DID NOT MAKE THE FRAME FASTER: 4.071 -> 4.084 s, inside noise.
+
+THIS IS THE SECOND BYTE REDUCTION WITH NO EFFECT. Gating the render_geom snapshot skipped it on 50.0% of calls (measured, 1,096 of 2,192) and also changed nothing. Two independent cuts — 0.5 MB and 0.87 MB per frame — both free.
+
+SO THE 13.5% IS NOT AN OPTIMISATION TARGET. These are posted stores to write-combined memory: the CPU issues them and moves on, and the sampler charges the stall to __memmove rather than to whatever the frame is actually waiting on. A profile can tell you where the program counter is; it cannot tell you what the frame is BLOCKED on, and this is the difference biting.
+
+I WAS WRONG EARLIER ON THIS CARD in the other direction too: I reported the snapshot-gating result as "the memcpy is not the cost". The cut was 0.5 MB of 3 MB — about 2% of the frame — which was below my noise floor at the time, so that test could not have shown an effect either way. The conclusion happened to be right; the reasoning was not.
+
+WHAT THIS LEAVES. The frame is 3.30 ms and the two biggest NAMED items we own are the ordering contest (rq_faces_in_contest_ext 11.6%) and OtAttr (7.6%). Beyond that the profile is telling us where the PC is, not where the time goes — and the next honest step is a different KIND of instrument: something that measures WAITING (GPU fence/submit latency), not sampling. `ioctl` at 1.6% of samples with a 3.3 ms frame is a hint that submission is involved, but a sampled PC cannot size it.
