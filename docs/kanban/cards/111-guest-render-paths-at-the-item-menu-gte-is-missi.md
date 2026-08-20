@@ -63,3 +63,27 @@ REPRO for the VRAM measurement:
   PSXPORT_GPU_BEETLE=1 PSXPORT_GPU_BEETLE_DUMP=1120 PSXPORT_DEBUG=gpubeetle,gpu \
   PSXPORT_PAD_REPLAY=replays/bugs/ingame-item-menu.pad ./scratch/bin/tomba2_port
 then measure the 320x240 @ (0,0) rect of scratch/screenshots/{ours,beetle}_vram_f1120.ppm.
+
+**2026-08-20:** 2026-08-20 — ROOT CAUSE FOUND AND FIXED (psxport 4393b5aa). The psx path presented an all-black frame because render_geom CLEARED AWAY the picture our own software rasterizer had just drawn.
+
+THE THIRD SITE BLIND ON RenderPath::Psx, and the first two were already fixed and documented in gpu_vk_present_policy.h. On that path the software rasterizer draws the whole frame into s_vram, tees NO VK geometry and marks NOTHING dirty — so every input that asks 'did anything change' answers no:
+  * the present DECISION was fixed for it (swRasterIsPicture)                 <- done 2026-08-11
+  * the dirty list was fixed for it (s_dirty.markAll())                       <- done 2026-08-11
+  * render_geom's clear-to-black was NOT                                      <- this
+It consulted GameConfig::preserveVramBackdrop, which is the port's statement about whether the GUEST's VRAM is picture under the NATIVE renderer. Tomba!2 answers 0 and is RIGHT to: its native producers own the frame, so leftover guest VRAM is stale. But render_geom's batch is PERMANENTLY empty on the software path, so 'total == 0' there says nothing about whether a picture exists — and the clear wiped the s_vram upload_vram had uploaded three lines earlier.
+
+MEASURED, before -> after, same capture (PSXPORT_PRESENT_SHOT_AT=1120, path=psx):
+    presented frame non-black   0/691,200 (0.00%)  ->  272,604/691,200 (39.44%)
+The present DECISION was already correct throughout: presentskip reported rebuild_vram=1160, reuse_last=1. And vramup reported regions=1 all=1 — the full VRAM really was uploaded. The clear ran after both.
+
+FINDING 2 OF THIS CARD IS REFUTED, and 'the guest paths are broken rasterizers' with it. psx_render draws the menu correctly, at native brightness, byte-for-byte identical to the beetle GPU oracle. Nothing was ever wrong with the rasterizer at this frame.
+
+A CORRECTION TO MY OWN FIRST READING OF THE FIXED FRAME: comparing 'lit' pixels between VRAM and screen with an any(rgb) test reported 43,502 pixels 'lost in presentation' in a central rectangle. That was a THRESHOLD ARTEFACT, not a finding — the item panel is a very dark non-zero grey (0x181818) in VRAM, so 'lit' counted it. The picture is substantially correct; see scratch/screenshots/psx_vram_vs_present_f1120.png (VRAM | screen) and psx_vs_native_present_f1120.png (psx | native).
+
+TWO REAL DELTAS REMAIN, both psx-vs-native at this frame, and neither is the rasterizer:
+  1. DARK VALUES CRUSHED TO BLACK. VRAM holds 0x181818 in the item panel; the psx present shows 0x000000 there while the native present shows the dark grey. A colour-conversion or fade issue in the s_vram_tex sampling path, not in what was rasterized.
+  2. Slight vertical layout difference between the two presented frames (the bottom help panel sits higher on psx). Row-luminance correlation against VRAM is best at dy=0, so this is NOT a global offset — it needs its own measurement. Note the two captures compared were one frame apart in labelling (the pre-fix build labelled the dump one frame late), so RE-CAPTURE both on the current build before treating this as real.
+
+STILL UNTOUCHED BY ALL OF THIS: the gte path. Its measured (41.92, 35.43, 12.36) / 37.1% is now numerically almost identical to what psx presents AFTER the fix (41.88, 35.53, 12.43 / 39.4%), which is worth knowing but is not evidence about gte — run the VRAM-vs-oracle comparison on PSXPORT_RENDER_PATH=gte before concluding anything.
+
+TOOLING: tools/vram_oracle.py <replay> <frame> [--path psx|gte|native] [--selftest] does this comparison in one command and REFUSES (exit 2) rather than reporting a difference measured on a lossy feed or a run that never reached the frame.
