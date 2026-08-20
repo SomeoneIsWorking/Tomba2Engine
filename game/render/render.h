@@ -468,6 +468,14 @@ public:
   bool beamNodeReached(uint32_t node) const;
   void beamQuadRender(uint32_t node);
 
+  // ropeStripRender — FUN_801365C4's picture (game/render/fx_rope_strip.cpp): the tiled vertical
+  // quad strip (rope / cable / chain) that reaches the guest picture only through FUN_8003B320, a
+  // substrate mirror that emits no native primitive. `length` is the emitter's a1, tiled in 120-unit
+  // segments. Its transform contract belongs to its ONE caller FUN_80136748, which composes a
+  // camera-only rotation — so the corners are world space and this projects them with the native
+  // scene camera. See that file's banner and kanban #103.
+  void ropeStripRender(uint32_t node, int32_t length);
+
   // impactRingRender (game/render/fx_ring.cpp): native producer for the IMPACT ANNULUS — the type-0x20
   // node whose render fn is 0x8002ECD8. It resolves the ring's screen centre + pixel scale (world
   // anchor through the native camera, or the fixed HUD position) and animates the inner/outer radii

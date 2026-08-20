@@ -1,0 +1,2 @@
+/usr/bin/llvm-ar qc ../../../librmlui_debugger.a CMakeFiles/rmlui_debugger.dir/Debugger.cpp.o CMakeFiles/rmlui_debugger.dir/DebuggerPlugin.cpp.o CMakeFiles/rmlui_debugger.dir/DebuggerSystemInterface.cpp.o CMakeFiles/rmlui_debugger.dir/ElementContextHook.cpp.o CMakeFiles/rmlui_debugger.dir/ElementDataModels.cpp.o CMakeFiles/rmlui_debugger.dir/ElementDebugDocument.cpp.o CMakeFiles/rmlui_debugger.dir/ElementInfo.cpp.o CMakeFiles/rmlui_debugger.dir/ElementLog.cpp.o CMakeFiles/rmlui_debugger.dir/Geometry.cpp.o
+/usr/bin/llvm-ranlib ../../../librmlui_debugger.a

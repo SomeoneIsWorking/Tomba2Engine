@@ -216,6 +216,8 @@ void games_tomba2_init(void) {
   // dead-line body — dead scaffolding — and got deleted. Direct-call wiring is the shape now.
   void perobj_dispatch_install();
   perobj_dispatch_install();   // FUN_8003CDD8/FUN_8003F698 substrate-mirror ownership (band 0x8003xxxx)
+  void fx_rope_strip_install();
+  fx_rope_strip_install();   // FUN_801365C4 native producer — the tiled rope/cable strip (#103)
   void perobj_billboard_install();
   perobj_billboard_install();  // FUN_8003CCA4/C2D4/C464/C8F4 substrate-mirror ownership (band 0x8003xxxx)
   void text_label_install();

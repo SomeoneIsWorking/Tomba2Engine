@@ -1,0 +1,20 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/bhamil/repo/psx/Tomba2Engine/build_clang/cmake_install.cmake",
+		"/home/bhamil/repo/psx/Tomba2Engine/build_clang/libchdr_build/cmake_install.cmake",
+		"/home/bhamil/repo/psx/Tomba2Engine/build_clang/libchdr_build/deps/lzma-25.01/cmake_install.cmake",
+		"/home/bhamil/repo/psx/Tomba2Engine/build_clang/libchdr_build/deps/miniz-3.1.1/cmake_install.cmake",
+		"/home/bhamil/repo/psx/Tomba2Engine/build_clang/libchdr_build/deps/zstd-1.5.7/cmake_install.cmake",
+		"/home/bhamil/repo/psx/Tomba2Engine/build_clang/libchdr_build/tests/cmake_install.cmake",
+		"/home/bhamil/repo/psx/Tomba2Engine/build_clang/rmlui_build/cmake_install.cmake",
+		"/home/bhamil/repo/psx/Tomba2Engine/build_clang/rmlui_build/Source/cmake_install.cmake",
+		"/home/bhamil/repo/psx/Tomba2Engine/build_clang/rmlui_build/Source/Core/cmake_install.cmake",
+		"/home/bhamil/repo/psx/Tomba2Engine/build_clang/rmlui_build/Source/Core/Elements/cmake_install.cmake",
+		"/home/bhamil/repo/psx/Tomba2Engine/build_clang/rmlui_build/Source/Core/Layout/cmake_install.cmake",
+		"/home/bhamil/repo/psx/Tomba2Engine/build_clang/rmlui_build/Source/Core/FontEngineDefault/cmake_install.cmake",
+		"/home/bhamil/repo/psx/Tomba2Engine/build_clang/rmlui_build/Source/Debugger/cmake_install.cmake",
+		"/home/bhamil/repo/psx/Tomba2Engine/build_clang/lucent_build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

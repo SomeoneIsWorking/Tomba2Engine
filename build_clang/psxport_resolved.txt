@@ -1,0 +1,2 @@
+dir = /home/bhamil/repo/psx/psxport
+commit = b049892aaf45f49fbb4f34876bb2903d7d4953b2

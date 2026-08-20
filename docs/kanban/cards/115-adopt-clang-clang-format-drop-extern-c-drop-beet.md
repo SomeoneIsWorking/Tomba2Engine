@@ -56,3 +56,25 @@ ACCOMMODATED RATHER THAN OVERRIDDEN: .clang-format sets no PointerAlignment, so 
 WHAT REMAINS ON THIS CARD:
   1. clang as the compiler. Not started, not measured. Build is GCC (/usr/lib64/ccache/cc). The vendored beetle C is only known to build under GCC here, so expect real work.
   2. game_iface.h is 520 lines against a 500-line ownership cap — the ONE remaining test failure, pre-existing, unrelated to formatting, and a real architectural signal asking for a module to be extracted. Bumping the cap to go green would be a hardcoded expected value; do the extraction or leave it failing honestly.
+
+**2026-08-20:** 2026-08-20 — CLANG DONE. It works out of the box, is behaviourally identical, and is 15% FASTER. run.sh now defaults to it.
+
+THE BLOCKER I RECORDED ON THIS CARD WAS WRONG, and I had asserted it without testing: "the vendored beetle C is only known to build under GCC here". Testing it took one configure line.
+
+    psxport lib + tools + tests        0 errors, 0 warnings — vendored beetle C included
+    psxport hermetic suite             62 of 63, the SAME single game_iface.h cap failure GCC gives
+    Tomba!2 game + ~200MB substrate    0 errors
+    behaviour vs the beetle oracle     IDENTICAL to GCC: f1120 psx, 368 = 368 prims, 0/524,288 differing
+
+PERFORMANCE, measured properly — same workload, both binaries, ALTERNATING over three pairs so a warm page cache cannot credit either one:
+    gcc     11.31   11.50   11.19 s      mean 11.34
+    clang    9.67    9.53    9.70 s      mean  9.63     -> clang 15.1% faster
+Every clang run beat every gcc run; the separation is total, not two means that happen to differ.
+
+TWO TRAPS I FELL INTO AND FIXED, both recorded because they invalidate a naive A/B:
+  1. BOTH build dirs write to the SAME scratch/bin/tomba2_port. So "build gcc, copy, build clang, copy" silently copies the clang binary twice — the tell was two files with byte-identical SIZE. The gcc binary has to be force-relinked (delete the output first) before it is really a gcc binary.
+  2. Configure WITHOUT CMAKE_BUILD_TYPE and there is no -DNDEBUG, so vendored asserts go live and gpu.c:2058 fires at once. That reads as a clang bug and is not — it is a real defect in OUR oracle adapter, now #116.
+
+run.sh DEFAULTS TO CLANG and carries the measurement in a comment so the next person does not have to re-derive why. Override with CC/CXX in the environment to compare against gcc again. It also detects a stale compiler cache and re-configures from scratch: CMake REFUSES to change compiler on an existing cache, so without that guard this change would have broken the very next ./run.sh on any tree configured before it.
+
+STILL OPEN ON THIS CARD: game_iface.h at 520 lines against its 500-line ownership cap — the one remaining test failure, pre-existing, unrelated to formatting or to the compiler.

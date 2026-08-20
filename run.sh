@@ -140,7 +140,36 @@ say "disc: $DISC"
 # (0x800810F0). The old `if [ ! -x ]` guard never rebuilt a stale binary. Don't reintroduce it.
 say "building libchdr + discdump (CMake)…"
 # discdump is a FRAMEWORK tool — built from the psxport submodule (external/psxport), not this game repo.
-cmake -S "$PSXPORT_DIR" -B "$PSXPORT_DIR/build" -DCMAKE_BUILD_TYPE=Release >/dev/null || die "psxport cmake configure failed"
+# COMPILER: clang, by USER decision (2026-08-20) and by measurement. Same workload, both binaries,
+# alternating over three pairs to keep a warm page cache from crediting either one:
+#   gcc    11.31  11.50  11.19 s      clang  9.67  9.53  9.70 s      -> clang 15.1% faster
+# Every clang run beat every gcc run; the separation is total, not a mean that happens to differ.
+# Behaviour is identical, checked against the beetle GPU oracle rather than assumed: f1120 psx path,
+# 368 = 368 prims, 0 of 524,288 pixels differing.
+# Override with CC/CXX in the environment if you need to compare against gcc again.
+: "${CC:=clang}"
+: "${CXX:=clang++}"
+CMAKE_CC_ARGS="-DCMAKE_C_COMPILER=$CC -DCMAKE_CXX_COMPILER=$CXX"
+
+# CMake REFUSES to change compiler on an existing cache — it errors and tells you to delete it. A
+# tree configured before this change carries a gcc cache, so switching the default would break the
+# very next ./run.sh. Detect the mismatch and re-configure from scratch instead of failing at the
+# user. Compares the resolved path, because "clang" and "/usr/bin/clang" are the same compiler.
+cc_cache_stale() {
+  cache="$1/CMakeCache.txt"
+  [ -f "$cache" ] || return 1                      # no cache yet: nothing to be stale
+  want=$(command -v "$CC" 2>/dev/null || echo "$CC")
+  have=$(sed -n 's/^CMAKE_C_COMPILER:[^=]*=//p' "$cache")
+  [ "$want" != "$have" ]
+}
+for d in "$PSXPORT_DIR/build" build; do
+  if cc_cache_stale "$d"; then
+    echo "[run] $d was configured for ${have:-an unknown compiler}, want $CC — reconfiguring from scratch"
+    rm -rf "$d"
+  fi
+done
+
+cmake -S "$PSXPORT_DIR" -B "$PSXPORT_DIR/build" -DCMAKE_BUILD_TYPE=Release $CMAKE_CC_ARGS >/dev/null || die "psxport cmake configure failed"
 cmake --build "$PSXPORT_DIR/build" -j "$JOBS" --target discdump >/dev/null || die "discdump build failed"
 DISCDUMP="$PSXPORT_DIR/build/tools/discdump"
 [ -x "$DISCDUMP" ] || DISCDUMP="$PSXPORT_DIR/build/tools/discdump.exe"
@@ -163,7 +192,7 @@ PSXPORT_DISCDUMP="$DISCDUMP" python3 tools/ensure_recomp.py "$DISC" || die "reco
 # scratch/bin/tomba2_port (RUNTIME_OUTPUT_DIRECTORY). Configure is idempotent (fast when up to date); the
 # build is incremental. (The old hand-rolled per-file g++ compile/link + tools/build_port.sh are retired.)
 say "building the native port (CMake -j$JOBS)…"
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPSXPORT_DIR="$(cd "$PSXPORT_DIR" && pwd)" >/dev/null || die "cmake configure failed"
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release $CMAKE_CC_ARGS -DPSXPORT_DIR="$(cd "$PSXPORT_DIR" && pwd)" >/dev/null || die "cmake configure failed"
 cmake --build build -j "$JOBS" --target tomba2_port || die "port build failed"
 
 # ---- 5. run ------------------------------------------------------------------------

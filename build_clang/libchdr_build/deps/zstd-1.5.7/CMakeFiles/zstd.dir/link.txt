@@ -1,0 +1,2 @@
+/usr/bin/llvm-ar qc libzstd.a CMakeFiles/zstd.dir/zstddeclib.c.o
+/usr/bin/llvm-ranlib libzstd.a

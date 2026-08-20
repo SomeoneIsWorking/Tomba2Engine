@@ -1,0 +1,2 @@
+/usr/bin/llvm-ar qc libminiz.a CMakeFiles/miniz.dir/miniz.c.o
+/usr/bin/llvm-ranlib libminiz.a
