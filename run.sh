@@ -151,29 +151,9 @@ say "building libchdr + discdump (CMake)…"
 # Behaviour is identical, checked against the beetle GPU oracle rather than assumed: f1120 psx path,
 # 368 = 368 prims, 0 of 524,288 pixels differing.
 # CC/CXX may name explicit compiler paths, but the launcher verifies that both are Clang.
-CMAKE_CC_ARGS=(-DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX")
-
-compiler_path() { command -v "$1" 2>/dev/null || printf '%s\n' "$1"; }
-cmake_cache_stale() {
-  local cache="$1/CMakeCache.txt" have_cc have_cxx
-  [ -f "$cache" ] || return 1
-  have_cc=$(sed -n 's/^CMAKE_C_COMPILER:[^=]*=//p' "$cache")
-  have_cxx=$(sed -n 's/^CMAKE_CXX_COMPILER:[^=]*=//p' "$cache")
-  [ "$(compiler_path "$CC")" != "$(compiler_path "$have_cc")" ] ||
-    [ "$(compiler_path "$CXX")" != "$(compiler_path "$have_cxx")" ]
-}
-cmake_configure() {
-  local source="$1" build="$2"; shift 2
-  local fresh=()
-  if cmake_cache_stale "$build"; then
-    say "$build compiler changed — refreshing CMake metadata once"
-    fresh=(--fresh)
-  fi
-  cmake "${fresh[@]}" -S "$source" -B "$build" -DCMAKE_BUILD_TYPE=Release \
-    "${CMAKE_CC_ARGS[@]}" "$@" >/dev/null
-}
-
-cmake_configure "$PSXPORT_DIR" "$PSXPORT_DIR/build" || die "psxport cmake configure failed"
+cmake -S "$PSXPORT_DIR" -B "$PSXPORT_DIR/build" -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" >/dev/null \
+  || die "psxport cmake configure failed"
 cmake --build "$PSXPORT_DIR/build" -j "$JOBS" --target discdump >/dev/null || die "discdump build failed"
 DISCDUMP="$PSXPORT_DIR/build/tools/discdump"
 [ -x "$DISCDUMP" ] || DISCDUMP="$PSXPORT_DIR/build/tools/discdump.exe"
@@ -196,7 +176,8 @@ PSXPORT_DISCDUMP="$DISCDUMP" python3 tools/ensure_recomp.py "$DISC" || die "reco
 # scratch/bin/tomba2_port (RUNTIME_OUTPUT_DIRECTORY). Configure is idempotent (fast when up to date); the
 # build is incremental. (The old hand-rolled per-file g++ compile/link + tools/build_port.sh are retired.)
 say "building the native port (CMake -j$JOBS)…"
-cmake_configure . build -DPSXPORT_DIR="$(cd "$PSXPORT_DIR" && pwd)" || die "cmake configure failed"
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPSXPORT_DIR="$(cd "$PSXPORT_DIR" && pwd)" \
+  -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX" >/dev/null || die "cmake configure failed"
 cmake --build build -j "$JOBS" --target tomba2_port || die "port build failed"
 
 # ---- 5. run ------------------------------------------------------------------------

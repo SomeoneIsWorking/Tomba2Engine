@@ -1,5 +1,12 @@
 # Findings — FMV / CD streaming
 
+## Watchdog falsely aborts during MOVIE/LOGO.STR playback (2026-08-20)
+- **symptom:** healthy `MOVIE/LOGO.STR` playback aborts as `[watchdog] STUCK: no frame presented within the timeout`.
+- **status:** fixed 2026-08-20 in psxport
+- **cause:** native STR frames present directly through `gpu_vk_present_image`; unlike ordinary frames, that path bypassed `GpuState::gpu_present_ex` and never petted the frame-progress watchdog.
+- **fix:** `native_fmv.cpp::present_rgb555` now pets the watchdog after each completed direct present; `test_fmv_watchdog` pins that progress contract.
+- **refs:** `external/psxport/runtime/recomp/native_fmv.cpp`, `external/psxport/tests/test_fmv_watchdog.cpp`
+
 ## Native port of libcd directory cache — CdNewMedia + CdCacheFile (2026-07-04)
 - **symptom:** SBS `MODE=gameplay` (pc_skip=true vs recomp) f0 divergence 1273 B — 8 B at `0x800AC2D4..0x800AC2DC` (libcd cached-dir-idx + media cookie), ~500 B at `0x80102D68+` (path-table cache), ~500 B at `0x80102768+` (file-entry cache for last-cached dir), plus 2 KB of dir-sector scratch at `0x80104368+`.
 - **status:** fixed — libcd cache region f0 zero-diff; remaining 522 B at f0 are pre-existing Slip #6 (task-fiber cadence), unrelated.
