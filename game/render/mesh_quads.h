@@ -48,5 +48,19 @@ public:
   // out = colScale(A · B): the matrix multiply (FUN_80084250, >>12 with the MVMVA IR clamp) followed by
   // Math::matColScale's per-COLUMN factors, delivered as the float 1.3.12 rotation projComposeObjectHost
   // expects.
-  static void composeScaled(const int32_t A[3][3], const int32_t B[3][3], const int32_t colScale[3], float out[3][3]);
+  static inline void
+  composeScaled(const int32_t A[3][3], const int32_t B[3][3], const int32_t colScale[3], float out[3][3]) {
+    for (int i = 0; i < 3; i++) {
+      for (int j = 0; j < 3; j++) {
+        int32_t s =
+            (int32_t)(((int64_t)A[i][0] * B[0][j] + (int64_t)A[i][1] * B[1][j] + (int64_t)A[i][2] * B[2][j]) >> 12);
+        if (s < -32768) {
+          s = -32768;
+        } else if (s > 32767) {
+          s = 32767; // the multiply leaf's IR clamp
+        }
+        out[i][j] = (float)((s * colScale[j]) >> 12);
+      }
+    }
+  }
 };

@@ -141,12 +141,15 @@ constexpr uint32_t FN_XYSCALE = 0x8002801Cu; // scaleX/Y = MAC0 * node+0x48 / no
 // domain = the four cardinal directions. Radius comes from (trig * 0x19) >> 4 and the height is the
 // constant (s16)node+0x50 << 6.
 constexpr uint32_t FN_RINGROT = 0x8002B3A4u;
-constexpr uint32_t kRingAngles = 0x48u; // 3 x s16 Euler angles for the node's own rotation
-constexpr uint32_t kRingHeight = 0x50u; // s16; << 6 gives the ring's constant Y
-constexpr int kRingPoints = 4;          // slti r18, 4
-constexpr int kRingRadiusN = 0x19;      // (trig * 0x19) >> 4
+constexpr uint32_t kRingAngles = 0x48u;            // 3 x s16 Euler angles for the node's own rotation
+constexpr uint32_t kRingHeight = 0x50u;            // s16; << 6 gives the ring's constant Y
+constexpr int kRingPoints = 4;                     // slti r18, 4
+constexpr int kRingRadiusN = 0x19;                 // (trig * 0x19) >> 4
+constexpr uint32_t kRingColumnScale = 0x800A1CD4u; // three u8 factors; guest shifts each left by 2
 constexpr uint32_t kXScaleMul = 0x48u;
 constexpr uint32_t kYScaleMul = 0x4Au;
+
+const int32_t kIdentity[3][3] = {{4096, 0, 0}, {0, 4096, 0}, {0, 0, 4096}};
 
 } // namespace
 
@@ -475,19 +478,21 @@ void Render::fxSpriteEmit(uint32_t node, uint32_t rfn) {
   }
 
   if (rfn == FN_RINGROT) {
-    // The node's own rotated frame, built host-side from the same LUT Math::rotmat reads.
+    // The node's own rotated frame, built host-side from the same LUT Math::rotmat reads. The guest
+    // immediately runs Math::matColScale with the three authored bytes at 0x800A1CD4, each promoted
+    // to a 1.3.12 factor by <<2. Omitting that step makes the four 6400-unit local points 64x too far
+    // apart; dividing the rotation itself by 4096 instead collapses them to one point.
     int32_t M[3][3];
     MeshQuads::rotmat(c,
                       (int16_t)c->mem_r16(node + kRingAngles),
                       (int16_t)c->mem_r16(node + kRingAngles + 2),
                       (int16_t)c->mem_r16(node + kRingAngles + 4),
                       M);
+    const int32_t columnScale[3] = {(int32_t)c->mem_r8(kRingColumnScale) << 2,
+                                    (int32_t)c->mem_r8(kRingColumnScale + 1u) << 2,
+                                    (int32_t)c->mem_r8(kRingColumnScale + 2u) << 2};
     float Robj[3][3];
-    for (int i = 0; i < 3; i++) {
-      for (int j = 0; j < 3; j++) {
-        Robj[i][j] = (float)M[i][j] / 4096.0f;
-      }
-    }
+    MeshQuads::composeScaled(M, kIdentity, columnScale, Robj);
     const uint32_t pxy = c->mem_r32(node + kAnchorXY);
     const float Tobj[3] = {
         (float)(int16_t)pxy, (float)(int16_t)(pxy >> 16), (float)(int16_t)c->mem_r32(node + kAnchorZ)};

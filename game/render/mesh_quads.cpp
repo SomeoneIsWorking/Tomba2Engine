@@ -152,24 +152,6 @@ void MeshQuads::fromGuest(Core *c, uint32_t matPtr, int32_t M[3][3]) {
   }
 }
 
-void MeshQuads::composeScaled(const int32_t A[3][3],
-                              const int32_t B[3][3],
-                              const int32_t colScale[3],
-                              float out[3][3]) {
-  for (int i = 0; i < 3; i++) {
-    for (int j = 0; j < 3; j++) {
-      int32_t s =
-          (int32_t)(((int64_t)A[i][0] * B[0][j] + (int64_t)A[i][1] * B[1][j] + (int64_t)A[i][2] * B[2][j]) >> 12);
-      if (s < -32768) {
-        s = -32768;
-      } else if (s > 32767) {
-        s = 32767; // the multiply leaf's IR clamp
-      }
-      out[i][j] = (float)((s * colScale[j]) >> 12);
-    }
-  }
-}
-
 int Render::meshQuadRecordsEmit(uint32_t mesh,
                                 int uBias,
                                 const int32_t farColour[3],

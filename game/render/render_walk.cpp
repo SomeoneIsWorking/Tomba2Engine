@@ -1313,6 +1313,12 @@ void Render::fieldObjectsRender() {
           // unlike the overlay entries above, this address never changes owner. See fx_plume.cpp.
           c->rsub.stats.snObjs++;
           rend(c)->radialPlumeRender(n);
+        } else if (rfn == 0x8002A834u) {
+          // The ten-copy lavender WEAPON-SWING starburst (#14). FUN_8002A834 builds each rigid mesh
+          // instance from its own particle record; fx_swing.cpp rebuilds that state in the display
+          // pass instead of reading the composed GTE transform retired in abf3cf9.
+          c->rsub.stats.snObjs++;
+          rend(c)->swingStarburstRender(n);
         } else if (rfn == 0x8013E9D8u && c->mem_r32(0x8013E9D8u) == 0x27BDFFD8u) {
           // The hanging object's ROPE (#54/#56): FUN_8013E9D8 draws one rope from the object this node
           // hangs off (node+0x14) down to itself, through the shared line leaf FUN_8013DD34. Overlay-

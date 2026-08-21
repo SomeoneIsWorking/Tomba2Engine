@@ -261,6 +261,7 @@ set(GAME_SRC
   game/render/fx_ring.cpp
   game/render/fx_dust.cpp
   game/render/fx_plume.cpp
+  game/render/fx_swing.cpp
   game/render/mesh_quads.cpp
   game/render/effect_lerp.cpp
   game/render/field_hud.cpp

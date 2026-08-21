@@ -1,64 +1,29 @@
 ---
 id: 72
 title: Stars on stunned enemies no longer render
-status: todo
+status: done
 labels: [render]
 created: 2026-08-04
-updated: 2026-08-05
+updated: 2026-08-21
 ---
 
 **2026-08-04:** USER-REPORTED 2026-08-04 as part of 'last week broke many things'. Stars that appear over a stunned enemy no longer show. Regression window: 2026-07-28..07-31 (the user was away Tue-Fri; that is when the damage landed). UNVERIFIED which commit — do not guess, bisect. Note the framework took heavy render work in that window (widescreen, native depth, GPU present) and psxport 6dda8528/afca817d/28262159 are all in range.
 
-**2026-08-05:** TRIAGED 2026-08-05 — NOT A REGRESSION, AND NOT A TAP. Two corrections to this card's premises, both measured. (1) NOT TAPPED: the stars are Render::fxSpriteEmit's FN_RINGROT branch (game/render/fx_sprite.cpp:402, FN_RINGROT=0x8002B3A4), a real native producer with ZERO gte_read_* calls — it builds the ring rotation host-side from node+0x48/0x4A/0x4C via MeshQuads::rotmat and emits through drawWorldQuad (RQ_WORLD/RQ_OM_DEPTH). So the break-first tap directive does not apply to this layer; there is no tap to delete. (2) NOT A 07-28..31 REGRESSION: this DUPLICATES kanban #55 ('Stunned monsters missing their spinning stars'), filed 2026-07-23 — i.e. the stars were ALREADY missing BEFORE the window. The producer itself only landed 2026-07-28 (f87b8fb), whose own commit message says 'Not verified visually'. The layer has never rendered; it is unfinished work, not damage. WHAT, measured with denominators: the game's own stun reaction FUN_8006BE88(obj) on a live obj[+2]==3 target (obj[+43] 0->3 confirms it ran and reached the spawn) DOES spawn the ring node — walked 149->151 nodes across all THREE entity heads, node 800EEBF8 present with renderFn=0x8002B3A4, beh=0x8002B7B0, type=0x20. But it is NEVER visible (node+1 == 0, and render_walk.cpp:651 skips on exactly that) and it SELF-RETIRES on its first behaviour tick (renderFn -> 0 after 1 stepped frame). Mechanism: gen_func_8002B7B0 at L_8002B82C tests mem_r8(mem_r32(node+0x14)+0x1B) & 0x40 and writes state 2 (retire) when clear — and node+0x14 is 0, because NOTHING in the spawn path writes it (FUN_8006BE88 -> FUN_8003116C -> FUN_80028E10 -> FUN_8007A980: 80028E10 writes +0x18/+0x1C/+0x38 only, 8003116C writes +44/46/48/50 only). NOT ESTABLISHED, and this is the next RE step: who is supposed to write node+0x14 for the 0x8002B7B0 ring behaviour. Note all 27 live type-0x20 nodes have +0x14==0 and several are visible, so a null parent link is normal for the CLASS — only this behaviour tests it. Also not excluded: that invoking FUN_8006BE88 via the debug server misses context the in-game hit path provides (the real fix-confirm is to stun an enemy from a replay). INSTRUMENT FIXED this session: the FN_RINGROT branch logged NOTHING and its per-point otKeyInRange gate 'continue'd silently, so 'no stars' was indistinguishable from 'never dispatched'; it now emits one lucent::Line-accumulated 'fxsprite' line per run carrying drawn/4 and each dropped point's sz. INSTRUMENT CAUGHT LYING: the debug server's 'ents' walks only TWO entity heads while the render walk uses THREE (0x800FB168, 0x800F2624, 0x800F2738) — it reported 0 type-0x20 nodes when 25 were live. Do not size effect work from 'ents'.
+**Resolved 2026-08-21.** This is the same defect as #55 and predates the stated regression window.
+The missing prerequisite is now checked in: `replays/bugs/stun-stars.pad` performs a real Circle hit
+and produces a live, visible ring node with a non-null owner and the owner's stun bit set. Its texture
+state is valid (`rec0=0x8009DDDC`, `tpage=0x15`, `clut=0x7C15`), so the previous debug-spawn owner and
+texture theories are falsified.
 
-**2026-08-05:** ROOT CAUSE FROM 2026-08-05 IS FALSIFIED — measured in REAL GAMEPLAY, not via a debug-server call. The previous triage's central claim ('nothing in the spawn path ever writes node+0x14', so the node self-retires on its first tick) is an ARTEFACT of spawning via the debug server, which is precisely the caveat that triage recorded as 'not excluded'. It is now excluded: it was the cause. NEW INSTRUMENT: PSXPORT_DEBUG=ringcensus (Render::ringNodeCensus, game/render/render_walk.cpp) walks all 3 entity heads BEFORE fieldObjectsRender's 'node+1==0' visibility skip and reports, with a DENOMINATOR (nodes walked / type-0x20 count / ring count), every node whose +0x18==0x8002B3A4 OR +0x1C==0x8002B7B0, plus node+0x14 and the two bytes the behaviour derives from it. It matches on EITHER field so it cannot miss a node the other field identifies. MEASURED, replay walk-dust-puff.pad run 560, 676 consecutive frames: node=800EE730 owner(node+0x14)=800FD328 NOT ZERO; *(owner+0x1B)=0x40 so stunbit=1 and the retire test at L_8002B82C PASSES; state=1 (per-tick path, alive, never retires); vis(node+1)=1 so the render walk does NOT skip it. So node+0x14 IS written in the real path. WHAT IS ACTUALLY WRONG IS DOWNSTREAM: with PSXPORT_DEBUG=fxsprite the FN_RINGROT producer runs 676 times and reports drawn=4/4 EVERY time (100% of frames, zero points dropped by otKeyInRange) at screen ~(150,145) with scale 73206 (=1.12x in spriteRecordsEmit's /65536 fixed point, so ~18px sprites — sane) anchored at (7005,-817,3967), right beside Tomba at (7193,-1128,3968). Screenshot scratch/screenshots/k72/f560.png at that frame shows NO stars. So the producer emits four correctly-placed, correctly-sized quads per frame and they do not reach the picture. NEXT RE STEP (do not re-derive the above): why spriteRecordsEmit's drawWorldQuad output for this node is not visible — suspects in order are the texture/CLUT source (rec0 / clutPage), the ordering key od=proj_pz_to_ord(pv.pz) placing the quads behind the terrain, and the RQ_OM_DEPTH depth test. Confirmed independently by RE this session: descriptor entry 15 at 0x800A2168 (MAIN.EXE +0x92968) = {beh=0x8002B7B0, render=0x8002B3A4, anim=0x8009DDB8}; FUN_80028E10 writes desc[0]->node+0x1C and desc[4]->node+0x18; the type code is obj[+2]+12 from FUN_8006BE88, so obj[+2]==3 selects entry 15. NONE of 8006BE88/8003116C/80028E10/8007A980/8002B7B0/8002B3A4 has a native override — the whole spawn path is substrate.
+The root cause is the native transform chain in `Render::fxSpriteRender`. The guest performs
+`RotMatrix(node+0x48)` **then** `Math::matColScale` from bytes `0x800A1CD4..D6 << 2`. Native divided
+the Q12 matrix by 4096 and omitted the column scale. Those are paired errors: the former collapses
+the four stars to one sub-pixel point, while correcting it alone makes the ring 64x too large.
+The producer now feeds the Q12 rotation and authored factors through the shared
+`MeshQuads::composeScaled` implementation.
 
-**2026-08-05 (later):** TWO NARROWINGS AND ONE CORRECTION TO THIS CARD'S REPRO.
-
-(1) `drawn=4/4` CANNOT MEAN WHAT THIS CARD READS IT AS. It counts CALLS to `spriteRecordsEmit`, and that function returns `void` — so the number cannot distinguish "four visible quads" from "four quads drawn out of texture page 0 with CLUT 0". Checked before asserting it: `spriteRecordsEmit` draws each record BEFORE testing the terminator flag, so >=4 `drawWorldQuad` calls really do happen; the quads reach the QUEUE. What is unestablished is what they are TEXTURED with, and every number collected so far is blind to that.
-
-(2) TOP SUSPECT, now with a reason rather than an ordering. `clutPage` is `node+0x44` (`kClutPage`, fx_sprite.cpp:99) and feeds BOTH `tpage` and `clut` directly (fx_sprite.cpp:178-179). That slot is NOT among the writers this card enumerated for the spawn path — `FUN_80028E10` writes +0x18/+0x1C/+0x38, `FUN_8003116C` writes +0x2C/0x2E/0x30/0x32. If nothing writes +0x44, every ring quad draws from tpage 0 / clut 0, which is EXACTLY "four correctly-placed, correctly-sized quads that never reach the picture". Note `rec0` (`node+0x34`) is also outside that writer list yet must be non-zero (the branch early-returns on `!rec0` and we DO get lines), so the enumerated writer list is incomplete — it was derived for the `+0x14` question, not this one. The descriptor's third entry `anim=0x8009DDB8` is the obvious candidate writer for both slots and has not been read.
-
-INSTRUMENT EXTENDED (built, compiles): the `fxsprite` ringrot line now carries `rec0`, `clutPage` and the derived `tpage`/`clut`. One run settles suspect (2) instead of reasoning about it.
-
-(3) THE REPRO IN THIS CARD IS INCOMPLETE — stated with its denominator. A CLEAN full run of `PSXPORT_PAD_REPLAY=replays/bugs/walk-dust-puff.pad` (headless, `PSXPORT_NO_FMV=1`, ran to completion rc=0) produced **0 ringrot lines**: the ring node never spawned at all, so the producer never ran once. Whatever "run 560" meant in the previous entry (a REPL frame budget, a warp, a skip) is NOT recorded here and the replay alone does not reach a stunned enemy. Anyone continuing this card must first establish a reproduction that actually spawns the node — and the `fxsprite` line's ABSENCE is now a meaningful signal that it did not, which is the distinction the instrument was built to express.
-
-Also note for any headless probe here: this port's boot FMV is no longer auto-fast-forwarded headless (psxport removed that divergence deliberately — headless and windowed are one path). A probe must ask, with `PSXPORT_NO_FMV=1` or `PSXPORT_FMV_FPS=0`, or the watchdog aborts inside `Fmv::pace`.
-
-**2026-08-05 (later still):** THE WHOLE REPLAY LIBRARY WAS SWEPT — 0 of 17 spawn the node.
-
-Every `.pad` in `replays/` run headless to completion (`PSXPORT_NO_FMV=1`, `PSXPORT_DEBUG=fxsprite`,
-150 s cap each), counting `ringrot` lines:
-
-    0  boot-smoke/general-session      0  bugs/save-prompt-black-screen
-    0  boot-smoke/short-session        0  bugs/save-sign-softlock
-    0  boot-smoke/start-mash-smoke     0  bugs/seesaw-weight
-    0  bugs/bucket-softlock            0  bugs/sequence-softlock-2
-    0  bugs/dark-screen-repro          0  bugs/title-options-page
-    0  bugs/house-on-the-point         0  bugs/walk-dust-puff
-    0  bugs/ingame-item-menu           0  bugs/weapon-impact-bucket
-    0  bugs/ingame-options-page        0  scene-transitions/hut-entry-alt
-                                       0  scene-transitions/hut-entry-door-freeze
-
-**17 of 17 replays, 0 ringrot lines.** The producer never runs in ANY recorded scenario.
-
-WHAT THIS DOES TO THIS CARD'S CENTRAL CONCLUSION. The entry above reports "the FN_RINGROT producer
-runs 676 times and reports drawn=4/4 EVERY time" and attributes it to `walk-dust-puff.pad`. That
-replay produces ZERO ringrot lines on a clean run of the current build. So that measurement did not
-come from the replay alone — the only other spawn route this card documents is invoking
-`FUN_8006BE88` through the debug server, which is the very route an earlier entry recorded as
-"not excluded" and a later one declared "an ARTEFACT ... it was the cause".
-
-So "the producer emits four correct quads and they do not reach the picture" is **UNREPRODUCIBLE
-from anything written down**, and it is now the prime suspect for being an artefact of the same
-debug-server spawn: a node created outside the real hit path plausibly never gets `+0x44`
-(`clutPage`) written, which produces exactly `tpage=0 / clut=0` — four correctly-placed,
-correctly-sized, INVISIBLE quads. The two open threads on this card may be one thread.
-
-NEXT STEP, and it replaces the previous one: do NOT chase "why are the quads invisible" until the
-producer has been seen running from a REAL in-game stun. Record a new replay that actually stuns an
-enemy (`PSXPORT_PAD_RECORD=replays/bugs/stun-stars.pad ./run.sh`, hit a monster, stop). Then one run
-with `PSXPORT_DEBUG=fxsprite` answers both questions at once: whether the producer fires in real
-gameplay at all, and — from the `clutPage`/`tpage`/`clut` now on that line — whether it is textured.
-Either outcome is progress; today's state is that nobody has ever observed this layer from the real
-code path.
+True-oracle check: on one replay execution, `renderpath native` at f2799 and live `renderpath psx` at
+f2800 both show the four-star cluster around the stunned enemy. The native `fxsprite` line reports
+four distinct centres spanning about 28x8 pixels and `drawn=4/4`. `tomba_mesh_quads_math` is the
+negative regression case: raw Q12 or the old divide-by-4096 conversion both fail its expected
+Q12-plus-column-scale output.

@@ -157,22 +157,23 @@ address owning the channel reports `native=0`. If it does, the channel measured 
 
 ### R1 — THE EFFECT-MESH FAMILY has no producer at all *(highest value; RE largely done)*
 
-**FIRST CONTROLLER CLOSED 2026-08-06 — `0x8002BC9C`, the four-copy radial plume. See R1-CLOSED-1
-below.** 19 of the 20 callers of the shared writer are still producer-less, so the row stays open;
-what changed is that the SHAPE of the fix is now demonstrated end to end rather than described.
+**TWO CONTROLLERS CLOSED — `0x8002BC9C`, the four-copy radial plume (2026-08-06), and
+`0x8002A834`, the weapon-charge starburst (2026-08-21).** 18 of the 20 callers of the shared writer
+are still producer-less, so the row stays open. Both closed controllers rebuild their transform
+from their own node state in the display pass; neither restores the deleted shared-writer tap.
 
 | | |
 |---|---|
 | **Looks like in game** | the weapon-IMPACT radial plume; the weapon SWING / CHARGE effect; the water jet's mesh half ("Water came out from the faucet!"); a 4-copy radial plume that is the commonest effect node in a field dump; plus up to 14 further effect controllers not yet identified by sight |
 | **Guest producer** | shared writer `FUN_80027768`, reached from **20 distinct controllers**. Named ones: `0x800288AC` (impact plume), `0x8002BC9C` (4-copy plume), `0x8002A834` (SwingFx), `0x8013D454` MESH branch, `0x8013D828`, `0x8013ED08`, `0x8013EF58` (A00 overlay), and the unowned twelve `0x80028B70 0x8002C138 0x8002C6AC 0x8002CD18 0x8002D65C 0x8002DF68 0x8002F36C 0x8002FDD0 0x80030264 0x80030D68` (census in `docs/findings/render.md`, "the mesh writer has 20 callers") |
 | **Why absent** | commit **`abf3cf9`** ("Delete the GTE-register render taps; four layers are now honestly absent", 2026-08-04) removed `game/render/fx_mesh.cpp/.h`, `mesh_emit_tap.cpp`, `swing_fx.cpp/.h`. `mesh_emit_tap.cpp` was the **single owner** of `FUN_80027768` and dispatched to whichever controller SCOPE was up. No scope, no picture — and pc_render does not walk the guest OT, so the guest packets are not a fallback. **The deletion was CORRECT**: those producers re-derived quads from the transform the substrate controller had just composed into GTE CR0–7, i.e. a tap, banned by PROTOCOL.md. What was never recorded anywhere is that it left the whole family producer-less |
-| **Evidence** | `tools/codemap.py --addr` answers **NO NATIVE OWNER** for `0x80027768`, `0x800288AC`, `0x8002BC9C`, `0x8002A834`, `0x8013D828`, `0x8013ED08`, `0x8013EF58`. **Live confirmation on the current build, not a grep:** `PSXPORT_GATE=1` pc_render + `PSXPORT_DEBUG=nofx,ringcensus` on `bucket-softlock.pad`, 460 frames headless, names `0x8002BC9C` (node `800EE7B8`) and `0x800288AC` (node `800EEBF8`) as live-and-skipped in **area 0**, with 27 live type-0x20 nodes of 152 walked per frame |
-| **Collateral** | closes-that-are-now-false: **kanban #14** ("Weapon CHARGE effect missing") was closed citing `fx_mesh.cpp` — reopened to `todo` 2026-08-06. **kanban #15**'s 2026-07-23 mesh-half fix and its 2026-07-28 A00 follow-up (gated at **700–1367 px/frame** on `walk-dust-puff.pad`) are both gone. **Claim C011** ("every type-0x20 fn the nofx census reaches now has a producer") is **falsified** |
+| **Evidence** | `tools/codemap.py --addr` now finds native owners for closed controllers `0x8002BC9C` and `0x8002A834`; it still answers **NO NATIVE OWNER** for `0x80027768`, `0x800288AC`, `0x8013D828`, `0x8013ED08`, `0x8013EF58`. Live negative evidence remains: `PSXPORT_GATE=1` pc_render + `PSXPORT_DEBUG=nofx,ringcensus` on `bucket-softlock.pad`, 460 frames headless, names `0x800288AC` (node `800EEBF8`) as live-and-skipped in area 0. The charge controller is separately positive-controlled by `weapon-charge-starburst.pad`: native f670/f680/f690/f700 add 843/642/939/1001 pixels in the same window where the pure software oracle draws the starburst, while f650/f660 remain 0-diff. |
+| **Collateral** | **kanban #14 is closed again by the controller-state producer**, not by resurrecting `fx_mesh.cpp`. **kanban #15**'s 2026-07-23 mesh-half fix and its 2026-07-28 A00 follow-up (gated at **700–1367 px/frame** on `walk-dust-puff.pad`) are still gone. **Claim C011** ("every type-0x20 fn the nofx census reaches now has a producer") remains **falsified** because eighteen controllers are still absent. |
 | **Porting needs** | one native producer per controller, reading the controller's OWN node state (`node+0x48` angles, `node+0x2C/0x30` position, model table at `node+0x50`) and projecting with the native camera — the shape `fx_sprite.cpp` / `fx_dust.cpp` / `fx_line.cpp` already use. **The RE is largely DONE — do not re-derive it:** kanban #15's 2026-07-28 entry carries the full `FUN_8002BC9C` decode; `docs/findings/render.md` "The A00-overlay effect-mesh controllers" carries `0x8013D454/D828/ED08/EF58` |
 | **Do NOT** | restore a scope/tap to get the picture back. `mesh_emit_tap.cpp` is not a template to resurrect |
-| **Tracked as** | portmap `render-producer-effect-mesh-family` (todo, `absent:` set) + `render-producer-plume-bc9c` (ported-unverified) for the one controller now closed |
+| **Tracked as** | portmap `render-producer-effect-mesh-family` (todo, `absent:` set), plus `render-producer-plume-bc9c` and `render-producer-charge-starburst` for the two closed controllers |
 
-##### R1 — WORK ORDER: the 19 are DRAFTS against existing shared writers, blocked on nothing *(measured 2026-08-11)*
+##### R1 — WORK ORDER: 18 controller producers remain against existing shared writers, blocked on nothing *(updated 2026-08-21)*
 
 `external/psxport/tools/producer_class.py` classified all 20 controllers by which GTE ops they reach.
 Read the second axis, not the first — the first is what made this family look 10× harder than it is:
@@ -402,13 +403,11 @@ Tracked as portmap `render-mesh-flush` (blocked).
 
 Ranked here because the user sees them as missing graphics, but the fix is not "port an emitter":
 
-- **Stunned-enemy spinning stars** (kanban #55 / #72). The producer EXISTS and is a real native one
-  (`Render::fxSpriteEmit`'s `FN_RINGROT` branch, `0x8002B3A4`, zero `gte_read_*`). The ring node
-  spawns, but `node+1 == 0` (never marked visible) and it self-retires on its first behaviour tick
-  because `gen_func_8002B7B0` tests `mem_r8(mem_r32(node+0x14)+0x1B) & 0x40` and `node+0x14` is 0 —
-  **nothing in the spawn path writes it**. NEXT RE STEP: who is supposed to write `node+0x14` for
-  behaviour `0x8002B7B0`. *This session's ringcensus on area 0 reported `rings=0` on every frame —
-  no stun occurs in that replay, so it neither confirms nor denies the card.*
+- ~~**Stunned-enemy spinning stars** (kanban #55 / #72)~~ — **RESOLVED 2026-08-21.** The real-input
+  `replays/bugs/stun-stars.pad` falsified the old debug-spawn owner theory: the node is visible, stays
+  alive, and its real owner carries the stun bit. The native `0x8002B3A4` producer divided its Q12
+  rotation by 4096 and omitted the guest's authored per-column scale at `0x800A1CD4`; using the shared
+  `MeshQuads::composeScaled` chain restores the four-star cluster against the live software oracle.
 - **Bucket's supporting POLE** visible only after pickup (kanban #54) — state-gated, not class-gated.
 - **Hut/house interior wall decorations** (kanban #57, #74) — suspected occlusion / coincident-face
   ordering, i.e. a depth problem in a layer that IS produced.
@@ -470,7 +469,7 @@ the way to drive into one.
        |   area 21 jet / area 4 -- blocked on REACHABILITY, not on code. Needs a scene where
        |                     the phase byte advances; that is a game-driving task, not RE.
        |
-  R6  behaviour-link bugs (stars: who writes node+0x14) -- independent of all render work
+  R6  remaining behaviour/state/ordering bugs -- independent of missing-producer work
   R7  2D residual: FUN_80078988 special-char glyphs      -- independent
   R8  drive the cold producers                            -- needs scenarios, not code
 ```

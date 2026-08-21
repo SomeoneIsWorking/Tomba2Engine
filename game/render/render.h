@@ -542,6 +542,11 @@ public:
   // about the node's own Y axis, from the node's own angles/position — no GTE register is read.
   void radialPlumeRender(uint32_t node);
 
+  // swingStarburstRender (game/render/fx_swing.cpp): native producer for the ten-copy lavender
+  // weapon-swing starburst emitted by FUN_8002A834 through the shared packed-mesh writer. Rebuilds
+  // every transform from the controller's own particle bytes + world anchor; no GTE readback/tap.
+  void swingStarburstRender(uint32_t node);
+
   // dustEffectRender (game/render/fx_dust.cpp): native producer for Tomba's movement DUST PUFF
   // (kanban #39) — the type-0x20 node whose custom render fn is FUN_80029F6C. Draws the additive
   // position-history TRAIL and the four-copy puff MESH from the node's own ring/age state, projected

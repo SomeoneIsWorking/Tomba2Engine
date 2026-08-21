@@ -90,8 +90,8 @@ bucket bias) — without it the burst loses its near half to whatever it bursts 
 - "The emitter never fires." It fires.
 - `FUN_80029B40` is NOT a dust-specific behaviour — it is the generic position-history ring, and
   `codemap --addr 80029B40` has pointed at `beh_pos_history_trail` the whole time.
-- The 4-sprite ring emitter `FUN_8002B3A4` (also a FUN_80027A4C-family node) is NOT the dust; it is a
-  static ambient effect anchored to a fixed world point.
+- The 4-sprite ring emitter `FUN_8002B3A4` (also a FUN_80027A4C-family node) is NOT the dust; a real
+  hit in `replays/bugs/stun-stars.pad` proves it is the stunned-enemy orbiting-star effect.
 - A pc_render run cannot be attributed with `otattr`'s packet-span list (only the GTE histogram is
   populated) — compare against a separate PSXPORT_RENDER_PSX=1 run, and align on the frame number the
   `[otattr] frame=N` header prints, which is NOT the REPL's last `run` count.
@@ -100,3 +100,22 @@ refs: `game/render/fx_dust.cpp`, `game/render/mesh_quads.{h,cpp}`, `game/render/
 `game/render/fx_sprite.cpp`, `game/render/render_walk.cpp` (type-0x20 dispatch),
 `game/ai/beh_pos_history_trail.cpp`, `docs/reference/issues/issue8_9_re.md`
 
+## Stunned-enemy orbiting stars (`FUN_8002B3A4`) — verified 2026-08-21
+
+`replays/bugs/stun-stars.pad` is the first recorded real-input reproduction: Circle hits the enemy,
+the game spawns node `0x800EED90` with render function `0x8002B3A4`, the node is visible and remains
+alive, and its owner `0x800FD328` has `owner[0x1B] & 0x40`. Its live texture state is also valid:
+record `0x8009DDDC`, tpage `0x15`, CLUT `0x7C15`. These observations falsify both earlier hypotheses
+derived from an out-of-context debug-server spawn (missing owner link and uninitialised texture).
+
+The root cause was the native transform, in two coupled parts. The generated guest body builds the
+Q12 rotation with `FUN_80085480`, then reads bytes `0x800A1CD4..D6`, shifts each left by two, and calls
+`FUN_80084520` (`Math::matColScale`) before camera composition. The native branch divided the Q12
+matrix by 4096 and omitted that column scale. Pre-fix all four reported centres sat within one pixel;
+preserving Q12 alone made the 6400-unit local points 64x too large and mostly off-screen. The shipping
+path now calls the existing `MeshQuads::composeScaled` authority with the authored factors.
+
+On the same replay execution, native f2799 and live `renderpath psx` f2800 both display the four-star
+cluster around the enemy. The corrected `fxsprite` diagnostic reports `drawn=4/4` with centres spanning
+about 28x8 pixels. `tests/test_mesh_quads_math.cpp` supplies the negative control: both the old unit
+matrix result and the raw unscaled Q12 result disagree with the expected Q12-plus-column-scale matrix.

@@ -4076,12 +4076,14 @@ are owned.**
   and shows up only as a picture bug — so the tool is the only thing that finds it early. Run it when
   adding any native.
 
-## #14 weapon-CHARGE starburst FIXED — a native producer for the shared packed-mesh emitter (2026-07-23)
+## #14 weapon-CHARGE starburst RE-FIXED from controller state, not a GTE tap (2026-08-21)
 
 - **symptom:** holding ATTACK makes Tomba swing the mace continuously; the psx_render leg draws a
   bright lavender starburst of ~10 radiating spikes around the mace, and the pc_render leg draws
   nothing there.
-- **status:** FIXED (game/render/swing_fx.cpp, class `SwingFx`).
+- **status:** FIXED (`Render::swingStarburstRender`, `game/render/fx_swing.cpp`). The 2026-07-23
+  `SwingFx`/`meshEmitTap` fix was deliberately deleted on 2026-08-04 because it recovered the
+  substrate's composed GTE registers. The replacement does not restore that tap.
 - **THE REPRO LINE IN THE CARD WAS WRONG, AND THAT IS THE WHOLE STORY OF THE TWO EARLIER FAILURES:
   attack is CIRCLE (pad bit 0x2000), NOT square.** Square moves 72-160 px over 30 frames (idle
   breathing); circle produces the multi-second swing. Every "#14 not reproduced" note before
@@ -4099,36 +4101,34 @@ are owned.**
   times — 6 faces each = the 60 op-0x3E POLY_GT4 packets `debug otattr` attributes to fn=0x8002A834 /
   caller=0x8003F9A8 per swing frame. pc_render does not walk the guest OT (break-first rebuild), and
   that emitter had no native producer, so the layer was simply never drawn.
-- **fix:** `SwingFx` = a SCOPED leaf tap. `effectDrawTick` (FUN_8002A834) raises a per-Core scope
-  around the untouched gen body; `meshEmitTap` (FUN_80027768) runs the untouched gen body and then,
-  only inside that scope and only on the pc_render leg, re-derives the call's faces host-side —
-  transform read from the composed GTE CRs the caller published (CR0-4 / CR5-7 / CR24-26), model
-  corners as signed-byte*256 from the 36-byte face records, colours through the guest's own
-  DPCT/DPCS far-colour lerp (CR21-23 with IR0 = scratchpad 0x1F800090 = 0xFFF here — NOT the
-  identity the FUN_80027A4C sprite family's callers publish), the guest's own AVSZ4/OT-bucket range
-  gate for culling — and submits them to the render queue at RQ_WORLD/RQ_OM_DEPTH with real
-  per-vertex depth. No packet read-back, no OT walk, no stamping; identity is structural.
-- **THE SCOPE IS LOAD-BEARING.** FUN_80027768 has ~16 callers, one of which is the field terrain
-  (0x8002AB5C, already natively produced) — an unscoped tap double-draws terrain. The existing
-  `leaf_80027768` transcription in game/core/field_owned_leaves.cpp was DELETED (no tombstones) so
-  the address has exactly one owner; `tools/codemap.py --conflicts` stays at 18, no new duplicate.
-- **DEAD END THAT COST THE MOST TIME HERE (and the real lesson for the next producer): a
-  guest-EXECUTION-time producer must NOT submit through `RenderQueue::drawWorldQuad`.** That path
-  sets `has_xyf=1`, and `Fps60::isTier1Owned` (runtime/recomp/fps60.cpp) treats every
-  RQ_WORLD prim with `has_xyf=1` as OWNED BY the display-pass re-render — it is skipped in `mRqCur`
-  on BOTH presents and expected to come from `tier1Render`'s sink, which never re-runs this effect.
-  Measured: 60 quads submitted per frame with correct screen coords, colours and depth, and the
-  frame was BYTE-IDENTICAL to the broken one. Fixed by submitting resolved screen-space integers
-  through `emitOrQueue` (xsf == nullptr -> has_xyf = 0), the same verbatim class as the #12 torch
-  flame; it still carries real per-vertex depth. It steps at the logic rate until this effect's
-  transform joins the tier-1 re-render (the fps60 REDIRECT backlog).
-- **verification:** repro `scratch/repro14.sh` (run 300; press circle; run 120; shot; renderpsx on;
-  run 2; shot; renderpsx off; run 2; shot). Spike-pixel count in the mace crop (60,110)-(150,175),
-  blue-dominant + bright, `scratch/starburst_count.py`: pc leg **175 -> 416** px, psx_render
-  reference **381** px. Visual: scratch/screenshots/c14fix/crop_pc1.png vs crop_psx1.png — same
-  spikes, same place, same colour. Regression battery (`scratch/gates.sh`, before = the pre-change
-  binary): dialog box at replays/bugs/bucket-softlock.pad f1200, triangle menu, plain field frame at
-  f420 — **0 / 76800 px differ** on all three.
+- **fix:** the type-0x20 display walk recognizes controller `0x8002A834` and calls
+  `Render::swingStarburstRender`. The producer reads the controller's ten four-byte particle records
+  at node+0x50; each record supplies three Euler angles (`u8 << 4`) and a uniform scale (`u8 << 2`).
+  It builds the rotation with `MeshQuads::rotmat`, projects the node's own s16 world anchor through
+  the native camera, and feeds fixed mesh `0x8009FB0C` to the already-owned packed-mesh record
+  decoder. Owner byte +2 selects the far-colour table at `0x800A1FC4`; IR0 is 0xFFF, U/CLUT biases
+  are zero, and node+0x32 supplies the writer's sort bias. These values are the complete contract of
+  `gen_func_8002A834`, not sampled GTE state. The producer is read-only and re-runs in the display
+  pass, so the native fps60 camera owns projection.
+- **why the shared writer remains unowned:** `FUN_80027768` has twenty controller callers with
+  different state layouts. Owning or tapping the writer would collapse their identity and would
+  again make terrain/effects depend on a composed PSX transform. `meshQuadRecordsEmit` is only the
+  shared model-record decoder; controller `0x8002A834` owns this picture and its `ProducerScope`.
+- **true-oracle verification:** `replays/bugs/weapon-charge-starburst.pad` holds CIRCLE from pad frame 620
+  through 1000. A fresh bounded `PSXPORT_SBS_MODE=oracle` run identifies B in-band as
+  `PURE-ORACLE(interp+softGPU)`. The `swingfx` channel is silent through f666, then reports exactly
+  ten copies / sixty quads on every sampled native frame beginning f667. The saved pre-producer A
+  pane and fresh A pane differ by **843 / 642 / 939 / 1001 pixels** at f670/f680/f690/f700, confined
+  to the producer's starburst footprint; f650/f660 are **0 pixels different** because the controller
+  has not fired. The B pane is byte-identical before/after at all six frames, so the native change
+  did not contaminate the oracle. `scratch/logs/c14_charge_fresh.log` and
+  `scratch/screenshots/c14_charge_route_{pre,post}_sheet.png` retain both answers. The bounded run
+  reached 261/484 owned addresses; this gate proves the exercised charge route, not unrelated paths.
+  A final rerun on the combined #14 + #55/#72 tree used the tracked replay and exited cleanly at
+  f705. All 38 `swingfx` lines were byte-for-byte identical to the isolated post-fix run (same
+  activation frame, anchor, ten copies, sixty quads, and emitted box), and all six B captures stayed
+  byte-identical. Combined A intentionally also contains the independently fixed ring/star graphic,
+  so its whole-frame hash is not misreported as a #14-only gate.
 - **NOT the emitter (ruled out again, do not re-chase):** the effect pool 0x800EC188 walked by
   FUN_8003F024 -> FUN_8003D23C — zero packets and zero GTE calls attributed to either during the
   swing (scratch/logs/c14_otattr2.txt). The FUN_80027A4C sprite tap cannot cover this family either
@@ -4138,11 +4138,10 @@ are owned.**
   emitting 6 op-0x3A POLY_GT3 + 3 op-0xE1 per frame at (68..104, 131..167). It does NOT go through
   FUN_80027768, so this producer does not cover it. The mace ball itself is also absent on the pc
   leg (visible in crop_psx1.png, not in crop_pc1.png) — same open class.
-- **refs:** game/render/swing_fx.{h,cpp}, game/core/field_owned_leaves.cpp (leaf deleted),
-  game/core/engine.h, game/core/game_ctx.cpp, game/game_tomba2.cpp, cmake/tomba2_port.cmake;
-  decomps scratch/decomp/c14_swingfx.c + c14_27768.c; ground truth generated/shard_5.c
-  gen_func_80027768; evidence scratch/screenshots/{c14fix,gate_before,gate_after}/, logs
-  scratch/logs/c14_otattr*.txt.
+- **refs:** `game/render/fx_swing.cpp`, `game/render/render_walk.cpp`,
+  `game/render/mesh_quads.cpp`, `generated/shard_0.c` (`gen_func_8002A834`),
+  `generated/shard_5.c` (`gen_func_80027768`), `replays/bugs/weapon-charge-starburst.pad`,
+  `scratch/logs/c14_charge_fresh.log`.
 ## Score / AP-gem pickup popup missing under pc_render — the FT4 leaf had ONE scoped tap (kanban #18, 2026-07-23, FIXED)
 
 - **symptom (USER, card #18):** collecting a score/AP gem shows the floating value ("100") on the

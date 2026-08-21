@@ -1,10 +1,10 @@
 ---
 id: 14
 title: Weapon CHARGE effect missing under pc_render (hold attack)
-status: todo
+status: done
 labels: [render]
 created: 2026-07-22
-updated: 2026-08-06
+updated: 2026-08-21
 evidence: docs/reference/issues/issue14_charge_swing.png
 ---
 
@@ -22,3 +22,24 @@ USER 2026-07-22: holding the attack button charges the weapon and that charge ef
 **2026-07-23:** 2026-07-23: the 2026-07-22 sweep-agent note ('12 A/B/C samples show no effect layer on EITHER renderer') was pc-vs-pc — the bare-renderpsx reference was a no-op, so only pc_render was ever sampled; it says nothing about psx. Moot now (this card was FIXED 2026-07-23 by the CIRCLE-hold repro). Flagged only so the retraction is complete. See docs/findings/render.md 2026-07-23.
 
 **2026-08-06:** REOPENED 2026-08-06 by the G10 unported-render survey. This card was closed citing game/render/fx_mesh.cpp (the effect-MESH producer). THAT FILE NO LONGER EXISTS: commit abf3cf9 'Delete the GTE-register render taps; four layers are now honestly absent' removed fx_mesh.cpp/.h, mesh_emit_tap.cpp and swing_fx.cpp/.h on 2026-08-04. mesh_emit_tap.cpp was the SINGLE owner of the shared writer FUN_80027768 and dispatched to whichever controller SCOPE was up, so with it gone nothing draws the family at all — pc_render does not walk the guest OT, so the guest packets are not a fallback. tools/codemap.py --addr now answers NO NATIVE OWNER for 0x80027768, 0x800288AC, 0x8002BC9C and 0x8002A834 (SwingFx::effectDrawTick, this card's own fix). The deletion was CORRECT (those producers read the transform out of GTE CR0-7 = a tap, banned by PROTOCOL.md); what is wrong is that this card still reads 'done'. Tracked as portmap step render-producer-effect-mesh-family; full inventory in docs/unported-render-inventory.md item R1. NOT VERIFIED BY ME: I did not reproduce the charge effect on screen — this reopen rests on the ownership query plus the deleted-file check, not on a capture.
+
+**2026-08-21:** FIXED AGAIN, this time without restoring the deleted tap. The durable repro is
+`replays/bugs/weapon-charge-starburst.pad`: it holds CIRCLE from pad frame 620 through 1000, and the true
+`PSXPORT_SBS_MODE=oracle` software pane begins drawing the lavender starburst at lockstep f667. Root
+cause remains the missing picture owner for controller `FUN_8002A834`, but the replacement is now a
+display-pass producer (`Render::swingStarburstRender`, `game/render/fx_swing.cpp`) built entirely from
+the controller's persistent state: ten `{angleX,angleY,angleZ,scale}` byte records at node+0x50, the
+node's world anchor at +0x2C, owner-selected far colour, fixed mesh 0x8009FB0C, IR0=0xFFF and the
+writer's measured sort bias. No GTE register, guest packet, OT or shared-writer tap is read.
+
+Fresh bounded true-oracle run on the rebuilt Clang binary: core B identifies itself as
+`PURE-ORACLE(interp+softGPU)`; the native channel emits exactly 10 copies / 60 quads on every f667+
+frame sampled. Before the producer, native A differs from its deterministic post-fix capture by 843,
+642, 939 and 1001 pixels at f670/f680/f690/f700, with every delta confined to the starburst boxes
+`(54,94)-(133,158)`, `(44,92)-(127,157)`, `(39,92)-(140,162)` and
+`(38,75)-(140,157)`. At f650/f660, before the controller fires, the delta is exactly 0 pixels. The B
+pane is byte-identical before/after at all six sampled frames, proving the implementation did not
+contaminate the oracle. Contact sheet: `scratch/screenshots/c14_charge_route_post_sheet.png`; fresh
+log: `scratch/logs/c14_charge_fresh.log`. The final combined-tree rerun retained all 38 producer
+telemetry lines exactly and kept all six B captures byte-identical; its A pane also contains the
+separate #55/#72 fix, so that whole-frame delta is not attributed to this card.
