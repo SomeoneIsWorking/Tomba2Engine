@@ -4228,14 +4228,15 @@ are owned.**
   game/render/ui_group_args.{h,cpp}, game/ui/pause_menu.{h,cpp}, game/ui/ui_sprite.cpp,
   game/core/engine.h, game/core/game_ctx.cpp, game/game_tomba2.cpp, cmake/tomba2_port.cmake;
   decomps scratch/decomp/{gem_spawner,gem_popup,gem_tick,c18_drops}.c.
-## Weapon IMPACT burst: the effect has TWO emitters and only the sprite half was owned (kanban #15, 2026-07-23, FIXED)
+## Weapon IMPACT burst: two emitters, with a native controller-state mesh producer (kanban #15, resolved 2026-08-21)
 
 **Symptom.** Hitting the seaside bucket with the weapon (CIRCLE) produces a large radial burst under
 psx_render — a white core with pink/magenta plumes fanning up and out of the contact point. Under
 pc_render only a small pale wisp appeared at the same spot; the radial plume half was absent.
 
-**Status.** FIXED — `game/render/fx_mesh.cpp` (new). Verified on
-`replays/bugs/weapon-impact-bucket.pad`, pad frames 654/656/658 (impact burst window).
+**Status.** FIXED by `game/render/fx_sprite.cpp` plus `game/render/fx_impact.cpp`. Verified against
+pane B's `PURE-ORACLE(interp+softGPU)` output on `replays/bugs/weapon-impact-bucket.pad`, pad frames
+646 through 660 (impact burst window).
 
 **Repro (self-contained from boot, no AUTO_SKIP / newgame — it desyncs the replay):**
 ```
@@ -4259,13 +4260,16 @@ the psx leg has five effect prims over that pixel (three `0x2E` + `0x800CB9E0`/`
 all `semi=1 tp=(320,256)`), the pc queue has exactly the three `0x2E` and neither `0x3E`.
 `debug otattr` attributes all of them to `fn=0x80033080 caller=0x8003F9A8 node=0x800EE9D8`.
 
-**Fix.** A SCOPED leaf tap (the `pause_menu.cpp` pattern), because `FUN_80027768` is game-wide with
-17 static callers, several already owned (`0x8002AB5C` is terrain) — an unscoped tap would
-double-draw. `armTap` overrides `FUN_800288AC` to raise a capture scope around the untouched gen
-body; `writeTap` overrides `FUN_80027768`, runs the untouched gen body, then re-derives the quads
-host-side in float from the record's own corners and the transform the controller left in the GTE
-control registers (`EObjXform::project`), with real per-vertex depth. Read-only: no guest write
-outside gen.
+**Retired first fix.** The 2026-07-23 implementation was a scoped leaf tap around `FUN_800288AC` and
+`FUN_80027768`. It recovered the controller transform from GTE control registers. Commit `abf3cf9`
+correctly deleted that banned tap on 2026-08-04, which made the mesh plume honestly absent again.
+
+**Current fix.** `Render::impactPlumeRender` rebuilds `FUN_800288AC`'s transform from the controller's
+own four-byte animation record, node Euler angles and world anchor; applies its sort bias, U scroll,
+and mutually exclusive depth-cue/CLUT-row recolouring; and feeds the shared native packed-record
+writer under the lerped display-pass camera. Direct `node+0x18 == 0x800288AC` nodes and composite
+`0x80033080` impact nodes both route to it. It reads no GTE register, scratchpad transform, guest
+packet, or generated-body output.
 
 **Two things that cost the most time here — record them:**
 1. **`drawWorldQuad` was the WRONG submit for a guest-execution-time producer.** It sets
@@ -4282,11 +4286,24 @@ outside gen.
    units through the AVSZ4 scale (`bias * 4096 / (4*ZSF4)`) and applying it to the per-vertex depth
    is what puts the plume in front, as the game intends.
 
-**Evidence.** Pad frame 656, region x∈[115,190) y∈[80,175): pixels differing from the psx_render leg
+**Historical tap evidence.** Pad frame 656, region x∈[115,190) y∈[80,175): pixels differing from the psx_render leg
 by >60 (sum abs RGB) went 2494 → 2266; 622 pixels changed vs the pre-fix build. Frames 654/658:
 2570→2357 (482 changed) and 1858→1737 (299 changed). Whole-frame diff vs the pre-fix build is
 confined to the burst: 834 px at f656, bbox x 136-166 y 92-156 — i.e. the psx-reported prim bbox and
 nothing else in the frame moved.
+
+**Current true-software-oracle evidence.** The pre-fix SBS run visibly has the blue-white plume in B
+and not A at f656. After the node-state producer, native A gains 588/826/492/206 pixels at
+f652/f654/f656/f658, with boxes `(137,101)-(158,148)`, `(135,93)-(166,156)`,
+`(137,91)-(170,157)`, and `(144,91)-(173,155)` respectively. Each lies within the producer's own
+reported screen box; both panes visibly contain the same diagonal plume at f656. Every one of the
+eight B captures is byte-identical before/after, preserving the opposite answer. Both runs identify B
+in-band as `PURE-ORACLE(interp+softGPU)` and exit cleanly at f664. Evidence:
+`scratch/logs/c15_{pre,post}.log`, `scratch/screenshots/c15_{pre,post}_f*_{A,B}.ppm`.
+
+The direct `0x800288AC` route is independently reached by `bucket-softlock.pad`: its final run reports
+live nodes from f298 through f332, spanning both two-quad impact meshes and eight-quad
+`0x800A0B38` meshes with non-zero U scroll (`scratch/logs/c15_standalone.log`).
 
 **Dead ends / falsified, do NOT redo:**
 * Cards #14/#15 both said "hold SQUARE". Square does nothing in free-roam; the attack button is
@@ -4299,8 +4316,8 @@ nothing else in the frame moved.
   (dither/texture) while the missing layer is ~1000. `PSXPORT_PRIMAT` at one pixel plus `otattr`
   attribution is what settled it.
 
-**Refs.** `game/render/fx_mesh.{h,cpp}`, `game/render/fx_sprite.cpp` (the sprite half),
-`game/ui/pause_menu.cpp` (the scoped-tap pattern), `replays/bugs/weapon-impact-bucket.pad`,
+**Refs.** `game/render/fx_impact.cpp`, `game/render/fx_sprite.cpp` (the sprite half),
+`game/render/mesh_quads.cpp`, `replays/bugs/weapon-impact-bucket.pad`,
 `generated/shard_5.c` `gen_func_80027768`/`gen_func_800288AC` (ground truth for the record layout).
 
 ## [render] Shared machinery for effect producers: MeshQuads + EffectLerp (2026-07-23, from #39)
@@ -4415,7 +4432,7 @@ Both were found by reading the port's own source and the binary — no live driv
   No overlay hunt is needed, and one display-pass producer for the mesh half closes kanban #16,
   #23 and #64 together.
 
-### (2) Why an impact/mesh effect can be missing: the mesh writer has 20 callers and 4 producers
+### (2) Historical 2026-07-28 census: the mesh writer had 20 callers and 4 producers
 
 - **the shared writer is `FUN_80027768`.** `game/render/mesh_emit_tap.cpp` is its single owner and
   dispatches to whichever producer's SCOPE is currently up (`FxMesh::mScope`, raised only around
@@ -4430,7 +4447,7 @@ Both were found by reading the port's own source and the binary — no live driv
     call sites), `0x8002D65C`, `0x8002DF68`, `0x8002F36C`, `0x8002FDD0`, `0x80030264` (x2),
     `0x80030D68`, and the overlay four `0x8013D454`, `0x8013D828`, `0x8013ED08`, `0x8013EF58`.
     Plus `0x8002AE0C`, present only as an ORPHAN leaf.
-- **so "the impact effect is missing" is the expected default, not a regression.** kanban #15 fixed
+- **At that time, "the impact effect is missing" was the expected default, not a regression.** kanban #15 fixed
   the ONE impact path that flows through `FUN_800288AC` (verified on the bucket capture). Any impact
   or effect mesh emitted by one of the other 14 controllers still draws nothing. This census is the
   render frontier's next work-list — each entry is one native producer, and it is derivable
@@ -4458,11 +4475,13 @@ FUN_80033080(node) = { FUN_80027E5C(node); FUN_800288AC(node); }
 
 one node drawn by TWO different effect families at once. So the whitelist recognised **neither** half.
 
-**Why the mesh half drew anyway, and the sprite half did not.** `fx_mesh.cpp`'s `armTap` scopes
-`0x800288AC` at GUEST-EXECUTION time, not from the display pass, so the mesh reaches the picture
-without the walk ever recognising the node. Measured on the same run with `PSXPORT_DEBUG=fxmesh`:
+**Why the mesh half drew at that time, and the sprite half did not.** The now-deleted `fx_mesh.cpp`
+tap scoped `0x800288AC` at GUEST-EXECUTION time, not from the display pass, so the mesh reached the
+picture without the walk ever recognising the node. Measured on that historical run with
+`PSXPORT_DEBUG=fxmesh`:
 28 live quads over 9 animation steps (`clutRow` 0..9), growing from a degenerate point on the first
-two frames to ~70 px (`xy0=(141,81) xy3=(157,158)`). The 2026-07-23 fix works.
+two frames to ~70 px (`xy0=(141,81) xy3=(157,158)`). `abf3cf9` later removed that banned tap;
+`Render::impactPlumeRender` is the current controller-state replacement described above.
 The SPRITE half has no such scope — `Render::fxSpriteRender` was its only route, and that method
 selected its family variant by re-reading `node+0x18`, which for this node is `0x80033080` and
 matches no `FN_*` constant. It fell through to the uniform-scale tail with `numer=0, shift=0`, and
@@ -4536,8 +4555,10 @@ the two legs of this A/B are indistinguishable from "an already-wired controller
 and the first A/B attempt did in fact produce a bogus all-zero result that only the `ctrl=` counts
 could contradict. Attribute the emission before believing the pixels.
 
-**This closes the kanban #15 census.** All 20 callers of `FUN_80027768` now have an owner or a scope;
-`0x8002AE0C` remains an orphan leaf with no call site.
+**Historical scope census.** At that point all 20 callers of `FUN_80027768` had an owner or a scope,
+and `0x8002AE0C` remained an orphan leaf with no call site. The later tap retirement deliberately
+reopened the family; `docs/unported-render-inventory.md` is the current authority. Three controllers
+now have legitimate node-state owners and seventeen remain.
 
 ## The composite-dispatcher class has exactly ONE member — and a static render-fn scanner (2026-07-28)
 

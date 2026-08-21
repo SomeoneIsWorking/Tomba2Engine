@@ -157,7 +157,7 @@ already solved or ruled out. 329 findings across 13 subsystems.
 - **Under PSXPORT_GATE=1 every native OVERRIDE runs its `gen` body — a diagnostic inside one is SILENT, so "never runs" / "never called" / "0 calls" / "never dispatched" / "probe prints nothing" from an override body is UNMEASURED (2026-08-06, re-derived 2026-08-12)** [?] — a diagnostic placed inside a native override body prints NOTHING — 0 hits, 0 calls, no  ↪ docs/findings/render.md
 - **Waterpump barrel top face renders BLACK under pc_render (kanban #11) — a PAINTER-ORDER surface pair the depth buffer cannot resolve (2026-07-22, FIXED — game-sort-key order resolution; see the final section)** [?] —   ↪ docs/findings/render.md
 - **Weapon "ball but no CHAIN" (#28 follow-up) — chain-LINK billboards already render; only a minor grab/dust semi-quad is dropped (2026-07-10, could-not-reproduce a significant chain)** [?] —   ↪ docs/findings/render.md
-- **Weapon IMPACT burst: the effect has TWO emitters and only the sprite half was owned (kanban #15, 2026-07-23, FIXED)** [?] —   ↪ docs/findings/render.md
+- **Weapon IMPACT burst: two emitters, with a native controller-state mesh producer (kanban #15, resolved 2026-08-21)** [?] —   ↪ docs/findings/render.md
 - **Widescreen re-enabled (aspect FOV + present) — SDL_GPU Pass-1 lost the wide present + OFX (2026-07-10)** [FIXED (headless field shots at 4:3 / 16:9 / 21:9: single, centered, genuinely-wider,] —   ↪ docs/findings/render.md
 - **Widescreen: native 2D centered via ONE queue layout authority + emitter culls widened (2026-07-16, USER request)** [?] —   ↪ docs/findings/render.md
 - **Z-fight sweep 2026-07-14 — barrel fix HOLDS; new double-submission class; 2 zfight tooling defects** [?] —   ↪ docs/findings/render.md

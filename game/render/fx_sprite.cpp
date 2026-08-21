@@ -397,15 +397,9 @@ void Render::fxSpriteRender(uint32_t node) {
 // i.e. one node drawn by TWO different effect families at once — this file's byte-scaled sprite
 // (the white starburst flash) and the effect-mesh controller (the expanding radial plume).
 //
-// THE MESH HALF NO LONGER REACHES THE PICTURE. The paragraph below describes the state up to
-// 2026-08-05: 0x800288AC was scoped by fx_mesh.cpp's armTap, so the shared writer's quads were
-// captured at guest-execution time — measured on replays/bugs/weapon-impact-bucket.pad, 28 live
-// quads over 9 animation steps, growing from a point to ~70px. That scope was a GTE-register tap and
-// was deleted on 2026-08-05 (commit abf3cf9); nothing replaced it, so the plume is now honestly
-// absent and only the sprite half below draws. Tracked as port-map step
-// `render-producer-effect-mesh-family`. So "the impact effect is missing" was, at the time, the SPRITE half
-// that had no producer, because pc_render's type-0x20 whitelist keys on the NODE's render fn and
-// 0x80033080 is not itself an emitter address, so neither half of the pair was recognised.
+// The mesh half is independently rebuilt by Render::impactPlumeRender (fx_impact.cpp). It cannot
+// share this family's sprite body: FUN_800288AC composes a node/script-driven 3D transform and feeds
+// the packed-mesh writer FUN_80027768.
 //
 // The sprite half is the FN_BYTESCALE variant (scale = MAC0 * node[6] >> 4). Passing that emitter
 // explicitly is the whole fix — everything else in the family's contract is unchanged.

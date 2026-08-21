@@ -1,10 +1,11 @@
 # `FUN_800288AC` — the weapon IMPACT radial plume (mesh half)
 
-**Status: RE COMPLETE, NOT PORTED.** Decoded 2026-08-11 from ground truth `generated/shard_5.c`
+**Status: PORTED + TRUE-SOFTWARE-ORACLE VERIFIED.** Decoded 2026-08-11 from ground truth `generated/shard_5.c`
 `gen_func_800288AC` (lines 2410-2574, 164 raw lines, 9 of 13 blocks reachable — the other 4 are the
 recompiler's folded-in trailing function) plus `gen_func_80027768` (the shared 36-byte-record mesh
-writer). **It is NOT ported because the decode found a parameter the shared native writer does not
-model — see §4, which is the whole reason this file exists rather than a producer.**
+writer). The missing writer parameter found by this decode is now modeled as
+`meshQuadRecordsEmit`'s opt-in CLUT-row bias; `Render::impactPlumeRender` owns the controller from
+persistent node/script state in `game/render/fx_impact.cpp`.
 
 Prior art that must not be re-derived: this controller WAS ported once, as `FxMesh` in
 `game/render/fx_mesh.cpp` (kanban #15, 2026-07-23), and that file was **deleted in `abf3cf9`** because
@@ -12,10 +13,10 @@ it derived its transform from `gte_read_ctrl(0..7)` — a tap, banned by `PROTOC
 correct. What follows resolves the same transform from NODE STATE instead, which is what makes a
 display-pass producer legitimate (and interpolatable at fps60).
 
-Reached as a type-0x20 node render fn (`node+0x18 == 0x800288AC`), i.e. through
-`Render::fieldObjectsRender`'s whitelist — not by any static caller. The impact effect has TWO halves:
-`FUN_80033080 = { FUN_80027E5C(); FUN_800288AC(node); }`. The sprite half already renders through
-`fxSpriteRender`; this mesh half is the two `0x3E` gouraud quads that ARE the radial plume.
+Reached both directly as a type-0x20 node render fn (`node+0x18 == 0x800288AC`) and through the
+composite impact node `FUN_80033080 = { FUN_80027E5C(); FUN_800288AC(node); }`. The type-0x20 display
+walk handles both routes. The sprite half renders through `impactBurstRender`; this mesh half is the
+two `0x3E` gouraud quads that are the weapon-impact radial plume.
 
 Live reachability, measured not assumed: `PSXPORT_GATE=1` pc_render + `PSXPORT_DEBUG=nofx,ringcensus`
 on `replays/bugs/bucket-softlock.pad`, 460 frames headless, names `0x800288AC` (node `800EEBF8`) as
@@ -89,7 +90,7 @@ which calls the writer four times advancing the Y angle a quarter turn between c
 | `a2` (r6) | `r6 << 16` — the sort-bias half, already owned by `MeshOtBias` (`mesh_quads.h`) |
 | `a3` (r7) | added to FOUR packet U bytes by read-modify-write **on the PACKET, not the record** — so the record is left clean and a read-only native producer MUST apply this offset itself. It maps exactly onto `meshQuadRecordsEmit`'s `uBias`, which adds to the record's U at draw time |
 
-## 4. WHY THIS IS NOT PORTED — `a1` is a CLUT-row bias the native writer cannot express
+## 4. The required `a1` CLUT-row bias
 
 `Render::meshQuadRecordsEmit` (`game/render/mesh_quads.cpp:131`) takes the CLUT straight from the
 record: `const uint16_t clut = (uint16_t)(w0 >> 16);` (line 182). The guest instead adds `a1 << 22` to
@@ -104,22 +105,25 @@ A producer that ignores `a1` draws the plume in the wrong palette on every recor
 `attr & 0x0F != 0`, and — this is the part that makes ignoring it unacceptable rather than approximate —
 it would do so SILENTLY, since nothing compares native CLUT against guest CLUT.
 
-**The fix is small and additive, and it is a PORT, not a judgement call:** give
-`meshQuadRecordsEmit` an opt-in CLUT-row bias parameter, defaulted so the existing callers are
-bit-identical. That is deliberately the same discipline `MeshOtBias` already follows — opt-in with
-`known=false`, so `fx_dust` / `narration_swirl` / `fx_plume` are untouched and no caller's un-RE'd
-argument is silently claimed. Do NOT widen it into a general "packet word0 bias": what is RE'd here is
-a CLUT row, and naming it that keeps the next reader honest.
+The additive shared-writer change is now landed: `meshQuadRecordsEmit` takes an opt-in CLUT-row bias,
+defaulted to zero so existing callers remain bit-identical. That follows `MeshOtBias`'s discipline:
+only a controller that has RE'd the argument supplies it. It deliberately remains a CLUT-row
+parameter rather than a vague packet-word bias.
 
-Sequence, so nothing jumps the frontier:
-1. extend `meshQuadRecordsEmit` with the opt-in CLUT-row bias; prove the existing three callers are
-   unchanged (identical pixels on a replay that reaches each);
-2. then write `Render::impactPlumeRender` per §1, dispatched from the type-0x20 whitelist on
-   `node+0x18 == 0x800288AC`;
-3. gate it the way `render-producer-plume-bc9c` was gated — two binaries from an ISOLATED clone
-   differing only in the one dispatch branch, `replays/bugs/weapon-impact-bucket.pad` f654-660, an
-   in-band leg proof (a diagnostic line count, never the pixels being measured), and the producer's own
-   reported bbox checked against the diff mask.
+Completed sequence:
+1. `meshQuadRecordsEmit` gained the opt-in CLUT-row bias without changing defaulted callers;
+2. `Render::impactPlumeRender` now rebuilds §1 from node state and is dispatched for direct
+   `0x800288AC` nodes and composite `0x80033080` impact nodes;
+3. the tracked impact replay was compared before/after in one deterministic SBS software-oracle
+   route. Pane B remained byte-identical at all eight sampled frames. Native A gained 588/826/492/206
+   pixels at f652/f654/f656/f658, confined to the producer's reported box; the blue-white plume is
+   visible in both A and B at f656. Evidence: `scratch/logs/c15_{pre,post}.log` and
+   `scratch/screenshots/c15_{pre,post}_f*_{A,B}.ppm`.
+
+The direct-render-function route is positive-controlled separately by `bucket-softlock.pad`: the
+final producer reports live `0x800288AC` nodes from f298 through f332, including both two-quad impact
+meshes and eight-quad `0x800A0B38` meshes with non-zero U scroll. Evidence:
+`scratch/logs/c15_standalone.log`.
 
 ## 5. Traps already paid for once — carried forward from kanban #15
 

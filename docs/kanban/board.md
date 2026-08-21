@@ -5,9 +5,8 @@
 
 ## BACKLOG (0)
 
-## TODO (36)
+## TODO (35)
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
-- **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
 - **#16 Sign text jitters at fps60 when the camera moves**  `render,fps60` — 📎 docs/reference/issues/issue16_sign_text_jitter.png
 - **#31 fps60: interpolated frames and real frames appear to be built differently**  `bug,render,fps60`
 - **#34 No headless repro exists for jump-over-pickup — the #1/#30 fix is RE-proven but symptom-unverified**  `verification`
@@ -50,7 +49,7 @@
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 - **#103 Cutscene machinery + fisherman + bridge ropes invisible under pc_render (area 0, live)**  `render,bug`
 
-## DONE (78)
+## DONE (79)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -63,6 +62,7 @@
 - **#12 Torch flame effect missing entirely under pc_render**  `render` — 📎 docs/reference/issues/issue12_13_missing_flame_object.png
 - **#13 HUD weapon carousel missing entirely under pc_render**  `render` — 📎 docs/reference/issues/issue12_13_missing_flame_object.png
 - **#14 Weapon CHARGE effect missing under pc_render (hold attack)**  `render` — 📎 docs/reference/issues/issue14_charge_swing.png
+- **#15 Weapon IMPACT effect missing under pc_render (hitting something)**  `render`
 - **#17 Barrel top surface FLICKERS at fps60 (regression from the #11 sort-key fix)**  `render,fps60` — 📎 docs/reference/issues/issue12_13_pc_vs_oracle.png
 - **#18 Score/AP-gem pickup display effect missing under pc_render**  `render`
 - **#19 Dialog text-box background missing — only the panel corners render**  `render` — 📎 docs/reference/issues/issue19_panel_fill_missing.png

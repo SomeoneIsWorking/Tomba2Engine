@@ -1278,17 +1278,23 @@ void Render::fieldObjectsRender() {
           c->rsub.stats.snObjs++;
           rend(c)->fxAltAnimSpriteRender(n);
         } else if (rfn == 0x8013D454u && c->mem_r32(0x8013D454u) == 0x27BDFFB8u) {
-          // The water jet's SPRITE branch. Its MESH branch is owned by fx_mesh.cpp's a00 scope at
-          // guest-execution time; the two branches are mutually exclusive on (s16)node+0x60, so this
-          // producer returns immediately for the mesh case and there is no double-draw.
+          // The water jet's SPRITE branch. Its MESH branch remains unported after the banned
+          // fx_mesh guest-time tap was deleted; the two branches are mutually exclusive on
+          // (s16)node+0x60, so this producer returns immediately for the mesh case.
           c->rsub.stats.snObjs++;
           rend(c)->waterJetSpriteRender(n);
+        } else if (rfn == 0x800288ACu) {
+          // FUN_800288AC also appears directly as a node render function, independently of the
+          // composite weapon-impact path below. Both routes share the same node/script-state plume.
+          c->rsub.stats.snObjs++;
+          rend(c)->impactPlumeRender(n);
         } else if (rfn == 0x80033080u) {
           // The WEAPON-IMPACT burst (#15): a COMPOSITE render fn — FUN_80027E5C (this family's
-          // byte-scaled sprite) followed by FUN_800288AC (the effect mesh, already captured by
-          // fx_mesh's armTap scope). Only the sprite half needed a producer; see fx_sprite.cpp.
+          // byte-scaled sprite) followed by FUN_800288AC (the packed-mesh radial plume). Keep the two
+          // producer bodies in their owning modules while preserving the guest's call order.
           c->rsub.stats.snObjs++;
           rend(c)->impactBurstRender(n);
+          rend(c)->impactPlumeRender(n);
         } else if (rfn == 0x8002ECD8u) {
           // The IMPACT ANNULUS: FUN_8002ECD8 publishes a screen centre + pixel scale and calls the
           // shared flat-ring leaf FUN_8002E680. MAIN.EXE-resident (shard_6), so unlike the overlay
@@ -1347,10 +1353,9 @@ void Render::fieldObjectsRender() {
           // node draws through the render fn at node+0x18, and the chain above is the whitelist of
           // fns we own; anything reaching here falls through and gets no picture FROM THIS WALK.
           // WORDING MATTERS: that is not the same as "the effect is blank". The substrate walk runs
-          // underneath, and a producer SCOPE on the fn (fx_mesh.cpp's FX_CONTROLLER_SCOPE family)
-          // can catch its writer calls from there — 0x8013CDD4 (WidescreenMarginQuad::emit) and
-          // 0x8002AB5C (terrain) both show up here and are owned, reached another way. So a line is
-          // a producer-gap CANDIDATE to confirm with the fxmesh/fxsprite channels, not a verdict.
+          // underneath, and 0x8013CDD4 (WidescreenMarginQuad::emit) and 0x8002AB5C (terrain) both
+          // show up here while being owned through another route. So a line is a producer-gap
+          // CANDIDATE to confirm with the owning diagnostic channel, not a verdict.
           // Why it earns its keep: the alternative was a static census over the callers of ONE
           // shared writer (kanban #15), which cannot see effects using a different emitter and
           // cannot tell you which ones a given scene actually reaches. See kanban #65.

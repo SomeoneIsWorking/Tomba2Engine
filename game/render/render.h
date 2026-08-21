@@ -346,10 +346,12 @@ public:
   // fxSpriteEmit: the family body, with the EMITTER given explicitly. fxSpriteRender passes the node's
   // own render fn; a composite dispatcher (impactBurstRender) passes the emitter it actually calls.
   void fxSpriteEmit(uint32_t node, uint32_t emitterFn);
-  // impactBurstRender (FUN_80033080, kanban #15): the weapon-impact node, whose render fn calls BOTH
-  // this family's byte-scaled sprite AND fx_mesh.cpp's mesh controller. The mesh half is already
-  // captured by fx_mesh's armTap scope; this draws the sprite half. Body in fx_sprite.cpp.
+  // impactBurstRender (FUN_80033080, kanban #15): the composite weapon-impact node's byte-scaled
+  // sprite half. Body in fx_sprite.cpp.
   void impactBurstRender(uint32_t node);
+  // impactPlumeRender (FUN_800288AC): the same composite node's packed-mesh half, rebuilt from its
+  // persistent animation record, angles and anchor. Body in fx_impact.cpp.
+  void impactPlumeRender(uint32_t node);
 
   // The FUN_800328EC family (game/render/fx_sprite.cpp). FUN_800328EC is a three-instruction wrapper
   // that zeroes the depth cue and tails into FUN_8002847C — the SAME four-corner writer
@@ -357,7 +359,7 @@ public:
   // them was dispatched, so nothing reached the picture.
   //   altSpriteEmit          — the shared tail: project the anchor, gate, emit the model list.
   //   fxAltAnimSpriteRender  — FUN_8012E868, the animation-script member.
-  //   waterJetSpriteRender   — FUN_8013D454's sprite branch (its mesh branch is fx_mesh's scope).
+  //   waterJetSpriteRender   — FUN_8013D454's sprite branch (its mesh branch remains unported).
   // One emission of the family, as data. Every field is something a controller genuinely varies —
   // FUN_8012D9E8 alone differs in the anchor offset, the scale shift, and (separately) the gate bias
   // and the depth bias, so a positional argument list stopped being readable at four callers.
