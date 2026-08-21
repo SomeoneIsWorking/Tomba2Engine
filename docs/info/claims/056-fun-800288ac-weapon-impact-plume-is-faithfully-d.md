@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-21
 tags: render,tomba2,effects
 depends: game/render/fx_impact.cpp#Render::impactPlumeRender, game/render/render_walk.cpp#Render::fieldObjectsRender, game/render/mesh_quads.cpp#Render::meshQuadRecordsEmit
-reconfirmed: 2026-08-21 12:07:24
-verified_at: 2026-08-21 12:07:24
+reconfirmed: 2026-08-21
+verified_at: 2026-08-21 12:19:29
 ---
 
 ## Claim
@@ -24,3 +24,7 @@ Any corrected tracked replay where pure software-oracle B draws the plume but na
 ## Re-confirmed 2026-08-21 12:07:24
 
 Reconfirmed after final combined-source build and full 4/4 CTest: c15_post SBS B is PURE-ORACLE(interp+softGPU), all eight B captures are exact vs c15_pre, native A gains the plume within impactfx bounds, and bucket-softlock directly reaches 0x800288AC.
+
+## Re-confirmed 2026-08-21
+
+Post-landing Clang rebuild and CTest 4/4 passed; the retained true-SBS run kept all eight oracle B captures byte-identical and restored 588/826/492/206 plume pixels in the measured producer bounds.
