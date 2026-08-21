@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-21
 tags: render,tomba2
 depends: game/render/fx_swing.cpp#Render::swingStarburstRender, game/render/render_walk.cpp#Render::fieldObjectsRender, game/render/mesh_quads.cpp#meshQuadRecordsEmit, psxport.pin
+reconfirmed: 2026-08-21 11:48:51
+verified_at: 2026-08-21 11:48:51
 ---
 
 ## Claim
@@ -24,3 +26,7 @@ Repin verification against definitive psxport `692b9b20e3d4a6194452522060fd2657c
 ## What would falsify it
 
 Any corrected replays/bugs/weapon-charge-starburst.pad run where the software-oracle starburst appears but native A does not, where native emits before controller activation, where B changes between producer-disabled and producer-enabled builds, or any change to the producer dispatch, transform contract, packed-mesh decoder, or oracle mode.
+
+## Re-confirmed 2026-08-21 11:48:51
+
+Post-landing clean Clang 22.1.8 build and true-oracle replay on psxport 692b9b20 exited at f705; all 38 swing telemetry lines and six A/B frame pairs match retained evidence exactly.

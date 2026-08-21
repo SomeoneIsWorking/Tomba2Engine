@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-21
 tags: render,tomba2,effects
 depends: game/render/fx_sprite.cpp#Render::fxSpriteEmit, game/render/mesh_quads.h#MeshQuads::composeScaled, psxport.pin
+reconfirmed: 2026-08-21 11:48:52
+verified_at: 2026-08-21 11:48:52
 ---
 
 ## Claim
@@ -20,3 +22,7 @@ Repin verification against definitive psxport `692b9b20e3d4a6194452522060fd2657c
 ## What would falsify it
 
 if the replay no longer spawns a visible 0x8002B3A4 node with a stunned owner, the generated guest body no longer performs RotMatrix plus Math::matColScale from 0x800A1CD4, or the native and software-oracle star clusters cease to agree
+
+## Re-confirmed 2026-08-21 11:48:52
+
+Post-landing clean Clang 22.1.8 build and true-oracle replay on psxport 692b9b20 exited at f2802; all 61 ring telemetry lines and three A/B frame pairs match retained evidence, with drawn=4/4 at 28.38x7.89 pixels.
