@@ -413,6 +413,7 @@ void Render::impactBurstRender(uint32_t node) {
   fxSpriteEmit(node, FN_BYTESCALE);
 }
 
+// FUN_8002B3A4 — the shared sprite-family body owns this controller's ring-rotation branch.
 void Render::fxSpriteEmit(uint32_t node, uint32_t rfn) {
   Core *c = mCore;
   const uint32_t rec0 = c->mem_r32(node + kRecList);

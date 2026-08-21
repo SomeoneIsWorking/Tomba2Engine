@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 1036 native fns, 871 owned addresses, 1027 LIVE / 9 ORPHAN. 474 override install sites over 474 addresses.
+Totals: 1037 native fns, 872 owned addresses, 1028 LIVE / 9 ORPHAN. 474 override install sites over 474 addresses.
 
 **A row can come from a DEFINITION or from an INSTALL SITE.** An address whose handler is a file-local static in an anonymous namespace (no address in its name, no tag, no quoted registry name) has no findable definition — the `overrides::install` / `engine_set_override_*` call site is its only ownership record, and the file holding that call site is where you debug it from. Those rows say so in the summary column.
 
@@ -63,7 +63,7 @@ Totals: 1036 native fns, 871 owned addresses, 1027 LIVE / 9 ORPHAN. 474 override
 | 0x80027CB4 | LIVE | `FxSpriteAnchored::emitUniformScale` | game/render/fx_sprite_anchored.cpp:246 |  | PORT_GEN: 80027CB4 generated/shard_7.c:1966-2062 |
 | 0x80027E5C | LIVE | `FxSpriteAnchored::emitByteScale` | game/render/fx_sprite_anchored.cpp:327 |  | PORT_GEN: 80027E5C generated/shard_0.c:1719-1820 |
 | 0x800281EC | LIVE | `FxSpriteSwarm::emitPerParticle` | game/render/fx_sprite_swarm.cpp:156 |  | PORT_GEN: 800281EC generated/shard_2.c:1726-1880 |
-| 0x800286CC | LIVE | `Render::fxAnimSpriteRender` | game/render/fx_sprite.cpp:570 |  | The FUN_800286CC emitter, rebuilt: read the effect node's own animatio… |
+| 0x800286CC | LIVE | `Render::fxAnimSpriteRender` | game/render/fx_sprite.cpp:571 |  | The FUN_800286CC emitter, rebuilt: read the effect node's own animatio… |
 | 0x8002918C | LIVE | `beh_rand_phase_cull` | game/ai/beh_rand_phase_cull.cpp:64 |  |  |
 | 0x80029664 | LIVE | `Render::dustTrailEmit` | game/render/fx_dust.cpp:115 |  | the trail: thread the ring's first four recorded positions and lay two… |
 | 0x80029B40 | LIVE | `beh_pos_history_trail` | game/ai/beh_pos_history_trail.cpp:67 |  |  |
@@ -74,6 +74,7 @@ Totals: 1036 native fns, 871 owned addresses, 1027 LIVE / 9 ORPHAN. 474 override
 | 0x8002AE0C | LIVE | `leaf_8002AE0C` | game/core/field_owned_leaves.cpp:1327 |  |  |
 | 0x8002B278 | LIVE | `Cull::coneCullBody` | game/render/cull.cpp:330 |  | standalone view-CONE cull (3.9% field hot). a0 = node. The multiply-fo… |
 | 0x8002B278 | LIVE | `Cull::coneCull2b278` | game/render/cull.cpp:356 |  |  |
+| 0x8002B3A4 | LIVE | `Render::fxSpriteEmit` | game/render/fx_sprite.cpp:417 |  | the shared sprite-family body owns this controller's ring-rotation bra… |
 | 0x8002BC9C | LIVE | `Render::radialPlumeRender` | game/render/fx_plume.cpp:96 |  | The four-copy radial plume of guest FUN_8002BC9C, rebuilt from the nod… |
 | 0x8002E680 | LIVE | `Render::impactAnnulusDraw` | game/render/fx_ring.cpp:121 |  | the shared annulus leaf, as a native producer. Centre and scale are al… |
 | 0x8002ECD8 | LIVE | `Render::impactRingRender` | game/render/fx_ring.cpp:210 |  | the node half: resolve centre/scale/depth, animate the radii, hand off… |
@@ -87,7 +88,7 @@ Totals: 1036 native fns, 871 owned addresses, 1027 LIVE / 9 ORPHAN. 474 override
 | 0x80031780 | LIVE | `Collision::listScan` | game/player/collision.cpp:275 | 0x80031780 | list-tail resolver / reset. Walks the 8-byte-stride linked list rooted… |
 | 0x800317CC | LIVE | `leaf_800317CC` | game/core/field_owned_leaves.cpp:1853 |  |  |
 | 0x800318A0 | LIVE | `ObjModelView::composeIntoGte` | game/render/obj_model_view.cpp:154 |  | ORACLE: gen_func_800318A0 (tools/port_check.py equivalence-gate marker… |
-| 0x800328EC | LIVE | `Render::altSpriteEmit` | game/render/fx_sprite.cpp:645 |  | ── FUN_800328EC family producers ─────────────────────────────────────… |
+| 0x800328EC | LIVE | `Render::altSpriteEmit` | game/render/fx_sprite.cpp:646 |  | ── FUN_800328EC family producers ─────────────────────────────────────… |
 | 0x800329E0 | LIVE | `leaf_800329E0` | game/core/field_owned_leaves.cpp:1931 |  |  |
 | 0x80032A44 | LIVE | `Rng::inRange` | game/math/rng.cpp:156 |  | scaled random. Disas 0x80032A44..0x80032A84 verbatim: `sra v0, 15` on … |
 | 0x80033080 | LIVE | `Render::impactBurstRender` | game/render/fx_sprite.cpp:412 |  | the WEAPON-IMPACT burst (kanban #15), a COMPOSITE render fn: it is not… |
@@ -824,12 +825,12 @@ Totals: 1036 native fns, 871 owned addresses, 1027 LIVE / 9 ORPHAN. 474 override
 | 0x8010B798 | LIVE | `beh_sop_intro_lifted` | game/ai/beh_sop_intro_lifted.cpp:118 |  |  |
 | 0x8010B990 | LIVE | `beh_sop_intro_narration` | game/ai/beh_sop_intro_narration.cpp:153 |  |  |
 | 0x8010BEAC | LIVE | `beh_orbit_spark_effect` | game/ai/sop_intro_events.cpp:565 |  | ======================================================================… |
-| 0x8010C7F4 | LIVE | `Render::fxParticleFieldRender` | game/render/fx_sprite.cpp:991 |  |  |
+| 0x8010C7F4 | LIVE | `Render::fxParticleFieldRender` | game/render/fx_sprite.cpp:992 |  |  |
 | 0x8010E258 | LIVE | `ActorObjectContact::resolveHitOrProximity` | game/ai/actor_object_contact.cpp:115 |  | ORACLE: ov_a00_gen_8010E258 |
 | 0x8010E904 | LIVE | `ActorTomba::postFrameWaterCheck` | game/player/actor_tomba.cpp:603 |  | ======================================================================… |
 | 0x8010EA80 | LIVE | `ActorBump::respondToContact` | game/ai/actor_bump.cpp:100 |  | ORACLE: ov_a00_gen_8010EA80 |
 | 0x801104D0 | LIVE | `Render::fxBackdropSparkRender` | game/render/fx_backdrop_plane.cpp:252 |  | ── FUN_801104D0 (A0E overlay, area 14) — the backdrop's SPARK/DROPLET … |
-| 0x80110C14 | LIVE | `Render::fxRingSpriteRender` | game/render/fx_sprite.cpp:865 |  |  |
+| 0x80110C14 | LIVE | `Render::fxRingSpriteRender` | game/render/fx_sprite.cpp:866 |  |  |
 | 0x80110CA4 | LIVE | `Render::fxBackdropPlaneRender` | game/render/fx_backdrop_plane.cpp:104 |  |  |
 | 0x801110BC | LIVE | `Render::fxDotFieldRender` | game/render/fx_dotfield.cpp:75 |  |  |
 | 0x80111304 | LIVE | `ContactStamp::stampAndSnap` | game/ai/contact_stamp.cpp:12 | 0x8002300C 0x80083E80 0x80083F50 0x80085690 | ORACLE: ov_a00_gen_80111304 |
@@ -840,7 +841,7 @@ Totals: 1036 native fns, 871 owned addresses, 1027 LIVE / 9 ORPHAN. 474 override
 | 0x801130C4 | LIVE | `ActorTomba::postInteractWalk` | game/player/actor_tomba.cpp:444 |  | ======================================================================… |
 | 0x801130C4 | LIVE | `ActorTomba::framePreTick` | game/player/actor_tomba_pretick.cpp:16 |  |  |
 | 0x80113628 | LIVE | `Render::fieldHudMinimap` | game/render/minimap.cpp:98 |  | (area mode 2) / FUN_801140A0 (area mode 7) — the overlay-resident mini… |
-| 0x80113768 | LIVE | `Render::fxCuedSpriteRender` | game/render/fx_sprite.cpp:788 |  | (A0A overlay, area 10) — surfaced by the 22-AREA nofx sweep, which no … |
+| 0x80113768 | LIVE | `Render::fxCuedSpriteRender` | game/render/fx_sprite.cpp:789 |  | (A0A overlay, area 10) — surfaced by the 22-AREA nofx sweep, which no … |
 | 0x80113C5C | LIVE | `Behaviors::areaSeasidePerframe` | game/ai/area_seaside_perframe.cpp:102 |  |  |
 | 0x801140A0 | LIVE | `Render::fieldHudMinimap` | game/render/minimap.cpp:98 |  | (area mode 2) / FUN_801140A0 (area mode 7) — the overlay-resident mini… |
 | 0x801143C4 | LIVE | `Render::a0fVortexRender` | game/render/fx_vortex.cpp:97 |  | area 15's portal render fn (A0F overlay), rebuilt natively. |
@@ -897,9 +898,9 @@ Totals: 1036 native fns, 871 owned addresses, 1027 LIVE / 9 ORPHAN. 474 override
 | 0x8012D844 | LIVE | `tail_set1_and_render` | game/ai/beh_jumptable_flag_gate.cpp:50 |  | LAB_8012d844: v0=1; fall into 8012d848 (node[1]=1); then 8012d84c (jal… |
 | 0x8012D848 | LIVE | `tail_set1_and_render` | game/ai/beh_jumptable_flag_gate.cpp:50 |  | LAB_8012d844: v0=1; fall into 8012d848 (node[1]=1); then 8012d84c (jal… |
 | 0x8012D84C | LIVE | `tail_set1_and_render` | game/ai/beh_jumptable_flag_gate.cpp:50 |  | LAB_8012d844: v0=1; fall into 8012d848 (node[1]=1); then 8012d84c (jal… |
-| 0x8012D9E8 | LIVE | `Render::fxRotSpriteTailRender` | game/render/fx_sprite.cpp:752 |  | 's SPRITE TAIL. This controller is two emitters in one function: a lar… |
+| 0x8012D9E8 | LIVE | `Render::fxRotSpriteTailRender` | game/render/fx_sprite.cpp:753 |  | 's SPRITE TAIL. This controller is two emitters in one function: a lar… |
 | 0x8012DA04 | LIVE | `beh_typed_anim_spawn` | game/ai/beh_typed_anim_spawn.cpp:45 |  |  |
-| 0x8012E868 | LIVE | `Render::fxAltAnimSpriteRender` | game/render/fx_sprite.cpp:699 |  | (A01 overlay) — the animation-script member of the family. Same shape … |
+| 0x8012E868 | LIVE | `Render::fxAltAnimSpriteRender` | game/render/fx_sprite.cpp:700 |  | (A01 overlay) — the animation-script member of the family. Same shape … |
 | 0x8012E8A8 | LIVE | `SubstateEdgeLeaves::perChildTransformPropagate` | game/ai/substate_edge_native.cpp:657 | 0x80051794 0x80084110 0x80084220 0x80084470 0x80084A80 0x80084EB0 … | FUN_0x8012E8A8 — PER-SUB-PART TRANSFORM PROPAGATE. Verified against th… |
 | 0x8012EB54 | LIVE | `beh_substate_edge_orchestrator` | game/ai/beh_substate_edge_orchestrator.cpp:47 | 0x8012E8A8 0x8012ED84 0x8012F494 0x8012F5B4 0x8012FD88 0x80130524 … |  |
 | 0x8012ED84 | LIVE | `SubstateEdgeLeaves::stateZeroInit` | game/ai/substate_edge_native.cpp:890 | 0x8004CBD8 0x8007AAE8 | FUN_0x8012ED84 — STATE 0 INIT. Verified against the body: it seeds the… |
@@ -975,7 +976,7 @@ Totals: 1036 native fns, 871 owned addresses, 1027 LIVE / 9 ORPHAN. 474 override
 | 0x8013C538 | LIVE | `beh_scatter_record_dither` | game/ai/beh_scatter_record_dither.cpp:56 |  |  |
 | 0x8013C9C0 | LIVE | `beh_scatter_ramp_machine` | game/ai/beh_scatter_ramp_machine.cpp:52 |  |  |
 | 0x8013CDD4 | LIVE | `WidescreenMarginQuad::emit` | game/render/widescreen_margin_quad.cpp:178 |  |  |
-| 0x8013D454 | LIVE | `Render::waterJetSpriteRender` | game/render/fx_sprite.cpp:723 |  | 's SPRITE branch — the water jet's other half. The mesh branch (non-ze… |
+| 0x8013D454 | LIVE | `Render::waterJetSpriteRender` | game/render/fx_sprite.cpp:724 |  | 's SPRITE branch — the water jet's other half. The mesh branch (non-ze… |
 | 0x8013DD34 | LIVE | `Render::worldLineDraw` | game/render/fx_line.cpp:222 |  | THE rope leaf: a stroke between two world points, drawn as the project… |
 | 0x8013DD48 | ORPHAN | `sub8013DD48` | game/ai/beh_a08_scene_actor.cpp:173 | 0x80072DDC | (objAnim, subId) — allocate a spawner obj and hook its handler. |
 | 0x8013E08C | LIVE | `Render::shockwaveRingRender` | game/render/fx_line.cpp:375 |  | the expanding SHOCKWAVE RING. Ported 2026-07-28; it was surfaced by |

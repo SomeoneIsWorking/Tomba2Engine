@@ -170,7 +170,7 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** verified
 - **order:** 52
 - **owner:** Render::swingStarburstRender (game/render/fx_swing.cpp)
-- **notes:** PORTED + TRUE-ORACLE VERIFIED 2026-08-21. The type-0x20 display walk dispatches the MAIN.EXE controller by node+0x18. The producer reads all ten {angleX,angleY,angleZ,uniformScale} records from node+0x50, the node world anchor at +0x2C, owner type-selected far colour at 0x800A1FC4, node sort bias at +0x32, and fixed mesh 0x8009FB0C; it rebuilds the controller transform and calls the existing packed-record decoder with IR0=0xFFF and zero U/CLUT bias. It does not read GTE registers, guest packets, OT state, or execute/tap the shared writer. replays/bugs/weapon-charge-starburst.pad holds CIRCLE f620-1000. Fresh SBS oracle run: B reports PURE-ORACLE(interp+softGPU); native producer begins f667 with 10 copies/60 quads; saved pre-A to current-A deltas are 0 px at f650/f660 and 843/642/939/1001 px at f670/f680/f690/f700 in the starburst footprint. B is byte-identical before/after at all six frames, retaining the opposite answer.
+- **notes:** PORTED + TRUE-ORACLE VERIFIED 2026-08-21. The type-0x20 display walk dispatches the MAIN.EXE controller by node+0x18. The producer reads all ten {angleX,angleY,angleZ,uniformScale} records from node+0x50, the node world anchor at +0x2C, owner type-selected far colour at 0x800A1FC4, node sort bias at +0x32, and fixed mesh 0x8009FB0C; it rebuilds the controller transform and calls the existing packed-record decoder with IR0=0xFFF and zero U/CLUT bias. It does not read GTE registers, guest packets, OT state, or execute/tap the shared writer. replays/bugs/weapon-charge-starburst.pad holds CIRCLE f620-1000. Fresh SBS oracle run: B reports PURE-ORACLE(interp+softGPU); native producer begins f667 with 10 copies/60 quads; saved pre-A to current-A deltas are 0 px at f650/f660 and 843/642/939/1001 px at f670/f680/f690/f700 in the starburst footprint. B is byte-identical before/after at all six frames, retaining the opposite answer. REPIN VERIFIED against definitive psxport 692b9b20 after the preliminary substrate re-emission and a final clean Clang 22.1.8 rebuild: all 38 producer lines and all six final-pin A/B capture pairs are byte-identical to the retained 9f run.
 
 ## pause-menu-chrome
 - **scope:** in-game pause/item menu display producer (FUN_800346BC controller + FUN_8007E1B8/FUN_8007E6DC UI leaves)
@@ -288,7 +288,11 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
   divided the Q12 `RotMatrix` result by 4096 and omitted the guest's following `Math::matColScale`
   using `0x800A1CD4..D6 << 2`; the first collapsed all four centres below one pixel and fixing only it
   made the local ring 64x too large. `MeshQuads::composeScaled` now owns the complete transform and
-  `tomba_mesh_quads_math` locks the two-part regression.
+  `tomba_mesh_quads_math` locks the two-part regression. REPIN VERIFIED against definitive psxport
+  692b9b20 after the preliminary substrate re-emission and a final clean Clang 22.1.8 rebuild:
+  bounded SBS reached f2802, native A and pure-software-oracle B both retain the cluster at f2799,
+  native reports four centres spanning 28.38x7.89 pixels, and all six final-pin A/B captures plus 61
+  ring telemetry lines are byte-identical to the retained 9f run.
 
 ## fx-emitter-ecd8-e680
 - **scope:** The 0x8002ECD8 + 0x8002E680 effect emitter pair (type-0x20 node render fn, no producer)

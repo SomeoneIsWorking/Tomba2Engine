@@ -4,7 +4,7 @@ kind: claim
 status: holds
 created: 2026-08-21
 tags: render,tomba2
-depends: game/render/fx_swing.cpp#Render::swingStarburstRender, game/render/render_walk.cpp#Render::fieldObjectsRender, game/render/mesh_quads.cpp#meshQuadRecordsEmit
+depends: game/render/fx_swing.cpp#Render::swingStarburstRender, game/render/render_walk.cpp#Render::fieldObjectsRender, game/render/mesh_quads.cpp#meshQuadRecordsEmit, psxport.pin
 ---
 
 ## Claim
@@ -18,6 +18,8 @@ RE: generated/shard_0.c gen_func_8002A834 and generated/shard_5.c gen_func_80027
 The bounded route reached 261/484 owned addresses; the claim is scoped to this exercised controller path.
 
 Final combined-tree rerun: scratch/logs/c14_charge_combined.log contains the same 38 swingfx lines byte-for-byte, exits cleanly at f705, and its six B captures remain byte-identical. Combined A also contains the independent #55/#72 native graphic and is therefore not used as a whole-frame #14 isolation hash.
+
+Repin verification against definitive psxport `692b9b20e3d4a6194452522060fd2657c2235f40`: after the preliminary 9f framework forced a full recompilation-substrate re-emission, the final pin received another clean Clang 22.1.8 rebuild. `replays/bugs/weapon-charge-starburst.pad` again exited cleanly at f705. All 38 `swingfx` lines and every A and B capture at f650/f660/f670/f680/f690/f700 are byte-identical to the retained 9f run. Evidence: `scratch/logs/repin_692_c14.log`, `scratch/screenshots/repin_692_c14_f*_{A,B}.ppm`.
 
 ## What would falsify it
 

@@ -119,3 +119,12 @@ On the same replay execution, native f2799 and live `renderpath psx` f2800 both 
 cluster around the enemy. The corrected `fxsprite` diagnostic reports `drawn=4/4` with centres spanning
 about 28x8 pixels. `tests/test_mesh_quads_math.cpp` supplies the negative control: both the old unit
 matrix result and the raw unscaled Q12 result disagree with the expected Q12-plus-column-scale matrix.
+
+Framework-repin gate (2026-08-21): the preliminary psxport `9f1bb927` repin changed the recompiler
+inputs, so the substrate was re-emitted before a second clean Clang rebuild. The definitive
+`692b9b20` pin then received another clean Clang 22.1.8 rebuild and bounded SBS true-oracle run of the
+tracked replay, which exited cleanly at f2802. At f2799 both native A and
+`PURE-ORACLE(interp+softGPU)` B visibly retain the four-star cluster; native reports `drawn=4/4`, with
+centres spanning 28.38x7.89 pixels. All six final-pin A/B captures and all 61 ring telemetry lines are
+byte-identical to the retained 9f run. Evidence: `scratch/logs/repin_692_stun.log`,
+`scratch/screenshots/repin_692_stun_f2799_{A,B}.ppm`.

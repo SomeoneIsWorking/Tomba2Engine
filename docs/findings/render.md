@@ -4129,6 +4129,11 @@ are owned.**
   activation frame, anchor, ten copies, sixty quads, and emitted box), and all six B captures stayed
   byte-identical. Combined A intentionally also contains the independently fixed ring/star graphic,
   so its whole-frame hash is not misreported as a #14-only gate.
+  **Framework-repin gate (2026-08-21):** the preliminary psxport `9f1bb927` repin changed the
+  recompiler inputs, so `ensure_recomp.py` re-emitted MAIN.EXE and every overlay before a second clean
+  Clang rebuild. The definitive `692b9b20` pin then received another clean Clang 22.1.8 rebuild. Its
+  tracked replay exits cleanly at f705; all 38 producer lines and every A/B capture at the six sampled
+  frames are byte-identical to the retained 9f run (`scratch/logs/repin_692_c14.log`).
 - **NOT the emitter (ruled out again, do not re-chase):** the effect pool 0x800EC188 walked by
   FUN_8003F024 -> FUN_8003D23C — zero packets and zero GTE calls attributed to either during the
   swing (scratch/logs/c14_otattr2.txt). The FUN_80027A4C sprite tap cannot cover this family either
