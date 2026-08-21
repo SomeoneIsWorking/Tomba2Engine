@@ -1,8 +1,9 @@
 ---
 id: I055
 kind: instrument
-status: trusted
+status: DISTRUSTED
 created: 2026-08-21
+distrusted_on: 2026-08-21
 ---
 
 ## Instrument
@@ -20,3 +21,9 @@ windowing, perspective correction, or whole-frame equivalence. It requires a wor
 and a regenerated shader header. The constant-UV controls deliberately cancel downstream
 internal-resolution box/1555 quantization; compare them directly instead of hardcoding one packed
 color per scale.
+
+## DISTRUSTED 2026-08-21
+
+Cannot show the other answer. It reported 20/20 PASS on THREE builds that differ in exactly what it claims to gate: the seam-ridden rewind (eb2465b2), the rewind neutralised (centre sampling, which truncates negative-gradient UV one texel early — the very bug it was written for), and the bounded reconstruction. Every case samples 3px inside a 16px triangle, so it never reads an edge fragment, and its constant-UV control makes the negative-slope cases insensitive. A pixel-readback gate of this shape can only confirm.
+
+> Every result this instrument produced is suspect until it is re-validated.

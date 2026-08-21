@@ -172,6 +172,14 @@ void Render::emitUiFt4(int x,
   // on top. Only matters where a group's entries overlap, which is why it went unnoticed on the
   // field HUD's non-overlapping tile rows.
   const int n = pieceCount(cnt, templPtr);
+  // PSXPORT_DEBUG=hudring — the emitted RECT of every UI FT4 piece, with its denominator. The count
+  // prints even when it is zero: "no pieces" and "the channel never ran" must not look alike. Read
+  // XR/YB as EXCLUSIVE (XR = x0 + w), so two pieces tile when one's XR equals the next's XL and
+  // OVERLAP when it exceeds it — which is the question this channel exists to answer.
+  const bool dbgRing = cfg_dbg("hudring");
+  if (dbgRing) {
+    cfg_logw("hudring", "emitUiFt4 templ=%08X mode=%d semi=%d pieces=%d", templPtr, mode, semi, n);
+  }
   for (int k = n - 1; k >= 0; k--) {
     const uint32_t e = data + (uint32_t)k * 16u;
     int w = c->mem_r8(e + 10u), h = c->mem_r8(e + 11u);
@@ -245,6 +253,23 @@ void Render::emitUiFt4(int x,
                  (c->mem_r8(e + 5u) + dv) & 0xFF,
                  (c->mem_r8(e + 9u) + dv) & 0xFF,
                  (c->mem_r8(e + 13u) + dv) & 0xFF};
+    if (dbgRing) {
+      cfg_logw("hudring",
+               "  piece %d: x[%d,%d) y[%d,%d) w=%d h=%d  u=%d..%d v=%d..%d  du=%d dv=%d",
+               k,
+               XL,
+               XR,
+               YT,
+               YB,
+               w,
+               h,
+               (int)c->mem_r8(e + 0u),
+               (int)c->mem_r8(e + 4u),
+               (int)c->mem_r8(e + 1u),
+               (int)c->mem_r8(e + 9u),
+               du,
+               dv);
+    }
     unsigned char cc[4] = {col, col, col, col};
     const int tp_x = (tpage & 0xF) * 64, tp_y = ((tpage >> 4) & 1) * 256;
     const int tmode = (tpage >> 7) & 3, blend = (tpage >> 5) & 3;
@@ -415,6 +440,19 @@ void Render::fieldHudItemRing(int offsetMode, uint32_t /*bucketAttr*/) {
   // both loop families, and each loop index. Reversing only the overlapping chrome substack leaves
   // the loop-authored opaque red wedges underneath its translucent halves.
   const int rx = dx + 0x20, ry = dy + 0x20;
+  // PSXPORT_DEBUG=hudring — this producer's own denominators, printed on EVERY call including the
+  // all-zero one. Without it a silent log is ambiguous between "the ring drew nothing" and "the ring
+  // never ran", and the emitUiFt4 lines below could belong to any of this file's other producers.
+  if (cfg_dbg("hudring")) {
+    cfg_logw("hudring",
+             "fieldHudItemRing ENTER rx=%d ry=%d wedges=[%d,%d) halves=2 (templ %08X, %08X)",
+             rx,
+             ry,
+             n1,
+             n2,
+             c->mem_r32(kTemplPtrTable + 3u * 4u),
+             c->mem_r32(kTemplPtrTable + 4u * 4u));
+  }
   emitUiFt4(rx, ry, 0, 0, c->mem_r32(kTemplPtrTable + 3u * 4u), base, 0, 0x8000u, RQ_HUD);
   emitUiFt4(rx, ry, 0, 0, c->mem_r32(kTemplPtrTable + 4u * 4u), base, 0, 0x8000u, RQ_HUD);
   emitUiSprites(rx,
