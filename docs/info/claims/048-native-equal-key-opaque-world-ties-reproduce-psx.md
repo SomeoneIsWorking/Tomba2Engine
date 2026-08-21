@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-20
 tags: render
 depends: psxport.pin
-reconfirmed: 2026-08-20 22:47:24
-verified_at: 2026-08-20 22:47:24
+reconfirmed: 2026-08-21 03:11:11
+verified_at: 2026-08-21 03:11:11
 ---
 
 ## Claim
@@ -27,3 +27,7 @@ Confirmed with the same tested framework content committed as psxport 81cb8e05, 
 Clang reconfigure/build and a successful psxport pin/provenance check. The focused 17-face AddPrim
 property and painter tests pass; deterministic HUT f1200 remains exact at the GTE probe with 5/5
 interpolation pairs identical.
+
+## Re-confirmed 2026-08-21 03:11:11
+
+2026-08-21 on clean psxport 2b5ef7b5: full Clang psxport CTest passed 70/70 including render_queue_keyorder; current native and GTE hut-entry-door-freeze runs both visibly retain the central hanging decor. At the historical native pixel (140,80), the 3x present blocks are exactly srgb(25,66,66) on both paths after accounting for the GTE path s documented 224-line scanout centering (Native y240, GTE y255..257).
