@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-21
 tags: render,tomba2,effects
 depends: game/render/fx_sprite.cpp#Render::fxSpriteEmit, game/render/mesh_quads.h#MeshQuads::composeScaled, psxport.pin
-reconfirmed: 2026-08-21 11:48:52
-verified_at: 2026-08-21 11:48:52
+reconfirmed: 2026-08-21
+verified_at: 2026-08-21 14:21:13
 ---
 
 ## Claim
@@ -26,3 +26,7 @@ if the replay no longer spawns a visible 0x8002B3A4 node with a stunned owner, t
 ## Re-confirmed 2026-08-21 11:48:52
 
 Post-landing clean Clang 22.1.8 build and true-oracle replay on psxport 692b9b20 exited at f2802; all 61 ring telemetry lines and three A/B frame pairs match retained evidence, with drawn=4/4 at 28.38x7.89 pixels.
+
+## Re-confirmed 2026-08-21
+
+Post-landing Clang build and full CTest 4/4 passed; the stunned-star true-oracle replay retained all captures and 61 telemetry lines byte-identical with four drawn centers spanning 28.38x7.89 pixels against psxport 3418a79b.

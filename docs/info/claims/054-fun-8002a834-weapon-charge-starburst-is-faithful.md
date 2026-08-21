@@ -5,8 +5,8 @@ status: holds
 created: 2026-08-21
 tags: render,tomba2
 depends: game/render/fx_swing.cpp#Render::swingStarburstRender, game/render/render_walk.cpp#Render::fieldObjectsRender, game/render/mesh_quads.cpp#meshQuadRecordsEmit, psxport.pin
-reconfirmed: 2026-08-21 11:48:51
-verified_at: 2026-08-21 11:48:51
+reconfirmed: 2026-08-21
+verified_at: 2026-08-21 14:21:13
 ---
 
 ## Claim
@@ -30,3 +30,7 @@ Any corrected replays/bugs/weapon-charge-starburst.pad run where the software-or
 ## Re-confirmed 2026-08-21 11:48:51
 
 Post-landing clean Clang 22.1.8 build and true-oracle replay on psxport 692b9b20 exited at f705; all 38 swing telemetry lines and six A/B frame pairs match retained evidence exactly.
+
+## Re-confirmed 2026-08-21
+
+Post-landing Clang build and full CTest 4/4 passed; the weapon-charge starburst true-oracle replay retained all six B captures byte-identical and all 38 producer telemetry lines exact against psxport 3418a79b.
