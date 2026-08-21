@@ -1,10 +1,10 @@
 ---
 id: 62
 title: GAME OVER screen keeps drawing field geometry — a stray rope + garbled sprite over the black
-status: todo
+status: done
 labels: [bug, render]
 created: 2026-07-28
-updated: 2026-07-28
+updated: 2026-08-21
 evidence: docs/reference/issues/issue62_save_prompt_black_screen.png
 ---
 
@@ -51,3 +51,5 @@ RULED OUT along the way (do not re-walk): beh_scene_ui_trigger 0x800739AC forced
 WHAT IS STILL A REAL BUG, and all this card should now be: on that black game-over screen, pc_render still draws FIELD GEOMETRY that does not belong there — a rope/vine hanging from the top of the screen and a garbled multi-coloured sprite cluster beside the text. The guest emits ONE black FILL and nothing else, while vkstats reports textured=1632 verts (544 tris) + semi=18. The prompt text itself is native (the guest draws no glyphs), so some of those tris are legitimate; the rope and the sprite blob are not. Native producers are not being suppressed when the field stops being the scene. Evidence image and the repro replay are unchanged and still valid.
 
 INSTRUMENT NOTE: provat is BLIND on this path — it reads PSX VRAM, which pc_render never writes, so every probe came back '<never written>' over pixels that are visibly lit.
+
+**2026-08-21:** RESOLVED 2026-08-21. Root cause: Render::classifyScene treated every GAME sm[0x4c]==3 as HutInterior, but GAME.BIN reuses state 3 under two owners: sm[0x4a]==1 is the field/hut machine; sm[0x4a]==2 is FUN_80106478, the black-backed Save/Continue/Load/Quit machine (states 3..8). The retained replay proves the bad prompt is (2,3); hut-entry-door-freeze proves the positive control is (1,3). classifyGameStageScene now owns the paired selector, so the menu suppresses stale field producers without regressing the hut. The unscoped shared cursor group is preserved at RQ_OVERLAY, below RQ_HUD glyphs. At f12887: pre-fix 16,035 nonblack pixels with stale geometry through x=833; post-fix 5,085, all within the prompt footprint x=384..548 y=240..416, with Save?/Yes/No + cyan cursor. The PSX rendering-path capture shows the same intended black-backed prompt and no field geometry. Presentation ledger: 12,910/12,910 frames reconciled, zero dropped layers. Evidence scratch/screenshots/gameover_{pre,post4,psx}.png and scratch/logs/gameover_{post4,psx}.log; unit gate tomba_scene_kind covers (1,3) hut and (2,3) menu.

@@ -77,6 +77,10 @@ include(cmake/tomba2_port.cmake)
 include(cmake/tomba2_tools.cmake)
 
 if(BUILD_TESTING)
+  add_executable(test_scene_kind tests/test_scene_kind.cpp game/render/scene_kind.cpp)
+  target_include_directories(test_scene_kind PRIVATE game/render)
+  add_test(NAME tomba_scene_kind COMMAND test_scene_kind)
+
   set(TOMBA_CPP_POLICY_CAPS
       game/core/field_owned_leaves.cpp=20838
       game/core/engine.cpp=4404

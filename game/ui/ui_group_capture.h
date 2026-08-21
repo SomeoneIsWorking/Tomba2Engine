@@ -8,8 +8,9 @@
 // second overrides::install on one address is the dual-ownership bug that broke the dialog box
 // (kanban #28) — so the taps live where the address is owned (ui_ft4_tap.cpp, ui_sprite.cpp,
 // panel.cpp) and hand their arguments to `route`, which files them under whichever PAGE SCOPE is
-// currently raised. An item emitted with no scope raised has its own producer already (the field
-// HUD, the dialog box) and is drawn inline by its tap, exactly as before this capture existed.
+// currently raised. The GAME.BIN Save/Continue machine is classified as its own scope and routes
+// directly through this same emitter; other unscoped calls belong to independent producers such as
+// the field HUD and dialog box.
 //
 // ONE LIST, NOT ONE PER EMITTER — this is the point, and it is what the card menu forced.
 // A page's picture is ONE ordering table. When each tap chose its own host layer instead, a page's

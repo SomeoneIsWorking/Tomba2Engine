@@ -1,10 +1,10 @@
 ---
 id: 63
 title: Flying BIRD in area 0 is missing entirely under pc_render
-status: todo
+status: done
 labels: [bug, render]
 created: 2026-07-28
-updated: 2026-07-28
+updated: 2026-08-21
 evidence: docs/reference/issues/issue63_missing_flying_bird.png
 ---
 
@@ -36,3 +36,5 @@ RELATED: the same sweep found NO other missing motion anywhere on screen at this
 (3) BUT THAT ALONE DOES NOT PUT THE BIRD BACK. With the handler on the substrate and node+1 = 1, ab_motion still reports the same missing top-right block, and a zoomed crop still shows no bird. So either 0x800FD118 is not the bird (it is the right-of-Tomba, above-ground mover, but that was inferred from a position sweep, not confirmed on screen), or there is a SECOND gap after the marker. Do not assume the two are the same bug.
 
 NEXT (in this order): confirm the bird's identity on the REFERENCE leg — it is drawn there, so correlate node world positions against the screen region x=224..300 y=0..96 rather than guessing from a position sweep. Only then decide whether the remaining gap is a missing producer or a second exec divergence. Keep #51 updated either way: measurement (2) stands on its own.
+
+**2026-08-21:** CLOSED AS NO LONGER REPRODUCIBLE 2026-08-21. A fresh 32-frame true interpreter/software-GPU A/B sweep (f260..880) shows the seagull crossing the top-right sky on BOTH native A and true-reference B at f500..560. The old contiguous 22-tile reference-only motion block is absent; only three isolated low-count tile differences remain. Earlier node/handler evidence remains relevant to #51, but the current renderer does not have the user-visible missing-bird symptom. Evidence scratch/screenshots/bird_true/{A,B}_topright.png and scratch/logs/bird_true_sweep.log.

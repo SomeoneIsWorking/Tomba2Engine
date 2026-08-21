@@ -477,42 +477,6 @@ void Render::backdropRender(uint32_t t4) {
   c->rsub.diag.endObject();
 }
 
-// ---- pc_render scene DISPATCH (see render.h) --------------------------------------------------------
-// Classify the current scene from the resident stage (0x801FE00C) + its sub-state selectors.
-Render::SceneKind Render::classifyScene() {
-  Core *c = mCore;
-  // TASK-SWITCH HANDOFF GUARD (RE'd from the cooperative scheduler FUN_80051e60): a task slot's state
-  // field @+0x00 is 0=empty, 2=ready, 3=re-registered/needs-fresh-context, 4=running. When task0 is in
-  // state 3, its entry (+0x0c) was just reassigned (e.g. START.BIN -> DEMO front-end) but the new entry's
-  // code has NOT run yet — so its substate fields (sm[0x48], …) still hold the PREVIOUS occupant's stale
-  // values. Classifying by (entry, substate) here would misread that stale substate as a real scene (this
-  // is why the START->DEMO handoff frame, entry=DEMO with sm[0x48]=3 left over from START, looked like a
-  // bogus "DEMO substate 3"). During the 1-frame handoff the reference draws the black loader; do the same.
-  constexpr uint32_t TASK0_STATE = 0x801FE000u; // task0 slot, state @+0x00 (u16)
-  constexpr uint16_t TASK_REINIT = 3;           // scheduler: entry (re)assigned, code not yet run
-  if (c->mem_r16(TASK0_STATE) == TASK_REINIT) {
-    return SceneKind::Loading;
-  }
-  const uint32_t stage = c->mem_r32(0x801FE00Cu);
-  if (stage == 0x8010649Cu) {
-    return SceneKind::StartBoot; // START.BIN loader
-  }
-  if (stage == 0x801062E4u) {
-    return SceneKind::Title; // DEMO/title front-end (title + substates)
-  }
-  if (stage == 0x8010637Cu) { // GAME field stage
-    const uint32_t task_sm = c->mem_r32(0x1F800138u);
-    if (task_sm && c->mem_r16(task_sm + 0x4Cu) == 3) {
-      return SceneKind::HutInterior; // authored sub-scene
-    }
-    if (c->mem_r32(0x80109450u) == 0x3C021F80u) {
-      return SceneKind::SopNarration; // SOP overlay loaded
-    }
-    return SceneKind::Field; // walkable free-roam
-  }
-  return SceneKind::Unknown;
-}
-
 // renderScene — the ONE native-renderer dispatch. No guest-OT transcription; each producer builds the
 // picture from game state and emits to the render queue. A stage with no producer aborts with its identity.
 void Render::renderScene() {
@@ -531,6 +495,9 @@ void Render::renderScene() {
     break;
   case SceneKind::HutInterior:
     renderHutInterior();
+    break;
+  case SceneKind::SaveContinueMenu:
+    renderSaveContinueMenu();
     break;
   case SceneKind::SopNarration:
     renderSopNarration();

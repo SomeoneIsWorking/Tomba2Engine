@@ -25,6 +25,7 @@ float proj_obj_center_ord(void);
 // cur_render_node moved to the framework header runtime/recomp/render_node.h (ot_attr.cpp, framework,
 // needs it without the rest of this game header). Included here so the game render path is unchanged.
 #include "render_node.h"
+#include "scene_kind.h"
 
 // render_field_native_active: true iff pc_render's native field pass (Render::sceneNative,
 // game_tomba2.cpp Engine::drawOTag) owns THIS frame's picture — GAME stage,
@@ -44,6 +45,7 @@ enum FieldNativeOff {
   FN_STAGE,     // the GAME stage overlay is not resident (title/intro/menus)
   FN_NARRATION, // SOP intro narration overlay active
   FN_SUBSCENE,  // #51: an AUTHORED OT sub-scene (sm[0x4c]==3) — the full guest walk draws it
+  FN_SAVE_MENU, // GAME.BIN Save/Continue/Load/Quit dialog owns a black-backed picture
 };
 inline const char *field_native_off_name(int r) {
   switch (r) {
@@ -59,6 +61,8 @@ inline const char *field_native_off_name(int r) {
     return "narration";
   case FN_SUBSCENE:
     return "sub-scene(sm4C==3)";
+  case FN_SAVE_MENU:
+    return "save/continue-menu(s4A==2,s4C=3..8)";
   default:
     return "?";
   }
@@ -74,12 +78,17 @@ static inline int render_field_native_reason(Core *c) {
   if (c->mem_r32(0x801FE00Cu) != 0x8010637Cu) {
     return FN_STAGE; // GAME stage resident
   }
-  if (c->mem_r32(0x80109450u) == 0x3C021F80u) {
-    return FN_NARRATION; // SOP intro narration overlay active
-  }
   uint32_t task_sm = c->mem_r32(0x1F800138u);
-  if (task_sm && c->mem_r16(task_sm + 0x4Cu) == 3) {
+  const auto scene = classifyGameStageScene(
+      task_sm ? c->mem_r16(task_sm + 0x4Au) : 0, task_sm ? c->mem_r16(task_sm + 0x4Cu) : 0, c->mem_r32(0x80109450u));
+  if (scene == GameStageSceneKind::SopNarration) {
+    return FN_NARRATION;
+  }
+  if (scene == GameStageSceneKind::HutInterior) {
     return FN_SUBSCENE;
+  }
+  if (scene == GameStageSceneKind::SaveContinueMenu) {
+    return FN_SAVE_MENU;
   }
   return FN_ON;
 }

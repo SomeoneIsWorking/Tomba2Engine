@@ -412,9 +412,8 @@ Ranked here because the user sees them as missing graphics, but the fix is not "
 - **Bucket's supporting POLE** visible only after pickup (kanban #54) — state-gated, not class-gated.
 - **Hut/house interior wall decorations** (kanban #57, #74) — suspected occlusion / coincident-face
   ordering, i.e. a depth problem in a layer that IS produced.
-- **GAME OVER screen keeps drawing field geometry** (kanban #62) and **DEMO transition submits ~125k
-  garbage quads from a geomblk pointing at texture data** (kanban #70) — wrong-content, not absent.
-- **Flying bird in area 0** (kanban #63) — missing, mechanism not yet attributed to a class.
+- **DEMO transition submits ~125k garbage quads from a geomblk pointing at texture data**
+  (kanban #70) — wrong-content, not absent.
 
 ### R7 — 2D layer residuals
 

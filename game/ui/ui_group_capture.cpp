@@ -9,6 +9,7 @@
 #include "options_page.h"
 #include "panel.h" // Panel::pushFill / pushCorners — the ONE panel geometry
 #include "pause_menu.h"
+#include "producer_scope.h"
 #include "render.h" // Render::emitUiFt4 / emitUiSprites + rsub.mode.psxRender() gate
 #include "render_queue.h"
 #include "start_page.h"
@@ -41,9 +42,20 @@ UiGroupCapture *raisedScope(Core *c) {
 } // namespace
 
 void UiGroupCapture::route(Core *c, const UiGroupArgs &a) {
-  // No scope raised: this group's caller owns its own producer (the field HUD).
   if (UiGroupCapture *s = raisedScope(c)) {
     s->fileGroup(a);
+    return;
+  }
+  // GAME.BIN's Save/Continue/Load/Quit machine calls the shared group leaf directly rather than
+  // through one of the page controllers above. Its classified scene is itself the scope: emit the
+  // exact tapped group now, through the same PageChromeItem implementation every page drains later.
+  if (rend(c)->classifyScene() == Render::SceneKind::SaveContinueMenu) {
+    PageChromeItem item;
+    item.kind = PageChromeItem::Kind::Group;
+    item.otBucket = a.otBucket;
+    item.group = a;
+    ProducerScope scope(&c->rsub.producerScope, 0x8007E6DCu, "saveContinueMenuGroup");
+    UiGroupCapture{}.emit(c, item, RQ_OVERLAY);
   }
 }
 

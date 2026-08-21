@@ -5531,3 +5531,45 @@ not against this bug.
   `resolveClaimedFrame`), `producer_census.h` (`claims`/`loadClaims`/`appendClaims`), `gpu_native.cpp`
   (`censusGuestPrim`), `config_vars.h` + `config.cpp` (`cv_producers_dir`/`cv_producers_db`);
   `scratch/logs/otchain-pc.log`, `leg1-native.log`, `leg2-guest.log`, `sbs2-combat.log`.
+
+## GAME sub-mode owns the scene-state number — state 3 alone does not mean “hut” (2026-08-21)
+
+- **symptom:** the black GAME OVER Save/Continue prompt (kanban #62) carried stale field objects: a
+  large Tomba model and a garbled field sprite. The retained replay reaches it at frame 12887.
+- **status:** fixed and runtime-verified.
+- **cause:** native scene dispatch tested only `sm[0x4c] == 3`. GAME.BIN reuses that state number
+  in two different machines: `sm[0x4a] == 1` is the field machine, where state 3 is a hut interior;
+  `sm[0x4a] == 2` is `FUN_80106478`, where states 3..8 are the black-backed
+  Save/Continue/Load/Quit machine. Dynamic captures proved the collision: the hut control was
+  `(subMode,state)=(1,3)`, while the broken prompt was `(2,3)`. The GAME.BIN implementation confirms
+  those selectors.
+- **fix:** `classifyGameStageScene` is the one owner of the paired selector. Only `(1,3)` dispatches
+  the hut producer; `(2,3..8)` suppresses the field picture while preserving the menu's native
+  glyph and shared sprite producers. The shared cursor group stays at `RQ_OVERLAY`, below the
+  `RQ_HUD` glyphs; routing it at HUD painted opaque sprite chrome over the text.
+- **negative/positive evidence:** the pre-fix frame has 16,035 non-black pixels and stale geometry
+  through x=833; the post-fix frame has 5,085 non-black pixels, all inside the menu's x=384..548,
+  y=240..416 footprint, with Save?/Yes/No and the cyan cursor present. The shipping presentation
+  ledger reconciled all 12,910 frames with zero dropped layers. The classifier test covers both
+  sides of the state-number collision: `(1,3)` remains a hut and `(2,3)` is the menu.
+- **reference:** the same retained replay on the PSX rendering path shows the intended black-backed
+  Save?/Yes/No prompt and compact cyan cursor, with no field geometry. Evidence:
+  `scratch/screenshots/gameover_{pre,post4,psx}.png`, `scratch/logs/gameover_{post4,psx}.log`.
+- **refs:** `game/render/scene_kind.{h,cpp}`, `game/render/scene_kind_runtime.cpp`,
+  `tests/test_scene_kind.cpp`, claim C053, instrument I057.
+
+## Area-0 flying bird report no longer reproduces (kanban #63, 2026-08-21)
+
+A fresh 32-frame true interpreter/software-GPU A/B sweep (frames 260..880) shows the seagull crossing
+the top-right sky on **both** the native and reference legs at frames 500..560. The old contiguous
+22-tile reference-only motion block is absent; only three isolated low-count tile differences remain.
+The earlier node/handler evidence remains useful for kanban #51, but it no longer describes a missing
+bird in the current renderer. Evidence: `scratch/screenshots/bird_true/{A,B}_topright.png` and
+`scratch/logs/bird_true_sweep.log`.
+
+- **symptom:** the area-0 seagull was reported absent under pc_render.
+- **status:** closed as no longer reproducible.
+- **cause:** an intervening renderer/behaviour correction removed the visible gap; this sweep does
+  not identify which landed change did so.
+- **fix:** no new bird-specific code; the true A/B capture disproves the current symptom.
+- **refs:** kanban #63, instrument I012, `scratch/logs/bird_true_sweep.log`.
