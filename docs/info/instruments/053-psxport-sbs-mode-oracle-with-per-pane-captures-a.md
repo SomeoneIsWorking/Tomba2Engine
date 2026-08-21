@@ -32,3 +32,8 @@ external console/emulator oracle. A pane pair is also not automatically same-sta
 executes only 248/484 owned addresses and reports post-warp RAM/scratchpad differences, including a
 one-tick field-state skew. Attribute pixel differences only after checking those denominators and
 visible dynamic content (B has guest snow that A's current native producers omit).
+The `house-on-the-point.pad` f3000 survey is a stronger failure: faithful Native A is inside the
+house while software B is still outside, with persistent RAM/scratchpad differences. Its pane pair
+is unusable for A/B pixel attribution even though both images are non-black and the capture
+completed. A single pane remains valid evidence about its own state when an in-band queue census
+attributes that pane's shipping draws; C052 uses A that way and makes no claim about B.

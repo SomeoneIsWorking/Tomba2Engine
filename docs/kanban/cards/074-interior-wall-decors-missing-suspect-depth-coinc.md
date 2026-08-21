@@ -1,7 +1,7 @@
 ---
 id: 74
 title: Interior wall decors missing (suspect depth / coincident-face ordering)
-status: doing
+status: done
 labels: [render]
 created: 2026-08-04
 updated: 2026-08-20
@@ -74,3 +74,34 @@ different visual target and the packet-present probe did not establish the final
 queue/presentation evidence now shows both HUT materials reach Native, but same-bucket order is reversed
 relative to the GTE OT walk because AddPrim head insertion was not modeled; fixed under #57. This does
 not close this card's separate House on the Point producer gap, which remains the next work here.
+
+**2026-08-21 CURRENT-TREE RECHECK, NOT YET A CLOSURE:** a faithful Native A pane at the historical
+f3000 viewpoint now visibly contains the left-wall hangings, blue/teal items, trophy, and talk prompt
+that the 2026-08-05 pc-render capture lacked. That contradicts this card's old “no native producer”
+diagnosis: the cited `NativeScenePass::collect` census is a debug-only `rendernative` pass, not the
+shipping `Render::fieldObjectsRender` owner, so its 3-live/17-object denominator could never prove
+that the shipping queue omitted the decor. The paired software-B pane is NOT evidence: on
+`house-on-the-point.pad`, B is still outside the house while A is inside and RAM/scratchpad differ
+throughout the survey run. This is the known I053 same-state limitation in a gross rather than
+one-tick form. Two standalone faithful Native attempts then stopped in framework Vulkan target
+allocation under host contention before reaching the replay, so the remaining gate is a clean
+standalone f3000 capture plus queue/key attribution. Do not close this as the systemic OT-LIFO fix
+until that attribution proves it; do not revive the debug-collector producer theory.
+
+**2026-08-21 FIXED — CURRENT SHIPPING QUEUE ATTRIBUTION CLOSES THE CARD:** the remaining
+“standalone faithful” request above was based on a retired interface. The product now has one
+standalone execution policy; faithful Native is intentionally the SBS A leg. A fresh bounded run on
+clean psxport `2b5ef7b5`, `house-on-the-point.pad`, `PSXPORT_SBS_MODE=oracle`, and
+`PSXPORT_DEBUG=keyord` captured the historical f3000 viewpoint. Pane A visibly contains every target
+from the old missing screenshot: the dense left-wall hangings, blue/teal items, mounted trophy, and
+the talk prompt. Pane B was still outside and was not used as picture evidence.
+
+The shipping queue evidence names the old candidate rather than merely showing a good screenshot:
+Native A queued 467/467 world faces with keys; node `0x800FD748` contributes faces from sequence 76
+through 343; 121 faces were snapped to authored order and 96 faces used same-bucket OT-LIFO ties.
+Thus the old “no native producer” conclusion was false twice over: `NativeScenePass::collect` is a
+debug-only census, and the alleged missing node is present in the shipping queue at the exact frame.
+The failure was final same-bucket presentation order, the same systemic AddPrim head-insertion rule
+fixed under #57—not a House-specific emitter gap. C052 records the falsifiable result. Evidence:
+`scratch/logs/house_oracle_keyord.log` and
+`scratch/screenshots/house_oracle_keyord_f3000_A.ppm`.

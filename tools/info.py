@@ -118,7 +118,9 @@ def write(path, front, body):
     with open(path, "w") as f:
         f.write("---\n")
         for k, v in front.items():
-            f.write(f"{k}: {v}\n")
+            # Empty YAML scalars end at the colon. Emitting `key: ` adds trailing whitespace to every
+            # claim with no tags, so a routine `claim confirm` made `git diff --check` fail.
+            f.write(f"{k}:{' ' + str(v) if v != '' else ''}\n")
         f.write("---\n\n" + body.rstrip() + "\n")
 
 
@@ -811,6 +813,14 @@ def selftest():
         if kind.get("C003") != "blind":
             fails.append(f"C003 MUST be blind, got {kind.get('C003')} — a claim resting on nothing "
                          f"checkable is being laundered into a result")
+        serialization = os.path.join(cl, "004-empty-tag.md")
+        write(serialization, {"id": "C004", "tags": ""}, "body")
+        serialized = open(serialization).read()
+        print("  empty frontmatter scalar                         -> "
+              f"{'CLEAN' if 'tags: \n' not in serialized else 'TRAILING SPACE'}")
+        if "tags: \n" in serialized or "tags:\n" not in serialized:
+            fails.append("write() did not serialize an empty frontmatter scalar as `key:` — claim "
+                         "maintenance will fail git diff --check")
         if kind.get("C001") == "stale":
             scopes = {d.scope for d, *_ in detail["C001"]["changed"]}
             if "symbol" not in scopes:
