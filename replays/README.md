@@ -117,6 +117,13 @@ Once the recorded sequence ends, input falls through to the host (so `run N` aft
   the bucket obstacle and swings (CIRCLE); the swing connects at pad frames 654-660, peak 656. The
   resolved repro for kanban #15 (weapon impact burst formerly missing its mesh half under pc_render):
   `PSXPORT_PAD_REPLAY=replays/bugs/weapon-impact-bucket.pad PSXPORT_PAD_SHOT_AT=654,656,658 ... run 700`
+- `bugs/walk-dust-puff.pad` — also the bounded A00 water-jet mesh fallback gate. In a true SBS
+  software-oracle run, sample f450/460/470/480/490/500/510/520 and exit at f530. The fallback is live
+  at f460/470/480/490/510/520 (two exact guest GT4 packets and 8/8 packet-addressed guest-depth hits
+  per call); f450/f500 are no-call negative controls. Pane B must identify
+  `PURE-ORACLE(interp+softGPU)` and remain byte-identical to the retained pre-fallback captures. This
+  is explicit `render-fallback-water-jet-guest-gte` debt, not evidence of a native `0x8013D454`
+  producer.
 
 ## `bugs/long-session-many-bugs.pad` (2026-08-19)
 

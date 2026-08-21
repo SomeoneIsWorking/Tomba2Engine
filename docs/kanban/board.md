@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (35)
+## TODO (37)
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#16 Sign text jitters at fps60 when the camera moves**  `render,fps60` — 📎 docs/reference/issues/issue16_sign_text_jitter.png
 - **#31 fps60: interpolated frames and real frames appear to be built differently**  `bug,render,fps60`
@@ -41,6 +41,8 @@
 - **#114 psx_render: ~561 px still differ from real hardware, incl. 357 by more than one LSB**  ``
 - **#117 Performance: ~43% of the frame is render-queue ORDERING, ~9% is a diagnostic**  ``
 - **#118 Performance is an ALTITUDE problem: the game costs 0.00ms, our machinery costs 4.42ms**  ``
+- **#120 Replace the bounded water-jet guest-GTE fallback with a native producer**  `render,debt`
+- **#121 Default launcher aborts in title attract when adjacent OT keys collapse to one float order**  `bug,render`
 
 ## DOING (5)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`

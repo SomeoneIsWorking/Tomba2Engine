@@ -140,7 +140,7 @@ already solved or ruled out. 329 findings across 13 subsystems.
 - **ScreenFade held-latch permanent black on default `./run.sh` free-roam (2026-07-08)** [?] —   ↪ docs/findings/render.md
 - **Shipping-path tag/stamp purge — packet-span registries were dead code (2026-07-22, RESOLVED)** [?] —   ↪ docs/findings/render.md
 - **The 22-AREA sweep: the coverage bridge the replay library could not be (2026-07-28)** [?] —   ↪ docs/findings/render.md
-- **The A00-overlay effect-mesh controllers — and the WATER JET that was invisible (2026-07-28, FIXED)** [?] —   ↪ docs/findings/render.md
+- **The A00-overlay effect-mesh controllers — and the WATER JET that was invisible (2026-07-28 historical fix; retired)** [?] —   ↪ docs/findings/render.md
 - **The area-cache trust latches were pc_render-branch state, so psx_render never ticked them** [FIXED 2026-08-05, game-side, no framework change.] — flipping `renderpsx off` inside a loaded area left the picture near-black FOREVER  ↪ docs/findings/render.md
 - **The composite-dispatcher class has exactly ONE member — and a static render-fn scanner (2026-07-28)** [?] —   ↪ docs/findings/render.md
 - **The impact burst's SPRITE half: a COMPOSITE render fn defeats the type-0x20 whitelist (kanban #15, 2026-07-28, FIXED)** [?] —   ↪ docs/findings/render.md

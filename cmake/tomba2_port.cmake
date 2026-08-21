@@ -263,6 +263,7 @@ set(GAME_SRC
   game/render/fx_impact.cpp
   game/render/fx_plume.cpp
   game/render/fx_swing.cpp
+  game/render/guest_gte_water_jet.cpp
   game/render/mesh_quads.cpp
   game/render/effect_lerp.cpp
   game/render/field_hud.cpp

@@ -235,6 +235,8 @@ void games_tomba2_init(void) {
   perobj_dispatch_install(); // FUN_8003CDD8/FUN_8003F698 substrate-mirror ownership (band 0x8003xxxx)
   void fx_rope_strip_install();
   fx_rope_strip_install(); // FUN_801365C4 native producer — the tiled rope/cable strip (#103)
+  void guest_gte_water_jet_install();
+  guest_gte_water_jet_install(); // FUN_8013D454 mesh branch — bounded guest-GTE fallback, no interpolation
   void perobj_billboard_install();
   perobj_billboard_install(); // FUN_8003CCA4/C2D4/C464/C8F4 substrate-mirror ownership (band 0x8003xxxx)
   void text_label_install();

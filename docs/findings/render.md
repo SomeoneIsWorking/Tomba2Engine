@@ -4510,7 +4510,7 @@ world anchor, projected screen position, SZ3, scale). It distinguishes "producer
 from "producer dispatched and skipped by its own gate" (empty record list, anchor behind the camera,
 OT key out of range), which are identical in the picture.
 
-## The A00-overlay effect-mesh controllers — and the WATER JET that was invisible (2026-07-28, FIXED)
+## The A00-overlay effect-mesh controllers — and the WATER JET that was invisible (2026-07-28 historical fix; retired)
 
 **How it was found.** `PSXPORT_DEBUG=nofx` run over the WHOLE replay library (17 replays, headless,
 each sized to its own pad length). Union of every type-0x20 render fn the walk skipped:
@@ -4559,6 +4559,46 @@ could contradict. Attribute the emission before believing the pixels.
 and `0x8002AE0C` remained an orphan leaf with no call site. The later tap retirement deliberately
 reopened the family; `docs/unported-render-inventory.md` is the current authority. Three controllers
 now have legitimate node-state owners and seventeen remain.
+
+### Bounded `0x8013D454` guest-GTE fallback (2026-08-21; explicit hack debt)
+
+The user explicitly authorised unported graphics to render from the guest's **actual GTE output** as
+long as they are not interpolated. `game/render/guest_gte_water_jet.cpp` applies that exception to
+exactly the non-zero-mode mesh branch of `FUN_8013D454`; the zero-mode sprite remains owned by
+`Render::waterJetSpriteRender`. This does not reinstate the old family tap: every controller and the
+shared writer still run their untouched generated bodies, and `FUN_80027768` replays newly written
+packets only while the `0x8013D454` controller scope is active. All other 19 callers leave the tap
+after the generated call without native submission.
+
+The fallback consumes the guest packet-pool cursor before/after the writer and accepts only complete
+13-word GT4 packets (`tag + 12 GP0 words`, op `0x3C/0x3E`). It submits those exact integer SXY,
+colour, UV, CLUT and texpage words at **logic time** through the existing GP0 decoder. More
+importantly, the decoder joins each packet vertex address to the depth recorded from that same guest
+GTE result. A live call must produce four depth hits per packet and zero misses/stale matches or the
+port aborts instead of silently treating the effect as 2D. `has_xyf == 0` keeps the resulting
+`RQ_WORLD` item out of the fps60 display-pass rerun/interpolation tier. No transform, camera, scale,
+anchor or depth is guessed.
+
+**True software-oracle and opposite-answer gate.** On `walk-dust-puff.pad`, pane B identifies itself
+in-band as `PURE-ORACLE(interp+softGPU)`. Samples f450/460/470/480/490/500/510/520 are byte-identical
+to the retained pre-fallback B captures. The live samples f460/470/480/490/510/520 each report exactly
+two GT4 packets, 8/8 depth hits and zero misses/stale; native A changes by
+747/495/1020/1019/1095/791 pixels respectively and visibly gains the moving blue water-jet mesh.
+Idle f450 and the between-pulses f500 are exact native negative controls (zero changed pixels and no
+fallback call). Evidence: `scratch/logs/waterjet_{pre,final}.log` and
+`scratch/screenshots/waterjet_{pre,final}_f*_{A,B}.ppm`.
+
+**Unrelated-producer safeguard.** `weapon-impact-bucket.pad` was rerun at the retained #15 samples
+f646..f660. The new water-jet scope never activates and all 16 A/B images are byte-identical to
+`c15_final`; the landed impact plume remains untouched. Evidence:
+`scratch/logs/c15_waterjet.log` and `scratch/screenshots/c15_waterjet_f*_{A,B}.ppm`.
+
+**Debt / death condition.** `FUN_8013D454` is still producer-less: this proves the picture from exact
+guest output, not the controller's persistent node-state transform. Retire the entire fallback when
+a display-pass owner can rebuild both non-zero modes from `node+0x60`, the six-entry table at
+`0x8010A058`, node angles/anchor and the shared mesh records, and passes the same oracle and
+opposite-answer gates. Do not widen it to `0x8013D828`, `0x8013ED08`, `0x8013EF58`, or any MAIN.EXE
+caller merely because they share `FUN_80027768`.
 
 ## The composite-dispatcher class has exactly ONE member — and a static render-fn scanner (2026-07-28)
 
