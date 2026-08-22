@@ -322,6 +322,19 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** game/render/prop_quad.cpp Render::propQuadRender
 - **notes:** PORTED 2026-08-22. Separate display-pass producer rebuilds the transform from persistent obj+44 anchor, obj+72 angles and node+0..2 authored scale bytes; shared MeshQuadStyle carries the RE'd U/CLUT/fog/tpage/semi policy through the one packed-record walker. No GTE/packet/OT/scratchpad/generated-body input. bucket-softlock headless: 3520 producer calls, 4326 native prims attributed to 0x8013CDD4 over 97 frames, native and live psx screenshots both show the prop assembly. User animation/visual eyeball remains; no claim of frame-exact pixel parity.
 
+## render-producer-object-highlight-8002ae0c
+- **scope:** FUN_8002AE0C — queue-A packed-mesh highlight tail
+- **status:** verified
+- **owner:** game/render/object_highlight.cpp (Render::objectHighlightRender)
+- **notes:** Ported 2026-08-22 from generated/shard_2.c. The read-only display producer uses the
+  guest's queue snapshot and live jump-table route, then rebuilds the authored transform/cue from node
+  state and calls the shared packed-record walker. bucket-softlock: shipping trace 357 calls; census
+  312 guest primitives/122 frames and 712 native primitives/161 frames; the same-binary `native
+  highlight` A/B at replay frame 255 changes 318 pixels, 44 directly inside the reported quad boxes.
+  The 274 pixels on unrelated animated geometry are recorded as unresolved collateral, not producer
+  localization. Pure policy tests cover both type selectors, signed-byte scale wrap, and every
+  field-mode cue/bias branch.
+
 ## render-camera-projconst-from-gte
 - **scope:** the native camera's OFX/OFY/H are read from GTE control registers 24/25/26
 - **status:** hack

@@ -353,6 +353,11 @@ public:
   // persistent animation record, angles and anchor. Body in fx_impact.cpp.
   void impactPlumeRender(uint32_t node);
 
+  // objectHighlightRender (FUN_8002AE0C): queue A's mesh/tether tail, rebuilt from the node's
+  // persistent angles, anchor and highlight scale in the read-only display pass. The guest leaf still
+  // owns its scratch/GTE/packet writes. Body in game/render/object_highlight.cpp.
+  void objectHighlightRender(uint32_t node, int32_t scaleInput);
+
   // The FUN_800328EC family (game/render/fx_sprite.cpp). FUN_800328EC is a three-instruction wrapper
   // that zeroes the depth cue and tails into FUN_8002847C — the SAME four-corner writer
   // fxAnimSpriteRender reproduces — but its controllers carry a different node layout, and none of

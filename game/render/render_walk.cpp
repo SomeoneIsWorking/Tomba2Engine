@@ -17,6 +17,7 @@
 #include "game.h"
 #include "game_ctx.h"
 #include "mods.h"
+#include "object_highlight_policy.h"
 #include "player/actor_tomba.h" // ActorTomba::G_ADDR — Tomba's node, outside the 3 generic entity lists
 #include "producer_scope.h"     // ProducerScope — graphics-producer DB, native leg
 #include "projection.h"         // EObjXform (per-object world-coord float projection; ops on Render)
@@ -1417,6 +1418,7 @@ void Render::fieldObjectsRender() {
       //   HEADS[2] 0x800F2738 (objListWalk4 0x80015000): mesh {0,1,15} (1 = EF30 mesh + B704 beams)
       //   HEADS[0] 0x800FB168: no table of its own — routed via the CULL QUEUES (queue_dispatch.h).
       bool mesh = true, pre = false;
+      ObjectHighlightPolicy::Activation highlight{false, 0};
       if (h == 1) {
         mesh = (type == 0 || type == 15);
         pre = (type == 1 || type == 4);
@@ -1431,10 +1433,14 @@ void Render::fieldObjectsRender() {
         // queue_dispatch.h); neither is a threshold of ours.
         heads0Census(n);
         const GuestQueueDispatch::Route route = GuestQueueDispatch::routeFor(c, n);
-        mesh = GuestQueueDispatch::guestFlushesMesh(c, n, route) &&
-               GuestQueueDispatch::submittedThisFrame(c, n, route.queue);
+        const bool submitted = GuestQueueDispatch::submittedThisFrame(c, n, route.queue);
+        mesh = GuestQueueDispatch::guestFlushesMesh(c, n, route) && submitted;
+        if (submitted &&
+            (route.arm == GuestQueueDispatch::Arm::MeshThenFlash || route.arm == GuestQueueDispatch::Arm::TetherLine)) {
+          highlight = ObjectHighlightPolicy::activation(type, c->mem_r16s(n + 0x80u));
+        }
       }
-      if (!mesh && !pre) {
+      if (!mesh && !pre && !highlight.enabled) {
         continue;
       }
       c->rsub.stats.snObjs++;
@@ -1456,7 +1462,15 @@ void Render::fieldObjectsRender() {
         CubeTextBanner::render(c, n);
         continue;
       }
-      perObjFlush();
+      if (mesh) {
+        perObjFlush();
+      }
+      // Queue A's guest order is ordinary mesh, optional tether, then FUN_8002AE0C. The guest-time
+      // pass already ran the byte-faithful controller underneath; this is only its independent native
+      // picture, so defer it to the present-time walk rather than emitting into the dead capture queue.
+      if (highlight.enabled && !c->game->fps60.mWorldCaptureOnly && c->game->native_gates.get("highlight")) {
+        objectHighlightRender(n, highlight.scaleInput);
+      }
     }
   }
   lucent::debug("beamfx", "SUMMARY objListWalk4 live nodes inspected={} routed to FUN_8003B704={}", beamCand, beamHit);

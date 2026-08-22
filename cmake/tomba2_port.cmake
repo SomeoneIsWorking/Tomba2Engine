@@ -262,6 +262,7 @@ set(GAME_SRC
   game/render/fx_ring.cpp
   game/render/fx_dust.cpp
   game/render/fx_impact.cpp
+  game/render/object_highlight.cpp
   game/render/fx_plume.cpp
   game/render/fx_swing.cpp
   game/render/prop_quad.cpp

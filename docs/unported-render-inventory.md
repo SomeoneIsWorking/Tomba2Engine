@@ -268,6 +268,23 @@ STATIC (a controller that is never reached at runtime still classifies), and "re
 sound with zero unresolved edges — the tool reports `blind` with its denominator rather than guessing.
 All 20 here walked with zero unresolved edges. Scope: this family only, not every producer in this doc.
 
+#### R1-SIBLING-CLOSED — queue-A object highlight (`FUN_8002AE0C`) *(ported 2026-08-22)*
+
+This is the orphan named by the historical census below: it also feeds the shared packed-mesh writer,
+but is reached as a secondary tail of queue A rather than as one of the 20 type-0x20 controller rows.
+`Render::objectHighlightRender` now rebuilds it from node angles at +0x54, its adjusted anchor, the
+type-selected scale, and the field-mode cue/bias. Dispatch is read-only and uses the guest's own queue-A
+snapshot plus live jump-table route, so a culled or differently routed node cannot acquire the effect.
+
+Real replay evidence: `bucket-softlock.pad` reaches the controller 357 times in 320 requested frames.
+The producer emits once per present (`t=0.50` and `t=1.00`) and reports three on-screen quads together
+at replay frame 255. A same-binary `native highlight` A/B changes 318 pixels, including 44 inside
+conservative integer bounds around those three boxes. The remaining 274 are separate clusters on
+unrelated animated geometry and remain unroot-caused; they are not counted as localized producer
+pixels. The producer census records 312 guest primitives over 122 frames and 712 native primitives over
+161 frames. This does not reduce the 17-controller type-0x20 work queue above; it closes the separate
+orphan.
+
 #### R1-CLOSED-1 — the FOUR-COPY RADIAL PLUME (`FUN_8002BC9C`) *(ported 2026-08-06)*
 
 Native producer `Render::radialPlumeRender`, `game/render/fx_plume.cpp`, portmap step

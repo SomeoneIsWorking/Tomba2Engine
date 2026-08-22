@@ -89,6 +89,10 @@ if(BUILD_TESTING)
   target_include_directories(test_prop_quad PRIVATE game/render)
   add_test(NAME tomba_prop_quad COMMAND test_prop_quad)
 
+  add_executable(test_object_highlight_policy tests/test_object_highlight_policy.cpp)
+  target_include_directories(test_object_highlight_policy PRIVATE game/render)
+  add_test(NAME tomba_object_highlight_policy COMMAND test_object_highlight_policy)
+
   set(TOMBA_CPP_POLICY_CAPS
       game/core/field_owned_leaves.cpp=20838
       game/core/engine.cpp=4404

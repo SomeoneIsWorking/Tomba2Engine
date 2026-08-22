@@ -5665,3 +5665,34 @@ bird in the current renderer. Evidence: `scratch/screenshots/bird_true/{A,B}_top
   not identify which landed change did so.
 - **fix:** no new bird-specific code; the true A/B capture disproves the current symptom.
 - **refs:** kanban #63, instrument I012, `scratch/logs/bird_true_sweep.log`.
+
+## Queue-A highlight had a byte-faithful leaf but no native picture (2026-08-22)
+
+- **symptom:** the producer census showed `FUN_8002AE0C` packet work, while pc_render had no semantic
+  owner for its picture. The function was easy to overlook because `field_owned_leaves.cpp` already
+  owns its guest execution and the historical mesh-writer census called it an orphan.
+- **cause:** queue A appends this packed-mesh highlight after mesh/tether arms for node types carrying
+  bit `0x40` or `0x80`. The byte-faithful leaf continued to write guest packets, but pc_render does not
+  walk that OT. No display-pass producer reconstructed the effect.
+- **fix:** `Render::objectHighlightRender` derives the transform from persistent node state: angles
+  `+0x54/+0x56/+0x58`, lateral scale `u8((signed arg)>>3)*4`, fixed Y scale 64, anchor
+  `(s16 +0x2E, s16(+0x32 + u16+0x86 - u16+0x84), s16 +0x36)`, fixed mesh `0x8009FAE8`, and the
+  field-mode cue/bias table. `fieldObjectsRender` dispatches it only for a node present in the guest's
+  queue-A snapshot whose live route is `MeshThenFlash` or `TetherLine`; capture-only passes emit
+  nothing. The guest leaf remains the only owner of guest writes.
+- **evidence:** shipping FNTRACE reached `0x8002AE0C` 357 times in the 320-frame bucket replay, first at
+  frame 177, with zero ABI violations. The producer diagnostic then emitted at both `t=0.50` and
+  `t=1.00`, reaching three simultaneous on-screen quads. At deterministic replay frame 255, the named
+  `native highlight` gate changed 318/76800 pixels within the *same binary*; 44 lie inside conservative
+  integer bounds around the three producer-reported `t=1.00` boxes. The other 274 occur in small
+  clusters on unrelated animated geometry. Their dependence on the extra submissions survives the
+  same-binary control, but whether it is present-phase timing or a render-order coincidence is not
+  root-caused; they are explicitly not claimed as highlight pixels. Census: 312 guest primitives/122
+  frames versus 712 native primitives/161 frames (the native leg presents twice per logic frame). Both
+  gated legs advanced 321 frames and exited 0 with no abort/miss from binary md5 `7823cb4d3cea`.
+- **falsified candidate:** the larger `0x80134064` cable writer was tested first because its DB row
+  records 626,948 guest primitives. Compiled A/B changed zero pixels in the short replay and at the
+  machinery cutscene's frame 31100; diagnostics showed its spans beyond the 320-wide picture. It is
+  not the visible fix and no owner for it was retained.
+- **refs:** `game/render/object_highlight.cpp`, `game/render/object_highlight_policy.h`,
+  `docs/producers/0x8002AE0C.md`, `docs/unported-render-inventory.md` R1-SIBLING-CLOSED.
