@@ -1,11 +1,13 @@
 ## Title coverage
 
-| title | status |
-|---|---|
-| Tomba! | not started — title slot only; separate seam and ownership not yet derived |
-| Tomba! 2 | current implementation; subsystem evidence remains below |
+| title | status | presentation policy |
+|---|---|---|
+| Tomba! (`SCUS_942.36`) | not started — title slot only; separate seam and ownership not yet derived | native 60 fps; widescreen only; no interpolation or interpolation-only prerequisites |
+| Tomba! 2 (`SCUS_944.54`) | current implementation; subsystem evidence remains below | current optional interpolated presentation remains unchanged and Tomba! 2-specific |
 
-The repository-level `game/` is Tomba! 2-specific. Tomba! 1 does not share that game layer.
+The repository-level `game/` is Tomba! 2-specific. Tomba! 1 does not share that game layer. Its policy
+row is a requirement for the future seam, not a claim that the first-game executable or widescreen
+producer exists today.
 
 ## Build, launch, and C++ policy
 

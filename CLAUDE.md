@@ -274,10 +274,17 @@ prims cannot fire on the field leg): delete dead mechanisms outright, no tombsto
 EXEMPT and stay** — `OtAttr`, `PSXPORT_PRIMAT`, `debug objid`/`otattr` read guest state to ANSWER
 QUESTIONS, never to produce the picture.
 
-**LERP IS NATIVE TOO** (USER, 2026-07-22), with no exemption for being hard. Interpolate at the ACTOR-TRANSFORM tier: lerp
+**LERP IS NATIVE TOO — FOR TOMBA! 2** (USER, 2026-07-22), with no exemption for being hard. Interpolate at the ACTOR-TRANSFORM tier: lerp
 the per-object state the native producer already owns, then draw, SAME render path for real and
 interpolated frames, one frame behind. No guest re-run, no guest writes — an interpolated frame is a
 host-side presentation concern. Anchor/stamp special-casing is its own debt, not the replacement.
+
+**Tomba! 1 (`SCUS_942.36`) is native 60 fps and gets widescreen only.** USER, 2026-08-22: *"For already 60fps
+games, Tekken 3, Tomba! (first game, not 2), Mega Man X4, we don't need lerp or anything that lerp
+needs, they just need widescreen"*. The future `titles/tomba1` seam must therefore not install or share
+Tomba! 2 (`SCUS_944.54`)'s intermediate-frame synthesis, temporal history, camera/object lerp, or any prerequisite
+whose only purpose is interpolation. This narrows the preceding Tomba! 2 rule; it does not claim that
+Tomba! 1's executable or widescreen producer exists yet.
 
 ## Verification
 

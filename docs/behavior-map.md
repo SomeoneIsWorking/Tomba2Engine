@@ -1,7 +1,11 @@
-# Behavior-difference map — every INTENTIONAL divergence from recomp_path (managed by tools/behavior.py)
+# Behavior-difference map — every Tomba! 2 INTENTIONAL divergence from recomp_path (managed by tools/behavior.py)
 
 Durable ledger of SANCTIONED deviations from the byte-exact reference. Primary axis = GUEST-MEMORY AFFECT (how much canon guest state a deviation touches). One `## ` block per
 deviation, grouped by affect. `tools/behavior.py` = view · `... <words>` = search · `... check` = gate (a canon-affecting change must be SBS-suppressed).
+
+This ledger describes the implemented Tomba! 2 target (`SCUS_944.54`). Tomba! 1 (`SCUS_942.36`) has no implementation entries here:
+it already runs at 60 fps, so its future enhancement scope is widescreen only and must not acquire the
+`fps60` interpolation path or interpolation-only prerequisites below.
 
 **By affect:** 5 none · 2 non-canon · 2 full
 **By status:** 1 verified · 5 implemented · 2 planned · 1 reverted
