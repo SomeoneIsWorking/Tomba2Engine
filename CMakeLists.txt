@@ -85,6 +85,10 @@ if(BUILD_TESTING)
   target_include_directories(test_mesh_quads_math PRIVATE game/render)
   add_test(NAME tomba_mesh_quads_math COMMAND test_mesh_quads_math)
 
+  add_executable(test_prop_quad tests/test_prop_quad.cpp)
+  target_include_directories(test_prop_quad PRIVATE game/render)
+  add_test(NAME tomba_prop_quad COMMAND test_prop_quad)
+
   set(TOMBA_CPP_POLICY_CAPS
       game/core/field_owned_leaves.cpp=20838
       game/core/engine.cpp=4404

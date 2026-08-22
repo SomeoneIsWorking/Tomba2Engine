@@ -26,8 +26,38 @@ struct MeshOtBias {
   int32_t bias = 0; // the s16 the controller hands the writer as its sort-bias argument
 };
 
+// Caller-owned material policy for FUN_80027768's packed-quad record walker. Keeping these inputs in
+// one value avoids growing a positional-argument list as more independently RE'd controllers reuse
+// the same record format. A default style preserves record UVs/CLUT/tpage/colours verbatim.
+struct MeshQuadStyle {
+  int uBias = 0;
+  int32_t farColour[3] = {0, 0, 0};
+  int32_t depthCue = 0;
+  int clutRowBias = 0;
+  bool fogFromVertex0Y = false;
+  int32_t fogBase = 0;
+  int tpageOverride = -1;
+  int semiOverride = -1;
+
+  MeshQuadStyle() = default;
+  MeshQuadStyle(int u, const int32_t far[3], int32_t cue)
+      : uBias(u), farColour{far[0], far[1], far[2]}, depthCue(cue) {}
+};
+
 class MeshQuads {
 public:
+  // FUN_8013CDD4's per-record fog rule: a positive (vertex0.y - object fog base) darkens every
+  // channel; a negative delta is ignored. Public because the shipping emitter's exact rule has a
+  // small pure test seam rather than a separately reimplemented test oracle.
+  static constexpr uint8_t fogShade(uint8_t base, int8_t vertex0Y, int32_t fogBase) {
+    int32_t delta = (int32_t)vertex0Y - fogBase;
+    if (delta < 0) {
+      delta = 0;
+    }
+    const int32_t shaded = (int32_t)base - delta;
+    return (uint8_t)(shaded < 0 ? 0 : shaded > 255 ? 255 : shaded);
+  }
+
   // The engine's packed sin/cos LUT at 0x800A6490 (word = cos<<16 | sin), read the way Math::rotmat and
   // the rotpair kernel read it: index = |angle| & 0xFFF, sin negated for a negative angle.
   static void trig(Core *c, int32_t angle, int *sinOut, int *cosOut);

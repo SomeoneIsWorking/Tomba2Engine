@@ -81,7 +81,9 @@ void Render::swingStarburstRender(uint32_t node) {
     EObjXform xform;
     projComposeObjectHost(objectRot, anchor, &xform);
     projSetActive(&xform);
-    drawn += meshQuadRecordsEmit(kStarburstMesh, kUScroll, farColour, kCueFull, ot, bbox, kClutRowBias);
+    MeshQuadStyle style{kUScroll, farColour, kCueFull};
+    style.clutRowBias = kClutRowBias;
+    drawn += meshQuadRecordsEmit(kStarburstMesh, style, ot, bbox);
     projClearActive();
   }
 

@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 30 verified · 14 ported-unverified · 1 hack · 4 todo · 3 blocked
+**Status:** 32 verified · 14 ported-unverified · 2 hack · 3 todo · 3 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -264,9 +264,8 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 ## render-tap-gte-registers
 - **scope:** pc_render producers that source an object transform from GTE HARDWARE REGISTERS after the substrate ran
 - **status:** verified
-- **owner:** game/render/quad_rtpt_submit.cpp:241-245, game/render/widescreen_margin_quad.cpp:311-317
-- **absent:** the layers these two taps drew (quad_rtpt_submit.cpp, widescreen_margin_quad.cpp) are honestly BLANK by decision — the taps were deleted 2026-08-04 under PROTOCOL.md's absolute no-tap rule. An UNPORTED effect is better than a TAPPED one; do not restore a tap to get a picture back.
-- **notes:** RESOLVED 2026-08-05. No gte_read_ctrl(0..7) transform-recovery survives in any pc_render producer. Two hits remain repo-wide and both are legitimate: a COMMENT in quad_rtpt_submit.cpp:208 describing the deleted tap, and Math::applyMatlv (a byte-exact port of guest FUN_80084220/MVMVA reading the matrix the GUEST loaded via CTC2 and writing guest memory — the guest's own coprocessor use, not a picture tap). perobj_billboard.cpp's remaining 12 gte_read_ are all guest-side emitter port feeding c->mem_w32; the CR0-4 rotation / CR5-7 anchor capture that WAS the tap is gone. swing_fx, fx_mesh and mesh_emit_tap deleted outright, no tombstones. NOTE fx_sprite_anchored.cpp and fx_sprite_swarm.cpp were a FALSE POSITIVE in the brief: they install via overrides::install against guest 0x80027CB4/0x80027E5C/0x800281EC, so they are byte-exact ports of the GUEST emitters and deleting their GTE reads would have broken the port. BREAK-FIRST cost, measured: 22009 preseqobj prims over 18 node keys -> 21889 over 15; exactly 3 keys and 120 prims gone, 15 other keys byte-identical. Visibly: an orange food pickup on the wooden fence rail, and on another replay the apple on the barrel. FxMesh/SwingFx emitted 472 quads but contributed 0 pixels and 0 preseqobj records in the TAPPED leg — already dead for the picture, so deleting them cost nothing. HONEST GATE: the camera-pan number is a NON-REGRESSION not a proof (1.10px/0-of-16 tapped vs 1.12px/0-of-16 rebuilt) — the instrument gave 0/16 on the tapped leg too, so it never showed the failing answer and cannot show it fixed. The claim rests on STRUCTURE: the record carries no camera term, so a camera-dependent residue is impossible by construction.
+- **owner:** game/render/quad_rtpt_submit.cpp, game/render/widescreen_margin_quad.cpp (deleted-tap audit sites)
+- **notes:** RESOLVED 2026-08-05. No gte_read_ctrl(0..7) transform-recovery survives in any pc_render producer. Two hits remain repo-wide and both are legitimate: a COMMENT in quad_rtpt_submit.cpp describing the deleted tap, and Math::applyMatlv (a byte-exact port of guest FUN_80084220/MVMVA reading the matrix the GUEST loaded via CTC2 and writing guest memory — the guest's own coprocessor use, not a picture tap). perobj_billboard.cpp's remaining 12 gte_read_ are all guest-side emitter port feeding c->mem_w32; the CR0-4 rotation / CR5-7 anchor capture that WAS the tap is gone. swing_fx, fx_mesh and mesh_emit_tap deleted outright, no tombstones. NOTE fx_sprite_anchored.cpp and fx_sprite_swarm.cpp were a FALSE POSITIVE in the brief: they install via overrides::install against guest 0x80027CB4/0x80027E5C/0x800281EC, so they are byte-exact ports of the GUEST emitters and deleting their GTE reads would have broken the port. BREAK-FIRST cost, measured: 22009 preseqobj prims over 18 node keys -> 21889 over 15; exactly 3 keys and 120 prims gone, 15 other keys byte-identical. Visibly: an orange food pickup on the wooden fence rail, and on another replay the apple on the barrel. FxMesh/SwingFx emitted 472 quads but contributed 0 pixels and 0 preseqobj records in the TAPPED leg — already dead for the picture, so deleting them cost nothing. HONEST GATE: the camera-pan number is a NON-REGRESSION not a proof (1.10px/0-of-16 tapped vs 1.12px/0-of-16 rebuilt) — the instrument gave 0/16 on the tapped leg too, so it never showed the failing answer and cannot show it fixed. The claim rests on STRUCTURE: the record carries no camera term, so a camera-dependent residue is impossible by construction. The deleted FUN_8013CDD4 picture is no longer blank: render-producer-margin-quad closed it on 2026-08-22 with a persistent-state display producer, without restoring any tap. The submitQuad caller classes remain tracked separately by render-producer-submitquad-classes.
 
 ## fx-line-emitter-e08c
 - **scope:** 0x8013E08C — the unowned LINE/strip emitter beside the owned fx_line producers
@@ -281,6 +280,12 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** game/render/fx_line.cpp (Render::shockwaveRingRender)
 - **notes:** SUPERSEDED BY step fx-line-emitter-e08c — same address, and that step now carries the RE and the pixel gate. Kept as a pointer because the missing-layer list and kanban #56 both cite this id. THE NAME IS WRONG AND IS NOW SETTLED: FUN_8013E08C is an EXPANDING SHOCKWAVE RING, not a ground ring shadow — measured 2026-08-06 on replays/bugs/bucket-softlock.pad, it grows from ~6px across at f270 to ~80px at f357 while its grey fades 122 -> 13, three instances over f270..f358. The two open items this step recorded are both closed: (1) which visual it is — settled above; (2) the 152-vs-76 factor of 2 is NOT a bug and is no longer an inference: the 152 producer calls are exactly 76 distinct (frame,node) pairs seen TWICE, one per PRESENT, because fps60 re-renders the field object walk for the interpolated present — with fps60=0 in psxport_settings.ini the same replay logs 76, matching the guest's 1064 packets / 14 per call. The producer itself was BROKEN (drew zero pixels) until 2026-08-06; see fx-line-emitter-e08c for the root cause and the gate.
 
+## fx-sprite-emitter-b3a4
+- **scope:** 0x8002B3A4 — the 5th 0x80027A4C sprite-family emitter, rotation-composed
+- **status:** verified
+- **owner:** game/render/fx_sprite.cpp; shared fixed-point transform math in game/render/mesh_quads.h
+- **notes:** VERIFIED 2026-08-21 with the real-input `replays/bugs/stun-stars.pad` and a live
+
 ## render-compose-tint-gate
 - **status:** ported-unverified
 - **notes:** Render::composeTintGate (FUN_8003EF9C): per-type render gate, port_check PASS, wired via overrides::install with setter. Pool-snapshot idiom: emits geometry then colour-adds over exactly the primitives just emitted. Cold on the field/dialog replay - needs a scene that uses render mode 2.
@@ -292,21 +297,6 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 ## render-panel-fill
 - **status:** ported-unverified
 - **notes:** Panel::fillQuad (FUN_8004FFB4): the 9-slice panel fill quad, hottest unowned render fn on the field path. port_gen byte-faithful, port_check PASS, wired with setter, LIVE at 505 hits with the frame unchanged. READABILITY PASS PENDING - still in register form. Note game/ui/panel.cpp:185 calls gen_ directly so the existing tap is not intercepted.
-
-## fx-sprite-emitter-b3a4
-- **scope:** 0x8002B3A4 — the 5th 0x80027A4C sprite-family emitter, rotation-composed
-- **status:** verified
-- **owner:** game/render/fx_sprite.cpp; shared fixed-point transform math in game/render/mesh_quads.h
-- **notes:** VERIFIED 2026-08-21 with the real-input `replays/bugs/stun-stars.pad` and a live
-  `renderpath native` / `renderpath psx` software-oracle comparison at f2799/f2800. The original port
-  divided the Q12 `RotMatrix` result by 4096 and omitted the guest's following `Math::matColScale`
-  using `0x800A1CD4..D6 << 2`; the first collapsed all four centres below one pixel and fixing only it
-  made the local ring 64x too large. `MeshQuads::composeScaled` now owns the complete transform and
-  `tomba_mesh_quads_math` locks the two-part regression. REPIN VERIFIED against definitive psxport
-  692b9b20 after the preliminary substrate re-emission and a final clean Clang 22.1.8 rebuild:
-  bounded SBS reached f2802, native A and pure-software-oracle B both retain the cluster at f2799,
-  native reports four centres spanning 28.38x7.89 pixels, and all six final-pin A/B captures plus 61
-  ring telemetry lines are byte-identical to the retained 9f run.
 
 ## fx-emitter-ecd8-e680
 - **scope:** The 0x8002ECD8 + 0x8002E680 effect emitter pair (type-0x20 node render fn, no producer)
@@ -326,6 +316,12 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** Render::beamQuadRender (game/render/fx_beam.cpp)
 - **notes:** PORTED 2026-08-06. RE from ground truth generated/shard_0.c gen_func_8003B704 (no Ghidra needed - the emitter has no COP2 op of its own). THE CR-CONTRACT QUESTION THAT BLOCKED THIS ROW IS ANSWERED, and the answer is in the emitter itself: it calls func_80084660/func_80084690 (libgte SetRotMatrix/SetTransMatrix) with a0 = 0x1F8000F8 = the PURE CAMERA, overwriting whatever perObjRenderDispatch/billboardCompose1 left in CR0-7, immediately before building its corners. So its corners ARE WORLD SPACE and the native producer needs nothing but the node's own state + the native camera. Geometry: H = 0x14 * (cos a cos b, sin b, -sin a cos b) from node+0x68/+0x6A (+1024 on the polar when *(u8*)0x800E7FC6 < 4); span A=*(0x800E7F5C)+0x2C/30/34 (s32) to N=node+0x2E/32/36 (s16), split at the rounded-toward-zero midpoint when (s16)node+0x60 == 3; each span drawn as (P-H, Q-H, P+H, Q+H); U fixed [224,247], the two V rows from the 2-byte entry at 0x800A3B04[node+0x66]; GP0 code 0x2D (RAW - the colour word is never written), tpage half 5, clut 0x3E9F. Dispatch mirrors FUN_8003EEC0's own jump table at 0x80015000, re-read live (types 1 -> arm 0x8003EF30 always, 16 -> arm 0x8003EF40 gated on node+2==1; dumped from the running game, type 32 goes to 0x8003EF68 so no type-0x20 node is hidden by fieldObjectsRender's earlier continue). PROVEN TO DRAW with a negative control: two binaries identical except this producer (the NO-BEAM leg built in an isolated tree at psx/scratch-beamab/T2, both Release), same replay replays/bugs/weapon-impact-bucket.pad, headless; f652 84 changed pixels in bbox x[153,179] y[120,125], inside the producer's own reported screen bbox [145.9,117.3]..[188.8,129.3]; f646 26 px, f648 7 px, f650 0 px (the producer's own log says the span was degenerate A==N there, i.e. zero-area - the honest zero). NO other pixel in any of the four frames changed. WHY ported-unverified and not verified: only the kind!=3 single-span form and only the 0x8003EF30 arm were ever reached - the split (kind==3) form and the billboard arm (0x8003EF40, node+2==1) are UNEXERCISED across the whole 17-replay library, and no USER has eyeballed the layer. Reachability census (PSXPORT_DEBUG=beamfx, 900 frames each, all 17 replays): weapon-impact-bucket 52 producer calls, save-sign-softlock 42, seesaw-weight 28, walk-dust-puff 28, the other 13 replays 0 with the summary line carrying the denominator. Death condition for 'verified': a capture that drives the split form and the billboard arm, plus a USER eyeball.
 
+## render-producer-margin-quad
+- **scope:** FUN_8013CDD4's GT4 prop quads (drum/windmill caps) under pc_render
+- **status:** ported-unverified
+- **owner:** game/render/prop_quad.cpp Render::propQuadRender
+- **notes:** PORTED 2026-08-22. Separate display-pass producer rebuilds the transform from persistent obj+44 anchor, obj+72 angles and node+0..2 authored scale bytes; shared MeshQuadStyle carries the RE'd U/CLUT/fog/tpage/semi policy through the one packed-record walker. No GTE/packet/OT/scratchpad/generated-body input. bucket-softlock headless: 3520 producer calls, 4326 native prims attributed to 0x8013CDD4 over 97 frames, native and live psx screenshots both show the prop assembly. User animation/visual eyeball remains; no claim of frame-exact pixel parity.
+
 ## render-camera-projconst-from-gte
 - **scope:** the native camera's OFX/OFY/H are read from GTE control registers 24/25/26
 - **status:** hack
@@ -337,12 +333,6 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** todo
 - **absent:** the PICTURE for the two REMAINING caller classes (a00-overlay flame/rope emitter, case-188 particles) was DELETED 2026-08-04, not left unported — its GTE-register tap is banned by PROTOCOL.md (USER, absolute). Rebuild ONLY as a native producer reading each emitter's own world state.
 - **notes:** OPENED 2026-08-04 by the tap-retirement pass. Their display-pass records were built from gte_read_ctrl(0..4)/(5+i) after the substrate's RTPT ran, then un-composed against the scene camera. Deleted per the USER's absolute rule. REAL FIX: port each emitter and draw from its own world state; there is no shared shortcut, which is exactly why the shared tap existed. 2026-08-06: B704 SPLIT OUT AND PORTED as render-producer-beam-b704, and it settled the CR-contract question this row recorded as open — B704 loads the PURE CAMERA (0x1F8000F8) into CR0-7 itself right before projecting, so its corners are world space. THE SAME IS *NOT* ESTABLISHED FOR THE OTHER TWO: case-188 (renderWalkCase188, render_walk_dispatch.cpp) loads CR0-7 from CASE188_SCR, and the a00 emitter from whatever it composes — each needs its own answer read out of its own body. CASE-188 IS ALSO UNREACHABLE IN THE CURRENT CAPTURE LIBRARY: its dispatch target 0x8003C188 is never taken in any of the 17 replays, so a port of it could not be picture-verified today (the same trap as fx-jet-mesh-sprite-10c1d8). And note the instrument caveat found on 2026-08-06: the  channel that would census those targets lives inside Render::renderWalk, which is an OVERRIDE, and under PSXPORT_GATE=1 every override runs its gen body — so  prints NOTHING in the standard measurement mode and its silence is not evidence.
-
-## render-producer-margin-quad
-- **scope:** FUN_8013CDD4's GT4 prop quads (drum/windmill caps) have NO pc_render picture
-- **status:** todo
-- **absent:** FUN_8013CDD4's GT4 prop-quad picture was DELETED 2026-08-04, not left unported — its GTE-register tap is banned by PROTOCOL.md (USER, absolute). Rebuild ONLY from the node's own position/angles, never by reading back what the guest composed.
-- **notes:** OPENED 2026-08-04 by the tap-retirement pass. Same deleted mechanism as render-producer-submitquad-classes. REAL FIX: drive the emitter from the node's own world position + rotation angles (obj+44 / node+0..2, the inputs 0x800318A0 composes) instead of reading back what it composed into the GTE.
 
 ## framework-dead-fps60bbswap
 - **scope:** external/psxport game_iface.h carries a dead hook field fps60BbSwapPrev

@@ -86,7 +86,9 @@ void Render::impactPlumeRender(uint32_t node) {
 
   ObjScope objScope(c, node);
   float bbox[4] = {1e9f, 1e9f, -1e9f, -1e9f};
-  const int drawn = meshQuadRecordsEmit(mesh, uScroll, kBlack, cue, ot, bbox, clutRowBias);
+  MeshQuadStyle style{uScroll, kBlack, cue};
+  style.clutRowBias = clutRowBias;
+  const int drawn = meshQuadRecordsEmit(mesh, style, ot, bbox);
   projClearActive();
 
   lucent::debug("impactfx",

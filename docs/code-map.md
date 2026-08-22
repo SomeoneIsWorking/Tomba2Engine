@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 1039 native fns, 874 owned addresses, 1030 LIVE / 9 ORPHAN. 474 override install sites over 474 addresses.
+Totals: 1040 native fns, 874 owned addresses, 1031 LIVE / 9 ORPHAN. 474 override install sites over 474 addresses.
 
 **A row can come from a DEFINITION or from an INSTALL SITE.** An address whose handler is a file-local static in an anonymous namespace (no address in its name, no tag, no quoted registry name) has no findable definition — the `overrides::install` / `engine_set_override_*` call site is its only ownership record, and the file holding that call site is where you debug it from. Those rows say so in the summary column.
 
@@ -44,11 +44,11 @@ Totals: 1039 native fns, 874 owned addresses, 1030 LIVE / 9 ORPHAN. 474 override
 | 0x80024F18 | LIVE | `leaf_80024F18` | game/core/field_owned_leaves.cpp:615 |  |  |
 | 0x800251F0 | LIVE | `Engine::fieldTargetCursor` | game/core/field_target_cursor.cpp:19 |  |  |
 | 0x80025588 | LIVE | `Engine::sceneEventFifo` | game/core/engine.cpp:677 |  | Native FUN_80025588 — the field EVENT/COMMAND-QUEUE state machine (str… |
-| 0x80025744 | LIVE | `Render::fieldHudStatusRow` | game/render/field_hud.cpp:368 |  | --- FUN_80025744 — status row ----------------------------------------… |
-| 0x80025934 | LIVE | `Render::fieldHudItemRing` | game/render/field_hud.cpp:400 |  | --- FUN_80025934 — item ring -----------------------------------------… |
-| 0x80025B78 | LIVE | `Render::fieldHudWeaponStrip` | game/render/field_hud.cpp:454 |  | --- FUN_80025B78 — equipped-weapon strip (the kanban #13 layer) ------… |
+| 0x80025744 | LIVE | `Render::fieldHudStatusRow` | game/render/field_hud.cpp:393 |  | --- FUN_80025744 — status row ----------------------------------------… |
+| 0x80025934 | LIVE | `Render::fieldHudItemRing` | game/render/field_hud.cpp:425 |  | --- FUN_80025934 — item ring -----------------------------------------… |
+| 0x80025B78 | LIVE | `Render::fieldHudWeaponStrip` | game/render/field_hud.cpp:492 |  | --- FUN_80025B78 — equipped-weapon strip (the kanban #13 layer) ------… |
 | 0x80025D98 | LIVE | `leaf_80025D98` | game/core/field_owned_leaves.cpp:914 | 0x8010F8CC 0x801121AC 0x80113628 0x801140A0 |  |
-| 0x80025D98 | LIVE | `Render::fieldHudRender` | game/render/field_hud.cpp:494 |  | --- FUN_80025D98 — the HUD dispatcher gate (transcribed 1:1) ---------… |
+| 0x80025D98 | LIVE | `Render::fieldHudRender` | game/render/field_hud.cpp:532 |  | --- FUN_80025D98 — the HUD dispatcher gate (transcribed 1:1) ---------… |
 | 0x800263C0 | LIVE | `Array8Dispatch::tickFaithful` | game/object/array8_dispatch.cpp:29 |  | tickFaithful(): line-for-line mirror of gen_func_80026368 (generated/s… |
 | 0x800263E8 | LIVE | `Pool::seedAreaObjects` | game/world/pool.cpp:174 | 0x8007AD98 | area object-record seeding. Selects a per-area byte sequence (table 0x… |
 | 0x80026470 | LIVE | `BgSceneTransitionSm::midTransitionGate` | game/scene/bg_scene_transition_sm.cpp:96 |  | Common guard shared by FUN_80026470/80026510/800264BC — three inline a… |
@@ -633,7 +633,7 @@ Totals: 1039 native fns, 874 owned addresses, 1030 LIVE / 9 ORPHAN. 474 override
 | 0x8007E410 | LIVE | `UiFt4Layout::vMirroredQuadVerts` | game/render/ui_ft4_layout.cpp:106 |  | FUN_0x8007E410 — layout mode 2. |
 | 0x8007E4A8 | LIVE | `UiFt4Layout::flipXYQuadVerts` | game/render/ui_ft4_layout.cpp:310 |  | FUN_0x8007E4A8 — layout mode 3. |
 | 0x8007E584 | LIVE | `UiFt4Layout::vMirroredPlusQuadVerts` | game/render/ui_ft4_layout.cpp:375 |  | FUN_0x8007E584 — layout mode 4. |
-| 0x8007E6DC | LIVE | `Render::emitUiSprites` | game/render/field_hud.cpp:290 |  | --- emitUiSprites — general FUN_8007E6DC (SPRT template group) -------… |
+| 0x8007E6DC | LIVE | `Render::emitUiSprites` | game/render/field_hud.cpp:315 |  | --- emitUiSprites — general FUN_8007E6DC (SPRT template group) -------… |
 | 0x8007E6DC | LIVE | `Render::emitMenuSprites` | game/render/render_walk.cpp:632 |  |  |
 | 0x8007E6DC | LIVE | `ov_compose` | game/ui/ui_sprite.cpp:100 |  | The pause/item menu, the START page and the score popup all paint thro… |
 | 0x8007E6DC | LIVE | `UiSprite::compose` | game/ui/ui_sprite_compose.cpp:52 |  | (placement r4, indexPtr r5, defBase r6, attrs r7) |
@@ -977,6 +977,7 @@ Totals: 1039 native fns, 874 owned addresses, 1030 LIVE / 9 ORPHAN. 474 override
 | 0x8013C3F4 | LIVE | `beh_area_threshold_ptr_swap` | game/ai/beh_area_threshold_ptr_swap.cpp:48 |  |  |
 | 0x8013C538 | LIVE | `beh_scatter_record_dither` | game/ai/beh_scatter_record_dither.cpp:56 |  |  |
 | 0x8013C9C0 | LIVE | `beh_scatter_ramp_machine` | game/ai/beh_scatter_ramp_machine.cpp:52 |  |  |
+| 0x8013CDD4 | LIVE | `Render::propQuadRender` | game/render/prop_quad.cpp:41 |  |  |
 | 0x8013CDD4 | LIVE | `WidescreenMarginQuad::emit` | game/render/widescreen_margin_quad.cpp:178 |  |  |
 | 0x8013D454 | LIVE | `Render::waterJetSpriteRender` | game/render/fx_sprite.cpp:718 |  | 's SPRITE branch — the water jet's other half. The mesh branch (non-ze… |
 | 0x8013DD34 | LIVE | `Render::worldLineDraw` | game/render/fx_line.cpp:222 |  | THE rope leaf: a stroke between two world points, drawn as the project… |
@@ -1026,11 +1027,9 @@ Owned by a DIFFERENT mechanism than the table above: `PlatformHle` (`external/ps
 
 ## Deliberately ABSENT — do NOT port from this map alone (`docs/port-map.md`)
 
-Cross-referenced against 54 `docs/port-map.md` steps; 4 carry an explicit `absent:` field. A step here means the layer's PICTURE was removed by decision (usually PROTOCOL.md's absolute no-tap rule). Its entry function may still be natively OWNED above — the producer exists, it just no longer draws — so an owner row is NOT evidence the layer is present. Read the step's `notes` in the port map before touching any of it.
+Cross-referenced against 54 `docs/port-map.md` steps; 2 carry an explicit `absent:` field. A step here means the layer's PICTURE was removed by decision (usually PROTOCOL.md's absolute no-tap rule). Its entry function may still be natively OWNED above — the producer exists, it just no longer draws — so an owner row is NOT evidence the layer is present. Read the step's `notes` in the port map before touching any of it.
 
 | port-map step | status | why it is absent | guest addrs | owner files |
 |---------------|--------|------------------|-------------|-------------|
 | `render-producer-effect-mesh-family` | todo | the effect-mesh PICTURE was deleted 2026-08-04 with the GTE-register taps (commit abf3cf9 removed game/render/fx_mesh.cpp/.h, mesh_emit_tap.cpp, swing_fx.cpp/.h). Those producers re-derived quads host-side from the transform the substrate controller had just composed into GTE CR0-7. Deleting them was CORRECT. Three controller-state replacements are live; seventeen native controller producers remain absent. One of those pictures, the `0x8013D454` water-jet mesh, is visible through the explicit `render-fallback-water-jet-guest-gte` hack; sixteen producer-less pictures still have no route. Do not widen that fallback to get the rest back. | 0x80027768 | — |
-| `render-producer-margin-quad` | todo | FUN_8013CDD4's GT4 prop-quad picture was DELETED 2026-08-04, not left unported — its GTE-register tap is banned by PROTOCOL.md (USER, absolute). Rebuild ONLY from the node's own position/angles, never by reading back what the guest composed. | 0x8013CDD4 | — |
 | `render-producer-submitquad-classes` | todo | the PICTURE for the two REMAINING caller classes (a00-overlay flame/rope emitter, case-188 particles) was DELETED 2026-08-04, not left unported — its GTE-register tap is banned by PROTOCOL.md (USER, absolute). Rebuild ONLY as a native producer reading each emitter's own world state. | 0x8003B320 | — |
-| `render-tap-gte-registers` | verified | the layers these two taps drew (quad_rtpt_submit.cpp, widescreen_margin_quad.cpp) are honestly BLANK by decision — the taps were deleted 2026-08-04 under PROTOCOL.md's absolute no-tap rule. An UNPORTED effect is better than a TAPPED one; do not restore a tap to get a picture back. | — | game/render/quad_rtpt_submit.cpp game/render/widescreen_margin_quad.cpp |

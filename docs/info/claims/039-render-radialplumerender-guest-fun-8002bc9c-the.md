@@ -5,6 +5,8 @@ status: holds
 created: 2026-08-06
 tags: render
 depends: game/render/fx_plume.cpp#radialPlumeRender, game/render/mesh_quads.cpp#meshQuadRecordsEmit, game/render/render_walk.cpp#fieldObjectsRender
+reconfirmed: 2026-08-22
+verified_at: 2026-08-22 13:58:27
 ---
 
 ## Claim
@@ -18,3 +20,7 @@ Two Release binaries built in the ISOLATED tree psx/scratch-plumeab/T2, identica
 ## What would falsify it
 
 A run in the f252-f263 window where the ON and OFF legs agree pixel-for-pixel would refute it. So would a psx_render cross-check (NOT DONE — the two legs' present-frame timelines are offset because the psx leg skips the OP FMV) showing the plume in a different place or a different shape: this claim says the producer DRAWS, it does NOT claim the picture is correct, and no USER has looked at it.
+
+## Re-confirmed 2026-08-22
+
+After MeshQuadStyle refactor and psxport 7f5d3f13 pin, Clang build and 5/5 CTest passed; fresh bucket-softlock 301-frame replay exited clean and produced 24/24 plumefx calls over f295..f306, every call emitting 4 copies and 8 or 16 quads with bounded screen boxes. The original pixel-negative-control evidence remains the picture proof.

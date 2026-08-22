@@ -70,7 +70,7 @@ void Render::narrationSwirlRender(uint32_t node) {
     // mesh records (36 B): the shared walk. IR0 = 0 here, so the depth cue is a pass-through and the
     // record colours reach the screen unchanged; uBias = the guest's animated U scroll.
     const int32_t noFarColour[3] = {0, 0, 0};
-    meshQuadRecordsEmit(MESH, (int)uScroll, noFarColour, /*ir0=*/0);
+    meshQuadRecordsEmit(MESH, MeshQuadStyle{(int)uScroll, noFarColour, /*depthCue=*/0});
     projClearActive();
   }
 }

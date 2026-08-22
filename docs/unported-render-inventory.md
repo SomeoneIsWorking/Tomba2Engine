@@ -378,13 +378,22 @@ native camera. No register read-back, no tap.
 
 ### R3 — `FUN_8013CDD4`'s GT4 prop quads (drum / windmill caps)
 
-Deliberately absent since 2026-08-04 (same tap deletion). **Confirmed live in area 0 this session**:
-`nofx` names node `800EE598` render fn `0x8013CDD4`; the library census recorded it in 15 of 17
-replays, so this is a commonly-reached layer, not a corner case. `WidescreenMarginQuad::emit` still
-*exists and installs* — `codemap.py --addr 0x8013CDD4` finds an owner — which is exactly why the
-codemap alone cannot answer "is this layer present". **Real fix:** drive the emitter from the node's
-own position + rotation angles (`obj+44` / `node+0..2`, the inputs `0x800318A0` composes), never by
-reading back what it composed. Tracked as portmap `render-producer-margin-quad`.
+**PORTED, user visual verification outstanding (2026-08-22).** `Render::propQuadRender` is now the
+display-pass picture owner, separate from byte-exact substrate override `WidescreenMarginQuad::emit`.
+It rebuilds the object transform from persistent anchor/angles (`obj+44` / `obj+72`) and the node's
+three authored scale bytes (`node+0..2`, multiplied by 10 with the guest's byte wrap), then sends
+`mem32(obj+80)` through the one shared packed-quad record walker. The shared walker now carries the
+controller's exact fog, U/CLUT-row bias, forced-tpage and semi-transparency policy as explicit style
+inputs. No GTE register, guest packet, OT, scratchpad transform, or generated body supplies the
+picture.
+
+Headless `bucket-softlock.pad` evidence: 460 requested replay frames exit 0 with no failure signature;
+the producer emits from f161 through f477, with 3,520 diagnostic rows. The producer DB attributes
+4,326 native prims over 97 frames to guest controller `0x8013CDD4`. At f254, six live objects emit
+2/6/4/5/2/6 quads; several bboxes intersect the 320x240 display. Same-execution native f255 and live
+software-oracle f259 screenshots both contain the seaside prop assembly. This establishes reachability
+and a real native picture, not pixel parity or animation quality; the user remains the visual authority.
+Tracked as portmap `render-producer-margin-quad` (`ported-unverified`).
 
 ### R4 — Overlay-mode geomblks: the mesh-flush SEAM
 
@@ -464,7 +473,7 @@ the way to drive into one.
        |
        +--> R2 submitQuad classes (B704 / case188 / a00 flame)
        |       gated on answering the CR-contract question first, from GAME state
-       +--> R3 FUN_8013CDD4 prop quads       (independent; smallest of the three tap victims)
+       +--> R3 FUN_8013CDD4 prop quads       (CLOSED: native picture owner, user eyeball outstanding)
        |
   R5  per-area backdrops
        |   area 21 gradient  -- independent, ready. THE ONLY ONE THAT NEEDS PORTING WORK.

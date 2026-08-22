@@ -263,7 +263,7 @@ void Render::dustPuffEmit(uint32_t node, const EffectPoints &pts, int sub) {
     EObjXform w;
     projComposeObjectHost(Robj, Tobj, &w);
     projSetActive(&w);
-    meshQuadRecordsEmit(lowSub ? kMeshLow : kMeshHigh, uBias, farColour, kCueFull);
+    meshQuadRecordsEmit(lowSub ? kMeshLow : kMeshHigh, MeshQuadStyle{uBias, farColour, kCueFull});
     projClearActive();
   }
 }

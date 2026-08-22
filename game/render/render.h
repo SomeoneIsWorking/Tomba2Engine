@@ -516,26 +516,25 @@ public:
 
   // meshQuadRecordsEmit (game/render/mesh_quads.cpp): the ONE host-side walk of the engine's packed-mesh
   // quad-record format (FUN_80027768's 36-byte records). Projects every vertex through the ACTIVE object
-  // xform (projSetActive first), applies the caller's U scroll and the DPCT/DPCS depth cue toward
-  // farColour by ir0, and draws each record as a native world quad. Returns the number drawn.
+  // xform (projSetActive first), applies the caller's material style, and draws each record as a
+  // native world quad. Returns the number drawn.
   // `ot` carries the emitting controller's sort-bias argument when the producer has RE'd it; see
   // MeshOtBias in mesh_quads.h for why that is opt-in and what the default preserves. `screenBbox`
   // (x0,y0,x1,y1) is UNIONED with what this call actually emitted, so a producer can report the box
   // it claims to have drawn into and an A/B pixel diff can be checked against it — the caller seeds
   // it inverted and reads it back.
-  // `clutRowBias` is the writer's a1 argument: the guest adds `a1 << 22` to each record's word0, which
-  // is bit 6 of the CLUT field, so it selects a different palette ROW (docs/re/impact-plume-288ac.md
-  // §4). OPT-IN at 0, which is bit-identical to using the record's own CLUT — the same discipline
-  // MeshOtBias follows, so a caller whose a1 has not been RE'd is never silently claimed to be 0 by
-  // this signature having a default. Deliberately named for the CLUT row and not as a general "word0
-  // bias": a CLUT row is what is actually RE'd.
+  // MeshQuadStyle also carries the writer's a1 CLUT-row argument and the independently RE'd fog/tpage
+  // policy of FUN_8013CDD4. Each defaults to a bit-neutral value; callers opt into only facts proved
+  // at their own controller.
   int meshQuadRecordsEmit(uint32_t mesh,
-                          int uBias,
-                          const int32_t farColour[3],
-                          int32_t ir0,
+                          const MeshQuadStyle &style,
                           const MeshOtBias &ot = MeshOtBias{},
-                          float *screenBbox = nullptr,
-                          int clutRowBias = 0);
+                          float *screenBbox = nullptr);
+
+  // propQuadRender (game/render/prop_quad.cpp): display-pass picture owner for FUN_8013CDD4's GT4
+  // prop quads (drum / windmill caps). Rebuilds the transform and material policy from persistent
+  // object/node state and reuses meshQuadRecordsEmit; never reads GTE state, guest packets, or OT.
+  void propQuadRender(uint32_t object);
 
   // radialPlumeRender (game/render/fx_plume.cpp): native producer for the FOUR-COPY RADIAL PLUME —
   // the type-0x20 node whose custom render fn is FUN_8002BC9C, the most resident of the effect-mesh

@@ -146,7 +146,7 @@ void Render::radialPlumeRender(uint32_t node) {
     EObjXform w;
     projComposeObjectHost(Robj, pos, &w);
     projSetActive(&w);
-    drawn += meshQuadRecordsEmit(mesh, kUScroll, kNoFarColour, kCueOff, ot, bbox);
+    drawn += meshQuadRecordsEmit(mesh, MeshQuadStyle{kUScroll, kNoFarColour, kCueOff}, ot, bbox);
     projClearActive();
   }
 

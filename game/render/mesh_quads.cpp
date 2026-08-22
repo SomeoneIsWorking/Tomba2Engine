@@ -152,13 +152,7 @@ void MeshQuads::fromGuest(Core *c, uint32_t matPtr, int32_t M[3][3]) {
   }
 }
 
-int Render::meshQuadRecordsEmit(uint32_t mesh,
-                                int uBias,
-                                const int32_t farColour[3],
-                                int32_t ir0,
-                                const MeshOtBias &ot,
-                                float *screenBbox,
-                                int clutRowBias) {
+int Render::meshQuadRecordsEmit(uint32_t mesh, const MeshQuadStyle &style, const MeshOtBias &ot, float *screenBbox) {
   Core *c = mCore;
   int drawn = 0;
   for (uint32_t n = 0, rec = mesh; n < kRecMax; n++, rec += kRecStride) {
@@ -211,14 +205,20 @@ int Render::meshQuadRecordsEmit(uint32_t mesh,
     unsigned char r[4], g[4], b[4];
     for (int k = 0; k < 4; k++) {
       const uint32_t cw = c->mem_r32(rec + 12u + (uint32_t)k * 4u);
-      r[k] = depthCue((int)(cw & 0xFFu), farColour[0], ir0);
-      g[k] = depthCue((int)((cw >> 8) & 0xFFu), farColour[1], ir0);
-      b[k] = depthCue((int)((cw >> 16) & 0xFFu), farColour[2], ir0);
+      r[k] = depthCue((int)(cw & 0xFFu), style.farColour[0], style.depthCue);
+      g[k] = depthCue((int)((cw >> 8) & 0xFFu), style.farColour[1], style.depthCue);
+      b[k] = depthCue((int)((cw >> 16) & 0xFFu), style.farColour[2], style.depthCue);
+      if (style.fogFromVertex0Y) {
+        const int8_t vertex0Y = (int8_t)c->mem_r8(rec + 30u);
+        r[k] = MeshQuads::fogShade(r[k], vertex0Y, style.fogBase);
+        g[k] = MeshQuads::fogShade(g[k], vertex0Y, style.fogBase);
+        b[k] = MeshQuads::fogShade(b[k], vertex0Y, style.fogBase);
+      }
     }
-    const int u[4] = {(int)(uint8_t)((w0 & 0xFFu) + (unsigned)uBias),
-                      (int)(uint8_t)((w1 & 0xFFu) + (unsigned)uBias),
-                      (int)(uint8_t)((w2 & 0xFFu) + (unsigned)uBias),
-                      (int)(uint8_t)(((w2 >> 16) & 0xFFu) + (unsigned)uBias)};
+    const int u[4] = {(int)(uint8_t)((w0 & 0xFFu) + (unsigned)style.uBias),
+                      (int)(uint8_t)((w1 & 0xFFu) + (unsigned)style.uBias),
+                      (int)(uint8_t)((w2 & 0xFFu) + (unsigned)style.uBias),
+                      (int)(uint8_t)(((w2 >> 16) & 0xFFu) + (unsigned)style.uBias)};
     const int v[4] = {
         (int)((w0 >> 8) & 0xFFu), (int)((w1 >> 8) & 0xFFu), (int)((w2 >> 8) & 0xFFu), (int)((w2 >> 24) & 0xFFu)};
     // CLUT, plus the writer's a1 CLUT-ROW bias. The guest adds `a1 << 22` to word0 BEFORE building the
@@ -227,9 +227,11 @@ int Render::meshQuadRecordsEmit(uint32_t mesh,
     // different palette ROW. Adding at bit 22 cannot carry into bits below 16, so doing it after the
     // shift is exact rather than an approximation: (w0 + (a1<<22)) >> 16 == (w0 >> 16) + (a1 << 6).
     // clutRowBias defaults to 0, at which this is bit-identical to reading the record's own CLUT.
-    const uint16_t clut = (uint16_t)((w0 >> 16) + ((unsigned)clutRowBias << 6));
-    const uint16_t tp = (uint16_t)((w1 >> 16) & 0x7Fu);
-    const int semi = (w1 & kSemiBit) ? 1 : 0;
+    const uint16_t clut = (uint16_t)((w0 >> 16) + ((unsigned)style.clutRowBias << 6));
+    const uint16_t recordTpage = (uint16_t)((w1 >> 16) & 0x7Fu);
+    const uint16_t tp = style.tpageOverride >= 0 ? (uint16_t)style.tpageOverride : recordTpage;
+    const int recordSemi = (w1 & kSemiBit) ? 1 : 0;
+    const int semi = style.semiOverride >= 0 ? style.semiOverride : recordSemi;
     c->game->activeRq().drawWorldQuad(c, px, py, depth, u, v, r, g, b, tp, clut, semi, nullptr);
     if (screenBbox) {
       for (int k = 0; k < 4; k++) {

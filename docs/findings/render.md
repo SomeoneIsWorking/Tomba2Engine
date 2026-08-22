@@ -3215,13 +3215,14 @@ draft was already byte-faithful.
 - **SETTLED (same day, static ground truth from generated/ov_a00_shard_1.c:25528-25899 — no live run
   needed):** verdict (a) — record+30 IS V0.y (GTE wiring proof: gte_write_data(0) high half → RTPT →
   SXY0) AND, read a second time sign-extended (no <<8), the SINGLE shared fog delta for ALL FOUR
-  vertices' colors: delta = max(0, s8(rec+30) - mem16(obj+86)); R/G = clamp0_255(base - delta);
-  B = clamped only when R didn't underflow (branch-delay artifact — replicate as-is). mem8(obj+3)
-  is a DEAD load (recompiled scheduling artifact — not live). Full record layout table in the agent
+  vertices' colors: delta = max(0, s8(rec+30) - mem16(obj+86)); R/G/B = clamp0_255(base - delta),
+  independently for every channel. The earlier B-channel asymmetry reading was false: B's
+  unconditional subtraction sits in R's branch-delay slot, but its net rule is the same ordinary
+  clamp (settled by the instruction trace now encoded in the byte-exact override). mem8(obj+3)
+  participates in the kind-gated tpage policy; it is not dead. Full record layout table in the agent
   report (session 2026-07-14): +4 count/plane, +8/+12/+16 packed color/code words, +15/19/23/27
   V0-3.z, +28..+35 packed {X0,X1,Y0,Y1,X2,X3,Y2,Y3}. A native port must extract rec+30 ONCE and use
-  it twice with the two treatments; never split into per-vertex fog inputs; never "fix" the B-channel
-  asymmetry.
+  it twice with the two treatments; never split into per-vertex fog inputs.
 - **superseded stop condition (for the record):** all four per-vertex fog-clamp blocks read their fog
   input from the SAME byte mem_r8(r8+0) — the byte also used as V0.y. Either a load-bearing
   field-reuse the port must replicate, or pb+0 isn't V0.y at all. Settle by fresh targeted Ghidra
@@ -3263,6 +3264,32 @@ draft was already byte-faithful.
 - **Gates:** build clean; mirror-verify 3905+ passes 0-diff; SBS-full 895 checkpoints 0-diff to
   f26790+; default free-roam (pc_skip+pc_render) reaches free-roam f216 + shot; fps60=1 ("TRUE
   per-object interpolated 60fps ON") reaches free-roam + shot, no crash.
+
+## 0x8013CDD4 missing picture — execution ownership was not display ownership (2026-08-22)
+
+- **symptom:** The seaside drum/windmill prop quads are present under `psx_render` but absent from `pc_render`.
+  Codemap still reports `WidescreenMarginQuad::emit` as a live native owner.
+- **cause:** `WidescreenMarginQuad::emit` owns byte-exact guest GTE/packet-pool/OT side effects only.
+  pc_render does not consume the guest OT. When the banned GTE-register display tap was deleted on
+  2026-08-04, no display-pass producer took ownership of the same persistent object state. A native
+  override existing at the guest address therefore did not imply that its picture existed.
+- **status:** ported-unverified
+- **fix:** `Render::propQuadRender` (`game/render/prop_quad.cpp`) is the separate
+  read-only picture owner. It composes from `obj+44` world anchor, `obj+72` Euler angles and the
+  byte-wrapped `node+0..2 * 10` scale triple, then reuses `meshQuadRecordsEmit`. `MeshQuadStyle`
+  extends that one record decoder with the RE'd U/CLUT-row bias, shared-y0 fog shade, conditional
+  tpage 46 and forced semi-transparency. No GTE control/data read, packet/OT read, scratchpad compose,
+  guest write, or generated-body dependency is in the display producer.
+- **evidence:** `tools/gate.py --debug propquad replay replays/bugs/bucket-softlock.pad --frames 460`
+  exits 0 after 461 post-prologue frames with no failure pattern. The log has 3,520 `propquad` rows
+  (f161..f477); at f254 six objects emit 2/6/4/5/2/6 quads, including display-intersecting bboxes.
+  The producer DB attributes 4,326 native prims across 97 frames to `0x8013CDD4`. A same-execution
+  headless renderer swap captured native f255 and software-oracle f259; both contain the seaside prop
+  assembly. The adjacent frames do not prove pixel parity, and animation/user visual verification is
+  still outstanding. Pure tests cover scale-byte wrap, tpage ranges and fog clamp.
+- **falsifier:** A live object whose software-oracle prop differs while the logged persistent inputs
+  match, or a user-observed missing/corrupt/incorrectly animated prop, falsifies picture fidelity and
+  requires tracing the relevant material/transform field; it does not justify restoring a GTE tap.
 
 ## ires (internal resolution) modifier is a NO-OP — never wired past the readout (2026-07-14)
 

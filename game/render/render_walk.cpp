@@ -1277,6 +1277,13 @@ void Render::fieldObjectsRender() {
           // member. Overlay-resident, so the same first-instruction guard as the producers below.
           c->rsub.stats.snObjs++;
           rend(c)->fxAltAnimSpriteRender(n);
+        } else if (rfn == 0x8013CDD4u && c->mem_r32(0x8013CDD4u) == 0x27BDFF98u) {
+          // FUN_8013CDD4 (A00 overlay) — the drum/windmill-cap GT4 prop quads. The installed override
+          // owns byte-exact guest packet writes only; propQuadRender owns the independent pc_render
+          // picture from persistent object/node state. Guard the overlay-resident address by its
+          // first instruction (addiu sp,-104).
+          c->rsub.stats.snObjs++;
+          rend(c)->propQuadRender(n);
         } else if (rfn == 0x8013D454u && c->mem_r32(0x8013D454u) == 0x27BDFFB8u) {
           // The water jet's SPRITE branch. Its MESH branch remains unported after the banned
           // fx_mesh guest-time tap was deleted; the two branches are mutually exclusive on
