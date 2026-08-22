@@ -1,12 +1,9 @@
-// game_config.cpp — the Tomba!2-specific GameConfig instance (game_iface.h seam).
+// game_config.cpp — measured Tomba!2 compatibility facts.
 //
-// Every value here is a MAIN.EXE guest-address literal that USED to be baked directly into the
-// framework substrate (runtime/recomp/*). The framework now reads `c->cfg->field` in place of the
-// literal; this file is where the game supplies them. Pure value-preservation: each number matches
-// the framework literal it replaced EXACTLY (a wrong address silently breaks boot / diverges SBS).
-//
-// Installed once at the very top of main() (boot.cpp) via tomba_install_game_config(), before any
-// Game/Core is constructed, so Core's ctor snapshots a non-null c->cfg.
+// TombaRuntime is the title's ownership seam. This legacy GameConfig remains only because generic
+// psxport algorithms still read `c->cfg->field`; each typed framework extraction must delete its
+// corresponding fields here rather than growing this bag. Every number preserves a measured
+// MAIN.EXE fact that the framework previously baked in directly.
 //
 // DESIGNATED INITIALIZERS, deliberately (converted 2026-07-29). This used to be a POSITIONAL
 // initializer whose fields were labelled by `/* name */` comments — labels the compiler never
@@ -18,8 +15,8 @@
 // guest addresses one slot sideways — and a renamed or removed field becomes a compile error rather
 // than a wrong address that boots and diverges. Fields left unset are value-initialised to zero,
 // which is the framework's documented "this game has no such primitive".
-#include "game_ctx.h"
 #include "game_iface.h"
+#include "legacy_game_interface.h"
 #include "overlay_table.h" // generated: REC_MAIN_LO/HI — the game owns this, not the framework
 
 // Task entry PCs, verbatim from the literals psxport's pc_scheduler.cpp used to carry. Values unchanged:
@@ -195,7 +192,7 @@ static const GameConfig g_tomba_config = {
     // framework, and ordinary working memory for every other port (it silently mistimed Spyro and
     // Spider-Man). That fallback is deleted; state it here instead.
     // NOTE: if this engine legitimately VARIES that byte per frame (slowdown frames), a constant is
-    // wrong and it needs a GameHooks callback, not this. Unmeasured — see psxport gpu_native.cpp.
+    // wrong and it needs a narrow typed cadence interface, not another legacy callback.
     .paceQuota = 2u,
     // crt0 stack-top bias, MEASURED by psxport tools/crt0_extract over this game's own boot
     // executable (MAIN.EXE, entry 0x800896E0). `declared = 1` is mandatory: crt0_plan REFUSES a boot when it is 0,
@@ -232,9 +229,4 @@ static const GameConfig g_tomba_config = {
 
 };
 
-// The game's callback vtable — defined in game_hooks.cpp (thin impls reaching eng(c).*).
-extern const GameHooks g_tomba_hooks;
-
-void tomba_install_game_config() {
-  psxport_install_game(&g_tomba_config, &g_tomba_hooks);
-}
+const GameConfig &tomba::legacy::measuredConfig = g_tomba_config;

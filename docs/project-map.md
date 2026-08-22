@@ -18,6 +18,23 @@ The repository-level `game/` is Tomba! 2-specific. Tomba! 1 does not share that 
 Tomba carries the authoritative tracked `.clang-format` and `.clang-tidy` profiles. The normal CTest
 does not install a pre-commit hook and does not duplicate the verifier in this repo.
 
+## Game runtime ownership
+
+| responsibility | owner | compatibility debt |
+|---|---|---|
+| process-lifetime game seam | `game/core/tomba_runtime.{h,cpp}` — `tomba::TombaRuntime` | derives `LegacyGameRuntimeAdapter` only while generic psxport code still reads legacy facts/callbacks |
+| per-Core game aggregate | `game/core/game_ctx.{h,cpp}` | none at the framework boundary; `TombaRuntime::createContext`/`destroyContext` own the lifecycle |
+| boot policy | `TombaRuntime::bootInit` | guest leaves remain dispatched where their native owners have not landed |
+| override registration | `TombaRuntime::registerOverrides` → `game/core/register_overrides.cpp` | generated oracle bodies remain deliberately available through the override registry |
+| measured generic facts | `game/core/game_config.cpp` via `legacy_game_interface.h` | the entire `GameConfig` view remains until psxport's typed fact-group migration removes its consumers |
+| unmigrated generic callbacks | `game/core/game_hooks.cpp` | 26 callbacks remain; context, boot, and override slots are null and cannot become a second owner |
+
+This follows Dusklight's current game→platform ownership direction: the game owns lifecycle and policy,
+while the shared platform receives one derived object. The flat compatibility tables are isolated debt,
+not extension points. `tools/codemap.py` was regenerated after the move; its guest-address ownership
+totals remain 1,040 natives / 874 addresses / 1,031 live / 9 orphan because this change moves host
+ownership without adding or removing a guest function.
+
 ## Shared render ordering
 
 Tomba! 2 submits native world faces through psxport's `runtime/recomp/render_queue.{h,cpp}`. Equal-key

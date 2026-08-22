@@ -29,7 +29,7 @@
 #include "render/screen_fade.h"
 #include "ui/save_menu.h"
 
-// TombaCtx — the game's opaque per-Core subsystem aggregate. Allocated/wired by tomba_ctx_create
+// TombaCtx — the game's opaque per-Core subsystem aggregate. Allocated/wired by createTombaContext
 // (game_ctx.cpp) and reached from the framework only as Core::gameCtx (void*). Holds the 9 subsystems
 // that used to be embedded on Core.
 struct TombaCtx {
@@ -45,6 +45,9 @@ struct TombaCtx {
   MusicList music_list;     // Sound Test catalogue + in-game area BGM driver (uses native_music)
   Render *mRender = nullptr;
 };
+
+void *createTombaContext(Core &core);
+void destroyTombaContext(void *context);
 
 static inline TombaCtx *gctx(Core *c) {
   return (TombaCtx *)c->gameCtx;

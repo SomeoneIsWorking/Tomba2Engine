@@ -18,7 +18,7 @@ class Core;
 
 class MusicList {
 public:
-  Core *core = nullptr; // back-pointer wired by tomba_ctx_create (game_ctx.cpp)
+  Core *core = nullptr; // back-pointer wired by createTombaContext (game_ctx.cpp)
   ~MusicList();
 
   int count() const {

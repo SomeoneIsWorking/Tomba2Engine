@@ -1,13 +1,14 @@
 // game_ctx.cpp — the Tomba!2 per-Core subsystem-aggregate (TombaCtx) lifecycle.
 //
-// The framework allocates/frees the game's opaque per-Core aggregate through the GameHooks
-// ctxCreate/ctxDestroy pointers (game_iface.h); Core::gameCtx holds the resulting void*. The
+// TombaRuntime allocates/frees this opaque aggregate through GameRuntime inheritance;
+// Core::gameCtx holds the resulting void*. The
 // back-pointer wiring below moved VERBATIM out of Core::Core() (runtime/recomp/core.cpp) when the
 // 9 game subsystems were pulled OFF Core into TombaCtx — each `this` there is `c` here, each member
 // prefixed with `ctx->`. No wiring line was dropped.
 #include "game_ctx.h"
 
-void *tomba_ctx_create(Core *c) {
+void *createTombaContext(Core &core) {
+  Core *c = &core;
   TombaCtx *ctx = new TombaCtx();
   // Wire up owned subsystems' back-pointers so their methods can reach this Core's guest memory.
   ctx->screenFade.core = c;
@@ -66,7 +67,7 @@ void *tomba_ctx_create(Core *c) {
   return ctx;
 }
 
-void tomba_ctx_destroy(void *p) {
+void destroyTombaContext(void *p) {
   TombaCtx *ctx = (TombaCtx *)p;
   if (ctx) {
     delete ctx->mRender;

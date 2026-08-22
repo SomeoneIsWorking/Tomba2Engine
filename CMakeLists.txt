@@ -93,7 +93,6 @@ if(BUILD_TESTING)
       game/core/field_owned_leaves.cpp=20838
       game/core/engine.cpp=4404
       game/core/engine.h=661
-      game/core/game_hooks.cpp=386
       game/player/actor_tomba.cpp=4282
       game/ai/substate_edge_native.cpp=4639
       game/audio/sequencer.cpp=2809

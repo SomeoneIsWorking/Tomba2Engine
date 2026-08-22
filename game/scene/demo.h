@@ -26,7 +26,7 @@ public:
   Core *core = nullptr;
 
   // Wire s3SubMachine (0x80106AC4) into the override registry
-  // (overrides::install) — called from runtime/recomp/boot.cpp's
+  // (overrides::install) — called from TombaRuntime::registerOverrides through
   // register_engine_overrides(). §9-verified 2026-07-10 (docs/
   // fleet-workflow.md §9): re-checked instruction-by-instruction against
   // generated/ov_demo_shard_0.c; only defect found was the missing

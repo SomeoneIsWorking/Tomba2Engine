@@ -31,6 +31,7 @@ set(GAME_SRC
   game/core/game_config.cpp
   game/core/game_ctx.cpp
   game/core/game_hooks.cpp
+  game/core/tomba_runtime.cpp
   game/core/main.cpp                # process entry point (P1.7c: main() is game-side)
   game/core/verify_skip.cpp         # VerifyHarness native-sync/observable half (P1.7c split)
   game/render/fps60_worldpass.cpp   # TRANSITIONAL fps60 world-pass hook body (P1.7c)

@@ -5,8 +5,8 @@
 // recompiled MAIN.EXE dispatch, the overlay table, the per-module override setters, and the guest-
 // memset gen body through psxport_recomp()->field. This file is the ONE place those generated symbols
 // are named — game code referring to generated code, which is allowed (the coupling the seam breaks is
-// framework→generated, not game→generated). Installed once at startup by tomba_install_recomp(),
-// called from main() (boot.cpp) alongside tomba_install_game_config(), before the first Core runs.
+// framework→generated, not game→generated). Installed once beside TombaRuntime before the first Core.
+#include "recomp_register.h"
 #include "core.h"          // Core, rec_func_index (declared extern "C" in core.h's extern-C block)
 #include "overlay_table.h" // generated: main_dispatch, g_rec_overlays, g_rec_overlay_count
 #include "recomp_iface.h"  // RecompRegistry / RecOverlay / psxport_install_recomp

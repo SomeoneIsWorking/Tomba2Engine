@@ -3,8 +3,8 @@
 // MOVED here VERBATIM from runtime/recomp/boot.cpp (2026-07-17 framework/game decoupling): this is
 // the clean game→framework seam already (every call is an overrides::install via a subsystem's
 // registerOverrides), it just used to live in the framework boot file, dragging ~25 game #includes
-// into runtime/recomp/. It now runs via the GameHooks::registerOverrides callback (game_hooks.cpp),
-// so the framework never names any game type.
+// into runtime/recomp/. TombaRuntime now calls it through GameRuntime inheritance, so the framework
+// never names any game type and the legacy callback table is no longer a second owner.
 //
 // register_engine_overrides — call each subsystem's registerOverrides(), which installs its native
 // handlers into the ONE process-global override registry (overrides::install, override_registry.h:
@@ -13,6 +13,7 @@
 // overwrites the same global slot — so it's safe to call once per harness-owned Game (main(),
 // dc_boot_init) and twice under SBS full (mA + mB). See the ordering note in native_boot.cpp: this
 // MUST run before crt0_setup/game_init so the init prefix can reach a registered thunk.
+#include "register_overrides.h"
 #include "actor_bump.h"           // class ActorBump — bump response (0x8010EA80)
 #include "actor_object_contact.h" // class ActorObjectContact — hit / proximity contact (0x8010E258)
 #include "actor_targeting.h"      // class ActorTargeting — acquire a target (0x8001FAE0)
@@ -80,7 +81,8 @@ void compose_tint_gate_install();     // game/render/compose_tint_gate.cpp — g
 void subpart_walk_install();          // game/render/subpart_walk.cpp — guest FUN_8003F174
 void shared_transform_walk_install(); // game/render/subpart_walk_shared.cpp — guest FUN_8003F07C
 
-void register_engine_overrides(Game *game) {
+void register_engine_overrides(Game &owner) {
+  Game *const game = &owner;
   interact_scan_install();         // interaction scanner: promotes an in-range object to ACTIVATED
   dialog_box_sm_install();         // dialog/message box state machine (port_check PASS vs gen_func_8007D594)
   dialog_backdrop_install();       // message-box backdrop rect — LIVE on the dialog path

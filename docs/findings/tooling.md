@@ -876,3 +876,23 @@ remove it, or the repo accumulates dead duplicates of every handler.
 - **the other three rows `--uninstalled-claims` reports today** (`0x80044BD4` Demo::s0PreYield vs
   pc_scheduler's eov_spawnwait, `0x8007E1B8`, `0x8007E6DC`) are unexamined — triage each with
   `--addr` before deleting anything.
+
+## Tomba's framework-facing behavior lived in a flat compatibility table after GameRuntime landed
+- **status:** fixed 2026-08-22 for context lifecycle, boot initialization, and override registration.
+- **symptom:** `main()` still installed `GameConfig + GameHooks` through the legacy overload, and the
+  title's boot/control owners were reachable only as function pointers in `g_tomba_hooks`. The new
+  polymorphic framework seam existed but the reference consumer did not use it.
+- **cause:** the compatibility adapter preserved source compatibility when psxport introduced
+  `GameRuntime`; Tomba never completed the consumer-side ownership move. That made the deprecated
+  bag look like the extension point and left two apparent authorities for new game behavior.
+- **fix:** `tomba::TombaRuntime : LegacyGameRuntimeAdapter` is installed before the first `Game` and
+  directly overrides `createContext`, `destroyContext`, `bootInit`, and `registerOverrides`. The four
+  corresponding `GameHooks` fields are null. Named headers now own the context/registry declarations,
+  so `main.cpp` and the runtime do not redeclare cross-module functions locally.
+- **remaining debt:** the adapter cannot be deleted yet. Generic psxport algorithms still consume the
+  measured `GameConfig` view and 26 compatibility callbacks (frame/render/audio/scheduler/REPL/dev/
+  fps60/selftest). These need cohesive typed framework seams; copying their fields into virtual scalar
+  getters would only rename the same bag.
+- **verification:** Clang `tomba2_port` build; CTest 5/5 including clang-format, clang-tidy, and source
+  caps; the headless boot gate advanced 401 frames past the new-game prologue and ended at GAME
+  `stage=8010637C sm48=2`, exit 0, with 0 unknown CVars. Claim C059 records the falsifier.

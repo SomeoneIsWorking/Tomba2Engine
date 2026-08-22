@@ -3,7 +3,8 @@
 //
 // STATUS: VERIFIED (line-by-line vs generated/shard_3.c ground truth — body logic had NO bugs; the
 // one real bug was a missing guest-stack frame, fixed) + WIRED via the shared override registry
-// (RegisterBehActorTombaProximityCombatOverride, called from register_engine_overrides(),
+// (RegisterBehActorTombaProximityCombatOverride, called from TombaRuntime::registerOverrides through
+// register_engine_overrides(),
 // `overrides::install`). Reached ONLY via rec_dispatch (an indirect function-pointer table read
 // from a per-object "think" slot) — no static `func_800527C8(c)` call site exists in any generated
 // shard (confirmed by grep), so the registry's oracle-gated dispatch intercepts it regardless of

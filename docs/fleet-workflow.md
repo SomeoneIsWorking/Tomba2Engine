@@ -55,7 +55,8 @@ Task verbs decide the model tier:
   3. Wire correctly: EngineOverrides intercepts only NATIVE (rec_dispatch) callers; SUBSTRATE callers
      reach `func_<addr>` via the process-global `g_override[]` (`shard_set_override`). Most leaves are
      substrate-called → use `shard_set_override` (or dual-wire like ActorReward/Math). Per-Game
-     EngineOverrides go inside `register_engine_overrides()` (runs for SBS Games too).
+     EngineOverrides go inside `register_engine_overrides()`, owned by
+     `TombaRuntime::registerOverrides` (runs for SBS Games too).
   4. **Guest-stack frames: MIRROR, never revert/exclude.** If the substrate body does `addiu sp,-N`
      + spills, reproduce it (`c->r[29] -= N`, spill ra/s0..s3 with LIVE values at RE'd offsets, ascend).
      Reference: game/world/object_table.cpp, game/render/cull.cpp.
