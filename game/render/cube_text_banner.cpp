@@ -41,6 +41,7 @@
 // is what its state actually says — the same stance BbRec particles already take.
 #include "cube_text_banner.h"
 #include "core.h"
+#include "fps60.h"
 #include "game.h"
 #include "game_ctx.h"
 #include "producer_scope.h" // ProducerScope — graphics-producer DB, native leg
@@ -300,8 +301,8 @@ void emitGlyph(Core *c, uint32_t node, const ViewProjector &proj, const GlyphXfo
 } // namespace
 
 void CubeTextBanner::render(Core *c, uint32_t node) {
-  if (c->game->oracle) {
-    return; // the oracle leg produces no picture
+  if (!pictureBuildAllowed(c->game->oracle, fps60(*c->game).mWorldCaptureOnly)) {
+    return;
   }
   if (c->mem_r32(node + NODE_BEHAVIOUR) != kBehCubeTextSpawn) {
     return;
@@ -339,7 +340,7 @@ void CubeTextBanner::render(Core *c, uint32_t node) {
   // is view-space, so applying the camera here is the bug that was just deleted. sceneCam is the
   // shared choke every native producer reads its projection through.
   float Rcam[3][3], Tcam[3], ofx, ofy, H;
-  c->game->fps60.sceneCam(c, Rcam, Tcam, ofx, ofy, H);
+  fps60(*c->game).sceneCam(c, Rcam, Tcam, ofx, ofy, H);
   const ViewProjector proj(ofx, ofy, H);
   if (!proj.valid()) {
     return;

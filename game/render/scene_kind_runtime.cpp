@@ -1,6 +1,7 @@
 #include "scene_kind.h"
 
 #include "core.h"
+#include "fps60.h"
 #include "game.h"
 #include "render.h"
 
@@ -38,7 +39,7 @@ Render::SceneKind Render::classifyScene() {
 }
 
 void Render::renderSaveContinueMenu() {
-  mCore->game->fps60.mTier1EligibleCur = false;
+  fps60(*mCore->game).mTier1EligibleCur = false;
   // The native target is cleared to black before its queued UI is emitted. Do not clear guest VRAM
   // here: FUN_8007ED5C's "Save?" heading still samples its glyphs from the displayed VRAM page.
 }

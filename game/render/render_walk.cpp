@@ -14,6 +14,7 @@
 #include "core.h"
 #include "cube_text_banner.h"
 #include "cull.h" // Cull::submittedThisFrame — the PUSH-TIME submission record
+#include "fps60.h"
 #include "game.h"
 #include "game_ctx.h"
 #include "mods.h"
@@ -99,12 +100,12 @@ void Render::perObjFlush() {
   // transform, keyed by cmd). Capture it straight through the projObj choke — SKIP the camera×object compose
   // (projComposeCore, which re-reads the camera per cmd) AND the per-vertex gt3gt4 submit. Pure waste
   // otherwise: the composed+projected quads land in mRqCur tier1-owned and the merge skips every one.
-  if (c->game->fps60.mWorldCaptureOnly) {
+  if (fps60(*c->game).mWorldCaptureOnly) {
     for (int i = 0; i < (int)c->mem_r8(node + 8); i++) {
       uint32_t cmd = c->mem_r32(node + 0xC0 + i * 4);
       if (c->mem_r32(cmd + 0x40) != 0) {
         float Robj[3][3], Tobj[3];
-        c->game->fps60.projObj(c, cmd, Robj, Tobj);
+        fps60(*c->game).projObj(c, cmd, Robj, Tobj);
       }
       if (i + 1 >= (int)c->mem_r8(node + 9)) {
         break;
@@ -163,321 +164,6 @@ void Render::perObjFlush() {
   }
 }
 
-// ===================================================================================================
-// ONE NATIVE RENDER PATH — world-data-driven scene render (Phase 1, user 2026-06-24 architecture:
-// [[one-native-render-path-decoupled]]). Driven from the GAME's WORLD DATA, NOT from PSX GP0 packets:
-// walk the 3 active entity lists, and render each live object's 3D model (geomblk via node+0xC0 cmds)
-// through the native float-projection submitters (eproj + D32 depth + engine lighting). This is the
-// single mechanism depth/60fps/ires/lighting attach to. It runs as its OWN pass (not bolted onto the
-// PSX OT-walk) so the draw state is the native pass's. Gated `debug scenenative` while standing it up.
-// (g_scene_native_diag was defined here but never read; dead — removed 2026-07-02)
-// g_sn_objs/g_sn_cmds retired 2026-07-03 — Render::stats.snObjs/snCmds (RenderStats).
-// Resolve the resident backdrop tilemap drawer exactly as the guest field dispatcher does
-// (gen_func_8003DF04 @0x8003DF04) and confirm it is the SHARED tilemap routine, reporting its baked
-// per-tile V bias. See render.h for the contract. Read-only (guest RAM + resident code words only).
-bool Render::backdropTilemapDrawer(int &vAdd, uint32_t *drawerVAOut) {
-  Core *c = mCore;
-  constexpr uint32_t kBgGate = 0x800BF873u;      // field dispatch gate (!=0 -> no backdrop this beat)
-  constexpr uint32_t kBgSelector = 0x800BF870u;  // field bg-state selector (== the area's bg-state)
-  constexpr uint32_t kBgJumpTable = 0x80014FC0u; // 16-entry bg-state -> MAIN dispatch-stub table
-  constexpr uint32_t kBgStateCount = 16u;        // guest draws nothing for state >= this
-  constexpr uint32_t kBgStateComposite = 21u;    // wolf-ride: gradient+tilemap composite (see below)
-  constexpr uint32_t kSopSig = 0x80109450u;      // SOP overlay first-instruction signature word
-  constexpr uint32_t kSopSigVal = 0x3C021F80u;
-  constexpr uint32_t kSopDrawer = 0x8010C26Cu;   // SOP narration's own tilemap drawer (V bias 0)
-  constexpr uint32_t kJalOp = 0x03u;             // MIPS jal opcode (top 6 bits)
-  constexpr uint32_t kVDecodeAndi = 0x30E200F0u; // `andi r2,r7,0xF0` — the tilemap V-decode site
-  constexpr uint32_t kVAdd8Insn = 0x24420008u;   // `addiu r2,r2,8` immediately after it (V bias 8)
-  constexpr uint32_t kDrawerScan = 0x400u;       // drawer body size to search for the V-decode
-
-  uint32_t drawerVA;
-  if (c->mem_r32(kSopSig) == kSopSigVal) {
-    // SOP narration draws its backdrop from its OWN overlay drawer (the field jump table's state-0 slot
-    // points at 0x80115598, which is NOT resident under the SOP overlay), so resolve it directly.
-    drawerVA = kSopDrawer;
-  } else {
-    if (c->mem_r8(kBgGate) != 0) {
-      return false;
-    }
-    const uint32_t st = c->mem_r8(kBgSelector);
-    // State 21 (wolf-ride) is special-cased ahead of the table by the guest to a COMPOSITE drawer
-    // (0x8010BE30): a gouraud-gradient sky base (helper 0x8010BB64) with the tilemap as a CLOUD overlay
-    // on top. Its tilemap loop matches the shared routine's V-decode signature, but drawing that layer
-    // ALONE (opaque, no gradient base) paints a bright full sky where the real backdrop is the darker
-    // gradient — measured WORSE than leaving it black (61375 -> 64650 px >8/255). Left as an honest
-    // missing-producer gap until the gradient base + overlay are ported together (kanban #48).
-    if (st == kBgStateComposite) {
-      return false;
-    }
-    if (st >= kBgStateCount) {
-      return false;
-    }
-    const uint32_t stub = c->mem_r32(kBgJumpTable + st * 4);
-    // The dispatch stub's 2nd instruction is `jal <overlay drawer>`; the no-backdrop stub (0x8003E020)
-    // has none. Decode the jal target rather than hardcoding each overlay's drawer address.
-    const uint32_t jal = c->mem_r32(stub + 4);
-    if ((jal >> 26) != kJalOp) {
-      return false;
-    }
-    drawerVA = (stub & 0xF0000000u) | ((jal & 0x03FFFFFFu) << 2);
-  }
-  // Scan the resident drawer for the tilemap V-decode. Absent -> not the shared tilemap routine (a
-  // different, still-unported backdrop mechanism) -> no native producer, the far plane stays black.
-  for (uint32_t p = drawerVA; p < drawerVA + kDrawerScan; p += 4) {
-    if (c->mem_r32(p) != kVDecodeAndi) {
-      continue;
-    }
-    vAdd = (c->mem_r32(p + 4) == kVAdd8Insn) ? 8 : 0;
-    // Report the drawer only on SUCCESS — on any reject path above it is either undecoded or a routine
-    // this producer does not draw, and handing that address to the producer DB would key real native
-    // prims to a guest function that emits something else entirely.
-    if (drawerVAOut) {
-      *drawerVAOut = drawerVA;
-    }
-    return true;
-  }
-  return false;
-}
-
-// BACKDROP ATLAS TEXPAGE — a per-frame FACT ABOUT GUEST STATE, published for BOTH render modes.
-//
-// "Which VRAM page holds this frame's sky/sea tiles" is not part of building a picture: it is the key
-// the OT walk uses to recognise the GUEST background drawer's own 16x16 tiles (gpu_native.cpp
-// sprite_is_bg_texpage) and band them RQ_BACKGROUND. Without it a screen-space sprite falls through to
-// `bg_2d`'s coverage heuristic, which a 16x16 tile can never satisfy, so it lands in RQ_HUD — the
-// TOPMOST 2D band — and is painted over the world.
-//
-// It used to be published only from Render::backdropRender, which runs only inside renderScene(), i.e.
-// only on the pc_render arm of Engine::drawOTag. psx_render returns from drawOTag before renderScene,
-// so on the reference leg it was NEVER published and every backdrop tile the guest emitted occluded the
-// whole frame. MEASURED 2026-08-06, area 0 free-roam f3100, PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1,
-// PSXPORT_PRIMDUMP: 972 prims walked = 617 is3d world polys + 355 sprites, and 355/355 sprites carried
-// bg=0 — 352 of them the 16x16 tiles of texpage (896,0), the backdrop atlas named in the banner below.
-// The reference renderer therefore drew the whole village and then painted the sea over it.
-//
-// This is the SAME defect, and the same fix, as areaCacheTrustTick (kanban #41): per-logic-frame guest
-// state tracking that both render modes need must be ticked BEFORE the render-mode branch, never from
-// inside one arm. It is the ONLY publisher — backdropRender no longer publishes.
-//
-// Gate: the guest's OWN dispatch resolution — backdropTilemapDrawer, which resolves the resident drawer
-// through the field bg-state jump table and its dispatch gate exactly as the guest field dispatcher does
-// (see that function; it owns those addresses). NOT
-// mBackdropTrusted. That latch answers "may OUR native producer draw", which is a different question —
-// the guest emitted its tiles from this struct whether or not we trust it, so the page it sampled is a
-// fact about what is in the OT. Read-only: guest RAM + resident code words, no guest write.
-void Render::backdropTexpagePublishTick() {
-  Core *c = mCore;
-  constexpr uint32_t kParallaxBgSm = 0x800ED018u; // the backdrop tilemap state struct (see banner below)
-  constexpr uint32_t kBgTpageOff = 0x04u;         // +0x04 hword tpage
-  int vAdd = 0;
-  const bool tilemapBackdrop = backdropTilemapDrawer(vAdd);
-  int tp_x = -1, tp_y = -1;
-  if (tilemapBackdrop) {
-    const uint16_t tpage = c->mem_r16(kParallaxBgSm + kBgTpageOff);
-    tp_x = (tpage & 0xF) * 64;
-    tp_y = ((tpage >> 4) & 1) * 256;
-    void gpu_bg_texpage_set(Core *, int, int);
-    gpu_bg_texpage_set(c, tp_x, tp_y);
-  }
-  // A silent negative here is indistinguishable from "the tick never ran", and the consequence of a
-  // negative is invisible-world, so the line always carries WHICH branch was taken and the guest bytes
-  // it turned on: tilemap=0 means the resident drawer is not the shared tilemap routine (area 14/21 and
-  // the state>=16 areas — an honest unported-backdrop gap, and those areas' guest tiles, if any, will
-  // still band as HUD), tilemap=1 names the page that was published.
-  lucent::debug("bgtp",
-                "tilemap={} tp=({},{}) bgstate={} bggate={}",
-                (int)tilemapBackdrop,
-                tp_x,
-                tp_y,
-                c->mem_r8(0x800BF870u),
-                c->mem_r8(0x800BF873u));
-}
-
-// NATIVE BACKDROP tilemap drawer — overlay FUN_80115598 (the seaside field's state-0 background drawer,
-// reached via 0x8003df04's 16-state jump table @0x80014fc0; state 0 → 0x8003df74 → 0x80115598). This is the
-// sky + distant parallax hills (the only thing the decoupled native scene was missing — verified by SKIPPASS
-// attribution, later-244). The PSX body reads the area's tile MAP (W×H grid of u16 tile entries) and a
-// scroll position, then builds GP0 textured-sprite (cmd 0x7d) packets into the OT for the visible wraparound
-// window of 16×16 tiles. We TRANSCRIBE the integer wrap/scroll/index math (that's scene data — what tile
-// goes where), but emit NATIVE RQ_BACKGROUND 2D quads instead of GP0 packets / OT links (the engine owns the
-// background layer; sky/hills sit behind the real-depth world). Struct @t4 (=0x800ed018 at the seaside):
-//   +0x04 hword tpage  +0x06 hword clut-base  +0x10 byte W  +0x11 byte H
-//   +0x14 word  tilemap ptr (u16[H][W])       +0x28 hword scrollX  +0x2a hword scrollY
-// Tile entry bits: [0:3]=atlas col, [4:7]=atlas row, [8:11]=clut sub-index. U=(t&0xF)<<4, V=(t&0xF0)+vAdd
-// (the half-tile V bias is per-DRAWER source-data layout, resolved by backdropTilemapDrawer above — 8 for
-// the seaside drawer, 0 for every other area and for SOP), clut=clutbase+((t&0xF00)>>2). Texpage 0x0E =
-// 4bpp @ VRAM(896,0) (set once via a GP0(0xE1) prim in the PSX body; applied per-quad here).
-// TIER 1 BACKDROP (docs/fps60-rework.md): scrollX/scrollY are the ONLY per-frame-varying fields this fn
-// reads (PARALLAX_BG_SM+0x28/+0x2A, computed by ParallaxBg::step from camera yaw/pitch every RUNNING
-// tick) — everything else (W/H/tilemap ptr/tpage/clutbase/wrap-moduli) is static per-area config, set
-// once at INIT and unchanged while running. The scroll read goes through the fps60 provider (mirrors
-// sceneCam): byte-identical to the plain struct read when fps60 is off or this is the real per-logic-
-// frame call (which also captures the result into Fps60::mBgCur); during Tier-1's present-time backdrop
-// re-render (Fps60::tier1Render, fps60.cpp) it instead returns wrapLerp(mBgPrev,mBgCur,t), no guest read.
-void Render::backdropRender(uint32_t t4) {
-  Core *c = mCore;
-  int W = c->mem_r8(t4 + 0x10), H = c->mem_r8(t4 + 0x11);
-  if (W == 0 || H == 0) {
-    return;
-  }
-  // kanban #33: guest-time capture-only. The only per-frame-varying state the present-time backdrop
-  // re-render reads back is the scroll offset (mBgCur) — everything else (tilemap/tpage/wrap moduli) is
-  // static per-area config it re-reads directly. Capture the scroll (bgScroll self-captures on a real,
-  // non-override call) and skip drawing every tile; the present re-renders the backdrop from mSink.
-  if (c->game->fps60.mWorldCaptureOnly) {
-    int sx, sy;
-    c->game->fps60.bgScroll(c, t4, sx, sy);
-    // The backdrop texpage publish that used to live here (and in the draw path below) is gone: it is
-    // per-frame guest-state tracking, so it belongs to backdropTexpagePublishTick, which Engine::drawOTag
-    // runs BEFORE the render-mode branch. Publishing it from a producer made it a function of which
-    // renderer was active, which is what left psx_render's own backdrop tiles in RQ_HUD.
-    return;
-  }
-  // TILE V-OFFSET — the seaside FIELD drawer (FUN_80115598) samples each tile at v = (tile&0xF0)+8; the
-  // SOP NARRATION drawer (FUN_8010C26C) and the OTHER field areas (e.g. area 10 FUN_801142EC, area 11
-  // FUN_801141B0, area 21 FUN_8010BE30) sample at v = (tile&0xF0) with NO +8 (RE'd from the per-overlay
-  // drawer bodies; applying seaside's +8 elsewhere shifts the atlas sample half a tile -> tile seams,
-  // issue #60: sea beat RMSE 40.2 -> 18.5 with vAdd=0). Read the bias from the RESIDENT drawer's own code
-  // (backdropTilemapDrawer, the same resolution the dispatch below uses) — ground truth per area, not a
-  // scene heuristic. Correct in the field and narration contexts, and at both call sites (sceneNative real
-  // frame + Fps60 tier-1 interp re-render).
-  int vAdd = 8;
-  uint32_t drawerVA = 0;
-  const bool isTilemapDrawer = backdropTilemapDrawer(vAdd, &drawerVA);
-
-  // Producer DB, native leg (external/psxport/docs/plans/graphics-producer-db.md). The backdrop was the
-  // second-largest UNDECLARED block of native prims. KEYED BY THE RESIDENT DRAWER, resolved per area
-  // from the guest's own bg-state jump table, NOT by a hardcoded address: every area's backdrop drawer
-  // is the same routine compiled per overlay (seaside FUN_80115598, area 10 FUN_801142EC, area 11
-  // FUN_801141B0, SOP narration FUN_8010C26C...), so one literal would mislabel every area but one —
-  // and the DB would report a producer that is not resident as the thing that drew the sky.
-  //
-  // A miss opens NO scope rather than guessing: if the resolution rejected (drawer is not the shared
-  // tilemap routine, or the resolver could not decode one) those prims stay in the census's counted
-  // unscopedNative() total. This pass still draws in that case only when the caller decided to call it,
-  // so the honest outcome is an undeclared count, never a row keyed to an unidentified drawer.
-  ProducerScope backdropScope(
-      (isTilemapDrawer && drawerVA) ? &c->rsub.producerScope : nullptr, drawerVA, "backdropRender");
-
-  int rowstride = W * 2;        // s0 — bytes per map row
-  int mapbytes = rowstride * H; // s3 — total map bytes (wrap modulus)
-  int scrollX, scrollY;
-  c->game->fps60.bgScroll(c, t4, scrollX, scrollY);
-  uint32_t map = c->mem_r32(t4 + 0x14);
-  uint16_t tpage = c->mem_r16(t4 + 0x04);
-  uint16_t clutbase = c->mem_r16(t4 + 0x06);
-  int tp_x = (tpage & 0xF) * 64, tp_y = ((tpage >> 4) & 1) * 256;
-  int mode = (tpage >> 7) & 3;
-  if (mode > 2) {
-    mode = 2;
-  }
-  // (This frame's backdrop texpage is published by backdropTexpagePublishTick, before the render-mode
-  // branch — not from here. See that function.)
-  // WIDESCREEN backdrop coverage (root-cause fix for the [320,nw) atlas-garbage band): the PSX body tiles
-  // a 320-wide window centred at screen-x 160 (t5 = ...+0x160 = 352 = 320+32 slack). At a wide aspect the
-  // engine projects the world with OFX=nw/2, so the visible field spans [0,nw) — but the sky/parallax
-  // backdrop, drawn only across ~[0,344), left the right margin uncovered, exposing the raw VRAM texture
-  // atlas that lives past the 320-wide FB (later-55 VRAM packing). Re-centre the backdrop on the wide
-  // centre (cx=nw/2) and widen the tiled window to nw+32 so it fills the full wide FB, matching the
-  // world's OFX shift. cx/winw reduce to the exact 4:3 values (160 / 0x160) when not wide, so the 4:3
-  // path stays byte-identical. Gated on gpu_vk_wide_engine() (false at 4:3 / oracle / SBS legs).
-  int gpu_vk_wide_engine(Core *), gpu_vk_wide_engine_w(Core *);
-  int cx = 160, winw = 0x160; // screen-centre X / tiled window width (4:3 defaults)
-  if (gpu_vk_wide_engine(c)) {
-    int nw = gpu_vk_wide_engine_w(c);
-    cx = nw / 2;
-    winw = nw + 0x20;
-  }
-  // Starting tile row/col = (scroll - screen-center) >> 4, wrapped into [0,H) / [0,W).
-  int rowtile = ((scrollY - 120) >> 4) % H;
-  if (rowtile < 0) {
-    rowtile += H;
-  }
-  int coltile = ((scrollX - cx) >> 4) % W;
-  if (coltile < 0) {
-    coltile += W;
-  }
-  int t2 = rowtile * rowstride;                       // current row byte offset (wraps mod mapbytes)
-  int coloff0 = coltile * 2;                          // starting col byte offset (wraps mod rowstride)
-  int xoff = (int16_t)(cx - 8 - scrollX);             // t9 — sub-tile X scroll remainder + screen offset
-  int yoff = (int16_t)(112 - scrollY);                // s7 — sub-tile Y scroll remainder + screen offset
-  unsigned char col[4] = {0x80, 0x80, 0x80, 0x80};    // 0x7d is raw-texture: color ignored
-  int outer_bound = (int16_t)(scrollY - 120) + 0x100; // 16 rows
-  int t5 = (int16_t)(scrollX - cx) + winw;            // wide-covering column window (4:3: ~22 cols)
-  // Tag every backdrop tile with the reserved kBackdropDbgNode sentinel (render_queue.h) — NOT the
-  // dbg_node==0 a generic OT-walk-classified RQ_BACKGROUND item gets (menu backdrop art, hut-interior
-  // clear, SOP fills). This is what lets Fps60::tier1Render's queue-lerp exclusion (fps60.cpp
-  // isTier1Owned) target ONLY the prims it actually re-renders, same pattern as terrain/scene-table (#54).
-  c->rsub.diag.beginObject(kBackdropDbgNode);
-  // These tiles are already WIDE-FINAL: every X below is built from cx = nw/2 (above), i.e. the same
-  // widened centre the world is projected with, so the queue's 4:3 centring must not touch them. This
-  // used to be expressed as an exemption inside the queue keyed on kBackdropDbgNode — but a debug
-  // node id is an IDENTITY, not a coordinate space, and using it as one meant every other producer
-  // with wide-final coordinates was silently centred a second time (kanban #73). The declaration
-  // belongs here, at the producer that knows.
-  RenderQueue &bgRq = c->game->rqRedirect ? *c->game->rqRedirect : c->game->rq;
-  RenderQueue::Space2dScope wideFinal(bgRq, RQ_2D_WIDE_FINAL);
-  for (int t8 = scrollY - 120;;) {
-    int Y = (int16_t)((t8 & 0xFFF0) + yoff);
-    int t6 = (int16_t)t2; // row byte offset (sign-extended)
-    int t0 = coloff0;
-    for (int t1 = scrollX - cx;;) {
-      int X = (int16_t)((t1 & 0xFFF0) + xoff);
-      uint16_t tile = c->mem_r16(map + (uint32_t)(t6 + t0));
-      int u = (tile & 0xF) << 4, v = (tile & 0xF0) + vAdd; // field +8 / SOP narration +0 (see top of fn)
-      uint16_t clut = (uint16_t)(clutbase + ((tile & 0xF00) >> 2));
-      int clut_x = (clut & 0x3F) * 16, clut_y = (clut >> 6) & 0x1FF;
-      int xs[4] = {X, X + 16, X, X + 16}, ys[4] = {Y, Y, Y + 16, Y + 16};
-      int us[4] = {u, u + 16, u, u + 16}, vs[4] = {v, v, v + 16, v + 16};
-      sil_bbox_log_i("bg_tilemap", xs, ys, 4);
-      // Tier-1 redirect (mirrors native_terrain.cpp / fieldEntityRender's fix — see fps60-rework.md
-      // "Tier 1 extended"): route through rqRedirect so re-invoking this fn at present time (Fps60::
-      // tier1Render) lands in the isolated mSink, never the live queue the next real frame will build.
-      bgRq.push2dQuad(RQ_BACKGROUND,
-                      /*order_2d_fg=*/0,
-                      xs,
-                      ys,
-                      us,
-                      vs,
-                      col,
-                      col,
-                      col,
-                      tp_x,
-                      tp_y,
-                      mode,
-                      /*raw=*/1,
-                      clut_x,
-                      clut_y,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      0,
-                      1023,
-                      511);
-      c->rsub.stats.snCmds++;
-      t0 += 2;
-      if (t0 >= rowstride) {
-        t0 = 0; // column wrap
-      }
-      t1 += 16;
-      if (!((int16_t)t1 < t5)) {
-        break;
-      }
-    }
-    t2 += rowstride;
-    if ((int16_t)t2 >= mapbytes) {
-      t2 -= mapbytes; // row wrap
-    }
-    t8 += 16;
-    if (!((int16_t)t8 < outer_bound)) {
-      break;
-    }
-  }
-  c->rsub.diag.endObject();
-}
-
 // renderScene — the ONE native-renderer dispatch. No guest-OT transcription; each producer builds the
 // picture from game state and emits to the render queue. A stage with no producer aborts with its identity.
 void Render::renderScene() {
@@ -505,7 +191,7 @@ void Render::renderScene() {
     break;
   case SceneKind::Unknown:
   default:
-    mCore->game->fps60.mTier1EligibleCur = false;
+    fps60(*mCore->game).mTier1EligibleCur = false;
     abortUnimplemented("stage with no native producer");
   }
 }
@@ -513,14 +199,14 @@ void Render::renderScene() {
 // #0 TASK-SWITCH HANDOFF (task0 in scheduler state 3): the front-end task was just re-registered and its
 // code hasn't run yet — nothing valid to draw for one frame. The reference shows the black loader here.
 void Render::renderLoading() {
-  mCore->game->fps60.mTier1EligibleCur = false;
+  fps60(*mCore->game).mTier1EligibleCur = false;
   mCore->game->gpu.gpu_blank_display();
 }
 
 // #1 START.BIN boot (0x8010649C): the loader shows a black screen (empty OT, FB mean 0) for ~5 frames while
 // it builds the file table / preloads. Native producer = a black loading frame (the observable result).
 void Render::renderStartBoot() {
-  mCore->game->fps60.mTier1EligibleCur = false;
+  fps60(*mCore->game).mTier1EligibleCur = false;
   mCore->game->gpu.gpu_blank_display(); // zero the display FB -> present shows black
 }
 
@@ -529,7 +215,7 @@ void Render::renderStartBoot() {
 // movie / attract, FMV/CD states shown black headless (the movie is skipped) — the honest result.
 void Render::renderTitle() {
   Core *c = mCore;
-  c->game->fps60.mTier1EligibleCur = false;
+  fps60(*c->game).mTier1EligibleCur = false;
   const uint16_t s48 = c->mem_r16(0x801FE048u);
   if (s48 == 2 || s48 == 3) {
     DisplayPassGuard displayPass(c->rsub.mode); // read-only: reads source state, emits host-only
@@ -571,7 +257,7 @@ void Render::renderTitle() {
 // #3 WALKABLE FIELD — native WORLD: terrain + entity/scene tables + objects + backdrop, real per-pixel
 // depth. The 2D layer (HUD/text/dialog/billboards) comes from its own native producers, not the OT.
 void Render::renderField() {
-  mCore->game->fps60.mTier1EligibleCur = true;    // native field render runs -> fps60 tier-1 may re-render it
+  fps60(*mCore->game).mTier1EligibleCur = true;   // native field render runs -> fps60 tier-1 may re-render it
   DisplayPassGuard displayPass(mCore->rsub.mode); // read-only invariant: aborts on any guest write
   sceneNative();
   fieldHudRender(); // field HUD family (FUN_80025D98 gate: status row / item ring / weapon strip, #13)
@@ -587,7 +273,7 @@ void Render::renderField() {
 // like the field (3D beats). The VOID beat (0x800BF9B4==5) has no 3D world/BG — the beat==5 guard inside
 // sceneNative drops terrain/scene-table/backdrop and draws the vortex over black. Caption text = 2D producer.
 void Render::renderSopNarration() {
-  mCore->game->fps60.mTier1EligibleCur = true;
+  fps60(*mCore->game).mTier1EligibleCur = true;
   DisplayPassGuard displayPass(mCore->rsub.mode);
   sceneNative();
   cineBarsRender(); // cinematic letterbox bars (the SOP narration is a cutscene)
@@ -838,8 +524,8 @@ void Render::sceneNative() {
   // is capture-only in both — that is what makes fps60=0 and fps60=1 the same renderer rather than two
   // (USER 2026-08-16: "the only difference would be whether to add the extra lerp frames or not"). It is
   // also not a cost: the world is drawn ONCE either way, just at the present instead of at guest time.
-  c->game->fps60.mWorldCaptureOnly =
-      c->game->fps60.mTier1EligibleCur && !c->game->diff_mode && !c->rsub.mode.psxRender();
+  Fps60 &temporal = fps60(*c->game);
+  temporal.mWorldCaptureOnly = temporal.mTier1EligibleCur && !c->game->diff_mode && !c->rsub.mode.psxRender();
   // AREA-SCOPED CACHE trust latches: the EDGE DETECTOR now lives in areaCacheTrustTick(), ticked once
   // per logic frame from Engine::drawOTag BEFORE the render-mode branch (it is guest-state tracking, not
   // picture-building — see that function). Here we only READ mSceneTableTrusted / mBackdropTrusted.
@@ -848,9 +534,9 @@ void Render::sceneNative() {
   // PSX path is 0x8003df04's 16-state jump table @0x80014fc0 keyed on mem_r8(0x800bf870), gated by
   // mem_r8(0x800bf873)==0. backdropTilemapDrawer resolves the resident drawer that same way and draws it
   // whenever it is the shared tilemap routine (seaside state 0, plus areas 10 and 11 and any same-family
-  // area — kanban #42), reading each drawer's own V bias. Backdrop kinds with no native producer stay
-  // black as honest gaps: area 14 = GTE scene geometry (#47), area 21 = gradient+tilemap composite (#48),
-  // and the state>=16 areas the guest itself draws nothing for. RQ_BACKGROUND → behind world.
+  // area — kanban #42), reading each drawer's own V bias. Area 14's GTE scene geometry remains a gap;
+  // Area 21's reached gradient branch is owned by area21SkyGradientRender below. The state>=16 areas are
+  // ones the guest itself draws no backdrop for. RQ_BACKGROUND → behind world.
   // Gated on mBackdropTrusted (see above): while untrusted, PARALLAX_BG_SM's tilemap pointer is the
   // ended narration's leftover, now aliasing the just-loaded field overlay's raw bytes — drawing it
   // produced a tiled noise/atlas-grid garbage frame (the narration-end -> fisherman-cutscene loading-
@@ -885,6 +571,13 @@ void Render::sceneNative() {
                                    1023,
                                    511);
   }
+  const bool area21Sky = !voidBeat && mBackdropTrusted && area21SkyGradientActive();
+  if (area21Sky) {
+    area21SkyGradientCapture();
+    if (!temporal.mWorldCaptureOnly && c->game->native_gates.get("area21-sky")) {
+      area21SkyGradientRender(1.0f);
+    }
+  }
   if (!voidBeat && mBackdropTrusted) {
     int vAdd; // resolved+used inside backdropRender; here only gates whether a native producer exists
     if (backdropTilemapDrawer(vAdd)) {
@@ -893,7 +586,7 @@ void Render::sceneNative() {
   }
   if (cfg_dbg("bgonly")) {
     c->r[4] = saved;
-    c->game->fps60.mWorldCaptureOnly = false;
+    temporal.mWorldCaptureOnly = false;
     return;
   } // PROBE: backdrop only (test if ov_render_frame already drew the world)
   // AREA-INIT SUPPRESSION (fieldAreaInit above): skip the field scene for the object-placement init frame
@@ -929,7 +622,7 @@ void Render::sceneNative() {
     fieldObjectsRender();
   }
   c->r[4] = saved;
-  c->game->fps60.mWorldCaptureOnly = false; // kanban #33: capture-only scope ends with the guest world walk
+  temporal.mWorldCaptureOnly = false; // kanban #33: capture-only scope ends with the guest world walk
   if (cfg_dbg("scenenative")) {
     int gpu_seen3d_this_frame(Core *);
     static int f = 0;
@@ -1211,7 +904,7 @@ void Render::fieldObjectsRender() {
       if (type == 0x20) {
         // kanban #33: the SOP narration swirl draws via drawWorldQuad (tier1-owned, has_xyf) and captures
         // nothing (host compose) — the present re-renders it from mSink, so its guest-time draw is dead.
-        if (c->game->fps60.mWorldCaptureOnly) {
+        if (fps60(*c->game).mWorldCaptureOnly) {
           continue;
         }
         const uint32_t rfn = c->mem_r32(n + 0x18);
@@ -1385,7 +1078,7 @@ void Render::fieldObjectsRender() {
       // overlay. Skipped on the capture-only pass like the other display-pass producers: the stroke
       // carries float screen XY (has_xyf), so it is rebuilt by the present-time re-render.
       if ((type == 0x01u || type == 0x41u || type == 0x81u) && c->mem_r32(0x80122974u) == 0x27BDFFC0u &&
-          !c->game->fps60.mWorldCaptureOnly) {
+          !fps60(*c->game).mWorldCaptureOnly) {
         rend(c)->tetherLineRender(n);
       }
       // BEAM / SEE-SAW ribbon (FUN_8003B704, unported-render-inventory R2). Only the objListWalk4
@@ -1395,7 +1088,7 @@ void Render::fieldObjectsRender() {
       // guest calls the emitter regardless of whether the node has any render commands. Skipped on
       // the capture-only pass like the other float-screen-XY producers (the present-time re-render
       // rebuilds it under the lerped camera).
-      if (h == 2 && !c->game->fps60.mWorldCaptureOnly) {
+      if (h == 2 && !fps60(*c->game).mWorldCaptureOnly) {
         beamCand++;
         if (rend(c)->beamNodeReached(n)) {
           beamHit++;
@@ -1457,7 +1150,9 @@ void Render::fieldObjectsRender() {
       // render.h. The one class with a real native producer is the cube-text banner, which builds
       // its transform from its own state instead of factoring the composed matrix; CubeTextBanner
       // self-filters on the behaviour pointer, so any OTHER pre-composed class draws nothing rather
-      // than a guessed-transform mesh.
+      // than a guessed-transform mesh. The producer itself owns the presentation-only gate because it
+      // has no temporal input to collect; keeping that invariant at the producer prevents any caller
+      // from emitting dead capture quads.
       if (pre) {
         CubeTextBanner::render(c, n);
         continue;
@@ -1468,7 +1163,7 @@ void Render::fieldObjectsRender() {
       // Queue A's guest order is ordinary mesh, optional tether, then FUN_8002AE0C. The guest-time
       // pass already ran the byte-faithful controller underneath; this is only its independent native
       // picture, so defer it to the present-time walk rather than emitting into the dead capture queue.
-      if (highlight.enabled && !c->game->fps60.mWorldCaptureOnly && c->game->native_gates.get("highlight")) {
+      if (highlight.enabled && !fps60(*c->game).mWorldCaptureOnly && c->game->native_gates.get("highlight")) {
         objectHighlightRender(n, highlight.scaleInput);
       }
     }

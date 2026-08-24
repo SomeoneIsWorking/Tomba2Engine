@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools/run.py"
+REPO = SCRIPT.parents[1]
 SCRATCH = SCRIPT.parents[1] / "scratch/selftests"
 SPEC = importlib.util.spec_from_file_location("tomba_run", SCRIPT)
 assert SPEC and SPEC.loader
@@ -24,6 +27,43 @@ def temporary_directory() -> tempfile.TemporaryDirectory[str]:
 
 
 class RunLauncherTest(unittest.TestCase):
+    def test_shell_shim_enters_repo_and_uses_frozen_uv_environment(self) -> None:
+        with temporary_directory() as temp:
+            root = Path(temp)
+            fake_bin = root / "fake-bin"
+            fake_bin.mkdir()
+            shim = root / "run.sh"
+            shutil.copyfile(REPO / "run.sh", shim)
+            shim.chmod(0o755)
+            capture = root / "capture.txt"
+            fake_uv = fake_bin / "uv"
+            fake_uv.write_text(
+                '#!/bin/sh\nprintf \'%s\\n\' "$PWD" "$@" > "$LAUNCH_CAPTURE"\n',
+                encoding="utf-8",
+            )
+            fake_uv.chmod(0o755)
+            environment = {
+                "PATH": f"{fake_bin}{os.pathsep}{os.defpath}",
+                "LAUNCH_CAPTURE": str(capture),
+            }
+
+            completed = subprocess.run(
+                [str(shim), "disc with spaces.chd"], env=environment, check=False
+            )
+
+            self.assertEqual(completed.returncode, 0)
+            self.assertEqual(
+                capture.read_text(encoding="utf-8").splitlines(),
+                [
+                    str(root),
+                    "run",
+                    "--frozen",
+                    "python",
+                    "bootstrap.py",
+                    "disc with spaces.chd",
+                ],
+            )
+
     def test_resume_parser_preserves_following_disc(self) -> None:
         resume, remaining = run.parse_arguments(["--resume", "route.pad", "game.chd"])
         self.assertEqual(resume, "route.pad")
@@ -62,19 +102,49 @@ class RunLauncherTest(unittest.TestCase):
         ):
             run.resolve_disc(None, Path(temp), {})
 
-    def test_non_clang_toolchain_refuses(self) -> None:
-        with (
-            mock.patch.object(run, "command_output", return_value="gcc 16"),
-            self.assertRaisesRegex(run.LauncherError, "CC=gcc is not Clang"),
-        ):
-            run.validate_toolchain("gcc", "g++", Path.cwd())
+    def test_platform_install_commands_are_actionable(self) -> None:
+        self.assertEqual(
+            run.install_instruction("sdl3", "fedora"),
+            "please run: sudo dnf install SDL3-devel",
+        )
+        self.assertEqual(
+            run.install_instruction("sdl3", "debian"),
+            "please run: sudo apt install libsdl3-dev",
+        )
+        self.assertEqual(
+            run.install_instruction("sdl3", "macos"),
+            "please run: brew install sdl3",
+        )
 
-    def test_full_flow_builds_project_target_and_execs_it(self) -> None:
+    def test_host_family_uses_linux_distribution_identity(self) -> None:
+        self.assertEqual(run.host_family("Linux", {"ID": "fedora"}), "fedora")
+        self.assertEqual(
+            run.host_family("Linux", {"ID": "pop", "ID_LIKE": "ubuntu debian"}),
+            "debian",
+        )
+
+    def test_missing_native_library_names_exact_dnf_install(self) -> None:
+        with (
+            mock.patch.object(
+                run.subprocess,
+                "run",
+                side_effect=subprocess.CalledProcessError(1, ["pkg-config"]),
+            ),
+            mock.patch.object(run, "host_family", return_value="fedora"),
+            self.assertRaisesRegex(
+                run.LauncherError,
+                r"SDL3_image \(sdl3-image\).*sudo dnf install SDL3_image-devel",
+            ),
+        ):
+            run.require_pkg_config("sdl3-image", "SDL3_image", Path.cwd())
+
+    def test_zero_argument_flow_builds_project_target_and_execs_it(self) -> None:
         with temporary_directory() as temp:
             root = Path(temp)
             (root / "external/psxport/cmake").mkdir(parents=True)
             (root / "external/psxport/cmake/psxport.cmake").touch()
-            discdump = root / "external/psxport/build/tools/discdump"
+            framework_build, game_build = run.player_build_dirs(root, "gcc", "g++")
+            discdump = framework_build / "tools/discdump"
             discdump.parent.mkdir(parents=True)
             discdump.touch(mode=0o755)
             main_exe = root / "scratch/bin/tomba2/MAIN.EXE"
@@ -94,21 +164,26 @@ class RunLauncherTest(unittest.TestCase):
                 launched.extend([program, argv, env])
                 raise run.LauncherError("exec intercepted")
 
-            def fake_output(command: list[str], **_: object) -> str:
-                return "clang version 20" if "--version" in command else ""
-
             with (
-                mock.patch.object(run, "require_tool"),
+                mock.patch.object(run, "require_native_dependencies"),
                 mock.patch.object(run, "run_checked", side_effect=fake_checked),
-                mock.patch.object(run, "command_output", side_effect=fake_output),
+                mock.patch.object(run, "command_output", return_value=""),
                 mock.patch.object(run, "exec_program", side_effect=fake_exec),
                 mock.patch.object(run, "processor_count", return_value=8),
-                mock.patch.dict(os.environ, {}, clear=True),
+                mock.patch.dict(os.environ, {"CC": "gcc", "CXX": "g++"}, clear=True),
             ):
-                self.assertEqual(run.main(["game.chd"], root=root), 1)
+                self.assertEqual(run.main([], root=root), 1)
 
             self.assertIn(
-                ["cmake", "--build", "build", "-j", "8", "--target", "tomba2_port"],
+                [
+                    "cmake",
+                    "--build",
+                    str(game_build),
+                    "-j",
+                    "8",
+                    "--target",
+                    "tomba2_port",
+                ],
                 commands,
             )
             self.assertEqual(launched[0], "./scratch/bin/tomba2_port")
@@ -117,7 +192,30 @@ class RunLauncherTest(unittest.TestCase):
                 ["./scratch/bin/tomba2_port", "scratch/bin/tomba2/MAIN.EXE"],
             )
             self.assertEqual(launched[2]["PSXPORT_ASSET_DIR"], "external/psxport")
-            self.assertEqual(launched[2]["PSXPORT_TOMBA2_DISC"], "game.chd")
+            self.assertEqual(launched[2]["PSXPORT_TOMBA2_DISC"], "./game.chd")
+            flattened = [argument for command in commands for argument in command]
+            self.assertIn("-DCMAKE_C_COMPILER=gcc", flattened)
+            self.assertIn("-DCMAKE_CXX_COMPILER=g++", flattened)
+            self.assertIn(f"-DPython3_EXECUTABLE={run.sys.executable}", flattened)
+            self.assertNotIn("ctest", flattened)
+            self.assertNotIn("--version", flattened)
+            self.assertIn(str(framework_build), flattened)
+            self.assertIn(str(game_build), flattened)
+            self.assertNotIn(str(root / "build"), flattened)
+            self.assertTrue(
+                all(
+                    "-DBUILD_TESTING=OFF" in command
+                    for command in commands
+                    if command[:2] == ["cmake", "-S"]
+                )
+            )
+
+    def test_player_builds_are_toolchain_keyed_and_repo_local(self) -> None:
+        clang = run.player_build_dirs(REPO, "clang", "clang++")
+        gcc = run.player_build_dirs(REPO, "gcc", "g++")
+        self.assertNotEqual(clang, gcc)
+        for build in (*clang, *gcc):
+            self.assertTrue(build.is_relative_to(REPO / "scratch/build/player"))
 
 
 if __name__ == "__main__":

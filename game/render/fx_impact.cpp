@@ -12,6 +12,7 @@
 // is read to make this picture. The producer is read-only and runs under the fps60-lerped display-pass
 // camera through projComposeObjectHost.
 #include "core.h"
+#include "fps60.h"
 #include "game.h"
 #include "mesh_quads.h"
 #include "projection.h"
@@ -96,7 +97,7 @@ void Render::impactPlumeRender(uint32_t node) {
                 "scale=({},{},{}) angles=({},{},{}) anchor=({:.0f},{:.0f},{:.0f}) "
                 "bias={} u={} clutrow={} cue={} quads={} screen=[{:.1f},{:.1f}]..[{:.1f},{:.1f}]",
                 c->game->gpu.s_frame,
-                (double)c->game->fps60.mT,
+                (double)fps60(*c->game).mT,
                 kGuestControllerAddr,
                 node,
                 script,

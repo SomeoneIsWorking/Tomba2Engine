@@ -38,6 +38,7 @@
 #include "cfg.h"
 #include "core.h"
 #include "effect_lerp.h"
+#include "fps60.h"
 #include "game.h"
 #include "game_ctx.h" // trigOf(c) — the native Trig helpers
 #include "mesh_quads.h"
@@ -311,7 +312,7 @@ void Render::dustEffectRender(uint32_t node) {
              "f%d t=%.2f node=%08X sub=%d state=%d age=%04X ageIdx=%d owner=%08X "
              "pos=(%d,%d,%d) segments=%d puff=%d",
              c->game->gpu.s_frame,
-             (double)c->game->fps60.mT,
+             (double)fps60(*c->game).mT,
              node,
              sub,
              (int)state,

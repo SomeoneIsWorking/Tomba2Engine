@@ -5,11 +5,6 @@
 cmake_minimum_required(VERSION 3.21)
 project(tomba2engine CXX C)
 
-if(NOT CMAKE_CXX_COMPILER_ID MATCHES "^(Apple)?Clang$")
-  message(FATAL_ERROR
-          "Tomba2Engine requires clang++ (configured C++ compiler: ${CMAKE_CXX_COMPILER_ID})")
-endif()
-
 include(CTest)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
@@ -92,6 +87,14 @@ if(BUILD_TESTING)
   add_executable(test_object_highlight_policy tests/test_object_highlight_policy.cpp)
   target_include_directories(test_object_highlight_policy PRIVATE game/render)
   add_test(NAME tomba_object_highlight_policy COMMAND test_object_highlight_policy)
+
+  add_executable(test_area21_sky_gradient_policy tests/test_area21_sky_gradient_policy.cpp)
+  target_include_directories(test_area21_sky_gradient_policy PRIVATE game/render)
+  add_test(NAME tomba_area21_sky_gradient_policy COMMAND test_area21_sky_gradient_policy)
+
+  add_executable(test_cube_text_banner_policy tests/test_cube_text_banner_policy.cpp)
+  target_include_directories(test_cube_text_banner_policy PRIVATE game/render)
+  add_test(NAME tomba_cube_text_banner_policy COMMAND test_cube_text_banner_policy)
 
   set(TOMBA_CPP_POLICY_CAPS
       game/core/field_owned_leaves.cpp=20838

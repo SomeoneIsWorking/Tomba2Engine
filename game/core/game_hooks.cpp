@@ -215,13 +215,14 @@ static uint32_t tomba_schedRng(Core *c) {
   return rngOf(c).next();
 } // FUN_8009A450 (guest seed 0x80105EE8)
 
-// tomba_fps60WorldPass / tomba_fps60BbSwapPrev — TRANSITIONAL fps60 seam (see
+// tomba_fps60WorldPass / tomba_fps60TemporalRotate — TRANSITIONAL fps60 seam (see
 // game_iface.h). The interp present's world-pass re-render lives in the
 // framework Fps60::tier1Render; these hooks carry the two reaches into game
 // Render. Body in game/render/fps60_worldpass.cpp (needs Render + the Fps60
-// bg-override).
+// bg-override). The temporal hook rotates game-owned producer inputs only;
+// billboard history is absent here, so the billboard-specific hook stays null.
 extern void tomba_fps60_world_pass(Core *c, float t);
-extern void tomba_fps60_bb_swap_prev(Core *c);
+extern void tomba_fps60_temporal_rotate(Core *c);
 
 // tomba_selftestCameraOracle — the camera-oracle selftest branch
 // (game/camera/cutscene_camera_selftest.cpp), called by the framework selftest
@@ -272,7 +273,7 @@ static const GameHooks g_tomba_hooks = {
     .schedStageBody = tomba_schedStageBody,
     .schedRng = tomba_schedRng,
     .fps60WorldPass = tomba_fps60_world_pass,
-    .fps60BbSwapPrev = tomba_fps60_bb_swap_prev,
+    .fps60TemporalRotate = tomba_fps60_temporal_rotate,
     .selftestGame = tomba_selftestGame,
     .fps60ReadSceneCam = tomba_fps60ReadSceneCam,
 };

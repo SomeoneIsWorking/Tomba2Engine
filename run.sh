@@ -1,3 +1,4 @@
 #!/bin/sh
 set -eu
-exec python3 "$(dirname "$0")/tools/run.py" "$@"
+cd "$(dirname "$0")"
+exec uv run --frozen python bootstrap.py "$@"

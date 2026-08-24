@@ -3,7 +3,8 @@
 // The interpolated-60fps lerp tier (Fps60) is a GENERIC renderer feature and lives framework-side
 // (runtime/recomp/fps60.cpp). Its interp present RE-RUNS the game's world passes one frame behind, under
 // the framework Fps60's lerped inputs, into its isolated sink. That re-run is the ONE place the framework
-// still reaches into game render — carried here, behind the fps60WorldPass / fps60BbSwapPrev hooks.
+// still reaches into game render — carried here, behind the fps60WorldPass hook. The temporal-rotation
+// hook below advances game-owned producer inputs after both presentation slots.
 //
 // TARGET (USER 2026-07-17): the game submits its drawables to the framework once and the framework lerps
 // them directly — no callback into game render. Delete this file + both hooks when that submit model lands.
@@ -12,8 +13,8 @@
 // tier1Render); this body is only the gate reads + the world-pass draws, plus the backdrop wrap-lerp that
 // writes the framework Fps60's (public) bg-override state that Render::backdropRender reads back.
 #include "core.h"
-#include "fps60.h"    // Fps60 — the override struct fields
-#include "game.h"     // c->game->fps60 — the framework Fps60 (public bg/obj-override state written here)
+#include "fps60.h" // Fps60 — the override struct fields
+#include "game.h"
 #include "game_ctx.h" // rend(c) — the game's Render umbrella accessor
 #include "render.h"   // Render::worldVoidBeat/fieldAreaInit/terrainRenderAll/fieldEntityRender/backdropRender/...
 #include <math.h>
@@ -40,7 +41,7 @@ static int wrapLerp(int prev, int cur, int mod, float t) {
 }
 
 void tomba_fps60_world_pass(Core *c, float t) {
-  Fps60 &f = c->game->fps60;
+  Fps60 &f = fps60(*c->game);
   // #67 GATE PARITY: mirror the REAL frame's world-pass gates (Render::worldVoidBeat / fieldAreaInit —
   // the same reads sceneNative made this interval). Re-running past a gate the real frame honored paints
   // that pass on interp presents only (30Hz flicker of the whole layer).
@@ -60,7 +61,7 @@ void tomba_fps60_world_pass(Core *c, float t) {
     rend(c)->fieldEntityRender(0x800F2418u);
   }
   // BACKDROP (game-logic scroll, LAYER-TRANSFORM lerp — not camera-projected): mirrors sceneNative's own
-  // gate (mBackdropTrusted && the resident drawer is the shared tilemap routine — seaside + areas 10/11/21,
+  // gate (mBackdropTrusted && the resident drawer is the shared tilemap routine — seaside + areas 10/11,
   // kanban #42). The wrap moduli (t4+0x30/+0x32) are static per-area config, safe to re-read directly here.
   int bgVAdd;
   if (!voidBeat && !hutInterior && rend(c)->mBackdropTrusted && rend(c)->backdropTilemapDrawer(bgVAdd)) {
@@ -70,6 +71,13 @@ void tomba_fps60_world_pass(Core *c, float t) {
     f.mBgOverrideOn = true;
     rend(c)->backdropRender(0x800ed018u);
     f.mBgOverrideOn = false;
+  }
+  // Area 21's reached variant-1/early-phase branch is the four-quad gradient helper and returns before
+  // the tilemap loop. Rebuild it from the raw pitch captured by the real scene pass; the producer owns
+  // the interpolation slot because PARALLAX_BG_SM's wrapped scroll is not the helper's input.
+  if (!voidBeat && !hutInterior && rend(c)->mBackdropTrusted && rend(c)->area21SkyGradientActive() &&
+      c->game->native_gates.get("area21-sky")) {
+    rend(c)->area21SkyGradientRender(t);
   }
   // Field OBJECT walk under lerped per-object transforms (mObjOverrideOn + the captured projObj) AND the
   // still-armed lerped camera into the sink. Objects run on the void beat (vortex node) like the real
@@ -81,6 +89,6 @@ void tomba_fps60_world_pass(Core *c, float t) {
   }
 }
 
-void tomba_fps60_bb_swap_prev(Core *c) {
-  (void)c;
+void tomba_fps60_temporal_rotate(Core *c) {
+  rend(c)->area21SkyGradientSwapPrev();
 }

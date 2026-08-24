@@ -181,10 +181,9 @@ static const GameConfig g_tomba_config = {
             .vsyncTrap = 0x80085900u,
         },
 
-    // Does the guest's uploaded VRAM stay visible under the submitted primitives? NO for this port:
-    // pc_render owns the frame and draws only what a native producer submitted, so anything left in
-    // VRAM from the guest's own drawing is stale and the clear-to-black is correct. A port still
-    // running the guest's drawing code sets this to 1 so its upload-only screens are not erased.
+    // Transitional compatibility mirror only. Shipping picture ownership is answered directly by
+    // TombaRuntime::guestVramIsPicture(); this field remains while legacy framework consumers still
+    // require the flat GameConfig view and must not become a second policy authority.
     .preserveVramBackdrop = 0u,
 
     // Vblanks one gpu_pace_frame call represents. 2 = the engine's 30fps base cadence.

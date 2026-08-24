@@ -78,6 +78,14 @@ public:
   bool mBackdropTrusted = false;       // may render_bg_tilemap_native(PARALLAX_BG_SM) run this frame?
   bool mAreaCacheWasNarration = false; // previous frame's sop_narration value (shared edge detector)
 
+  // Area 21's early-phase sky follows the raw signed camera pitch, not PARALLAX_BG_SM's wrapped tile
+  // scroll. Capture and rotate that one producer input beside the framework's camera/backdrop captures
+  // so the same native producer can rebuild both presentation instants without reading future state.
+  int16_t mArea21SkyPitchCur = 0;
+  int16_t mArea21SkyPitchPrev = 0;
+  bool mArea21SkyPitchValid = false;
+  bool mArea21SkyCapturedThisFrame = false;
+
   // NATIVE-DRAWN-NODE provenance (bug #48, docs/findings/render.md "Z-fight sweep 2026-07-14"):
   // node addresses Render::sceneNative's object loop WILL draw this frame via perObjFlush (the real
   // per-object float path — real identity + real per-vertex depth). cmdListDispatch
@@ -739,6 +747,15 @@ public:
   // call the SAME pass, mirroring terrainRenderAll/fieldEntityRender.
   void backdropRender(uint32_t t4);
 
+  // Area 21's reached early phase selects a four-quad gouraud gradient and returns before the later
+  // tilemap branch. These methods own that picture and its one temporal input. The guest helper
+  // remains the sole owner of packet-pool/OT writes.
+  bool area21SkyGradientActive() const;
+  void area21SkyGradientCapture();
+  // area21SkyGradientRender: guest picture producer FUN_8010BB64.
+  void area21SkyGradientRender(float t);
+  void area21SkyGradientSwapPrev();
+
   // backdropTexpagePublishTick — publish THIS frame's backdrop atlas texpage (the VRAM page the guest's
   // own background drawer samples), the key gpu_native's OT walk uses to band the guest's 16x16 backdrop
   // tiles RQ_BACKGROUND instead of RQ_HUD. Per-LOGIC-FRAME guest-state tracking, so Engine::drawOTag runs
@@ -752,10 +769,9 @@ public:
   // V texel bias into `vAdd`. Every area's backdrop drawer is that same routine compiled per overlay; the
   // only thing that varies is the V bias (seaside 0x80115598 samples (tile&0xF0)+8, every other area
   // (tile&0xF0)), which is read straight from the resident drawer's code — ground truth per area, no
-  // scene heuristic. Returns false when the resident drawer is NOT the tilemap routine (unported backdrop
-  // kind / no backdrop for this state): the far plane then stays black, an honest missing-producer gap —
-  // area 14's backdrop is GTE scene geometry (#47), area 21's is a gradient+tilemap composite (#48), and
-  // the state>=16 areas are ones the guest itself draws no backdrop for. Read-only (no guest writes).
+  // scene heuristic. Returns false when the resident drawer is NOT the shared tilemap routine: area 14's
+  // backdrop is GTE scene geometry (#47), while area 21's reached early branch is the separately owned
+  // gouraud gradient and returns before its phase-dependent tilemap loop. Read-only (no guest writes).
   // `drawerVAOut` (optional) receives the RESIDENT drawer's address, and only when the resolution
   // SUCCEEDS — it is the producer DB's key for backdropRender's prims, per area rather than hardcoded.
   bool backdropTilemapDrawer(int &vAdd, uint32_t *drawerVAOut = nullptr);

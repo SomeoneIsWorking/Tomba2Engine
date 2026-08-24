@@ -23,7 +23,8 @@
 #include "core/engine.h" // class Engine — this file defines Engine::frameUpdate / Engine::drawOTag
 #include "cull.h"        // PC-native visibility cull / LOD subsystem
 #include "entity.h"      // PC-native per-object entity state-machine subsystem
-#include "game.h"        // Fps60::current_object (was g_current_object)
+#include "fps60.h"
+#include "game.h" // Fps60::current_object (was g_current_object)
 #include "game_ctx.h"
 #include "input.h" // PC-native per-frame input/controller subsystem
 #include "margin_render.h"
@@ -143,7 +144,7 @@ void Engine::frameUpdate() {
   // `if (!mods.fps60) { gpu_present; gpu_pace_frame; }` branch — the game choosing between two
   // renderers, which is the top of the split kanban #99 is about.
   c->game->perf.phaseBegin(2); // perf: PRESENT-cpu = world build + VRAM mirror upload + VK record/submit
-  c->game->fps60.frame_commit(c);
+  fps60(*c->game).frame_commit(c);
   c->game->perf.phaseEnd(2); // (the pacing/vsync sleep is inside the commit -> shows as idle/pace)
 }
 

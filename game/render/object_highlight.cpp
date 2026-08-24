@@ -11,6 +11,7 @@
 // Ground truth: the resident controller in generated/shard_2.c and packed-record writer in
 // generated/shard_5.c; the exact symbols are recorded in docs/producers/0x8002AE0C.md.
 #include "core.h"
+#include "fps60.h"
 #include "game.h"
 #include "mesh_quads.h"
 #include "object_highlight_policy.h"
@@ -79,7 +80,7 @@ void Render::objectHighlightRender(uint32_t node, int32_t scaleInput) {
                 "angles=({},{},{}) anchor=({:.0f},{:.0f},{:.0f}) quads={} "
                 "screen=[{:.1f},{:.1f}]..[{:.1f},{:.1f}]",
                 c->game->gpu.s_frame,
-                (double)c->game->fps60.mT,
+                (double)fps60(*c->game).mT,
                 node,
                 scaleInput,
                 lateral,

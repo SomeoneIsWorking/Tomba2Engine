@@ -1,18 +1,42 @@
 ---
 id: 49
-title: area 21 sky is a GRADIENT+tilemap COMPOSITE — needs the gouraud base ported (split from #42)
-status: todo
+title: area 21 early-phase sky gradient was absent
+status: done
 labels: [render]
 created: 2026-07-23
-updated: 2026-07-23
+updated: 2026-08-22
 ---
 
-**2026-07-23:** Split from #42 on 2026-07-23. Area 21's backdrop IS tilemap-adjacent but is a COMPOSITE, and routing it through the plain tilemap producer was tried and MEASURED WORSE.
+**2026-08-22:** Fixed for the reached early phase. Generated `ov_a0l_gen_8010BE30` plus live state
+(`bgstate=21`, `variant=1`, `phase=1`) show this branch calls `0x8010BB64` and returns; it does not
+continue into the tilemap loop. The helper emits four gouraud `POLY_G` bands across x[0,320], with
+guest colour words `0x00AC0606`, `0x00EA9898`, and `0x00390000`; their Y origin is derived from raw
+signed camera pitch at `0x1F8000F0`.
 
-MECHANISM (RE'd): the field backdrop dispatcher (gen_func_8003DF04 @0x8003DF04) special-cases bg-state 21 AHEAD of its jump table, calling 0x8010BE30 with r4=0x800ED018. That drawer is NOT the plain tilemap routine: keyed on mem_r8(0x800BF871) (==1 in area 21) it first calls helper ov_a0l_gen_8010BB64, which builds FOUR gouraud POLY_G quads spanning x[0,320] with colour words 0x00AC0606 and 0x00EA9898 and a scroll-derived Y origin (from the signed hword at 0x800C00F0, scaled >>12, +120) — that is the sky GRADIENT BASE. Only after that does 0x8010BE30 run its own tilemap loop (same struct/centering/window as the shared routine, V bias 0). A sibling helper 0x8010BCA8 is called on the other sub-state branch.
+`Render::area21SkyGradientRender` rebuilds those bands at `RQ_BACKGROUND`, with a game-owned temporal
+pitch capture so both 60 Hz presents use the same producer. Same-binary `native area21-sky` ON/OFF
+changed 53,907/76,800 pixels (53,842 >8/255); both legs advanced 3,601 frames and exited 0. Census:
+2,256 native prims/282 frames, while an oracle run independently observes four guest prims/frame.
+Captures: `scratch/screenshots/area21_sky_{on,off}.png` and `area21_sky_off_on_diff.png`.
 
-So the real picture = gouraud gradient base + the tilemap as a CLOUD OVERLAY on top. PARALLAX_BG_SM is populated (W=36 H=72 tpage=0x000F clut=0x3EBF tilemap=0x8018D8DC scroll=(0x1CA,0x1BE)).
+Fresh 2026-08-24 visual gate, one binary (`fec4e570…`, build id
+`edaa13a-dirty+psxport-d2266f4b`): native ON, native OFF, and the boot-time PSX-render reference all
+reach frame 3615 with identical guest state (`bg=21`, `variant=1`, `phase=1`, pitch `-175`). ON/OFF
+again changes 53,907/76,800 pixels (53,842 above 8/255). The native ON picture is coherent and close
+to the aligned PSX reference; OFF loses the background. Native ON vs PSX reference still differs by
+26,853 pixels (20,094 above 8/255), so this is **draw-verified, not pixel parity**. The independent
+`PSXPORT_ORACLE=1` path enters GAME 11 frames later; its phase-1 capture is therefore useful only as an
+unaligned visual reference, not a parity comparison.
 
-MEASURED DEAD END — do not repeat: allowing state 21 into Render::backdropTilemapDrawer draws the tilemap layer ALONE, opaque, with no gradient behind it. That paints a BRIGHT full sky where psx shows the darker gradient, and the whole-frame delta got WORSE: 61375 -> 64650 px >8/255. State 21 is therefore explicitly excluded in backdropTilemapDrawer ('if (st == 21) return false') and the plane is left black as an honest missing-producer gap. Evidence of the worse result: scratch/screenshots/warpsweep/fix21_triptych.png (left=pc tilemap-only, middle=psx, right=diff).
+Fresh captures and logs:
 
-TO FIX PROPERLY: port ov_a0l_gen_8010BB64 as a native gouraud-gradient RQ_BACKGROUND producer (drawn behind), THEN re-admit state 21 to the tilemap producer so the cloud layer composites over it with the correct blend. Both halves must land together — neither alone is right. Current gap 61375 px >8/255. See docs/findings/render.md.
+- `scratch/screenshots/area21_fresh_native_{on,off}_f3615.png`
+- `scratch/screenshots/area21_fresh_psx_reference.png`
+- `scratch/screenshots/area21_fresh_native_off_on_diff.png`
+- `scratch/screenshots/area21_fresh_native_vs_psx_reference_diff.png`
+- `scratch/screenshots/area21_fresh_oracle_{exact_recipe,settled20}.png`
+- `scratch/logs/area21_fresh_{native_on,native_off,psx_reference,oracle}_20260824.log`
+
+The tilemap loop belongs to another variant/phase branch. It remains excluded and unclaimed until a
+capture visibly reaches it. Re-admitting the tilemap into this early-phase repro was the measured dead
+end: it worsened the frame from 61,375 to 64,650 pixels above 8/255.

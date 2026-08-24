@@ -18,7 +18,8 @@
 #include "projection.h"
 #include "cfg.h"
 #include "core.h"
-#include "game.h"            // c->game->fps60 — the TRUE per-object 60fps camera/object interpolation provider
+#include "fps60.h"
+#include "game.h"
 #include "guest_face_gate.h" // GteFlag — the CR31 bits each clamp below raises
 #include "render.h"
 #include <lucent/log.h>
@@ -41,7 +42,7 @@ static void projComposeCore(Core *c, const float Robj[3][3], const float Tobj[3]
   // Scene camera (Rcam int16 rows, Tcam raw view units, OFX/OFY/H): the scratchpad view matrix plus the
   // projection constants the GAME SET, both through the shared Fps60::sceneCam choke (see fps60.cpp).
   float Rcam[3][3], Tcam[3], ofx, ofy, H;
-  c->game->fps60.sceneCam(c, Rcam, Tcam, ofx, ofy, H);
+  fps60(*c->game).sceneCam(c, Rcam, Tcam, ofx, ofy, H);
 
   // composed rotation R = (Rcam · Robj) / 4096, kept in 1.3.12 scale.
   for (int i = 0; i < 3; i++) {
@@ -67,7 +68,7 @@ void Render::projComposeObject(uint32_t cmd, EObjXform *out) {
   // them keyed by cmd (byte-identical to the old inline read); the interp present re-run returns the
   // lerp(prev,cur,t) so the object interpolates through THIS same render path.
   float Robj[3][3], Tobj[3];
-  c->game->fps60.projObj(c, cmd, Robj, Tobj);
+  fps60(*c->game).projObj(c, cmd, Robj, Tobj);
 
   projComposeCore(c, Robj, Tobj, out);
   if (cfg_dbg("eproj")) {
@@ -93,7 +94,7 @@ void Render::projComposeCamera(EObjXform *out) {
   Core *c = mCore;
   // The field's entity (scene-table) verts are already world-space, so view = Rcam·world + Tcam and the
   // composed rotation IS the camera rotation. Read through the shared Fps60::sceneCam choke.
-  c->game->fps60.sceneCam(c, out->R, out->T, out->ofx, out->ofy, out->H);
+  fps60(*c->game).sceneCam(c, out->R, out->T, out->ofx, out->ofy, out->H);
 }
 
 // EVERY clamp below is a GTE saturation, and the guest's geometry submitters DROP a face whose GTE

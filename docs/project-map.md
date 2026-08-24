@@ -13,18 +13,22 @@ producer exists today.
 
 | surface | owner | verified behavior |
 |---|---|---|
-| default launcher | `run.sh` → `tools/run.py` | no arguments resolve the user's disc and launch `tomba2_port`; `--resume [recording.pad]` is preserved |
-| build graph | `CMakeLists.txt`, `cmake/tomba2_port.cmake` | configure refuses non-Clang C++; build identity and `compile_commands.json` come from the real target |
+| default launcher | `run.sh` → locked `bootstrap.py` → `tools/run.py` | no arguments provision and launch `tomba2_port`; the shim uses `uv run --frozen`, compiler-keyed player-only build trees stay under `scratch/build/player/`, and `--resume [recording.pad]` is preserved |
+| build graph | `CMakeLists.txt`, `cmake/tomba2_port.cmake` | the shipping path accepts the caller's compatible C/C++ compiler without identity policy; maintainer verification remains Clang-backed, while build identity and `compile_commands.json` come from the real target |
 | C++ verifier | `external/psxport/tools/check_cpp_style.py` via CTest | one shared implementation checks all first-party formatting, all compile-backed C++ TUs with clang-tidy, and 1,200-line/default shrink-only caps |
 
 Tomba carries the authoritative tracked `.clang-format` and `.clang-tidy` profiles. The normal CTest
 does not install a pre-commit hook and does not duplicate the verifier in this repo.
 
+The launcher boundary follows the same composition rule as Dusklight's host entry points: `run.sh`
+only enters the repository's locked Python environment, `bootstrap.py` only selects the launcher,
+and `tools/run.py` owns dependency checks, provisioning, CMake configuration, and process replacement.
+
 ## Game runtime ownership
 
 | responsibility | owner | compatibility debt |
 |---|---|---|
-| process-lifetime game seam | `game/core/tomba_runtime.{h,cpp}` — `tomba::TombaRuntime` | derives `LegacyGameRuntimeAdapter` only while generic psxport code still reads legacy facts/callbacks |
+| process-lifetime game seam | `game/core/tomba_runtime.{h,cpp}` — `tomba::TombaRuntime` | derives `LegacyGameRuntimeAdapter` only while generic psxport code still reads legacy facts/callbacks; directly owns current-frame guest-VRAM picture policy |
 | per-Core game aggregate | `game/core/game_ctx.{h,cpp}` | none at the framework boundary; `TombaRuntime::createContext`/`destroyContext` own the lifecycle |
 | boot policy | `TombaRuntime::bootInit` | guest leaves remain dispatched where their native owners have not landed |
 | override registration | `TombaRuntime::registerOverrides` → `game/core/register_overrides.cpp` | generated oracle bodies remain deliberately available through the override registry |
@@ -33,9 +37,9 @@ does not install a pre-commit hook and does not duplicate the verifier in this r
 
 This follows Dusklight's current game→platform ownership direction: the game owns lifecycle and policy,
 while the shared platform receives one derived object. The flat compatibility tables are isolated debt,
-not extension points. `tools/codemap.py` was regenerated after the move; its guest-address ownership
-totals remain 1,040 natives / 874 addresses / 1,031 live / 9 orphan because this change moves host
-ownership without adding or removing a guest function.
+not extension points. `tools/codemap.py` was regenerated after the combined runtime/render milestone;
+its guest-address ownership totals are 1,042 natives / 875 addresses / 1,033 live / 9 orphan. The
+runtime move itself does not add guest ownership; the Area 21 producer accounts for the new address.
 
 ## Shared render ordering
 

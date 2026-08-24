@@ -24,9 +24,17 @@ public:
   // identity — the producer selects the node by what it is, not by a tag anyone stamped on it.
   static constexpr uint32_t kBehCubeTextSpawn = 0x8003AD48u;
 
+  // The banner has no temporal input to capture. Its picture is rebuilt from stable guest state only
+  // during presentation; emitting while the temporal system is collecting world state creates dead
+  // queue entries that the presentation ledger correctly reports as dropped.
+  static constexpr bool pictureBuildAllowed(bool oracle, bool worldCaptureOnly) {
+    return !oracle && !worldCaptureOnly;
+  }
+
   // Draw one node's banner, if that node is a cube-text banner. Called from the native object walk
   // (render_walk.cpp) for every pre-composed-matrix node; self-filters on the behaviour pointer, so
   // a non-banner node of the same render class produces nothing rather than a guessed-transform mesh.
-  // READ-ONLY: guest memory is only read, no c->r[] is touched, nothing runs on the oracle leg.
+  // READ-ONLY: guest memory is only read, no c->r[] is touched, nothing runs on the oracle leg or
+  // during a temporal world-capture-only pass.
   static void render(Core *c, uint32_t node);
 };

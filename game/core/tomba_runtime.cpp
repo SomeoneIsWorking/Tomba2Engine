@@ -26,6 +26,14 @@ void TombaRuntime::registerOverrides(Game &game) {
   register_engine_overrides(game);
 }
 
+bool TombaRuntime::guestVramIsPicture(const Game &) const {
+  // The native render pass owns the complete presented frame. Guest VRAM still carries texture
+  // atlases and compatibility-path drawing, but neither is background picture content for the
+  // native compositor. Keep this title policy on the derived runtime instead of routing a renderer
+  // decision through the transitional flat GameConfig view.
+  return false;
+}
+
 void TombaRuntime::bootInit(Core &core) {
   Core *c = &core;
   lucent::info("native_boot", "FUN_80050b08 override: running init prefix");

@@ -323,7 +323,10 @@ Tomba! 1's executable or widescreen producer exists yet.
 - **`scratch/bin/tomba2_port` IS THE GAME** — recompiled MAIN.EXE (`generated/shard_*.c`) + native game
   (`game/*`) + PSX platform (the framework's `external/psxport/runtime/recomp/*`). Build = **CMake**; `cmake/tomba2_port.cmake` owns the
   source list (keep in sync when adding files; every `game/` subfolder is on the include path).
-  `./run.sh [disc.chd]` extracts MAIN.EXE + builds + runs; rebuild-only is
+  `./run.sh [disc.chd]` enters the locked `uv` environment, extracts MAIN.EXE, builds the shipping
+  target in a compiler-keyed `scratch/build/player/` tree with the caller's compatible C/C++ compiler,
+  and runs it; it never runs CTest. Maintainer
+  verification remains Clang + clang-format + clang-tidy. Rebuild-only is
   `cmake --build build --target tomba2_port` (configure once with `cmake -S . -B build`).
 - **Drive/observe:** REPL (`PSXPORT_REPL=1`, stdin) or debug server (`PSXPORT_DEBUG_SERVER=1`,
   `external/psxport/tools/dbgclient.py`). Headless render: `PSXPORT_VK_HEADLESS=1`. Key REPL: `run N`, `newgame`, `skip N`,
@@ -331,7 +334,8 @@ Tomba! 1's executable or widescreen producer exists yet.
   `stage`/`regs`/`seq`/`quit`. See `docs/driving-the-game.md`.
 - **TOOLS ARE PYTHON.** `run.sh` is the ONLY shell script allowed to exist (USER, 2026-08-16: *"only
   run.sh should be a shell script, all other scripts should be python"*) — it is the user's launcher,
-  not a tool. Every gate/sweep/builder is a `.py` with `argparse`, a `--help` that states what it
+  not a tool. It stays a slim `uv run --frozen python bootstrap.py` shim; bootstrap and all launcher
+  policy live in Python. Every gate/sweep/builder is a `.py` with `argparse`, a `--help` that states what it
   asserts, and exit codes separating PASS / FAIL / REFUSED (could not assert anything). Add no new
   shell scripts; convert any you touch.
 - **Repo layout:** `game/` — PC-native game by SUBSYSTEM FOLDER (`ai/ object/ world/ render/ camera/

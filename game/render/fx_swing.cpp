@@ -11,6 +11,7 @@
 // mutate guest memory. Consequently it reprojects under the native fps60 camera and covers every
 // weapon swing that uses this controller rather than one captured call site.
 #include "core.h"
+#include "fps60.h"
 #include "game.h"
 #include "mesh_quads.h"
 #include "producer_scope.h"
@@ -92,7 +93,7 @@ void Render::swingStarburstRender(uint32_t node) {
                 "anchor=({:.0f},{:.0f},{:.0f}) copies={} quads={} "
                 "screen=[{:.1f},{:.1f}]..[{:.1f},{:.1f}]",
                 c->game->gpu.s_frame,
-                (double)c->game->fps60.mT,
+                (double)fps60(*c->game).mT,
                 node,
                 owner,
                 effectType,

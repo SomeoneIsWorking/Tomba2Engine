@@ -12,6 +12,7 @@
 // faithful gameplay prep. ov_terrain (submit.cpp) routes here unconditionally — the ONE behavior.
 #include "cfg.h"
 #include "core.h"
+#include "fps60.h"
 #include "game.h"
 #include "mods.h"            // g_mods — engine-native directional lighting on the terrain (matches submit.cpp)
 #include "render_internal.h" // sil_bbox_log_node (dark-outline coverage-gap diag)
@@ -120,7 +121,7 @@ void NativeScenePass::terrainRender() {
   // present-time terrain re-render (Fps60::present_vk / Render::terrainRenderAll under mCamOverrideOn), it
   // instead returns the LERPED camera with no guest read — see fps60.cpp.
   float Rc_i16[3][3], camT[3], cam_ofx, cam_ofy, cam_H;
-  c->game->fps60.sceneCam(c, Rc_i16, camT, cam_ofx, cam_ofy, cam_H);
+  fps60(*c->game).sceneCam(c, Rc_i16, camT, cam_ofx, cam_ofy, cam_H);
   float Rcam[3][3];
   for (int rr = 0; rr < 3; rr++) {
     for (int cc = 0; cc < 3; cc++) {

@@ -22,6 +22,7 @@
 // render/mesh_draw.cpp) is the CLAUDE.md-mandated eventual replacement for this file.
 #include "cfg.h"
 #include "core.h"
+#include "fps60.h"
 #include "game.h" // Fps60::current_object (was g_current_object)
 #include "game_ctx.h"
 #include "gte_math.h"        // Math:: — GTE-transform cluster (matMul/applyMatlv/rotX/Y/Z/rotmat, static)
@@ -695,7 +696,7 @@ void Render::fieldEntityRender(uint32_t es) {
   // kanban #33: guest-time capture-only. Scene-table is camera-only (projComposeCamera below), so it holds
   // no per-object state the present re-render reads back — the camera was already captured (terrainRenderAll,
   // or an object's projComposeObject). Skip the whole entity walk + submit; the present re-renders it from mSink.
-  if (c->game->fps60.mWorldCaptureOnly) {
+  if (fps60(*c->game).mWorldCaptureOnly) {
     return;
   }
   uint8_t count = c->mem_r8(es + 6);
@@ -814,7 +815,7 @@ void Render::terrainRenderAll() {
   // choke), so the ONLY state the present-time re-render reads back is mCamCur. Capture it once (sceneCam
   // self-captures on a real, non-override call) and skip the whole node-walk + per-vertex terrain draw —
   // the present re-renders terrain from mSink under the lerped camera on both frames.
-  if (c->game->fps60.mWorldCaptureOnly) {
+  if (fps60(*c->game).mWorldCaptureOnly) {
     // Reproduce terrain's CAMERA-LEVEL host-state side effects (native_terrain.cpp terrainRender), the
     // state OTHER guest-time prims read back — NOT just the mCamCur capture. terrain publishes the MAIN
     // scene camera view matrix (camview_publish → proj_camview_world_ord, the stable per-object world-Z
@@ -822,7 +823,7 @@ void Render::terrainRenderAll() {
     // Skipping these left the guest-time billboards depth-projected against a STALE camera (a ~230px
     // regression on any area with a backdrop/props, invisible on the newgame start area which has neither).
     float Rc[3][3], camT[3], ofx, ofy, H;
-    c->game->fps60.sceneCam(c, Rc, camT, ofx, ofy, H);
+    fps60(*c->game).sceneCam(c, Rc, camT, ofx, ofy, H);
     float Rcam[3][3];
     for (int i = 0; i < 3; i++) {
       for (int j = 0; j < 3; j++) {

@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -16,6 +18,71 @@ ROOT = Path(__file__).resolve().parents[1]
 CYAN = "\033[1;36m"
 RED = "\033[1;31m"
 RESET = "\033[0m"
+
+NATIVE_PACKAGES = {
+    "cmake": {
+        "fedora": "cmake",
+        "debian": "cmake",
+        "macos": "cmake",
+        "windows": "Kitware.CMake",
+    },
+    "compiler": {
+        "fedora": "gcc gcc-c++",
+        "debian": "build-essential",
+        "macos": "xcode-select --install",
+        "windows": "Microsoft.VisualStudio.2022.BuildTools",
+    },
+    "git": {
+        "fedora": "git",
+        "debian": "git",
+        "macos": "git",
+        "windows": "Git.Git",
+    },
+    "pkg-config": {
+        "fedora": "pkgconf-pkg-config",
+        "debian": "pkg-config",
+        "macos": "pkg-config",
+        "windows": "pkgconf",
+    },
+    "sdl3": {
+        "fedora": "SDL3-devel",
+        "debian": "libsdl3-dev",
+        "macos": "sdl3",
+        "windows": "sdl3:x64-windows",
+    },
+    "sdl3-image": {
+        "fedora": "SDL3_image-devel",
+        "debian": "libsdl3-image-dev",
+        "macos": "sdl3_image",
+        "windows": "sdl3-image:x64-windows",
+    },
+    "freetype2": {
+        "fedora": "freetype-devel",
+        "debian": "libfreetype-dev",
+        "macos": "freetype",
+        "windows": "freetype:x64-windows",
+    },
+    "zlib": {
+        "fedora": "zlib-devel",
+        "debian": "zlib1g-dev",
+        "macos": "zlib",
+        "windows": "zlib:x64-windows",
+    },
+    "libzstd": {
+        "fedora": "libzstd-devel",
+        "debian": "libzstd-dev",
+        "macos": "zstd",
+        "windows": "zstd:x64-windows",
+    },
+}
+
+PKG_CONFIG_DEPENDENCIES = (
+    ("sdl3", "SDL3"),
+    ("sdl3-image", "SDL3_image"),
+    ("freetype2", "FreeType"),
+    ("zlib", "zlib"),
+    ("libzstd", "zstd"),
+)
 
 
 class LauncherError(RuntimeError):
@@ -69,20 +136,105 @@ def exec_program(
         raise LauncherError(f"could not launch {program}: {exc}") from exc
 
 
-def require_tool(name: str, hint: str) -> None:
+def os_release(path: Path = Path("/etc/os-release")) -> dict[str, str]:
+    if not path.is_file():
+        return {}
+    values: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        key, separator, value = line.partition("=")
+        if separator:
+            values[key] = value.strip().strip('"')
+    return values
+
+
+def host_family(
+    system: str | None = None, release: dict[str, str] | None = None
+) -> str:
+    host = system or platform.system()
+    if host == "Darwin":
+        return "macos"
+    if host == "Windows":
+        return "windows"
+    if host == "Linux":
+        release_values = release if release is not None else os_release()
+        distro = release_values.get("ID", "")
+        distro_like = release_values.get("ID_LIKE", "")
+        identities = {distro, *distro_like.split()}
+        if identities & {"fedora", "rhel", "centos"}:
+            return "fedora"
+        if identities & {"debian", "ubuntu"}:
+            return "debian"
+    return "unknown"
+
+
+def install_instruction(dependency: str, family: str | None = None) -> str:
+    selected_family = family or host_family()
+    package = NATIVE_PACKAGES[dependency].get(selected_family)
+    if package is None:
+        return (
+            f"install the native package providing {dependency}; this Linux distribution "
+            "is not mapped, so report its name/version rather than guessing a package"
+        )
+    if selected_family == "fedora":
+        return f"please run: sudo dnf install {package}"
+    if selected_family == "debian":
+        return f"please run: sudo apt install {package}"
+    if selected_family == "macos":
+        if dependency == "compiler":
+            return f"please run: {package}"
+        return f"please run: brew install {package}"
+    if dependency in {"sdl3", "sdl3-image", "freetype2", "zlib", "libzstd"}:
+        return f"please run: vcpkg install {package}"
+    if dependency == "compiler":
+        return (
+            "please run: winget install Microsoft.VisualStudio.2022.BuildTools, then "
+            "add the Desktop development with C++ workload in Visual Studio Installer"
+        )
+    return f"please run: winget install {package}"
+
+
+def require_tool(name: str, dependency: str) -> None:
     if shutil.which(name) is None:
-        raise LauncherError(f"{name} not found{hint}")
+        raise LauncherError(
+            f"required tool {name!r} was not found; {install_instruction(dependency)}"
+        )
 
 
-def validate_toolchain(cc: str, cxx: str, root: Path) -> None:
-    for variable, compiler in (("CC", cc), ("CXX", cxx)):
-        version = command_output([compiler, "--version"], root=root).lower()
-        if "clang" not in version:
-            raise LauncherError(f"{variable}={compiler} is not Clang")
+def require_pkg_config(module: str, label: str, root: Path) -> None:
+    try:
+        subprocess.run(
+            ["pkg-config", "--exists", module],
+            cwd=root,
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise LauncherError(
+            f"required native library {label} ({module}) was not found; "
+            f"{install_instruction(module)}"
+        ) from exc
+
+
+def require_native_dependencies(root: Path, cc: str, cxx: str) -> None:
+    require_tool("cmake", "cmake")
+    require_tool("git", "git")
+    require_tool("pkg-config", "pkg-config")
+    require_tool(cc, "compiler")
+    require_tool(cxx, "compiler")
+    for module, label in PKG_CONFIG_DEPENDENCIES:
+        require_pkg_config(module, label, root)
 
 
 def processor_count() -> int:
     return os.cpu_count() or 4
+
+
+def player_build_dirs(root: Path, cc: str, cxx: str) -> tuple[Path, Path]:
+    """Return isolated player-only build trees for the selected toolchain."""
+    identity = hashlib.sha256(f"{cc}\0{cxx}".encode()).hexdigest()[:12]
+    base = root / "scratch/build/player" / identity
+    return base / "framework", base / "game"
 
 
 def parse_arguments(arguments: Sequence[str]) -> tuple[str | None, list[str]]:
@@ -221,12 +373,12 @@ def sync_framework(root: Path, env: dict[str, str]) -> Path:
 def configure_and_build(
     root: Path,
     psxport: Path,
+    build_dir: Path,
     cc: str,
     cxx: str,
     jobs: int,
     env: dict[str, str],
 ) -> Path:
-    psxport_build = psxport / "build"
     say("building libchdr + discdump (CMake)…")
     run_checked(
         [
@@ -234,10 +386,12 @@ def configure_and_build(
             "-S",
             str(psxport),
             "-B",
-            str(psxport_build),
+            str(build_dir),
             "-DCMAKE_BUILD_TYPE=Release",
+            "-DBUILD_TESTING=OFF",
             f"-DCMAKE_C_COMPILER={cc}",
             f"-DCMAKE_CXX_COMPILER={cxx}",
+            f"-DPython3_EXECUTABLE={sys.executable}",
         ],
         root=root,
         error="psxport cmake configure failed",
@@ -248,7 +402,7 @@ def configure_and_build(
         [
             "cmake",
             "--build",
-            str(psxport_build),
+            str(build_dir),
             "-j",
             str(jobs),
             "--target",
@@ -259,7 +413,7 @@ def configure_and_build(
         env=env,
         quiet=True,
     )
-    discdump = psxport_build / "tools/discdump"
+    discdump = build_dir / "tools/discdump"
     check_discdump = discdump if discdump.is_absolute() else root / discdump
     if not check_discdump.is_file():
         discdump = Path(f"{discdump}.exe")
@@ -273,6 +427,7 @@ def provision_and_build_game(
     disc: str,
     discdump: Path,
     psxport: Path,
+    build_dir: Path,
     cc: str,
     cxx: str,
     jobs: int,
@@ -305,11 +460,13 @@ def provision_and_build_game(
             "-S",
             ".",
             "-B",
-            "build",
+            str(build_dir),
             "-DCMAKE_BUILD_TYPE=Release",
+            "-DBUILD_TESTING=OFF",
             f"-DPSXPORT_DIR={psxport_absolute}",
             f"-DCMAKE_C_COMPILER={cc}",
             f"-DCMAKE_CXX_COMPILER={cxx}",
+            f"-DPython3_EXECUTABLE={sys.executable}",
         ],
         root=root,
         error="cmake configure failed",
@@ -317,7 +474,7 @@ def provision_and_build_game(
         quiet=True,
     )
     run_checked(
-        ["cmake", "--build", "build", "-j", str(jobs), "--target", "tomba2_port"],
+        ["cmake", "--build", str(build_dir), "-j", str(jobs), "--target", "tomba2_port"],
         root=root,
         error="port build failed",
         env=env,
@@ -329,16 +486,9 @@ def main(arguments: Sequence[str] | None = None, *, root: Path = ROOT) -> int:
     args = list(sys.argv[1:] if arguments is None else arguments)
     env = dict(os.environ)
     try:
-        require_tool("cmake", " (macOS: brew install cmake)")
-        require_tool("pkg-config", " (macOS: brew install pkg-config)")
-        run_checked(
-            ["pkg-config", "--exists", "sdl3"],
-            root=root,
-            error="SDL3 not found (macOS: brew install sdl3; Linux: SDL3-devel / libsdl3-dev)",
-        )
-        cc = env.get("CC", "clang")
-        cxx = env.get("CXX", "clang++")
-        validate_toolchain(cc, cxx, root)
+        cc = env.get("CC", "cc")
+        cxx = env.get("CXX", "c++")
+        require_native_dependencies(root, cc, cxx)
 
         psxport = sync_framework(root, env)
         requested_resume, remaining = parse_arguments(args)
@@ -347,9 +497,10 @@ def main(arguments: Sequence[str] | None = None, *, root: Path = ROOT) -> int:
         say(f"disc: {disc}")
 
         jobs = processor_count()
-        discdump = configure_and_build(root, psxport, cc, cxx, jobs, env)
+        framework_build, game_build = player_build_dirs(root, cc, cxx)
+        discdump = configure_and_build(root, psxport, framework_build, cc, cxx, jobs, env)
         main_exe = provision_and_build_game(
-            disc, discdump, psxport, cc, cxx, jobs, root, env
+            disc, discdump, psxport, game_build, cc, cxx, jobs, root, env
         )
 
         say("launching Tomba! 2 (native PC port)…")

@@ -115,7 +115,7 @@ void Render::a0fVortexRender(uint32_t node) {
   if (cfg_dbg("vortex")) {
     cfg_logf("vortex",
              "present objov=%d anchor=(%.2f,%.2f) sz=%d node=%08X",
-             c->game->fps60.mObjOverrideOn ? 1 : 0,
+             fps60(*c->game).mObjOverrideOn ? 1 : 0,
              (double)anchor.px,
              (double)anchor.py,
              anchor.sz,

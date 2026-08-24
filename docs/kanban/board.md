@@ -5,7 +5,7 @@
 
 ## BACKLOG (0)
 
-## TODO (37)
+## TODO (36)
 - **#10 Verify the ~58 untested beh_* rebuilds by faithful-body A/B (finds bugs of the confirmed class)**  `verification`
 - **#16 Sign text jitters at fps60 when the camera moves**  `render,fps60` — 📎 docs/reference/issues/issue16_sign_text_jitter.png
 - **#31 fps60: interpolated frames and real frames appear to be built differently**  `bug,render,fps60`
@@ -14,7 +14,6 @@
 - **#37 areas 16/17/18 hang under cold warp — behaviour loop in gen_func_80040558**  `bug`
 - **#40 RmlUi warp selector is unverified on screen — no window in the agent environment**  `verification`
 - **#46 recomp-MISS 0x80028E64 latent (label not emitted as entry) — NOT reproduced on current main**  `bug,recomp`
-- **#49 area 21 sky is a GRADIENT+tilemap COMPOSITE — needs the gouraud base ported (split from #42)**  `render`
 - **#52 No A06/A08 cutscene replay exists — 11 beh_* script handlers are unreachable for A/B**  `verification`
 - **#53 Dust PUFF MESH layer is ported-unverified — never observed on screen (ring state 2/3 unreached)**  `verification,render`
 - **#54 Bucket's supporting POLE/ROPE invisible before pickup, visible after — state-gated missing producer**  `render,bug` — 📎 docs/reference/issues/issue54_bucket_pole_missing.png
@@ -51,7 +50,7 @@
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 - **#103 Cutscene machinery + fisherman + bridge ropes invisible under pc_render (area 0, live)**  `render,bug`
 
-## DONE (79)
+## DONE (80)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
@@ -89,6 +88,7 @@
 - **#43 pc_render omits the field HUD minimap (areas 2, 7)**  `render`
 - **#44 pc_render omits the central vortex/portal effect in area 15**  `render`
 - **#48 area 14 waterfall backdrop is GTE SCENE GEOMETRY with no native producer (split from #42)**  `render`
+- **#49 area 21 early-phase sky gradient was absent**  `render`
 - **#50 SYSTEMIC pc_skip: cooperative FUN_80044BD4 waits inside the GAME frame are SILENTLY TRUNCATED**  `bug,pc-skip`
 - **#51 beh_* A/B: 3 localised divergences still open (0x8013C9C0, 0x8011D988, 0x80121978)**  `verification,bug`
 - **#55 Stunned monsters missing their spinning stars**  `render,bug` — 📎 docs/reference/issues/issue55_stunned_stars_missing.png

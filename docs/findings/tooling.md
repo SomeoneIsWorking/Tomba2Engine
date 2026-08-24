@@ -1,14 +1,23 @@
 # Findings — tooling / debug server / harness
 
-## `run.sh` rebuilt both CMake trees every launch after the Clang-default change (2026-08-20)
+## The shipping launcher enforced the maintainer verification compiler and escaped the locked Python environment (2026-08-24)
 
-- **Cause:** `CC` was initialized to `cc` before the later `CC:=clang` default, so Clang was never the
-  default. The stale-cache check also resolved only the requested spelling and checked only C, making
-  equivalent cache spellings compare unequal while missing C++-only changes.
-- **Fix:** initialize Clang once, normalize both cached compilers, and use CMake `--fresh` only for a
-  real mismatch. The launcher no longer deletes build trees itself.
-- **Verification:** both caches identify Clang 22.1.8; an immediate second build compiled zero C/C++
-  objects. **Ref:** `run.sh`.
+- **Cause:** `tools/run.py` treated the Clang-only maintainer evidence rule as a player compatibility
+  rule, probing compiler version text and refusing GCC. `run.sh` also invoked the ambient `python3`,
+  so the interpreter used by provisioning and discovered by CMake depended on the host rather than the
+  repository lock. The launcher additionally named macOS packages more precisely than Linux ones.
+- **Fix:** `run.sh` is now only `uv run --frozen python bootstrap.py`; every Python subprocess and both
+  CMake configurations receive that interpreter. Both configurations use compiler-keyed trees below
+  `scratch/build/player/`, isolated from maintainer/test caches. The shipping path respects `CC`/`CXX` (or generic
+  `cc`/`c++`) without compiler identity policy. Native dependency checks name the missing pkg-config
+  module and print an exact Homebrew, APT, DNF, winget, or vcpkg command where the host is mapped.
+  Maintainer verification still uses Clang, clang-format, and clang-tidy independently of this path.
+- **Verification:** the hermetic launcher suite exercises the real shell shim through a fake `uv`,
+  proves arguments with spaces survive, accepts a GCC-labelled compiler selection without a version
+  query, requires `BUILD_TESTING=OFF`, propagates the locked Python executable to CMake, and checks the
+  negative SDL3_image refusal names `sudo dnf install SDL3_image-devel`. A separate non-building CMake
+  configure with GCC 16.2.1 completed and resolved the locked `.venv/bin/python`; no game was launched.
+  **Refs:** `run.sh`, `bootstrap.py`, `tools/run.py`, `tests/test_run.py`.
 
 ## A `.pad` replay does NOT transfer between EXECUTION legs — the oracle leg ends up somewhere else (2026-08-19)
 

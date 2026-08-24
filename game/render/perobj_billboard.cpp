@@ -64,6 +64,7 @@
 //      (*0x800ED8C8 + depth*4) — the identical packet-chain mechanism perobj_dispatch.cpp's
 //      cmdListDispatch/perModeDispatch already documents.
 #include "core.h"
+#include "fps60.h"
 #include "game.h"
 #include "game_ctx.h"
 #include "proj_params.h" // ProjParams::pzToOrd — billboardsRender depth normalize
@@ -1043,7 +1044,7 @@ void Render::billboardsRender() {
   }
 
   float Ri[3][3], T[3], ofx, ofy, H;
-  c->game->fps60.sceneCam(c, Ri, T, ofx, ofy, H); // raw int16-unit rows, the sceneCam convention
+  fps60(*c->game).sceneCam(c, Ri, T, ofx, ofy, H); // raw int16-unit rows, the sceneCam convention
   if (H <= 0.0f) {
     return;
   }

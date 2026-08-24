@@ -26,6 +26,7 @@
 // load-bearing producer here. docs/port-progress.md:228-229 ("s7 plays OP.STR/FMV") is STALE/falsified
 // (demo.cpp later-186/208 RE + tomba2-clips.md empirical screenshots) — do NOT build an FMV producer.
 #include "core.h"
+#include "fps60.h"
 #include "game.h"
 #include "render.h"
 #include <lucent/log.h> // `attract` diagnostic channel (the gate decision + its denominators)
@@ -127,7 +128,7 @@ void Render::renderAttract() {
   if (!live) {
     return;
   }
-  c->game->fps60.mTier1EligibleCur = true;    // native world render runs → fps60 tier-1 may re-render it
+  fps60(*c->game).mTier1EligibleCur = true;   // native world render runs → fps60 tier-1 may re-render it
   DisplayPassGuard displayPass(c->rsub.mode); // read-only invariant: aborts on any guest write
   sceneNative();
   cineBarsRender(); // cinematic letterbox bars (emits nothing when no cutscene bars are active)

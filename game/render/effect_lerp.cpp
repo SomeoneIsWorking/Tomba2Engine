@@ -1,6 +1,7 @@
 // game/render/effect_lerp.cpp — EffectLerp implementation (see effect_lerp.h).
 #include "effect_lerp.h"
 #include "core.h"
+#include "fps60.h"
 #include "game.h"
 
 const EffectPoints &EffectLerp::resolve(Core *c, uint32_t node, const EffectPoints &live) {
@@ -18,7 +19,7 @@ const EffectPoints &EffectLerp::resolve(Core *c, uint32_t node, const EffectPoin
   // Fps60::mT is the parameter of the pass being built right now — 0.5 for the in-between, 1 for the
   // real frame (and 1 when fps60 is off). At 1, or with no previous record for this node, the live
   // state IS the answer.
-  const float t = c->game->fps60.mT;
+  const float t = fps60(*c->game).mT;
   auto p = mPrev.find(node);
   if (t >= 1.0f || p == mPrev.end()) {
     return live;

@@ -3,7 +3,7 @@
 The RE dependency chain. `## ` block per step. Work `portmap.py next`; kill `portmap.py hacks`.
 Detail lives in docs/port-progress.md; this is the queryable real-vs-hack frontier.
 
-**Status:** 32 verified · 14 ported-unverified · 2 hack · 3 todo · 3 blocked
+**Status:** 34 verified · 14 ported-unverified · 2 hack · 3 todo · 3 blocked
 
 ## title-frontend — DEMO stage s0..s7 + menu logic
 - **scope:** 0x801062E4 stage; Demo::s0..s7; sub-machines 0x8010696C/0x80106AC4
@@ -61,11 +61,11 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 
 ## field-world (sceneNative)
 - **scope:** 0x8010637C GAME field: terrain+entities+objects+backdrop, real depth
-- **status:** ported-unverified
+- **status:** verified
 - **order:** 30
 - **deps:** title-frontend — DEMO stage s0..s7 + menu logic
 - **owner:** game/render/render_walk.cpp (sceneNative)
-- **notes:** renders; not SBS-gated this session — add a parity entry when driven under SBS
+- **notes:** SBS full verified on real field-driving inputs: general-session 600f and 1800f plus hut-entry 1200f, all A/B identical with zero divergence (docs/parity-map.md field-world). Native render picture correctness remains layer-specific; each display producer keeps its own visual gate.
 
 ## field-2D layer (#3b)
 - **scope:** field HUD/dialog/billboards/op-0x7C sprites — the free-roam blocker
@@ -171,6 +171,14 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **order:** 52
 - **owner:** Render::swingStarburstRender (game/render/fx_swing.cpp)
 - **notes:** PORTED + TRUE-ORACLE VERIFIED 2026-08-21. The type-0x20 display walk dispatches the MAIN.EXE controller by node+0x18. The producer reads all ten {angleX,angleY,angleZ,uniformScale} records from node+0x50, the node world anchor at +0x2C, owner type-selected far colour at 0x800A1FC4, node sort bias at +0x32, and fixed mesh 0x8009FB0C; it rebuilds the controller transform and calls the existing packed-record decoder with IR0=0xFFF and zero U/CLUT bias. It does not read GTE registers, guest packets, OT state, or execute/tap the shared writer. replays/bugs/weapon-charge-starburst.pad holds CIRCLE f620-1000. Fresh SBS oracle run: B reports PURE-ORACLE(interp+softGPU); native producer begins f667 with 10 copies/60 quads; saved pre-A to current-A deltas are 0 px at f650/f660 and 843/642/939/1001 px at f670/f680/f690/f700 in the starburst footprint. B is byte-identical before/after at all six frames, retaining the opposite answer. REPIN VERIFIED against definitive psxport 692b9b20 after the preliminary substrate re-emission and a final clean Clang 22.1.8 rebuild: all 38 producer lines and all six final-pin A/B capture pairs are byte-identical to the retained 9f run.
+
+## area21-sky-gradient-8010bb64
+- **scope:** Area 21 reached early branch: FUN_8010BE30 variant 1 / phase <4 -> FUN_8010BB64 four-band gouraud sky
+- **status:** ported-unverified
+- **order:** 52
+- **deps:** field-world (sceneNative)
+- **owner:** game/render/area21_sky_gradient.cpp Render::area21SkyGradientRender
+- **notes:** RE-grounded native picture owner. Fresh 2026-08-24 frame-aligned native ON/OFF/PSX-render at f3615, bg=21 variant=1 phase=1 pitch=-175: ON coherent and close to aligned reference; OFF loses background; ON vs reference 26853 exact / 20094 above 8, so draw-verified but NOT pixel parity. Independent PSXPORT_ORACLE enters GAME 11 frames later and is explicitly unaligned. Later tilemap branch remains separate reachability work.
 
 ## render-producer-impact-plume-288ac
 - **scope:** FUN_800288AC — the packed-mesh half of composite weapon-impact renderer FUN_80033080, also installed directly as a type-0x20 node render function
@@ -286,6 +294,12 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **owner:** game/render/fx_sprite.cpp; shared fixed-point transform math in game/render/mesh_quads.h
 - **notes:** VERIFIED 2026-08-21 with the real-input `replays/bugs/stun-stars.pad` and a live
 
+## render-producer-object-highlight-8002ae0c
+- **scope:** FUN_8002AE0C — queue-A packed-mesh highlight tail
+- **status:** verified
+- **owner:** game/render/object_highlight.cpp (Render::objectHighlightRender)
+- **notes:** Ported 2026-08-22 from generated/shard_2.c. The read-only display producer uses the guest's queue snapshot and live jump-table route, then rebuilds the authored transform/cue from node state and calls the shared packed-record walker. bucket-softlock: shipping trace 357 calls; census 312 guest primitives/122 frames and 712 native primitives/161 frames; the same-binary `native highlight` A/B at replay frame 255 changes 318 pixels, 44 directly inside the reported quad boxes. The 274 pixels on unrelated animated geometry are recorded as unresolved collateral, not producer localization. Pure policy tests cover both type selectors, signed-byte scale wrap, and every field-mode cue/bias branch.
+
 ## render-compose-tint-gate
 - **status:** ported-unverified
 - **notes:** Render::composeTintGate (FUN_8003EF9C): per-type render gate, port_check PASS, wired via overrides::install with setter. Pool-snapshot idiom: emits geometry then colour-adds over exactly the primitives just emitted. Cold on the field/dialog replay - needs a scene that uses render mode 2.
@@ -321,19 +335,6 @@ Detail lives in docs/port-progress.md; this is the queryable real-vs-hack fronti
 - **status:** ported-unverified
 - **owner:** game/render/prop_quad.cpp Render::propQuadRender
 - **notes:** PORTED 2026-08-22. Separate display-pass producer rebuilds the transform from persistent obj+44 anchor, obj+72 angles and node+0..2 authored scale bytes; shared MeshQuadStyle carries the RE'd U/CLUT/fog/tpage/semi policy through the one packed-record walker. No GTE/packet/OT/scratchpad/generated-body input. bucket-softlock headless: 3520 producer calls, 4326 native prims attributed to 0x8013CDD4 over 97 frames, native and live psx screenshots both show the prop assembly. User animation/visual eyeball remains; no claim of frame-exact pixel parity.
-
-## render-producer-object-highlight-8002ae0c
-- **scope:** FUN_8002AE0C — queue-A packed-mesh highlight tail
-- **status:** verified
-- **owner:** game/render/object_highlight.cpp (Render::objectHighlightRender)
-- **notes:** Ported 2026-08-22 from generated/shard_2.c. The read-only display producer uses the
-  guest's queue snapshot and live jump-table route, then rebuilds the authored transform/cue from node
-  state and calls the shared packed-record walker. bucket-softlock: shipping trace 357 calls; census
-  312 guest primitives/122 frames and 712 native primitives/161 frames; the same-binary `native
-  highlight` A/B at replay frame 255 changes 318 pixels, 44 directly inside the reported quad boxes.
-  The 274 pixels on unrelated animated geometry are recorded as unresolved collateral, not producer
-  localization. Pure policy tests cover both type selectors, signed-byte scale wrap, and every
-  field-mode cue/bias branch.
 
 ## render-camera-projconst-from-gte
 - **scope:** the native camera's OFX/OFY/H are read from GTE control registers 24/25/26

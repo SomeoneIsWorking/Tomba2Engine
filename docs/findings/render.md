@@ -481,14 +481,23 @@ Full write-up and the staged plan: `external/psxport/docs/plans/graphics-produce
     guest's own "draw nothing" handler, and PARALLAX_BG_SM is ALL ZEROS in that area. Its waterfall
     backdrop is GTE-projected SCENE GEOMETRY (otattr: `fn=0x80114320 node=0x800FE198 count=913` RTPS
     calls/frame), i.e. an object/scene-layer producer gap, NOT a backdrop-tilemap gap. Unchanged at 68703.
-  - **area 21 — a COMPOSITE, deliberately left out.** bg-state 21 is special-cased ahead of the table to
-    `0x8010BE30`, which calls helper `0x8010BB64` FIRST (it builds 4 gouraud POLY_G quads = the sky
-    GRADIENT base, colours 0x00AC0606 -> 0x00EA9898 across x[0,320]) and only then runs its tilemap loop.
-    So the real backdrop is gradient-base + tilemap-as-cloud-overlay. Drawing the tilemap layer ALONE
-    (opaque, no gradient) paints a BRIGHT full sky where the reference is the darker gradient and MADE THE
-    FRAME WORSE — measured 61375 -> 64650. It is therefore excluded (`st == 21 -> return false`) and left
-    black until the gradient base + semi overlay are ported together. **Do not "fix" area 21 by routing it
-    into the plain tilemap producer — that was tried and measured worse.**
+  - **area 21 — early gradient PORTED; the old composite description was wrong for the reached branch.**
+    bg-state 21 is special-cased ahead of the table to `0x8010BE30`. Generated control flow and live state
+    agree: the deterministic warp reaches variant byte `0x800BF871 == 1` and phase byte `0x800BFA55 == 1`;
+    for variant 1 / phase < 4 the controller calls helper `0x8010BB64` and RETURNS. The tilemap loop is a
+    different branch, not something executed after the helper in this repro. `Render::area21SkyGradientRender`
+    now owns the helper's four gouraud quads from the raw pitch input and preserves that pitch as a real
+    temporal capture for the 60 Hz presentation re-run. Same-binary `native area21-sky` ON/OFF changes
+    53,907/76,800 pixels; census: 2,256 native primitives over 282 frames, while an oracle run independently
+    observes the guest helper at exactly four primitives per frame. A fresh 2026-08-24 gate aligns native
+    ON, native OFF and boot-time PSX-render at frame 3615 and the exact same guest state (`bg=21`,
+    `variant=1`, `phase=1`, pitch `-175`). ON is coherent and close to the aligned PSX reference; OFF loses
+    the background. Native ON vs PSX reference still differs by 26,853/76,800 pixels (20,094 above 8/255),
+    so this is draw verification, not pixel parity. The independent `PSXPORT_ORACLE=1` capture is explicitly
+    unaligned because that path enters GAME 11 frames later. The tilemap branch stays excluded and unclaimed
+    until a phase that actually reaches it is captured. The old tilemap-only experiment remains a valid dead
+    end for this early phase: it worsened 61,375 -> 64,650 pixels above 8/255. Fresh artifacts are
+    `scratch/screenshots/area21_fresh_*` and `scratch/logs/area21_fresh_*_20260824.log`.
 - **verification (all cited, headless):** `tools/warpsweep.sh` (real `PSXPORT_RENDER_PSX=1` reference at
   the same frame index, recipe `newgame; run 3000; warp N; run 600`, `replays/bugs/seesaw-weight.pad`):
   baseline `scratch/screenshots/warpsweep/base.report` vs `fix2.report` — a10 69761->18022,

@@ -423,7 +423,7 @@ Tracked as portmap `render-mesh-flush` (blocked).
 
 | area | layer | guest producer | state |
 |---|---|---|---|
-| 21 | sky is a **GRADIENT + tilemap composite** — the gouraud base is unported | `gen_func_8003DF04` special-case → `0x8010BE30` → helper `ov_a0l_gen_8010BB64` (four POLY_G quads spanning x[0,320], colours `0x00AC0606` / `0x00EA9898`, scroll-derived Y from the s16 at `0x800C00F0`) | kanban #49 todo. Routing it through the plain tilemap producer was **tried and measured worse** — do not retry that |
+| 21 | early-phase sky **GRADIENT — PORTED + draw-verified; pixel parity open** | `gen_func_8003DF04` special-case → `0x8010BE30`; reached variant 1 / phase 1 calls `ov_a0l_gen_8010BB64` (four POLY_G quads spanning x[0,320], colours `0x00AC0606` / `0x00EA9898` / `0x00390000`, pitch-derived Y from s16 `0x1F8000F0`) and then returns | `Render::area21SkyGradientRender`, `game/render/area21_sky_gradient.cpp`; same-binary ON/OFF changes 53,907 px. At aligned frame 3615/state `(21,1,1,pitch=-175)`, ON is coherent and close to the PSX-render reference while OFF loses the background; ON vs reference remains 20,094 px above 8/255, so it is not pixel parity. The independent oracle path is unaligned (GAME entry +11 frames). The tilemap loop belongs to a different variant/phase branch and remains excluded until that branch is visibly reached |
 | 14 | waterfall backdrop's **sprite tail** — ~~unported~~ | `FUN_80110CA4` tail-calls `0x801104D0`, 440 gen lines | **NOT A GAP — kanban #67 is STALE.** `codemap --addr 0x801104D0` returns `Render::fxBackdropSparkRender` LIVE (`fx_backdrop_plane.cpp:210`), called from `fxBackdropPlaneRender` exactly as the guest tail-calls it. Its card's stated blocker (34 `FUN_8009A450` calls writing the seed) does not apply: the guest's own body keeps the pool simulated underneath, so the producer only READS slot state — the randomness is upstream. Status is **ported-unverified**, because the pool reads `live=0/200` in the only capture: an EMPTY POOL, not a dead producer. Needs a scene that populates it, not a port |
 | 21 | the **jet effect** | `FUN_8010C1D8` (A0L) | kanban #66 todo, blocked: returns immediately unless `*(u8*)0x800BFA55 >= 4`, and it reads 1 in the standard capture. Port is otherwise ready |
 | 4 | ambient effect + a **342-point tile field** | `FUN_8013B118`; the field is `ov_a04_func_8013AD90` (218 lines of raw GP0 tile emit, **no analogue anywhere in `game/render/`**) | kanban #68 todo. Of its three stated blockers, **the PRNG one is resolved**: `GuestRngMirror` (`game/render/guest_rng_mirror.{h,cpp}`) exists, is in `cmake/tomba2_port.cmake`, and is a per-logic-frame read-only seed snapshot built for exactly this. The two that remain are real: every branch is gated off in the only reachable state (story phase `0x800E7EAA` = 1), and the 342-point field has no analogue in the tree. The field deserves its own row once reachable |
@@ -493,7 +493,8 @@ the way to drive into one.
        +--> R3 FUN_8013CDD4 prop quads       (CLOSED: native picture owner, user eyeball outstanding)
        |
   R5  per-area backdrops
-       |   area 21 gradient  -- independent, ready. THE ONLY ONE THAT NEEDS PORTING WORK.
+       |   area 21 early gradient -- PORTED + draw-verified; pixel parity open. Aligned PSX-render is close;
+       |                             independent oracle remains unaligned. Later tilemap branch is reachability work.
        |   area 14 tail      -- NOT a gap; ported. Needs a scene that fills the pool.
        |   area 21 jet / area 4 -- blocked on REACHABILITY, not on code. Needs a scene where
        |                     the phase byte advances; that is a game-driving task, not RE.

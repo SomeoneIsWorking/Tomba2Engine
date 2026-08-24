@@ -45,6 +45,7 @@
 // That half is a different emitter family and is NOT ported here. The `plumefx` diagnostic reports the
 // subtype byte on every call, so a scene that reaches the sprite half is visible rather than silent.
 #include "core.h"
+#include "fps60.h"
 #include "game.h"
 #include "mesh_quads.h"
 #include "producer_scope.h" // ProducerScope — producer identity for the graphics-producer DB
@@ -161,7 +162,7 @@ void Render::radialPlumeRender(uint32_t node) {
                 "ang=({},{},{}) pos=({:.0f},{:.0f},{:.0f}) copies={} quads={} "
                 "screen=[{:.1f},{:.1f}]..[{:.1f},{:.1f}]{}",
                 c->game->gpu.s_frame,
-                (double)c->game->fps60.mT,
+                (double)fps60(*c->game).mT,
                 node,
                 subtype,
                 (unsigned)(frame & kScriptIndex),
