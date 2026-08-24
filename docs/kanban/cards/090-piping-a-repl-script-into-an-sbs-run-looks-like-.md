@@ -19,6 +19,6 @@ A discriminator is only trusted after being run against BOTH classes, so both we
 
 POSITIVE (the bug's own invocation) — printf 'newgame\nrun 200\nquit\n' | PSXPORT_SBS_MODE=full ./scratch/bin/tomba2_port -> **rc=2**, refusing before producing any verdict. It names the denominator (21 pending stdin bytes), names every working alternative (PSXPORT_SBS_AUTONAV=1, PSXPORT_SBS_WARP, PSXPORT_SBS_PAD_REPLAY, PSXPORT_DEBUG_SERVER=1, or the single-core port for the REPL itself), and states its own blind spot out loud: 'this cannot see a driver that has written nothing yet; the check re-runs every frame'. Log: scratch/logs/repl_refusal.log.
 
-NEGATIVE (a legitimate run must NOT be refused) — PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 ./scratch/bin/tomba2_port < /dev/null -> **0 occurrences of repl:error**, ran real lockstep work to the 120s harness timeout (rc=143 = SIGTERM from gpuguard's wall clock, NOT a refusal) and emitted its normal coverage line '251/482 owned addresses executed'. Log: scratch/logs/sbs_nopipe.log.
+NEGATIVE (a legitimate run must NOT be refused) — PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 ./scratch/bin/tomba2_port < /dev/null -> **0 occurrences of repl:error**, ran real lockstep work to the 120s harness timeout (rc=143 = SIGTERM from the wall clock, NOT a refusal) and emitted its normal coverage line '251/482 owned addresses executed'. Log: scratch/logs/sbs_nopipe.log.
 
 So the false-confidence path that made card #86's premise an artifact is closed by construction: that invocation can no longer produce a verdict at all.
