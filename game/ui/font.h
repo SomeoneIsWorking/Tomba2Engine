@@ -107,6 +107,13 @@ public:
   //   FUN_80078CA8 with ra = 0x80079364. See drawText's doc above for the full ABI trace.
   static void drawTextSmall(Core *c, int32_t x, int32_t y, int32_t w, uint32_t str, uint32_t color);
 
+  // iconGlyphEmit(): FUN_80078988 — fully-owned SJIS/token icon string emitter used by glyphEmit's
+  //   0x01..0x04 control-byte arms. One native walk reproduces the guest scratchpad/packet-pool/OT
+  //   writes and queues the same sprites into RQ_HUD for pc_render; the oracle leg keeps the generated
+  //   body. Ghidra source: scratch/decomp/icon_glyph_80078988.c; ABI contract: 64-byte frame, nine
+  //   spills, direct calls to memcmp (0x8009A640) and the draw-mode leaf (0x80083DE0).
+  static void iconGlyphEmit(Core *c);
+
   // glyphEmit(): FUN_80078CA8 — the font/glyph EMITTER drawText() tail-calls. WIDE-RE TIER DRAFT
   //   (2026-07-10, disjoint band), UNWIRED/UNVERIFIED (docs/fleet-workflow.md §6/§9 — no override
   //   registration, no SBS run; needs the line-by-line re-verify §9 requires before wiring).
@@ -140,7 +147,7 @@ public:
   //                    struct+18 (a "line height" field — never WRITTEN anywhere in this function, so
   //                    it must be initialized by a caller-adjacent leaf this wave did not trace; role
   //                    inferred from usage, not independently confirmed)
-  //     0x01        -> calls still-unowned FUN_80078988 with tablePtr = 0x80010000+28072, then the
+  //     0x01        -> calls Font::iconGlyphEmit with tablePtr = 0x80010000+28072, then the
   //                    shared "advance cursor by 8" tail
   //     0x02        -> same, tablePtr = 0x80010000+28076
   //     0x03        -> same, tablePtr = 0x80010000+28068
@@ -153,8 +160,8 @@ public:
   //                    bucket at *(0x800F0000-10040 + colorArg*4), tagged with draw-mode bit
   //                    0x04000000, then falls into the same shared "advance cursor by 8" tail.
   //     FUN_80078988 calls (byte 0x01/0x02/0x03/0x04 arms) each pass (cursorX, cursorY, w, tablePtr)
-  //       — role: draws a box/rule primitive (underline / box variants selected by which literal
-  //       table pointer is passed); STILL UNOWNED, stays rec_dispatch (out of this wave's band).
+  //       — role: draws SJIS/token icon strings from the four fixed token-string pointers. Fully
+  //       owned by Font::iconGlyphEmit; the older box/rule identification was wrong.
   //   Tail (after the string NUL): builds a FINAL OT-chained packet via the ALREADY-owned
   //     func_80083DE0 (0x80083DE0, game/render/wide_re_libgpu_leaves.cpp — draw-mode/texwin packet-
   //     header builder, dispatched here since it's process-globally wired) plus a second packet

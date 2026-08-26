@@ -21,6 +21,7 @@
 #include "core.h"
 #include "game.h"         // Game::activeRq — glyphQueuePush's dual-emit target
 #include "guest_abi.h"    // GuestFrame/guest_fn — ABI vocabulary (2026-07-15 readability pass)
+#include "rec_decls.h"    // generated oracle bodies + direct guest callee wrappers
 #include "render.h"       // Render::mode.psxRender() gate
 #include "render_queue.h" // RenderQueue::push2dQuad + RQ_HUD
 #include <stdint.h>
@@ -679,7 +680,6 @@ L_80078F88:
 // the live body's `return` at gen-C line 210 has no label past it). Both are PLAIN intra-shard C
 // calls at their call sites (func_X(c), not rec_dispatch), so they wire via the oracle-gated
 // engine_set_override_main thunk -- SBS core B keeps running the pure gen_func_* body.
-extern void gen_func_80078988(Core *); // icon/SJIS glyph-string leaf (iconGlyphTap runs it)
 namespace {
 // ov_drawText: extracts drawText's typed args from the guest ABI registers at function entry
 // (a0..a2 = x,y,w; a3 = str; caller's stack[+16] = color -- matches gen_func_80079374's own read of
@@ -704,9 +704,118 @@ void ov_drawTextSmall(Core *c) {
   Font::drawTextSmall(c, x, y, w, str, color);
 }
 
-// iconGlyphTap — FUN_80078988, the SJIS/token ICON-GLYPH string emitter glyphEmit's 0x01..0x04
+constexpr uint32_t kIconScratch = 0x1F800020u;
+constexpr uint32_t kIconTokenTable = 0x800A55E0u;
+constexpr uint32_t kPacketPoolPtr = 0x800BF544u;
+constexpr uint32_t kOtBasePtr = 0x800ED8C8u;
+constexpr uint32_t kSpritePacketTag = 0x03000000u;
+constexpr uint32_t kDrawModePacketTag = 0x02000000u;
+constexpr uint32_t kNoGlyph = 0xFF02u;
+constexpr uint32_t kNewlineGlyph = 0x0A0Au;
+
+constexpr GuestFrameSpill kIconGlyphSpills[9] = {
+    {17, 28},
+    {18, 32},
+    {23, 52},
+    {22, 48},
+    {31, 56},
+    {21, 44},
+    {20, 40},
+    {19, 36},
+    {16, 24},
+};
+
+struct IconScratch {
+  Core *c;
+
+  int16_t x() const {
+    return c->mem_r16s(kIconScratch + 8u);
+  }
+  int16_t y() const {
+    return c->mem_r16s(kIconScratch + 10u);
+  }
+  uint16_t clut() const {
+    return c->mem_r16(kIconScratch + 14u);
+  }
+  void setCommand(uint8_t command) {
+    c->mem_w8(kIconScratch + 7u, command);
+  }
+  void setPosition(int x, int y) {
+    c->mem_w16(kIconScratch + 8u, (uint16_t)x);
+    c->mem_w16(kIconScratch + 10u, (uint16_t)y);
+  }
+  void setX(int x) {
+    c->mem_w16(kIconScratch + 8u, (uint16_t)x);
+  }
+  void setY(int y) {
+    c->mem_w16(kIconScratch + 10u, (uint16_t)y);
+  }
+  void setUv(int u, int v) {
+    c->mem_w8(kIconScratch + 12u, (uint8_t)u);
+    c->mem_w8(kIconScratch + 13u, (uint8_t)v);
+  }
+  void setClut(uint16_t value) {
+    c->mem_w16(kIconScratch + 14u, value);
+  }
+};
+
+uint32_t iconOtSlot(Core *c, uint32_t bucket) {
+  return c->mem_r32(kOtBasePtr) + bucket * 4u;
+}
+
+void emitGuestIconSprite(Core *c, uint32_t bucket) {
+  const uint32_t packet = c->mem_r32(kPacketPoolPtr);
+  const uint32_t otSlot = iconOtSlot(c, bucket);
+  c->mem_w32(packet, c->mem_r32(otSlot) | kSpritePacketTag);
+  c->mem_w32(otSlot, packet);
+  c->mem_w32(packet + 4u, c->mem_r32(kIconScratch + 4u));
+  c->mem_w32(packet + 8u, c->mem_r32(kIconScratch + 8u));
+  c->mem_w32(packet + 12u, c->mem_r32(kIconScratch + 12u));
+  c->mem_w32(kPacketPoolPtr, packet + 16u);
+}
+
+void queueHostIconSprite(Core *c, const IconScratch &glyph) {
+  if (c->game->oracle || c->rsub.mode.psxRender()) {
+    return;
+  }
+  const int x = glyph.x(), y = glyph.y();
+  const int u = c->mem_r8(kIconScratch + 12u), v = c->mem_r8(kIconScratch + 13u);
+  const uint32_t clut = glyph.clut();
+  const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
+  const int xs[4] = {x + ox, x + 8 + ox, x + ox, x + 8 + ox};
+  const int ys[4] = {y + oy, y + oy, y + 8 + oy, y + 8 + oy};
+  const int us[4] = {u, u + 8, u, u + 8};
+  const int vs[4] = {v, v, v + 8, v + 8};
+  const unsigned char color[4] = {0x80, 0x80, 0x80, 0x80};
+  c->game->activeRq().push2dQuad(RQ_HUD,
+                                 /*order_2d_fg=*/1,
+                                 xs,
+                                 ys,
+                                 us,
+                                 vs,
+                                 color,
+                                 color,
+                                 color,
+                                 960,
+                                 256,
+                                 0,
+                                 /*raw=*/1,
+                                 (int)(clut & 0x3F) * 16,
+                                 (int)(clut >> 6) & 0x1FF,
+                                 0,
+                                 0,
+                                 0,
+                                 0,
+                                 0,
+                                 0,
+                                 1023,
+                                 511);
+}
+} // namespace
+
+// iconGlyphEmit — FUN_80078988, the SJIS/token ICON-GLYPH string emitter glyphEmit's 0x01..0x04
 // special-char arms call (a0=x, a1=y, a2=size-class w, a3=2-byte-token string; 5th stack arg =
-// OT bucket). RE from gen_func_80078988 (generated/shard_4.c:11216): second scratchpad glyph
+// OT bucket). RE from gen_func_80078988 (generated/shard_4.c:11802): second scratchpad glyph
 // struct at 0x1F800020, op-0x75 8x8 sprites, clut from the size class (w<16 → row w+496 x-nibble
 // 0x3F, else w+480/0x3E). Token decode per 2-byte big-endian pair:
 //   0x0A0A                         -> newline (x = arg x, y += 8)
@@ -717,102 +826,114 @@ void ov_drawTextSmall(Core *c) {
 //         -> matched code, miss -> 0xFF02 (advance-only)
 // Emit: glyph quad at (x,y) uv=((code&31)<<3, ((code&0xFFF)>>5)<<3), x += 8; if code&0x8000 a
 // combining-mark quad at the advanced x (u = code&0x1000 ? 64 : 56, v=64) then x += 5 more.
-// The tap runs gen (guest packets byte-exact) then mirrors this walk host-side into RQ_HUD quads,
-// so button icons / SJIS labels render under pc_render. Same tap shape as game/ui/panel.cpp.
-void iconGlyphTap(Core *c) {
-  const int x0 = (int32_t)(int16_t)(uint16_t)c->r[4];
-  const int y0 = (int32_t)(int16_t)(uint16_t)c->r[5];
-  const int32_t wsz = (int32_t)c->r[6];
-  const uint32_t str0 = c->r[7];
-  gen_func_80078988(c);
-  if (c->game->oracle || c->rsub.mode.psxRender()) {
-    return; // guest OT walk owns the picture
-  }
+// One walk owns both outputs: exact guest packet/state writes for the retained PSX execution seam,
+// and read-only RQ_HUD items for pc_render. The former tap called gen_func_80078988 and then decoded
+// the same string again; that duplicate authority is gone.
+// ORACLE: gen_func_80078988
+void Font::iconGlyphEmit(Core *c) {
+  const uint32_t rawOriginX = c->r[4];
+  const int originX = (int16_t)(uint16_t)c->r[4];
+  const int originY = (int16_t)(uint16_t)c->r[5];
+  const int32_t sizeClass = (int32_t)c->r[6];
+  const uint32_t string = c->r[7];
+  const uint32_t bucket = c->mem_r32(c->r[29] + 16u);
 
-  const uint32_t clut = (wsz < 16) ? (((uint32_t)(wsz + 496) << 6) | 63u) : (((uint32_t)(wsz + 480) << 6) | 62u);
-  const int ox = c->game->gpu.s_off_x, oy = c->game->gpu.s_off_y;
-  auto push8 = [&](int px, int py, int u, int v) {
-    int xs[4] = {px + ox, px + 8 + ox, px + ox, px + 8 + ox};
-    int ys[4] = {py + oy, py + oy, py + 8 + oy, py + 8 + oy};
-    int us[4] = {u, u + 8, u, u + 8};
-    int vs[4] = {v, v, v + 8, v + 8};
-    unsigned char cc[4] = {0x80, 0x80, 0x80, 0x80};
-    c->game->activeRq().push2dQuad(RQ_HUD,
-                                   /*order_2d_fg=*/1,
-                                   xs,
-                                   ys,
-                                   us,
-                                   vs,
-                                   cc,
-                                   cc,
-                                   cc,
-                                   960,
-                                   256,
-                                   0,
-                                   /*raw=*/1,
-                                   (int)(clut & 0x3F) * 16,
-                                   (int)(clut >> 6) & 0x1FF,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   1023,
-                                   511);
-  };
-  int x = x0, y = y0;
-  for (uint32_t s = str0; c->mem_r8(s) != 0;) {
-    const uint32_t pair = ((uint32_t)c->mem_r8(s) << 8) | c->mem_r8(s + 1u);
-    uint32_t code;
-    if (pair == 0x0A0Au) {
-      s += 2;
-      x = x0;
-      y += 8;
-      continue;
+  GuestFrame<64, 9> frame(c, kIconGlyphSpills);
+  GuestReg<16> tokenEntry(c);
+  GuestReg<17> cursor(c);
+  GuestReg<18> scratch(c);
+  GuestReg<19> bucketOffset(c);
+  GuestReg<20> packetPoolBase(c);
+  GuestReg<21> otBaseRegister(c);
+  GuestReg<22> savedOriginX(c);
+  GuestReg<23> savedBucket(c);
+
+  cursor = string;
+  scratch = kIconScratch;
+  savedBucket = bucket;
+  savedOriginX = rawOriginX;
+  packetPoolBase = 0x800C0000u;
+  otBaseRegister = 0x800F0000u;
+  bucketOffset = bucket * 4u;
+
+  IconScratch glyph{c};
+  glyph.setCommand(0x75u);
+  glyph.setPosition(originX, originY);
+  const uint32_t clutRow = (sizeClass < 16) ? (uint32_t)sizeClass + 496u : (uint32_t)sizeClass + 480u;
+  const uint16_t clut = (uint16_t)((clutRow << 6) | ((sizeClass < 16) ? 63u : 62u));
+  glyph.setClut(clut);
+
+  while (c->mem_r8(cursor) != 0) {
+    const uint32_t pair = ((uint32_t)c->mem_r8(cursor) << 8) | c->mem_r8(cursor + 1u);
+    uint32_t rawCode = kNoGlyph;
+    if (pair == kNewlineGlyph) {
+      rawCode = kNewlineGlyph;
     } else if (((pair + 32160u) & 0xFFFFu) < 26u) {
-      code = (pair + 32193u) & 0xFFFFu;
-      s += 2;
+      rawCode = pair + 32193u;
     } else if (((pair + 32127u) & 0xFFFFu) < 26u) {
-      code = (pair + 32192u) & 0xFFFFu;
-      s += 2;
+      rawCode = pair + 32192u;
     } else if (((pair + 32177u) & 0xFFFFu) < 10u) {
-      code = (pair + 32193u) & 0xFFFFu;
-      s += 2;
+      rawCode = pair + 32193u;
     } else {
-      code = 0xFF02u;
-      for (uint32_t e = 0x800A55E0u; c->mem_r32(e) != 0; e += 8u) {
-        const uint32_t ts = c->mem_r32(e);
-        if (c->mem_r8(ts) == c->mem_r8(s) && c->mem_r8(ts + 1u) == c->mem_r8(s + 1u)) {
-          code = c->mem_r16(e + 4u);
+      tokenEntry = kIconTokenTable;
+      while (c->mem_r32(tokenEntry) != 0) {
+        c->r[4] = c->mem_r32(tokenEntry);
+        c->r[5] = cursor;
+        c->r[6] = 2u;
+        guest_call(c, 0x80078AA4u, func_8009A640);
+        if (c->r[2] == 0) {
+          rawCode = c->mem_r16(tokenEntry + 4u);
           break;
         }
+        tokenEntry += 8u;
       }
-      s += 2;
     }
-    if (code == 0xFF02u) {
-      x += 8;
+    cursor += 2u;
+    c->r[6] = rawCode;
+    const uint32_t code = rawCode & 0xFFFFu;
+
+    if (code == kNoGlyph) {
+      glyph.setX(glyph.x() + 8);
       continue;
     }
-    if (code == 0x0A0Au) {
-      x = x0;
-      y += 8;
+    if (code == kNewlineGlyph) {
+      glyph.setX(originX);
+      glyph.setY(glyph.y() + 8);
       continue;
-    } // a table token can map to newline too
-    push8(x, y, (code & 31u) << 3, ((code & 0xFFFu) >> 5) << 3);
-    x += 8;
+    }
+
+    glyph.setUv((code & 31u) << 3, ((code & 0xFFFu) >> 5) << 3);
+    emitGuestIconSprite(c, savedBucket);
+    queueHostIconSprite(c, glyph);
+    glyph.setX(glyph.x() + 8);
+
     if (code & 0x8000u) {
-      push8(x, y, (code & 0x1000u) ? 64 : 56, 64);
-      x += 5;
+      glyph.setUv((code & 0x1000u) ? 64 : 56, 64);
+      emitGuestIconSprite(c, savedBucket);
+      queueHostIconSprite(c, glyph);
+      glyph.setX(glyph.x() + 5);
     }
   }
-}
-} // namespace
 
-extern void gen_func_80079374(Core *);
-extern void gen_func_80079324(Core *);
-extern void gen_func_80078CA8(Core *);
-extern void gen_func_80078988(Core *);
+  const uint32_t drawModePacket = c->mem_r32(kPacketPoolPtr);
+  tokenEntry = drawModePacket;
+  cursor = 0x800C0000u;
+  c->mem_w32(c->r[29] + 16u, 0u);
+  c->r[4] = drawModePacket;
+  c->r[5] = 0u;
+  c->r[6] = 0u;
+  c->r[7] = 31u;
+  guest_call(c, 0x80078C30u, func_80083DE0);
+
+  const uint32_t otSlot = iconOtSlot(c, savedBucket);
+  c->r[4] = otSlot;
+  c->mem_w32(drawModePacket, c->mem_r32(otSlot) | kDrawModePacketTag);
+  c->mem_w32(otSlot, drawModePacket);
+  c->mem_w32(kPacketPoolPtr, drawModePacket + 12u);
+
+  c->r[3] = (uint32_t)(int32_t)glyph.x();
+  c->r[2] = (uint32_t)((int32_t)glyph.x() - originX);
+}
 
 void font_wide_re_install() {
   static bool done = false;
@@ -824,5 +945,5 @@ void font_wide_re_install() {
   engine_set_override_main(0x80079374u, ov_drawText, gen_func_80079374);
   engine_set_override_main(0x80079324u, ov_drawTextSmall, gen_func_80079324); // 8x8 sibling of drawText
   engine_set_override_main(0x80078CA8u, Font::glyphEmit, gen_func_80078CA8);
-  engine_set_override_main(0x80078988u, iconGlyphTap, gen_func_80078988); // icon/SJIS glyph strings
+  engine_set_override_main(0x80078988u, Font::iconGlyphEmit, gen_func_80078988); // icon/SJIS glyph strings
 }

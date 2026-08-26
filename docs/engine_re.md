@@ -2505,6 +2505,30 @@ used here). Sizes are generated-C line counts (rough proxy for MIPS instruction 
 | 0x8013ED54 | 26 | 0x8013EDD0 | 53 | 0x8013EEA0 | 45 |
 | 0x8013EF58 | 23 | 0x8013EFA8 | 319 | 0x8013F4DC | 345 |
 | 0x8013FAE0 | 18 | 0x8013FB1C | 15 | 0x8013FB4C | 16 |
+
+### A00 `FUN_8013ED08` — single rigid packed-mesh controller (2026-08-26)
+
+Ground truth: `generated/ov_a00_shard_0.c::ov_a00_gen_8013ED08` plus Ghidra
+`scratch/decomp/fx_ed08.c`. The entire 22-line body is:
+
+1. Write zero to `0x1F800090` (the shared mesh writer's IR0 publish slot).
+2. Call `FUN_800318A0(node+0x2C, node+0x54, node+0x48)`:
+   world position, three unsigned scale bytes (each becomes `byte<<2`), and Euler angles.
+3. Call `FUN_80027768(*(u32*)(node+0x50), 0, (s16)*(node+0x32), (u8)node[7])`:
+   mesh, zero CLUT-row bias, signed sort bias, and U scroll.
+
+The explicit IR0=0 makes DPCT/DPCS the identity; CR21-23 are not an input to the picture. Native
+owner: `Render::rigidMeshEffectRender` (`game/render/fx_rigid_mesh.cpp`), dispatched from the
+type-0x20 display walk behind the A00 residency signature `0x27BDFFE8`. It rebuilds the transform
+from node state using `MeshQuads`, interpolates the world anchor with `EffectLerp`, projects through
+the native camera via `projComposeObjectHost`, and reuses `meshQuadRecordsEmit`. No guest GTE result,
+scratch transform, packet, or OT state is consumed. Claim C066 records the falsifier. Runtime/oracle
+comparison remains outstanding, so ownership is `ported-unverified`.
+
+Adjacent `FUN_8013D828` is not equivalent: it writes signed `IR0 = 4096-node[0x55]*32` but never owns
+far-colour CR21-23. Its native port is blocked on identifying the persistent intended far-colour
+publisher; black, inherited GTE readback, and forced identity cue are all ungrounded alternatives.
+
 ## Region `0x800527C8-0x8005FB54` follow-up wave (2026-07-08, wide-RE tier, UNWIRED) — the
 ## ActorTomba "G-block" physics/AI region, dispatcher-first pass
 
@@ -3425,8 +3449,9 @@ comments (this codebase's convention: "the class IS the RE artifact"), not dupli
   step itself (the shared "advance cursor" tail always steps by a literal `8`). Byte dispatch: `0x20`
   (space) advances only; `0x0A` (`\n`) resets x and bumps y by a "line height" field (struct+18,
   never written anywhere in this function — must be initialized by an untraced caller-adjacent
-  leaf); bytes `0x01`/`0x02`/`0x03`/`0x04` each call the still-unowned `FUN_80078988` (box/rule
-  primitive) with a different literal table pointer (`0x80010000+28072/28076/28068/28064`); any
+  leaf); bytes `0x01`/`0x02`/`0x03`/`0x04` each call the now-owned `Font::iconGlyphEmit`
+  (`FUN_80078988`, an SJIS/token icon-string emitter, not a box/rule primitive) with a different
+  literal string pointer (`0x80010000+28072/28076/28068/28064`); any
   other byte is the ordinary glyph-draw arm, which prepends a 4-word GP0 packet at the shared packet
   pool (`PKT_POOL_PTR` 0x800BF544 — same pool every other render leaf in `game/render/` uses, see
   `game/render/submit.cpp`) into the OT bucket for the caller's `color` arg. The function's tail

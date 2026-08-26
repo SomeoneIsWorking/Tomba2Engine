@@ -556,6 +556,11 @@ public:
   // about the node's own Y axis, from the node's own angles/position — no GTE register is read.
   void radialPlumeRender(uint32_t node);
 
+  // rigidMeshEffectRender (game/render/fx_rigid_mesh.cpp): native display producer for A00 guest
+  // FUN_8013ED08. Rebuilds its packed-mesh transform from node position/angles/scale bytes, applies
+  // the controller's explicit identity depth cue, and projects through the interpolated native camera.
+  void rigidMeshEffectRender(uint32_t node);
+
   // swingStarburstRender (game/render/fx_swing.cpp): native producer for the ten-copy lavender
   // weapon-swing starburst emitted by FUN_8002A834 through the shared packed-mesh writer. Rebuilds
   // every transform from the controller's own particle bytes + world anchor; no GTE readback/tap.

@@ -1432,6 +1432,19 @@ in-port profiler (later-186, `interp.cpp`) gives the TIME + FREQUENCY histograms
 ---
 
 # CURRENT FRONTIER (work these, in this order)
+**SESSION 2026-08-26 — A00 `FUN_8013ED08` has a native display-pass packed-mesh producer
+(`Render::rigidMeshEffectRender`, `game/render/fx_rigid_mesh.cpp`).** The root cause of this missing
+picture was the 2026-08-04 retirement of the family-wide GTE transform tap; this controller is the
+first remaining A00 member whose whole contract is persistent node state plus an explicit identity
+depth cue. It now rebuilds node position/angles/scale through `MeshQuads`, interpolates the anchor
+through `EffectLerp`, and projects through the native widescreen/interpolated camera before the shared
+record writer. Clang build, mesh-math, format/tidy, codemap, portmap, and parity gates pass. Status is
+**ported-unverified** because the real-game runtime is serialized behind another title: reachability,
+native/oracle pixels, and an opposite-answer diagnostic remain. Family frontier: **4/20 native
+controller owners; 16 remain** (one of those, water-jet `0x8013D454`, still has explicit fallback
+debt). Do not take `0x8013D828` next by assuming black far colour: it drives signed IR0 but inherits
+CR21-23, so its persistent far-colour publisher must be identified first.
+
 **SESSION 2026-07-10 (fleet run, 69a1fb3..118dbc3) — SBS-full ZERO-DIFF re-reached, verified A/B
 identical through f12390 (120s autonav).** Peeled the whole render residual cluster in 5 hops (f62
 r16-r23 callee-save contract → f118 CCA4/renderWalk frames, owned FUN_8003C048 + FUN_8003D0BC → f158
@@ -2762,8 +2775,8 @@ themselves are LIVE but dispatch out to substrate for every case body.
     (space/`\n`/control bytes 1-4/default-glyph), glyph arm prepends a GP0 packet at the shared
     packet pool (`PKT_POOL_PTR` 0x800BF544, same pool every other render leaf uses). Calls the
     already-owned `func_80083DE0` (game/render/wide_re_libgpu_leaves.cpp) via `rec_dispatch`, and
-    leaves the still-unowned `FUN_80078988` (box/rule primitive, 4 call sites) `rec_dispatch`'d —
-    out of band, not drafted. LOW-MEDIUM confidence — control flow + the scratch-struct base-address
+    calls `Font::iconGlyphEmit` (`FUN_80078988`, now owned), the SJIS/token icon-string emitter used
+    by four control-byte arms. The older box/rule identification was false. LOW-MEDIUM confidence — control flow + the scratch-struct base-address
     correction are solid (direct re-read), individual field roles beyond that are inferred.
   Both new methods build+link clean in a fresh `build2`; UNWIRED (no override registration, no SBS
   run) per docs/fleet-workflow.md §6. A wiring pass MUST do the line-by-line gen-body re-verify §9

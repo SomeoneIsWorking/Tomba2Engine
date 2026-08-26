@@ -1,0 +1,22 @@
+{
+  "title": "Tomba!",
+  "region": "USA",
+  "serial": "SCUS-94236",
+  "disc_executable": "SCUS_942.36",
+  "output_name": "SCUS_942.36",
+  "file_size": 559104,
+  "sha1": "81cbc79f0230aeb4252e058039f47ac95a777f5a",
+  "ps_exe": {
+    "entry": "0x8006B58C",
+    "global_pointer": "0x00000000",
+    "text_address": "0x80010000",
+    "text_size": "0x00088000",
+    "data_address": "0x00000000",
+    "data_size": "0x00000000",
+    "bss_address": "0x00000000",
+    "bss_size": "0x00000000",
+    "stack_address": "0x801FFFF0",
+    "stack_size": "0x00000000"
+  },
+  "region_marker": "Sony Computer Entertainment Inc. for North America area"
+}

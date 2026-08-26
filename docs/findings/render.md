@@ -4593,8 +4593,34 @@ could contradict. Attribute the emission before believing the pixels.
 
 **Historical scope census.** At that point all 20 callers of `FUN_80027768` had an owner or a scope,
 and `0x8002AE0C` remained an orphan leaf with no call site. The later tap retirement deliberately
-reopened the family; `docs/unported-render-inventory.md` is the current authority. Three controllers
-now have legitimate node-state owners and seventeen remain.
+reopened the family; `docs/unported-render-inventory.md` is the current authority. Four controllers
+now have legitimate node-state owners and sixteen remain.
+
+### A00 `0x8013ED08`: first overlay mesh controller restored as a native display producer (2026-08-26; runtime verification pending)
+
+The retired `fx_mesh.cpp` scope made every A00 controller appear to have the same easy fix because it
+read the transform each one had left in GTE CR0-7. Reading the controllers instead separates the
+honest ports from the inherited-state traps. `ov_a00_gen_8013ED08` is the bounded case: it explicitly
+zeroes the shared writer's IR0 slot, calls `FUN_800318A0(node+0x2C, node+0x54, node+0x48)`, then calls
+`FUN_80027768(*(node+0x50), 0, (s16)node+0x32, (u8)node[7])`. Position, three unsigned scale bytes,
+Euler angles, mesh, sort bias, and U scroll all belong to persistent node state; IR0=0 makes DPCS/DPCT
+the identity, so the otherwise-live far colour is irrelevant.
+
+`Render::rigidMeshEffectRender` rebuilds that transform through the existing host-side `MeshQuads`,
+captures the world anchor through `EffectLerp`, composes against the native interpolated/widescreen
+camera, and hands the records to `meshQuadRecordsEmit`. Dispatch is in the type-0x20 display walk and
+is guarded by A00's first instruction at `0x8013ED08` (`addiu sp,-24`). It reads no GTE register,
+scratch transform, generated output, guest packet, or OT link. The focused Clang build plus format,
+tidy, codemap, and registry gates pass. No live game was launched while another title owned the
+serialized runtime, so reachability, native-vs-oracle pixels, and the producer diagnostic's opposite
+answer remain outstanding; the portmap status is `ported-unverified`, not fixed/verified.
+
+The first candidate, `FUN_8013D828`, exposed the boundary that the historical family note hid. It
+writes `IR0 = 4096 - (u8)node[0x55]*32` and calls the same record writer eight times, but never writes
+far-colour CR21-23. Its paired behaviour seeds scale/cue phases from A00 data, including a signed
+negative IR0 phase, so far colour is materially observable rather than an identity-cue detail.
+Assuming black, reading CR21-23 at display time, or forcing IR0=0 would each be a different hack.
+That controller remains open until the persistent owner of its intended far colour is grounded.
 
 ### Bounded `0x8013D454` guest-GTE fallback (2026-08-21; explicit hack debt)
 

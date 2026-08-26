@@ -6,6 +6,12 @@ quotes and only those.**
 **Goal:** REBUILD Tomba! 2 as a self-contained **PC-native game engine** in C++, running the real game
 content. Not an emulator, not a recompiled-MIPS blob with I/O bolted on. Effort/time is not a constraint.
 
+**Repository boundary:** this repository also hosts Tomba! 1 under `titles/tomba1/`, but co-location
+does not imply engine compatibility. Root `game/` and `generated/` remain Tomba! 2-only; Tomba! 1 owns
+separate title-local runtime, game, render, generated-registry, tools, and tests. Epic intent lives in
+`docs/project-goals.md`, factual coverage in `docs/project-state.md`, and repository placement in
+`docs/codemap.md`.
+
 > USER, 2026-06-14: *"new direction — port to PC, no PSX emulation, no PSX BIOS."*
 > USER, 2026-06-14: *"make the game itself do PC native rendering instead of PSX emulated rendering."*
 > (both `docs/journal.md`, sections "later 9" / "later 23")
@@ -279,12 +285,19 @@ the per-object state the native producer already owns, then draw, SAME render pa
 interpolated frames, one frame behind. No guest re-run, no guest writes — an interpolated frame is a
 host-side presentation concern. Anchor/stamp special-casing is its own debt, not the replacement.
 
-**Tomba! 1 (`SCUS_942.36`) is native 60 fps and gets widescreen only.** USER, 2026-08-22: *"For already 60fps
+**Tomba! 1 (`SCUS_942.36`) gets widescreen only.** USER, 2026-08-22: *"For already 60fps
 games, Tekken 3, Tomba! (first game, not 2), Mega Man X4, we don't need lerp or anything that lerp
 needs, they just need widescreen"*. The future `titles/tomba1` seam must therefore not install or share
 Tomba! 2 (`SCUS_944.54`)'s intermediate-frame synthesis, temporal history, camera/object lerp, or any prerequisite
 whose only purpose is interpolation. This narrows the preceding Tomba! 2 rule; it does not claim that
 Tomba! 1's executable or widescreen producer exists yet.
+
+The capability boundary is title-owned. Tomba! 2 explicitly returns
+`RenderCapabilities::interpolatedNative()` because it owns both its native scene renderer and
+prior/current presentation state; the bounded legacy adapter remains only for callbacks that have
+not migrated to narrower typed interfaces. A future Tomba! 1 runtime returns `widescreenOnly()` only
+after an executable-backed product exists; its current scaffold does not invent a runtime merely to
+consume the API.
 
 ## Verification
 

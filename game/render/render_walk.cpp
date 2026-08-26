@@ -984,6 +984,12 @@ void Render::fieldObjectsRender() {
           // (s16)node+0x60, so this producer returns immediately for the mesh case.
           c->rsub.stats.snObjs++;
           rend(c)->waterJetSpriteRender(n);
+        } else if (rfn == 0x8013ED08u && c->mem_r32(0x8013ED08u) == 0x27BDFFE8u) {
+          // A00's SINGLE RIGID EFFECT MESH: FUN_8013ED08 composes node position/angles/three scale
+          // bytes, explicitly publishes identity depth cue, then calls the shared packed-mesh writer.
+          // Overlay-resident, so addiu sp,-24 is the residency signature. See fx_rigid_mesh.cpp.
+          c->rsub.stats.snObjs++;
+          rend(c)->rigidMeshEffectRender(n);
         } else if (rfn == 0x800288ACu) {
           // FUN_800288AC also appears directly as a node render function, independently of the
           // composite weapon-impact path below. Both routes share the same node/script-state plume.

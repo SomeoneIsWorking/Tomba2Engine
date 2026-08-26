@@ -15,6 +15,7 @@ public:
   void destroyContext(void *context) override;
   void registerOverrides(Game &game) override;
   void bootInit(Core &core) override;
+  RenderCapabilities renderCapabilities() const override;
   bool guestVramIsPicture(const Game &game) const override;
 };
 

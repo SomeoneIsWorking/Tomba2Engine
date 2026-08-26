@@ -4,6 +4,7 @@ title: Queue-A highlight had guest execution but no pc_render picture
 status: resolved
 symptom: Tomba! 2 pc_render omits queue-A object highlight graphics even though the guest leaf runs and writes packets
 tags: render,tomba2,producer,missing-graphics
+state_items: S004
 created: 2026-08-22
 updated: 2026-08-22
 ---

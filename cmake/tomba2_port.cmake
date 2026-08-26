@@ -195,6 +195,7 @@ set(GAME_SRC
   game/audio/music_coord.cpp
   game/scene/startup.cpp
   game/ui/font.cpp
+  game/ui/icon_glyph_selftest.cpp
   game/ui/panel.cpp
   game/ui/pause_menu.cpp
   game/ui/start_page.cpp
@@ -266,6 +267,7 @@ set(GAME_SRC
   game/render/area21_sky_gradient.cpp
   game/render/backdrop.cpp
   game/render/fx_plume.cpp
+  game/render/fx_rigid_mesh.cpp
   game/render/fx_swing.cpp
   game/render/prop_quad.cpp
   game/render/guest_gte_water_jet.cpp

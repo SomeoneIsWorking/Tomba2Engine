@@ -182,16 +182,21 @@ anything was lost.
 - **Headless runs auto-SKIP the intro FMVs and fast-forward in-game FMVs** (later-134). A field probe is
   ~1.4s, not ~77s — the intro movie used to be played back in REAL TIME even headless. Just use
   `PSXPORT_VK_HEADLESS=1`; no flag needed. (`PSXPORT_NO_FMV=0` forces FMVs back on if ever required.)
-  Standard fast field probe: `PSXPORT_DEBUG=<chan> PSXPORT_GEOMBLK_FRAME=600 PSXPORT_ASPECT=16:9
-  PSXPORT_VK_HEADLESS=1 PSXPORT_AUTO_GAMEPLAY=1 PSXPORT_NATIVE_FRAMES=620 PSXPORT_NOAUDIO=1` → field at
-  present-frame 328, stable thereafter.
+  Aspect is Mods/settings-owned: `PSXPORT_ASPECT` is not a CVar and does nothing. For a bounded 16:9
+  probe, put `aspect=1` and `fps60=1` in `scratch/live-wide-settings.ini`, then run
+  `PSXPORT_SETTINGS=scratch/live-wide-settings.ini PSXPORT_DEBUG=<chan>
+  PSXPORT_GEOMBLK_FRAME=600 PSXPORT_VK_HEADLESS=1 PSXPORT_AUTO_GAMEPLAY=1
+  PSXPORT_NATIVE_FRAMES=620 PSXPORT_NOAUDIO=1` → field at present-frame 328, stable thereafter.
 - **Headless is silent automatically** — audio opens only for a real window (`PSXPORT_GPU_WINDOW`); a
   headless / `PSXPORT_VK_HEADLESS` run never touches the sound device. (`PSXPORT_NOAUDIO` still mutes a
   windowed run. WAV capture `PSXPORT_WAV` is independent and works headless.)
-- **Headless exits at 120 frames unless you set `PSXPORT_NATIVE_FRAMES=N`.** For a long/interactive run
-  set it high (e.g. `=100000`). For a capture, set it just past your last frame.
-- **Never `pkill -f tomba2_port` from a shell** whose own command line contains "tomba2_port" — `-f`
-  matches the full command line and kills your own shell (exit 144). Use `pkill -x tomba2_port`.
+- **Headless exits at 120 frames unless you set `PSXPORT_NATIVE_FRAMES=N`.** This is consumed by
+  psxport's shipping native loop (`native_boot.cpp`), where a positive value replaces the headless
+  default before the frame loop begins. For a long/interactive run set it high (e.g. `=100000`). For
+  a capture, set it just past your last frame.
+- **Terminate only the PID captured when the port was launched.** Shared sessions can run the same
+  binary name, so neither `pkill -f` nor `pkill -x` is safe. Use the workspace `safekill` helper on
+  that exact PID when a bounded product run does not exit by itself.
 - Backgrounding the port with the agent Bash tool's `&` gets the process group reaped — the live debug
   server then dies. Run it in a persistent session (a real terminal / instance-control) if you need the
   server to stay up across agent turns.

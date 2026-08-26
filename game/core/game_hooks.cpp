@@ -231,6 +231,7 @@ extern int run_camera_oracle(const char *exe_path);
 extern int run_effectmod_selftest(const char *exe_path);
 extern int run_cubetext_selftest(const char *exe_path);
 extern int run_sceneview_selftest(const char *exe_path);
+extern int run_icon_glyph_selftest(const char *exe_path);
 static int tomba_selftestGame(const char *which, const char *exePath) {
   if (!strcmp(which, "camera")) {
     return run_camera_oracle(exePath);
@@ -243,6 +244,9 @@ static int tomba_selftestGame(const char *which, const char *exePath) {
   }
   if (!strcmp(which, "sceneview")) {
     return run_sceneview_selftest(exePath);
+  }
+  if (!strcmp(which, "iconglyph")) {
+    return run_icon_glyph_selftest(exePath);
   }
   return 2; // not ours -> selftest_run reports "unknown"
 }

@@ -528,10 +528,10 @@ Durable ledger for Job #1 (byte-exact pc_faithful). One `## ` block per ported u
 - **gate:** registered, 2-leg 0-diff, but ovhit 0/0 (no gauge item in autonav) — host push math unexercised; needs gauge-popping drive + USER eyeball
 - **evidence:** 7a48eb15
 
-## Icon glyph tap FUN_80078988
+## Icon glyph emitter FUN_80078988
 - **status:** partial
-- **gate:** 2-leg 0-diff with tap registered; icon strings not exercised in autonav legs — needs an icon-showing drive + USER eyeball
-- **evidence:** 916ddfc0
+- **gate:** `PSXPORT_SELFTEST=iconglyph PSXPORT_NOAUDIO=1 PSXPORT_NOWINDOW=1 ./scratch/bin/tomba2_port scratch/bin/tomba2/MAIN.EXE`; 98 native-vs-real-MIPS-interpreter cases (all 90 MAIN.EXE token-table entries plus both synthetic combining-mark variants) compare all 2 MB RAM, scratchpad, r0..r31 and hi/lo at 0 mismatches. Host opposite-answer control: mapped direct glyph queues 1 RQ_HUD item, both combining variants queue 2 with U=56/64, and an unmapped token queues 0. Existing title/in-game options-page captures exercise the host producer and are 0/76800 vs psx_render. Still partial until `PSXPORT_NOWINDOW=1 PSXPORT_NOAUDIO=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1 PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=1200 PSXPORT_PAD_REPLAY=replays/bugs/ingame-options-page.pad ./scratch/bin/tomba2_port scratch/bin/tomba2/MAIN.EXE` proves nonzero balanced hits for the rewritten native execution body.
+- **evidence:** local uncommitted milestone; Ghidra `scratch/decomp/icon_glyph_80078988.c`, generated body `generated/shard_4.c:11802`, selftest `game/ui/icon_glyph_selftest.cpp`, options-page evidence in `docs/findings/ui.md`
 
 ## libapi-clear-words-86320
 - **scope:** 0x80086320 word-fill helper

@@ -26,6 +26,12 @@ void TombaRuntime::registerOverrides(Game &game) {
   register_engine_overrides(game);
 }
 
+RenderCapabilities TombaRuntime::renderCapabilities() const {
+  // Tomba! 2 owns both the native scene renderer and prior/current presentation state. Keep this
+  // title fact explicit even while the remaining compatibility callbacks use the bounded adapter.
+  return RenderCapabilities::interpolatedNative();
+}
+
 bool TombaRuntime::guestVramIsPicture(const Game &) const {
   // The native render pass owns the complete presented frame. Guest VRAM still carries texture
   // atlases and compatibility-path drawing, but neither is background picture content for the

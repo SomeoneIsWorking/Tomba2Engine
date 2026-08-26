@@ -180,6 +180,33 @@
   `replays/bugs/title-options-page.pad` (f1027 = title Select Options),
   `replays/bugs/ingame-item-menu.pad` (f1120 = the triangle item menu).
 
+## FUN_80078988 was already visible but still substrate-backed; one native icon walk now owns both outputs (2026-08-26)
+
+- **symptom:** the field-2D frontier still named special-character icons as a missing/substrate gap,
+  even though options-page captures already showed the icons and the codemap found `iconGlyphTap`.
+- **cause:** the tracker conflated picture coverage with execution ownership. The tap called
+  `gen_func_80078988` for guest packet/OT state, then independently decoded the same two-byte token
+  string to queue RQ_HUD sprites. Pixels existed, but the generated body and duplicate decoder were
+  still authoritative. Older notes also mislabeled the function as a box/rule primitive.
+- **fix:** `Font::iconGlyphEmit` is the one token walk. It mirrors the RE'd 64-byte guest frame and
+  exact scratchpad/packet-pool/OT writes while queueing the PC-render sprite at the same emission
+  point; the generated body survives only behind the override registry's oracle leg. Ghidra source:
+  `scratch/decomp/icon_glyph_80078988.c`; generated ground truth: `generated/shard_4.c:11802`.
+- **verification:** `PSXPORT_SELFTEST=iconglyph` runs 98 cases (empty, three direct classes, newline,
+  table miss, all 90 actual MAIN.EXE table entries and both synthetic combining-mark variants) against
+  the real MIPS interpreter and compares all 2 MB RAM, scratchpad, registers and hi/lo:
+  **0 mismatches**. Its host opposite-answer control gets exactly 1 RQ_HUD push for a mapped glyph,
+  2 for both combining variants with the expected U=56/64, and 0 for a miss. The pre-existing title/in-game options
+  captures remain the real visual evidence: all five pages were 0/76800 vs psx_render. A serialized
+  SBS run on those replays remains before parity promotion.
+- **static-check boundary:** `port_check --strict game/ui/font.cpp` recognizes the native/oracle pair
+  but reports a store-width mismatch because the native writes live in typed packet helpers while
+  the extractor counts only direct stores in `Font::iconGlyphEmit`. That result is not an execution
+  mismatch and must not be hidden by flattening the helpers: the whole-machine interpreter
+  differential above compares the actual writes and is the authoritative equivalence check.
+- **refs:** `game/ui/font.cpp`, `game/ui/icon_glyph_selftest.cpp`, `docs/parity-map.md`,
+  `docs/producers/0x80078988.md`
+
 ## DRAFTED (UNWIRED): dialog/text-box byte-stream advance — 0x8007C0D0 + 0x8007D0D0 (2026-07-08; CHECKED 2026-07-22)
 
 - **★ VERDICT 2026-07-22 — half of it is wrong; do NOT wire advanceByte.** Added `// ORACLE:` markers

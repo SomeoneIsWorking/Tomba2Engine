@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 1042 native fns, 875 owned addresses, 1033 LIVE / 9 ORPHAN. 474 override install sites over 474 addresses.
+Totals: 1043 native fns, 876 owned addresses, 1034 LIVE / 9 ORPHAN. 474 override install sites over 474 addresses.
 
 **A row can come from a DEFINITION or from an INSTALL SITE.** An address whose handler is a file-local static in an anonymous namespace (no address in its name, no tag, no quoted registry name) has no findable definition — the `overrides::install` / `engine_set_override_*` call site is its only ownership record, and the file holding that call site is where you debug it from. Those rows say so in the summary column.
 
@@ -509,7 +509,7 @@ Totals: 1042 native fns, 875 owned addresses, 1033 LIVE / 9 ORPHAN. 474 override
 | 0x80073300 | LIVE | `SceneTransition::completeSwap` | game/scene/scene_transition.cpp:157 |  |  |
 | 0x80073328 | LIVE | `SceneTransition::stepSwapWaiter` | game/scene/scene_transition.cpp:165 | 0x80073328 |  |
 | 0x800735F4 | LIVE | `Spawn::tickLinkedOverlay` | game/world/spawn.cpp:878 |  | per-object controller that owns exactly ONE linked "variant overlay" c… |
-| 0x80073750 | LIVE | `Font::measureLineWidth` | game/ui/font.cpp:201 |  | pure string measurer (disas 0x80073750..0x80073798, no sub-calls): |
+| 0x80073750 | LIVE | `Font::measureLineWidth` | game/ui/font.cpp:202 |  | pure string measurer (disas 0x80073750..0x80073798, no sub-calls): |
 | 0x800737F8 | LIVE | `leaf_800737F8` | game/core/field_owned_leaves.cpp:14338 |  |  |
 | 0x800738B0 | LIVE | `leaf_800738B0` | game/core/field_owned_leaves.cpp:14399 |  |  |
 | 0x800739AC | LIVE | `beh_scene_ui_trigger` | game/ai/beh_scene_ui_trigger.cpp:61 | 0x800737F8 0x800738B0 0x80074BF8 |  |
@@ -531,9 +531,9 @@ Totals: 1042 native fns, 875 owned addresses, 1033 LIVE / 9 ORPHAN. 474 override
 | 0x80075070 | LIVE | `AudioDispatch::publishStateFade` | game/audio/audio_dispatch.cpp:182 |  | AudioDispatch::publishStateFade — native ownership of FUN_80075070. Pu… |
 | 0x800750A4 | LIVE | `AudioDispatch::selectState` | game/audio/audio_dispatch.cpp:99 |  | AudioDispatch::selectState — native ownership of FUN_800750A4 (Ghidra … |
 | 0x800750D8 | LIVE | `AudioDispatch::dispatch3Way` | game/audio/audio_dispatch.cpp:36 | 0x8001CF2C | AudioDispatch::dispatch3Way — native ownership of FUN_800750D8 (Ghidra… |
-| 0x80075130 | LIVE | `Font::init` | game/ui/font.cpp:128 |  | font / text system init orchestrator. No args, no return. Mirrors the … |
+| 0x80075130 | LIVE | `Font::init` | game/ui/font.cpp:129 |  | font / text system init orchestrator. No args, no return. Mirrors the … |
 | 0x80075240 | LIVE | `Pool::reset75240` | game/world/pool.cpp:193 | 0x80075824 0x80075D58 0x80099490 | reset the control block at 0x800BE1F8: call 0x80075D58 leaf, seed clam… |
-| 0x800752B4 | LIVE | `Font::glyphClassFill` | game/ui/font.cpp:102 |  | glyph-class table fill. Iterates i = 0..23 over the 24-entry table. Th… |
+| 0x800752B4 | LIVE | `Font::glyphClassFill` | game/ui/font.cpp:103 |  | glyph-class table fill. Iterates i = 0..23 over the 24-entry table. Th… |
 | 0x800753AC | LIVE | `leaf_800753AC` | game/core/field_owned_leaves.cpp:14634 |  |  |
 | 0x800753D4 | LIVE | `preload_cel` | game/core/asset.cpp:340 | 0x80096480 0x80096980 0x80096A40 | cel-load, SYNCHRONOUS. Original: FUN_80096480 (slot alloc + BAV cel lo… |
 | 0x8007566C | LIVE | `leaf_8007566C` | game/core/field_owned_leaves.cpp:14648 | 0x80110774 0x80116FC8 0x8011727C 0x801174AC 0x801174B0 0x80117988 … |  |
@@ -583,12 +583,12 @@ Totals: 1042 native fns, 875 owned addresses, 1033 LIVE / 9 ORPHAN. 474 override
 | 0x80078798 | LIVE | `leaf_80078798` | game/core/field_owned_leaves.cpp:15793 |  |  |
 | 0x80078824 | LIVE | `Engine::setAreaStartPos` | game/core/engine.cpp:4344 |  | Engine::setAreaStartPos. Loads the player's per-area spawn |
 | 0x800788AC | LIVE | `Engine::padEdgeFence` | game/input/pad_edge_fence.cpp:54 |  | per-frame input-edge fence. See the file header above for the full RE … |
-| 0x80078988 | LIVE | `iconGlyphTap` | game/ui/font.cpp:722 |  | iconGlyphTap — FUN_80078988, the SJIS/token ICON-GLYPH string emitter … |
-| 0x80078CA8 | LIVE | `Font::glyphQueuePush` | game/ui/font.cpp:306 |  | the font/glyph emitter drawText() tail-calls. WIDE-RE TIER DRAFT (2026… |
-| 0x80078CA8 | LIVE | `Font::glyphEmit` | game/ui/font.cpp:352 | 0x80078988 0x80083DE0 |  |
-| 0x80079324 | LIVE | `Font::drawTextSmall` | game/ui/font.cpp:269 |  | ORACLE: gen_func_80079324 |
+| 0x80078988 | LIVE | `Font::iconGlyphEmit` | game/ui/font.cpp:833 |  | iconGlyphEmit — FUN_80078988, the SJIS/token ICON-GLYPH string emitter… |
+| 0x80078CA8 | LIVE | `Font::glyphQueuePush` | game/ui/font.cpp:307 |  | the font/glyph emitter drawText() tail-calls. WIDE-RE TIER DRAFT (2026… |
+| 0x80078CA8 | LIVE | `Font::glyphEmit` | game/ui/font.cpp:353 | 0x80078988 0x80083DE0 |  |
+| 0x80079324 | LIVE | `Font::drawTextSmall` | game/ui/font.cpp:270 |  | ORACLE: gen_func_80079324 |
 | 0x80079324 | LIVE | `ov_drawTextSmall` | game/ui/font.cpp:698 |  | ov_drawTextSmall: sibling of ov_drawText for FUN_80079324 — same guest… |
-| 0x80079374 | LIVE | `Font::drawText` | game/ui/font.cpp:244 |  | WIDE-RE TIER DRAFT (2026-07-09), UNWIRED/UNVERIFIED. See header doc fo… |
+| 0x80079374 | LIVE | `Font::drawText` | game/ui/font.cpp:245 |  | WIDE-RE TIER DRAFT (2026-07-09), UNWIRED/UNVERIFIED. See header doc fo… |
 | 0x800793C4 | LIVE | `leaf_800793C4` | game/core/field_owned_leaves.cpp:15820 |  |  |
 | 0x80079464 | LIVE | `leaf_80079464` | game/core/field_owned_leaves.cpp:15882 |  |  |
 | 0x80079528 | LIVE | `Str::length` | game/core/str.cpp:15 |  | strlen. RE (tools/disas.py 0x80079528 --all 20, cross-checked against |
@@ -744,8 +744,8 @@ Totals: 1042 native fns, 875 owned addresses, 1033 LIVE / 9 ORPHAN. 474 override
 | 0x80095A9C | LIVE | `Sequencer::channelVolumeSnapshot` | game/audio/sequencer.cpp:450 |  | channelVolumeSnapshot — true leaf (no stack frame). Faithful to gen_fu… |
 | 0x80095B90 | LIVE | `Sequencer::channelKeyEventScan` | game/audio/sequencer.cpp:518 |  | channelKeyEventScan — stack frame present (sp-32, spill ra/s16/s17/s18… |
 | 0x800962B0 | LIVE | `Sequencer::channelVoiceSelectPrep` | game/audio/sequencer.cpp:1044 |  | channelVoiceSelectPrep — called mid-loop by channelVoiceRegisterWrite(… |
-| 0x80096370 | LIVE | `Font::bank2Store` | game/ui/font.cpp:93 |  | font-bank2 store. `*kFontBank2Addr(sb) = bank; jr ra`. Leaf; does NOT … |
-| 0x800963A0 | LIVE | `Font::bankSelect` | game/ui/font.cpp:80 |  | font-bank selector. If ((bank-1)&0xff) < 24, store the bank byte at |
+| 0x80096370 | LIVE | `Font::bank2Store` | game/ui/font.cpp:94 |  | font-bank2 store. `*kFontBank2Addr(sb) = bank; jr ra`. Leaf; does NOT … |
+| 0x800963A0 | LIVE | `Font::bankSelect` | game/ui/font.cpp:81 |  | font-bank selector. If ((bank-1)&0xff) < 24, store the bank byte at |
 | 0x80096878 | LIVE | `bav_cleanup_tail` | game/ui/bav_loader.cpp:89 |  | cleanup tail at 0x80096878: release lock (a0=0 path) + decrement refco… |
 | 0x80099450 | LIVE | `bav_lock_ready` | game/ui/bav_loader.cpp:79 |  | -- lock helpers (FUN_80099478 / FUN_80099450), inlined --- |
 | 0x80099478 | LIVE | `bav_lock_ready` | game/ui/bav_loader.cpp:79 |  | -- lock helpers (FUN_80099478 / FUN_80099450), inlined --- |
@@ -987,6 +987,7 @@ Totals: 1042 native fns, 875 owned addresses, 1033 LIVE / 9 ORPHAN. 474 override
 | 0x8013E08C | LIVE | `Render::shockwaveRingRender` | game/render/fx_line.cpp:375 |  | the expanding SHOCKWAVE RING. Ported 2026-07-28; it was surfaced by |
 | 0x8013E9D8 | LIVE | `Render::ropeAnchorRender` | game/render/fx_line.cpp:467 |  | the HANGING object's rope: from the object it hangs off (node+0x14) to… |
 | 0x8013EA64 | LIVE | `Render::ropeChainRender` | game/render/fx_line.cpp:484 |  | the segmented CHAIN: 8 points the node carries, joined end to end. nod… |
+| 0x8013ED08 | LIVE | `Render::rigidMeshEffectRender` | game/render/fx_rigid_mesh.cpp:48 |  | one rigid packed-mesh controller, rebuilt from its persistent node sta… |
 | 0x8013FB88 | LIVE | `OverlayGroundGt3Gt4::gt3` | game/render/overlay_ground_gt3gt4.cpp:140 |  | ground/scene POLY_GT3 emit. Record = 36 bytes, SAME field layout as th… |
 | 0x8013FE58 | LIVE | `OverlayGroundGt3Gt4::gt4` | game/render/overlay_ground_gt3gt4.cpp:277 |  | ground/scene POLY_GT4 emit. Record = 44 bytes: {+0 rgb0(rgb1=rgb0<<4)\|… |
 | 0x801401B8 | LIVE | `OverlayGroundGt3Gt4::entityLoop` | game/render/overlay_ground_gt3gt4.cpp:406 |  | the ground-entity render list walker. list=a0: +6 (u8) entry count, +1… |
@@ -1016,8 +1017,6 @@ Owned by a DIFFERENT mechanism than the table above: `PlatformHle` (`external/ps
 | 0x80080880 | `scheduler_yield` | `changeThread` |
 | 0x800834A0 | `gpu_timeout_arm` | `gpuTimeoutArm` |
 | 0x800834D4 | `gpu_timeout_chk` | `gpuTimeoutCheck` |
-| 0x800846D0 | `set_geom_offset` | `setGeomOffset` |
-| 0x800846F0 | `set_geom_screen` | `setGeomScreen` |
 | 0x80085900 | `vsync_trap` | `vsyncTrap` |
 | 0x8008A96C | `cdreadsync` | `cdReadSync` |
 | 0x8008B2D8 | `cdinit_hs` | `cdInitHandshake` |
@@ -1025,13 +1024,13 @@ Owned by a DIFFERENT mechanism than the table above: `PlatformHle` (`external/ps
 | 0x8009CAEC | `sync_ok` | `decDctInSync` |
 | 0x8009CB80 | `sync_ok` | `decDctOutSync` |
 
-11 PlatformHle-owned address(es).
+9 PlatformHle-owned address(es).
 
 ## Deliberately ABSENT — do NOT port from this map alone (`docs/port-map.md`)
 
-Cross-referenced against 56 `docs/port-map.md` steps; 2 carry an explicit `absent:` field. A step here means the layer's PICTURE was removed by decision (usually PROTOCOL.md's absolute no-tap rule). Its entry function may still be natively OWNED above — the producer exists, it just no longer draws — so an owner row is NOT evidence the layer is present. Read the step's `notes` in the port map before touching any of it.
+Cross-referenced against 57 `docs/port-map.md` steps; 2 carry an explicit `absent:` field. A step here means the layer's PICTURE was removed by decision (usually PROTOCOL.md's absolute no-tap rule). Its entry function may still be natively OWNED above — the producer exists, it just no longer draws — so an owner row is NOT evidence the layer is present. Read the step's `notes` in the port map before touching any of it.
 
 | port-map step | status | why it is absent | guest addrs | owner files |
 |---------------|--------|------------------|-------------|-------------|
-| `render-producer-effect-mesh-family` | todo | the effect-mesh PICTURE was deleted 2026-08-04 with the GTE-register taps (commit abf3cf9 removed game/render/fx_mesh.cpp/.h, mesh_emit_tap.cpp, swing_fx.cpp/.h). Those producers re-derived quads host-side from the transform the substrate controller had just composed into GTE CR0-7. Deleting them was CORRECT. Three controller-state replacements are live; seventeen native controller producers remain absent. One of those pictures, the `0x8013D454` water-jet mesh, is visible through the explicit `render-fallback-water-jet-guest-gte` hack; sixteen producer-less pictures still have no route. Do not widen that fallback to get the rest back. | 0x80027768 | — |
+| `render-producer-effect-mesh-family` | todo | the effect-mesh PICTURE was deleted 2026-08-04 with the GTE-register taps (commit abf3cf9 removed game/render/fx_mesh.cpp/.h, mesh_emit_tap.cpp, swing_fx.cpp/.h). Those producers re-derived quads host-side from the transform the substrate controller had just composed into GTE CR0-7. Deleting them was CORRECT. Four controller-state replacements are live; sixteen native controller producers remain absent. One of those pictures, the `0x8013D454` water-jet mesh, is visible through the explicit `render-fallback-water-jet-guest-gte` hack; fifteen producer-less pictures still have no route. Do not widen that fallback to get the rest back. | 0x80027768 | — |
 | `render-producer-submitquad-classes` | todo | the PICTURE for the two REMAINING caller classes (a00-overlay flame/rope emitter, case-188 particles) was DELETED 2026-08-04, not left unported — its GTE-register tap is banned by PROTOCOL.md (USER, absolute). Rebuild ONLY as a native producer reading each emitter's own world state. | 0x8003B320 | — |

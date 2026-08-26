@@ -4,6 +4,7 @@ title: Area-load presentation drops stale world capture
 status: fix-verified
 symptom: PSXPORT_GATE_PRESENTATION aborts across a cold area warp because transition-world quads are captured but field-area initialization intentionally presents no world
 tags: render,tomba2,presentation,fps60,area-load
+state_items: S006
 created: 2026-08-24
 updated: 2026-08-25
 ---

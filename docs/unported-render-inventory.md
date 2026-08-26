@@ -155,27 +155,28 @@ address owning the channel reports `native=0`. If it does, the channel measured 
 
 ## 1. THE INVENTORY, ranked
 
-### R1 — THE EFFECT-MESH FAMILY has 17 controller producers remaining *(highest value; RE largely done)*
+### R1 — THE EFFECT-MESH FAMILY has 16 controller producers remaining *(highest value; RE largely done)*
 
-**THREE CONTROLLERS CLOSED — `0x8002BC9C`, the four-copy radial plume (2026-08-06), plus
-`0x8002A834`, the weapon-charge starburst, and `0x800288AC`, the weapon-impact plume (2026-08-21).**
-17 of the 20 callers of the shared writer are still producer-less, so the row stays open. All three
+**FOUR CONTROLLERS CLOSED — `0x8002BC9C`, the four-copy radial plume (2026-08-06),
+`0x8002A834`, the weapon-charge starburst, `0x800288AC`, the weapon-impact plume (2026-08-21), and
+`0x8013ED08`, A00's single rigid mesh (2026-08-26).**
+16 of the 20 callers of the shared writer are still producer-less, so the row stays open. All four
 closed controllers rebuild their transform from their own node state in the display pass. One of the
-17, `0x8013D454`, now has an explicitly authorised, non-interpolated guest-GTE fallback; that restores
+16, `0x8013D454`, now has an explicitly authorised, non-interpolated guest-GTE fallback; that restores
 the water-jet picture but does **not** close its native-producer debt.
 
 | | |
 |---|---|
 | **Looks like in game** | the weapon-IMPACT radial plume; the weapon SWING / CHARGE effect; the water jet's mesh half ("Water came out from the faucet!"); a 4-copy radial plume that is the commonest effect node in a field dump; plus up to 14 further effect controllers not yet identified by sight |
 | **Guest producer** | shared writer `FUN_80027768`, reached from **20 distinct controllers**. Named ones: `0x800288AC` (impact plume), `0x8002BC9C` (4-copy plume), `0x8002A834` (SwingFx), `0x8013D454` MESH branch, `0x8013D828`, `0x8013ED08`, `0x8013EF58` (A00 overlay), and the unowned twelve `0x80028B70 0x8002C138 0x8002C6AC 0x8002CD18 0x8002D65C 0x8002DF68 0x8002F36C 0x8002FDD0 0x80030264 0x80030D68` (census in `docs/findings/render.md`, "the mesh writer has 20 callers") |
-| **Why absent** | commit **`abf3cf9`** ("Delete the GTE-register render taps; four layers are now honestly absent", 2026-08-04) removed `game/render/fx_mesh.cpp/.h`, `mesh_emit_tap.cpp`, `swing_fx.cpp/.h`. `mesh_emit_tap.cpp` had been the **single owner** of `FUN_80027768` and dispatched to whichever controller SCOPE was up. No scope, no picture — and pc_render does not ordinarily walk the guest OT. **The deletion was CORRECT**: those producers re-derived quads from the transform the substrate controller had just composed into GTE CR0–7, i.e. a family-wide tap. It temporarily left the whole family producer-less; three controller-state producers now replace three paths. The water-jet exception replays only the exact GT4 packets written inside its one controller scope and requires all packet-addressed guest depths to resolve; it is explicit fallback debt, not a reconstructed transform or shared-family owner. |
-| **Evidence** | `tools/codemap.py --addr` finds native owners for closed controllers `0x8002BC9C`, `0x8002A834`, and `0x800288AC`; `0x80027768` now resolves specifically to `waterJetWriterTap` plus the `hack` frontier warning, while `0x8013D828`, `0x8013ED08`, and `0x8013EF58` still have no owner. The water-jet true-software-oracle run reaches f530 with B byte-identical at all eight samples; live f460/470/480/490/510/520 calls each replay exactly two guest GT4 packets with 8/8 exact depth hits, zero misses/stale, while f450/f500 are exact no-emission controls. The impact replay's final safeguard remains byte-identical in both panes at all eight samples. |
-| **Collateral** | **kanban #14 and #15 are closed by controller-state producers**, not by resurrecting `fx_mesh.cpp`. The 2026-07-28 A00 water-jet picture is visible again through the bounded fallback, but its native producer remains open. **Claim C011** remains **falsified** because seventeen controllers are still producer-less. |
+| **Why absent** | commit **`abf3cf9`** ("Delete the GTE-register render taps; four layers are now honestly absent", 2026-08-04) removed `game/render/fx_mesh.cpp/.h`, `mesh_emit_tap.cpp`, `swing_fx.cpp/.h`. `mesh_emit_tap.cpp` had been the **single owner** of `FUN_80027768` and dispatched to whichever controller SCOPE was up. No scope, no picture — and pc_render does not ordinarily walk the guest OT. **The deletion was CORRECT**: those producers re-derived quads from the transform the substrate controller had just composed into GTE CR0–7, i.e. a family-wide tap. It temporarily left the whole family producer-less; four controller-state producers now replace four paths. The water-jet exception replays only the exact GT4 packets written inside its one controller scope and requires all packet-addressed guest depths to resolve; it is explicit fallback debt, not a reconstructed transform or shared-family owner. |
+| **Evidence** | `tools/codemap.py --addr` finds native owners for closed controllers `0x8002BC9C`, `0x8002A834`, `0x800288AC`, and `0x8013ED08`; `0x80027768` resolves specifically to `waterJetWriterTap` plus the `hack` frontier warning, while `0x8013D828` and `0x8013EF58` still have no owner. `ov_a00_gen_8013ED08` grounds every native input and explicitly zeroes IR0, so no inherited GTE material state is needed; build/format/tidy are green, while live reachability/oracle comparison remains serialized. The water-jet true-software-oracle run reaches f530 with B byte-identical at all eight samples; live f460/470/480/490/510/520 calls each replay exactly two guest GT4 packets with 8/8 exact depth hits, zero misses/stale, while f450/f500 are exact no-emission controls. |
+| **Collateral** | **kanban #14 and #15 are closed by controller-state producers**, not by resurrecting `fx_mesh.cpp`. The 2026-07-28 A00 water-jet picture is visible again through the bounded fallback, but its native producer remains open. **Claim C011** remains **falsified** because sixteen controllers are still producer-less. |
 | **Porting needs** | one native producer per controller, reading the controller's OWN node state (`node+0x48` angles, `node+0x2C/0x30` position, model table at `node+0x50`) and projecting with the native camera — the shape `fx_sprite.cpp` / `fx_dust.cpp` / `fx_line.cpp` already use. **The RE is largely DONE — do not re-derive it:** kanban #15's 2026-07-28 entry carries the full `FUN_8002BC9C` decode; `docs/findings/render.md` "The A00-overlay effect-mesh controllers" carries `0x8013D454/D828/ED08/EF58` |
 | **Do NOT** | resurrect the deleted family-wide tap or widen the water-jet exception. `game/render/guest_gte_water_jet.cpp` is scoped to `0x8013D454`, emits exact integer guest output at logic time, and must die when that controller gains a real node-state producer |
-| **Tracked as** | portmap `render-producer-effect-mesh-family` (todo, `absent:` set), `render-fallback-water-jet-guest-gte` (hack debt), plus `render-producer-plume-bc9c`, `render-producer-charge-starburst`, and `render-producer-impact-plume-288ac` for the three closed controllers |
+| **Tracked as** | portmap `render-producer-effect-mesh-family` (todo, `absent:` set), `render-fallback-water-jet-guest-gte` (hack debt), plus `render-producer-plume-bc9c`, `render-producer-rigid-mesh-ed08`, `render-producer-charge-starburst`, and `render-producer-impact-plume-288ac` for the four closed controllers |
 
-##### R1 — WORK ORDER: 17 controller producers remain against existing shared writers, blocked on nothing *(updated 2026-08-21)*
+##### R1 — WORK ORDER: 16 controller producers remain against existing shared writers *(updated 2026-08-26)*
 
 `external/psxport/tools/producer_class.py` classified all 20 controllers by which GTE ops they reach.
 Read the second axis, not the first — the first is what made this family look 10× harder than it is:
@@ -282,8 +283,24 @@ at replay frame 255. A same-binary `native highlight` A/B changes 318 pixels, in
 conservative integer bounds around those three boxes. The remaining 274 are separate clusters on
 unrelated animated geometry and remain unroot-caused; they are not counted as localized producer
 pixels. The producer census records 312 guest primitives over 122 frames and 712 native primitives over
-161 frames. This does not reduce the 17-controller type-0x20 work queue above; it closes the separate
+161 frames. This does not reduce the 16-controller type-0x20 work queue above; it closes the separate
 orphan.
+
+#### R1-CLOSED-4 — A00 single rigid mesh (`FUN_8013ED08`) *(ported 2026-08-26; runtime verification pending)*
+
+`Render::rigidMeshEffectRender` in `game/render/fx_rigid_mesh.cpp` replaces one retired controller
+scope with a display-pass owner. `ov_a00_gen_8013ED08` states the complete contract in 22 generated
+lines: publish IR0=0; compose `node+0x2C` position, `node+0x54` unsigned scale bytes and `node+0x48`
+Euler angles through `FUN_800318A0`; call `FUN_80027768(*(node+0x50), 0, (s16)node+0x32,
+(u8)node[7])`. The native route uses `MeshQuads`, `EffectLerp`, `projComposeObjectHost`, and the
+shared `meshQuadRecordsEmit`, so it has native widescreen projection, an interpolated effect anchor,
+and no guest GTE/packet/OT dependency. Build, format, tidy, codemap, and registry checks are green.
+A real-game reachability and true-software-oracle comparison remain required before `verified`.
+
+The adjacent `FUN_8013D828` was deliberately not ported. It publishes signed IR0 from node state but
+does not own CR21-23, so its overbright/fade phase depends on inherited live GTE far colour. Reading
+that transient state would recreate the retired tap boundary; its proper next step is to identify the
+persistent far-colour publisher, not to assume black or force the cue off.
 
 #### R1-CLOSED-1 — the FOUR-COPY RADIAL PLUME (`FUN_8002BC9C`) *(ported 2026-08-06)*
 
@@ -445,9 +462,10 @@ Ranked here because the user sees them as missing graphics, but the fix is not "
 
 ### R7 — 2D layer residuals
 
-`field-2D layer (#3b)` is ported-unverified as a whole. Named remaining gap: **special-character icon
-glyphs `FUN_80078988` are still substrate**. Also outstanding on that step: the gauge firing drive and
-a USER eyeball of the whole 2D layer.
+`field-2D layer (#3b)` is ported-unverified as a whole. Its former special-character icon gap is
+closed: `Font::iconGlyphEmit` now owns `FUN_80078988`'s guest state/packet emission and RQ_HUD picture
+with one token walk. The remaining work is the gauge firing drive and a USER eyeball of the whole 2D
+layer.
 
 ### R8 — Implemented but never seen on screen ("ported-unverified" — plausible and unproven)
 
@@ -500,7 +518,7 @@ the way to drive into one.
        |                     the phase byte advances; that is a game-driving task, not RE.
        |
   R6  remaining behaviour/state/ordering bugs -- independent of missing-producer work
-  R7  2D residual: FUN_80078988 special-char glyphs      -- independent
+  R7  2D residual: gauge firing drive + whole-layer eyeball -- needs scenario + USER
   R8  drive the cold producers                            -- needs scenarios, not code
 ```
 
