@@ -79,7 +79,17 @@
 
   // Mid-function re-entry points in MAIN: an entry INSIDE another function whose body must fall
   // THROUGH into the seed rather than `return`.
-  "main_reentry": ["0x80051FA4"],
+  "main_reentry": [
+    "0x80051FA4",
+
+    // The MAIN task/event bootstrap FUN_80085CB4 saves a jmp context through
+    // FUN_8009BA10.  That context's saved $ra is 0x80085D1C (the instruction
+    // immediately after the save), and the scheduler later resumes it by
+    // dispatching that PC directly.  It is therefore a genuine mid-function
+    // continuation, not a callable function boundary: emit its fragment and
+    // preserve fall-through from the preceding fragment.
+    "0x80085D1C"
+  ],
 
   // Per-overlay LOAD BASE. The \BIN\*.BIN overlays are read RAW to a fixed base and run in place, so
   // a given guest address is different code depending on which overlay is resident. These bases are
