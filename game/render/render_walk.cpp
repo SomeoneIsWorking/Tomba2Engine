@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <string_view>
+#include "gpu_vk.h" // gpu_seen3d_this_frame — declared by the framework, never locally
 
 void rec_dispatch(Core *, uint32_t);
 void rec_super_call(Core *, uint32_t);
@@ -624,7 +625,6 @@ void Render::sceneNative() {
   c->r[4] = saved;
   temporal.mWorldCaptureOnly = false; // kanban #33: capture-only scope ends with the guest world walk
   if (cfg_dbg("scenenative")) {
-    int gpu_seen3d_this_frame(Core *);
     static int f = 0;
     if ((f++ % 60) == 0) {
       cfg_logf("scenenative",
