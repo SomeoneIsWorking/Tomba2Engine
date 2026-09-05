@@ -2,20 +2,21 @@
 // in the 0x8003xxxx render-submit band: FUN_8003B054 (quad-corner UV/vertex-index ROTATE) and
 // FUN_8003B320 (RTPT+RTPS project-and-OT-link the quad the rotate helper built).
 //
-// RE'd from generated/shard_3.c (FUN_8003B054, gen_func_8003B054) and generated/shard_6.c
-// (FUN_8003B320, gen_func_8003B320) — the recompiler's per-instruction translation, which is
-// ground truth for GTE ops per CLAUDE.md (Ghidra's COP2 decompile of these two garbles the GTE
+// RE'd from authenticated executable/overlay evidence (FUN_8003B054, guest 0x8003B054) and authenticated
+// executable/overlay evidence (FUN_8003B320, guest 0x8003B320) — the recorded binary evidence's per-instruction
+// translation, which is ground truth for GTE ops per CLAUDE.md (Ghidra's COP2 decompile of these two garbles the GTE
 // register indices into synthetic setCopReg/copFunction "bus" pseudo-calls; the shard C does not).
 //
 // WIRED (frontier, 2026-07-08): registerOverrides() below installs both leaves into the
-// recompiler's OWN process-global override table via `shard_set_override` (g_override[] —
-// generated/shard_disp.c). Callers of both leaves are direct C calls the recompiler generates
-// (`func_8003B054(c)`/`func_8003B320(c)`, always routed through that table), so this ONE
+// recorded binary evidence's OWN process-global override table via `tomba::native::declareOverride` (image-qualified
+// runtime dispatcher — authenticated executable/overlay evidence). Callers of both leaves are direct C calls the
+// recorded binary evidence generates
+// (`guest 0x8003B054(c)`/`guest 0x8003B320(c)`, always routed through that table), so this ONE
 // registration covers every call site across shards uniformly — same discipline as
-// game/render/overlay_gt3gt4.cpp's ov_a00_set_override wiring, and (like that cluster) this is
+// game/render/overlay_gt3gt4.cpp's A00 tomba::native::declareOverride wiring, and (like that cluster) this is
 // the "faithful substrate mirror" carve-out: the process-global table is shared by BOTH SBS
 // cores, so both run the SAME native translation (byte/op-exact transcription verified against
-// generated/ ground truth, not a port DECISION differentially validated core-vs-core).
+// authenticated executable/overlay evidence ground truth, not a port DECISION differentially validated core-vs-core).
 #pragma once
 struct Core;
 class Game;
@@ -42,7 +43,7 @@ public:
   // corners' SX is inside [0,320), or NONE is inside [0,240) — unsigned 16-bit ANY-corner-in-range
   // tests, same OR convention as the sibling OverlayGt3Gt4/OverlayGroundGt3Gt4 leaves; a prior
   // draft of this comment + the .cpp both mis-stated this as an ALL-4-corners AND test — fixed
-  // 2026-07-08 against generated/shard_6.c gen_func_8003B320, which jumps to "keep" the instant
+  // 2026-07-08 against authenticated executable/overlay evidence guest 0x8003B320, which jumps to "keep" the instant
   // any one corner is in range), or an out-of-range OT bucket. Also calls NCLIP between RTPT and
   // the SXY3 project (see .cpp) — a REAL executed GTE op whose only output is provably clobbered
   // before ever being read, reproduced anyway for full op-exact fidelity (a prior draft comment
@@ -51,11 +52,11 @@ public:
   // CLAUDE.md — see .cpp.
   static void submitQuad(Core *c); // FUN_8003B320: a0=out, a1=composedXform(6 words), a2=otzBias
 
-  // Wire both leaf addresses into the recompiler's OWN process-global override table
-  // (shard_set_override -> g_override[], generated/shard_disp.c) via overrides::install
-  // (engine_set_override_main, runtime/recomp/override_registry.h). Both leaves are reached by a
-  // direct C call the recompiler generates (`func_8003B054(c)`/`func_8003B320(c)`), never
-  // rec_dispatch, so this ONE registration (called once per Game) covers every call site,
-  // including both SBS cores.
+  // Wire both leaf addresses into the recorded binary evidence's OWN process-global override table
+  // (tomba::native::declareOverride -> image-qualified runtime dispatcher, authenticated executable/overlay evidence)
+  // via tomba::native::declareOverride (tomba::native::declareOverride, runtime/psx/override_registry.h). Both leaves
+  // are reached by a direct C call the recorded binary evidence generates (`guest 0x8003B054(c)`/`guest
+  // 0x8003B320(c)`), never typed runtime address dispatch, so this ONE registration (called once per Game) covers every
+  // call site, including both SBS cores.
   static void registerOverrides(Game *game);
 };

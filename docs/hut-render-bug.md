@@ -8,7 +8,7 @@ screen fade is missing. "As if the transition didn't fully happen."
 - Recording: `scratch/bin/hut_entry.pad` (a hand-played session; recording is now always-on by default to
   `scratch/bin/pad_session.pad`, so the user can play on macOS and send the `.pad`).
 - Replay: `PSXPORT_PAD_REPLAY=scratch/bin/hut_entry.pad` (deterministic — the engine has no clock/RNG).
-- Diagnostics (all in `runtime/recomp/pad_input.cpp`, replay-frame indexed):
+- Diagnostics (all in `runtime/psx/pad_input.cpp`, replay-frame indexed):
   - `PSXPORT_PAD_SHOT_AT=f0,f1,...` → `scratch/screenshots/padshot_<f>.ppm`
   - `PSXPORT_PAD_TRACE=lo-hi` → per-frame markers (bf839, bf80f, 1f800236, sm[0x4a/4c/4e], scene, bf870, Tomba X/Z)
   - `PSXPORT_PAD_DUMP_AT=f0,...` → 2 MB RAM (+.spad) + scene classification at those replay frames
@@ -40,18 +40,18 @@ change village→interior are `0x800E0000` (scene tables), `0x800F0000` (entity 
 `0x80100000`, `0x80140000` (scene overlay — interior objects + handlers). The native render is rendering the
 VILLAGE objects in the interior while the PSX render renders the INTERIOR objects — same entity list, same
 gameplay. Strong suspect: the per-object RENDER SNAPSHOT QUEUE (scratchpad cursor `0x1F800140` / count
-`0x1F800146`, drained by the gen_func_8003BB50 driver) — notably the SAME `0x1F800140..15F` region the SBS
+`0x1F800146`, drained by the guest 0x8003BB50 driver) — notably the SAME `0x1F800140..15F` region the SBS
 divergence detector flagged. Either the native render walks a stale snapshot / wrong object set, or the
 sub-scene swap's object-list update isn't reflected in what the native render drains.
 
 ## The FADE half
-The seamless transition's fade is `FUN_8007e9c8` called from a still-recomp content handler via the OT path
+The seamless transition's fade is `FUN_8007e9c8` called from a still-guest content handler via the OT path
 (NOT one of the 3 `engine_fade_set` native call-sites). The native renderer no longer draws the OT fade rect,
 so the fade is invisible. Fix: route this caller's fade through `engine_fade_set` (own the transition's fade
 delivery natively) — or restore a path so the seamless transition fade reaches the engine fade.
 
 ## NEXT STEPS (the fix)
-1. Pin the exact object-render divergence at f394: instrument the snapshot-queue driver (gen_func_8003BB50 /
+1. Pin the exact object-render divergence at f394: instrument the snapshot-queue driver (guest 0x8003BB50 /
    the entity walk that fills `0x1F800140`) — log the node set the native render drains vs what PSX drains.
    (VK-level attribution: the OT scene-dump is blind to native VK geometry; use `debug otattr` /
    vkstats / a per-object-render node log.) Find why native draws village objects, PSX draws interior.

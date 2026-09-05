@@ -6,18 +6,18 @@
 //   Render::fxAnimSpriteRender  — the FUN_8002847C family (36-byte four-corner records, animation-script
 //                                 driven): Tomba's movement DUST PUFFS + the impact starburst (kanban #39).
 //
-// WAS a leaf tap on 0x80027A4C (run the gen body, scrape the scratchpad the emitter published, re-derive
+// WAS a leaf tap on 0x80027A4C (run the guest-visible behavior, scrape the scratchpad the emitter published, re-derive
 // the quads host-side). A tap fires at GUEST time on the real frame only and re-uses the guest's own
 // RTPS result, so its output can never interpolate — the interp present re-run would have to re-execute
-// the gen body under a lerped camera, which writes guest RAM. That is exactly #23: the roof flames step
+// the guest-visible behavior under a lerped camera, which writes guest RAM. That is exactly #23: the roof flames step
 // at 30 Hz. The fix (per CLAUDE.md "LERP IS NATIVE TOO" / "NATIVE PRESENTATION") is a real port: PROJECT
 // the effect's own world state with the native camera and emit from the display pass, so tier1Render
 // re-renders it one frame behind under the lerped camera like every other native producer.
 //
-// RE (Ghidra scratch/decomp/fx_emit_leaves.c + fx_pkt_writer.c, ground truth generated/shard_5..7.c). The
-// family has ONE packet writer (0x80027A4C) and THREE emitter render-fns; a type-0x20 render node carries
-// its emitter at node+0x18 (confirmed live at the seaside water-pump vista, HEAD 0x800F2624: six
-// FUN_80027CB4 roof-flame nodes + eight FUN_800281EC particle-flame nodes, all vis=1). Every emitter:
+// RE (Ghidra scratch/decomp/fx_emit_leaves.c + fx_pkt_writer.c, ground truth authenticated executable/overlay
+// evidence). The family has ONE packet writer (0x80027A4C) and THREE emitter render-fns; a type-0x20 render node
+// carries its emitter at node+0x18 (confirmed live at the seaside water-pump vista, HEAD 0x800F2624: six FUN_80027CB4
+// roof-flame nodes + eight FUN_800281EC particle-flame nodes, all vis=1). Every emitter:
 //   1. loads the pure scene-camera CRs (scratchpad 0x1F8000F8..0x114) into the GTE and sets DQA=6 (or 4
 //      for the FUN_800281EC '!' variant) / DQB=0 — i.e. it REPURPOSES the GTE's depth-cue divide as a
 //      per-Z sprite scale: after RTPS, MAC0 (GTE data reg 0x18) = n·DQA with n=(H·0x20000/SZ3 + 1)/2.
@@ -37,9 +37,9 @@
 // base scale is derived from the same native SZ3 + the emitter's own DQA constant (no ambient GTE read),
 // so it too tracks the lerped depth. The 8-byte record walk (corners = anchor + s8-offset·scale>>16, UV
 // flip rules, flat-grey brightness) is unchanged from the tap — only the anchor/scale SOURCE changed from
-// "scrape the gen body's scratchpad" to "project the world anchor natively".
+// "scrape the guest-visible behavior's scratchpad" to "project the world anchor natively".
 //
-// 0x80027A4C now runs its plain gen body for guest-state fidelity (SBS stays byte-exact — the guest still
+// 0x80027A4C now runs its plain guest-visible behavior for guest-state fidelity (SBS stays byte-exact — the guest still
 // executes it; pc_render simply no longer scrapes it). Read-only overlay: no guest write.
 #include "fx_sprite.h" // SpriteAnchor — the family's shared scale / OT-gate / depth-cue relations
 #include "cfg.h"
@@ -232,7 +232,7 @@ namespace {
 // ===================================================================================================
 // THE ANIMATED FOUR-CORNER QUAD FAMILY — emitter FUN_800286CC, packet writer FUN_8002847C.
 //
-// RE (ground truth generated/shard_4.c gen_func_800286CC + shard_3.c gen_func_8002847C; live node
+// RE (ground truth authenticated executable/overlay evidence guest 0x800286CC + shard_3.c guest 0x8002847C; live node
 // 0x800EE730 at seesaw-weight f748-766, type 0x20, node+0x18 = 0x800286CC, behaviour 0x800330AC).
 // The emitter is the SAME shape as the flame emitters above — pure scene camera into the GTE, DQA=6 /
 // DQB=0 so the depth-cue MAC0 becomes a per-Z pixel scale, RTPS of the node's own world anchor
@@ -559,7 +559,7 @@ void Render::fxSpriteEmit(uint32_t node, uint32_t rfn) {
 }
 
 // The FUN_800286CC emitter, rebuilt: read the effect node's own animation cursor + world anchor, project
-// with the native (fps60-lerped) camera and emit this frame's quad list. Nothing here runs a gen body and
+// with the native (fps60-lerped) camera and emit this frame's quad list. Nothing here runs a guest-visible behavior and
 // nothing writes guest memory — the guest still executes its own emitter underneath for state fidelity,
 // this producer simply owns the picture.
 void Render::fxAnimSpriteRender(uint32_t node) {
@@ -634,7 +634,7 @@ void Render::fxAnimSpriteRender(uint32_t node) {
 // ── FUN_800328EC family producers ────────────────────────────────────────────────────────────────
 // Shared tail: project the node's own world anchor with the native (fps60-lerped) camera, apply the
 // emitter's own OT-key gate, and hand the model list to the SAME four-corner writer producer
-// fxAnimSpriteRender uses. Nothing runs a gen body; nothing writes guest memory — in particular the
+// fxAnimSpriteRender uses. Nothing runs a guest-visible behavior; nothing writes guest memory — in particular the
 // guest's own animation-cursor store at node+0x68 stays the guest's, since its body still executes
 // underneath. Read-only.
 void Render::altSpriteEmit(const AltSprite &a) {
@@ -767,7 +767,7 @@ void Render::fxRotSpriteTailRender(uint32_t node) {
 // library reaches. A fifth member of the FUN_80027A4C family, and the first one that actually DRIVES
 // the writer's depth cue instead of programming the identity.
 //
-// RE from ov_a0a_gen_80113768. Standard family opening — FUN_800329E0(6) for the scene camera and
+// RE from overlay guest 0x80113768. Standard family opening — FUN_800329E0(6) for the scene camera and
 // DQA, the packed anchor at node+0x2C/+0x30, FUN_800317CC gated on the node's own (s16)node+0x32 —
 // then three things worth naming:
 //   * the writer is FUN_800328BC, which is itself a wrapper: FUN_80027A4C(recList, node+0x44 word).
@@ -825,7 +825,7 @@ void Render::fxCuedSpriteRender(uint32_t node) {
 // Surfaced by the 22-area nofx sweep (no replay in the library reaches it) — same provenance as
 // fxCuedSpriteRender above.
 //
-// RE from ov_a0d_gen_80110C14 (generated/ov_a0d_shard_1.c:3370). The opening is the family standard —
+// RE from overlay guest 0x80110C14 (authenticated executable/overlay evidence). The opening is the family standard —
 // FUN_800329E0(6) for the scene camera and DQA, then *(u32*)0x1F800090 = 0 so IR0 is the identity and
 // every item's record colours pass through unchanged. What is new is the per-item table:
 //
@@ -955,7 +955,7 @@ void Render::fxRingSpriteRender(uint32_t node) {
 // The area Tomba rides a bird through: 64 particles scattered around a moving base point, drifting on
 // a wind angle and fading to black with distance. Also from the 22-area nofx sweep.
 //
-// RE from ov_a0l_gen_8010C7F4 (generated/ov_a0l_shard_0.c:1479). It belongs to the FOUR-CORNER writer
+// RE from overlay guest 0x8010C7F4 (authenticated executable/overlay evidence). It belongs to the FOUR-CORNER writer
 // family (FUN_8002847C = emitAnimQuadRecords) rather than the 8-byte one, and it is the only member so
 // far that DRIVES the depth cue:
 //   * four record lists are copied at entry from 0x80109068 and cycled per particle by i & 3.

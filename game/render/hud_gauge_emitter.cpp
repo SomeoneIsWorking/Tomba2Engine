@@ -2,10 +2,10 @@
 //   FUN_8004FD30 (frame entry, HudGaugeEmitter::emitFrame) +
 //   FUN_8004FB4C (per-item leaf, HudGaugeEmitter::emitItem).
 //
-// RE: ground truth = generated/shard_0.c gen_func_8004FD30 (~line 7179) and generated/shard_7.c
-// gen_func_8004FB4C (~line 6581) — the recompiler's per-instruction transcription, traced
-// instruction-by-instruction and cross-checked against the Ghidra decomp
-// (scratch/decomp/otattr_subs.c / otattr_leaf.c) and `tools/abi_extract.py <addr> --contract`.
+// RE: ground truth = authenticated executable/overlay evidence guest 0x8004FD30 (~line 7179) and authenticated
+// executable/overlay evidence guest 0x8004FB4C (~line 6581) — the recorded binary evidence's per-instruction
+// transcription, traced instruction-by-instruction and cross-checked against the Ghidra decomp
+// (scratch/decomp/otattr_subs.c / otattr_leaf.c) and `tools/binary ABI evidence <addr> --contract`.
 // Census note: docs/findings/render.md "0x8003F9A8 474-prim attribution resolved" port order
 // item (2) — "self-contained HUD gauge emitter, loop identity = 0x800BF548 stride-0x8C index".
 //
@@ -41,12 +41,13 @@
 #include "core.h"
 #include "game.h"
 #include "guest_abi.h"
+#include "guest_call.h"
+#include "guest_jal.h"
+#include "native_override_catalog.h"
 #include "producer_scope.h" // ProducerScope — graphics-producer DB, native leg
 #include "render.h"         // Render::mode.psxRender() — gaugeTextRowTap's read-only overlay gate
 #include "render_queue.h"   // RenderQueue::push2dQuad + RQ_HUD — the tap's host half
 #include <cstdint>
-
-extern void gen_func_8004EB94(Core *); // guest text-row leaf body (see gaugeTextRowTap below)
 
 namespace {
 
@@ -125,7 +126,7 @@ uint16_t hudViewportY(Core *c) {
 
 // Item record lens: 0x8C-byte-stride gauge-item record (see docs/findings/render.md census
 // note). Field roles below are exactly what gen reads at each offset, traced instruction-by-
-// instruction against gen_func_8004FB4C.
+// instruction against guest 0x8004FB4C.
 struct HudGaugeItemRecord {
   Core *c;
   uint32_t addr;
@@ -163,7 +164,7 @@ void emitDrawAreaAndLink(Core *c, uint32_t raConst, uint32_t rectOff) {
   GuestReg<16> pktAddr(c);
   pktAddr = c->mem_r32(kPktPoolPtr);
   c->mem_w32(kPktPoolPtr, (uint32_t)pktAddr + kDrawAreaPacketBytes);
-  guest_fn(c, kFunBuildDrawArea, raConst, (uint32_t)pktAddr, c->r[29] + rectOff);
+  tomba::guest::dispatchJalToReturn(*c, kFunBuildDrawArea, raConst, (uint32_t)pktAddr, c->r[29] + rectOff);
 
   const uint32_t otBase = c->mem_r32(kOtBase);
   const uint32_t tailSlot = otBase + kHudOtBucketIndex * 4u;
@@ -186,24 +187,20 @@ void emitDrawAreaAndLink(Core *c, uint32_t raConst, uint32_t rectOff) {
 // three segment-layout call sites (primary/secondary/else).
 void emitSegmentLayout(Core *c, uint32_t raConst, uint32_t descAddr, const HudGaugeItemRecord &rec, int32_t bias) {
   const uint16_t sum = (uint16_t)(rec.spanBase() + rec.spanBias() + bias);
-  guest_fn(c, kFunSegmentLayout, raConst, descAddr, (uint32_t)(int32_t)(int16_t)sum);
+  tomba::guest::dispatchJalToReturn(*c, kFunSegmentLayout, raConst, descAddr, (uint32_t)(int32_t)(int16_t)sum);
 }
 
 } // namespace
 
 void HudGaugeEmitter::emitFrame(Core *c) {
-  // Frame: sp -= 40, spill s0..s2/ra at their RE'd offsets (tools/abi_extract.py --contract).
   static constexpr GuestFrameSpill kSpills[] = {{18, 32}, {31, 36}, {17, 28}, {16, 24}};
   GuestFrame<40, 4> frame(c, kSpills);
-  constexpr uint32_t kRectOff = 16; // sp+16..22, reused for both DR_AREA rects this leaf builds
+  constexpr uint32_t kRectOff = 16;
 
   GuestReg<18> recordsBase(c);
-  recordsBase = kHudGaugeBase; // callee-saved footprint mirror
+  recordsBase = kHudGaugeBase;
 
   const int32_t count = c->mem_r16s(kHudGaugeBase + kCountOff);
-  // gen's `count == 0` branch fires with r2 = 1 already live in its delay slot (`c->r[2] =
-  // c->r[0] + 1` executes unconditionally right before the branch) — a v0 residue on this
-  // early-return path, mirrored explicitly (MIRROR_VERIFY gates this).
   if (count == 0) {
     c->r[2] = 1;
     return;
@@ -219,11 +216,9 @@ void HudGaugeEmitter::emitFrame(Core *c) {
     GuestReg<17> byteOff(c);
     byteOff = kRecordsOff;
     for (loopIdx = 0; (int32_t)loopIdx < count;) {
-      // Live callee-saved regs at the jal-site (tools/abi_extract.py 0x8004FD30 --contract call
-      // [1]): r16=loop index, r17=byte offset, r18=table base — all three already mirrored
-      // above/here, so emitItem()'s own GuestFrame spills the correct live values, not garbage.
       c->r[4] = (uint32_t)recordsBase + (uint32_t)byteOff;
-      guest_call(c, kRaFrameCallItem, &HudGaugeEmitter::emitItem);
+      c->r[31] = kRaFrameCallItem;
+      HudGaugeEmitter::emitItem(c);
       loopIdx = (uint32_t)loopIdx + 1;
       byteOff = (uint32_t)byteOff + kRecordStride;
     }
@@ -275,7 +270,7 @@ void HudGaugeEmitter::emitItem(Core *c) {
 
   const uint8_t kind = item.kind();
   // gen loads the packet-pool base into r20 (32780<<16) in the branch-delay slot reached for every
-  // kind<3 record (gen_func_8004FB4C:6609) and keeps it live through the record's nested leaves;
+  // kind<3 record (guest 0x8004FB4C:6609) and keeps it live through the record's nested leaves;
   // FUN_8005019C spills it (sp+48). For kind>=3 gen branches out one instruction earlier and never
   // loads it, so r20 stays the incoming value. Mirror exactly (SBS core A MIRROR_VERIFY caught this
   // as native r20=0 vs substrate 0x800C0000 in FUN_8005019C's spill).
@@ -314,29 +309,29 @@ void HudGaugeEmitter::emitItem(Core *c) {
     emitSegmentLayout(c, kRaItemSegElse, (uint32_t)rec + kSegPrimaryOff, item, 0);
   }
 
-  guest_fn(c, kFunLabelOrDigits, kRaItemFinal, sp + kWord0Off, item.labelByte(), 0u, 3u);
+  tomba::guest::dispatchJalToReturn(*c, kFunLabelOrDigits, kRaItemFinal, sp + kWord0Off, item.labelByte(), 0u, 3u);
 }
 
-// ---- FUN_8004EB94 tap — the gauge's CENTERED 8x8-GLYPH TEXT ROW (RE 2026-07-16, gen_func_8004EB94
-// shard_3.c:12762 + measure leaf gen_func_8004EA4C shard_1.c:8382) --------------------------------
+// ---- FUN_8004EB94 tap — the gauge's CENTERED 8x8-GLYPH TEXT ROW (RE 2026-07-16, guest 0x8004EB94
+// shard_3.c:12762 + measure leaf guest 0x8004EA4C shard_1.c:8382) --------------------------------
 // Despite the old kFunSegmentLayout name, this leaf draws a TEXT ROW: it walks a byte string at a0
 // until 0xFF, emitting one op-0x75 SPRT_8x8 per glyph byte into the packet pool (each spliced
-// individually into OT bucket 3), then a trailing DR_TPAGE(0x1F) header via func_80083DE0.
+// individually into OT bucket 3), then a trailing DR_TPAGE(0x1F) header via guest 0x80083DE0.
 //   byte 0xF0..0xF7  -> palette-row select ((b+16)&0xFF = row 0..7), no emit, NO x advance
 //   byte 0xFB        -> space: no emit, x += 8
 //   other (until FF) -> glyph: uv = ((b&31)<<3, (b>>5)<<3), clut = ((row+496)<<6)|63, x += 8
 // Start x = 160 - width/2, width from the measure leaf FUN_8004EA4C (8 per byte<192 or ==0xFB,
 // zero for 0xC0..0xF9, terminates on 0xFA/0xFF). y = a1 (s16). Color bytes at pkt+4..+6 are left
 // UNWRITTEN by the guest (op 0x75 = raw texture ignores them) — the tap writes no guest byte at all.
-// The tap runs the gen body (guest state byte-exact) then re-derives the same glyph walk host-side
+// The tap runs the guest-visible behavior (guest state byte-exact) then re-derives the same glyph walk host-side
 // and pushes RQ_HUD quads — same tap shape as game/ui/panel.cpp. This gives the gauge text/digits
 // row its pc_render picture (the 9-slice box comes via the panelBuild tap).
 namespace {
 void gaugeTextRowTap(Core *c) {
   const uint32_t desc = c->r[4];
   const int y = (int32_t)(int16_t)(uint16_t)c->r[5];
-  gen_func_8004EB94(c);
-  if (c->game->oracle || c->rsub.mode.psxRender()) {
+  psx::cpu::callOriginalToReturn(*c, 0x8004EB94u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+  if (c->rsub.mode.psxRender()) {
     return; // guest OT walk owns the picture
   }
   if (c->mem_r8(desc) == 0xFFu) {
@@ -415,10 +410,7 @@ void gaugeTextRowTap(Core *c) {
 } // namespace
 
 void HudGaugeEmitter::registerOverrides(Game *) {
-  extern void gen_func_8004FD30(Core *);
-  extern void gen_func_8004FB4C(Core *);
-  extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_main(0x8004FD30u, &HudGaugeEmitter::emitFrame, gen_func_8004FD30);
-  engine_set_override_main(0x8004FB4Cu, &HudGaugeEmitter::emitItem, gen_func_8004FB4C);
-  engine_set_override_main(0x8004EB94u, gaugeTextRowTap, gen_func_8004EB94);
+  tomba::native::declareOverride(0x8004FD30u, "&HudGaugeEmitter::emitFrame", &HudGaugeEmitter::emitFrame);
+  tomba::native::declareOverride(0x8004FB4Cu, "&HudGaugeEmitter::emitItem", &HudGaugeEmitter::emitItem);
+  tomba::native::declareOverride(0x8004EB94u, "gaugeTextRowTap", gaugeTextRowTap);
 }

@@ -74,7 +74,8 @@ public:
   bool updateCell(uint32_t sigArg, int32_t dx, int32_t dy);
 
   // registerOverrides(): wires FUN_80074A38 / FUN_8007496C into the override registry
-  // (overrides::install) — both are ONLY ever reached via an indirect rec_dispatch (no static
-  // `func_<addr>(c)` call site in the recompiled output), so no shard_set_override is needed.
+  // (tomba::native::declareOverride) — both are ONLY ever reached via an indirect typed runtime address dispatch (no
+  // static `a direct guest-address call` call site in the guest output), so no tomba::native::declareOverride is
+  // needed.
   void registerOverrides();
 };

@@ -6,8 +6,8 @@
 // SpriteAnchor::baseScale and SpriteAnchor::otKeyInRange DO NOT APPLY here (it programs no DQA, so a
 // baseScale would be a fabricated number). Its geometry is already in screen pixels.
 //
-// RE from ov_a03_gen_801113B4 + ov_a03_gen_80110B00, statically verified 2026-07-28 (spec and the
-// adversarial verifier's corrections: docs/re/render-targets-static-re.md).
+// RE from overlay guest 0x801113B4 + overlay guest 0x80110B00, statically verified 2026-07-28 (spec and the
+// adversarial verifier's corrections: docs/re/render-targets-binary-analysis.md).
 //
 // WHAT IT IS: an 11-slot SCREEN-POSITION HISTORY at node+0x3C — {s16 x, s16 y} per slot, (0,0) means
 // "not filled yet" — joined into a continuous glowing ribbon. Each of the 10 joints is drawn as a

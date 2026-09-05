@@ -3,7 +3,7 @@
 // field.
 //
 // THE GUEST SIDE. FUN_8007EAE4 is the whole page drawer, reached under the GAME-overlay page
-// dispatcher FUN_8010810C (Engine::submitPage810c). Its body (gen_func_8007EAE4, shard_7) does two
+// dispatcher FUN_8010810C (Engine::submitPage810c). Its body (guest 0x8007EAE4, shard_7) does two
 // things and nothing else:
 //   * three option strings — the labels at 0x800A2854 / +4 / +8, drawn through the font emitters
 //     FUN_800793C4 / FUN_80079374, with the highlight picked by the SELECTED-ITEM byte at

@@ -9,7 +9,7 @@ tags: exec,ui
 
 ## Claim
 
-the item menu's darkness was NOT an exec-state divergence: all 421 OT packets at f1120 are byte-identical between pc_faithful and recomp exec
+the item menu's darkness was NOT an exec-state divergence: all 421 OT packets at f1120 are byte-identical between pc_faithful and guest instruction path exec
 
 ## Evidence
 

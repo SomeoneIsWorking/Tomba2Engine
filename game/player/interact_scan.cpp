@@ -1,6 +1,6 @@
 // class InteractScan — "is the player activating something right now?"
 //
-// Guest FUN_80024794, RE'd 2026-07-21 (Ghidra headless + gen_func_80024794). Leaf, no guest frame.
+// Guest FUN_80024794, RE'd 2026-07-21 (Ghidra headless + guest 0x80024794). Leaf, no guest frame.
 //
 // WHAT IT IS. This is the INTERACTION SCANNER. Once per call, while Tomba is in an interact-capable
 // action state, it walks the scratchpad candidate list and looks for one object that is already an
@@ -12,8 +12,8 @@
 //
 //     0  none          — not a candidate
 //     1  in-range      — this object is offering an interaction. Set by the object's OWN handler:
-//                     there is no single proximity pass (a scan of generated/ finds 97 distinct
-//                     writers of the literal 1 into +0x2b, spread across the per-area overlays)
+//                     there is no single proximity pass (a scan of authenticated executable/overlay evidence finds 97
+//                     distinct writers of the literal 1 into +0x2b, spread across the per-area overlays)
 //     3  ACTIVATED     — the player has just acted on it; set HERE, consumed by the object's handler
 //
 // The consuming handler tests for 3 inside its sub-state switch and clears it in its render tail.
@@ -26,8 +26,8 @@
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
+#include "native_override_catalog.h"
 #include "object/actor.h"
-#include "override_registry.h"
 #include <cstdint>
 
 namespace {
@@ -131,11 +131,9 @@ static void ov_interact_scan(Core *c) {
 }
 
 void interact_scan_install() {
-  extern void gen_func_80024794(Core *);
-  extern void shard_set_override(uint32_t, void (*)(Core *));
   // The SETTER is required, not optional. This function's only caller reaches it through the direct
-  // `func_80024794(c)` thunk (generated/shard_1.c:10437), not through rec_dispatch — so registering
-  // without a setter leaves the native body registered and NEVER RUN (ovhit: "registered but
+  // `guest 0x80024794(c)` thunk (authenticated executable/overlay evidence), not through typed runtime address dispatch
+  // — so registering without a setter leaves the native body registered and NEVER RUN (ovhit: "registered but
   // unreached"), with the substrate quietly still doing the work.
-  overrides::install(0x80024794u, "InteractScan::scan", ov_interact_scan, gen_func_80024794, shard_set_override);
+  tomba::native::declareOverride(0x80024794u, "InteractScan::scan", ov_interact_scan);
 }

@@ -17,13 +17,14 @@
 // yield: the native scheduler marks the slot done. This removes the load's
 // cross-frame cooperative dependency (the prerequisite for owning the SOP
 // machine as a native per-frame dispatcher) WITHOUT changing the observable
-// result — *0x1f80019b ends 1 and ecf58[..] is patched exactly as the recomp
+// result — *0x1f80019b ends 1 and ecf58[..] is patched exactly as the guest instruction path
 // body leaves it. RE: scratch/sop_mode_re.md + the disasm of 0x80109164
 // (faithful below, addresses annotated).
 
 #include "actor_tomba.h" // class ActorTomba — G_ADDR, the Tomba G-block every per-area handler takes in a0
 #include "core.h"
 #include "game_ctx.h"
+#include "guest_call.h"
 
 namespace {
 // The guest's per-area handler table and the area selector byte that indexes
@@ -40,7 +41,7 @@ constexpr uint32_t kAreaByte = 0x800BF870u;
 #include <algorithm> // std::swap / std::min / std::max used by sceneGridGather
 #include <stdio.h>
 
-// dispatch a still-recomp leaf with up to 3 args set (helpers for the
+// dispatch a still-guest leaf with up to 3 args set (helpers for the
 // SOP/transition machines).
 static void d0(Core *c, uint32_t fn);
 // (ov_bg_scene_transition_sm moved to BgSceneTransitionSm::step —
@@ -78,11 +79,6 @@ constexpr uint32_t BG_LAYER_STATE = 0x800e8008u;  // u8:  state byte for the BG 
 constexpr uint32_t BG_LAYER_SUB = 0x800e806cu;    // u8:  running sub-state (0=snap-follow, 1=reset-to-0)
 constexpr uint32_t BG_LAYER_TARGET = 0x800e8040u; // struct: CutsceneCamera snap-follow target
 
-// -- Parallax BG state-machine struct (main RAM) --
-// 60-byte scroll SM struct at 0x800ED018 — OWNED by class ParallaxBg
-// (parallax_bg.h). The substrate BG tile scroller FUN_8010C26C still
-// reads/writes it, so we keep the address handy for the substrate call; the
-// state-machine mutations themselves live in the class.
 constexpr uint32_t PARALLAX_BG_SM = 0x800ed018u;
 } // namespace SopAddr
 
@@ -100,7 +96,7 @@ void Sop::areaLoad() {
   c->r[4] = 0x800ef478u;
   c->r[5] = c->mem_r32(0x800be0f0u) + a6e;
   c->r[6] = 2048;
-  rec_dispatch(c, 0x8001dc40u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8001dc40u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   // LOAD 2 — FUN_8001dc40(0x8018a000, *0x800be0f8 + (*0x800ef478>>11),
   // *0x800ef47c - *0x800ef478)
@@ -108,7 +104,7 @@ void Sop::areaLoad() {
   c->r[4] = 0x8018a000u;
   c->r[5] = c->mem_r32(0x800be0f8u) + (l2 >> 11);
   c->r[6] = c->mem_r32(0x800ef47cu) - l2;
-  rec_dispatch(c, 0x8001dc40u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8001dc40u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   // UNPACK — FUN_80044e84(0x8018a000, 0x1f8000)  (0x801091e4)
   eng(c).asset.unpackGroup(0x8018a000u, 0x001f8000u);
@@ -121,7 +117,7 @@ void Sop::areaLoad() {
   c->r[4] = 0x8018a000u;
   c->r[5] = c->mem_r32(0x800be100u) + (l4 >> 11);
   c->r[6] = c->mem_r32(0x800ef484u) - l4;
-  rec_dispatch(c, 0x8001dc40u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8001dc40u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   // COLLISION GRID — FUN_80045258((area&0xf)<<1, 0x2f)  (0x80109228)
   uint16_t area = c->mem_r16(0x800bf89eu);
@@ -137,7 +133,7 @@ void Sop::areaLoad() {
     c->mem_w32(0x800ecf58u + idx * 4, 0x8018a000u + off);
   }
 
-  // LOAD DONE — *0x1f80019b = 1  (0x80109290). NB: the recomp's FUN_80051fb4
+  // LOAD DONE — *0x1f80019b = 1  (0x80109290). NB: the guest instruction path's FUN_80051fb4
   // task-complete/yield is intentionally DROPPED — the native scheduler marks
   // the slot done after this returns.
   c->mem_w8(0x1f80019bu, 1);
@@ -153,21 +149,21 @@ void Sop::areaLoad() {
 // field area machine's state-0 (GAME.BIN 0x80108918). In the PSX flow
 // FUN_80044bd4 kills slot 2, clears 1f80019b, spawns 0x800452c0 in slot 1, and
 // YIELD-waits on 1f80019b; the task body 0x800452c0 does the load and ends with
-// FUN_80051fb4 (task-complete, longjmp-yield). We can NOT rec_dispatch
+// FUN_80051fb4 (task-complete, longjmp-yield). We can NOT typed runtime address dispatch
 // 0x800452c0 wholesale because (a) its closing FUN_80051fb4 longjmps out (=
 // frame done mid-state, sm[0x4c] never advances) and (b) its CD-settle /
 // audio-busy waits would yield. So we transcribe the BODY natively (faithful to
 // 0x800452c0), DROP the FUN_80051fb4 task-completes and the settle/busy waits
-// (no-ops in our synchronous CD/audio runtime), and rec_dispatch the leaf
+// (no-ops in our synchronous CD/audio runtime), and typed runtime address dispatch the leaf
 // callees (CD read, collision grid, unpack, BGM trigger — all synchronous).
-// Ends by writing 1f80019b=1, exactly as the recomp body leaves it. Mirrors
+// Ends by writing 1f80019b=1, exactly as the guest instruction path leaves it. Mirrors
 // native_sop_area_load for the SOP intro load. transitionAreaEnter — see sop.h.
 // Runs the destination area's own entry handler, which the dev warp otherwise
 // skips because it forces the area machine past the outer-state-0 transition
 // that normally dispatches it.
 //
 // The table and the player block are the guest's own: 0x800A45B8 is the
-// per-area handler table (the ONLY read of it in all of generated/ is
+// per-area handler table (the ONLY read of it in all of authenticated executable/overlay evidence is
 // ActorTomba::enterOuterState0, game/player/actor_tomba.cpp, which does exactly
 // this indexing), 0x800BF870 is the area byte, and the handler takes the Tomba
 // G-block in a0 like every other per-area handler.
@@ -184,7 +180,7 @@ void Sop::transitionAreaEnter() {
   }
   cfg_logf("stage", "[sop] AREA-ENTER: area %u -> handler 0x%08X", area, handler);
   c->r[4] = ActorTomba::G_ADDR;
-  rec_dispatch(c, handler);
+  psx::cpu::dispatchGuestToReturn0(*c, handler, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 
 void Sop::transitionAreaLoad() {
@@ -281,22 +277,22 @@ void Sop::transitionAreaLoad() {
 }
 
 static void d0(Core *c, uint32_t fn) {
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 static void d1(Core *c, uint32_t fn, uint32_t a0) {
   c->r[4] = a0;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 static void d2(Core *c, uint32_t fn, uint32_t a0, uint32_t a1) {
   c->r[4] = a0;
   c->r[5] = a1;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 static void d3(Core *c, uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2) {
   c->r[4] = a0;
   c->r[5] = a1;
   c->r[6] = a2;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 
 // sceneGridGather — native port of guest FUN_8010A3AC (Ghidra decomp
@@ -311,16 +307,16 @@ static void d3(Core *c, uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2) {
 // `height` to the current pointer each iteration. Value 0xFFFF (u16 -1) marks
 // an empty cell (skipped).
 //
-// Faithful to the recomp: same Y-sort of 3 vertices (3 conditional swaps),
+// Faithful to the guest instruction path: same Y-sort of 3 vertices (3 conditional swaps),
 // same 16.16 fixed- point edge stepping, same cross-product LEFT/RIGHT edge
 // choice, same X-clamp against the grid's X-limit, same Y-guard (skip rows
 // outside [0, Y-limit)), same 254-entry cap on the output list. Signed integer
-// division matches the MIPS `div` semantics for the ranges the recomp actually
+// division matches the MIPS `div` semantics for the ranges the guest instruction path actually
 // feeds it (the trap paths at div-by-zero / -0x80000000/-1 are unreachable with
 // the values scenePrepass produces).
 void Sop::sceneGridGather(uint32_t table, int32_t x0, int32_t y0, int32_t x1, int32_t y1, int32_t x2, int32_t y2) {
   Core *c = core;
-  // Skip degenerate (all-3-Ys-equal) triangle — matches the recomp's early-exit
+  // Skip degenerate (all-3-Ys-equal) triangle — matches the guest instruction path's early-exit
   // guard.
   if (y1 == y0 && y1 == y2) {
     return;
@@ -361,7 +357,7 @@ void Sop::sceneGridGather(uint32_t table, int32_t x0, int32_t y0, int32_t x1, in
     edgeB = edgeA;
     stepA = ((v1x - v0x) << 16) / dy01; // slope of v0→v1
   }
-  edgeA += 0x10000; // recomp: `iVar5 = iVar5 + 0x10000;` (post-init +1 in 16.16)
+  edgeA += 0x10000; // guest instruction path: `iVar5 = iVar5 + 0x10000;` (post-init +1 in 16.16)
 
   int32_t stepC; // slope of v1→v2 (used in the bottom half)
   const int32_t dy12 = v2y - v1y;
@@ -376,7 +372,7 @@ void Sop::sceneGridGather(uint32_t table, int32_t x0, int32_t y0, int32_t x1, in
   // Cross product picks which edge is LEFT vs RIGHT: `−dy02*(v1x−v0x) +
   // (v2x−v0x)*dy01`.
   const int32_t cross = -dy02 * (v1x - v0x) + (v2x - v0x) * dy01;
-  const bool crossNegOrZero = (cross < 1); // recomp: `< 1`, i.e. <=0
+  const bool crossNegOrZero = (cross < 1); // guest instruction path: `< 1`, i.e. <=0
 
   const int32_t xLimit = (int32_t)(int16_t)c->mem_r16(table + 8u);  // grid X-limit (clamp)
   const int32_t yLimit = (int32_t)(int16_t)c->mem_r16(table + 10u); // grid Y-limit (row guard)
@@ -454,7 +450,7 @@ void Sop::sceneGridGather(uint32_t table, int32_t x0, int32_t y0, int32_t x1, in
 // sceneGridGather's clamps.
 void Sop::scenePrepass(uint32_t table) {
   Core *c = core;
-  // Header + engine globals (identical bytes, same order as the recomp).
+  // Header + engine globals (identical bytes, same order as the guest instruction path).
   const uint32_t hdrPtr = c->mem_r32(table + 0xCu);
   c->mem_w16(table + 8u, c->mem_r16(hdrPtr + 0u));   // grid width limit
   c->mem_w32(0x800A3F90u, 0x5780u);                  // view distance
@@ -468,11 +464,9 @@ void Sop::scenePrepass(uint32_t table) {
   const int32_t D5780 = (int32_t)c->mem_r32(0x800A3F90u); // = 0x5780
   const int32_t D1C7 = (int32_t)c->mem_r32(0x800A3F94u);  // = 0x1C7
 
-  // libgte rsin/rcos stay substrate (0x80083E80/0x80083F50) — keep them
-  // dispatched by address.
   auto trig = [&](uint32_t fn, uint32_t arg) -> int32_t {
     c->r[4] = arg;
-    rec_dispatch(c, fn);
+    psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return (int32_t)c->r[2];
   };
 
@@ -483,7 +477,7 @@ void Sop::scenePrepass(uint32_t table) {
   const int32_t cosA = trig(0x80083F50u, yA);
   const int32_t Z1 = camZ + (int32_t)((cosA * D5780) >> 12);
 
-  // Ray B: 12-bit yaw shifted by +halfFOV (recomp reads D1C7 fresh here —
+  // Ray B: 12-bit yaw shifted by +halfFOV (guest instruction path reads D1C7 fresh here —
   // mirror that)
   const uint32_t yB = ((uint32_t)(D1C7 - yaw)) & 0xFFFu;
   const int32_t sinB = trig(0x80083E80u, yB);
@@ -510,7 +504,7 @@ void Sop::scenePrepass(uint32_t table) {
   const int32_t Z1d = (Z1 - rx) / 0x280;
   const int32_t Z2d = (Z2 - rx) / 0x280;
 
-  // Reset the SCENE_STATE cell-list count (was the recomp's `sb $zero, 6($a0)`
+  // Reset the SCENE_STATE cell-list count (was the guest instruction path's `sb $zero, 6($a0)`
   // delay-slot write).
   c->mem_w8(table + 6u, 0);
 
@@ -524,7 +518,7 @@ void Sop::scenePrepass(uint32_t table) {
 // countdown (sm[0x60]), then BG scene SM + entity update + Tomba update + BG
 // layer SM + entity render + GPU submit, then the sm[0x52] intro/end-scroller
 // tail. Control flow + every field write owned native; the heavy callees stay
-// rec_dispatched (engine subsystems to own next: entity update 0x8010a0e0 /
+// dynamically dispatched (engine subsystems to own next: entity update 0x8010a0e0 /
 // render 0x80109fe0, Tomba update 0x8007b008; and the per-scene content).
 // Called from ov_sop_field_mode states 1/2/3.
 void Sop::fieldUpdate() {
@@ -540,10 +534,6 @@ void Sop::fieldUpdate() {
     // manager.
     eng(c).bgSceneTransitionSm.step();
 
-    // Scene cam-frustum prepass (guest FUN_8010A0E0): builds the per-frame 2D
-    // frustum triangle in scene-grid space and hands it to FUN_8010A3AC (still
-    // substrate) which raster-gathers covered cell ids into the SCENE_ENT_TABLE
-    // list. Top-down layer above the list-2 walk.
     scenePrepass(SCENE_ENT_TABLE);
 
     // Tomba/list-2 walk (guest FUN_8007B008): dispatches each list-2 node's
@@ -583,24 +573,9 @@ void Sop::fieldUpdate() {
       // Engine.
       eng(c).parallaxBg.step();
     }
-    // SCENE-TABLE RENDER + OBJECT RENDER-LIST WALK — the substrate per-frame
-    // body (generated/ ov_sop_shard_1.c, FUN_801092xx) dispatches BOTH of these
-    // UNCONDITIONALLY, between the two beat-gated BG calls:
-    // 0x80109FE0(a0=0x800F2418) submits the scene-table entities and 0x8003C048
-    // walks the object render list (routed to the native ov_renderWalk mirror).
-    // These populate the guest OT/packet pool — part of the faithful byte-exact
-    // state the render path "executes underneath" — and during the narration
-    // VOID beat they are the ONLY source of the cutscene's picture (the
-    // swirl-effect quads + falling-Tabby sprite the narration prop emits;
-    // ov_scene_native is gated off for beat 5 in game_tomba2.cpp). Omitting
-    // them left the void beat BLACK on native_sync and the OT/pool diverged
-    // ~10x from the recomp (bug #43).
     d1(c, 0x80109FE0u, 0x800F2418u);
     d0(c, 0x8003C048u);
     if (bgVisible) {
-      // BG tile scroller (substrate — emits GP0 packets; belongs to the
-      // PC-native BG renderer rewrite, not a mechanical port). See "REBUILD,
-      // don't transcribe" in CLAUDE.md.
       d1(c, 0x8010c26cu, PARALLAX_BG_SM);
     }
     c->mem_w8(IN_FIELD_UPDATE, 0);
@@ -750,12 +725,6 @@ void Sop::fieldMode() {
   }
 }
 
-// pc_faithful SOP field-mode — mirror of ov_sop_gen_80109450 (see sop.h). Every
-// leaf is the substrate dispatch at its RE'd jal site; the stage structure
-// (state switch, sm writes, the fade-ramp arithmetic) is native. The 0x80044BD4
-// dispatch reaches the registered spawn-and-wait override, whose wait loop
-// parks the stage fiber while task-1 (0x80109164 SOP area load) runs — organic
-// cadence, no defer-step machinery.
 void Sop::fieldModeFaithful() {
   Core *c = core;
   c->r[29] -= 32;
@@ -772,31 +741,36 @@ void Sop::fieldModeFaithful() {
     c->r[5] = 0;
     c->r[6] = 0;
     c->r[31] = 0x801094B0u;
-    rec_dispatch(c, 0x8007E9C8u); // fade engine: hold black
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8007E9C8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // fade engine: hold black
     c->r[4] = 0x80109164u;
     c->r[5] = 0;
     c->r[6] = 0;
     c->r[7] = 3;
     c->r[31] = 0x801094C8u;
-    rec_dispatch(c, 0x80044BD4u); // spawn-and-wait: SOP area load (task-1)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x80044BD4u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // spawn-and-wait: SOP area load (task-1)
     c->r[18] = 0;
     c->r[31] = 0x801094D0u;
-    rec_dispatch(c, 0x8007B18Cu);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8007B18Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->r[31] = 0x801094D8u;
-    rec_dispatch(c, 0x800796DCu);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x800796DCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->r[31] = 0x801094E0u;
-    rec_dispatch(c, 0x80078610u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80078610u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->r[4] = 0x800F2418u;
     c->r[31] = 0x801094ECu;
-    rec_dispatch(c, 0x8010A8D4u); // SOP bg-ptr setup (overlay)
-    c->r[17] = 0x8010C98Cu;       // scene-object stamp table (stride 12)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8010A8D4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // SOP bg-ptr setup (overlay)
+    c->r[17] = 0x8010C98Cu;                                                     // scene-object stamp table (stride 12)
     c->r[16] = c->r[17] + 8;
     for (;;) {
       c->r[4] = 3;
       c->r[5] = 3;
       c->r[6] = 1;
       c->r[31] = 0x80109508u;
-      rec_dispatch(c, 0x8007A980u); // spawn
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8007A980u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // spawn
       uint32_t node = c->r[2];
       c->mem_w16(node + 46, c->mem_r16(c->r[17] + 0));
       c->mem_w16(node + 50, c->mem_r16(c->r[16] - 6));
@@ -814,16 +788,18 @@ void Sop::fieldModeFaithful() {
     c->r[4] = c->r[16];
     c->r[5] = 0x8010C95Cu;
     c->r[31] = 0x8010955Cu;
-    rec_dispatch(c, 0x8006CBD0u); // BG xform setup
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8006CBD0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // BG xform setup
     c->r[4] = c->r[16];
     c->r[5] = c->r[4] + 56;
     c->r[31] = 0x80109568u;
-    rec_dispatch(c, 0x8006E3B0u); // BG camera snap-follow
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8006E3B0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // BG camera snap-follow
     c->r[16] = 0x1F800000u;
     sm = c->mem_r32(0x1f800138u);
     c->mem_w16(sm + 80, (uint16_t)(c->mem_r16(sm + 80) + 1)); // sm[0x50] -> 1
     c->r[31] = 0x80109588u;
-    rec_dispatch(c, 0x80075240u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80075240u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     sm = c->mem_r32(0x1f800138u);
     c->mem_w16(sm + 96, 30); // sm[0x60] intro timer
     c->mem_w16(sm + 82, 0);
@@ -839,7 +815,8 @@ void Sop::fieldModeFaithful() {
     c->r[5] = 0;
     c->r[6] = 0;
     c->r[31] = 0x801095E4u;
-    rec_dispatch(c, 0x8007E9C8u); // fade engine: ramp level
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8007E9C8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // fade engine: ramp level
     sm = c->mem_r32(0x1f800138u);
     c->mem_w8(sm + 108, (uint8_t)(c->mem_r8(sm + 108) - 1));
     if (c->mem_r8(sm + 108) == 0) {
@@ -847,13 +824,14 @@ void Sop::fieldModeFaithful() {
       c->mem_w16(sm + 80, (uint16_t)(c->mem_r16(sm + 80) + 1));
     }
     c->r[31] = 0x801096F4u;
-    rec_dispatch(c, 0x801092B4u); // SOP scene tick (overlay)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x801092B4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // SOP scene tick (overlay)
     break;
   }
   case 2: { // L_80109628 — scene tick + wait for skip/timeout
     c->r[16] = 0x1F800000u;
     c->r[31] = 0x80109630u;
-    rec_dispatch(c, 0x801092B4u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x801092B4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     int advance = c->mem_r8(0x800BF839u) != 0;
     if (!advance) {
       advance = (c->mem_r16(0x800E7E68u) & 8u) != 0;
@@ -871,19 +849,19 @@ void Sop::fieldModeFaithful() {
     c->r[5] = 0;
     c->r[6] = 0;
     c->r[31] = 0x801096ACu;
-    rec_dispatch(c, 0x8007E9C8u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8007E9C8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     sm = c->mem_r32(0x1f800138u);
     c->mem_w8(sm + 108, (uint8_t)(c->mem_r8(sm + 108) - 1));
     if (c->mem_r8(sm + 108) == 0) {
       c->mem_w16(sm + 80, (uint16_t)(c->mem_r16(sm + 80) + 1));
     }
     c->r[31] = 0x801096F4u;
-    rec_dispatch(c, 0x801092B4u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x801092B4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     break;
   }
   case 4: { // L_801096FC — teardown, advance sm[0x4c]
     c->r[31] = 0x80109704u;
-    rec_dispatch(c, 0x8001CF2Cu);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8001CF2Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     sm = c->mem_r32(0x1f800138u);
     c->mem_w8(0x1F800137u, 0);
     c->mem_w16(sm + 78, 0);
@@ -904,7 +882,7 @@ void Sop::fieldModeFaithful() {
   c->r[29] += 32;
 }
 
-// pc_faithful SOP area-load task body — mirror of ov_sop_gen_80109164 (see
+// pc_faithful SOP area-load task body — mirror of overlay guest 0x80109164 (see
 // sop.h).
 void Sop::areaLoadFaithful() {
   Core *c = core;
@@ -923,24 +901,25 @@ void Sop::areaLoadFaithful() {
   c->r[5] = c->mem_r32(0x800BE0F0u) + c->mem_r8(c->mem_r32(0x1f800138u) + 110);
   c->r[6] = 2048;
   c->r[31] = 0x801091B4u;
-  rec_dispatch(c, 0x8001DC40u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8001DC40u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   uint32_t lo = c->mem_r32(0x800EF478u);
   c->r[4] = 0x8018A000u; // 2. compressed archive
   c->r[5] = c->mem_r32(0x800BE0F8u) + (lo >> 11);
   c->r[6] = c->mem_r32(0x800EF47Cu) - lo;
   c->r[31] = 0x801091D8u;
-  rec_dispatch(c, 0x8001DC40u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8001DC40u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[4] = 0x8018A000u;
   c->r[5] = 0x001F8000u;
   c->r[31] = 0x801091ECu;
-  rec_dispatch(c, 0x80044E84u); // 3. unpack -> VRAM
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80044E84u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 3. unpack -> VRAM
   uint32_t lo2 = c->mem_r32(0x800EF480u);
   c->r[4] = 0x8018A000u; // 4. DAT payload
   c->r[5] = c->mem_r32(0x800BE100u) + (lo2 >> 11);
   c->r[6] = c->mem_r32(0x800EF484u) - lo2;
   c->mem_w32(0x800A3EC8u, lo2 >> 11);
   c->r[31] = 0x80109218u;
-  rec_dispatch(c, 0x8001DC40u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8001DC40u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[31] = 0x80109230u;
   eng(c).asset.loadDescriptorChunk(((uint32_t)c->mem_r16(0x800BF89Eu) & 15u) << 1,
                                    47);               // 5. per-area table stamp

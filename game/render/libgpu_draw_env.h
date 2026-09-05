@@ -5,7 +5,7 @@
 // body reads as "compile a drawing environment into a GPU command packet" rather than as a run of
 // mem_r16(base + 0x16) calls.
 //
-// The write accessors are deliberately ONE-LINERS: tools/port_check.py harvests a lens setter's
+// The write accessors are deliberately ONE-LINERS: tools/dynamic differential evidence harvests a lens setter's
 // mem_wN widths by regex so `packet.setDrawMode(v)` counts as exactly the store it performs. A setter
 // that grew a second statement or a nested brace would silently stop counting.
 #pragma once
@@ -158,7 +158,7 @@ struct DrawEnvPacket {
 // ------------------------------------------------------------------------------------------------
 // The clear rectangle SetDrawEnv assembles on its OWN guest stack frame (sp+16..sp+23) before
 // copying it into the packet as two 32-bit words. It is a real guest-memory RECT, not a C local:
-// SBS byte-compares the guest stack, so these stores must land where the recompiled body puts them.
+// SBS byte-compares the guest stack, so these stores must land where the guest body puts them.
 namespace clearrect {
 constexpr uint32_t kX = 16;
 constexpr uint32_t kY = 18;

@@ -19,7 +19,7 @@ many were rejected as degenerate/non-covering, and how many genuinely cover. A "
 answer is only meaningful next to those counts, and the blind spots are printed with it.
 
 USAGE
-    PSXPORT_PRIMAT="160,40,3935" ... ./scratch/bin/tomba2_port > run.log
+    PSXPORT_PRIMAT="160,40,3935" ... ./build/bin/tomba2_port > run.log
     python3 tools/primat_filter.py run.log 160 40 3940        # x y FRAME-of-the-shot
 
 The third PRIMAT field is a START frame (the 6000-line cap is otherwise spent in the first few

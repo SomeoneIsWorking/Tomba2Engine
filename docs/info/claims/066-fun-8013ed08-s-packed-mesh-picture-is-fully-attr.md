@@ -4,7 +4,7 @@ kind: claim
 status: holds
 created: 2026-08-26
 tags: render,tomba2,native-producer
-depends: generated/ov_a00_shard_0.c#ov_a00_gen_8013ED08, game/render/fx_rigid_mesh.cpp#Render::rigidMeshEffectRender, game/render/render_walk.cpp#Render::fieldObjectsRender
+depends: authenticated executable/overlay evidence#overlay guest 0x8013ED08, game/render/fx_rigid_mesh.cpp#Render::rigidMeshEffectRender, game/render/render_walk.cpp#Render::fieldObjectsRender
 ---
 
 ## Claim
@@ -13,7 +13,7 @@ FUN_8013ED08's packed-mesh picture is fully attributable to persistent node posi
 
 ## Evidence
 
-generated/ov_a00_shard_0.c ov_a00_gen_8013ED08 is a 22-line controller: zero 0x1F800090; FUN_800318A0(node+0x2C,node+0x54,node+0x48); FUN_80027768(*(node+0x50),0,(s16)node+0x32,(u8)node[7]). Render::rigidMeshEffectRender implements those inputs through MeshQuads + EffectLerp + projComposeObjectHost + meshQuadRecordsEmit; Clang build, mesh math, format/tidy and codemap gates pass.
+authenticated executable/overlay evidence overlay guest 0x8013ED08 is a 22-line controller: zero 0x1F800090; FUN_800318A0(node+0x2C,node+0x54,node+0x48); FUN_80027768(*(node+0x50),0,(s16)node+0x32,(u8)node[7]). Render::rigidMeshEffectRender implements those inputs through MeshQuads + EffectLerp + projComposeObjectHost + meshQuadRecordsEmit; Clang build, mesh math, format/tidy and codemap gates pass.
 
 ## What would falsify it
 

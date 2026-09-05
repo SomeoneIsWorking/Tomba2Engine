@@ -26,25 +26,25 @@ public:
   Core *core = nullptr;
 
   // Wire s3SubMachine (0x80106AC4) into the override registry
-  // (overrides::install) — called from TombaRuntime::registerOverrides through
+  // (tomba::native::declareOverride) — called from TombaRuntime::registerOverrides through
   // register_engine_overrides(). §9-verified 2026-07-10 (docs/
   // fleet-workflow.md §9): re-checked instruction-by-instruction against
-  // generated/ov_demo_shard_0.c; only defect found was the missing
+  // authenticated executable/overlay evidence; only defect found was the missing
   // guest-stack-frame mirror (now fixed in demo.cpp).
   static void registerOverrides(Game *game);
 
   // Live-spine entry points (called by the scheduler each frame —
-  // runtime/recomp/scheduler.cpp).
+  // runtime/psx/scheduler.cpp).
   void stageMain(); // one-time prologue + s0 (formerly ov_demo_stage_main)
   void frame();     // one per-frame substate dispatch + tail (formerly ov_demo_frame)
 
-  // pc_faithful DEMO stage body — the whole ov_demo_gen_801062E4 arc as a
+  // pc_faithful DEMO stage body — the whole overlay guest 0x801062E4 arc as a
   // native task body on a PcScheduler fiber (faithful-execution model):
   // prologue with guest frame -48 and live spills, then the substate loop
   // ending each iteration in the substrate tail (frame counter + FUN_80051F80
-  // yield). s0's texgroup spawn goes through rec_dispatch(0x80044BD4) -> the
+  // yield). s0's texgroup spawn goes through typed runtime address dispatch(0x80044BD4) -> the
   // registered spawn-and-wait override; s5's stage swap through
-  // rec_dispatch(0x80052078) (parks the fiber; the stanza tears it down on the
+  // typed runtime address dispatch(0x80052078) (parks the fiber; the stanza tears it down on the
   // entry rewrite). native_sync keeps stageMain()/frame().
   void stageBodyFaithful();
 
@@ -69,15 +69,15 @@ public:
   void s7Phase(); // formerly ov_demo_s7_phase (a sub-phase of the s7 dispatch)
 
   // DRAFT (UNWIRED, wide-RE fleet wave) — native port of the main-menu title
-  // cursor sub-machine 0x80106AC4 that s3()/demo_frame_s3() still rec_dispatch.
+  // cursor sub-machine 0x80106AC4 that s3()/demo_frame_s3() still typed runtime address dispatch.
   // Returns v0 semantics identical to the guest function (0/1/2/3); does not
   // itself write sm[0x48] (callers own the transition). See demo.cpp for the
   // full RE + confidence notes. Not called from s3()/demo_frame_s3() yet —
-  // those keep rec_dispatch(c, 0x80106ac4u) until this is SBS-verified.
+  // those keep typed runtime address dispatch(c, 0x80106ac4u) until this is SBS-verified.
   uint32_t s3SubMachine(); // FUN_80106AC4
 
   // Native port of the TITLE main-menu cursor sub-machine 0x8010696C that s2()
-  // rec_dispatches — the s3SubMachine twin, minus the Circle/back outcome (the
+  // dynamically dispatches — the s3SubMachine twin, minus the Circle/back outcome (the
   // title menu can't cancel). Returns v0 (0/1/2); does not write sm[0x48] (s2()
   // owns the transition). Byte-exact frame (32; r31/r17/r16 @ sp+24/20/16).
   uint32_t s2SubMachine(); // FUN_8010696C

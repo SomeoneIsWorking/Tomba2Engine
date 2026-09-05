@@ -35,8 +35,8 @@
 //     game/math/rng.h) whenever the phase lands exactly on 0, alternating between a single-speed and
 //     a double-speed-half-amplitude style at every completed cycle.
 //   * THE SCHEDULE'S CLOCK IS A PROGRESS COUNTER, NOT A MODE. 0x800BF9E0 has exactly one writer in
-//     all of generated/ — a `+1` at guest 0x80117084 (generated/ov_a00_shard_0.c:6461) on a scene
-//     completion path — and many readers comparing it against ASCENDING thresholds (6/16/28 in
+//     all of authenticated executable/overlay evidence — a `+1` at guest 0x80117084 (authenticated executable/overlay
+//     evidence) on a scene completion path — and many readers comparing it against ASCENDING thresholds (6/16/28 in
 //     beh_area_threshold_ptr_swap.cpp, 20 elsewhere, 7 and 17 here). One incrementer plus ordered
 //     readers is a progress counter.
 //   * WHAT I DID NOT ESTABLISH, and so did not put in the name: WHICH objects these are. The output
@@ -48,34 +48,35 @@
 //
 // TRUE EXTENT: [0x8012D27C, 0x8012D404). Established two ways, neither of them "the next gen
 // function in the shard" (a false test on this project — the shard split is not address order):
-//   * port_gen's live-extent splitter reports 0x8012D27C as generated/ov_a00_shard_1.c:17729-17812,
+//   * authenticated instruction extents reports 0x8012D27C as authenticated executable/overlay evidence,
 //     82 live body lines, one epilogue;
 //   * real overlay disassembly (tools/disasm_overlay.py scratch/bin/overlays/A00.BIN, base
 //     0x80108F9C) shows the single epilogue at 0x8012D3F4 `lw ra,0x10(sp)` / 0x8012D3FC `jr ra` /
 //     0x8012D400 `addiu sp,sp,0x18` in the delay slot, with 0x8012D404 starting a fresh prologue
 //     (`addiu sp,sp,-0x18`) — that address is FUN_8012D404, the caller, already owned.
-// The jump table is real data, not a recompiler artefact: 0x80109D7C holds exactly the six words
+// The jump table is real data, not a binary-boundary artifact: 0x80109D7C holds exactly the six words
 // 8012D2B4 / 8012D314 / 8012D334 / 8012D350 / 8012D370 / 8012D39C, read straight out of A00.BIN at
 // file offset 0xDE0. With the `phase < 6` guard above it, the switch's default arm is unreachable;
 // it is kept because the guest's `jr $v0` is kept.
 //
-// MODULE: defined only by the A00 overlay (`ov_a00_gen_8012D27C`, generated/ov_a00_shard_1.c), so it
-// registers with ov_a00_set_override. Using the main-module shard_set_override would leave the direct
-// `ov_a00_func_8012D27C(c)` call sites on the substrate.
+// MODULE: defined only by the A00 overlay (`overlay guest 0x8012D27C`, authenticated executable/overlay evidence), so
+// it registers with A00 tomba::native::declareOverride. Using the main-module tomba::native::declareOverride would
+// leave the direct `overlay guest 0x8012D27C(c)` call sites on the substrate.
 //
 // GUEST STACK: frame 24, one spill (ra at +16) — mirrored via GuestFrame, per "MIRROR THE GUEST
 // STACK". Nothing is live in a callee-saved register across any of the three tail calls (the guest
 // keeps the node in a0 and never touches it), so no GuestReg proxies are needed.
 #include "sway_schedule.h"
+#include "guest_call.h"
 
 #include "core.h"
 #include "guest_abi.h"
-#include "ov_a00_decls.h"
-#include "override_registry.h"
+#include "guest_jal.h"
+#include "native_override_catalog.h"
 
 namespace {
 
-// tools/abi_extract.py 0x8012D27C --scaffold --guestabi
+// tools/binary ABI evidence 0x8012D27C --scaffold --guestabi
 constexpr GuestFrameSpill kSpills_8012D27C[1] = {
     {31 /*ra*/, 16},
 };
@@ -129,7 +130,7 @@ constexpr uint32_t kRaAfterReverseSway = 0x8012D3F4u; // jal 0x8012d16c
 
 } // namespace
 
-// ORACLE: ov_a00_gen_8012D27C
+// ORACLE: overlay guest 0x8012D27C
 void SwaySchedule::advanceRateThenSway(Core *c) {
   GuestFrame<24, 1> frame(c, kSpills_8012D27C);
 
@@ -187,9 +188,9 @@ void SwaySchedule::advanceRateThenSway(Core *c) {
     // Unreachable: the table holds exactly the six entries above (verified in A00.BIN) and the
     // phase byte is gated to 0..5. Kept because the guest's `jr $v0` is kept — with no `ra` to
     // set, because a jump is not a call, and on ONE line because that is the construct
-    // tools/port_check.py excludes from the compared call sequence on both sides.
+    // tools/dynamic differential evidence excludes from the compared call sequence on both sides.
     default:
-      rec_dispatch(c, phaseBody);
+      psx::cpu::dispatchGuestToReturn0(*c, phaseBody, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       return;
     }
     if (phaseComplete) {
@@ -202,20 +203,16 @@ void SwaySchedule::advanceRateThenSway(Core *c) {
   const uint8_t variant = self.variant();
   if (variant < kVariantWideMax && variant != kVariantNarrow) {
     c->r[4] = self.mAt;
-    guest_call(c, kRaAfterWideSway, ov_a00_func_8012CF4C);
+    tomba::guest::dispatchJalToReturn(*c, 0x8012CF4Cu, kRaAfterWideSway);
   } else if (variant == kVariantNarrow) {
     c->r[4] = self.mAt;
-    guest_call(c, kRaAfterNarrowSway, ov_a00_func_8012D05C);
+    tomba::guest::dispatchJalToReturn(*c, 0x8012D05Cu, kRaAfterNarrowSway);
   } else if (variant == kVariantReverse) {
     c->r[4] = self.mAt;
-    guest_call(c, kRaAfterReverseSway, ov_a00_func_8012D16C);
+    tomba::guest::dispatchJalToReturn(*c, 0x8012D16Cu, kRaAfterReverseSway);
   }
 }
 
 void SwaySchedule::registerOverrides() {
-  overrides::install(0x8012D27Cu,
-                     "SwaySchedule::advanceRateThenSway",
-                     &SwaySchedule::advanceRateThenSway,
-                     ov_a00_gen_8012D27C,
-                     ov_a00_set_override);
+  tomba::native::declareOverride(0x8012D27Cu, "SwaySchedule::advanceRateThenSway", &SwaySchedule::advanceRateThenSway);
 }

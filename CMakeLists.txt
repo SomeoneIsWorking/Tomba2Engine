@@ -1,5 +1,5 @@
-# Tomba PC ports, built on the shared psxport framework. The repository-level game/** and generated/**
-# trees belong only to Tomba! 2. Tomba! 1 is a separate engine under titles/tomba1/** and may consume
+# Tomba PC ports, built on the shared psxport Lightrec runtime. The repository-level game/** tree
+# belongs only to Tomba! 2. Tomba! 1 is a separate engine under titles/tomba1/** and may consume
 # psxport, but it must never compile or include Tomba! 2 game code.
 cmake_minimum_required(VERSION 3.21)
 project(tomba2engine CXX C)
@@ -66,15 +66,21 @@ add_subdirectory(${PSXPORT_DIR}/vendor/beetle-psx/deps/libchdr ${CMAKE_BINARY_DI
 # The framework static library (psxport) — builds from external/psxport via PSXPORT_ROOT (self-locating).
 include(${PSXPORT_DIR}/cmake/psxport.cmake)
 
-# The game binary (tomba2_port): game/** + generated/** linking libpsxport. Output: scratch/bin/tomba2_port.
+# The game binary (tomba2_port): title-native game/** linked to the shared runtime. Guest code is
+# read from authenticated user assets and translated at runtime; no emitted guest source is built.
 include(cmake/tomba2_port.cmake)
 include(cmake/tomba2_tools.cmake)
 
-# Tomba! 1 is integrated only as an isolated evidence scaffold until its own executable-backed runtime
-# exists. The fragment deliberately publishes no tomba1_port product or launcher.
+# Tomba! 1 remains an isolated runtime product while its representative-gameplay evidence is open.
 include(titles/tomba1/cmake/tomba1_port.cmake)
 
 if(BUILD_TESTING)
+  add_executable(test_native_override_catalog
+      tests/test_native_override_catalog.cpp game/core/native_override_catalog.cpp)
+  target_include_directories(test_native_override_catalog PRIVATE game/core)
+  target_link_libraries(test_native_override_catalog PRIVATE psxport)
+  add_test(NAME tomba_native_override_catalog COMMAND test_native_override_catalog)
+
   add_executable(test_scene_kind tests/test_scene_kind.cpp game/render/scene_kind.cpp)
   target_include_directories(test_scene_kind PRIVATE game/render)
   add_test(NAME tomba_scene_kind COMMAND test_scene_kind)
@@ -100,20 +106,13 @@ if(BUILD_TESTING)
   add_test(NAME tomba_cube_text_banner_policy COMMAND test_cube_text_banner_policy)
 
   set(TOMBA_CPP_POLICY_CAPS
-      game/core/field_owned_leaves.cpp=20838
-      game/core/engine.cpp=4404
-      game/core/engine.h=661
-      game/player/actor_tomba.cpp=4282
-      game/ai/substate_edge_native.cpp=4639
-      game/audio/sequencer.cpp=2809
-      game/ai/actor_zoned_attacker.cpp=1546
-      game/scene/demo.cpp=1280
+      game/core/engine.cpp=4375
+      game/player/actor_tomba.cpp=1453
+      game/audio/sequencer.cpp=2796
+      game/ai/actor_zoned_attacker.cpp=1535
       game/scene/demo.h=87
-      game/scene/sop.cpp=962
-      game/player/collision.cpp=1841
-      game/render/render_walk.cpp=1502
-      game/camera/cutscene_camera.cpp=1619
-      game/scene/script_interp.cpp=1333)
+      game/camera/cutscene_camera.cpp=1552
+      game/scene/script_interp.cpp=1317)
   set(TOMBA_CPP_POLICY_ARGS)
   foreach(cap IN LISTS TOMBA_CPP_POLICY_CAPS)
     list(APPEND TOMBA_CPP_POLICY_ARGS --cap "${cap}")
@@ -129,4 +128,16 @@ if(BUILD_TESTING)
   add_test(
     NAME tomba_launcher_selftest
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_run.py")
+  add_test(
+    NAME tomba2_provision_selftest
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_tomba2_provision.py")
+  add_test(
+    NAME tomba_dynarec_boundary_selftest
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_dynarec_boundary.py" --selftest)
+  add_test(
+    NAME tomba_native_frame_contract_selftest
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_native_frame_contract.py" --selftest)
+  add_test(
+    NAME tomba_native_frame_contract
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_native_frame_contract.py")
 endif()

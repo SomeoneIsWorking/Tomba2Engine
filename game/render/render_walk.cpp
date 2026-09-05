@@ -2,7 +2,7 @@
 //
 // Driven from the game's WORLD DATA (entity lists -> per-object geomblk node+0xC0 cmds), NOT from PSX GP0
 // packets: ov_scene_native orchestrates the per-frame field render, and the master / snapshot / aux list
-// walks (native twins of gen_func_8003C048 / 8003BB50 / the BCF4/BF00/EEC0 aux walks) iterate the engine's
+// walks (native twins of guest 0x8003C048 / 8003BB50 / the BCF4/BF00/EEC0 aux walks) iterate the engine's
 // render lists, dispatching each live node by its render TYPE and tagging every prim with the object's
 // PC-native world-position depth so 2D billboards occlude for real at the deferred OT walk. The per-object
 // flush composes the float camera x object transform and submits generic GT3/GT4 natively (no PSX per-mode
@@ -17,6 +17,7 @@
 #include "fps60.h"
 #include "game.h"
 #include "game_ctx.h"
+#include "gpu_vk.h" // gpu_seen3d_this_frame — declared by the framework, never locally
 #include "mods.h"
 #include "object_highlight_policy.h"
 #include "player/actor_tomba.h" // ActorTomba::G_ADDR — Tomba's node, outside the 3 generic entity lists
@@ -31,16 +32,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <string_view>
-#include "gpu_vk.h" // gpu_seen3d_this_frame — declared by the framework, never locally
-
-void rec_dispatch(Core *, uint32_t);
-void rec_super_call(Core *, uint32_t);
 int rec_addr_has_entry(Core *, uint32_t); // overlay_router.cpp — is fn a real entry in the resident module?
 #define OTBASE_PTR 0x800ED8C8u            // *this = the active ordering-table base
 #define SCR 0x1F800000u                   // PSX scratchpad base (the engine's GTE-compose temp area)
 
 // The per-object render path is FULLY native (no PSX fallback): submit_perobj_flush composes the float
-// world transform and calls Render::gt3gt4 directly. The old gen_func_8003F698 per-mode dispatcher (which
+// world transform and calls Render::gt3gt4 directly. The old guest 0x8003F698 per-mode dispatcher (which
 // ran interpreted per-scene submitter variants for non-generic modes) is no longer consulted — every
 // per-object geomblk is submitted as generic GT3/GT4 through the native, world-coord projection.
 
@@ -124,7 +121,7 @@ void Render::perObjFlush() {
   // field replay (PSXPORT_DEBUG=ovhit) — so this key names the emitter the guest ACTUALLY used, read
   // from the same MODE_* state the executing body reads. render.h's banner on resolvePerModeEmitter has
   // the full measurement and the correction it replaced (an instrumented NATIVE body logs nothing on
-  // this leg because PSXPORT_GATE routes every override to its gen body, which first read as "the chain
+  // this leg because PSXPORT_GATE routes every override to its guest-visible behavior, which first read as "the chain
   // does not execute"). `flag & 1`, which would also force the generic emitter, is a per-call argument
   // this pass does not receive and is passed as 0 — the one genuinely unobservable input here.
   //
@@ -340,6 +337,7 @@ void Render::menuChrome() {
     c->game->activeRq().push2dQuad(
         RQ_BACKGROUND, 0, xs, ys, z, z, k, k, k, 0, 0, /*mode=*/3, /*raw=*/0, 0, 0, 0, 0, 0, 0, 0, 0, 1023, 511);
   }
+  titleWideMargins();
   auto logo = [&](int x, int w, int tp_x) { // tpage 0x9A(640)/0x9C(768), 8bpp
     int xs[4] = {x + ox, x + w + ox, x + ox, x + w + ox}, ys[4] = {-8 + oy, -8 + oy, 232 + oy, 232 + oy};
     int us[4] = {0, w, 0, w}, vs[4] = {0, 0, 240, 240};
@@ -526,7 +524,7 @@ void Render::sceneNative() {
   // (USER 2026-08-16: "the only difference would be whether to add the extra lerp frames or not"). It is
   // also not a cost: the world is drawn ONCE either way, just at the present instead of at guest time.
   Fps60 &temporal = fps60(*c->game);
-  temporal.mWorldCaptureOnly = temporal.mTier1EligibleCur && !c->game->diff_mode && !c->rsub.mode.psxRender();
+  temporal.mWorldCaptureOnly = temporal.mTier1EligibleCur && !c->rsub.mode.psxRender();
   // AREA-SCOPED CACHE trust latches: the EDGE DETECTOR now lives in areaCacheTrustTick(), ticked once
   // per logic frame from Engine::drawOTag BEFORE the render-mode branch (it is guest-state tracking, not
   // picture-building — see that function). Here we only READ mSceneTableTrusted / mBackdropTrusted.
@@ -575,7 +573,7 @@ void Render::sceneNative() {
   const bool area21Sky = !voidBeat && mBackdropTrusted && area21SkyGradientActive();
   if (area21Sky) {
     area21SkyGradientCapture();
-    if (!temporal.mWorldCaptureOnly && c->game->native_gates.get("area21-sky")) {
+    if (!temporal.mWorldCaptureOnly) {
       area21SkyGradientRender(1.0f);
     }
   }
@@ -598,7 +596,7 @@ void Render::sceneNative() {
     // (USER 2026-07-07, issue #32): the substrate orchestrator executes it underneath every frame
     // (Render::frame — both render modes), so all its guest writes (walk-queue swaps, node bookkeeping,
     // per-node renderer dispatches, packet emission) happen on the faithful task's own call path,
-    // byte-identical to the recomp reference. Re-running native lifts of those walks HERE was the
+    // byte-identical to the recorded guest behavior. Re-running native lifts of those walks HERE was the
     // f26 divergence class: same writes from a foreign (display-phase) call context. The native lifts
     // (renderWalk/renderWalkSnapshot/rwalkAux*/rwalkB588/perObjRender/bgRender) are retired; this
     // display pass is READ-ONLY — it may not write guest memory or dispatch guest code. Per-object
@@ -736,7 +734,7 @@ void Render::ringNodeCensus() {
 //     native=0 / oracle=86368), so cull.cpp's census prints nothing however many frames you run.
 //  3. "Gate on the class byte (+0xC)." Removes nothing: every live HEADS[0] node in a13 and a14 is
 //     already class 2 or 4, both of which have queues.
-//  4. "gen_func_8003BB50 consumes queue B." It consumes queue A. Queue B's consumer is
+//  4. "guest 0x8003BB50 consumes queue B." It consumes queue A. Queue B's consumer is
 //     FUN_8003BCF4 (Render::objListWalk2), table 0x80014CB0.
 //
 // STILL NOT MODELLED HERE, and it belongs with the above when this arm is next touched:
@@ -1169,7 +1167,7 @@ void Render::fieldObjectsRender() {
       // Queue A's guest order is ordinary mesh, optional tether, then FUN_8002AE0C. The guest-time
       // pass already ran the byte-faithful controller underneath; this is only its independent native
       // picture, so defer it to the present-time walk rather than emitting into the dead capture queue.
-      if (highlight.enabled && !fps60(*c->game).mWorldCaptureOnly && c->game->native_gates.get("highlight")) {
+      if (highlight.enabled && !fps60(*c->game).mWorldCaptureOnly) {
         objectHighlightRender(n, highlight.scaleInput);
       }
     }
@@ -1194,9 +1192,9 @@ void Render::fieldObjectsRender() {
 // ===================================================================================================
 // RETIRED 2026-07-07 (issue #32, USER: "PSX render path always active underneath; PC renderer
 // shouldn't write to guest memory"): the native lifts of the walk cluster — perObjRender, bgRender,
-// renderWalk (gen_func_8003C048), renderWalkSnapshot (8003BB50), rwalkAuxBcf4/Bf00/Eec0
+// renderWalk (guest 0x8003C048), renderWalkSnapshot (8003BB50), rwalkAuxBcf4/Bf00/Eec0
 // (8003BCF4/BF00/EEC0) and their per-type case tables. They re-ran the substrate walks' guest writes
 // (queue swaps, node bookkeeping, guest renderer dispatches) from the display phase — a foreign call
-// context whose guest-stack spills diverged from the recomp reference (SBS f26). The substrate
+// context whose guest-stack spills diverged from the recorded guest behavior (SBS f26). The substrate
 // orchestrator now executes the real walks underneath (Render::frame); this display pass is read-only.
 // The RE'd case tables live in git history (this file @ commit 7989159) and docs/findings/render.md.

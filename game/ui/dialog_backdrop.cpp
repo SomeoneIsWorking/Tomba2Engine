@@ -1,6 +1,6 @@
 // game/ui/dialog_backdrop.cpp — the flat-colour rectangle behind the dialog/message box.
 //
-// Guest FUN_8007FCC8, RE'd 2026-07-22 from gen_func_8007FCC8 (the recompiled instruction stream) with
+// Guest FUN_8007FCC8, RE'd 2026-07-22 from guest 0x8007FCC8 (the guest instruction stream) with
 // Ghidra for shape. Confirmed LIVE on the dialog path: dispatch-tracing the bucket-pickup capture
 // shows the dialog-box glyph emitter (0x8007CC00) and this region running together while a message
 // box is on screen.
@@ -31,7 +31,7 @@
 //   0x7F  -> any of these set means "no fill colour" (black); all clear means the panel blue.
 #include "core.h"
 #include "game.h"
-#include "override_registry.h"
+#include "native_override_catalog.h"
 #include "ui/options_page.h" // OptionsPage::noteBox — the Screen-adjust page's boxes (#38)
 #include "ui/panel.h"
 
@@ -52,7 +52,7 @@ constexpr uint32_t OT_BUCKET_NEAR = 1u;
 
 } // namespace
 
-// ORACLE: gen_func_8007FCC8
+// ORACLE: guest 0x8007FCC8
 void Panel::pushDialogBackdrop(Core *c, int16_t x, int16_t y, int16_t w, int16_t h, uint32_t mode) {
   const uint32_t bucket = (mode & MODE_FAR_BUCKET) ? OT_BUCKET_FAR : OT_BUCKET_NEAR;
 
@@ -85,7 +85,7 @@ void Panel::pushDialogBackdrop(Core *c, int16_t x, int16_t y, int16_t w, int16_t
 //
 // The OPTIONS "Screen adjust" page (kanban #38) stages its three boxes through this same emitter, and
 // pc_render has no other producer for them — so the display half hangs HERE rather than on a second
-// overrides::install for 0x8007FCC8 (dual ownership is what broke the dialog box in kanban #28).
+// tomba::native::declareOverride for 0x8007FCC8 (dual ownership is what broke the dialog box in kanban #28).
 // OptionsPage::noteBox is a no-op unless that page's scope is raised, so the dialog path is untouched.
 static void ov_push_dialog_backdrop(Core *c) {
   const int16_t x = (int16_t)c->r[4], y = (int16_t)c->r[5];
@@ -96,8 +96,5 @@ static void ov_push_dialog_backdrop(Core *c) {
 }
 
 void dialog_backdrop_install() {
-  extern void gen_func_8007FCC8(Core *);
-  extern void shard_set_override(uint32_t, void (*)(Core *));
-  overrides::install(
-      0x8007FCC8u, "Panel::pushDialogBackdrop", ov_push_dialog_backdrop, gen_func_8007FCC8, shard_set_override);
+  tomba::native::declareOverride(0x8007FCC8u, "Panel::pushDialogBackdrop", ov_push_dialog_backdrop);
 }

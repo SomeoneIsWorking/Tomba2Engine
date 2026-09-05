@@ -4,7 +4,7 @@ kind: claim
 status: holds
 created: 2026-08-06
 tags: 
-depends: game/render/fx_line.cpp, external/psxport/runtime/recomp/gpu_native.cpp
+depends: game/render/fx_line.cpp, external/psxport/runtime/psx/gpu_native.cpp
 ---
 
 ## Claim

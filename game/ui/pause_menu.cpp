@@ -6,13 +6,12 @@
 #include "core.h"
 #include "engine.h"
 #include "game.h"
-#include "game_ctx.h"     // eng(c) / rend(c)
+#include "game_ctx.h" // eng(c) / rend(c)
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "render.h"       // Render::emitUiFt4 / emitUiSprites
 #include "render_queue.h" // RQ_OVERLAY
 #include "screen_fade.h"  // ScreenFade — the global present-time fade this page's dim must NOT reach
-
-extern void gen_func_800346BC(Core *);
-extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
 
 // The OT bucket the guest links its full-screen subtractive dim into (see drawCollected). Everything
 // in a HIGHER bucket is painted before it and therefore dimmed.
@@ -74,7 +73,7 @@ void PauseMenu::pushScreenQuad(unsigned char level, int semi, int blend) {
 // rows and the help panel all painted AFTER it, so on PSX it darkens only what sits beneath it. Applied
 // globally instead, it darkened every pixel of the menu by a clamped 0x40 (measured at
 // replays/bugs/ingame-item-menu.pad f1120: `debug fadewatch` reported mode=2 rgb=(64,64,64) on this
-// path against mode=0 on the recomp leg, and the presented frame was clamp(reference - 64) everywhere).
+// path against mode=0 on the guest instruction path leg, and the presented frame was clamp(reference - 64) everywhere).
 //
 // This producer draws the rect IN ITS PLACE, so it is the layer's owner and releases the global copy.
 // Only the fade this page itself produced is released — a genuine scene fade running underneath the
@@ -156,7 +155,7 @@ void PauseMenu::drawCollected() {
 namespace {
 
 // FUN_800346BC — the pause/item-menu controller. Scope wrapper: it owns no guest state of its own,
-// so the guest half is the untouched gen body.
+// so the guest half is the untouched guest-visible behavior.
 void menuTick(Core *c) {
   PauseMenu &menu = eng(c).pauseMenu;
   const bool outer = !menu.capture.capturing();
@@ -164,7 +163,10 @@ void menuTick(Core *c) {
     menu.capture.clear();
   }
   menu.capture.begin();
-  gen_func_800346BC(c); // byte-exact: the whole menu state machine + its packet emission
+  psx::cpu::callOriginalToReturn(*c,
+                                 0x800346BCu,
+                                 psx::cpu::ExecutionBudget::currentTurn(*c),
+                                 __func__); // byte-exact: the whole menu state machine + its packet emission
   if (!outer) {
     return;
   }
@@ -180,7 +182,7 @@ void PauseMenu::install() {
     return;
   }
   done = true;
-  engine_set_override_main(0x800346BCu, menuTick, gen_func_800346BC);
+  tomba::native::declareOverride(0x800346BCu, "menuTick", menuTick);
   // The FT4 leaf FUN_8007E1B8 is owned by UiFt4Tap (game/render/ui_ft4_tap.cpp), which routes each
   // group through UiGroupCapture to whichever page scope is raised — this one included. Installing it
   // here as well is the duplicate ownership that now aborts at startup by design.

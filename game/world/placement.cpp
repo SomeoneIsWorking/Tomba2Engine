@@ -2,13 +2,13 @@
 #include "placement.h"
 #include "cfg.h"
 #include "core.h"
-#include "game.h" // c->game->verify — the shared A/B verify scaffold
+#include "game.h"
 #include "game_ctx.h"
+#include "guest_call.h"
 #include "spawn.h" // class Spawn (eng(c).spawn.dispatch)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
 
 // ================================================================================================
 // FUN_80072A78 — the field OBJECT-PLACEMENT DRIVER (top-down: the "object spawn handler").
@@ -20,7 +20,7 @@ void rec_super_call(Core *, uint32_t);
 // node's identity / position / facing / behavior-handler from the record. It is THE entry point that
 // populates a field with its NPCs/items/scenery. Resident MAIN.EXE leaf (no yield) → ownable by a
 // plain override; the only call it makes is the spawn dispatch (owned). It WRITES guest object state
-// the still-recomp content reads → content-INTERFACE: gated byte-exact (full RAM+scratchpad A/B).
+// the still-guest content reads → content-INTERFACE: gated byte-exact (full RAM+scratchpad A/B).
 //
 // PLACEMENT RECORD (0x14 bytes, table terminated by a record whose byte[0]==0xff):
 //   +0x00 u8   type   (a0 to spawn = type & 0x7f; full byte also stamped to node+0x28)
@@ -143,13 +143,13 @@ static void place_objects(Core *c) {
 
 void Placement::placeAreaObjects() {
   Core *c = core;
-  int s_v = c->game->verify.on("placeverify");
+  int s_v = gctx(c)->verification.on("placeverify");
   if (!s_v) {
     place_objects(c);
     return;
   }
-  uint8_t *ram0 = c->game->verify.ram0();
-  uint8_t *ramN = c->game->verify.ramN();
+  uint8_t *ram0 = gctx(c)->verification.ram0();
+  uint8_t *ramN = gctx(c)->verification.ramN();
   uint8_t spad0[0x400], spadN[0x400];
   uint32_t regs0[32];
   memcpy(regs0, c->r, sizeof regs0);
@@ -162,7 +162,7 @@ void Placement::placeAreaObjects() {
   memcpy(c->ram, ram0, 0x200000);
   memcpy(c->scratch, spad0, 0x400);
   memcpy(c->r, regs0, sizeof regs0);
-  rec_super_call(c, 0x80072A78u);
+  psx::cpu::callOriginalToReturn(*c, 0x80072A78u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   uint32_t sp = regs0[29] & 0x1FFFFFu, flo = (sp >= 0x800) ? sp - 0x800 : 0;
   int ro = -1;
   for (uint32_t a = 0; a < 0x200000; a++) {
@@ -178,7 +178,7 @@ void Placement::placeAreaObjects() {
       break;
     }
   }
-  VerifyHarness::Check &chk = c->game->verify.check("placeverify");
+  tomba::VerificationCounter &chk = gctx(c)->verification.placement;
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0) {
     if (nb++ < 40) {
@@ -210,13 +210,13 @@ static uint32_t spawn_with_parent(Core *c) {
 }
 void Placement::spawnWithParent() {
   Core *c = core;
-  int s_v = c->game->verify.on("spawnparentverify");
+  int s_v = gctx(c)->verification.on("spawnparentverify");
   if (!s_v) {
     c->r[2] = spawn_with_parent(c);
     return;
   }
-  uint8_t *ram0 = c->game->verify.ram0();
-  uint8_t *ramN = c->game->verify.ramN();
+  uint8_t *ram0 = gctx(c)->verification.ram0();
+  uint8_t *ramN = gctx(c)->verification.ramN();
   uint8_t spad0[0x400], spadN[0x400];
   uint32_t regs0[32];
   memcpy(regs0, c->r, sizeof regs0);
@@ -229,7 +229,7 @@ void Placement::spawnWithParent() {
   memcpy(c->ram, ram0, 0x200000);
   memcpy(c->scratch, spad0, 0x400);
   memcpy(c->r, regs0, sizeof regs0);
-  rec_super_call(c, 0x80072DDCu);
+  psx::cpu::callOriginalToReturn(*c, 0x80072DDCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   uint32_t v0_o = c->r[2];
   uint32_t sp = regs0[29] & 0x1FFFFFu, flo = (sp >= 0x800) ? sp - 0x800 : 0;
   int ro = -1;
@@ -246,7 +246,7 @@ void Placement::spawnWithParent() {
       break;
     }
   }
-  VerifyHarness::Check &chk = c->game->verify.check("spawnparentverify");
+  tomba::VerificationCounter &chk = gctx(c)->verification.spawnParent;
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0 || v0_n != v0_o) {
     if (nb++ < 40) {

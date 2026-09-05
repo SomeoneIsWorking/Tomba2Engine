@@ -1,8 +1,8 @@
 // game/render/cube_text_banner.cpp — see cube_text_banner.h for WHY this exists (it replaces two
 // deleted taps) and for the rule it satisfies.
 //
-// RE SOURCE (2026-08-04, Ghidra headless + generated/ shards as ground truth; the full write-path
-// audit is in docs/findings/render.md "cube-text banner — the transform is view space"):
+// RE SOURCE (2026-08-04, Ghidra headless + authenticated executable/overlay evidence shards as ground truth; the full
+// write-path audit is in docs/findings/render.md "cube-text banner — the transform is view space"):
 //
 //   The per-glyph record IS the sub-part. textLabelEmit's `cmd` and subPartWalk's `sub` are the same
 //   pointer, node+0xC0[i], so ONE transform drives both halves of a character — its plank and its
@@ -301,7 +301,7 @@ void emitGlyph(Core *c, uint32_t node, const ViewProjector &proj, const GlyphXfo
 } // namespace
 
 void CubeTextBanner::render(Core *c, uint32_t node) {
-  if (!pictureBuildAllowed(c->game->oracle, fps60(*c->game).mWorldCaptureOnly)) {
+  if (!pictureBuildAllowed(false, fps60(*c->game).mWorldCaptureOnly)) {
     return;
   }
   if (c->mem_r32(node + NODE_BEHAVIOUR) != kBehCubeTextSpawn) {
@@ -312,8 +312,8 @@ void CubeTextBanner::render(Core *c, uint32_t node) {
   // replay). Keyed on guest FUN_80039F4C, which game/render/text_label.cpp INSTALLS at its own override
   // site, so the literal is the code's own assertion rather than a number copied from a comment.
   //
-  // 0x80039F4C is the right key for the WHOLE producer, both halves: gen_func_80039F4C sets r5=1 and
-  // calls func_8003F174 (the sub-part MESH pass = the PLANKS) before emitting one glyph quad per
+  // 0x80039F4C is the right key for the WHOLE producer, both halves: guest 0x80039F4C sets r5=1 and
+  // calls guest 0x8003F174 (the sub-part MESH pass = the PLANKS) before emitting one glyph quad per
   // character, so the planks are part of what it submits. Measured split of the 68,388: 8,340 glyph
   // quads (12.2%) and 60,048 plank prims (87.8%) — a key describing only the glyph half would misname
   // seven eighths of it. codemap's port-map step for this address is literally

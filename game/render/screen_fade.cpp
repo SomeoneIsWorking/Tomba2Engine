@@ -4,6 +4,8 @@
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "producer_scope.h" // ProducerScope — graphics-producer DB, native leg
 #include <cstdio>
 #include <cstdlib>
@@ -77,21 +79,19 @@ ScreenFade::State ScreenFade::get() const {
 }
 
 // ---- Fade-leaf tap: own FUN_8007e9c8 GLOBALLY (engine-overrides directive) -------------------
-// Every still-substrate fade caller reaches gen_func_8007E9C8 via a STATIC gen-to-gen jal — a call
-// path that never passes rec_dispatch, so neither PSXPORT_DISPWATCH nor this class ever saw it.
+// Every still-substrate fade caller reaches guest 0x8007E9C8 via a STATIC gen-to-gen jal — a call
+// path that never passes typed runtime address dispatch, so neither PSXPORT_DISPWATCH nor this class ever saw it.
 // Concretely (#63): the fisherman-cutscene fade-in ramps the guest OT rect every frame while the
 // native present read mFrameMode==NONE and showed the scene at full brightness. The fix is the
-// sanctioned leaf-engine global ownership: install on the shard g_override[] table via the
-// oracle-gated thunk (engine_set_override_main), run the ORIGINAL gen body so guest packet-pool/
+// sanctioned leaf-engine global ownership: install on the shard image-qualified runtime dispatcher table via the
+// oracle-gated thunk (tomba::native::declareOverride), run the ORIGINAL guest-visible behavior so guest packet-pool/
 // OT/scratchpad state stays byte-exact for SBS, then mirror the guest-ABI args {a0=color,
 // a1=blend, a2=slot} into the host frame state. SBS core B keeps running pure gen (thunk gates on
-// psx_fallback), and pc_render still writes zero guest bytes — the tap is logic-side, not render.
-extern void gen_func_8007E9C8(Core *);
-extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
+// test-only substrate leg), and pc_render still writes zero guest bytes — the tap is logic-side, not render.
 namespace {
 void fadeLeafTap(Core *c) {
   const uint32_t color = c->r[4], blend = c->r[5], slot = c->r[6];
-  gen_func_8007E9C8(c);
+  psx::cpu::callOriginalToReturn(*c, 0x8007E9C8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   fade(c).applyLeafCall(color, blend, slot);
 }
 } // namespace
@@ -101,7 +101,7 @@ void ScreenFade::installLeafTap() {
     return;
   }
   done = true;
-  engine_set_override_main(0x8007E9C8u, fadeLeafTap, gen_func_8007E9C8);
+  tomba::native::declareOverride(0x8007E9C8u, "fadeLeafTap", fadeLeafTap);
 }
 
 // ScreenFade::sequence — the GAME-overlay a0l per-node fade sequencer (guest FUN_8010957C).
@@ -116,13 +116,16 @@ void ScreenFade::sequence(uint32_t node) {
 
   if (outer == 0) {
     // Init step: three prep calls + arm the state to run its first ramp on the next tick.
-    eng(c).modeStateArm.arm();                    // native — was rec_dispatch 0x8005082C(0,0,0)
+    eng(c).modeStateArm.arm();                    // native — was typed runtime address dispatch 0x8005082C(0,0,0)
     eng(c).audioDispatch.zoneTransitionSetup(11); // FUN_8001D71C(11) — native
     c->mem_w8(0x800BFA55u, 0);
     c->mem_w8(node + 3, 0);
     c->mem_w8(node + 2, (uint8_t)(outer + 1)); // -> outer state 1
     c->r[4] = node;
-    rec_dispatch(c, 0x8010D030u); // ov_a0l_func_8010D030(node) — not yet decoded
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x8010D030u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // overlay guest 0x8010D030(node) — not yet decoded
     c->mem_w16(node + 106, 31);
     applyLeafCall(0x00FFFFFFu, 0); // full black (subtractive white)
     return;
@@ -154,7 +157,10 @@ void ScreenFade::sequence(uint32_t node) {
   };
   auto helperCC68 = [&](uint32_t arg) {
     c->r[4] = arg;
-    rec_dispatch(c, 0x8010CC68u); // ov_a0l_func_8010CC68 — returns bool in v0
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x8010CC68u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // overlay guest 0x8010CC68 — returns bool in v0
   };
 
   switch (step) {
@@ -230,12 +236,11 @@ void ScreenFade::sequence(uint32_t node) {
 // Render::fadeTileRender — NATIVE pc_render producer for the full-screen FADE/FLASH tile
 // (guest FUN_800726D4, reached as render-walk case 0x8003C138 with a0 = the render node).
 //
-// What the guest body does (generated/shard_5.c gen_func_800726D4): reads the node's parameter block
-// (node+0x10) and takes its first halfword as a SIGNED level. A NEGATIVE level draws nothing (early
-// out). Otherwise it allocates a 16-byte packet from the pool tail (0x800BF544), fills a 320x240
-// monochrome rectangle at (0,0) with R=G=B=level, and picks the GP0 command by level: 0x60 (opaque)
-// when level == 255, else 0x62 (SEMI-transparent). It links that + a following draw-mode packet into
-// the OT at base+0x28.
+// What the guest body does (authenticated executable/overlay evidence guest 0x800726D4): reads the node's parameter
+// block (node+0x10) and takes its first halfword as a SIGNED level. A NEGATIVE level draws nothing (early out).
+// Otherwise it allocates a 16-byte packet from the pool tail (0x800BF544), fills a 320x240 monochrome rectangle at
+// (0,0) with R=G=B=level, and picks the GP0 command by level: 0x60 (opaque) when level == 255, else 0x62
+// (SEMI-transparent). It links that + a following draw-mode packet into the OT at base+0x28.
 //
 // The native rebuild draws the same PICTURE from the same source value: one full-screen quad, colour
 // = level on all three channels, blended when level != 255. READ-ONLY — it reads the node/param

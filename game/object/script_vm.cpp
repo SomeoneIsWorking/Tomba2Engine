@@ -1,21 +1,20 @@
 // game/object/script_vm.cpp — PC-native per-object SCRIPT-VM subsystem.
 // The per-object script-VM tick (FUN_8004CE14) — the most-called field function. Control flow + object
-// memory owned native; every sub-behavior stays reachable by address via rec_dispatch (each honors its
-// own override identically). NO GTE, NO render packets. Extracted verbatim from game_tomba2.cpp (one
-// behavior, byte-identical) into its own module for PC-game code structure. The `scriptvm` diagnostic
-// A/B gate (full RAM+scratchpad vs rec_super_call) is a REPL channel, unchanged.
+// memory owned native; every sub-behavior stays reachable by address via typed runtime address dispatch (each honors
+// its own override identically). NO GTE, NO render packets. Extracted verbatim from game_tomba2.cpp (one behavior,
+// byte-identical) into its own module for PC-game code structure. The `scriptvm` diagnostic A/B gate (full
+// RAM+scratchpad vs original guest-body call) is a REPL channel, unchanged.
 #include "script_vm.h"
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
+#include "guest_call.h"
 #include "mathlib.h"     // Bit::test7EC / test868 (FUN_8004D7EC / FUN_8004D868)
 #include "render/cull.h" // Cull::cullWrap77acc / installSceneRecord
 #include "spawn.h"       // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 // FUN_8004CE14 — per-object SCRIPT-VM tick (the MOST-CALLED field function, ~14900 calls/run). a0 = obj.
 // Dispatches on the state byte obj[4]: 2 -> no-op; 3 -> jal 0x8007A624(obj); >3 -> no-op; 0 -> if the
@@ -28,9 +27,9 @@ void rec_dispatch(Core *, uint32_t);
 // obj[116] & (1<<idx); a passing entry executes either 0x80111CCC(s4[12]) (when 0x800BF870==1 &&
 // 0x800BF871>=15) or the cull/anim call 0x80077ACC(obj, s4[4], s4[6], s4[8]); a nonzero return ORs the
 // slot bit into obj[112]. On terminator: obj[106]=slot count, obj[11]=31, obj[1]=1, jal 0x80077EFC(obj).
-// CONTROL FLOW + memory ops are owned native; every jal sub-behavior stays interpreted via rec_dispatch
-// (each honors its own override identically in the super-call path). `scriptvm` gate = full RAM+scratchpad
-// A/B vs rec_super_call (each path runs once from one checkpoint; the native run is rolled back).
+// CONTROL FLOW + memory ops are owned native; every jal sub-behavior stays interpreted via typed runtime address
+// dispatch (each honors its own override identically in the super-call path). `scriptvm` gate = full RAM+scratchpad A/B
+// vs original guest-body call (each path runs once from one checkpoint; the native run is rolled back).
 static void script_vm_4ce14(Core *c) {
   const uint32_t obj = c->r[4];
   const uint32_t s5 = obj + 96;
@@ -121,7 +120,7 @@ static void script_vm_4ce14(Core *c) {
       uint32_t ret;
       if (c->mem_r8(0x800BF870u) == 1 && c->mem_r8(0x800BF871u) >= 15) {
         c->r[4] = (uint32_t)c->mem_r8(s4 + 12);
-        rec_dispatch(c, 0x80111CCCu);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80111CCCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         ret = c->r[2];
       } else {
         c->r[4] = obj;

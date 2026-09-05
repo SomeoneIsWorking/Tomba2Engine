@@ -1,16 +1,15 @@
 // game/core/main.cpp — the Tomba!2 process entry point.
 //
-// main() composes the process-lifetime TombaRuntime, generated-substrate registry, and framework
-// machine. Game-specific behavior is reached through inheritance; the framework provides no main().
+// main() composes the process-lifetime TombaRuntime and framework machine. Game-specific behavior
+// is reached through inheritance; the framework provides no main().
 #include "cfg.h"
 #include "core.h"
-#include "dualcore.h" // class DualCore — NATIVE-render vs PSX-render RAM divergence harness
-#include "fs_util.h"  // Fs::exists — MAIN.EXE presence probe for self-provisioning below
+#include "fs_util.h" // Fs::exists — MAIN.EXE presence probe for self-provisioning below
 #include "game.h"
+#include "lightrec_executor.h"
 #include "platform_hle.h" // class PlatformHle — HW-sync HLE table (VSync/CdSync/MDEC/ChangeThread)
-#include "recomp_register.h"
-#include "sbs.h" // class Sbs — the PSXPORT_SBS live-two-core divergence debugger
 #include "tomba_runtime.h"
+#include <lucent/log.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,30 +21,37 @@ void mdec_init(void);
 void spu_init(void);
 }
 
-void load_exe(const char *path, Core *c); // runtime/recomp/boot.cpp (framework)
+void load_exe(const char *path, Core *c); // runtime/psx/boot.cpp (framework)
 
 int main(int argc, char **argv) {
-  // Installation precedes every Game: Core snapshots the runtime and its bounded compatibility views.
+  if (argc > 1 && (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)) {
+    printf("Usage: tomba2_port [MAIN.EXE]\n"
+           "Launch the Tomba! 2 native PC product. If MAIN.EXE is omitted, the product uses or "
+           "provisions scratch/bin/tomba2/MAIN.EXE.\n\n"
+           "Options:\n"
+           "  -h, --help  Show this help and exit\n");
+    return 0;
+  }
+
+  // Installation precedes every Game so Core can bind the title runtime.
   static tomba::TombaRuntime runtime;
   psxport_install_game(runtime);
-  tomba_install_recomp(); // install the generated-substrate seam (main_dispatch/overlay table/setters)
   const char *path = argc > 1 ? argv[1] : "scratch/bin/tomba2/MAIN.EXE";
   Game *game = new Game(); // the whole machine (owns the Core + every subsystem's state — no globals)
-  Core *c = &game->core;   // the CPU/RAM handle threaded through the interp (2 MB RAM lives in Game)
+  Core *c = &game->core;   // the CPU/RAM handle threaded through the runtime (2 MB RAM lives in Game)
   // Self-provision MAIN.EXE: anyone with just a CHD (drop-in *.chd in the repo root, or
   // PSXPORT_TOMBA2_DISC / .env) can run the binary directly — no prior ./run.sh extraction step.
   if (!Fs::exists(path)) {
-    cfg_logw("boot", "%s missing — extracting from disc", path);
+    lucent::warn("boot", "{} missing — extracting from disc", path);
     if (!disc_extract_file(&game->disc, "\\MAIN.EXE", path)) {
-      cfg_loge("boot",
-               "extraction failed: provide a disc (PSXPORT_TOMBA2_DISC, .env, or a *.chd in the working directory) or "
-               "run ./run.sh");
+      lucent::error(
+          "boot",
+          "extraction failed: provide a disc (PSXPORT_TOMBA2_DISC, .env, or a *.chd in the working directory) or "
+          "run ./run.sh");
       return 1;
     }
   }
-  // The product has one execution policy: owned waits and I/O finish synchronously. The generated
-  // substrate remains available through PSXPORT_ORACLE / the comparison harness, not a second user
-  // launch mode with different cadence.
+  // The product has one execution policy: owned waits and I/O finish synchronously.
   c->game->gpu_vk.tritest(); // PSXPORT_VK_TRITEST=1: GPU triangle-rasterizer self-test, then exit
   watchdog_init();           // PSXPORT_WATCHDOG=<sec>: abort+backtrace if a frame stalls
   load_exe(path, c);
@@ -69,28 +75,10 @@ int main(int argc, char **argv) {
   c->r[4] = 1;
   c->r[5] = 0; // a0=argc-ish, a1=argv (BIOS sets these; minimal)
 
-  // PSXPORT_DUALCORE: NATIVE-render vs PSX-render guest-RAM divergence harness (dualcore.cpp). Creates its
-  // own Game instances, so the primary `c`/`game` here is left unused.
-  if (cfg_on("PSXPORT_DUALCORE")) {
-    DualCore dc;
-    dc.run(path);
-    return 0;
-  }
-  // PSXPORT_SELFTEST: headless TDD regression (selftest.cpp). Owns its own Game instance.
-  if (cfg_str("PSXPORT_SELFTEST")) {
-    int selftest_run(const char *exe_path);
-    return selftest_run(path);
-  }
-  // PSXPORT_SBS: LIVE side-by-side two-core divergence debugger (sbs.cpp). Owns its own Game instances.
-  if (cfg_on("PSXPORT_SBS") || cfg_str("PSXPORT_SBS_MODE")) {
-    Sbs::run(path);
-    return 0;
-  }
-  // Plain (no-harness) path: THIS `game` is the one actually driven, so register its overrides into the
-  // registry here (only on this path — the harnesses above register on their own Games via dc_boot_init;
-  // registering unconditionally would corrupt `ovhit`'s target selection — see docs/findings/animation.md).
+  // Bind native overrides only after the executable has established its active image identity.
   c->runtime->registerOverrides(*game); // ALL override clusters — game/core/register_overrides.cpp
   game->stub.run(path);                 // stub draws SCEA, then hands off to native MAIN boot
-  cfg_logi("boot", "boot stub returned");
+  c->lightrecExecutor().reportFallbackTelemetry("tomba2-exit");
+  lucent::info("boot", "boot stub returned");
   return 0;
 }

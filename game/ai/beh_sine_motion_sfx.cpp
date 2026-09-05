@@ -18,27 +18,26 @@
 //   STATE 2/3 : FUN_8007A624(node).
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the direct node/record/global WRITES owned
-// native; every sub-behavior CALL stays reachable via rec_dispatch (pure-PSX leaf). Transcribed 1:1 as a
-// register machine with `goto L<hex>` = guest addresses — the ONLY reliable way through the delay-slot
-// subtleties (branch conditions read the PRE-delay reg; delay-slot writes/loads still execute). Signed
-// (lh/sra) vs unsigned (lhu/srl/sltiu) preserved exactly; shifts masked to 32-bit. FUN_80083E80 is the
-// owned sin leaf (returns v0). The byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the
-// safety net. NO GTE (the sin is a table lookup, not gte_op).
+// native; every sub-behavior CALL stays reachable via typed runtime address dispatch (pure-PSX leaf). Transcribed 1:1
+// as a register machine with `goto L<hex>` = guest addresses — the ONLY reliable way through the delay-slot subtleties
+// (branch conditions read the PRE-delay reg; delay-slot writes/loads still execute). Signed (lh/sra) vs unsigned
+// (lhu/srl/sltiu) preserved exactly; shifts masked to 32-bit. FUN_80083E80 is the owned sin leaf (returns v0). The
+// byte-exact A/B gate (full RAM+scratchpad vs original guest-body call) is the safety net. NO GTE (the sin is a table
+// lookup, not gte_op).
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_render_update (FUN_800517F8)
 #include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-#include "math/trig.h"     // class Trig — rsin (FUN_80083E80)
-#include "object/actor.h"  // Actor::boundsCull (FUN_8007778C native)
-#include "render/cull.h"   // Cull::enqueueByClass (FUN_8007703C)
-#include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_call.h"
+#include "math/trig.h"    // class Trig — rsin (FUN_80083E80)
+#include "object/actor.h" // Actor::boundsCull (FUN_8007778C native)
+#include "render/cull.h"  // Cull::enqueueByClass (FUN_8007703C)
+#include "spawn.h"        // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -102,12 +101,14 @@ L1b0: // ===== STATE 0 (INIT) =====
   v0 = v0 | 1;                         // ori
   c->mem_w8(nd + 0, (uint8_t)v0);      // delay sb v0,0
   c->r[4] = nd;
-  rec_dispatch(c, 0x8004766cu); // FUN_8004766C(node)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8004766cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_8004766C(node)
   c->r[4] = nd;
-  rec_dispatch(c, 0x80048750u);          // FUN_80048750(node)
-  v0 = (int32_t)c->mem_r16(0x1f8001a0u); // lhu scratch[0x1A0]
-  v1 = (int32_t)c->mem_r16(nd + 0x2e);   // lhu node[0x2E]
-  a0 = (int32_t)c->mem_r16(nd + 0x32);   // lhu node[0x32]
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80048750u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_80048750(node)
+  v0 = (int32_t)c->mem_r16(0x1f8001a0u);                                      // lhu scratch[0x1A0]
+  v1 = (int32_t)c->mem_r16(nd + 0x2e);                                        // lhu node[0x2E]
+  a0 = (int32_t)c->mem_r16(nd + 0x32);                                        // lhu node[0x32]
   {
     int32_t a1 = (int32_t)c->mem_r16(nd + 0x36); // lhu node[0x36]
     c->mem_w16(nd + 0x54, 0);

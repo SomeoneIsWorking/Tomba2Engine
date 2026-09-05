@@ -4,7 +4,7 @@ kind: claim
 status: holds
 created: 2026-08-26
 tags: executable,identity,tomba1
-depends: titles/tomba1/tools/verify_executable.py#verify_bytes,titles/tomba1/executable.json
+depends: tools/verify_executable.py#verify_bytes,executable.json
 ---
 
 ## Claim

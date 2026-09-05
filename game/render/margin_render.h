@@ -3,7 +3,7 @@
 // The game culls objects outside the 4:3 frustum, so at 16:9 the widened side/corner geometry is
 // dropped. We must render those margin objects WITHOUT perturbing gameplay. RE (docs/journal.md
 // later-133): each object node embeds its own render-command list (count@node+8, cmd-ptr array@
-// node+0xc0[i]); a visible object is rendered by `gen_func_8003CDD8(node, flag)`, which composes
+// node+0xc0[i]); a visible object is rendered by `guest 0x8003CDD8(node, flag)`, which composes
 // camera×object transform and dispatches each persistent command into the OT. Poking the +1 render
 // flag DOES render the margin but runs the handler's VISIBLE branch -> 5638 B of gameplay-state
 // divergence (object structs). Widening the projection ALONE is gameplay 0-diff (4 render-pointer
@@ -31,7 +31,7 @@ public:
   void collect(Core *c, uint32_t node);
 
   // Called from ObjectList::walkAll AFTER both list walks. Renders each collected margin node via
-  // gen_func_8003CDD8(node, 0), then clears the collection for the next frame.
+  // guest 0x8003CDD8(node, 0), then clears the collection for the next frame.
   void flush(Core *c);
 
   bool dbg_ = false;

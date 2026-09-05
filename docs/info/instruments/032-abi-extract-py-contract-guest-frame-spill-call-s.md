@@ -7,7 +7,7 @@ created: 2026-07-30
 
 ## Instrument
 
-abi_extract.py --contract — guest frame/spill/call-site extractor (post-fix)
+binary ABI evidence --contract — guest frame/spill/call-site extractor (post-fix)
 
 ## Validated by
 

@@ -1,198 +1,108 @@
 # Tomba Engine — Tomba! and Tomba! 2
 
-A **PC-native reimplementation of the *Tomba! 2: The Evil Swine Return* engine** in C++.
+This repository contains two isolated PlayStation-to-PC ports:
 
-This repository is also the project home for the first *Tomba!* game. Tomba! 2 (`SCUS_944.54`) is the current
-implementation; Tomba! 1 (`SCUS_942.36`) has an explicit slot under `titles/` and will use a separate game seam,
-not the existing Tomba! 2 `game/` code. Tomba! 1 already runs at 60 fps, so its enhancement target is
-widescreen only; Tomba! 2's interpolation machinery and its prerequisites must not be inherited by
-that future title seam. The status and screenshots below describe Tomba! 2 only.
+- **Tomba! 2: The Evil Swine Return** (`SCUS_944.54`) is the active title.
+- **Tomba!** (`SCUS_942.36`) follows after Tomba! 2 completes its execution migration.
 
-The goal is to rebuild Tomba! 2 as a self-contained, PC-native game engine that runs the **real
-game content** — not an emulator, and not a recompiled-MIPS blob with I/O bolted on. The engine
-owns the world, objects, camera, projection, and rendering; it behaves like a PC game rather than
-simulating the PlayStation.
+The intended product is a native/dynarec hybrid. Readable C++ subsystems and native overrides own
+deliberately ported behavior; every remaining guest instruction is translated on demand from the
+user's authenticated game image by the shared `psxport` Lightrec executor. The gameplay binary contains
+no offline-emitted guest source. Lightrec is the default; `psxport` may use its bounded, reason-counted
+interpreter fallback only for translation failure or unavailability, unsafe fetch, or a rare unsupported
+block. Forced interpreter mode is diagnostic-only, and fallback-covered execution cannot establish
+gameplay conformance or performance.
 
-It is built on [**psxport**](https://github.com/SomeoneIsWorking/psxport) (vendored as
-`external/psxport`), a game-agnostic PSX static-recompilation + native-hybrid framework: a MIPS→C
-recompiler, a PSX platform layer (GPU/SPU/GTE/MDEC/CD backends), a side-by-side differential-compare
-harness, and a Vulkan renderer.
+The repository is at the break-first migration gate described in
+[`docs/migration.md`](docs/migration.md). Both offline guest-source products and their emission tooling are
+already removed and must not be recreated. Tomba! 2 must prove resident and colliding-overlay native
+override/original-call dispatch through Lightrec, regain its recorded free-roam frontier, and pass
+representative interactive gameplay. Tomba! 1 follows with its recorded 35-field CRT0 and
+CD/movie/title frontier.
 
-> **You must supply your own disc image.** No game assets, ROMs, or disc images are included or
-> distributed. You need a CHD of a Tomba! 2 disc you legally own.
+> You must supply disc images you legally own. No game executable, disc image, or copyrighted game
+> asset is included or distributed.
 
----
+## Product boundaries
 
-## Screenshots
+The two titles share only the generic PSX framework:
 
-All captured from the **native renderer** (`pc_render`) running the **native engine**
-(`pc_faithful`) — i.e. the default `./run.sh` configuration, with no PSX rendering path involved in
-the picture. Shown at the PSX's native 320×240; the engine also runs at higher internal resolutions
-and in widescreen.
+- root `game/` is the Tomba! 2 engine;
+- `titles/tomba1/game/` is the separate Tomba! 1 engine;
+- `external/psxport/` owns Lightrec integration, PSX hardware/services, runtime image generations,
+  native-override dispatch, scoped original calls, invalidation, and independent test infrastructure;
+- title code owns executable identity, native game behavior, rendering policy, and enhancements.
+
+Tomba! 2 retains its native scene renderer, true-widescreen target, and interpolated presentation.
+Tomba! 1 intentionally targets widescreen only; it must not acquire Tomba! 2's native renderer,
+producer, depth, temporal-history, interpolation, or 60fps configuration surfaces.
+
+## Migration checkpoints
+
+For Tomba! 2, the first shipping discriminator uses one resident override and a numeric address reused
+by two overlays. Existing binary evidence identifies `0x801113B4` in both A03 and A0B with different
+entry shapes. The runtime must select by complete image generation plus address, execute the matching
+native owner normally, and execute the correct original guest body through Lightrec for a scoped
+original call. A wrong-image negative must prove that neither an override nor a translated block leaks
+across the overlay change.
+
+The next checkpoint regains the previously observed title-to-free-roam path with the title-owned frame
+transaction and fatal guest-VSync boundary at `0x80085900`. Boot, a logo, or an isolated leaf does not
+qualify the migration. Completion requires a bounded representative gameplay scenario covering input,
+guest state, timing/interrupts, relevant devices, native reachability, and host performance against
+independent evidence. The generated path is already absent, so none of these checks can fall back to it.
+
+Tomba! 1 then reproduces its 35/35 CRT0 boundary through Lightrec and continues across its current
+movie/CD frontier. Important preserved facts include public/internal `CdSync` at `0x800648C8` and
+`0x80065470`, the fatal guest-VSync call with return address `0x800654A4`, DMA callback registration at
+`0x80067E84` for callback `0x80066D80`, and prior progress beyond LBA 58739. Title-screen input and
+representative gameplay remain unverified.
+
+## Asset-free verification
+
+`uv run --frozen python tools/verify_ci.py` uses PSXPort's shared consumer verifier
+to configure, compile, run all title tests, and inspect the linked execution
+boundary. Set `PSXPORT_LIGHTREC_DIR` and `PSXPORT_LIGHTNING_PREFIX` to the exact
+maintained dependencies; the workflow records and provisions their revisions.
+`--build build/<name>` selects an isolated build whose products live in its own
+`bin/` directory. The real-image startup checkpoint now crosses the
+[resolved syscall continuation issue](docs/issues/0006-lightrec-function-call-stops-after-supported-syscall.md);
+representative gameplay and image-qualified override verification remain open.
+
+## Historical presentation captures
+
+These images record the native Tomba! 2 renderer before the execution migration. They preserve visual
+baseline evidence; they are not Lightrec-product verification.
 
 | | |
 |---|---|
 | ![Seaside field](docs/screenshots/01-seaside-field.png) | ![Lava cave](docs/screenshots/02-lava-cave.png) |
-| Free-roam on the seaside field | Volcanic interior |
+| Seaside field | Volcanic interior |
 | ![Night sky](docs/screenshots/03-night-sky.png) | ![Boss arena](docs/screenshots/04-boss-arena.png) |
-| Night sky + parallax backdrop | Boss arena interior |
+| Night sky and parallax backdrop | Boss arena interior |
 | ![Item menu](docs/screenshots/05-item-menu.png) | ![Dialog](docs/screenshots/06-dialog.png) |
-| The item menu, drawn by a native UI producer | In-world dialog box |
+| Native item-menu producer | In-world dialog box |
 
-<sub>Screenshots are illustrative captures of the game running on this engine, taken from a disc the
-author owns. No game data is redistributed here — the repository contains no assets, and the engine
-requires you to supply your own disc image.</sub>
+## Intended fresh-install contract
 
----
+Once the migration gate lands, `./run.sh` remains the slim locked launcher. With documented native
+dependencies, `uv`, a supported C/C++ compiler, and a user-supplied disc, zero arguments select the
+Tomba! 2 native/Lightrec product. `./run.sh tomba1` selects Tomba! 1 after that title reaches its own
+gate. Neither launcher path may emit guest source or invoke product tests.
 
-## How it works (the short version)
+Disc resolution remains explicit argument, title-specific environment/`.env`, then exactly one
+repository-root CHD. The selected title validates disc and executable identity before publishing
+untracked runtime inputs.
 
-Any run is one **execution path** × one **rendering path**:
+## Documentation map
 
-- **Execution** — the ported game logic runs either on the **recomp substrate** (the statically
-  recompiled `MAIN.EXE`, used as the byte-exact reference) or on the **PC-native engine** (clean OOP
-  C++ classes that reproduce the substrate's behavior). Native ownership is grown function by
-  function and gated for byte-exactness against the substrate.
-- **Rendering** — either the **PSX renderer** (the substrate's GTE + ordering-table + GP0 path, used
-  as a visual reference) or the **native renderer** (`pc_render`), which draws the picture from the
-  game's own object data with real per-pixel depth — no GTE/OT/GP0 transcription.
+- [`docs/project-goals.md`](docs/project-goals.md): durable product outcomes
+- [`docs/project-state.md`](docs/project-state.md): complete capability state and current focus
+- [`docs/migration.md`](docs/migration.md): execution migration order and deletion gates
+- [`docs/re-frontier.md`](docs/re-frontier.md): Tomba! 2's ordered ground-truth chain
+- [`docs/codemap.md`](docs/codemap.md): subsystem ownership and placement
+- [`titles/tomba1/docs/re-frontier.md`](titles/tomba1/docs/re-frontier.md): Tomba! 1's independent chain
 
-The full vocabulary and the project's working rules live in [`CLAUDE.md`](CLAUDE.md).
-
----
-
-## Requirements
-
-Install once:
-
-- **Linux:** `cmake`, `pkg-config`, `SDL3` (`SDL3-devel` / `libsdl3-dev`), `libzstd`, `zlib`,
-  `python3`, and a C/C++ toolchain (`build-essential`).
-- **macOS:** `brew install cmake pkg-config sdl3 zstd zlib python3`
-- A **Vulkan-capable GPU + drivers** (the renderer is Vulkan).
-
-The GTE/MDEC/SPU/CHD hardware backend comes from a vendored `beetle-psx` fork (a nested submodule of
-psxport) — so clone recursively.
-
----
-
-## Getting started
-
-```bash
-# 1. Clone with submodules (psxport + its nested beetle-psx backend)
-git clone --recursive https://github.com/SomeoneIsWorking/Tomba2Engine.git
-cd Tomba2Engine
-
-# 2. Provide your disc image (any ONE of these):
-#    - pass it on the command line, or
-#    - copy .env.example to .env and set the path, or
-#    - drop a *.chd file in the repo root
-cp .env.example .env      # then edit PSXPORT_TOMBA2_DISC
-
-# 3. Build + run (does everything end to end)
-./run.sh                  # or: ./run.sh /path/to/Tomba2.chd
-```
-
-`run.sh` is the stable three-line entry point. `tools/run.py` owns discovery, Clang validation,
-incremental CMake builds, recomp provisioning, build identity, `--resume`, and launching the current
-native target in a window.
-
-**Disc resolution order** (everywhere): CLI arg → `PSXPORT_TOMBA2_DISC` → `.env` → a `*.chd` drop-in
-in the repo root.
-
-**Useful environment knobs:**
-
-| Var | Effect |
-|-----|--------|
-| `PSXPORT_NOWINDOW=1` | headless run (no window) |
-| `PSXPORT_NOAUDIO=1` | mute |
-| `PSXPORT_GPU_DUMP=<dir>` | dump frames as PPM |
-| `PSXPORT_DEBUG=<chan,chan>` | enable diagnostic channels (see `docs/config.md`) |
-| `CC=/path/to/clang`, `CXX=/path/to/clang++` | select explicit Clang binaries; non-Clang compilers are refused |
-
-### Building without running
-
-```bash
-CC=clang CXX=clang++ cmake -S . -B build         # configure once
-cmake --build build --target tomba2_port         # rebuild only
-ctest --test-dir build --output-on-failure       # full normal verifier
-# binary: scratch/bin/tomba2_port
-```
-
----
-
-## Project structure
-
-```
-game/            PC-native game engine, organized by subsystem:
-  ai/            enemy/actor behaviors, state machines
-  object/        object table, animation, behavior dispatch, script VM
-  world/         entity tables, placement, spawning, pools
-  player/        Tomba actions, collision, hitboxes
-  camera/        scene + cutscene cameras
-  render/        native renderer (pc_render): producers, projection, culling, submit
-  scene/         scene/level load, transitions, script interpreter
-  audio/         SFX, BGM sequencer, XA streaming
-  input/  items/  ui/  math/  core/
-  game_tomba2.cpp, tomba2_types.h   (top-level game entry + shared types)
-external/psxport/  the framework submodule: recompiler, PSX platform, SBS harness, VK renderer
-generated/       recompiled MAIN.EXE shards (git-ignored, regenerated from your disc)
-tools/           the recompiler + the tracking-stack tooling (see below)
-docs/            architecture, RE notes, per-subsystem status, findings
-replays/         deterministic pad-capture replays for reproducing scenarios headlessly
-scratch/         git-ignored run artifacts (binary, logs, screenshots)
-```
-
-`scratch/bin/tomba2_port` **is the game**: the recompiled `MAIN.EXE` (`generated/shard_*.c`) linked
-with the native game (`game/*`) and the PSX platform (`external/psxport/runtime/*`). The CMake source
-list lives in `cmake/tomba2_port.cmake`.
-
----
-
-## Contributing
-
-This is a reverse-engineering + reimplementation project, so the workflow is disciplined. The full,
-authoritative rules are in [`CLAUDE.md`](CLAUDE.md); the essentials:
-
-**Reverse-engineer first — never black-box.** Before reimplementing a function, decompile and
-understand it (Ghidra headless via `tools/decomp.sh`). Reproduce the observable *result*, not the PSX
-mechanism — no magic constants, no packet transcription, no GTE/OT/GP0 inheritance.
-
-**No bandaids.** Fix the root cause, not the symptom. A change that hides a symptom without explaining
-why it happened is not a fix. Stopgaps must be named as such and justified.
-
-**Grow native ownership.** Enemy AI, physics, quests, camera, rendering — all portable to native C++
-classes. Un-ported code runs as the recompiled substrate. Real OOP classes with headers and state on
-the owning subsystem — no free-function shims, no file-scope globals.
-
-**The tracking stack** — consult at the start of a task, update in the same commit as the work:
-
-| Tool | Question it answers |
-|------|--------------------|
-| `tools/codemap.py --addr <hex>` | *Where* is a function — who owns guest address X? |
-| `tools/portmap.py next` | *What* to port next (the RE dependency chain) |
-| `tools/parity.py` | Is a unit byte-exact vs the substrate? |
-| `tools/behavior.py` | What deliberately diverges from the reference? |
-| `tools/findings.py <symptom>` | Has this bug been seen before? (search first) |
-
-**Verification.** Execution work is gated for **byte-exactness** against the recomp substrate via the
-side-by-side (SBS) harness — a divergence is a bug. Prefer static equivalence checks and short smokes;
-reserve long SBS runs for real regressions. Rendering work is verified by **observing the result** (the
-picture) — build, run, and eyeball the scene; the native renderer is read-only and must never write
-guest memory.
-
-**Build discipline.** One `main` branch, commit directly. Keep committed files portable — no
-machine-specific paths, and never commit disc images or other copyrighted assets.
-
-See `docs/` for architecture and status:
-[`port-progress.md`](docs/port-progress.md) (the boot→gameplay spine),
-[`render-arch.md`](docs/render-arch.md), [`engine_re.md`](docs/engine_re.md),
-[`driving-the-game.md`](docs/driving-the-game.md), and [`config.md`](docs/config.md).
-
----
-
-## License
-
-The engine/port code in this repository is provided as-is for research and preservation. It contains
-**no game assets** — Tomba! 2 and its content are the property of their respective rights holders; you
-must supply your own legally-obtained disc image to run it. The vendored `beetle-psx` backend is
-GPL-2.0 (see `external/psxport/runtime/vendor/beetle-psx`).
+Behavioral and address evidence remains in `docs/findings/`, `docs/info/`, and the title-local
+equivalents. Retained historical findings are evidence, not an executable source corpus; new analysis
+starts from the executable, overlays, and independent runtime observation.

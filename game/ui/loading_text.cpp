@@ -1,6 +1,6 @@
 // game/ui/loading_text.cpp — the blinking "Loading....." indicator.
 //
-// Guest FUN_8007FD54, RE'd 2026-07-22 from gen_func_8007FD54. Found while tracing what actually runs
+// Guest FUN_8007FD54, RE'd 2026-07-22 from guest 0x8007FD54. Found while tracing what actually runs
 // on the dialog path in the bucket-pickup capture.
 //
 // WHAT IT IS. Three lines of guest code: read a frame counter, look at bit 2, and draw the string
@@ -8,12 +8,11 @@
 // that ticks per frame flips every 4 frames, so the text BLINKS while the disc is being read.
 //
 // There is no product fork here. The synchronous FUN_80044BD4 owner prevents the loading state from
-// existing after host work completes; this exact drawer remains for the generated/oracle path.
+// existing after host work completes; this exact drawer remains for the authenticated executable/overlay evidence path.
 #include "ui/loading_text.h"
 #include "core.h"
-#include "override_registry.h"
-
-void func_80079374(Core *); // generated/shard_disp.c — text draw (x, y, palette, str, flags)
+#include "guest_call.h"
+#include "native_override_catalog.h"
 
 namespace {
 
@@ -29,7 +28,7 @@ constexpr int32_t PALETTE_LIT = 6; // shown on the "on" half
 
 // The guest body: blink the palette, draw the string. `mode` (5th arg of the text draw) is passed on
 // the stack at sp+16 under o32, which is why it is written there rather than into a register.
-// ORACLE: gen_func_8007FD54
+// ORACLE: guest 0x8007FD54
 void LoadingText::draw(Core *c) {
   const uint32_t counter = c->mem_r16(FRAME_COUNTER);
 
@@ -53,7 +52,7 @@ void LoadingText::draw(Core *c) {
   c->r[6] = (uint32_t)palette;
   c->r[7] = STR_LOADING;
   c->r[31] = 0x8007FDA0u; // jal-site ra, so the callee spills the right value
-  func_80079374(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80079374u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   c->r[31] = c->mem_r32(sp + 24);
   c->r[29] += 32;
@@ -64,7 +63,5 @@ static void ov_loading_text(Core *c) {
 }
 
 void loading_text_install() {
-  extern void gen_func_8007FD54(Core *);
-  extern void shard_set_override(uint32_t, void (*)(Core *));
-  overrides::install(0x8007FD54u, "LoadingText::draw", ov_loading_text, gen_func_8007FD54, shard_set_override);
+  tomba::native::declareOverride(0x8007FD54u, "LoadingText::draw", ov_loading_text);
 }

@@ -23,12 +23,12 @@ class GraphicsBind {
 public:
   Core *core = nullptr;
 
-  // registerOverrides — wires recordArrayInit into the override registry (overrides::install,
-  // with shard_set_override so direct substrate callers redirect too). Unlike this class's OTHER
+  // registerOverrides — wires recordArrayInit into the override registry (tomba::native::declareOverride,
+  // with tomba::native::declareOverride so direct substrate callers redirect too). Unlike this class's OTHER
   // 6 methods (recordAlloc/recordInit/renderUpdate/setGeom/
   // setXformBlk/posCompose, wired via the verify-harness c->game->verify.run() A/B gate because
   // their callers have ALREADY been converted to direct native calls), recordArrayInit's callers
-  // are still guest-ABI rec_dispatch(c, 0x800519E0u) sites in several un-ported AI beh_ handlers,
+  // are still guest-ABI typed runtime address dispatch(c, 0x800519E0u) sites in several un-ported AI beh_ handlers,
   // so it needs the standard dual-wire reach (same pattern as NodeXform::registerOverrides).
   static void registerOverrides(Game *game);
   int mTrace = -1;     // PSXPORT_RECALLOC_TRACE latch (-1 = not read yet); recordAlloc caller-attribution
@@ -55,8 +55,8 @@ public:
   // installSceneRecord idiom, but reading the offset from an ascending int32 array starting at
   // sceneBase+4 instead of the classArg/itemArg double-index). obj+8/+9 = count, obj+0xB8/BA/BC =
   // scale identity (0x1000), obj+0xD = 0. Returns 1 (obj despawn-pending, obj+9=0) if the record
-  // pool doesn't have `count` slots free; else 0. See .cpp for the full RE + generated/shard_1.c
-  // gen_func_800519E0 cross-check.
+  // pool doesn't have `count` slots free; else 0. See .cpp for the full RE + authenticated executable/overlay evidence
+  // guest 0x800519E0 cross-check.
   uint32_t recordArrayInit(uint32_t obj, uint32_t count, uint32_t sceneBase, uint32_t tmpl);
 
 private:

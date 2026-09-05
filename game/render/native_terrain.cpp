@@ -29,8 +29,9 @@
 // item so it rebuilds per present pass (render_queue.h sh_cast) — no separate shadow stream / keep_shadow.
 int gpu_vk_shadows_active(void);
 
-#define SCR 0x1F800000u             // PSX scratchpad base (engine's GTE-compose temp area)
-#define TERRAIN_GEOMBLK 0x8009FAE8u // terrain prim-record buffer (recomp 0x8002AB5C: lui 0x800A+addiu -1304)
+#define SCR 0x1F800000u // PSX scratchpad base (engine's GTE-compose temp area)
+#define TERRAIN_GEOMBLK                                                                                                \
+  0x8009FAE8u // terrain prim-record buffer (guest instruction path 0x8002AB5C: lui 0x800A+addiu -1304)
 
 static inline float r16f(Core *c, uint32_t a) {
   return (float)c->mem_r16s(a);
@@ -92,9 +93,9 @@ static void terrain_obj_matrix_host(Core *c, uint32_t node, int16_t m[9]) {
   }
 }
 
-// gen_func_8002AB5C, rebuilt PC-native. a0(=r4) = the terrain render-list node.
+// guest 0x8002AB5C, rebuilt PC-native. a0(=r4) = the terrain render-list node.
 // The guest fn this pass rebuilds. It is the row the graphics-producer DB attributes these prims to on
-// BOTH legs: gen_func_8002AB5C is reached through the render-command dispatch (indirect), so OtAttr's
+// BOTH legs: guest 0x8002AB5C is reached through the render-command dispatch (indirect), so OtAttr's
 // shadow stack names it on the guest leg too — see fx_plume.cpp for why keying the indirectly-dispatched
 // fn rather than a shared writer is what makes the two legs comparable.
 static constexpr uint32_t kGuestTerrainRender = 0x8002AB5Cu;

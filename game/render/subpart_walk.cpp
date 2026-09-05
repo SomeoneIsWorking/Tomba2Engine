@@ -1,6 +1,6 @@
 // game/render/subpart_walk.cpp — Render::subPartWalk, guest FUN_8003F174.
 //
-// RE'd 2026-07-22 from gen_func_8003F174. The LAST unported entry on the render frontier's per-type
+// RE'd 2026-07-22 from guest 0x8003F174. The LAST unported entry on the render frontier's per-type
 // handler list (0x8003EF9C was the other, ported the same day as Render::composeTintGate).
 //
 // WHAT IT DOES. Draws a node that is built from SUB-PARTS, each with its own transform. The node
@@ -21,12 +21,12 @@
 // is large. Collapsing them into one loop bound would change behaviour for any node where they differ.
 #include "core.h"
 #include "cube_text_banner.h" // the one native producer that owns a sub-part node's picture
-#include "game.h"             // c->game->oracle
-#include "game_ctx.h"         // rend()
-#include "override_registry.h"
+#include "game.h"
+#include "game_ctx.h" // rend()
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "render.h"
 
-void func_8003F698(Core *); // generated/shard_disp.c — geometry-block submit
 // gte_write_ctrl is declared in core.h (uint32_t, uint32_t) — included above
 
 namespace {
@@ -41,13 +41,13 @@ constexpr uint32_t NODE_COUNT = 9u;            // do/while bound at the bottom
 
 } // namespace
 
-// ORACLE: gen_func_8003F174
+// ORACLE: guest 0x8003F174
 void Render::subPartWalk(Core *c) {
   const uint32_t node = c->r[4];
   // Does a NATIVE producer own this node's picture? Only the cube-text banner does (CubeTextBanner,
   // selected by the same behaviour pointer it selects on — structural identity, not a tag). On the
   // oracle leg nothing native draws at all, so the handover must not fire there either.
-  const bool nativeOwnsPicture = !c->game->oracle && c->mem_r32(node + 0x1Cu) == CubeTextBanner::kBehCubeTextSpawn;
+  const bool nativeOwnsPicture = c->mem_r32(node + 0x1Cu) == CubeTextBanner::kBehCubeTextSpawn;
   const uint32_t passThrough = c->r[5];
 
   c->r[29] -= 80;
@@ -60,12 +60,12 @@ void Render::subPartWalk(Core *c) {
   c->mem_w32(frame + 56, c->r[16]);
 
   // LIVE-REGISTER LAW (docs/findings/sbs.md) — why the loop state lives in the GUEST registers and
-  // not in C++ locals. The callee chain func_8003F698 -> func_800803DC is still substrate, and
-  // func_800803DC's prologue SPILLS its incoming s0/s1 into its own guest frame (sp+0x10 / sp+0x14 —
-  // 0x801FE808/0x801FE80C on the field leg) before reusing them. gen_func_8003F174 keeps its whole
+  // not in C++ locals. The callee chain guest 0x8003F698 -> guest 0x800803DC is still substrate, and
+  // guest 0x800803DC's prologue SPILLS its incoming s0/s1 into its own guest frame (sp+0x10 / sp+0x14 —
+  // 0x801FE808/0x801FE80C on the field leg) before reusing them. guest 0x8003F174 keeps its whole
   // walk state in the callee-saved set for the entire loop — s0=index, s1=cursor, s2=node,
   // s3=OT-pointer page, s4=the pass-through arg — so those registers are genuine guest-stack-visible
-  // state, not dead scratch. Holding them only in C++ locals left func_800803DC spilling whatever
+  // state, not dead scratch. Holding them only in C++ locals left guest 0x800803DC spilling whatever
   // STALE values the previous native code had parked there: the f169 SBS-full divergence at
   // 0x801FE808 (kanban #61 — A spilled a leftover pointer pair, B spilled index/cursor). Same class,
   // same fix as the r16..r23 mirror in Render::cmdListDispatch (game/render/perobj_dispatch.cpp).
@@ -118,7 +118,7 @@ void Render::subPartWalk(Core *c) {
       if (nativeOwnsPicture) {
         rend(c)->mNativeDrawSuppress++;
       }
-      func_8003F698(c);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8003F698u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       if (nativeOwnsPicture) {
         rend(c)->mNativeDrawSuppress--;
       }
@@ -141,7 +141,5 @@ static void ov_subpart_walk(Core *c) {
 }
 
 void subpart_walk_install() {
-  extern void gen_func_8003F174(Core *);
-  extern void shard_set_override(uint32_t, void (*)(Core *));
-  overrides::install(0x8003F174u, "Render::subPartWalk", ov_subpart_walk, gen_func_8003F174, shard_set_override);
+  tomba::native::declareOverride(0x8003F174u, "Render::subPartWalk", ov_subpart_walk);
 }

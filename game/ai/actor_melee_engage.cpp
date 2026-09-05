@@ -1,12 +1,13 @@
 // game/ai/actor_melee_engage.cpp — see actor_melee_engage.h for the full RE writeup, field layout,
-// and callee map. Transcribed 1:1 from generated/ov_a00_shard_1.c:3527 (`ov_a00_gen_80112188`); the
+// and callee map. Transcribed 1:1 from authenticated executable/overlay evidence (`overlay guest 0x80112188`); the
 // original is a pure DAG (no back-edges), so the straight-line-with-early-returns shape below follows
-// the recompiler's own control flow exactly rather than risking a mis-restructure under time pressure.
+// the recorded binary evidence's control flow exactly rather than risking a mis-restructure under time pressure.
 //
 // NOTE ON OFFSET LITERALS: every object-field offset below is written as a PLAIN DECIMAL integer
-// (e.g. `self + 46u`), copied verbatim from the recompiler's own decimal literals
+// (e.g. `self + 46u`), copied verbatim from the recorded binary evidence's decimal literals
 // (`c->mem_r16((c->r[16] + (uint32_t)46))`) — deliberately NOT hex, so there is no hex/decimal
-// transcription step (and no chance of a 46-vs-0x46 mixup) between the generated source and this file.
+// transcription step (and no chance of a 46-vs-0x46 mixup) between the authenticated executable/overlay evidence and
+// this file.
 //
 // TRANSCRIPTION CAVEAT (honest flag, not a hedge): this function is a dense MIPS branch-delay-slot
 // DAG (~250 lines, ~30 conditional edges) hand-transcribed without a decompiler pass. Several
@@ -19,17 +20,18 @@
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
+#include "guest_call.h"
 #include "math/trig.h"
-#include "override_registry.h"
+#include "native_override_catalog.h"
 
-// Still-substrate leaves this session did not chase (see .h banner). rec_dispatch already declared
+// Still-substrate leaves this session did not chase (see .h banner). typed runtime address dispatch already declared
 // by core.h.
 
 int32_t ActorMeleeEngage::doIt(uint32_t self, uint32_t target, uint32_t anchor) { // FUN_80112188 — UNWIRED draft
   Core *c = core;
 
   // ---- kind-based anchor-Z bias: target.kind==5 -> -70, else 0 -----------------------------------
-  // BUG FIX (RE cross-check against generated/ov_a00_shard_1.c:3527): the delay-slot idiom
+  // BUG FIX (RE cross-check against authenticated executable/overlay evidence): the delay-slot idiom
   // `{ int _t = (r3 != r2/*==5*/); r22 = 0; if (_t) goto L_801121D4; } r22 = -70;` sets r22=0
   // UNCONDITIONALLY then jumps over the `r22 = -70` line only when kind != 5 — i.e. kind==5 falls
   // through to the -70 assignment, kind!=5 keeps the delay-slot's 0. The original draft had this
@@ -47,7 +49,7 @@ int32_t ActorMeleeEngage::doIt(uint32_t self, uint32_t target, uint32_t anchor) 
 
   // FUN_80084080 — still-substrate distance/sqrt-shaped leaf (see .h; NOT Math::isqrt16).
   c->r[4] = (uint32_t)sumSq;
-  rec_dispatch(c, 0x80084080u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80084080u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   const uint16_t dist16 = (uint16_t)c->r[2];
 
   const int32_t radiusSum1 = (int16_t)c->mem_r16(self + 128u) + (int16_t)c->mem_r16(target + 128u);
@@ -68,12 +70,12 @@ int32_t ActorMeleeEngage::doIt(uint32_t self, uint32_t target, uint32_t anchor) 
     return 0; // outside the Y band
   }
 
-  // ---- reach bounds (r19/r21 in the recomp) used by the tail arm-directly path below --------------
-  // absDy (r23 in the recomp) is a DISTINCT value from reachLo (r21): the recomp sets r23=dy
-  // unconditionally right after the Y-band test, then in the dy<0 branch OVERWRITES r23 with -dy —
-  // i.e. r23 == |dy| in both branches, entirely independent of r19/r21. The original draft
-  // conflated r23 with r21 (reused reachLo in the bandWidth formula below) — a real bug: r21 is
-  // used ONLY by the "already close, arm directly" tail (reachY), never by bandWidth.
+  // ---- reach bounds (r19/r21 in the guest instruction path) used by the tail arm-directly path below --------------
+  // absDy (r23 in the guest instruction path) is a DISTINCT value from reachLo (r21): the guest instruction path sets
+  // r23=dy unconditionally right after the Y-band test, then in the dy<0 branch OVERWRITES r23 with -dy — i.e. r23 ==
+  // |dy| in both branches, entirely independent of r19/r21. The original draft conflated r23 with r21 (reused reachLo
+  // in the bandWidth formula below) — a real bug: r21 is used ONLY by the "already close, arm directly" tail (reachY),
+  // never by bandWidth.
   int32_t reachHi, reachLo;
   const int32_t absDy = (dy >= 0) ? dy : -dy;
   if (dy >= 0) {
@@ -99,7 +101,7 @@ int32_t ActorMeleeEngage::doIt(uint32_t self, uint32_t target, uint32_t anchor) 
   const int32_t margin = radiusSum2 - (int16_t)dist16;
   const int32_t bandWidth = (int16_t)reachHi - (int16_t)absDy;
 
-  // BUG FIX (RE cross-check against generated/ov_a00_shard_1.c:3603-3606, gen_func_80112188):
+  // BUG FIX (RE cross-check against authenticated executable/overlay evidence, guest 0x80112188):
   // ground truth's `mem_w32(scratch+156, angle)` sits in the DELAY SLOT of the `bne` that branches
   // on `margin < bandWidth` — per MIPS delay-slot semantics that store executes UNCONDITIONALLY on
   // every call that reaches this point (both the reposition branch AND the "margin>=bandWidth,
@@ -197,10 +199,10 @@ int32_t ActorMeleeEngage::doIt(uint32_t self, uint32_t target, uint32_t anchor) 
   }
 
   // ---- L_801124C0: already close enough — arm directly without repositioning --------------------
-  // Shared abort tail (L_801125AC in the recomp): cleanup(self) + target+94=0, always returns 2.
+  // Shared abort tail (L_801125AC in the guest instruction path): cleanup(self) + target+94=0, always returns 2.
   auto abortToDisengage = [&]() -> int32_t {
     c->r[4] = self;
-    rec_dispatch(c, 0x80022C78u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80022C78u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->mem_w8(target + 94u, 0);
     return 2;
   };
@@ -217,7 +219,7 @@ int32_t ActorMeleeEngage::doIt(uint32_t self, uint32_t target, uint32_t anchor) 
   const uint16_t selfFacing = c->mem_r16(self + 68u);
   const int32_t targetFaceCheck = c->mem_r16s(target + 98u);
   c->mem_w8(target + 41u, 1); // armed flag
-  // NOTE: this write happens UNCONDITIONALLY in the recomp (a branch-delay-slot instruction ahead
+  // NOTE: this write happens UNCONDITIONALLY in the guest instruction path (a branch-delay-slot instruction ahead
   // of the targetFaceCheck==0 test below) — every path through this tail stamps it, not just the
   // "mirror facing" one.
   c->mem_w16(target + 68u, selfFacing);
@@ -238,14 +240,14 @@ int32_t ActorMeleeEngage::doIt(uint32_t self, uint32_t target, uint32_t anchor) 
   }
 
   // FUN_80055844 — still-substrate "may this actor attack now" permission check (see .h).
-  // REGISTER-LIFETIME FIX (RE cross-check): the recomp does not (re)set a0(r4) IN THIS TAIL, but it
+  // REGISTER-LIFETIME FIX (RE cross-check): the guest instruction path does not (re)set a0(r4) IN THIS TAIL, but it
   // isn't garbage either — r4 was last assigned `angle` (the ratan2 result) right before the
   // reposition-vs-arm branch, and nothing on the L_801124C0 (arm-directly) path touches r4 between
   // there and this call. Per faithful-execution.md ("ABI slots hold live values"), the native port
   // must reproduce that live value explicitly, since c->r[4] in the NATIVE call sequence would
   // otherwise still hold the FUN_80084080 sqrt call's stale a0 (sumSq), not `angle`.
   c->r[4] = (uint32_t)angle;
-  rec_dispatch(c, 0x80055844u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80055844u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   if (c->r[2] != 0) {
     // GRANTED: arm state 23, stamp target+94 with the RELOADED self+325 value (== 2, `lockOwner`).
@@ -265,7 +267,7 @@ int32_t ActorMeleeEngage::doIt(uint32_t self, uint32_t target, uint32_t anchor) 
       return abortToDisengage();
     }
     // fallthrough: self+5==23 AND self+74>=11265 -> re-stamp same as the "not-yet-23" arm below,
-    // but target+94 gets the ORIGINAL constant 1 here, not `lockOwner` (a real recomp asymmetry).
+    // but target+94 gets the ORIGINAL constant 1 here, not `lockOwner` (a real guest instruction path asymmetry).
   }
   c->mem_w8(self + 325u, 0);
   c->mem_w8(target + 94u, 1);
@@ -280,7 +282,7 @@ int32_t ActorMeleeEngage::doIt(uint32_t self, uint32_t target, uint32_t anchor) 
 // doItFramed — guest-ABI-facing twin, mirrors the real 64-byte frame (spills s0..s7/s8/ra) around
 // doIt(). UNWIRED/UNUSED this session (nothing calls it yet) but kept per the CLAUDE.md "mirror the
 // guest stack, never revert/exclude a leaf because it pushes a frame" directive so wiring later needs
-// no re-RE. a0/a1/a2 come off the incoming guest registers exactly as the recomp reads them.
+// no re-RE. a0/a1/a2 come off the incoming guest registers exactly as the guest instruction path reads them.
 void ActorMeleeEngage::doItFramed() {
   Core *c = core;
   const uint32_t self = c->r[4], target = c->r[5], anchor = c->r[6];
@@ -316,15 +318,13 @@ void ActorMeleeEngage::doItFramed() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Wiring: the only real callers found for 0x80112188 are DIRECT `ov_a00_func_80112188(c)` sites
-// inside ov_a00_shard_1.c itself (lines ~4262/5255) — i.e. calls through the recompiler's OWN
-// per-overlay g_ov_a00_override[] table, never through rec_dispatch. Installing without a setter
-// would be invisible to that call shape, so `overrides::install` is passed ov_a00_set_override
-// as the setter, same pattern as game/core/pc_scheduler.cpp / game/object/actor_sm_reward.cpp.
+// Wiring: the only real callers found for 0x80112188 are DIRECT `overlay guest 0x80112188(c)` sites
+// inside ov_a00_shard_1.c itself (lines ~4262/5255) — i.e. calls through the recorded binary evidence's OWN
+// per-overlay image-qualified runtime dispatcher table, never through typed runtime address dispatch. Installing
+// without a setter would be invisible to that call shape, so `tomba::native::declareOverride` is passed A00
+// tomba::native::declareOverride as the setter, same pattern as game/core/pc_scheduler.cpp /
+// game/object/actor_sm_reward.cpp.
 // ---------------------------------------------------------------------------------------------
-extern void ov_a00_set_override(uint32_t, void (*)(Core *));
-extern void ov_a00_gen_80112188(Core *); // substrate body — kept alive for psx_fallback (core B)
-
 namespace {
 void ov_actorMeleeEngage(Core *c) {
   eng(c).actorMeleeEngage.doItFramed();
@@ -332,6 +332,5 @@ void ov_actorMeleeEngage(Core *c) {
 } // namespace
 
 void ActorMeleeEngage::registerOverrides(Game * /*game*/) {
-  overrides::install(
-      0x80112188u, "ActorMeleeEngage::doIt", ov_actorMeleeEngage, ov_a00_gen_80112188, ov_a00_set_override);
+  tomba::native::declareOverride(0x80112188u, "ActorMeleeEngage::doIt", ov_actorMeleeEngage);
 }

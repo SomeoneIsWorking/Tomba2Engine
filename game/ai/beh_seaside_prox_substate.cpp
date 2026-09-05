@@ -36,15 +36,15 @@
 // CHECKED against a capstone disas of the same RAM dump (scratch/ram/field_seaside.bin, dumped via
 // REPL `dumpram` after `newgame; skip 500` reaching the seaside field with the A00 overlay
 // resident) for every branch and address computation. FUN_80051844 and FUN_80078240 (post-cull
-// update / distance helper) remain un-owned rec_dispatch leaves — outside this cluster's scope.
+// update / distance helper) remain un-owned typed runtime address dispatch leaves — outside this cluster's scope.
 // Each ported leaf still calls its OWN un-owned callees (FUN_8006E1C0/E1E4 sound-loop start/stop,
 // FUN_8004766C/80048750 tile-move+anim-link pair, FUN_8013B534 sub-object init table, FUN_80027144
-// GPU packet emit, FUN_8009A450 PRNG) via rec_dispatch, matching the sibling beh_* convention
+// GPU packet emit, FUN_8009A450 PRNG) via typed runtime address dispatch, matching the sibling beh_* convention
 // (beh_area_transition_machine.cpp, beh_pickup_collect_trigger.cpp) — those leaves are shared with
 // many other still-substrate callers and are each their own future frontier item, NOT part of this
 // cluster. FUN_8003116C (Spawn::spawnAndInitBody) and FUN_80081218 (Asset::uploadImage /
 // GpuState::gpu_native_load_vram) ARE already native via EngineOverride — routed the same way
-// (rec_dispatch to the wired guest address) so the override fires transparently.
+// (typed runtime address dispatch to the wired guest address) so the override fires transparently.
 //
 // Ghidra decomp: scratch/decomp/beh_seaside_cluster.c, scratch/decomp/beh_seaside_helpers.c.
 
@@ -53,9 +53,9 @@
 #include "core.h"
 #include "core/engine.h" // eng(c).spawn
 #include "game_ctx.h"
+#include "guest_call.h"
 #include "math/trig.h" // Trig::ratan2 / Trig::angleCmp (FUN_80085690 / FUN_80077768, native)
 #include "spawn.h"     // eng(c).spawn.despawn (FUN_8007A624, native)
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -109,18 +109,18 @@ constexpr uint32_t MODEARM_REC_BASE = 0x8014ABE6u;  // (x,y) pos + VRAM-base-4 s
 // -- Substrate leaves (A00-overlay code kept dispatched — their own future sub-frontier) ------
 inline void post_cull_upd(Core *c, uint32_t o) {
   c->r[4] = o;
-  rec_dispatch(c, 0x80051844u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80051844u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 inline int bounds_cull(Core *c, uint32_t o) {
   c->r[4] = o;
-  rec_dispatch(c, 0x8007778Cu);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8007778Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return (int)c->r[2];
 }
 inline int32_t cam_distance(Core *c, uint32_t o) {
   c->r[4] = (uint32_t)((int32_t)(int16_t)c->mem_r16(CAM_X_SPAD) - (int32_t)(int16_t)c->mem_r16(o + 0x2E));
   c->r[5] = (uint32_t)((int32_t)(int16_t)c->mem_r16(CAM_Y_SPAD) - (int32_t)(int16_t)c->mem_r16(o + 0x32));
   c->r[6] = (uint32_t)((int32_t)(int16_t)c->mem_r16(CAM_Z_SPAD) - (int32_t)(int16_t)c->mem_r16(o + 0x36));
-  rec_dispatch(c, 0x80078240u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80078240u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return (int32_t)c->r[2];
 }
 
@@ -128,7 +128,7 @@ inline int32_t cam_distance(Core *c, uint32_t o) {
 // FUN_8013C0BC — "mode arm" sprite-frame cycler. mode==0 resets the countdown; mode!=0 ticks it
 // down and, on expiry, advances a duration/index cursor (with a -1-sentinel loop-back) and blits
 // the next sprite frame via FUN_80081218 (native Asset::uploadImage / GpuState upload — reached
-// here by rec_dispatch to the wired guest address, per the EngineOverride convention).
+// here by typed runtime address dispatch to the wired guest address, per the EngineOverride convention).
 // RE'd 1:1 from disas 0x8013c0bc..0x8013c1dc (single active slot; loop bound is `< 1`).
 void modeArm(Core *c, int32_t mode) {
   if (mode == 0) {
@@ -169,14 +169,14 @@ void modeArm(Core *c, int32_t mode) {
   // REPLACEMENT that writes host VRAM and skips the guest's GsSortObject ring enqueue, so wiring it
   // would make core A omit guest writes core B performs. The substrate path here does the enqueue,
   // which is what keeps this call byte-exact. See the banner above Asset::uploadImage.
-  rec_dispatch(c, 0x80081218u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80081218u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[29] = saveSp;
   c->mem_w32(MODEARM_TABLE_PTR, ptr + 2); // advance the duration/index cursor
 }
 
 // ===============================================================================================
 // FUN_8013B70C — event-slot proximity/commit check driving the INIT draw. RE'd 1:1 from disas
-// 0x8013b70c..0x8013b868. `data` mirrors the recomp's unclobbered $a1 (== the caller's 2nd arg,
+// 0x8013b70c..0x8013b868. `data` mirrors the guest instruction path's unclobbered $a1 (== the caller's 2nd arg,
 // INIT_DRAW_DATA) carried through unchanged to the FUN_8013B534 leaf call.
 void drawInit(Core *c, uint32_t obj, uint32_t data) {
   bool found = false;
@@ -200,7 +200,8 @@ void drawInit(Core *c, uint32_t obj, uint32_t data) {
   }
   c->r[4] = obj;
   c->r[5] = data;
-  rec_dispatch(c, 0x8013B534u); // FUN_8013B534(obj) — a1 unchanged
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8013B534u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_8013B534(obj) — a1 unchanged
   if (c->r[2] != 0) {
     c->mem_w8(obj + 4, 3);
     return;
@@ -236,9 +237,15 @@ void subA(Core *c, uint32_t obj) {
     c->mem_w8(0x1F800137u, 2);
     c->mem_w8(0x800BF841u, 1);
     c->r[4] = 8;
-    rec_dispatch(c, 0x8006E1C0u); // FUN_8006E1C0(8) — sound-loop start (leaf)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x8006E1C0u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // FUN_8006E1C0(8) — sound-loop start (leaf)
     c->r[4] = obj + 0x2C;
-    rec_dispatch(c, 0x8006CBA8u); // CutsceneCamera::initSeedGrp (EngineOverride)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x8006CBA8u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // CutsceneCamera::initSeedGrp (EngineOverride)
     c->mem_w16(0x1F8000D6u, c->mem_r16(obj + 0x32));
     c->mem_w8(obj + 5, (uint8_t)(c->mem_r8(obj + 5) + 1));
     break;
@@ -284,7 +291,10 @@ void subA(Core *c, uint32_t obj) {
     if (left == 0) {
       c->mem_w8(0x1F800137u, 0);
       c->mem_w8(0x800BF841u, 0);
-      rec_dispatch(c, 0x8006E1E4u); // FUN_8006E1E4() — sound-loop stop (leaf)
+      psx::cpu::dispatchGuestToReturn0(*c,
+                                       0x8006E1E4u,
+                                       psx::cpu::ExecutionBudget::currentTurn(*c),
+                                       __func__); // FUN_8006E1E4() — sound-loop stop (leaf)
       c->mem_w8(GATE_BFA17, (uint8_t)(c->mem_r8(GATE_BFA17) | (1u << (c->mem_r8(obj + 3) & 0x1F))));
       c->mem_w8(obj + 0x5E, 1);
       c->mem_w8(obj + 0, 1);
@@ -323,9 +333,15 @@ void subB(Core *c, uint32_t obj) {
     c->mem_w32(G_eac, c->mem_r32(G_eac) + (int32_t)c->mem_r16s(obj + 0x44) * (int32_t)c->mem_r16s(G_ec8));
     c->mem_w32(G_eb4, c->mem_r32(G_eb4) + (int32_t)c->mem_r16s(obj + 0x44) * (int32_t)c->mem_r16s(G_ecc));
     c->r[4] = G;
-    rec_dispatch(c, 0x8004766Cu); // FUN_8004766C(&G) — tile-move step (leaf)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x8004766Cu,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // FUN_8004766C(&G) — tile-move step (leaf)
     c->r[4] = G;
-    rec_dispatch(c, 0x80048750u); // FUN_80048750(&G) — anim-link tick (leaf)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x80048750u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // FUN_80048750(&G) — anim-link tick (leaf)
     c->mem_w16(G_f38, (uint16_t)(c->mem_r16s(G_f38) - 0x80));
     c->mem_w16(G_f3a, (uint16_t)(c->mem_r16s(G_f3a) - 0x80));
     c->mem_w16(G_f3c, (uint16_t)(c->mem_r16s(G_f3c) - 0x80));
@@ -373,7 +389,10 @@ void subC(Core *c, uint32_t obj, uint32_t data) {
     c->mem_w8(0x1F800137u, 2);
     c->mem_w8(GATE_BFA19, (uint8_t)(c->mem_r8(GATE_BFA19) | (1u << (c->mem_r8(obj + 3) & 0x1F))));
     c->r[4] = 8;
-    rec_dispatch(c, 0x8006E1C0u); // FUN_8006E1C0(8) — sound-loop start (leaf)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x8006E1C0u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // FUN_8006E1C0(8) — sound-loop start (leaf)
     c->mem_w16(0x1F8000D2u, c->mem_r16(data + 0));
     c->mem_w16(0x1F8000D6u, c->mem_r16(data + 2));
     c->mem_w16(0x1F8000DAu, c->mem_r16(data + 4));
@@ -412,14 +431,17 @@ void subC(Core *c, uint32_t obj, uint32_t data) {
       c->r[4] = 0x15;
       c->r[5] = sp0;
       c->r[6] = (uint32_t)-0x32;
-      rec_dispatch(c, 0x8003116Cu); // Spawn::spawnAndInitBody (EngineOverride)
+      psx::cpu::dispatchGuestToReturn0(*c,
+                                       0x8003116Cu,
+                                       psx::cpu::ExecutionBudget::currentTurn(*c),
+                                       __func__); // Spawn::spawnAndInitBody (EngineOverride)
       uint32_t rec1 = c->r[2];
       c->mem_w8(rec1 + 0x28, (uint8_t)(c->mem_r8(rec1 + 0x28) | 0x80));
 
       c->r[4] = 0x24;
       c->r[5] = sp0;
       c->r[6] = (uint32_t)-0x32;
-      rec_dispatch(c, 0x8003116Cu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8003116Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       uint32_t rec2 = c->r[2];
       c->mem_w8(rec2 + 0x28, (uint8_t)(c->mem_r8(rec2 + 0x28) | 0x80));
 
@@ -430,13 +452,13 @@ void subC(Core *c, uint32_t obj, uint32_t data) {
       c->r[5] = obj + 0x2C;
       c->r[6] = 0x800;
       c->r[7] = 8;
-      rec_dispatch(c, 0x80027144u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80027144u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       eng(c).sfx.trigger(0xc, 0, 0);
       c->r[4] = c->mem_r32(link1 + 0x40);
       c->r[5] = obj + 0x2C;
       c->r[6] = 0x600;
       c->r[7] = 0x18;
-      rec_dispatch(c, 0x80027144u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80027144u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       eng(c).sfx.trigger(0xc, 0, 0);
 
       uint32_t link2 = c->mem_r32(obj + 0xC4);
@@ -444,13 +466,13 @@ void subC(Core *c, uint32_t obj, uint32_t data) {
       c->r[5] = obj + 0x2C;
       c->r[6] = 0x800;
       c->r[7] = 8;
-      rec_dispatch(c, 0x80027144u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80027144u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       eng(c).sfx.trigger(0xc, 0, 0);
       c->r[4] = c->mem_r32(link2 + 0x40);
       c->r[5] = obj + 0x2C;
       c->r[6] = 0x600;
       c->r[7] = 0x18;
-      rec_dispatch(c, 0x80027144u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80027144u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       eng(c).sfx.trigger(0xc, 0, 0);
 
       uint32_t link3 = c->mem_r32(obj + 0xC8);
@@ -458,19 +480,20 @@ void subC(Core *c, uint32_t obj, uint32_t data) {
       c->r[5] = obj + 0x2C;
       c->r[6] = 0x800;
       c->r[7] = 8;
-      rec_dispatch(c, 0x80027144u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80027144u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       eng(c).sfx.trigger(0xc, 0, 0);
       c->r[4] = c->mem_r32(link3 + 0x40);
       c->r[5] = obj + 0x2C;
       c->r[6] = 0x600;
       c->r[7] = 0x18;
-      rec_dispatch(c, 0x80027144u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80027144u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       eng(c).sfx.trigger(0xc, 0, 0);
     } else {
       uint32_t link1 = c->mem_r32(obj + 0xC0);
       c->mem_w16(link1 + 2, (uint16_t)((c->mem_r8(0x1F80017Cu) & 1) * 6));
       c->r[4] = 0;
-      rec_dispatch(c, 0x8009A450u); // FUN_8009A450() — PRNG (leaf)
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x8009A450u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_8009A450() — PRNG (leaf)
       c->mem_w16(link1, (uint16_t)(((int32_t)(c->r[2] & 3) - 2) * 6));
     }
     break;
@@ -481,7 +504,10 @@ void subC(Core *c, uint32_t obj, uint32_t data) {
     if (left == -1) {
       c->mem_w8(obj + 4, 3);
       c->mem_w8(0x1F800137u, 0);
-      rec_dispatch(c, 0x8006E1E4u); // FUN_8006E1E4() — sound-loop stop (leaf)
+      psx::cpu::dispatchGuestToReturn0(*c,
+                                       0x8006E1E4u,
+                                       psx::cpu::ExecutionBudget::currentTurn(*c),
+                                       __func__); // FUN_8006E1E4() — sound-loop stop (leaf)
     }
     c->mem_w8(obj + 1, 0);
     break;
@@ -504,7 +530,7 @@ void state_init(Core *c, uint32_t obj) {
       return;
     }
     if (c->mem_r8(MASTER_G_BYTE) == 6) {
-      return; // recomp: `if (==6) return` — active outside mode 6
+      return; // guest instruction path: `if (==6) return` — active outside mode 6
     }
     if (c->mem_r8(GATE_BF80D) != 0) {
       return;
@@ -530,7 +556,7 @@ void state_init(Core *c, uint32_t obj) {
 }
 
 // RUNNING (outer 1) — cull → optional mode toggle + post-cull update → node[+0x5E] sub-dispatch,
-// each sub-body clears node+0x29 on exit (matches the recomp's shared clear).
+// each sub-body clears node+0x29 on exit (matches the guest instruction path's shared clear).
 void state_running(Core *c, uint32_t obj) {
   if (bounds_cull(c, obj) != 0) {
     modeArm(c, 1);
@@ -558,7 +584,7 @@ void beh_seaside_prox_substate_body(Core *c) {
   } else if (st == 3) {
     eng(c).spawn.despawn(obj);
   }
-  // else: no-op (matches recomp's `bVar1 != 2 && bVar1 == 3` guard)
+  // else: no-op (matches guest instruction path's `bVar1 != 2 && bVar1 == 3` guard)
 }
 
 } // namespace
@@ -567,7 +593,7 @@ void beh_seaside_prox_substate_body(Core *c) {
 // -0x30 frames are computed RELATIVE TO c->r[29] as seen at their own entry — mirroring this
 // function's -0x20 here (for its whole body, matching how the two direct-jal call sites at
 // 0x8013c274/0x8013c354/0x8013c3c4 all execute with this frame still live) keeps their stack-
-// scratch addresses byte-exact with the real recomp instead of landing 0x20 bytes off (which would
+// scratch addresses byte-exact with the real guest instruction path instead of landing 0x20 bytes off (which would
 // show up as a genuine SBS RAM divergence at both the wrong and the right address).
 void beh_seaside_prox_substate(Core *c) {
   c->r[29] -= 0x20;

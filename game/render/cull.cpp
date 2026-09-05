@@ -10,15 +10,13 @@
 #include "core.h"
 #include "game.h" // Fps60::current_object
 #include "game_ctx.h"
-#include "override_registry.h" // overrides::install — the one native-override registry
-#include "queue_dispatch.h"    // the guest's own class->queue->per-type routing (kanban #77)
-#include "render.h"            // rend(c)->margin (widescreen margin collect)
-#include <lucent/log.h>        // `cullpush` push-time submission census (kanban #77)
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include "queue_dispatch.h"          // the guest's own class->queue->per-type routing (kanban #77)
+#include "render.h"                  // rend(c)->margin (widescreen margin collect)
+#include <lucent/log.h>              // `cullpush` push-time submission census (kanban #77)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 uint32_t eng_isqrt16(uint32_t);
 // g_render_object retired (was defined + written but never read anywhere; dead).
 
@@ -27,7 +25,7 @@ static inline uint16_t obj_r16(Core *c, uint32_t a) {
 }
 
 // Engine-owned visibility margin (the engine OWNS the cull decision; later-183, user 2026-06-20).
-// The recompiled cull FUN_8007712c (RE'd from the disasm: tools/disas.py 0x8007712c → jump table at
+// The guest cull FUN_8007712c (RE'd from the disasm: tools/disas.py 0x8007712c → jump table at
 // 0x80016cc0, 5 state handlers) culls each object by TWO tests, both reproduced natively below:
 //   (1) DISTANCE: dist = isqrt(dx²+dy²+dz²) (object-to-camera). Each handler early-returns culled if
 //       dist < ~512 (near) and if dist >= a per-state FAR limit (~0x1001..0x1C01, i.e. 4097..7169).
@@ -37,10 +35,10 @@ static inline uint16_t obj_r16(Core *c, uint32_t a) {
 //       narrower than even the 4:3 view frustum, so edge objects pop in/out as the camera pans, and the
 //       widescreen-widened side/corner geometry (incl. static terrain/water tiles) gets dropped entirely.
 // We do NOT inherit the PSX cone. The engine keeps any object that is in front of the camera within an
-// extended distance, regardless of aspect — a margin EVEN BEYOND what widescreen needs. After the recomp
-// body runs (it cleared the +1 flag for anything it culled), we re-include the dropped objects whose
-// (dist, forward-dot) fall inside the engine's own, wider kept region (collected for the post-walk margin
-// flush — no +1 poke, so gameplay stays 0-diff; see margin_render.h). Env overrides are diagnostic only.
+// extended distance, regardless of aspect — a margin EVEN BEYOND what widescreen needs. After the guest instruction
+// path body runs (it cleared the +1 flag for anything it culled), we re-include the dropped objects whose (dist,
+// forward-dot) fall inside the engine's own, wider kept region (collected for the post-walk margin flush — no +1 poke,
+// so gameplay stays 0-diff; see margin_render.h). Env overrides are diagnostic only.
 static unsigned isqrt32(unsigned v) {
   unsigned r = 0, b = 1u << 30;
   while (b > v) {
@@ -58,10 +56,10 @@ static unsigned isqrt32(unsigned v) {
   return r;
 }
 
-// ---- PC-native reimplementation of the recompiled cull body FUN_8007712c ------------------------
+// ---- PC-native reimplementation of the guest cull body FUN_8007712c ------------------------
 // Owns the per-object visibility decision (the per-object CULL/LOD engine system) PC-native instead
-// of running the recomp body through the interpreter (it was ~11.2% of hot interp time; the override
-// above only WRAPPED it via rec_super_call, so the MIPS body still ran every call). RE'd from the
+// of running the guest instruction path through the interpreter (it was ~11.2% of hot interp time; the override
+// above only WRAPPED it via original guest-body call, so the MIPS body still ran every call). RE'd from the
 // disasm (tools/disas.py 0x8007712c → jump table 0x80016cc0, 5 state handlers + a typed sub-dispatch
 // in state 0). Decision logic, byte-exact:
 //   dist = isqrt16(dx²+dy²+dz²)            (FUN_80077FB0 = ov_isqrt → eng_isqrt16, bit-exact leaf)
@@ -95,13 +93,12 @@ static unsigned isqrt32(unsigned v) {
 #define CULL_FAR_MULT 4 // ×4 the stock per-state far limits (4097..7169 → ~16388..28676)
 #endif
 // pc_faithful/native_sync split (2026-07-03): pc_faithful (native_sync=false) uses the stock (=1) cull
-// limits so a side-by-side compare against recomp_path doesn't diverge at 0x800EE489
+// limits so a side-by-side compare against retired comparison path doesn't diverge at 0x800EE489
 // (Cull::coneCull2b278 writes obj+1=1 for objects outside the stock cone but inside the ×4
-// extended one; recomp culls them). Live native_sync gameplay still gets the ×4 boost — the two
+// extended one; guest instruction path culls them). Live native_sync gameplay still gets the ×4 boost — the two
 // modes deliberately do not converge. Same shape as Slip #3 (docs/findings/sbs.md).
 int Cull::cullFarMult() {
-  Core *c = core;
-  return (c && c->game && !c->game->native_sync) ? cullFarMultFaithful() : cullFarMultSkip();
+  return cullFarMultSkip();
 }
 int Cull::cullFarMultFaithful() {
   return 1; // stock cull limits for substrate parity
@@ -207,9 +204,9 @@ Cull::Decision Cull::decide() {
 }
 
 // Cull::performBaseCull — byte-exact PC-native FUN_8007712C body (no margin re-include). The public
-// entry Actor::boundsCull dispatches to (replaces the last rec_dispatch(0x8007712C) in the cull chain).
-// Same guest ABI as objectCull: taxi input in r[4]/r[5]/r[6]/r[7], side effects on obj[+1] +
-// per-class render-list push, return in r[2]. Was the file-scope `cull_native_body` helper.
+// entry Actor::boundsCull dispatches to (replaces the last typed runtime address dispatch(0x8007712C) in the cull
+// chain). Same guest ABI as objectCull: taxi input in r[4]/r[5]/r[6]/r[7], side effects on obj[+1] + per-class
+// render-list push, return in r[2]. Was the file-scope `cull_native_body` helper.
 void Cull::performBaseCull() {
   Core *c = core;
   uint32_t obj = c->r[4];
@@ -368,7 +365,7 @@ uint32_t Cull::enqueueVisibleClass4(uint32_t obj) {
   if (cnt >= CULL_QCAP[1]) {
     noteQueuePush(obj, 2, false);
     return 0;
-  } // list full — v0 = 0 (matches recomp)
+  } // list full — v0 = 0 (matches guest instruction path)
   noteQueuePush(obj, 2, true);
   uint32_t ptr = c->mem_r32(CULL_QPTR[1]);
   c->mem_w32(CULL_QPTR[1], ptr - 4);
@@ -380,7 +377,7 @@ uint32_t Cull::enqueueVisibleClass4(uint32_t obj) {
 
 // Cull::enqueueByClass — PC-native FUN_8007703C body. Class-keyed queue dispatcher: reads obj[+0xC]
 // and routes to the matching queue push (A for classes 2/9, B for class 4, C for class 5). Sets
-// obj[+1] = 1 (visible marker) unconditionally before the dispatch (matches the recomp's
+// obj[+1] = 1 (visible marker) unconditionally before the dispatch (matches the guest instruction path's
 // unconditional `sb v0, 1(a2)` right after the prologue, before the switch on obj[+0xC]). RE'd
 // verbatim from disas 0x8007703C..0x80077128.
 uint32_t Cull::enqueueByClass(uint32_t obj) {
@@ -412,14 +409,14 @@ uint32_t Cull::enqueueQueueA(uint32_t obj) {
   if (cnt >= CULL_QCAP[0]) {
     noteQueuePush(obj, 1, false);
     return 0;
-  } // queue full — v0 = 0 (matches recomp)
+  } // queue full — v0 = 0 (matches guest instruction path)
   noteQueuePush(obj, 1, true);
   uint32_t ptr = c->mem_r32(CULL_QPTR[0]);
   c->mem_w32(CULL_QPTR[0], ptr - 4);
   c->mem_w32(ptr - 4, obj);
   uint32_t newCnt = (uint32_t)cnt + 1u;
   c->mem_w16(CULL_QCNT[0], (uint16_t)newCnt);
-  return newCnt; // v0 = old_counter + 1 (recomp: addiu v0, a1, 1)
+  return newCnt; // v0 = old_counter + 1 (guest instruction path: addiu v0, a1, 1)
 }
 
 // Cull::enqueueQueueC — PC-native FUN_80077EFC body. Manual push onto queue C (list ptr @
@@ -544,7 +541,7 @@ void Cull::objectCull() {
         // margins are therefore dropped until each type's read-only render is added (wide de-prioritized).
         // Re-include margin geometry READ-ONLY in every aspect (MarginRenderer host overlay, zero guest
         // writes): no +1 poke, so the object's guest state is untouched — core A stays byte-identical to
-        // the oracle core B AND to a standalone run, with NO game->sbs special-casing. Widescreen is a
+        // the verification reference AND to a standalone run, with no harness special-casing. Widescreen is a
         // render-only concern (wider visual reach), served by this same read-only path; it must NEVER
         // poke guest state (the old wide +1 poke perturbed 5638 B of object state and forced an SBS
         // special-case — both removed). PSXPORT_MARGIN_POKE=1 keeps the old +1 re-include for A/B diffing.
@@ -623,10 +620,10 @@ void Cull::objectCull() {
 
 // FUN_8007778C — camera-relative cull WRAPPER. Computes obj-cam delta (wrapping s16, sign-extended),
 // zeros the cull scratchpad flags 0x1F800080/0x1F800084, then forwards to the per-object cull body
-// FUN_8007712C via rec_dispatch (so current-object tracking + the widescreen margin still fire).
+// FUN_8007712C via typed runtime address dispatch (so current-object tracking + the widescreen margin still fire).
 // Camera pos @0x1F8000D0 (+2=X,+6=Z,+10=Y, u16). Was ov_cull_wrapper.
 // Cull::wrapFrame — shared frame mirror for the whole cullWrapper* family (RE'd instruction-exact
-// from generated/shard_{0,1,2,4,5,7}.c: gen_func_8007778C/800777FC/80077ACC/800779D0/80077A4C/
+// from authenticated executable/overlay evidence{0,1,2,4,5,7}.c: guest 0x8007778C/800777FC/80077ACC/800779D0/80077A4C/
 // 800778E4). All six share the IDENTICAL prologue/epilogue shape:
 //   addiu sp,sp,-24; sw ra,16(sp); <setup>; move ra,<per-site const>; jal FUN_8007712C;
 //   lw ra,16(sp); addiu sp,sp,24; jr ra
@@ -646,12 +643,12 @@ void Cull::wrapFrame(uint32_t raConst) {
 }
 
 // performBaseCullFramed — mirrors FUN_8007712C's OWN real 40-byte guest-stack frame (RE:
-// generated/shard_1.c gen_func_8007712C: `addiu sp,-40; sw r19,28(sp) [BEFORE r19<-a0=obj];
+// authenticated executable/overlay evidence guest 0x8007712C: `addiu sp,-40; sw r19,28(sp) [BEFORE r19<-a0=obj];
 // sw r16,16(sp) [BEFORE r16<-a1=dx]; sw r17,20(sp) [BEFORE r17<-a2=dy]; sw r18,24(sp)
 // [BEFORE r18<-a3=dz]; sw ra,32(sp)`). Bug found + fixed 2026-07-08: wrapFrame() above only
 // mirrored the OUTER wrapper's own frame (cullWrapper etc.'s `addiu sp,-24`); on the real
 // substrate, that wrapper's jal to FUN_8007712C ALSO pushes FUN_8007712C's OWN nested -40 frame
-// at that depth (visible in generated/shard_1.c) — a gap performBaseCull() (a pure-C++ leaf with
+// at that depth (visible in authenticated executable/overlay evidence) — a gap performBaseCull() (a pure-C++ leaf with
 // no r29 use at all) never reproduced. The missing nested frame left the guest-stack bytes at
 // that depth untouched on the native side, producing an SBS divergence at 0x801FE904..908
 // wherever an UNRELATED later write (from other guest code reusing the same stack depth) differed
@@ -679,8 +676,8 @@ void Cull::performBaseCullFramed() {
   c->r[29] += 40;
 }
 
-// FUN_8007778C — RA constant for the internal jal to FUN_8007712C (RE: generated/shard_4.c
-// gen_func_8007778C, `c->r[31] = 0x800777ECu;`).
+// FUN_8007778C — RA constant for the internal jal to FUN_8007712C (RE: authenticated executable/overlay evidence
+// guest 0x8007778C, `c->r[31] = 0x800777ECu;`).
 static constexpr uint32_t RA_8007778C = 0x800777ECu;
 void Cull::cullWrapper() {
   Core *c = core;
@@ -694,7 +691,7 @@ void Cull::cullWrapper() {
   c->r[6] = (uint32_t)(int32_t)(int16_t)(uint16_t)((uint16_t)c->mem_r16(obj + 0x32) - camz);
   c->r[7] = (uint32_t)(int32_t)(int16_t)(uint16_t)((uint16_t)c->mem_r16(obj + 0x36) - camy);
   c->r[4] = obj;
-  wrapFrame(RA_8007778C); // FUN_8007712C native — was rec_dispatch
+  wrapFrame(RA_8007778C); // FUN_8007712C native — was typed runtime address dispatch
 }
 
 // FUN_80077870 — cull-wrapper variant: byte-identical to cullWrapper (obj in c->r[4], deltas
@@ -702,7 +699,7 @@ void Cull::cullWrapper() {
 // cullWrapper, 2 for cullWrapperFlag2, 4 for cullWrap77acc). Reached by a direct func_ call in the
 // substrate + by-address from beh_typed_variant_router (via leafr1), never a plain native call.
 //
-// Its gen body is the SAME shared shape as the whole cullWrapper* family (`addiu sp,-24;
+// Its guest-visible behavior is the SAME shared shape as the whole cullWrapper* family (`addiu sp,-24;
 // sw ra,16(sp); ...; move ra,0x800778D4; jal FUN_8007712C; lw ra,16(sp); addiu sp,24`). cullWrapper
 // factors that into wrapFrame(); here it is written INLINE in the gen's store order (ra spill first,
 // then the two flag writes) so the guest-frame descent/spill + the internal FUN_8007712C call are
@@ -712,8 +709,8 @@ void Cull::cullWrapper() {
 // port_check verdict is UNPROVABLE, not FAIL: frame sizes (24/24), the store-width sequence
 // ([32,32,32]) and the call count + ra-const (0x800778D4) all match the oracle; only the call TARGET
 // is unresolvable, because the native reaches FUN_8007712C's body as the owned performBaseCullFramed
-// method rather than a substrate func_8007712C(c) — inherent to owning the cull body natively.
-// ORACLE: gen_func_80077870
+// method rather than a substrate guest 0x8007712C(c) — inherent to owning the cull body natively.
+// ORACLE: guest 0x80077870
 void Cull::cullWrapperFlag1() {
   Core *c = core;
   uint32_t obj = c->r[4];
@@ -739,16 +736,17 @@ void Cull::cullWrapperFlag1() {
 // computed from obj+0x2E/0x32/0x36 vs cam@0x1F8000D2/D6/DA), but writes 0x1F800084 = 2 (vs 0 for
 // cullWrapper). RE'd from disas 0x800777FC..0x8007786C. 3 callers in beh_id_compare_motion_dispatch.
 // Deltas match cullWrapper: coord[0] = D2, coord[1] = D6, coord[2] = DA — the local names in
-// cullWrapper (camz/camy for D6/DA) are misleading; the recomp subtracts D6 from obj+0x32 (r[6])
+// cullWrapper (camz/camy for D6/DA) are misleading; the guest instruction path subtracts D6 from obj+0x32 (r[6])
 // and DA from obj+0x36 (r[7]).
-// FUN_800777FC — RA constant (RE: generated/shard_5.c gen_func_800777FC, `c->r[31] = 0x80077860u;`).
+// FUN_800777FC — RA constant (RE: authenticated executable/overlay evidence guest 0x800777FC, `c->r[31] =
+// 0x80077860u;`).
 static constexpr uint32_t RA_800777FC = 0x80077860u;
 // UNFRAMED — the public entry point EXISTING native beh_ callers (beh_id_compare_motion_dispatch.cpp,
 // 3 call sites) already use as a plain C++ call. Bug found + fixed 2026-07-08: this method used to
 // ALSO wrapFrame() unconditionally, which corrupted an arbitrary guest-stack region for these native
 // callers (c->r[29] at their call sites is NOT a real guest sp belonging to this call — it's whatever
 // the last unrelated guest call left it at). Framing now lives ONLY in cullWrapperFlag2Framed(),
-// reached solely from the guest-ABI shard_set_override trampoline.
+// reached solely from the guest-ABI tomba::native::declareOverride trampoline.
 void Cull::cullWrapperFlag2() {
   Core *c = core;
   uint32_t obj = c->r[4];
@@ -777,7 +775,8 @@ void Cull::cullWrapperFlag2Framed() {
 // FUN_80077ACC — cull-wrapper variant, caller-supplied position in a1/a2/a3 (not obj fields), flags
 // 0x1F800080=1 / 0x1F800084=4 (vs the 0/0 form above). Makes the position camera-relative then calls
 // the cull body 0x8007712C. Was ov_cull_wrap_77acc.
-// FUN_80077ACC — RA constant (RE: generated/shard_2.c gen_func_80077ACC, `c->r[31] = 0x80077B28u;`).
+// FUN_80077ACC — RA constant (RE: authenticated executable/overlay evidence guest 0x80077ACC, `c->r[31] =
+// 0x80077B28u;`).
 static constexpr uint32_t RA_80077ACC = 0x80077B28u;
 // UNFRAMED — the public entry point EXISTING native callers (beh_record_list_scanner.cpp,
 // script_vm.cpp) already use as a plain C++ call. Same class of bug/fix as cullWrapperFlag2 above:
@@ -809,7 +808,8 @@ void Cull::cullWrap77accFramed() {
 // r[5]/r[6]/r[7]) is ADDED to the object's own position (obj+0x2E/0x32/0x36) BEFORE the camera-
 // relative subtraction. Flags 0/0 (same as cullWrapper). RE'd via Ghidra headless
 // (scratch/decomp/cluster1.c: FUN_800779d0).
-// FUN_800779D0 — RA constant (RE: generated/shard_0.c gen_func_800779D0, `c->r[31] = 0x80077A3Cu;`).
+// FUN_800779D0 — RA constant (RE: authenticated executable/overlay evidence guest 0x800779D0, `c->r[31] =
+// 0x80077A3Cu;`).
 static constexpr uint32_t RA_800779D0 = 0x80077A3Cu;
 void Cull::cullWrapperOffset() {
   Core *c = core;
@@ -829,7 +829,8 @@ void Cull::cullWrapperOffset() {
 
 // FUN_80077A4C — same offset-add shape as cullWrapperOffset, but writes 0x1F800080=1 / 0x1F800084=0
 // (vs 0/0). RE'd via Ghidra headless (scratch/decomp/cluster1.c: FUN_80077a4c).
-// FUN_80077A4C — RA constant (RE: generated/shard_1.c gen_func_80077A4C, `c->r[31] = 0x80077ABCu;`).
+// FUN_80077A4C — RA constant (RE: authenticated executable/overlay evidence guest 0x80077A4C, `c->r[31] =
+// 0x80077ABCu;`).
 static constexpr uint32_t RA_80077A4C = 0x80077ABCu;
 void Cull::cullWrapperOffsetFlag1() {
   Core *c = core;
@@ -850,9 +851,9 @@ void Cull::cullWrapperOffsetFlag1() {
 // FUN_800778E4 — cull-wrapper variant: a SINGLE caller-supplied offset (a1, entering in r[5]) is
 // added ONLY to the object's Z-field (obj+0x32); X (obj+0x2E) and Y (obj+0x36) use the raw object
 // position. Flags 0/0. RE'd via Ghidra headless (scratch/decomp/cluster1.c: FUN_800778e4).
-// FUN_800778E4 — RA constant for the (reachable) live path (RE: generated/shard_7.c
-// gen_func_800778E4, `c->r[31] = 0x80077948u;` — a second, unreachable dead block follows the
-// first `return;` in the generated body; only the first block's ra is ever live).
+// FUN_800778E4 — RA constant for the (reachable) live path (RE: authenticated executable/overlay evidence
+// guest 0x800778E4, `c->r[31] = 0x80077948u;` — a second, unreachable dead block follows the
+// first `return;` in the authenticated executable/overlay evidence; only the first block's ra is ever live).
 static constexpr uint32_t RA_800778E4 = 0x80077948u;
 void Cull::cullWrapperOffsetY() {
   Core *c = core;
@@ -870,13 +871,12 @@ void Cull::cullWrapperOffsetY() {
   wrapFrame(RA_800778E4);
 }
 
-// ---- Wiring (RESOLVED 2026-07-08): shard_set_override for all 6 camera-relative wrappers -------
-// The substrate reaches these via DIRECT `func_<addr>(c)` call sites (jal, not jalr), so
-// the override registry's rec_dispatch interception is blind to them; shard_set_override intercepts the
-// recompiler's OWN g_override[] table, the same dual-registration pattern as game/math/gte_math.cpp
-// and game/object/animation.cpp's applyFrame. psx_fallback-gated: core B (the pure substrate
-// reference) always runs the real gen_func_* body.
-extern void shard_set_override(uint32_t, void (*)(Core *));
+// ---- Wiring (RESOLVED 2026-07-08): tomba::native::declareOverride for all 6 camera-relative wrappers -------
+// The substrate reaches these via DIRECT `a direct guest-address call` call sites (jal, not jalr), so
+// the override registry's typed runtime address dispatch interception is blind to them; tomba::native::declareOverride
+// intercepts the recorded binary evidence's OWN image-qualified runtime dispatcher table, the same dual-registration
+// pattern as game/math/gte_math.cpp and game/object/animation.cpp's applyFrame. Verification-gated: the test-only
+// substrate reference) always runs the real original guest instructions body.
 
 static void eov_cullWrapper(Core *c) {
   eng(c).cull.cullWrapper();
@@ -900,22 +900,12 @@ static void eov_cullWrapperOffsetY(Core *c) {
   eng(c).cull.cullWrapperOffsetY();
 }
 
-extern void gen_func_80077870(Core *);
-extern void gen_func_8007778C(Core *);
-extern void gen_func_800777FC(Core *);
-extern void gen_func_80077ACC(Core *);
-extern void gen_func_800779D0(Core *);
-extern void gen_func_80077A4C(Core *);
-extern void gen_func_800778E4(Core *);
-
 void Cull::registerOverrides() {
-  using overrides::install;
-  install(0x80077870u, "Cull::cullWrapperFlag1", eov_cullWrapperFlag1, gen_func_80077870, shard_set_override);
-  install(0x8007778Cu, "Cull::cullWrapper", eov_cullWrapper, gen_func_8007778C, shard_set_override);
-  install(0x800777FCu, "Cull::cullWrapperFlag2", eov_cullWrapperFlag2, gen_func_800777FC, shard_set_override);
-  install(0x80077ACCu, "Cull::cullWrap77acc", eov_cullWrap77acc, gen_func_80077ACC, shard_set_override);
-  install(0x800779D0u, "Cull::cullWrapperOffset", eov_cullWrapperOffset, gen_func_800779D0, shard_set_override);
-  install(
-      0x80077A4Cu, "Cull::cullWrapperOffsetFlag1", eov_cullWrapperOffsetFlag1, gen_func_80077A4C, shard_set_override);
-  install(0x800778E4u, "Cull::cullWrapperOffsetY", eov_cullWrapperOffsetY, gen_func_800778E4, shard_set_override);
+  tomba::native::declareOverride(0x80077870u, "Cull::cullWrapperFlag1", eov_cullWrapperFlag1);
+  tomba::native::declareOverride(0x8007778Cu, "Cull::cullWrapper", eov_cullWrapper);
+  tomba::native::declareOverride(0x800777FCu, "Cull::cullWrapperFlag2", eov_cullWrapperFlag2);
+  tomba::native::declareOverride(0x80077ACCu, "Cull::cullWrap77acc", eov_cullWrap77acc);
+  tomba::native::declareOverride(0x800779D0u, "Cull::cullWrapperOffset", eov_cullWrapperOffset);
+  tomba::native::declareOverride(0x80077A4Cu, "Cull::cullWrapperOffsetFlag1", eov_cullWrapperOffsetFlag1);
+  tomba::native::declareOverride(0x800778E4u, "Cull::cullWrapperOffsetY", eov_cullWrapperOffsetY);
 }

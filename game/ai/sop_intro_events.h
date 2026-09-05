@@ -37,8 +37,8 @@ uint32_t sopIntroEffectSpawn(Core *c);
 void sopIntroEffectTick(Core *c);
 
 // FUN_8010B588 — the "lifted" SOP-intro actor's OWN deeper per-frame sub-tick (called directly via
-// rec_dispatch from beh_sop_intro_lifted's state_running, a0 = the lifted actor's node, r4). A 6-state
-// SM gated on the shared scene-beat global (0x800BF9B4) that installs three progressively "bigger"
+// typed runtime address dispatch from beh_sop_intro_lifted's state_running, a0 = the lifted actor's node, r4). A
+// 6-state SM gated on the shared scene-beat global (0x800BF9B4) that installs three progressively "bigger"
 // anim/scene-record stages as the beat advances 2 -> 3 -> 6, plus a script-VM-driven idle state (0/1/6).
 void sopLiftedSubtick(Core *c);
 

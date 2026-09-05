@@ -2,7 +2,7 @@
 //
 // TRANSPARENT SEAM (prep step, 2026-07-17): these inline accessors take a Core* and return a
 // reference (or pointer, for the renderer) to one of the 9 game-side subsystems that currently
-// live embedded on `Core` (see runtime/recomp/core.h). Right now each body just returns the
+// live embedded on `Core` (see runtime/psx/core.h). Right now each body just returns the
 // same Core member, so routing every game-code access through them is BEHAVIOR-NEUTRAL — a clean
 // build is the correctness proof.
 //
@@ -20,6 +20,7 @@
 #include "audio/music_list.h"   // MusicList — Sound Test catalogue + area BGM driver (game-owned)
 #include "audio/native_music.h" // NativeMusic — in-game real-time SEP/VAB music player (game-owned)
 #include "core/engine.h"
+#include "core/verification_counters.h"
 #include "items/inventory.h"
 #include "math/gte_math.h"
 #include "math/mtx.h"
@@ -34,6 +35,7 @@
 // that used to be embedded on Core.
 struct TombaCtx {
   Engine engine;
+  tomba::VerificationCounters verification;
   ScreenFade screenFade;
   Rng rng;
   Trig trig;

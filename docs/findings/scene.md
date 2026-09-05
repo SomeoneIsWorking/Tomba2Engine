@@ -18,13 +18,13 @@
 - **NEXT INVESTIGATION:** RE who writes `node[0x29]` to a live entity in the running port (dumpram-scan-diff pre- vs post-walk to find upstream writers under this repro), then trace who's supposed to invoke them at door-entry.
 - **do NOT** patch bf818 or node[0x29] directly to skip the freeze — that's a bandaid and only hides the missing upstream path.
 - **2026-07-02 later-291 (post class-ification of the swap handshake — commits 4a50fa1..ebd3bee):**
-  - Reproduced with the native `class SceneTransition::stepSwapWaiter` (byte-gated: 550+ subswapverify matches, 0 mismatches vs `rec_super_call(0x80073328)` under the pad-replay). No native regression — the freeze is inherent to the shared state.
+  - Reproduced with the native `class SceneTransition::stepSwapWaiter` (byte-gated: 550+ subswapverify matches, 0 mismatches vs `original guest-body call(0x80073328)` under the pad-replay). No native regression — the freeze is inherent to the shared state.
   - Refined RAM inspection at f934 (post-restructure): the 6 door entities live at 0x800EF910/0x800EF9D4/0x800EFA98/0x800EFB5C/0x800EFC20/0x800EFCE4 (68B each, 0xC4 stride), each with `node[3]∈[0..5]`, `node[0x28]=0x81`, `node[0xBF]=1`. Only **entity 0x800EF910 (node[3]=0)** is stuck at `node[6]=3`; the others are still at `node[6]=0..1` (haven't advanced through case 0 yet).
   - Scene block `S1=0x800E7E80`: `S+0x2a=0x02`, `S+5=0` — the JT1[0] `s5==0` gate matches only entity 0x800EF910 (its `node[0x2a]==0x02`). So THIS specific entity IS what beh_typed_jumptable_pair drives; that alignment is correct.
   - **PSXPORT_WWATCH=800ef939,800ef93a** (byte watch on entity 0x800EF910's `node[0x29]`) across the pad-replay: every store is VALUE=0 (writers pc≈0x80073328 = beh common-tail reset, pc≈0x80020868 = a second reset in an unrelated resident SM). **No non-zero writer to that byte fires anywhere in the pad-replay** — neither native nor substrate. So the "upstream code path fabricates node[0x29]!=0 right before the entity's frame" hypothesis is falsified for this repro: nothing ever writes it non-zero for this entity in this scene. The gate cannot open by that mechanism.
   - Consequence: the ORIGINAL RE that "node[0x29] must be written by an upstream just before the entity's frame" doesn't map to observable behaviour under this repro. Either (a) real gameplay reaches a DIFFERENT entity/state where node[0x29]!=0 fires naturally via JT1[0] s5==1's own write (i.e. the entity that must clear it is not 0x800EF910), (b) some overlay handler outside MAIN.EXE writes it, or (c) real gameplay reaches bf818=5 via some path we haven't found and case 0 FIRST branch (bf817==node[3]) completes the transition.
   - Actionable next step: hand-recorded `hut.pad` remains the most reliable disambiguator. Absent that, next-best: instrument stepSwapWaiter case 3 entries + log EVERY (frame, entity, node[6], node[5], node[0x29], bf818) transition, then re-run to see if a DIFFERENT entity reaches case 3 briefly with node[0x29]==1.
-  - **★ mid-transition uses the SUBSTRATE walker (discovered later-291b, 2026-07-02):** `ov_field_frame_x` (game/scene/engine_stage.cpp:703, the sm[0x4a]==5 mid-transition frame variant) drives the transition via `d0(c, 0x8007b04cu)` — the state-3 object walker at guest 0x8007B04C. That walker is STILL SUBSTRATE (rec_dispatch), so during mid-transition it calls `(**(code **)(iVar1 + 0x1c))()` per node — which resolves to substrate `func_80138FC8` → substrate `func_80073328`, BYPASSING the native `SceneTransition::stepSwapWaiter` entirely (dispatch_native_behavior only routes through the NATIVE walker, not substrate `func_8007B04C`). Instrumentation confirms: my native stepSwapWaiter fires only ~34 times at transition-start (the pre-transition frames), then goes silent for the remaining ~900 pad-replay frames while the substrate walker takes over. So the SECOND-branch deadlock is happening in substrate MAIN.EXE code — my class ownership currently gives us the RE + verified port, but the mid-transition path itself needs porting for the freeze to move under native control.
+  - **★ mid-transition uses the SUBSTRATE walker (discovered later-291b, 2026-07-02):** `ov_field_frame_x` (game/scene/engine_stage.cpp:703, the sm[0x4a]==5 mid-transition frame variant) drives the transition via `d0(c, 0x8007b04cu)` — the state-3 object walker at guest 0x8007B04C. That walker is STILL SUBSTRATE (typed runtime address dispatch), so during mid-transition it calls `(**(code **)(iVar1 + 0x1c))()` per node — which resolves to substrate `guest 0x80138FC8` → substrate `guest 0x80073328`, BYPASSING the native `SceneTransition::stepSwapWaiter` entirely (dispatch_native_behavior only routes through the NATIVE walker, not substrate `guest 0x8007B04C`). Instrumentation confirms: my native stepSwapWaiter fires only ~34 times at transition-start (the pre-transition frames), then goes silent for the remaining ~900 pad-replay frames while the substrate walker takes over. So the SECOND-branch deadlock is happening in substrate MAIN.EXE code — my class ownership currently gives us the RE + verified port, but the mid-transition path itself needs porting for the freeze to move under native control.
   - Next code target: port FUN_8007B04C native (entity list walker, decomp scratch/decomp/ram_f1000_all.c L56987-L57017). That routes every mid-transition beh dispatch through `dispatch_native_behavior` → `beh_typed_jumptable_pair` (native) → `SceneTransition::stepSwapWaiter` (native), making the freeze fully observable + debuggable inside the class. The state-machine deadlock will STILL reproduce (it's a shared-state bug), but it will do so under native code so we can add targeted probes / a well-scoped, non-bandaid fix once the missing `node[0x29]` writer is identified.
 - **refs:** scratch/bin/door_freeze.pad (deterministic repro), scratch/bin/door_freeze_f{634,934}.bin(+.spad) (freeze-state dumps), scratch/handoff_door_freeze.md (superseded — its "orphaned cooperative task" hypothesis is not proven either way; the finding needs re-RE under this new repro), scratch/handoff_hut_fade.md (matches — hut entry is a sub-scene swap, area id stays 0), scratch/decomp/ram_f1000_all.c L52186-L52316 (FUN_80073328/300/2C0 decomp).
 - **the RE (drop this into future sessions instead of re-deriving):**
@@ -40,7 +40,7 @@
   - **★ NO code anywhere writes bf818=6.** Full RAM scan of MAIN.EXE + the resident overlay for stores to 0x800bf818 finds writers for values 0/1/2/3/4/7/8/9 — never 6. So the FIRST branch of case 3 is a permanent dead end; the transition can ONLY complete via the SECOND branch.
   - **Entity 0x800ef9d4 has `node[0x29]=0`** in the freeze state → gate → FIRST branch → waits forever.
   - **`beh_typed_jumptable_pair` state-1 tail RESETS `node[0x29]=0` at the end of every dispatch** (game/ai/beh_typed_jumptable_pair.cpp: "then a common tail: … node[0x29]=0"), so `node[0x29]!=0` is a MOMENTARY condition an upstream code path must fabricate right before the entity's frame. Under a real walk-through-door, some scene-setup writes node[0x29]!=0 in the same frame the entity's case 3 runs; under the teleport repro that upstream path never fires (the destination-area id stays `bf870=0`, no new overlay/spawn, no scene setup to poke node[0x29]).
-- **why `PSXPORT_GATE=1` also freezes:** it does — same state trap on the substrate. The recomp substrate's overlay body implements the exact same case-3 gate logic (bf818==6 dead end + node[0x29] tail-reset). Real hardware would follow the SAME rule, so real gameplay must reach the SECOND branch — which we cannot reach from a raw-`w` teleport.
+- **why `PSXPORT_GATE=1` also freezes:** it does — same state trap on the substrate. The guest instruction path substrate's overlay body implements the exact same case-3 gate logic (bf818==6 dead end + node[0x29] tail-reset). Real hardware would follow the SAME rule, so real gameplay must reach the SECOND branch — which we cannot reach from a raw-`w` teleport.
 - **REAL fix:** obtain a PROPER repro. Hand-drive a WINDOWED session that walks Tomba into a doorway (no teleport) with `PSXPORT_PAD_RECORD=scratch/bin/hut.pad` (recording is byte-perfect deterministic — verified today). Replay headless and dump the RAM at the swap frame. THAT will show what upstream write puts `node[0x29]!=0` (or `DAT_800e7ea9!=0 && DAT_800e7ffb==0`) into position to let FUN_80073328 case 3 SECOND branch fire. Only then can we say whether native regresses vs substrate on a real transition.
 - **do NOT** patch bf818 or node[0x29] directly to skip the freeze — that's a bandaid and only hides the missing upstream path.
 - **refs:** scratch/handoff_door_freeze.md (superseded — its "orphaned cooperative task" hypothesis is wrong), scratch/handoff_hut_fade.md, game/ai/beh_typed_jumptable_pair.cpp:225/247/254 (JT1 cases 0/1/2 dispatching FUN_80073328), game/scene/engine_stage.cpp:893 ov_field_transition + :699 ov_field_frame_x (state-3 mid-transition path, already native), game/world/pool.cpp:118 ov_800783DC (writes bf816=1 during area load — the initial kick), scratch/decomp/ram_f1000_all.c L6223/L52186-L52316 (FUN_80026ad0 + FUN_800732C0/300/328 decomp)
@@ -77,8 +77,8 @@
     - `0x000 → 0x80041C54`, `0x005 → 0x80042090`, `0x006 → 0x800420AC`, `0x00C → 0x80042448`, `0x013 → 0x800427F4`, `0x015 → 0x80042894`, `0x01E → 0x8004179C`, `0x01F → 0x80041468`, `0x02E → 0x80043A10`, `0x02F → 0x80043A40`, `0x030 → 0x80043BB0`, `0x031 → 0x80043BD4`, `0x034 → 0x80043EDC`, `0x037 → 0x80044144`. (Full inventory pending; each opcode's semantics is its own RE unit.)
 - **native port strategy (when landing):**
   1. `class ScriptInterp` on Engine (`c->engine.script`) — instance subsystem per project OOP directive; not static because it will grow state (per-object script debug traces, etc.).
-  2. Method `step(uint32_t obj)` mirrors the FUN_80041098 loop. Op 0x03E's native path calls `c->engine.behaviors.dispatchObj(obj, fnptr)` — so any fade fnptr registered in `BehaviorDispatch::kTable` runs native automatically; unowned fnptrs fall through to `rec_dispatch` (substrate).
-  3. Wire the native step at guest 0x80041098 via `dispatch_native_behavior` (existing route). Do NOT reintroduce `rec_set_override` — the CLAUDE.md ban stands.
+  2. Method `step(uint32_t obj)` mirrors the FUN_80041098 loop. Op 0x03E's native path calls `c->engine.behaviors.dispatchObj(obj, fnptr)` — so any fade fnptr registered in `BehaviorDispatch::kTable` runs native automatically; unowned fnptrs fall through to `typed runtime address dispatch` (substrate).
+  3. Wire the native step at guest 0x80041098 via `dispatch_native_behavior` (existing route). Do NOT reintroduce `tomba::native::declareOverride` — the CLAUDE.md ban stands.
   4. Once the loop is native, wire each fade fnptr from the script tables (0x8013B29C etc.) as its OWN `beh_*` in kTable — each is a small state machine to RE case-by-case. Only then do the two already-native fade sub-machines (whiteFlashPhaseRamp @0x801178A4, whiteFadeHold @0x80117AAC in `beh_a06_multi_actor.cpp`) share a "same visual mechanism, different SMs" family with them — the script-driven fns are DISTINCT addresses, not the same fns.
 - **misconception to avoid:** the handoff phrasing "porting this enables the two A06 fade sub-machines to be reached via native call chain" is imprecise — whiteFlashPhaseRamp/whiteFadeHold are ALREADY reached natively via `beh_a06_multi_actor` case 10 (they're static helpers there). The script interpreter dispatches a DIFFERENT family of fade fns (0x8013B*, 0x80139728). Both families likely coexist and drive different cutscene beats; landing the interpreter enables the SECOND family.
 - **refs:** commit 8ccbfca (fade sub-machines RE'd inline in beh_a06_multi_actor.cpp), tools/disas.py 0x80040CDC/0x80040DE0/0x80040E54/0x80041098/0x800412CC (interpreter fns), A06.BIN script tables around 0x80149A20 (fade scripts) and 0x80149CDC (opening-cutscene script header 0x0000000D), scratch/ghidra/A06 (Ghidra 12.0.4 project, base 0x80108F9C, 484 fns).
@@ -105,7 +105,7 @@
     disas at 0x80040d[80-a0]). The two external callers ARE fully resolved (a0=obj, mode=v0), but porting
     this as an isolated method would silently assume the enclosing function's OWN stack-frame convention
     (ra @ sp+0x14, s0 @ sp+0x10, 24-byte frame) is safe to skip past — that requires RE'ing the TRUE
-    enclosing function first (not yet done; not one of the 4 assigned addresses). Left as rec_dispatch.
+    enclosing function first (not yet done; not one of the 4 assigned addresses). Left as typed runtime address dispatch.
   - **0x8012E168 — BLOCKED on register provenance.** Same fall-through-continuation shape (raw disas:
     the instruction immediately before 0x8012e168 is `addiu v0,zero,-0xc8`, i.e. this address is ALSO
     reached by fallthrough with a DIFFERENT semantic v0 than the external-jal case). Additionally the
@@ -117,7 +117,7 @@
     OVERWRITES s1 as its 0..39 LOOP COUNTER — game/world/object_table.cpp:194-224 — meaning if THIS is
     the call path, `s1+0xD0` would read near-NULL, which can't be right). Which path actually feeds
     FUN_80040558 was not resolved this session. Porting with a GUESSED s1 meaning would be exactly the
-    "magic constant" bandaid CLAUDE.md bans. Left as rec_dispatch pending that trace.
+    "magic constant" bandaid CLAUDE.md bans. Left as typed runtime address dispatch pending that trace.
   - **0x8013DD48 — LEAVE PSX (GTE render leaf), see docs/findings/render.md.**
 - **lesson:** an isolated-address Ghidra decompile that reports `unaff_sN`/`in_vN` pseudo-vars is a
   reliable SIGNAL (not just decompiler noise) that the address is a shared fall-through fragment, not a
@@ -140,14 +140,14 @@
 - **bug found (§9 re-verify catch):** `op34ClaimGate`'s `kClaimGateByte` constant was wrong —
   `0x800BF86Fu` in the original wide-RE draft vs the ground truth `0x800BF80Fu` (an 0x60 transcription
   slip, apparently copied from op06's unrelated `0x800BF870` table neighborhood). Recomputed directly
-  from `generated/shard_2.c:4772`'s own constant arithmetic: `(32780<<16) + (-2040) + 7` in the
+  from `authenticated executable/overlay evidence`'s own constant arithmetic: `(32780<<16) + (-2040) + 7` in the
   claim/write path and independently `(32780<<16) + (-2033)` in the poll path — both give
   `0x800BF80F`, confirmed self-consistent within the function. Fixed in `game/scene/script_interp.cpp`
   (`kClaimGateByte`) and the header banner (`game/scene/script_interp.h`).
 - **everything else verified clean:** op05WaitFrames (shard_7.c:5216), op06TestSceneFlag
   (shard_0.c:5231), advanceStep/FUN_80040FA0 (shard_2.c:4564), stepAngleToward/FUN_8004139C
   (shard_1.c:6657), stepEventPulse/FUN_80042EA4 (shard_3.c:11682), op36MoveTowardScriptTarget
-  (shard_5.c:5667), op31TurnTowardTarget (shard_3.c:11362) all matched their `generated/` bodies
+  (shard_5.c:5667), op31TurnTowardTarget (shard_3.c:11362) all matched their `authenticated executable/overlay evidence` bodies
   instruction-for-instruction on independent re-derivation — including the two op31 polarity fixes the
   original draft's own commentary claimed to have self-caught (both confirmed correct: argA sign bit
   SET selects the scratchpad secondary-actor global / CLEAR selects self; the commit-tail SNAPs when
@@ -155,20 +155,20 @@
 - **naming fix:** `ScriptInterp::advanceEntry()` was documented as owning guest FUN_80040E54
   (`kAdvanceAddr`) but its actual behavior has always been FUN_80040FA0's (the post-advance switch
   step() really calls) — `advanceEntry()` now calls the native `advanceStep()` body directly instead
-  of `rec_dispatch(c, 0x80040FA0u)`; FUN_80040E54 (the raw entry-advance) stays substrate, called from
+  of `typed runtime address dispatch(c, 0x80040FA0u)`; FUN_80040E54 (the raw entry-advance) stays substrate, called from
   inside `advanceStep()` (out of band for this pass).
-- **wiring mechanism:** `step()`'s opcode dispatch already calls `rec_dispatch(c, handler)` for every
-  non-0x3E opcode (handler = the resident table read from `0x800A3B78 + oid*4`), and `rec_dispatch`
-  consults `c->game->engine_overrides` before falling to the `gen_func_*` body — already oracle-gated
-  (core B / psx_fallback never consults it). So wiring these 5 opcodes was ONLY
+- **wiring mechanism:** `step()`'s opcode dispatch already calls `typed runtime address dispatch(c, handler)` for every
+  non-0x3E opcode (handler = the resident table read from `0x800A3B78 + oid*4`), and `typed runtime address dispatch`
+  consults `c->game->engine_overrides` before falling to the `original guest instructions` body — already oracle-gated
+  (core B / the retired alternate-execution flag never consults it). So wiring these 5 opcodes was ONLY
   `ScriptInterp::registerOverrides()` registering `kOp05Addr/kOp06Addr/kOp34Addr/kOp36Addr/kOp31Addr`
-  onto `EngineOverrides` (called from `register_engine_overrides()` in `runtime/recomp/boot.cpp`) — no
+  onto `EngineOverrides` (called from `register_engine_overrides()` in `runtime/psx/boot.cpp`) — no
   change to `step()`'s dispatch loop itself.
 - **PcScheduler::tickSleepCountdown** (FUN_800506D0, `game/core/pc_scheduler.cpp`) verified clean
-  against `generated/shard_5.c:7522` (3-slot sweep, state==1 decrement+re-arm-to-2-on-underflow) and
-  wired by direct-call swap at `runtime/recomp/native_boot.cpp:129` (was `rc0(c, 0x800506d0)`).
+  against `authenticated executable/overlay evidence` (3-slot sweep, state==1 decrement+re-arm-to-2-on-underflow) and
+  wired by direct-call swap at `runtime/psx/native_boot.cpp:129` (was `guest call (c, 0x800506d0)`).
 - **refs:** game/scene/script_interp.{h,cpp}, game/core/pc_scheduler.{h,cpp},
-  runtime/recomp/{boot,native_boot}.cpp.
+  runtime/psx/{boot,native_boot}.cpp.
 
 ## SOP intro-cutscene cluster (0x8010AF60-0x8010BEAC) + Demo::s3SubMachine (0x80106AC4) — §9 promote pass (2026-07-10)
 - **status:** SOP cluster now 6/6 promoted VERIFIED+WIRED (sopBeatAdvanceWalk 0x8010AF60,
@@ -197,13 +197,13 @@
   for the wired 5 rests on the §9 line-by-line re-verify, not the gate; a future session with SOP-area
   coverage should re-gate to confirm they actually fire.- **systemic bug found (§9 re-verify catch, all 7 functions incl. Demo's):** EVERY function in the
   original wide-RE draft was logically byte-exact (confirmed instruction-by-instruction against
-  `generated/ov_sop_shard_*.c` / `generated/ov_demo_shard_0.c`) but NONE mirrored the guest-stack
+  `authenticated executable/overlay evidence` / `authenticated executable/overlay evidence`) but NONE mirrored the guest-stack
   frame their `ov_*_gen_*` counterpart pushes (`addiu sp,-N` + s0/s1/ra spills) — CLAUDE.md's "MIRROR
   THE GUEST STACK" rule. `Demo::s3SubMachine`'s own draft comment ("no stack frame observed in the
-  decompile") was flatly WRONG — `ov_demo_gen_80106AC4` pushes `addiu sp,-32` + spills ra/s1/s0. Fixed
+  decompile") was flatly WRONG — `overlay guest 0x80106AC4` pushes `addiu sp,-32` + spills ra/s1/s0. Fixed
   in all 7 (save incoming r16/r17/r31, spill to the RE'd sp offsets, restore before every return —
   `game/ai/sop_intro_events.cpp` + `game/scene/demo.cpp`). This mattered in practice: several of these
-  leaves call still-substrate `rec_dispatch` leaves internally (Animation::attach, GraphicsBind::
+  leaves call still-substrate `typed runtime address dispatch` leaves internally (Animation::attach, GraphicsBind::
   recordArrayInit, etc.) that DO clobber the shared r16/r17/r31 register file, so without the mirror
   the CALLER's registers come back corrupted, not just the stack bytes.
 - **finding: sopLiftedSubtick / ScriptInterp::step divergence — RESOLVED (2026-07-10, frontier
@@ -211,7 +211,7 @@
   already-native, `game/scene/script_interp.cpp`, NOT part of this cluster) produced an SBS diff at
   `node+0x71` (`OBJ_FLAGS_71`) starting ~frame 63: native (A) stayed `02`, oracle (B) advanced to `03`.
   `sopLiftedSubtick` itself was already byte-exact; the bug was in `ScriptInterp::step`'s RET_PAUSE
-  handler (§9 re-verify against `generated/shard_3.c:11302` `gen_func_80041098`, line-by-line delay-
+  handler (§9 re-verify against `authenticated executable/overlay evidence` `guest 0x80041098`, line-by-line delay-
   slot trace of `L_800410C0..L_80041178`): the handler ORed `obj[+0x71] |= 0x02u`, but tracing the
   guest's own delay-slot chain (`r2` gets set to `1` — NOT `2` — by the time control reaches the OR at
   `L_80041138`, via three chained `{compare; delay-slot-assign; branch}` blocks at 0x800410FC-
@@ -222,7 +222,7 @@
   `OBJ_FLAGS_71` bit-layout comment, both of which had mistranscribed the same bit). `sopLiftedSubtick`
   is now registered in `EngineOverrides` (`ScriptInterp::registerOverrides`-adjacent
   `RegisterSopIntroEventOverrides`, `game/ai/sop_intro_events.cpp`); `beh_sop_intro_lifted.cpp`'s
-  `overlay_subtick` call site is UNCHANGED (`rec_dispatch(c, 0x8010B588u)`) since `rec_dispatch`
+  `overlay_subtick` call site is UNCHANGED (`typed runtime address dispatch(c, 0x8010B588u)`) since `typed runtime address dispatch`
   already routes through `EngineOverrides` before falling to substrate — no taxi needed. **Gated:**
   `PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1` (standard gate) 0-diff through f5070+ with
   `sopLiftedSubtick` firing hundreds of times from f62 (the SOP narration IS the opening intro, see
@@ -233,32 +233,32 @@
   `demo_frame_s3()`'s call frame) starting frame 13: oracle (B) spills r16=`0x1F800000` (the live loop
   constant `Demo::stageBodyFaithful` sets up and documents as required "at every dispatch boundary");
   native (A) spills r16=`2` instead. `demo_frame_s3()` (`game/scene/demo.cpp`, PRE-EXISTING, not part
-  of this pass) calls `rec_dispatch(c, 0x80106ac4u)` without re-establishing r16 itself, relying on it
+  of this pass) calls `typed runtime address dispatch(c, 0x80106ac4u)` without re-establishing r16 itself, relying on it
   staying live from `stageBodyFaithful`'s setup through whichever earlier substate
   (`demo_frame_s1`/`demo_frame_s2`, also pre-existing) ran first in the same faithful-loop iteration —
   one of those doesn't preserve it. `Demo::registerOverrides()` exists (`game/scene/demo.cpp`) but is
-  NOT called from `register_engine_overrides()` (`runtime/recomp/boot.cpp`) pending that fix.
+  NOT called from `register_engine_overrides()` (`runtime/psx/boot.cpp`) pending that fix.
   Also DISPROVED en route: `0x80106AC4` DOES have a direct intra-shard call site
   (`ov_demo_shard_0.c:126`, inside `FUN_801064E8` = the substrate's own s3 body) exactly like
-  `game/ai/actor_melee_engage.cpp`'s shape — but dual-wiring it via `ov_demo_set_override` caused a
+  `game/ai/actor_melee_engage.cpp`'s shape — but dual-wiring it via `DEMO tomba::native::declareOverride` caused a
   genuine DOUBLE-FIRE per frame (the guest's own root coroutine at 0x80106388 keeps walking its
   substate dispatch in parallel with the native `demo_frame_s3()` path). Removing the dual-wire (kept
-  ONLY `EngineOverrides::register_`, the route `demo_frame_s3()`'s `rec_dispatch` actually uses) fixed
+  ONLY `EngineOverrides::register_`, the route `demo_frame_s3()`'s `typed runtime address dispatch` actually uses) fixed
   the double-fire but NOT the r16 divergence — two separate bugs, both pre-existing/out-of-scope.
 - **finding: sopLiftedSubtick wiring exposes a pre-existing ScriptInterp::step divergence** —
   registering `sopLiftedSubtick` (states 1/6 call `ScriptInterp::step(node)`, already-native,
   `game/scene/script_interp.cpp`, NOT part of this cluster) produces an SBS diff at `node+0x71`
   (`OBJ_FLAGS_71`) starting ~frame 63 of intro-area autonav: native (A) stays `02`, oracle (B) advances
   to `03`. Isolated by disabling ONLY `sopLiftedSubtick`'s `EngineOverrides::register_`/
-  `ov_sop_set_override` calls — the other 5 SOP functions + Demo all still 0-diff. `sopLiftedSubtick`
-  itself re-verified byte-exact (including its stack frame) against `ov_sop_gen_8010B588`; the
+  `SOP tomba::native::declareOverride` calls — the other 5 SOP functions + Demo all still 0-diff. `sopLiftedSubtick`
+  itself re-verified byte-exact (including its stack frame) against `overlay guest 0x8010B588`; the
   divergence traces to `ScriptInterp::step`'s handling of SOP's specific script opcode content (an
   opcode/ret-code path this leaf is apparently the first caller to exercise under SBS since it was
   wired). `game/ai/beh_sop_intro_lifted.cpp`'s `overlay_subtick` deliberately stays on
-  `rec_dispatch(c, 0x8010B588u)` (runs the oracle-verified substrate body under BOTH pc_skip=true
+  `typed runtime address dispatch(c, 0x8010B588u)` (runs the oracle-verified substrate body under BOTH pc_skip=true
   default play AND pc_skip=false/SBS) rather than calling the native `sopLiftedSubtick` directly, so
   normal gameplay isn't exposed to the latent ScriptInterp bug either. NEXT: root-cause
-  `ScriptInterp::step`/`advanceEntry` against `generated/shard_3.c:11302` (`gen_func_80041098`) for
+  `ScriptInterp::step`/`advanceEntry` against `authenticated executable/overlay evidence` (`guest 0x80041098`) for
   the specific opcode SOP's script data selects — out of THIS cluster's scope.
 - **finding: Demo::s3SubMachine wiring exposes a pre-existing r16 register-liveness gap — RESOLVED
   (2026-07-10, root cause was r17, not r16)** — registering `Demo::s3SubMachine` produced an SBS diff
@@ -268,9 +268,9 @@
   `PSXPORT_SBS_PREWATCH=0x801FE98C` (arms a write-watch from boot, dumps the writing call's host+guest
   backtrace on the first divergent store — see docs/fleet-workflow.md §3): 0x801FE98C is NOT r16's
   spill slot in ANY of Demo's own frames — it's the **r17** spill slot (sp+36) inside
-  `ov_demo_gen_80106824`'s prologue (the "commit pair" leaf both s2's and s3's inner sub-machines
-  call), reached via `Demo::s3SubMachine` -> `rec_dispatch(c, 0x80106824u)`. `ov_demo_gen_80106AC4`
-  (the REAL substrate s3 sub-machine, `generated/ov_demo_shard_0.c:333`) does
+  `overlay guest 0x80106824`'s prologue (the "commit pair" leaf both s2's and s3's inner sub-machines
+  call), reached via `Demo::s3SubMachine` -> `typed runtime address dispatch(c, 0x80106824u)`. `overlay guest 0x80106AC4`
+  (the REAL substrate s3 sub-machine, `authenticated executable/overlay evidence`) does
   `r17 = 0x1F800000; jal 0x80106824` right before that call — NOT an argument (0x80106824 reads only
   a0/a1=r4/r5), but the caller reusing its own callee-saved s1 as a scratch base register it wants
   ready for a post-call re-read (`sm = *(r17+312)` right after the call returns, matching `sm =
@@ -281,28 +281,28 @@
   itself was ALWAYS correct end-to-end (traced with temp `[r16trace]` prints at every substate
   boundary — stayed `0x1F800000` from `Demo::stageBodyFaithful`'s setup through every frame, s1, s2,
   s3, unconditionally). **Fix:** `Demo::s3SubMachine` now sets `c->r[17] = 0x1F800000u;` immediately
-  before `rec_dispatch(c, 0x80106824u)`, mirroring `ov_demo_gen_80106AC4:333` exactly
+  before `typed runtime address dispatch(c, 0x80106824u)`, mirroring `overlay guest 0x80106AC4:333` exactly
   (`game/scene/demo.cpp`). `Demo::registerOverrides(game)` is now called from
-  `register_engine_overrides()` (`runtime/recomp/boot.cpp`). Verified: `PSXPORT_DEBUG=dispatch` shows
+  `register_engine_overrides()` (`runtime/psx/boot.cpp`). Verified: `PSXPORT_DEBUG=dispatch` shows
   `Demo::s3SubMachine` firing every frame from f13 onward (menu-cursor substate reached by
   `PSXPORT_SBS_AUTONAV=1`); SBS-full 0-diff held for 5700+ frames (~95s,
   `PSXPORT_SBS_EXIT_FRAME=5700`).
   Also DISPROVED en route (unchanged from the original note): `0x80106AC4` DOES have a direct
   intra-shard call site (`ov_demo_shard_0.c:126`, inside `FUN_801064E8` = the substrate's own s3 body)
-  exactly like `game/ai/actor_melee_engage.cpp`'s shape — but dual-wiring it via `ov_demo_set_override`
+  exactly like `game/ai/actor_melee_engage.cpp`'s shape — but dual-wiring it via `DEMO tomba::native::declareOverride`
   caused a genuine DOUBLE-FIRE per frame. Kept ONLY `EngineOverrides::register_` (the route
-  `demo_frame_s3()`'s `rec_dispatch` actually uses); the direct call site inside `FUN_801064E8` stays
+  `demo_frame_s3()`'s `typed runtime address dispatch` actually uses); the direct call site inside `FUN_801064E8` stays
   unhooked (falls through to plain substrate, harmless, matches pre-existing behavior).
   **(stale note, RESOLVED elsewhere):** this session also re-observed the ovhit "all NEVER HIT under
   SBS" binding bug — that was independently root-caused and FIXED on main (commit b63eac3, per-Game
   registry + g_tab merge; see docs/findings/animation.md). ovhit is now reliable under SBS.- **refs:** game/ai/sop_intro_events.{h,cpp}, game/ai/beh_sop_intro_lifted.cpp, game/scene/demo.{h,cpp},
-  runtime/recomp/boot.cpp.
+  runtime/psx/boot.cpp.
 
 ## pc_skip exec: prologue vortex backdrop missing + scene SM stalls before area load (2026-07-10, RESOLVED)
 
 - **status: RESOLVED (2026-07-10).** Root cause: `ScriptInterp::op05WaitFrames` (game/scene/script_
   interp.cpp) returned -1 on wait-expiry, mis-RE'd as a MIPS sign-replicate 0/-1 idiom. The generated
-  substrate (`generated/shard_7.c:5216`, `gen_func_80042090`) computes `c->r[2] = c->r[2] << 16;
+  substrate (`authenticated executable/overlay evidence`, `guest 0x80042090`) computes `c->r[2] = c->r[2] << 16;
   c->r[2] = c->r[2] >> 31;` on a `uint32_t` — a LOGICAL shift (srl, not sra) yielding 0 or 1, not
   0/-1. In `ScriptInterp::step()`'s ret-code switch, ret=1 is RET_ADVANCE_0_A (cursor advances);
   ret=-1 falls to `default` (never advances). Every script in any exec path consulting
@@ -311,7 +311,7 @@
   downstream beat-advance chain (SCENE_BEAT 0x800BF9B4: 0→1→2→3→5) that spawns the vortex void prop
   (beat==5 gate in beh_sop_intro_narration). Covers BOTH symptom 1 (wrong backdrop) and symptom 2 (SM
   freeze at 50=2/52=2 — same stalled script never reaches its terminal ops). Fix: flip the expiry
-  return to `1`, rewrite the stale banner comment. GATE=1 core (recomp_path) was never affected — it
+  return to `1`, rewrite the stale banner comment. GATE=1 core (retired comparison path) was never affected — it
   doesn't consult EngineOverrides, so this only masked default/pc_skip.
 - **also falsified in the same pass**: `game/ai/sop_intro_events.cpp`'s "per-KEYFRAME ANIMATION-EVENT
   callback table at 0x8010CA60" hypothesis — those are op-0x3E (call-fnptr) SCRIPT entries of the same
@@ -349,8 +349,8 @@
 - **cause**: `ov_sopBeatAdvanceWalk`/`ov_sopBeatAdvanceNarration` (game/ai/sop_intro_events.cpp) did
   `(void)fn(c)` and never wrote `c->r[2]`, but these are op-0x3E fnptr callees —
   `ScriptInterp::callFnptr` returns `(int)c->r[2]` and `step()` drives pause(0)/advance(1..3) from
-  it. Stale r[2] (whatever the last rec_dispatch left) fed garbage advance codes: walk exited at
-  call 31 (first internal rec_dispatch) instead of 101; narration churned 156 calls without ever
+  it. Stale r[2] (whatever the last typed runtime address dispatch left) fed garbage advance codes: walk exited at
+  call 31 (first internal typed runtime address dispatch) instead of 101; narration churned 156 calls without ever
   reaching its state-1 expiry that stamps 0x800BF80F=1 — so the script never reached the
   reveal/terminal ops → no vortex scene, SM freeze (both prologue symptoms, one chain).
 - **fix**: wrappers publish the return (`c->r[2] = fn(c)`), matching the gen tails (0 running /
@@ -364,16 +364,16 @@
   revision that found cause #2. Wrapper audit rule: any EngineOverrides wrapper for a function the
   substrate calls for its RETURN VALUE must set c->r[2]; grep for `(void)` wrappers when wiring.
 - **refs**: workflow wf_a7f630fd-dc6; game/ai/sop_intro_events.{h,cpp}, game/scene/script_interp.cpp
-  (callFnptr banner), runtime/recomp/sbs.cpp (SCENE_BEAT observable).
+  (callFnptr banner), runtime/psx/sbs.cpp (SCENE_BEAT observable).
 
 ## Prologue-vortex root cause #3: objMatrixCompose dispatched FUN_80051128 with stale a0 → matMul zeroed SOP script data (2026-07-10, RESOLVED)
 
 - **stacked on** causes #1 (op05 expiry return) and #2 (op3E wrapper r[2]) — with both fixed, the
-  default config crashed at ~f750: `rec_dispatch_miss 0x801464C0` (caller `gen_func_8001D4C8`,
+  default config crashed at ~f750: `runtime dispatch fault 0x801464C0` (caller `guest 0x8001D4C8`,
   a0=0).
 - **cause chain** (each step verified live, exact frames):
   1. `Engine::objMatrixCompose` (FUN_800518FC, game/core/engine.cpp) dispatched its finalize leaf
-     `rec_dispatch(0x80051128)` WITHOUT re-arming a0 — `gen_func_800518FC` does `r4 = r17` (obj)
+     `typed runtime address dispatch(0x80051128)` WITHOUT re-arming a0 — `guest 0x800518FC` does `r4 = r17` (obj)
      first. r4 was still `obj+0x98` from the preceding 0x80084470 call.
   2. `FUN_80051128` (skeleton bone-matrix composer) walked `obj+0x98` as an object: fake bone count
      0x50, "bone pointer" slot i=7 lands at `obj+0x174` — INSIDE THE NEIGHBOR NODE, on the SOP intro
@@ -384,12 +384,12 @@
      table[0] = `FUN_80041C54` (spawn positional-SFX emitter) with argA=0 → emitter node with sfx
      id 0 / zone fields 0 → first tick ran the zone-SFX dispatcher `FUN_8001D41C` → jump table at
      0x80010080 indexed by area byte 0x800BF870 (=0 during the prologue) → trampoline
-     `gen_func_8001D4C8` → hard call 0x801464C0 (area-0 overlay, not resident) → recomp-MISS.
+     `guest 0x8001D4C8` → hard call 0x801464C0 (area-0 overlay, not resident) → historical guest-entry miss.
 - **trigger config**: only paths where objMatrixCompose runs native (default/pc_skip). The clobber
   fired from `beh_sop_intro_narration` state_running sub==1 (beat 5, ~f544+).
 - **second defect found in the same diagnosis**: `spawn_narration_prop`
   (game/ai/beh_sop_intro_narration.cpp) staged the FUN_8003116C arg block PACKED (X/Y/Z at
-  +0/+2/+4); `ov_sop_gen_8010B990` stages halfwords at sp+18/+22/+26 with a1=sp+16 — the callee
+  +0/+2/+4); `overlay guest 0x8010B990` stages halfwords at sp+18/+22/+26 with a1=sp+16 — the callee
   reads X/Y/Z at a1+2/+6/+10. The narration prop spawned at garbage coordinates. Fixed to the gen
   layout.
 - **fixes**: `c->r[4] = obj` before the finalize dispatch (engine.cpp); arg-block layout
@@ -415,19 +415,19 @@
   (d) pilot anim-field divergence at aligned frames (+0x0E/+0x38/+0x8A/+0x92) — suspect follow-on
   of the walk anim chain, needs its own diagnosis. These go on the default-config burndown.
 - **refs**: game/core/engine.cpp (objMatrixCompose), game/ai/beh_sop_intro_narration.cpp,
-  runtime/recomp/mem.cpp (WWATCH frame/BT/regs), runtime/recomp/hle.cpp (miss-regs/miss-node),
+  runtime/psx/mem.cpp (WWATCH frame/BT/regs), runtime/psx/hle.cpp (miss-regs/miss-node),
   game/scene/script_interp.cpp (`PSXPORT_DEBUG=script`), docs/config.md.
 
 ## Prologue audio + anim divergences: one-byte instrument slip, stale-a3 anim seed, missing guest-frame mirrors (2026-07-10, RESOLVED except font)
 
 - **audio (user-confirmed fixed)**: `AreaSlots::updateTail` action arm passed a2 = slot byte +1 to
-  the note-request leaf FUN_80092660; gen (`gen_func_80075A80`) passes slot byte +2 (`r6 =
+  the note-request leaf FUN_80092660; gen (`guest 0x80075A80`) passes slot byte +2 (`r6 =
   mem_r8(r16+1)`, r16=slot+1). Every sequencer-routed SFX in the prologue played INSTRUMENT 0x0F
   instead of 0x01 (wrong sample 0x13D0 vs 0x0202, wrong pitch). Found by diffing per-voice
   `[spudbg] Vnn start/pitch` streams (extended `debug spu` channel) — after the fix the default
   config's SPU stream is byte-identical to the oracle through f800.
 - **anim (Charles vertex explosion + Tomba pose)**: `Engine::walkStart` dispatched the anim-attach
-  leaves without a3 — `gen_func_80054D14` passes a3 = subMode, which `gen_func_80077CFC` consumes
+  leaves without a3 — `guest 0x80054D14` passes a3 = subMode, which `guest 0x80077CFC` consumes
   as the anim PHASE SEED (obj+0x0E = a3+0x1000) and the decoder frame-seek arg. Stale a3 seeked the
   stream decoder to a garbage frame.
 - **guest-frame mirrors added** (SBS-full WATCH_CUT leg divergences, worked with `sbs diff`/`sbs
@@ -456,7 +456,7 @@
      compose input `cmd+0x18` differed MID-FRAME (frame-end RAM matched — one-frame transient, the
      "settled" reporter never flags it).
   3. `PSXPORT_SBS_PREWATCH=0x800F2BDC` (Charles cmd[0]+0x18): written once/frame by
-     Math::matMul ← gen_func_80051128 ← objMatrixCompose, same site both cores, DIFFERENT values
+     Math::matMul ← guest 0x80051128 ← objMatrixCompose, same site both cores, DIFFERENT values
      only at f289 (pose kickoff frame). Angle source (cmd+0x38): core A wrote via native
      Animation chain, core B via gen — different code paths on identical RAM.
   4. `PSXPORT_MIRROR_VERIFY=0x80077C40` (Animation::attach): TWO native defects, both fixed:
@@ -474,12 +474,12 @@
      substrate callees spill the caller's ra into their guest frames (A spilled stale 0x8010B874
      where gen B spilled 0x8010B6C8 at 0x801FE90C). All ten gen call-site ra constants now armed
      in sopLiftedSubtickBody.
-  LESSON (recurring): a native replacing a gen body must mirror (i) return-value v0/v1 dataflow
+  LESSON (recurring): a native replacing a guest-visible behavior must mirror (i) return-value v0/v1 dataflow
   per exit — real callers branch on it; (ii) r31 before EVERY call — callees spill it; (iii) the
   exact stream-cursor arithmetic of per-branch inline decoders, not a shared helper's contract.
 - **OPEN — next frontier f735 (after 24c7727)**: watch-cut first-div now 0x801FE8C0..CC (stack):
-  last-writer A pc=80054D14 (native walkStart) ra=8010A990 (from substrate ov_sop_gen_8010A900) vs
-  B pc=80077C40 (attach) ra=8010B4D0 (from substrate ov_sop_gen_8010B498) — the cores run DIFFERENT
+  last-writer A pc=80054D14 (native walkStart) ra=8010A990 (from substrate overlay guest 0x8010A900) vs
+  B pc=80077C40 (attach) ra=8010B4D0 (from substrate overlay guest 0x8010B498) — the cores run DIFFERENT
   SOP behavior handlers at the same sp, and the stack bytes name different actor nodes (A spills
   0x800FB858, B 0x800FBB70). Both handlers are pure substrate; the flip is upstream (behavior-SM
   state or walk order). walkStart's v0 is NOT consumed at 0x8010A990 (checked — r2 overwritten
@@ -489,7 +489,7 @@
   PSXPORT_SBS_WATCH_CUT=1 (headless exits at first div with last-writer map).
   RESOLVED (same session, commit after ce522c4): three probes deep, the cause was the op3E
   TRAMPOLINE FRAME — gen does not special-case op 0x3E (the handler table maps it to
-  gen_func_800412CC, reached with r31=0x800410FC like every opcode), and that trampoline is NOT
+  guest 0x800412CC, reached with r31=0x800410FC like every opcode), and that trampoline is NOT
   frameless: `addiu sp,-24`, spills ra@+16, arms r31=0x800412E4, jalr fnptr. Native callFnptr
   skipped the frame, so EVERY op3E callee on core A ran 24 bytes high on the guest stack — all
   their spills landed at shifted addresses (f735: A's attach spill missed 0x801FE8C0). Fixed by
@@ -499,7 +499,7 @@
   (docs/fleet-workflow.md §2). Probe trail below kept for the method.
   NARROWED (earlier same session, PREWATCH capture at f733-735): the walkStart writes match on both cores
   (the a3=0x659-vs-0 in the reg dump is mid-body trash, store values equal); the REAL first diff is
-  that core B makes a SECOND write A never makes — ov_sop_gen_8010B498 (a tiny standalone snap-pose
+  that core B makes a SECOND write A never makes — overlay guest 0x8010B498 (a tiny standalone snap-pose
   +attach helper: node+46/50/54/86 = 16000/-3888/20149/0x800 then attach(node,0x8001B860,0),
   ra=0x8010B4D0) runs for the effect child 0x800FBB70 on B only. Nothing jals 0x8010B498 — it is
   reached as a SCRIPT-OPCODE FUNCTION POINTER (ScriptInterp op3E callFnptr), i.e. the child's
@@ -508,15 +508,15 @@
   Next probe: PSXPORT_DEBUG=script on both cores at f734-735 (per-opcode dispatch log) to see
   which opcode/condition diverges, then MIRROR_VERIFY the native that produces the gate value.
 - **OPEN (superseded framing, kept for the probe trail)**: at the f289 store (`sbs watch 800c3c54` + the new
-  `[ww-regs]` line), core A and core B are in DIFFERENT PRIM-TYPE BRANCHES of gen_func_8007FDB0
+  `[ww-regs]` line), core A and core B are in DIFFERENT PRIM-TYPE BRANCHES of guest 0x8007FDB0
   (`(cmdword>>24)&3`: A=1 at L_8007FF24, B=2 at L_8007FF78) — i.e. the mid-frame CMD-LIST ENTRY for
   Charles' prim (s2=0x800FB960 live at the store) has a DIFFERENT command word on core A. The
   producer is the object-walk side (native behaviors enqueueing render cmds); the cmd list is
   consumed within the frame so end-of-frame SBS never sees it directly — watch the cmd-list write
   next (find the list base via Render::cmdListDispatch, then `sbs watch` the entry). Chain:
-  Render::renderWalk(native A) / gen_func_8003C048(B) → mode handler (A: perModeDispatch replaces
-  gen_func_8003F698 — NB that gen also runs a PER-AREA pre-draw hook via table 0x80015268 gated on
-  0x1F800234==0, verify the native replicates the gate) → gen_func_800803DC → gen_func_8007FDB0.
+  Render::renderWalk(native A) / guest 0x8003C048(B) → mode handler (A: perModeDispatch replaces
+  guest 0x8003F698 — NB that gen also runs a PER-AREA pre-draw hook via table 0x80015268 gated on
+  0x1F800234==0, verify the native replicates the gate) → guest 0x800803DC → guest 0x8007FDB0.
 - **prior framing (kept for context)**: with stacks aligned the remaining
   first-div is an ACTOR VERTEX: `sbs watch 800c3c54` fires in the entity render walk (ra chain
   0x8003F790/0x8003D07C; Charles 0x800FB960 + effect child 0x800FBB70 on the stack) with A packing
@@ -572,7 +572,7 @@
   what differed was packet pool (0x4D4 vs 0x2F70 bytes emitted) and OT bins (empty chains vs threaded).
 - **cause:** the native `Sop::fieldUpdate` (game/scene/sop.cpp) had DELETED the substrate per-frame
   body's two UNCONDITIONAL render dispatches — scene-table render `0x80109FE0(a0=0x800F2418)` and
-  object render-list walk `0x8003C048` (generated/ov_sop_shard_1.c, between the two beat-gated BG
+  object render-list walk `0x8003C048` (authenticated executable/overlay evidence, between the two beat-gated BG
   calls) — on the theory that ov_scene_native solely owned rendering. But sceneNative is gated OFF
   for the void beat (game_tomba2.cpp beat==5 skip, the old sea-in-void fix), so on pc_skip NOTHING
   emitted the narration prop's swirl quads, and the full-OT walk that IS the narration picture drew
@@ -606,12 +606,12 @@
   `bd4Tail(...)` (which draws the RNG stamp as its FIRST action, pc_scheduler.cpp:150) right after
   pre-existing standalone `(void)c->rng.next()` "Slip #5" lines at demo.cpp:920 and engine.cpp:2279 —
   so those 2 sites drew the RNG TWICE per invocation where the guest draws it ONCE. Those stray lines
-  were written under a FALSE belief (documented in their own comments) that `func_80051F14` (spawnPrim,
-  the task-1 registration) itself draws RNG. It does NOT: `gen_func_80051F14` (generated/shard_2.c:6253)
-  and its callees (func_80080930/890/860/8A0…) make ZERO func_8009A450 calls; the ONE draw in the whole
+  were written under a FALSE belief (documented in their own comments) that `guest 0x80051F14` (spawnPrim,
+  the task-1 registration) itself draws RNG. It does NOT: `guest 0x80051F14` (authenticated executable/overlay evidence)
+  and its callees (guest 0x80080930/890/860/8A0…) make ZERO guest 0x8009A450 calls; the ONE draw in the whole
   FUN_80044BD4 body is at gen line 11809, AFTER the `if (r19==1) goto epilogue` check — i.e. only flag!=1.
   Also `native_area_load_bd4` (engine.cpp:1661, the flag=1 door/sub-scene load) drew 1 RNG where the
-  guest draws 0 (flag=1 jumps to the epilogue before func_8009A450). FIX: deleted all three stray draws;
+  guest draws 0 (flag=1 jumps to the epilogue before guest 0x8009A450). FIX: deleted all three stray draws;
   bd4Tail is now the SOLE RNG draw for flag!=1 sites, and flag=1 draws none. This is a pc_skip=true-ONLY
   bug — invisible to SBS-full (which forces pc_skip=false), only visible via PSXPORT_RNG_CALLTRACE=1.
   VERIFIED: post-fix RNG_CALLTRACE (AUTO_SKIP headless) shows the stray `submode1Case0Native+0x2c` draw
@@ -623,22 +623,22 @@
 - SYMPTOM/DEFECT: two independent native bodies for ONE guest fn. game/scene/scene_events.cpp owned
   FUN_80040B48 as SceneEvents::armBody (called via the native `arm(eventId)` API by entity.cpp,
   beh_pickup_collect_trigger, etc.), while game/object/cube_text_ledger.cpp ALSO owned it as
-  CubeTextLedger::activateSlot (registered in the EngineOverrides + g_override[] tables, so
-  substrate func_80040B48 + ActorReward's rec_dispatch(0x80040B48) hit THAT copy). Native-API callers
+  CubeTextLedger::activateSlot (registered in the EngineOverrides + image-qualified runtime dispatcher tables, so
+  substrate guest 0x80040B48 + ActorReward's typed runtime address dispatch(0x80040B48) hit THAT copy). Native-API callers
   and address-reaching callers ran DIFFERENT native bodies for the same function.
 - WHY IT SLIPPED: the two authors (scene_events arc-12, cube_text_ledger 2026-07-08 wide-RE) each
   RE'd the address independently under different names ("scene-event arm" vs "cube-text popup ledger
   activate") — the SAME mechanism (per-slot flag + counter + cost accumulate + ring log at 0x800BF870/
   0x800BF8A8/0x800BF874/0x800ED058). codemap couldn't warn because it never parsed live
   `ov.register_(0x…, "…", fn)` calls, so cube_text_ledger's ownership was invisible.
-- GROUND TRUTH: gen_func_80044B48... (gen_func_80040B48, generated/shard_4.c:4944) — gate s16@0x800E7FEE
+- GROUND TRUTH: guest 0x80044B48... (guest 0x80040B48, authenticated executable/overlay evidence) — gate s16@0x800E7FEE
   ==0 → -1; SLOT_STATE (0x800BF870+r4+68, r4 UNMASKED) !=0 → 0; else set=1, ACTIVE_COUNT(0x800BF8A8)++,
   RUNNING_COST(0x800BF874) += classSize(r4, hi-nibble), ring-log (slot@0x800ED06E+idx, event=0@
   0x800ED074+idx, LOG_INDEX@0x800ED06D++), return 1. Both native copies matched this EXCEPT armBody
   masked the slot index to a byte (`r4 & 0xFF`) — a latent deviation, unreachable while event IDs < 256.
 - FIX: SceneEvents is the sole owner. armBody's byte-mask dropped (now full-width r4, matches gen +
   the former activateSlot). Added SceneEvents::armOverride (guest-ABI thunk) + registerOverrides
-  (EngineOverrides + psx_fallback-gated shard_set_override), moved the 0x80040B48 wiring off
+  (EngineOverrides + the retired alternate-execution flag-gated tomba::native::declareOverride), moved the 0x80040B48 wiring off
   CubeTextLedger; deleted CubeTextLedger::activateSlot. cube_text_ledger.cpp now owns only
   FUN_80040C00 (deactivate) + FUN_80040AA4 (spawn). Same dedup shape FUN_80040A58→classSize got.
 - TOOL FIX (the real root cause — see docs/findings/tooling.md): codemap.py now parses live
@@ -655,8 +655,8 @@
   bytecode init — documented, wired, gated, 8+ live callers via c->engine.script.init). game/core/
   engine.cpp ALSO carried Engine::animEnvInit "FUN_80040CDC" — a mis-named duplicate written in the
   engine.cpp anim-leaf-cluster refactor under the wrong belief that FUN_80040CDC is an animation-env
-  init. It is not: gen_func_80040CDC writes obj[0x7C]=arg1, obj[0x46]=0xFF, obj[0x10/0x70/0x78]=0,
-  calls func_80040DE0 (=loadCurrentEntry), derives obj[0x71] from op0's 0x1000/0x4000 bits — the
+  init. It is not: guest 0x80040CDC writes obj[0x7C]=arg1, obj[0x46]=0xFF, obj[0x10/0x70/0x78]=0,
+  calls guest 0x80040DE0 (=loadCurrentEntry), derives obj[0x71] from op0's 0x1000/0x4000 bits — the
   SCRIPT machine's fields, byte-for-byte ScriptInterp::init.
 - FIX: deleted Engine::animEnvInit + its engine.h decl + its now-orphaned ObjAnimField constants
   (kEnvPtr/kFlags10/kFlag70/kFlag78/kFlags71). Redirected its 3 callers (beh_sop_intro_pilot.cpp
@@ -666,7 +666,7 @@
   framed + substrate-loadCurrentEntry path; both produce identical object writes, the only difference
   being dead guest-stack scratch neither the game nor SBS reads.
 - VERIFIED: build clean; codemap --addr 0x80040CDC single-owner, gone from --conflicts; SBS-full
-  AUTO_SKIP 0-diff to f14130. NOTE: these call sites are DIRECT native calls (not rec_dispatch), so
+  AUTO_SKIP 0-diff to f14130. NOTE: these call sites are DIRECT native calls (not typed runtime address dispatch), so
   both SBS cores run the identical native body — the redirect is equivalent by construction, not
   oracle-gated. The new-game SOP-intro path that exercises them live is not in the current SBS replay
   set (AUTO_SKIP skips the new-game intro) — disclosed, like other replay-coverage gaps.
@@ -683,7 +683,7 @@ After deduping FUN_80040B48 + FUN_80040CDC, `codemap.py --conflicts` (authoritat
   (node_xform.cpp). LIKELY a real dup (same cluster pattern as the animEnvInit slip), BUT unlike
   animEnvInit this is NOT a trivial field-write dup: objMatrixCompose does GTE-ish matrix work via
   SUBSTRATE leaves (setvec 0x80085480 + mul) while buildWithOffset uses NodeXform native math — need
-  to RE both vs gen_func_800518FC and confirm byte-equivalence BEFORE consolidating. NodeXform is the
+  to RE both vs guest 0x800518FC and confirm byte-equivalence BEFORE consolidating. NodeXform is the
   semantic home; objMatrixCompose (LIVE via beh_sop_intro_pilot post_cull_update) would redirect there.
 - **0x8002AB5C** — NativeScenePass::terrainRender (native_terrain.cpp) vs Render::terrain (submit.cpp,
   desc starts "RETIRED 2026-07-07 #32"). AMBIGUOUS: Render::terrain may be a stale-tagged retired
@@ -692,7 +692,7 @@ After deduping FUN_80040B48 + FUN_80040CDC, `codemap.py --conflicts` (authoritat
 ## Cross-area interior code-overlay never loads — RE chain to the sole MODE-slot loader (2026-07-17, OPEN, RE-frontier)
 
 - **symptom (USER):** interiors (fisherman's hut, sm[0x4c]==3) don't render as their own area; earlier finding
-  "hut interior much different / still shows outside" + fps60 30fps. Cross-area warps recomp-MISS on the
+  "hut interior much different / still shows outside" + fps60 30fps. Cross-area warps historical guest-entry miss on the
   destination area's code (e.g. `warp 21` → miss `0x8010D030`; `warp 3` → miss `0x8010B37C`) with **A00
   still resident** in the MODE slot — the per-area CODE overlay `ov_a0<id>` never loads.
 - **RE'd chain (Ghidra ram_sea, this session — supersedes the 2026-07-10/11 finding which mis-blamed
@@ -723,7 +723,7 @@ After deduping FUN_80040B48 + FUN_80040CDC, `codemap.py --conflicts` (authoritat
 ### UPDATE (2026-07-17, same session) — load PATH proven functional; gap is routing + NO REPRO
 
 - **The MODE-slot load path WORKS for nexttab==0 areas.** `warp 22`/`warp 23` (`0x80108f60[22]=[23]=0`)
-  hit submode1 case 0 → `Sop::transitionAreaLoad` (bf870=dest, sm6d=2, full DMA path) → **zero recomp-miss**.
+  hit submode1 case 0 → `Sop::transitionAreaLoad` (bf870=dest, sm6d=2, full DMA path) → **zero guest instruction path-miss**.
   So `FUN_800452c0`/`FUN_80045080(0x80108f9c,area+3)` correctly load the code overlay when case 0 runs.
 - **Corrected table read (final):** `0x80108f60[0..0x17]` = `02 02 04 05 | 02 02 02 04 | 02×8 | 04 02 00 00`
   → nexttab[3]=5, [21]=2, [22]=[23]=0. Only 22/23 route through the load (case 0); 0..21 go straight to a
@@ -746,44 +746,44 @@ After deduping FUN_80040B48 + FUN_80040CDC, `codemap.py --conflicts` (authoritat
   `sm[0x4e]=0xb` → `FUN_8010957c` (an a0l-overlay fn) — but a0l is NOT resident, so the substrate itself
   derails. Warping jumps to area 21 without its overlay preloaded; it is not a valid transition.
 - **The hut door-fade sequence IS a0l code.** `game/render/screen_fade.cpp` (the case-5 writer of
-  `bf839=3 / bf83a=0x1501`) calls `helperCC68` = `rec_dispatch(0x8010CC68)` = **`ov_a0l_func_8010CC68`** at
+  `bf839=3 / bf83a=0x1501`) calls `helperCC68` = `typed runtime address dispatch(0x8010CC68)` = **`overlay guest 0x8010CC68`** at
   every fade step. So a0l is ALREADY resident when the hut door arms — the door transitions WITHIN the a0l
   region; a0l is loaded EARLIER (when the hut's outer area is first entered from A00), not at door-cross.
 - **CONCLUSION: the interior cross-overlay load cannot be warp-reproduced headless.** Reaching it requires
   DRIVING the real game from the seaside into the hut's a0l area (interactive, or a genuine pad-capture that
   actually reaches it — the existing `hut-entry-door-freeze.pad` does NOT, on either path). This is a
-  reproduction-infrastructure blocker, outside headless static RE. **The RE understanding is complete; the
+  reproduction-infrastructure blocker, outside headless binary analysis. **The RE understanding is complete; the
   work is blocked on a real driven repro** (user-captured hut-entry replay, or the A00→a0l region-entry path
   RE'd from the specific seaside door object that first loads a0l — a separate, larger effort).
 - **Recommendation:** pause interior work pending a real repro; the ledger of established facts above is the
   handoff. Do NOT re-attempt warp-based interior repro (proven invalid).
 
-### UPDATE 3 (2026-07-17) — dev-warp made cross-overlay-VALID; area 21 now blocked on a recompiler-seeding gap
+### UPDATE 3 (2026-07-17) — dev-warp made cross-overlay-VALID; area 21 now blocked on a recorded binary evidence-seeding gap
 
 - **The old door-record `warp` was INVALID for cross-overlay areas** (it never loaded the dest overlay).
-  FIXED in `runtime/recomp/native_boot.cpp`: the warp now runs the FULL native area load directly —
+  FIXED in `runtime/psx/native_boot.cpp`: the warp now runs the FULL native area load directly —
   `sm[0x6e]=dest, sm[0x6d]=2 → Sop::transitionAreaLoad()` (code overlay `FUN_80045080(0x80108f9c,dest+3)` +
   area DATA + reloc tables + `bf870=dest`) then forces the running state (`sm[0x4a]=1, sm[0x4c]=nexttab[dest]`).
   **VERIFIED: `warp 3` (ov_a03) now loads clean, 0 miss (was a miss-crash on 0x8010B37C); `warp 0` clean.**
   So cross-overlay areas are now reachable via warp — the "be able to reach it" tooling gap is closed for
-  areas whose overlay functions are all recompiled.
+  areas whose overlay functions are all guest.
 - **Area 21 (hut interior, ov_a0l) now gets MUCH further** — a0l loads, `bf870=21`, runs `sm[0x4c]=2` — but
-  still crashes on a **recompiler-SEEDING gap**: dispatch to `0x80109200` (from sceneEventFifo's `FUN_800251F0`)
-  misses because a0l's first recompiled fn is `0x80109208` — `0x80109200` (8 bytes earlier, reached via a
-  runtime fn-ptr, not a static call) was never DISCOVERED by the recompiler, so `ov_a0l` has no entry for it.
+  still crashes on a **recorded binary evidence-SEEDING gap**: dispatch to `0x80109200` (from sceneEventFifo's `FUN_800251F0`)
+  misses because a0l's first guest fn is `0x80109208` — `0x80109200` (8 bytes earlier, reached via a
+  runtime fn-ptr, not a static call) was never DISCOVERED by the recorded binary evidence, so `ov_a0l` has no entry for it.
 - **RESOLVED 2026-07-22 — and NOT by hand-seeding one address.** `0x80109200` turned out to be one entry
-  of a whole FAMILY of per-area handler tables the recompiler could not see; the general discovery pass
+  of a whole FAMILY of per-area handler tables the recorded binary evidence could not see; the general discovery pass
   is below ("The per-area handler tables live in MAIN but point into the overlay slot"). The stale claim
   that the caller is `sceneEventFifo/FUN_800251F0` is CORRECTED there: the tables are indexed by the
   area byte and are read from several different resident call sites.
 
 ## The per-area handler tables live in resident MAIN but point into the overlay slot (2026-07-22, FIXED)
 
-- **symptom:** `warp 21` (hut interior, ov_a0l) aborted with `[recomp-MISS] no recompiled fn for
+- **symptom:** `warp 21` (hut interior, ov_a0l) aborted with `[historical guest-entry miss] no guest fn for
   0x80109200 (caller ra=0x801087DC, a0=0x800ED058)`. Filed as kanban #24 "Area 22 aborts on entry" —
   the AREA NUMBER ON THAT CARD IS WRONG; the miss reproduces on area **21**, and area 22 is not a field
   area at all (see the next finding).
-- **cause (external/psxport/tools/recomp/emit.py):** the game keeps several parallel dispatch tables in
+- **cause (the removed offline emitter):** the game keeps several parallel dispatch tables in
   RESIDENT MAIN's data, indexed by the area byte `DAT_800BF870` — `(&TABLE)[area](args)`. Each table has
   exactly one entry per area overlay and entry *i* is an address inside overlay *i*'s image. Six of them
   exist: `0x8009D1D4`, `0x8009D22C`, `0x800A45B8`, `0x800A4AA0`, `0x800A4AF8`, `0x800A4B50` (22 entries
@@ -793,7 +793,7 @@ After deduping FUN_80040B48 + FUN_80040CDC, `codemap.py --conflicts` (authoritat
   discovery and fail-fast the first time its area was entered. The project had been patching this ONE
   ADDRESS AT A TIME — the hand-written `OVERLAY_EXTRA_SEEDS` `A00..A0L` block was literally table
   `0x800A45B8` transcribed by hand, added over three separate sessions as misses surfaced.
-- **fix:** `area_indexed_overlay_tables()` in emit.py discovers them from the binary. A window of N
+- **fix:** `area_indexed_overlay_tables()` in the removed CPU-source emitter discovers them from the binary. A window of N
   consecutive MAIN image words (N = number of area overlays) is an area table when word *i* is
   word-aligned and inside overlay *i*'s image AND ≥80% of the words are a valid function entry in their
   OWN overlay. The per-index bounds test is what makes it safe — the overlays differ in size by >10x, so
@@ -812,7 +812,7 @@ After deduping FUN_80040B48 + FUN_80040CDC, `codemap.py --conflicts` (authoritat
 - **verified:** `warp 21` from a settled field run renders (`scratch/screenshots/sweep/z21.png`), 0
   misses; area 3 unaffected (`z3.png`); areas 0–21 all load with 0 misses; boot-smoke
   (`replays/boot-smoke/short-session.pad`, 3000 frames) clean on BOTH pc_faithful+pc_render and
-  `PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1`. `RECOMP_VERSION` 2026-07-22.2.
+  `PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1`. `retired-build version` 2026-07-22.2.
 
 ## Tomba!2 has 22 field areas (0..21) — `warp 22`+ is out of range, not a bug (2026-07-22)
 
@@ -829,17 +829,17 @@ After deduping FUN_80040B48 + FUN_80040CDC, `codemap.py --conflicts` (authoritat
      (`0x80108F60`) has `[22]=[23]=0`.
 - **status:** NOT A PORT BUG. `warp <id>` accepts any id 0..31 and happily corrupts the mode slot with
   a non-area file. The dev-warp should reject `id >= 22` with a diagnostic (repl.cpp / native_boot.cpp).
-- **DEAD END — do not re-chase:** there is no "missing overlay" for areas 22–31 and no recompiler gap
+- **DEAD END — do not re-chase:** there is no "missing overlay" for areas 22–31 and no recorded binary evidence gap
   behind their aborts. Swept 22, 23, 24, 28, 29, 30, 31: every one loads a non-area file, produces
-  out-of-range CD reads, and then hangs or wanders; NONE produces a `rec_dispatch` miss.
+  out-of-range CD reads, and then hangs or wanders; NONE produces a `typed runtime address dispatch` miss.
 
 ## Cold `warp <N≠cur>` (newgame → warp) breaks ~50 frames later — a WARP defect, identical on the oracle (2026-07-22)
 
-- **symptom:** `newgame; skip 60; warp N; skip 60` aborts with `recomp-MISS 0x8010AC20 (caller
+- **symptom:** `newgame; skip 60; warp N; skip 60` aborts with `historical guest-entry miss 0x8010AC20 (caller
   ra=0x800587F8)` for EVERY N != current area. `0x8010AC20` is `jt[0]` of table `0x800A45B8` (A00's
   handler) — i.e. `ActorTomba::enterOuterState0` read `DAT_800BF870 == 0` while overlay A0N was
   resident, so an A00 address was dispatched into the wrong overlay.
-- **it is not a port bug:** `PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1` (pure recomp + PSX render) hits the
+- **it is not a port bug:** `PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1` (pure guest instruction path + PSX render) hits the
   SAME abort at the same place, with `areaidx(800bf870)=0` in the miss state dump. The warp writes
   `bf870=N` (logged) and the game resets it to 0 within ~50 frames.
 - **controls:** `newgame; skip 300` (no warp) is clean; `warp 0` (same area) is clean; the warp only
@@ -852,10 +852,10 @@ After deduping FUN_80040B48 + FUN_80040CDC, `codemap.py --conflicts` (authoritat
 
 ## Resident-aware override dispatch — REJECTED (residency gate breaks render path) [2026-07-17]
 
-- **Symptom:** batch-owning 291 "a00-unique" leaves via `ov_a00_set_override` → boot SIGABRT (both pc_skip + SBS), 0 leaves fired before abort. 190 MAIN-range batch is fine.
-- **Root cause (2 diagnose agents, high conf):** `overrides::dispatch()` (overlay_router.cpp:182) is address-keyed and runs BEFORE the resident-overlay routing (L234-261). During START→SOP boot, SOP is resident in the shared MODE slot (0x80108F9C+); when SOP's body `rec_dispatch(c,X)`s a numeric address that is ALSO one of the 291 a00 override addrs, dispatch() hijacks it into the a00 native leaf → leaf reads foreign RAM / re-dispatches an a00 sub-addr SOP has no entry for → `rec_dispatch_miss` abort (hle.cpp:269). "a00-unique in the DISPATCH TABLE" ≠ cross-overlay ENTRY-unique; the dispatch path is entry-table-agnostic.
+- **Symptom:** batch-owning 291 "a00-unique" leaves via `image-qualified A00 native registration` → boot SIGABRT (both pc_skip + SBS), 0 leaves fired before abort. 190 MAIN-range batch is fine.
+- **Root cause (2 diagnose agents, high conf):** `overrides::dispatch()` (overlay_router.cpp:182) is address-keyed and runs BEFORE the resident-overlay routing (L234-261). During START→SOP boot, SOP is resident in the shared MODE slot (0x80108F9C+); when SOP's body `typed runtime address dispatch(c,X)`s a numeric address that is ALSO one of the 291 a00 override addrs, dispatch() hijacks it into the a00 native leaf → leaf reads foreign RAM / re-dispatches an a00 sub-addr SOP has no entry for → `runtime dispatch fault` abort (hle.cpp:269). "a00-unique in the DISPATCH TABLE" ≠ cross-overlay ENTRY-unique; the dispatch path is entry-table-agnostic.
 - **DEAD END — residency-gating dispatch() (both workflow designs, refuted):** gating `dispatch()` on `overlay_router_resident_name(c,addr)==owner` REGRESSES the a00 RENDER overrides. `override_registry.h:59-63` documents that dispatch interception exists PRECISELY to fire overrides *independent* of live-RAM residency (gen bodies always linked). pc_render's node walk dispatches a00 render leaves (OverlayGt3Gt4 0x801465EC/7BC, OverlayGroundGt3Gt4, TileGridLayer, WidescreenMarginQuad, ActorMeleeEngage) while SOP may still be signature-resident (the "later-275" window) or during a load-transition frame (name "none") → gate returns false → `res->disp(SOP)` at an a00 addr → abort. Do NOT add a residency gate to the crown-jewel dispatch path.
-- **CORRECT FIX (batch selection, not dispatch change):** own an overlay leaf as an a00 override ONLY if its address is a valid code entry/dispatch-target in NO other overlay/module (true cross-overlay ENTRY uniqueness, verified against SOP/START/other overlays' entry tables), OR own the shared-code leaf as MAIN/shared (fired via `shard_set_override`, always resident). Shared-entry addresses stay substrate. Refs: workflow wf_340a9067-89b (journal has full designs+refutations).
+- **CORRECT FIX (batch selection, not dispatch change):** own an overlay leaf as an a00 override ONLY if its address is a valid code entry/dispatch-target in NO other overlay/module (true cross-overlay ENTRY uniqueness, verified against SOP/START/other overlays' entry tables), OR own the shared-code leaf as MAIN/shared (fired via `tomba::native::declareOverride`, always resident). Shared-entry addresses stay substrate. Refs: workflow wf_340a9067-89b (journal has full designs+refutations).
 
 ## Save-sign softlock ROOT-CAUSED: the native beh_scene_ui_trigger (0x800739AC)
 - **status:** FIXED 2026-07-21 (kanban #5). One line.
@@ -879,7 +879,7 @@ After deduping FUN_80040B48 + FUN_80040CDC, `codemap.py --conflicts` (authoritat
   ```
   So the native `beh_scene_ui_trigger` sets the cutscene-lock bits and never clears them, while the
   substrate body does. A save sign IS a scene UI trigger, which fits the symptom exactly.
-- **next:** RE `beh_scene_ui_trigger` against `gen_func_800739AC` and find where the two diverge on
+- **next:** RE `beh_scene_ui_trigger` against `guest 0x800739AC` and find where the two diverge on
   the lock-clear path. Do not "fix" it by clearing the bits — that is the symptom.
 - **likely the same cause as kanban #2** (bucket-pickup cutscene softlock, also pc_skip-ON, also an
   interaction→cutscene flow). Unverified — no replay exists for #2 yet; capture one and test it with
@@ -929,7 +929,7 @@ uint8_t sub = c->mem_r8(obj + 5);
 Case 0 then tests `if (mem_r8(obj + 0x2b) == 3)` to detect a confirm press — a test that could never
 be true, so the sub-state never advanced and the save sign latched the cutscene bits forever.
 
-The oracle does NOT clear it there. `gen_func_800739AC` reads it at L_80073B20 inside case 0
+The oracle does NOT clear it there. `guest 0x800739AC` reads it at L_80073B20 inside case 0
 (`r3 = mem_r8(r16+43); if (r3 != 3) goto L_80073CA4;`) and only zeroes it in the TAIL paths
 (L_80073CA4 / L_80073CC0), which `render_and_return` already mirrors. Its one pre-switch clear is in
 STATE 0's init path (L_80073A8C), which the port already had. Deleting the extra line is the whole fix.
@@ -968,17 +968,17 @@ class(+0x0C)==4, an interactable type (0x0E/0x0F/0x39/0x32/0x59/0x4B/0x4F/0x66/0
 So the byte is an interaction state, now named as such in `Actor`:
 `kInteractNone(0)` -> `kInteractInRange(1)` -> `kInteractActivated(3)` (this scanner).
 CORRECTION: I first wrote that 1 comes from "the proximity pass". There is no such single pass —
-generated/ contains **97 distinct writers** of the literal 1 into +0x2b, spread across the per-area
+authenticated executable/overlay evidence contains **97 distinct writers** of the literal 1 into +0x2b, spread across the per-area
 overlays, i.e. each object type's own handler decides when it is offering an interaction. Asserted
 before checking; the scan is the evidence.
 The object's own handler consumes the 3 and clears it in its render tail. Stated that way, the
 softlock is self-evident: clearing it before the consume throws away the player's button press.
 
 **Two mistakes in porting it, both caught by the gate rather than by reading carefully enough:**
-1. *Registered but never run.* `overrides::install` without a `setter` is rec_dispatch-only wiring,
-   and this function's only caller uses the direct `func_80024794` thunk (shard_1.c:10437). `ovhit`
+1. *Registered but never run.* `tomba::native::declareOverride` without a `setter` is typed runtime address dispatch-only wiring,
+   and this function's only caller uses the direct `guest 0x80024794` thunk (shard_1.c:10437). `ovhit`
    said "registered but unreached" while the substrate quietly kept doing the work. Pass
-   `shard_set_override`.
+   `tomba::native::declareOverride`.
 2. *One indirection short.* `0x1F80014C` holds a POINTER to the candidate array, not the array.
    Ghidra renders it `puVar4 = puRam1f80014c`, which reads like a base; gen is explicit
    (`r5 = mem_r32(0x1F80014C); r4 = mem_r32(r5)`). My first version scanned arbitrary memory and
@@ -1044,12 +1044,12 @@ f4140 → `sm[0x4c]` 3→2 at f4175 → **the BGM comes back** (RMS 330 → ~400
 stack is fine; the BGM is silent purely because the game is parked in the mid-transition state.
 
 ### 3. ROOT CAUSE — the screen-transition sequencer never takes sm[0x4c] off 3 on ENTRY
-`sm[0x4c] = 3` is written by **`gen_func_80026AD0`** (the screen-transition sequencer), reached
-from the area-00 object handler **`ov_a00_gen_801167AC`** via
+`sm[0x4c] = 3` is written by **`guest 0x80026AD0`** (the screen-transition sequencer), reached
+from the area-00 object handler **`overlay guest 0x801167AC`** via
 `Array8Dispatch::tick → BehaviorDispatch::dispatchObj`. Proven with a host-backtrace watchpoint:
 REPL `watch 0x801fe04c 0x801fe04e` + `PSXPORT_CW_BT=1` → one hit,
 `#1 store w2 [801FE04C]=00000003 interp_pc=80099490`, stack
-`gen_func_80026AD0 ← ov_a00_gen_801167AC ← BehaviorDispatch::dispatchObj ← Array8Dispatch::tick ←
+`guest 0x80026AD0 ← overlay guest 0x801167AC ← BehaviorDispatch::dispatchObj ← Array8Dispatch::tick ←
 Engine::fieldFrame ← Engine::fieldRun`.
 
 `sm[0x4c]==3` routes `submode1` to `Engine::fieldRunX` (0x801070B4) and the per-frame body to
@@ -1068,7 +1068,7 @@ gap already flagged in `game/core/engine.cpp`'s `fieldFrameX` comment: *"0x8007b
 per-object update that must, but currently does not, tick the screen-transition sequencer
 FUN_80026ad0 to completion"*.
 
-**NEXT RE STEP (Ghidra headless):** `gen_func_80026AD0` + `ov_a00_gen_801167AC` + `FUN_8007B04C` —
+**NEXT RE STEP (Ghidra headless):** `guest 0x80026AD0` + `overlay guest 0x801167AC` + `FUN_8007B04C` —
 find the completion condition that writes `sm[0x4c]` back to 2, and why the EXIT path reaches it
 while the ENTRY path does not. Prime suspect: the door object's `+0x28 & 0x80` gate, i.e. whether
 `TransitionState3::walkOnce` still dispatches the transition object at all once `fieldFrameX`
@@ -1091,8 +1091,8 @@ content object handler, not by a collapsed init.
   pc_faithful defect on this route.
 - **Frame-indexed pad replays are not portable across the pc_skip fork.** Any replay-based
   skip-vs-faithful comparison needs a state rendezvous, not a frame index.
-- REPL `gate on` is NOT an in-place oracle either: flipping `psx_fallback` mid-run resets the stage
-  machine (`sm[0x4a]/[0x4c]/[0x4e]` → 0) and immediately recomp-MISSes 0x80109450 (abort).
+- REPL `gate on` is NOT an in-place oracle either: flipping `the retired alternate-execution flag` mid-run resets the stage
+  machine (`sm[0x4a]/[0x4c]/[0x4e]` → 0) and immediately historical guest-entry misses 0x80109450 (abort).
 
 ### 5. The CAMERA symptom is not in the capture, but a related freeze is
 The pad is idle from f700 to the end, so "camera stops following after going back outside" never
@@ -1111,7 +1111,7 @@ Continues the entry above. Every statement here is measured on `replays/bugs/hou
 reported camera-follow failure after exit; this replay does not contain an exit and cannot test it.
 
 ### The completion condition (RE, end to end)
-`sm[0x4c]` is taken off 3 by exactly one store: **`gen_func_80026AD0` case 4** (`generated/shard_2.c`
+`sm[0x4c]` is taken off 3 by exactly one store: **`guest 0x80026AD0` case 4** (`authenticated executable/overlay evidence`
 L_80026BE0 — `sm[0x4c]=2, sm[0x4e]=4, bf818=4`). Case 4 is only reachable through **case 3**
 (L_80026BBC), which does nothing but `if (bf818 != 3) return`. The sequencer's own case 1 is what
 put the game there (`sm[0x4c]=3, sm[0x4e]=0, bf818=2, slot[5]=6`).
@@ -1120,10 +1120,10 @@ put the game there (`sm[0x4c]=3, sm[0x4e]=0, bf818=2, slot[5]=6`).
 `stepSwapWaiter` (FUN_80073328) **case 3**, whose gate is
 `door[+0x29] != 0 && G[+0x29] != 0 && *(u8*)0x800E7FFB == 0`. (The case-3 alternative branch waits
 for `bf818 == 6`, and nothing in the game ever writes 6 — confirmed again by scanning every
-`mem_w8` to 0x800BF818 across `generated/` MAIN + all overlays: values 0/1/2/3/4/7/8/9 only.)
+`mem_w8` to 0x800BF818 across `authenticated executable/overlay evidence` MAIN + all overlays: values 0/1/2/3/4/7/8/9 only.)
 
-`door[+0x29]` has exactly one non-zero writer: **`gen_func_80020868`** (the Tomba x door interaction
-leaf; `ov_a00_gen_8011334C` <- `Behaviors::areaSeasidePerframe`). Host backtrace on 0x800EF9FD:
+`door[+0x29]` has exactly one non-zero writer: **`guest 0x80020868`** (the Tomba x door interaction
+leaf; `overlay guest 0x8011334C` <- `Behaviors::areaSeasidePerframe`). Host backtrace on 0x800EF9FD:
 both the entry arm (f~640, via `Engine::fieldFrame`) and the exit arm (via `Engine::fieldFrameX`)
 come from there and nowhere else. Its final gate is
 **`door[+0x5F] != G[+0x147]`** — "Tomba is FACING INTO the door" — and at the same store site it
@@ -1141,17 +1141,17 @@ stamps `*(u8*)0x800BF81F = (1 - door[+0x5F]) << 4`.
 
 `stepSwapWaiter` case 2 flips `door[+0x5F]` 1->0 (and shifts the door's extents +800). From then on
 the gate needs `G[+0x147] == 1` — **Tomba must have turned around**. `G[+0x147]` (facing, 0/1) has
-only two writers on a live run: `gen_func_80055E28` (`G[0x147] = G[0x14A] & 1`, pad direction mapped
-through the camera masks at 0x1F80016C/6E, and only while a direction is held) and `gen_func_80063158`
+only two writers on a live run: `guest 0x80055E28` (`G[0x147] = G[0x14A] & 1`, pad direction mapped
+through the camera masks at 0x1F80016C/6E, and only while a direction is held) and `guest 0x80063158`
 (the 180-degree turn animation, Tomba state 4). Neither fires during the parked window.
 Holding RIGHT for 120 frames straight through the transition does NOT help either — the camera masks
 stay 0x0020/0x0080 for the whole run, so the held direction still yields facing 0 (verified).
 
 ### THE DEFECT FIXED HERE — the area-0 transition-ENTER hook was TRUNCATED by a cooperative yield
 `Engine::fieldRunX` state 0 runs `FUN_8006C77C`, the per-area transition-ENTER hook dispatcher
-(table 0x800A4AF8; area 0 -> `ov_a00_gen_8010CB60`). That hook's TAIL is
+(table 0x800A4AF8; area 0 -> `overlay guest 0x8010CB60`). That hook's TAIL is
 `FUN_80054198(G)` / **`G[5] = 36`** / `G[6] = 0` / `FUN_80074F24(area)` — and `G[5] = 36` is what
-makes `gen_func_80058918` dispatch **`gen_func_80065A54`**, the door-transit state machine whose
+makes `guest 0x80058918` dispatch **`guest 0x80065A54`**, the door-transit state machine whose
 sub-state 0 does `G[+0x147] = *(u8*)0x800BF81F >> 4` (the facing hand-off).
 
 Before the tail, the hook calls `FUN_80044BD4(0x8010DA70, 26, 0, flag=3)` — a cooperative
@@ -1170,10 +1170,10 @@ So the hook never reached its tail, Tomba never entered state 36, and the facing
 `0x8010CB60`, with the cooperative bd4 collapsed to a SYNCHRONOUS call (the port's standing
 "no PSX async" rule; the same collapse `Engine::native_area_load_bd4` already applies elsewhere,
 including bd4's `forceClose(2)` and its flag!=1 RNG stamp via `PcScheduler::bd4Tail`). Wired from
-`Engine::fieldRunX`'s **pc_skip branch only** — `fieldRunXFaithful` keeps `rec_dispatch(0x8006c77c)`
+`Engine::fieldRunX`'s **pc_skip branch only** — `fieldRunXFaithful` keeps `typed runtime address dispatch(0x8006c77c)`
 because pc_faithful runs the GAME on the stage FIBER, where the same yield parks and resumes
 correctly (this is also why the user only sees the bug on the default leg).
-Verified: after the fix `G[5] = 36` IS written at f661, `gen_func_80065A54` runs its cases 0/1/2, and
+Verified: after the fix `G[5] = 36` IS written at f661, `guest 0x80065A54` runs its cases 0/1/2, and
 Tomba walks through the door (z 0x0571 -> 0x03B1).
 
 ### CORRECTION — state 3 is the interior mode, not a stuck entry transition (2026-08-14)
@@ -1183,12 +1183,12 @@ while the player remains inside. `house-on-the-point.pad` is idle from about f70
 contains no attempted exit. Persistent `sm[0x4c]==3` on that negative therefore does not show a
 missing completion writer.
 
-The natural release owner is input-facing `gen_func_80055E28`, not the state-4 turn. A fresh run of
+The natural release owner is input-facing `guest 0x80055E28`, not the state-4 turn. A fresh run of
 the shipping path (`ef4fa7c-dirty+psxport-077d7744-dirty`) used the replay through f700, then held
-LEFT. `gen_func_80055E28` wrote `G[+0x147]` 0->1 at f703; the existing door/sequencer path then
+LEFT. `guest 0x80055E28` wrote `G[+0x147]` 0->1 at f703; the existing door/sequencer path then
 changed `sm[0x4c]` 3->2 at f755. The negative-first denominator agrees: a `G[5]` watch scanned all
 23 writes through f720. Exactly one was `G[5]=4`, at f451 before entry; the four post-entry writes
-from f665 through f720 contained zero state-4 writes. Thus `gen_func_80063158` is not an omitted
+from f665 through f720 contained zero state-4 writes. Thus `guest 0x80063158` is not an omitted
 entry step, and forcing state 4 or patching the facing byte would be a bandaid. Evidence:
 `scratch/logs/house_g5_writers_bt_current.log` and
 `scratch/logs/house_exit_facing_short_current.log`.
@@ -1211,7 +1211,7 @@ position after `sm[0x4c]` returns to 2.
 (`press left` at f700 -> `sm[0x4c]=2`, `bf818=0` by f820); `replays/scene-transitions/hut-entry-door-freeze.pad`
 unchanged (same pre-existing freeze, 0 aborts/misses); `replays/bugs/bucket-softlock.pad` f1200 dialog
 opaque + legible (`scratch/screenshots/bucket_f1200.png`); `replays/boot-smoke/short-session.pad`
-exit 0 with 0 recomp-MISS; `tools/codemap.py --dup-installs` = 0.
+exit 0 with 0 historical guest-entry miss; `tools/codemap.py --dup-installs` = 0.
 **Gates NOT met (this is the residual, not a pass):** BGM does not resume, and the full object walk
 does not resume, because `sm[0x4c]` never leaves 3.
 
@@ -1254,13 +1254,13 @@ never complete). Nothing else changes: on a Coro fiber (pc_faithful, core B) and
 before, which is what keeps SBS 0-diff.
 
 **Proof that the general fix subsumes #47's special case.** #47 had hand-collapsed
-`FUN_8006C77C` + `ov_a00_gen_8010CB60` + its `FUN_80044BD4(0x8010DA70,26,0,flag=3)` into
+`FUN_8006C77C` + `overlay guest 0x8010CB60` + its `FUN_80044BD4(0x8010DA70,26,0,flag=3)` into
 `SceneTransition::areaTransitionEnterSync` / `areaEnterHookA00Sync` / `subSceneLoadSync`, wired from
 `Engine::fieldRunX`'s pc_skip branch. **All three methods are DELETED** and `fieldRunX` dispatches
 the guest hook `0x8006c77c` again, for every area. On `replays/bugs/house-on-the-point.pad`
 (`PSXPORT_DEBUG=sched`, watch on `G[5]` = 0x800E7E85):
 
-| build | `[sched] caught a GAME substate yield` | `G[5]=0x24` (state 36) | `gen_func_80065A54` | watch hits |
+| build | `[sched] caught a GAME substate yield` | `G[5]=0x24` (state 36) | `guest 0x80065A54` | watch hits |
 |---|---|---|---|---|
 | #47's hand-collapse (baseline) | absent | **f661** | runs | 23 |
 | collapse deleted, NO scheduler fix (control) | **present** | never | never runs | 21 |
@@ -1276,7 +1276,7 @@ covered by this change and were left in place:
   `transitionF3c` case-0 texgroup inline are `FUN_80044BD4(..., flag=1)` — **fire-and-forget, no
   wait loop**, so the truncation this fix removes was never their problem. Their exposure is the
   OTHER half of the same disease: the spawned task itself then runs FLAT in
-  `recomp_run_generic_dispatch_stanza`, and truncates there if it yields. Curing that means running
+  `the former generic guest-dispatch stanza`, and truncates there if it yields. Curing that means running
   slot tasks on fibers under pc_skip too — a separate, larger change.
 * `Engine::submode1Case0Native`, `Sop::fieldMode` case 0 and `demo.cpp`'s area-load collapse are
   flag==2 waits and ARE subsumed mechanically — but they currently run the NATIVE body
@@ -1287,7 +1287,7 @@ covered by this change and were left in place:
   PC to its native body (the `SCHED_CORO_*` table `runTask1PreloadStanza` already uses), consumed by
   `runTaskInline`. Do that first, then delete those three with their own scenario gates.
 
-**refs:** kanban #50/#47; `external/psxport/runtime/recomp/pc_scheduler.{h,cpp}`
+**refs:** kanban #50/#47; `external/psxport/runtime/psx/pc_scheduler.{h,cpp}`
 (`onFlatTask`/`runTaskInline`), `game/core/engine.cpp` (`Engine::fieldRunX`),
 `game/scene/scene_transition.{h,cpp}` (collapse deleted); logs
 `scratch/logs/{base,ctrl,final}_hotp.log`.
@@ -1322,7 +1322,7 @@ exist; every one posts 0/1/2/4), so B's await could never be satisfied by any in
 single check falsified the ordering hypothesis in one step and should have come before the
 backtrace work.
 
-**Why SBS never caught it.** Core B (oracle) runs `gen_func_80042448` and writes the right byte;
+**Why SBS never caught it.** Core B (oracle) runs `guest 0x80042448` and writes the right byte;
 core A ran our native and wrote the wrong one — a guaranteed divergence, but only once a script
 executes op12, and the seaside A00 scene that does so is far outside the gate's boot window. A
 green SBS run says nothing about code the run never reaches.
@@ -1340,11 +1340,11 @@ for them and the advance path was invisible. Two ports fixed that (both proven e
   interpreter still substrate-only. It decodes the opcode word's top-3 bits into +8 / +16 / branch
   at entry+12 or +20 / stop, and returns advanceStep's index.
 
-**Wiring note that cost a run:** `gen_func_80040FA0` reaches `FUN_80040E54` by a DIRECT `jal`, which
-only the module thunk intercepts — `rec_dispatch` never sees it. Installed without a `setter` the
+**Wiring note that cost a run:** `guest 0x80040FA0` reaches `FUN_80040E54` by a DIRECT `jal`, which
+only the module thunk intercepts — `typed runtime address dispatch` never sees it. Installed without a `setter` the
 native was silently never called (0 log lines, and "no output" reads identically to "no activity").
-Opcode handlers are reached by an INDIRECT call and so do route through `rec_dispatch`; the advance
-is not. Pass `shard_set_override` when the caller is a direct `jal`.
+Opcode handlers are reached by an INDIRECT call and so do route through `typed runtime address dispatch`; the advance
+is not. Pass `tomba::native::declareOverride` when the caller is a direct `jal`.
 
 **Verification.** Handshake now completes (`meet obj=800FC7D0 ... == 3`) and both scripts advance
 past the old park. The remaining stop at `op0`/`0x80148AFC` is NOT a lock: it is a dialog waiting on
@@ -1355,7 +1355,7 @@ it before calling it one.
 
 
 **symptom** — USER capture `replays/bugs/sequence-softlock-2.pad` (7049 frames). Frame loop keeps
-ticking, no crash, no recomp-MISS, but the sequence never advances and control is never returned.
+ticking, no crash, no historical guest-entry miss, but the sequence never advances and control is never returned.
 
 **status** — STILL REPRODUCES on current main (`c5c5e1d` + submodule `6b534de`). Root cause located
 to the exact deadlocked state below; the ordering defect that produces it is NOT yet identified and
@@ -1377,7 +1377,7 @@ NO fix is landed. Do not "fix" this by poking the flag — that is the banned ba
 The field runs normally — `sm[0x48]=2 sm[0x4a]=1 sm[0x4c]=2 sm[0x4e]=1`, Tomba's outer state
 `G+4=4` (ACTIVE_ALT) dispatching table B at `G+5=0` (the normal walk handler) every frame. What
 parks the player is the CUTSCENE MODE byte: scratchpad `0x1F800137 == 1` forever (set via
-`gen_func_80042354` from `ov_a00_gen_8011C674`; `0` in healthy free-roam, `2` while walking).
+`guest 0x80042354` from `overlay guest 0x8011C674`; `0` in healthy free-roam, `2` while walking).
 
 Cut-mode 1 is released when the scene's script finishes. Both scripts are parked on script **op
 0x04** (handler `FUN_8004201C`), which is a two-party RENDEZVOUS on the scene-flag byte array at
@@ -1386,8 +1386,8 @@ Cut-mode 1 is released when the scene's script finishes. Both scripts are parked
 
 | actor | handler | script cursor `+0x6c` | writes `+0x74` | awaits `+0x76` | phase `+0x78` |
 |---|---|---|---|---|---|
-| `800FC9E0` | `beh_node3_router` 0x8011CBD0 → `ov_a00_gen_8011C674` | 0x80148AF4 | 2 | **1** | 1 |
-| `800FC7D0` | `beh_area_event_dispatch` 0x80071A3C → `ov_a00_gen_80128BC0` | 0x80149DA0 | 1 | **3** | 1 |
+| `800FC9E0` | `beh_node3_router` 0x8011CBD0 → `overlay guest 0x8011C674` | 0x80148AF4 | 2 | **1** | 1 |
+| `800FC7D0` | `beh_area_event_dispatch` 0x80071A3C → `overlay guest 0x80128BC0` | 0x80149DA0 | 1 | **3** | 1 |
 
 `0x800BF9EB` is stuck at **2**. A waits for 1, B waits for 3 — neither can ever fire. The handshake
 completes three times first (`cw` watch on the byte: `…2,1,2,1,2,1,2` then silence), so the scripts
@@ -1400,17 +1400,17 @@ pc_skip field frame (host backtraces):
 
 So the rendezvous is sensitive to the ORDER and the PER-FRAME COUNT of those two walks. A
 divergence there (one walk running twice, or in the opposite order to the guest) drops exactly one
-handshake step and produces this deadlock. Verify that against recomp_path before changing
+handshake step and produces this deadlock. Verify that against retired comparison path before changing
 anything — note the pad replay CANNOT be used to compare legs (below).
 
 **instrument caveats found this session (all cost real time)**
-* `replays/*.pad` are frame-indexed from boot, and `recomp_path` / `PSXPORT_PC_SKIP=0` consume a
+* `replays/*.pad` are frame-indexed from boot, and `retired comparison path` / `PSXPORT_PC_SKIP=0` consume a
   different number of boot frames, so the SAME pad lands in a completely different place on each
   leg. Cross-leg comparison via a pad replay is INVALID. (Measured: at f1200 pc_skip is in a hut
   dialog while both other legs are in the village.)
 * REPL `watch <a> <b>` takes **lo/hi**, not addr/len — `watch X 1` silently arms an empty range.
-* `PSXPORT_DEBUG=script` only logs the NATIVE `ScriptInterp::step`; `rec_dispatch(0x80041098)` runs
-  the substrate `gen_func_80041098`, which logs nothing. Script silence is NOT evidence of a
+* `PSXPORT_DEBUG=script` only logs the NATIVE `ScriptInterp::step`; `typed runtime address dispatch(0x80041098)` runs
+  the substrate `guest 0x80041098`, which logs nothing. Script silence is NOT evidence of a
   stopped script — read the cursor at `obj+0x6c` instead.
 * Tomba's master position `0x800E7EAC` (16.16) IS a valid movement probe (verified: it moves under
   held input on `replays/boot-smoke/general-session.pad`), but a stationary value only means
@@ -1435,13 +1435,13 @@ the sub-area, clear any pending door transition, select the destination running 
 Measured gates:
 
 - standalone `newgame; run 300; warp 4 0; run 600` reached area 4, ran to f927, dispatched
-  `fieldHudItemRing` nine times per frame, reconciled 926 frame ledgers, and had no recomp miss;
+  `fieldHudItemRing` nine times per frame, reconciled 926 frame ledgers, and had no historical guest-entry miss;
 - true-oracle SBS reached player control at f246 on both cores, cold-warped both at f300, captured
-  both panes at f560/f650/f800/f900, and exited cleanly at f930 with no recomp miss.
+  both panes at f560/f650/f800/f900, and exited cleanly at f930 with no historical guest-entry miss.
 
 ### Why A04 `0x801158E0` must never be seeded
 
-The former hybrid failed at `0x801158E0`, but adding that address to A04's recomp seeds merely changed
+The former hybrid failed at `0x801158E0`, but adding that address to A04's guest instruction path seeds merely changed
 the fail-fast miss into stack corruption. MAIN's resident type-2 table word at `0x8009D31C` names a
 valid A00 entry at that address. A04 instead contains the middle of `FUN_80115708`: its caller-owned
 48-byte frame and saved s0/s1/s2/ra are prerequisites, and the shared epilogue at `0x80115960`

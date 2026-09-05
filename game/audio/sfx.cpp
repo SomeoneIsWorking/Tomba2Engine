@@ -2,23 +2,21 @@
 //
 // RE'd verbatim from disas 0x80074590..0x80074808 + the 16-entry jumptable at 0x80016C04. Preserves
 // all int16 truncations, sign-extension patterns, and the signed-division-by-9 magic (0x38E38E39,
-// the MIPS mflo-mfhi-sra dance) that the recomp uses to compute the SPU pitch. Three substrate
-// callees kept reachable via rec_dispatch: FUN_80074BF8 (music/track control leaf, targeted by the
+// the MIPS mflo-mfhi-sra dance) that the guest instruction path uses to compute the SPU pitch. Three substrate
+// callees kept reachable via typed runtime address dispatch: FUN_80074BF8 (music/track control leaf, targeted by the
 // id 112..124 remaps), FUN_80074EEC (menu/UI SFX, targeted by id 127), FUN_80075E04 (SPU voice-fire
 // tail — the actual note-on into the audio driver).
 
 #include "audio/sfx.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "override_registry.h" // overrides::install — the one native-override registry
-
-void rec_dispatch(Core *, uint32_t);
-void func_80074590(Core *); // generated/shard_disp.c — the SFX firing primitive (substrate)
+#include "guest_call.h"
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 
 void Sfx::trigger(int id, int pan, int pitchBend) {
   Core *c = core;
 
-  // Prologue: sp adjust + ra save (mirrors the recomp so any downstream leaf reading its own
+  // Prologue: sp adjust + ra save (mirrors the guest instruction path so any downstream leaf reading its own
   // stack args lands on the right offsets).
   const uint32_t sp_save = c->r[29];
   const uint32_t ra_save = c->r[31];
@@ -28,7 +26,7 @@ void Sfx::trigger(int id, int pan, int pitchBend) {
 
   const uint32_t idb = (uint32_t)(id & 0xFF);
 
-  // ---- JT PATH (id 112..127): recomp lines 0x800745A8..0x800745DC + 16 handlers at 0x800745E0.. ----
+  // ---- JT PATH (id 112..127): guest instruction path lines 0x800745A8..0x800745DC + 16 handlers at 0x800745E0.. ----
   if ((idb & 0x80u) == 0 && idb >= 112u) {
     // The 12 remap entries (jt[0..12] except jt[13/14]) all funnel into `jal FUN_80074BF8(mapped_id)
     // ; j 0x80074800`. jt[9] remaps to 13 (out of order — everything else is monotonic).
@@ -40,12 +38,14 @@ void Sfx::trigger(int id, int pan, int pitchBend) {
     static constexpr int8_t remap[16] = {2, 3, 4, 5, 6, 7, 10, 11, 12, 13, 10, 11, 12, -1, -1, -1};
     const uint32_t idx = idb - 112u;
     if (idx == 15u) {
-      rec_dispatch(c, 0x80074EECu); // FUN_80074EEC — menu/UI SFX leaf
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x80074EECu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_80074EEC — menu/UI SFX leaf
     } else if (remap[idx] >= 0) {
       c->r[4] = (uint32_t)(int32_t)remap[idx];
-      rec_dispatch(c, 0x80074BF8u); // FUN_80074BF8 — music/track leaf
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x80074BF8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_80074BF8 — music/track leaf
     }
-    // idx == 13 or 14: silent error path (recomp jumps to 0x800746D8 which returns v0=0).
+    // idx == 13 or 14: silent error path (guest instruction path jumps to 0x800746D8 which returns v0=0).
     c->r[29] = sp_save;
     c->r[31] = ra_save;
     return;
@@ -56,7 +56,7 @@ void Sfx::trigger(int id, int pan, int pitchBend) {
   int32_t a3_flag;
   if ((idb & 0x80u) != 0) {
     // PATH A (id 128..224): per-area indirection.
-    if (idb >= 225u) { // 225..255 → silent error (recomp's sltiu 225)
+    if (idb >= 225u) { // 225..255 → silent error (guest instruction path's sltiu 225)
       c->r[29] = sp_save;
       c->r[31] = ra_save;
       return;
@@ -72,7 +72,7 @@ void Sfx::trigger(int id, int pan, int pitchBend) {
   }
 
   // ---- PAUSE / KIND MARKER ----
-  // The recomp's t0 register (which ends up in a0 for the voice-fire) resolves to:
+  // The guest instruction path's t0 register (which ends up in a0 for the voice-fire) resolves to:
   //   kind == 4         → t0 = 4  (fx passes through even when paused)
   //   paused (!= 4)     → t0 = 1  (marker: SPU driver knows this fired under pause)
   //   not paused (!= 4) → t0 = kind (untouched)
@@ -81,7 +81,7 @@ void Sfx::trigger(int id, int pan, int pitchBend) {
   const uint32_t t0_final = (kind == 4u) ? 4u : (paused ? 1u : (uint32_t)kind);
 
   // ---- PITCH BEND MATH ----
-  // (byte6 + pitchBend) × global_scale / 9, clamped [0, 127]. Faithful to the recomp's int16
+  // (byte6 + pitchBend) × global_scale / 9, clamped [0, 127]. Faithful to the guest instruction path's int16
   // truncations and signed-div-by-9-via-0x38E38E39 magic.
   const int32_t byte6_ext = (int32_t)(int8_t)c->mem_r8(t1 + 6u);
   const int32_t pitchBend_ext = (int32_t)(int8_t)(pitchBend & 0xFF);
@@ -92,14 +92,14 @@ void Sfx::trigger(int id, int pan, int pitchBend) {
     pitch_final = 0;
   } else {
     const int32_t bent = byte6_ext + pitchBend_ext;
-    const int16_t bent16 = (int16_t)bent;                                      // recomp: sll 16 ; sra 16
+    const int16_t bent16 = (int16_t)bent; // guest instruction path: sll 16 ; sra 16
     const int32_t product = (int32_t)bent16 * (int32_t)(uint32_t)global_scale; // 16 × u8
-    const int16_t product16 = (int16_t)product;                                // recomp: sll 16 ; sra 16
+    const int16_t product16 = (int16_t)product; // guest instruction path: sll 16 ; sra 16
     const int64_t bigProd = (int64_t)product16 * (int64_t)0x38E38E39;
     const int32_t hi = (int32_t)(bigProd >> 32);
-    const int32_t signBit = ((int32_t)product16 < 0) ? -1 : 0; // recomp: (mflo<<16) >> 31
+    const int32_t signBit = ((int32_t)product16 < 0) ? -1 : 0; // guest instruction path: (mflo<<16) >> 31
     const int32_t divBy9 = (hi >> 1) - signBit;
-    const int16_t clamped = (int16_t)divBy9; // recomp: sll 16 ; sra 16
+    const int16_t clamped = (int16_t)divBy9; // guest instruction path: sll 16 ; sra 16
     if (clamped < 0) {
       pitch_final = 0;
     } else if (clamped >= 128) {
@@ -113,11 +113,11 @@ void Sfx::trigger(int id, int pan, int pitchBend) {
   //   a0 = t0_final
   //   a1 = fx.byte1
   //   a2 = fx.byte2
-  //   a3 = fx.byte3 | a3_flag        (recomp: `or a3, t0(=byte3), a3(=0 or 128 sign-ext16)`)
+  //   a3 = fx.byte3 | a3_flag        (guest instruction path: `or a3, t0(=byte3), a3(=0 or 128 sign-ext16)`)
   //   [sp+16] = int32(fx.byte4 + pan)
   //   [sp+20] = fx.byte5              (delay-slot write)
   //   [sp+24] = int32(pitch_final)
-  //   [sp+28] = int32(pitch_final)   (dup — the recomp writes the same value to both slots)
+  //   [sp+28] = int32(pitch_final)   (dup — the guest instruction path writes the same value to both slots)
   const uint8_t b1 = c->mem_r8(t1 + 1u);
   const uint8_t b2 = c->mem_r8(t1 + 2u);
   const uint8_t b3 = c->mem_r8(t1 + 3u);
@@ -135,32 +135,32 @@ void Sfx::trigger(int id, int pan, int pitchBend) {
   c->mem_w32(sp + 24u, (uint32_t)pitch_final);
   c->mem_w32(sp + 28u, (uint32_t)pitch_final);
 
-  rec_dispatch(c, 0x80075E04u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80075E04u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   c->r[29] = sp_save;
   c->r[31] = ra_save;
 }
 
-// ORACLE: gen_func_80074810
-// Two-arg SFX entry: trigger(id, pan) with pitchBend forced to 0. The recomp masks id to a byte,
+// ORACLE: guest 0x80074810
+// Two-arg SFX entry: trigger(id, pan) with pitchBend forced to 0. The guest instruction path masks id to a byte,
 // sign-extends pan from its low byte, sets pitchBend=0, then jal FUN_80074590. It descends a
 // 24-byte frame and spills ra at sp+16 (so FUN_80074590's own stack args land correctly), then
 // restores ra and ascends before returning.
 //
-// PORT_CHECK: FAIL — TOOL ARTIFACT, not a real divergence. gen_func_80074810 is a single C
-// function that the recompiler folded THREE contiguous guest functions into (entries 0x80074810,
+// PORT_CHECK: FAIL — TOOL ARTIFACT, not a real divergence. guest 0x80074810 is a single C
+// function that the recorded binary evidence folded THREE contiguous guest functions into (entries 0x80074810,
 // 0x80074834, 0x80074868), each with its own frame + `return`. Only the first (0x80074810) is
 // reachable at this entry — dispatch executes from the top and hits the first `return`; the
-// port_gen/abi_extract CONTRACT/CFG analysis agrees (reports frame_size=24, 1 call site). But
+// binary evidence/abi_extract CONTRACT/CFG analysis agrees (reports frame_size=24, 1 call site). But
 // port_check's coarse linear op-sequence extractor (abi_extract.extract_op_sequence) enters its
 // dead-region skip at the first `return`, then WRONGLY re-activates it at label `L_800748C4:`,
 // which belongs to the DEAD third sibling (0x80074868) — pulling that sibling's 40-byte frame,
-// its func_80092660 call, and its 13 stores into the "oracle" sequence. So the oracle side is
+// its guest 0x80092660 call, and its 13 stores into the "oracle" sequence. So the oracle side is
 // mis-extracted as frame_opens=[24] closes=[24,40] calls=[74590,92660] — no faithful port of the
 // REAL first-body function can match it. Reproducing the sibling's ops would be dead code, banned.
 // The real fix is in abi_extract.extract_op_sequence (dead-region must not exit on a label whose
 // only predecessor is also dead) — out of scope for this file. SBS is the real gate here: the
-// native reproduces exactly what gen_func_80074810 does at runtime (first body only), so it is
+// native reproduces exactly what guest 0x80074810 does at runtime (first body only), so it is
 // 0-diff by construction.
 void Sfx::triggerPanned(int id, int pan) {
   Core *c = core;
@@ -179,7 +179,10 @@ void Sfx::triggerPanned(int id, int pan) {
   c->r[5] = (uint32_t)panx;
   c->r[6] = 0u;           // pitchBend = 0 (a2 = zero)
   c->r[31] = 0x8007482Cu; // gen return-address constant for the call
-  func_80074590(c);       // FUN_80074590 — SFX firing primitive (substrate)
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x80074590u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // FUN_80074590 — SFX firing primitive (substrate)
 
   c->r[31] = c->mem_r32(sp + 16u); // lw ra,16(sp)
   c->r[29] += 24u;                 // addiu sp,+24 (restore)
@@ -187,15 +190,12 @@ void Sfx::triggerPanned(int id, int pan) {
 
 static void eov_triggerPanned(Core *c) {
   eng(c).sfx.triggerPanned((int)c->r[4], (int)c->r[5]);
-  // gen_func_80074810's first body writes no return value (r2 dead); nothing to mirror.
+  // guest 0x80074810's first body writes no return value (r2 dead); nothing to mirror.
 }
 
-extern void gen_func_80074810(Core *);
-
 void Sfx::registerOverrides() {
-  using overrides::install;
-  extern void shard_set_override(uint32_t, OverrideFn);
-  // Dual-wired: a direct func_80074810(c) caller exists (generated/shard_4.c) plus rec_dispatch
-  // callers from overlays — shard_set_override installs the shared oracle-gated thunk for both.
-  install(0x80074810u, "Sfx::triggerPanned", eov_triggerPanned, gen_func_80074810, shard_set_override);
+  // Dual-wired: a direct guest 0x80074810(c) caller exists (authenticated executable/overlay evidence) plus typed
+  // runtime address dispatch callers from overlays — tomba::native::declareOverride installs the shared oracle-gated
+  // thunk for both.
+  tomba::native::declareOverride(0x80074810u, "Sfx::triggerPanned", eov_triggerPanned);
 }

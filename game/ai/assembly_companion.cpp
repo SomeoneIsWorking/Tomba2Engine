@@ -40,7 +40,7 @@
 // HOW IT WAS IDENTIFIED — FROM THE CALLERS AND THE SPAWN CHAIN, NOT FROM THE NEIGHBOURHOOD
 // Being a 0x8013xxxx address in the A00 overlay says only which overlay it lives in. Every statement
 // above comes from a link that can be re-walked:
-//   * THE CALLER. Its single caller in A00 is ov_a00_gen_80136D9C, already ported as
+//   * THE CALLER. Its single caller in A00 is overlay guest 0x80136D9C, already ported as
 //     beh_pure_inner_dispatch (game/ai/beh_pure_inner_dispatch.cpp:65). It reaches this address from
 //     exactly one place: outer state 1, inner sub-state node[5] == 0, node[3] != 3. That is what makes
 //     this "the idle tick", and why role 3 is never seen here — role 3 goes to 0x8018CDC4 instead.
@@ -48,9 +48,9 @@
 //     (game/ai/beh_substate_edge_orchestrator.cpp; the class is identified as the seaside pumps in
 //     game/ai/assembly_node.h) calls SubstateEdgeLeaves::spawnInnerDispatchChild — guest 0x8013892C,
 //     game/ai/substate_edge_native.cpp, whose own banner already calls the result "THE ASSEMBLY'S
-//     COMPANION NODE" — from its state-0 init leaf ov_a00_gen_8012ED84 (generated/ov_a00_shard_1.c:
+//     COMPANION NODE" — from its state-0 init leaf overlay guest 0x8012ED84 (authenticated executable/overlay evidence:
 //     19119, inside the body that starts at :18777) and again from the OPN-overlay assembly hook
-//     0x8018C820 (generated/ov_opn_shard_1.c:1083). The spawner allocates through
+//     0x8018C820 (authenticated executable/overlay evidence). The spawner allocates through
 //     Placement::spawnWithParent (guest FUN_80072DDC, game/world/placement.cpp), whose body contains
 //     the decisive store `mem_w32(newNode + 16, a0)` — the new node's +0x10 IS the spawner. It then
 //     writes 0x80136D9C into the new node's +0x1C handler slot and copies the assembly's position.
@@ -77,31 +77,31 @@
 //
 // TRUE EXTENT: [0x80138A64, 0x80138B04), 0xA0 bytes / 40 instructions. Established three ways, and
 // deliberately NOT by "the next gen function in the shard" — that test is false here, because the
-// recompiler's shard split is not address order: the body sits in ov_a00_shard_1.c but the next
+// recorded binary evidence's shard split is not address order: the body sits in ov_a00_shard_1.c but the next
 // function BY ADDRESS, 0x80138B04, is emitted in ov_a00_shard_0.c:20730, while the next function in
 // shard_1 is the much later 0x80138C70. So:
-//   1. port_gen's live-extent splitter puts the body at generated/ov_a00_shard_1.c:23677-23709 and
+//   1. authenticated instruction extents puts the body at authenticated executable/overlay evidence and
 //      trims one folded-sibling tail line after the real `return;`.
 //   2. Every label the body branches to lies in [0x80138A64, 0x80138AFC], the last being the return.
 //   3. Disassembly of the overlay image confirms it instruction-for-instruction (tools/disasm_overlay.py
 //      scratch/bin/overlays/A00.BIN --base=0x80108F9C): `jr ra` at 0x80138AFC with its delay-slot nop
 //      at 0x80138B00, and 0x80138B04 opening a fresh prologue (`addiu sp, sp, -0x20` /
 //      `sw s0, 0x10(sp)`) — so the extent cannot run on into it. 0x80138B04 is also its own entry in
-//      the overlay dispatch table (generated/ov_a00_disp.c:421).
+//      the overlay dispatch table (authenticated executable/overlay evidence).
 // frame_size = 0: the guest body never touches sp, so there is no guest stack frame to mirror
-// (tools/abi_extract.py 80138A64 --contract). abi_extract's 2 "unreachable blocks" are the
-// recompiler's duplicated `return;` tail plus that folded-sibling line, not a folded-in sibling body.
+// (tools/binary ABI evidence 80138A64 --contract). abi_extract's 2 "unreachable blocks" are the
+// recorded binary evidence's duplicated `return;` tail plus that folded-sibling line, not a folded-in sibling body.
 //
 // SHAPE OF THE PORT: a rebuild over the typed lens, in the panel_fill.cpp house style — argument
 // register in, named fields out, no scratch-register maintenance. The static store sequence is
 // unchanged from the guest (w16 +0x40, w8 camera, w16 +0x6A, w8 camera, w8 +0x06, w8 +0x05), which is
-// what tools/port_check.py gates.
+// what tools/dynamic differential evidence gates.
 #include "assembly_companion.h"
 #include "assembly_node.h"
 #include "core.h"
 #include "guest_abi.h"
-#include "ov_a00_decls.h"
-#include "override_registry.h"
+#include "guest_jal.h"
+#include "native_override_catalog.h"
 
 namespace {
 // The one stroke phase the companion arms on: the assembly's "first half-stroke reached" code.
@@ -126,8 +126,8 @@ constexpr uint32_t kRaAfterMulMatrix = 0x80138A30u;
 // diagonal-seeded source matrix of a scale compose); named again here because that one is file-local.
 constexpr uint32_t kScrDiagScale = 0x1F800000u;
 
-// Guest-stack frame for ov_a00_gen_801389C8, table in program order — emitted by
-//   python3 external/psxport/tools/abi_extract.py 0x801389C8 --scaffold --guestabi
+// Guest-stack frame for overlay guest 0x801389C8, table in program order — emitted by
+//   python3 external/psxport/tools/binary ABI evidence 0x801389C8 --scaffold --guestabi
 constexpr GuestFrameSpill kComposeRigSpills[6] = {
     {19, 44},
     {31 /*ra*/, 52},
@@ -138,7 +138,7 @@ constexpr GuestFrameSpill kComposeRigSpills[6] = {
 };
 } // namespace
 
-// ORACLE: ov_a00_gen_80138A64
+// ORACLE: overlay guest 0x80138A64
 void AssemblyCompanion::endCamHoldAndRearmOnStroke(Core *c) {
   const AssemblyCompanion companion(c, c->r[4]);
 
@@ -207,15 +207,16 @@ void AssemblyCompanion::endCamHoldAndRearmOnStroke(Core *c) {
 // would be honoured. Nothing in the current call graph does, but the port keeps the re-read.
 //
 // HOW IT WAS IDENTIFIED — FROM ITS CALLER AND ITS FIELD WRITERS
-//   * THE ONE CALLER. Across all of generated/ there is exactly one reference to this address that is
-//     not the overlay's own dispatch table: ov_a00_gen_80136D9C (generated/ov_a00_shard_1.c:22651),
+//   * THE ONE CALLER. Across all of authenticated executable/overlay evidence there is exactly one reference to this
+//   address that is
+//     not the overlay's own dispatch table: overlay guest 0x80136D9C (authenticated executable/overlay evidence),
 //     the COMPANION's behaviour handler, already ported as game/ai/beh_pure_inner_dispatch.cpp:75. It
 //     reaches here from one place — the tail of outer state 1, after whichever sub-state leaf ran,
 //     guarded by `node[1] != 0`. node[1] is the companion's visibility byte (the sibling leaf
 //     0x80137198 gives the camera back when it is 0, per the banner above). So: runs last, runs on
 //     the companion, runs only while visible. That is a per-frame presentation step, not game logic.
 //   * WHAT THE FIELDS IT READS ARE, from their WRITERS. node+8 = part count and node+0xC0 = the
-//     part-pointer table are both written by the companion's state-0 init ov_a00_gen_80136F08, which
+//     part-pointer table are both written by the companion's state-0 init overlay guest 0x80136F08, which
 //     reads the per-role count from the table at 0x8014A9A4, spawns that many parts through the
 //     generic child spawner 0x8007AAE8, and stores each into node+0xC0+4*i. The SAME init seeds each
 //     part's +0x38/+0x3A/+0x3C to 0x1000 — which is what identifies the three halfwords this
@@ -228,7 +229,7 @@ void AssemblyCompanion::endCamHoldAndRearmOnStroke(Core *c) {
 //     {x,0,y,0,z,0,0,0}), 0x80084250 = GteTransform3::rotate3AndPackIr, whose GTE op decodes as
 //     MVMVA(mx=rotation, v=V0, cv=none, sf=1) run three times — i.e. libgte MulMatrix0, which is
 //     also what game/camera/cutscene_camera.cpp:32 independently calls it.
-//   * GHIDRA AGREES. tools/decomp.sh on the resident-overlay dump decompiles it to exactly this
+//   * GHIDRA AGREES. the Ghidra evidence workflow on the resident-overlay dump decompiles it to exactly this
 //     shape (scratch/decomp/companion_pose_801389C8.c): FUN_80051c8c(); then, guarded by
 //     `param_1[8] != 0`, a do/while over `*(int*)(iVar3+0xc0)` calling FUN_800517bc(0x1f800000,
 //     *(short*)(p+0x38), *(short*)(p+0x3a), *(short*)(p+0x3c)) and FUN_80084250(p+0x18, 0x1f800000).
@@ -237,7 +238,7 @@ void AssemblyCompanion::endCamHoldAndRearmOnStroke(Core *c) {
 // TRUE EXTENT: [0x801389C8, 0x80138A64), 0xA0 bytes / 40 instructions. Three ways, none of them
 // "the next gen function in the shard" (which is false here — this body is in ov_a00_shard_0.c while
 // the FOLLOWING function by address, 0x80138A64, is emitted in ov_a00_shard_1.c):
-//   1. port_gen's live-extent splitter: generated/ov_a00_shard_0.c:20689-20728, 38 live body lines.
+//   1. authenticated instruction extents: authenticated executable/overlay evidence, 38 live body lines.
 //   2. Every branch target in the body (L_80138A08, L_80138A44) lies inside the range.
 //   3. Disassembly of the overlay image itself (tools/disasm_overlay.py scratch/bin/overlays/A00.BIN
 //      --base=0x80108F9C): `addiu sp,sp,-0x38` opens at 0x801389C8, `jr ra` at 0x80138A5C with
@@ -248,7 +249,7 @@ void AssemblyCompanion::endCamHoldAndRearmOnStroke(Core *c) {
 // writes r19/ra/r20/r18/r17/r16 at +44/+52/+48/+40/+36/+32 in the guest's own program order, and
 // restores on every exit. All five values the guest keeps live across a nested call (r16..r20) are
 // held in GuestReg proxies rather than C++ locals, so the callees' own spills see the real values.
-// ORACLE: ov_a00_gen_801389C8
+// ORACLE: overlay guest 0x801389C8
 void AssemblyCompanion::composeRigAndApplyPartScales(Core *c) {
   GuestFrame<56, 6> frame(c, kComposeRigSpills);
 
@@ -257,7 +258,7 @@ void AssemblyCompanion::composeRigAndApplyPartScales(Core *c) {
 
   // (1) Pose the rig: the companion's own world matrix, then every sub-part chained off it at unit
   // scale. buildAxis tail-calls propagateAxis, so this one call does the whole skeleton.
-  guest_dispatch(c, kRaAfterComposeRig, kNodeXformBuildAxis);
+  tomba::guest::dispatchJalToReturn(*c, kNodeXformBuildAxis, kRaAfterComposeRig);
 
   const AssemblyCompanion companion(c, self);
   GuestReg<17> partIndex(c);
@@ -281,25 +282,19 @@ void AssemblyCompanion::composeRigAndApplyPartScales(Core *c) {
     c->r[6] = (uint32_t)part.scaleY();
     c->r[7] = (uint32_t)part.scaleZ();
     slot += 4; // guest advances the cursor in the jal's delay slot
-    guest_dispatch(c, kRaAfterSeedDiag, kNodeXformSeedDiag);
+    tomba::guest::dispatchJalToReturn(*c, kNodeXformSeedDiag, kRaAfterSeedDiag);
 
     c->r[4] = part.frameMatrixPtr(); // MulMatrix0(frameMatrix, diag): scale it, in place
     c->r[5] = diagScale;
-    guest_dispatch(c, kRaAfterMulMatrix, kMulMatrix0);
+    tomba::guest::dispatchJalToReturn(*c, kMulMatrix0, kRaAfterMulMatrix);
 
     partIndex += 1;
   } while ((int32_t)(uint32_t)partIndex < (int32_t)companion.partCount());
 }
 
 void AssemblyCompanion::registerOverrides() {
-  overrides::install(0x80138A64u,
-                     "AssemblyCompanion::endCamHoldAndRearmOnStroke",
-                     &AssemblyCompanion::endCamHoldAndRearmOnStroke,
-                     ov_a00_gen_80138A64,
-                     ov_a00_set_override);
-  overrides::install(0x801389C8u,
-                     "AssemblyCompanion::composeRigAndApplyPartScales",
-                     &AssemblyCompanion::composeRigAndApplyPartScales,
-                     ov_a00_gen_801389C8,
-                     ov_a00_set_override);
+  tomba::native::declareOverride(
+      0x80138A64u, "AssemblyCompanion::endCamHoldAndRearmOnStroke", &AssemblyCompanion::endCamHoldAndRearmOnStroke);
+  tomba::native::declareOverride(
+      0x801389C8u, "AssemblyCompanion::composeRigAndApplyPartScales", &AssemblyCompanion::composeRigAndApplyPartScales);
 }

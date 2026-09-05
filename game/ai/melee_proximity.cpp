@@ -1,23 +1,24 @@
 // game/ai/melee_proximity.cpp — see melee_proximity.h for the RE writeup, field layout, and callee
-// map. Transcribed from generated/shard_2.c:795 (`gen_func_8001F9DC`), the recompiler's own
+// map. Transcribed from authenticated executable/overlay evidence (`guest 0x8001F9DC`), the recorded binary evidence's
 // instruction-exact translation — the ground-truth source per CLAUDE.md, cross-checked against the
 // Ghidra headless decompile (scratch/decomp/region_8001.c) for readability/structure only.
 //
 // NOTE ON OFFSET LITERALS: every actor-field offset below is a PLAIN DECIMAL integer, copied
-// verbatim from generated/shard_2.c's own decimal literals (e.g. `mem_r16(self + 46u)`) — same
+// verbatim from authenticated executable/overlay evidence's own decimal literals (e.g. `mem_r16(self + 46u)`) — same
 // convention as game/ai/actor_melee_engage.cpp, to avoid a hex/decimal transcription mismatch.
 #include "melee_proximity.h"
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
+#include "guest_call.h"
 #include "math/trig.h"
-#include "override_registry.h"
+#include "native_override_catalog.h"
 
 int32_t MeleeProximity::isAtApproachAnchor(uint32_t self, uint32_t other) { // FUN_8001F9DC — UNWIRED draft
   Core *c = core;
 
   // ---- XZ distance test: self's position vs other's approach anchor (other.pos + other.anchorOfs) --
-  // BUG FIX (RE cross-check against generated/shard_2.c:795): the +96/+100 anchor-offset fields were
+  // BUG FIX (RE cross-check against authenticated executable/overlay evidence): the +96/+100 anchor-offset fields were
   // swapped in the original draft. Ground truth's FIRST block reads other+46 (Z) paired with
   // other+96, and its SECOND block reads other+54 (X) paired with other+100 — i.e. +96 is the Z
   // anchor offset and +100 is the X anchor offset (matching this file's own .h banner, which the
@@ -30,9 +31,9 @@ int32_t MeleeProximity::isAtApproachAnchor(uint32_t self, uint32_t other) { // F
   const int32_t dx = (int32_t)(int16_t)((uint16_t)c->mem_r16(self + 54u) - (uint16_t)otherAnchorX);
   const int32_t sumSq = dx * dx + dz * dz;
 
-  // FUN_80084080 — still-substrate GTE-LZCS-table sqrt (see .h). Left substrate, rec_dispatch'd.
+  // FUN_80084080 — still-substrate GTE-LZCS-table sqrt (see .h). Left substrate, typed runtime address dispatch'd.
   c->r[4] = (uint32_t)sumSq;
-  rec_dispatch(c, 0x80084080u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80084080u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   const uint16_t dist16 = (uint16_t)c->r[2];
 
   const int32_t radiusSum = (int16_t)c->mem_r16(other + 128u) + (int16_t)c->mem_r16(self + 128u);
@@ -62,7 +63,7 @@ int32_t MeleeProximity::isAtApproachAnchor(uint32_t self, uint32_t other) { // F
   return 1;
 }
 
-void MeleeProximity::isAtApproachAnchorFramed() { // guest-ABI twin, mirrors gen_func_8001F9DC's frame
+void MeleeProximity::isAtApproachAnchorFramed() { // guest-ABI twin, mirrors guest 0x8001F9DC's frame
   Core *c = core;
   const uint32_t self = c->r[4];
   const uint32_t other = c->r[5];
@@ -87,15 +88,12 @@ void MeleeProximity::isAtApproachAnchorFramed() { // guest-ABI twin, mirrors gen
 }
 
 // ---------------------------------------------------------------------------------------------
-// Wiring: the only real callers found for 0x8001F9DC are DIRECT `func_8001F9DC(c)` sites in
-// shard_1.c/shard_5.c — calls through the recompiler's OWN global g_override[] table, never
-// through rec_dispatch. Installing without a setter would be invisible to that call shape, so
-// `overrides::install` is passed shard_set_override as the setter, same pattern as
+// Wiring: the only real callers found for 0x8001F9DC are DIRECT `guest 0x8001F9DC(c)` sites in
+// shard_1.c/shard_5.c — calls through the recorded binary evidence's OWN global image-qualified runtime dispatcher
+// table, never through typed runtime address dispatch. Installing without a setter would be invisible to that call
+// shape, so `tomba::native::declareOverride` is passed tomba::native::declareOverride as the setter, same pattern as
 // game/core/pc_scheduler.cpp / game/object/actor_sm_reward.cpp.
 // ---------------------------------------------------------------------------------------------
-extern void shard_set_override(uint32_t, void (*)(Core *));
-extern void gen_func_8001F9DC(Core *); // substrate body — kept alive for psx_fallback (core B)
-
 namespace {
 void ov_meleeProximity(Core *c) {
   eng(c).meleeProximity.isAtApproachAnchorFramed();
@@ -103,6 +101,5 @@ void ov_meleeProximity(Core *c) {
 } // namespace
 
 void MeleeProximity::registerOverrides(Game * /*game*/) {
-  overrides::install(
-      0x8001F9DCu, "MeleeProximity::isAtApproachAnchor", ov_meleeProximity, gen_func_8001F9DC, shard_set_override);
+  tomba::native::declareOverride(0x8001F9DCu, "MeleeProximity::isAtApproachAnchor", ov_meleeProximity);
 }

@@ -1,7 +1,7 @@
 // game/ai/actor_bump.h — the actor's BUMP RESPONSE: what happens when he runs into another object.
 //
 // See actor_bump.cpp for the identification evidence. Lenses only; every setter is a ONE-LINE single
-// statement because tools/port_check.py harvests their mem_wN widths by regex from game/**/*.h and
+// statement because tools/dynamic differential evidence harvests their mem_wN widths by regex from game/**/*.h and
 // stops counting a setter that grows a second statement.
 #pragma once
 #include "core.h"

@@ -54,7 +54,7 @@
 // it — one animator driving radius and thickness together. The s16 flag at 0x800E7FFE, when negative,
 // halves both radii again (the guest's small-ring variant).
 //
-// PORTED, NOT TAPPED. Nothing here runs a gen body; the centre and scale come from the NATIVE camera
+// PORTED, NOT TAPPED. Nothing here runs a guest-visible behavior; the centre and scale come from the NATIVE camera
 // (projComposeCamera -> Fps60::sceneCam), so the ring interpolates at 60fps like the rest of this
 // render tier, and the radii stay in float instead of being truncated to the guest's integer pixels.
 // Read-only: guest memory is only read.

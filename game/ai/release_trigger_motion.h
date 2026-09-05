@@ -1,6 +1,6 @@
 // game/ai/release_trigger_motion.h — class ReleaseTriggerMotion: PC-native ownership of the six
 // per-node[3]-type SUB-MOTION machines the FUN_80124E74 "release trigger" object-behavior jump
-// table (game/ai/beh_jumptable_release_trigger.cpp) dispatches into via rec_dispatch:
+// table (game/ai/beh_jumptable_release_trigger.cpp) dispatches into via typed runtime address dispatch:
 //
 //   FUN_80123E9C  hoverBobCycle    — node[5] 5-state timer: a back-and-forth Y-bob cadence
 //                                    (node+0x40 countdown, node+0x48/0x4e velocity/accel,
@@ -38,7 +38,7 @@
 // These are RAW-OFFSET node accessors (same idiom as the sibling beh_jumptable_release_trigger.cpp
 // dispatcher and every other beh_* file): the node layout is a polymorphic blob reused differently
 // per object TYPE, so a named struct isn't meaningful across call sites. RE'd via Ghidra headless
-// (tools/decomp.sh) on a fresh field RAM dump (scratch/ram/band12.bin), cross-checked against
+// (the Ghidra evidence workflow) on a fresh field RAM dump (scratch/ram/band12.bin), cross-checked against
 // tools/disas.py --ram for the jump-table addresses and the FUN_80077B38 model-pointer immediate
 // (0x8014C808 — the same shared "release-trigger sprite" pointer used across the beh_jumptable_*
 // family, e.g. beh_typed_anim_spawn.cpp's A1_MODEL).
@@ -46,13 +46,13 @@
 // Ownership boundary: control flow + the direct node/global writes are native; every call into a
 // NOT-YET-OWNED leaf (FUN_80077B5C position-commit, FUN_80051D90/FUN_80051794/FUN_800847F0/
 // FUN_80084360 scratchpad-anim helpers, FUN_80123C94/FUN_8012400C/FUN_80124328 sibling sub-states)
-// stays reachable by address via rec_dispatch, same as every other beh_* handler.
+// stays reachable by address via typed runtime address dispatch, same as every other beh_* handler.
 //
-// Wired via the shared override registry (runtime/recomp/override_registry.h, `overrides::install`)
+// Wired via the shared override registry (runtime/psx/override_registry.h, `tomba::native::declareOverride`)
 // at these six guest addresses — NOT the BehaviorDispatch per-object table (that table is for the
 // OUTER per-object handler; these are internal CALL TARGETS the outer handler and each other reach
-// through rec_dispatch, so they must intercept at the rec_dispatch choke point for every caller,
-// substrate included).
+// through typed runtime address dispatch, so they must intercept at the typed runtime address dispatch choke point for
+// every caller, substrate included).
 #ifndef GAME_AI_RELEASE_TRIGGER_MOTION_H
 #define GAME_AI_RELEASE_TRIGGER_MOTION_H
 #include <cstdint>

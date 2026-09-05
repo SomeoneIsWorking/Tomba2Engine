@@ -8,12 +8,12 @@
 // node/cmd fields those guest functions read (euler angles, position, the command array) and rebuilds
 // the transform in plain host float, then submits through the already-native, already guest-write-free
 // Render::gt3gt4 -> submitPolyGt3Native/submitPolyGt4Native path (the same submit path
-// Render::perObjFlush uses for every live object, render_walk.cpp). No mem_w*, no rec_dispatch, no GTE
-// writes anywhere in this file.
+// Render::perObjFlush uses for every live object, render_walk.cpp). No mem_w*, no typed runtime address dispatch, no
+// GTE writes anywhere in this file.
 //
 // Math note: 0x80051C8C seeds an identity MATRIX at node+0x98 then composes 3 sequential fixed-point
 // axis rotations (rotX, then rotY, then rotZ) from node+0x54/56/58 (euler, 4096 units/circle), overwrites
-// the translation with node+0x2E/32/36 (raw position). Its callee func_80051464 does the same per-command
+// the translation with node+0x2E/32/36 (raw position). Its callee guest 0x80051464 does the same per-command
 // local rotation (cmd+0x08/0x0A/0x0C) and composes it against either the node's matrix (ROOT, cmd+6==-1)
 // or an earlier sibling command's matrix (cmd+6==sentinel index into node+0xC0), then transforms the
 // command's local anchor (cmd+0x00/02/04) through the PARENT matrix (not the just-computed one — a real
@@ -40,7 +40,7 @@ int gpu_frame_no(Core *); // present-frame counter (gpu_native.cpp)
 // later-133: exactly these account for the +24 widescreen-margin commands at the field.
 #define T2_WORLDGEO_TYPE 0x03
 
-// ---- HOST-ONLY mirror of 0x80051C8C + func_80051464's rotation/translation compose ------------------
+// ---- HOST-ONLY mirror of 0x80051C8C + guest 0x80051464's rotation/translation compose ------------------
 // Unit (unscaled, diag=1) float rotation matrices — NOT the guest's 1.3.12 fixed-point (diag=4096)
 // convention. Robj is scaled up to that convention only at the Render::projComposeObjectHost call site,
 // to match Rcam's raw-int16 scale (see projection.cpp). Tobj/anchor stay in raw position units throughout
@@ -103,9 +103,9 @@ struct MarginCmdXform {
   bool valid = false;
 };
 
-// MarginRenderer::buildHostTransforms — HOST reimpl of 0x80051C8C + func_80051464 for one margin node.
+// MarginRenderer::buildHostTransforms — HOST reimpl of 0x80051C8C + guest 0x80051464 for one margin node.
 // Fills `out[i]` for every cmd index i in [0, node+8), bound node+9 (same dual-bound loop
-// Render::perObjFlush/func_80051464 use over node+0xC0). NO guest writes anywhere in this function.
+// Render::perObjFlush/guest 0x80051464 use over node+0xC0). NO guest writes anywhere in this function.
 static void margin_build_host_transforms(Core *c, uint32_t node, std::vector<MarginCmdXform> &out) {
   // --- 0x80051C8C: node rotation (identity + rotX/Y/Z) + raw translation, HOST-only, unit-scale. ---
   float Mnode[3][3];
@@ -115,7 +115,7 @@ static void margin_build_host_transforms(Core *c, uint32_t node, std::vector<Mar
   margin_rotZ((float)c->mem_r16s(node + 0x58), Mnode);
   float Tnode[3] = {(float)c->mem_r16s(node + 0x2E), (float)c->mem_r16s(node + 0x32), (float)c->mem_r16s(node + 0x36)};
 
-  // --- func_80051464: per-command local rotation + parent/sibling compose, HOST-only. ---
+  // --- guest 0x80051464: per-command local rotation + parent/sibling compose, HOST-only. ---
   uint8_t count = c->mem_r8(node + 8);
   uint8_t bound = c->mem_r8(node + 9);
   out.assign(count, MarginCmdXform{});
@@ -158,7 +158,7 @@ static void margin_build_host_transforms(Core *c, uint32_t node, std::vector<Mar
 // Record a re-include-eligible node (deduped within the frame). FILTER to entity type 0x03 (the
 // static world-geometry object type): later-133 proved that of all the wide-frustum re-include-
 // eligible objects, ONLY type-0x03 nodes actually render in the real +1 path — they render via the
-// per-object flush gen_func_8003CDD8(node, 0), and the 10 type-0x03 margin nodes reproduce EXACTLY
+// per-object flush guest 0x8003CDD8(node, 0), and the 10 type-0x03 margin nodes reproduce EXACTLY
 // the +24 margin commands (matching geomblks). Other types (02/04/05/09) carry command lists too but
 // their handlers render through different paths (or not at all in the margin), so flushing them
 // over-renders. The type is the correct semantic gate, not a magic offset.

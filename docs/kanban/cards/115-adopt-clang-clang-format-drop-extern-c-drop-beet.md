@@ -45,7 +45,7 @@ THE TREE IS NO LONGER BROKEN. psxport builds, 62 of 63 tests pass, tomba2_port b
 
 WHAT WAS ACTUALLY WRONG, and it was never the formatter. Include sorting broke the build because rec_coro_run was declared TWICE — core.h inside its extern "C", and scheduler.h with ordinary C++ linkage. They disagreed about linkage; which won depended on include order. It compiled by luck and sorting spent the luck. Accommodating the formatter means fixing the CODE, so a sweep for the same shape (any function declared in more than one first-party header) found three more, two with the identical latent mismatch:
     rec_coro_run       core.h + scheduler.h                  -> one owner: core.h
-    rec_dispatch       core.h + guest_abi.h + guest_call.h   -> one owner: core.h
+    typed runtime address dispatch       core.h + guest_abi.h + guest_call.h   -> one owner: core.h
     xa_decode_sector   c_subsys.h + fmv_decode.h             -> one owner: c_subsys.h
 Both guest_*.h already #include "core.h" and re-declared it anyway. fmv_decode.h's copy carried a comment saying it was "identical" — a copy you have documented is still a copy.
 
@@ -83,6 +83,6 @@ STILL OPEN ON THIS CARD: game_iface.h at 520 lines against its 500-line ownershi
 authoritative `.clang-format` and `.clang-tidy` profiles as psxport, and invokes psxport's single shared
 `check_cpp_style.py` from normal CTest against the real compile database. Clean-tree mode lints every
 compile-backed first-party C++ TU; format and structure checks cover all tracked first-party C/C++
-files while excluding generated/vendor/external trees. Existing sub-1,200 ratchets were preserved and
+files while excluding authenticated executable/overlay evidence/external trees. Existing sub-1,200 ratchets were preserved and
 every pre-policy file above 1,200 received its measured shrink-only cap. `game_iface.h` is now 495/500
 in psxport, so the last stated blocker is gone. No pre-commit hook was added.

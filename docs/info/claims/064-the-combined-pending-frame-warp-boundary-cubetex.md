@@ -4,7 +4,7 @@ kind: claim
 status: holds
 created: 2026-08-25
 tags: render,fps60,area-load
-depends: external/psxport/runtime/recomp/render_queue.cpp#RenderQueue::flush, game/render/cube_text_banner.cpp#CubeTextBanner::render
+depends: external/psxport/runtime/psx/render_queue.cpp#RenderQueue::flush, game/render/cube_text_banner.cpp#CubeTextBanner::render
 ---
 
 ## Claim

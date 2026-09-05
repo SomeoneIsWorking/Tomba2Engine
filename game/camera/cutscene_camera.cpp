@@ -2,14 +2,16 @@
 // the free-roam camera as well as the SOP/cutscene one (RESOLVED later-293 — docs/findings/camera.md).
 // The arithmetic is the RE'd engine behaviour (docs/engine_re.md "CutsceneCamera"; later-173..176); this file
 // restructures it into methods over named state (no guest register convention). It is verified per-call
-// against the recomp oracle on the live SOP scene via `cam_snap_follow` (PSXPORT_DEBUG=camverify) and by the
-// oracle UNIT TEST over every method incl. the driver (game/camera/cutscene_camera_selftest.cpp).
+// against the historical guest-execution reference on the live SOP scene via `cam_snap_follow`
+// (PSXPORT_DEBUG=camverify) and by the oracle UNIT TEST over every method incl. the driver
+// (game/camera/cutscene_camera_selftest.cpp).
 #include "cutscene_camera.h"
 #include "cfg.h"
 #include "game.h" // c->game->verify — the shared A/B verify scaffold (camverify)
 #include "game_ctx.h"
+#include "guest_call.h"
 #include "mtx.h"
-#include "override_registry.h" // overrides::install — the one native-override registry
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include "trig.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -42,7 +44,7 @@ static inline int32_t cam_clamp(int16_t delta, int16_t maxStep) {
   }
   return delta < (int16_t)(-maxStep) ? (int16_t)(-maxStep) : delta;
 }
-// 32-bit mult-lo, matching the recomp's exact truncating arithmetic.
+// 32-bit mult-lo, matching the guest instruction path's exact truncating arithmetic.
 static inline int32_t mlo(int32_t a, int32_t b) {
   return (int32_t)((uint32_t)a * (uint32_t)b);
 }
@@ -52,7 +54,7 @@ int32_t CutsceneCamera::call(uint32_t fn, int32_t a0, int32_t a1, int32_t a2, in
   c->r[5] = (uint32_t)a1;
   c->r[6] = (uint32_t)a2;
   c->r[7] = (uint32_t)a3;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return (int32_t)c->r[2];
 }
 
@@ -710,7 +712,7 @@ static inline int32_t cam_idiv(Core *c, int32_t num, int32_t den) {
   return (int32_t)c->lo;
 }
 void CutsceneCamera::lookAt() { // FUN_8006D02C
-  // gen_func_8006D02C pushes a 56-byte guest frame (r29-=56, spills s0..s7/fp/ra at +16..+52, restored
+  // guest 0x8006D02C pushes a 56-byte guest frame (r29-=56, spills s0..s7/fp/ra at +16..+52, restored
   // symmetrically at the single exit — abi_extract 0x8006D02C). Mirrored relative to the CALLER's live
   // c->r[29] with the LIVE register values, so the guest-stack bytes byte-match the substrate wherever
   // this native runs on an SBS-compared leg (the snapToMasterOffsetY200/orbitTick override trees, whose
@@ -798,19 +800,7 @@ void CutsceneCamera::snapAccY(uint32_t target) { // FUN_8006D950
   w32(S + 0x10, r32(target + 4));                // snap Y accumulator
 }
 void CutsceneCamera::snapFollow(uint32_t target) { // FUN_8006E3B0
-  int s_v = c->game->verify.on("camverify");
-  uint32_t cam0[64], sp0[256], rsave[32];
-  if (s_v) {
-    for (int i = 0; i < 64; i++) {
-      cam0[i] = c->mem_r32(cam_ + i * 4);
-    }
-    for (int i = 0; i < 256; i++) {
-      sp0[i] = c->mem_r32(0x1F800000u + i * 4);
-    }
-    memcpy(rsave, c->r, sizeof rsave);
-  }
-
-  // gen_func_8006E3B0 pushes a 32-byte guest frame (r29-=32, spills s0@+16/s1@+20/ra@+24), then sets
+  // guest 0x8006E3B0 pushes a 32-byte guest frame (r29-=32, spills s0@+16/s1@+20/ra@+24), then sets
   // s0=a0(cam) / s1=a1(target) for the body — abi_extract 0x8006E3B0. Mirrored with live values so the
   // stack bytes byte-match on the SBS-compared leg (reached via the orbitTick override, which preloads
   // r16/r17/r31 with the gen's values at its 0x8006EFE0 jal site). snapAccXZ/snapAccY (0x8006D934/
@@ -832,58 +822,6 @@ void CutsceneCamera::snapFollow(uint32_t target) { // FUN_8006E3B0
   c->r[17] = c->mem_r32(fsp + 20);
   c->r[31] = c->mem_r32(fsp + 24);
   c->r[29] = fsp + 32;
-
-  if (!s_v) {
-    return;
-  }
-  // `camverify` A/B: capture the native result, roll back, super-call the recomp oracle at
-  // 0x8006E3B0, diff the resulting cam+scratchpad state.
-  uint32_t camM[64], spM[256];
-  for (int i = 0; i < 64; i++) {
-    camM[i] = c->mem_r32(cam_ + i * 4);
-  }
-  for (int i = 0; i < 256; i++) {
-    spM[i] = c->mem_r32(0x1F800000u + i * 4);
-  }
-  for (int i = 0; i < 64; i++) {
-    c->mem_w32(cam_ + i * 4, cam0[i]);
-  }
-  for (int i = 0; i < 256; i++) {
-    c->mem_w32(0x1F800000u + i * 4, sp0[i]);
-  }
-  memcpy(c->r, rsave, sizeof rsave);
-  c->r[4] = cam_;
-  c->r[5] = target;
-  rec_interp(c, 0x8006E3B0u);
-  uint32_t camO[64], spO[256];
-  for (int i = 0; i < 64; i++) {
-    camO[i] = c->mem_r32(cam_ + i * 4);
-  }
-  for (int i = 0; i < 256; i++) {
-    spO[i] = c->mem_r32(0x1F800000u + i * 4);
-  }
-  VerifyHarness::Check &chk = c->game->verify.check("camverify");
-  long &nbad = chk.nMismatch, &ngood = chk.nMatch;
-  int bad = 0;
-  for (int i = 0; i < 64; i++) {
-    if (camM[i] != camO[i]) {
-      bad = 1;
-      if (nbad++ < 60) {
-        cfg_logi("camverify", "snapFollow cam+0x%02x mine=%08x oracle=%08x", i * 4, camM[i], camO[i]);
-      }
-    }
-  }
-  for (int i = 0; i < 256; i++) {
-    if (spM[i] != spO[i]) {
-      bad = 1;
-      if (nbad++ < 60) {
-        cfg_logi("camverify", "snapFollow sp+0x%03x mine=%08x oracle=%08x", i * 4, spM[i], spO[i]);
-      }
-    }
-  }
-  if (!bad && (ngood++ % 200) == 0) {
-    cfg_logi("camverify", "snapFollow match #%d", (int)ngood);
-  }
 }
 void CutsceneCamera::snapFollowA(uint32_t target) { // FUN_8006E294 (driver mode 2 + init post-check)
   snapAccXZ(target);
@@ -952,7 +890,7 @@ void CutsceneCamera::trackFollow(uint32_t target) { // FUN_8006E228
 //   * Y-only shake, three variants sharing the same shape (capture-then-jitter):
 //       4->5: free-running (like 1->2, but Y-only, fx id 241, stays at 5 until externally reset).
 //       6->7, 8->9: ONE-SHOT pulses (states 6/8 fall straight into 7/9's jitter in the SAME frame — that's
-//       the recompiled control flow, not a bug); 7/9 abort (->0, no jitter) if cam[0x64] is busy, else
+//       the guest control flow, not a bug); 7/9 abort (->0, no jitter) if cam[0x64] is busy, else
 //       jitter once (±32 for 7, ±16 for 9) and always end at state 0.
 void CutsceneCamera::shakeTail() { // FUN_8006C988
   uint8_t state = camR8(0x76);
@@ -1035,7 +973,7 @@ void CutsceneCamera::shakeTail() { // FUN_8006C988
 // the CALLER (update/init) first, its unowned children run via the substrate (0-diff, same as trackFollow).
 // FIELD OVERLAY handlers reached by some modes / render sub-modes: they live in loaded \BIN\*.BIN overlays,
 // not resident MAIN, so they dispatch through the overlay router. (In the oracle unit test no overlay is
-// loaded, so these modes MISS and are skipped — same class as the yFloor recompiler gap.)
+// loaded, so these modes MISS and are skipped — same class as the yFloor recorded binary evidence gap.)
 static constexpr uint32_t OV_RENDER_RM2_M0 = 0x80115F58u, OV_RENDER_RM7_M0 = 0x80112DECu,
                           OV_RENDER_RM20_M0 = 0x8010AD0Cu;
 static constexpr uint32_t OV_RENDER_RM2_M1 = 0x80116918u, OV_RENDER_RM7_M1 = 0x80113660u,
@@ -1133,7 +1071,7 @@ void CutsceneCamera::dispatchMode(uint8_t mode) {
 }
 
 void CutsceneCamera::initPlace() { // FUN_8006E918 (init: place the camera X/Z base from the heading)
-  // gen_func_8006E918 pushes a 40-byte guest frame (r29-=40, spills s0@+16/s1@+20/s2@+24/s3@+28/ra@+32,
+  // guest 0x8006E918 pushes a 40-byte guest frame (r29-=40, spills s0@+16/s1@+20/s2@+24/s3@+28/ra@+32,
   // restored at the single exit — abi_extract 0x8006E918). Mirrored with live values so the stack bytes
   // byte-match on the SBS-compared leg (reached via the snapToMasterOffsetY200 override, which preloads
   // r16/r17/r31 with the gen's values at its 0x8006EA60 jal site). rcos (0x80083F50) is frameless; rsin
@@ -1172,19 +1110,18 @@ void CutsceneCamera::initSeedGrp(uint32_t src) { // FUN_8006CBA8 (writes the FIX
 
 // ── Wiring pass (2026-07-08 frontier follow-up) ─────────────────────────────────────────────────
 // Ghidra decomp: scratch/decomp_local/region_8006.c (import "main_ram", va 0x80060000-0x80070000) +
-// gen_func_8006E8F8 (generated/shard_5.c, Ghidra missed this one — read the recompiled body directly,
+// guest 0x8006E8F8 (authenticated executable/overlay evidence, Ghidra missed this one — read the guest body directly,
 // which is instruction-exact ground truth per CLAUDE.md).
 //
-// REAL BUG found wiring this one (was drafted assuming camera-only semantics): the gen body reads
+// REAL BUG found wiring this one (was drafted assuming camera-only semantics): the guest-visible behavior reads
 // its object base from a0 (c->r[4]), NOT a hardcoded CAM_OBJ constant like pushMode/restoreMode/
-// snapToMasterOffsetY200/orbitTick below. Confirmed by its cross-module callers (generated/
-// ov_a00_shard_0.c..ov_a0k_shard_0.c etc.) — every one of them calls FUN_8006E8F8 with a0 = that
-// overlay's OWN actor-object pointer (e.g. `c->r[16]`, an A00-area actor base), not the camera
-// object at 0x800E8008. So this leaf is a generic "reset follow accumulator" applied to whatever
-// object shares this field shape (0x24/0x28/0x56) — the camera is just ONE caller (of many). The
-// method itself is unaffected (it already takes its base from the instance's `cam_`, which reads
-// as "cam" only by naming convention); the fix lives entirely in the override-registry wiring
-// below, which constructs the instance from the LIVE a0 rather than hardcoding CAM_OBJ.
+// snapToMasterOffsetY200/orbitTick below. Confirmed by its cross-module callers (authenticated executable/overlay
+// evidence ov_a00_shard_0.c..ov_a0k_shard_0.c etc.) — every one of them calls FUN_8006E8F8 with a0 = that overlay's OWN
+// actor-object pointer (e.g. `c->r[16]`, an A00-area actor base), not the camera object at 0x800E8008. So this leaf is
+// a generic "reset follow accumulator" applied to whatever object shares this field shape (0x24/0x28/0x56) — the camera
+// is just ONE caller (of many). The method itself is unaffected (it already takes its base from the instance's `cam_`,
+// which reads as "cam" only by naming convention); the fix lives entirely in the override-registry wiring below, which
+// constructs the instance from the LIVE a0 rather than hardcoding CAM_OBJ.
 void CutsceneCamera::resetFollowAccum() { // FUN_8006E8F8
   camW32(0x24, 0);
   camW32(0x28, 0);
@@ -1208,8 +1145,8 @@ void CutsceneCamera::restoreMode() { // FUN_8006E1E4
   camW8(0x64, camR8(0x67)); // restore the mode pushMode() stashed
 }
 // FUN_8006EA00 pushes a real 32-byte guest frame (r29-=32, s0/s1/ra spilled at +16/+20/+24,
-// restored symmetrically before every return) — confirmed against generated/shard_7.c
-// gen_func_8006EA00. Since this leaf is wired GLOBALLY (any rec_dispatch(c, 0x8006EA00u) caller,
+// restored symmetrically before every return) — confirmed against authenticated executable/overlay evidence
+// guest 0x8006EA00. Since this leaf is wired GLOBALLY (any typed runtime address dispatch(c, 0x8006EA00u) caller,
 // substrate context included, per the "MIRROR THE GUEST STACK" directive), the frame is mirrored
 // relative to the CALLER's live c->r[29] (not a fixed offset): spill the live s0/s1/ra so their
 // bytes land in guest RAM exactly where the substrate would leave them. The gen then loads
@@ -1217,7 +1154,7 @@ void CutsceneCamera::restoreMode() { // FUN_8006E1E4
 // the frame-pushing callees (initPlace frame 40, lookAt frame 56 — mirrored in their own bodies)
 // spill s0/s1 into THEIR frames; likewise each frame-pushing callee gets r31 preloaded with the
 // gen's exact jal-site constant so its ra spill slot byte-matches. Restore before returning (a
-// nested call, e.g. lookAt's LA_ISQRT rec_dispatch, can clobber the shared Core::r[] register
+// nested call, e.g. lookAt's LA_ISQRT typed runtime address dispatch, can clobber the shared Core::r[] register
 // file, so the restore is a real requirement, not a formality).
 void CutsceneCamera::snapToMasterOffsetY200() { // FUN_8006EA00
   c->r[29] -= 32;
@@ -1247,7 +1184,7 @@ void CutsceneCamera::snapToMasterOffsetY200() { // FUN_8006EA00
 // FUN_8006EF38 pushes the same shape of 32-byte frame (r29-=32, s0/s1/ra spilled at +16/+20/+24)
 // UNCONDITIONALLY — even on the early-return path (the gen's branch-delay-slot spill runs before
 // the {3,4}-window check, and the early-return target is the same restore tail as the normal
-// exit) — confirmed against generated/shard_2.c gen_func_8006EF38. Mirrored the same way as
+// exit) — confirmed against authenticated executable/overlay evidence guest 0x8006EF38. Mirrored the same way as
 // snapToMasterOffsetY200 above (own frame + gen s0/s1 register values + per-jal-site ra constants
 // for the frame-pushing callees rsin/snapFollow/lookAt); see that method's comment for the rationale.
 void CutsceneCamera::orbitTick() { // FUN_8006EF38
@@ -1277,11 +1214,7 @@ void CutsceneCamera::orbitTick() { // FUN_8006EF38
 }
 
 void CutsceneCamera::update() { // FUN_8006EC44 (resident per-frame camera driver; cam obj @0x800E8008)
-  if (c->game && !c->game->native_sync) {
-    MV_CHECK(c, 0x8006EC44u, updateFaithful());
-    return;
-  } // faithful: gen mirror
-  uint8_t outer = camR8(0); // cam[0] = outer state
+  uint8_t outer = camR8(0);     // cam[0] = outer state
   if (outer == 0) {
     camW8(0, 1);
     init();
@@ -1307,7 +1240,7 @@ void CutsceneCamera::update() { // FUN_8006EC44 (resident per-frame camera drive
   shakeTail(); // post-mode tail (always, after any mode)
 }
 
-// pc_faithful mirror of gen_func_8006EC44 (generated/shard_1.c:13176-13351). Guest frame: r29-=24,
+// pc_faithful mirror of guest 0x8006EC44 (authenticated executable/overlay evidence). Guest frame: r29-=24,
 // s0(r16)@sp+16 spilled with the CALLER's live value (Engine::fieldFrameFaithful leaves r16=0x1F800000
 // there before calling), ra(r31)@sp+20 spilled with the caller's jal-site (0x80108B90u), s0 reassigned to
 // CAM_OBJ (hardcoded in the gen, independent of any cam_ this instance was constructed with) for the body,
@@ -1315,10 +1248,10 @@ void CutsceneCamera::update() { // FUN_8006EC44 (resident per-frame camera drive
 // which skip shakeTail exactly like the gen's direct goto to the restore tail). Every callee gets r31 set
 // to the exact gen jal-site constant first, matching the reference-mirror style (Engine::fieldFrameFaithful
 // / Sop::fieldModeFaithful). init/mainFollow/rotBuild/trackFollow/snapFollow*/pitchFollow/simpleFollow/
-// shakeTail are dispatched via rec_dispatch(c, addr) to their guest address — since no override-registry
-// entry exists for any of them, this falls straight through to the substrate gen_func body (same code the
-// oracle runs), NOT a call to the native sibling *methods* on this class (those exist for the native_sync
-// path only). Calling convention for the two-arg follow leaves (trackFollow/snapFollowA/pitchFollow/
+// shakeTail are dispatched via typed runtime address dispatch(c, addr) to their guest address — since no
+// override-registry entry exists for any of them, this falls straight through to the substrate gen_func body (same code
+// the oracle runs), NOT a call to the native sibling *methods* on this class (those exist for the native_sync path
+// only). Calling convention for the two-arg follow leaves (trackFollow/snapFollowA/pitchFollow/
 // snapFollowB/snapFollow/simpleFollow) is a0(r4)=cam, a1(r5)=cam+56 (or G+0x2C for the "snap-to-master"
 // variants of snapFollow/simpleFollow) — verified against the gen bodies AND the real mode-dispatch jump
 // table at 0x80016A44 (18 uint32 entries, read from scratch/bin/tomba2/MAIN.EXE @ file offset 0x7244).
@@ -1334,7 +1267,10 @@ void CutsceneCamera::updateFaithful() { // FUN_8006EC44
     c->mem_w8(c->r[16] + 0, 1);
     c->r[31] = 0x8006EC84u;
     c->r[4] = c->r[16];
-    rec_dispatch(c, 0x8006EA7Cu); // init FUN_8006EA7C(cam) — substrate until its faithful conversion
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x8006EA7Cu,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // init FUN_8006EA7C(cam) — substrate until its faithful conversion
     goto epilogue;
   }
   if (outer != 1) {
@@ -1356,7 +1292,8 @@ void CutsceneCamera::updateFaithful() { // FUN_8006EC44
     }
     c->r[31] = 0x8006EF28u;
     c->r[4] = c->r[16];
-    rec_dispatch(c, 0x8006C988u); // shakeTail FUN_8006C988(cam)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8006C988u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // shakeTail FUN_8006C988(cam)
   }
 epilogue:
   c->r[31] = c->mem_r32(sp + 20);
@@ -1371,34 +1308,36 @@ void CutsceneCamera::dispatchModeFaithful(uint8_t mode) {
     if (rm == 7) {
       c->r[31] = 0x8006ED48u;
       c->r[4] = c->r[16];
-      rec_dispatch(c, OV_RENDER_RM7_M0);
+      psx::cpu::dispatchGuestToReturn0(*c, OV_RENDER_RM7_M0, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       return;
     }
     if (rm == 20) {
       c->r[31] = 0x8006ED58u;
       c->r[4] = c->r[16];
-      rec_dispatch(c, OV_RENDER_RM20_M0);
+      psx::cpu::dispatchGuestToReturn0(*c, OV_RENDER_RM20_M0, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       return;
     }
     if (rm == 2) {
       c->r[31] = 0x8006ED38u;
       c->r[4] = c->r[16];
-      rec_dispatch(c, OV_RENDER_RM2_M0);
+      psx::cpu::dispatchGuestToReturn0(*c, OV_RENDER_RM2_M0, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       return;
     }
     if (!(c->mem_r8(c->r[16] + 100) & 0x80)) {
       c->r[31] = 0x8006ED7Cu;
       c->r[4] = c->r[16];
-      rec_dispatch(c, 0x8006E0F0u); // mainFollow(cam)
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x8006E0F0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // mainFollow(cam)
       c->r[31] = 0x8006ED84u;
       c->r[4] = c->r[16];
-      rec_dispatch(c, 0x8006E464u); // rotBuild(cam)
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x8006E464u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // rotBuild(cam)
     }
     rm = c->mem_r8(0x800BF870u);
     uint32_t fn = c->mem_r32(RENDER_FP_TABLE + (uint32_t)rm * 4);
     c->r[31] = 0x8006EDACu;
     c->r[4] = c->r[16];
-    rec_dispatch(c, fn);
+    psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return;
   }
   case 1: {
@@ -1406,50 +1345,51 @@ void CutsceneCamera::dispatchModeFaithful(uint8_t mode) {
     if (rm == 7) {
       c->r[31] = 0x8006EDFCu;
       c->r[4] = c->r[16];
-      rec_dispatch(c, OV_RENDER_RM7_M1);
+      psx::cpu::dispatchGuestToReturn0(*c, OV_RENDER_RM7_M1, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       return;
     }
     if (rm == 20) {
       c->r[31] = 0x8006EE1Cu;
       c->r[4] = c->r[16];
-      rec_dispatch(c, OV_RENDER_RM20_M1);
+      psx::cpu::dispatchGuestToReturn0(*c, OV_RENDER_RM20_M1, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       return;
     }
     if (rm == 2) {
       c->r[31] = 0x8006EE0Cu;
       c->r[4] = c->r[16];
-      rec_dispatch(c, OV_RENDER_RM2_M1);
+      psx::cpu::dispatchGuestToReturn0(*c, OV_RENDER_RM2_M1, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       return;
     }
     c->r[31] = 0x8006EE2Cu;
     c->r[4] = c->r[16];
     c->r[5] = c->r[16] + 56;
-    rec_dispatch(c, 0x8006E228u); // trackFollow(cam, cam+56)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8006E228u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // trackFollow(cam, cam+56)
     return;
   }
   case 2:
     c->r[31] = 0x8006EE40u;
     c->r[4] = c->r[16];
     c->r[5] = c->r[16] + 56;
-    rec_dispatch(c, 0x8006E294u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8006E294u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return; // snapFollowA(cam, cam+56)
   case 3:
     c->r[31] = 0x8006EE54u;
     c->r[4] = c->r[16];
     c->r[5] = c->r[16] + 56;
-    rec_dispatch(c, 0x8006E360u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8006E360u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return; // pitchFollow(cam, cam+56)
   case 4:
     c->r[31] = 0x8006EE68u;
     c->r[4] = c->r[16];
     c->r[5] = c->r[16] + 56;
-    rec_dispatch(c, 0x8006E2FCu);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8006E2FCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return; // snapFollowB(cam, cam+56)
   case 5:
     c->r[31] = 0x8006EE80u;
     c->r[4] = c->r[16];
     c->r[5] = G + 0x2c;
-    rec_dispatch(c, 0x8006E3B0u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8006E3B0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return; // snapFollow(cam, MASTER_X)
   case 6:
     c->mem_w8(c->r[16] + 100, 0);
@@ -1460,23 +1400,23 @@ void CutsceneCamera::dispatchModeFaithful(uint8_t mode) {
     c->r[31] = 0x8006EEF8u;
     c->r[4] = c->r[16];
     c->r[5] = c->r[16] + 56;
-    rec_dispatch(c, 0x8006E3B0u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8006E3B0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return; // snapFollow(cam, cam+56)
   case 8:
     c->r[31] = 0x8006EEA8u;
     c->r[4] = c->r[16];
     c->r[5] = c->r[16] + 56;
-    rec_dispatch(c, 0x8006E3F4u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8006E3F4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return; // simpleFollow(cam, cam+56)
   case 9:
     c->r[31] = 0x8006EEB8u;
     c->r[4] = c->r[16];
-    rec_dispatch(c, OV_MODE9);
+    psx::cpu::dispatchGuestToReturn0(*c, OV_MODE9, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return;
   case 10:
     c->r[31] = 0x8006EEC8u;
     c->r[4] = c->r[16];
-    rec_dispatch(c, OV_A00_CAM);
+    psx::cpu::dispatchGuestToReturn0(*c, OV_A00_CAM, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return;
   case 11:
   case 12:
@@ -1491,14 +1431,14 @@ void CutsceneCamera::dispatchModeFaithful(uint8_t mode) {
     c->r[31] = 0x8006EF10u;
     c->r[4] = c->r[16];
     c->r[5] = G + 0x2c;
-    rec_dispatch(c, 0x8006E3F4u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8006E3F4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return; // simpleFollow(cam, MASTER_X)
   case 16:
     return; // tail only (falls through to shakeTail in updateFaithful, same as the gen's L_8006EF20 fallthrough)
   case 17:
     c->r[31] = 0x8006EF20u;
     c->r[4] = c->r[16];
-    rec_dispatch(c, OV_MODE17);
+    psx::cpu::dispatchGuestToReturn0(*c, OV_MODE17, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return;
   default:
     return; // unreachable: mode<18 and the 18-entry table's values are all enumerated above
@@ -1573,15 +1513,15 @@ void CutsceneCamera::init() { // FUN_8006EA7C (first-frame field reset + render-
 
 // ── Override-registry wiring (2026-07-08 frontier follow-up) ────────────────────────────────────
 // resetFollowAccum/pushMode/restoreMode/snapToMasterOffsetY200/orbitTick reach the substrate
-// EXCLUSIVELY via rec_dispatch(c, addr) from cross-module (overlay) call sites — confirmed by
-// grepping every generated/*.c reference to these 5 addresses: none appear as a direct same-module
-// `func_<addr>(c)` call EXCEPT pushMode (0x8006E1C0), which generated/shard_3.c, shard_4.c and
-// shard_6.c also call directly (MAIN calling its own resident code — the recompiler emits that as
-// a plain C call, bypassing rec_dispatch entirely and consulting the recompiler's OWN g_override[]
-// table instead). So pushMode needs the dual-wire (shard_set_override setter passed to install(),
-// same pattern as PcScheduler's primitives in game/core/pc_scheduler.cpp); the other 4 only need
-// the rec_dispatch-only registration (setter omitted).
-extern void gen_func_8006E1C0(Core *);
+// EXCLUSIVELY via typed runtime address dispatch(c, addr) from cross-module (overlay) call sites — confirmed by
+// grepping every authenticated executable/overlay evidence reference to these 5 addresses: none appear as a direct
+// same-module `a direct guest-address call` call EXCEPT pushMode (0x8006E1C0), which authenticated executable/overlay
+// evidence, shard_4.c and shard_6.c also call directly (MAIN calling its own resident code — the recorded guest call
+// graph contains that as a plain C call, bypassing typed runtime address dispatch entirely and consulting the recorded
+// binary evidence's OWN image-qualified runtime dispatcher table instead). So pushMode needs the dual-wire
+// (tomba::native::declareOverride setter passed to install(), same pattern as PcScheduler's primitives in
+// game/core/pc_scheduler.cpp); the other 4 only need the typed runtime address dispatch-only registration (setter
+// omitted).
 
 static void eov_resetFollowAccum(Core *c) {
   // a0 (c->r[4]) IS the target object base here — NOT hardcoded CAM_OBJ (see the RE note above
@@ -1601,19 +1541,12 @@ static void eov_orbitTick(Core *c) {
   CutsceneCamera(c, CutsceneCamera::CAM_OBJ).orbitTick();
 }
 
-extern void shard_set_override(uint32_t, void (*)(Core *));
-extern void gen_func_8006E8F8(Core *);
-extern void gen_func_8006E1E4(Core *);
-extern void gen_func_8006EA00(Core *);
-extern void gen_func_8006EF38(Core *);
-
 void CutsceneCamera::registerOverrides(Game * /*game*/) {
-  using overrides::install;
-  // pushMode (0x8006E1C0) has direct same-module callers -> shard_set_override installs the thunk;
-  // the other four are rec_dispatch-only (setter omitted).
-  install(0x8006E1C0u, "CutsceneCamera::pushMode", eov_pushMode, gen_func_8006E1C0, shard_set_override);
-  install(0x8006E8F8u, "CutsceneCamera::resetFollowAccum", eov_resetFollowAccum, gen_func_8006E8F8);
-  install(0x8006E1E4u, "CutsceneCamera::restoreMode", eov_restoreMode, gen_func_8006E1E4);
-  install(0x8006EA00u, "CutsceneCamera::snapToMasterOffsetY200", eov_snapToMasterOffsetY200, gen_func_8006EA00);
-  install(0x8006EF38u, "CutsceneCamera::orbitTick", eov_orbitTick, gen_func_8006EF38);
+  // pushMode (0x8006E1C0) has direct same-module callers -> tomba::native::declareOverride installs the thunk;
+  // the other four are typed runtime address dispatch-only (setter omitted).
+  tomba::native::declareOverride(0x8006E1C0u, "CutsceneCamera::pushMode", eov_pushMode);
+  tomba::native::declareOverride(0x8006E8F8u, "CutsceneCamera::resetFollowAccum", eov_resetFollowAccum);
+  tomba::native::declareOverride(0x8006E1E4u, "CutsceneCamera::restoreMode", eov_restoreMode);
+  tomba::native::declareOverride(0x8006EA00u, "CutsceneCamera::snapToMasterOffsetY200", eov_snapToMasterOffsetY200);
+  tomba::native::declareOverride(0x8006EF38u, "CutsceneCamera::orbitTick", eov_orbitTick);
 }

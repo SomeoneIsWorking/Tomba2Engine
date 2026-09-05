@@ -41,11 +41,11 @@
 // The name says what this body DECIDES, which is measured, not what the acquisition is FOR.
 //
 // TRUE EXTENT: [0x8001FAE0, 0x8001FC50). Single epilogue L_8001FC34 (five restores from sp+16..sp+32,
-// then sp += 40); the trailing duplicate `return;` is the recompiler's dead-tail artifact. NOT taken
+// then sp += 40); the trailing duplicate `return;` is the recorded binary evidence's dead-tail artifact. NOT taken
 // from "the next gen function in the shard", which is a false test on this project.
 //
-// MODULE: MAIN (generated/shard_1.c gen_func_8001FAE0), so it registers with shard_set_override — not
-// an overlay setter.
+// MODULE: MAIN (authenticated executable/overlay evidence guest 0x8001FAE0), so it registers with
+// tomba::native::declareOverride — not an overlay setter.
 //
 // GUEST STACK: frame 40, five spills (r19,ra,r18,r17,r16 at +28,+32,+24,+20,+16 in program order).
 // The four callee-saved registers stay GuestReg proxies: r17/r16 carry the deltas across the sqrtLzc
@@ -54,12 +54,8 @@
 
 #include "core.h"
 #include "guest_abi.h"
-#include "override_registry.h"
-#include "rec_decls.h"
-
-extern void func_80084080(Core *); // Math::sqrtLzc
-extern void func_80085690(Core *); // Trig::ratan2
-extern void shard_set_override(uint32_t, void (*)(Core *));
+#include "guest_jal.h"
+#include "native_override_catalog.h"
 
 namespace {
 
@@ -97,7 +93,7 @@ constexpr uint32_t kParamOther = 18432;
 
 } // namespace
 
-// ORACLE: gen_func_8001FAE0
+// ORACLE: guest 0x8001FAE0
 void ActorTargeting::tryAcquireTarget(Core *c) {
   GuestFrame<40, 5> frame(c, kSpills_8001FAE0);
 
@@ -122,7 +118,7 @@ void ActorTargeting::tryAcquireTarget(Core *c) {
   guest_mult(c, (int32_t)(uint32_t)deltaZ, (int32_t)(uint32_t)deltaZ);
 
   c->r[4] = dxSq + c->lo;
-  guest_call(c, kRaAfterDistance, func_80084080);
+  tomba::guest::dispatchJalToReturn(*c, 0x80084080u, kRaAfterDistance);
   const uint32_t distance = c->r[2] & 0xFFFFu;
 
   if ((target.reach() + actor.reach()) < (int32_t)distance) {
@@ -137,7 +133,7 @@ void ActorTargeting::tryAcquireTarget(Core *c) {
   // The heading from the actor to the target, then the directional window.
   c->r[4] = (uint32_t)(0 - (int32_t)(uint32_t)deltaZ);
   c->r[5] = (uint32_t)deltaX;
-  guest_call(c, kRaAfterAngle, func_80085690);
+  tomba::guest::dispatchJalToReturn(*c, 0x80085690u, kRaAfterAngle);
   const uint32_t angle = c->r[2];
   if (!((((angle - actor.heading()) + kArcOffset) & kAngleMask) < kArcWidth)) {
     return;
@@ -161,9 +157,5 @@ void ActorTargeting::tryAcquireTarget(Core *c) {
 }
 
 void ActorTargeting::registerOverrides() {
-  overrides::install(0x8001FAE0u,
-                     "ActorTargeting::tryAcquireTarget",
-                     &ActorTargeting::tryAcquireTarget,
-                     gen_func_8001FAE0,
-                     shard_set_override);
+  tomba::native::declareOverride(0x8001FAE0u, "ActorTargeting::tryAcquireTarget", &ActorTargeting::tryAcquireTarget);
 }

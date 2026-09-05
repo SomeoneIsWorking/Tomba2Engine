@@ -35,14 +35,14 @@
 // it. The name says what the tick DOES, which is measured.
 //
 // TRUE EXTENT: [0x801281B8, 0x80128300). The body's single epilogue is L_801282F8 (restore ra from
-// sp+20 and s0 from sp+16, sp += 24) and the recompiler's trailing duplicate `return;` after it is
+// sp+20 and s0 from sp+16, sp += 24) and the recorded binary evidence's trailing duplicate `return;` after it is
 // its usual dead-tail artifact. Deliberately NOT established from "the next gen function in the
 // shard" — that test is false on this project (the shard split is not address order) and has given a
 // wrong answer four times this session.
 //
-// MODULE: defined only by the A00 overlay (`ov_a00_gen_801281B8`, generated/ov_a00_shard_0.c), so it
-// registers with ov_a00_set_override; the main-module setter would leave the direct
-// `ov_a00_func_801281B8(c)` callers on the substrate.
+// MODULE: defined only by the A00 overlay (`overlay guest 0x801281B8`, authenticated executable/overlay evidence), so
+// it registers with A00 tomba::native::declareOverride; the main-module setter would leave the direct `overlay guest
+// 0x801281B8(c)` callers on the substrate.
 //
 // GUEST STACK: frame 24, spills s0 at +16 and ra at +20. s0 holds the node and is live across the
 // leading call, so it is a GuestReg proxy and not a C++ local — a callee spilling its caller's
@@ -56,18 +56,18 @@
 
 #include "core.h"
 #include "guest_abi.h"
-#include "ov_a00_decls.h"
-#include "override_registry.h"
+#include "guest_jal.h"
+#include "native_override_catalog.h"
 
 namespace {
 
-// tools/abi_extract.py 0x801281B8 --scaffold --guestabi, program order
+// tools/binary ABI evidence 0x801281B8 --scaffold --guestabi, program order
 constexpr GuestFrameSpill kSpills_801281B8[2] = {
     {16, 16},
     {31 /*ra*/, 20},
 };
 
-constexpr uint32_t kRaAfterPreTick = 0x801281CCu; // -> ov_a00_func_801284AC, runs before the swing
+constexpr uint32_t kRaAfterPreTick = 0x801281CCu; // -> overlay guest 0x801284AC, runs before the swing
 
 // Stage 1: how hard the spring pulls back per unit of overshoot.
 constexpr int32_t kRestoreGain = 6;
@@ -86,13 +86,13 @@ constexpr int32_t kVelToAngleShift = 8; // angle += velocity / 256
 
 } // namespace
 
-// ORACLE: ov_a00_gen_801281B8
+// ORACLE: overlay guest 0x801281B8
 void RopeSwing::swingTickAndBendSegments(Core *c) {
   GuestFrame<24, 2> frame(c, kSpills_801281B8);
 
   GuestReg<16> nodeReg(c); // s0 — live across the call below
   nodeReg = c->r[4];
-  guest_call(c, kRaAfterPreTick, ov_a00_func_801284AC);
+  tomba::guest::dispatchJalToReturn(*c, 0x801284ACu, kRaAfterPreTick);
 
   const RopeNode node{c, c->r[16]};
   const RopeSwingState sw{c, c->r[16] + ropeswing::kStateBlock};
@@ -168,9 +168,6 @@ void RopeSwing::swingTickAndBendSegments(Core *c) {
 }
 
 void RopeSwing::registerOverrides() {
-  overrides::install(0x801281B8u,
-                     "RopeSwing::swingTickAndBendSegments",
-                     &RopeSwing::swingTickAndBendSegments,
-                     ov_a00_gen_801281B8,
-                     ov_a00_set_override);
+  tomba::native::declareOverride(
+      0x801281B8u, "RopeSwing::swingTickAndBendSegments", &RopeSwing::swingTickAndBendSegments);
 }

@@ -2,7 +2,7 @@
 // calls every frame. The port is interpreter-only, so each of these pure leaf routines runs as
 // interpreted MIPS on the hot path; owning them native is the #1-priority lever (perf + 100%-PC-
 // native — they align). These are deterministic pure-integer/math leaves with NO PSX intricacy, so
-// the PC-native form is just the same math in C; bit-exactness with the recomp reference IS the
+// the PC-native form is just the same math in C; bit-exactness with the recorded guest behavior IS the
 // correctness gate (the result feeds cull distance / camera / content), proven by the per-call
 // `mathverify` comparator below and then registered unconditionally.
 //
@@ -13,36 +13,17 @@
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
-#include "override_registry.h" // overrides::install — the one native-override registry
-#include "trig.h"              // Trig::vecLen — the single home of FUN_80078240's magnitude approximation
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include "trig.h"                    // Trig::vecLen — the single home of FUN_80078240's magnitude approximation
 #include <stdio.h>
 #include <string.h>
 
-// The recompiler's own PROCESS-GLOBAL call table (generated/shard_disp.c: g_override[]/
-// shard_set_override) — the substrate's OWN func_<addr>(c) call sites (e.g. `func_80084110(c);`
-// inline in shard_0.c/shard_6.c/…, 55k+/frame for matMul alone) check THIS table first, not the
-// registry's rec_dispatch path (which only fires on an explicit rec_dispatch(c, addr) call — a
-// small minority of call sites for this cluster). Same dual-wiring pattern as
+// The recorded binary evidence's PROCESS-GLOBAL call table (authenticated executable/overlay evidence: image-qualified
+// runtime dispatcher/ tomba::native::declareOverride) — the substrate's OWN a direct guest-address call call sites
+// (e.g. `guest 0x80084110(c);` inline in shard_0.c/shard_6.c/…, 55k+/frame for matMul alone) check THIS table first,
+// not the registry's typed runtime address dispatch path (which only fires on an explicit typed runtime address
+// dispatch(c, addr) call — a small minority of call sites for this cluster). Same dual-wiring pattern as
 // ActorReward::registerOverrides — both setters passed to the same `install()` call.
-extern void shard_set_override(uint32_t, void (*)(Core *));
-extern void gen_func_80084110(Core *);
-extern void gen_func_80084220(Core *);
-extern void gen_func_80084470(Core *);
-extern void gen_func_800844C0(Core *);
-extern void gen_func_80085480(Core *);
-extern void gen_func_80084D10(Core *);
-extern void gen_func_80084EB0(Core *);
-extern void gen_func_80085050(Core *);
-extern void gen_func_800847F0(Core *);
-extern void gen_func_80084A80(Core *);
-extern void gen_func_800851F0(Core *);
-extern void gen_func_80077FB0(Core *);
-extern void gen_func_80078240(Core *);
-extern void gen_func_80084080(Core *);
-extern void gen_func_80084360(Core *);
-extern void gen_func_80084520(Core *);
-
-void rec_interp(Core *c, uint32_t pc);
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FUN_80077FB0 — 16-bit ROUNDING integer square root. a0 = unsigned value, returns v0 = nearest
@@ -110,7 +91,7 @@ uint32_t eng_isqrt16(uint32_t a0) {
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FUN_80084110 — 3x3 MATRIX MULTIPLY P = R × M via the GTE. a0 = matrix R, a1 = matrix M, a2 = out P
 // (all 3x3 int16, GTE row-major CR layout: 5 words = [11|12, 13|21, 22|23, 31|32, 33]). 16.2% of hot
-// interpreter time + the top frequency leader (55k calls) — the biggest single perf lever. The recomp
+// interpreter time + the top frequency leader (55k calls) — the biggest single perf lever. The guest instruction path
 // body CTC2-loads R into the rotation-matrix regs, then for each COLUMN j of M runs MVMVA (sf=1→>>12,
 // mx=ROT, v=Vj, cv=Null, lm=0) and packs the 3 IR outputs into P. USER DIRECTIVE 2026-06-21: port the
 // GTE math NATIVE (perf) — must stay GTE-EXACT (output feeds object position → content). Exact MVMVA
@@ -175,7 +156,7 @@ uint32_t Math::matMul(uint32_t rPtr, uint32_t mPtr, uint32_t outPtr) { // FUN_80
   c->mem_w32(outPtr + 8, (uint16_t)P[1][1] | ((uint32_t)(uint16_t)P[1][2] << 16));
   c->mem_w32(outPtr + 12, (uint16_t)P[2][0] | ((uint32_t)(uint16_t)P[2][1] << 16));
   c->mem_w32(outPtr + 16, (uint32_t)(int32_t)P[2][2]); // SWC2 IR3: sign-extended 32-bit, not a packed halfword
-  // GTE leftover state a downstream gte_op reader could consume (the recomp body leaves the LAST
+  // GTE leftover state a downstream gte_op reader could consume (the guest instruction path leaves the LAST
   // column's input vector in DR0/DR1 (VXY0/VZ0) + that column's MVMVA result in IR1-3/MAC1-3).
   gte_write_data(0, (uint32_t)(uint16_t)M[0][2] | ((uint32_t)(uint16_t)M[1][2] << 16)); // VXY0 = col2 (VX,VY)
   gte_write_data(1, (uint32_t)(uint16_t)M[2][2]);                                       // VZ0 = col2 (VZ)
@@ -196,7 +177,7 @@ uint32_t Math::matMul(uint32_t rPtr, uint32_t mPtr, uint32_t outPtr) { // FUN_80
 //       into a2, not the clamped IR1-3 that applyMatlv writes.
 // The MVMVA opcode itself is identical to applyMatlv (sf=1, mx=ROT, v=V0, cv=Null, lm=0).
 // Same 44-bit accumulator + >>12 as matMul. Returns outPtr in v0.
-// ORACLE: gen_func_80084470
+// ORACLE: guest 0x80084470
 uint32_t Math::applyMatrixLV(uint32_t mPtr, uint32_t inPtr, uint32_t out) { // FUN_80084470
   Core *c = this->core;
   // Load matrix into CR0-4 (faithful CTC2). Also read it as R[3][3] for the MVMVA math.
@@ -234,7 +215,7 @@ uint32_t Math::applyMatrixLV(uint32_t mPtr, uint32_t inPtr, uint32_t out) { // F
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
-// GTE register / struct-offset NAMES for the ApplyMatrix* pair. The recomp bodies reach these
+// GTE register / struct-offset NAMES for the ApplyMatrix* pair. The guest instruction paths reach these
 // registers by bare index; the constants below are those same indices, named for what the register
 // HOLDS — the names are read straight off the disassembly of 0x800844C0 (`ctc2 t0,R11R12` …
 // `ctc2 t4,R33`, `lwc2 zero,0(a1)`, `mfc2 t0,IR1` …).
@@ -284,16 +265,16 @@ constexpr uint32_t kMat3OffM20 = 12, kMat3OffM21 = 14, kMat3OffM22 = 16;
 // a matrix and write the result back as a SHORT vector.
 //
 // WHAT IT DOES IN GAME TERMS: it converts an offset expressed in an object's OWN rotated frame into
-// a world-space delta. The guest has 28 call sites (grep `func_800844C0(c);` + `rec_dispatch(c,
-// 0x800844C0u)` over generated/, excluding the shard_disp thunk); 21 of them set a0 = <base>+24 right
-// on the call line, i.e. an object's MATRIX at +0x18. The shape is: build a small SVECTOR in the
+// a world-space delta. The guest has 28 call sites (grep `guest 0x800844C0(c);` + `typed runtime address dispatch(c,
+// 0x800844C0u)` over authenticated executable/overlay evidence, excluding the shard_disp thunk); 21 of them set a0 =
+// <base>+24 right on the call line, i.e. an object's MATRIX at +0x18. The shape is: build a small SVECTOR in the
 // scratchpad, call this with the object's matrix, then add the object's world position to the three
 // shorts that come back. THREE call sites read in full, spanning both the main binary and overlays:
 //   * ov_a00_shard_0.c:11792 (the tail of beh_id_routed_offset_point, game/ai/beh_id_routed_dispatch.cpp)
 //     rotates {0,-119,0} by the linked object's matrix and adds obj+44/48/52 → node+78/80/82, i.e.
 //     keeps a point pinned 119 units ABOVE that object no matter how it is turned.
 //   * ov_a04_shard_1.c:8428 rotates {0,±800,0} the same way into a2 = <base>+96, then adds +46/50/54.
-//   * shard_6.c:7746 (gen_func_80051D20) uses a0 = <base>+152 — a SECOND matrix in the same struct,
+//   * shard_6.c:7746 (guest 0x80051D20) uses a0 = <base>+152 — a SECOND matrix in the same struct,
 //     not +24 — and adds +172/176/180. Same operation, different matrix slot: so the identity is the
 //     operation, not the +24 offset.
 // So: a body-frame offset → a world-frame offset. That is the identity, and it is taken from the
@@ -308,9 +289,9 @@ constexpr uint32_t kMat3OffM20 = 12, kMat3OffM21 = 14, kMat3OffM22 = 16;
 //   * Disassembly 0x800844C0..0x80084518: `ctc2 R11R12..R33` ← 5 words at a0, `lwc2 VXY0/VZ0` ← 2
 //     words at a1, `MVMVA [mx=R,v=V0,cv=0,sf]` (cop2 0x0486012 — rotation matrix, vector V0, NO
 //     translation, sf=1), `mfc2 IR1/IR2/IR3`, `sh` ×3 into a2, `addu v0,a2`.
-//   * EXTENT: 0x800844C0..0x80084518 inclusive (`jr ra` + delay nop) = 23 instructions. port_gen's
+//   * EXTENT: 0x800844C0..0x80084518 inclusive (`jr ra` + delay nop) = 23 instructions. binary evidence's
 //     live-extent splitter reports 21 live body lines and TRIMS one folded-sibling tail line
-//     (`func_80084520(c)`) that belongs to the next guest function, 0x80084520 = Math::matColScale,
+//     (`guest 0x80084520(c)`) that belongs to the next guest function, 0x80084520 = Math::matColScale,
 //     which this file already owns. abi_extract --contract: frame_size = 0, 0 spills, 0 call sites —
 //     a pure leaf, so there is NO guest stack frame to mirror.
 //
@@ -320,7 +301,7 @@ constexpr uint32_t kMat3OffM20 = 12, kMat3OffM21 = 14, kMat3OffM22 = 16;
 //       accumulator. So SV SATURATES where LV wraps — a real behavioural difference for a large
 //       offset, not just a width change.
 // Everything else (the CTC2 matrix load, the MVMVA opcode, the 44-bit accumulate and >>12) is shared.
-// ORACLE: gen_func_800844C0
+// ORACLE: guest 0x800844C0
 uint32_t Math::applyMatrixSV(uint32_t mPtr, uint32_t inPtr, uint32_t out) {
   Core *c = this->core;
   // (1) CTC2 the caller's MATRIX into the GTE rotation control regs. Faithful: a later still-PSX
@@ -373,7 +354,7 @@ uint32_t Math::applyMatrixSV(uint32_t mPtr, uint32_t inPtr, uint32_t out) {
 // → port the MATH PC-native plain C (NO gte_op/Beetle); output is the rotation matrix the retained PSX
 // content reads, so it must be GTE-EXACT (content-interface gate). Verified per-call by ov_rotmat_verify.
 //
-// The recomp body: (1) for each angle, abs+&0xfff indexes the SIN/COS LUT @0x800a6490 (word = sin in low
+// The guest instruction path: (1) for each angle, abs+&0xfff indexes the SIN/COS LUT @0x800a6490 (word = sin in low
 // half, cos in high half), then re-applies the angle's sign to sin (sin is odd, cos even). (2) Composes
 // the matrix R = Rz·Ry·Rx via the GTE GPF op (cmd 0x3d, sf=1: MAC_i=(IR0*IR_i)>>12, IR_i=clamp16(MAC_i))
 // used as a clamped scalar×vector multiplier, interleaved with two native 16-bit mults (cy·cx, cy·sx)
@@ -504,7 +485,8 @@ uint32_t Math::rotX(int16_t angle, uint32_t matPtr) {
 // uses ONLY the SIN/COS LUT @0x800a6490 + native 32-bit multiplies with a >>12 ARITHMETIC round and
 // NO gte_op/GPF clamping. Callers: billboard compose 0x8003C5F8, ReleaseTriggerMotion::driftReposition.
 //
-// Byte-exact by construction, mirroring the recomp register ops (generated/shard_5.c gen_func_800847F0):
+// Byte-exact by construction, mirroring the guest instruction path register ops (authenticated executable/overlay
+// evidence guest 0x800847F0):
 //   • trig: same LUT convention as rotpair_trig — cos = word high half (even), sin = low half made odd
 //     by the angle sign. abs index masked to 0xfff.
 //   • each element = (int32 product of two s16 trig terms) >>12; intermediates t1/t2 are kept as FULL
@@ -512,7 +494,7 @@ uint32_t Math::rotX(int16_t angle, uint32_t matPtr) {
 //     register. mem_w16 truncates each stored element to s16. (uint64 low-32 == int32 product, so plain
 //     signed C math reproduces the gen's `(uint64)a*(uint64)b` → `(int32)lo >> 12` bit-for-bit; the trig
 //     terms are ≤4096 so no 32-bit overflow.)  m02 is the RAW sinB (no shift), as the asm stores it.
-// Verified against the gen body by scratch/re/rotmatsoft_equiv.cpp (random + edge angle triples, 0 diff).
+// Verified against the guest-visible behavior by scratch/re/rotmatsoft_equiv.cpp (random + edge angle triples, 0 diff).
 static inline void softTrig(Core *c, int32_t angle, int32_t *s, int32_t *co) {
   uint32_t absidx = (angle >= 0) ? ((uint32_t)angle & kAngleMask) : ((0u - (uint32_t)angle) & kAngleMask);
   uint32_t w = c->mem_r32(kSinCosTable + (absidx << 2));
@@ -551,7 +533,7 @@ uint32_t Math::rotMatSoft(uint32_t anglesPtr, uint32_t out) { // FUN_800847F0
 // sharing its LUT (softTrig above, table @0x800a6490) and its s16 row-major output layout, but
 // producing a DIFFERENT matrix from the same three angles.
 //
-// WHAT IS VERIFIED, by line-diffing generated/shard_6.c gen_func_80084A80 (130 gen-C ln): the
+// WHAT IS VERIFIED, by line-diffing authenticated executable/overlay evidence guest 0x80084A80 (130 gen-C ln): the
 // element formulas and store order below, the two shared sub-products, and v0 = a1 (set at the very
 // top of the body from a1 and never reassigned — the only write to r2 anywhere in it).
 //
@@ -636,27 +618,26 @@ uint32_t Math::rotMatSoftInverse(uint32_t anglesPtr, uint32_t out) { // FUN_8008
 //     The same test on rotmat/rotMatSoft yields Rx·Ry·Rz — which is how the two are told apart.
 //   * EXTENT: 0x800851F0..0x80085474 inclusive (`jr ra` at 0x80085470 + delay nop), 162 instructions,
 //     followed by two `nop` pads before 0x80085480 (= Math::rotmat, whose first instruction is
-//     `or v0,zero,a1`). Established three independent ways: port_gen's live-extent splitter (128 live
-//     body lines, and it TRIMS one folded-sibling tail line, `func_80085480(c)`, that belongs to the
+//     `or v0,zero,a1`). Established three independent ways: authenticated instruction extents (128 live
+//     body lines, and it TRIMS one folded-sibling tail line, `guest 0x80085480(c)`, that belongs to the
 //     next guest function); the disassembly's own `jr ra`; and the pad before the next entry point.
 //     NOT from "the next gen function in shard_2.c", which is not an address-order test here.
 //   * abi_extract --contract (re-run after the 2026-07-30 conditional-branch CFG fix): frame_size = 0,
 //     0 spills, 0 call sites — a pure leaf, so there is NO guest stack frame to mirror. Consistent
 //     with the disassembly, which contains no `jal` anywhere in the body.
 //
-// Byte-exact by construction, mirroring the recomp register ops (generated/shard_2.c
-// gen_func_800851F0): the trig terms are ≤4096 and every intermediate is kept as a FULL s32 after
-// its >>12 (never truncated to 16) exactly as the gen keeps it in a register, so the `(uint64)a *
-// (uint64)b` → `(int32)lo >> 12` of the recomp is reproduced bit-for-bit by plain signed C. Only the
-// nine `sh` stores truncate to s16. TWO elements NEGATE BEFORE the shift (m20, m01) — that is not
-// cosmetic: `sra` rounds toward -inf, so -(p>>12) and (-p)>>12 differ whenever p is not a multiple
-// of 4096. m21 is the RAW sinX with no shift at all, as the asm stores it.
+// Byte-exact by construction, mirroring the guest instruction path register ops (authenticated executable/overlay
+// evidence guest 0x800851F0): the trig terms are ≤4096 and every intermediate is kept as a FULL s32 after its >>12
+// (never truncated to 16) exactly as the gen keeps it in a register, so the `(uint64)a * (uint64)b` → `(int32)lo >> 12`
+// of the guest instruction path is reproduced bit-for-bit by plain signed C. Only the nine `sh` stores truncate to s16.
+// TWO elements NEGATE BEFORE the shift (m20, m01) — that is not cosmetic: `sra` rounds toward -inf, so -(p>>12) and
+// (-p)>>12 differ whenever p is not a multiple of 4096. m21 is the RAW sinX with no shift at all, as the asm stores it.
 //
 // Store order below is the GUEST's (m21, m20, m22, m11, m01, m00, m10, m02, m12), not row order: the
 // guest interleaves the first two rows' stores with the third angle's LUT lookup. Nothing observes
 // the output between stores, so the order is not load-bearing; it is preserved anyway rather than
-// tidied, so this reads against the gen body line for line.
-// ORACLE: gen_func_800851F0
+// tidied, so this reads against the guest-visible behavior line for line.
+// ORACLE: guest 0x800851F0
 uint32_t Math::rotMatSoftYXZ(uint32_t anglesPtr, uint32_t out) { // FUN_800851F0
   Core *c = this->core;
   int32_t sX, cX, sY, cY, sZ, cZ;
@@ -730,10 +711,10 @@ uint32_t Math::applyMatlv(uint32_t inPtr, uint32_t out) { // FUN_80084220
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FUN_80084080 — GTE-LZC fixed-point square root. a0 = value; returns an isqrt-like result via a
 // leading-sign-bit normalize + a 16-bit ROM reciprocal-sqrt table lookup (@0x800a6310), scaled back
-// by half of the removed exponent. The recomp body drives the GTE LZCS/LZCR unit (data regs 30/31)
+// by half of the removed exponent. The guest instruction path drives the GTE LZCS/LZCR unit (data regs 30/31)
 // to count leading sign bits; we compute that count in C (perf — no Beetle GTE round-trip) and then
 // replicate the two LZC data-reg leftovers so a downstream still-PSX reader sees identical GTE state.
-// ORACLE: gen_func_80084080
+// ORACLE: guest 0x80084080
 uint32_t Math::sqrtLzc(uint32_t v) {
   Core *c = this->core;
   uint32_t sign = (v >> 31) & 1u; // LZCS sign bit
@@ -764,7 +745,7 @@ uint32_t Math::sqrtLzc(uint32_t v) {
 // R into the GTE rotation regs, then one MVMVA (sf=1→>>12, mx=ROT, v=Vj, cv=Null, lm=0) per column
 // of M, packing the clamped IR outputs back into M's storage. All reads happen before any store so
 // the in-place overwrite is safe. Leaves the same GTE data-reg leftovers a downstream reader consumes.
-// ORACLE: gen_func_80084360
+// ORACLE: guest 0x80084360
 uint32_t Math::matLoadLV(uint32_t rPtr, uint32_t vPtr) {
   Core *c = this->core;
   int16_t R[3][3], M[3][3], P[3][3];
@@ -819,7 +800,7 @@ uint32_t Math::matLoadLV(uint32_t rPtr, uint32_t vPtr) {
 static inline int32_t colScale(int32_t half, uint32_t fac) { // (half*fac) low32, then arithmetic >>12
   return (int32_t)((uint32_t)half * fac) >> 12;
 }
-// ORACLE: gen_func_80084520
+// ORACLE: guest 0x80084520
 uint32_t Math::matColScale(uint32_t dstPtr, uint32_t facPtr) {
   Core *c = this->core;
   uint32_t f0 = c->mem_r32(facPtr + 0); // column-0 scale
@@ -844,15 +825,14 @@ uint32_t Math::matColScale(uint32_t dstPtr, uint32_t facPtr) {
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // Wiring — BOTH tables, same dual pattern as ActorReward::registerOverrides (game/object/
-// actor_sm_reward.cpp): each `install()` call below registers (1) the registry's own rec_dispatch
-// entry, for callers reaching these via an explicit rec_dispatch(c, addr) (Engine::
-// objMatrixCompose etc — traced by the `dispatch` debug channel), and (2) shard_set_override for
-// the recompiler's OWN g_override[] table, which is what the substrate's inline `func_<addr>(c)`
-// call sites actually consult (the 55k+/frame majority for matMul). g_override[] is a single
-// PROCESS-GLOBAL table shared by every Core — including SBS's
-// two separately-constructed cores — so the gate must live IN the installed function itself:
-// core B (psx_fallback, the pure substrate reference) must keep running the exact recompiled
-// gen_func_* body, or SBS would just be comparing this port against itself (a fake 0-diff).
+// actor_sm_reward.cpp): each `install()` call below registers (1) the registry's own typed runtime address dispatch
+// entry, for callers reaching these via an explicit typed runtime address dispatch(c, addr) (Engine::
+// objMatrixCompose etc — traced by the `dispatch` debug channel), and (2) tomba::native::declareOverride for
+// the recorded binary evidence's OWN image-qualified runtime dispatcher table, which is what the substrate's inline `a
+// direct guest-address call` call sites actually consult (the 55k+/frame majority for matMul). image-qualified runtime
+// dispatcher is a single PROCESS-GLOBAL table shared by every Core — including SBS's two separately-constructed cores —
+// so the gate must live IN the installed function itself: the test-only substrate reference must keep running the exact
+// guest original guest instructions body, or SBS would just be comparing this port against itself (a fake 0-diff).
 static void eov_matMul(Core *c) {
   c->r[2] = mathOf(c).matMul(c->r[4], c->r[5], c->r[6]);
 }
@@ -906,21 +886,20 @@ static void eov_rotMatSoftYXZ(Core *c) {
 }
 
 void Math::registerOverrides() {
-  using overrides::install;
-  install(0x80084110u, "Math::matMul", eov_matMul, gen_func_80084110, shard_set_override);
-  install(0x80084220u, "Math::applyMatlv", eov_applyMatlv, gen_func_80084220, shard_set_override);
-  install(0x80084470u, "Math::applyMatrixLV", eov_applyMatrixLV, gen_func_80084470, shard_set_override);
-  install(0x800844C0u, "Math::applyMatrixSV", eov_applyMatrixSV, gen_func_800844C0, shard_set_override);
-  install(0x80085480u, "Math::rotmat", eov_rotmat, gen_func_80085480, shard_set_override);
-  install(0x80084D10u, "Math::rotX", eov_rotX, gen_func_80084D10, shard_set_override);
-  install(0x80084EB0u, "Math::rotY", eov_rotY, gen_func_80084EB0, shard_set_override);
-  install(0x80085050u, "Math::rotZ", eov_rotZ, gen_func_80085050, shard_set_override);
-  install(0x800847F0u, "Math::rotMatSoft", eov_rotMatSoft, gen_func_800847F0, shard_set_override);
-  install(0x80084A80u, "Math::rotMatSoftInverse", eov_rotMatSoftInverse, gen_func_80084A80, shard_set_override);
-  install(0x800851F0u, "Math::rotMatSoftYXZ", eov_rotMatSoftYXZ, gen_func_800851F0, shard_set_override);
-  install(0x80077FB0u, "Math::isqrt16", eov_isqrt16, gen_func_80077FB0, shard_set_override);
-  install(0x80078240u, "Math::approxDist3", eov_approxDist3, gen_func_80078240, shard_set_override);
-  install(0x80084080u, "Math::sqrtLzc", eov_sqrtLzc, gen_func_80084080, shard_set_override);
-  install(0x80084360u, "Math::matLoadLV", eov_matLoadLV, gen_func_80084360, shard_set_override);
-  install(0x80084520u, "Math::matColScale", eov_matColScale, gen_func_80084520, shard_set_override);
+  tomba::native::declareOverride(0x80084110u, "Math::matMul", eov_matMul);
+  tomba::native::declareOverride(0x80084220u, "Math::applyMatlv", eov_applyMatlv);
+  tomba::native::declareOverride(0x80084470u, "Math::applyMatrixLV", eov_applyMatrixLV);
+  tomba::native::declareOverride(0x800844C0u, "Math::applyMatrixSV", eov_applyMatrixSV);
+  tomba::native::declareOverride(0x80085480u, "Math::rotmat", eov_rotmat);
+  tomba::native::declareOverride(0x80084D10u, "Math::rotX", eov_rotX);
+  tomba::native::declareOverride(0x80084EB0u, "Math::rotY", eov_rotY);
+  tomba::native::declareOverride(0x80085050u, "Math::rotZ", eov_rotZ);
+  tomba::native::declareOverride(0x800847F0u, "Math::rotMatSoft", eov_rotMatSoft);
+  tomba::native::declareOverride(0x80084A80u, "Math::rotMatSoftInverse", eov_rotMatSoftInverse);
+  tomba::native::declareOverride(0x800851F0u, "Math::rotMatSoftYXZ", eov_rotMatSoftYXZ);
+  tomba::native::declareOverride(0x80077FB0u, "Math::isqrt16", eov_isqrt16);
+  tomba::native::declareOverride(0x80078240u, "Math::approxDist3", eov_approxDist3);
+  tomba::native::declareOverride(0x80084080u, "Math::sqrtLzc", eov_sqrtLzc);
+  tomba::native::declareOverride(0x80084360u, "Math::matLoadLV", eov_matLoadLV);
+  tomba::native::declareOverride(0x80084520u, "Math::matColScale", eov_matColScale);
 }

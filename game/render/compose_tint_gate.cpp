@@ -1,6 +1,6 @@
 // game/render/compose_tint_gate.cpp — Render::composeTintGate, guest FUN_8003EF9C.
 //
-// RE'd 2026-07-22 from gen_func_8003EF9C. One of the two per-type render handlers still unported from
+// RE'd 2026-07-22 from guest 0x8003EF9C. One of the two per-type render handlers still unported from
 // the render frontier list (the other is FUN_8003F174); every other entry on that list is already
 // LIVE, so this closes half the remaining gap.
 //
@@ -25,12 +25,11 @@
 // selects lives inside FUN_8003F07C, which is not ported yet, so it is forwarded rather than named.
 #include "core.h"
 #include "game_ctx.h" // rend(c) — the Render instance
-#include "override_registry.h"
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "render.h"
 
-void func_8003F07C(Core *); // generated/shard_disp.c — the per-object geometry emitter
-void func_8003D584(Core *); // generated/shard_disp.c — colour-add; the thunk routes to
-                            // Render::effectColorAdd, which already owns this address
+// Render::effectColorAdd, which already owns this address
 
 namespace {
 
@@ -45,7 +44,7 @@ constexpr uint32_t MODE_COMPOSE_TINT = 2u; // emit, then colour-add over what wa
 
 } // namespace
 
-// ORACLE: gen_func_8003EF9C
+// ORACLE: guest 0x8003EF9C
 void Render::composeTintGate(Core *c) {
   const uint32_t node = c->r[4];
 
@@ -66,12 +65,12 @@ void Render::composeTintGate(Core *c) {
     c->r[4] = node;
     c->r[5] = subtype;
     c->r[31] = 0x8003EFE8u; // jal-site ra
-    func_8003F07C(c);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8003F07Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   } else if (mode == MODE_COMPOSE_TINT) {
     c->r[4] = node;
     c->r[5] = subtype;
     c->r[31] = 0x8003EFFCu; // jal-site ra
-    func_8003F07C(c);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8003F07Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
     // tint precisely the primitives just emitted: [poolBefore, poolNow). Called through the thunk,
     // so the override registry routes it to Render::effectColorAdd rather than the substrate body.
@@ -79,7 +78,7 @@ void Render::composeTintGate(Core *c) {
     c->r[5] = poolBefore;
     c->r[6] = c->mem_r32(PACKET_POOL_PTR);
     c->r[31] = 0x8003F00Cu; // jal-site ra
-    func_8003D584(c);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8003D584u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   }
 
   c->r[31] = c->mem_r32(frame + 28);
@@ -94,8 +93,5 @@ static void ov_compose_tint_gate(Core *c) {
 }
 
 void compose_tint_gate_install() {
-  extern void gen_func_8003EF9C(Core *);
-  extern void shard_set_override(uint32_t, void (*)(Core *));
-  overrides::install(
-      0x8003EF9Cu, "Render::composeTintGate", ov_compose_tint_gate, gen_func_8003EF9C, shard_set_override);
+  tomba::native::declareOverride(0x8003EF9Cu, "Render::composeTintGate", ov_compose_tint_gate);
 }

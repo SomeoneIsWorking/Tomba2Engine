@@ -8,7 +8,7 @@ tags: render
 
 ## Claim
 
-FUN_80146478 (A00 field submit-block dispatcher) is natively owned and byte-exact: OverlayGt3Gt4::submitBlock produces state identical to the recompiled body over 1500 frames of real gameplay
+FUN_80146478 (A00 field submit-block dispatcher) is natively owned and byte-exact: OverlayGt3Gt4::submitBlock produces state identical to the guest body over 1500 frames of real gameplay
 
 ## Evidence
 

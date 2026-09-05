@@ -22,10 +22,10 @@
 // (not the ±nonzero turn trigger the background-actor tick reads); Actor::subFlag's docstring
 // records both consumers.
 //
-// STILL OPAQUE (rec_dispatch by address until each is RE'd on its own arc):
+// STILL OPAQUE (typed runtime address dispatch by address until each is RE'd on its own arc):
 //   - (FUN_80040B48  SCENE-EVENT-ARM — NOW NATIVE via SceneEvents::arm on Engine (scene_events.cpp).
 //                    Bundles the FUN_80040A58 size-class helper as SceneEvents::classSize (public so
-//                    the multiple substrate callers of func_80040A58 also share it). Six callsites
+//                    the multiple substrate callers of guest 0x80040A58 also share it). Six callsites
 //                    all migrated: entity.cpp (arg=56), beh_typed_init_exit_poker (arg=5),
 //                    beh_pickup_collect_trigger (0x39/0x3a — SFX), beh_area_transition_machine
 //                    (0x42), and confirm_or_advance here (0x50/0x4E/0x4F per-type). Gated
@@ -43,8 +43,8 @@
 //   - 0x1F800174     current pad state (masked against pad-edge for triggerSub advance)
 //
 // OWNERSHIP RULES (per project CLAUDE.md): CONTROL FLOW + every named-field write owned native,
-// byte-for-byte; every still-opaque sub-behavior CALL stays a `rec_dispatch` leaf (a0/a1 set first).
-// NO GTE, NO render packets here. Gated byte-exact (full RAM+scratchpad A/B vs rec_super_call) via
+// byte-for-byte; every still-opaque sub-behavior CALL stays a `typed runtime address dispatch` leaf (a0/a1 set first).
+// NO GTE, NO render packets here. Gated byte-exact (full RAM+scratchpad A/B vs original guest-body call) via
 // channel "typed_init_scene_triggerverify".
 
 #include "bg_scene_transition_sm.h" // BgSceneTransitionSm::readyForProgress (FUN_80042728 native)
@@ -55,17 +55,15 @@
 #include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 #include "object/actor.h"  // class Actor + named fields
 #include "spawn.h"         // class Spawn (eng(c).spawn.despawn)
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 constexpr uint32_t BEH_FN = 0x80073CD8u;
 
 enum class Sta : uint8_t { Init = 0, Active = 1, Idle = 2, Despawn = 3 };
 
-// Un-RE'd sub-behaviors still called via rec_dispatch.
+// Un-RE'd sub-behaviors still called via typed runtime address dispatch.
 // (FUN_8007778C bounds-cull wrapper is NATIVE now via Actor::boundsCull; the 5-way FUN_8007712C
-//  body it dispatches remains opaque and stays a rec_dispatch inside boundsCull.)
+//  body it dispatches remains opaque and stays a typed runtime address dispatch inside boundsCull.)
 // (FUN_80040B48 = SceneEvents::arm — NOW NATIVE, callsites use eng(c).sceneEvents.arm.)
 // (FUN_8007E110 = Spawn::sceneEntity — NOW NATIVE, callsites use eng(c).spawn.sceneEntity.)
 
@@ -255,7 +253,7 @@ void beh_typed_init_scene_trigger(Core *c) {
       if (use_table) {
         sv4 = (int16_t)c->mem_r16(TBL_SCENE_ID + (uint32_t)n3 * 2);
       }
-      // Spawn::sceneEntity — was rec_dispatch(0x8007E110); now native (spawn.cpp).
+      // Spawn::sceneEntity — was typed runtime address dispatch(0x8007E110); now native (spawn.cpp).
       uint32_t node = eng(c).spawn.sceneEntity((uint16_t)(int16_t)sv4, /*subtype=*/0);
       a.setSceneHandle(node);
       if (node != 0) {

@@ -3,7 +3,7 @@
 The dialog/menu/HUD box PANEL emitter chain. Three UNOWNED builders (codemap-confirmed) → one native
 owner `game/ui/panel.cpp` with `panelBuild` / `panelFill` / `borderTiles` + a shared `decodeAttr()`.
 Shared leaf `FUN_80083DE0` (DR_MODE/tpage packet header) is LIVE-owned (`game/render/wide_re_libgpu_leaves.cpp:279`
-`func_80083DE0`) — do NOT re-derive; the native path just supplies the tpage to the emitted quads.
+`guest 0x80083DE0`) — do NOT re-derive; the native path just supplies the tpage to the emitted quads.
 
 Native emit target: `RenderQueue::push2dQuad(...)` (opaque) / `emitOrQueue(...)` (semi), layer `RQ_HUD`,
 order `RQ_OM_2D_FG`. Coord rules: xs/ys = PSX draw coords + `s_off_x/s_off_y`; us/vs = texel within
@@ -41,7 +41,7 @@ tpage 0x5F. Verts = rect corners v0(x,y) v1(x+w,y) v2(x,y+h) v3(x+w,y+h). UV by 
 
 ## Spec 3 — FUN_8007CC00 `borderTiles(DialogBox* box r4)` — ✅ OWNED via tap (`Panel::pushDialogGlyphs`)
 NOTE: this emitter draws the per-glyph textured SPRTs (op 0x65, font atlas tpage 0x1F) — i.e. the visible
-dialog TEXT. Owned 2026-07-16 as a substrate-mirror tap in game/ui/panel.cpp (gen body byte-exact + host
+dialog TEXT. Owned 2026-07-16 as a substrate-mirror tap in game/ui/panel.cpp (guest-visible behavior byte-exact + host
 push from the box pointer), INCLUDING the highlight path (box+0x47==1 && box+3==1 → CLUT 0x7CBE pinned
 for the row) that the interim flat-list producer `Render::dialogTextNative` could not see — that producer
 is retired. Confirmed field widths from the live decompile: y@2 is UNSIGNED u8 (emitter reads

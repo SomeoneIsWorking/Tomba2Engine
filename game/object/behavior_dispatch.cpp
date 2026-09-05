@@ -2,7 +2,7 @@
 //
 // The native object-behavior table: guest handler address → its PC-native reimplementation + a short
 // name. This is the SINGLE registry of which per-object behaviors the engine owns natively (readable
-// C) vs. still run as the recomp substrate. Introspectable via `nativeName()` so the `ents` REPL
+// C) vs. still run as the guest instruction path substrate. Introspectable via `nativeName()` so the `ents` REPL
 // diagnostic can flag, per live object, whether its logic is owned. Add a row when you own a new
 // behavior; `dispatchNative` + the ents flag both read this table.
 //
@@ -16,11 +16,10 @@
 #include "core/engine.h" // class Engine (for Core::engine)
 #include "game.h"
 #include "game_ctx.h"
+#include "guest_call.h"
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-
-extern "C" void rec_dispatch(Core *c, uint32_t addr); // run a function by address (override or interp)
 
 // Behavior entry-point declarations. Each `beh_*` lives in its own game/ai/beh_*.cpp file as an
 // external-linkage function (the verify wrapper — no `_run` forwarder layer anymore). Kept as free-
@@ -182,36 +181,10 @@ constexpr NativeBeh kTable[] = {
 void BehaviorDispatch::dispatchObj(uint32_t obj, uint32_t handler) {
   Core *c = this->core;
   c->r[4] = obj; // $a0 — the behaviors read the object here
-  // Pure-substrate leg (SBS core B / MV_CHECK's strict-mirror replay, game/core/verify_harness.h) —
-  // OR pc_faithful itself (native_sync=false): must reach the literal gen body like every other
-  // rec_dispatch call, NOT the native beh_* reimplementation. The native beh_* table reproduces the
-  // RESULT, not the PSX bytes (CLAUDE.md "REBUILD, don't transcribe") — that's a native_sync=true
-  // shortcut (same fork shape as the two native CD readers / every other native_sync fork), not
-  // something pc_faithful can take, because pc_faithful is required byte-exact to recomp_path
-  // (game.h "native_sync" doc). Without the `!native_sync` term here, ObjectList::walkAllFaithful (and
-  // Array8Dispatch::tickFaithful / TransitionState3::walkOnce / walkAuxFaithful, which all funnel
-  // per-object dispatch through this one method) would run the REBUILT beh_* on the native leg
-  // while MV_CHECK's substrate-replay leg runs the literal gen body for the same handler — two
-  // different implementations, so every register/stack write the handler makes diverges (this is
-  // what MISMATCH ram 0x801FE8xx / reg v0 / reg v1 at 0x8007A904 was: leg 1 took a native beh_*
-  // shortcut, leg 2 ran the substrate handler body, and their scratch-register/stack churn differ
-  // even though both are "correct" — they're just not byte-identical). This is called directly from
-  // native *Faithful() C++, bypassing rec_dispatch's own override-registry gate entirely — so it needs
-  // the SAME suppression rec_dispatch itself applies (runtime/recomp/overlay_router.cpp,
-  // overrides::dispatch), PLUS the native_sync fork rec_dispatch doesn't need (registered overrides are
-  // required byte-exact even under pc_faithful; the beh_* table is not — it's an explicit shortcut).
-  bool substrateOnly = c->game->psx_fallback || c->game->verify.inSubstrateLeg || !c->game->native_sync;
-  // MIRROR_VERIFY reaches the behaviour legs here too — but MEASURE BEFORE TRUSTING IT ON A REBUILD
-  // (2026-07-23, kanban #10): its strict leg-2 replay sets verify.inSubstrateLeg, which suppresses the
-  // WHOLE override registry, so every nested native engine class differs between the legs. A control
-  // run with both legs on the substrate for 0x80124E74 — beh natives off entirely — still reported
-  // 37167 mismatches (hi/lo from a multiply, ~14k object bytes). For a beh_* REBUILD the only sound
-  // gate is the end-state A/B in tools/beh_ab.sh (PSXPORT_BEH_SUBSTRATE + dumpram, nested overrides
-  // native in both runs so they cancel), with traceDispatch below to attribute what it finds.
-  // PSXPORT_DEBUG=uitrig — trace the scene-UI trigger's sub-state machine from the DISPATCH SITE, so
-  // the trace is identical in shape whether the native or the substrate leg runs. (Tracing inside the
-  // native body cannot compare the two: forcing the handler to the substrate means the native body,
-  // and its trace, never execute.)
+  // Gameplay prefers the native behavior table. An unowned handler crosses the single PSXPort
+  // guest boundary below; there is no player-selectable substrate mode.
+  // PSXPORT_DEBUG=uitrig traces the scene-UI trigger at the dispatch site, so verification observes
+  // the same event shape on both legs.
   if (handler == 0x800739ACu) {
     const uint32_t o = c->r[4];
     cfg_logf("uitrig",
@@ -223,18 +196,12 @@ void BehaviorDispatch::dispatchObj(uint32_t obj, uint32_t handler) {
              c->mem_r16(0x800E7E68u),
              c->mem_r8(0x800E7E80u));
   }
-  if (substrateOnly) {
-    rec_dispatch(c, handler);
-    return;
-  }
   if (traceDispatch(obj, handler)) {
     return;
   }
-  MV_CHECK(c, handler, {
-    if (!dispatchNative(handler)) {
-      rec_dispatch(c, handler);
-    }
-  });
+  if (!dispatchNative(handler)) {
+    psx::cpu::dispatchGuestToReturn0(*c, handler, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+  }
 }
 
 // traceDispatch — the per-invocation node-delta log (see header). Same shape on both legs.
@@ -253,7 +220,7 @@ bool BehaviorDispatch::traceDispatch(uint32_t obj, uint32_t handler) {
     before[i] = c->mem_r8(obj + i);
   }
   if (!dispatchNative(handler)) {
-    rec_dispatch(c, handler);
+    psx::cpu::dispatchGuestToReturn0(*c, handler, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   }
 
   // One line per invocation, listing every node byte the handler changed. An invocation that changes

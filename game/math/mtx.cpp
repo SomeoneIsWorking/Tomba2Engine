@@ -1,8 +1,7 @@
 #include "mtx.h"
 #include "core.h"
-#include "game_ctx.h"          // mtxOf(c) — the per-Core Mtx instance
-#include "override_registry.h" // engine_set_override_main — the one native-override registry
-#include "rec_decls.h"         // gen_func_80051794 — the recompiled body the oracle leg runs
+#include "game_ctx.h"                // mtxOf(c) — the per-Core Mtx instance
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 
 void Mtx::identity(uint32_t addr) {
   Core *c = this->core;
@@ -27,7 +26,7 @@ void Mtx::identity(uint32_t addr) {
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // Wiring. The trampoline is the whole guest ABI for this leaf: matrix address in a0, and v0 = 4096.
 //
-// v0 is NOT incidental. The recompiled body computes the 0x1000 diagonal constant into r2 and stores
+// v0 is NOT incidental. The guest body computes the 0x1000 diagonal constant into r2 and stores
 // it from there, so the guest function returns 4096 as a side effect of how it was compiled. The
 // native writes the constant directly and would otherwise leave v0 holding whatever the previous
 // call left — a difference no RAM compare can see, but one that a caller reading the return value
@@ -36,7 +35,7 @@ void Mtx::identity(uint32_t addr) {
 // SBS run reports native=20269 oracle=26738 alongside a 50/50 byte-identical compare. The gap is the
 // ~6.5k calls that already-ported callers make as `mtxOf(c).identity(...)` — a direct C++ method call
 // that never passes through the guest function, so the registry cannot count it. Core B, being pure
-// substrate, reaches every one of them through func_80051794 and counts them all. The mismatch is
+// substrate, reaches every one of them through guest 0x80051794 and counts them all. The mismatch is
 // therefore a measure of how much of this leaf's caller set is already native, and it should GROW as
 // more callers are ported. `ovhit`'s "control-flow divergence" label is right for a target whose
 // callers are all still guest code and wrong for one like this.
@@ -46,5 +45,5 @@ static void eov_identity(Core *c) {
 }
 
 void Mtx::registerOverrides(Game *) {
-  engine_set_override_main(0x80051794u, &eov_identity, gen_func_80051794);
+  tomba::native::declareOverride(0x80051794u, "&eov_identity", &eov_identity);
 }

@@ -5,23 +5,21 @@
 //
 // `areaMaskTrigger` is RE'd 1:1 from disas 0x800782F0. The sub-scene swap methods
 // (resetSwap / beginSwap / completeSwap / stepSwapWaiter) are RE'd from 0x80073260 / 2C0 / 300 / 328.
-// A handful of substrate leaves stay rec_dispatched (FUN_80074590 SFX, FUN_80054198 scene-block
+// A handful of substrate leaves stay dynamically dispatched (FUN_80074590 SFX, FUN_80054198 scene-block
 // reset, FUN_80072E60/EFC/F14 case-1/5 helpers) — top-down ownership will absorb them next.
 //
 // Verify gates:
-//   * `debug scene_transitionverify` — A/Bs areaMaskTrigger vs rec_super_call(0x800782F0).
-//   * `debug subswapverify`          — A/Bs stepSwapWaiter vs rec_super_call(0x80073328).
+//   * `debug scene_transitionverify` — A/Bs areaMaskTrigger vs psx::cpu::callOriginal(0x800782F0).
+//   * `debug subswapverify`          — A/Bs stepSwapWaiter vs psx::cpu::callOriginal(0x80073328).
 #include "scene_transition.h"
 #include "cfg.h"
 #include "core.h"
-#include "game.h" // c->game->verify — the shared A/B verify scaffold
+#include "game.h"
 #include "game_ctx.h"
+#include "guest_call.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FUN_800782F0 — area-mask "seen" register + area-mode bit
@@ -57,14 +55,14 @@ void SceneTransition::areaMaskTrigger(uint8_t area, uint8_t sub) {
     }
   };
 
-  int s_v = c->game->verify.on("scene_transitionverify");
+  int s_v = gctx(c)->verification.on("scene_transitionverify");
   if (!s_v) {
     impl(area, sub);
     return;
   }
 
-  uint8_t *ram0 = c->game->verify.ram0();
-  uint8_t *ramN = c->game->verify.ramN();
+  uint8_t *ram0 = gctx(c)->verification.ram0();
+  uint8_t *ramN = gctx(c)->verification.ramN();
   uint8_t spad0[0x400], spadN[0x400];
   uint32_t regs0[32];
   memcpy(regs0, c->r, sizeof regs0);
@@ -80,7 +78,7 @@ void SceneTransition::areaMaskTrigger(uint8_t area, uint8_t sub) {
   memcpy(c->r, regs0, sizeof regs0);
   c->r[4] = area;
   c->r[5] = sub;
-  rec_super_call(c, 0x800782F0u);
+  psx::cpu::callOriginalToReturn(*c, 0x800782F0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   uint32_t sp = regs0[29] & 0x1FFFFFu, flo = (sp >= 0x800) ? sp - 0x800 : 0;
   int ro = -1;
@@ -97,7 +95,7 @@ void SceneTransition::areaMaskTrigger(uint8_t area, uint8_t sub) {
       break;
     }
   }
-  VerifyHarness::Check &chk = c->game->verify.check("scene_transitionverify");
+  tomba::VerificationCounter &chk = gctx(c)->verification.sceneTransition;
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0) {
     if (nb++ < 40) {
@@ -210,7 +208,7 @@ int SceneTransition::stepSwapWaiter(uint32_t node) {
     case 1: {
       // FUN_80072E60 (inlined; disas 0x80072E60..0x80072EF8): ramp obj[+0x50] toward ±1024 by 64
       // per tick, driven by direction byte obj[+0x46] (0 = decrement, 1 = increment, else no-op).
-      // Returns 1 if the clamp was reached this tick (a1 = 1 in the recomp), 0 otherwise. Tail
+      // Returns 1 if the clamp was reached this tick (a1 = 1 in the guest instruction path), 0 otherwise. Tail
       // always sets obj[+0x56] = obj[+0x5A] + obj[+0x50] (the ADD form; FUN_80072EFC is the SUB
       // form for the completion path below).
       uint32_t clampHit = 0;
@@ -330,13 +328,13 @@ int SceneTransition::stepSwapWaiter(uint32_t node) {
     return 0;
   };
 
-  int s_v = c->game->verify.on("subswapverify");
+  int s_v = gctx(c)->verification.on("subswapverify");
   if (!s_v) {
     return impl(node);
   }
 
-  uint8_t *ram0 = c->game->verify.ram0();
-  uint8_t *ramN = c->game->verify.ramN();
+  uint8_t *ram0 = gctx(c)->verification.ram0();
+  uint8_t *ramN = gctx(c)->verification.ramN();
   uint8_t spad0[0x400], spadN[0x400];
   uint32_t regs0[32];
   memcpy(regs0, c->r, sizeof regs0);
@@ -351,7 +349,7 @@ int SceneTransition::stepSwapWaiter(uint32_t node) {
   memcpy(c->scratch, spad0, 0x400);
   memcpy(c->r, regs0, sizeof regs0);
   c->r[4] = node;
-  rec_super_call(c, 0x80073328u);
+  psx::cpu::callOriginalToReturn(*c, 0x80073328u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   int rv_s = (int)c->r[2];
 
   uint32_t sp = regs0[29] & 0x1FFFFFu, flo = (sp >= 0x800) ? sp - 0x800 : 0;
@@ -369,7 +367,7 @@ int SceneTransition::stepSwapWaiter(uint32_t node) {
       break;
     }
   }
-  VerifyHarness::Check &chk = c->game->verify.check("subswapverify");
+  tomba::VerificationCounter &chk = gctx(c)->verification.substateSwap;
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0 || rv_n != rv_s) {
     if (nb++ < 40) {

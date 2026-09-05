@@ -18,15 +18,13 @@
 // the scope to the other sixteen unresolved mesh controllers merely because they share the writer.
 #include "core.h"
 #include "game.h"
-#include "override_registry.h"
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "render_internal.h"
 
 #include <cstdint>
 #include <cstdlib>
 #include <lucent/log.h>
-
-extern void gen_func_80027768(Core *);
-extern void ov_a00_gen_8013D454(Core *);
 
 namespace {
 
@@ -176,7 +174,7 @@ PacketReplay replayGuestGt4Span(Core *c, uint32_t before, uint32_t after) {
 
 // FUN_80027768 — untouched guest packed-mesh writer plus one scoped packet-span replay. Calls made by
 // the landed impact-plume, charge-starburst, terrain, and every unresolved controller run only the
-// generated body because WaterJetScope is absent.
+// authenticated executable/overlay evidence because WaterJetScope is absent.
 void waterJetWriterTap(Core *c) {
   const uint32_t model = c->r[4];
   const uint32_t clutRow = c->r[5];
@@ -184,9 +182,9 @@ void waterJetWriterTap(Core *c) {
   const uint8_t uScroll = static_cast<uint8_t>(c->r[7]);
   const uint32_t before = c->mem_r32(kPacketPoolCursor);
 
-  gen_func_80027768(c);
+  psx::cpu::callOriginalToReturn(*c, 0x80027768u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
-  if (!WaterJetScope::activeFor(c) || c->game->oracle || c->rsub.mode.psxRender()) {
+  if (!WaterJetScope::activeFor(c) || c->rsub.mode.psxRender()) {
     return;
   }
   const uint32_t after = c->mem_r32(kPacketPoolCursor);
@@ -215,16 +213,16 @@ void waterJetWriterTap(Core *c) {
                 replay.depthStale);
 }
 
-// FUN_8013D454 — A00 water-jet controller. The generated body owns every guest write and raises this
-// host-only scope only for the duration of its direct FUN_80027768 call.
+// FUN_8013D454 — A00 water-jet controller. The authenticated executable/overlay evidence owns every guest write and
+// raises this host-only scope only for the duration of its direct FUN_80027768 call.
 void waterJetControllerTap(Core *c) {
   WaterJetScope scope(c);
-  ov_a00_gen_8013D454(c);
+  psx::cpu::callOriginalToReturn(*c, kControllerAddr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 
 } // namespace
 
 void guest_gte_water_jet_install() {
-  engine_set_override_main(kWriterAddr, waterJetWriterTap, gen_func_80027768);
-  engine_set_override_a00(kControllerAddr, waterJetControllerTap, ov_a00_gen_8013D454);
+  tomba::native::declareOverride(kWriterAddr, "waterJetWriterTap", waterJetWriterTap);
+  tomba::native::declareOverride(kControllerAddr, "waterJetControllerTap", waterJetControllerTap);
 }

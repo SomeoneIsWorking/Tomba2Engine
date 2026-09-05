@@ -2,7 +2,7 @@
 // GT3/GT4 packet-emitter pair (FUN_8013FB88/8013FE58) + their entity-loop caller (FUN_801401B8).
 //
 // WIRED + SBS-gated — see overlay_ground_gt3gt4.h banner. Two things fixed in this session
-// against generated/ov_a00_shard_0.c ov_a00_gen_801401B8 (ground truth):
+// against authenticated executable/overlay evidence overlay guest 0x801401B8 (ground truth):
 //   (1) BUG: entityLoop's ground-record lookup did an extra pointer dereference
 //       (`rec = mem_r32(table+idx*4); counts = mem_r32(rec+0); recBase = rec+4`). Ground truth
 //       has NO second dereference — `table+idx*4` IS the counts word's own address, and
@@ -15,10 +15,10 @@
 //       CALLER's live incoming values, run the body (host locals — nothing else touches these
 //       registers mid-call), restore, ascend.
 //
-// RE: read directly off the recompiler's own register-accurate translation (the project
-// convention for GTE-heavy leaves — generated/ov_a00_shard_0.c ov_a00_gen_8013FB88/801401B8,
-// generated/ov_a00_shard_1.c ov_a00_gen_8013FE58 — Ghidra's COP2 decompilation garbles GTE
-// register indices into placeholder immediates, so the recompiler's literal per-instruction C is
+// RE: read directly off the recorded binary evidence's register-accurate translation (the project
+// convention for GTE-heavy leaves — authenticated executable/overlay evidence overlay guest 0x8013FB88/801401B8,
+// authenticated executable/overlay evidence overlay guest 0x8013FE58 — Ghidra's COP2 decompilation garbles GTE
+// register indices into placeholder immediates, so the recorded binary evidence's literal per-instruction C is
 // the more precise source here, same as overlay_gt3gt4.cpp's own RE note).
 //
 // SIBLING of the field-object pair (game/render/overlay_gt3gt4.cpp, FUN_801465EC/801467BC,
@@ -44,7 +44,7 @@
 //   - GT3 also stages a 16-bit uv2-hi word at packet offset +36 (mem_w16, from the upper half of
 //     rec+32) that the field GT3 leaf's OWN port does not currently write (its comment documents
 //     the field position but the already-landed body never stores it) — reproduced here because
-//     it IS a real guest write the recomp body performs; left as an open question for whoever
+//     it IS a real guest write the guest instruction path performs; left as an open question for whoever
 //     next audits the field leaf's byte-exactness, not "fixed" on either side here.
 //
 // Guest-stack frames: MIRRORED per CLAUDE.md ("guest-stack frames: MIRROR, never revert/
@@ -57,6 +57,7 @@
 #include "cfg.h"
 #include "core.h"
 #include "game.h"
+#include "native_override_catalog.h"
 #include <cstdint>
 
 // -- packet-pool bump allocator (SAME process-global pointer the field pair uses — one shared
@@ -64,7 +65,7 @@
 #define PKT_POOL_PTR 0x800BF544u
 
 // -- the two fixed SCRATCHPAD words this leaf pair uses as spilled locals (0x1F800000/0x1F800004
-//    — literal PSX addresses baked into the recompiled MIPS, not a tuning constant): the recomp
+//    — literal PSX addresses baked into the guest MIPS, not a tuning constant): the guest instruction path
 //    body spills its "GTE FLAG / MAC0 sign" temp to +0 and its "OTZ pick" temp to +4. Scratchpad
 //    is part of the SBS-compared state, so these MUST be real c->mem_w32 writes, not C++ locals.
 #define SCRATCH_FLAG_TMP 0x1F800000u
@@ -86,7 +87,7 @@
 static int32_t ground_otz_index(int32_t z) {
   int32_t shift = z >> 10;
   int32_t idx = (z >> (shift & 31)) + shift * 0x200;
-  // gen_func_8013FB88 L24069-24075: the ONLY range gate is `(idx - 4) < 2044` -> keep (i.e. drop
+  // guest 0x8013FB88 L24069-24075: the ONLY range gate is `(idx - 4) < 2044` -> keep (i.e. drop
   // when idx >= 2048), then `if (idx < 0) skip`. NO lower bound. A prior draft mis-split gen's
   // single upper-bound expression into a two-sided range [4..2047] — the spurious `idx <= 4`
   // rejection dropped records gen emits (pool offset shift, the f118 divergence) and the upper
@@ -125,7 +126,7 @@ static int32_t sz4_minmax(bool want_max, int32_t a, int32_t b, int32_t e, int32_
 // +24 uv1|tpage, +28 rgb2&COL_MASK_GROUND, +32 SXY2, +36 uv2hi (16-bit)}.
 //
 // WRITE-ORDER FIX (2026-07-10, convergence-agent): a prior draft grouped rgb2/uv0/uv1 into one
-// block placed AFTER the on-screen tests. Ground truth (`ov_a00_gen_8013FB88`, re-read
+// block placed AFTER the on-screen tests. Ground truth (`overlay guest 0x8013FB88`, re-read
 // instruction-by-instruction this session) writes uv0 (pool+12) and uv1 (pool+24) UNCONDITIONALLY
 // right after RTPT — BEFORE the GTE-FLAG check, BEFORE NCLIP, BEFORE the backface/on-screen gates
 // — while rgb2 (pool+28) stays where it was, genuinely AFTER the on-screen tests. This is NOT
@@ -136,7 +137,8 @@ static int32_t sz4_minmax(bool want_max, int32_t a, int32_t b, int32_t e, int32_
 // a different emitter (or a later loop iteration) reuses that exact pool address, the two engines'
 // "dead" leftover bytes differ — the f158 packet-pool `sbs-div` residual (docs/findings/render.md).
 // Fix: uv0/uv1 moved to fire exactly where gen fires them (right after RTPT, unconditional).
-// ORACLE: ov_a00_gen_8013FB88 (tools/port_check.py equivalence-gate marker; see docs/port-framework.md)
+// ORACLE: overlay guest 0x8013FB88 (tools/dynamic differential evidence equivalence-gate marker; see
+// docs/port-framework.md)
 void OverlayGroundGt3Gt4::gt3(Core *c) {
   uint32_t rec = c->r[4], ot_base = c->r[5], count = c->r[6];
   if (cfg_dbg("ovgt")) {
@@ -206,7 +208,7 @@ void OverlayGroundGt3Gt4::gt3(Core *c) {
     uint32_t mode = flagbyte & 3u;
     if (mode == 1u || mode == 2u) {
       int32_t sz1 = (int32_t)gte_read_data(17), sz2 = (int32_t)gte_read_data(18), sz3 = (int32_t)gte_read_data(19);
-      // Guest-stack mirror (RE: ov_a00_gen_8013FB88 L_8013FD00 vs L_8013FD54) — the ORIGINAL
+      // Guest-stack mirror (RE: overlay guest 0x8013FB88 L_8013FD00 vs L_8013FD54) — the ORIGINAL
       // compiler inlined the same sz-minmax computation TWICE at two DIFFERENT dead-scratch stack
       // offsets depending on mode: mode==1 writes to (new sp)+0/4/8, mode==2 writes to (new
       // sp)+12/16/20. A prior draft always used the mode==1 offsets, so mode==2 records never
@@ -231,7 +233,7 @@ void OverlayGroundGt3Gt4::gt3(Core *c) {
       continue;
     }
 
-    // uv2hi (16-bit, high half of rec+32) — a real guest write the recomp body performs at this
+    // uv2hi (16-bit, high half of rec+32) — a real guest write the guest instruction path performs at this
     // packet slot; see file banner re: the field leaf not currently reproducing it.
     c->mem_w16(pool + 36, (uint16_t)(c->mem_r32(rec + 32) >> 16));
 
@@ -253,10 +255,10 @@ void OverlayGroundGt3Gt4::gt3(Core *c) {
 // bytes: {+0 tag(len=12<<24|next), +4 rgb0&COL_MASK_STD, +8 SXY0, +12 uv0, +16 rgb1&
 // COL_MASK_GROUND, +20 SXY1, +24 uv1, +28 rgb2&COL_MASK_GROUND, +32 SXY2, +36 uv2, +40
 // rgb3&COL_MASK_GROUND, +44 SXY3, +48 uv3}. Note the PER-SLOT mask mix (rgb0 standard, rgb1-3
-// ground) — verified against the recomp body, not simplified to one constant.
+// ground) — verified against the guest instruction path, not simplified to one constant.
 //
 // WRITE-ORDER FIX (2026-07-10, convergence-agent): same class of bug as gt3 above, found by fully
-// re-reading `ov_a00_gen_8013FE58` instruction-by-instruction (a prior draft's block-grouped
+// re-reading `overlay guest 0x8013FE58` instruction-by-instruction (a prior draft's block-grouped
 // uv0/rgb2/rgb3/uv1/uv2/uv3 writes right after the backface gate did NOT match gen's real,
 // interleaved gate/write order). Ground truth's actual order per record:
 //   rgb0(pool+4) -> RTPT -> rgb1(pool+16) -> [load rec4] -> GTE-FLAG#1 gate -> NCLIP ->
@@ -351,7 +353,7 @@ void OverlayGroundGt3Gt4::gt4(Core *c) {
     if (mode == 1u || mode == 2u) {
       int32_t sz1 = (int32_t)gte_read_data(16), sz2 = (int32_t)gte_read_data(17), sz3 = (int32_t)gte_read_data(18),
               sz4 = (int32_t)gte_read_data(19);
-      // Guest-stack mirror (RE: ov_a00_gen_8013FE58, same duplicated-inline shape as gt3 above) —
+      // Guest-stack mirror (RE: overlay guest 0x8013FE58, same duplicated-inline shape as gt3 above) —
       // mode==1 writes to (new sp)+0/4/8/12, mode==2 writes to (new sp)+16/20/24/28. A prior draft
       // always used the mode==1 offsets; mirror the real per-mode offset (CLAUDE.md "MIRROR THE
       // GUEST STACK").
@@ -412,7 +414,7 @@ void OverlayGroundGt3Gt4::entityLoop(Core *c) {
     }
   }
 
-  // Real 40-byte guest stack frame (RE: generated/ov_a00_shard_0.c ov_a00_gen_801401B8:
+  // Real 40-byte guest stack frame (RE: authenticated executable/overlay evidence overlay guest 0x801401B8:
   // `addiu sp,-40; sw ra,36(sp); sw r20,32(sp); sw r19,28(sp); sw r18,24(sp); sw r17,20(sp);
   // sw r16,16(sp)`) — six LIVE incoming register spills. Mirrored per CLAUDE.md ("MIRROR THE
   // GUEST STACK... never revert/exclude a leaf because it pushes a frame"): this function's own
@@ -436,7 +438,7 @@ void OverlayGroundGt3Gt4::entityLoop(Core *c) {
   uint32_t otBase = c->mem_r32(OT_BASE_GLOBAL);
   uint32_t table = c->mem_r32(list + 12);
 
-  // camera GTE control block (8 words, CR0..CR7 — matches the recomp body's own 8-word load)
+  // camera GTE control block (8 words, CR0..CR7 — matches the guest instruction path's own 8-word load)
   for (int i = 0; i < 8; i++) {
     gte_write_ctrl((uint32_t)i, c->mem_r32(CAMERA_GTE_CTRL + (uint32_t)i * 4));
   }
@@ -446,7 +448,7 @@ void OverlayGroundGt3Gt4::entityLoop(Core *c) {
     idxCursor += 2;
     // FIX (2026-07-08): a prior draft added a spurious extra pointer dereference here
     // (`rec = mem_r32(table+idx*4); counts = mem_r32(rec+0); recBase = rec+4`). Ground truth
-    // (ov_a00_gen_801401B8) has only ONE dereference: `table+idx*4` IS the counts word's own
+    // (overlay guest 0x801401B8) has only ONE dereference: `table+idx*4` IS the counts word's own
     // address (r16 = mem_r32(table+idx*4) used directly as the packed count word, never
     // re-dereferenced), and `table+idx*4+4` IS recBase — the table holds INLINE per-slot data
     // (header word then the GT3-then-GT4 record array), not a pointer to a separate struct.
@@ -476,17 +478,13 @@ void OverlayGroundGt3Gt4::entityLoop(Core *c) {
 }
 
 // Wiring (frontier, 2026-07-08): all three leaves are reached only by a direct C call the
-// recompiler generates inside the ov_a00 shard (never rec_dispatch), so wired via the overlay's
-// own process-global g_ov_a00_override[] table — same discipline as OverlayGt3Gt4's twin cluster.
-// engine_set_override_a00 (runtime/recomp/override_registry.h) installs into the ONE process-global
-// override registry, which runs ov_a00_gen_* on the oracle leg (core B) and the native handler
-// everywhere else — NOT a raw ov_a00_set_override.
+// recorded binary evidence generates inside the ov_a00 shard (never typed runtime address dispatch), so wired via the
+// overlay's own per-Core image-qualified runtime dispatcher table — same discipline as OverlayGt3Gt4's twin cluster.
+// tomba::native::declareOverride (runtime/psx/override_registry.h) installs into the ONE process-global
+// override registry, which runs ordinary A00 overlay guest bodies on the oracle leg (core B) and the native handler
+// everywhere else — NOT a raw image-qualified A00 native registration.
 void OverlayGroundGt3Gt4::registerOverrides(Game *) {
-  extern void ov_a00_gen_8013FB88(Core *);
-  extern void ov_a00_gen_8013FE58(Core *);
-  extern void ov_a00_gen_801401B8(Core *);
-  extern void engine_set_override_a00(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_a00(0x8013FB88u, &OverlayGroundGt3Gt4::gt3, ov_a00_gen_8013FB88);
-  engine_set_override_a00(0x8013FE58u, &OverlayGroundGt3Gt4::gt4, ov_a00_gen_8013FE58);
-  engine_set_override_a00(0x801401B8u, &OverlayGroundGt3Gt4::entityLoop, ov_a00_gen_801401B8);
+  tomba::native::declareOverride(0x8013FB88u, "&OverlayGroundGt3Gt4::gt3", &OverlayGroundGt3Gt4::gt3);
+  tomba::native::declareOverride(0x8013FE58u, "&OverlayGroundGt3Gt4::gt4", &OverlayGroundGt3Gt4::gt4);
+  tomba::native::declareOverride(0x801401B8u, "&OverlayGroundGt3Gt4::entityLoop", &OverlayGroundGt3Gt4::entityLoop);
 }

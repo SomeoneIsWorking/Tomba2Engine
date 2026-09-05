@@ -1,7 +1,7 @@
 // game/ui/panel_fill.cpp — Panel::fillQuad, guest FUN_8004FFB4.
 //
 // The 9-slice panel's fill primitive, and the busiest render function on the field path (505
-// dispatches per 1200 frames). RE'd 2026-07-22 from gen_func_8004FFB4.
+// dispatches per 1200 frames). RE'd 2026-07-22 from guest 0x8004FFB4.
 //
 // THIS IS THE GUEST-STATE HALF ONLY. The address is owned by `Panel::install()` (game/ui/panel.cpp),
 // whose panelFillTap calls this body and then `Panel::pushFill` for the display pass. Do NOT add a
@@ -74,7 +74,7 @@ constexpr UvSet kUvSets[5] = {
 // STATIC store sequences, and the guest's five-arm jump table has 12 store sites where the table
 // below has 8. Contorting the code to match that count is precisely how these files end up
 // unreadable. Equivalence is instead proven the way rebuilds have to be — by running the bucket
-// capture with this installed and with it disabled (so gen_func_8004FFB4 runs) and diffing the 2 MB
+// capture with this installed and with it disabled (so guest 0x8004FFB4 runs) and diffing the 2 MB
 // dumps at frame 1200: ZERO differing bytes, 2026-07-22. Re-run that A/B if this file is edited.
 //
 // FUN_8004FFB4(rect r4 {s16 x,y,w,h}, uvIndex r5, attr r6, otBucket r7)

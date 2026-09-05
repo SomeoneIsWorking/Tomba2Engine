@@ -2,7 +2,7 @@
 //
 // Extracted from render_walk.cpp (the scene renderer) as its own cohesive owner: the backdrop is a
 // self-contained producer cluster — the guest-dispatch RESOLVER (backdropTilemapDrawer, which reads
-// the field bg-state jump table exactly as gen_func_8003DF04 does), the per-frame texpage FACT
+// the field bg-state jump table exactly as guest 0x8003DF04 does), the per-frame texpage FACT
 // publisher both render modes consume (backdropTexpagePublishTick), and the RQ_BACKGROUND tile
 // producer itself (backdropRender). All method declarations live in render.h; nothing here changes.
 #include "core.h"
@@ -23,7 +23,7 @@
 // (g_scene_native_diag was defined here but never read; dead — removed 2026-07-02)
 // g_sn_objs/g_sn_cmds retired 2026-07-03 — Render::stats.snObjs/snCmds (RenderStats).
 // Resolve the resident backdrop tilemap drawer exactly as the guest field dispatcher does
-// (gen_func_8003DF04 @0x8003DF04) and confirm it is the SHARED tilemap routine, reporting its baked
+// (guest 0x8003DF04 @0x8003DF04) and confirm it is the SHARED tilemap routine, reporting its baked
 // per-tile V bias. See render.h for the contract. Read-only (guest RAM + resident code words only).
 bool Render::backdropTilemapDrawer(int &vAdd, uint32_t *drawerVAOut) {
   Core *c = mCore;

@@ -42,7 +42,7 @@ def run_game(replay, frame, shot):
     env = dict(os.environ, PSXPORT_REPL="1", PSXPORT_VK_HEADLESS="1", PSXPORT_NOAUDIO="1",
                            PSXPORT_NOPACE="1",
                PSXPORT_PAD_REPLAY=replay)
-    binp = os.path.join(ROOT, "scratch/bin/tomba2_port")
+    binp = os.path.join(ROOT, "build/bin/tomba2_port")
     if not os.path.isfile(binp):
         sys.exit(f"whatisit: {binp} does not exist — build first "
                  f"(cmake --build build --target tomba2_port). Refusing rather than reporting nothing.")

@@ -19,34 +19,28 @@
 //   default (P[4]>=5): return.
 //
 // CONTROL FLOW + every struct/global WRITE owned native byte-for-byte; every sub-call stays a pure-PSX leaf
-// via rec_dispatch (incl. FUN_8007e9c8, the PSX fade-rect builder — kept PSX here; the PC-native fade is a
-// separate frontier). RE'd 1:1 from disas 0x8002655c (Ghidra decomp scratch/decomp/field2/8002655c.c).
-// GOTCHAs: P[8]/P[0xA] are signed `lh` (compares) / `sh` (stores); P[3]/P[4] + the globals are bytes;
-// 0x800bf80f = DAT_800bf80c._3_1_; the fade-in/out "reached zero" tests use value-BEFORE-decrement==1 (st1)
-// and value-AFTER-decrement==0 (st3) — transcribe the read/write/compare order exactly; P[4] is += in
-// states 0-3 but = 1 (absolute) in state 4. Byte-exact A/B gate (full RAM+scratchpad vs rec_super_call).
+// via typed runtime address dispatch (incl. FUN_8007e9c8, the PSX fade-rect builder — kept PSX here; the PC-native fade
+// is a separate frontier). RE'd 1:1 from disas 0x8002655c (Ghidra decomp scratch/decomp/field2/8002655c.c). GOTCHAs:
+// P[8]/P[0xA] are signed `lh` (compares) / `sh` (stores); P[3]/P[4] + the globals are bytes; 0x800bf80f =
+// DAT_800bf80c._3_1_; the fade-in/out "reached zero" tests use value-BEFORE-decrement==1 (st1) and
+// value-AFTER-decrement==0 (st3) — transcribe the read/write/compare order exactly; P[4] is += in states 0-3 but = 1
+// (absolute) in state 4. Byte-exact A/B gate (full RAM+scratchpad vs original guest-body call).
 
+#include "bg_scene_transition_sm.h"
 #include "cfg.h"
 #include "core.h"
-#include "game.h" // c->game->verify — the shared A/B verify scaffold
+#include "core/engine.h"
+#include "game.h"
 #include "game_ctx.h"
+#include "guest_call.h"
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include "render/screen_fade.h"      // class ScreenFade — the single fade driver
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
-#include "bg_scene_transition_sm.h"
-#include "core/engine.h"
-#include "override_registry.h"  // overrides::install — the one native-override registry
-#include "render/screen_fade.h" // class ScreenFade — the single fade driver
 
 // Ground-truth substrate bodies (the ORACLE gen leg runs these) + the two still-substrate sub-leaves
-// opSceneEventArmWait calls (kept pure-PSX via their func_ thunks, byte-faithful to the gen body).
-extern void gen_func_80042758(Core *);
-extern void gen_func_80042884(Core *);
-extern void shard_set_override(uint32_t, void (*)(Core *));
-void func_80040B48(Core *); // SceneEvents::arm (scene-event ARM primitive)
-void func_80042728(Core *); // BgSceneTransitionSm::readyForProgress predicate thunk
+// opSceneEventArmWait calls (kept pure-PSX via their func_ thunks, byte-faithful to the guest-visible behavior).
 
 namespace {
 
@@ -96,7 +90,7 @@ void BgSceneTransitionSm::audioFadeTarget(Core *c, int32_t v) {
 bool BgSceneTransitionSm::midTransitionGate(Core *c) {
   // SIGNED byte, matching gen: `(int8_t)mem_r8(0x800BF80D)` then a signed `< 2` test, so the gate
   // fires on v >= 2 SIGNED. Read unsigned, 0x80..0xFF also pass `> 1` and the fade fires where the
-  // guest suppresses it. (tools/width_audit.py; gen_func_80026470/80026510/800264BC all agree.)
+  // guest suppresses it. (tools/width_audit.py; guest 0x80026470/80026510/800264BC all agree.)
   return (int8_t)c->mem_r8(0x800BF80Du) >= 2 || c->mem_r8(0x800BF839u) != 0;
 }
 void BgSceneTransitionSm::audioStub26470(Core *c) {
@@ -131,8 +125,8 @@ void BgSceneTransitionSm::body(Core *c) {
   switch (st) {
   case 0: {
     c->mem_w8(P + 4, (uint8_t)(c->mem_r8(P + 4) + 1));
-    audioFadeTarget(c, -1);     // native — was rec_dispatch(0x80075CEC, -1)
-    audioFadeTarget(c, 0x47FF); // native — was rec_dispatch(0x80075CEC, 0x47FF)
+    audioFadeTarget(c, -1);     // native — was typed runtime address dispatch(0x80075CEC, -1)
+    audioFadeTarget(c, 0x47FF); // native — was typed runtime address dispatch(0x80075CEC, 0x47FF)
     uint8_t req = c->mem_r8(G_req);
     switch (req) {
     case 1:
@@ -164,7 +158,7 @@ void BgSceneTransitionSm::body(Core *c) {
       break;
     }
     fadeRect(c, 0xffffff);
-    bf816Dispatch(c); // native — was rec_dispatch(0x80050970)
+    bf816Dispatch(c); // native — was typed runtime address dispatch(0x80050970)
     break;
   }
   case 1: {
@@ -182,7 +176,7 @@ void BgSceneTransitionSm::body(Core *c) {
     if (c->mem_r8(0x800BF849u) == 0 && c->mem_r8(0x800ED06Du) == 0) {
       uint8_t dir = c->mem_r8(G_dir);
       if (dir == 2 || dir == 4) {
-        audioStub26470(c); // native — was rec_dispatch(0x80026470)
+        audioStub26470(c); // native — was typed runtime address dispatch(0x80026470)
         c->mem_w16(P + 8, 0x1f);
         c->mem_w16(P + 0xa, 8);
         c->mem_w8(P + 3, dir == 2 ? 0 : 1);
@@ -199,7 +193,7 @@ void BgSceneTransitionSm::body(Core *c) {
     if (c->mem_r16s(P + 8) == 0) {
       c->mem_w8(P + 4, (uint8_t)(c->mem_r8(P + 4) + 1));
       c->mem_w8(G_dir, 0);
-      audioStub26510(c); // native — was rec_dispatch(0x80026510)
+      audioStub26510(c); // native — was typed runtime address dispatch(0x80026510)
     }
     break;
   }
@@ -212,7 +206,7 @@ void BgSceneTransitionSm::body(Core *c) {
       } else if (dir == 3) {
         c->mem_w8(P + 3, 1);
       }
-      audioStub264BC(c);   // native — was rec_dispatch(0x800264BC)
+      audioStub264BC(c);   // native — was typed runtime address dispatch(0x800264BC)
       c->mem_w8(P + 4, 1); // absolute, not +=
       c->mem_w16(P + 8, 0x1f);
       c->mem_w16(P + 0xa, 8);
@@ -225,13 +219,13 @@ void BgSceneTransitionSm::body(Core *c) {
 }
 
 void BgSceneTransitionSm::verifyBody(Core *c) {
-  int s_v = c->game->verify.on("bgscenesmverify");
+  int s_v = gctx(c)->verification.on("bgscenesmverify");
   if (!s_v) {
     body(c);
     return;
   }
-  uint8_t *ram0 = c->game->verify.ram0();
-  uint8_t *ramN = c->game->verify.ramN();
+  uint8_t *ram0 = gctx(c)->verification.ram0();
+  uint8_t *ramN = gctx(c)->verification.ramN();
   uint8_t spad0[0x400], spadN[0x400];
   uint32_t regs0[32];
   memcpy(regs0, c->r, sizeof regs0);
@@ -244,7 +238,7 @@ void BgSceneTransitionSm::verifyBody(Core *c) {
   memcpy(c->scratch, spad0, 0x400);
   memcpy(c->r, regs0, sizeof regs0);
   c->r[4] = P;
-  rec_super_call(c, SM_FN);
+  psx::cpu::callOriginalToReturn(*c, SM_FN, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   uint32_t sp = regs0[29] & 0x1FFFFFu, flo = (sp >= 0x800) ? sp - 0x800 : 0;
   int ro = -1;
   for (uint32_t a = 0; a < 0x200000; a++) {
@@ -260,7 +254,7 @@ void BgSceneTransitionSm::verifyBody(Core *c) {
       break;
     }
   }
-  VerifyHarness::Check &chk = c->game->verify.check("bgscenesmverify");
+  tomba::VerificationCounter &chk = gctx(c)->verification.backgroundScene;
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0) {
     if (nb++ < 40) {
@@ -286,13 +280,13 @@ bool BgSceneTransitionSm::readyForProgress() const {
 
 // -- Cutscene-script opcode leaves (adjacent to readyForProgress in the guest binary) ------------
 //
-// opSceneEventArmWait (FUN_80042758) — READY-FRAME leaf. The gen body descends sp by 24 and spills
+// opSceneEventArmWait (FUN_80042758) — READY-FRAME leaf. The guest-visible behavior descends sp by 24 and spills
 // the callee-saved regs ra/s0 (r31/r16) at sp+20/sp+16 with their LIVE incoming values, restoring
 // them before every return; the native port mirrors that guest stack frame exactly (see
 // docs/faithful-execution.md, game/player/collision.cpp::flatNormal). node comes in a0 (= s0 after
 // the prologue). Both sub-calls (SceneEvents::arm, readyForProgress) stay pure-PSX via their func_
 // thunks with the RE'd jal-site ra constant, byte-faithful to gen.
-// ORACLE: gen_func_80042758
+// ORACLE: guest 0x80042758
 void BgSceneTransitionSm::opSceneEventArmWait(Core *c) {
   c->r[29] = c->r[29] + (uint32_t)-24;             // addiu sp,-0x18 — descend the guest frame
   c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]); // sw s0,0x10(sp) — LIVE incoming s0
@@ -323,7 +317,8 @@ L_state0:; // state 0 — arm the scene event, latch completion
     }
   }
   c->r[31] = 0x800427A0u;
-  func_80040B48(c); // SceneEvents::arm(param0)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80040B48u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // SceneEvents::arm(param0)
   c->r[3] = c->r[0] + (uint32_t)1;
   {
     int _t = (c->r[2] != c->r[3]);
@@ -347,7 +342,8 @@ L_advance:;
   goto L_ret0;
 L_state1:; // state 1 — poll the scene-progress-ready predicate
   c->r[31] = 0x800427D8u;
-  func_80042728(c); // readyForProgress
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80042728u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // readyForProgress
   goto L_ret;
 L_ret0:;
   c->r[2] = c->r[0] + c->r[0];
@@ -359,7 +355,7 @@ L_ret:;
 
 // opClearSceneFlag80a (FUN_80042884) — one-shot opcode leaf: clear the scene sub-state flag byte
 // and return 1. No frame.
-// ORACLE: gen_func_80042884
+// ORACLE: guest 0x80042884
 void BgSceneTransitionSm::opClearSceneFlag80a(Core *c) {
   c->mem_w8(G_flag80a, (uint8_t)c->r[0]); // *0x800BF80A = 0
   c->r[2] = c->r[0] + (uint32_t)1;        // v0 = 1
@@ -374,15 +370,6 @@ static void eov_opClearSceneFlag80a(Core *c) {
 }
 
 void BgSceneTransitionSm::registerOverrides() {
-  using overrides::install;
-  install(0x80042758u,
-          "BgSceneTransitionSm::opSceneEventArmWait",
-          eov_opSceneEventArmWait,
-          gen_func_80042758,
-          shard_set_override);
-  install(0x80042884u,
-          "BgSceneTransitionSm::opClearSceneFlag80a",
-          eov_opClearSceneFlag80a,
-          gen_func_80042884,
-          shard_set_override);
+  tomba::native::declareOverride(0x80042758u, "BgSceneTransitionSm::opSceneEventArmWait", eov_opSceneEventArmWait);
+  tomba::native::declareOverride(0x80042884u, "BgSceneTransitionSm::opClearSceneFlag80a", eov_opClearSceneFlag80a);
 }

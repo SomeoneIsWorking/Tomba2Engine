@@ -4,7 +4,7 @@
 // tables). Outer state machine on node[+4] (0 init / 1 active / 2 transition / 3 despawn), each
 // wrapping an inner switch on node[+3] (~18 sub-types). Ported to close BUG-1 (cutscene fadeouts
 // stuck black): case 10 of the state-1 body drives two per-frame FADE SUB-MACHINES via the guest
-// leaf FUN_8007E9C8, which the still-recomp path routes to a substrate body that writes guest OT
+// leaf FUN_8007E9C8, which the still-guest path routes to a substrate body that writes guest OT
 // data our renderer no longer draws — so every fade rect from this handler is silently dropped
 // and the ScreenFade HOLD latch at full-black never releases. Porting the parent behaviour +
 // the two sub-machines native lands the fades on `fade(c).applyLeafCall(...)` where the
@@ -13,7 +13,7 @@
 // RE'd from Ghidra decomp of A06.BIN (scratch/ghidra/A06 project, base 0x80108F9C, imported
 // 2026-07-03) — FUN_801189E8, FUN_801178A4, FUN_80117AAC. Ownership model matches the other
 // beh_* handlers: CONTROL FLOW + node/global memory writes owned; every sub-behaviour leaf
-// call stays a reachable substrate function via rec_dispatch (no recursion into leaves).
+// call stays a reachable substrate function via typed runtime address dispatch (no recursion into leaves).
 //
 // Fade sub-machines detail:
 //   whiteFlashPhaseRamp (guest FUN_801178A4): 5-state additive white flash ramp gated on the
@@ -35,11 +35,10 @@
 #include "core.h"
 #include "game_ctx.h"
 #include "guest_abi.h"
+#include "guest_jal.h"
 #include "render/screen_fade.h"
 #include "spawn.h"
 #include <cstdint>
-
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -126,7 +125,7 @@ static void whiteFlashPhaseRamp(Core *c, uint32_t node) {
       return;
     }
     // Finalise: music/SFX cue then reset outer state, advance node+5.
-    guest_leaf(c, 0x80051B04u, c->mem_r32(node + 0xC0), 0xC, 0x49);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80051B04u, c->mem_r32(node + 0xC0), 0xC, 0x49);
     c->mem_w8(node + 6, 0);
     c->mem_w8(node + 5, (uint8_t)(c->mem_r8(node + 5) + 1));
     return;
@@ -160,7 +159,7 @@ static void whiteFadeHold(Core *c, uint32_t node) {
     uint32_t u = (uint32_t)c->mem_r8(node + 0x40);
     fade(c).applyLeafCall((u << 16) | (u << 8) | u, /*ADDITIVE*/ 1);
     if ((int16_t)c->mem_r16(node + 0x40) < 0x21) {
-      guest_leaf(c, 0x80051B04u, c->mem_r32(node + 0xC0), 0xC, 0x48);
+      tomba::guest::dispatchLeafToReturn(*c, 0x80051B04u, c->mem_r32(node + 0xC0), 0xC, 0x48);
       c->mem_w8(0x800BFA20u, 9);
       c->mem_w8(node + 6, 0);
       c->mem_w8(node + 5, (uint8_t)(c->mem_r8(node + 5) + 1));
@@ -183,7 +182,7 @@ static void state0_init(Core *c, uint32_t nd) {
   switch (n3) {
   case 0: {
     c->mem_w32(nd + 0x3C, c->mem_r32(0x800ECF80u));
-    guest_leaf(c, 0x80077B38u, nd, GFX_PTR_8014CEF0, 5);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80077B38u, nd, GFX_PTR_8014CEF0, 5);
     c->mem_w8(nd + 0x0D, 1);
     c->mem_w8(nd + 0x0B, 0x11);
     c->mem_w16(nd + 0x7A, 0x1000);
@@ -197,26 +196,26 @@ static void state0_init(Core *c, uint32_t nd) {
   }
   case 1:
     c->mem_w32(nd + 0x3C, c->mem_r32(0x800ECF80u));
-    guest_leaf(c, 0x80077B38u, nd, GFX_PTR_8014CEF0, 6);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80077B38u, nd, GFX_PTR_8014CEF0, 6);
     c->mem_w8(nd + 0x0D, 1);
     c->mem_w16(nd + 0x5C, 0);
     c->mem_w8(nd + 0x0B, 0x10);
     shared_tail = true;
     break;
   case 3:
-    guest_leaf(c, 0x801168E4u, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x801168E4u, nd);
     return;
   case 4:
-    guest_leaf(c, 0x80116D00u, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80116D00u, nd);
     return;
   case 5:
-    guest_leaf(c, 0x80051B70u, nd, 0x0C, 0x26);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80051B70u, nd, 0x0C, 0x26);
     c->mem_w16(nd + 0x54, 0);
     c->mem_w16(nd + 0x56, 0x800);
     c->mem_w16(nd + 0x58, 0);
     return;
   case 6: {
-    guest_leaf(c, 0x80051B70u, nd, 0x0C, 0x2A);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80051B70u, nd, 0x0C, 0x2A);
     c->mem_w16(nd + 0x56, 0x800);
     c->mem_w16(nd + 0x54, 0);
     c->mem_w16(nd + 0x58, 0);
@@ -224,7 +223,7 @@ static void state0_init(Core *c, uint32_t nd) {
       c->mem_w16(nd + 0x32, 0xDE88);
       c->mem_w8(nd + 5, 99);
     }
-    guest_leaf(c, 0x80072DDCu, nd, 1, 4, 0x17);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80072DDCu, nd, 1, 4, 0x17);
     uint32_t spawned = leaf_ret(c);
     if (spawned == 0) {
       return;
@@ -239,7 +238,7 @@ static void state0_init(Core *c, uint32_t nd) {
   }
   case 7:
     c->mem_w32(nd + 0x3C, c->mem_r32(0x800ECF80u));
-    guest_leaf(c, 0x80077B38u, nd, GFX_PTR_8014CEF0, 9);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80077B38u, nd, GFX_PTR_8014CEF0, 9);
     c->mem_w8(nd + 0x0D, 3);
     c->mem_w8(nd + 0x0B, 0x11);
     c->mem_w16(nd + 0x7C, 0x2000);
@@ -255,20 +254,20 @@ static void state0_init(Core *c, uint32_t nd) {
     c->mem_w16(nd + 0x60, 0x96);
     return;
   case 8:
-    guest_leaf(c, 0x80116FCCu, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80116FCCu, nd);
     return;
   case 9: {
     uint32_t sfx = (c->mem_r8(0x800BF8D3u) == 0xFF) ? 0x4Du : 0x4Cu;
-    guest_leaf(c, 0x80051B70u, nd, 0x0C, sfx);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80051B70u, nd, 0x0C, sfx);
     c->mem_w16(nd + 0x56, 0xFDBC);
-    guest_leaf(c, 0x800517F8u, nd); // LAB_80119374 tail: obj-post-frame render helper
+    tomba::guest::dispatchLeafToReturn(*c, 0x800517F8u, nd); // LAB_80119374 tail: obj-post-frame render helper
     return;
   }
   case 10: {
     // NB: the guest state-0 case-10 body handles the DAT_800bf921 / DAT_800bf922 gates + the
     // FUN_80141020 loop; it does NOT itself run the fade sub-machines. Faithful copy.
     if (c->mem_r8(0x800BF921u) != 0xFF) {
-      guest_leaf(c, 0x80051B70u, nd, 0x0C, 0x48);
+      tomba::guest::dispatchLeafToReturn(*c, 0x80051B70u, nd, 0x0C, 0x48);
       c->mem_w8(nd + 5, 0);
       int i = 0;
       uint8_t counter = c->mem_r8(0x800BFA21u);
@@ -276,18 +275,18 @@ static void state0_init(Core *c, uint32_t nd) {
         if (i >= 10) {
           break;
         }
-        guest_leaf(c, 0x80141020u, nd + 0x2C, 1, 0);
+        tomba::guest::dispatchLeafToReturn(*c, 0x80141020u, nd + 0x2C, 1, 0);
         i++;
         counter = (uint8_t)(i < (int)c->mem_r8(0x800BFA21u));
       }
       return;
     }
     if (c->mem_r8(0x800BF922u) != 0xFF && c->mem_r8(0x800BFB04u) == 0) {
-      guest_leaf(c, 0x80051B70u, nd, 0x0C, 0x49);
+      tomba::guest::dispatchLeafToReturn(*c, 0x80051B70u, nd, 0x0C, 0x49);
       c->mem_w8(nd + 5, 1);
       return;
     }
-    guest_leaf(c, 0x80051B70u, nd, 0x0C, 0x48);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80051B70u, nd, 0x0C, 0x48);
     // Fall-through to LAB_8011906C = node[+5]=2, then shared tail.
     c->mem_w8(nd + 5, 2);
     shared_tail = true;
@@ -295,7 +294,8 @@ static void state0_init(Core *c, uint32_t nd) {
   }
   case 0xB:
     c->mem_w32(nd + 0x3C, c->mem_r32(0x800ECF80u));
-    guest_leaf(c, 0x80077B38u, nd, GFX_PTR_8014CEF0, (uint32_t)(uint8_t)(c->mem_r8(nd + 0x5E) + 0x12));
+    tomba::guest::dispatchLeafToReturn(
+        *c, 0x80077B38u, nd, GFX_PTR_8014CEF0, (uint32_t)(uint8_t)(c->mem_r8(nd + 0x5E) + 0x12));
     c->mem_w8(nd + 0x0D, 1);
     c->mem_w8(nd + 0x0B, 0x11);
     c->mem_w16(nd + 0x7A, 0x1000);
@@ -313,10 +313,10 @@ static void state0_init(Core *c, uint32_t nd) {
     c->mem_w16(nd + 0x32, (uint16_t)((int16_t)c->mem_r16(nd + 0x32) + 100));
     return;
   case 0xC:
-    guest_leaf(c, 0x80117BD4u, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80117BD4u, nd);
     return;
   case 0xD:
-    guest_leaf(c, 0x80051B70u, nd, 0x0C, 0x47);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80051B70u, nd, 0x0C, 0x47);
     c->mem_w8(nd + 0x0D, (uint8_t)(c->mem_r8(nd + 0x0D) | 4));
     c->mem_w8(c->mem_r32(nd + 0xC0) + 0x3F, 0xF6);
     c->mem_w16(nd + 0x2E, 0x2380);
@@ -324,21 +324,21 @@ static void state0_init(Core *c, uint32_t nd) {
     c->mem_w16(nd + 0x36, 0x34D4);
     return;
   case 0xE:
-    guest_leaf(c, 0x80051B70u, nd, 0x0C, 0x59);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80051B70u, nd, 0x0C, 0x59);
     c->mem_w8(nd + 0x0D, (uint8_t)(c->mem_r8(nd + 0x0D) | 4));
     c->mem_w8(c->mem_r32(nd + 0xC0) + 0x3F, 0x20);
-    guest_leaf(c, 0x800517F8u, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x800517F8u, nd);
     return;
   case 0xF: {
     uint32_t src = c->mem_r32(nd + 0x10);
-    guest_leaf(c, 0x80051B70u, nd, 0x0C, 0x1C);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80051B70u, nd, 0x0C, 0x1C);
     c->mem_w16(nd + 0x54, 0);
     c->mem_w16(nd + 0x56, 0);
     c->mem_w16(nd + 0x58, 0);
     c->mem_w16(nd + 0x2E, c->mem_r16(src + 0x2E));
     c->mem_w16(nd + 0x32, (uint16_t)((int16_t)c->mem_r16(src + 0x32) - 0x50));
     c->mem_w16(nd + 0x36, c->mem_r16(src + 0x36));
-    guest_leaf(c, 0x8004B354u, nd, 1);
+    tomba::guest::dispatchLeafToReturn(*c, 0x8004B354u, nd, 1);
     c->mem_w16(nd + 0xB8, 0);
     c->mem_w16(nd + 0xBA, 0);
     c->mem_w16(nd + 0xBC, 0);
@@ -346,7 +346,7 @@ static void state0_init(Core *c, uint32_t nd) {
   }
   case 0x10:
     c->mem_w32(nd + 0x3C, c->mem_r32(0x800ECF58u));
-    guest_leaf(c, 0x80077B38u, nd, GFX_PTR_80017334, 0x17C);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80077B38u, nd, GFX_PTR_80017334, 0x17C);
     c->mem_w8(nd + 0x0B, 0x11);
     c->mem_w8(nd + 0x0D, 0);
     c->mem_w16(nd + 0x5C, 0);
@@ -357,7 +357,7 @@ static void state0_init(Core *c, uint32_t nd) {
     break;
   case 0x11:
     c->mem_w32(nd + 0x3C, c->mem_r32(0x800ECF58u));
-    guest_leaf(c, 0x80077B38u, nd, GFX_PTR_80017334, 0x17C);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80077B38u, nd, GFX_PTR_80017334, 0x17C);
     c->mem_w8(nd + 0x0B, 0x11);
     c->mem_w8(nd + 0x0D, 0);
     c->mem_w16(nd + 0x5C, 0);
@@ -393,7 +393,7 @@ static void state1_run(Core *c, uint32_t nd) {
       c->mem_w16(nd + 0x50, 0);
     } else if (s6 == 1) {
       c->mem_w16(nd + 0x50, (uint16_t)((c->mem_r16(nd + 0x50) + 0x40u) & 0xFFFu));
-      guest_leaf(c, 0x80083E80u); // returns v0
+      tomba::guest::dispatchLeafToReturn(*c, 0x80083E80u); // returns v0
       int32_t r = (int32_t)leaf_ret(c);
       int16_t v = (int16_t)((r >> 2) + 0x1400);
       c->mem_w16(nd + 0x7A, (uint16_t)v);
@@ -407,11 +407,11 @@ static void state1_run(Core *c, uint32_t nd) {
     return;
   }
   case 1:
-    guest_leaf(c, 0x80077B5Cu, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80077B5Cu, nd);
     c->mem_w8(nd + 1, 1);
     return;
   case 3:
-    guest_leaf(c, 0x80116AF8u, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80116AF8u, nd);
     return;
   case 4: {
     uint8_t s5 = c->mem_r8(nd + 5);
@@ -422,10 +422,10 @@ static void state1_run(Core *c, uint32_t nd) {
         return;
       }
       c->mem_w8(nd + 1, 1);
-      guest_leaf(c, 0x800517F8u, nd);
-      guest_leaf(c, 0x8004B374u, nd, 1);
+      tomba::guest::dispatchLeafToReturn(*c, 0x800517F8u, nd);
+      tomba::guest::dispatchLeafToReturn(*c, 0x8004B374u, nd, 1);
     } else if (s5 == 2) {
-      guest_leaf(c, 0x80116E48u, nd);
+      tomba::guest::dispatchLeafToReturn(*c, 0x80116E48u, nd);
     } else if (s5 == 0) {
       if (c->mem_r8(0x800BFA22u) == 0) {
         c->mem_w8(nd + 5, 1);
@@ -433,13 +433,13 @@ static void state1_run(Core *c, uint32_t nd) {
       }
       // LAB_8011906C: node+5=2 then LAB_80119374 tail (postFrame render).
       c->mem_w8(nd + 5, 2);
-      guest_leaf(c, 0x800517F8u, nd);
+      tomba::guest::dispatchLeafToReturn(*c, 0x800517F8u, nd);
     }
     return;
   }
   case 5:
     c->mem_w8(nd + 1, 1);
-    guest_leaf(c, 0x800517F8u, nd); // LAB_80119374 tail
+    tomba::guest::dispatchLeafToReturn(*c, 0x800517F8u, nd); // LAB_80119374 tail
     return;
   case 6: {
     uint8_t s5 = c->mem_r8(nd + 5);
@@ -459,7 +459,7 @@ static void state1_run(Core *c, uint32_t nd) {
       c->mem_w16(nd + 0x4A, 0);
     }
     c->mem_w8(nd + 1, 1);
-    guest_leaf(c, 0x800517F8u, nd); // LAB_80119374 tail
+    tomba::guest::dispatchLeafToReturn(*c, 0x800517F8u, nd); // LAB_80119374 tail
     return;
   }
   case 7: {
@@ -483,43 +483,44 @@ static void state1_run(Core *c, uint32_t nd) {
     c->mem_w16(nd + 0x32, (uint16_t)((int16_t)c->mem_r16(src + 0x32) - (int16_t)c->mem_r16(nd + 0x60)));
     c->mem_w16(nd + 0x36, c->mem_r16(src + 0x36));
     c->mem_w8(nd + 1, c->mem_r8(src + 1));
-    guest_leaf(c, 0x80077B5Cu, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80077B5Cu, nd);
     return;
   }
   case 8: {
     // FUN_800778E4(nd, dy) with dy = ((DAT_1f8000e2 - node[+0x32]) sign-extend s16).
     int32_t dy = (int32_t)(int16_t)(c->mem_r16(0x1F8000E2u) - c->mem_r16(nd + 0x32));
-    guest_leaf(c, 0x800778E4u, nd, (uint32_t)dy);
+    tomba::guest::dispatchLeafToReturn(*c, 0x800778E4u, nd, (uint32_t)dy);
     uint8_t s5 = c->mem_r8(nd + 5);
     if (s5 == 1) {
-      guest_leaf(c, 0x801174BCu, nd);
+      tomba::guest::dispatchLeafToReturn(*c, 0x801174BCu, nd);
       if (leaf_ret(c) != 0) {
         c->mem_w8(nd + 5, (uint8_t)(s5 + 1));
       }
     } else if (s5 == 0) {
-      guest_leaf(c, 0x80117290u, nd);
+      tomba::guest::dispatchLeafToReturn(*c, 0x80117290u, nd);
       if (leaf_ret(c) != 0) {
         c->mem_w8(nd + 5, (uint8_t)(s5 + 1));
       }
     } else if (s5 == 2) {
-      guest_leaf(c, 0x801176D4u, nd);
+      tomba::guest::dispatchLeafToReturn(*c, 0x801176D4u, nd);
       if (leaf_ret(c) != 0) {
         c->mem_w8(nd + 4, 2);
         c->mem_w8(nd + 5, 0);
       }
     }
-    guest_leaf(c, 0x80051844u, nd); // NodeXform::build (native — but we go via substrate here for now)
+    tomba::guest::dispatchLeafToReturn(
+        *c, 0x80051844u, nd); // NodeXform::build (native — but we go via substrate here for now)
     return;
   }
   case 9:
     if (c->mem_r8(0x800BF8D3u) != 0xFF && (c->mem_r8(0x800BF8D3u) & 4) != 0) {
       c->mem_w8(0x800BF8D3u, (uint8_t)(c->mem_r8(0x800BF8D3u) & 0xFB));
-      guest_leaf(c, 0x80051B04u, c->mem_r32(nd + 0xC0), 0x0C, 0x4D);
+      tomba::guest::dispatchLeafToReturn(*c, 0x80051B04u, c->mem_r32(nd + 0xC0), 0x0C, 0x4D);
     }
     // Fallthrough to case 0xE (guest: `case 9: ... case 0xe:`).
     /* fallthrough */
   case 0xE:
-    guest_leaf(c, 0x8007778Cu, nd); // Actor::boundsCull-ish; leave substrate
+    tomba::guest::dispatchLeafToReturn(*c, 0x8007778Cu, nd); // Actor::boundsCull-ish; leave substrate
     return;
   case 10: {
     uint8_t s5 = c->mem_r8(nd + 5);
@@ -528,8 +529,8 @@ static void state1_run(Core *c, uint32_t nd) {
     } else if (s5 == 0) {
       whiteFlashPhaseRamp(c, nd);
     }
-    guest_leaf(c, 0x8007778Cu, nd);
-    guest_leaf(c, 0x800517F8u, nd); // LAB_80119374 tail
+    tomba::guest::dispatchLeafToReturn(*c, 0x8007778Cu, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x800517F8u, nd); // LAB_80119374 tail
     return;
   }
   case 0xB: {
@@ -561,29 +562,31 @@ static void state1_run(Core *c, uint32_t nd) {
     return;
   }
   case 0xC:
-    guest_leaf(c, 0x80117CF4u, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80117CF4u, nd);
     return;
   case 0xD: {
-    guest_leaf(c, 0x8007778Cu, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x8007778Cu, nd);
     if (leaf_ret(c) != 0) {
-      guest_leaf(c, 0x800517F8u, nd);
+      tomba::guest::dispatchLeafToReturn(*c, 0x800517F8u, nd);
     }
     if (c->mem_r8(0x800BF9D3u) == 6) {
       c->mem_w8(0x800BF9D3u, 7);
-      guest_leaf(c, 0x80027144u, c->mem_r32(c->mem_r32(nd + 0xC0) + 0x40), nd + 0x2C, 0x700, 0x24);
-      guest_leaf(c, 0x80074590u, 0xC, 0, 0); // Sfx::trigger — but keep substrate for arg-ABI parity
+      tomba::guest::dispatchLeafToReturn(
+          *c, 0x80027144u, c->mem_r32(c->mem_r32(nd + 0xC0) + 0x40), nd + 0x2C, 0x700, 0x24);
+      tomba::guest::dispatchLeafToReturn(
+          *c, 0x80074590u, 0xC, 0, 0); // Sfx::trigger — but keep substrate for arg-ABI parity
       c->mem_w8(nd + 4, 3);
     }
     return;
   }
   case 0xF:
-    guest_leaf(c, 0x80117F34u, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80117F34u, nd);
     return;
   case 0x10:
-    guest_leaf(c, 0x801180A0u, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x801180A0u, nd);
     return;
   case 0x11:
-    guest_leaf(c, 0x801188B0u, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x801188B0u, nd);
     return;
   default:
     return;
@@ -597,22 +600,22 @@ static void state2_transition(Core *c, uint32_t nd) {
   }
   uint8_t s5 = c->mem_r8(nd + 5);
   if (s5 == 1) {
-    guest_leaf(c, 0x8005308Cu);
+    tomba::guest::dispatchLeafToReturn(*c, 0x8005308Cu);
     if (leaf_ret(c) == 0) {
       return;
     }
     c->mem_w8(nd + 5, (uint8_t)(s5 + 1));
-    guest_leaf(c, 0x80042354u, 1, 1);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80042354u, 1, 1);
     c->mem_w8(0x800BFA1Du, (uint8_t)(c->mem_r8(0x800BFA1Du) | 1));
-    guest_leaf(c, 0x80040CDCu, nd, GFX_PTR_8014D014, GFX_PTR_80144D28);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80040CDCu, nd, GFX_PTR_8014D014, GFX_PTR_80144D28);
     c->mem_w8(nd + 0x70, 1);
   } else if (s5 == 2) {
-    guest_leaf(c, 0x80041098u, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80041098u, nd);
     if (c->mem_r8(nd + 0x70) != 0xFF) {
       return;
     }
     c->mem_w8(nd + 4, 3);
-    guest_leaf(c, 0x80042310u);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80042310u);
   } else if (s5 == 0) {
     if (c->mem_r8(0x800BF8D2u) != 0xFF) {
       return;
@@ -626,7 +629,7 @@ static void state2_transition(Core *c, uint32_t nd) {
 // ────────────────────────────────────────────────────────────────────────────────────────────
 
 // Guest-stack spill table for 0x801189E8 — generated by
-// `tools/abi_extract.py 0x801189E8 --scaffold --guestabi`, never hand-derived.
+// `tools/binary ABI evidence 0x801189E8 --scaffold --guestabi`, never hand-derived.
 static constexpr GuestFrameSpill kSpills_801189E8[4] = {{17, 20}, {31, 28}, {18, 24}, {16, 16}}; // frame=32
 
 // The guest body 0x801189E8 is ONE function that descends sp by 32 and spills r16/r17/r18/ra; the

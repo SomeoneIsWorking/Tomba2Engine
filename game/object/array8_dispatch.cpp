@@ -1,15 +1,11 @@
 // Array8Dispatch::tick — see array8_dispatch.h. Faithful port of guest FUN_80026368.
 #include "array8_dispatch.h"
 #include "core.h"
-#include "game.h" // c->game->native_sync fork
+#include "game.h"
 #include "game_ctx.h"
 
 void Array8Dispatch::tick() {
   Core *c = core;
-  if (c->game && !c->game->native_sync) {
-    tickFaithful();
-    return;
-  }
   for (int i = 0; i < 8; i++) {
     uint32_t slot = ARRAY_BASE + (uint32_t)i * SLOT_STRIDE;
     if (c->mem_r8(slot) == 0) {
@@ -21,7 +17,7 @@ void Array8Dispatch::tick() {
   }
 }
 
-// tickFaithful(): line-for-line mirror of gen_func_80026368 (generated/shard_5.c). The gen spills
+// tickFaithful(): line-for-line mirror of guest 0x80026368 (authenticated executable/overlay evidence). The gen spills
 // s0/s1/s2/ra to its guest-stack frame before the loop and restores them after, and sets the
 // jal-site link register (r31 = 0x800263C0, the PC right after the loop's single `jal`) immediately
 // before every dispatch -- both are guest-visible bytes that the plain host loop in tick() does not

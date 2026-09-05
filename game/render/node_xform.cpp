@@ -1,6 +1,6 @@
 // NodeXform::build — PC-native reimpl of guest FUN_80051844.
 //
-// RE'd 1:1 from gen_func_80051844 (generated/shard_7.c) / disas 0x80051844:
+// RE'd 1:1 from guest 0x80051844 (authenticated executable/overlay evidence) / disas 0x80051844:
 //   scratchpad @0x1F800000 = { sx16(node+184), 0, sx16(node+186), 0, sx16(node+188), 0, 0, 0 }
 //     (8 int32 words — 3 trans lanes at +0/+8/+16, zeros elsewhere)
 //   ov_rotmat(a0=node+84 euler, a1=0x1F800020)              // libgte RotMatrix at 0x80085480
@@ -12,27 +12,23 @@
 //   ov_xform51128(node)                                     // propagate to children     (0x80051128)
 //
 // All 3 callees are already native (ov_rotmat, ov_mat_mul, ov_xform51128), so this is pure
-// scratchpad seeding + native-call orchestration. No rec_dispatch needed.
+// scratchpad seeding + native-call orchestration. No typed runtime address dispatch needed.
 #include "node_xform.h"
 #include "actor_tomba.h" // ActorTomba::G_ADDR — buildFromChild's parent-table base (UNWIRED draft)
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
-#include "gte_math.h"          // Math::rotmat, Math::matMul (static)
-#include "guest_abi.h"         // GuestFrame/GuestReg/guest_fn — ABI vocabulary (2026-07-14 readability pass)
-#include "override_registry.h" // overrides::install — the one native-override registry
-#include "render.h"            // full Render definition — rend(c)->mNodeXform
+#include "gte_math.h" // Math::rotmat, Math::matMul (static)
+#include "guest_abi.h"
+#include "guest_jal.h"               // GuestFrame/GuestReg/guest_fn — ABI vocabulary (2026-07-14 readability pass)
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include "render.h"                  // full Render definition — rend(c)->mNodeXform
 
 // Override wiring (see registerOverrides below): 0x80051300/0x80051464/0x800517BC (+ copyMatrixBlock/
-// buildFromChild/buildWithOffset) have a direct same-module `func_<addr>(c)` caller (confirmed via
-// generated/shard_0/1/2/3/5/6.c), so they install with the shard_set_override thunk to intercept those
-// too. 0x80051C8C/0x80051D90/0x80051D20 are only reached via rec_dispatch(c, addr) from an overlay, so
-// they wire rec_dispatch-only (install's setter omitted).
-extern void shard_set_override(uint32_t, void (*)(Core *));
-extern void gen_func_80051300(Core *);
-extern void gen_func_80051464(Core *);
-extern void gen_func_800517BC(Core *);
-void rec_dispatch(Core *, uint32_t);
+// buildFromChild/buildWithOffset) have a direct same-module `a direct guest-address call` caller (confirmed via
+// authenticated executable/overlay evidence/1/2/3/5/6.c), so they install with the tomba::native::declareOverride thunk
+// to intercept those too. 0x80051C8C/0x80051D90/0x80051D20 are only reached via typed runtime address dispatch(c, addr)
+// from an overlay, so they wire typed runtime address dispatch-only (install's setter omitted).
 
 namespace {
 
@@ -224,13 +220,13 @@ void seedDiagScratch(Core *c, uint32_t scr, int32_t x, int32_t y, int32_t z) {
   c->mem_w32(scr + 28, 0);
 }
 
-// Guest-stack frame mirrors — RE'd from the generated prologues (gen_func_<addr>), contracts
-// confirmed against `tools/abi_extract.py <addr> --contract` (2026-07-14). None of these functions
+// Guest-stack frame mirrors — RE'd from the generated prologues (the cited guest instructions), contracts
+// confirmed against `tools/binary ABI evidence <addr> --contract` (2026-07-14). None of these functions
 // read/write r29 in their own C++ body (all locals are named C++ variables, not register-mapped
-// stack slots), but the RECOMP side descends a real frame and spills whatever the CALLER currently
+// stack slots), but the guest instruction path side descends a real frame and spills whatever the CALLER currently
 // has in r16../ra at the RE'd offsets, then restores those exact values on return — a net-zero r29
 // move that nonetheless writes real, comparable bytes into guest RAM for the frame's lifetime.
-// Omitting this leaves that stack region untouched on the native side while the recomp side's
+// Omitting this leaves that stack region untouched on the native side while the guest instruction path side's
 // spills/restores run, so whatever OTHER call last wrote there shows through instead — a real,
 // reproducible SBS residual (see docs/findings/render.md, the f117-class NodeXform residual).
 // Mirrored per "MIRROR THE GUEST STACK" (docs/faithful-execution.md; same pattern as
@@ -257,10 +253,10 @@ constexpr GuestFrameSpill kWorldPosSpills[] = {{16, 16}, {17, 20}, {31, 24}}; //
 // (`r16=r4`, `r17=r16+152`, …) and then TAIL-CALL a nested NodeXform function (build/buildWithOffset
 // -> propagate, buildAxis -> propagateAxis) whose OWN prologue spills the caller's live r16..r23 into
 // ITS frame. For those spilled bytes to byte-match the substrate, the caller's c->r[16..] must hold
-// the SAME values the recomp computed — the native C++ body would otherwise use local variables and
-// never touch c->r[16..], leaving them stale (a real reproducible SBS diff at 0x801FE8E8: the recomp
+// the SAME values the guest instruction path computed — the native C++ body would otherwise use local variables and
+// never touch c->r[16..], leaving them stale (a real reproducible SBS diff at 0x801FE8E8: the guest instruction path
 // spilled r16=node=0x800FD010 while the native spilled a stale 0x1000). So each OUTER function that
-// makes a nested NodeXform call sets its callee-saved node/scratch registers to the RE'd recomp
+// makes a nested NodeXform call sets its callee-saved node/scratch registers to the RE'd guest instruction path
 // values (via GuestReg<N>, below) after the frame descent — the nested callee then spills the right
 // bytes; the frame RAII still restores the caller's own incoming values on exit. The Math leaves
 // (rotmat/matMul/rotX/…, game/math/gte_math.cpp) are FRAMELESS and touch only r2..r15/r24/r25, so
@@ -270,8 +266,8 @@ void NodeXform::build(uint32_t nodeAddr) {
   Core *c = core;
   GuestFrame<32, 4> frame(c, kBuildSpills);
   Node node{c, nodeAddr};
-  // register faithfulness for the nested propagate() spill (gen_func_80051844: r16=scratch source
-  // matrix, r17=node, r18=scratch rot output, at the func_80051128 tail call).
+  // register faithfulness for the nested propagate() spill (guest 0x80051844: r16=scratch source
+  // matrix, r17=node, r18=scratch rot output, at the guest 0x80051128 tail call).
   GuestReg<16> r16(c);
   GuestReg<17> r17(c);
   GuestReg<18> r18(c);
@@ -370,16 +366,16 @@ void NodeXform::propagate(uint32_t nodeAddr) {
 }
 
 // FUN_800517BC — trivial 8-word block seeder: {x,0,y,0,z,0,0,0}. RE'd + cross-checked verbatim
-// against generated/shard_5.c gen_func_800517BC (sign-extends a1-a3 from int16 first).
+// against authenticated executable/overlay evidence guest 0x800517BC (sign-extends a1-a3 from int16 first).
 void NodeXform::seedBlock(uint32_t ptr, int16_t x, int16_t y, int16_t z) {
   Core *c = core;
   seedDiagScratch(c, ptr, x, y, z);
 }
 
 // FUN_80051300 — per-object CHILD-NODE TRANSFORM loop, rotmat-single-call variant. RE'd +
-// cross-checked verbatim against generated/shard_1.c gen_func_80051300 (ground truth for the
+// cross-checked verbatim against authenticated executable/overlay evidence guest 0x80051300 (ground truth for the
 // register-level shape; this port keeps the same control flow, using the already-native
-// Math::rotmat/matMul/applyMatlv leaves in place of func_80085480/80084110/80084220):
+// Math::rotmat/matMul/applyMatlv leaves in place of guest 0x80085480/80084110/80084220):
 //   guard: if node.childCountGuard()==0 -> return
 //   loop i in [0, node.childCount()) with continue-bound childCountGuard() (dual-bound idiom, same
 //   as propagate()):
@@ -391,7 +387,7 @@ void NodeXform::seedBlock(uint32_t ptr, int16_t x, int16_t y, int16_t z) {
 //     Math::applyMatlv(child, child.framePos)      // reads the matrix matMul just loaded into GTE
 //                                                    // CR via its CTC2 side effect
 //     child.framePos += (ROOT: node.worldPos) or (SIBLING: p.framePos)
-// Called directly (native C++ call, no rec_dispatch) by GraphicsBind::renderUpdateBody
+// Called directly (native C++ call, no typed runtime address dispatch) by GraphicsBind::renderUpdateBody
 // (FUN_800517F8) — its "downstream render setup" step.
 void NodeXform::propagateRotmat(uint32_t nodeAddr) {
   Core *c = core;
@@ -425,9 +421,9 @@ void NodeXform::propagateRotmat(uint32_t nodeAddr) {
 // FUN_80051464 — sibling of propagateRotmat(): identical control flow, but the child's rotation is
 // built by an EXPLICIT identity + rotX(child.childEulerX)/rotY(child.childEulerY)/
 // rotZ(child.childEulerZ) composition instead of a single Math::rotmat() call. RE'd + cross-checked
-// verbatim against generated/shard_2.c gen_func_80051464. Tail call of buildAxis(); also reached
-// directly from AI behaviour handlers (beh_anim_trigger_gates.cpp, via rec_dispatch — that caller is
-// an overlay, so rec_dispatch is the only way to reach MAIN from it).
+// verbatim against authenticated executable/overlay evidence guest 0x80051464. Tail call of buildAxis(); also reached
+// directly from AI behaviour handlers (beh_anim_trigger_gates.cpp, via typed runtime address dispatch — that caller is
+// an overlay, so typed runtime address dispatch is the only way to reach MAIN from it).
 void NodeXform::propagateAxis(uint32_t nodeAddr) {
   Core *c = core;
   GuestFrame<48, 8> frame(c, kPropagateAxisSpills);
@@ -464,13 +460,14 @@ void NodeXform::propagateAxis(uint32_t nodeAddr) {
 // identity + rotX(localEulerX)/rotY(localEulerY)/rotZ(localEulerZ) (explicit per-axis, matching
 // propagateAxis's convention — NOT a single rotmat() call), copies the raw local position straight
 // into the world-pos triple (NO rotation applied, unlike buildWithOffset), then tail-calls
-// propagateAxis(node). RE'd + cross-checked verbatim against generated/shard_5.c gen_func_80051C8C.
+// propagateAxis(node). RE'd + cross-checked verbatim against authenticated executable/overlay evidence guest
+// 0x80051C8C.
 void NodeXform::buildAxis(uint32_t nodeAddr) {
   Core *c = core;
   GuestFrame<32, 3> frame(c, kBuildAxisSpills);
   Node node{c, nodeAddr};
-  // register faithfulness for the nested propagateAxis() spill (gen_func_80051C8C: r16=node,
-  // r17=node.worldMatrix at the func_80051464 tail call — the exact f117 residual writer).
+  // register faithfulness for the nested propagateAxis() spill (guest 0x80051C8C: r16=node,
+  // r17=node.worldMatrix at the guest 0x80051464 tail call — the exact f117 residual writer).
   GuestReg<16> r16(c);
   GuestReg<17> r17(c);
   r16 = nodeAddr;
@@ -491,7 +488,7 @@ void NodeXform::buildAxis(uint32_t nodeAddr) {
 // per-method summary. Not registered anywhere; dead code until a frontier pass wires + SBS-gates.
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
 
-// FUN_80051B34 — frameless leaf, verbatim from generated/shard_3.c gen_func_80051B34 (no r29
+// FUN_80051B34 — frameless leaf, verbatim from authenticated executable/overlay evidence guest 0x80051B34 (no r29
 // change, pure 5-word copy: 5x `lw`/`sw` pairs, no branches). Copies a packed GTE MATRIX (5 words
 // = 3x3 int16, same layout Math::rotmat/matMul/NodeXform produce).
 void NodeXform::copyMatrixBlock(uint32_t src, uint32_t dst) {
@@ -501,7 +498,7 @@ void NodeXform::copyMatrixBlock(uint32_t src, uint32_t dst) {
   }
 }
 
-// FUN_80051614 — RE'd from generated/shard_3.c gen_func_80051614 (ground truth; Ghidra's decompile
+// FUN_80051614 — RE'd from authenticated executable/overlay evidence guest 0x80051614 (ground truth; Ghidra's decompile
 // mislabeled the parent-table read as "(&DAT_800e7f40)[tableIdx]" — the generated C computes the
 // base as literal 0x800E7E80, which IS ActorTomba::G_ADDR, so this reads *(G_ADDR + tableIdx*4 +
 // 0xC0): one of Tomba's own child-record slots, not a separate global table):
@@ -517,18 +514,18 @@ void NodeXform::copyMatrixBlock(uint32_t src, uint32_t dst) {
 //     missing the += entirely — a real bug, not just an unwired leaf.)
 //   node.localPos16 = (int16)node.worldPos                              (mirror down, AFTER the add)
 //   mode==0: propagateRotmat(node)     mode!=0: propagate(node)
-// REGISTER FAITHFULNESS (traced against generated/shard_3.c lines 13334-13425 — the callee-saved
+// REGISTER FAITHFULNESS (traced against authenticated executable/overlay evidence lines 13334-13425 — the callee-saved
 // registers propagate()/propagateRotmat()'s OWN frame will spill at the tail-call site): r16 is
 // ALWAYS kScrSrcMatrix on both paths; r17 is kScrRot ONLY on the mode!=0 path — on mode==0 the
-// recomp NEVER touches r17, so it carries whatever buildFromChild's OWN caller left there (this port
+// guest instruction path NEVER touches r17, so it carries whatever buildFromChild's OWN caller left there (this port
 // matches that by simply not writing c->r[17] on the mode==0 path); r18=node, r19=parent, r20=mode,
 // r21=inVec on BOTH paths (propagateRotmat's own frame only spills r16-r20; propagate's spills
 // r16-r23, so r22/r23 are never touched here either way — same "leave alone" argument applies to
 // them). The tail-call ra (0x80051760 for propagate / 0x80051770 for propagateRotmat) IS mirrored
 // into c->r[31] here — every `jal` overwrites $ra unconditionally, so (unlike the OUTER-caller case
 // where a still-substrate caller's own compiled body already sets c->r[31] before reaching an
-// overrides::dispatch-intercepted rec_dispatch) an internal tail-call inside an already-native function
-// must set it itself, or the nested frame's ra spill diverges.
+// overrides::dispatch-intercepted typed runtime address dispatch) an internal tail-call inside an already-native
+// function must set it itself, or the nested frame's ra spill diverges.
 void NodeXform::buildFromChild(uint32_t nodeAddr, uint32_t inVec, uint32_t tableIdx, uint32_t mode) {
   Core *c = core;
   GuestFrame<48, 7> frame(c, kBuildFromChildSpills);
@@ -572,14 +569,14 @@ void NodeXform::buildFromChild(uint32_t nodeAddr, uint32_t inVec, uint32_t table
   }
 }
 
-// FUN_80051D90 — RE'd from generated/shard_7.c gen_func_80051D90 (frame: addiu sp,-0x20; spill
-// r17(node)=sp+20, r16(outVec)=sp+16, ra=sp+24). The recomp calls FUN_800844C0 with ONLY r4 (=node's
+// FUN_80051D90 — RE'd from authenticated executable/overlay evidence guest 0x80051D90 (frame: addiu sp,-0x20; spill
+// r17(node)=sp+20, r16(outVec)=sp+16, ra=sp+24). The guest instruction path calls FUN_800844C0 with ONLY r4 (=node's
 // frameMatrix, 0x18) explicitly loaded — r5/r6 pass through UNCHANGED from this function's OWN
 // incoming r5 (inVec)/r6 (outVec), i.e. FUN_800844C0(matrix, in=inVec, out=outVec) is a 3-arg libgte
 // "ApplyMatrixLV, packed-SVECTOR-out" leaf distinct from the already-native Math::applyMatrixLV
-// (which writes unclamped 32-bit MACs, not a packed int16 triple — see gen_func_800844C0 vs
-// gen_func_80084470). FUN_800844C0 is OUTSIDE this region (0x800844C0) and UNOWNED (frameless,
-// confirmed via generated/shard_3.c — no register-faithfulness consequence, but ra=0x80051DB0u
+// (which writes unclamped 32-bit MACs, not a packed int16 triple — see guest 0x800844C0 vs
+// guest 0x80084470). FUN_800844C0 is OUTSIDE this region (0x800844C0) and UNOWNED (frameless,
+// confirmed via authenticated executable/overlay evidence — no register-faithfulness consequence, but ra=0x80051DB0u
 // mirrored anyway per ground truth, via guest_fn's ra_const argument). After that call, outVec holds
 // the transformed local-space vector; this function adds node's LOCAL-frame position (framePos16,
 // the low-16 view of the same bytes propagate's family accumulates as a full 32-bit world position)
@@ -592,14 +589,14 @@ void NodeXform::worldPosFromLocal(uint32_t nodeAddr, uint32_t inVec, uint32_t ou
   GuestReg<16> r16(c);
   r17 = nodeAddr;
   r16 = outVec;
-  guest_fn(c, 0x800844C0u, 0x80051DB0u, node.frameMatrixPtr(), inVec, outVec);
+  tomba::guest::dispatchJalToReturn(*c, 0x800844C0u, 0x80051DB0u, node.frameMatrixPtr(), inVec, outVec);
   c->mem_w16(outVec + 0, (uint16_t)(c->mem_r16(outVec + 0) + (uint16_t)node.framePosX16()));
   c->mem_w16(outVec + 2, (uint16_t)(c->mem_r16(outVec + 2) + (uint16_t)node.framePosY16()));
   c->mem_w16(outVec + 4, (uint16_t)(c->mem_r16(outVec + 4) + (uint16_t)node.framePosZ16()));
 }
 
 // FUN_80051D20 — sibling of worldPosFromLocal() using node's COMPOSED world matrix and world-space
-// position instead of the local ones. RE'd from generated/shard_6.c gen_func_80051D20 (same frame
+// position instead of the local ones. RE'd from authenticated executable/overlay evidence guest 0x80051D20 (same frame
 // shape as worldPosFromLocal, ra=0x80051D40u before the FUN_800844C0 call).
 void NodeXform::worldPosFromComposed(uint32_t nodeAddr, uint32_t inVec, uint32_t outVec) {
   Core *c = core;
@@ -609,7 +606,7 @@ void NodeXform::worldPosFromComposed(uint32_t nodeAddr, uint32_t inVec, uint32_t
   GuestReg<16> r16(c);
   r17 = nodeAddr;
   r16 = outVec;
-  guest_fn(c, 0x800844C0u, 0x80051D40u, node.worldMatrixPtr(), inVec, outVec);
+  tomba::guest::dispatchJalToReturn(*c, 0x800844C0u, 0x80051D40u, node.worldMatrixPtr(), inVec, outVec);
   c->mem_w16(outVec + 0, (uint16_t)(c->mem_r16(outVec + 0) + (uint16_t)node.worldPosX()));
   c->mem_w16(outVec + 2, (uint16_t)(c->mem_r16(outVec + 2) + (uint16_t)node.worldPosY()));
   c->mem_w16(outVec + 4, (uint16_t)(c->mem_r16(outVec + 4) + (uint16_t)node.worldPosZ()));
@@ -622,10 +619,10 @@ void NodeXform::worldPosFromComposed(uint32_t nodeAddr, uint32_t inVec, uint32_t
 // v0 (c->r[2]) note: propagateRotmat/propagateAxis structurally ALWAYS leave v0==0 at return — the
 // guest body's own loop-guard idiom (`r2 = node[9]; if (r2==0) return;` and the per-iteration bound
 // check `r2 = (i < node[9]) ? 1 : 0`) means every return path, including the early guard, sets r2 to
-// exactly 0 right before returning (confirmed against generated/shard_1.c gen_func_80051300 and
-// generated/shard_2.c gen_func_80051464 — no other write to r2 exists between the last such compare
-// and the function's `return`). GraphicsBind::renderUpdateBody propagates this v0 as its OWN return
-// value (`return c->r[2];` right after `rec_dispatch(c, 0x80051300u);`), so the trampolines set it
+// exactly 0 right before returning (confirmed against authenticated executable/overlay evidence guest 0x80051300 and
+// authenticated executable/overlay evidence guest 0x80051464 — no other write to r2 exists between the last such
+// compare and the function's `return`). GraphicsBind::renderUpdateBody propagates this v0 as its OWN return value
+// (`return c->r[2];` right after `typed runtime address dispatch(c, 0x80051300u);`), so the trampolines set it
 // explicitly rather than leaving it as an accidental leftover. buildAxis/seedBlock are void guest
 // leaves with no caller observed reading v0 afterward; left unset (matches build()/propagate()).
 static void eov_seedBlock(Core *c) {
@@ -651,12 +648,10 @@ static void eov_buildAxis(Core *c) {
 
 // --- WIDE-RE DRAFT wiring (2026-07-08 frontier pass) --- copyMatrixBlock / buildFromChild /
 // worldPosFromLocal / worldPosFromComposed. copyMatrixBlock (0x80051B34) and buildFromChild
-// (0x80051614) have direct same-module callers (confirmed via generated/shard_6.c, shard_5.c,
+// (0x80051614) have direct same-module callers (confirmed via authenticated executable/overlay evidence, shard_5.c,
 // shard_1.c) -> dual-wired. worldPosFromLocal (0x80051D90) / worldPosFromComposed (0x80051D20)
-// have NO direct same-module caller (every reference is rec_dispatch from an AI overlay) ->
-// registered rec_dispatch-only (nullptr setter), same as buildAxis above.
-extern void gen_func_80051B34(Core *);
-extern void gen_func_80051614(Core *);
+// have NO direct same-module caller (every reference is typed runtime address dispatch from an AI overlay) ->
+// registered typed runtime address dispatch-only (nullptr setter), same as buildAxis above.
 static void eov_copyMatrixBlock(Core *c) {
   rend(c)->mNodeXform.copyMatrixBlock(c->r[4], c->r[5]);
 }
@@ -672,34 +667,30 @@ static void eov_worldPosFromComposed(Core *c) {
   rend(c)->mNodeXform.worldPosFromComposed(c->r[4], c->r[5], c->r[6]);
 }
 // buildWithOffset (0x800518FC) — the object matrix-compose-with-offset (svec scale + rotmat + matMul +
-// applyMatrixLV + world-pos accumulate + propagate). Dual-wired: 8 direct substrate func_800518FC(c)
-// call sites across the shards + many rec_dispatch/guest_leaf AI callers were ALL falling through to the
-// substrate (no override registered); wiring here makes them native and lets MIRROR_VERIFY gate it. The
+// applyMatrixLV + world-pos accumulate + propagate). Dual-wired: 8 direct substrate guest 0x800518FC(c)
+// call sites across the shards + many typed runtime address dispatch/typed guest call AI callers were ALL falling
+// through to the substrate (no override registered); wiring here makes them native and lets MIRROR_VERIFY gate it. The
 // native body mirrors its own 32-byte frame internally (kBuildSpills) — bare trampoline, like buildAxis
 // (a GuestFrame here would double the frame). v0 unset (void guest leaf; matches build()/propagate()).
 // This also RETIRES engine.cpp's Engine::objMatrixCompose — a duplicate of the SAME guest fn via
 // substrate leaves (found by codemap --conflicts); its lone caller now routes through here.
-extern void gen_func_800518FC(Core *);
 static void eov_buildWithOffset(Core *c) {
   rend(c)->mNodeXform.buildWithOffset(c->r[4]);
 }
 
-extern void gen_func_80051C8C(Core *); // buildAxis — rec_dispatch-only (no direct caller)
-extern void gen_func_80051D90(Core *); // worldPosFromLocal — rec_dispatch-only
-extern void gen_func_80051D20(Core *); // worldPosFromComposed — rec_dispatch-only
-
 void NodeXform::registerOverrides(Game * /*game*/) {
-  using overrides::install;
-  // Dual-wired (direct same-module func_<addr>(c) callers exist) -> shard_set_override installs the thunk.
-  install(0x800517BCu, "NodeXform::seedBlock", eov_seedBlock, gen_func_800517BC, shard_set_override);
-  install(0x80051300u, "NodeXform::propagateRotmat", eov_propagateRotmat, gen_func_80051300, shard_set_override);
-  install(0x80051464u, "NodeXform::propagateAxis", eov_propagateAxis, gen_func_80051464, shard_set_override);
-  install(0x80051B34u, "NodeXform::copyMatrixBlock", eov_copyMatrixBlock, gen_func_80051B34, shard_set_override);
-  install(0x80051614u, "NodeXform::buildFromChild", eov_buildFromChild, gen_func_80051614, shard_set_override);
-  install(0x800518FCu, "NodeXform::buildWithOffset", eov_buildWithOffset, gen_func_800518FC, shard_set_override);
+  // Dual-wired (direct same-module a direct guest-address call callers exist) -> tomba::native::declareOverride
+  // installs the thunk.
+  tomba::native::declareOverride(0x800517BCu, "NodeXform::seedBlock", eov_seedBlock);
+  tomba::native::declareOverride(0x80051300u, "NodeXform::propagateRotmat", eov_propagateRotmat);
+  tomba::native::declareOverride(0x80051464u, "NodeXform::propagateAxis", eov_propagateAxis);
+  tomba::native::declareOverride(0x80051B34u, "NodeXform::copyMatrixBlock", eov_copyMatrixBlock);
+  tomba::native::declareOverride(0x80051614u, "NodeXform::buildFromChild", eov_buildFromChild);
+  tomba::native::declareOverride(0x800518FCu, "NodeXform::buildWithOffset", eov_buildWithOffset);
   // 0x80051C8C / 0x80051D90 / 0x80051D20 have no direct same-module caller — every reference is
-  // rec_dispatch(c, addr) from an overlay, so no thunk (setter omitted); rec_dispatch covers them.
-  install(0x80051C8Cu, "NodeXform::buildAxis", eov_buildAxis, gen_func_80051C8C);
-  install(0x80051D90u, "NodeXform::worldPosFromLocal", eov_worldPosFromLocal, gen_func_80051D90);
-  install(0x80051D20u, "NodeXform::worldPosFromComposed", eov_worldPosFromComposed, gen_func_80051D20);
+  // typed runtime address dispatch(c, addr) from an overlay, so no thunk (setter omitted); typed runtime address
+  // dispatch covers them.
+  tomba::native::declareOverride(0x80051C8Cu, "NodeXform::buildAxis", eov_buildAxis);
+  tomba::native::declareOverride(0x80051D90u, "NodeXform::worldPosFromLocal", eov_worldPosFromLocal);
+  tomba::native::declareOverride(0x80051D20u, "NodeXform::worldPosFromComposed", eov_worldPosFromComposed);
 }

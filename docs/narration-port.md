@@ -3,7 +3,7 @@
 **Why this doc exists.** The intro narration (the opening story before free-roam) has visible bugs the user
 reported on the running game: (1) a DOUBLE fade-in, (2) the 3rd scene renders the SEA when it should be a
 dark VOID, (3) the 4th scene (cliff/sea) looks CORRUPT. These cannot be diagnosed or fixed from outside,
-because the narration's content runs as still-PSX recomp/overlay code that the engine merely `rec_dispatch`es
+because the narration's content runs as still-PSX guest instruction path/overlay code that the engine merely `typed runtime address dispatch`es
 into. The directive (user, 2026-07-01, firm): **OWN the narration — RE each piece and reimplement it
 natively** so we control (and can see) the fades, backgrounds, scenes, and text. Stop patching the substrate.
 
@@ -34,7 +34,7 @@ against their memory of the original. The agent CANNOT self-verify the look.
   - `ov_bg_scene_transition_sm` (engine/bg_scene_transition_sm.cpp, FUN_8002655C) — ALREADY native; the
     scene-to-scene fade/transition machine (state `*(0x80100404)`, struct P=0x80100400).
   NB `0x8010c98c` etc. are SOP-OVERLAY addresses — `tools/disas.py` only reads MAIN.EXE, so read these from
-  the recompiled bodies `generated/ov_sop_*` or from live RAM (`r <addr>` in the REPL during the narration).
+  the guest bodies `authenticated executable/overlay evidence` or from live RAM (`r <addr>` in the REPL during the narration).
 
 ## BUG 1 — the double fade-in (ROOT CAUSE FOUND, fix is a design call)
 Traced with a fade-trace on `gpu_set_fade` + addr2line on the call sites. At the narration start the screen
@@ -60,7 +60,7 @@ the master BG drawer `0x8003df04` (16-state jump table @0x80014fc0 keyed on `*0x
 `*0x800bf873==0` — see engine_render_walk.cpp ov_scene_native backdrop). The "void" scene should draw NO
 background (black) but draws the sea layer. Lead: RE the scene-2 handler 0x8010B990 (and what it sets for the
 background select / the bg-transition `dir`), and the BG drawer state for that scene. Decompile via the
-recompiled `ov_sop_gen_8010B990` body (generated/ov_sop_shard_*.c) or Ghidra-headless (skill `decomp-port`).
+guest `overlay guest 0x8010B990` body (authenticated executable/overlay evidence) or Ghidra-headless (skill `decomp-port`).
 
 ## BUG 3 — scene 4 (cliff/sea) looks corrupt
 Not yet root-caused. The sea/water rendering in the cliff scene looks wrong (striped/garbled in the captured
@@ -68,15 +68,15 @@ n_560/n_860 frames). Likely the still-PSX water/background submit for that scene
 handler + the water draw; own it natively (PC-native water, real depth) per the render directives.
 
 ## What is ALREADY done (this session, later-275, committed + pushed)
-- Narration recomp-MISS `0x8010BF54` FIXED: overlay-ID re-validation in `resident_overlay()` (the cache was
+- Narration historical guest-entry miss `0x8010BF54` FIXED: overlay-ID re-validation in `resident_overlay()` (the cache was
   mis-identifying the resident MODE-slot overlay) + a dangling-render-pointer guard `rec_addr_has_entry()`
-  (skip a render node whose fn isn't a real entry of the resident overlay). overlay_router.cpp + emit.py
-  (RecOverlay.idx, RECOMP_VERSION 2026-07-01.1).
+  (skip a render node whose fn isn't a real entry of the resident overlay). overlay_router.cpp + the removed CPU-source emitter
+  (RecOverlay.idx, retired-build version 2026-07-01.1).
 - Narration→field TRANSITION CRASH FIXED (render-queue overflow): `ov_scene_native` was drawing the new
   area's objects on the field-area-init frame (sm[0x4a]==1,sm[0x4e]==0) before model-attach → garbage
   geomblk. Suppressed the field draw on that init frame (engine_render_walk.cpp), gated on the persistent
   GAME state machine. So the full narration now PLAYS THROUGH without crashing.
-- TDD: `PSXPORT_SELFTEST=narration` (runtime/recomp/selftest.cpp) drives the native shipping path through the
+- TDD: `PSXPORT_SELFTEST=narration` (runtime/psx/selftest.cpp) drives the native shipping path through the
   un-skipped narration and asserts no overflow + the GAME loop keeps running. RED→GREEN. Extend it as the
   port lands the fade/background fixes (it is STATE-based; the LOOK still needs eyeball).
 
@@ -85,8 +85,8 @@ handler + the water draw; own it natively (PC-native water, real depth) per the 
    Narration is GAME sm[0x4a]==0, sm[0x50] 0→2, frames ~25..~900. Capture frames with `shot <path.ppm>`;
    convert with `convert`/PIL; the user eyeballs. (Reference frames captured this session: the 4 scenes are
    field → "letter/Tabby" characters → "was she kidnapped?" → "Tomba jumps... And then..." cliff.)
-2. Own ONE dispatched fn at a time (RE its recompiled body → reimplement native in a narration-owned file →
-   route the SOP dispatch to it). Keep the recomp body as the behavioral reference.
+2. Own ONE dispatched fn at a time (RE its guest body → reimplement native in a narration-owned file →
+   route the SOP dispatch to it). Keep the guest instruction path as the behavioral reference.
 3. Gate progress on the USER eyeball (no oracle) + keep `PSXPORT_SELFTEST=narration` green for the no-crash/
    progression invariants.
 

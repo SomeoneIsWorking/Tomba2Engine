@@ -27,7 +27,7 @@
 // whichever PAGE SCOPE is raised and DROPS it when none is. No scope covered the card menu, so every
 // group it emitted was discarded; the text survived only because the Font taps produce it
 // independently. So this page needs exactly what StartPage needed: raise a capture around the
-// overlay's own per-frame entry, run the untouched gen body, lower it, draw what was filed.
+// overlay's own per-frame entry, run the untouched guest-visible behavior, lower it, draw what was filed.
 //
 // The scope sits on FUN_8018FBCC rather than on the individual page drawers so that every card
 // screen — not just the save-slot page the bug was reported on — is covered by one wrapper.

@@ -4,18 +4,13 @@
 #include "cfg.h"
 #include "core.h"
 #include "core/engine.h" // eng(c).animation etc (not needed here but consistent)
-#include "game.h"        // c->game->verify — the shared A/B verify scaffold
+#include "game.h"
 #include "game_ctx.h"
+#include "guest_call.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-void rec_dispatch(Core *, uint32_t);
-void rec_super_call(Core *, uint32_t);
-// MV_CHECK (verify_harness.h, pulled in via game.h) — strict mirror TDD gate for the
-// dispatchFaithful() fork below.
-
 // FUN_80027254 — the sole handler installed in HANDLER_TABLE (all 4 slot indices point at this
 // one function). A 4-state PARTICLE STATE MACHINE (state byte @obj+4):
 //   * 0 = INIT   : read obj+1 flags, obj+2 pattern index, obj+0x33 initial life; use LCG PRNG
@@ -26,7 +21,7 @@ void rec_super_call(Core *, uint32_t);
 //                  / 0x26 / 0x28 / 0x2A / 0x2C from deltas at obj+0x10/14/16/A/1A; run gravity
 //                  obj+0x12 += obj+0x18; scale motion by *0x100 for the 0x20 accumulator; despawn
 //                  (state → 3) when obj+0x2E + 0x800 < obj+0x12 or the obj+0x8 timer hits 1.
-//   * 2 = (unused): no-op (recomp: `if (bVar1 != 2 && bVar1 == 3)` false → nothing).
+//   * 2 = (unused): no-op (guest instruction path: `if (bVar1 != 2 && bVar1 == 3)` false → nothing).
 //   * 3 = DESPAWN: dispatch FUN_8007B2AC (substrate pool return).
 // Ghidra decomp scratch/decomp/objtable_handler_27254.c. NO SFX (verified).
 namespace {
@@ -133,20 +128,16 @@ void ObjectTable::handler27254(uint32_t obj) {
 
   if (st == 3) {
     c->r[4] = obj;
-    rec_dispatch(c, LEAF_POOL_RETURN); // pool free (substrate)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, LEAF_POOL_RETURN, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // pool free (substrate)
     return;
   }
 
-  // st == 2 or any other: no-op (recomp: `bVar1 != 2 && bVar1 == 3` false-branch).
+  // st == 2 or any other: no-op (guest instruction path: `bVar1 != 2 && bVar1 == 3` false-branch).
 }
 
 void ObjectTable::dispatch() {
   Core *c = core;
-  if (c->game && !c->game->native_sync) {
-    MV_CHECK(c, 0x80026C88u, dispatchFaithful());
-    return;
-  }
-
   auto body = [&]() {
     uint32_t obj = TABLE_BASE;
     for (int i = 0; i < SLOT_COUNT; i++, obj += SLOT_STRIDE) {
@@ -160,18 +151,21 @@ void ObjectTable::dispatch() {
         handler27254(obj);
         continue;
       } // native — the only real entry
-      rec_dispatch(c, fn); // any other handler (defensive; the table only holds H_27254 today)
+      psx::cpu::dispatchGuestToReturn0(*c,
+                                       fn,
+                                       psx::cpu::ExecutionBudget::currentTurn(*c),
+                                       __func__); // any other handler (defensive; the table only holds H_27254 today)
     }
   };
 
-  int s_v = c->game->verify.on("disp26c88verify");
+  int s_v = gctx(c)->verification.on("disp26c88verify");
   if (!s_v) {
     body();
     return;
   }
 
-  uint8_t *ram0 = c->game->verify.ram0();
-  uint8_t *ramN = c->game->verify.ramN();
+  uint8_t *ram0 = gctx(c)->verification.ram0();
+  uint8_t *ramN = gctx(c)->verification.ramN();
   uint8_t spad0[0x400], spadN[0x400];
   uint32_t regs0[32];
   memcpy(regs0, c->r, sizeof regs0);
@@ -185,7 +179,7 @@ void ObjectTable::dispatch() {
   memcpy(c->ram, ram0, 0x200000);
   memcpy(c->scratch, spad0, 0x400);
   memcpy(c->r, regs0, sizeof regs0);
-  rec_super_call(c, 0x80026C88u);
+  psx::cpu::callOriginalToReturn(*c, 0x80026C88u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   uint32_t sp = regs0[29] & 0x1FFFFFu, flo = (sp >= 0x800) ? sp - 0x800 : 0;
   int ro = -1;
@@ -202,7 +196,7 @@ void ObjectTable::dispatch() {
       break;
     }
   }
-  VerifyHarness::Check &chk = c->game->verify.check("disp26c88verify");
+  tomba::VerificationCounter &chk = gctx(c)->verification.objectTable;
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0) {
     if (nb++ < 40) {
@@ -213,7 +207,7 @@ void ObjectTable::dispatch() {
   }
 }
 
-// ObjectTable::dispatchFaithful — byte-mirror of gen_func_80026C88 (generated/shard_2.c:1607-1637).
+// ObjectTable::dispatchFaithful — byte-mirror of guest 0x80026C88 (authenticated executable/overlay evidence).
 // Reproduces the guest frame descent, the s0/s1/s2/ra stack spill at [sp+16/20/24/28] with the
 // LIVE incoming register values (spilled BEFORE each register is repurposed, matching gen's
 // instruction order exactly), the per-iteration jal-site r31=0x80026CE0 before dispatching an
@@ -242,17 +236,17 @@ void ObjectTable::dispatchFaithful() {
       uint32_t fn = c->mem_r32(c->r[18] + (idx << 2));
       c->r[31] = 0x80026CE0u; // jal-site ra (matches gen exactly)
       c->r[4] = obj;
-      // pc_faithful (this mirror) MUST reach the literal gen body for EVERY handler, including
+      // pc_faithful (this mirror) MUST reach the literal guest-visible behavior for EVERY handler, including
       // H_27254 — same fix as BehaviorDispatch::dispatchObj (game/object/behavior_dispatch.cpp):
       // handler27254()'s native port reproduces the RESULT, not the PSX bytes (its INIT state
-      // calls prng(c) -> rngOf(c).next(), which does not reproduce gen_func_8009A450's ABI
-      // end-state — v0/v1/hi-lo — the way rec_dispatch to the real LCG body does). Taking the
+      // calls prng(c) -> rngOf(c).next(), which does not reproduce guest 0x8009A450's ABI
+      // end-state — v0/v1/hi-lo — the way typed runtime address dispatch to the real LCG body does). Taking the
       // native shortcut here (as the native_sync=true `body()` lambda above intentionally does) is
       // what caused the 0x80106B98 strict-mirror-verify FAILURE (12+ diffs at 0x801FE8xx / v0 /
-      // v1): this call is reached from ObjectTable::dispatch()'s own MV_CHECK, but that check is
+      // v1): this call is reached from ObjectTable::dispatch()'s own strict replay check, but that check is
       // a no-op while nested inside an outer strictCheck (no nesting, verify_harness.h), so the
       // divergence went uncaught here and only surfaced at the outermost fieldRunFaithful check.
-      rec_dispatch(c, fn);
+      psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     }
     c->r[17] = c->r[17] + 1;           // s1++
     c->r[16] = c->r[16] + SLOT_STRIDE; // s0 += 64 (delay-slot semantics: always executes)

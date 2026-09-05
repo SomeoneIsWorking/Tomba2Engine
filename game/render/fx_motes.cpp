@@ -5,8 +5,8 @@
 // FUN_800317CC / FUN_80027A4C, so SpriteAnchor does not apply. In particular its OT-key gate looks
 // like SpriteAnchor::otKeyInRange but is NOT the same function — see kGateNoPreClamp below.
 //
-// RE from ov_a08_gen_80116904, statically verified 2026-07-28 with its verifier's corrections
-// (docs/re/render-targets-static-re.md — read the ORIGINAL algorithm alongside the CORRECTED delta).
+// RE from overlay guest 0x80116904, statically verified 2026-07-28 with its verifier's corrections
+// (docs/re/render-targets-binary-analysis.md — read the ORIGINAL algorithm alongside the CORRECTED delta).
 //
 // WHAT IT DRAWS: 32 world-space motes as gouraud semi-transparent LINES, each running from the mote's
 // current screen position back to a point ONE FULL FRAME-DELTA BEYOND its previous position

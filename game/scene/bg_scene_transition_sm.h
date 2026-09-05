@@ -26,7 +26,7 @@ public:
   // readyForProgress (FUN_80042728): scene-progress predicate — true iff both scene-progress
   // counters at *(0x800BF849) and *(0x800ED06D) are zero. Used by beh_ handlers whose scene-trigger
   // sub-state advances only when nothing is holding the scene state pending (e.g. the hold branch of
-  // bg_scene_transition_sm state 2 uses the same condition inline). Was rec_dispatch(0x80042728u).
+  // bg_scene_transition_sm state 2 uses the same condition inline). Was typed runtime address dispatch(0x80042728u).
   bool readyForProgress() const;
 
   // registerOverrides — install the native leaves this class owns into the one override registry.

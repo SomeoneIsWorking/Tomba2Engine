@@ -24,13 +24,11 @@
 // theirs, restore and unwind. Not doing so would hand the emitter pointers into the wrong place.
 #include "ui/ui_sprite.h"
 #include "core.h"
-#include "override_registry.h"
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "score_popup.h"
 #include "ui/pause_menu.h"
 #include "ui/ui_group_capture.h"
-
-void func_8007E1B8(Core *); // generated/shard_disp.c — the shared 2D sprite emitter
-void func_8007E8DC(Core *); // generated/shard_disp.c — drawFromTable, via the override thunk
 
 namespace {
 
@@ -41,7 +39,7 @@ constexpr int16_t DEF_FIXED_152 = 152;             // the index drawFixedDef152 
 } // namespace
 
 // FUN_8007E8DC(x r4, y r5, attr r6, defIndex r7)
-// ORACLE: gen_func_8007E8DC
+// ORACLE: guest 0x8007E8DC
 void UiSprite::drawFromTable(Core *c) {
   const uint32_t x = c->r[4];
   const uint32_t y = c->r[5];
@@ -67,14 +65,14 @@ void UiSprite::drawFromTable(Core *c) {
   c->r[6] = c->mem_r32(MODEL_TABLE_PTR);
   c->r[7] = attributes;
   c->r[31] = 0x8007E928u; // jal-site ra
-  func_8007E1B8(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8007E1B8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   c->r[31] = c->mem_r32(frame + 32);
   c->r[29] += 40;
 }
 
 // FUN_8007E998(x r4, y r5, attr r6) — drawFromTable with the definition index pinned to 152.
-// ORACLE: gen_func_8007E998
+// ORACLE: guest 0x8007E998
 void UiSprite::drawFixedDef152(Core *c) {
   c->r[29] -= 24;
   const uint32_t frame = c->r[29];
@@ -85,7 +83,10 @@ void UiSprite::drawFixedDef152(Core *c) {
 
   c->r[31] = 0x8007E9B8u; // jal-site ra
   c->r[7] = (uint32_t)DEF_FIXED_152;
-  func_8007E8DC(c); // through the thunk, so the port above runs
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x8007E8DCu,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // through the thunk, so the port above runs
 
   c->r[31] = c->mem_r32(frame + 16);
   c->r[29] += 24;
@@ -93,7 +94,7 @@ void UiSprite::drawFixedDef152(Core *c) {
 
 // The pause/item menu, the START page and the score popup all paint through this leaf, and
 // pc_render has no other producer for them (#21 / #35 / #18) — so the display half of every page tap
-// hangs HERE rather than on a second overrides::install for 0x8007E6DC (dual ownership is what broke
+// hangs HERE rather than on a second tomba::native::declareOverride for 0x8007E6DC (dual ownership is what broke
 // the dialog box in kanban #28). One owner, fanning out: UiGroupCapture::route files the group under
 // whichever page SCOPE is raised, and ScorePopup::collect takes the popup's own groups. Both are
 // no-ops outside their scope and on the oracle / psx_render legs.
@@ -111,12 +112,7 @@ static void ov_draw_fixed_def152(Core *c) {
 }
 
 void ui_sprite_install() {
-  extern void gen_func_8007E6DC(Core *);
-  extern void gen_func_8007E8DC(Core *);
-  extern void gen_func_8007E998(Core *);
-  extern void shard_set_override(uint32_t, void (*)(Core *));
-  overrides::install(0x8007E6DCu, "UiSprite::compose", ov_compose, gen_func_8007E6DC, shard_set_override);
-  overrides::install(0x8007E8DCu, "UiSprite::drawFromTable", ov_draw_from_table, gen_func_8007E8DC, shard_set_override);
-  overrides::install(
-      0x8007E998u, "UiSprite::drawFixedDef152", ov_draw_fixed_def152, gen_func_8007E998, shard_set_override);
+  tomba::native::declareOverride(0x8007E6DCu, "UiSprite::compose", ov_compose);
+  tomba::native::declareOverride(0x8007E8DCu, "UiSprite::drawFromTable", ov_draw_from_table);
+  tomba::native::declareOverride(0x8007E998u, "UiSprite::drawFixedDef152", ov_draw_fixed_def152);
 }

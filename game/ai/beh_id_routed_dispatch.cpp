@@ -12,21 +12,22 @@
 //   STATE 2 : nothing.   STATE 3 : FUN_8007A624(node).   STATE >=4 : nothing.
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the direct node WRITES owned native;
-// every sub-behavior CALL stays reachable via rec_dispatch (pure-PSX leaf). No leaf here takes a stack
-// argument, so no frame mirroring is needed. The INIT data words live in resident RAM (read live, not
-// embedded). Transcribed 1:1 as a register machine; the byte-exact A/B gate (full RAM+scratchpad vs
-// rec_super_call) is the safety net. NO GTE/render.
+// every sub-behavior CALL stays reachable via typed runtime address dispatch (pure-PSX leaf). No leaf here takes a
+// stack argument, so no frame mirroring is needed. The INIT data words live in resident RAM (read live, not embedded).
+// Transcribed 1:1 as a register machine; the byte-exact A/B gate (full RAM+scratchpad vs original guest-body call) is
+// the safety net. NO GTE/render.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "guest_abi.h"
+#include "guest_call.h"
+#include "guest_jal.h"
+#include "native_override_catalog.h"
 #include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -46,7 +47,7 @@ static constexpr GuestFrameSpill kSpills_80121978[3] = {
 // Gated on u8[node+0x0B] == 1, so it is inert unless the sub-behaviour that arms that byte has run.
 //
 // THE BUNDLED CALLER CHANGE WAS CHECKED AND DELIBERATELY NOT MADE. The RE plan wanted all EIGHT
-// state-1 `guest_leaf` call sites here upgraded to `guest_fn` with their jal-site ra constants, and
+// state-1 `typed guest call` call sites here upgraded to `guest_fn` with their jal-site ra constants, and
 // the verifier expanded that recommendation. Both halves were then verified:
 //
 //  1. The ra constants are CORRECT. Read off ov_a00_shard_0.c:11380-11409 they are exactly
@@ -56,15 +57,14 @@ static constexpr GuestFrameSpill kSpills_80121978[3] = {
 //
 //  2. It would change nothing that is measured. A stale ra only matters when something READS the
 //     guest stack it gets spilled to, i.e. under the byte-exact compare. But this function is a
-//     BehaviorDispatch TABLE entry (game/object/behavior_dispatch.cpp:129), and dispatchNative gates
-//     on `!native_sync` among others while SBS forces native_sync=false on BOTH cores — so the native never
-//     runs on either leg of the compare. Same reasoning, and same conclusion, as the earlier
+//     BehaviorDispatch TABLE entry (game/object/behavior_dispatch.cpp:129), and the verification
+//     substrate leg bypasses native dispatch. Same reasoning, and same conclusion, as the earlier
 //     "native orchestrator spills a stale ra" alarm recorded in docs/findings/sbs.md.
 //
 // So the upgrade is hygiene on a path the gate does not cover, not a correctness fix, and eight edits
 // to a live dispatcher are not worth making blind. Recorded here WITH the verified constants so that
 // whoever does want it has the derivation and does not repeat the analysis.
-// ORACLE: ov_a00_gen_80122BF4
+// ORACLE: overlay guest 0x80122BF4
 void beh_id_routed_offset_point(Core *c) {
   c->r[29] = c->r[29] + (uint32_t)-40;
   c->mem_w32((c->r[29] + (uint32_t)28), c->r[19]);
@@ -93,7 +93,7 @@ void beh_id_routed_offset_point(Core *c) {
   c->mem_w16((c->r[5] + (uint32_t)4), (uint16_t)c->r[0]);
   c->r[31] = 0x80122C4Cu;
   c->r[4] = c->r[18] + (uint32_t)24;
-  rec_dispatch(c, 0x800844C0u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x800844C0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[2] = (uint32_t)c->mem_r16((c->r[17] + (uint32_t)200));
   c->r[3] = (uint32_t)c->mem_r16((c->r[18] + (uint32_t)44));
   c->r[2] = c->r[2] + c->r[3];
@@ -141,12 +141,12 @@ void beh_id_routed_dispatch(Core *c) {
 
 // ---------------- STATE 0 (INIT) ----------------
 S0:
-  guest_leaf(c, 0x800519E0u, s0, 18, c->mem_r32(0x800ECFCCu), 0x8014C02Cu); // FUN_800519E0
+  tomba::guest::dispatchLeafToReturn(*c, 0x800519E0u, s0, 18, c->mem_r32(0x800ECFCCu), 0x8014C02Cu); // FUN_800519E0
   if (c->r[2] != 0) {
     goto Lret;
   }
   c->mem_w32(s0 + 0x3C, c->mem_r32(0x800ECFD0u)); // node[0x3C] = *0x800ECFD0 (delay-slot store)
-  guest_leaf(c, 0x80077C40u, s0, 0x8014E4ECu, 0); // FUN_80077C40(node, 0x8014E4EC, 0)
+  tomba::guest::dispatchLeafToReturn(*c, 0x80077C40u, s0, 0x8014E4ECu, 0); // FUN_80077C40(node, 0x8014E4EC, 0)
   c->mem_w16(s0 + 0x80, 140);
   c->mem_w16(s0 + 0x82, 280);
   c->mem_w16(s0 + 0x84, 128);
@@ -162,31 +162,31 @@ S0:
 S1:
   switch (c->mem_r8(s0 + 3)) { // node[3]
   case 0:
-    guest_leaf(c, 0x801225BCu, s0);
+    tomba::guest::dispatchLeafToReturn(*c, 0x801225BCu, s0);
     break;
   case 1:
-    guest_leaf(c, 0x80122D58u, s0);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80122D58u, s0);
     break;
   case 95:
-    guest_leaf(c, 0x801220FCu, s0);
+    tomba::guest::dispatchLeafToReturn(*c, 0x801220FCu, s0);
     break;
   case 96:
-    guest_leaf(c, 0x80121B44u, s0);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80121B44u, s0);
     break;
   case 97:
-    guest_leaf(c, 0x80121CF8u, s0);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80121CF8u, s0);
     break;
   case 98:
-    guest_leaf(c, 0x80122CA4u, s0);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80122CA4u, s0);
     break;
   case 99:
-    guest_leaf(c, 0x8018BF08u, s0);
+    tomba::guest::dispatchLeafToReturn(*c, 0x8018BF08u, s0);
     break;
   default:
     break; // 2..94, 100..255: no sub-behavior
   }
-  guest_leaf(c, 0x80122BF4u, s0); // common tail FUN_80122BF4(node)
-  c->mem_w8(s0 + 0x2B, 0);        // node[0x2B] = 0 (delay-slot store)
+  tomba::guest::dispatchLeafToReturn(*c, 0x80122BF4u, s0); // common tail FUN_80122BF4(node)
+  c->mem_w8(s0 + 0x2B, 0);                                 // node[0x2B] = 0 (delay-slot store)
   goto Lret;
 
 // ---------------- STATE 3 ----------------
@@ -197,14 +197,12 @@ Lret:
 }
 
 // Wiring for the state-1 common tail above. Oracle-gated through the one registry, so SBS core B
-// keeps running the recompiled body.
+// keeps running the guest body.
 void id_routed_leaves_install() {
   static bool done = false;
   if (done) {
     return;
   }
   done = true;
-  extern void ov_a00_gen_80122BF4(Core *);
-  extern void engine_set_override_a00(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_a00(0x80122BF4u, beh_id_routed_offset_point, ov_a00_gen_80122BF4);
+  tomba::native::declareOverride(0x80122BF4u, "beh_id_routed_offset_point", beh_id_routed_offset_point);
 }

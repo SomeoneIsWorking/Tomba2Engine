@@ -11,11 +11,11 @@ PSXPORT_ORACLE=1 is documented as THE reference build, but on replays/bugs/cliff
 
 Backtrace, innermost first:
   GTE_WriteCR
-  gen_func_80084250 / func_80084250
-  gen_func_8006D02C / func_8006D02C     <- CutsceneCamera::lookAt's guest address
-  gen_func_80078610 / func_80078610
-  ov_sop_gen_80109450
-  ov_game_gen_8010882C -> 80108784 -> 801063F4 -> 8010637C
+  guest 0x80084250 / guest 0x80084250
+  guest 0x8006D02C / guest 0x8006D02C     <- CutsceneCamera::lookAt's guest address
+  guest 0x80078610 / guest 0x80078610
+  overlay guest 0x80109450
+  overlay guest 0x8010882C -> 80108784 -> 801063F4 -> 8010637C
 
 The pc leg runs the same replay to f156 cleanly, so this is ORACLE-specific, not a scene that kills everything. Log: scratch/logs/cliff_oracle.log.
 

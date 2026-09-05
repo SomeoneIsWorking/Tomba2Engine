@@ -7,6 +7,7 @@ import hashlib
 import os
 import platform
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CYAN = "\033[1;36m"
 RED = "\033[1;31m"
 RESET = "\033[0m"
+HELP_ARGUMENTS = {"-h", "--help"}
 
 NATIVE_PACKAGES = {
     "cmake": {
@@ -91,6 +93,15 @@ class LauncherError(RuntimeError):
 
 def say(message: str) -> None:
     print(f"{CYAN}[run]{RESET} {message}", flush=True)
+
+
+def print_usage() -> None:
+    print(
+        "Usage: ./run.sh tomba2 [--resume [recording.pad]] [disc.chd]\n"
+        "Build and launch the Tomba! 2 native PC product.\n\n"
+        "Options:\n"
+        "  -h, --help  Show this help and exit"
+    )
 
 
 def run_checked(
@@ -233,7 +244,7 @@ def processor_count() -> int:
 def player_build_dirs(root: Path, cc: str, cxx: str) -> tuple[Path, Path]:
     """Return isolated player-only build trees for the selected toolchain."""
     identity = hashlib.sha256(f"{cc}\0{cxx}".encode()).hexdigest()[:12]
-    base = root / "scratch/build/player" / identity
+    base = root / "build/player" / identity
     return base / "framework", base / "game"
 
 
@@ -348,7 +359,7 @@ def sync_framework(root: Path, env: dict[str, str]) -> Path:
     say(framework_status(psxport, root, explicit))
 
     if (root / ".gitmodules").is_file() and shutil.which("git"):
-        sync_script = root / "external/psxport/scripts/sync-submodules.sh"
+        sync_script = root / "external/psxport/the former dependency sync tool"
         if not sync_script.is_file():
             say("initializing git submodules…")
             run_checked(
@@ -362,7 +373,7 @@ def sync_framework(root: Path, env: dict[str, str]) -> Path:
             )
         else:
             say(
-                "WARNING: external/psxport/scripts/sync-submodules.sh is absent even after init —"
+                "WARNING: external/psxport/the former dependency sync tool is absent even after init —"
             )
             say(
                 "         submodules were NOT synced and may not match this repo's recorded gitlinks."
@@ -435,20 +446,21 @@ def provision_and_build_game(
     env: dict[str, str],
 ) -> Path:
     main_exe = Path("scratch/bin/tomba2/MAIN.EXE")
-    (root / "generated").mkdir(parents=True, exist_ok=True)
     (root / "scratch/bin").mkdir(parents=True, exist_ok=True)
-    provision_env = env | {
-        "PSXPORT_DISCDUMP": str(discdump),
-        "PSXPORT_DIR": str(psxport),
-    }
     run_checked(
-        [sys.executable, "tools/ensure_recomp.py", disc],
+        [
+            sys.executable,
+            "tools/tomba2_provision.py",
+            disc,
+            "--discdump",
+            str(discdump),
+        ],
         root=root,
-        error="recomp provisioning failed",
-        env=provision_env,
+        error="Tomba! 2 runtime-image provisioning failed",
+        env=env,
     )
     if not (root / main_exe).is_file():
-        raise LauncherError("ensure_recomp.py did not produce MAIN.EXE")
+        raise LauncherError("Tomba! 2 provisioner did not produce MAIN.EXE")
 
     say(f"building the native port (CMake -j{jobs})…")
     psxport_absolute = (
@@ -474,7 +486,15 @@ def provision_and_build_game(
         quiet=True,
     )
     run_checked(
-        ["cmake", "--build", str(build_dir), "-j", str(jobs), "--target", "tomba2_port"],
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "-j",
+            str(jobs),
+            "--target",
+            "tomba2_port",
+        ],
         root=root,
         error="port build failed",
         env=env,
@@ -484,6 +504,9 @@ def provision_and_build_game(
 
 def main(arguments: Sequence[str] | None = None, *, root: Path = ROOT) -> int:
     args = list(sys.argv[1:] if arguments is None else arguments)
+    if args and args[0] in HELP_ARGUMENTS:
+        print_usage()
+        return 0
     env = dict(os.environ)
     try:
         cc = env.get("CC", "cc")
@@ -498,26 +521,23 @@ def main(arguments: Sequence[str] | None = None, *, root: Path = ROOT) -> int:
 
         jobs = processor_count()
         framework_build, game_build = player_build_dirs(root, cc, cxx)
-        discdump = configure_and_build(root, psxport, framework_build, cc, cxx, jobs, env)
+        discdump = configure_and_build(
+            root, psxport, framework_build, cc, cxx, jobs, env
+        )
         main_exe = provision_and_build_game(
             disc, discdump, psxport, game_build, cc, cxx, jobs, root, env
         )
 
         say("launching Tomba! 2 (native PC port)…")
-        if env.get("PSXPORT_NOWINDOW"):
-            env["PSXPORT_VK_HEADLESS"] = "1"
-        else:
-            env["PSXPORT_VK_WINDOW"] = "1"
+        policy_root = psxport if psxport.is_absolute() else root / psxport
+        policy = runpy.run_path(str(policy_root / "tools/port/launch_environment.py"))
+        env = policy["player_environment"](env)
         env["PSXPORT_ASSET_DIR"] = env.get("PSXPORT_ASSET_DIR") or str(psxport)
         env["PSXPORT_DEBUG_SERVER"] = env.get("PSXPORT_DEBUG_SERVER") or "1"
         env["PSXPORT_NO_TERRAIN"] = env.get("PSXPORT_NO_TERRAIN") or "0"
         env["PSXPORT_TOMBA2_DISC"] = disc
-        exec_program(
-            "./scratch/bin/tomba2_port",
-            ["./scratch/bin/tomba2_port", str(main_exe)],
-            env,
-            root,
-        )
+        executable = root / "build/bin/tomba2_port"
+        exec_program(str(executable), [str(executable), str(main_exe)], env, root)
     except LauncherError as exc:
         print(f"{RED}[run] error:{RESET} {exc}", file=sys.stderr)
         return 1

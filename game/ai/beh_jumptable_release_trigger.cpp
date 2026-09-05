@@ -12,10 +12,10 @@
 //   jt[4]=0x801250d8  jt[5]=0x80125164  jt[6]=0x80125174
 //
 // Ownership model (identical to the FUN_739ac handler / the FUN_73cd8 handler): CONTROL FLOW + node/global memory
-// writes owned native; every sub-behavior CALL stays reachable by address via rec_dispatch (each honors its own
-// override identically). NO GTE, NO render packets here. RE'd 1:1 from disas 0x80124E74..0x801252BC
-// (overlay), JT 0x80109B88. It WRITES guest node state the still-recomp content reads → content-INTERFACE:
-// gated byte-exact (full RAM+scratchpad A/B vs rec_super_call). Most sub-states are input/scene driven and
+// writes owned native; every sub-behavior CALL stays reachable by address via typed runtime address dispatch (each
+// honors its own override identically). NO GTE, NO render packets here. RE'd 1:1 from disas 0x80124E74..0x801252BC
+// (overlay), JT 0x80109B88. It WRITES guest node state the still-guest content reads → content-INTERFACE:
+// gated byte-exact (full RAM+scratchpad A/B vs original guest-body call). Most sub-states are input/scene driven and
 // only verify when a scene drives them (same caveat as the sibling orchestrators) — see Report.
 //
 // Globals referenced (computed from the lui/addiu pairs in the disasm):
@@ -29,15 +29,14 @@
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_set_geom
 #include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-#include "inventory.h"     // class Inventory — inv(c).giveAndFlag (FUN_8004D4C4)
-#include "object/actor.h"  // Actor::boundsCull (FUN_8007778C native)
-#include "render/cull.h"   // Cull::enqueueQueueA (FUN_80077E7C)
-#include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_call.h"
+#include "inventory.h"    // class Inventory — inv(c).giveAndFlag (FUN_8004D4C4)
+#include "object/actor.h" // Actor::boundsCull (FUN_8007778C native)
+#include "render/cull.h"  // Cull::enqueueQueueA (FUN_80077E7C)
+#include "spawn.h"        // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -95,20 +94,21 @@ static void release_position_801244e8(Core *c, uint32_t obj, uint32_t mode) {
     mtxOf(c).identity(xf); // FUN_80051794 (native)
     c->r[4] = obj + 0x54;
     c->r[5] = xf;
-    rec_dispatch(c, 0x800847F0u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x800847F0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->r[4] = 0x1F8000F8u;
     c->r[5] = xf;
-    rec_dispatch(c, 0x80084360u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80084360u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->r[4] = obj;
-    rec_dispatch(c, 0x80077B5Cu);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80077B5Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   }
   const uint8_t phase = c->mem_r8(0x800BF9DDu);
   if (phase == 0xe) {
-    rec_dispatch(c, 0x8009A450u); // FUN_8009A450 (rand, still-PSX leaf)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8009A450u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_8009A450 (rand, still-PSX leaf)
     if ((c->r[2] & 0x3f) == 0) {
       eng(c).spawn.spawnAndInit(0x107u, obj + 0x2c, (uint32_t)-10); // FUN_8003116C (native)
     }
-    rec_dispatch(c, 0x8009A450u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8009A450u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     const uint32_t r2 = c->r[2] & 3u;
     c->mem_w16(obj + 0x2e, (uint16_t)(c->mem_r16s(ref + 0x2c) + (int32_t)(r2 - 1) * 0x28));
     c->mem_w16(obj + 0x32, c->mem_r16(ref + 0x30));
@@ -119,7 +119,8 @@ static void release_position_801244e8(Core *c, uint32_t obj, uint32_t mode) {
     c->mem_w16(obj + 0x36, last);
   } else if (phase < 0xe) {
     c->r[4] = obj;
-    rec_dispatch(c, 0x80124328u); // still-PSX leaf
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80124328u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // still-PSX leaf
   }
 }
 static constexpr GuestFrameSpill kSpills_80124E74[5] = {
@@ -188,9 +189,10 @@ void beh_jumptable_release_trigger(Core *c) {
 
     case 0: // jt[0] = 0x80124f58
       c->r[4] = obj;
-      rec_dispatch(c, 0x801241BCu); // 80124F58 jal 0x801241bc (a0=s2)
-      c->mem_w8(obj + 0x29, 0);     // 80124F64 sb zero, 0x29(s2)  (delay slot)
-      goto epilogue;                // 80124F60 j 0x801252a4
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x801241BCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 80124F58 jal 0x801241bc (a0=s2)
+      c->mem_w8(obj + 0x29, 0); // 80124F64 sb zero, 0x29(s2)  (delay slot)
+      goto epilogue;            // 80124F60 j 0x801252a4
 
     case 1: { // jt[1] = 0x80124f68
       // 80124F6C lbu v0, 0x800bf9dd ; 80124F74 sltiu v0,v0,0xf ; 80124F78 bnez -> skip set
@@ -210,9 +212,10 @@ void beh_jumptable_release_trigger(Core *c) {
       }
       // v==1: jal 0x801246b4(a0=s2)
       c->r[4] = obj;
-      rec_dispatch(c, 0x801246B4u); // 80124F9C jal 0x801246b4
-      c->mem_w8(obj + 0x29, 0);     // 80124FA8 sb zero, 0x29(s2)  (delay slot)
-      goto epilogue;                // 80124FA4 j 0x801252a4
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x801246B4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 80124F9C jal 0x801246b4
+      c->mem_w8(obj + 0x29, 0); // 80124FA8 sb zero, 0x29(s2)  (delay slot)
+      goto epilogue;            // 80124FA4 j 0x801252a4
     }
 
     case 2: {                               // jt[2] = 0x80124fac : node[6] sub-switch
@@ -246,12 +249,13 @@ void beh_jumptable_release_trigger(Core *c) {
         goto epi_done; // 8012501C lbu v0,0x3f(s0) ; 80125024 beqz -> 0x801251e8
       }
       // FUN_80077E7C → Cull::enqueueQueueA (native). Returns 0 on cap-hit, new count on push.
-      c->mem_w8(obj + 1, (uint8_t)eng(c).cull.enqueueQueueA(obj)); // sb v0, 1(s3) (was rec_dispatch)
+      c->mem_w8(obj + 1, (uint8_t)eng(c).cull.enqueueQueueA(obj)); // sb v0, 1(s3) (was typed runtime address dispatch)
       // jal 0x80051d90(a0=s0, a1=s3+0x88, a2=0x1f8000c0)
-      c->r[4] = s0;                 // 80125038 move a0,s0
-      c->r[5] = obj + 0x88;         // 8012503C addiu a1,s3,0x88
-      c->r[6] = 0x1F8000C0u;        // 80125040 lui s1,0x1f80 ; 80125044 addiu s0,s1,0xc0 ; move a2,s0
-      rec_dispatch(c, 0x80051D90u); // 80125048 jal 0x80051d90
+      c->r[4] = s0;          // 80125038 move a0,s0
+      c->r[5] = obj + 0x88;  // 8012503C addiu a1,s3,0x88
+      c->r[6] = 0x1F8000C0u; // 80125040 lui s1,0x1f80 ; 80125044 addiu s0,s1,0xc0 ; move a2,s0
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x80051D90u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 80125048 jal 0x80051d90
       // read scratchpad results written by 0x80051d90 into node fields
       uint16_t r0 = c->mem_r16(0x1F8000C0u);     // 80125050 lhu v0, 0xc0(s1)  (=0x1f8000c0)
       c->mem_w16(obj + 0x2e, r0);                // 80125058 sh v0, 0x2e(s3)
@@ -259,11 +263,12 @@ void beh_jumptable_release_trigger(Core *c) {
       c->mem_w16(obj + 0x32, r2);                // 80125064 sh v0, 0x32(s3)
       uint16_t r4 = c->mem_r16(0x1F8000C0u + 4); // 80125068 lhu v0, 4(s0)
       // jal 0x80077b5c(a0=s3=obj) ; sh v0,0x36(a0)
-      c->r[4] = obj;                // 8012506C move a0,s3
-      c->mem_w16(obj + 0x36, r4);   // 80125074 sh v0, 0x36(a0)  (delay slot)
-      rec_dispatch(c, 0x80077B5Cu); // 80125070 jal 0x80077b5c
-      c->mem_w8(obj + 0x29, 0);     // 8012507C sb zero, 0x29(s2)  (delay slot)
-      goto epilogue;                // 80125078 j 0x801252a4
+      c->r[4] = obj;              // 8012506C move a0,s3
+      c->mem_w16(obj + 0x36, r4); // 80125074 sh v0, 0x36(a0)  (delay slot)
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x80077B5Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 80125070 jal 0x80077b5c
+      c->mem_w8(obj + 0x29, 0); // 8012507C sb zero, 0x29(s2)  (delay slot)
+      goto epilogue;            // 80125078 j 0x801252a4
     }
 
     case 3: {                          // jt[3] = 0x80125080 : node[6] sub-switch
@@ -285,7 +290,8 @@ void beh_jumptable_release_trigger(Core *c) {
       }
       // ---- 801250c0: sub-case 1 ----
       c->r[4] = obj;
-      rec_dispatch(c, 0x8004DAECu); // 801250C0 jal 0x8004daec (a0=s2)
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x8004DAECu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 801250C0 jal 0x8004daec (a0=s2)
       if (c->r[2] == 0) {
         goto epi_done; // 801250C8 beqz v0 -> 0x801251e8 (delay addiu v0,3)
       }
@@ -303,9 +309,10 @@ void beh_jumptable_release_trigger(Core *c) {
       if (v == 1) {
         // ---- 80125144 ----
         c->r[4] = obj;
-        rec_dispatch(c, 0x801249D4u); // 80125144 jal 0x801249d4 (a0=s2)
-        c->mem_w8(obj + 0x29, 0);     // 80125150 sb zero, 0x29(s2)  (delay slot)
-        goto epilogue;                // 8012514C j 0x801252a4
+        psx::cpu::dispatchGuestToReturn0(
+            *c, 0x801249D4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 80125144 jal 0x801249d4 (a0=s2)
+        c->mem_w8(obj + 0x29, 0); // 80125150 sb zero, 0x29(s2)  (delay slot)
+        goto epilogue;            // 8012514C j 0x801252a4
       }
       if (v < 2) {
         // v==0 -> 80125134 (80125108 beqz v1 -> 0x80125134, delay move a0,s2)
@@ -327,9 +334,10 @@ void beh_jumptable_release_trigger(Core *c) {
 
     case 5: // jt[5] = 0x80125164
       c->r[4] = obj;
-      rec_dispatch(c, 0x80124C6Cu); // 80125164 jal 0x80124c6c (a0=s2)
-      c->mem_w8(obj + 0x29, 0);     // 80125170 sb zero, 0x29(s2)  (delay slot)
-      goto epilogue;                // 8012516C j 0x801252a4
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x80124C6Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 80125164 jal 0x80124c6c (a0=s2)
+      c->mem_w8(obj + 0x29, 0); // 80125170 sb zero, 0x29(s2)  (delay slot)
+      goto epilogue;            // 8012516C j 0x801252a4
 
     case 6: {                          // jt[6] = 0x80125174 : node[6] sub-switch
       uint8_t n6 = c->mem_r8(obj + 6); // 80125174 lbu v1, 6(s2)
@@ -355,9 +363,10 @@ void beh_jumptable_release_trigger(Core *c) {
         goto epi_done; // 801251BC jal 0x8007778c — Actor::boundsCull (native)
       }
       c->r[4] = obj;
-      rec_dispatch(c, 0x80123E9Cu);              // 801251CC jal 0x80123e9c (a0=s2)
-      uint16_t a = c->mem_r16(obj + 0x7e);       // 801251D4 lhu v0, 0x7e(s2)
-      uint16_t b = c->mem_r16(obj + 0x64);       // 801251D8 lhu v1, 0x64(s2)
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x80123E9Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 801251CC jal 0x80123e9c (a0=s2)
+      uint16_t a = c->mem_r16(obj + 0x7e);                                        // 801251D4 lhu v0, 0x7e(s2)
+      uint16_t b = c->mem_r16(obj + 0x64);                                        // 801251D8 lhu v1, 0x64(s2)
       c->mem_w16(obj + 0x2e, (uint16_t)(a + b)); // 801251E4 sh v0, 0x2e(s2)  (v0 = a+b @ 801251E0)
       goto epi_done;                             // (falls to 0x801251e8 region)
     }
@@ -390,10 +399,11 @@ state2:
     // 2 <= node[5] < 4:
     inv(c).giveAndFlag(0x77, 1); // 8012521C jal 0x8004d4c4 [native]
     c->r[4] = obj;
-    rec_dispatch(c, 0x8004B0D8u);    // 80125224 jal 0x8004b0d8 (a0=s2)
-    eng(c).sfx.trigger(0x11, 0, 0);  // 80125234 jal 0x80074590 (native)
-    uint8_t n3 = c->mem_r8(obj + 3); // 8012523C lbu v1, 3(s2)
-    c->mem_w8(obj + 4, 3);           // 80125248 sb v0(=3), 4(s2)  -> state 3  (delay slot)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8004B0D8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 80125224 jal 0x8004b0d8 (a0=s2)
+    eng(c).sfx.trigger(0x11, 0, 0);                                             // 80125234 jal 0x80074590 (native)
+    uint8_t n3 = c->mem_r8(obj + 3);                                            // 8012523C lbu v1, 3(s2)
+    c->mem_w8(obj + 4, 3); // 80125248 sb v0(=3), 4(s2)  -> state 3  (delay slot)
     // 80125244 bnez v1 -> 0x8012526c
     if (n3 == 0) {
       // ---- 8012524c: node[3]==0 -> set bit (1<<node[0x60]) in 0x800BF9E7 ----

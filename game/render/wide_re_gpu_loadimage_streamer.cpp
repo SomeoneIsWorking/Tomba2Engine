@@ -1,23 +1,23 @@
 // game/render/wide_re_gpu_loadimage_streamer.cpp — WIDE-RE DRAFT of the libgpu LoadImage()-style
-// chunked GP0-FIFO pixel streamer, guest address 0x80082734 (~196 free-roam rec_dispatch hits / 600
+// chunked GP0-FIFO pixel streamer, guest address 0x80082734 (~196 free-roam typed runtime address dispatch hits / 600
 // frames). Dedicated deep-RE pass per docs/fleet-workflow.md §6/§9: this address was explicitly left
 // MAPPED-NOT-DRAFTED by two prior wide-RE waves (game/render/wide_re_libgpu_leaves.cpp's header and
 // game/render/wide_re_gpu_dma_queue.cpp's tail note both flag it as "a substantially larger function
 // ... left for a dedicated follow-up pass"). RE'd this session line-by-line from
-// generated/shard_5.c:13663 gen_func_80082734 (140 gen-C lines, 48-byte frame, 6 callee-save spills:
+// authenticated executable/overlay evidence guest 0x80082734 (140 gen-C lines, 48-byte frame, 6 callee-save spills:
 // ra/s0..s5 == r16..r21) — ground truth, cross-checked twice for every branch polarity and every
 // delay-slot write (MIPS branch-delay-slot instructions execute UNCONDITIONALLY even though the
-// recompiler emits them textually inside the branch's `{ ... }` block — same convention flagged in
+// recorded guest call graph contains them textually inside the branch's `{ ... }` block — same convention flagged in
 // wide_re_libgpu_leaves.cpp's ClearOTagR comment).
 //
 // WIRED 2026-07-10: promoted from wide-RE draft to verified ownership per docs/fleet-workflow.md §9.
-// Re-verified line-by-line against generated/shard_5.c gen_func_80082734 (the exhaustive re-diff found
-// NO discrepancies — every branch polarity, delay-slot write, double-pointer-dereference, and the
+// Re-verified line-by-line against authenticated executable/overlay evidence guest 0x80082734 (the exhaustive re-diff
+// found NO discrepancies — every branch polarity, delay-slot write, double-pointer-dereference, and the
 // decrement-then-test PIO remainder loop's net iteration count were re-checked and match gen exactly).
-// Reached as a plain intra-shard C call from the substrate (func_80082D04/GpuDmaQueueEnqueue's fast
-// path calls it via `rec_dispatch(c, fn)` where fn resolves to this address), so it is owned via
-// `engine_set_override_main` — the oracle-gated thunk that keeps SBS core B running the pure
-// gen_func_80082734 body while core A dispatches to the native method below.
+// Reached as a plain intra-shard C call from the substrate (guest 0x80082D04/GpuDmaQueueEnqueue's fast
+// path calls it via `typed runtime address dispatch(c, fn)` where fn resolves to this address), so it is owned via
+// `tomba::native::declareOverride` — the oracle-gated thunk that keeps SBS core B running the pure
+// guest 0x80082734 body while core A dispatches to the native method below.
 //
 // ------------------------------------------------------------------------------------------------
 // CORRECTION to both prior waves' field-map notes: the raw decimal offset used by the gen-C body for
@@ -28,13 +28,13 @@
 // function reads are at decimal offsets **22948 / 22950 = 0x800A59A4 / 0x800A59A6** (both prior
 // waves' engine_re.md prose said "0x800A5964/0x800A5966", also a transcription slip — 0x5964 =
 // 22884 decimal, not 22948). All addresses below are re-derived directly from the exact decimal
-// immediates in generated/shard_5.c, the only trustworthy source.
+// immediates in authenticated executable/overlay evidence, the only trustworthy source.
 //
 // GUEST ABI: a0(r4) = rectPtr — a 4x-int16 struct {s16 x, y, w, h} (classic PSX RECT16 shape; only
 // +4(w)/+6(h) are read/written by this leaf, +0(x|y) is forwarded verbatim as one packed 32-bit
 // word). a1(r5) = srcPtr — pointer to the pixel-word source buffer (16bpp packed, 2px/word). No other
 // args read. Return v0: -1 on a GPU-DMA-ready timeout OR if the clamped rect resolves to <=0 words to
-// send; 0 on success (matches func_80082C68/queue-cluster's void-ish "0 on success, -1 on timeout"
+// send; 0 on success (matches guest 0x80082C68/queue-cluster's void-ish "0 on success, -1 on timeout"
 // convention throughout this GPU_SYS band).
 //
 // STRUCT MAP used by this function (base = 0x800A0000, i.e. `GPU_SYS_BASE = (32778u << 16)`):
@@ -48,7 +48,7 @@
 //   +23208 (0x5AA8)  GPU_DMA_FLAGS_PTR (== queue cluster's GPU_DMA_READY_PTR, SAME address — this
 //                    leaf both TESTS bit 0x04000000 (ready) via this pointer's target AND, on the
 //                    async-continuation path, WRITES the fixed value 0x04000002 to it — byte-
-//                    identical to func_80082C68's GPU-DMA status-block RESET write, confirming this
+//                    identical to guest 0x80082C68's GPU-DMA status-block RESET write, confirming this
 //                    is genuinely the shared status word, not a distinct field).
 //   +23212 (0x5AAC)  GPU_DMA_ARG0_PTR (== queue cluster's field): async path stashes the
 //                    post-PIO-remainder src pointer here (start of the chunked-DMA source region).
@@ -63,7 +63,7 @@
 // cluster, not its ring. GPU_CLIP_MAXW/MAXH and GPU_GP0_PORT_PTR are NOT used by the queue cluster.
 //
 // CONTROL FLOW SUMMARY (see the function body below for the literal RE):
-//   1. Arm the GPU-DMA timeout (func_800834A0, shared platform primitive — same one the queue
+//   1. Arm the GPU-DMA timeout (guest 0x800834A0, shared platform primitive — same one the queue
 //      cluster and wide_re_libgpu_leaves.cpp's DrawSync/ClearOTagR use).
 //   2. Clamp rect.w (rectPtr+4) and rect.h (rectPtr+6) against GPU_CLIP_MAXW/MAXH, writing the
 //      clamped values back IN PLACE (negative w or h clamps to 0; the compare uses a SIGNED
@@ -80,14 +80,14 @@
 //      GP0(0x01) ClearCache (0x01000000), GP0(0xA0) "Copy Rectangle CPU->VRAM" tag (0xA0000000, see
 //      dead-code note below), the rect's X|Y word (rectPtr+0, forwarded verbatim), the CLAMPED W|H
 //      word (rectPtr+4, re-read as one 32-bit word after both 16-bit clamped writes landed).
-//   7. PIO-stream `remainder` words one at a time (test-at-bottom loop matching the gen body's -1
+//   7. PIO-stream `remainder` words one at a time (test-at-bottom loop matching the guest-visible behavior's -1
 //      sentinel counter) from srcPtr to the GP0 port, advancing srcPtr.
 //   8. If chunkCount == 0: return 0 (everything already sent via steps 6-7). Else: hand the remaining
 //      chunkCount*16 words off to an ASYNC GPU-DMA continuation (outside this function — not found
 //      this session) by stashing srcPtr/chunk-count/status into the shared GPU_DMA_ARG0/ARG1/STATE
 //      globals (see struct map above) and returning 0 without actually transferring them here.
 //
-// DEAD-CODE NOTE (step 6's tag word): the gen body computes the CopyRectCpuToVram tag via a branch
+// DEAD-CODE NOTE (step 6's tag word): the guest-visible behavior computes the CopyRectCpuToVram tag via a branch
 // on register s5(r21) that this SAME function's prologue-adjacent code unconditionally zeroes exactly
 // once, as the (always-executed) branch-delay-slot instruction of an EARLIER unrelated branch (the
 // rect.w<0 check) — r21 is never written again anywhere else in the function body. The `r21==0` arm
@@ -107,10 +107,10 @@
 // async path is fully understood.
 #include "core.h"
 #include "game_ctx.h"
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "render.h"
 #include <stdint.h>
-
-extern "C" void rec_dispatch(Core *c, uint32_t addr);
 
 namespace {
 constexpr uint32_t GPU_SYS_BASE = (32778u << 16);            // 0x800A0000
@@ -126,11 +126,11 @@ constexpr uint32_t GPU_READY_BIT = (1024u << 16);         // 0x04000000
 constexpr uint32_t GP0_CLEAR_CACHE = (256u << 16);        // 0x01000000 — GP0(0x01)
 constexpr uint32_t GP0_COPY_CPU_TO_VRAM = (40960u << 16); // 0xA0000000 — GP0(0xA0) tag
 
-constexpr uint32_t FN_GPU_TIMEOUT_ARM = 0x800834A0u; // native-owned HLE, runtime/recomp/sync_overrides.cpp
-constexpr uint32_t FN_GPU_TIMEOUT_CHK = 0x800834D4u; // native-owned HLE, runtime/recomp/sync_overrides.cpp
+constexpr uint32_t FN_GPU_TIMEOUT_ARM = 0x800834A0u; // native-owned HLE, runtime/psx/sync_overrides.cpp
+constexpr uint32_t FN_GPU_TIMEOUT_CHK = 0x800834D4u; // native-owned HLE, runtime/psx/sync_overrides.cpp
 } // namespace
 
-// func_80082734 (0x80082734) — libgpu LoadImage()-internal chunked GP0-FIFO pixel streamer.
+// guest 0x80082734 (0x80082734) — libgpu LoadImage()-internal chunked GP0-FIFO pixel streamer.
 // See file header for the full RE (struct map, control flow, dead-code note, confidence).
 void Render::gpuLoadImageStream() {
   Core *c = mCore;
@@ -157,7 +157,7 @@ void Render::gpuLoadImageStream() {
     c->r[29] += 48;
   };
 
-  rec_dispatch(c, FN_GPU_TIMEOUT_ARM);
+  psx::cpu::dispatchGuestToReturn0(*c, FN_GPU_TIMEOUT_ARM, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   // --- clamp rect.w (rectPtr+4) against GPU_CLIP_MAXW, write back in place ---
   {
@@ -189,19 +189,19 @@ void Render::gpuLoadImageStream() {
     c->mem_w16(rectPtr + 6, (uint16_t)hClamped);
   }
 
-  // pixelCount = clampedW * clampedH (both re-read post-clamp, sign-extended as s16, per gen body).
+  // pixelCount = clampedW * clampedH (both re-read post-clamp, sign-extended as s16, per guest-visible behavior).
   int32_t wSignExt = c->mem_r16s(rectPtr + 4);
   int32_t hSignExt = c->mem_r16s(rectPtr + 6);
   int64_t product = (int64_t)wSignExt * (int64_t)hSignExt;
   uint32_t pixelCount = (uint32_t)(int32_t)product; // mflo (lo 32 bits)
-  // Mirror gen's `mult` side-effect on HI/LO (generated/shard_5.c:13707) — the streamer's own
+  // Mirror gen's `mult` side-effect on HI/LO (authenticated executable/overlay evidence) — the streamer's own
   // algorithm only reads lo (pixelCount), but HI/LO are ABI registers that persist across calls;
   // MIRROR_VERIFY compares them, and downstream callees (gpuDmaQueueEnqueue's fn dispatch path)
   // inherit them. An earlier draft left them stale — the f389 SBS diverge root cause.
   c->lo = (uint32_t)product;
   c->hi = (uint32_t)((uint64_t)product >> 32);
 
-  // numWords = ceil(pixelCount / 2) via the gen body's "(x+1) + sign-bit carry, then >>1" idiom.
+  // numWords = ceil(pixelCount / 2) via the guest-visible behavior's "(x+1) + sign-bit carry, then >>1" idiom.
   // NOTE the carry term is a LOGICAL >>31 in the gen (`c->r[3] >> 31` on uint32 — srl, adds 0 or 1),
   // NOT an arithmetic shift (an earlier transcription of this line had that wrong).
   uint32_t rounded = pixelCount + 1u;
@@ -222,7 +222,7 @@ void Render::gpuLoadImageStream() {
     uint32_t readyWord = c->mem_r32(c->mem_r32(GPU_DMA_FLAGS_PTR));
     if ((readyWord & GPU_READY_BIT) == 0) {
       for (;;) {
-        rec_dispatch(c, FN_GPU_TIMEOUT_CHK);
+        psx::cpu::dispatchGuestToReturn0(*c, FN_GPU_TIMEOUT_CHK, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         if (c->r[2] != 0) {
           epilogue((uint32_t)-1);
           return;
@@ -268,18 +268,15 @@ void Render::gpuLoadImageStream() {
 
 // ==================================================================================================
 // Wiring (2026-07-10): promoted from wide-RE draft to verified ownership per docs/fleet-workflow.md
-// §9. Reached as a plain intra-shard C call (func_80082D04's fast-path `rec_dispatch(c, fn)` where fn
-// resolves here — NOT via a jump table), so `engine_set_override_main` (runtime/recomp/
-// override_registry.h, a thin forwarder over overrides::install) is the correct install path: its
-// oracle-gated dispatch keeps SBS core B running the pure gen_func_80082734 body while core A
-// dispatches to Render::gpuLoadImageStream().
+// §9. Reached as a plain intra-shard C call (guest 0x80082D04's fast-path `typed runtime address dispatch(c, fn)` where
+// fn resolves here — NOT via a jump table), so `tomba::native::declareOverride` (runtime/psx/ override_registry.h, a
+// thin forwarder over tomba::native::declareOverride) is the correct install path: its oracle-gated dispatch keeps SBS
+// core B running the pure guest 0x80082734 body while core A dispatches to Render::gpuLoadImageStream().
 namespace {
 void ov_gpuLoadImageStream(Core *c) {
   rend(c)->gpuLoadImageStream();
 }
 } // namespace
-
-extern void gen_func_80082734(Core *);
 
 void gpu_loadimage_streamer_install() {
   static bool done = false;
@@ -287,6 +284,5 @@ void gpu_loadimage_streamer_install() {
     return;
   }
   done = true;
-  extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_main(0x80082734u, ov_gpuLoadImageStream, gen_func_80082734);
+  tomba::native::declareOverride(0x80082734u, "ov_gpuLoadImageStream", ov_gpuLoadImageStream);
 }

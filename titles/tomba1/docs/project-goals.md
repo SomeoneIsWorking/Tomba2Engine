@@ -1,43 +1,50 @@
 # Tomba! 1 project goals
 
-These title-local goals refine the repository goals for Tomba! 1. Capability coverage belongs in
-`project-state.md`, atomic work in `issues/`, and placement in `codemap.md`.
+These goals refine the repository goals for Tomba! 1. Capability coverage belongs in
+`project-state.md`, execution order in the root `docs/migration.md`, atomic work in `issues/`,
+and placement in `codemap.md`.
 
-## G001 — Faithful, independently verified PC port
+## G001 — Faithful, independently verified native/dynarec PC port
 
-**Outcome.** Build a readable Tomba! 1 engine from the USA `SCUS_942.36` executable and disc content,
-using the statically recompiled path as retained evidence and an independent reference engine as the
-oracle.
+**Outcome.** Tomba! 1 runs from the USA `SCUS_942.36` executable and disc content as one product:
+readable title-native overrides own selected behavior and the shared `psxport` Lightrec executor
+runs every remaining guest instruction.
 
-**Why it matters.** A repository scaffold or matching executable hash is not a game. The title must
-reach observable play through its own evidence-grounded engine.
+**Why it matters.** The recorded startup and CD evidence must become a playable product without
+recreating the removed authenticated executable/overlay evidence or manually rewriting all gameplay first.
 
-**Success conditions.** The actual product provisions user-supplied assets, boots, renders, accepts
-input, and reaches ordinary gameplay. Differential boundaries cover the executed path and prove both
-agreement and a forced mismatch. Title startup, dispatch, game behavior, and generated ownership are
-independent from Tomba! 2.
+**Success conditions.** After Tomba! 2 completes, the Lightrec product reproduces the recorded
+35-field CRT0 boundary, crosses the current CD/movie frontier, reaches the title screen, accepts
+input, and passes representative interactive gameplay. Its six engine-neutral overrides and scoped
+original calls dispatch by complete image identity. Runtime invalidation has positive and negative
+coverage. Product inspection proves no guest instructions at source or interpreter-first gameplay selector
+exists; bounded fallback is reason-counted below its declared conformance threshold.
 
-**Constraints and non-goals.** The implementation remains independent from the Tomba! 2 engine despite
-sharing a repository. Generated output is never hand-edited or committed. Compilation, framework
-smoke, and isolated tests alone do not satisfy this goal.
+**Constraints and non-goals.** The implementation remains independent from Tomba! 2. Restricted
+assets remain user supplied. Boot, a logo, compilation, framework smoke, or an isolated boundary is
+not representative gameplay conformance. The old guest-source path is removed, not a product, fallback, or
+oracle to extend. Runtime interpretation is permitted only as the shared bounded automatic fallback
+for translation failure or unavailability, unsafe fetch, or rare unsupported blocks. Forced
+interpreter mode is diagnostic-only; fallback-covered execution proves neither gameplay conformance
+nor performance.
 
-**Contributing state items.** S001, S002, S003, S004, S006.
+**Contributing state items.** S001, S002, S003, S004, S006, S007.
 
 ## G002 — True widescreen
 
-**Outcome.** Extend Tomba! 1's own projection, visibility, edge coverage, and 2D layout to wide aspect
-ratios while preserving its faithful 4:3 path.
+**Outcome.** Extend Tomba! 1's projection, visibility, edge coverage, and 2D layout to wide aspect
+ratios while preserving faithful 4:3 presentation.
 
-**Why it matters.** Widescreen is the selected presentation enhancement for this title and should
-expose more correctly projected game content rather than a stretched or cropped 4:3 picture.
+**Why it matters.** Widescreen is the selected presentation enhancement and must expose more
+correctly projected game content rather than stretch or crop a 4:3 picture.
 
-**Success conditions.** The running product demonstrates additional world coverage, correct visual
-culling, and authored left/right/center UI anchoring at representative wide ratios, with a controlled
-4:3 comparison.
+**Success conditions.** After the Lightrec gameplay gate, the running product demonstrates additional
+world coverage, correct visual culling, a correctly placed wide draw buffer, and authored
+left/right/center UI anchoring at representative wide ratios with a controlled 4:3 comparison.
 
-**Constraints and non-goals.** Interpolation/lerp, temporal frame history, a title-native renderer,
-native graphics producers, native depth, and 60fps/native-rendering options are outside the title
-surface. Unsupported modes are absent rather than retained as disabled compatibility paths. The
-shared psxport renderer remains the platform presentation owner.
+**Constraints and non-goals.** Interpolation, temporal frame history, a title-native renderer, native
+graphics producers, native depth, and 60fps/native-rendering options are outside the title surface.
+Unsupported modes are absent rather than retained disabled. Shared `psxport` remains the platform
+presentation owner.
 
 **Contributing state items.** S005, S006.

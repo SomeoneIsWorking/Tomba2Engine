@@ -6,33 +6,31 @@
 // switch).
 //
 // TOP-DOWN DOCTRINE — the interpreter LEAVES it doesn't own yet (58 of the 63-entry table at
-// 0x800A3B78) stay reachable via rec_dispatch. The DISPATCH LOOP is owned here, plus op 0x03E (call
+// 0x800A3B78) stay reachable via typed runtime address dispatch. The DISPATCH LOOP is owned here, plus op 0x03E (call
 // fnptr) which is native-routed through BehaviorDispatch::dispatchObj — so any script-driven fade /
 // cutscene fnptr registered as a native `beh_*` runs native automatically; unregistered fnptrs fall
-// through to the substrate leaf. No revived rec_set_override.
+// through to the substrate leaf. No revived tomba::native::declareOverride.
 //
 // FRONTIER-TIER WIRING (2026-07-10) — 5 opcode handlers (05/06/34/36/31) plus the advance sub-
-// machine at guest FUN_80040FA0 are now VERIFIED (§9 line-by-line re-check against generated/) and
-// WIRED via ScriptInterp::registerOverrides() at the bottom of this file. advanceEntry() calls
-// advanceStep() (FUN_80040FA0's native body) directly instead of rec_dispatch'ing to it. The
+// machine at guest FUN_80040FA0 are now VERIFIED (§9 line-by-line re-check against authenticated executable/overlay
+// evidence) and WIRED via ScriptInterp::registerOverrides() at the bottom of this file. advanceEntry() calls
+// advanceStep() (FUN_80040FA0's native body) directly instead of typed runtime address dispatch'ing to it. The
 // remaining 58 opcode handlers stay substrate.
 
 #include "scene/script_interp.h"
 #include "cfg.h"
 #include "core.h"
 #include "core/engine.h"
+#include "execution_services.h"
 #include "game.h"
 #include "game_ctx.h"
 #include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_call.h"
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include "object/behavior_dispatch.h"
-#include "override_registry.h" // overrides::install — the one native-override registry
 #include "scene/scene_flags.h"
 #include <cstdint>
 #include <cstdio>
-
-extern "C" void rec_dispatch(Core *c, uint32_t addr);
-extern void shard_set_override(uint32_t, void (*)(Core *)); // raw module installer — intercepts direct func_X callers
-
 namespace {
 // The four object-field offsets we touch, named for readability. Layout matches the guest exactly
 // (see script_interp.h header comment).
@@ -73,7 +71,7 @@ constexpr uint32_t OBJ_TURN_ANGLE2_66 = OBJ_EXTRA_BLOCK + 2u;
 constexpr uint32_t OBJ_EVENT_FLAGS_68 = OBJ_EXTRA_BLOCK + 4u;
 constexpr uint32_t OBJ_EVENT_ARG_6A = OBJ_EXTRA_BLOCK + 6u;
 
-// Scratchpad globals op31 reads (resident 0x1F800000 region; same "8064<<16" recompiler-literal
+// Scratchpad globals op31 reads (resident 0x1F800000 region; same "8064<<16" recorded binary evidence-literal
 // convention documented in melee_proximity.cpp / object_table.cpp for scratchpad-relative constants).
 constexpr uint32_t SCRATCH_BASE = 0x1F800000u;
 constexpr uint32_t SCRATCH_ANCHOR_X_164 = SCRATCH_BASE + 0x164u;        // op31 mode 1/2 anchor X
@@ -88,16 +86,16 @@ constexpr uint16_t OP_FLAG_INIT_MODE = 0x1000u; // init: obj[+0x71] = 2 when thi
 constexpr uint16_t OP_FLAG_COND = 0x0800u;      // last entry of a conditional arm (see loadNextEntry)
 constexpr uint16_t OP_FLAG_INIT_BIT2 = 0x4000u; // init: obj[+0x71] |= 4 when this bit is set
 
-// step()'s return-code convention (VERBATIM re-derivation from generated/shard_3.c:11302
-// gen_func_80041098, 2026-07-10 — the ORIGINAL RE below had the RET_PAUSE mask wrong, see bug note):
+// step()'s return-code convention (VERBATIM re-derivation from authenticated executable/overlay evidence
+// guest 0x80041098, 2026-07-10 — the ORIGINAL RE below had the RET_PAUSE mask wrong, see bug note):
 //   ret == 0      -> set obj[+0x71] |= 1, EXIT step loop immediately (no advance)
 //   ret == 1      -> FUN_80040FA0(obj, 0), continue-if-FA0-returns-1
 //   ret == 2      -> FUN_80040FA0(obj, 1), continue-if-FA0-returns-1
 //   ret == 3      -> FUN_80040FA0(obj, 0), continue-if-FA0-returns-1  (same as ret==1 — falls into it)
-//   ret >= 4      -> no advance; exit loop (recomp defaults s0=3, loop check `s0 == 1` fails)
+//   ret >= 4      -> no advance; exit loop (guest instruction path defaults s0=3, loop check `s0 == 1` fails)
 // BUG FIX (2026-07-10, docs/findings/scene.md "sopLiftedSubtick wiring exposes a pre-existing
 // ScriptInterp::step divergence"): RET_PAUSE's mask was transcribed as 0x02 in the original RE but
-// the ground truth (traced through gen_func_80041098's own delay-slot chain, r2 ends up 1 not 2 by
+// the ground truth (traced through guest 0x80041098's own delay-slot chain, r2 ends up 1 not 2 by
 // the time L_80041138 ORs it into obj+0x71) is 0x01. This exactly matches the recorded SBS symptom:
 // native stayed 0x02 (re-ORing the already-set pause bit with the wrong mask is a no-op), oracle
 // advanced to 0x03 (correctly ORing in the NEW bit 0x01 on top of the existing 0x02).
@@ -120,7 +118,7 @@ void ScriptInterp::init(uint32_t obj, uint32_t tableA, uint32_t scriptPtr) {
   c->mem_w8(obj + OBJ_FLAGS_71, 0u);
   // Load the first entry so subsequent step() calls see argA/B/C and the (optional) extra block.
   loadCurrentEntry(obj, scriptPtr);
-  // Reload obj+0x71 from the first entry's flag bits (matches the recomp's post-load flag scan).
+  // Reload obj+0x71 from the first entry's flag bits (matches the guest instruction path's post-load flag scan).
   const uint16_t op0 = c->mem_r16(scriptPtr + 0);
   uint8_t flags = c->mem_r8(obj + OBJ_FLAGS_71);
   if (op0 & OP_FLAG_INIT_MODE) {
@@ -156,7 +154,7 @@ int ScriptInterp::advanceEntry(uint32_t obj, uint32_t kindArg) {
   // (kAdvanceAddr), but its real behavior has always been FUN_80040FA0's — the small post-advance
   // switch that step() actually calls (see advanceStep()'s own banner). FUN_80040E54 (the raw entry-
   // advance byte-shape) stays substrate/out-of-band; call the now-verified native advanceStep() body
-  // directly instead of rec_dispatch'ing to 0x80040FA0 so this class stops taxi-ing through the
+  // directly instead of typed runtime address dispatch'ing to 0x80040FA0 so this class stops taxi-ing through the
   // substrate for its own already-owned leaf.
   return advanceStep(obj, kindArg);
 }
@@ -189,17 +187,18 @@ constexpr int ADVSTEP_CONDEND = 6; // entry had OP_FLAG_COND (0x0800) — end of
 constexpr uint8_t kRendezvousPost = 0u;  // post postValue into the slot, then pause
 constexpr uint8_t kRendezvousAwait = 1u; // poll the slot until it reads awaitValue
 
-constexpr uint32_t kClaimGateByte = 0x800BF80Fu; // op34: single-byte semaphore. §9 re-verify
-                                                 // 2026-07-10: recomputed from generated/
-                                                 // shard_2.c:4772 (32780<<16 + -2040 + 7,
-                                                 // and independently + -2033 in the poll
-                                                 // path) = 0x800BF80F, NOT 0x800BF86F as the
-                                                 // original wide-RE draft had it (0x60 off —
-                                                 // an unrelated table's address got copied).
+constexpr uint32_t kClaimGateByte =
+    0x800BF80Fu; // op34: single-byte semaphore. §9 re-verify
+                 // 2026-07-10: recomputed from authenticated executable/overlay evidence
+                 // shard_2.c:4772 (32780<<16 + -2040 + 7,
+                 // and independently + -2033 in the poll
+                 // path) = 0x800BF80F, NOT 0x800BF86F as the
+                 // original wide-RE draft had it (0x60 off —
+                 // an unrelated table's address got copied).
 } // namespace
 
 // FUN_80042090 — VERIFIED + WIRED (frontier tier, 2026-07-10; return-value fix 2026-07-10).
-// 1:1 with generated/shard_7.c:5216 (gen_func_80042090). The guest's r[2] is `uint32_t`, so
+// 1:1 with authenticated executable/overlay evidence (guest 0x80042090). The guest's r[2] is `uint32_t`, so
 // `(decremented << 16) >> 31` is a LOGICAL shift (guest srl, not sra) — it extracts bit15 of the
 // decremented 16-bit counter as 0 (still counting) or 1 (expired), NOT a sign-replicate 0/-1
 // idiom. Per step()'s ret-code switch (RET_PAUSE=0 / RET_ADVANCE_*={1,2,3}), 0 hits RET_PAUSE
@@ -213,7 +212,7 @@ int ScriptInterp::op05WaitFrames(uint32_t obj) {
   return ((int16_t)decremented < 0) ? 1 : 0;
 }
 
-// FUN_800420AC — VERIFIED + WIRED (frontier tier, 2026-07-10). 1:1 with generated/shard_0.c:5231. See
+// FUN_800420AC — VERIFIED + WIRED (frontier tier, 2026-07-10). 1:1 with authenticated executable/overlay evidence. See
 // script_interp.h for the 3-mode (eq/and-nonzero/and-zero) semantics.
 int ScriptInterp::op06TestSceneFlag(uint32_t obj) {
   Core *c = core;
@@ -237,7 +236,7 @@ int ScriptInterp::op06TestSceneFlag(uint32_t obj) {
   return 0; // argA >= 3: unreachable in the guest's own byte-shape, kept for parity
 }
 
-// FUN_8004201C — the SCENE-FLAG RENDEZVOUS opcode (table index 4). 1:1 with generated/shard_6.c:5460
+// FUN_8004201C — the SCENE-FLAG RENDEZVOUS opcode (table index 4). 1:1 with authenticated executable/overlay evidence
 // (leaf, no guest frame — 25 instructions, no control-flow ambiguity, decoded straight from the gen
 // body). This is the ops-04/06 pair's WRITE side: op06 only TESTS `kSceneFlagTable[slot]`, op04 both
 // posts to it and blocks on it, which is how two scripted actors in one scene hand a cutscene back
@@ -299,13 +298,13 @@ int ScriptInterp::op04SceneFlagRendezvous(uint32_t obj) {
   return RET_PAUSE; // phase >= 2: unreachable in the guest's own byte-shape, kept for parity
 }
 
-// FUN_80040E54 — loadNextEntry(obj, kindArg): THE ENTRY ADVANCE. 1:1 with gen_func_80040E54.
+// FUN_80040E54 — loadNextEntry(obj, kindArg): THE ENTRY ADVANCE. 1:1 with guest 0x80040E54.
 //
 // Every other part of this interpreter was already owned and readable; this was the hole. It reads
 // the CURRENT entry's opcode word (before moving), decides where the cursor goes from the word's
 // top 3 bits, loads the new entry, and returns the index advanceStep() then uses to decide whether
 // the script keeps running. Owning it means the `script` channel finally covers scripts that are
-// stepped by the SUBSTRATE loop too, since rec_dispatch routes here regardless of the caller —
+// stepped by the SUBSTRATE loop too, since typed runtime address dispatch routes here regardless of the caller —
 // which is exactly what kanban #60 needed and could not see.
 //
 // GUEST FRAME MIRROR: gen descends sp by 32 and spills s0/s1/ra at +16/+20/+24. The only callee
@@ -391,7 +390,7 @@ int ScriptInterp::loadNextEntry(uint32_t obj, uint32_t kindArg) {
 }
 
 // FUN_80042E10 — VERIFIED + WIRED (frontier tier, 2026-07-10; §9 re-verify caught+fixed the
-// kClaimGateByte constant, see below). 1:1 with generated/shard_2.c:4772. See
+// kClaimGateByte constant, see below). 1:1 with authenticated executable/overlay evidence. See
 // script_interp.h for the claim/poll phase-machine semantics.
 int ScriptInterp::op34ClaimGate(uint32_t obj) {
   Core *c = core;
@@ -418,13 +417,13 @@ int ScriptInterp::op34ClaimGate(uint32_t obj) {
 }
 
 // FUN_80040FA0 — VERIFIED + WIRED (frontier tier, 2026-07-10; advanceEntry() now calls this
-// directly, see the naming-fix note there). 1:1 with generated/shard_2.c:4564. See
-// script_interp.h for the naming caveat (advanceEntry() above already rec_dispatch's HERE) and the
+// directly, see the naming-fix note there). 1:1 with authenticated executable/overlay evidence. See
+// script_interp.h for the naming caveat (advanceEntry() above already typed runtime address dispatch's HERE) and the
 // 7-entry switch-table verification. The sp-=24/ra-spill guest frame is this function's OWN
 // activation record (not shared/observable state beyond the call) so it is not reproduced.
 int ScriptInterp::advanceStep(uint32_t obj, uint32_t kindArg) {
   Core *c = core;
-  // MIRROR gen_func_80040FA0's own frame (sp-24; r16@+16, ra@+20; r31=0x80040FB4, r16=obj live).
+  // MIRROR guest 0x80040FA0's own frame (sp-24; r16@+16, ra@+20; r31=0x80040FB4, r16=obj live).
   // The earlier "not shared/observable beyond the call" claim was wrong: the still-substrate
   // classifier FUN_80040E54 (and anything it calls) spills relative to THIS frame's sp — without
   // the descent every downstream spill lands 24 bytes high vs core B (SBS f153, Charles' anim
@@ -438,7 +437,10 @@ int ScriptInterp::advanceStep(uint32_t obj, uint32_t kindArg) {
   c->r[31] = 0x80040FB4u;
   c->r[4] = obj;
   c->r[5] = kindArg;
-  rec_dispatch(c, 0x80040E54u); // still-substrate FUN_80040E54 (out of band for this pass)
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x80040E54u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // still-substrate FUN_80040E54 (out of band for this pass)
   const uint32_t ret = c->r[2];
   // Epilogue restores mirror the gen (registers reloaded from the frame slots).
   struct Frame {
@@ -507,7 +509,7 @@ int ScriptInterp::advanceStep(uint32_t obj, uint32_t kindArg) {
 
 int ScriptInterp::callFnptr(uint32_t obj) {
   Core *c = core;
-  // Guest 0x800412CC (gen_func_800412CC, shard_5): NOT frameless — it descends `addiu sp,-24`,
+  // Guest 0x800412CC (guest 0x800412CC, shard_5): NOT frameless — it descends `addiu sp,-24`,
   // spills ra@+16, loads the fnptr (`lw v0, 0x74(a0)`), sets r31=0x800412E4, jalr, restores.
   // Skipping that frame ran every op3E callee 24 bytes HIGH on the guest stack, so all its
   // callees' frame spills landed at shifted addresses (watch-cut f735: A's attach spill missed
@@ -524,12 +526,12 @@ int ScriptInterp::callFnptr(uint32_t obj) {
   } tframe{c};
   // v0 (the ret code) is EXACTLY what the fnptr callee left there. Compose the 32-bit fnptr from
   // the two adjacent halfwords (LE order matches the guest `lw`), route via BehaviorDispatch so
-  // any fnptr owned as native `beh_*` runs native; unowned addresses fall through to rec_dispatch
+  // any fnptr owned as native `beh_*` runs native; unowned addresses fall through to typed runtime address dispatch
   // (substrate).
   //
-  // RET-CODE PRESERVATION: rec_dispatch sets c->r[2] to the substrate leaf's return, so the
+  // RET-CODE PRESERVATION: typed runtime address dispatch sets c->r[2] to the substrate leaf's return, so the
   // substrate path is transparent. Native `beh_*` handlers are `void`-returning, so a native
-  // fade fn MUST set `c->r[2] = ret` before returning (matches how the recomp body would leave
+  // fade fn MUST set `c->r[2] = ret` before returning (matches how the guest instruction path would leave
   // v0). Every fade fn in game/ai/beh_a06_fade_*.cpp follows this convention.
   const uint16_t lo = c->mem_r16(obj + OBJ_FNPTR_LO_74);
   const uint16_t hi = c->mem_r16(obj + OBJ_FNPTR_HI_76);
@@ -540,7 +542,7 @@ int ScriptInterp::callFnptr(uint32_t obj) {
 }
 
 // C-ABI wrapper for BehaviorDispatch::kTable registration. Takes obj from a0 (c->r[4]) — matches
-// the recomp's calling convention so a native ancestor that already used dispatchObj lands here
+// the guest instruction path's calling convention so a native ancestor that already used dispatchObj lands here
 // transparently. The wrapper is deliberately trivial: pull obj out of a0 and forward to step().
 static constexpr GuestFrameSpill kSpills_80041098[5] = {
     {17, 20},
@@ -558,7 +560,7 @@ void ScriptInterp::step(uint32_t obj) {
   Core *c = core;
   // FUN_80041098 body — the dispatch loop. Runs while obj[+0x70] > 0 (signed).
   //
-  // GUEST FRAME MIRROR (2026-07-10, SBS f153 — Charles' anim-install chain): gen_func_80041098
+  // GUEST FRAME MIRROR (2026-07-10, SBS f153 — Charles' anim-install chain): guest 0x80041098
   // descends sp by 40 and spills the incoming s0-s3/ra at +16/+20/+24/+28/+32 BEFORE stepping, and
   // holds r17=obj, r18=1, r19=handler-table live across the loop. Every substrate op handler (and
   // its callees, e.g. FUN_80041718 → FUN_80077C40) spills relative to THIS sp with THESE register
@@ -616,7 +618,7 @@ void ScriptInterp::step(uint32_t obj) {
       const uint32_t handler = c->mem_r32(kHandlerTableBase + oid * 4u);
       c->r[4] = obj;
       c->r[31] = 0x800410FCu;
-      rec_dispatch(c, handler);
+      psx::cpu::dispatchGuestToReturn0(*c, handler, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       ret = c->r[2];
     }
 
@@ -624,9 +626,9 @@ void ScriptInterp::step(uint32_t obj) {
     // for natively-dispatched parents, so the two logs diff directly).
     cfg_logf("script", "obj=%08X ptr=%08X op=%04X ret=%u", obj, scriptPtr, opWord, ret);
 
-    // ret-code switch (VERBATIM disas 0x80041100..0x80041168). The recomp calls advanceEntry with
+    // ret-code switch (VERBATIM disas 0x80041100..0x80041168). The guest instruction path calls advanceEntry with
     // a kind byte selected by the ret code, THEN checks its return: only if FA0 returns exactly 1
-    // does the outer loop iterate (recomp's `beq s0, s2, 0x800410c0`). Any other FA0 return exits.
+    // does the outer loop iterate (guest instruction path's `beq s0, s2, 0x800410c0`). Any other FA0 return exits.
     uint32_t faKind;
     switch (ret) {
     case RET_PAUSE: {
@@ -643,7 +645,7 @@ void ScriptInterp::step(uint32_t obj) {
       faKind = 1u;
       break;
     default:
-      // ret >= 4: recomp falls to the loop check with s0 still 0 → exits with v0 = 0.
+      // ret >= 4: guest instruction path falls to the loop check with s0 still 0 → exits with v0 = 0.
       c->r[2] = 0u;
       return;
     }
@@ -660,18 +662,17 @@ void ScriptInterp::step(uint32_t obj) {
 // =================================================================================================
 // Wide-RE pass 2026-07-10 (dedicated follow-up session) — op36/op31 movement-script family.
 // Method-by-method commentary is in script_interp.h; this banner covers the shared verification
-// method. Source of truth: generated/shard_5.c:5667 (op36) / generated/shard_3.c:11362 (op31) /
-// generated/shard_2.c:4628 (turnFacing) / generated/shard_1.c:6657 (stepAngleToward) /
-// generated/shard_3.c:11682 (stepEventPulse) — instruction-exact per CLAUDE.md. Cross-checked
-// against Ghidra headless decompile (scratch/decomp/op36_op31_band.c, this session) for structure;
-// ONE real Ghidra-vs-raw-C divergence was caught and resolved in op36's favor of the raw C (Ghidra's
-// decompile misplaced a `trap(0x1c00)` call right after the first division's step-count clamp —
-// no such trap exists there in the recompiled C; the real div-by-zero trap at that spot belongs to
-// the SECOND division a few lines later and Ghidra folded it into the wrong position). A second,
-// self-caught slip (this session's own first hand-trace of op31's raw C, corrected against a second
-// re-read + Ghidra agreement) is noted inline at its fix site below. Frames are guest-stack-mirrored
-// per CLAUDE.md ("MIRROR THE GUEST STACK") even though this pass is unwired/ungated, so the eventual
-// wiring's SBS gate has nothing left to fix on the stack-fidelity front.
+// method. Source of truth: authenticated executable/overlay evidence (op36) / authenticated executable/overlay evidence
+// (op31) / authenticated executable/overlay evidence (turnFacing) / authenticated executable/overlay evidence
+// (stepAngleToward) / authenticated executable/overlay evidence (stepEventPulse) — instruction-exact per CLAUDE.md.
+// Cross-checked against Ghidra headless decompile (scratch/decomp/op36_op31_band.c, this session) for structure; ONE
+// real Ghidra-vs-raw-C divergence was caught and resolved in op36's favor of the raw C (Ghidra's decompile misplaced a
+// `trap(0x1c00)` call right after the first division's step-count clamp — no such trap exists there in the guest C; the
+// real div-by-zero trap at that spot belongs to the SECOND division a few lines later and Ghidra folded it into the
+// wrong position). A second, self-caught slip (this session's own first hand-trace of op31's raw C, corrected against a
+// second re-read + Ghidra agreement) is noted inline at its fix site below. Frames are guest-stack-mirrored per
+// CLAUDE.md ("MIRROR THE GUEST STACK") even though this pass is unwired/ungated, so the eventual wiring's SBS gate has
+// nothing left to fix on the stack-fidelity front.
 // =================================================================================================
 
 // FUN_8004139C — leaf angle-stepper (no guest frame). See script_interp.h for the semantics.
@@ -846,7 +847,7 @@ int ScriptInterp::op36MoveTowardScriptTarget(uint32_t obj) {
       // sqrt(dx^2 + dz^2) — still-substrate GTE-LZCS sqrt leaf (game/ai/melee_proximity.cpp
       // precedent; NOT Math::isqrt16).
       c->r[4] = (uint32_t)(int32_t)(dx * dx + dz * dz);
-      rec_dispatch(c, 0x80084080u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80084080u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       const int16_t dist = (int16_t)c->r[2];
 
       // First guarded division: dist / stepsRequested. Faithfully reproduces the guest's own
@@ -856,10 +857,10 @@ int ScriptInterp::op36MoveTowardScriptTarget(uint32_t obj) {
       // fidelity with the guest's own bounds check.
       cpu_div(c, (uint32_t)(int32_t)dist, (uint32_t)(int32_t)stepsRequested);
       if (stepsRequested == 0) {
-        rec_break(c, 7168u);
+        psx::cpu::handleBreak(*c, 7168u);
       }
       if (stepsRequested == -1 && (int32_t)dist == (int32_t)0x80000000) {
-        rec_break(c, 6144u);
+        psx::cpu::handleBreak(*c, 6144u);
       }
       uint16_t stepDiv = (uint16_t)c->lo;
       if (stepDiv == 0) {
@@ -867,10 +868,10 @@ int ScriptInterp::op36MoveTowardScriptTarget(uint32_t obj) {
       }
       c->mem_w16(obj + OBJ_STEP_DIV_64, stepDiv);
       // NOTE: Ghidra's decompile placed a THIRD `trap(0x1c00)` right here (testing the just-clamped
-      // value for zero again) — that trap does NOT exist in the raw recompiled C at this point; it
+      // value for zero again) — that trap does NOT exist in the raw guest C at this point; it
       // misplaced the SECOND division's own div-by-zero trap (below) into this spot. Raw generated
       // C (ground truth) has no trap between the clamp and the second cpu_div — confirmed by direct
-      // re-read of generated/shard_5.c:5727-5736.
+      // re-read of authenticated executable/overlay evidence.
 
       c->mem_w16(obj + OBJ_STEPS_REM_44, 0x1000u); // stepsRemaining = 4096 (Q12 "100%")
 
@@ -878,10 +879,10 @@ int ScriptInterp::op36MoveTowardScriptTarget(uint32_t obj) {
       // can't be exactly -1 with dividend exactly INT32_MIN since the dividend is the literal 4096).
       cpu_div(c, 0x1000u, (uint32_t)(int32_t)(int16_t)stepDiv);
       if ((int16_t)stepDiv == 0) {
-        rec_break(c, 7168u);
+        psx::cpu::handleBreak(*c, 7168u);
       }
       if ((int16_t)stepDiv == -1 && 0x1000 == (int32_t)0x80000000) {
-        rec_break(c, 6144u);
+        psx::cpu::handleBreak(*c, 6144u);
       }
       stepDiv = (uint16_t)c->lo;
       c->mem_w16(obj + OBJ_STEP_DIV_64, stepDiv); // per-call step size, overwrites the field again
@@ -890,7 +891,10 @@ int ScriptInterp::op36MoveTowardScriptTarget(uint32_t obj) {
       if (sVar2 == -1) {
         c->r[4] = (uint32_t)(int32_t)(-(int32_t)dx);
         c->r[5] = (uint32_t)(int32_t)dz;
-        rec_dispatch(c, 0x80085690u); // Trig::ratan2 (wired override) — ratan2(-dx, dz)
+        psx::cpu::dispatchGuestToReturn0(*c,
+                                         0x80085690u,
+                                         psx::cpu::ExecutionBudget::currentTurn(*c),
+                                         __func__); // Trig::ratan2 (wired override) — ratan2(-dx, dz)
         c->mem_w16(obj + OBJ_FACE_ANGLE_56, (uint16_t)(c->r[2] & 0xFFFu));
       } else if (sVar2 == 0) {
         c->mem_w8(obj + OBJ_SCRATCH_78, 2u);
@@ -900,7 +904,7 @@ int ScriptInterp::op36MoveTowardScriptTarget(uint32_t obj) {
       // still reaches this second ratan2 call — matches the guest's own fallthrough shape.)
       c->r[4] = (uint32_t)(int32_t)(-(int32_t)dx);
       c->r[5] = (uint32_t)(int32_t)dz;
-      rec_dispatch(c, 0x80085690u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80085690u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->mem_w16(obj + OBJ_TURN_ANGLE2_66, (uint16_t)(c->r[2] & 0xFFFu));
       c->mem_w8(obj + OBJ_SCRATCH_78, (uint8_t)(c->mem_r8(obj + OBJ_SCRATCH_78) + 1u));
     }
@@ -991,7 +995,7 @@ int ScriptInterp::op31TurnTowardTarget(uint32_t obj) {
   // Resolve the acted-upon actor: self if argA's sign bit is clear, else the global secondary actor
   // slot at scratchpad 0x1F800214. BUG-FIX note: this session's own FIRST hand-trace of the raw
   // generated C (before writing any code) mislabeled this as "sign set -> self", the opposite of
-  // the truth — caught by re-deriving a second time directly from the recompiled C's delay-slot
+  // the truth — caught by re-deriving a second time directly from the guest C's delay-slot
   // ordering AND independently cross-checking against Ghidra's decompile (both agree: sign bit SET
   // selects the scratchpad global; CLEAR selects self). Fixed before writing any code.
   const int16_t argA = (int16_t)c->mem_r16(obj + OBJ_ARG_A_72);
@@ -1022,7 +1026,7 @@ int ScriptInterp::op31TurnTowardTarget(uint32_t obj) {
           (int32_t)(int16_t)c->mem_r16(SCRATCH_ANCHOR_Z_160) - (int32_t)(int16_t)c->mem_r16(target + OBJ_POS_Z_2E);
       c->r[4] = (uint32_t)y;
       c->r[5] = (uint32_t)x;
-      rec_dispatch(c, 0x80085690u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80085690u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       const int32_t angle = (int32_t)c->r[2] - 2048;
       c->mem_w16(obj + OBJ_FNPTR_HI_76, (uint16_t)(c->mem_r16(obj + OBJ_FNPTR_HI_76) + ((uint32_t)angle & 0xFFFu)));
     } else if (mode < 3) {
@@ -1034,7 +1038,7 @@ int ScriptInterp::op31TurnTowardTarget(uint32_t obj) {
             (int32_t)(int16_t)c->mem_r16(SCRATCH_ANCHOR_Z_160) - (int32_t)(int16_t)c->mem_r16(target + OBJ_POS_Z_2E);
         c->r[4] = (uint32_t)y;
         c->r[5] = (uint32_t)x;
-        rec_dispatch(c, 0x80085690u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80085690u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         c->mem_w16(obj + OBJ_FNPTR_HI_76, (uint16_t)(c->mem_r16(obj + OBJ_FNPTR_HI_76) + (c->r[2] & 0xFFFu)));
       }
       // mode 0: no ratan2, no obj+0x76 write — use the target angle already sitting there. Falls
@@ -1047,7 +1051,7 @@ int ScriptInterp::op31TurnTowardTarget(uint32_t obj) {
           (int32_t)(int16_t)c->mem_r16(obj + OBJ_POS_Z_2E) - (int32_t)(int16_t)c->mem_r16(target + OBJ_POS_Z_2E);
       c->r[4] = (uint32_t)y;
       c->r[5] = (uint32_t)x;
-      rec_dispatch(c, 0x80085690u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80085690u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->mem_w16(obj + OBJ_FNPTR_HI_76, (uint16_t)(c->mem_r16(obj + OBJ_FNPTR_HI_76) + (c->r[2] & 0xFFFu)));
     } else if (mode == 10) {
       // mode 10: track a LIVE point via obj+0x76/obj+0x74 (already-set target angle/threshold from a
@@ -1059,7 +1063,7 @@ int ScriptInterp::op31TurnTowardTarget(uint32_t obj) {
           (int32_t)(int16_t)c->mem_r16(obj + OBJ_FNPTR_LO_74) - (int32_t)(int16_t)c->mem_r16(target + OBJ_POS_Z_2E);
       c->r[4] = (uint32_t)y;
       c->r[5] = (uint32_t)x;
-      rec_dispatch(c, 0x80085690u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80085690u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->mem_w16(obj + OBJ_FNPTR_HI_76, (uint16_t)(c->r[2] & 0xFFFu));
       c->mem_w16(obj + OBJ_FNPTR_LO_74, 0x100u);
     }
@@ -1090,7 +1094,7 @@ int ScriptInterp::op31TurnTowardTarget(uint32_t obj) {
 
 // =================================================================================================
 // Resident-leaf sweep (2026-07-17) — five small unowned MAIN.EXE leaves homed on ScriptInterp per
-// the sweep assignment. Each body is BYTE-FAITHFUL to its gen_func_* oracle (same loads/stores/
+// the sweep assignment. Each body is BYTE-FAITHFUL to its original guest instructions oracle (same loads/stores/
 // calls/frame, same order); raw r[]/offset literals are renamed to named locals + struct-field
 // constants only (a value-identical rename that never changes a store's width/order — port_check
 // gates it). These are NOT script-opcode handlers; they are generic object/scratchpad helpers that
@@ -1120,9 +1124,8 @@ constexpr uint32_t REC_GAUGE_18 = 18u;        // u16 gauge value, stepped +/-64,
 } // namespace
 
 // The substrate wrap-event pulse (still-substrate leaf); called with the guest ABI exactly as gen does.
-extern void func_80074590(Core *);
 
-// ORACLE: gen_func_80031708
+// ORACLE: guest 0x80031708
 // Refresh obj's cached tail: read the head node at +0x3C; if its flag byte (node+3, bit 0x80) is
 // set the node is dead -> clear both the cache slot and the head ptr; otherwise cache node+4 into
 // +0x40. No-op when the head ptr is null. Leaf, no frame.
@@ -1140,7 +1143,7 @@ void ScriptInterp::refreshCachedTailHi(uint32_t obj) {
   c->mem_w32(obj + OBJ_TAIL_CACHE_40, node + 4);
 }
 
-// ORACLE: gen_func_80031744
+// ORACLE: guest 0x80031744
 // Twin of refreshCachedTailHi with the flag byte at node+0 and the cache offset node+1. Leaf, no frame.
 void ScriptInterp::refreshCachedTailLo(uint32_t obj) {
   Core *c = core;
@@ -1156,7 +1159,7 @@ void ScriptInterp::refreshCachedTailLo(uint32_t obj) {
   c->mem_w32(obj + OBJ_TAIL_CACHE_40, node + 1);
 }
 
-// ORACLE: gen_func_80042170
+// ORACLE: guest 0x80042170
 // "Does the acted-upon actor's match byte equal the selector?" Reads obj's kind selector at +0x72:
 //   0 -> compare obj's own match byte (+0x79) against 1;
 //   1 -> follow the global actor record (scratchpad 0x1F800214) and compare ITS match byte against 1;
@@ -1175,7 +1178,7 @@ int ScriptInterp::matchesActiveByKind(uint32_t obj) {
   return 0;
 }
 
-// ORACLE: gen_func_80044090
+// ORACLE: guest 0x80044090
 // Mirror a single status byte from the fixed global 0x800E7EAA into the fixed scratchpad slot
 // 0x1F800207, and return 1. Ignores its argument. Leaf, no frame.
 int ScriptInterp::mirrorGlobalStatusByte() {
@@ -1184,11 +1187,11 @@ int ScriptInterp::mirrorGlobalStatusByte() {
   return 1;
 }
 
-// ORACLE: gen_func_80073194
+// ORACLE: guest 0x80073194
 // Advance a wrapping gauge on `rec` (r5) driven by `obj`'s mode byte (r4+0x46): mode 0 steps the
 // u16 gauge (rec+0x12) up by 64, mode 1 steps it down by 64, wrapping to 0 when it crosses the sign
 // boundary. On a wrap (and only if obj's pulse gate +0xBF is nonzero) it fires the substrate wrap
-// event func_80074590(24, 0, 15). Finally writes rec+0x0A = rec+0x0E + rec+0x12 and returns 1 iff a
+// event guest 0x80074590(24, 0, 15). Finally writes rec+0x0A = rec+0x0E + rec+0x12 and returns 1 iff a
 // wrap occurred this call, else 0.
 // READY-FRAME: sp-=32; spills r16@+16 (rec), r17@+20 (wrap flag), r31@+24 — LIVE incoming values, in
 // gen instruction order; restored in the epilogue.
@@ -1227,7 +1230,8 @@ int ScriptInterp::advanceGauge(uint32_t obj, uint32_t rec) {
       c->r[5] = 0;
       c->r[31] = 0x80073238u; // jal-site ra (matches gen exactly)
       c->r[6] = 15;
-      func_80074590(c); // wrap event pulse (substrate)
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x80074590u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // wrap event pulse (substrate)
     }
   }
 
@@ -1246,9 +1250,9 @@ int ScriptInterp::advanceGauge(uint32_t obj, uint32_t rec) {
 // =================================================================================================
 // Frontier-tier wiring (2026-07-10) — promote the §9-verified opcode drafts to VERIFIED ownership.
 // Guest ABI per the override registry's contract: obj in c->r[4], ret in c->r[2]. step()'s dispatch
-// loop already calls rec_dispatch(c, handler) for every non-0x3E opcode (with sp/ra saved+restored
-// around the call), and rec_dispatch consults the override registry (overrides::dispatch) BEFORE
-// falling to the gen_func_* body — oracle-gated (core B / psx_fallback never consults the table) —
+// loop already calls typed runtime address dispatch(c, handler) for every non-0x3E opcode (with sp/ra saved+restored
+// around the call), and typed runtime address dispatch consults the override registry (overrides::dispatch) BEFORE
+// falling to the original guest instructions body — the test-only substrate leg never consults the table —
 // so registering these 5 addresses here is the entire wiring step; step()'s loop itself is untouched.
 namespace {
 void eov_op04SceneFlagRendezvous(Core *c) {
@@ -1291,43 +1295,23 @@ void eov_advanceGauge(Core *c) {
 }
 } // namespace
 
-extern void gen_func_80040E54(Core *);
-extern void gen_func_8004201C(Core *);
-extern void gen_func_80042090(Core *);
-extern void gen_func_800420AC(Core *);
-extern void gen_func_80042E10(Core *);
-extern void gen_func_80043108(Core *);
-extern void gen_func_80041468(Core *);
-extern void gen_func_80031708(Core *);
-extern void gen_func_80031744(Core *);
-extern void gen_func_80042170(Core *);
-extern void gen_func_80044090(Core *);
-extern void gen_func_80073194(Core *);
-
 void ScriptInterp::registerOverrides() {
-  using overrides::install; // opcode leaves reached only via ScriptInterp::step rec_dispatch — setter omitted
-  // setter passed (unlike the opcode leaves below): gen_func_80040FA0 reaches this one by a
-  // DIRECT jal -> func_80040E54, which only the module thunk intercepts; rec_dispatch never sees it.
-  install(kAdvanceAddr, "ScriptInterp::loadNextEntry", eov_loadNextEntry, gen_func_80040E54, shard_set_override);
-  install(kOp04Addr, "ScriptInterp::op04SceneFlagRendezvous", eov_op04SceneFlagRendezvous, gen_func_8004201C);
-  install(kOp05Addr, "ScriptInterp::op05WaitFrames", eov_op05WaitFrames, gen_func_80042090);
-  install(kOp06Addr, "ScriptInterp::op06TestSceneFlag", eov_op06TestSceneFlag, gen_func_800420AC);
-  install(kOp34Addr, "ScriptInterp::op34ClaimGate", eov_op34ClaimGate, gen_func_80042E10);
-  install(kOp36Addr, "ScriptInterp::op36MoveTowardScriptTarget", eov_op36MoveTowardScriptTarget, gen_func_80043108);
-  install(kOp31Addr, "ScriptInterp::op31TurnTowardTarget", eov_op31TurnTowardTarget, gen_func_80041468);
+  // setter passed (unlike the opcode leaves below): guest 0x80040FA0 reaches this one by a
+  // DIRECT jal -> guest 0x80040E54, which only the module thunk intercepts; typed runtime address dispatch never sees
+  // it.
+  tomba::native::declareOverride(kAdvanceAddr, "ScriptInterp::loadNextEntry", eov_loadNextEntry);
+  tomba::native::declareOverride(kOp04Addr, "ScriptInterp::op04SceneFlagRendezvous", eov_op04SceneFlagRendezvous);
+  tomba::native::declareOverride(kOp05Addr, "ScriptInterp::op05WaitFrames", eov_op05WaitFrames);
+  tomba::native::declareOverride(kOp06Addr, "ScriptInterp::op06TestSceneFlag", eov_op06TestSceneFlag);
+  tomba::native::declareOverride(kOp34Addr, "ScriptInterp::op34ClaimGate", eov_op34ClaimGate);
+  tomba::native::declareOverride(kOp36Addr, "ScriptInterp::op36MoveTowardScriptTarget", eov_op36MoveTowardScriptTarget);
+  tomba::native::declareOverride(kOp31Addr, "ScriptInterp::op31TurnTowardTarget", eov_op31TurnTowardTarget);
 
-  // Resident-leaf sweep (2026-07-17). These leaves are reached via direct func_X(c) callers as well
-  // as any rec_dispatch, so install the setter (shard_set_override) to intercept both.
-  install(
-      0x80031708u, "ScriptInterp::refreshCachedTailHi", eov_refreshCachedTailHi, gen_func_80031708, shard_set_override);
-  install(
-      0x80031744u, "ScriptInterp::refreshCachedTailLo", eov_refreshCachedTailLo, gen_func_80031744, shard_set_override);
-  install(
-      0x80042170u, "ScriptInterp::matchesActiveByKind", eov_matchesActiveByKind, gen_func_80042170, shard_set_override);
-  install(0x80044090u,
-          "ScriptInterp::mirrorGlobalStatusByte",
-          eov_mirrorGlobalStatusByte,
-          gen_func_80044090,
-          shard_set_override);
-  install(0x80073194u, "ScriptInterp::advanceGauge", eov_advanceGauge, gen_func_80073194, shard_set_override);
+  // Resident-leaf sweep (2026-07-17). These leaves are reached via direct the cited guest address(c) callers as well
+  // as any typed runtime address dispatch, so install the setter (tomba::native::declareOverride) to intercept both.
+  tomba::native::declareOverride(0x80031708u, "ScriptInterp::refreshCachedTailHi", eov_refreshCachedTailHi);
+  tomba::native::declareOverride(0x80031744u, "ScriptInterp::refreshCachedTailLo", eov_refreshCachedTailLo);
+  tomba::native::declareOverride(0x80042170u, "ScriptInterp::matchesActiveByKind", eov_matchesActiveByKind);
+  tomba::native::declareOverride(0x80044090u, "ScriptInterp::mirrorGlobalStatusByte", eov_mirrorGlobalStatusByte);
+  tomba::native::declareOverride(0x80073194u, "ScriptInterp::advanceGauge", eov_advanceGauge);
 }

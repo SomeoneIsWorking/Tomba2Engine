@@ -4,26 +4,25 @@
 // the oscillate / frame-toggle sub-behavior (FUN_8003FD10). The placed-prop state-machine head that
 // drives them now lives in game/ai/placed_prop_sm.cpp (PlacedPropSm::step).
 // Control flow + object memory owned native; the per-state sub-behaviors stay reachable by address via
-// rec_dispatch (each honors its own override identically). NO GTE, NO render packets. Extracted verbatim
-// from game_tomba2.cpp (one behavior, byte-identical) into its own module for PC-game code structure.
+// typed runtime address dispatch (each honors its own override identically). NO GTE, NO render packets. Extracted
+// verbatim from game_tomba2.cpp (one behavior, byte-identical) into its own module for PC-game code structure.
 // Diagnostic A/B gates (child40410/disp26c88/sm40558/fd10) are REPL channels, unchanged.
 #include "entity.h"
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_render_update
-#include "object/actor.h"  // Actor::boundsCull (FUN_8007778C)
-#include "render/cull.h"   // class Cull (eng(c).cull.enqueueQueueA — FUN_80077E7C)
-#include "rng.h"           // class Rng (via rngOf(c).next())
-#include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_call.h"
+#include "object/actor.h" // Actor::boundsCull (FUN_8007778C)
+#include "render/cull.h"  // class Cull (eng(c).cull.enqueueQueueA — FUN_80077E7C)
+#include "rng.h"          // class Rng (via rngOf(c).next())
+#include "spawn.h"        // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 // (removed 55 lines: child_spawn_40410 — sm40558 was its ONLY caller, so it died with it. 0x80040410 is
-//  reached from the new port through its generated func_80040410 wrapper.)
+//  reached from the new port through its guest instructions at 0x80040410 wrapper.)
 
 // (removed 231 lines: the hand-transliterated sm40558 draft for 0x80040558 — REPLACED by PlacedPropSm::step
 //  (game/ai/placed_prop_sm.cpp). It had five defects, one a MISSING GUEST WRITE of node[95]=0
@@ -41,7 +40,7 @@ void rec_dispatch(Core *, uint32_t);
 // GOTCHAs: (1) the `sh v1,2(node)` at 0x8003fdd0 is in the ov_rand jal DELAY SLOT — node and v1 (=r*6) are
 //   computed BEFORE the call, the store happens with the pre-call values (node loaded @0x8003fdc4). (2) the
 //   obj[6]-- at @fdac uses v1=-1 added to obj[6] (only on the v0==-1 branch). (3) node[2]/[0] are halfword
-//   stores of v0*6 == (v0*3)<<1. `fd10` gate = full RAM+scratchpad A/B vs rec_super_call (same family
+//   stores of v0*6 == (v0*3)<<1. `fd10` gate = full RAM+scratchpad A/B vs original guest-body call (same family
 //   rationale as sm40558: the dispatched ov_rand runs in BOTH passes + this fn's 24-byte frame is dead below
 //   entry sp on return -> exclude [sp-0x800, sp)).
 static void osc_fd10(Core *c) {
@@ -83,21 +82,21 @@ static void osc_fd10(Core *c) {
 // FUN_8007a904 — the engine's PER-FRAME ENTITY-LIST WALK (the native entity manager / object driver).
 // Each frame the engine walks the two live object lists and runs every node's handler. This is the
 // top of the per-object spine: the driver that touches every active game object, so owning it puts the
-// engine — not the recompiled body — in charge of iterating the world's objects (the foundation for
+// engine — not the guest body — in charge of iterating the world's objects (the foundation for
 // PC-owned per-object render classification, issue #4). Pure list traversal; the per-type handlers stay
-// reachable by address via rec_dispatch (each honors its own owned override identically).
+// reachable by address via typed runtime address dispatch (each honors its own owned override identically).
 //
 // RE'd verbatim from disas 0x8007a904 (two identical loops, list0 head 0x800FB168 then list1 head
 // 0x800F2624 — the SAME (head) vars the spawn primitive links into, spawn.cpp LIST_HEAD[0]/[1]):
 //   for (n = *head; n != 0; n = next) {
 //     next        = u32[n + 0x24];   // NEXT captured BEFORE the handler runs (a handler may relink/free n;
-//                                    //   `next` is a callee-saved reg in the recomp body, so it survives)
+//                                    //   `next` is a callee-saved reg in the guest instruction path, so it survives)
 //     handler     = u32[n + 0x1C];   // per-type update/render fn pointer
 //     u8[n + 1]   = 0;               // clear the per-frame render flag (jalr delay slot — before the call)
 //     handler(n);                    // a0 = n
 //   }
 // NB only TWO lists are walked here (list0 then list1); the third pool/list 0x800F2738 is not driven by
-// this function. `walkverify` gate = full main-RAM + scratchpad A/B vs rec_super_call(0x8007a904).
+// this function. `walkverify` gate = full main-RAM + scratchpad A/B vs psx::cpu::callOriginal(0x8007a904).
 static void entity_walk_7a904(Core *c) {
   static const uint32_t HEAD[2] = {0x800FB168u, 0x800F2624u};
   for (int L = 0; L < 2; L++) {
@@ -105,9 +104,12 @@ static void entity_walk_7a904(Core *c) {
     while (n) {
       uint32_t next = c->mem_r32(n + 0x24); // capture next FIRST (handler may unlink/free n)
       uint32_t handler = c->mem_r32(n + 0x1C);
-      c->mem_w8(n + 1, 0);      // clear per-frame render flag (delay slot of the call)
-      c->r[4] = n;              // a0 = node
-      rec_dispatch(c, handler); // run the per-type handler (stays PSX / owned override)
+      c->mem_w8(n + 1, 0); // clear per-frame render flag (delay slot of the call)
+      c->r[4] = n;         // a0 = node
+      psx::cpu::dispatchGuestToReturn0(*c,
+                                       handler,
+                                       psx::cpu::ExecutionBudget::currentTurn(*c),
+                                       __func__); // run the per-type handler (stays PSX / owned override)
       n = next;
     }
   }

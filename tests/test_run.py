@@ -7,6 +7,7 @@ import importlib.util
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -14,11 +15,18 @@ from unittest import mock
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools/run.py"
 REPO = SCRIPT.parents[1]
+LAUNCHER_SCRIPT = REPO / "tools/launcher.py"
 SCRATCH = SCRIPT.parents[1] / "scratch/selftests"
 SPEC = importlib.util.spec_from_file_location("tomba_run", SCRIPT)
 assert SPEC and SPEC.loader
 run = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(run)
+LAUNCHER_SPEC = importlib.util.spec_from_file_location(
+    "tomba_launcher", LAUNCHER_SCRIPT
+)
+assert LAUNCHER_SPEC and LAUNCHER_SPEC.loader
+launcher = importlib.util.module_from_spec(LAUNCHER_SPEC)
+LAUNCHER_SPEC.loader.exec_module(launcher)
 
 
 def temporary_directory() -> tempfile.TemporaryDirectory[str]:
@@ -27,6 +35,45 @@ def temporary_directory() -> tempfile.TemporaryDirectory[str]:
 
 
 class RunLauncherTest(unittest.TestCase):
+    def test_product_selector_preserves_legacy_tomba2_disc_argument(self) -> None:
+        self.assertEqual(launcher.select_product([]), ("tomba2", []))
+        self.assertEqual(
+            launcher.select_product(["legacy-disc.chd"]),
+            ("tomba2", ["legacy-disc.chd"]),
+        )
+        self.assertEqual(
+            launcher.select_product(["tomba1", "first-disc.chd"]),
+            ("tomba1", ["first-disc.chd"]),
+        )
+        self.assertEqual(
+            launcher.select_product(["tomba2", "second-disc.chd"]),
+            ("tomba2", ["second-disc.chd"]),
+        )
+
+    def test_top_level_and_selected_product_help_precede_discovery(self) -> None:
+        environment = {"PATH": "", "PYTHONPATH": ""}
+        cases = (
+            (["-h"], "Products:"),
+            (["--help"], "Products:"),
+            (["tomba1", "-h"], "Tomba! USA"),
+            (["tomba1", "--help"], "Tomba! USA"),
+            (["tomba2", "-h"], "Tomba! 2"),
+            (["tomba2", "--help"], "Tomba! 2"),
+        )
+        for arguments, expected in cases:
+            with self.subTest(arguments=arguments), temporary_directory() as temp:
+                completed = subprocess.run(
+                    [sys.executable, str(REPO / "bootstrap.py"), *arguments],
+                    cwd=temp,
+                    env=environment,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertIn(expected, completed.stdout)
+                self.assertNotIn("[run] error", completed.stderr)
+
     def test_shell_shim_enters_repo_and_uses_frozen_uv_environment(self) -> None:
         with temporary_directory() as temp:
             root = Path(temp)
@@ -164,15 +211,38 @@ class RunLauncherTest(unittest.TestCase):
                 launched.extend([program, argv, env])
                 raise run.LauncherError("exec intercepted")
 
+            def player_environment(_: dict[str, str]) -> dict[str, str]:
+                return {"PSXPORT_VK_WINDOW": "1"}
+
             with (
                 mock.patch.object(run, "require_native_dependencies"),
                 mock.patch.object(run, "run_checked", side_effect=fake_checked),
                 mock.patch.object(run, "command_output", return_value=""),
                 mock.patch.object(run, "exec_program", side_effect=fake_exec),
                 mock.patch.object(run, "processor_count", return_value=8),
-                mock.patch.dict(os.environ, {"CC": "gcc", "CXX": "g++"}, clear=True),
+                mock.patch.object(
+                    run.runpy,
+                    "run_path",
+                    return_value={"player_environment": player_environment},
+                ) as policy_load,
+                mock.patch.dict(
+                    os.environ,
+                    {
+                        "CC": "gcc",
+                        "CXX": "g++",
+                        "PSXPORT_VK_HEADLESS": "1",
+                        "PSXPORT_NOAUDIO": "1",
+                        "PSXPORT_NOPACE": "1",
+                    },
+                    clear=True,
+                ),
             ):
                 self.assertEqual(run.main([], root=root), 1)
+
+            self.assertEqual(
+                policy_load.call_args.args,
+                (str(root / "external/psxport/tools/port/launch_environment.py"),),
+            )
 
             self.assertIn(
                 [
@@ -186,13 +256,20 @@ class RunLauncherTest(unittest.TestCase):
                 ],
                 commands,
             )
-            self.assertEqual(launched[0], "./scratch/bin/tomba2_port")
+            self.assertEqual(launched[0], str(root / "build/bin/tomba2_port"))
             self.assertEqual(
                 launched[1],
-                ["./scratch/bin/tomba2_port", "scratch/bin/tomba2/MAIN.EXE"],
+                [str(root / "build/bin/tomba2_port"), "scratch/bin/tomba2/MAIN.EXE"],
             )
             self.assertEqual(launched[2]["PSXPORT_ASSET_DIR"], "external/psxport")
             self.assertEqual(launched[2]["PSXPORT_TOMBA2_DISC"], "./game.chd")
+            self.assertEqual(launched[2]["PSXPORT_VK_WINDOW"], "1")
+            for agent_key in (
+                "PSXPORT_VK_HEADLESS",
+                "PSXPORT_NOAUDIO",
+                "PSXPORT_NOPACE",
+            ):
+                self.assertNotIn(agent_key, launched[2])
             flattened = [argument for command in commands for argument in command]
             self.assertIn("-DCMAKE_C_COMPILER=gcc", flattened)
             self.assertIn("-DCMAKE_CXX_COMPILER=g++", flattened)
@@ -215,7 +292,7 @@ class RunLauncherTest(unittest.TestCase):
         gcc = run.player_build_dirs(REPO, "gcc", "g++")
         self.assertNotEqual(clang, gcc)
         for build in (*clang, *gcc):
-            self.assertTrue(build.is_relative_to(REPO / "scratch/build/player"))
+            self.assertTrue(build.is_relative_to(REPO / "build/player"))
 
 
 if __name__ == "__main__":

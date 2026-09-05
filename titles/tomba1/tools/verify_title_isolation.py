@@ -18,9 +18,25 @@ REQUIRED = (
     "docs/project-state.md",
     "docs/re-frontier.md",
     "game/app/README.md",
+    "game/app/main.cpp",
     "game/core/README.md",
+    "game/core/cd_native_startup.cpp",
+    "game/core/cd_native_startup.h",
+    "game/core/frame_driver.cpp",
+    "game/core/frame_driver.h",
+    "game/core/native_boot.cpp",
+    "game/core/native_boot.h",
+    "game/core/sync_native.cpp",
+    "game/core/sync_native.h",
+    "game/core/stream_field_turn.cpp",
+    "game/core/stream_field_turn.h",
+    "game/core/tomba1_runtime.cpp",
+    "game/core/tomba1_runtime.h",
     "game/render/README.md",
+    "tests/test_stream_field_turn.cpp",
+    "tools/compare_crt0_boundary.py",
     "tools/verify_executable.py",
+    "tools/provision.py",
 )
 FORBIDDEN_SOURCE_TOKENS = (
     '"tomba_runtime.h"',
@@ -29,7 +45,9 @@ FORBIDDEN_SOURCE_TOKENS = (
     '"effect_lerp.h"',
     "game_tomba2",
     "TombaRuntime",
+    "TombaFrameDriver",
     "tomba::",
+    "0x80085900",
 )
 FORBIDDEN_CAPABILITY_TOKENS = (
     "60fps",
@@ -54,6 +72,10 @@ def scope_is_widescreen_only(scope: object) -> bool:
     return scope == EXPECTED_SCOPE
 
 
+def source_is_checked(path: pathlib.Path) -> bool:
+    return path.suffix.lower() in SOURCE_SUFFIXES
+
+
 def run_selftest() -> int:
     checks = (
         (
@@ -72,6 +94,10 @@ def run_selftest() -> int:
         (
             "lerp source spelling is rejected",
             excluded_capability_tokens("void lerp_camera();") == ["lerp"],
+        ),
+        (
+            "non-source runtime input is excluded from authored-source limits",
+            not source_is_checked(TITLE_ROOT / "runtime-images/SCUS_942.36"),
         ),
     )
     failures = [label for label, passed in checks if not passed]
@@ -93,9 +119,7 @@ def check_title() -> int:
             failures.append(f"missing required title owner: {relative}")
 
     sources = sorted(
-        path
-        for path in TITLE_ROOT.rglob("*")
-        if path.is_file() and path.suffix.lower() in SOURCE_SUFFIXES
+        path for path in TITLE_ROOT.rglob("*") if path.is_file() and source_is_checked(path)
     )
     for path in sources:
         relative = path.relative_to(TITLE_ROOT)
@@ -124,6 +148,18 @@ def check_title() -> int:
             failures.append(
                 f"cmake/tomba1_port.cmake references cross-title path {token!r}"
             )
+
+    application = (TITLE_ROOT / "game/app/main.cpp").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    for required in (
+        "cfg_str(kDiscEnvironmentKey)",
+        "core->runtime->registerOverrides(*game)",
+        "shell.prepareProduct(*game)",
+        "shell.step(*core, frame)",
+    ):
+        if required not in application:
+            failures.append(f"game/app/main.cpp omits product-loop contract {required!r}")
 
     try:
         scope = json.loads(

@@ -18,11 +18,11 @@ float proj_obj_center_ord(void);
 // g_dbg_render_node retired 2026-07-02 — per-Core Render::mDbgRenderNode (set around each per-object
 // dispatch in the native render walk; PER-INSTANCE identity for every prim an object emits, incl.
 // billboards rasterized later at the OT walk).
-#include "game.h"         // c->game->oracle
+#include "game.h"
 #include "render.h"       // Render (needed for cur_render_node below)
 #include "render_queue.h" // RenderQueue::emitOrQueue + RQ_WORLD
 
-// cur_render_node moved to the framework header runtime/recomp/render_node.h (ot_attr.cpp, framework,
+// cur_render_node moved to the framework header runtime/psx/render_node.h (ot_attr.cpp, framework,
 // needs it without the rest of this game header). Included here so the game render path is unchanged.
 #include "render_node.h"
 #include "scene_kind.h"
@@ -69,9 +69,6 @@ inline const char *field_native_off_name(int r) {
 }
 
 static inline int render_field_native_reason(Core *c) {
-  if (c->game->oracle) {
-    return FN_ORACLE;
-  }
   if (c->rsub.mode.psxRender()) {
     return FN_PSXRENDER;
   }

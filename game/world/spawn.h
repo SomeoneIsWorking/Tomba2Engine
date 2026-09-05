@@ -33,13 +33,13 @@ public:
   uint32_t dispatch(uint32_t cls, uint32_t type, uint32_t list);
 
   // despawn(node): FUN_8007A624 — unlink node from its live list and return it to the free pool. The
-  //   live-wiring entry the per-object AI behavior handlers use in place of `rec_dispatch(c,
+  //   live-wiring entry the per-object AI behavior handlers use in place of `typed runtime address dispatch(c,
   //   0x8007A624u)` where their control flow is already native (PC calls PC for what it owns).
   void despawn(uint32_t node);
 
   // spawnAndInit(a0, posSrc, a2): FUN_8003116C — pool-0 spawn (cls=0/type=6/list=1) + optional
   //   position seed from `posSrc` + heading `a2`, then a PSX per-object init (FUN_80028E10) run via
-  //   rec_dispatch. Returns node ptr (0 on pool-empty).
+  //   typed runtime address dispatch. Returns node ptr (0 on pool-empty).
   uint32_t spawnAndInit(uint32_t a0, uint32_t posSrc, uint32_t a2);
 
   // sceneEntity(sceneId, subtype): FUN_8007E110 — allocate a SCENE-ENTITY node (class-3 tail-insert
@@ -47,7 +47,7 @@ public:
   //   (0x8007DDE0), and initialise the node's data-table pointers from *(u32)0x800ECF60 (the field
   //   scene-entity data table). Returns node ptr on success or 0 on pool exhaustion (the caller
   //   stashes the return in Actor::sceneHandle (obj+0x14) and treats nonzero as "spawned"). The
-  //   per-frame handler FUN_8007DDE0 stays reachable via its stored address (recomp substrate).
+  //   per-frame handler FUN_8007DDE0 stays reachable via its stored address (guest instruction path substrate).
   uint32_t sceneEntity(uint16_t sceneId, uint8_t subtype);
 
   // dropScoreGem(sourceNode, value): FUN_8004B3F4 — thin wrapper around the score-gem spawner
@@ -57,9 +57,9 @@ public:
   //   at the 5000-point boundary), and plays SFX 0x11 (the gem-pickup jingle via Sfx::trigger).
   //   The callee stays as substrate (gem spawner + SFX cluster). Used only by the item-drop
   //   dispatcher `beh_visibility_gate_dispatch` node[3] cases 4..11 — the 8 AP-gem denominations
-  //   100/200/500/1000/5000/10000/20000/100000. Return is always 1 (recomp `addiu v0, zero, 1`).
+  //   100/200/500/1000/5000/10000/20000/100000. Return is always 1 (guest instruction path `addiu v0, zero, 1`).
   //   NOTE: FUN_80071B44 has a param_3 branch that would double-bump 0x800BF874 when param_3==1,
-  //   but every callsite here (and the recomp wrapper itself) passes param_3=0, so the second
+  //   but every callsite here (and the guest instruction path wrapper itself) passes param_3=0, so the second
   //   bump is dormant — replicate the wrapper's single unconditional bump.
   void dropScoreGem(uint32_t sourceNode, int32_t value);
 
@@ -107,9 +107,9 @@ public:
   //   READY-FRAME leaf (frame=32, spills ra/s1/s0). Wired via registerTypedChildOverrides().
   uint32_t spawnEffectChild(uint32_t owner, uint32_t sub); // FUN_80031558
 
-  // Wire the 4 typed-child spawners above into the override registry (overrides::install) at their
-  // guest addresses so substrate/native rec_dispatch callers (beh_box_seed_phase_gate,
-  // beh_single_child_cull) reach the native bodies instead of the recompiled ones. Called once at
+  // Wire the 4 typed-child spawners above into the override registry (tomba::native::declareOverride) at their
+  // guest addresses so substrate/native typed runtime address dispatch callers (beh_box_seed_phase_gate,
+  // beh_single_child_cull) reach the native bodies instead of the guest ones. Called once at
   // boot (boot.cpp).
   void registerTypedChildOverrides();
 

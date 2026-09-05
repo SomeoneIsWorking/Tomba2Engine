@@ -22,11 +22,10 @@ public:
   void identity(uint32_t addr);
 
   // Wire 0x80051794 into the ONE override registry, WITH the main-module setter — this leaf has ~22
-  // direct `func_80051794(c)` call sites spread across every shard as well as rec_dispatch ones, and
-  // only the setter covers the direct half. Until 2026-07-29 the native above existed but was never
-  // installed, so it served native callers only while the substrate kept running the recompiled body
-  // 27,594 times per 6000 replay frames — the #3 entry on the recdep histogram, and pure duplication
-  // rather than missing work.
+  // direct `guest 0x80051794(c)` call sites spread across every shard as well as typed runtime address dispatch ones,
+  // and only the setter covers the direct half. Until 2026-07-29 the native above existed but was never installed, so
+  // it served native callers only while the substrate kept running the guest body 27,594 times per 6000 replay frames —
+  // the #3 entry on the recdep histogram, and pure duplication rather than missing work.
   //
   // Safe to wire where Trig::registerOverrides deliberately is NOT: abi_extract reports frame_size 0
   // for this address, so there is no guest stack frame for the native to fail to mirror, which is

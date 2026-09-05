@@ -6,7 +6,8 @@ This exists because driving the game keeps getting re-figured-out. Pairs with `t
 
 ## ⭐ REACHING REAL FREE-ROAM GAMEPLAY HEADLESS — `PSXPORT_AUTO_SKIP=1` (read this; it keeps getting lost)
 **`PSXPORT_AUTO_SKIP=1` now drives all the way into the real, player-CONTROLLABLE free-roam field** —
-implemented as a self-contained auto-drive state machine in `runtime/recomp/native_boot.cpp` (later-240).
+implemented by the title-owned `game/core/auto_drive.*` state machine composed into
+`TombaFrameDriver`; psxport only repeats the finite frame transaction and owns generic budgets.
 It: (0) taps **Cross** until task0 enters the GAME stage (`stage=0x8010637C`); (1) waits for the post-NewGame
 **intro cutscene** to start (cutscene-active flag `*(0x1F800137)` → 1); (2) pulses **Start** to SKIP the
 cutscene (it does NOT end on its own — Start ends it) until the flag clears, then settles ~2s through the
@@ -244,7 +245,10 @@ held direction is what gameplay reads for movement.
 ## 2. Scripted (deterministic, headless) — env flags
 - **`PSXPORT_AUTO_SKIP=1`** — THE way to reach real free-roam gameplay headless. Drives title → NewGame
   (Cross) → GAME stage → SKIPS the intro cutscene (Start, keyed on the cutscene flag `*(0x1F800137)`) → hands
-  off in the controllable field. See the ⭐ callout at the top for the full recipe + verification.
+  off in the controllable field. `game/core/auto_drive.*`, composed by `TombaFrameDriver`, owns this
+  Tomba-specific stage/cutscene interpretation and the REPL `newgame` / `skip` requests. The shared
+  psxport loop only owns the generic frame budget and prompt transport. See the ⭐ callout at the top
+  for the full recipe + verification.
 - ~~`PSXPORT_AUTO_NEWGAME`~~ / ~~`PSXPORT_AUTO_GAMEPLAY`~~ — **DEAD** (read by no code; referenced only in
   stale docs). A no-input run sits in the attract DEMO, never the GAME field. Use `PSXPORT_AUTO_SKIP=1`.
 - **`PSXPORT_FORCE_BUTTONS=<hex>`** — pulse a mask (8 frames on / 24 off, = edges) from frame 0.
@@ -254,7 +258,7 @@ held direction is what gameplay reads for movement.
   Example — press Start once at ~f760: `PSXPORT_FORCE_HOLD=FFF7 FORCE_HOLD_AT=760 FORCE_STOP_AT=768`.
   NOTE the FORCE frame counter is the pad-service frame `s_fc`, which may differ slightly from the present
   frame used by `PSXPORT_VK_SHOTSEQ`.
-- **`PSXPORT_SBS_AUTONAV=combat`** (SBS-only, `runtime/recomp/sbs.cpp`) — after the standard
+- **`PSXPORT_SBS_AUTONAV=combat`** (SBS-only, `runtime/psx/sbs.cpp`) — after the standard
   `SBS_AUTONAV` Nav machine reaches player control, holds Right and fires a jump edge every 60
   frames from frame 300 onward: walks Tomba out of the seaside spawn past the first
   `ActorZonedAttacker` encounter into the melee-cluster zone (`ActorMeleeEngage::doIt`/
@@ -313,7 +317,7 @@ Launch with `PSXPORT_DEBUG_SERVER=1` (port 5959) **and a high `PSXPORT_NATIVE_FR
 
 ### RE commands (later-134) — inspect/poke/call live, no recompile-a-probe loop
 - `w8 A V` / `w16 A V` / `w32 A V` — poke a byte/half/word into guest RAM (hex addr + value).
-- `call A [a0 a1 a2 a3]` — run the guest function at A on the live CPU context (rec_dispatch), report
+- `call A [a0 a1 a2 a3]` — run the guest function at A on the live CPU context (typed runtime address dispatch), report
   `v0`/`v1`. SIDE EFFECTS ARE REAL (runs at the frame boundary). E.g. `call 80051c8c <node>` builds an
   object's transform; `call 80051b04 <cmd> <group> <sub>` exercises the geomblk leaf.
 - `ents` — walk BOTH entity lists (heads 0x800fb168 / 0x800f2624): per node `addr type pos handler
@@ -360,6 +364,11 @@ idle field — static, A==B — cannot exercise).
   +AUTO_JUMP, 0 menu tasks ever spawn and no new task appears after f178 (s0 = the GAME stage 0x8010637C runs
   throughout). The old `nav` probe read `task+0x6B` off the WRONG task (the scheduler's current-task pointer,
   not the menu task), so its "pausePage" / "Cross opens a menu" readings were garbage. **Cross is just JUMP.**
+- **Frame diagnostics are title-owned.** `game/core/frame_diagnostics.*`, called after the completed
+  Tomba frame transaction, owns `state`, `cam`, `seq`, `schedf`, and `stream` because those channels
+  interpret Tomba task slots, camera fields, libsnd slots, and stream globals. `PSXPORT_BGMDBG=1`
+  enables the same owner's per-slot BGM read-pointer progress probe. `PSXPORT_SEQDBG` is retired; use
+  `PSXPORT_DEBUG=seq`. Generic debug-server transport remains in psxport.
 - **Movement geometry (seaside start area):** purely HORIZONTAL — Up/Down move nothing (cam Z stays 2352);
   Left/Right hit hard walls at cam-X ≈ 3991 / 5330. The hut has a visible door but a barrel blocks Tomba at
   the right wall BEFORE the door, so "walk right then Up" does not enter it.

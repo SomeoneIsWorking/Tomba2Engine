@@ -2,200 +2,281 @@
 
 ## Comparison baseline
 
-The baseline is the unmodified PlayStation releases of *Tomba!* and *Tomba! 2* running on original
-hardware or through a PS1 emulator, with console execution, 4:3 framing, and original presentation
-cadence. Tomba Engine intends native game-engine ownership for both titles; Tomba! 2 additionally
-targets true widescreen and interpolated presentation, while Tomba! 1 intentionally adds widescreen
-only.
+The external baseline is the unmodified PlayStation releases of *Tomba!* and *Tomba! 2* on original
+hardware or a trusted emulator. The immediate migration baseline is this repository's pre-migration
+native/offline-translated hybrid, whose remaining guest code was emitted offline and compiled into each product.
+The intended products retain title-native ownership while replacing that generated execution with
+runtime translation by `psxport` Lightrec.
 
-This is the factual capability inventory for both titles in this repository. It does not infer one
-title's coverage from the other. Epic intent is in `project-goals.md`, atomic work in `issues/`, and
-ownership/placement in `codemap.md`.
+This inventory covers both titles without inferring one title's state from the other. Epic intent is
+in `project-goals.md`, migration order in `migration.md`, atomic work in `issues/`, and placement
+in `codemap.md`.
 
 | ID | Capability / observable outcome | State | Dependencies | Goals |
 |---|---|---|---|---|
-| S001 | Default Tomba! 2 product reaches a usable PC-native game | partial | — | G001 |
+| S001 | Tomba! 2 reaches representative gameplay as a native/Lightrec product | blocked | — | G001 |
 | S002 | Tomba! 2 behavior is independently compared against the original | partial | S001 | G001 |
 | S003 | Tomba! 2 game behavior is owned by readable native subsystems | partial | S001, S002 | G001 |
 | S004 | Tomba! 2 picture is produced completely from game-owned scene state | partial | S001, S003 | G002 |
 | S005 | Tomba! 2 true widescreen covers world visibility and 2D layout | partial | S004 | G002 |
 | S006 | Tomba! 2 interpolation covers moving camera, objects, and effects | partial | S004 | G002 |
 | S007 | Tomba! 2 accepts native player input through representative gameplay | partial | S001, S003 | G001 |
-| S008 | Tomba! 1 selected executable and disc provenance are established | partial | — | G003 |
-| S009 | Tomba! 1 evidence scaffold is integrated in the combined Clang build | verified | S008 | G003 |
-| S010 | Tomba! 1 actual product boots, renders, accepts input, and reaches gameplay | missing | S008, S009 | G003 |
+| S008 | Tomba! 1 selected executable and disc provenance are established | verified | — | G003 |
+| S009 | Tomba! 1 identity, isolation, and independent startup evidence exist | verified | S008 | G003 |
+| S010 | Tomba! 1 reaches representative gameplay as a native/Lightrec product | missing | S008, S009 | G003 |
 | S011 | Tomba! 1 true widescreen works in the actual product | missing | S010 | G004 |
 | S012 | Tomba! 1 and Tomba! 2 game-engine implementations are isolated | verified | — | G003 |
 | S013 | Tomba! 1 exposes widescreen only and no unrelated enhancement modes | verified | S012 | G004 |
 | S014 | Tomba! 2 sound effects and music work throughout the game | partial | S001, S003 | G001 |
 | S015 | Tomba! 2 saves, reloads, and survives a full restart | partial | S001, S003 | G001 |
-| S016 | Tomba! 2 movies play correctly on the native path | partial | S001, S003 | G001 |
+| S016 | Tomba! 2 movies play correctly | partial | S001, S003 | G001 |
 | S017 | Tomba! 2 area and scene transitions work throughout the game | partial | S001, S003 | G001 |
+| S018 | Both titles have removed their offline guest-source product paths | verified | — | G001, G003 |
+| S019 | Linux x86-64 asset-free native/Lightrec CI builds and tests the repository | partial | — | G001, G003 |
+| S020 | Windows x86-64 native/Lightrec CI builds and tests the repository | missing | — | G001, G003 |
+| S021 | macOS x86-64 and arm64 native/Lightrec CI builds and tests the repository | missing | — | G001, G003 |
+| S022 | Android arm64-v8a native/Lightrec CI assembles and tests the repository | missing | — | G001, G003 |
 
 ## Current focus
 
-S005 is the current focus: the exact combined product now reaches live 16:9 gameplay and the
-title-specific compositor fills the added side canvas without changing the authored central picture.
-Matched 4:3/wide controls and representative scene, culling, and HUD-anchor coverage remain.
+S001 is the current focus. The break-first removal is complete and the shared per-`Core` Lightrec
+executor is pinned at psxport `eb5f23a8b3506f8853b3cfadcedc024cd90818a0`. Issue 0005 must now
+prove one resident and one colliding-overlay override plus scoped original calls through the shipping
+dispatcher. Tomba! 2 then regains its recorded free-roam frontier and passes representative gameplay.
+Tomba! 1 remains deferred until that complete gate. Issue 0006's supported-syscall
+continuation is resolved: the real-image product crosses native initialization
+and completes its first native frame at the DEMO stage.
+Issue 0007 now blocks the second native frame at the GPU queue call boundary.
 
 ## Capability details
 
-### S001 — Default Tomba! 2 product: partial
+### S001 — Tomba! 2 native/Lightrec product: blocked
 
-The repository has a shipping `tomba2_port` target and a zero-argument launcher for the intended
-PC-native execution/render route. On exact psxport `99a42aa3`, the actual headless product loaded the
-retail executable and disc, traversed the title, entered live gameplay, committed 620/620 frame
-ledgers with zero dropped layers, captured frames 400 and 600, and exited at its requested native
-frame bound. This is direct combined-product evidence, not a focused selftest.
+Recorded pre-migration evidence establishes a real target frontier: GAME at frame 25, free-roam at
+frame 216, 620/620 presentation fences, coherent native-render captures, and a fatal guest-VSync
+boundary at `0x80085900`. The title-owned `TombaFrameDriver` composes input, timing/event delivery,
+game tasks, render submission, diagnostics, and exactly one presentation fence.
 
-The current source moves that previously framework-shaped transaction into
-`TombaFrameDriver::stepFrame`: the runtime creates it before boot, `bootInit` is finite, and the driver
-owns the measured input, timing, scheduler, render-submit, and single presentation-fence order. The
-measured Tomba! 2 libetc entry `0x80085900` remains a fatal guest-VSync trap; the product gate rejects
-both `VSync: timeout` and the trap diagnostic. A fresh Clang build of this exact source completed a
-bounded 620-frame native run, entered GAME at frame 25 and free-roam at frame 216, reconciled 620/620
-presentation fences with zero dropped layers, captured visibly coherent full-width frames 400 and 600,
-and exited normally without a guest-VSync violation, timeout, or recomp miss. The captured PPM
-SHA-256 values are `7c4a8cf1f04a0e7744054e37c896f013bef2c92a2e389d24cf7fd57808d1b4d6`
-and `bdf99b753ffb57ec6c2f0764a05a8e4b141263b696039e1982f7b08f71aa21df`. Evidence:
-`scratch/logs/tomba2-extracted-autoskip.log` and `scratch/screenshots/present_{400,600}.ppm`.
+Missing capability: prove that all remaining guest instructions route through the shared Lightrec
+executor with nonzero translated execution, image-generation invalidation, a resident native/original
+call, and a colliding-overlay native/original call. Existing binary evidence identifies `0x801113B4`
+in A03 and A0B with different entry shapes. Then reach the recorded frontier and pass representative
+interactive gameplay with no guest instructions at source or interpreter-first gameplay selector.
+Bounded fallback telemetry must name each reason, remain below the declared threshold, and be excluded
+from gameplay-conformance and performance evidence.
+Issue 0005 is the first discriminator.
+Resident declarations are now restricted to the explicit resident token and text
+range captured at the two boot-load boundaries. Exact-content authentication and
+overlay-specific activation/binding remain missing; a generation token is not an
+authenticated title identity.
 
-Gap: this run used the documented direct product command rather than the zero-argument launcher, and
-it did not exercise representative input, audio, saving, transitions, or restart.
+Observed startup: issue 0006 records the supported-syscall fix and a clean
+real-image one-frame run through the boot prefix, START.BIN load, and DEMO stage.
+After the complete generated-body removal, its normal-exit shared telemetry
+reports 174 executor calls, 18,012 executed blocks and 128,794 executed
+instructions, with zero fallback blocks/instructions
+and zero entries for every reported fallback/refusal reason. The declared bound
+is one fallback block per execution. This report does not expose translated-block
+creation, cache-hit/miss, or invalidation totals, so those remain unmeasured.
+This checkpoint does not establish gameplay conformance. Issue 0007 records the
+Blocker: the second frame exhausts its guest-call budget inside native
+`gpuDmaQueueSync`, at reported guest PC `0x80044E54`.
 
 ### S002 — Independent Tomba! 2 comparison: partial
 
-The byte-exact SBS mechanism compares native and recompiled cores and its canary demonstrates that it
-can report a mismatch.
+The old same-project byte comparator could detect a forced difference but was not an independent
+oracle. Issue 0004 also records that the advertised dual-view PSX pane is refused because the shared
+SDL_GPU backend does not yet own multiple targets.
 
-The separate `PSXPORT_DUALVIEW` presentation diagnostic is currently refused by `TombaRuntime`.
-Issue #4 records why: the shared SDL_GPU backend's `gpu_vk_select_target` is a no-op and
-`gpu_vk_target_count` always returns zero, so the previously advertised right-hand PSX pane did not
-exist. A 300-frame live run proved the title's rewind/re-render transaction itself did not crash, but
-its screenshot remained only the native target; that is not side-by-side evidence. The current
-product exits 1 before its frame loop with that exact backend reason; the bounded refusal is recorded
-in `scratch/logs/tomba2-extracted-dualview-refusal.log`.
-
-Gap: both cores derive from this project. The planned independent Beetle reference, BIOS/HLE state
-reconciliation, representative full-game comparisons, and shared-backend dual-target implementation
-are incomplete.
+Gap: compare the Lightrec product's relevant state and devices against a trusted emulator, hardware,
+binary evidence, or a diagnostic interpreter run across representative gameplay. A green
+same-implementation comparison or a boot-only result is insufficient.
 
 ### S003 — Native Tomba! 2 behavior ownership: partial
 
-The root `game/` tree owns substantial engine, world, player, scene, UI, audio, and render behavior;
-`docs/code-map.md` indexes address-level owners and `docs/port-map.md` records the RE frontier.
-The title-local `TombaFrameDriver` now owns the whole per-frame game transaction through the runtime's
-polymorphic factory instead of depending on a Tomba-shaped framework loop. Its composed `AutoDrive`
-and `FrameDiagnostics` objects also own the stage/cutscene-aware input policy and every Tomba guest-
-layout frame probe; psxport retains only generic iteration, budgets, replay/debug transport, dumps,
-and result accounting. A bounded real REPL run reached GAME on frame 25, requested the next prompt
-from the title driver after that completed transition frame, resumed the generic prompt at frame 26,
-then completed 326/326 presentation fences with zero dropped layers. Evidence:
-`scratch/logs/tomba2-extracted-newgame.log`.
+The root `game/` tree owns substantial engine, world, player, scene, UI, audio, render, input, and
+finite-frame behavior. Address and behavioral evidence remains in `docs/code-map.md`,
+`docs/port-map.md`, `docs/findings/`, and `docs/info/`.
 
-Gap: substrate functions and known unowned behavior remain; complete native engine ownership and an
-independent behavior proof have not been reached.
+The provenance audit removed 24 generated-output C++ files and the remaining
+generated-only methods in mixed actor, collision, and substate owners. Renaming
+register transcripts had not made them independent native implementations.
+Their registrations are absent; remaining native callers enter shared guest
+dispatch. Independently authored render/game owners remain, including the typed
+child-oscillator loop and terrain-snap implementation. The source verifier guards
+the exact audited output paths and removed-owner entry points.
+
+Gap: known unowned game behavior remains. Native ownership grows through readable title subsystems
+and image-aware runtime overrides; missing ownership is executed by Lightrec, not by emitted guest
+functions.
 
 ### S004 — Tomba! 2 game-state picture: partial
 
-The native renderer and many scene/UI/effect producers draw from owned game state. The current
-`FUN_8013ED08` and `FUN_80078988` milestones add a rigid effect mesh and icon-glyph picture owner.
-`TombaRuntime::renderCapabilities()` explicitly returns
-`RenderCapabilities::interpolatedNative()`, retaining the title's native player path and temporal
-presentation while the remaining legacy callbacks migrate independently.
+The native renderer and many scene/UI/effect producers draw from owned game state. A recorded
+620-frame run attributed 552,424 primitives across 13 re-earned native producer rows while leaving
+4,589 undeclared native primitives.
 
-The exact 620-frame run visually reached both title and gameplay through the Native route. Its run-end
-ledger attributed 552,424 primitives to native producers across 13 re-earned rows, with 4,589
-undeclared native primitives remaining.
-
-Gap: `docs/unported-render-inventory.md` still records missing effect-mesh controllers and other
-unverified layers, and the undeclared primitives prove producer attribution is incomplete.
+Gap: `docs/unported-render-inventory.md` still records missing or unverified layers. Re-establish
+the renderer on the Lightrec product and complete producer attribution without reading the picture
+back from GTE, ordering-table, or GP0 output.
 
 ### S005 — Tomba! 2 widescreen: partial
 
-Owned projection, camera, culling-margin, backdrop, terrain, and 2D queue paths contain wide behavior.
-The exact controlled `aspect=1` run produced a 960-pixel-wide gameplay picture at frame 600 with
-additional world content across the full output width. The title-specific wide compositor now fills
-frame 400's added side canvas with dim mirrored edge continuations while preserving the original
-718x520 central picture pixel-for-pixel. A seam-corrected real-product run completed 620/620 native
-frame fences, emitted 900 `pc/title-wide-margins` primitives across 450 title frames, and left the
-frame-600 gameplay control pixel-identical.
+Recorded controlled runs produced a 960-pixel-wide gameplay picture with additional world content.
+The title compositor preserves the authored central title picture while filling the side
+canvas, and issue 0003 records its focused evidence.
 
-Gap: issue #3's implementation is verified but not landed. Matched 4:3/wide controls and representative
-scene, edge-visibility, culling, and HUD-anchor coverage remain incomplete.
+Gap: matched 4:3/wide controls plus representative scene, culling,
+edge-visibility, and HUD-anchor coverage remain. These gates must ultimately run on the Lightrec
+product.
 
 ### S006 — Tomba! 2 interpolation: partial
 
-The Fps60/EffectLerp presentation owners capture and interpolate camera, object, backdrop, and effect
-state through native presentation passes. The exact product loaded `fps60=1`, completed its 620-frame
-loop, and presented coherent inspected title/gameplay frames without dropping a ledger layer.
+The title owns prior/current camera, object, backdrop, and effect presentation state. Recorded still
+captures show coherent output, but still images do not prove temporal smoothness.
 
-Gap: two still images cannot prove temporal smoothness. The unported-render inventory and
-producer-specific notes still name stepped, snapped, cold, or unverified layers; complete
-representative temporal coverage is not established.
+Gap: representative moving-camera, object, and effect cadence remains unverified, including every
+layer still named stepped, snapped, cold, or unverified in the render inventory. Final proof belongs
+to the Lightrec product.
 
 ### S007 — Tomba! 2 input: partial
 
-The native input subsystem exists and focused or replay evidence reaches controlled game flow.
+The native input subsystem and deterministic replay/control surfaces exist and can reach controlled
+game flow.
 
-Gap: an observed end-to-end run of the current default product through representative player-driven
-gameplay is absent.
+Gap: no current native/Lightrec product run demonstrates player-driven representative gameplay.
 
-### S008 — Tomba! 1 executable/disc provenance: partial
+### S008 — Tomba! 1 executable/disc provenance: verified
 
-`titles/tomba1/executable.json` and its verifier establish 15 whole-file and PS-X header facts for a
-measured `SCUS_942.36`, including an altered-byte negative control.
+Evidence: C001–C003 and I001–I002 establish the measured `SCUS_942.36`: 559,104 bytes, SHA-1
+`81cbc79f0230aeb4252e058039f47ac95a777f5a`, PS-X entry `0x8006B58C`, text
+`[0x80010000,0x80098000)`, and selected-disc `SYSTEM.CNF` agreement before publication.
+The altered-byte and malformed/wrong-disc cases produce the opposite answer.
 
-Gap: issue 1 records the missing selected-disc `SYSTEM.CNF` proof and reproducible extraction path.
+### S009 — Tomba! 1 identity/isolation/startup evidence: verified
 
-### S009 — Tomba! 1 combined evidence scaffold: verified
+Evidence: the title-local checks establish executable identity, disc selection, engine isolation, and a
+deterministic 35-field CRT0 boundary with forced-mismatch and too-short negatives. The recorded
+startup facts include BSS `[0x8009AFB0,0x800A3348)`, SP `0x801FFFF8`, heap base
+`0x800A3348`, heap size `0x15C8B0`, gp `0x80097FA8`, first `A(39h)` wrapper
+`0x8006B70C`, and game main `0x800163B0`.
 
-Evidence: the repository root includes `titles/tomba1/cmake/tomba1_port.cmake`; its scaffold depends
-on the real shared `psxport` library, and the combined Clang CTest graph runs the title identity
-selftest plus positive/negative isolation checks without publishing a product executable.
+### S010 — Tomba! 1 native/Lightrec product: missing
 
-### S010 — Tomba! 1 product: missing
+Recorded pre-migration execution reaches visible SCEA and Whoopee Camp presentation, advances past
+the resolved DMA3 callback loss beyond LBA 58739, and preserves title-local native frame, CD, DMA,
+and projection owners. The next known boundary is issue 0006: public `CdSync` `0x800648C8`
+forwards to internal `0x80065470`, whose timeout reaches fatal guest VSync with return address
+`0x800654A4`. DMA registration `0x80067E84` installs callback `0x80066D80`.
 
-Missing capability: no generated substrate, independent execution boundary, `tomba1_port` target,
-launcher, visible product frame, or input-driven gameplay exists.
+Missing capability: after Tomba! 2 completes, reproduce the 35-field boundary through Lightrec,
+route the six engine-neutral overrides and scoped originals by complete image identity, cross the
+recorded CD/movie boundary, reach the title screen, demonstrate input, and pass representative
+interactive gameplay with no guest instructions at source or interpreter-first gameplay selector. Automatic
+fallback must be bounded, reason-counted, and below the declared threshold; its coverage is excluded
+from conformance and performance evidence.
 
 ### S011 — Tomba! 1 widescreen: missing
 
-Missing capability: no executable-grounded projection, visibility-culling, edge-coverage, or 2D
-layout owner has been recovered or exercised in a running Tomba! 1 product.
+Grounded projection facts are preserved: initialization publishes centre `(160,112)`, `H=544`,
+and 320x224 display rectangles; only one later resident caller reasserts `H`.
+
+Missing capability: after the Lightrec gameplay gate, identify visibility, wide draw-buffer, and 2D
+layout owners and prove additional correctly projected content with controlled 4:3 comparison.
 
 ### S012 — Cross-title engine isolation: verified
 
-Evidence: the Tomba! 1 fragment compiles no root `game/` or `generated/` source, its required owners
-live under `titles/tomba1/`, and `verify_title_isolation.py` enforces the cross-title include/token and
-1,200-line structure boundaries with positive and negative controls.
+Evidence: Tomba! 1 owners live below `titles/tomba1/`; its composition imports no root `game/`
+source; the isolation checker rejects cross-title includes/tokens and source files above the
+1,200-line structural boundary with positive and negative controls.
 
 ### S013 — Tomba! 1 widescreen-only scope: verified
 
-Evidence: `titles/tomba1/enhancement_scope.json` contains only `{"widescreen": true}`; the same
-shipping isolation checker rejects any additional mode and source/CMake registrations for
-interpolation, temporal history, native rendering, or 60fps.
+Evidence: `titles/tomba1/enhancement_scope.json` contains only `{"widescreen": true}`; the title
+surface rejects interpolation, temporal history, native rendering, native producers/depth, and 60fps
+options.
 
 ### S014 — Tomba! 2 audio: partial
 
-The native audio and CD/XA subsystems exist and have focused evidence.
+Native audio and CD/XA owners exist with focused evidence.
 
-Gap: sound effects and music have not been observed across representative full-game progression.
+Gap: sound effects and music have not been observed throughout representative gameplay on the
+Lightrec product.
 
 ### S015 — Tomba! 2 saves and restart: partial
 
 Save and menu owners exist in the native engine.
 
-Gap: no current shipping-product run proves save, process restart, and successful reload end to end.
+Gap: no native/Lightrec product run proves save, process restart, and successful reload end to end.
 
 ### S016 — Tomba! 2 movies: partial
 
-FMV and CD owners exist and have focused coverage.
+FMV and CD owners exist with focused pre-migration coverage.
 
-Gap: representative movies have not been observed through the current default native product.
+Gap: representative movies have not been observed through the native/Lightrec product.
 
 ### S017 — Tomba! 2 transitions: partial
 
-Scene and transition subsystems exist and reached flow includes title-to-gameplay transitions.
+Scene and transition owners exist, and recorded flow includes title-to-gameplay transition.
 
-Gap: representative area and scene transitions across the full game remain unverified.
+Gap: representative area and scene transitions across the game remain unverified on the
+native/Lightrec product.
+
+### S018 — Guest-source-path retirement: verified
+
+Evidence: both emitted guest-source trees are absent; the root and Tomba! 1 generator entry points,
+emission-only seeds, offline registries, guest-source CMake manifests, and generation-only
+selftests were removed together. Both launchers provision user-supplied executable/overlay inputs
+without emitting guest source, and both CMake graphs build native/Lightrec product executables.
+Tomba! 2 currently validates input sizes only; exact-content authentication remains missing in
+issue 0005 and is not implied by successful provisioning or runtime image-generation binding.
+Representative gameplay through Lightrec remains unverified. The only permitted alternate execution
+is the shared bounded automatic fallback described in `migration.md`.
+
+### S019 — Linux x86-64 CI: partial
+
+The asset-free workflow checks out full history without persisted credentials, restores exact
+psxport and Lightrec revisions, configures with Clang and Ninja, builds the native product and test
+targets, and runs the repository CTest gate. It has an explicit timeout and needs no game assets.
+
+Local evidence: clean checkouts of psxport `eb5f23a8b3506f8853b3cfadcedc024cd90818a0`
+and Lightrec `b1457137c31cedff5f440d59da29401d021ba2da` configure with Clang and Ninja;
+both title products link. The canonical Python
+entry point consumes PSXPort's shared consumer verifier and its linked-product
+execution-boundary discriminator. CI builds the pinned maintained GNU lightning
+revision instead of relying on an unqualified system library.
+The final combined local gate passes 21/21 CTests, including the production native
+catalog's stale-image, rebind, and scoped-original-call regression. C++ policy
+checks 395 first-party files and clang-tidy checks all 254 compile-backed C++
+translation units. Both linked products pass the execution-boundary discriminator;
+these asset-free checks do not qualify either title's gameplay.
+The combined gate includes the resident-token restriction and generated-body
+removal. The production catalog test checks an unrelated image colliding at the
+same address; the retired-boundary selftest rejects exact audited output paths
+and removed registrations without treating historical evidence as executable code.
+
+Gap: the workflow has not yet completed successfully on a hosted Linux runner at this revision.
+
+### S020 — Windows x86-64 CI: missing
+
+Required capability: a hosted Windows x86-64 job that builds and tests the real native/dynarec product.
+
+No Windows product composition or hosted build exists. The current CMake graph and psxport
+presentation dependencies have not been qualified for Windows, so a source-only policy job would not
+be Windows product evidence.
+
+### S021 — macOS desktop CI: missing
+
+Required capability: hosted x86-64 and Apple Silicon jobs that exercise the real native/dynarec product.
+
+No hosted macOS x86-64 or Apple Silicon product build exists. In particular, executable-memory
+publication, instruction-cache coherence, ABI transitions, SDL presentation, and representative
+Lightrec execution have not been qualified on macOS arm64.
+
+### S022 — Android arm64-v8a CI: missing
+
+Required capability: a hosted Android arm64-v8a job that assembles and inspects the real APK.
+
+There is no Android application, Gradle/NDK composition, shared `android-port` consumption, touch
+layer, SAF setup flow, or arm64-v8a Lightrec product test in this repository. Android CI must assemble
+and inspect a real APK; a desktop cross-compile or metadata check would not establish support.

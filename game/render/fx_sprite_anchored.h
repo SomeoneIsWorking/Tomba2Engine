@@ -7,7 +7,7 @@
 // node's anchor and stamp its sprite cluster there" rather than as a run of mem_r32(base + 0x2C). The
 // five-word scratchpad handoff every member of the family shares lives in fx_sprite_publish.h.
 //
-// The one write accessor is deliberately a ONE-LINER: tools/port_check.py harvests a lens setter's
+// The one write accessor is deliberately a ONE-LINER: tools/dynamic differential evidence harvests a lens setter's
 // mem_wN width by regex, so `node.setRecordTail(v)` counts as exactly the store it performs. A
 // setter that grew a second statement or a nested brace would silently stop counting.
 #pragma once

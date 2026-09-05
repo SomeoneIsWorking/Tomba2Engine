@@ -45,29 +45,29 @@
   A00 free-roam" (camtrace/recdep showed zero camera dispatch with the player moving) and chased a phantom
   overlay / per-frame native camera. That conclusion was WRONG.
 - **status:** resolved (2026-07-01, later-293). The free-roam field camera IS the resident camera.
-- **root cause of the wrong conclusion — a MEASUREMENT ARTIFACT:** `recdep`/`camtrace` hook `rec_dispatch`,
-  but the recompiler emits **intra-MAIN-module calls as DIRECT C calls** (`func_8006E3B0(c)`), NOT via
-  `rec_dispatch` (which is only for cross-module/overlay/unknown targets). So `rec_dispatch` is STRUCTURALLY
+- **root cause of the wrong conclusion — a MEASUREMENT ARTIFACT:** `recdep`/`camtrace` hook `typed runtime address dispatch`,
+  but the recorded guest call graph contains **intra-MAIN-module calls as DIRECT C calls** (`guest 0x8006E3B0(c)`), NOT via
+  `typed runtime address dispatch` (which is only for cross-module/overlay/unknown targets). So `typed runtime address dispatch` is STRUCTURALLY
   BLIND to every resident→resident call. The resident field code calls the resident camera directly, so it
   never appeared in camtrace/recdep. Proof: a GUEST-STACK backtrace (`PSXPORT_WWATCH` on the camera view
   matrix 0x1F8000F8 + `guest_backtrace_to`) at a moving-free-roam frame showed the chain
   `…0x80022AB8 → 0x8006EEF8 (field camera driver @0x8006ec4c) → 0x8006E3B0 (snapFollow) → 0x8006E3E0
-  (post-lookat return) → MulMatrix0`. And `generated/shard_*.c` call `func_8006E3B0(c)` / `func_8006D02C(c)`
+  (post-lookat return) → MulMatrix0`. And `authenticated executable/overlay evidence` call `guest 0x8006E3B0(c)` / `guest 0x8006D02C(c)`
   directly (shard_3/4/5), confirming the bypass.
 - **implication:** `CutsceneCamera::snapFollow` (0x8006E3B0) + `lookAt` (0x8006D02C) — already restructured,
   wired into sop.cpp, camverify 0-diff, and oracle-unit-tested 0-diff over 39k runs — ARE the free-roam
-  field camera. It currently runs as the equivalent substrate `gen_func_8006E3B0` in free-roam (behaviourally
+  field camera. It currently runs as the equivalent substrate `guest 0x8006E3B0` in free-roam (behaviourally
   identical, proven). There is NO separate overlay/native free-roam camera to find. The class name
   "CutsceneCamera" is now a misnomer — it is the general field/follow camera (SOP + free-roam). (Rename to
   `class Camera` deferred; low priority.)
-- **refs:** generated/shard_3.c:16799 / shard_4.c:11310 (`func_8006E3B0(c)` direct); guest backtrace via
+- **refs:** authenticated executable/overlay evidence / shard_4.c:11310 (`guest 0x8006E3B0(c)` direct); guest backtrace via
   PSXPORT_WWATCH=9F8000F8,.. + PSXPORT_WWATCH_BT; game/camera/cutscene_camera.cpp; 2026-07-01 (later-293).
 
 ## ✅ DONE: camera DISPATCHER owned natively — `CutsceneCamera::update()` + `::init()` (later-294)
 - **what:** owned the per-frame camera DRIVER and the mode selector as methods, completing contiguous
   top-down ownership of the whole camera tree (the leaves/orchestrators were already owned):
-  - `update()` = **0x8006EC44** (NOT 0x8006ec4c — the recompiled fn entry is 0x8006EC44; the handoff's
-    0x8006ec4c is 8 bytes into it. gen_func_8006EC44 exists; gen_func_8006EC4C does not). ARG-LESS: it
+  - `update()` = **0x8006EC44** (NOT 0x8006ec4c — the guest fn entry is 0x8006EC44; the handoff's
+    0x8006ec4c is 8 bytes into it. guest 0x8006EC44 exists; guest 0x8006EC4C does not). ARG-LESS: it
     hardcodes the camera object at **0x800E8008** and reads its OUTER STATE from `cam[0]` (0=first-frame
     init, 1=run, else idle), runs the `cam[1]` sub-state machine, then dispatches on `cam[0x64]&0x3F`
     (18-entry jump table @0x80016A44) to a follow orchestrator / a still-substrate leaf / a field overlay,
@@ -78,13 +78,13 @@
 - **ownership model:** owned methods (mainFollow/rotBuild/trackFollow/snapFollow/simpleFollow) are called
   DIRECTLY; still-unowned resident leaves (0x8006E294/E360/E2FC/E918/CBA8/C988) and ALL field overlays
   (mode 0/1 render dispatch via table @0x800A4AA0, modes 9/10/17 = 0x8018B924/0x8010D89C/0x80111AB4) run via
-  the substrate (`sub()` = rec_dispatch), exactly as trackFollow already does. Same 0-diff guarantee.
+  the substrate (`sub()` = typed runtime address dispatch), exactly as trackFollow already does. Same 0-diff guarantee.
 - **verified:** oracle unit test (PSXPORT_SELFTEST=camera) `init` + `update` cases, **0 mismatching words
   over ~10k verified iters** (skips = mainFollow-inherited oracle gaps + the overlay modes, which MISS since
   no overlay is loaded in the test — expected, same class as the yFloor gap). The test's `check()` now
   tolerates a MISS during the native run too (overlay modes) and skips those states.
-- **NOT yet wired:** update() is reached indirectly (camera-object behaviour pointer → rec_dispatch). It is a
-  verified-but-latent method; the substrate `gen_func_8006EC44` runs it 0-diff in the live game. Wire it when
+- **NOT yet wired:** update() is reached indirectly (camera-object behaviour pointer → typed runtime address dispatch). It is a
+  verified-but-latent method; the substrate `guest 0x8006EC44` runs it 0-diff in the live game. Wire it when
   the object walk that dispatches the camera node is native (route that node → CutsceneCamera::update).
 - **refs:** game/camera/cutscene_camera.cpp (update/dispatchMode/init), cutscene_camera_test.cpp (cases 13/14);
   tools/disas.py 0x8006EC44 / 0x8006EA7C; jump tables @0x80016A44 (18) + @0x800169EC (21); 2026-07-01.
@@ -142,7 +142,7 @@
     at 2 until external code sets state 3, which restores the exact anchor and returns to 0.
   - **Y-only shake, three variants of the same capture→jitter shape:** 4→5 mirrors 1→2 but Y-only (±32
     jitter, fx id 241, free-running at 5); 6→7 and 8→9 are ONE-SHOT pulses — states 6/8 capture the anchor
-    and fall straight into 7/9's jitter **in the same frame** (this is the actual recompiled control flow,
+    and fall straight into 7/9's jitter **in the same frame** (this is the actual guest control flow,
     not a bug: no jump back to the dispatcher between them). 7/9 abort to state 0 (no jitter) if `cam[0x64]`
     is busy, else jitter once (±32 for 7, ±16 for 9, fx id 129) and always end at state 0.
   - The two callees (0x8009A450 PSX-style `rand()`, 0x800521F4 a shake sound-effect request queue) are a
@@ -159,17 +159,17 @@
 
 ## Superseded earlier conclusions (kept so the dead ends aren't re-walked)
 - later-290 "resident camera is CUTSCENE-only, free-roam camera is in the 0x8013xxxx overlay" — WRONG
-  (rec_dispatch-blindness artifact, see above). The 0x8013xxxx cluster is field render/objects.
-- later-292 "A00 overlay camera ov_a00_gen_8010D89C" — that IS a real A00 SCRIPTED-camera state machine (5
+  (typed runtime address dispatch-blindness artifact, see above). The 0x8013xxxx cluster is field render/objects.
+- later-292 "A00 overlay camera overlay guest 0x8010D89C" — that IS a real A00 SCRIPTED-camera state machine (5
   states; follow states call snapFollow 0x8006E3B0) but it is NOT the per-frame free-roam driver; the
   per-frame driver is the resident 0x8006ec4c reached by direct MAIN calls.
 
-## Oracle recompiler gap: yFloor (0x8006C80C) render-mode 1 target 0x8006C844 not discovered
+## Oracle recorded binary evidence gap: yFloor (0x8006C80C) render-mode 1 target 0x8006C844 not discovered
 - **symptom:** the camera oracle unit test (PSXPORT_SELFTEST=camera) skips ~188/3000 yFloor iterations;
-  `rec_interp(0x8006C80C)` with render-mode byte 0x800BF870==1 fail-fast MISSES on 0x8006C844.
-- **status:** known-issue (oracle/recompiler function-discovery gap; native `CutsceneCamera::yFloor` handles it).
-- **cause:** the yFloor jump table @0x80016874 maps render-mode 1 → label 0x8006C844, but the recompiled
-  gen_func_8006C80C's jump-table `switch` lacks that case → `default: rec_dispatch(0x8006C844)` → miss.
-- **fix:** native yFloor already handles mode 1; to close the oracle gap add 0x8006C844 to the recompiler's
+  `test-only reference execution(0x8006C80C)` with render-mode byte 0x800BF870==1 fail-fast MISSES on 0x8006C844.
+- **status:** known-issue (oracle/recorded function-boundary gap; native `CutsceneCamera::yFloor` handles it).
+- **cause:** the yFloor jump table @0x80016874 maps render-mode 1 → label 0x8006C844, but the guest
+  guest 0x8006C80C's jump-table `switch` lacks that case → `default: typed runtime address dispatch(0x8006C844)` → miss.
+- **fix:** native yFloor already handles mode 1; to close the oracle gap add 0x8006C844 to the recorded binary evidence's
   jump-table target discovery for 0x8006C80C.
-- **refs:** game/camera/cutscene_camera_test.cpp (188 oracle-skipped); runtime/recomp/hle.cpp g_rec_miss_tolerant.
+- **refs:** game/camera/cutscene_camera_test.cpp (188 oracle-skipped); runtime/psx/hle.cpp g_rec_miss_tolerant.

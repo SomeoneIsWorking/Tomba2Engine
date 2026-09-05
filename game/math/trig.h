@@ -48,8 +48,8 @@ public:
   //   which turns this distance into the GTE depth-cue factor IR0 so particles fade with range.
   static int32_t vecLen(int32_t x, int32_t y, int32_t z);
 
-  // Wire rsin/ratan2 as the guest-address overrides (0x80083E80/80085690) so the rec_dispatch/
-  // guest_leaf + direct substrate func_<addr>(c) callers run these ports instead of the emulated GTE
+  // Wire rsin/ratan2 as the guest-address overrides (0x80083E80/80085690) so the typed runtime address dispatch/
+  // typed guest call + direct substrate a direct guest-address call callers run these ports instead of the emulated GTE
   // leaves. These read the SAME guest tables (SIN_TAB/ATAN_TAB) as the substrate, so byte-exact;
   // MIRROR_VERIFY-gated (102593/79617 passes). angleCmp (0x80077768) deferred — not exercised by
   // current replays (cutscene-camera caller). Found by codemap --substrate-fallthrough.

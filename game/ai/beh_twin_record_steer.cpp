@@ -14,25 +14,24 @@
 //   STATE 2 : nothing.   STATE 3 : FUN_8007A624(node).
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the direct node/record/global WRITES owned
-// native; every sub-behavior CALL stays reachable via rec_dispatch (pure-PSX leaf). a0 fidelity in the
-// record loop: guest a0 at the first FUN_8007AAE8 is 2 (the delay-slot clobber); FUN_80051B04 leaves
-// a0=rec, so the 2nd FUN_8007AAE8 sees a0=rec0 — don't touch c->r[4] across the loop. Transcribed 1:1
-// as a register machine; signed (lh/sra) vs unsigned (lhu/srl) preserved exactly; the step-toward-target
-// snap stores the FULL 32-bit target truncated to 16 bits (sh), not its sign-extension. The byte-exact
-// A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net. NO GTE.
+// native; every sub-behavior CALL stays reachable via typed runtime address dispatch (pure-PSX leaf). a0 fidelity in
+// the record loop: guest a0 at the first FUN_8007AAE8 is 2 (the delay-slot clobber); FUN_80051B04 leaves a0=rec, so the
+// 2nd FUN_8007AAE8 sees a0=rec0 — don't touch c->r[4] across the loop. Transcribed 1:1 as a register machine; signed
+// (lh/sra) vs unsigned (lhu/srl) preserved exactly; the step-toward-target snap stores the FULL 32-bit target truncated
+// to 16 bits (sh), not its sign-extension. The byte-exact A/B gate (full RAM+scratchpad vs original guest-body call) is
+// the safety net. NO GTE.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_render_update (FUN_800517F8)
 #include "guest_abi.h"
+#include "guest_jal.h"
 #include "object/actor.h" // Actor::boundsCull (FUN_8007778C — thin wrapper native)
 #include "spawn.h"        // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -131,7 +130,8 @@ S1: {
     uint32_t rec0 = c->mem_r32(nd + 0xc0);
     int32_t aa = c->mem_r16s(0x1f800160u) - (int32_t)c->mem_r32(rec0 + 0x2c);
     int32_t bb = c->mem_r16s(0x1f800164u) - (int32_t)c->mem_r32(rec0 + 0x34);
-    int32_t v1 = (int32_t)guest_leaf(c, 0x800781e0u, (uint32_t)aa, (uint32_t)bb); // FUN_800781E0
+    int32_t v1 =
+        (int32_t)tomba::guest::dispatchLeafToReturn(*c, 0x800781e0u, (uint32_t)aa, (uint32_t)bb); // FUN_800781E0
     if (v1 < 60) {
       a1v = 0;
       a3v = 0;

@@ -1,20 +1,4 @@
-// game/ui/dialog_text_stream.h — WIDE-RE DRAFT (2026-07-08, worktree agent-a53f252288693983d).
-//
-// STATUS 2026-07-22: applyRenderMode (0x8007D0D0) is PORTED and port_check-PASS. advanceByte
-// (0x8007C0D0) as drafted here FAILED port_check (no guest frame where the oracle opens/closes 32
-// bytes, 2 calls vs 3, store widths diverging from store #4) and has been DELETED; the live one is
-// DialogTextStream::advanceByteGen in dialog_advance.cpp, re-derived with tools/port_gen.py and WIRED
-// at its real caller (beh_variant_overlay_lifecycle). The draft's old "Guest frame MIRRORED" claim was
-// simply false — which is why a hand-written draft gets port_check'd before anyone believes it.
-//
-// UNWIRED, UNVERIFIED — compiles, not registered in any override table, no SBS run. See
-// dialog_text_stream.cpp for the RE trace and docs/engine_re.md's "Wide-RE survey:
-// 0x80070000-0x8007FFFF" section for the region assignment this continues.
-//
-// Target range: 0x8007C0D0-0x8007D5xx, the message/dialog-box TEXT byte-stream cursor advance.
-// This is the low-level "read one control/glyph byte from the dialog script, act on it, advance
-// the cursor" primitive that the box's own state machine (FUN_8007D594, NOT drafted this session —
-// see .cpp header) calls once per byte while composing the on-screen text a line/page at a time.
+// Dialog text render-mode owner. Original byte-stream advancement executes through the JIT.
 //
 // Struct: the dialog-box OBJECT (guest struct, fields below; only the ones this cluster touches):
 //   +0x03 u8   subtype     — box "kind" (0-5 = pause/prompt variants that gate a render-mode timer
@@ -43,20 +27,13 @@
 // this frame — control bytes take effect, e.g. render-mode timers arm); 0 = a "peek/measure" pass
 // (control bytes are walked over without side effects, used when e.g. FUN_8007D208 measures line
 // width ahead of the commit pass). This mirrors Ghidra's `param_2 == 1` gate on every control-byte
-// branch, cross-checked against generated/shard_6.c:gen_func_8007C0D0's raw MIPS.
+// branch, cross-checked against authenticated executable/overlay evidence:guest 0x8007C0D0's raw MIPS.
 #pragma once
 struct Core;
 
 class DialogTextStream {
 public:
-  // FUN_8007C0D0(obj a0, mode a1) -> v0 (1 = byte consumed/handled, 0 = hit the 0xFF terminator).
-  // Guest frame MIRRORED: gen_func_8007C0D0 does `sp-=32; sw s0,0x10(sp); sw ra,0x18(sp);
-  // sw s1,0x14(sp)` on entry (s0=obj, s1=mode) and the symmetric restore on every return path.
-  // Byte-faithful re-derivation of the same guest function via tools/port_gen.py (frame_size=32,
-  // the guest frame advanceByte above never mirrored). This is the one to wire.
-  static void advanceByteGen(Core *c);
-
   // FUN_8007D0D0(obj a0) — sets modeTimer (obj+0x40) from subtype (obj+3) crossed with the global
-  // text-speed/language byte DAT_800bf8a3. LEAF: gen_func_8007D0D0 has no `sp` descent at all.
+  // text-speed/language byte DAT_800bf8a3. LEAF: guest 0x8007D0D0 has no `sp` descent at all.
   static void applyRenderMode(Core *c);
 };

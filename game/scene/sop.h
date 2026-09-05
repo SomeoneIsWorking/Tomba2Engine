@@ -21,13 +21,13 @@ public:
 
   // Live-spine entry points.
   void fieldMode(); // was ov_sop_field_mode  (per-frame outer state dispatcher)
-  // pc_faithful mirror of ov_sop_gen_80109450: guest frame -32 with live ra/s0-s2 spills,
+  // pc_faithful mirror of overlay guest 0x80109450: guest frame -32 with live ra/s0-s2 spills,
   // per-state substrate leaf dispatch at the RE'd jal sites (fade engine 0x8007E9C8, pool
   // leaves, spawn 0x8007A980, overlay ticks 0x8010A8D4/0x801092B4), the area load through
-  // rec_dispatch(0x80044BD4) -> the spawn-and-wait primitive. The rebuilt fieldMode() above
+  // typed runtime address dispatch(0x80044BD4) -> the spawn-and-wait primitive. The rebuilt fieldMode() above
   // (defer-steps + native leaf calls) is the native_sync flavor.
   void fieldModeFaithful();
-  // pc_faithful mirror of ov_sop_gen_80109164 — the SOP area-load TASK-1 body, run on a
+  // pc_faithful mirror of overlay guest 0x80109164 — the SOP area-load TASK-1 body, run on a
   // PcScheduler native fiber (spawned by fieldModeFaithful's 0x80044BD4 dispatch). Substrate
   // leaves at their RE'd jal sites; ends with done_flag + selfClose. areaLoad() above is the
   // native_sync sync flavor.
@@ -63,7 +63,7 @@ public:
   //   scanline-rasters it into SCENE_STATE.count / SCENE_STATE.list at table+6/+0x10.
   //   `table` = 0x800F2418 (SCENE_STATE). Header copy at +8/+10 comes from *(u16*)(table+0xC).
   //   Also writes two engine globals 0x800A3F90=0x5780 (view dist) and 0x800A3F94=0x1C7 (halfFOV).
-  //   Faithful to the recomp: yaw sign/masking (12-bit wrap), signed >>12 fixed-point, signed div
+  //   Faithful to the guest instruction path: yaw sign/masking (12-bit wrap), signed >>12 fixed-point, signed div
   //   by 0x280.
   void scenePrepass(uint32_t table);
 

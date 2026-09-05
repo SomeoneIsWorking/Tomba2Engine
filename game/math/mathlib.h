@@ -28,7 +28,7 @@ public:
   uint32_t test868(int32_t idx);
 
   // testFE48 (guest FUN_8006EFF4): bit-test on the u32 flag WORD at 0x800BFE48. Returns
-  // `(*(u32)0x800BFE48 >> idx) & 1` — the recomp uses `srav v0, v0, a0` so the shift amount is
+  // `(*(u32)0x800BFE48 >> idx) & 1` — the guest instruction path uses `srav v0, v0, a0` so the shift amount is
   // masked to 5 bits by the hardware (idx & 31). Body from disas 0x8006EFF4..0x8006F008.
   uint32_t testFE48(int32_t idx);
 

@@ -16,22 +16,21 @@
 //   STATE 1   : read scratchpad byte 0x1F800207; if 25 <= b < 32 -> FUN_80129E8C(node,...) and node[1]=1.
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the direct node WRITES owned native;
-// every sub-behavior CALL stays reachable via rec_dispatch (pure-PSX leaf, a0/a1 set as the guest does).
-// The per-node[3] table @0x80149EC4 lives in the resident overlay RAM — we READ it live (same memory
-// the recomp reads); it is NOT embedded. Transcribed 1:1 as a register machine (locals = guest regs,
-// goto labels = guest addresses); signed (lh/sra) vs unsigned (lhu/lbu) preserved exactly. The
-// byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net. NO GTE/render.
+// every sub-behavior CALL stays reachable via typed runtime address dispatch (pure-PSX leaf, a0/a1 set as the guest
+// does). The per-node[3] table @0x80149EC4 lives in the resident overlay RAM — we READ it live (same memory the guest
+// instruction path reads); it is NOT embedded. Transcribed 1:1 as a register machine (locals = guest regs, goto labels
+// = guest addresses); signed (lh/sra) vs unsigned (lhu/lbu) preserved exactly. The byte-exact A/B gate (full
+// RAM+scratchpad vs original guest-body call) is the safety net. NO GTE/render.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "guest_abi.h"
+#include "guest_jal.h"
 #include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -73,12 +72,12 @@ La108: // STATE 0 — INIT
   c->mem_w32(s1 + 0x18, 0x8013EA64u); // node[0x18] = 0x8013EA64 (branch-delay store)
 
   if (n3 < 2) {
-    guest_leaf(c, 0x801360F4u, s1, n3); // FUN_801360F4(node, node[3])
+    tomba::guest::dispatchLeafToReturn(*c, 0x801360F4u, s1, n3); // FUN_801360F4(node, node[3])
     for (int i = 0; i < 2; i++) {
-      guest_leaf(c, 0x80139838u, s1, (uint32_t)i); // FUN_80139838(node, 0), (node, 1)
+      tomba::guest::dispatchLeafToReturn(*c, 0x80139838u, s1, (uint32_t)i); // FUN_80139838(node, 0), (node, 1)
     }
   } else {
-    guest_leaf(c, 0x8013AC34u, s1, n3); // FUN_8013AC34(node, node[3])
+    tomba::guest::dispatchLeafToReturn(*c, 0x8013AC34u, s1, n3); // FUN_8013AC34(node, node[3])
   }
 
   // per-node[3] record copy: table @0x80149EC4, stride 10 bytes, element = base + node[3]*10
@@ -100,9 +99,9 @@ La108: // STATE 0 — INIT
   int32_t avg2 = (int32_t)(((uint32_t)s_36 + ((uint32_t)s_36 >> 31)) >> 1);
   uint16_t v32 = c->mem_r16(s1 + 0x32); // node[0x32]
   c->mem_w16(s1 + 0x36, (uint16_t)avg2);
-  c->mem_w16(s1 + 0x50, v32);                    // node[0x50] = node[0x32]
-  c->mem_w16(s1 + 0x52, v32);                    // node[0x52] = node[0x32]  (delay slot store)
-  guest_leaf(c, 0x80129E8Cu, s1, (uint32_t)v32); // FUN_80129E8C(node, node[0x32])
+  c->mem_w16(s1 + 0x50, v32);                                             // node[0x50] = node[0x32]
+  c->mem_w16(s1 + 0x52, v32);                                             // node[0x52] = node[0x32]  (delay slot store)
+  tomba::guest::dispatchLeafToReturn(*c, 0x80129E8Cu, s1, (uint32_t)v32); // FUN_80129E8C(node, node[0x32])
 }
   goto Lret;
 
@@ -115,8 +114,8 @@ La28c: // STATE 1
   if (b < 25) {
     goto Lret;
   }
-  guest_leaf(c, 0x80129E8Cu, s1); // FUN_80129E8C(node)  (a1 = leftover, untouched)
-  c->mem_w8(s1 + 1, (uint8_t)s0); // node[1] = s0 (=1, delay-slot store)
+  tomba::guest::dispatchLeafToReturn(*c, 0x80129E8Cu, s1); // FUN_80129E8C(node)  (a1 = leftover, untouched)
+  c->mem_w8(s1 + 1, (uint8_t)s0);                          // node[1] = s0 (=1, delay-slot store)
 }
   goto Lret;
 

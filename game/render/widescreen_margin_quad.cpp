@@ -1,9 +1,9 @@
 // game/render/widescreen_margin_quad.cpp — native port of FUN_8013CDD4, the widescreen-margin
 // OT.GT4 quad emitter (a00 overlay leaf, override slot 451).
 //
-// RE: generated/ov_a00_shard_1.c:25528-25899 (ov_a00_gen_8013CDD4) is the ground truth — the
-// recompiler's per-instruction transcription, more precise than Ghidra's COP2/branch-delay
-// decompilation for this function. Cross-referenced with `tools/abi_extract.py 0x8013CDD4
+// RE: authenticated executable/overlay evidence (overlay guest 0x8013CDD4) is the ground truth — the
+// recorded binary evidence's per-instruction transcription, more precise than Ghidra's COP2/branch-delay
+// decompilation for this function. Cross-referenced with `tools/binary ABI evidence 0x8013CDD4
 // --contract` for the frame/spill table. Full field-layout derivation + the load-bearing
 // record+30 dual read (V0.y at RTPT time, then re-read sign-extended as the shared fog delta
 // input) is recorded in docs/findings/render.md "0x8013CDD4 port — ambiguity SETTLED".
@@ -16,6 +16,8 @@
 #include "game.h"
 #include "game_ctx.h"
 #include "guest_abi.h"
+#include "guest_jal.h"
+#include "native_override_catalog.h"
 #include <cstdint>
 #include <lucent/log.h>
 
@@ -33,8 +35,8 @@ constexpr uint32_t kGteFlagScratch = 0x1F800080u;           // scratchpad temp: 
                                                             // for the exact same address; both mirrored).
 constexpr uint32_t kComposeObjectTransform = 0x800318A0u;   // "compose object transform into GTE
                                                             // CR0-8" (docs/engine_re.md cluster 3) — still
-                                                            // substrate; called via rec_dispatch exactly as
-                                                            // gen does, same as any un-owned leaf callee.
+                                                            // substrate; called via typed runtime address dispatch
+                                                            // exactly as gen does, same as any un-owned leaf callee.
 constexpr uint32_t kComposeObjectTransformRa = 0x8013CE74u; // jal-site return address (gen: r31
                                                             // is set to this literal before the call).
 constexpr uint32_t kColorCodeTag = 0x3E000000u;             // fixed rgb0 code-byte tag OR'd in after masking
@@ -68,7 +70,7 @@ enum : uint32_t {
 };
 
 // -------------------------------------------------------------------------------------------
-// Record lens: 36-byte-stride quad record. Field roles below are exactly what generated/
+// Record lens: 36-byte-stride quad record. Field roles below are exactly what authenticated executable/overlay evidence
 // ov_a00_shard_1.c reads/writes at each offset (traced instruction-by-instruction); offsets not
 // independently named by docs/findings/render.md are named by their PACKET destination role.
 struct MarginQuadRecord {
@@ -146,7 +148,7 @@ struct MarginQuadRecord {
 };
 
 // clamp0_255(base - delta): the fog-shade helper shared by all four vertex colours. Traced
-// instruction-by-instruction against generated/ov_a00_shard_1.c:25715-25858 — R, G and B each
+// instruction-by-instruction against authenticated executable/overlay evidence — R, G and B each
 // get an UNCONDITIONAL `-= delta` (B's subtraction happens to live in R's branch-delay slot, a
 // pure instruction-scheduling artifact) followed by an independent clamp-to-[0,255]. The net
 // effect for all three channels is the same ordinary clamp; no real per-channel asymmetry
@@ -163,7 +165,7 @@ uint8_t fogShade(uint8_t base, int32_t delta) {
 }
 
 // OTZ index for this leaf's z-combine: exponent-nibble shift-and-recombine, exactly the bit
-// pattern generated/ov_a00_shard_1.c:25674-25682 performs. Distinct bounds from
+// pattern authenticated executable/overlay evidence performs. Distinct bounds from
 // overlay_gt_otz_index in overlay_gt3gt4.cpp (this leaf's valid range is [4, 2047]) — its own
 // small helper rather than a shared one, matching the ground truth exactly.
 int32_t marginOtzIndex(int32_t zPlusBias) {
@@ -176,7 +178,7 @@ int32_t marginOtzIndex(int32_t zPlusBias) {
 } // namespace
 
 void WidescreenMarginQuad::emit(Core *c) {
-  // Frame: sp -= 104, spill s0..s6/ra at their RE'd offsets (tools/abi_extract.py --contract).
+  // Frame: sp -= 104, spill s0..s6/ra at their RE'd offsets (tools/binary ABI evidence --contract).
   // Mirrored per CLAUDE.md "MIRROR THE GUEST STACK" — the compose-transform call below is a real
   // guest call into still-substrate code that may spill/restore these same registers.
   static constexpr GuestFrameSpill kSpills[] = {
@@ -225,8 +227,8 @@ void WidescreenMarginQuad::emit(Core *c) {
   c->mem_w8(c->r[29] + 64, (uint8_t)(c->mem_r8((uint32_t)node + 0) * 10));
   c->mem_w8(c->r[29] + 65, (uint8_t)(c->mem_r8((uint32_t)node + 1) * 10));
   c->mem_w8(c->r[29] + 66, (uint8_t)(c->mem_r8((uint32_t)node + 2) * 10));
-  guest_fn(
-      c, kComposeObjectTransform, kComposeObjectTransformRa, (uint32_t)obj + 44, c->r[29] + 64, (uint32_t)obj + 72);
+  tomba::guest::dispatchJalToReturn(
+      *c, kComposeObjectTransform, kComposeObjectTransformRa, (uint32_t)obj + 44, c->r[29] + 64, (uint32_t)obj + 72);
 
   const uint8_t nodeFlags = c->mem_r8((uint32_t)node + 3);
   const uint32_t clutBiasHigh = (uint32_t)(nodeFlags & 0x0Fu) << 22;
@@ -395,7 +397,5 @@ void WidescreenMarginQuad::emit(Core *c) {
 }
 
 void WidescreenMarginQuad::registerOverrides(Game *) {
-  extern void ov_a00_gen_8013CDD4(Core *);
-  extern void engine_set_override_a00(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_a00(0x8013CDD4u, &WidescreenMarginQuad::emit, ov_a00_gen_8013CDD4);
+  tomba::native::declareOverride(0x8013CDD4u, "&WidescreenMarginQuad::emit", &WidescreenMarginQuad::emit);
 }

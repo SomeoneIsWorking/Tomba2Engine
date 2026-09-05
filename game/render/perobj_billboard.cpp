@@ -1,14 +1,14 @@
 // perobj_billboard.cpp — SUBSTRATE MIRROR for the per-object render-TYPE dispatch (FUN_8003CCA4) and
 // 3 of its "special effect" billboard/particle-quad leaf renderers (FUN_8003C2D4, FUN_8003C464,
 // FUN_8003C8F4). Same band (0x8003xxxx) as perobj_dispatch.cpp's cmdListDispatch/perModeDispatch;
-// same ownership mechanism (shard_set_override — these are reached as PLAIN intra-shard C calls from
-// the still-substrate walk cluster gen_func_8003BF00/etc, never through rec_dispatch).
+// same ownership mechanism (tomba::native::declareOverride — these are reached as PLAIN intra-shard C calls from
+// the still-substrate walk cluster guest 0x8003BF00/etc, never through typed runtime address dispatch).
 //
 // RE method: Ghidra headless decompile of a live free-roam RAM dump cross-checked against the ACTUAL
-// recompiled body in generated/shard_0.c (C2D4), shard_1.c (C464), shard_4.c (C8F4), shard_5.c (CCA4),
-// generated/shard_disp.c (g_override slot wiring) — the recompiler's gte_write_ctrl/gte_write_data/
-// gte_op/gte_read_data calls are ground truth, not Ghidra's COP2 pseudo-C. All 4 addresses confirmed
-// unowned via tools/codemap.py before porting.
+// guest body in authenticated executable/overlay evidence (C2D4), shard_1.c (C464), shard_4.c (C8F4), shard_5.c (CCA4),
+// authenticated executable/overlay evidence (image-qualified runtime dispatcher slot wiring) — the recorded binary
+// evidence's gte_write_ctrl/gte_write_data/ gte_op/gte_read_data calls are ground truth, not Ghidra's COP2 pseudo-C.
+// All 4 addresses confirmed unowned via tools/codemap.py before porting.
 //
 // ==================================================================================================
 // FUN_8003CCA4 (perObjRenderDispatch, a0=node r4): stores node into the "current render node" scratch
@@ -49,7 +49,7 @@
 //      Core::mem_w16/32, and because SBS compares guest RAM including live stack frames (see
 //      docs/findings — Animation::attach's guest-stack residual). A real GuestFrame(96) allocation
 //      backs this (found the hard way: omitting it — and the callers' own frame allocations —
-//      shifted this frame relative to the recomp path and produced a real, reproducible SBS diff).
+//      shifted this frame relative to the guest instruction path and produced a real, reproducible SBS diff).
 //   2. RTPT (0x4A280030) projects V0-2 -> SXY0-2; on success stash them at BUF+8/16/24, AVSZ3
 //      (0x4B400006) gives a first depth estimate; RTPS (0x4A180001) projects V3, and on success AVSZ4
 //      (0x4B68002E) gives the final OTZ-style depth (else the particle is invalid, depth=-1).
@@ -67,34 +67,23 @@
 #include "fps60.h"
 #include "game.h"
 #include "game_ctx.h"
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "proj_params.h" // ProjParams::pzToOrd — billboardsRender depth normalize
 #include "render.h"
 #include "render_internal.h" // withObjScope / cur_render_node
 #include <cmath>
 #include <lucent/log.h> // `bbrot` — the node-rotation rebuild instrument (see BbObjectRot)
-
-void rec_dispatch(Core *, uint32_t);
-void shard_set_override(uint32_t addr, OverrideFn fn); // generated/shard_disp.c (C++ linkage)
-
-// gen_func_* fallbacks for the psx_fallback gate. g_override[] is a single PROCESS-GLOBAL table
-// shared by EVERY Core (SBS core A AND core B), so the trampolines below MUST defer to the real
-// recompiled body on core B (the pure-substrate oracle) — otherwise the oracle runs this native
-// mirror and SBS compares native-vs-native (a false 0-div) instead of native-vs-substrate. Same
-// discipline as every other shard_set_override cluster (gte_math/node_xform/cull/...). The oracle
-// may carry ONLY async→sync conversions (sync_overrides.cpp) + HLE BIOS — nothing engine/game.
-extern void gen_func_8003CCA4(Core *);
-extern void gen_func_8003C2D4(Core *);
-extern void gen_func_8003C464(Core *);
-extern void gen_func_8003C788(Core *);
-extern void gen_func_8003C5F8(Core *);
-extern void gen_func_8003C8F4(Core *);
+// original guest-instruction fallbacks for the test-only substrate gate. The image-qualified runtime dispatcher is a
+// single PROCESS-GLOBAL table shared by EVERY Core (SBS core A AND core B), so the trampolines below MUST defer to the
+// real guest body on core B (the pure-substrate oracle) — otherwise the oracle runs this native mirror and SBS compares
+// native-vs-native (a false 0-div) instead of native-vs-substrate. Same discipline as every other
+// tomba::native::declareOverride cluster (gte_math/node_xform/cull/...). The oracle may carry ONLY async→sync
+// conversions (sync_overrides.cpp) + HLE BIOS — nothing engine/game.
 
 // Still-substrate leaves called by these 4 (declared, called via plain guest-ABI intra-shard calls —
-// exactly as the generated code reaches them; g_override still gates each, so if one is ever owned
-// later these calls transparently pick that up).
-void func_800517BC(Core *); // C464's MAT_A seed (node+122/124/126 s16 xyz)
-void func_8003B220(Core *); // billboardEmit's quad-corner builder (writes real guest stack memory)
-void func_8003B054(Core *); // billboardEmit's color/UV fill
+// exactly as the authenticated executable/overlay evidence reaches them; image-qualified runtime dispatcher still gates
+// each, so if one is ever owned later these calls transparently pick that up).
 
 namespace {
 
@@ -121,9 +110,9 @@ namespace {
 // it takes the node's own world triple straight out of node+46/+50/+54, the same halfwords the tail
 // copies into WORLD_POS.
 //
-// FUN_800517BC IS A DIAGONAL SCALE, not a rotation (generated/shard_5.c: it sign-extends a1/a2/a3 and
-// stores them as words at +0/+8/+16 with every other word zero — i.e. m00/m11/m22 and a zero
-// translation, the packed-halfword MATRIX layout's diagonal). 4096 is unity.
+// FUN_800517BC IS A DIAGONAL SCALE, not a rotation (authenticated executable/overlay evidence: it sign-extends a1/a2/a3
+// and stores them as words at +0/+8/+16 with every other word zero — i.e. m00/m11/m22 and a zero translation, the
+// packed-halfword MATRIX layout's diagonal). 4096 is unity.
 //
 // COMPOSE3 IS DELIBERATELY NOT REBUILT, and the reason is measured. node+152 (= node+0x98) is written
 // as Math::rotmat(euler @node+0x54) by GraphicsBind::renderUpdateBody (FUN_800517F8), so the obvious
@@ -255,7 +244,7 @@ constexpr uint32_t CUR_NODE_SCR = 0x1F80028Cu; // "current render node" scratch
 constexpr uint32_t PKT_POOL_PTR = 0x800BF544u; // packet-pool bump-allocator write pointer
 constexpr uint32_t OTBASE_PTR = 0x800ED8C8u;   // *this = the active ordering-table base
 constexpr uint32_t BUF = 0x1F800000u;          // SCRATCHPAD MATRIX-compose buffer (C2D4/C464/C8F4) —
-                                               // gen_func_8003C2D4/8003C8F4 base r16/r17 = 8064<<16
+                                               // guest 0x8003C2D4/8003C8F4 base r16/r17 = 8064<<16
                                                // = 0x1F800000, NOT main RAM. (Was wrongly 0x800C0000;
                                                // the mis-base made every emitted packet's data differ
                                                // from the substrate — the f117 divergence, masked by the
@@ -267,11 +256,11 @@ constexpr uint32_t WORLD_POS = BUF + 0xC0u;
 constexpr uint32_t CAM2 = BUF + 0xF8u;        // persistent camera MATRIX mirror (read-only here)
 constexpr uint32_t MVMVA_TRANS = 0x4A486012u; // same opcode cmdListDispatch uses for the world-translate
 
-// RAII guest-stack frame: real recomp bodies allocate their own stack frame (r29 -= size) before
+// RAII guest-stack frame: real guest instruction paths allocate their own stack frame (r29 -= size) before
 // running, and callees compute their OWN frame relative to the CALLER'S post-allocation r29 — so a
 // callee reached from here (billboardEmit reads its scratch as c->r[29]-96+off) needs r29 to reflect
-// the SAME depth the recomp path would have at that call, even though nothing in THIS function's own
-// body reads/writes through r29 itself. Symmetric allocate/restore, net-zero like the recomp's own
+// the SAME depth the guest instruction path would have at that call, even though nothing in THIS function's own
+// body reads/writes through r29 itself. Symmetric allocate/restore, net-zero like the guest instruction path's own
 // push/pop (found empirically: 8003C2D4/8003C464 omitting this shifted 8003C8F4's frame by their own
 // size and produced a real, reproducible SBS diff at f118 in the task-0 stack region).
 struct GuestFrame {
@@ -287,7 +276,7 @@ struct GuestFrame {
 
 // FUN_8003CCA4's REAL prologue (register-faithfulness, f118 root cause, 2026-07-09): unlike the
 // call sites above where GuestFrame's bare sp-adjust is enough (their bodies spill live-injected
-// values inline themselves), gen_func_8003CCA4 (generated/shard_5.c) actually SPILLS its caller's
+// values inline themselves), guest 0x8003CCA4 (authenticated executable/overlay evidence) actually SPILLS its caller's
 // live r16/r17/r18/r31 to guest memory at entry (mem_w32 sp+16/20/24/28) and restores them at every
 // exit (L_8003CDC0) — a plain MIPS callee-save prologue/epilogue, not a value injection. The bare
 // GuestFrame(c,32) this call site used only adjusted c->r[29] and never wrote those 4 words, leaving
@@ -329,24 +318,24 @@ void Render::perObjRenderDispatch() {
     CCA4Frame frame(c);
     const uint32_t node = c->r[4];
     // Register-faithfulness (2026-07-10, the f118 residual root cause — one level deeper than the
-    // FUN_8003C048 ownership fix): gen_func_8003CCA4's REAL prologue (generated/shard_5.c:5060-5071)
+    // FUN_8003C048 ownership fix): guest 0x8003CCA4's REAL prologue (authenticated executable/overlay evidence)
     // reassigns r18 = r4 (node) IMMEDIATELY after its own spill, and computes r5 = ((mem8(node+13) ^
     // 15) < 1) ONCE, before the case switch — both values stay LIVE (plain MIPS register lifetime,
-    // never re-set per case) all the way to whichever case's `func_8003CDD8(c)` call. This function's
+    // never re-set per case) all the way to whichever case's `guest 0x8003CDD8(c)` call. This function's
     // own C++ body only ever needed the local `node`, so a prior draft never wrote c->r[18]/c->r[5] —
     // meaning cmdListDispatch's CmdListFrame (which spills "caller r18" as part of its own real
     // prologue) span stale bytes instead of gen's real node/flag, and cmdListDispatch's `flag` param
     // (c->r[5]) silently held garbage instead of gen's real per-node flag. Confirmed via
-    // PSXPORT_SBS_PREWATCH=0x801FE8B8: core B's write came from gen_func_8003CDD8+0x18 (its own r18
-    // spill) with the caller (gen_func_8003CCA4, reached via FUN_8003C048) holding r18=node, while
+    // PSXPORT_SBS_PREWATCH=0x801FE8B8: core B's write came from guest 0x8003CDD8+0x18 (its own r18
+    // spill) with the caller (guest 0x8003CCA4, reached via FUN_8003C048) holding r18=node, while
     // core A held whatever renderWalk's own r18 (CASE188_SCR, an unrelated constant) still was.
     c->r[18] = node;
     // gen: r3=mem8(node+11); r3^=15; r5=(r3<1) — the FLAG field is node+11 (NOT node+13, which is the
     // separate `sel` case-table index below). A prior draft of this fix used node+13 for both,
     // routing cmdListDispatch's flag&1 test the wrong way and making perModeDispatch pick the
-    // per-mode table (native) instead of gen's real generic-fallback path (func_800803DC) for nodes
+    // per-mode table (native) instead of gen's real generic-fallback path (guest 0x800803DC) for nodes
     // whose real flag has bit0 set — confirmed via PSXPORT_SBS_PREWATCH: core B's chain ended in
-    // gen_func_800803DC while core A's ended in the per-mode target ov_a00_gen_80146478.
+    // guest 0x800803DC while core A's ended in the per-mode target overlay guest 0x80146478.
     const uint32_t flag = ((c->mem_r8(node + 11) ^ 15u) < 1u) ? 1u : 0u;
     c->mem_w32(CUR_NODE_SCR, node);
     const uint32_t sel = c->mem_r8(node + 13) & 11u;
@@ -356,7 +345,7 @@ void Render::perObjRenderDispatch() {
     constexpr uint32_t TABLE = 0x80014EC8u;
     const uint32_t target = c->mem_r32(TABLE + sel * 4u);
     // RE'd return-address constants gen sets in r31 immediately before each nested call (see
-    // generated/shard_5.c gen_func_8003CCA4). Register-faithfulness (2026-07-09, the f118 residual
+    // authenticated executable/overlay evidence guest 0x8003CCA4). Register-faithfulness (2026-07-09, the f118 residual
     // root cause): a prior draft called cmdListDispatch()/the special-effect leaves without ever
     // setting c->r[31], leaving whatever stale value the OUTER caller (FUN_8003C048) left there
     // instead — a real, reproducible SBS diff at FUN_80146478's own ra spill slot (0x801FE8D0..),
@@ -408,8 +397,8 @@ void Render::perObjRenderDispatch() {
       c->r[4] = node;
       c->r[5] = pre;
       c->r[6] = post;
-      // Branch polarity (2026-07-09, found during the same audit): gen_func_8003CCA4 L_8003CD60
-      // tests node+27==0 -> func_8003F4C4 (the L_8003CD90 target), node+27!=0 -> func_8003F3F4 —
+      // Branch polarity (2026-07-09, found during the same audit): guest 0x8003CCA4 L_8003CD60
+      // tests node+27==0 -> guest 0x8003F4C4 (the L_8003CD90 target), node+27!=0 -> guest 0x8003F3F4 —
       // a prior draft had this INVERTED. Neither leaf fires at seaside (this file's own banner),
       // so the flip was never caught by the autonav gate; fixed here to match gen exactly.
       if (c->mem_r8(node + 27) == 0) {
@@ -436,11 +425,11 @@ void Render::perObjRenderDispatch() {
       break;
     }
     case 0x8003CDC0u:
-      break; // no-op case: the recomp body falls straight to the epilogue
+      break; // no-op case: the guest instruction path falls straight to the epilogue
     default:
-      // Defensive mirror of the recomp's raw `jr` fallback for an unrecognized table entry — never
+      // Defensive mirror of the guest instruction path's raw `jr` fallback for an unrecognized table entry — never
       // hit by live game data (only the 6 cases above ever appear in the live table).
-      rec_dispatch(c, target);
+      psx::cpu::dispatchGuestToReturn0(*c, target, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       return;
     }
   });
@@ -492,7 +481,7 @@ void Render::billboardCompose1() {
   }
   withObjScope(c, node, [](Core *c) {
     GuestFrame frame(c, 40);
-    // Register-faithfulness (gen_func_8003C2D4 prologue, L4509-4514): spill the caller's
+    // Register-faithfulness (guest 0x8003C2D4 prologue, L4509-4514): spill the caller's
     // r16..r19/ra at sp+16..+32. The GuestFrame only allocates the frame; the spill BYTES are
     // what SBS compares (gen writes them; the bare RAII left stale bytes there).
     const uint32_t sp = c->r[29];
@@ -509,7 +498,7 @@ void Render::billboardCompose1() {
     mathOf(c).matMul(MAT_ROTZ, MAT_A, MAT_OUT);
     // MAT_A is the identity here, so the object rotation IS the Z rotation this node carries.
     BbRotScope bbRot(c, node, "compose1_rotZ", rotZ3(c->mem_r16s(node + NODE_ROT_Z)));
-    // gen's live callee-saved state at the func_8003C8F4 call site (L4593-4595): billboardEmit
+    // gen's live callee-saved state at the guest 0x8003C8F4 call site (L4593-4595): billboardEmit
     // spills these as its "caller" registers, so they must hold gen's values here.
     c->r[16] = MAT_OUT;
     c->r[17] = MAT_A;
@@ -517,7 +506,7 @@ void Render::billboardCompose1() {
     c->r[19] = node;
     c->r[31] = 0x8003C448u;
     billboardComposeTail(c, node, flag);
-    // Epilogue restore (gen_func_8003C2D4 L4597-4601): read the caller's values back from the spill
+    // Epilogue restore (guest 0x8003C2D4 L4597-4601): read the caller's values back from the spill
     // slots. MUST restore — the reassignments above (esp. r31=0x8003C448) would otherwise leak to the
     // substrate render-walk caller and corrupt its control flow (registers aren't SBS-compared, but
     // the substrate reads them).
@@ -538,7 +527,7 @@ void Render::billboardCompose2() {
   }
   withObjScope(c, node, [](Core *c) {
     GuestFrame frame(c, 32);
-    // Register-faithfulness (gen_func_8003C464 prologue, L5907-5911): spill caller's
+    // Register-faithfulness (guest 0x8003C464 prologue, L5907-5911): spill caller's
     // r16/r17/r18/ra at sp+16/+20/+24/+28. (C464's prologue does NOT spill r19 — it passes through.)
     const uint32_t sp = c->r[29];
     c->mem_w32(sp + 16, c->r[16]);
@@ -550,7 +539,7 @@ void Render::billboardCompose2() {
     c->r[5] = (uint32_t)c->mem_r16s(node + 122);
     c->r[6] = (uint32_t)c->mem_r16s(node + 124);
     c->r[7] = (uint32_t)c->mem_r16s(node + 126);
-    func_800517BC(c);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x800517BCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     mtxOf(c).identity(MAT_ROTZ);
     mathOf(c).rotZ((int16_t)c->mem_r16(node + 90), MAT_ROTZ);
     const uint32_t flag = c->mem_r8(node + 71) & 1u;
@@ -563,7 +552,7 @@ void Render::billboardCompose2() {
                           diagScale3(c->mem_r16s(node + NODE_SCALE_DIAG + 0),
                                      c->mem_r16s(node + NODE_SCALE_DIAG + 2),
                                      c->mem_r16s(node + NODE_SCALE_DIAG + 4))));
-    // gen's live callee-saved state at the func_8003C8F4 call site (L5993-5995) — NOTE C464 differs
+    // gen's live callee-saved state at the guest 0x8003C8F4 call site (L5993-5995) — NOTE C464 differs
     // from C2D4: r17=flag (not MAT_A) and r18=node (gen reassigns r17 to flag at L5931 and keeps
     // r18=node from the prologue). billboardEmit spills these, so match gen exactly.
     c->r[16] = MAT_OUT;
@@ -571,7 +560,7 @@ void Render::billboardCompose2() {
     c->r[18] = node;
     c->r[31] = 0x8003C5E0u;
     billboardComposeTail(c, node, flag);
-    // Epilogue restore (gen_func_8003C464): read the caller's values back from the spill slots
+    // Epilogue restore (guest 0x8003C464): read the caller's values back from the spill slots
     // (r16/r17/r18/ra — C464 does not save r19). Same anti-leak discipline as billboardCompose1.
     c->r[16] = c->mem_r32(sp + 16);
     c->r[17] = c->mem_r32(sp + 20);
@@ -587,7 +576,7 @@ void Render::billboardCompose2() {
 // runs the SAME CAM2 world-translate tail as its siblings, but composing in place in MAT_ROTZ (BUF+0x20)
 // rather than MAT_OUT. All callees owned: Mtx::identity (0x80051794), Math::matMul (0x80084110),
 // billboardEmit (0x8003C8F4). Frame 32, spills r16/r17/r18/ra like C464 (no r19). See abi_extract
-// 0x8003C788 --contract + generated/shard_3.c.
+// 0x8003C788 --contract + authenticated executable/overlay evidence
 void Render::billboardCompose3() {
   Core *c = mCore;
   const uint32_t node = c->r[4];
@@ -596,7 +585,7 @@ void Render::billboardCompose3() {
   }
   withObjScope(c, node, [](Core *c) {
     GuestFrame frame(c, 32);
-    // Register-faithfulness (gen_func_8003C788 prologue): spill caller's r16/r17/r18/ra at
+    // Register-faithfulness (guest 0x8003C788 prologue): spill caller's r16/r17/r18/ra at
     // sp+16/+20/+24/+28 — same 32-byte / 4-spill shape as C464.
     const uint32_t sp = c->r[29];
     c->mem_w32(sp + 16, c->r[16]);
@@ -643,7 +632,7 @@ void Render::billboardCompose3() {
     c->r[18] = node;
     c->r[31] = 0x8003C8DCu;
     billboardComposeTail(c, node, flag, MAT_ROTZ); // same GTE world-translate tail as C2D4/C464, on MAT_ROTZ
-    // Epilogue restore (gen_func_8003C788 L_8003C8DC): read the caller's r16/r17/r18/ra back.
+    // Epilogue restore (guest 0x8003C788 L_8003C8DC): read the caller's r16/r17/r18/ra back.
     c->r[16] = c->mem_r32(sp + 16);
     c->r[17] = c->mem_r32(sp + 20);
     c->r[18] = c->mem_r32(sp + 24);
@@ -659,7 +648,8 @@ void Render::billboardCompose3() {
 // C5F8 builds a FULL 3-Euler-angle rotation from the SVECTOR at node+84 via Math::rotMatSoft
 // (FUN_800847F0, the non-GTE software RotMatrix owned this session). Frame 40, spills r16/r17/r18/
 // r19/ra like C2D4. All callees owned: Mtx::identity (0x80051794), Math::rotMatSoft (0x800847F0),
-// Math::matMul (0x80084110), billboardEmit (0x8003C8F4). See generated/shard_2.c gen_func_8003C5F8.
+// Math::matMul (0x80084110), billboardEmit (0x8003C8F4). See authenticated executable/overlay evidence guest
+// 0x8003C5F8.
 void Render::billboardComposeC5F8() {
   Core *c = mCore;
   const uint32_t node = c->r[4];
@@ -668,7 +658,7 @@ void Render::billboardComposeC5F8() {
   }
   withObjScope(c, node, [](Core *c) {
     GuestFrame frame(c, 40);
-    // Register-faithfulness (gen_func_8003C5F8 prologue): spill caller's r16..r19/ra at sp+16..+32 —
+    // Register-faithfulness (guest 0x8003C5F8 prologue): spill caller's r16..r19/ra at sp+16..+32 —
     // same 40-byte / 5-spill shape as C2D4.
     const uint32_t sp = c->r[29];
     c->mem_w32(sp + 16, c->r[16]);
@@ -689,7 +679,7 @@ void Render::billboardComposeC5F8() {
                      rotEuler3(c->mem_r16s(node + NODE_EULER + 0),
                                c->mem_r16s(node + NODE_EULER + 2),
                                c->mem_r16s(node + NODE_EULER + 4)));
-    // gen's live callee-saved state at the billboardEmit (func_8003C8F4) call site: r16=MAT_OUT,
+    // gen's live callee-saved state at the billboardEmit (guest 0x8003C8F4) call site: r16=MAT_OUT,
     // r17=MAT_A, r18=flag, r19=node — identical to C2D4. billboardEmit spills these as its caller regs.
     c->r[16] = MAT_OUT;
     c->r[17] = MAT_A;
@@ -697,7 +687,7 @@ void Render::billboardComposeC5F8() {
     c->r[19] = node;
     c->r[31] = 0x8003C76Cu;
     billboardComposeTail(c, node, flag);
-    // Epilogue restore (gen_func_8003C5F8 L_8003C76C): read the caller's r16..r19/ra back from the
+    // Epilogue restore (guest 0x8003C5F8 L_8003C76C): read the caller's r16..r19/ra back from the
     // spill slots — same anti-leak discipline as C2D4.
     c->r[16] = c->mem_r32(sp + 16);
     c->r[17] = c->mem_r32(sp + 20);
@@ -717,11 +707,11 @@ void Render::billboardEmit() {
     return;
   }
   withObjScope(c, node, [](Core *c) {
-    GuestFrame frame(c, 96); // real guest stack frame: func_8003B220 writes through this as a real
+    GuestFrame frame(c, 96); // real guest stack frame: guest 0x8003B220 writes through this as a real
                              // guest address, and callers' own frames must already be allocated
                              // (see GuestFrame's comment) for this base to land on the same bytes
-                             // the recomp path uses.
-    // Register-faithfulness (gen_func_8003C8F4 prologue, L4367-4376): spill the caller's
+                             // the guest instruction path uses.
+    // Register-faithfulness (guest 0x8003C8F4 prologue, L4367-4376): spill the caller's
     // r16..r22/ra at sp+64..+92. The spilled values are the caller's (billboardCompose1/2) live
     // callee-saved registers — which this port now sets correctly before the call (see above).
     const uint32_t sp = c->r[29];
@@ -754,7 +744,7 @@ void Render::billboardEmit() {
       c->r[4] = FR(16);
       c->r[5] = 0;
       c->r[6] = particle;
-      func_8003B220(c);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8003B220u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
       gte_write_data(0, c->mem_r32(FR(16) + 0));
       gte_write_data(1, c->mem_r32(FR(16) + 4));
@@ -791,7 +781,7 @@ void Render::billboardEmit() {
       c->mem_w32(FR(56), (uint32_t)depth);
 
       // 2) Off-screen cull: skip if all 4 corners' X>=xmax or all 4 corners' Y>=240 (unsigned compares —
-      // matches the recomp's zero-extended 16-bit reads). xmax follows submit.cpp's submit_xmax
+      // matches the guest instruction path's zero-extended 16-bit reads). xmax follows submit.cpp's submit_xmax
       // precedent (later-119 / USER 2026-07-16 "extend widescreen render culling area"): under the
       // genuine engine-wide FOV (OFX=nw/2, already a sanctioned wide-mode guest deviation; SBS legs
       // run 4:3 so byte-exactness is untouched) the screen extends to the wide width — the stock 320
@@ -829,7 +819,7 @@ void Render::billboardEmit() {
       c->r[4] = BUF;
       c->r[5] = particle;
       c->r[6] = flag;
-      func_8003B054(c);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8003B054u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       if (c->mem_r16(node + 92) != 0) {
         c->mem_w16(BUF + 14, c->mem_r16(node + 92));
       }
@@ -860,11 +850,11 @@ void Render::billboardEmit() {
         case 0x8003CBC8u:
           break; // explicit no-op case: falls through to packet emission
         default:
-          // Defensive mirror of the recomp's raw `jr` fallback for an unrecognized table entry: the
-          // recomp body does `rec_dispatch(c, caseTarget); return` here — a FULL early return, NOT a
-          // fallthrough to packet emission. Never hit by live game data (this 33-entry table's slots
-          // all resolve to one of the 5 cases above or the CBC8 no-op).
-          rec_dispatch(c, caseTarget);
+          // Defensive mirror of the guest instruction path's raw `jr` fallback for an unrecognized table entry: the
+          // guest instruction path does `typed runtime address dispatch(c, caseTarget); return` here — a FULL early
+          // return, NOT a fallthrough to packet emission. Never hit by live game data (this 33-entry table's slots all
+          // resolve to one of the 5 cases above or the CBC8 no-op).
+          psx::cpu::dispatchGuestToReturn0(*c, caseTarget, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
           return;
         }
       }
@@ -885,7 +875,7 @@ void Render::billboardEmit() {
       c->mem_w32(PKT_POOL_PTR, tail);
 
       // 6) RECORD this particle for the display-pass producer Render::billboardsRender. Everything
-      // here is the effect's OWN state: the local quad corners func_8003B220 just built for this
+      // here is the effect's OWN state: the local quad corners guest 0x8003B220 just built for this
       // particle, the node's own object rotation (published by whichever compose variant is running —
       // BbObjectRot above, rebuilt from the node's euler/scale fields), the node's own world
       // position, and the RESOLVED material words (post node+92 override + node+13 case patches).
@@ -893,7 +883,7 @@ void Render::billboardEmit() {
       // native camera cannot produce a camera-dependent residue: this is the rebuild that replaced
       // the CR0-4/CR5-7 tap. Host memory only, and skipped on the SBS oracle core (core B must stay
       // the untouched reference).
-      if (!c->game->oracle && rend(c)->mBbRotValid) {
+      if (rend(c)->mBbRotValid) {
         Render::BbRec rb;
         rb.node = node;
         rb.particle = particle;
@@ -927,10 +917,10 @@ void Render::billboardEmit() {
 
 // ==================================================================================================
 namespace {
-// Engine/game natives installed into the process-global g_override[] table. These are NOT gated
-// here — the gate lives in ONE place (the override registry, runtime/recomp/override_registry.h)
-// so it can't be forgotten cluster-by-cluster. engine_set_override_main() installs into that
-// registry, which runs the real gen_func_* body on the oracle (psx_fallback) and the native
+// Engine/game natives installed into the per-Core image-qualified runtime dispatcher table. These are NOT gated
+// here — the gate lives in ONE place (the override registry, runtime/psx/override_registry.h)
+// so it can't be forgotten cluster-by-cluster. tomba::native::declareOverride() installs into that
+// registry, which runs the original guest body on the test-only substrate leg and the native
 // everywhere else.
 void ov_perObjRenderDispatch(Core *c) {
   rend(c)->perObjRenderDispatch();
@@ -1114,15 +1104,14 @@ void perobj_billboard_install() {
     return;
   }
   done = true;
-  // engine_set_override_main (runtime/recomp/override_registry.h) installs into the ONE
-  // process-global override registry, which runs gen_func_* on the oracle leg (core B) and the
-  // native handler everywhere else — NOT a raw shard_set_override, since these are engine/game
-  // natives and the oracle must run the pure recompiled body for them.
-  extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_main(0x8003CCA4u, ov_perObjRenderDispatch, gen_func_8003CCA4);
-  engine_set_override_main(0x8003C2D4u, ov_billboardCompose1, gen_func_8003C2D4);
-  engine_set_override_main(0x8003C464u, ov_billboardCompose2, gen_func_8003C464);
-  engine_set_override_main(0x8003C788u, ov_billboardCompose3, gen_func_8003C788);
-  engine_set_override_main(0x8003C5F8u, ov_billboardComposeC5F8, gen_func_8003C5F8);
-  engine_set_override_main(0x8003C8F4u, ov_billboardEmit, gen_func_8003C8F4);
+  // tomba::native::declareOverride (runtime/psx/override_registry.h) installs into the ONE
+  // process-global override registry, which runs original guest instructions on the oracle leg (core B) and the
+  // native handler everywhere else — NOT a raw tomba::native::declareOverride, since these are engine/game
+  // natives and the oracle must run the pure guest body for them.
+  tomba::native::declareOverride(0x8003CCA4u, "ov_perObjRenderDispatch", ov_perObjRenderDispatch);
+  tomba::native::declareOverride(0x8003C2D4u, "ov_billboardCompose1", ov_billboardCompose1);
+  tomba::native::declareOverride(0x8003C464u, "ov_billboardCompose2", ov_billboardCompose2);
+  tomba::native::declareOverride(0x8003C788u, "ov_billboardCompose3", ov_billboardCompose3);
+  tomba::native::declareOverride(0x8003C5F8u, "ov_billboardComposeC5F8", ov_billboardComposeC5F8);
+  tomba::native::declareOverride(0x8003C8F4u, "ov_billboardEmit", ov_billboardEmit);
 }

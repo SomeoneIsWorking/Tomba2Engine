@@ -11,21 +11,21 @@
 //   STATE 3 : FUN_8007A624(node).
 //
 // CONTROL FLOW + the direct node WRITES owned native; the sub-behavior CALLs (FUN_8013AC98, FUN_8007778C,
-// FUN_8007A624) stay reachable via rec_dispatch (pure-PSX leaves). Store widths from the decompile
-// (undefined2 = 16-bit sh, byte = sb). The byte-exact A/B gate (full RAM+scratchpad vs rec_super_call)
+// FUN_8007A624) stay reachable via typed runtime address dispatch (pure-PSX leaves). Store widths from the decompile
+// (undefined2 = 16-bit sh, byte = sb). The byte-exact A/B gate (full RAM+scratchpad vs original guest-body call)
 // is the safety net.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "guest_abi.h"
+#include "guest_call.h"
+#include "guest_jal.h"
 #include "object/actor.h" // Actor::boundsCull (FUN_8007778C — thin wrapper native)
 #include "spawn.h"        // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -33,7 +33,7 @@ constexpr uint32_t BEH_FN = 0x8013ADBCu;
 
 static inline uint32_t leafr1(Core *c, uint32_t a0, uint32_t fn) {
   c->r[4] = a0;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 
@@ -50,7 +50,7 @@ void beh_box_rearm_sub(Core *c) {
 
   if (st == 1) {
     if (Actor(c, nd).boundsCull() != 0) {
-      guest_leaf(c, 0x8013ac98u, nd); // FUN_8007778C native / FUN_8013AC98
+      tomba::guest::dispatchLeafToReturn(*c, 0x8013ac98u, nd); // FUN_8007778C native / FUN_8013AC98
     }
     c->mem_w8(nd + 0x29, 0);
     c->mem_w8(nd + 0x2b, 0);
@@ -75,7 +75,7 @@ void beh_box_rearm_sub(Core *c) {
       c->mem_w8(nd + 0x29, 1);
       c->mem_w8(nd + 5, c->mem_r8(nd + 0x5e));
     }
-    guest_leaf(c, 0x8013ac98u, nd); // FUN_8013AC98
+    tomba::guest::dispatchLeafToReturn(*c, 0x8013ac98u, nd); // FUN_8013AC98
   } else if (st == 3) {
     eng(c).spawn.despawn(nd); // FUN_8007A624
   }

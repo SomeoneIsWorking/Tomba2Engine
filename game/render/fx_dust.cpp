@@ -7,8 +7,8 @@
 // fn FUN_80029F6C. Under pc_render nothing drew it: the field walk skipped every type-0x20 fn it had no
 // producer for, so the whole effect was invisible. This is that producer.
 //
-// RE of FUN_80029F6C (ground truth generated/shard_6.c gen_func_80029F6C, and gen_func_80029664 /
-// gen_func_80027768 for the two things it draws). `sub` = node+3, the dust SUBTYPE = surface material+1,
+// RE of FUN_80029F6C (ground truth authenticated executable/overlay evidence guest 0x80029F6C, and guest 0x80029664 /
+// guest 0x80027768 for the two things it draws). `sub` = node+3, the dust SUBTYPE = surface material+1,
 // which is what makes a puff on grass differ from a puff on stone. It draws TWO layers:
 //
 //  1. THE TRAIL (FUN_80029664, always): a tapered additive streak threaded through the first four ring
@@ -49,7 +49,7 @@
 
 namespace {
 
-// --- node field layout (RE'd from gen_func_80029F6C / FUN_80031558) --------------------------------
+// --- node field layout (RE'd from guest 0x80029F6C / FUN_80031558) --------------------------------
 constexpr uint32_t kSubtype = 0x03u;  // u8 dust subtype = surface material + 1
 constexpr uint32_t kState = 0x05u;    // u8 ring state; the puff draws only in states 2 and 3
 constexpr uint32_t kAgeIdx = 0x06u;   // u8 index into the per-age column-scale table

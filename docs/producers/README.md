@@ -13,8 +13,8 @@ actually DID, how much does the PC produce natively?** It can only be discovered
 
 ## How a row appears
 
-The port keeps a per-Core census (`external/psxport/runtime/recomp/producer_census.h`) keyed by the
-**guest submitter fn address** — the same key space as `overrides::install`, which is what makes "does
+The port keeps a per-Core census (`external/psxport/runtime/psx/producer_census.h`) keyed by the
+**guest submitter fn address** — the same key space as `tomba::native::declareOverride`, which is what makes "does
 this effect have a native producer" a *derived* fact instead of a box someone must remember to tick. It
 appends observations to `scratch/producers/run-<stamp>.jsonl`; `tools/producers.py ingest` folds them
 into this directory, and `run.sh` calls it, so **ordinary play populates the DB**.

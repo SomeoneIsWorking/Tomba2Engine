@@ -137,13 +137,13 @@ int32_t Trig::vecLen(int32_t x, int32_t y, int32_t z) {
 #include "game.h"
 
 // UNREGISTERED (2026-07-15): rsin/ratan2 are NOT safe as overrides. Their substrate bodies
-// (gen_func_80083E80 / 80085690) descend a guest STACK FRAME (rsin: sp-=24, spill ra@+16, then call
-// the table helper func_80083EBC which has its own frame) — the native Trig methods are pure functions
+// (guest 0x80083E80 / 80085690) descend a guest STACK FRAME (rsin: sp-=24, spill ra@+16, then call
+// the table helper guest 0x80083EBC which has its own frame) — the native Trig methods are pure functions
 // that mirror NONE of it, so under SBS-full the guest-stack bytes diverge (core A native leaves them
 // stale, core B substrate writes the spills). AUTO_SKIP SBS-full catches it at f560; the earlier
 // dark-screen MIRROR_VERIFY gate did NOT (it doesn't compare that dead-stack region — an under-gating
 // bug in the phase-3 native-ization). A faithful override would have to reproduce rsin's full frame
-// chain (its own + func_80083EBC's), defeating the point. So the overrides stay OFF: dispatch/substrate
+// chain (its own + guest 0x80083EBC's), defeating the point. So the overrides stay OFF: dispatch/substrate
 // callers keep running substrate (correct), and the Trig methods remain for DIRECT callers (which run
 // native on both SBS cores → no split). Do NOT re-register without full guest-stack-frame mirroring.
 void Trig::registerOverrides(Game * /*game*/) {}

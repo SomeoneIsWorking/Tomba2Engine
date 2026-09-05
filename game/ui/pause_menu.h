@@ -1,7 +1,7 @@
 // class PauseMenu — native display producer for the IN-GAME PAUSE / ITEM MENU (kanban #21).
 //
 // THE GUEST SIDE. The triangle-button menu is driven by the GAME-overlay page dispatcher
-// FUN_8010810C (owned: Engine::submitPage810c), whose page-1 branch calls the still-recomp menu
+// FUN_8010810C (owned: Engine::submitPage810c), whose page-1 branch calls the still-guest menu
 // driver FUN_801084F8, which in turn runs the menu CONTROLLER FUN_800346BC. That controller owns
 // the whole page family (Items / Event / Status / Help — its sub-drawers 0x80034548, 0x80037E44,
 // 0x80038A00, 0x80039110, 0x80039BCC) and paints every piece of chrome through two shared leaves:
@@ -21,7 +21,7 @@
 //     geometry. So the opaque slice IS submitted; it had no native producer.
 //
 // THE PRODUCER = A SCOPED LEAF TAP. `menuTick` overrides FUN_800346BC with a wrapper: raise this
-// page's UiGroupCapture scope, run the untouched gen body, lower it, then draw what the scope
+// page's UiGroupCapture scope, run the untouched guest-visible behavior, lower it, then draw what the scope
 // collected. `uiFt4Tap` overrides FUN_8007E1B8 (and ui_sprite.cpp's ov_compose does the same for
 // FUN_8007E6DC): run the untouched guest body, then hand the SAME guest-ABI arguments to
 // UiGroupCapture::route, which files them under whichever page scope is raised. Read-only: host

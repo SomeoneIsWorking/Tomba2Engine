@@ -1,22 +1,48 @@
 # Tomba!2 — PC GAME architecture (the real rebuild)
 
-**Mandate (user, 2026-06-24):** stop hacking the recompiled render path with flags. **Build a real PC game.**
-RE each game SUBSYSTEM and reimplement it natively in its OWN folder with sub-subsystem files. The recompiled
+**Mandate (user, 2026-06-24):** stop hacking the guest render path with flags. **Build a real PC game.**
+RE each game SUBSYSTEM and reimplement it natively in its OWN folder with sub-subsystem files. The guest
 MAIN.EXE stays ONLY as the live FALLBACK for code not yet ported, so the game keeps running while we port
 top-down. See memory [[make-a-pc-game-subsystem-rebuild]].
 
 ## The two layers
 - **`platform/`** — the PSX→PC FRAMEWORK (generic; future `psxport` submodule). The R3000 interpreter, memory,
   boot, HLE/BIOS, CD/disc, pad, memcard, the VK device + present, and the low-level GPU/GTE/SPU/MDEC backends.
-  This is NOT the game; it runs un-ported guest code and provides host services. Currently `runtime/recomp/*`.
-- **`game/`** — the Tomba!2 PC GAME, organized by SUBSYSTEM (below). Each subsystem is RE'd from the recomp
-  reference and reimplemented native-from-data. The recomp body of an un-ported function is the live fallback
-  (called via `rec_dispatch`) AND the behavioral reference — never the thing we bolt onto.
+  This is NOT the game; it runs un-ported guest code and provides host services. Currently `runtime/psx/*`.
+- **`game/`** — the Tomba!2 PC GAME, organized by SUBSYSTEM (below). Each subsystem is RE'd from the guest instruction path
+  reference and reimplemented native-from-data. The guest instruction path of an un-ported function is the live fallback
+  (called via `typed runtime address dispatch`) AND the behavioral reference — never the thing we bolt onto.
+
+## Frame ownership
+
+`game/core/frame_driver.*` owns one finite Tomba! 2 logic-frame transaction. Its measured order is
+hardware binding and native clock/event delivery, single-buffer preparation, input, title update and
+audio, exactly one presentation fence, capture reset/optional cold warp, cooperative game-task step,
+music coordination, draw synchronization, render submission, frame close, and title diagnostics.
+`game/core/auto_drive.*` owns the Tomba stage/cutscene interpretation used by AUTO_SKIP and REPL
+navigation; `game/core/frame_diagnostics.*` owns every Tomba task-layout, camera, sequencer, stream,
+and state-machine probe. `TombaRuntime` creates
+that driver through `GameRuntime::createFrameDriver`; `bootInit` performs only the finite retail init
+prefix and returns. The shared psxport frame shell only repeats `stepFrame` and must not wrap it in pad,
+timing, rendering, presentation, title auto-drive, guest-layout diagnostics, or guest-VSync services.
+Generic REPL budgeting/prompt transport, replay accounting, debug-server transport, RAM dumps, and
+frame budgets remain in the framework. This follows another game project's layout's boundary: the host
+application composes and repeats, while the game's frame owner controls update and presentation order.
+
+Guest code is never a frame-loop owner. Tomba! 2 declares its measured libetc VSync entry
+`0x80085900` as fatal, while `Timing::frameTick` advances the guest-visible counter from the native
+transaction. A guest wait or query reaching VSync is a product failure, including the historical
+`VSync: timeout` symptom.
+
+The title retains the measured dual-view rewind ordering in `TombaFrameDriver`, but the mode is
+refused at boot while the shared SDL_GPU backend exposes only one render target. The old behavior
+logged "side-by-side" while `gpu_vk_select_target` did nothing, producing only the native pane. A
+truthful refusal remains until psxport supplies real target selection and composition (issue #4).
 
 ## Game subsystems (folder = subsystem, files = sub-subsystems)
 ```
 game/
-  app/         game loop, frame step, present, pacing, 60fps      (ov_frame_update, native_step_frame, fps60, wide60)
+  core/        runtime composition, finite frame step, boot, and title control operations
   render/      THE RENDERER — draws the frame from SCENE DATA, native, real depth, engine-owned order
     scene/       draw-list / layers / depth-sort / the render queue            (render_queue)
     mesh/        3D model/mesh draw from geomblk + node transform              (submit GT3/GT4, projection)
@@ -51,10 +77,10 @@ game/
 2. **Understand the DATA**: the structs it reads/writes, the guest globals/scratchpad it shares with still-PSX
    content (the content-interface — those writes must stay correct).
 3. **REIMPLEMENT native-from-data** in the subsystem folder: read the game's own data, do the work in PC C,
-   draw via the native renderer (float transforms, real depth, engine-owned 2D layers). NO `rec_dispatch` of
+   draw via the native renderer (float transforms, real depth, engine-owned 2D layers). NO `typed runtime address dispatch` of
    this subsystem's render/logic, NO PSX-OT replay, NO GP0-packet emit/tag, NO A/B `debug`/env flag.
 4. **WIRE top-down**: a native function runs because its already-native PARENT calls it directly. Un-ported
-   leaves `rec_dispatch` to the recomp (live fallback) until ported.
+   leaves `typed runtime address dispatch` to the guest instruction path (live fallback) until ported.
 5. **VERIFY**: the engine builds the right world/picture; the guest state still-PSX content reads is correct.
    Render correctness = USER eyeballs `./run.sh` (agent builds + sends shots). No oracle.
 
@@ -89,7 +115,7 @@ same parse. Capture inputs via REPL: `ents` (model/geomblk addrs), `dumpram <f>`
 - **terrain** — the terrain/heightfield + tile data into a native terrain mesh + its texture.
 - Existing starting point: `engine/asset.cpp` (ov_lz_decompress/ov_unpack_group/ov_load_texgroup/
   ov_upload_image) currently LZ-decodes + uploads to PSX VRAM. KEEP the LZ/archive parsing; REPLACE the
-  "upload to VRAM" endpoint with "decode to native texture/mesh/sprite". RE the formats from the recomp
+  "upload to VRAM" endpoint with "decode to native texture/mesh/sprite". RE the formats from the guest instruction path
   reference (tools/disas.py / mdis.py) + memory ([[object-pipeline-and-depth-regression]] geomblk,
   [[tomba2-native-display-list]], the tilemap atlas in later-244). Cache decomps in scratch/decomp/assets/.
 
@@ -107,7 +133,7 @@ static props that store orientation in cmd+0x18 (not node euler) may be axis-ali
 is reconciled. Render correctness is USER-eyeballed, not self-verified.
 
 ### 2b) RENDER subsystem (`game/render/`) — build AFTER assets, ON TOP of native assets.
-Field renders ENTIRELY from scene data + native assets — no recomp render, no OT walk, no GP0 emit/tag, no
+Field renders ENTIRELY from scene data + native assets — no guest instruction path render, no OT walk, no GP0 emit/tag, no
 flags. Reference pipeline = MAIN.EXE 0x8003f9a8 (orchestrator) → render walks → per-type drawers → 2D sprite
 band (0x80025d98) → backdrop (0x8003df04→tilemap 0x80115598) → fades. Decompile each, map the scene-data
 model, reimplement under `game/render/` drawing native meshes/sprites with native textures. Per-drawer RE map:
@@ -115,7 +141,7 @@ model, reimplement under `game/render/` drawing native meshes/sprites with nativ
 
 ## Migration (non-destructive, keep it building every step)
 Move existing `engine/*` files into their subsystem folders incrementally, updating the SRC lists in
-`run.sh` + `tools/build_port.sh` and include paths in the SAME change; build after each move. Keep the recomp
+`run.sh` + `tools/build_port.sh` and include paths in the SAME change; build after each move. Keep the guest instruction path
 fallback (`platform/`) intact. Retire the scenenative/g_ot_2d_only/bgonly/ot2dtest experiments as the native
 render subsystem replaces them.
 
@@ -128,13 +154,13 @@ render subsystem replaces them.
   float transform + texture id) the decoupled native renderer will consume. `ov_build_xform` (FUN_80051C8C)
   stays in `engine/engine_submit.cpp` for now (depends on a submit static; moves with the render subsystem).
   - **PLACEMENT now LIVE top-down (2026-06-24, no overrides):** `ov_field_run` case-0 (engine/engine_stage.cpp
-    ~300) now calls `ov_place_objects(c)` DIRECTLY (replacing `rec_dispatch(0x80072a78)`). Native object
+    ~300) now calls `ov_place_objects(c)` DIRECTLY (replacing `typed runtime address dispatch(0x80072a78)`). Native object
     placement drives the live seaside field. Verified headless (`PSXPORT_AUTO_SKIP=1`): gate ON
     (`debug placeverify`) = both per-load calls byte-exact (full RAM+scratchpad) vs the PSX reference;
     gate OFF (native actually drives) = field reached, 155 nodes placed identical to the reference set, no
     bad opcode. This is the first native function on the LIVE object-creation path.
   - **SPAWN path now fully native (2026-06-24):** `spawn_dispatch` (and `replace_dispatch`) no longer
-    `rec_dispatch` the per-type spawn variants — they call the 5 owned native bodies directly via
+    `typed runtime address dispatch` the per-type spawn variants — they call the 5 owned native bodies directly via
     `spawn_variant_native(c, cls)` (entity_spawn / spawn_pool2 / pool_spawn×3). So the live object-creation
     chain — placement → spawn dispatch → spawn variant → pool pop + list link + identity stamp — is ALL
     PC-native. `placeverify` stays match #1/#2 (byte-exact end-to-end vs PSX), gate-off native-driven reaches
@@ -145,25 +171,25 @@ render subsystem replaces them.
     `dispatch_native_behavior`) already routes the seaside-resident handlers (739ac/73cd8/741dc) to native;
     their one graphics-binding call (per-object render-record init FUN_80051B70 → alloc record, resolve
     geomblk from the two-level model table, store into node+0xC0) now calls native `ov_obj_record_init`
-    instead of rec_dispatch. So "assigning graphics" runs PC-native live for these handlers. Verified:
+    instead of typed runtime address dispatch. So "assigning graphics" runs PC-native live for these handlers. Verified:
     handler gates 0 mismatch (obj739ac 1150 / obj73cd8 2300 / obj741dc 550), gate-off native-driven binds
     geomblks into node+0xC0 (ents gb0=…), field clean.
   - **Behavior handler FUN_80071A3C owned native+live (2026-06-24):** added `engine/beh_area_event_dispatch.cpp`
     and routed it through `dispatch_native_behavior`. A resident state machine on node[4] (state 0 runs
     FUN_800716B4 + a global-flag-gated overlay event dispatch on 0x800BFAE1/0x800BFAE6 vs area 0x800BF870;
     state 1 FUN_80071768 + conditional FUN_800518FC; state 3 FUN_8007A624) — control flow owned native, the
-    sub-behavior leaves stay PSX via rec_dispatch. Verified live on seaside: `obj80071a3cverify` 550+
+    sub-behavior leaves stay PSX via typed runtime address dispatch. Verified live on seaside: `obj80071a3cverify` 550+
     matches, 0 mismatch; gate-off native-driven reaches the field clean (no bad opcode).
   - **Object-pool init FUN_8007B18C owned native+live (2026-06-24):** the field case-0 prefix
     (engine_stage.cpp ov_field_run) now calls `ov_pool_init_run` (game/world/pool.cpp + pool.h) directly
-    instead of rec_dispatch(0x8007b18c). It builds the 520-slot object pool / free-list and runs the eight
-    sub-inits (leaves stay PSX via rec_dispatch). Inline A/B gate `poolinitverify` match #1/#2 (byte-exact
-    full RAM+scratchpad+v0 vs rec_super_call); gate-off native-driven reaches the field clean (151 nodes).
+    instead of typed runtime address dispatch(0x8007b18c). It builds the 520-slot object pool / free-list and runs the eight
+    sub-inits (leaves stay PSX via typed runtime address dispatch). Inline A/B gate `poolinitverify` match #1/#2 (byte-exact
+    full RAM+scratchpad+v0 vs original guest-body call); gate-off native-driven reaches the field clean (151 nodes).
   - **Control-block reset FUN_800796DC owned native+live (2026-06-24):** the next case-0 prefix leaf now
-    calls `ov_796dc_run` (game/world/pool.cpp) instead of rec_dispatch(0x800796dc) — zeroes the 104-byte
+    calls `ov_796dc_run` (game/world/pool.cpp) instead of typed runtime address dispatch(0x800796dc) — zeroes the 104-byte
     control block at 0x800BF808, clears ~30 scratchpad fields, runs its sub-inits (leaves stay PSX). Shared
     once-per-load gate `world_init_gate`; `init796dcverify` match #1/#2 byte-exact (incidental v0 mirrored:
-    recomp epilogue leaves the 0x800c0000 store base). 151 nodes gate-off.
+    guest instruction path epilogue leaves the 0x800c0000 store base). 151 nodes gate-off.
   - **Area record-seed FUN_800263E8 owned native+live (2026-06-24):** next case-0 prefix leaf → `ov_263e8_run`
     (game/world/pool.cpp). Walks a per-area byte sequence (table 0x8009D414[area]) to a 0xFF terminator,
     allocating a record per byte via 0x8007AD98 (PSX leaf) and stamping record[0]=1/record[2]=byte. Gate
@@ -188,7 +214,7 @@ render subsystem replaces them.
     runs 0x800846F0. Four callees (0x80051794×2, 0x8006D02C, 0x800846F0) stay PSX leaves. Gate
     `init78610verify` match #1/#2 byte-exact (incidental v0=0x80100000 mirrored — the `lui v0,0x8010` value
     survives to return). 151 nodes gate-off. **The ENTIRE field case-0 prefix is now PC-native** (pool init →
-    796dc → 263e8 → placement → 75240 → 783dc → 78610); no rec_dispatch leaves remain in it.
+    796dc → 263e8 → placement → 75240 → 783dc → 78610); no typed runtime address dispatch leaves remain in it.
   - **Case-0 tail state-index select FUN_80074F24 owned native+live (2026-06-25):** the field case-0 tail
     leaf → `ov_74f24_run` (game/world/pool.cpp), replacing `d1(0x80074f24, area)`. Early-outs on scratchpad
     0x1F800137==1 / area==21; else selects a per-area state index s0 (42, 10, or a bit-masked table lookup of
@@ -204,7 +230,7 @@ render subsystem replaces them.
     record (flag bit7 → FUN_8004D7EC vs FUN_8004D868, mask node[0x74]) and OR-ing an act-bit into node[0x70]
     when FUN_80077ACC / FUN_80111CCC returns nonzero; at the terminator stamps node[0x6a]=count, node[11]=31,
     FUN_80077EFC, node[1]=1. Control flow + all writes owned native; the 7 sub-behavior leaves stay PSX via
-    rec_dispatch. Verified live on seaside: `obj8004ce14verify` 950+ matches, 0 mismatch (full RAM+scratchpad
+    typed runtime address dispatch. Verified live on seaside: `obj8004ce14verify` 950+ matches, 0 mismatch (full RAM+scratchpad
     A/B); gate-off native-driven reaches the field clean (151 nodes, 0 bad opcode). One more resident handler
     (0x8006F2D0, ~450 instr) + the overlay handlers remain.
   - **Behavior handler FUN_8006F2D0 owned native+live (2026-06-25):** added `engine/beh_pad_child_linker.cpp`
@@ -216,7 +242,7 @@ render subsystem replaces them.
     children (FUN_8006EFF4 / FUN_8007E038 / FUN_8006F02C) gated by area flags at 0x800BF840; states 2/3 trivial;
     EVERY exit clears byte 0x800BF840. Transcribed 1:1 as a register machine (goto labels = guest addresses) so
     delay-slot clobbers are exact (e.g. the f570 `v1=512` that deads the f574/f5b8 sub-branches). Control flow +
-    all writes owned native; the 9 sub-behavior leaves stay PSX via rec_dispatch. Verified live on seaside:
+    all writes owned native; the 9 sub-behavior leaves stay PSX via typed runtime address dispatch. Verified live on seaside:
     `obj8006f2d0verify` 750+ matches, 0 mismatch (full RAM+scratchpad A/B); gate-off native-driven reaches the
     field clean (151 nodes, 0 bad opcode). Overlay handlers remain.
   - **Behavior handler FUN_8013C538 owned native+live (2026-06-25):** added `engine/beh_scatter_record_dither.cpp`
@@ -229,8 +255,8 @@ render subsystem replaces them.
     node[0x4e] iterations of 3x FUN_8009A450() (two jitter variants gated on 0x800BF9E0<6: &3 vs &7 masks),
     then FUN_8002B278 / FUN_80031780; states 2/3 → FUN_8007A624; state ≥4 trivial. Transcribed 1:1 as a
     register machine (goto labels = guest addresses); a0/a1 written into c->r only where the guest writes them
-    so the no-arg FUN_8009A450 leaves inherit the recomp's a0/a1. Control flow + all node writes owned native;
-    the 5 sub-behavior leaves stay PSX via rec_dispatch. Verified live on seaside: `obj8013c538verify` 6100+
+    so the no-arg FUN_8009A450 leaves inherit the guest instruction path's a0/a1. Control flow + all node writes owned native;
+    the 5 sub-behavior leaves stay PSX via typed runtime address dispatch. Verified live on seaside: `obj8013c538verify` 6100+
     matches, 0 mismatch (full RAM+scratchpad A/B); gate-off native-driven reaches the field clean (151 nodes,
     0 bad opcode). Disassemble further overlay handlers from the RAM dump (`tools/disas.py --ram …`).
   - **Behavior handler FUN_8013C3F4 owned native+live (2026-06-25):** added `engine/beh_area_threshold_ptr_swap.cpp`
@@ -239,7 +265,7 @@ render subsystem replaces them.
     and FALLS INTO state 1, which sets node[0x34] from node[0x38] (or overlay data ptrs 0x8014AC18/0x8014AF20
     selected via node[3] vs 0x800BF9E0 thresholds), then FUN_8002B278 / FUN_80031780; states 2/3 -> FUN_8007A624.
     Transcribed 1:1 (e.g. the c454 16-bit state store, the c494 branch-delay sltiu read at L4a8). Control flow +
-    all node writes owned native; the 3 sub-behavior leaves stay PSX via rec_dispatch. Verified live:
+    all node writes owned native; the 3 sub-behavior leaves stay PSX via typed runtime address dispatch. Verified live:
     `obj8013c3f4verify` 4600+ matches, 0 mismatch (full RAM+scratchpad A/B); gate-off field clean (151 nodes,
     0 bad opcode).
   - **Behavior handler FUN_8013C9C0 owned native+live (2026-06-25):** added `engine/beh_scatter_ramp_machine.cpp`
@@ -252,14 +278,14 @@ render subsystem replaces them.
     node[0x54] timers, toggles area bytes 0x800BF9E0/0x80109FC0, and twice calls FUN_80074590; tail dispatches
     jt1 to FUN_8002B278 for some (node[3],node[5]) combos. Transcribed 1:1; the two guest jump tables become
     switch->goto; signed-byte timer tests (sll v0,24;bgez) preserved. Control flow + all node/global/overlay
-    writes owned native; the 3 leaves stay PSX via rec_dispatch. Verified live: `obj8013c9c0verify` 4300+
+    writes owned native; the 3 leaves stay PSX via typed runtime address dispatch. Verified live: `obj8013c9c0verify` 4300+
     matches, 0 mismatch (full RAM+scratchpad A/B); gate-off field clean (151 nodes, 0 bad opcode).
   - **Behavior handler FUN_80136D9C owned native+live (2026-06-25):** added `engine/beh_pure_inner_dispatch.cpp`
     (~x2334/field-frame on seaside, ~90 instr). A pure CONTROL-FLOW dispatcher — owns no node writes; all
     effects are in its 8 sub-behavior leaves. Two-level dispatch (outer node[4], inner node[5]): state 0 ->
     FUN_80136F08; state 3 -> FUN_8007A624; state 1 conditionally calls FUN_8007778C then routes node[5] to
     FUN_80138A64/FUN_8018CDC4/FUN_80137198/FUN_8018CA1C and finally FUN_801389C8 (gated on node[1]/node[3] and
-    area bytes 0x800BF89C/0x800E7EAA/0x800BF809). Transcribed 1:1; all leaves stay PSX via rec_dispatch.
+    area bytes 0x800BF89C/0x800E7EAA/0x800BF809). Transcribed 1:1; all leaves stay PSX via typed runtime address dispatch.
     Verified live: `obj80136d9cverify` 2300+ matches, 0 mismatch; gate-off field clean (151 nodes, 0 bad opcode).
   - **Behavior handler FUN_80129C00 owned native+live (2026-06-25):** added `engine/beh_anim_trigger_gates.cpp`
     (~x2334/field-frame on seaside, ~130 instr). Two-level state machine with an in-overlay jump table
@@ -268,7 +294,7 @@ render subsystem replaces them.
     node[1]=1, bump node[0xC0][+12] += 16, FUN_800517F8); cases 2/3 -> FUN_80129160/FUN_801292E4; case 4
     early-outs on 0x800BF816/0x800BF8BC then bumps node[8] records' field[+8] by +16 when < -127 and calls
     FUN_80051C8C. Transcribed 1:1; jump table -> switch->goto; signed hword tests preserved. Control flow +
-    direct node/record writes owned native; leaves stay PSX via rec_dispatch. Verified live:
+    direct node/record writes owned native; leaves stay PSX via typed runtime address dispatch. Verified live:
     `obj80129c00verify` 2300+ matches, 0 mismatch; gate-off field clean (151 nodes, 0 bad opcode).
   - **Behavior handler FUN_8012A0B8 owned native+live (2026-06-25):** added `engine/beh_box_seed_phase_gate.cpp`
     (~x2334/field-frame on seaside, ~135 instr). Outer state machine on node[4]: states 2/3 -> FUN_8007A624;
@@ -278,7 +304,7 @@ render subsystem replaces them.
     round-toward-zero midpoints (node[0x2E]/0x4E, node[0x36]) before FUN_80129E8C; state 1 reads scratchpad byte
     0x1F800207 and, when 25<=b<32, calls FUN_80129E8C and sets node[1]=1. Table READ live from overlay RAM (not
     embedded). Transcribed 1:1; signed (lh/sra) vs unsigned (lhu/lbu) preserved; control flow + direct node
-    writes owned native, leaves stay PSX via rec_dispatch. Verified live: `obj8012a0b8verify` 2300+ matches,
+    writes owned native, leaves stay PSX via typed runtime address dispatch. Verified live: `obj8012a0b8verify` 2300+ matches,
     0 mismatch; gate-off field clean (151 nodes, 0 bad opcode).
   - **Behavior handler FUN_8012DA04 owned native+live (2026-06-25):** added `engine/beh_typed_anim_spawn.cpp`
     (~x2331/field-frame on seaside, ~200 instr). Outer state machine on node[4] with TWO in-overlay jump
@@ -289,7 +315,7 @@ render subsystem replaces them.
     the FUN_8004D4C4+FUN_8004B0D8 tail / advance node[4]=3; state 2 runs that tail when node[3]==2; state 3
     -> FUN_8007A624. Mirrors the guest prologue (sp-=40) so the leaf reads arg5 from the right frame slot.
     Transcribed 1:1; both jump tables READ live from overlay RAM; control flow + direct node writes owned
-    native, leaves stay PSX via rec_dispatch. Verified live: `obj8012da04verify` 2300+ matches, 0 mismatch;
+    native, leaves stay PSX via typed runtime address dispatch. Verified live: `obj8012da04verify` 2300+ matches, 0 mismatch;
     gate-off field clean (151 nodes, 0 bad opcode).
   - **Behavior handler FUN_80121978 owned native+live (2026-06-25):** added `engine/beh_id_routed_dispatch.cpp`
     (hottest still-PSX overlay handler ~x1592/field-frame on seaside, ~115 instr). Outer state machine on
@@ -297,21 +323,21 @@ render subsystem replaces them.
     node[4]+=1); state 1 routes node[3] to a per-id sub-behavior leaf (0/1/95/96/97/98/99 ->
     FUN_801225BC/80122D58/801220FC/80121B44/80121CF8/80122CA4/8018BF08, all other ids none) then ALWAYS
     FUN_80122BF4(node)+node[0x2B]=0; state 3 -> FUN_8007A624. No leaf takes a stack arg. Transcribed 1:1;
-    control flow + direct node writes owned native, leaves stay PSX via rec_dispatch. Verified live:
+    control flow + direct node writes owned native, leaves stay PSX via typed runtime address dispatch. Verified live:
     `obj80121978verify` 1550+ matches, 0 mismatch; gate-off field clean (151 nodes, 0 bad opcode).
   - **Behavior handler FUN_80125E0C owned native+live (2026-06-25):** added `engine/beh_pure_substate_dispatch.cpp`
     (~x1556/field-frame on seaside, ~80 instr). PURE control-flow dispatcher (no direct node writes of its
     own). State 0 -> FUN_801253E8; state 1 -> FUN_8007778C then node[5] 0/1/2 -> FUN_80125FE0/801255CC/80125800;
     state 2 -> FUN_8007778C then FUN_801261FC when node[5] in {2,3}; states 1/2 share a tail (FUN_800518FC when
     node[1]!=0); state 3 -> FUN_8007A624. Transcribed 1:1; control flow owned native, all sub-behavior leaves
-    stay PSX via rec_dispatch. Verified live: `obj80125e0cverify` 1550+ matches, 0 mismatch; gate-off field
+    stay PSX via typed runtime address dispatch. Verified live: `obj80125e0cverify` 1550+ matches, 0 mismatch; gate-off field
     clean (151 nodes, 0 bad opcode).
   - **Behavior handler FUN_80128760 owned native+live (2026-06-25):** added `engine/beh_linked_advance_branch.cpp`
     (~x1556/field-frame on seaside, ~95 instr). Outer state machine on node[4]: state 0 -> FUN_80128308;
     state 1 splits on node[3] (0 -> branch A, 1 -> branch B), both gate an "advance node[5]" reset
     (node[11]=0, node[0x10]=0, node[5]+=1) on the linked object node[0x10][0x5E]; branch A -> FUN_801281B8,
     branch B drops to a scratchpad[0x207]<6 gate that runs FUN_801281B8+FUN_801285EC; state 3 -> FUN_8007A624.
-    Transcribed 1:1; control flow + direct node writes owned native, leaves stay PSX via rec_dispatch.
+    Transcribed 1:1; control flow + direct node writes owned native, leaves stay PSX via typed runtime address dispatch.
     Verified live: `obj80128760verify` 1550+ matches, 0 mismatch; gate-off field clean (151 nodes, 0 bad opcode).
   - **Behavior handler FUN_80118240 owned native+live (2026-06-25):** added `engine/beh_typed_init_exit_poker.cpp`
     (~x1556/field-frame on seaside, ~370 instr — the biggest of the hot set). Outer state machine on node[4],
@@ -322,7 +348,7 @@ render subsystem replaces them.
     FUN_8004B0D8 exit tails, node[4]=3, and pokes area-flag bytes (0x800BF9DF|=0x20, 0x800BF9EA clears bits at
     node[0x60]&31 / (node[0x60]+4)&31, 0x800BF9EE|=2); state 3 -> FUN_8007A624. Mirrors the guest prologue
     (sp-=48) for the stack arg. Transcribed 1:1; control flow + direct node/area-flag writes owned native,
-    leaves stay PSX via rec_dispatch. Verified live: `obj80118240verify` 1550+ matches, 0 mismatch; gate-off
+    leaves stay PSX via typed runtime address dispatch. Verified live: `obj80118240verify` 1550+ matches, 0 mismatch; gate-off
     field clean (151 nodes, 0 bad opcode).
   - **Behavior handler FUN_8013A900 owned native+live (2026-06-25):** added `engine/beh_child_trig_motion.cpp`
     (~x1554/field-frame on seaside, ~205 instr). Outer state machine on node[4]: state 0 INIT gates on global
@@ -331,7 +357,7 @@ render subsystem replaces them.
     x2 gated on 0x800BF8F7; 2 -> motion-field seed); state 1 gates scratchpad[0x207] in [23,31] + FUN_8007778C,
     then node[3]==0 runs a trig block (FUN_80083E80/F50 of the 0x800E7ED8 angle + FUN_80085690 x2, writing
     node[0xC4] record fields), 1/2 -> FUN_80135414, then FUN_800517F8; state 3 -> FUN_8007A624. The math helpers
-    are ordinary rec_dispatch leaves (return via v0, not gte_op); a0 fidelity in the record loop kept by not
+    are ordinary typed runtime address dispatch leaves (return via v0, not gte_op); a0 fidelity in the record loop kept by not
     clobbering c->r[4] between FUN_80051B04 and the next FUN_8007AAE8. Transcribed 1:1; control flow + direct
     node/record writes owned native. Verified live: `obj8013a900verify` 1550+ matches, 0 mismatch; gate-off
     field clean (151 nodes, 0 bad opcode).
@@ -463,7 +489,7 @@ render subsystem replaces them.
     node[0x60]/node[0x62] (toggling mem[0x800BF9EE] + node[0xBF]), plays SFX 0x8D (FUN_80074590), runs a
     node[5] sub-machine (FUN_80139E64/80139C2C/8013A008) + FUN_800517F8; tail writes node[1] into each
     record[0x3F] + FUN_80139A70. KEY GOTCHA: Ghidra's `unaff_s0` else-path = the INCOMING guest s0 (c->r[16],
-    callee-saved → preserved across rec_dispatch) — reading it reproduces the recomp's register flow exactly;
+    callee-saved → preserved across typed runtime address dispatch) — reading it reproduces the guest instruction path's register flow exactly;
     `mem[0x800BF8B9] == -1` is `== 255`; mem[0x800ED098] is a signed lh. Verified live: `lift_platformverify`
     750+ matches, 0 mismatch; gate-off field clean (151 nodes).
   - **Behavior handler FUN_80136954 = `beh_event_record_machine` owned native+live (2026-06-25, Ghidra+raw):**
@@ -482,7 +508,7 @@ render subsystem replaces them.
     (FUN_8011bc3c/b324/b738/ada8/c090/bf04); cases 0 & 1 are identical PRNG (FUN_8009a450) substate machines
     on node[6] with a node[0x40] countdown; every state-1 exit sets node[0x29]=0. State 2 ENTER, state 3
     EXIT (FUN_8007a624). GOTCHAs: `mem8(0x800e7eaa) < 0x1a` is unsigned `sltiu`; `== -1` is `== 255` (lbu);
-    case-2's FUN_8004bd64 takes a 5th *stacked* arg → mirror the recomp frame (sp-0x30) into guest stack
+    case-2's FUN_8004bd64 takes a 5th *stacked* arg → mirror the guest instruction path frame (sp-0x30) into guest stack
     below entry sp + dispatch with that frame sp. Verified live: `typed_variant_routerverify` 750+ matches,
     0 mismatch; gate-off field clean (151 nodes, 0 bad opcode).
   - **Behavior handler FUN_8004C238 = `beh_visibility_gate_dispatch` now LIVE (2026-06-25, later-232c fix):**
@@ -490,7 +516,7 @@ render subsystem replaces them.
     STATE-1 cases 6-14 each clear `node[0x29]=0` in the DELAY SLOT of their `j 0x8004c750` (0x8004c634/c64c/
     c65c/c66c/c690/c6a8/c6c0/c6d8/c6f0/c700/c710/c720/c730/c740) — the original transcription dropped those
     delay-slot stores and just fell through to the c750 tail (which only cleared node[0x2b]). Fix: clear
-    node[0x29]=0 at the shared c750 tail (every recomp predecessor of c750 has it 0, so exact). Verified live
+    node[0x29]=0 at the shared c750 tail (every guest instruction path predecessor of c750 has it 0, so exact). Verified live
     on seaside: `visibility_gate_dispatchverify` 3100+ matches, 0 mismatch; gate-off field clean (151 nodes).
   - **Behavior handler FUN_80059ED8 = `beh_camera_target_follow` owned native+live (2026-06-25, resident,
     THE hottest still-PSX resident handler ~x741):** a camera/view tracker. node[0x10] = the tracked target
@@ -511,7 +537,7 @@ render subsystem replaces them.
     spawns node[8] glyph records (FUN_8007aae8 + FUN_80051b04(rec,1,uVar7) per glyph) and seeds the layout
     fields. State 1 routes node[3] to FUN_8003a790/a9a0/abe4 then node[1]=1 + FUN_800517f8; state 2 sets
     node[4]=3 and decrements globals 0x800bf849/0x800ed06c; state 3 FUN_8007a624. GOTCHA: the record-alloc
-    loop relies on a0/a1 LEFTOVER — FUN_8007aae8 carries the a0 left by the prior rec_dispatch (FUN_80073750
+    loop relies on a0/a1 LEFTOVER — FUN_8007aae8 carries the a0 left by the prior typed runtime address dispatch (FUN_80073750
     first iter, FUN_80051b04 after, which leaves a0=rec), so c->r[4] is NOT written before FUN_8007aae8.
     Verified live: `cube_text_spawnverify` 100 matches, 0 mismatch; gate-off field clean (151 nodes).
   - **Behavior handler FUN_80127798 = `beh_area_transition_machine` owned native+live (2026-06-25, overlay):**

@@ -1,8 +1,8 @@
 # `FUN_800288AC` — the weapon IMPACT radial plume (mesh half)
 
-**Status: PORTED + TRUE-SOFTWARE-ORACLE VERIFIED.** Decoded 2026-08-11 from ground truth `generated/shard_5.c`
-`gen_func_800288AC` (lines 2410-2574, 164 raw lines, 9 of 13 blocks reachable — the other 4 are the
-recompiler's folded-in trailing function) plus `gen_func_80027768` (the shared 36-byte-record mesh
+**Status: PORTED + TRUE-SOFTWARE-ORACLE VERIFIED.** Decoded 2026-08-11 from ground truth `authenticated executable/overlay evidence`
+`guest 0x800288AC` (lines 2410-2574, 164 raw lines, 9 of 13 blocks reachable — the other 4 are the
+recorded binary evidence's folded-in trailing function) plus `guest 0x80027768` (the shared 36-byte-record mesh
 writer). The missing writer parameter found by this decode is now modeled as
 `meshQuadRecordsEmit`'s opt-in CLUT-row bias; `Render::impactPlumeRender` owns the controller from
 persistent node/script state in `game/render/fx_impact.cpp`.
@@ -82,7 +82,7 @@ which calls the writer four times advancing the Y angle a quarter turn between c
 | `rec[0..2]` | u8 ×3 | column-scale triple, each `<< 2` |
 | `rec[3]` | u8 | `attr`: bit7 = last frame, bit6 = drive the cue, bits5-0 = cue amount, bits3-0 = §4 |
 
-## 3. What the writer does with each argument (`gen_func_80027768`)
+## 3. What the writer does with each argument (`guest 0x80027768`)
 
 | arg | treatment |
 |---|---|

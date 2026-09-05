@@ -75,8 +75,8 @@ explicit `PSXPORT_PAD_RECORD=<path>` records anywhere and is never rotated.
 
 ## Where this is implemented
 
-- `external/psxport/runtime/recomp/pad_input.{h,cpp}` — `mRecLog`, `recordedFrames()`,
+- `external/psxport/runtime/psx/pad_input.{h,cpp}` — `mRecLog`, `recordedFrames()`,
   `saveRecording(path, nframes)`, and the record/replay block in `serviceFrame()`.
-- `external/psxport/runtime/recomp/dbg_server.cpp` — the `padrec` command + help text.
+- `external/psxport/runtime/psx/dbg_server.cpp` — the `padrec` command + help text.
 - `docs/driving-the-game.md` — the wider driving/automation doc (AUTO_SKIP, replays, REPL).
 - `replays/README.md` — replay format, index, how to replay under SBS.

@@ -3,7 +3,7 @@
 // An OVERLAY per-object behavior routine (guest 0x8014xxxx) with the same state-byte shape as the
 // resident/overlay siblings (the FUN_739ac handler / the FUN_73cd8 handler / the FUN_8012eb54 handler): a state machine
 // on the node's state byte node[4] (0 init / 1 active / 2 idle / 3 despawn). The bulk of the work lives in ~14
-// sub-functions it CALLS, which stay PSX leaves via rec_dispatch:
+// sub-functions it CALLS, which stay PSX leaves via typed runtime address dispatch:
 //   state 0  -> FUN_80140544                          (per-type init; then -> epilogue)
 //   state 1  -> a despawn-gate (node[0x32]/node[0x66]/DAT_800e7eaa), an animation/tick gate
 //               (FUN_8014047c, node[0x2b] dec + node[0x56] +/-0x80 by pad bit), then a node[3]
@@ -19,12 +19,12 @@
 //   state 3  -> node[0]=2 always; if node[0x1b]&0x40 clear bit 0x40 else despawn FUN_8007a624
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + node/global memory writes owned native;
-// every sub-behavior CALL stays a reachable PSX leaf via rec_dispatch (NO recursion into them). NO GTE,
-// NO render packets here. RE'd 1:1 from disas 0x80145230..0x80145670 (no memory jump tables — all
-// dispatch is compare-and-branch; decoded from the field RAM dump scratch/bin/field_ram_230.bin). It
-// WRITES guest node state the still-recomp content reads -> content-INTERFACE: gated byte-exact (full
-// RAM+scratchpad A/B vs rec_super_call). The idle/active field path is exercised by the gate; the
-// input/scene-driven sub-states are faithfully transcribed and verify when a scene drives them.
+// every sub-behavior CALL stays a reachable PSX leaf via typed runtime address dispatch (NO recursion into them). NO
+// GTE, NO render packets here. RE'd 1:1 from disas 0x80145230..0x80145670 (no memory jump tables — all dispatch is
+// compare-and-branch; decoded from the field RAM dump scratch/bin/field_ram_230.bin). It WRITES guest node state the
+// still-guest content reads -> content-INTERFACE: gated byte-exact (full RAM+scratchpad A/B vs original guest-body
+// call). The idle/active field path is exercised by the gate; the input/scene-driven sub-states are faithfully
+// transcribed and verify when a scene drives them.
 //
 // Register map (prologue 0x80145230): s0 = node (a0); s4 = node+0x60; s1 = node+0x60 (reloaded in tail);
 // s3 = 1 (const); s2 = lui 0x8015 (DAT_8014bf5e = s2-0x40a2). a0 stays 2 from 0x8014527c into state 3.
@@ -33,7 +33,8 @@
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_call.h"
 #include "render/cull.h"   // Cull::cullWrapperFlag2 (FUN_800777FC)
 #include "render/render.h" // Core::mRender (NodeXform)
 #include "rng.h"           // class Rng (via rngOf(c).next())
@@ -41,8 +42,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -53,7 +52,7 @@ constexpr uint32_t BEH_FN = 0x80145230u;
 // pointer to an arg struct built at sp+0x10, so without the descent the struct was assembled 56
 // bytes high, on top of the CALLER's live locals, and every field FUN_8003116C reads but this code
 // does not write (+0x10/+0x14/+0x18) came from unrelated data. Found 2026-07-23 by the beh_* A/B
-// (kanban #10): forcing this handler to its gen body changed 148 bytes of object state on
+// (kanban #10): forcing this handler to its guest-visible behavior changed 148 bytes of object state on
 // replays/bugs/bucket-softlock.pad, first at f420.
 constexpr GuestFrameSpill kSpills[] = {
     {16, 32}, // s0
@@ -78,8 +77,9 @@ void beh_id_compare_motion_dispatch(Core *c) {
       if (st == 2) { // beq v1,2 -> 0x8014561c      [0x80145280]
         // ---- STATE 2 (idle) [0x8014561C] ----
         c->r[4] = obj;
-        rec_dispatch(c, 0x80144B50u); // FUN_80144b50                [0x8014561C]
-        return;                       // j 0x80145654 (epilogue)
+        psx::cpu::dispatchGuestToReturn0(
+            *c, 0x80144B50u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_80144b50 [0x8014561C]
+        return;                                                                     // j 0x80145654 (epilogue)
       }
       if (st == 3) { // beq v1,3 -> 0x8014562c      [0x80145288]
         // ---- STATE 3 (despawn) [0x8014562C] ----
@@ -99,8 +99,9 @@ void beh_id_compare_motion_dispatch(Core *c) {
     }
     // ---- STATE 0 (init) [0x80145298] ----
     c->r[4] = obj;
-    rec_dispatch(c, 0x80140544u); // FUN_80140544                [0x80145298]
-    return;                       // j 0x80145654 (epilogue)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80140544u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_80140544 [0x80145298]
+    return;                                                                     // j 0x80145654 (epilogue)
   }
 
   // ================= STATE 1 (active) [0x801452A8] =================
@@ -167,7 +168,8 @@ void beh_id_compare_motion_dispatch(Core *c) {
     } else {
       // ---- gate call [0x80145328] ----
       c->r[4] = obj;
-      rec_dispatch(c, 0x8014047Cu); // FUN_8014047c                [0x80145328]
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x8014047Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_8014047c [0x80145328]
       if (c->r[2] != 0) {
         return; // bnez v0 -> epilogue          [0x80145330]
       }
@@ -185,7 +187,8 @@ void beh_id_compare_motion_dispatch(Core *c) {
   // ---- node[3] compare-dispatch [0x801453A8..0x80145510] ----
   // Reached ONLY from the tick branch with n2b==0 (fall through 0x801453A8). It re-calls FUN_8014047c.
   c->r[4] = obj;
-  rec_dispatch(c, 0x8014047Cu); // FUN_8014047c                [0x801453A8]
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8014047Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_8014047c [0x801453A8]
   if (c->r[2] != 0) {
     goto after_no_cull; // bnez v0 -> 0x8014560c        [0x801453B0]
   }
@@ -211,7 +214,8 @@ void beh_id_compare_motion_dispatch(Core *c) {
     // n3==0 OR (n3>=6 && !=0x80 && !=0x81) -> 0x801453EC
     // ---- default / node[3]==0 block [0x801453EC] ----
     c->r[4] = obj;
-    rec_dispatch(c, 0x80143A00u);            // FUN_80143a00                [0x801453EC]
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80143A00u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_80143a00 [0x801453EC]
     if (c->mem_r8(obj + 0x2a) == 1) {        // lbu node[0x2a]; bne 1 -> 0x80145510 [0x801453FC]
       int16_t n2e = c->mem_r16s(obj + 0x2e); // lh node[0x2e]              [0x80145404]
       if (n2e >= 0x31a9) {                   // slti 0x31a9; bnez -> 0x80145510 (skip) [0x8014540C/10]
@@ -225,7 +229,8 @@ n3_motion:;
   // ---- node[3] motion block [0x80145420..0x801454F4] ----
   {
     c->r[4] = obj;
-    rec_dispatch(c, 0x80144928u);   // FUN_80144928                [0x80145420]
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80144928u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_80144928 [0x80145420]
     uint16_t r = (uint16_t)c->r[2]; // sll v0,0x10 -> low 16 bits  [0x80145428]
     if (r == 0) {
       goto second_cull; // beqz -> 0x80145510           [0x8014542C]
@@ -242,7 +247,8 @@ n3_motion:;
     int16_t t1 = c->mem_r16s(0x1F800164u);            // lh a1,0x164(0x1f80_0000)
     c->r[4] = (uint32_t)(int32_t)(int16_t)(a2 - t0);  // a0 = node[0x2e]-DAT_1f800160 (subu, used as arg)
     c->r[5] = (uint32_t)(int32_t)(int16_t)(s36 - t1); // a1 = node[0x36]-DAT_1f800164
-    rec_dispatch(c, 0x800781E0u);                     // FUN_800781e0 -> v0           [0x80145464]
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x800781E0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_800781e0 -> v0 [0x80145464]
     int32_t a1v;
     if (c->mem_r16(0x800E7FFEu) & 0x8200) { // lh DAT_800e7ffe; andi 0x8200; bnez -> a1=-1 [0x80145478..7C]
       a1v = -1;                             // addiu a1,-1  [delay slot @0x80145498]
@@ -265,8 +271,9 @@ n3_motion:;
       }
     }
     c->r[4] = obj;
-    c->r[5] = (uint32_t)a1v;       // a0=node, a1=(sll16/sra16 of a1v) [0x801454C0..C4]
-    rec_dispatch(c, 0x801409C0u);  // FUN_801409c0 -> v0           [0x801454C8]
+    c->r[5] = (uint32_t)a1v; // a0=node, a1=(sll16/sra16 of a1v) [0x801454C0..C4]
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x801409C0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_801409c0 -> v0 [0x801454C8]
     uint32_t v1 = c->r[2];         // move v1,v0                   [0x801454D0]
     if ((v1 & 0xffff) == 0) {      // andi 0xffff; beqz -> 0x801454ec [0x801454D8]
       c->mem_w32(obj + 4, 0x301u); // sw 0x301,node[4] (node[4..7]) [0x801454EC]

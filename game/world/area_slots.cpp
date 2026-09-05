@@ -6,7 +6,8 @@
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
-#include "override_registry.h" // overrides::install — the one native-override registry
+#include "guest_call.h"
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include <cstdio>
 
 // FUN_800998E4's own table and encoding — named here rather than repeated as literals. See
@@ -22,10 +23,8 @@ constexpr uint8_t kFieldOnly = 2;
 constexpr uint8_t kArmedOnly = 3;
 constexpr uint8_t kNeither = 0;
 } // namespace
-extern void gen_func_800998E4(Core *);
-// The MAIN-module setter: 0x800998E4 lives in shard_0, so direct func_800998E4(c) callers
+// The MAIN-module setter: 0x800998E4 lives in shard_0, so direct guest 0x800998E4(c) callers
 // (AreaSlots::updateTail's own call site among them) must be intercepted through it too.
-extern void shard_set_override(uint32_t, void (*)(Core *));
 
 // AreaSlots::updateTail — the last direct child of ov_field_frame at guest 0x80075A80.
 // Slot-table state machine over the 24-entry × 12-byte area at 0x800BE238; see area_slots.h for
@@ -34,11 +33,11 @@ extern void shard_set_override(uint32_t, void (*)(Core *));
 // FUN_80074BF8 / FUN_80074E48 sub-obj tails). Guest allocates 88 bytes of stack — the buffer address
 // is passed to FUN_800998E4 and the action leaf's 4 stacked args, so we mirror the sp adjust.
 //
-// GUEST-FRAME FIDELITY (tools/abi_extract.py 0x80075A80 --contract): the prologue spills the
+// GUEST-FRAME FIDELITY (tools/binary ABI evidence 0x80075A80 --contract): the prologue spills the
 // LIVE incoming r16..r21/r31 to sp+56..80, and every one of the 8 leaf calls below runs with a
 // specific r16..r21/r31 live in the guest register file — FUN_80092660 in particular re-spills
 // those onto ITS OWN guest stack frame, so if we don't reproduce the exact live values here the
-// bytes it spills diverge from recomp_path (SBS byte diff at 0x801FE900). r16..r21/r31 are set
+// bytes it spills diverge from retired comparison path (SBS byte diff at 0x801FE900). r16..r21/r31 are set
 // at every point gen reassigns them and otherwise left untouched (a compliant callee transparently
 // preserves them across its own call, so a value set once here rides unchanged through subsequent
 // calls exactly like it does in gen).
@@ -66,7 +65,7 @@ void AreaSlots::updateTail() {
 
   // (1) Fill the 24-byte per-slot state buffer for this frame.
   c->r[4] = buf_addr;
-  rec_dispatch(c, 0x800998E4u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x800998E4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   // (2) Slot loop over 24 entries at 0x800BE238 (12 bytes each), starting at the counter at 0x800BED78.
   int32_t s2 = (int32_t)c->mem_r32(0x800BED78u);
@@ -130,7 +129,7 @@ void AreaSlots::updateTail() {
                c->r[16],
                c->r[19],
                c->mem_r8(0x800BF870u));
-      rec_dispatch(c, 0x80092660u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80092660u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       uint32_t mask = c->mem_r32(0x800BE358u); // clear bit s2 in the arm-mask
       mask &= ~(1u << (uint32_t)s2);
       c->mem_w32(0x800BE358u, mask);
@@ -176,21 +175,21 @@ void AreaSlots::updateTail() {
   if (c->mem_r32(0x800BE358u) != 0) {
     c->r[4] = 0;
     c->r[31] = 0x80075C4Cu;
-    rec_dispatch(c, 0x80098F90u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80098F90u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->mem_w32(0x800BE358u, 0);
   }
 
   // (4) Common tail leaves — both take a0 = 0x800BE1F8.
   // Was: eng(c).musicCoord.musicFadeIn() — WRONG. FUN_80075824 was misnamed as musicFadeIn;
   // the RE (2026-07-03, ghidra) shows it is the per-voice VOLUME MIXER tick, not a fade snap.
-  // SBS gameplay mode surfaced the divergence at 0x800BE208/A the moment we replaced the recomp
+  // SBS gameplay mode surfaced the divergence at 0x800BE208/A the moment we replaced the guest instruction path
   // dispatch with musicFadeIn; the proper port is voiceMixTick(0x800BE1F8).
   c->r[4] = S5;
   c->r[31] = 0x80075C58u;             // jal-site const, kept even for the native call
   eng(c).musicCoord.voiceMixTick(S5); // FUN_80075824 (native)
   c->r[4] = S5;
   c->r[31] = 0x80075C60u;
-  rec_dispatch(c, 0x80099490u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80099490u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   // (5) Key2 branch. gen reassigns r17:=0x800C0000 right here, before the key2 read, and the S5
   // zero-write below is UNCONDITIONAL — it lives in the branch's delay slot, so it fires whether
@@ -204,7 +203,7 @@ void AreaSlots::updateTail() {
     c->r[4] = (uint32_t)(int32_t)entry_hw;
     c->r[5] = 0;
     c->r[31] = 0x80075C90u;
-    rec_dispatch(c, 0x8008E0C0u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8008E0C0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     if ((c->r[2] & 0xFFFFu) == 0) {
       // Guest checked (return << 16) != 0 == (return & 0xFFFF) != 0.
       // gen reassigns r16:=S5 here (r16 = 0x800C0000 - 7688), live for both the subid==0 and
@@ -219,12 +218,12 @@ void AreaSlots::updateTail() {
         c->mem_w16(0x800BED80u, 0);
         c->r[4] = (uint32_t)subid;
         c->r[31] = 0x80075CB8u;
-        rec_dispatch(c, 0x80074BF8u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80074BF8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         c->mem_w8(0x800BE22Au, 0); // gen mem_w8(r16+50,0) after BF8 (r16=S5, +50=0x800BE22A)
       } else {
         c->r[4] = 0;
         c->r[31] = 0x80075CC8u;
-        rec_dispatch(c, 0x80074E48u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80074E48u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       }
     }
   }
@@ -246,7 +245,7 @@ void AreaSlots::updateTail() {
 // but scoped to a SINGLE ack event: the caller passes an arg encoding {entryIdx: arg & 0xFF,
 // signature: arg & 0xFFFFFF00}; if the signature matches the u32 stored at slot[idx].w0's high
 // 3 bytes, set the armed bit AND clear the slot's trigger-pending byte at +1. Signature mismatch
-// is a silent no-op (the recomp's `bne v0, a0, 0x80074B3C` short-circuits directly to jr ra).
+// is a silent no-op (the guest instruction path's `bne v0, a0, 0x80074B3C` short-circuits directly to jr ra).
 // RE'd verbatim from disas 0x80074AF0..0x80074B40.
 void AreaSlots::ackIfMatch(uint32_t arg) {
   Core *c = core;
@@ -302,19 +301,19 @@ bool AreaSlots::updateCell(uint32_t sigArg, int32_t dx, int32_t dy) {
   c->r[4] = idx;
   c->r[5] = (uint32_t)(dx << 7);
   c->r[6] = (uint32_t)(dy << 7);
-  rec_dispatch(c, 0x80092E3Cu);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80092E3Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return true;
 }
 
 static void eov_areaSlotsPrime(Core *c) {
   eng(c).areaSlots.primeCountdown(c->r[4]);
-  // Mirror gen_func_80074A38's register outputs (shard_0.c): r2=10 (the kind byte), r3=entry addr.
+  // Mirror guest 0x80074A38's register outputs (shard_0.c): r2=10 (the kind byte), r3=entry addr.
   // The native C++ body only writes the guest byte; the substrate leaves these in v0/v1 at return.
   c->r[2] = 10;
   c->r[3] = 0x800BE238u + (c->r[4] & 0xFFu) * 12u;
 }
 static void eov_areaSlotsUpdateCell(Core *c) {
-  // gen_func_8007496C allocates a 24-byte frame + spills r31@sp+16 (shard_0.c). The native body
+  // guest 0x8007496C allocates a 24-byte frame + spills r31@sp+16 (shard_0.c). The native body
   // dispatches a still-substrate leaf (FUN_80092E3C) which spills caller r31 — needs the frame.
   c->r[29] -= 24;
   c->mem_w32(c->r[29] + 16, c->r[31]);
@@ -323,10 +322,7 @@ static void eov_areaSlotsUpdateCell(Core *c) {
   c->r[29] += 24;
 }
 
-extern void gen_func_80074A38(Core *);
-extern void gen_func_8007496C(Core *);
-
-// ORACLE: gen_func_800998E4
+// ORACLE: guest 0x800998E4
 // FUN_800998E4 — see area_slots.h. Fills the 24-byte slot-status buffer updateTail consults, one byte
 // per slot, from two independent facts per slot.
 //
@@ -334,8 +330,8 @@ extern void gen_func_8007496C(Core *);
 // 3, field-only is 2, neither is 0. Reading it as "bit0 = armed, bit1 = field" would swap two of the
 // four cases, and this header's own updateTail notes already ascribe distinct meanings to 0 and 3.
 //
-// A pure leaf: frame_size 0, no calls, so nothing to mirror on the guest stack. The recompiled body's
-// trailing `func_80099970(c); return;` after its real `return;` is the recompiler's dead-tail artifact
+// A pure leaf: frame_size 0, no calls, so nothing to mirror on the guest stack. The guest body's
+// trailing `guest 0x80099970(c); return;` after its real `return;` is the recorded binary evidence's dead-tail artifact
 // (a folded sibling), not part of this function.
 void AreaSlots::classifySlotStates(uint32_t outBuf) {
   Core *c = core;
@@ -362,7 +358,7 @@ void AreaSlots::classifySlotStates(uint32_t outBuf) {
   }
 
   // REPRODUCE THE EXIT REGISTER STATE. This leaf has no stack frame, so there is nothing to mirror
-  // there — but it is a REGISTER-STATE divergence all the same, and it is observable: the gen body
+  // there — but it is a REGISTER-STATE divergence all the same, and it is observable: the guest-visible behavior
   // uses a1..a3 and t0..t2 as loop scratch and leaves them holding the loop's final values, and a
   // caller that spills those caller-saved registers after the call writes them into guest RAM. Left
   // untouched, this port diverged at lockstep frame 14 in the guest stack at 0x801FE998 — a stack
@@ -384,8 +380,7 @@ static void eov_areaSlotsClassify(Core *c) {
 }
 
 void AreaSlots::registerOverrides() {
-  using overrides::install;
-  install(0x80074A38u, "AreaSlots::primeCountdown", eov_areaSlotsPrime, gen_func_80074A38);
-  install(0x8007496Cu, "AreaSlots::updateCell", eov_areaSlotsUpdateCell, gen_func_8007496C);
-  install(0x800998E4u, "AreaSlots::classifySlotStates", eov_areaSlotsClassify, gen_func_800998E4, shard_set_override);
+  tomba::native::declareOverride(0x80074A38u, "AreaSlots::primeCountdown", eov_areaSlotsPrime);
+  tomba::native::declareOverride(0x8007496Cu, "AreaSlots::updateCell", eov_areaSlotsUpdateCell);
+  tomba::native::declareOverride(0x800998E4u, "AreaSlots::classifySlotStates", eov_areaSlotsClassify);
 }

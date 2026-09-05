@@ -7,9 +7,8 @@
 #include "menu.h"
 #include "cfg.h"
 #include "core.h"
+#include "guest_call.h"
 #include <stdio.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 // ---- Replace the game's in-game Options menu with our PC-native (RmlUi) menu (later-112) ----
 // RE: the in-game pause menu is a task in the GAME overlay. Its body is the dispatcher at 0x8010810C,
@@ -38,7 +37,7 @@ static void t2_call3(Core *c, uint32_t addr, uint32_t a0, uint32_t a1, uint32_t 
   c->r[4] = a0;
   c->r[5] = a1;
   c->r[6] = a2;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[4] = s4;
   c->r[5] = s5;
   c->r[6] = s6;

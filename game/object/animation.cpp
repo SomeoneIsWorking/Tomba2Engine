@@ -1,21 +1,20 @@
 // game/object/animation.cpp — PC-native per-object ANIMATION-VM subsystem.
 // The per-object animation-sequence VM stepper (FUN_80076D68): walks an 8-byte-stride keyframe stream,
 // counting down the per-frame duration and following tag-keyed jumps. Control flow + memory ops owned
-// native; the 3 frame sub-fns (applier / loader / executor) stay reachable by address via rec_dispatch.
-// NO GTE. Extracted verbatim from game_tomba2.cpp (one behavior, byte-identical) into its own module for
-// PC-game code structure. The `animvm` diagnostic A/B gate (full RAM+scratchpad vs rec_super_call) is a
+// native; the 3 frame sub-fns (applier / loader / executor) stay reachable by address via typed runtime address
+// dispatch. NO GTE. Extracted verbatim from game_tomba2.cpp (one behavior, byte-identical) into its own module for
+// PC-game code structure. The `animvm` diagnostic A/B gate (full RAM+scratchpad vs original guest-body call) is a
 // REPL channel, unchanged.
 #include "animation.h"
 #include "cfg.h"
 #include "core.h"
-#include "game.h" // c->game->verify — the shared A/B verify scaffold
+#include "game.h"
 #include "game_ctx.h"
-#include "override_registry.h" // overrides::install — the one native-override registry
+#include "guest_call.h"
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FUN_80076D68 — per-object ANIMATION-SEQUENCE VM stepper (resident, no GTE; ~3.6% of field interp
@@ -27,7 +26,7 @@ void rec_dispatch(Core *, uint32_t);
 //
 // Logic (transcribed 1:1 from the disasm — control flow + memory ops owned native, the 3 sub-fns
 // (0x80075f0c per-frame applier, 0x80076904 frame loader, 0x80075ff8 frame executor) stay PSX,
-// dispatched via rec_dispatch so each honors any later override identically in the super-call path):
+// dispatched via typed runtime address dispatch so each honors any later override identically in the super-call path):
 //  - low12(ctrl) > 1  -> DELAY: still counting down this frame. The cursor's SIGN BIT is a flag:
 //    cur<0 (bit31 set) = freeze in place -> sh[s0+14] = (low12-1) | (ctrl & 0x1000), return 0; else
 //    apply the current frame (0x80075f0c, a1 = low12-1 — it sets the cursor's KSEG0 bit when a1==1)
@@ -44,7 +43,7 @@ void rec_dispatch(Core *, uint32_t);
 //                  the no-exec-flag path stores the loaded [cur+6]&0xfff like a hold).
 //  The executor calls (L_f40/L_f28/L_ff0/L_7000) differ only in whether the executor's a1 is the
 //  cursor's jump target ([cur+8]) or the cursor itself +8, and whether v0 returns 0 or 1.
-// `animvm` gate = full RAM+scratchpad A/B vs rec_super_call (each path runs once from one checkpoint;
+// `animvm` gate = full RAM+scratchpad A/B vs original guest-body call (each path runs once from one checkpoint;
 //  the native run is rolled back; the fn's own 40-byte stack frame [sp-40,sp) is excluded — the gen
 //  prologue saves regs there, the native body never touches the guest stack).
 static void anim_vm_76d68(Core *c) {
@@ -88,7 +87,7 @@ static void anim_vm_76d68(Core *c) {
     c->r[4] = s0;
     c->r[5] = a1;
     c->r[6] = (uint32_t)c->mem_r16s(s0 + 14);
-    rec_dispatch(c, 0x80075ff8u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80075ff8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->r[2] = retval;
   };
 
@@ -228,12 +227,12 @@ static void anim_vm_76d68(Core *c) {
   }
 }
 
-// Animation::stepFramed — GUEST-ABI ENTRY ONLY for FUN_80076D68 (RE: generated/shard_7.c
-// gen_func_80076D68): `addiu sp,-40; sw s0,16(sp) [BEFORE s0<-a0]; sw ra,32(sp); sw s3,28(sp);
+// Animation::stepFramed — GUEST-ABI ENTRY ONLY for FUN_80076D68 (RE: authenticated executable/overlay evidence
+// guest 0x80076D68): `addiu sp,-40; sw s0,16(sp) [BEFORE s0<-a0]; sw ra,32(sp); sw s3,28(sp);
 // sw s2,24(sp); sw s1,20(sp)`. Each spill writes the CALLER's LIVE incoming r16/r17/r18/r19/ra
 // BEFORE the body repurposes r16 as its own `node` local, mirroring the real frame descent/spill/
 // ascent so a caller that reached this function through the GUEST CALL GRAPH (c->r[29] is a real
-// guest sp at a real guest call site — the shard_set_override/override-registry trampolines below)
+// guest sp at a real guest call site — the tomba::native::declareOverride/override-registry trampolines below)
 // gets byte-exact guest-stack bytes.
 //
 // NOT used by step() below: step() is also called directly by NATIVE C++ beh_ handlers
@@ -275,8 +274,8 @@ void Animation::step(uint32_t node) {
     anim_vm_76d68(c);
     return;
   }
-  uint8_t *ram0 = c->game->verify.ram0();
-  uint8_t *ramN = c->game->verify.ramN();
+  uint8_t *ram0 = gctx(c)->verification.ram0();
+  uint8_t *ramN = gctx(c)->verification.ramN();
   uint8_t spad0[0x400], spadN[0x400];
   uint32_t regs0[32];
   memcpy(regs0, c->r, sizeof regs0);
@@ -290,11 +289,11 @@ void Animation::step(uint32_t node) {
   memcpy(c->ram, ram0, 0x200000);
   memcpy(c->scratch, spad0, 0x400);
   memcpy(c->r, regs0, sizeof regs0);
-  rec_super_call(c, 0x80076D68u);
+  psx::cpu::callOriginalToReturn(*c, 0x80076D68u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   uint32_t v0_o = c->r[2];
   // Exclude FUN_80076D68's OWN 40-byte stack frame [sp-40, sp) — this NATIVE (unframed) run never
   // touches the guest stack (only stepFramed(), the guest-ABI entry, does); the SUBSTRATE run via
-  // rec_super_call pushes/pops its OWN real frame at whatever sp happens to be current for this
+  // original guest-body call pushes/pops its OWN real frame at whatever sp happens to be current for this
   // native-triggered A/B check (not a real guest call site), so that transient frame is expected to
   // differ from "untouched" and is excluded here, same as before this fix.
   uint32_t sp = regs0[29] & 0x1FFFFFu, flo = (sp >= 40) ? sp - 40 : 0;
@@ -312,7 +311,7 @@ void Animation::step(uint32_t node) {
       break;
     }
   }
-  VerifyHarness::Check &chk = c->game->verify.check("animvm");
+  tomba::VerificationCounter &chk = gctx(c)->verification.animation;
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0 || v0_n != v0_o) {
     if (nb++ < 40) {
@@ -382,10 +381,10 @@ static void anim_unpack_pose_triple(Core *c, uint32_t obj, uint32_t &stream) {
   // which is exactly why `phase` seeds to 1 when this unpack ran — "there's a pending nibble").
   // The advance must leave `stream` POINTING AT e4 (byte offset 4), not past it (offset 5), so the
   // next reader re-reads that byte and masks off the low nibble. Hand-verified byte-for-byte
-  // against the recomp oracle (docs/findings/animation.md): node=0x800FB960, entryPtr chain ->
+  // against the historical guest-execution reference (docs/findings/animation.md): node=0x800FB960, entryPtr chain ->
   // stream bytes `.. 00 0F E1 04 A0 9A FF`; with stream left at the 0x0F byte, Loop2's ODD branch
   // (c0=0x0F,c1=0xE1,c2=0x04,c3=0xA0,c4=0x9A) reproduces the substrate's exact output f8=0x0FE1,
-  // f10=0x004A, f12=0x009A — byte-identical to recomp_path. The old `s + 5` silently ate the
+  // f10=0x004A, f12=0x009A — byte-identical to retired comparison path. The old `s + 5` silently ate the
   // shared nibble, corrupting every subsequent per-limb field for any node whose pose-triple
   // (flags&0x80) unpack precedes a Loop1/Loop2 per-limb walk.
   stream = s + 4;
@@ -407,7 +406,7 @@ void Animation::loadFrame(uint32_t node) { // FUN_80076904
   uint32_t phase;
   if (flagsByte & 0x40) {
     // Gen's 0x40-set arm has its OWN inline pose-triple unpack whose final read advances `r5 += 5`
-    // (gen_func_80076904, the block before L_800769C4): the header is PADDED to 9 bytes so Loop1's
+    // (guest 0x80076904, the block before L_800769C4): the header is PADDED to 9 bytes so Loop1's
     // 9-byte-per-limb stream stays aligned — no shared straddling nibble in this variant. The
     // shared helper leaves stream at s+4 (the Loop2 shared-nibble contract), so skip the 5 pad
     // bytes here. Without this, Loop1 decoded every limb 5 bytes early (watch-cut f289: Charles'
@@ -505,7 +504,7 @@ void Animation::loadFrame(uint32_t node) { // FUN_80076904
 // walk. Shares node's countdown (+0xE) and cursor (+0x38) fields with loadFrame/step, but a
 // DIFFERENT, coarser chain format (tag halfword at cur+2, jump-pointer word at cur+4 — vs the
 // anim-VM's 8-byte stride / tag at cur+6 / jump at cur+8). Reused as a generic "tick + advance one
-// small event chain" leaf by ~10 non-animation beh_ handlers (rec_dispatch(c, 0x80077B5Cu) /
+// small event chain" leaf by ~10 non-animation beh_ handlers (typed runtime address dispatch(c, 0x80077B5Cu) /
 // `leaf1(c, nd, 0x80077B5Cu)`).
 uint32_t Animation::advanceLinkChain(uint32_t node) {
   Core *c = this->core;
@@ -551,18 +550,18 @@ uint32_t Animation::advanceLinkChain(uint32_t node) {
 // Guest frame mirror — RE-INVESTIGATED 2026-07-08 (docs/findings/animation.md). The 2026-07-08
 // revert above was based on the assumption that c->r[29] at attach's entry is "whatever an
 // unrelated prior guest call left it at" and would therefore differ between SBS core A and core B.
-// A direct probe (PSXPORT_DEBUG=animstack in rec_dispatch, comparing c->r[29] at every reach of
+// A direct probe (PSXPORT_DEBUG=animstack in typed runtime address dispatch, comparing c->r[29] at every reach of
 // 0x80077C40 on both cores over a full autonav run) DISPROVES that: r29 is IDENTICAL between A and
 // B at every single call, every frame (all 4 leaf-dispatch call sites: beh_a06_scripted_actor,
 // beh_id_routed_dispatch, beh_sop_intro_narration/lifted). This makes sense once stated: every
-// caller reaches attach via rec_dispatch (leaf3/call3/direct), and rec_dispatch is a NATIVE C++ call
-// on both cores — it never itself pushes/pops a guest frame, so whatever r29 the CALLER (a beh_*
+// caller reaches attach via typed runtime address dispatch (leaf3/call3/direct), and typed runtime address dispatch is
+// a NATIVE C++ call on both cores — it never itself pushes/pops a guest frame, so whatever r29 the CALLER (a beh_*
 // handler, itself invoked at a specific point in the per-object walk) currently holds is passed
 // through unchanged to attach on both A and B alike. The prior revert's actual bug must therefore
 // have been in the SPILL/RESTORE bookkeeping itself (e.g. wrong offsets or restoring stale values),
 // not "there is no canonical frame". FUN_80077C40's real 32-byte frame (`addiu sp,-32; sw ra,24
-// (sp); sw r17,20(sp); sw r16,16(sp)`, RE'd from generated/shard_5.c gen_func_80077C40) is mirrored
-// below with the same LIVE-spill/restore RAII pattern as NodeXform's frames (node_xform.cpp) and
+// (sp); sw r17,20(sp); sw r16,16(sp)`, RE'd from authenticated executable/overlay evidence guest 0x80077C40) is
+// mirrored below with the same LIVE-spill/restore RAII pattern as NodeXform's frames (node_xform.cpp) and
 // Cull::performBaseCullFramed (cull.cpp). isDeadStackScratch's exclusion in sbs.cpp is REMOVED.
 void Animation::attach(uint32_t node, uint32_t table, uint32_t id) {
   Core *c = this->core;
@@ -587,7 +586,7 @@ void Animation::attach(uint32_t node, uint32_t table, uint32_t id) {
   c->mem_w16(node + 0xE, (uint16_t)(desc & 0xfffu));
   loadFrame(node);
 
-  // v0/v1 mirror (gen_func_80077C40 never sets v0 itself — the CALLER-visible v0 is whatever the
+  // v0/v1 mirror (guest 0x80077C40 never sets v0 itself — the CALLER-visible v0 is whatever the
   // last callee left, and the SOP overlay call site at 0x8010B828 (ra=0x8010B830) BRANCHES on it.
   // Leaving native junk here flipped the lifted actor's pose-kickoff arm exactly once per anim
   // change (watch-cut f289: A snapped angles via the overlay's own FUN_80075FF8 call while B took
@@ -595,7 +594,7 @@ void Animation::attach(uint32_t node, uint32_t table, uint32_t id) {
   //   FUN_80076904 returns 0 on every path (all three exits are failed `<` compares), then
   //   r3 = desc; r2 = r3 & 0x2000; early-exit leaves v0=0, v1=desc&0xC000 (delay slot);
   //   tag==0x8000 exit leaves v0=0xC000 (delay-slot r2 arm), v1=0x8000;
-  //   executor exits return FUN_80075FF8's own v0/v1 (rec_dispatch below leaves them naturally.)
+  //   executor exits return FUN_80075FF8's own v0/v1 (typed runtime address dispatch below leaves them naturally.)
   desc = c->mem_r16(entryPtr + 6); // re-read (loadFrame may not touch it)
   uint32_t tag = desc & 0xc000u;
   if ((desc & 0x2000u) == 0) {
@@ -617,7 +616,7 @@ void Animation::attach(uint32_t node, uint32_t table, uint32_t id) {
   c->r[4] = node;
   c->r[5] = a1;
   c->r[6] = (uint32_t)c->mem_r16s(node + 0xE);
-  rec_dispatch(c, 0x80075ff8u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80075ff8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -666,8 +665,8 @@ static void eov_animApplyFrame(Core *c) {
 // FUN_80076D68 (Animation::step) is DELIBERATELY LEFT UNWIRED here — investigated + reverted
 // 2026-07-08 (docs/findings/animation.md has the full trace). stepFramed() (above) DOES mirror
 // FUN_80076D68's real 40-byte guest-stack frame byte-exact — that part of the RE is correct and
-// kept for future use. But wiring gov_animStep (via shard_set_override, so every direct substrate
-// `func_80076D68(c)` call routes to the native body) reproducibly diverges at f3773 in
+// kept for future use. But wiring gov_animStep (via tomba::native::declareOverride, so every direct substrate
+// `guest 0x80076D68(c)` call routes to the native body) reproducibly diverges at f3773 in
 // packet_pool/packet_pool_ptrs (0x800BF4F4+), cascading to 30,000+ RAM bytes within a few hundred
 // frames. Root-caused via a per-call A/B trace comparing every node/frame/return value: the
 // divergence is NOT the frame (proved — it persists identically even routing gov_animStep through
@@ -689,19 +688,14 @@ static void eov_animApplyFrame(Core *c) {
 // step() stays reachable only via DIRECT native C++ callers (beh_actor_move_sm etc — see step()'s
 // own header comment) and via the override registry (ActorZonedAttacker's call1() leaf-dispatch
 // convenience), which never cross the guest ABI/stack boundary in the first place.
-extern void shard_set_override(uint32_t, void (*)(Core *));
-extern void gen_func_80076904(Core *);
-extern void gen_func_80077B5C(Core *);
-extern void gen_func_80077C40(Core *);
-extern void gen_func_80075F0C(Core *);
 
 void Animation::registerOverrides() {
-  // 0x80075F0C is ALSO reached by DIRECT substrate `func_<addr>(c)` calls (jal), not only via
-  // rec_dispatch; install() puts the shared thunk into g_override[] so both paths are intercepted
-  // uniformly (FUN_80075F0C's guest body has no stack-frame adjustment — generated/shard_4.c).
-  using overrides::install;
-  install(0x80076904u, "Animation::loadFrame", eov_animLoadFrame, gen_func_80076904, shard_set_override);
-  install(0x80077B5Cu, "Animation::advanceLinkChain", eov_animAdvanceLink, gen_func_80077B5C, shard_set_override);
-  install(0x80077C40u, "Animation::attach", eov_animAttach, gen_func_80077C40, shard_set_override);
-  install(0x80075F0Cu, "Animation::applyFrame", eov_animApplyFrame, gen_func_80075F0C, shard_set_override);
+  // 0x80075F0C is ALSO reached by DIRECT substrate `a direct guest-address call` calls (jal), not only via
+  // typed runtime address dispatch; install() puts the shared thunk into image-qualified runtime dispatcher so both
+  // paths are intercepted uniformly (FUN_80075F0C's guest body has no stack-frame adjustment — authenticated
+  // executable/overlay evidence).
+  tomba::native::declareOverride(0x80076904u, "Animation::loadFrame", eov_animLoadFrame);
+  tomba::native::declareOverride(0x80077B5Cu, "Animation::advanceLinkChain", eov_animAdvanceLink);
+  tomba::native::declareOverride(0x80077C40u, "Animation::attach", eov_animAttach);
+  tomba::native::declareOverride(0x80075F0Cu, "Animation::applyFrame", eov_animApplyFrame);
 }

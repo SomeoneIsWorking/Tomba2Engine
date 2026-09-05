@@ -22,7 +22,7 @@
 // press (label L_8007B4E8 -> L_8007B540: cursor = DAT_800BF808, mem_w16(sm+0x50, cursor+1)) — so all
 // five pages are reachable two presses past the title, and each needs a producer.
 //
-// WHAT THE PAGES DRAW (RE'd from the gen bodies: gen_func_8007F104 generated/shard_4.c:12354,
+// WHAT THE PAGES DRAW (RE'd from the gen bodies: guest 0x8007F104 authenticated executable/overlay evidence,
 // F250 shard_5.c:13263, F498 shard_6.c:13944, F73C shard_7.c:12047, F8F8 shard_0.c:12421):
 // every page is TEXT + at most three non-font element kinds, and the text is already free:
 //   · TEXT / ICONS — FUN_80079374 (drawText), FUN_80079324 (drawTextSmall) and FUN_80078988 (icon

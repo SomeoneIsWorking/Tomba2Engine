@@ -1,6 +1,6 @@
 // game/render/subpart_walk_shared.cpp — Render::sharedTransformWalk, guest FUN_8003F07C.
 //
-// RE'd 2026-07-22 from gen_func_8003F07C. The SIBLING of Render::subPartWalk (FUN_8003F174), and the
+// RE'd 2026-07-22 from guest 0x8003F07C. The SIBLING of Render::subPartWalk (FUN_8003F174), and the
 // pair is easiest understood together:
 //
 //   subPartWalk (F174)          per sub-part: load THAT PART'S transform (sub+0x18), then submit it
@@ -19,10 +19,9 @@
 // bottom, and `node[+8] == 0` draws nothing however large `node[+9]` is. Note also that this function
 // checks `node[+8]` BEFORE loading the transform at all, so an empty node costs nothing.
 #include "core.h"
-#include "override_registry.h"
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "render.h"
-
-void func_8003F698(Core *); // generated/shard_disp.c — geometry-block submit
 
 namespace {
 
@@ -35,7 +34,7 @@ constexpr uint32_t NODE_COUNT = 9u;
 
 } // namespace
 
-// ORACLE: gen_func_8003F07C
+// ORACLE: guest 0x8003F07C
 void Render::sharedTransformWalk(Core *c) {
   const uint32_t node = c->r[4];
   const uint32_t passThrough = c->r[5];
@@ -74,7 +73,7 @@ void Render::sharedTransformWalk(Core *c) {
         c->r[5] = c->mem_r32(OT_TABLE_PTR);
         c->r[31] = 0x8003F140u; // jal-site ra
         c->r[6] = passThrough;
-        func_8003F698(c);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x8003F698u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
         index += 1;
         cursor += 4;
@@ -96,8 +95,5 @@ static void ov_shared_transform_walk(Core *c) {
 }
 
 void shared_transform_walk_install() {
-  extern void gen_func_8003F07C(Core *);
-  extern void shard_set_override(uint32_t, void (*)(Core *));
-  overrides::install(
-      0x8003F07Cu, "Render::sharedTransformWalk", ov_shared_transform_walk, gen_func_8003F07C, shard_set_override);
+  tomba::native::declareOverride(0x8003F07Cu, "Render::sharedTransformWalk", ov_shared_transform_walk);
 }

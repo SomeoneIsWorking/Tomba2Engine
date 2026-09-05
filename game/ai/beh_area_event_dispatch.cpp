@@ -13,10 +13,10 @@
 //   default : nothing.
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the global-flag reads owned native;
-// every sub-behavior CALL stays reachable by address via rec_dispatch (leaf, no recursion). This
+// every sub-behavior CALL stays reachable by address via typed runtime address dispatch (leaf, no recursion). This
 // handler itself performs NO node/global memory WRITES — the callees do — so it is trivially
 // content-interface-correct, but it is still gated byte-exact (full RAM+scratchpad A/B vs
-// rec_super_call) like every owned behavior. NO GTE, NO render packets here.
+// original guest-body call) like every owned behavior. NO GTE, NO render packets here.
 //
 // v0 is NOT reproduced: the per-object dispatcher (call_handler) ignores the handler return, and the
 // behavior gate (below) compares only RAM+scratchpad — matching the sibling objbeh gates.
@@ -24,14 +24,13 @@
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_call.h"
 #include "render/render.h" // Core::mRender (NodeXform)
 #include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -50,18 +49,18 @@ void beh_area_event_dispatch(Core *c) {
   switch (state) {
   case 0:
     c->r[4] = obj;
-    rec_dispatch(c, 0x800716B4u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x800716B4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     if (c->mem_r8(0x800BFAE1u) != 0 && c->mem_r8(0x800BF870u) == 4) {
       c->r[4] = obj;
-      rec_dispatch(c, 0x8011B79Cu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8011B79Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     } else if (c->mem_r8(0x800BFAE6u) != 0 && c->mem_r8(0x800BF870u) == 7) {
       c->r[4] = obj;
-      rec_dispatch(c, 0x801178E4u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x801178E4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     }
     break;
   case 1:
     c->r[4] = obj;
-    rec_dispatch(c, 0x80071768u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80071768u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     if (c->mem_r8(obj + 1) != 0) {
       rend(c)->mNodeXform.buildWithOffset(obj); // FUN_800518FC (native)
     }

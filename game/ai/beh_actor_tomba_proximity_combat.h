@@ -1,18 +1,17 @@
 // game/ai/beh_actor_tomba_proximity_combat.h — PC-native per-object AI think function FUN_800527C8
-// (MAIN.EXE, generated/shard_3.c:13494 `gen_func_800527C8`, ground truth).
+// (MAIN.EXE, authenticated executable/overlay evidence `guest 0x800527C8`, ground truth).
 //
-// STATUS: VERIFIED (line-by-line vs generated/shard_3.c ground truth — body logic had NO bugs; the
-// one real bug was a missing guest-stack frame, fixed) + WIRED via the shared override registry
+// STATUS: VERIFIED (line-by-line vs authenticated executable/overlay evidence ground truth — body logic had NO bugs;
+// the one real bug was a missing guest-stack frame, fixed) + WIRED via the shared override registry
 // (RegisterBehActorTombaProximityCombatOverride, called from TombaRuntime::registerOverrides through
 // register_engine_overrides(),
-// `overrides::install`). Reached ONLY via rec_dispatch (an indirect function-pointer table read
-// from a per-object "think" slot) — no static `func_800527C8(c)` call site exists in any generated
-// shard (confirmed by grep), so the registry's oracle-gated dispatch intercepts it regardless of
-// which object's spawn stamped the pointer; no setter needed (no direct intra-shard call bypasses
-// rec_dispatch). NOT YET
-// SBS-gated to a confirmed FIRE — autonav on the intro-area build may not reach an enemy encounter
-// that exercises this leaf; if `ovhit` shows zero hits, the 0-diff gate proves no regression to the
-// frames reached, not correctness of this handler (that rests on the RE verification above).
+// `tomba::native::declareOverride`). Reached ONLY via typed runtime address dispatch (an indirect function-pointer
+// table read from a per-object "think" slot) — no static `guest 0x800527C8(c)` call site exists in any generated shard
+// (confirmed by grep), so the registry's oracle-gated dispatch intercepts it regardless of which object's spawn stamped
+// the pointer; no setter needed (no direct intra-shard call bypasses typed runtime address dispatch). NOT YET SBS-gated
+// to a confirmed FIRE — autonav on the intro-area build may not reach an enemy encounter that exercises this leaf; if
+// `ovhit` shows zero hits, the 0-diff gate proves no regression to the frames reached, not correctness of this handler
+// (that rests on the RE verification above).
 //
 // WHAT IT IS: an "enemy actor vs Tomba" proximity-combat state machine. a0 = the acting object (an
 // enemy/hostile actor record, generic layout — same field convention as game/ai/actor_melee_engage.h
@@ -35,7 +34,8 @@
 //                         one of TWO parallel jump tables by obj+3 (kind/mode gate):
 //                           obj+3==0 -> table A @ 0x80016DB0+obj5*4 (decoded literal, NOT re-derived
 //                                       from the table read — see .cpp switch statement for the 5
-//                                       literal case targets, read 1:1 off the generated code):
+//                                       literal case targets, read 1:1 off the authenticated executable/overlay
+//                                       evidence):
 //                             substate 0 (0x800529EC) — "engage": pulls Tomba's Y toward self
 //                             (self+50-60 -> G+50), then on a countdown (self+64) hitting -1 calls
 //                             FUN_80042728 (still-substrate predicate); on success re-derives a
@@ -99,17 +99,17 @@
 //                         [already-native].
 //   mode in {2,3}      -> despawn: Spawn::despawn semantics via still-substrate FUN_8007A624 (the
 //                         SAME address game/world/spawn.h's Spawn::despawn already owns natively —
-//                         this draft still routes through rec_dispatch per the "prefer rec_dispatch
-//                         for wired addresses" convention rather than calling Spawn::despawn(self)
+//                         this draft still routes through typed runtime address dispatch per the "prefer typed runtime
+//                         address dispatch for wired addresses" convention rather than calling Spawn::despawn(self)
 //                         directly, since the draft is a mechanical 1:1 transliteration this
 //                         session did not re-verify against Spawn::despawn's exact semantics).
 //   mode>=4            -> no-op (idle).
 //
-// Field offsets are RAW DECIMAL LITERALS matching the recompiler's own decimal output verbatim (same
+// Field offsets are RAW DECIMAL LITERALS matching the recorded binary evidence's decimal output verbatim (same
 // convention as actor_melee_engage.h/melee_proximity.h) — no hex/decimal transcription step.
 //
-// Callees already NATIVE (routed via rec_dispatch anyway, per the "uniform dispatch" override
-// convention — calling rec_dispatch on an address installed in the override registry reaches the
+// Callees already NATIVE (routed via typed runtime address dispatch anyway, per the "uniform dispatch" override
+// convention — calling typed runtime address dispatch on an address installed in the override registry reaches the
 // native automatically once wired; this draft does not itself call the C++ methods directly):
 //   FUN_800519E0 -> GraphicsBind::recordArrayInit (game/world/graphics_bind.h)
 //   FUN_80054D14 -> Engine::walkStart            (game/core/engine.h)
@@ -120,7 +120,8 @@
 //   FUN_8007A624 -> Spawn::despawn               (game/world/spawn.h)
 //
 // Callees still STAGE-substrate (RE'd only to the extent needed to place their args; not chased
-// into this session, reached via rec_dispatch exactly as the generated code does):
+// into this session, reached via typed runtime address dispatch exactly as the authenticated executable/overlay
+// evidence does):
 //   FUN_80041718, FUN_80041768  — small per-object counter/state-bump leaves (2-3 args).
 //   FUN_800782B0                — writes a value derived from two s16 inputs back through a0
 //                                  (looks RNG/offset-shaped; return feeds a position field).

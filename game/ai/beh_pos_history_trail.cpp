@@ -29,10 +29,10 @@
 //
 // CONTROL FLOW + every direct node WRITE owned native at the SAME offset/width as the decompile (undefined
 // = byte, undefined2/short/ushort = 16-bit, the node[0x58] read = 32-bit int, the ring copy = two 32-bit
-// words per slot). The single sub-behavior CALL (FUN_8007A624) stays a pure-PSX leaf via rec_dispatch. The
-// target object (tgt = node[0x10]) is only READ here, never written — so it can't corrupt the still-recomp
+// words per slot). The single sub-behavior CALL (FUN_8007A624) stays a pure-PSX leaf via typed runtime address
+// dispatch. The target object (tgt = node[0x10]) is only READ here, never written — so it can't corrupt the still-guest
 // owner. The original goto structure (Lc70/Lca0/Ld90/Ld98/Lda8/Lddc/Lde0) is preserved exactly. The
-// byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net.
+// byte-exact A/B gate (full RAM+scratchpad vs original guest-body call) is the safety net.
 
 #include "cfg.h"
 #include "core.h"
@@ -42,8 +42,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 

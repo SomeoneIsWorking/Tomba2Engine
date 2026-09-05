@@ -2,7 +2,7 @@
 
 USER DIRECTIVE (2026-07-01, refined): rebuild the game's subsystems as **real PC-game structure** — C++
 classes (`class Scene`, `class Camera`, `class ObjectWorld`, …) with named state, enums, and meaningful
-methods. The code MAY read/write **guest memory directly** so the still-recompiled parts keep working —
+methods. The code MAY read/write **guest memory directly** so the still-guest parts keep working —
 **no mandatory mirror layer**. The thing to avoid is NOT "touching guest RAM"; it is **structureless
 op-by-op transcription** — "what we could just do via Ghidra": magic constants, magic compares, magic
 call-args, raw `mem_r8(base+0x14)` byte pushing, and especially MIPS-in-C (`c->r[29]-=24; sw ra,16(sp)`).

@@ -1,6 +1,6 @@
 // game/render/guest_face_gate.h — THE TESTS THE REAL GAME RUNS ON EVERY FACE BEFORE IT IS DRAWN.
 //
-// Tomba! 2's own geometry submitters (`gen_func_8007FDB0` = POLY_GT3, `gen_func_8008007C` = POLY_GT4)
+// Tomba! 2's own geometry submitters (`guest 0x8007FDB0` = POLY_GT3, `guest 0x8008007C` = POLY_GT4)
 // do not draw a face just because it projected. Each face passes four gates, in this order, and a face
 // that fails ANY of them is never linked into the ordering table — i.e. the real game DOES NOT DRAW IT:
 //
@@ -15,7 +15,7 @@
 //   3. SCREEN BOUNDS  at least one vertex with SX in [0,320) and one with SY in [0,240).
 //                                                                        (partly ported — submit.cpp)
 //   4. OT KEY RANGE   the compressed depth key must satisfy `(unsigned)(key-4) < 2044`; otherwise the
-//                     submitter stores -1 and `gen_func_80080000` skips the OT link entirely.
+//                     submitter stores -1 and `guest 0x80080000` skips the OT link entirely.
 //
 // Gate 1 and gate 4 were NOT reproduced by the native producers: `submitPolyGt3Native`/`Gt4Native`
 // computed the key, got -1, and drew the face anyway with ord 0 (i.e. AT THE VERY FRONT).

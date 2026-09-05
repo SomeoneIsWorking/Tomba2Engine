@@ -14,8 +14,6 @@
 #include <stdint.h>
 #include <stdio.h>
 
-void rec_dispatch(Core *c, uint32_t addr);
-
 namespace {
 
 // Per-node handler dispatch: fps60 current-object bookkeeping + native-or-substrate route via
@@ -67,10 +65,6 @@ inline void walk_list(Core *c, uint32_t head, long *count) {
 
 void ObjectList::walkAll() {
   Core *c = core;
-  if (c->game && !c->game->native_sync) {
-    MV_CHECK(c, 0x8007A904u, walkAllFaithful());
-    return;
-  }
   long nodes = 0;
   walk_list(c, c->mem_r32(T2_OBJLIST_HEAD_1), &nodes);
   walk_list(c, c->mem_r32(T2_OBJLIST_HEAD_2), &nodes);
@@ -85,12 +79,12 @@ void ObjectList::walkAll() {
   mWalksAll++;
 }
 
-// pc_faithful mirror of gen_func_8007A904 (guest FUN_8007A904). Guest frame (sp-24, ra@+20,
+// pc_faithful mirror of guest 0x8007A904 (guest FUN_8007A904). Guest frame (sp-24, ra@+20,
 // s0(r16)@+16) descended/spilled up front, matching the gen's unconditional delay-slot spill
 // (both happen before the list-1 empty check). Each dispatch sets r31 to the RE'd jal-site
 // constant (0x8007A930 list-1 / 0x8007A964 list-2) and carries `next` in r16 across the call so
 // a substrate-routed handler's own ra/s0 spill byte-matches core B. No MarginRenderer::flush —
-// gen_func_8007A904 never calls it (that's a render-overlay addition, deferred — see the
+// guest 0x8007A904 never calls it (that's a render-overlay addition, deferred — see the
 // unconditional call still in walkAll() above for the native_sync=true path).
 void ObjectList::walkAllFaithful() {
   Core *c = core;
@@ -140,10 +134,6 @@ void ObjectList::walkList2() {
 
 void ObjectList::walkAux() {
   Core *c = core;
-  if (c->game && !c->game->native_sync) {
-    MV_CHECK(c, 0x80069B28u, walkAuxFaithful());
-    return;
-  }
   // FUN_80069B28: does NOT clear the render flag; dispatches per handler ptr via the shared path.
   for (uint32_t n = c->mem_r32(AUX_LIST_HEAD); n;) {
     uint32_t h = c->mem_r32(n + 0x1Cu);
@@ -153,11 +143,11 @@ void ObjectList::walkAux() {
   }
 }
 
-// pc_faithful mirror of gen_func_80069B28 (guest FUN_80069B28). Guest frame (sp-24, ra@+20,
+// pc_faithful mirror of guest 0x80069B28 (guest FUN_80069B28). Guest frame (sp-24, ra@+20,
 // s0(r16)@+16) spilled UNCONDITIONALLY before the loop (matches gen — the spill happens even
 // when the aux list is empty). v0 (r2) is ALSO clobbered unconditionally by gen's LUI half of the
 // AUX_LIST_HEAD address load, even on the empty-list fast path — reproduced explicitly below,
-// else v0 is left stale from whatever computation preceded this call (caught by MV_CHECK: native
+// else v0 is left stale from whatever computation preceded this call (caught by strict replay check: native
 // left a stale v0 while the substrate always shows 0x800F0000 on an empty aux list). Each dispatch
 // is issued with r31 set to the RE'd jal site (0x80069B50) so a substrate-routed handler's own ra
 // spill byte-matches core B, and `next` is carried in r16 across the call (not a host local) so a

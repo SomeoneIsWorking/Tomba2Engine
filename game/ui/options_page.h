@@ -35,8 +35,8 @@
 //   * TEXT — the global Font/icon taps (game/ui/font.cpp) at RQ_HUD. Producers must never re-draw it.
 // So there is exactly ONE install per guest address and no host twin of a page's element list.
 //
-// PAINT ORDER AND LAYER. The guest calls the cursor BEFORE the backdrop (gen_func_8007F104:
-// func_8007E998 then func_8007FC24) but links the backdrop DEEPER in the ordering table, so call order
+// PAINT ORDER AND LAYER. The guest calls the cursor BEFORE the backdrop (guest 0x8007F104:
+// guest 0x8007E998 then guest 0x8007FC24) but links the backdrop DEEPER in the ordering table, so call order
 // is not paint order — the backdrop goes down first, then the boxes newest-first (a bucket's list is
 // LIFO), then the captured groups in UiGroupCapture::paintOrder. Everything lands at RQ_OVERLAY, one
 // band BELOW the glyph text's RQ_HUD (a page fill at RQ_HUD paints over its own text — bug #64, then

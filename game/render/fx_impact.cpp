@@ -7,9 +7,9 @@
 // was correctly deleted; this producer rebuilds the controller transform from persistent node and
 // animation-script state instead.
 //
-// Ground truth: generated/shard_5.c gen_func_800288AC and gen_func_80027768, decoded in
-// docs/re/impact-plume-288ac.md. No generated body, guest packet, scratchpad transform, or GTE register
-// is read to make this picture. The producer is read-only and runs under the fps60-lerped display-pass
+// Ground truth: authenticated executable/overlay evidence guest 0x800288AC and guest 0x80027768, decoded in
+// docs/re/impact-plume-288ac.md. No authenticated executable/overlay evidence, guest packet, scratchpad transform, or
+// GTE register is read to make this picture. The producer is read-only and runs under the fps60-lerped display-pass
 // camera through projComposeObjectHost.
 #include "core.h"
 #include "fps60.h"

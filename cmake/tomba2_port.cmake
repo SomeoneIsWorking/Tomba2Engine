@@ -1,16 +1,4 @@
-# cmake/tomba2_port.cmake — build the native PC port binary `tomba2_port` (SDL3 / SDL_GPU).
-#
-# THE build for the port. Produces scratch/bin/tomba2_port (where the REPL/driver tooling + docs
-# expect it). As of the P1.7 framework-split gate (2026-07-17) this target is now just the GAME:
-#   * ALL PSX-generic framework code lives in the STATIC library `psxport` (cmake/psxport.cmake) —
-#     runtime/recomp/** + the vendored Beetle GTE/MDEC/SPU backends + the RmlUi SDL backend + the
-#     generated SDL_GPU shader header.
-#   * This target compiles ONLY game/* + generated/* (the substrate shards) and links libpsxport.a.
-#
-#   cmake -S . -B build && cmake --build build --target tomba2_port
-#   ./scratch/bin/tomba2_port scratch/bin/tomba2/MAIN.EXE      # (after run.sh has extracted MAIN.EXE)
-#
-# The renderer is SDL_GPU (gpu_vk.cpp, framework side) — SDL3 owns window+input+audio+GPU.
+# cmake/tomba2_port.cmake — compose the native Tomba! 2 owners around psxport's Lightrec runtime.
 
 option(PSXPORT_BUILD_PORT "Build the Tomba!2 native port binary (tomba2_port)" ON)
 
@@ -22,20 +10,44 @@ if(NOT PSXPORT_BUILD_PORT)
   return()
 endif()
 
+if(NOT EXISTS "${PSXPORT_DIR}/runtime/cpu/dynarec_capabilities.h" OR
+   NOT EXISTS "${PSXPORT_DIR}/runtime/cpu/native_dispatch.h")
+  message(FATAL_ERROR
+    "Tomba! 2's offline guest-source product was removed by the break-first migration, but "
+    "PSXPORT_DIR=${PSXPORT_DIR} does not expose the required Lightrec runtime address API "
+    "(runtime/cpu/dynarec_capabilities.h and runtime/cpu/native_dispatch.h).")
+endif()
+
+execute_process(
+  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_dynarec_boundary.py"
+  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+  RESULT_VARIABLE TOMBA2_DYNAREC_BOUNDARY_RESULT
+  OUTPUT_VARIABLE TOMBA2_DYNAREC_BOUNDARY_OUTPUT
+  ERROR_VARIABLE TOMBA2_DYNAREC_BOUNDARY_ERROR)
+if(NOT TOMBA2_DYNAREC_BOUNDARY_RESULT EQUAL 0)
+  message(FATAL_ERROR
+    "Tomba! 2's offline guest-source product was removed, but its native override graph still names "
+    "retired bindings. Finish the image-aware Lightrec registration boundary before "
+    "building the product.\n${TOMBA2_DYNAREC_BOUNDARY_OUTPUT}${TOMBA2_DYNAREC_BOUNDARY_ERROR}")
+endif()
+
 # ---- game source list (game/* only — the framework moved to cmake/psxport.cmake) --------------
 set(GAME_SRC
   game/game_tomba2.cpp
   game/cd/libcd_native.cpp
   game/core/asset.cpp
+  game/core/auto_drive.cpp
+  game/core/dev_warp.cpp
+  game/core/frame_diagnostics.cpp
+  game/core/frame_driver.cpp
   game/core/libapi_intr.cpp
+  game/core/native_override_catalog.cpp
   game/core/game_config.cpp
   game/core/game_ctx.cpp
   game/core/game_hooks.cpp
   game/core/tomba_runtime.cpp
   game/core/main.cpp                # process entry point (P1.7c: main() is game-side)
-  game/core/verify_skip.cpp         # VerifyHarness native-sync/observable half (P1.7c split)
   game/render/fps60_worldpass.cpp   # TRANSITIONAL fps60 world-pass hook body (P1.7c)
-  game/core/recomp_register.cpp
   game/core/dev_areas.cpp
   game/core/repl_commands.cpp
   game/core/register_overrides.cpp
@@ -45,12 +57,9 @@ set(GAME_SRC
   game/math/mtx.cpp
   game/math/trig.cpp
   game/render/cube_text_banner.cpp
-  game/render/cube_text_banner_selftest.cpp
-  game/render/scene_view_matrix_selftest.cpp
   game/render/cull.cpp
   game/player/collision.cpp
   game/player/actor_targeting.cpp       # FUN_8001FAE0 — acquire a target: reach, band, arc
-  game/player/actor_tomba_pretick.cpp
     game/player/interact_scan.cpp
   game/player/hitbox.cpp
   game/player/grid_offset.cpp
@@ -78,7 +87,6 @@ set(GAME_SRC
   game/ai/beh_pickup_collect_trigger.cpp
   game/ai/beh_substate_edge_orchestrator.cpp
   game/ai/substate_edge_native.cpp
-  game/ai/cull_substate_native.cpp
   game/ai/assembly_companion.cpp         # FUN_80138A64 idle tick (camera hold + re-arm) + FUN_801389C8 rig pose
   game/ai/assembly_rider.cpp             # FUN_80118B10 rider perched on a seaside pump's arm-end (ride/hop/fling)
   game/ai/tilt_follower.cpp             # FUN_80125FE0 — pitch at half a sub-part's tilt
@@ -86,7 +94,6 @@ set(GAME_SRC
   game/ai/rope_swing.cpp                # FUN_801281B8 — hanging rope: spring swing + per-segment bend
   game/ai/actor_object_contact.cpp      # FUN_8010E258 — actor-vs-object hit / proximity contact
   game/ai/actor_bump.cpp                # FUN_8010EA80 — actor bump: interact / push apart / recoil
-  game/ai/contact_stamp.cpp
   game/ai/placed_prop_sm.cpp
   game/ai/beh_jumptable_release_trigger.cpp
   game/ai/release_trigger_motion.cpp
@@ -152,17 +159,7 @@ set(GAME_SRC
   game/ai/beh_seaside_prox_substate.cpp
   game/ai/area_seaside_perframe.cpp
   game/ai/beh_substate_edge_leaves.cpp
-  game/ai/beh_cull_substate_leaves.cpp
   game/player/actor_tomba.cpp
-  game/player/actor_tomba_actions.cpp
-  game/player/actor_tomba_action_8005accc.cpp
-  game/player/actor_tomba_action_8005aee4.cpp
-  game/player/actor_tomba_action_8005f1b0.cpp
-  game/player/actor_tomba_action_800588bc.cpp
-  game/player/actor_tomba_action_800531dc.cpp
-  game/player/actor_tomba_action_800660ac.cpp
-  game/player/actor_tomba_action_8005ef48.cpp
-  game/core/engine_field_transition.cpp
   game/scene/bg_scene_transition_sm.cpp
   game/scene/parallax_bg.cpp
   game/scene/scene_transition.cpp
@@ -170,23 +167,15 @@ set(GAME_SRC
   game/object/object_list.cpp
   game/object/array8_dispatch.cpp
   game/world/object_table.cpp
-  game/core/demo_leaf_a.cpp     # port_gen.py validation draft (0x8001CE90), UNWIRED dead code
-  game/core/demo_leaf_b.cpp     # port_gen.py validation draft (0x8002311C), UNWIRED dead code
   game/object/script_vm.cpp
   game/object/animation.cpp
-  game/input/input.cpp
-  game/input/pad_sampler.cpp
   game/input/pad_edge_fence.cpp
   game/ui/menu.cpp
-  game/ui/dialog_driver_sibling.cpp
-  game/ui/dialog_driver.cpp
   game/ui/ui_sprite_compose.cpp
   game/ui/ui_sprite.cpp
   game/ui/loading_text.cpp
   game/ui/panel_fill.cpp
   game/ui/dialog_backdrop.cpp
-  game/ui/dialog_box_sm.cpp
-  game/ui/dialog_advance.cpp
   game/ui/dialog_text_stream.cpp
   game/items/inventory.cpp
   game/render/lighting.cpp
@@ -195,7 +184,6 @@ set(GAME_SRC
   game/audio/music_coord.cpp
   game/scene/startup.cpp
   game/ui/font.cpp
-  game/ui/icon_glyph_selftest.cpp
   game/ui/panel.cpp
   game/ui/pause_menu.cpp
   game/ui/start_page.cpp
@@ -211,23 +199,17 @@ set(GAME_SRC
   game/render/cine_bars.cpp
   game/render/narration_swirl.cpp
   game/render/render_walk.cpp
+  game/render/title_wide_composition.cpp
   game/render/scene_kind.cpp
   game/render/scene_kind_runtime.cpp
-  game/render/ui_ft4_layout.cpp
   game/render/render_hut_interior.cpp   # pc_render producer: hut/door authored sub-scene (objects-only)
   game/render/card_browser.cpp          # pc_render producer: DEMO/title Load-Game card browser (s48==4)
   game/render/render_options.cpp        # pc_render producer: DEMO/title options page (s48==6)
   game/render/render_attract.cpp        # pc_render producer: DEMO/title attract 3D field (s48==7)
   game/core/engine.cpp
-  game/core/field_owned_leaves.cpp
-  game/core/field_seq_scheduler.cpp
-  game/core/announcer_cue_push.cpp
-  game/core/spawn_type6_node.cpp
-  game/core/field_target_cursor.cpp
   game/scene/sop.cpp
   game/scene/demo.cpp
   game/camera/cutscene_camera.cpp
-  game/camera/cutscene_camera_selftest.cpp
   game/math/gte_math.cpp
   game/math/wide_re_gte_transform3.cpp
   game/render/wide_re_libgpu_leaves.cpp
@@ -284,32 +266,13 @@ set(GAME_SRC
   game/render/subpart_walk.cpp
   game/render/compose_tint_gate.cpp
   game/render/effect_mod.cpp
-  game/render/effect_mod_selftest.cpp
   game/render/text_label.cpp
   game/render/render_walk_dispatch.cpp
   game/render/overlay_type_dispatch.cpp
   game/render/objlist_walk.cpp
   game/render/queue_dispatch.cpp)
 
-# The recompiler substrate: the statically-recompiled shards (C++ content in .c files) = the game
-# binary MAIN.EXE + each OVERLAY module. emit.py writes the exact TU list to
-# generated/rec_sources.cmake (GEN_REC_SRCS, basenames). Compiled as C++.
-#
-# -foptimize-sibling-calls IS REQUIRED, NOT an optimization nicety: a guest TAIL JUMP (a computed `jr`
-# routed to rec_dispatch, or a `j`/branch to a framed sibling) is emitted as `dispatch(c,x); return;` /
-# `func_<addr>(c); return;` in tail position. The guest uses such tail jumps for LOOPS (e.g. the
-# register-based jump-table state machine at 0x8007E2F8) that iterate indefinitely. Without sibling-call
-# optimization each iteration is a real C call -> the stack grows per loop -> SIGSEGV. With it, the whole
-# rec_dispatch -> main_dispatch -> func_<addr> -> gen_func_<addr> tail chain collapses to a jump, so the
-# loop runs in O(1) stack. -O2 enables it; we set it explicitly atop -O1 so the dependency is documented
-# and survives an -O level change.
-include(${CMAKE_SOURCE_DIR}/generated/rec_sources.cmake)
-list(TRANSFORM GEN_REC_SRCS PREPEND generated/)
-set_source_files_properties(${GEN_REC_SRCS}
-  PROPERTIES LANGUAGE CXX
-  COMPILE_OPTIONS "-O1;-foptimize-sibling-calls;-fno-strict-aliasing;-fwrapv")
-
-add_executable(tomba2_port ${GAME_SRC} ${GEN_REC_SRCS})
+add_executable(tomba2_port ${GAME_SRC})
 # The framework's shader header is generated by the psxport library's custom target; the game exe
 # (via gpu_vk.cpp in libpsxport) transitively needs it present before its own compile ordering.
 add_dependencies(tomba2_port gen_gpu_shaders)
@@ -318,7 +281,7 @@ add_dependencies(tomba2_port gen_gpu_shaders)
 set_target_properties(tomba2_port PROPERTIES
   CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON
   ENABLE_EXPORTS ON                                   # -rdynamic: watchdog backtrace symbol names
-  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/scratch/bin)
+  RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 # GAME include dirs. The framework include dirs (RT, generated, vendored backends, SDL/freetype) are
 # inherited PUBLICly from the psxport link below — only the game/* subfolders are added here.
@@ -332,3 +295,15 @@ target_compile_options(tomba2_port PRIVATE -w -O2 -g
 # The framework library carries all system/vendored link deps + compile defs as PUBLIC, so linking it
 # is all the game exe needs.
 target_link_libraries(tomba2_port PRIVATE psxport)
+
+if(BUILD_TESTING)
+  foreach(TOMBA2_HELP_ARGUMENT IN ITEMS -h --help)
+    string(REPLACE "-" "" TOMBA2_HELP_SUFFIX "${TOMBA2_HELP_ARGUMENT}")
+    add_test(
+      NAME "tomba2_direct_help_${TOMBA2_HELP_SUFFIX}"
+      COMMAND "$<TARGET_FILE:tomba2_port>" "${TOMBA2_HELP_ARGUMENT}")
+    set_tests_properties(
+      "tomba2_direct_help_${TOMBA2_HELP_SUFFIX}"
+      PROPERTIES PASS_REGULAR_EXPRESSION "Usage: tomba2_port")
+  endforeach()
+endif()

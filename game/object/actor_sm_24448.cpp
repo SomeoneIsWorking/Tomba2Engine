@@ -5,7 +5,7 @@
 // field writes — PC-native. The shared fixed-point LEAVES it calls (the grid move-collide probe
 // FUN_80046A44, the slide-finalize FUN_80048654, and the per-result sub-step FUN_80024AF0 which itself
 // only calls the engine rsin/rcos LUTs) stay dispatched: they compute exact >>12 fixed-point results that
-// the still-recomp AI/render read back, and transcribing their table math would be PSX-simulation, which
+// the still-guest AI/render read back, and transcribing their table math would be PSX-simulation, which
 // the methodology rejects. We own the SM around them.
 //
 // ---------------------------------------------------------------------------------------------------
@@ -58,28 +58,26 @@
 // (FUN_80048654 additionally writes obj +0x48/0x4A/0x4C and scratch 0x1A0/0x1A2; those are produced by the
 //  DISPATCHED leaf, not by this body — we let the leaf run and only consume its 0x1A0 output afterward.)
 //
-// LEAVES DISPATCHED (exact fixed-point results consumed by still-recomp content; NOT transcribed):
+// LEAVES DISPATCHED (exact fixed-point results consumed by still-guest content; NOT transcribed):
 //   FUN_80046A44  grid move-collide probe (rsin/rcos*speed>>12 slide, atan2 slide-pick, writes +0x2E/32/36)
 //   FUN_80048654  slide-finalize (atan2 + sqrt; writes obj +0x48/4A/4C + scratch 0x1A0/0x1A2)
 //   FUN_80024AF0  s1==2 floor sub-step (reads +0x147/+0x17E/+0x66/+0x68; rsin/rcos 0x80083E80/0x80083F50)
 //
 // VERIFY: the `sm24448verify` REPL channel (`debug sm24448verify`) runs the native body, snapshots+rolls
-// back full main-RAM + scratchpad + regs, runs the recomp body via rec_super_call, and diffs both. Same
-// family rationale as the entity SM gates (child40410/disp26c88/sm40558): the dispatched leaves run in BOTH
-// passes and leave transient residue in their own stack frames below entry sp, and this fn's own 0x20 frame
-// is dead below sp on return — so the gate excludes the [sp-0x800, sp) stack window (far above all game
-// data). A 0-diff over many frames is the content-interface gate. See docs/port-progress.md.
+// back full main-RAM + scratchpad + regs, runs the guest instruction path via original guest-body call, and diffs both.
+// Same family rationale as the entity SM gates (child40410/disp26c88/sm40558): the dispatched leaves run in BOTH passes
+// and leave transient residue in their own stack frames below entry sp, and this fn's own 0x20 frame is dead below sp
+// on return — so the gate excludes the [sp-0x800, sp) stack window (far above all game data). A 0-diff over many frames
+// is the content-interface gate. See docs/port-progress.md.
 
 #include "actor.h"
 #include "cfg.h"
 #include "core.h"
+#include "guest_call.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-void rec_super_call(Core *, uint32_t); // interpret the original PSX body (super-call / A/B reference)
-void rec_dispatch(Core *, uint32_t);   // hybrid call: recomp body if emitted, else interpret (honors overrides)
 
 namespace {
 
@@ -116,7 +114,7 @@ void Actor::sm24448(Core *c) {
   c->r[R_A1] = (uint32_t)(int32_t)xvel; // a1 = X-vel (sign-extended)
   c->r[R_A2] = (uint32_t)ystep;         // a2 = -Y-vel (sign-extended)
   c->r[R_A3] = maxit;                   // a3 = maxiter
-  rec_dispatch(c, FN_PROBE);
+  psx::cpu::dispatchGuestToReturn0(*c, FN_PROBE, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   uint32_t s1 = c->r[R_V0]; // probe result tag
 
   if (s1 == 0) {
@@ -128,7 +126,10 @@ void Actor::sm24448(Core *c) {
   uint32_t a6 = c->mem_r16(SC_TAG_A6);
   c->mem_w8(obj + 0x17D, (uint8_t)((a6 >> 11) & 3)); // sb (tag>>11)&3, +0x17D (delay-slot store)
   c->r[R_A0] = obj;
-  rec_dispatch(c, FN_SLIDEFIN); // writes scratch 0x1A0/0x1A2 + obj 0x48/4A/4C
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   FN_SLIDEFIN,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // writes scratch 0x1A0/0x1A2 + obj 0x48/4A/4C
 
   // --- apply the resolved heading -> angle ---
   uint16_t head = c->mem_r16(SC_HEAD_A0); // lhu 0x1F8001A0
@@ -146,7 +147,8 @@ void Actor::sm24448(Core *c) {
     if (ft & 1) {
       c->mem_w8(obj + 0x164, 7); // sb 7, +0x164
       c->r[R_A0] = obj;
-      rec_dispatch(c, FN_SUBSTEP); // FUN_80024AF0(obj) [leaf]
+      psx::cpu::dispatchGuestToReturn0(
+          *c, FN_SUBSTEP, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_80024AF0(obj) [leaf]
     } else {
       c->mem_w8(obj + 0x164, 4); // sb 4, +0x164
     }

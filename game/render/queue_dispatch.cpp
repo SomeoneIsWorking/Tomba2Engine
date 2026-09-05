@@ -1,12 +1,12 @@
 // game/render/queue_dispatch.cpp — the guest's cull-queue render dispatch, modelled read-only.
 // Read queue_dispatch.h first; it carries the class->queue->table chain this file implements.
 //
-// RE PROVENANCE. Every arm below is named from the recompiler's own translation of the walk bodies
-// (generated/, which is the recompiled MAIN.EXE, i.e. ground truth) — never from a guess:
-//   queue A  gen_func_8003BB50   generated/shard_1.c:5942   table 0x80014A70, bound 144
-//   queue B  gen_func_8003BCF4   generated/shard_2.c:3795   table 0x80014CB0, bound  33
-//            + its shared tail gen_func_8003BED8, which IS the queue-B no-op ("continue the walk")
-//   queue C  gen_func_8003BF00   generated/shard_6.c:4770   table 0x80014D38, bound  32
+// RE PROVENANCE. Every arm below is named from the recorded guest instruction listing of the walk bodies
+// (authenticated executable/overlay evidence, which is the guest MAIN.EXE, i.e. ground truth) — never from a guess:
+//   queue A  guest 0x8003BB50   authenticated executable/overlay evidence   table 0x80014A70, bound 144
+//   queue B  guest 0x8003BCF4   authenticated executable/overlay evidence   table 0x80014CB0, bound  33
+//            + its shared tail guest 0x8003BED8, which IS the queue-B no-op ("continue the walk")
+//   queue C  guest 0x8003BF00   authenticated executable/overlay evidence   table 0x80014D38, bound  32
 // and the ARM bodies the tables point at (all of them one to four instructions):
 //   8003BC00/8003BDAC/8003BFAC  -> FUN_8003CCA4 perObjRenderDispatch          = the mesh flush
 //   8003BC24                    -> FUN_80122974 tether line, + the flash tail

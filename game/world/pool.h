@@ -35,7 +35,7 @@ public:
   void finalViewInit();                // FUN_80078610
   void selectStateIndex(uint8_t area); // FUN_80074F24 (a0=area byte)
 
-  // -- Internal init helpers (formerly rec_dispatched from Pool::init) ---------------------
+  // -- Internal init helpers (formerly dynamically dispatched from Pool::init) ---------------------
   // Both are Pool::init's own callees; kept separate for clarity + potential re-use. Neither has
   // a non-trivial API surface — they zero a fixed region / build a fixed pool structure.
 

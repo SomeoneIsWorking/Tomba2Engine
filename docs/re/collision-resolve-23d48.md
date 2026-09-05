@@ -1,15 +1,15 @@
 # FUN_80023D48 — actor-vs-object CYLINDER COLLISION RESOLVE (RE, not yet ported)
 
-RE'd 2026-07-29 via Ghidra headless (`scratch/decomp/eng_23d48.c`) + `abi_extract.py --contract`
-against `generated/shard_1.c gen_func_80023D48`. **PORTED 2026-07-29** (`game/world/collision_resolve.cpp`,
-SBS 0-diff over 1500 frames, ovhit 7397/7397, port_check PASS) — via `port_gen.py`, which emits the
+RE'd 2026-07-29 via Ghidra headless (`scratch/decomp/eng_23d48.c`) + `binary ABI evidence --contract`
+against `authenticated executable/overlay evidence guest 0x80023D48`. **PORTED 2026-07-29** (`game/world/collision_resolve.cpp`,
+SBS 0-diff over 1500 frames, ovhit 7397/7397, port_check PASS) — via `direct executable disassembly`, which emits the
 `func_XXXX` calls and so handles the stack hazard below BY CONSTRUCTION rather than by care.
 
 **READABILITY PASS COMPLETE 2026-07-30.** Both bodies (`cylinderResolve` 0x80023D48 and
 `landOnObjectTop` 0x8002423C) now read as named control flow over named values: the `L_8002xxxx`
 gotos are gone, the register chains are named locals or `GuestReg<N>` proxies, the frame is a
 `GuestFrame<80,10>` / `GuestFrame<32,3>` built from the `abi_extract --scaffold --guestabi` contract,
-and the eight call sites are `guest_call(c, kRa…, func_XXXX)`. Re-gated: port_check PASS on both
+and the eight call sites are `typed guest call (c, kRa…, func_XXXX)`. Re-gated: port_check PASS on both
 methods, and the recorded 1500-frame SBS gate re-run gives 50/50 A/B-identical checkpoints with
 ovhit 0x80023D48 native=7397 oracle=7397 and 0x8002423C native=1949 oracle=1949.
 
@@ -74,8 +74,8 @@ the top of OUR frame, would put a stale register value into guest RAM that SBS c
 transitively over the five leaves and the one real nested call:
 
 * `0x80083F50` rcos, `0x80084080` sqrtLzc, `0x80085690` ratan2, `0x80077768` angleCmp — frame_size 0,
-  **no memory writes at all**. (Each gen body has a trailing `func_XXXX(c)` after its `return;`; that
-  is the recompiler's dead-sibling fall-through, not a call.)
+  **no memory writes at all**. (Each guest-visible behavior has a trailing `func_XXXX(c)` after its `return;`; that
+  is the recorded binary evidence's dead-sibling fall-through, not a call.)
 * `0x80083E80` rsin — frame_size 24, writes exactly one word: its own `ra` at its `sp+16`, i.e. BELOW
   our sp. Its real callee `0x80083EBC` writes nothing.
 
@@ -109,7 +109,7 @@ writes them. SBS compares that memory. That is the dead-stack-scratch divergence
 CLAUDE.md's rule is to mirror the frame, never to exclude the region.
 
 **So a port of this function must invoke the leaves through their generated `func_XXXX` wrappers**
-(the `guest_fn` helper in `runtime/recomp/guest_abi.h` is the existing vocabulary for this — see
+(the `guest_fn` helper in `runtime/psx/guest_abi.h` is the existing vocabulary for this — see
 `game/render/node_xform.cpp`), so each callee's own frame is written exactly as the substrate writes
 it. Porting the logic and calling `trigOf(c).rcos(...)` instead would look correct, build clean, and
 diverge.
@@ -126,8 +126,8 @@ which is correct and expected: they are locals, not register saves.
 
 # FUN_80023A04 — OBJECT-vs-OBJECT contact resolve, with a five-way POLICY
 
-RE'd 2026-07-30 via Ghidra headless (`scratch/decomp/objcol_23a04.c`) + `abi_extract.py --contract`
-against `generated/shard_0.c gen_func_80023A04`, and PORTED the same day as
+RE'd 2026-07-30 via Ghidra headless (`scratch/decomp/objcol_23a04.c`) + `binary ABI evidence --contract`
+against `authenticated executable/overlay evidence guest 0x80023A04`, and PORTED the same day as
 `CollisionResolve::resolveByContactPolicy` (`game/world/collision_resolve.cpp`). port_check PASS on
 all four methods in that file; build clean. **Not yet SBS-gated** — the operator runs that.
 
@@ -153,7 +153,7 @@ check's own `sltu` result falls out as v0.
 
 ## Extent
 
-`[0x80023A04, 0x80023D48)`. MAIN.EXE's dispatch table (`generated/shard_disp.c`) has consecutive
+`[0x80023A04, 0x80023D48)`. MAIN.EXE's dispatch table (`authenticated executable/overlay evidence`) has consecutive
 entries 0x80023A04 and 0x80023D48 with nothing between; the gen epilogue (L_80023D18 + ten restores
 + jr/addiu) lands exactly on 0x80023D48; Ghidra's independent function boundary agrees. Established
 that way and NOT from "the next gen function in the shard" — the shard split is not address order.
@@ -178,7 +178,7 @@ three sites — a per-policy write would be four and fails port_check's static s
 
 ## Callers — where the identification comes from
 
-* `generated/ov_a04_shard_1.c` `ov_a04_gen_8010EDB0` — the per-frame OBJECT-PAIR collision pass. It
+* `authenticated executable/overlay evidence` `overlay guest 0x8010EDB0` — the per-frame OBJECT-PAIR collision pass. It
   walks a pair list out of the scratchpad (list pointer at 0x1F80013C, count at 0x1F800183) and for
   each pair switches on the two objects' TYPE bytes (`+0x02`) to choose the policy; indices 0, 1, 3
   and 4 all appear across its nine call sites.
@@ -206,13 +206,13 @@ the same two as **u16**. The guest genuinely does both — the same split record
 r23@+44, r22@+40, r21@+36, r20@+32, r17@+20, r16@+16. No sp-relative locals. Five real call sites
 (sqrtLzc / ratan2 / rcos / rsin / angleCmp, ra = 0x80023A8C / 0x80023B58 / 0x80023B8C / 0x80023BB0 /
 0x80023C08) plus the jump table's `jr`, which `abi_extract --contract` reports as a sixth
-`switch_default_rec_dispatch` site with no ra.
+switch default-dispatch site with no return-address preload.
 
 ## INSTRUMENT NOTE — port_check's blind spot on the switch default
 
 Measured 2026-07-30 with four mutations of the finished file (`scratch/re/negctl/`): an extra static
 store FAILs, a merged store FAILs, a corrupted `ra` constant FAILs, a dropped real `guest_call`
-FAILs (call count 5 vs 4). But **deleting the `default: rec_dispatch(...)` line still PASSes** — the
+FAILs (call count 5 vs 4). But **deleting the `default: typed runtime address dispatch(...)` line still PASSes** — the
 op-sequence extractor counts 5 calls, not the contract's 6, on BOTH sides, so the switch-default
 dispatch site is invisible to the gate. Symmetric, so it hides no mismatch here, but do not read a
 PASS as proof that an indirect tail-dispatch was reproduced.

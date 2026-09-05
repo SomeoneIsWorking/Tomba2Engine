@@ -23,14 +23,14 @@
 #include "core/engine.h" // class Engine — this file defines Engine::frameUpdate / Engine::drawOTag
 #include "cull.h"        // PC-native visibility cull / LOD subsystem
 #include "entity.h"      // PC-native per-object entity state-machine subsystem
-#include "fps60.h"
-#include "game.h" // Fps60::current_object (was g_current_object)
+#include "game.h"
 #include "game_ctx.h"
-#include "input.h" // PC-native per-frame input/controller subsystem
+#include "guest_call.h"
 #include "margin_render.h"
-#include "mathlib.h"            // PC-native math/PRNG leaf primitives (rand, trig LUTs, bit-test)
-#include "menu.h"               // PC-native in-game Options menu subsystem
-#include "mods.h"               // g_mods (fps60 persisted with the other user settings)
+#include "mathlib.h" // PC-native math/PRNG leaf primitives (rand, trig LUTs, bit-test)
+#include "menu.h"    // PC-native in-game Options menu subsystem
+#include "mods.h"    // g_mods (fps60 persisted with the other user settings)
+#include "native_override_catalog.h"
 #include "render.h"             // class Render — rend(c)->sceneNative()
 #include "render/score_popup.h" // ScorePopup::install — FUN_80072520 AP-gem popup producer (#18)
 #include "render/ui_ft4_tap.h"  // UiFt4Tap::install  — FUN_8007E1B8 shared FT4 leaf, one owner
@@ -43,12 +43,9 @@
 #include "ui/start_page.h"      // StartPage::install — FUN_8007EAE4 in-game START page chrome producer
 #include <stdio.h>
 #include <stdlib.h>
-
-void rec_super_call(Core *, uint32_t); // interpret the original PSX body (super-call / A/B oracle)
 // g_render_object retired 2026-07-03 — was defined + written by Cull::objectCull but never read; dead.
 // g_fps60_on retired — read g_mods.fps60 (mods.h)
-// SpuAudio methods are called via c->game->spu_audio (owner: Game, see runtime/recomp/spu_audio.h).
-void rec_dispatch(Core *, uint32_t); // hybrid call: recomp body if emitted, else interpret
+// SpuAudio methods are called via c->game->spu_audio (owner: Game, see runtime/psx/spu_audio.h).
 
 #define DISPLAY_COUNTER 0x800E809Cu // DAT_800e809c (u16) — the dwell's vblank counter
 #define VBLANK_QUOTA 0x1F800235u    // DAT_1f800235 (u8)  — vblanks per displayed frame
@@ -62,8 +59,8 @@ void rec_dispatch(Core *, uint32_t); // hybrid call: recomp body if emitted, els
 // vs the oracle, later-53: the oracle writes KON from this very ISR while parked in the dwell).
 // FIX (port the HW interrupt work to PC, per the busy-wait-porting rule — NOT simulate the IRQ):
 // run the same tick wrapper natively once per vblank. The wrapper/sequencer are NOT emitted by
-// the static recompiler (only reached via the IRQ callback pointer, never a direct jal), so we
-// invoke them through rec_dispatch -> the hybrid interpreter (bit-identical to recomp); it runs
+// the native overrides (only reached via the IRQ callback pointer, never a direct jal), so we
+// invoke them through the PSXPort guest boundary; it runs
 // FUN_800909c0 to its `jr ra` and returns. Caller-saved regs it clobbers are dead across the
 // FUN_800788ac call site by MIPS convention, so this is safe to run right after the super-call.
 #define SEQ_TICK_WRAPPER 0x800909C0u // FUN_800909c0: per-vblank libsnd tick (user cb + SsSeqCalled)
@@ -71,15 +68,15 @@ void rec_dispatch(Core *, uint32_t); // hybrid call: recomp body if emitted, els
 
 #include "gpu_perf.h" // per-frame CPU phase profiler (REPL `debug perf`), default off
 
-// Per-frame engine tick. Called DIRECTLY (a plain C call) from native_step_frame (native_boot.cpp) —
-// this is the PC-driven game loop's frame body. It runs the still-PSX per-frame update leaf, then OWNS
-// the per-vblank audio, the fps60 commit, and present + pace (the things the now-removed override table
-// used to attach). NOT an override anymore; not static so native_boot can call it top-down.
+// Per-frame engine tick. Called DIRECTLY (a plain C call) from TombaFrameDriver —
+// this is the PC-driven game loop's update/audio body. It runs the still-PSX per-frame update leaf and
+// per-vblank audio, then returns. TombaFrameDriver owns the one presentation fence and the rest of the
+// measured frame transaction. NOT an override anymore; not static so the driver can call it top-down.
 void Engine::frameUpdate() {
   Core *c = this->core;
   devTeleportApply(); // dev `tp X Y Z`, before the frame's state update. HERE and not in a stage/
                       // camera body because this is the ONE per-frame body every exec path runs
-                      // (native_step_frame calls it directly), so the teleport no longer depends on
+                      // (TombaFrameDriver calls it directly), so the teleport no longer depends on
                       // which camera mode, stage or exec leg the run happens to be in — see
                       // engine.h's mCamTpPending banner for what that dependency measured.
   // perf phase 0 = PADFENCE, and it brackets exactly the one call below. It was named "LOGIC" and
@@ -87,7 +84,10 @@ void Engine::frameUpdate() {
   // 0x800788AC became natively owned (Engine::padEdgeFence) and the per-frame game work moved to
   // PcScheduler. A ~0.00 ms phase called LOGIC reads as "the game is free"; see gpu_perf.cpp.
   c->game->perf.phaseBegin(0);
-  rec_dispatch(c, 0x800788ACu); // real per-frame state update (still-PSX leaf)
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x800788ACu,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // real per-frame state update (still-PSX leaf)
   c->game->perf.phaseEnd(0);
   // Per-VBLANK audio work. On hardware the libsnd sequencer ticks once per VBlank IRQ (60 Hz NTSC)
   // and the SPU plays in realtime. One ov_frame_update is one *logic frame*, which on hardware spans
@@ -99,69 +99,43 @@ void Engine::frameUpdate() {
   // so 1 tick/1 field there is still 60:60 = correct-sounding). Running both quota× fixes real-time
   // playback and keeps the WAV's tick:field ratio unchanged (just a longer, more correct duration).
   // Sequencer guard: pointer initialized + sane code address (never call through null pre-SsStart).
-  // Opt out (A/B): PSXPORT_T2_NOSEQTICK. Adaptive: a true-60fps scene (quota=1) ticks once.
-  // Dual-core diff mode: the per-frame state update above is the guest-state work we diff; everything
-  // below is host OUTPUT (audio device feed, fps60, present, pace) — skip it so two cores can step in one
-  // process without the shared SPU/VK singletons fighting. (The sequencer tick mutates guest libsnd state,
-  // but its only purpose is audio playback we aren't producing here, so skip the whole audio block.)
+  // Adaptive: a true-60fps scene (quota=1) ticks once.
   int quota = c->mem_r8(VBLANK_QUOTA);
   if (quota < 1) {
     quota = 1;
   }
-  if (c->game->diff_mode) {
-    // SBS/dual-core: skip host OUTPUT (device feed, fps60, present, pace) + the sequencer tick so two
-    // cores step in one process without the shared output/VK singletons fighting. BUT game LOGIC can
-    // block on an XA voice clip finishing — the intro-area cutscene wait `while(*(0x801fe0e0)!=0)` (the
-    // XA voice task-2 state). That progress lives in spu_update->CDC_GetCDAudioSample, which the early
-    // return used to skip entirely, so BOTH SBS cores froze in the field (the user bug, later-271).
-    // Advance THIS core's per-instance XA stream logic-only (output discarded — no double audio); run it
-    // `quota` times like the real path so the clip paces at the realtime-equivalent rate. No-op when no
-    // clip is streaming.
-    for (int v = 0; v < quota; v++) {
-      c->game->spu_audio.frameLogic();
-    }
-    return;
-  }
   uint32_t seqfn = c->mem_r32(SEQ_FUNC_PTR);
-  int seq_ok = !cfg_on("PSXPORT_T2_NOSEQTICK") && c->game->native_gates.get("seqtick") &&
-               (seqfn & 0x1FFFFFFFu) >= 0x10000u && (seqfn & 0x1FFFFFFFu) < 0x200000u;
+  const bool seq_ok = (seqfn & 0x1FFFFFFFu) >= 0x10000u && (seqfn & 0x1FFFFFFFu) < 0x200000u;
   c->game->perf.phaseBegin(1);      // perf: AUDIO = per-vblank sequencer tick + SPU advance
   for (int v = 0; v < quota; v++) { // once per VBlank this logic frame spans
     if (seq_ok) {
-      rec_dispatch(c, SEQ_TICK_WRAPPER); // libsnd per-vblank tick (user cb + SsSeqCalled)
+      psx::cpu::dispatchGuestToReturn0(*c,
+                                       SEQ_TICK_WRAPPER,
+                                       psx::cpu::ExecutionBudget::currentTurn(*c),
+                                       __func__); // libsnd per-vblank tick (user cb + SsSeqCalled)
     }
     c->game->spu_audio.frame(); // advance SPU one 1/60 s field + feed device
   }
   // (native field-BGM director REMOVED — it played a HARDCODED song over everything from the menu on.
-  //  Music is the recompiled libsnd path above; no native music engine, no hardcoded song.)
+  //  Music is the guest libsnd path above; no native music engine, no hardcoded song.)
   c->game->perf.phaseEnd(1);
   c->mem_w16(DISPLAY_COUNTER, c->mem_r8(VBLANK_QUOTA)); // satisfy the pacing dwell immediately
-  // fps60 (when enabled) OWNS presentation: it presents the interpolated in-between + the real frame
-  // (60 fps, 1 frame behind) and paces both halves — see fps60_present_vk. The faithful path
-  // presents frame B once and paces a full frame.
-  // frame_commit OWNS presentation in both configs: it builds and presents the real frame and paces it,
-  // and when the tier is on it inserts a lerped in-between first. This used to be an
-  // `if (!mods.fps60) { gpu_present; gpu_pace_frame; }` branch — the game choosing between two
-  // renderers, which is the top of the split kanban #99 is about.
-  c->game->perf.phaseBegin(2); // perf: PRESENT-cpu = world build + VRAM mirror upload + VK record/submit
-  fps60(*c->game).frame_commit(c);
-  c->game->perf.phaseEnd(2); // (the pacing/vsync sleep is inside the commit -> shows as idle/pace)
 }
 
 // fps60 object tag: the universal per-object cull/LOD dispatcher (a0 = object*, once per logic
 // frame for every live drawable). Every RTP op fired in its call tree is tagged with this object's
-// stable pool-pointer id (the join key). Super-call the recomp body unchanged; clear on exit.
+// stable pool-pointer id (the join key). Super-call the guest instruction path unchanged; clear on exit.
 // PSXPORT_OBJLOG=1: dump every object the cull dispatcher visits (addr + type@+0xc +
 // pos@+0x2e/32/36). Empirically maps the active-object pool/list for the native entity
 // manager (Phase 1) — more reliable than static-tracing the overlay handler dispatch.
 int gpu_vk_wide_engine(Core *); // gpu_vk.c — genuine engine-wide active (PSXPORT_WIDE_ENGINE && aspect!=4:3)
 
-// Native ownership of DrawOTag (libgpu FUN_80081560, the per-frame draw kick): the recomp body just
+// Native ownership of DrawOTag (libgpu FUN_80081560, the per-frame draw kick): the guest instruction path just
 // programs the GPU linked-list DMA to walk the ordering table at a0 — which our renderer already does
 // natively in gpu_dma2_linked_list (walk OT -> decode each primitive -> rasterize). Overriding it routes
 // the draw straight through our native walk (synchronous), instead of the DMA-register emulation dance.
 // This is the engine's draw submission, owned. (g_render_psx retired — now Render::mode.)
-void Engine::drawOTag(uint32_t otHead) { // called directly from native_step_frame (PC-driven); NOT an override
+void Engine::drawOTag(uint32_t otHead) { // called directly from TombaFrameDriver (PC-driven); NOT an override
   Core *c = this->core;
   // #7/#11 finish: while the DEMO/title front-end is still LOADING its assets (sub-SM task0+0x48 < 2, the
   // s4a load ramp), the title composites its menu/font over whatever VRAM the FMV/SCEA splash left — so the
@@ -228,7 +202,7 @@ void games_tomba2_init(void) {
   // Hand-written native C++ for the boot→first-cutscene path (game_tomba2.cpp).
   // (games_native_path_init removed: native_misc.cpp was dead reference scaffolding — later-288)
   // OVERRIDE SYSTEM REMOVED (2026-06-22): the whole `_register()` scaffolding block used to install
-  // rec_set_override() entries. The override table is gone; the per-subsystem register functions
+  // tomba::native::declareOverride() entries. The override table is gone; the per-subsystem register functions
   // (engine_math_register, save_register, sound_register, hud_register, actor_sm_24448_register, and
   // the beh_*_register siblings) were left as empty stubs "in case." Every stub had a zero- or single-
   // dead-line body — dead scaffolding — and got deleted. Direct-call wiring is the shape now.
@@ -261,7 +235,7 @@ void games_tomba2_init(void) {
   font_wide_re_install(); // FUN_80079374/80078CA8 Font::drawText/glyphEmit (hottest unowned leaves)
   void str_wide_re_install();
   str_wide_re_install();        // FUN_80079528 Str::length (generic strlen, hottest unowned leaf)
-  ScreenFade::installLeafTap(); // FUN_8007E9C8 fade leaf: gen body + host-state mirror (fixes #63)
+  ScreenFade::installLeafTap(); // FUN_8007E9C8 fade leaf: guest-visible behavior + host-state mirror (fixes #63)
   Panel::install();             // FUN_8004FFB4/8005019C/8007CC00 panel + dialog-glyph taps
   PauseMenu::install();         // FUN_800346BC/8007E1B8 in-game pause/item menu chrome (#21)
   StartPage::install();         // FUN_8007EAE4 in-game START page chrome (#35)
@@ -271,10 +245,8 @@ void games_tomba2_init(void) {
   ScorePopup::install();        // FUN_80072520 score/AP-gem pickup popup scope (#18)
   UiFt4Tap::install();          // FUN_8007E1B8 shared FT4 group leaf — ONE owner, fans out to both
   // FUN_80027A4C scaled-sprite family (#12/#23) is now a NATIVE PRODUCER (Render::fxSpriteRender,
-  // dispatched from the type-0x20 render walk) — no leaf tap; 0x80027A4C runs its plain gen body.
+  // dispatched from the type-0x20 render walk) — no leaf tap; 0x80027A4C runs its plain guest-visible behavior.
   void pad_edge_fence_install();
   pad_edge_fence_install(); // FUN_800788AC per-frame input-edge fence (banked draft, §9-verified)
-  void guest_memset_install();
-  guest_memset_install(); // FUN_8009A420 psyq memset (banked draft; n<=0 return-0 bug fixed at §9)
   cfg_logf("engine", "native object-list walk active (FUN_8007a904)");
 }

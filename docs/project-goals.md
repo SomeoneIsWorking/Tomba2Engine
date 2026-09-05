@@ -1,28 +1,35 @@
 # Project goals
 
-This repository hosts two Tomba ports. They share the repository and psxport platform, but not a
-game engine. Factual capability coverage belongs in `project-state.md`, atomic work in `issues/`,
-and ownership/placement in `codemap.md`.
+This repository hosts two isolated Tomba ports. They share `psxport`, not a game engine. Factual
+coverage belongs in `project-state.md`, migration order in `migration.md`, atomic work in `issues/`,
+and placement in `codemap.md`.
 
-## G001 — Playable Tomba! 2 PC-native engine
+## G001 — Playable Tomba! 2 native/dynarec PC port
 
-**Outcome.** Tomba! 2 runs from user-supplied game content as a self-contained PC-native game engine
-with faithful gameplay, input, audio, saves, movies, menus, and transitions.
+**Outcome.** Tomba! 2 runs from user-supplied game content as one PC product: readable native C++
+owners implement deliberately ported behavior and `psxport` Lightrec dynamically executes every
+remaining guest instruction.
 
-**Why it matters.** Executing recompiled MIPS is a useful retained substrate, not the final product;
-the maintained default path must be a usable game whose behavior is owned by readable native
-subsystems.
+**Why it matters.** Full gameplay does not need to be manually rewritten before the authenticated executable/overlay evidence
+can leave the product. A runtime dynarec provides complete guest coverage while native ownership grows
+at verified subsystem boundaries.
 
-**Success conditions.** `./run.sh` launches the intended Tomba! 2 product from a fresh clone; ordinary
-play can progress through the authored game; native ownership preserves the independently observed
-game contract; unsupported or missing behavior refuses by name rather than silently substituting a
-smaller path.
+**Success conditions.** A fresh `./run.sh` launch reaches ordinary representative gameplay without a
+guest-source emission step; resident and colliding-overlay overrides plus scoped original calls work
+through image-aware runtime dispatch; Lightrec executes nonzero blocks and invalidates them correctly;
+the gameplay product contains no guest instructions at bodies or interpreter-first gameplay selector;
+bounded fallback is reason-counted and below its declared conformance threshold; input, audio, saves,
+movies, menus, transitions, timing, and relevant device behavior are
+verified against independent evidence on each released host.
 
-**Constraints and non-goals.** Generated code remains regenerable and unedited. Restricted assets
-remain user supplied. The recompiled path remains available as differential evidence, not as a second
-product whose behavior is allowed to drift.
+**Constraints and non-goals.** Restricted assets remain user supplied. Boot, logos, menus, or isolated
+leaf calls do not establish gameplay conformance. The retired guest-source path is not preserved as a second
+product, fallback, or permanent oracle. Runtime interpretation is permitted only as `psxport`'s bounded
+automatic fallback for translation failure or unavailability, unsafe fetch, or rare unsupported blocks.
+Forced interpreter mode is diagnostic-only; fallback-covered execution proves neither gameplay
+conformance nor performance.
 
-**Contributing state items.** S001, S002, S003, S007.
+**Contributing state items.** S001, S002, S003, S007, S014, S015, S016, S017, S018.
 
 ## G002 — Tomba! 2 native wide and interpolated presentation
 
@@ -35,7 +42,8 @@ and stable interpolation without reconstructing meaning from GTE, ordering-table
 **Success conditions.** Every visible layer has an attributed game-state producer; widescreen shows
 additional correctly projected content with correct culling and anchored 2D layout; interpolation
 uses stable previous/current camera, object, and effect state through the same render path as real
-frames; representative real-game runs and controlled oracle legs establish the picture and cadence.
+frames; representative real-game runs and controlled independent-oracle legs establish the picture
+and cadence through the Lightrec product.
 
 **Constraints and non-goals.** Render code does not write guest memory. Guest packets and GTE output
 are diagnostic evidence, never picture inputs. Missing producers remain explicit rather than gaining
@@ -43,24 +51,27 @@ a family-wide fallback or renderer special case.
 
 **Contributing state items.** S004, S005, S006.
 
-## G003 — Playable, engine-isolated Tomba! 1 port
+## G003 — Playable, engine-isolated Tomba! 1 native/dynarec port
 
-**Outcome.** Tomba! runs from user-supplied `SCUS_942.36` content through its own executable-grounded
-runtime and game-engine implementation inside this repository.
+**Outcome.** Tomba! runs from user-supplied `SCUS_942.36` content through its own title engine and the
+shared `psxport` Lightrec executor.
 
-**Why it matters.** Co-locating two titles is organizational convenience only. Their incompatible
-engines must stay independently understandable and verifiable.
+**Why it matters.** Co-location is organizational convenience only. The title retains its grounded
+startup and CD behavior while gaining complete runtime guest coverage without a second guest-source product.
 
-**Success conditions.** Tomba! 1 has its own provisioner, generated registry, runtime, product target,
-tests, and independent oracle evidence; the actual product boots, renders, accepts input, and reaches
-playable game content; no Tomba! 2 guest address, game source, renderer assumption, or compatibility
-adapter crosses the title boundary.
+**Success conditions.** The Lightrec product reproduces the recorded 35-field CRT0 boundary, crosses
+the current CD/movie frontier, reaches the title screen, accepts input, and passes representative
+interactive gameplay; its six engine-neutral native overrides and scoped original calls use complete
+image identity; no offline-emitted guest source or interpreter-first gameplay mode exists; bounded
+fallback is reason-counted below its declared threshold; no Tomba! 2 guest
+address, game source, renderer assumption, or compatibility adapter crosses the title boundary.
 
-**Constraints and non-goals.** Tomba! 1 code lives under `titles/tomba1/`; the root `game/` and
-`generated/` trees remain Tomba! 2-only. No fake product or launcher is published before an
-executable-backed execution path exists.
+**Constraints and non-goals.** Tomba! 1 code lives under `titles/tomba1/`. Its guest-source path is
+already removed; measured binary behavior remains as evidence. Tomba! 2 must complete
+its migration first. Forced interpreter mode is diagnostic-only, and fallback-covered execution is
+not gameplay-conformance or performance evidence.
 
-**Contributing state items.** S008, S009, S010, S012.
+**Contributing state items.** S008, S009, S010, S012, S018.
 
 ## G004 — Tomba! 1 true widescreen without unrelated enhancement modes
 
@@ -68,14 +79,14 @@ executable-backed execution path exists.
 and 2D-layout owners.
 
 **Why it matters.** A wider view is the selected presentation enhancement for this title; unrelated
-renderer and cadence systems would add compatibility paths without serving that outcome.
+renderer and cadence systems would add false compatibility paths.
 
-**Success conditions.** The running product preserves its faithful 4:3 path and displays additional
-correctly projected world content at wide aspect ratios; visual culling and authored UI anchors are
-handled explicitly; the title exposes no interpolation, temporal-history, title-native-renderer,
-native-producer, native-depth, 60fps, or native-rendering option.
+**Success conditions.** The running Lightrec product preserves faithful 4:3 presentation and displays
+additional correctly projected world content at wide aspect ratios; visual culling and authored UI
+anchors are handled explicitly; the title exposes no interpolation, temporal-history,
+title-native-renderer, native-producer, native-depth, 60fps, or native-rendering option.
 
 **Constraints and non-goals.** Widescreen is not host stretching, cropping, or reconstruction from
-post-projection data. The shared psxport renderer remains the platform presentation owner.
+post-projection data. The shared `psxport` renderer remains the platform presentation owner.
 
 **Contributing state items.** S011, S013.

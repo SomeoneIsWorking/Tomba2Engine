@@ -20,7 +20,7 @@ import os, subprocess, sys
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BIN  = os.path.join(ROOT, "scratch/bin/tomba2_port")
+BIN = os.path.join(ROOT, "build/bin/tomba2_port")
 SHOTS= os.path.join(ROOT, "scratch/screenshots")
 CMP_INI = os.path.join(ROOT, "scratch/cmp.ini")
 

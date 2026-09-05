@@ -1,6 +1,6 @@
 // bav_loader.cpp — per-area BAV (effect/animation cel) LOADER, owned PC-native.
 //
-// TARGET: gen_func_80096590 -> ov_bav_load. This is the engine's per-area effect-cel loader: it
+// TARGET: guest 0x80096590 -> ov_bav_load. This is the engine's per-area effect-cel loader: it
 // takes a BAV descriptor, allocates a cel SLOT, parses the descriptor's cel-record + UV tables,
 // computes the packed VRAM layout, calls the caller-supplied allocator/upload callback to reserve
 // VRAM and upload the image, then patches the per-frame tpage/clut halfwords into the cel records
@@ -11,7 +11,8 @@
 //   a1 (s0) = requested SLOT index: -1 = auto-allocate the first free slot, else an explicit slot [0,16).
 //   a2 (s6) = ALLOCATOR/UPLOAD CALLBACK fn-ptr: called as cb(a0=size_rounded64, a1=arg4, a2=slot);
 //             returns the allocated VRAM word-address, or -1 on failure. KEPT as a genuine leaf
-//             (rec_dispatch) — it reserves VRAM + uploads the cel image; the engine doesn't own that here.
+//             (typed runtime address dispatch) — it reserves VRAM + uploads the cel image; the engine doesn't own that
+//             here.
 //   a3 (s5) = arg4 forwarded verbatim to the callback (an upload context / VRAM hint).
 //   ret v0  = the allocated slot index on success; -1 / a leftover value on the various error paths
 //             (transcribed exactly — see each `return` below).
@@ -51,18 +52,18 @@
 // === CALLEES ===
 //   FUN_80099478 (lock-ready test) + FUN_80099450 (lock set/clear) — TRIVIAL pure mem ops on 0x800AC638,
 //       owned inline here (no behavior beyond the single word).
-//   *a2 (the VRAM allocator/upload callback) — genuine leaf, rec_dispatch'd in the recomp's exact order.
+//   *a2 (the VRAM allocator/upload callback) — genuine leaf, typed runtime address dispatch'd in the guest instruction
+//   path's exact order.
 //
-// VERIFY: `bavload` full RAM+scratchpad A/B vs rec_super_call (below). 0-diff is the gate.
+// VERIFY: `bavload` full RAM+scratchpad A/B vs original guest-body call (below). 0-diff is the gate.
 #include "cfg.h"
 #include "core.h"
-#include "game.h" // c->game->verify.on — per-Game lazy debug-channel latch
+#include "game.h"
+#include "game_ctx.h"
+#include "guest_call.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 #define BAV_LOCK 0x800AC638u
 #define G_C10 0x80105C10u
@@ -216,12 +217,12 @@ static uint32_t bav_load_native(Core *c) {
 
   // --- 0x80096824: round total size up to 64, call the allocator/upload callback ---
   uint32_t size_r = ((uint32_t)s0 + 63u) & ~63u;
-  int32_t s1slot = (int32_t)(int16_t)s2; // slot
-  c->r[4] = size_r;                      // a0 = rounded size
-  c->r[5] = arg4;                        // a1 = arg4 (s5)
-  c->r[6] = (uint32_t)s1slot;            // a2 = slot
-  rec_dispatch(c, cb);                   // jalr s6
-  uint32_t a0v = c->r[2];                // v0 = vram base addr (or -1)
+  int32_t s1slot = (int32_t)(int16_t)s2;                                                          // slot
+  c->r[4] = size_r;                                                                               // a0 = rounded size
+  c->r[5] = arg4;                                                                                 // a1 = arg4 (s5)
+  c->r[6] = (uint32_t)s1slot;                                                                     // a2 = slot
+  psx::cpu::dispatchGuestToReturn0(*c, cb, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // jalr s6
+  uint32_t a0v = c->r[2]; // v0 = vram base addr (or -1)
 
   if (a0v == (uint32_t)-1) { // alloc fail -> exit, v0=-1
     return (uint32_t)-1;
@@ -261,7 +262,7 @@ static uint32_t bav_load_native(Core *c) {
 
   // BONUS: log the loaded cel's atlas params (under the `bavload` debug channel).
   {
-    if (c->game->verify.on("bavload")) {
+    if (gctx(c)->verification.on("bavload")) {
       uint32_t kind = c->mem_r32(desc + 4);
       uint32_t r0_12 = c->mem_r16(s3rec + 12), r0_14 = c->mem_r16(s3rec + 14);
       uint32_t bpp = (kind < 5u) ? 4u : 8u; // kind<5 -> <<2 (4bpp); else <<3 (8bpp)

@@ -18,24 +18,23 @@
 //                            else if s==0 -> FUN_80031780(node) (list scan/reset). }
 //
 // CONTROL FLOW + the direct node WRITES owned native; every sub-behavior CALL stays reachable via
-// rec_dispatch (pure-PSX leaf) — matching the EXACT established pattern of the sibling behavior ports:
-// 0x8009A450 (PRNG), 0x8002B278 (cone cull) and 0x8007A624 are kept as rec_dispatch leaves exactly as
-// every other engine/beh_*.cpp does (they advance shared RNG/cull state in guest RAM, and the A/B gate
-// rolls RAM back before rec_super_call so both sides draw the same sequence). Signed widths preserved:
+// typed runtime address dispatch (pure-PSX leaf) — matching the EXACT established pattern of the sibling behavior
+// ports: 0x8009A450 (PRNG), 0x8002B278 (cone cull) and 0x8007A624 are kept as typed runtime address dispatch leaves
+// exactly as every other engine/beh_*.cpp does (they advance shared RNG/cull state in guest RAM, and the A/B gate rolls
+// RAM back before original guest-body call so both sides draw the same sequence). Signed widths preserved:
 // node[6]/node[7] are signed char (int8); node[0x34]/node[0x38] are 32-bit; DAT_800E7FFE is a signed
-// short (lh). The byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net.
+// short (lh). The byte-exact A/B gate (full RAM+scratchpad vs original guest-body call) is the safety net.
 
 #include "cfg.h"
 #include "collision.h" // Collision::listScan (FUN_80031780)
 #include "core.h"
 #include "game_ctx.h"
 #include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_call.h"
+#include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -43,15 +42,15 @@ constexpr uint32_t BEH_FN = 0x8002918Cu;
 
 static inline void leaf1(Core *c, uint32_t a0, uint32_t fn) {
   c->r[4] = a0;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 static inline uint32_t call0(Core *c, uint32_t fn) {
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 static inline uint32_t call1(Core *c, uint32_t a0, uint32_t fn) {
   c->r[4] = a0;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 

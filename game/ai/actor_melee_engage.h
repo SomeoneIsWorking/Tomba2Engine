@@ -1,18 +1,17 @@
 // game/ai/actor_melee_engage.h — class ActorMeleeEngage: FAITHFUL port of guest FUN_80112188
-// (generated/ov_a00_shard_1.c:3527, function `ov_a00_gen_80112188`), an A00-overlay leaf that decides
+// (authenticated executable/overlay evidence, function `overlay guest 0x80112188`), an A00-overlay leaf that decides
 // whether an AI actor should CLOSE IN on / mutually ARM a melee attack against a target, given a third
 // "anchor" reference point (an approach-origin position, e.g. the actor's patrol/home spot).
 //
 // STATUS: RE'd + transcribed, then INDEPENDENTLY RE-VERIFIED line-by-line against
-// generated/ov_a00_shard_1.c (the recompiler's instruction-exact ground truth) — 6 real bugs found
-// and fixed in that pass (see actor_melee_engage.cpp's inline "BUG FIX" comments): a condition-
-// polarity inversion on the kind-based Z-bias, a condition-polarity inversion on the Y-band test, a
-// dx/dz argument swap in the ratan2 call, an rsin/rcos swap feeding the Z/X reposition update, a
-// register (r21 vs r23) conflation in the bandWidth formula, and a missing register-lifetime setup
-// (c->r[4]=angle) before the FUN_80055844 dispatch. WIRED via `overrides::install` passing
-// ov_a00_set_override as the setter (the only real callers are DIRECT `ov_a00_func_80112188(c)`
-// sites inside ov_a00_shard_1.c itself — see .cpp), which also makes it reachable via rec_dispatch
-// (native-caller tracing). SBS-gated 0-diff; see registerOverrides().
+// authenticated executable/overlay evidence (the recorded binary evidence's instruction-exact ground truth) — 6 real
+// bugs found and fixed in that pass (see actor_melee_engage.cpp's inline "BUG FIX" comments): a condition- polarity
+// inversion on the kind-based Z-bias, a condition-polarity inversion on the Y-band test, a dx/dz argument swap in the
+// ratan2 call, an rsin/rcos swap feeding the Z/X reposition update, a register (r21 vs r23) conflation in the bandWidth
+// formula, and a missing register-lifetime setup (c->r[4]=angle) before the FUN_80055844 dispatch. WIRED via
+// `tomba::native::declareOverride` passing A00 tomba::native::declareOverride as the setter (the only real callers are
+// DIRECT `overlay guest 0x80112188(c)` sites inside ov_a00_shard_1.c itself — see .cpp), which also makes it reachable
+// via typed runtime address dispatch (native-caller tracing). SBS-gated 0-diff; see registerOverrides().
 //
 // Guest ABI: a0 = self (the AI actor evaluating the engage), a1 = target (the actor it might attack),
 // a2 = anchor (a position record — read-only, e.g. the patrol anchor or camera-follow point; NOT a
@@ -27,7 +26,7 @@
 // spill byte-for-byte per the CLAUDE.md "mirror the guest stack, never revert" directive, using the
 // (currently uncalled) `object_table.cpp`/`cull.cpp` Framed() idiom as the reference shape.
 //
-// Field layout used (RAW DECIMAL OFFSETS, matching the recompiler's own decimal literals verbatim —
+// Field layout used (RAW DECIMAL OFFSETS, matching the recorded binary evidence's decimal literals verbatim —
 // this is a generic per-object AI record reused differently per object TYPE, same "no named struct"
 // convention as game/ai/release_trigger_motion.h):
 //   self+3/target+3  kind byte (only target's is read here, to pick a -70 vs 0 anchor-Z bias)
@@ -60,7 +59,7 @@
 //               atan2 angle when a reposition begins, later reinterpreted as a 12-bit wrapping
 //               cooldown counter (decremented by 1024, masked to 0xFFF) on the close-range arm path.
 //
-// Callees (still substrate, reached via rec_dispatch — RE'd but this session did not chase or own
+// Callees (still substrate, reached via typed runtime address dispatch — RE'd but this session did not chase or own
 // them, out of this session's assigned address band):
 //   FUN_80084080  a distance/sqrt-shaped leaf (a0 = sum of squares, v0 = magnitude). NOT the same
 //                 address as the already-native `Math::isqrt16` (FUN_80077FB0) — a different
@@ -69,7 +68,7 @@
 //                 session — return value 0 vs nonzero gates the whole arm branch).
 //   FUN_80022C78  a disengage/reset cleanup call (a0 = self) fired on every "abort the arm" tail.
 // Callees ALREADY NATIVE — routed through the existing `Trig` class (game/math/trig.h) instead of
-// rec_dispatch, since Trig::rsin/rcos/ratan2/angleCmp are RE'd-correct ports of FUN_80083E80/
+// typed runtime address dispatch, since Trig::rsin/rcos/ratan2/angleCmp are RE'd-correct ports of FUN_80083E80/
 // 80083F50/80085690/80077768 (confirmed via `tools/codemap.py --addr` returning "NO native owner" —
 // i.e. Trig exists and is correct but is currently ORPHANED/unwired; using it here doesn't require
 // wiring it, since this whole method is itself unwired dead code this session):
@@ -89,15 +88,15 @@ public:
   // caller (no guest stack frame needed). Returns v0 (0/1/2), see the .h banner above.
   int32_t doIt(uint32_t self, uint32_t target, uint32_t anchor);
 
-  // doItFramed: guest-ABI-facing twin used by the ov_a00_set_override trampoline (see .cpp) —
+  // doItFramed: guest-ABI-facing twin used by the A00 tomba::native::declareOverride trampoline (see .cpp) —
   // mirrors the real 64-byte guest frame (spills s0..s7/s8/ra at their RE'd offsets) around doIt(),
   // per the CLAUDE.md "mirror the guest stack, never revert/exclude" directive.
   void doItFramed();
 
-  // Wire doIt onto the guest address 0x80112188 via `overrides::install`, passing ov_a00_set_override
-  // (the recompiler's own per-overlay call table — the only real callers found are direct
-  // `ov_a00_func_80112188(c)` sites) as the setter so both that call shape and rec_dispatch
-  // (native-caller tracing) reach the native. See .cpp.
+  // Wire doIt onto the guest address 0x80112188 via `tomba::native::declareOverride`, passing A00
+  // tomba::native::declareOverride (the recorded binary evidence's per-overlay call table — the only real callers found
+  // are direct `overlay guest 0x80112188(c)` sites) as the setter so both that call shape and typed runtime address
+  // dispatch (native-caller tracing) reach the native. See .cpp.
   static void registerOverrides(Game *game);
 };
 #endif

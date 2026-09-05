@@ -15,20 +15,20 @@
 //
 // Each substate body is an INLINE block within the root function, reached by the loop's computed
 // `jr v0` (so it runs with ra unchanged) and exited by `j <TAIL>`. This is exactly the ov_game_s4c
-// shape: a native override at the body's address does the native work and coro-redirects to the
+// shape: a native override at the body's address does the native work and guest-continuations to the
 // chosen TAIL (the guest TAIL then runs the yield in-context). We do NOT override the root function,
 // so the guest prologue/loop/yield run unchanged; the loop's `jr v0` into an owned body address
-// triggers the override (the flat interp fires overrides on computed jumps — interp.cpp:481).
+// triggers the override (the dynamic guest executor fires overrides on computed jumps — interp.cpp:481).
 //
 // OWNED HERE: s1, s2, s3, s6 — the substates whose only sub-call is SYNCHRONOUS (verified yield-free
 // via tools/yield_reach.py: the inner machines 0x80106f80 / 0x8010696c / 0x80106ac4 / 0x8007b45c and
 // the engine-update 0x8001cf2c / commit pair 0x80106824+0x80106690 / page-close 0x800750d8 never
-// reach FUN_80051f80). Their inner machine is rec_dispatch'd synchronously, then the engine owns the
+// reach FUN_80051f80). Their inner machine is typed runtime address dispatch'd synchronously, then the engine owns the
 // transition LOGIC (sm[0x48] selection + field writes) natively. The DEEP-YIELDING substates — s0
 // (loaders 0x80045080/0x80044bd4 yield + falls into s1), s4 (0x8007bf20 yields), s5 (0x80052078
 // stage-restart yields), s7 (loader 0x80106c24 yields) — stay as guest code for now; owning them
-// needs the coro-redirect-INTO-the-yielder handshake (a plain rec_dispatch of a deep yielder longjmps
-// out and destroys the override C frame, killing task 0 — later-169). The inner menu sub-machines and
+// needs the guest-continuation-INTO-the-yielder handshake (a plain typed runtime address dispatch of a deep yielder
+// longjmps out and destroys the override C frame, killing task 0 — later-169). The inner menu sub-machines and
 // loader/SFX/render callees stay dispatched until separately ported.
 //
 // REGISTER VALUES from the root prologue (the body comparisons use them): s2reg=1, s1reg=2, s3reg=3.
@@ -39,11 +39,12 @@
 #include "core/asset.h" // class Asset — preloadTexgroup (static, area-load sync)
 #include "game.h"
 #include "game_ctx.h"
-#include "override_registry.h" // overrides::install — the one native-override registry                         // Game::native_sync — frame() case-0 fork
-#include "sbs.h"               // skipRendezvousReached — s5 DEMO->GAME frame alignment
-#include "scheduler.h"         // native_task_spawn (FUN_80051F14 port) — Slip #4 s0 spawn
-#include "world/placement.h"   // ov_place_objects (FUN_80072A78)
-#include "world/pool.h"        // ov_pool_init_run (FUN_8007B18C) + siblings
+#include "guest_call.h"
+#include "guest_resume.h"
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include "scheduler.h"               // native_task_spawn (FUN_80051F14 port) — Slip #4 s0 spawn
+#include "world/placement.h"         // ov_place_objects (FUN_80072A78)
+#include "world/pool.h"              // ov_pool_init_run (FUN_8007B18C) + siblings
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -73,8 +74,9 @@ static void demo_log(const char *who, Core *c) {
 void Demo::s1() {
   Core *c = core;
   demo_log("s1", c);
-  c->r[4] = 0;                  // a0 = 0
-  rec_dispatch(c, 0x80106f80u); // inner menu input machine (SYNC)
+  c->r[4] = 0; // a0 = 0
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80106f80u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // inner menu input machine (SYNC)
   uint32_t v0 = c->r[2];
   uint32_t sm = c->mem_r32(SM_PTR);
   if (v0 != 0) {
@@ -84,7 +86,7 @@ void Demo::s1() {
   } else if (c->mem_r16(0x800e7e68u) != 0) {
     c->mem_w8(0x1f80019du, 1); // skip-request
   }
-  rec_coro_redirect(c, TAIL_NONE);
+  tomba::requestGuestContinuation(*c, TAIL_NONE);
 }
 
 // s2 0x80106464 — sub-machine v0 = 0x8010696c(). Outcome 1 -> go to s7 (sm[0x48]=7, reset 0x4a/0x4c).
@@ -94,14 +96,15 @@ void Demo::s1() {
 void Demo::s2() {
   Core *c = core;
   demo_log("s2", c);
-  rec_dispatch(c, 0x8010696cu); // sub-machine (SYNC)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8010696cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // sub-machine (SYNC)
   uint32_t v0 = c->r[2];
   uint32_t sm = c->mem_r32(SM_PTR);
   if (v0 == 1) { // s2reg: -> s7
     c->mem_w16(sm + 0x48, 7);
     c->mem_w16(sm + 0x4a, 0);
     c->mem_w16(sm + 0x4c, 0);
-    rec_coro_redirect(c, TAIL_REND);
+    tomba::requestGuestContinuation(*c, TAIL_REND);
     return;
   }
   if (v0 == 2) {                     // s1reg: cursor two-phase
@@ -113,14 +116,15 @@ void Demo::s2() {
       c->mem_w16(sm + 0x48, 4);
       c->mem_w16(sm + 0x50, 0);
       c->mem_w8(sm + 0x6b, 0);
-      rec_dispatch(c, 0x8001cf2cu); // engine per-frame update (SYNC)
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x8001cf2cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // engine per-frame update (SYNC)
       c->mem_w8(0x800bf84au, 0);
     }
     c->mem_w16(sm + 0x4a, 0); // shared 0x801064dc: sm[0x4a]=0
-    rec_coro_redirect(c, TAIL_REND);
+    tomba::requestGuestContinuation(*c, TAIL_REND);
     return;
   }
-  rec_coro_redirect(c, TAIL_REND);
+  tomba::requestGuestContinuation(*c, TAIL_REND);
 }
 
 // s3 0x801064E8 — sub-machine v0 = 0x80106ac4() (mirror of 0x8010696c). Outcome 1 -> s7 (the same
@@ -130,7 +134,8 @@ void Demo::s2() {
 void Demo::s3() {
   Core *c = core;
   demo_log("s3", c);
-  rec_dispatch(c, 0x80106ac4u); // sub-machine (SYNC)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80106ac4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // sub-machine (SYNC)
   uint32_t v0 = c->r[2];
   uint32_t sm = c->mem_r32(SM_PTR);
   if (v0 == 1) { // s2reg: -> s7 (shared block)
@@ -147,53 +152,17 @@ void Demo::s3() {
       c->mem_w16(sm + 0x48, 6);
       c->mem_w8(sm + 0x6b, 0);
       c->mem_w16(sm + 0x50, 0);
-      rec_dispatch(c, 0x800750d8u); // page close (SYNC)
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x800750d8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // page close (SYNC)
       c->mem_w8(0x800bf808u, 0);
     }
   } else if (v0 == 3) {       // s3reg: back/cancel -> s2
     c->mem_w16(sm + 0x48, 2); // sh s1reg(=2)
     c->mem_w8(sm + 0x68, 0);
   }
-  rec_coro_redirect(c, TAIL_REND);
+  tomba::requestGuestContinuation(*c, TAIL_REND);
 }
 
-// ===========================================================================================
-// DRAFT (UNWIRED, wide-RE fleet wave, band 0x8010A000-0x8010CFFF) — FUN_80106AC4, the main-menu
-// title cursor sub-machine s3() dispatches (both s3() above and demo_frame_s3() below still
-// `rec_dispatch(c, 0x80106ac4u)`; this method is NOT called from either yet). CONFIDENCE: HIGH —
-// byte-exact Ghidra transcription (scratch/decomp/band_menu.c, imported from
-// scratch/bin/tomba2/ram_menu.bin, Ghidra project `ram_menu`; regenerate with
-// `tools/decomp.sh decomp ram_menu <out.c> list 0x80106ac4` if scratch/ was cleaned).
-//
-// "Mirror of 0x8010696C" (the s2 sub-machine, both files already document this) but with THREE
-// outcomes instead of two: it also handles the Circle/back edge (the s2 twin only has confirm).
-// sm = *0x1F800138 (SM_PTR).
-//
-// GUEST FRAME (2026-07-10 §9 re-verify correction): the original draft's confidence note ("no
-// stack frame observed") was WRONG — ov_demo_gen_80106AC4 pushes `addiu sp,-32` and spills
-// ra(r31)@sp+24, s1(r17)@sp+20, s0(r16)@sp+16 before any body work (checked directly against
-// generated/ov_demo_shard_0.c). The two rec_dispatch calls inside (0x80106690/0x80106824, both
-// still-substrate) clobber the shared r16/r17/r31 register file, so mirroring the frame is
-// required for SBS byte-exactness, not optional. Restructured to a single exit point below so
-// every return path shares the one epilogue.
-//
-//   entry: if sm[0x4a]==0 (fresh entry): sm[0x4a]=1, sm[0x5a]=0x1C2 (450, the intro/hold timer —
-//     matches "sm[0x5a] inits 450" in the class RE map). else if sm[0x4a]!=1: return 0 (only valid
-//     re-entry state is 1; guards a stray call with sm[0x4a] in {2,3,...} — never observed but
-//     transcribed faithfully).
-//   FUN_80106690(0) — inner menu commit/redraw leaf (a0=0), STILL SUBSTRATE (no native owner).
-//   FUN_80106824(1, sm[0x68] != 2) — commit pair (a0=1, a1=bool), STILL SUBSTRATE.
-//   timer = sm[0x5a] (pre-decrement value); sm[0x5a]--; if timer==1 (just expired): return 1
-//     (outcome 1 = "attract launch", -> s7 in both callers).
-//   else (timer still running): read pad edges (0x800E7E68). cursor := 3 by default.
-//     if Right (0x20) pressed: cursor stays 3, cmp = sm[0x68] (no reassign).
-//     else: cursor := 2; if Left (0x80) pressed: cmp = sm[0x68] (no reassign).
-//       else (neither Right nor Left): if Confirm (0x4008) pressed: Sfx::trigger(0x11,0,0); return 2
-//         (outcome 2 = "launch selected"). else if Circle/back (0x2000) pressed: Sfx::trigger(0x14,
-//         -9, 0); return 3 (outcome 3 = "back/cancel" — the s2 twin does NOT have this branch).
-//         else: return 0 (no edge — stay).
-//     if cmp != cursor: Sfx::trigger(0x15,0,0) (cursor-move blip).
-//     sm[0x68] = cursor; sm[0x4a] = 0; return 0.
 uint32_t Demo::s3SubMachine() {
   Core *c = core; // FUN_80106AC4
   const uint32_t savedSp = c->r[29];
@@ -217,20 +186,15 @@ uint32_t Demo::s3SubMachine() {
 
   if (proceed) {
     c->r[4] = 0;
-    rec_dispatch(c, 0x80106690u); // still substrate
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80106690u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // still substrate
     c->r[4] = 1;
     c->r[5] = (c->mem_r8(sm + 0x68) != 2) ? 1u : 0u;
-    // ov_demo_gen_80106AC4:333 sets s1(r17)=0x1F800000 in the jal DELAY SLOT right before this call —
-    // NOT an argument to 0x80106824 (a0/a1=r4/r5 only; 0x80106824 just spills+restores incoming r17
-    // verbatim, never reading it), but the CALLER reusing its own callee-saved s1 as a scratch base
-    // register it wants ready for the post-call read (line 334: sm = *(r17+312) = *0x1F800138). Since
-    // 0x80106824 spills the INCOMING r17 to its OWN guest stack (sp+36) before restoring it, that spill
-    // byte is part of the byte-exact guest-stack comparison — mirror the exact register prep so the
-    // spilled value matches oracle (was leaking our loop's persistent r17=2 into that slot instead).
     c->r[17] = 0x1F800000u;
-    rec_dispatch(c, 0x80106824u); // still substrate
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80106824u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // still substrate
 
-    sm = c->mem_r32(SM_PTR); // reload (matches the recomp's re-read)
+    sm = c->mem_r32(SM_PTR); // reload (matches the guest instruction path's re-read)
     int16_t timer = (int16_t)c->mem_r16(sm + 0x5a);
     c->mem_w16(sm + 0x5a, (uint16_t)(timer - 1));
     if (timer == 1) {
@@ -276,22 +240,6 @@ uint32_t Demo::s3SubMachine() {
   return result;
 }
 
-// FUN_8010696C — the TITLE main-menu cursor sub-machine (s2's rec_dispatch target). The s3SubMachine
-// twin without the Circle/back (v0=3) outcome — the title menu can't cancel. sm = *0x1F800138 (SM_PTR).
-// Byte-exact frame (32; r31/r17/r16 @ sp+24/20/16, per tools/abi_extract): the two render leaves
-// 0x80106690/0x80106824 + the 3 Sfx::trigger (0x80074590) calls all spill the shared callee-saved file,
-// so the frame AND the per-call callee-saved reg prep are required for SBS byte-exactness —
-//   r16 = 0x1F800000 before the item/cursor draw (0x80106824 spills the incoming r16), and
-//   r17 = 1 before the SFX calls (Sfx::trigger spills the incoming r17). ra constants are the RE'd
-//   guest return addresses so the callees' spilled ra matches the oracle.
-//
-// Logic (identical to FUN_8010696c): fresh entry (sm[0x4a]==0) arms sm[0x4a]=1 + the attract hold-timer
-// sm[0x5a]=0x1C2 (450); a stray re-entry with sm[0x4a] not in {0,1} returns 0. Then it redraws the logos
-// (0x80106690) and the 2 menu items + cursor (0x80106824(0, sel!=0)), decrements the hold-timer, and on
-// expiry (timer==1) returns 1 (attract launch -> s7). Otherwise it reads the pad edges (0x800E7E68):
-// Right(0x20) selects item 1, Left(0x80) selects item 0 (each blips SFX 0x15 on an actual change and
-// clears sm[0x4a]); with neither held, Confirm(0x4008) plays SFX 0x11 and returns 2 (launch selected);
-// no relevant edge returns 0 (staying, sm[0x4a] left set).
 uint32_t Demo::s2SubMachine() {
   Core *c = core;
   const uint32_t savedSp = c->r[29];
@@ -316,14 +264,15 @@ uint32_t Demo::s2SubMachine() {
   if (proceed) {
     c->r[4] = 0;
     c->r[31] = 0x801069B8u;
-    rec_dispatch(c, 0x80106690u); // logos
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80106690u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // logos
     c->r[4] = 0;
     c->r[5] = (c->mem_r8(sm + 0x68) != 0) ? 1u : 0u;
     c->r[16] = 0x1F800000u;
     c->r[31] = 0x801069E8u;
-    rec_dispatch(c, 0x80106824u); // items+cursor
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80106824u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // items+cursor
 
-    sm = c->mem_r32(SM_PTR); // reload (matches recomp re-read)
+    sm = c->mem_r32(SM_PTR); // reload (matches guest instruction path re-read)
     int16_t timer = (int16_t)c->mem_r16(sm + 0x5a);
     c->mem_w16(sm + 0x5a, (uint16_t)(timer - 1));
     if (timer == 1) {
@@ -361,23 +310,6 @@ uint32_t Demo::s2SubMachine() {
   return result;
 }
 
-// ===================================================================================================
-// Wiring (2026-07-10). ov_demo_gen_80106AC4 DOES have a direct intra-shard call site
-// (ov_demo_shard_0.c:126, inside FUN_801064E8 = the substrate's OWN s3 body) — same shape as
-// game/ai/actor_melee_engage.cpp, which would normally call for the ov_demo_set_override dual-wire.
-// BUT: empirically wiring that dual-wire double-fires this address every frame on core A (SBS
-// PSXPORT_DEBUG=dispatch showed TWO hits per frame, one via demo_frame_s3()'s rec_dispatch, one via
-// "direct/g_override, bypassed rec_dispatch") — the DEMO stage's guest root coroutine (0x80106388,
-// still substrate/interpreted, per this file's header) evidently keeps walking its OWN per-frame
-// substate dispatch IN PARALLEL with the native "OWNED HERE" s1/s2/s3/s6 substates
-// (demo_frame_s3() below), redundantly re-entering FUN_801064E8 a second time. Core B (psx_fallback,
-// pure substrate — never runs any of this file's C++) reaches 0x80106AC4 via ONLY that same guest
-// root-coroutine path, so its call COUNT is whatever the real PSX code does — comparing against it
-// requires A's call sites to line up 1:1 with B's, not fire twice for B's once. registerOverrides()
-// alone (the route demo_frame_s3()'s rec_dispatch actually uses) matches B's cadence; the direct call site
-// inside FUN_801064E8 stays UNHOOKED so it falls through to the plain substrate ov_demo_gen_80106AC4
-// body when the guest root coroutine's own redundant pass reaches it — identical to what ran there
-// before this wiring pass (harmless, pre-existing, unrelated to this cluster). See docs/findings/ai.md.
 namespace {
 void ov_demoS3SubMachine(Core *c) {
   c->r[2] = eng(c).demo.s3SubMachine();
@@ -387,16 +319,9 @@ void ov_demoS2SubMachine(Core *c) {
 }
 } // namespace
 
-extern void ov_demo_gen_80106AC4(Core *);
-extern void ov_demo_gen_8010696C(Core *);
-
 void Demo::registerOverrides(Game * /*game*/) {
-  using overrides::install;
-  // rec_dispatch-only (setter omitted): s3SubMachine's ONLY caller is rec_dispatch(0x80106AC4). Its
-  // direct intra-shard call site (inside FUN_801064E8) is DELIBERATELY left on the substrate — a
-  // g_override thunk here would intercept it too (see the wiring note above), so no setter. Same for s2.
-  install(0x80106AC4u, "Demo::s3SubMachine", ov_demoS3SubMachine, ov_demo_gen_80106AC4);
-  install(0x8010696Cu, "Demo::s2SubMachine", ov_demoS2SubMachine, ov_demo_gen_8010696C);
+  tomba::native::declareOverride(0x80106AC4u, "Demo::s3SubMachine", ov_demoS3SubMachine);
+  tomba::native::declareOverride(0x8010696Cu, "Demo::s2SubMachine", ov_demoS2SubMachine);
 }
 
 // s6 0x801065EC — page sub-machine 0x8007b45c(); if sm[0x50]==3 fire the commit pair 0x80106824(1,1)
@@ -405,42 +330,45 @@ void Demo::registerOverrides(Game * /*game*/) {
 void Demo::s6() {
   Core *c = core;
   demo_log("s6", c);
-  rec_dispatch(c, 0x8007b45cu); // page sub-machine (SYNC)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8007b45cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // page sub-machine (SYNC)
   uint32_t sm = c->mem_r32(SM_PTR);
   if (c->mem_r16(sm + 0x50) == 3) {
     c->r[4] = 1;
     c->r[5] = 1;
     c->r[31] = 0x80106618u;
-    rec_dispatch(c, 0x80106824u); // commit (a0=1,a1=1)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80106824u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // commit (a0=1,a1=1)
     c->r[4] = 1;
     c->r[31] = 0x80106620u;
-    rec_dispatch(c, 0x80106690u); // commit2 (a0=1)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80106690u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // commit2 (a0=1)
     sm = c->mem_r32(SM_PTR);
   }
   uint8_t s6b = c->mem_r8(sm + 0x6b);
   if (s6b == 1) {             // s2reg
     c->mem_w16(sm + 0x48, 3); // sh s3reg(=3)
     c->mem_w8(sm + 0x68, 3);  // sb v0(=3)
-    rec_coro_redirect(c, TAIL_CF2C);
+    tomba::requestGuestContinuation(*c, TAIL_CF2C);
   } else if (s6b == 2) { // s1reg
     c->mem_w16(sm + 0x48, 3);
     c->mem_w8(sm + 0x68, 2); // sb v0(=2)
-    rec_coro_redirect(c, TAIL_CF2C);
+    tomba::requestGuestContinuation(*c, TAIL_CF2C);
   } else {
-    rec_coro_redirect(c, TAIL_REND);
+    tomba::requestGuestContinuation(*c, TAIL_REND);
   }
 }
 
 // ===========================================================================================
 // DEEP-YIELDING substates s0/s4/s5/s7 (later-183) — the ones whose substantive sub-call reaches
-// the single cooperative yield FUN_80051f80, so they CANNOT be rec_dispatch'd from inside the
+// the single cooperative yield FUN_80051f80, so they CANNOT be typed runtime address dispatch'd from inside the
 // override (a deep longjmp destroys the override's C frame and kills task 0 — later-168/169).
-// They use the coro-redirect-INTO-the-yielder handshake (ov_game_s4c shape, engine.cpp):
+// They use the guest-continuation-INTO-the-yielder handshake (ov_game_s4c shape, engine.cpp):
 // the override does the ownable native work + sets up the registers/ra the guest stream expects,
-// then rec_coro_redirect to the guest address so the deep yield runs IN-CONTEXT (it longjmps to
+// then requestGuestContinuation to the guest address so the deep yield runs IN-CONTEXT (it longjmps to
 // the scheduler and resumes correctly; the guest stream then reaches a TAIL and yields).
 //
-// rec_coro_redirect(c, target) sets the loop's NEXT pc to `target` (interp.cpp coro_next_pc) — the
+// tomba::requestGuestContinuation(*c, target) sets the loop's NEXT pc to `target` (interp.cpp coro_next_pc) — the
 // flat loop resumes there fresh, executing that instruction + its delay slot normally. So a redirect
 // target must be the START of an instruction, and the override must have set up every register the
 // redirected stream reads BEFORE its own setup runs. (For these bodies that is only the FIRST call's
@@ -469,19 +397,19 @@ void Demo::s0() {
   Core *c = core;
   demo_log("s0", c);
   uint32_t sm = c->mem_r32(SM_PTR);
-  c->mem_w8(sm + 0x68, 0);              // sb zero,0x68(v1)  sm[0x68] = 0
-  uint16_t cur = c->mem_r16(sm + 0x48); // lhu v0,0x48(v1)
-  c->mem_w16(sm + 0x48, cur + 1);       // addiu v0,1 ; sh v0,0x48(v1)  sm[0x48]++  (0 -> 1)
-  c->mem_w16(sm + 0x4a, 0);             // (the jal-delay sh zero,0x4a will redo this; idempotent)
-  c->r[4] = 0x80108f9cu;                // a0 = loader-0 arg table (lui 0x8011 + addiu -28772)
-  c->r[5] = 2;                          // a1 = 2
-  c->r[6] = sm;                         // a2 = task (lw a2,0x138(s0))
-  rec_coro_redirect(c, 0x801063E4u);    // first loader jal 0x80045080 (YIELDS) -> ... -> falls into s1
+  c->mem_w8(sm + 0x68, 0);                          // sb zero,0x68(v1)  sm[0x68] = 0
+  uint16_t cur = c->mem_r16(sm + 0x48);             // lhu v0,0x48(v1)
+  c->mem_w16(sm + 0x48, cur + 1);                   // addiu v0,1 ; sh v0,0x48(v1)  sm[0x48]++  (0 -> 1)
+  c->mem_w16(sm + 0x4a, 0);                         // (the jal-delay sh zero,0x4a will redo this; idempotent)
+  c->r[4] = 0x80108f9cu;                            // a0 = loader-0 arg table (lui 0x8011 + addiu -28772)
+  c->r[5] = 2;                                      // a1 = 2
+  c->r[6] = sm;                                     // a2 = task (lw a2,0x138(s0))
+  tomba::requestGuestContinuation(*c, 0x801063E4u); // first loader jal 0x80045080 (YIELDS) -> ... -> falls into s1
 }
 
 // s4 / s5 / s7 — an ENTRY-level (substate-body) override is NOT useful for any of these (deliberately):
 // unlike s0, their substantive transition logic lives entirely AFTER their deep yield, so a body-level
-// override could only set up args + coro-redirect straight into the guest yielder — a pure passthrough that
+// override could only set up args + guest-continuation straight into the guest yielder — a pure passthrough that
 // OWNS NOTHING while adding task-0-death risk if a redirect target/ra is wrong. That is scaffolding, not
 // ownership. (s7 IS owned, but NOT at its body 0x80106668 — at the phase machine 0x80106C24 it trampolines
 // into, whose phase-selection prologue + phase2 teardown are ownable; see the s7 block below.)
@@ -499,7 +427,7 @@ void Demo::s0() {
 //   - s7 0x80106668: OWNED (later-208, ov_demo_s7_phase, registered) — its trampoline `jal 0x80106C24` IS an
 //     override-checked jal target, and the phase machine 0x80106C24's phase SELECTION prologue (reads
 //     sm[0x4a]) is PRE-yield, plus phase2's teardown (0x80106dfc: jal 0x80074bc4 SYNC ; *0x1f80019a=0 ;
-//     sm[0x48]=0) is all-SYNC. We own phase selection + phase2 native, coro-redirect phase0/phase1 (which
+//     sm[0x48]=0) is all-SYNC. We own phase selection + phase2 native, guest-continuation phase0/phase1 (which
 //     yield) into the guest body. REACH (the prior "confirm a menu option" assumption was WRONG): s7 is the
 //     ATTRACT-demo auto-launch — `tap 4008` (title s2->s3) then run ~455 frames so s3's intro timer sm[0x5a]
 //     (450) expires -> sm[0x48]->7 auto. Verified fires at all phases + A/B 0-diff at steady phase1 (only the
@@ -507,7 +435,7 @@ void Demo::s0() {
 // s0 (above) is owned because it has genuine pre-yield engine state to own (init writes + substate sel).
 
 // ===========================================================================================
-// s7 PHASE MACHINE 0x80106C24 (later-186) — owned via the jal-target override + coro-redirect handshake.
+// s7 PHASE MACHINE 0x80106C24 (later-186) — owned via the jal-target override + guest-continuation handshake.
 //
 // s7's body 0x80106668 is just a trampoline: `jal 0x80106C24` (delay nop) then falls into TAIL_NONE
 // (0x80106670: frame-ctr++ -> yield). The `jal 0x80106C24` is an override-checked jal target (interp
@@ -543,8 +471,8 @@ void Demo::s0() {
 //
 // OWNERSHIP:
 //   - phase SELECTION (read sm[0x4a]) — owned native here (pre-yield, trivially ownable).
-//   - phase2 — owned FULLY native: rec_dispatch the SYNC 0x80074bc4 in-context, then *0x1f80019a=0,
-//     sm[0x48]=0. Then coro-redirect straight to the trampoline's TAIL_NONE 0x80106670 — we NEVER entered
+//   - phase2 — owned FULLY native: typed runtime address dispatch the SYNC 0x80074bc4 in-context, then *0x1f80019a=0,
+//     sm[0x48]=0. Then guest-continuation straight to the trampoline's TAIL_NONE 0x80106670 — we NEVER entered
 //     the 0x80106c24 stack frame (no prologue push), so there is nothing for the guest epilogue to restore;
 //     ra at entry is already 0x8010666c (set by the trampoline's jal). 0x80106670 re-establishes its own
 //     v0/v1/a0 (frame-ctr++ then the single yield), independent of s0/s1/ra/sp — so this is correct WITHOUT
@@ -553,7 +481,7 @@ void Demo::s0() {
 //     (sp-=40; sw incoming ra@32, s1@28, s0@24) so the body's eventual `jr ra` epilogue restores the
 //     incoming ra (0x8010666c) and returns to the trampoline correctly. We set s0=0x1f800000 and s1=1 (the
 //     two regs the bodies read that the prologue established), set a0=task (the body reads sm via a0 in
-//     phase0's prologue-tail; phase1 reloads s0 itself), then coro-redirect to the body entry so the
+//     phase0's prologue-tail; phase1 reloads s0 itself), then guest-continuation to the body entry so the
 //     in-body yields longjmp/resume in-context. We do NOT own any phase0/phase1 sm writes natively — their
 //     substantive logic is all post-yield; pre-yield there is only sm[0x4a]=1 (phase0, redone by the body's
 //     own `sh s1,0x4a` at its head). Redirecting to the body's HEAD (0x80106c74 / 0x80106d4c) re-runs that
@@ -577,10 +505,12 @@ void Demo::s7Phase() {
 
   if (phase == 2) {
     // PHASE2 teardown — fully native, all SYNC. No s7 frame entered -> redirect to the trampoline TAIL.
-    rec_dispatch(c, 0x80074bc4u);             // teardown (SYNC: verified yield-free)
-    c->mem_w8(0x1f80019au, 0);                // *0x1f80019a = 0
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80074bc4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // teardown (SYNC: verified yield-free)
+    c->mem_w8(0x1f80019au, 0);                                                  // *0x1f80019a = 0
     c->mem_w16(c->mem_r32(SM_PTR) + 0x48, 0); // sm[0x48] = 0 (restart front-end); re-read sm in case it moved
-    rec_coro_redirect(c, TAIL_NONE);          // == 0x80106670, the trampoline's post-jal flow (frame-ctr++ -> yield)
+    tomba::requestGuestContinuation(*c,
+                                    TAIL_NONE); // == 0x80106670, the trampoline's post-jal flow (frame-ctr++ -> yield)
     return;
   }
 
@@ -595,17 +525,17 @@ void Demo::s7Phase() {
     c->r[16] = 0x1f800000u;              // s0 = 0x1f800000 (bodies read 0x138(s0); phase1 reloads it too)
     c->r[17] = 1;                        // s1 = 1 (phase0 head does `sh s1,0x4a`)
     c->r[4] = sm;                        // a0 = task (phase0's prologue-tail reads sm via a0)
-    rec_coro_redirect(c, phase == 0 ? S7_PHASE0_BODY : S7_PHASE1_BODY);
+    tomba::requestGuestContinuation(*c, phase == 0 ? S7_PHASE0_BODY : S7_PHASE1_BODY);
     return;
   }
 
   // else: phase index not in {0,1,2} — the guest would fall straight to its epilogue (`jr ra` ->
   // 0x8010666c -> TAIL_NONE). With no frame pushed, redirect directly to the trampoline TAIL.
-  rec_coro_redirect(c, TAIL_NONE);
+  tomba::requestGuestContinuation(*c, TAIL_NONE);
 }
 
 // DEMO stage entry (0x801062E4) — own the prologue PC-native, then hand to the guest per-frame loop body
-// @0x80106388 via the coro-redirect handshake. Mirrors ov_game_stage_main (engine.cpp). Called
+// @0x80106388 via the guest-continuation handshake. Mirrors ov_game_stage_main (engine.cpp). Called
 // DIRECTLY from the native scheduler (native_boot.cpp) when task 0 enters stage 1 (DEMO); the override
 // table that used to intercept 0x801062E4 is gone (2026-06-22). WHY this is needed: run as pure PSX, the
 // DEMO entry's prologue drives the libetc/libcd display+CD init which busy-waits on the vblank-IRQ VSync
@@ -638,7 +568,10 @@ void Demo::stageMain() {
   c->r[5] = 0;
   c->r[6] = 0;
   c->r[7] = 0;
-  rec_dispatch(c, 0x800810F0u); // UI / print-stream context init (leaf — synchronous)
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x800810F0u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // UI / print-stream context init (leaf — synchronous)
   c->mem_w8(0x800be0e4u, 0);
   c->mem_w16(0x800e7e68u, 0);
   c->mem_w16(0x800ecf54u, 0);
@@ -648,21 +581,12 @@ void Demo::stageMain() {
   uint32_t sm = c->mem_r32(0x1f800138u);
   c->mem_w16(sm + 0x48, 0);  // sm[0x48] = 0 (start at substate 0)
   c->mem_w8(sm + 0x6e, 0);   // sm[0x6e] = 0
-  eng(c).modeStateArm.arm(); // native — was rec_dispatch 0x8005082C(0,0,0)
-  // Slip #5: the DEMO loop body (recomp ov_demo_gen_801062E4:73) dispatches FUN_80044BD4 to spawn
+  eng(c).modeStateArm.arm(); // native — was typed runtime address dispatch 0x8005082C(0,0,0)
+  // Slip #5: the DEMO loop body (guest instruction path overlay guest 0x801062E4:73) dispatches FUN_80044BD4 to spawn
   // the front-end task at 0x800CF858. Native replaces this by directly running Demo::stageMain +
   // per-frame substate dispatch instead of task-spawning — so the RNG advance from FUN_80044BD4
   // is skipped. Match it here.
   (void)rngOf(c).next();
-
-  // SLIP #1 residual fix (docs/findings/sbs.md attack (a)): do NOT dispatch s0 here. The recomp coro
-  // of 0x801062E4 spends its FRESH iteration running the prologue only (sets sm[0x48]=0), then yields
-  // via FUN_80051F80. It dispatches s0 on its NEXT iteration. If stageMain runs the s0 body inline
-  // on fresh, native does prologue+s0 in one tick vs coro's prologue-only — putting A one tick ahead
-  // for the entire DEMO progression. Leave sm[0x48]=0 for the next scheduler tick's demo.frame() to
-  // dispatch as case 0.
-  // (The old comment claiming "ov_demo_stage_main runs ONCE (prologue + s0)" was wrong for pacing
-  //  parity — the recomp body pattern says stageMain = prologue only.)
 }
 
 // ===== DEMO per-frame NATIVE dispatcher (replaces the guest root loop @0x80106388) ==============
@@ -674,7 +598,7 @@ void Demo::stageMain() {
 
 // s1's inner menu input machine (0x80106F80): an 8-way state machine on sm[0x4a]. 0x80106F80 is a real
 // callable function (proper prologue + `jr ra` epilogue, the inline state handlers `j` to it), so we
-// own only its TWO libcd states natively and rec_dispatch the CD-free ones. CD states (scan of
+// own only its TWO libcd states natively and typed runtime address dispatch the CD-free ones. CD states (scan of
 // 0x80106F80..0x801072E0): sm[0x4a]==0 (0x80106FF0, CdControlB Setmode 0x80 @0x8010701C — busy-loops
 // until the CD acks, which our no-IRQ libcd never does) and sm[0x4a]==7 (0x80107280, CdControlB
 // @0x801072B0). Our disc reads by LBA need no drive mode, so the Setmode is a native no-op.
@@ -711,40 +635,32 @@ static uint32_t demo_menu_machine(Core *c) {
     // state 7 (0x80107280) teardown, faithful — the CdControlB(CdlPause) busy-loop becomes a native no-op
     // (no async CD read is running in our model). The other callees are synchronous libgs/SPU/cleanup.
     c->r[4] = 0;
-    rec_dispatch(c, 0x8001cf00u); // SPU CD->mix off
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8001cf00u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // SPU CD->mix off
     c->r[4] = 0;
-    rec_dispatch(c, 0x8009c820u); // libgs reset
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8009c820u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // libgs reset
     c->r[4] = 0;
-    rec_dispatch(c, 0x8009c8bcu); // libgs reset
-    rec_dispatch(c, 0x8008cd40u); // CD-event cleanup
-    rec_dispatch(c, 0x8008cce0u); // alloc/dispatch cleanup (= ov_8008CCE0)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8009c8bcu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // libgs reset
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8008cd40u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // CD-event cleanup
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x8008cce0u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // alloc/dispatch cleanup (= ov_8008CCE0)
     c->mem_w8(0x1f80019cu, 0);
     c->mem_w8(0x1f80019du, 0);
     return 1; // nonzero ⇒ s1 advances sm[0x48] 1->2 (s2)
   }
-  c->r[4] = 0;                  // a0 = 0 (s1 calls 0x80106F80(0))
-  rec_dispatch(c, 0x80106f80u); // states 1..3: run the real function (jr ra), advances sm[0x4a]
-  return c->r[2];               // v0 (nonzero => menu machine done)
+  c->r[4] = 0; // a0 = 0 (s1 calls 0x80106F80(0))
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x80106f80u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // states 1..3: run the real function (jr ra), advances sm[0x4a]
+  return c->r[2];                             // v0 (nonzero => menu machine done)
 }
 
-// Substate s0 (0x801063C0) — run-once INIT / restart: load the menu page resources, advance to s1.
-// Called at DEMO stage entry (ov_demo_stage_main) AND on attract restart (ov_demo_frame case 0, after
-// the attract item replaced the menu area). PC-native + SYNCHRONOUS: run as pure PSX the loaders
-// descend into the IRQ-driven async CD reader (FUN_8001D940 / the FUN_80044BD4 task spawn) our no-IRQ
-// runtime can't complete → infinite spin in libcd's VSync-timed CD_cw. We reimplement s0's loads with
-// the SAME synchronous primitives stage-0 uses (Cd::dc40Sync / preload_texgroup), then advance to s1.
-// Faithful to the 0x801063C0 disasm:
-//   a0=0x80108F9C (the overlay slot right after GAME.BIN); sm[0x68]=0; sm[0x48]++ (0->1); sm[0x4a]=0;
-//   jal 0x80045080(a0, idx=2, task)  -> indexed file load (table 0x800BE118, stride 8) via FUN_8001DC40
-//   jal 0x80044BD4(0x80044F58, a1=2, a2=0, phase=0) -> texgroup area-load (spawn+yield-wait, sync here)
-//   jal 0x8007982C; jal 0x80075240; jal 0x8001CF00(1)  -> control-block / audio-attr / SPU-mix (SYNC)
-// s0 pre-yield (Slip #4): substrate order in state 0 body up to the FUN_80044BD4 yield —
-//   sm[0x68] = 0
-//   sm[0x48]++     (0 → 1)  ← advanced EARLY, matching substrate
-//   sm[0x4a] = 0
-//   loader 0x80045080(dest=0x80108F9C, idx=2)     (leaf, synchronous)
-//   FUN_80044BD4 prelude: latch a1→0x801fe0de, a2→0x801fe0dd, clear done_flag 0x1f80019b, spawn
-//   task-1 with entry FUN_80044F58 (preload). Substrate then yields waiting for the callback.
 void Demo::s0PreYield() {
   Core *c = core;
   uint32_t sm = c->mem_r32(SM_PTR);
@@ -755,35 +671,24 @@ void Demo::s0PreYield() {
     uint32_t tab = 0x800be118u + 2u * 8u;
     c->game->cd.dc40Sync(0x80108f9cu, c->mem_r32(tab), c->mem_r32(tab + 4));
   }
-  // FUN_80044BD4 prelude: match the substrate exactly, then use native_task_spawn (scheduler.cpp) as
-  // the real port of FUN_80051F14 — task-1 runs via the Coro-fiber stanza under pc_faithful so its
-  // FUN_80044F58 preload substrate signals done_flag=1 itself, at the same tick B does.
   c->mem_w8(0x801fe0deu, 2);
   c->mem_w8(0x801fe0ddu, 0);
   c->mem_w8(0x1f80019bu, 0);            // done_flag = 0
   native_task_spawn(c, 1, 0x80044F58u); // spawn task-1: FUN_80051F14 native port
 }
 
-// s0 post-yield (Slip #4): substrate order in state 0 body after FUN_80044BD4 returns —
-//   FUN_8007982C (zero+seed the 1524B control block @0x800BF870)
-//   FUN_80075240 (native pool.reset75240)
-//   FUN_8001CF00(1) (SpuSetCommonAttr CD→SPU mix on)
-// Then the substrate falls through into state 1's body; native's normal frame() resumes with s1.
 void Demo::s0PostYield() {
   Core *c = core;
-  rec_dispatch(c, 0x8007982Cu);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8007982Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   eng(c).pool.reset75240();
   c->r[4] = 1;
-  rec_dispatch(c, 0x8001CF00u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8001CF00u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   cfg_logf("demo",
            "s0 post-yield: sm[0x48]=1, task-1 preload done "
            "(texgroup meta[0x800FB170]=%08X)",
            c->mem_r32(0x800fb170u));
 }
 
-// Inline s0 body: task-1 wouldn't run via fiber under normal PC play, so the preload runs
-// synchronously inline. Runs both halves + fake done_flag. Shared by both fork branches — the
-// faithful pre-yield/post-yield task-1 split is a pending SBS-verified logic change (see demo.h).
 void Demo::s0Body() {
   Core *c = core;
   s0PreYield();
@@ -808,12 +713,12 @@ void Demo::s0Faithful() {
 static uint32_t demo_menu_machine_faithful(Core *c) {
   c->r[4] = 0;
   c->r[31] = 0x80106424u;
-  rec_dispatch(c, 0x80106f80u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80106f80u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 
 static void demo_frame_s1(Core *c) {
-  uint32_t v0 = (c->game && !c->game->native_sync) ? demo_menu_machine_faithful(c) : demo_menu_machine(c);
+  uint32_t v0 = demo_menu_machine(c);
   uint32_t sm = c->mem_r32(SM_PTR);
   if (v0 != 0) {
     c->mem_w16(sm + 0x4a, 0);
@@ -832,7 +737,8 @@ static void demo_tail_cf2c(Core *c);
 
 static void demo_frame_s2(Core *c) {
   c->r[31] = 0x8010646Cu;
-  rec_dispatch(c, 0x8010696cu); // title sub-machine (SYNC)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8010696cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // title sub-machine (SYNC)
   uint32_t v0 = c->r[2];
   uint32_t sm = c->mem_r32(SM_PTR);
   if (v0 == 1) { // -> s7 (attract)
@@ -849,7 +755,7 @@ static void demo_frame_s2(Core *c) {
       c->mem_w16(sm + 0x50, 0);
       c->mem_w8(sm + 0x6b, 0);
       c->r[31] = 0x801064DCu;
-      rec_dispatch(c, 0x8001cf2cu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8001cf2cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->mem_w8(0x800bf84au, 0); // engine update (SYNC)
     }
     c->mem_w16(sm + 0x4a, 0);
@@ -857,26 +763,19 @@ static void demo_frame_s2(Core *c) {
   demo_tail_rend(c); // 0x80075A80 — TAIL_REND (forked below)
 }
 
-// TAIL helpers (the guest loop's per-frame tail render, run inline after a substate's transition):
-//   TAIL_REND 0x80106658 = attract render 0x80075A80.  TAIL_CF2C 0x80106650 = engine-update 0x8001CF2C
-//   then the attract render.  TAIL_NONE = no render. (The per-frame counter is bumped by ov_demo_frame.)
-// pc_faithful tail: dispatch the REAL 0x80075A80 (the per-frame AUDIO-COMMAND queue processor —
-// drains the 24-slot queue at 0x800BE1F8 into libsnd). Library/audio-glue code stays substrate
-// under faithful (user 2026-07-07: lib fallback to recomp); the native AreaSlots::updateTail
-// port serves native_sync.
 static void demo_tail_75a80_faithful(Core *c) {
   c->r[31] = 0x80106660u;
-  rec_dispatch(c, 0x80075a80u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80075a80u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 static void demo_tail_75a80(Core *c) {
-  (c->game && !c->game->native_sync) ? demo_tail_75a80_faithful(c) : eng(c).areaSlots.updateTail();
+  eng(c).areaSlots.updateTail();
 }
 static void demo_tail_rend(Core *c) {
   demo_tail_75a80(c);
 }
 static void demo_tail_cf2c(Core *c) {
   c->r[31] = 0x80106658u;
-  rec_dispatch(c, 0x8001cf2cu);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8001cf2cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   demo_tail_75a80(c);
 }
 
@@ -885,7 +784,8 @@ static void demo_tail_cf2c(Core *c) {
 // Game) clearing *0x1F800134; else -> s6 (sub-page); 3 (back/cancel) -> s2. All paths end TAIL_REND.
 static void demo_frame_s3(Core *c) {
   c->r[31] = 0x801064F0u;
-  rec_dispatch(c, 0x80106ac4u); // main-menu sub-machine (SYNC)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80106ac4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // main-menu sub-machine (SYNC)
   uint32_t v0 = c->r[2];
   uint32_t sm = c->mem_r32(SM_PTR);
   if (v0 == 1) { // -> s7
@@ -903,7 +803,7 @@ static void demo_frame_s3(Core *c) {
       c->mem_w8(sm + 0x6b, 0);
       c->mem_w16(sm + 0x50, 0);
       c->r[31] = 0x8010655Cu;
-      rec_dispatch(c, 0x800750d8u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x800750d8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->mem_w8(0x800bf808u, 0); // page close (SYNC)
     }
   } else if (v0 == 3) { // back -> s2
@@ -930,7 +830,7 @@ static void demo_frame_s5(Core *c) {
 // The load sub-machine 0x8007bf20 is reimplemented native+SYNC (load_machine_s4 below): its case-0 disc
 // load (FUN_80045558(1) = the async indexed reader FUN_8001dc40 to 0x8018a000 — the LOAD-MENU overlay)
 // would spin forever in our no-IRQ runtime, exactly like the s0 loaders. We do that read SYNC (cd_dc40
-// + mark 0x1f80019b done), then rec_dispatch the resident UI driver FUN_8007be18 (which calls the
+// + mark 0x1f80019b done), then typed runtime address dispatch the resident UI driver FUN_8007be18 (which calls the
 // just-loaded overlay's slot browser FUN_8018fa88/fbcc). The memcard reads inside the browser are
 // already sync+instant via the BIOS B0/A0 card HLE (memcard.cpp), so the browser does not yield.
 static void load_machine_s4(Core *c) {
@@ -938,7 +838,8 @@ static void load_machine_s4(Core *c) {
   uint32_t sm;
   switch (st) {
   case 0:
-    rec_dispatch(c, 0x8001cf2cu); // engine update
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8001cf2cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // engine update
     { // FUN_80045558(1) = FUN_80045080(0x8018a000, idx=1) = FUN_8001dc40(dest, lba, size) — SYNC read
       uint32_t tab = 0x800be118u + 1u * 8u; // indexed file table, stride 8 {lba,size}
       c->game->cd.dc40Sync(0x8018a000u, c->mem_r32(tab), c->mem_r32(tab + 4));
@@ -947,11 +848,13 @@ static void load_machine_s4(Core *c) {
     c->mem_w8(0x800bf84au, 1);
     c->r[4] = 0x0c;
     c->r[5] = 1;
-    rec_dispatch(c, 0x800750d8u); // FUN_800750d8(0xc, 1): page open
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x800750d8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_800750d8(0xc, 1): page open
     break;
   case 1:
     c->r[4] = 0;
-    rec_dispatch(c, 0x8007be18u); // overlay slot browser (param2==0 path)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8007be18u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // overlay slot browser (param2==0 path)
     sm = c->mem_r32(SM_PTR);
     if (c->mem_r16(sm + 0x50) > 1) {
       c->mem_w8(0x800bf84au, 3); // user picked/cancelled -> poll done
@@ -967,7 +870,8 @@ static void load_machine_s4(Core *c) {
     break;
   case 4:
     c->r[4] = 0;
-    rec_dispatch(c, 0x8007be18u); // run the chosen action (sets sm[0x6b])
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8007be18u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // run the chosen action (sets sm[0x6b])
     c->mem_w8(0x800bf84au, 0);
     break;
   default:
@@ -1005,16 +909,19 @@ static void demo_frame_s4(Core *c) {
 // end TAIL_CF2C; else stay -> TAIL_REND. Return-based twin of ov_demo_s6.
 static void demo_frame_s6(Core *c) {
   c->r[31] = 0x801065F4u;
-  rec_dispatch(c, 0x8007b45cu); // page sub-machine (SYNC)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8007b45cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // page sub-machine (SYNC)
   uint32_t sm = c->mem_r32(SM_PTR);
   if (c->mem_r16(sm + 0x50) == 3) {
     c->r[4] = 1;
     c->r[5] = 1;
     c->r[31] = 0x80106618u;
-    rec_dispatch(c, 0x80106824u); // commit (a0=1,a1=1)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80106824u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // commit (a0=1,a1=1)
     c->r[4] = 1;
     c->r[31] = 0x80106620u;
-    rec_dispatch(c, 0x80106690u); // commit2 (a0=1)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80106690u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // commit2 (a0=1)
     sm = c->mem_r32(SM_PTR);
   }
   uint8_t s6b = c->mem_r8(sm + 0x6b);
@@ -1041,7 +948,7 @@ static void demo_frame_s6(Core *c) {
 // yield in phase0 is owned native+sync via native_transition_area_load — the SAME 0x800452c0 callback
 // body the GAME-stage transition uses (the callback selects the area from sm[0x6d]/sm[0x6e], NOT from
 // the 0x80044bd4 latched a1/a2, so a2=1-vs-0 is immaterial to the load). The per-frame item updates
-// (0x80106e28 / 0x80106ee4) are return-based (one frame each, no yield) and run via rec_dispatch.
+// (0x80106e28 / 0x80106ee4) are return-based (one frame each, no yield) and run via typed runtime address dispatch.
 static void demo_frame_s7(Core *c) {
   uint32_t sm = c->mem_r32(SM_PTR);
   uint16_t phase = c->mem_r16(sm + 0x4a);
@@ -1059,8 +966,9 @@ static void demo_frame_s7(Core *c) {
     // (0x80106c58 addiu v0,zero,0x384), and phase0's `sh v0,0x5a` sits in the `jal 0x8007a8e0` DELAY
     // SLOT — so it stores that 900, NOT 0x8007a8e0's return (0x8007a8e0 is called only for side effects:
     // it clears 0x1f80017c and seeds the control block). The item plays 900 frames (~15s) then times out.
-    rec_dispatch(c, 0x8007a8e0u); // side effects (clears 0x1f80017c)
-    c->mem_w16(sm + 0x5a, 900);   // sh v0(=900),0x5a (delay-slot const)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8007a8e0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // side effects (clears 0x1f80017c)
+    c->mem_w16(sm + 0x5a, 900);                                                 // sh v0(=900),0x5a (delay-slot const)
     uint8_t cur = c->mem_r8(sm + 0x6e);
     uint8_t entry = c->mem_r8(0x8010770cu + (uint32_t)cur * 4); // cursor table {0,1,3}, byte[0]
     c->mem_w8(0x800bf870u, entry);                              // sb v1,0x800bf870 (phase1 selector)
@@ -1072,10 +980,7 @@ static void demo_frame_s7(Core *c) {
     // The owned load is synchronous: retain FUN_80044BD4's flag-2 RNG stamp, then continue without
     // manufacturing a wait frame or loading-screen service.
     c->game->pcSched.completeSyncWait(sm, /*flag=*/2);
-    SV_CHECK(c,
-             0x800452C0u,
-             eng(c).sop.transitionAreaLoad(),
-             rec_dispatch(c, 0x800452C0u)); // = sync 0x800452c0; sets 1f80019b=1 (observable-gated)
+    eng(c).sop.transitionAreaLoad();
     // reinit subsystems (all SYNC; no incoming args / self-args)
     eng(c).pool.init();                  // 0x8007B18C — native (via LIVE gated entry)
     eng(c).pool.resetControlBlock();     // 0x800796DC — native
@@ -1086,19 +991,23 @@ static void demo_frame_s7(Core *c) {
     eng(c).pool.finalViewInit();         // 0x80078610 — native
     sm = c->mem_r32(SM_PTR);
     c->r[4] = c->mem_r8(sm + 0x6e);
-    rec_dispatch(c, 0x80079464u); // jal 0x80079464(sm[0x6e])
-    c->mem_w8(0x1f80019au, 1);    // sb s1(=1),0x1f80019a
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80079464u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // jal 0x80079464(sm[0x6e])
+    c->mem_w8(0x1f80019au, 1);                                                  // sb s1(=1),0x1f80019a
     uint8_t ne = (uint8_t)((c->mem_r8(sm + 0x6e) + 1) & 0xff);
     c->mem_w8(sm + 0x6e, ne < 3 ? ne : 0); // sm[0x6e]++ wrap<3 -> {0,1,2}
   } else if (phase == 1) {
     // PHASE1 0x80106d4c — run one frame of the attract item, then count down sm[0x5a].
     if (c->mem_r16(0x1f80017cu) & 0x10) {
-      rec_dispatch(c, 0x80079374u); // optional draw (gated)
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x80079374u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // optional draw (gated)
     }
     if (c->mem_r8(0x800bf870u) == 3) {
-      rec_dispatch(c, 0x80106ee4u); // type-3 item update+render
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x80106ee4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // type-3 item update+render
     } else {
-      rec_dispatch(c, 0x80106e28u); // gameplay item update+render
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x80106e28u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // gameplay item update+render
     }
     sm = c->mem_r32(SM_PTR);
     uint16_t t = (uint16_t)((c->mem_r16(sm + 0x5a) - 1) & 0xffff);
@@ -1106,7 +1015,8 @@ static void demo_frame_s7(Core *c) {
     int advance = 0;
     if (t != 0) {
       c->r[4] = 0;
-      rec_dispatch(c, 0x800524b4u); // skip/abort check (v0!=0 => skip)
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x800524b4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // skip/abort check (v0!=0 => skip)
       if (c->r[2] != 0) {
         advance = 1;
       }
@@ -1118,7 +1028,8 @@ static void demo_frame_s7(Core *c) {
     }
   } else if (phase == 2) {
     // PHASE2 0x80106dfc — teardown + restart the front-end (sm[0x48]=0 -> s0 reinit -> title).
-    rec_dispatch(c, 0x80074bc4u); // teardown (SYNC, verified yield-free)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80074bc4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // teardown (SYNC, verified yield-free)
     sm = c->mem_r32(SM_PTR);
     c->mem_w8(0x1f80019au, 0);
     c->mem_w16(sm + 0x48, 0); // sm[0x48]=0 (restart)
@@ -1135,7 +1046,7 @@ void Demo::frame() {
   uint16_t s48 = c->mem_r16(sm + 0x48);
   switch (s48) {
   case 0:
-    (c->game && !c->game->native_sync) ? s0Faithful() : s0Native();
+    s0Native();
     break; // restart (attract -> title): reload menu resources, -> s1
   case 1:
     demo_frame_s1(c);
@@ -1170,9 +1081,6 @@ void Demo::frame() {
   c->mem_w16(0x1f800198u, c->mem_r16(0x1f800198u) + 1); // per-frame counter (every guest tail bumps it)
 }
 
-// pc_faithful DEMO stage body (fiber task; see demo.h). Byte shape: ov_demo_gen_801062E4.
-// r16..r19 carry the substrate's live callee-saved constants (0x1F800000 / 2 / 1 / 3) across the
-// loop — deeper callees spill them, so they must match core B's at every dispatch boundary.
 void Demo::stageBodyFaithful() {
   Core *c = core;
   c->r[29] -= 48;
@@ -1191,8 +1099,9 @@ void Demo::stageBodyFaithful() {
   c->r[6] = 0;
   c->r[7] = 0;
   c->r[31] = 0x80106328u;
-  rec_dispatch(c, 0x800810F0u); // UI / print-stream context init
-  c->r[16] = 0x1F800000u;       // s0..s3 loop constants (live for deep spills)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x800810F0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // UI / print-stream context init
+  c->r[16] = 0x1F800000u; // s0..s3 loop constants (live for deep spills)
   c->r[18] = 1;
   c->r[17] = 2;
   c->r[19] = 3;
@@ -1209,7 +1118,8 @@ void Demo::stageBodyFaithful() {
   c->r[6] = 0;
   c->r[31] = 0x80106388u;
   c->mem_w8(sm + 0x6e, 0);
-  rec_dispatch(c, 0x8005082Cu); // mode-state arm (substrate leaf)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8005082Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // mode-state arm (substrate leaf)
   for (;;) {
     sm = c->mem_r32(SM_PTR);
     uint16_t sub = c->mem_r16(sm + 0x48);
@@ -1222,21 +1132,25 @@ void Demo::stageBodyFaithful() {
       c->r[6] = c->mem_r32(SM_PTR);
       c->mem_w16(sm + 0x48, s48 + 1);
       c->r[31] = 0x801063ECu;
-      c->mem_w16(sm + 0x4a, 0);     // jal delay slot: sh zero,0x4a(a2)
-      rec_dispatch(c, 0x80045080u); // indexed file load (platform-sync)
+      c->mem_w16(sm + 0x4a, 0); // jal delay slot: sh zero,0x4a(a2)
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x80045080u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // indexed file load (platform-sync)
       c->r[4] = 0x80044F58u;
       c->r[5] = 2;
       c->r[6] = 0;
       c->r[7] = 0;
       c->r[31] = 0x80106404u;
-      rec_dispatch(c, 0x80044BD4u); // spawn-and-wait (registered override -> native prim)
+      psx::cpu::dispatchGuestToReturn0(*c,
+                                       0x80044BD4u,
+                                       psx::cpu::ExecutionBudget::currentTurn(*c),
+                                       __func__); // spawn-and-wait (registered override -> native prim)
       c->r[31] = 0x8010640Cu;
-      rec_dispatch(c, 0x8007982Cu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8007982Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[31] = 0x80106414u;
-      rec_dispatch(c, 0x80075240u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80075240u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[4] = 1;
       c->r[31] = 0x8010641Cu;
-      rec_dispatch(c, 0x8001CF00u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8001CF00u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     }
       [[fallthrough]];
     case 1:
@@ -1254,14 +1168,17 @@ void Demo::stageBodyFaithful() {
     case 5: // L_801065DC — LEAVE DEMO: stage swap parks the fiber
       c->r[4] = 2;
       c->r[31] = 0x801065E4u;
-      rec_dispatch(c, 0x80052078u); // does not return (entry rewrite + yield)
+      psx::cpu::dispatchGuestToReturn0(*c,
+                                       0x80052078u,
+                                       psx::cpu::ExecutionBudget::currentTurn(*c),
+                                       __func__); // does not return (entry rewrite + yield)
       break;
     case 6:
       demo_frame_s6(c);
       break;
     case 7:                   // L_80106668 — ATTRACT: run the real phase
       c->r[31] = 0x80106670u; // machine; its deep loads yield on the fiber
-      rec_dispatch(c, 0x80106C24u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80106C24u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     default:
       break; // sub >= 8: straight to the tail
@@ -1269,7 +1186,10 @@ void Demo::stageBodyFaithful() {
     c->mem_w16(0x1f800198u, c->mem_r16(0x1f800198u) + 1); // L_80106674 frame counter
     c->r[4] = 1;
     c->r[31] = 0x80106688u;
-    rec_dispatch(c, 0x80051F80u); // loop-tail yield (registered override -> yieldPrim)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x80051F80u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // loop-tail yield (registered override -> yieldPrim)
   }
 }
 

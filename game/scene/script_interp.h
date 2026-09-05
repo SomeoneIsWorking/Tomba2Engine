@@ -24,8 +24,8 @@
 // NATIVE-ROUTING FOR OP 0x03E — step()'s op-0x03E path calls `eng(c).behaviors.dispatchObj(obj,
 // fnptr)` instead of doing a raw jalr; that routes the fnptr through the standard native-vs-
 // substrate registry (BehaviorDispatch::kTable). Any script-driven fade fn REGISTERED as a native
-// `beh_*` in that table runs native; unregistered addresses fall through to `rec_dispatch` (the
-// substrate leaf). This is the top-down doctrine — no revived `rec_set_override`.
+// `beh_*` in that table runs native; unregistered addresses fall through to `typed runtime address dispatch` (the
+// substrate leaf). This is the top-down doctrine — no revived `tomba::native::declareOverride`.
 //
 // OBJECT LAYOUT (the fields this interpreter reads/writes on the driven object) — same shape the
 // guest code uses, so a scriptPtr installed by substrate is picked up correctly here and vice
@@ -105,15 +105,15 @@ public:
   //   .rodata directly (scratch/re/opcode_table.txt, this session): table[5]=0x80042090,
   //   table[6]=0x800420AC, table[31]=0x80041468, table[34]=0x80042E10, table[36]=0x80043108 — so
   //   these ARE opcode handlers, called as handler(obj) with ABI a0=obj / ret=v0, exactly the shape
-  //   step()'s non-0x3E dispatch already uses via rec_dispatch(handler). WIRED (frontier tier,
-  //   2026-07-10) via registerOverrides() below — step()'s rec_dispatch(handler) call needed no
+  //   step()'s non-0x3E dispatch already uses via typed runtime address dispatch(handler). WIRED (frontier tier,
+  //   2026-07-10) via registerOverrides() below — step()'s typed runtime address dispatch(handler) call needed no
   //   change since the override registry is already the interception point on that call path. The
   //   remaining 58 opcode handlers stay substrate.
 
   // op05 — FUN_80042090: "wait N frames". Decrements argA each call; returns 0 (RET_PAUSE) while
   //   still counting down, or -1 (0xFFFFFFFF — matches NO case in step()'s ret-code switch, so it
   //   falls to `default`: exit without pause-flag, without advance) once the decremented value goes
-  //   negative. No object state besides argA touched. Faithful from generated/shard_7.c:5216 (leaf,
+  //   negative. No object state besides argA touched. Faithful from authenticated executable/overlay evidence (leaf,
   //   no frame).
   int op05WaitFrames(uint32_t obj);
 
@@ -123,14 +123,14 @@ public:
   //   phases on obj[+0x78]: 0 = post argB into flags[argA] then pause; 1 = advance once
   //   flags[argA] == argC, else keep polling. The post is a plain STORE, not a compare-and-set, so
   //   correctness depends on the two actors' step() calls keeping the guest's per-frame ORDER — see
-  //   the .cpp banner and kanban #60. Faithful from generated/shard_6.c:5460 (leaf, no frame).
+  //   the .cpp banner and kanban #60. Faithful from authenticated executable/overlay evidence (leaf, no frame).
   int op04SceneFlagRendezvous(uint32_t obj);
 
   // loadNextEntry(obj, kindArg): FUN_80040E54 — THE ENTRY ADVANCE, and the last piece of this
   //   interpreter that was still substrate-only. Decodes the CURRENT entry's top-3 opcode bits into
   //   one of: cursor += 8, cursor += 16, follow a branch pointer at entry+12 or entry+20 (only when
   //   kindArg == 0), or STOP without moving. Returns the index advanceStep() switches on. Because
-  //   rec_dispatch routes here for substrate callers too, owning it is what makes the `script`
+  //   typed runtime address dispatch routes here for substrate callers too, owning it is what makes the `script`
   //   channel cover scripts stepped by the substrate loop — see kanban #60.
   int loadNextEntry(uint32_t obj, uint32_t kindArg);
 
@@ -143,12 +143,12 @@ public:
   //     argA==1 -> return 1 iff (table[argB] & argC) != 0   (any masked bit set)
   //     argA==2 -> return 1 iff (table[argB] & argC) == 0   (masked bits all clear)
   //     argA>=3 -> return 0 (falls through the guest's own unreachable default, byte-shape says 0)
-  //   Faithful from generated/shard_0.c:5231 (leaf, no frame).
+  //   Faithful from authenticated executable/overlay evidence (leaf, no frame).
   int op06TestSceneFlag(uint32_t obj);
 
   // op34 — FUN_80042E10: "claim-and-wait on a shared 1-byte gate" at guest 0x800BF80F (§9 re-verify
   //   2026-07-10: the original wide-RE draft had this at 0x800BF86F, an 0x60 transcription slip —
-  //   recomputed from generated/shard_2.c:4772's own constant math (32780<<16 + -2040 + 7, confirmed
+  //   recomputed from authenticated executable/overlay evidence's own constant math (32780<<16 + -2040 + 7, confirmed
   //   independently against the poll path's + -2033); NOT part of op06's 0x800BF870 table family —
   //   consumer/producer of this specific byte NOT traced this pass). Uses obj[+0x78] as a 2-phase
   //   counter (0=claim, 1=poll):
@@ -160,35 +160,35 @@ public:
   //     phase 1: poll the gate byte; return 1 (advance, gate cleared) once it reads 0, else 0
   //       (pause, keep polling).
   //     phase >=2: return 0 (no-op; guest byte-shape never reaches this, kept for parity).
-  //   Faithful from generated/shard_2.c:4772 (leaf, no frame).
+  //   Faithful from authenticated executable/overlay evidence (leaf, no frame).
   int op34ClaimGate(uint32_t obj);
 
   // ---- FUN_80040FA0 — VERIFIED + WIRED (frontier tier, 2026-07-10) — advanceEntry() now calls this directly ----
   // "Advance sub-machine" wrapper the guest step() calls after every non-pause handler return
   // (see the `RET_ADVANCE_*` comment above `advanceEntry()`). NOTE ON NAMING: the CURRENT
   // `advanceEntry()` method above (kAdvanceAddr = 0x80040E54 per its own doc comment) actually
-  // `rec_dispatch`es to THIS address (0x80040FA0), not to 0x80040E54 — i.e. the wired method's
+  // `typed runtime address dispatch`es to THIS address (0x80040FA0), not to 0x80040E54 — i.e. the wired method's
   // real behavior today IS this function's substrate body, reached indirectly. This draft is the
   // faithful native body of 0x80040FA0 itself (which in turn calls the STILL-substrate
   // 0x80040E54 for the raw entry-advance, out of band for this wide-RE pass — not in the assigned
-  // address range). Once verified, this should REPLACE `advanceEntry`'s `rec_dispatch(c,
+  // address range). Once verified, this should REPLACE `advanceEntry`'s `typed runtime address dispatch(c,
   // 0x80040FA0u)` body (a frontier-tier wiring step, not done here).
   //
-  // Byte-shape source: generated/shard_2.c:4564 (gen_func_80040FA0). Frame: sp-=24, spill s0(obj)
-  // and ra at +16/+20. Calls the substrate FUN_80040E54(obj, kindArg) [still rec_dispatch'd — out
+  // Byte-shape source: authenticated executable/overlay evidence (guest 0x80040FA0). Frame: sp-=24, spill s0(obj)
+  // and ra at +16/+20. Calls the substrate FUN_80040E54(obj, kindArg) [still typed runtime address dispatch'd — out
   // of band], gets a 0..6 index (or >=7 -> return -1 immediately, matching table slot 3's literal),
   // and runs one of 7 straight-line case blocks that manipulate the SAME bytes step()'s own loop
   // uses: obj[+0x70] (OBJ_PROGRESS_70, the step() loop-guard byte) and obj[+0x71] (OBJ_FLAGS_71).
   // Table read directly out of MAIN.EXE (scratch/re/advance_switch_table.txt, this session) at
   // guest 0x8001534C, 7 x u32, values 0x80040FE0/8004100C/8004103C/80041080/80041050/8004105C/
-  // 80041070 for index 0..6 respectively (matches the recomp's switch-case literals exactly).
+  // 80041070 for index 0..6 respectively (matches the guest instruction path's switch-case literals exactly).
   int advanceStep(uint32_t obj, uint32_t kindArg);
 
   // ==== Wide-RE pass 2026-07-10 (dedicated follow-up session) — op36/op31 movement-script family ==
   // VERIFIED + WIRED (frontier tier, 2026-07-10 wiring pass). Both cross-checked via Ghidra headless decompile
-  // (scratch/decomp/ op36_op31_band.c) against generated/shard_3.c / shard_5.c (instruction-exact ground truth) — see
-  // game/scene/script_interp.cpp for the per-function commentary and the two self-caught transcription slips (both
-  // corrected before landing, documented inline at the fix site).
+  // (scratch/decomp/ op36_op31_band.c) against authenticated executable/overlay evidence / shard_5.c (instruction-exact
+  // ground truth) — see game/scene/script_interp.cpp for the per-function commentary and the two self-caught
+  // transcription slips (both corrected before landing, documented inline at the fix site).
 
   // op36 — FUN_80043108 (opcode table index 36, 95 dispatch hits, the highest-traffic unowned leaf
   //   in the original wide-RE band). "Move toward a script-literal target position." The entry's
@@ -229,7 +229,7 @@ public:
   //   4096 angle units): snap immediately if already within `step`; otherwise step by `step` in
   //   whichever direction is the SHORT way around the circle (per the masked-delta-vs-2048 test),
   //   then re-test and snap if the remainder is now within `step`. Returns 1 iff it snapped exactly
-  //   to targetAngle this call, else 0. Faithful from generated/shard_1.c:6657.
+  //   to targetAngle this call, else 0. Faithful from authenticated executable/overlay evidence.
   int stepAngleToward(uint32_t anglePtr, int16_t targetAngle, int16_t step);
 
   // FUN_80042EA4 — stepEventPulse(obj, flagsPtr, packedArg): op36's per-call "movement event" gate
@@ -241,14 +241,14 @@ public:
   //   scratchpad mask at 0x1F80017C has none of flagsWord's bits set (a per-frame repeat pulse,
   //   gated OFF by that shared mask, e.g. a "sound already playing this frame" guard). packedArg
   //   packs (lowByte=sfx id, highByte=pitch bend) — matches Sfx::trigger(id, pan, pitchBend)'s ABI
-  //   with pan=0. Frame: sp-=24, spills ra only. Faithful from generated/shard_3.c:11682.
+  //   with pan=0. Frame: sp-=24, spills ra only. Faithful from authenticated executable/overlay evidence.
   int stepEventPulse(uint32_t obj, uint32_t flagsPtr, uint32_t packedArg);
   void stepEventPulseFramed(); // guest-ABI twin: obj/flagsPtr/packedArg from c->r[4..6]
 
-  // Wire the §9-verified opcode handlers into the override registry (overrides::install) at their
+  // Wire the §9-verified opcode handlers into the override registry (tomba::native::declareOverride) at their
   // guest addresses (0x80042090/0x800420AC/0x80042E10/0x80043108/0x80041468) — frontier-tier
-  // promotion, 2026-07-10. step()'s rec_dispatch(handler) call already routes through the override
-  // registry (oracle-gated: core B / psx_fallback never consults the table), so registering here is
+  // promotion, 2026-07-10. step()'s typed runtime address dispatch(handler) call already routes through the override
+  // registry (the test-only substrate leg never consults the table), so registering here is
   // sufficient — no change needed
   // in step()'s dispatch loop itself. The other draft leaves (turnFacing/stepAngleToward/
   // stepEventPulse/advanceStep) are reached only as C++ callees of the two opcode handlers, not
@@ -257,7 +257,7 @@ public:
 
   // ---- Resident-leaf sweep (2026-07-17) — five small unowned MAIN.EXE leaves homed here. NOT script
   // opcodes; generic object/scratchpad helpers with no prior native owner. Byte-faithful to their
-  // gen_func_* oracles (see script_interp.cpp for the per-function commentary + the ORACLE markers).
+  // original guest instructions oracles (see script_interp.cpp for the per-function commentary + the ORACLE markers).
   void refreshCachedTailHi(uint32_t obj);       // FUN_80031708 — cache tail node+4, flag byte @ node+3
   void refreshCachedTailLo(uint32_t obj);       // FUN_80031744 — cache tail node+1, flag byte @ node+0
   int matchesActiveByKind(uint32_t obj);        // FUN_80042170 — self/global match-byte query (0/1)

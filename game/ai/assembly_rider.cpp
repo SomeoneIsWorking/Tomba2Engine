@@ -58,9 +58,9 @@
 // TRUE EXTENT: [0x80118B10, 0x80118DB0), 0x2A0 bytes / 168 instructions. Established three ways, and
 // deliberately NOT by "the next gen function in the shard" — that test is false here: the shard split
 // is not address order, and the function immediately PRECEDING this one by address (0x801189B8, the
-// fling body) is emitted in a different file, generated/ov_a00_shard_0.c:6867, while this one sits in
+// fling body) is emitted in a different file, authenticated executable/overlay evidence, while this one sits in
 // ov_a00_shard_1.c. So:
-//   1. port_gen's live-extent splitter puts the body at generated/ov_a00_shard_1.c:7482-7633.
+//   1. authenticated instruction extents puts the body at authenticated executable/overlay evidence.
 //   2. Every label the body branches to lies in [0x80118B10, 0x80118D98], the last being the
 //      epilogue, and the jump table at kRideStateJumpTable holds five entries all inside that range.
 //   3. Disassembly of the overlay image confirms it instruction-for-instruction
@@ -68,13 +68,13 @@
 //      `jr ra` at 0x80118DA8 with `addiu sp, sp, 0x20` in its delay slot at 0x80118DAC, and
 //      0x80118DB0 opening a fresh prologue (`addiu sp, sp, -0x18` / `sw s0, 0x10(sp)`) — which is
 //      also the sub-type-7 leaf the same dispatcher calls, and its own entry in the overlay dispatch
-//      table (generated/ov_a00_disp.c).
+//      table (authenticated executable/overlay evidence).
 //
-// MODULE: the body is defined ONLY by the A00 overlay — `ov_a00_gen_80118B10`, one definition across
-// all of generated/ (ov_a00_shard_1.c), one dispatch entry (ov_a00_disp.c index 153). Overlay address
-// ranges do overlap in this game, but no other overlay emits code at this address, so the setter is
-// unambiguously ov_a00_set_override and NOT shard_set_override — using the main-module setter would
-// leave the direct `ov_a00_func_80118B10(c)` callers on the substrate.
+// MODULE: the body is defined ONLY by the A00 overlay — `overlay guest 0x80118B10`, one definition across
+// all of authenticated executable/overlay evidence (ov_a00_shard_1.c), one dispatch entry (ov_a00_disp.c index 153).
+// Overlay address ranges do overlap in this game, but no other overlay emits code at this address, so the setter is
+// unambiguously A00 tomba::native::declareOverride and NOT tomba::native::declareOverride — using the main-module
+// setter would leave the direct `overlay guest 0x80118B10(c)` callers on the substrate.
 //
 // GUEST STACK: frame 32, four spills (r16 +16, ra +28, r18 +24, r17 +20, in program order). The three
 // callee-saved registers are NOT C++ locals — r16/r17/r18 hold the node, the pump and the arm-end
@@ -82,16 +82,17 @@
 // r16 would be written to guest RAM). They are assigned before any call and mirrored through
 // GuestFrame, per CLAUDE.md "MIRROR THE GUEST STACK".
 #include "assembly_rider.h"
+#include "guest_call.h"
 
 #include "assembly_node.h"
 #include "core.h"
 #include "guest_abi.h"
-#include "ov_a00_decls.h"
-#include "override_registry.h"
+#include "guest_jal.h"
+#include "native_override_catalog.h"
 
 namespace {
 
-// ---- guest stack (tools/abi_extract.py 0x80118B10 --scaffold --guestabi) ----------------------
+// ---- guest stack (tools/binary ABI evidence 0x80118B10 --scaffold --guestabi) ----------------------
 constexpr GuestFrameSpill kSpills_80118B10[4] = {
     {16, 16},
     {31 /*ra*/, 28},
@@ -161,8 +162,8 @@ constexpr uint32_t kExitV0 = 4;
 
 } // namespace
 
-// ORACLE: ov_a00_gen_80118B10
-// PORT_GEN: 80118B10 generated/ov_a00_shard_1.c:7482-7633
+// ORACLE: overlay guest 0x80118B10
+// GUEST_ADDRESS: 80118B10 authenticated executable/overlay evidence
 void AssemblyRider::rideSlotAndReactToStroke(Core *c) {
   GuestFrame<32, 4> frame(c, kSpills_80118B10);
 
@@ -192,9 +193,9 @@ void AssemblyRider::rideSlotAndReactToStroke(Core *c) {
     case kEntryDormant:
       goto state_dormant;
     // The guest's `jr v0` into an entry outside its own five-word table — unreachable unless that
-    // table is corrupt, and modelled by the recompiler as a tail dispatch with no epilogue.
+    // table is corrupt, and modelled by the recorded binary evidence as a tail dispatch with no epilogue.
     default:
-      rec_dispatch(c, entry);
+      psx::cpu::dispatchGuestToReturn0(*c, entry, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       return;
     }
   }
@@ -244,14 +245,14 @@ submit: {
   rider.setPosY((uint16_t)(anchor.y16() - (uint32_t)kRiderHeightAboveArmEnd));
   rider.setPosZ((uint16_t)anchor.z16());
   c->r[4] = c->r[16];
-  guest_dispatch(c, kRaAfterSubmit, kCullEnqueueQueueC);
+  tomba::guest::dispatchJalToReturn(*c, kCullEnqueueQueueC, kRaAfterSubmit);
   goto tail;
 }
 
   // ── HOP: two bounces in place above the arm-end ────────────────────────────────────────────────
 state_hop: {
   c->r[4] = c->r[16];
-  guest_dispatch(c, kRaAfterHopCull, kActorBoundsCull);
+  tomba::guest::dispatchJalToReturn(*c, kActorBoundsCull, kRaAfterHopCull);
   const uint32_t phase = rider.motionPhase();
   if (phase == kHopPhaseFirstBounce) {
     goto hop_bounce_one;
@@ -296,18 +297,18 @@ hop_bounce_two: {
   // ── FLING: thrown off, spiralling to the side the pump stroked ─────────────────────────────────
 state_fling: {
   c->r[4] = c->r[16];
-  guest_dispatch(c, kRaAfterFlingCull, kActorBoundsCull);
+  tomba::guest::dispatchJalToReturn(*c, kActorBoundsCull, kRaAfterFlingCull);
   c->r[4] = c->r[16];
   c->r[5] = c->r[17];
   c->r[6] = c->r[18];
-  guest_call(c, kRaAfterFling, ov_a00_func_801189B8);
+  tomba::guest::dispatchJalToReturn(*c, 0x801189B8u, kRaAfterFling);
   goto tail;
 }
 
   // ── DORMANT: visibility only ───────────────────────────────────────────────────────────────────
 state_dormant: {
   c->r[4] = c->r[16];
-  guest_dispatch(c, kRaAfterDormantCull, kActorBoundsCull);
+  tomba::guest::dispatchJalToReturn(*c, kActorBoundsCull, kRaAfterDormantCull);
 }
 
 tail:
@@ -318,9 +319,6 @@ tail:
 }
 
 void AssemblyRider::registerOverrides() {
-  overrides::install(0x80118B10u,
-                     "AssemblyRider::rideSlotAndReactToStroke",
-                     &AssemblyRider::rideSlotAndReactToStroke,
-                     ov_a00_gen_80118B10,
-                     ov_a00_set_override);
+  tomba::native::declareOverride(
+      0x80118B10u, "AssemblyRider::rideSlotAndReactToStroke", &AssemblyRider::rideSlotAndReactToStroke);
 }

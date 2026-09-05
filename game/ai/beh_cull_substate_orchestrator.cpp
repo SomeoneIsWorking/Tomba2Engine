@@ -4,7 +4,7 @@
 // installed at node+0x1c and called every frame by the entity walk with the object node in a0. Same
 // SHAPE as the resident siblings (the FUN_739ac handler / the FUN_73cd8 handler / the FUN_8012eb54 handler): a state
 // machine on the node's state byte node[4] (0 init / 1 active / 2 idle / 3 despawn). The orchestration lives in a
-// handful of sub-functions it CALLS, which stay PSX leaves via rec_dispatch:
+// handful of sub-functions it CALLS, which stay PSX leaves via typed runtime address dispatch:
 //   state 0  -> FUN_8013272C                          (per-type init; node[4]++ inside)
 //   state 1  -> a cull GATE (FUN_8007778C, gated by node[3]/globals/timer), then a node[5] sub-state
 //               machine calling FUN_80132954 / FUN_80132D58 / FUN_80132EDC / FUN_80133500, then a
@@ -14,12 +14,12 @@
 //   other    -> epilogue (no-op)
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + node/global memory writes owned native;
-// every sub-behavior CALL stays a reachable PSX leaf via rec_dispatch (NO recursion into them). NO GTE,
-// NO render packets here. RE'd 1:1 from the field RAM dump disas 0x8013259C..0x80132728 (jr ra at
-// 0x80132724; the next function 0x8013272C has its own prologue). It WRITES guest node state the still-
-// recomp content reads -> content-INTERFACE: gated byte-exact (full RAM+scratchpad A/B vs rec_super_call).
-// The idle/active field path is exercised by the gate; input/scene-driven sub-states are faithfully
-// transcribed and verify when a scene drives them (same caveat as the sibling orchestrators).
+// every sub-behavior CALL stays a reachable PSX leaf via typed runtime address dispatch (NO recursion into them). NO
+// GTE, NO render packets here. RE'd 1:1 from the field RAM dump disas 0x8013259C..0x80132728 (jr ra at 0x80132724; the
+// next function 0x8013272C has its own prologue). It WRITES guest node state the still- guest instruction path content
+// reads -> content-INTERFACE: gated byte-exact (full RAM+scratchpad A/B vs original guest-body call). The idle/active
+// field path is exercised by the gate; input/scene-driven sub-states are faithfully transcribed and verify when a scene
+// drives them (same caveat as the sibling orchestrators).
 //
 // Globals referenced (computed from the lui/addiu pairs in the disasm):
 //   0x800BF89C (lbu, state-1 cull gate; ==2)
@@ -29,15 +29,14 @@
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_call.h"
 #include "object/actor.h"  // Actor::boundsCull (FUN_8007778C native)
 #include "render/render.h" // Core::mRender (NodeXform)
 #include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -60,8 +59,11 @@ void beh_cull_substate_orchestrator(Core *c) {
     if (st >= 2) {   // 0x801325B8  slti v0,a0,2 / beqz -> 0x801325D4
       if (st == 2) { // 0x801325D8  beq a0,2 -> 0x80132704
         c->r[4] = obj;
-        rec_dispatch(c, 0x80133184u); // 0x80132704  jal FUN_80133184 (a0=s0)
-        return;                       // 0x80132708  j 0x8013271C (epilogue)
+        psx::cpu::dispatchGuestToReturn0(*c,
+                                         0x80133184u,
+                                         psx::cpu::ExecutionBudget::currentTurn(*c),
+                                         __func__); // 0x80132704  jal FUN_80133184 (a0=s0)
+        return;                                     // 0x80132708  j 0x8013271C (epilogue)
       }
       if (st == 3) {               // 0x801325E0  beq a0,3 -> 0x80132714
         eng(c).spawn.despawn(obj); // 0x80132714  jal FUN_8007a624 (a0=s0)  (despawn)
@@ -74,8 +76,11 @@ void beh_cull_substate_orchestrator(Core *c) {
     }
     // ---- STATE 0 [0x801325F0] ----
     c->r[4] = obj;
-    rec_dispatch(c, 0x8013272Cu); // 0x801325F0  jal FUN_8013272C (a0=s0)  (per-type init)
-    return;                       // 0x801325F8  j 0x8013271C (epilogue)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x8013272Cu,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // 0x801325F0  jal FUN_8013272C (a0=s0)  (per-type init)
+    return;                                     // 0x801325F8  j 0x8013271C (epilogue)
   }
 
   // ---- STATE 1: cull GATE [0x80132600..0x8013265C] ----
@@ -116,32 +121,38 @@ void beh_cull_substate_orchestrator(Core *c) {
   switch (sub) {                    // beq/slti tree, NOT a jump table
   case 0:                           // 0x80132674  beqz v1 -> 0x8013269C
     c->r[4] = obj;
-    rec_dispatch(c, 0x80132954u); // 0x8013269C  jal FUN_80132954 (a0=s0)
-    break;                        // 0x801326A4  j 0x801326D4 (tail)
-  case 1:                         // 0x8013267C  j 0x801326D4 (no call)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80132954u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 0x8013269C  jal FUN_80132954 (a0=s0)
+    break;                                                                      // 0x801326A4  j 0x801326D4 (tail)
+  case 1:                                                                       // 0x8013267C  j 0x801326D4 (no call)
     break;
   case 2: // 0x80132664  beq v1,2 -> 0x801326AC
     c->r[4] = obj;
-    rec_dispatch(c, 0x80132D58u); // 0x801326AC  jal FUN_80132D58 (a0=s0)
-    break;                        // 0x801326B4  j 0x801326D4 (tail)
-  case 3:                         // 0x80132684  beq v1,3 -> 0x801326BC
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80132D58u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 0x801326AC  jal FUN_80132D58 (a0=s0)
+    break;                                                                      // 0x801326B4  j 0x801326D4 (tail)
+  case 3:                                                                       // 0x80132684  beq v1,3 -> 0x801326BC
     c->r[4] = obj;
-    rec_dispatch(c, 0x80132EDCu); // 0x801326BC  jal FUN_80132EDC (a0=s0)
-    break;                        // 0x801326C4  j 0x801326D4 (tail)
-  case 4:                         // 0x8013268C  beq v1,4 -> 0x801326CC
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80132EDCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 0x801326BC  jal FUN_80132EDC (a0=s0)
+    break;                                                                      // 0x801326C4  j 0x801326D4 (tail)
+  case 4:                                                                       // 0x8013268C  beq v1,4 -> 0x801326CC
     c->r[4] = obj;
-    rec_dispatch(c, 0x80133500u); // 0x801326CC  jal FUN_80133500 (a0=s0)
-    break;                        // 0x801326D0  NO j; falls through to tail (same as code)
-  default:                        // sub>=5 -> 0x80132694 j 0x801326D4 (tail)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80133500u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 0x801326CC  jal FUN_80133500 (a0=s0)
+    break; // 0x801326D0  NO j; falls through to tail (same as code)
+  default: // sub>=5 -> 0x80132694 j 0x801326D4 (tail)
     break;
   }
 
   // ---- STATE 1: common tail [0x801326D4..0x80132700] ----
   c->r[4] = obj;
-  rec_dispatch(c, 0x80133550u); // 0x801326D4  jal FUN_80133550 (a0=s0)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80133550u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 0x801326D4  jal FUN_80133550 (a0=s0)
   c->r[4] = obj;
-  rec_dispatch(c, 0x80132A88u);               // 0x801326DC  jal FUN_80132A88 (a0=s0)
-  uint8_t n1 = c->mem_r8(obj + 1);            // 0x801326E4  lbu v0, 1(s0)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80132A88u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 0x801326DC  jal FUN_80132A88 (a0=s0)
+  uint8_t n1 = c->mem_r8(obj + 1);                                            // 0x801326E4  lbu v0, 1(s0)
   c->mem_w8(obj + 0x29, 0);                   // 0x801326F0  sb zero, 0x29(s0)  (delay slot @ED-style; ALWAYS runs)
   if (n1 != 0) {                              // 0x801326EC  beqz v0 -> 0x8013271C (epilogue)
     rend(c)->mNodeXform.buildWithOffset(obj); // FUN_800518FC (native)         [0x801326F4]

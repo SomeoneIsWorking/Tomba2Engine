@@ -50,7 +50,7 @@ RE (scratch/decomp/fx_bc9c.c, Ghidra headless): FUN_8002BC9C reads an animation-
 
 IT NEEDED NO NEW PRODUCER, and that is the useful part of the finding. FxMesh::draw takes its transform from composedXform(c) — the GTE state the CALLER just set up — and mesh_emit_tap reads (model, clutBias, sortBias, uBias) straight from r4..r7. Both are controller-agnostic. The ONLY thing missing was a SCOPE around this caller; without one mesh_emit_tap fell through to 'no producer's scope is up' and, since pc_render never walks the guest OT, the effect drew nothing at all. Fix = armTapBc9c in fx_mesh.cpp, the same five lines as the existing 0x800288AC armTap.
 
-VERIFIED: on replays/bugs/weapon-impact-bucket.pad the fxmesh channel now reports 30 draws where it previously reported none for this controller — real quads with real transforms (list=800A1D98 clutRow=9 bias=-80, semi=1 tp=0035 clut=7E57, screen xy0=(141,81) xy3=(157,158), depth 0.10). Smoke: short-session / ingame-item-menu / bucket-softlock all exit 0 with 0 fatal / 0 abort / 0 recomp-MISS.
+VERIFIED: on replays/bugs/weapon-impact-bucket.pad the fxmesh channel now reports 30 draws where it previously reported none for this controller — real quads with real transforms (list=800A1D98 clutRow=9 bias=-80, semi=1 tp=0035 clut=7E57, screen xy0=(141,81) xy3=(157,158), depth 0.10). Smoke: short-session / ingame-item-menu / bucket-softlock all exit 0 with 0 fatal / 0 abort / 0 historical guest-entry miss.
 
 WHAT THIS DOES NOT CLAIM: that this is THE effect the user reported missing. It is one of the ten unowned controllers and the most resident; whether it is the weapon impact for their case needs their eyeball. The remaining nine are unchanged and each is the same five-line shape IF its controller composes CR0-7 before calling the writer — which is worth checking per controller rather than assuming, since a controller that instead relies on a caller's transform would need a real producer.
 
@@ -68,7 +68,7 @@ Rather than assume the 0x8002BC9C pattern generalises, each remaining controller
 
 All ten scope wrappers are generated from one FX_CONTROLLER_SCOPE macro in fx_mesh.cpp rather than copy-pasted, since they are three identical lines each.
 
-SMOKE (all with PSXPORT_DEBUG=fxmesh, 1200 frames): short-session exit 0 / 0 bad / 0 draws; bucket-softlock exit 0 / 0 bad / 74 draws; weapon-impact-bucket exit 0 / 0 bad / 10 draws; ingame-item-menu exit 0 / 0 bad / 0 draws. Zero fatal, zero abort, zero recomp-MISS across all four. The #64 banner frame at f240 is visually unchanged.
+SMOKE (all with PSXPORT_DEBUG=fxmesh, 1200 frames): short-session exit 0 / 0 bad / 0 draws; bucket-softlock exit 0 / 0 bad / 74 draws; weapon-impact-bucket exit 0 / 0 bad / 10 draws; ingame-item-menu exit 0 / 0 bad / 0 draws. Zero fatal, zero abort, zero historical guest-entry miss across all four. The #64 banner frame at f240 is visually unchanged.
 
 WHAT IS PROVEN vs NOT: proven that these controllers now route their prims to a native producer instead of drawing nothing, and that nothing regressed on the replay set. NOT proven that each effect now looks correct — only two of the ten fire on the available replays (74 + 10 draws), and the other eight are simply unreached by any replay in the library. Those need either a scene that triggers them or a USER eyeball. Do not mark this card done on the smoke result alone.
 
@@ -92,7 +92,7 @@ HOW IT SURFACED: triaging the last unclassified nofx entry, 0x8013E08C, which li
 
 The nine SCOPE-READY verdicts are unaffected — those write ctc2 directly and were re-audited under the sound extent detector earlier today. Filed as distrusted instrument I015: a correct census must test BOTH forms (direct ctc2 to CR0-7, OR a call to 0x80084660/0x80084690).
 
-SMOKE after wiring: short-session / weapon-impact-bucket / bucket-softlock all exit 0 with zero fatal / abort / recomp-MISS; the #64 banner frame at f240 is unchanged.
+SMOKE after wiring: short-session / weapon-impact-bucket / bucket-softlock all exit 0 with zero fatal / abort / historical guest-entry miss; the #64 banner frame at f240 is unchanged.
 
 SEPARATELY, 0x8013E08C is now triaged: 920B, composes its own transform via libgte, but calls the OT/DR_MODE helper 0x80083DE0 directly rather than the mesh writer — so it is NOT scope-able through FxMesh and needs its own producer. It sits next to the owned line producers (0x8013DD34 worldLineDraw, 0x8013E9D8 ropeAnchorRender, 0x8013EA64 ropeChainRender), so it is most likely a sibling line/rope emitter.
 
@@ -112,7 +112,7 @@ This also corrects the 2026-07-28 census framing above: 0x80033080 was never in 
 
 LEAVING THIS CARD OPEN: the bucket repro is one impact path. The 2026-07-28 census still lists unowned mesh-writer controllers (the overlay four 0x8013D454 / 0x8013D828 / 0x8013ED08 / 0x8013EF58, plus the orphan leaf 0x8002AE0C), so an impact whose controller is one of those may still be blank. Eleven of the MAIN.EXE controllers now carry FX_CONTROLLER_SCOPE wrappers.
 
-**2026-07-28:** 2026-07-28 (third pass) — the 20-caller census of FUN_80027768 is now CLOSED. The four A00-overlay controllers (0x8013D454 / 0x8013D828 / 0x8013ED08 / 0x8013EF58) are wired with scope wrappers via engine_set_override_a00 in game/render/fx_mesh.cpp; 0x8002AE0C remains an orphan leaf with no call site.
+**2026-07-28:** 2026-07-28 (third pass) — the 20-caller census of FUN_80027768 is now CLOSED. The four A00-overlay controllers (0x8013D454 / 0x8013D828 / 0x8013ED08 / 0x8013EF58) are wired with scope wrappers via tomba::native::declareOverride in game/render/fx_mesh.cpp; 0x8002AE0C remains an orphan leaf with no call site.
 
 A library-wide nofx sweep (all 17 replays, headless, each sized to its own pad length) reduced the 14-entry static work-list to ONE gap that actually fires: 0x8013D454, on seesaw-weight and walk-dust-puff. It turns out to be the WATER JET from the faucet — the effect the game announces with 'Water came out from the faucet!' — and it was entirely absent from the picture.
 

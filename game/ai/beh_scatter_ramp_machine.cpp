@@ -19,13 +19,12 @@
 //               FUN_8002B278(node) for some sub-states, else exit.
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the node/global/overlay memory WRITES owned
-// native; the sub-behavior CALLs (FUN_80074590, FUN_8002B278, FUN_8007A624) stay reachable via rec_dispatch
-// (pure-PSX leaf). NO GTE, NO render packets. Transcribed 1:1 as a register machine (locals = guest regs,
-// goto labels = guest addresses); the two guest jump tables become switch->goto. Delay-slot effects kept
-// exact (e.g. the c9f0 `lui a0` then `ori a0,a0,1` forming the 0x00010001 state word; the cc14/cd44
-// `sll v0,24; bgez` signed-byte timer tests). The byte-exact A/B gate (full RAM+scratchpad vs
-// rec_super_call) is the safety net. a0/a1/a2 written into c->r only for the leaf calls (= the guest
-// writes there). v0 (handler return) is NOT reproduced.
+// native; the sub-behavior CALLs (FUN_80074590, FUN_8002B278, FUN_8007A624) stay reachable via typed runtime address
+// dispatch (pure-PSX leaf). NO GTE, NO render packets. Transcribed 1:1 as a register machine (locals = guest regs, goto
+// labels = guest addresses); the two guest jump tables become switch->goto. Delay-slot effects kept exact (e.g. the
+// c9f0 `lui a0` then `ori a0,a0,1` forming the 0x00010001 state word; the cc14/cd44 `sll v0,24; bgez` signed-byte timer
+// tests). The byte-exact A/B gate (full RAM+scratchpad vs original guest-body call) is the safety net. a0/a1/a2 written
+// into c->r only for the leaf calls (= the guest writes there). v0 (handler return) is NOT reproduced.
 
 #include "cfg.h"
 #include "core.h"
@@ -36,8 +35,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 

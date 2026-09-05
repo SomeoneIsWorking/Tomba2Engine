@@ -29,7 +29,7 @@ rmlui_overlay.cpp. EVERY named entity in the corpus was one RmlUi cannot decode;
 menu.rml is byte-identical in all three game trees (md5 365c3e9d...), so all three shipped it.
 
 FIX (framework, coord/patches/rmlui-overlay.diff):
-* NEW runtime/recomp/rml_text.{h,cpp}: rml_text_markup() — the one DATA->markup boundary, delegating
+* NEW runtime/psx/rml_text.{h,cpp}: rml_text_markup() — the one DATA->markup boundary, delegating
   to RmlUi own EncodeRml so it stays the exact inverse of the parser. All 5 SetInnerRML sites in the
   overlay collapse into one set_text() helper.
 * Readouts compose PLAIN TEXT with a real U+00B7 (RML_TEXT_SEP), never an entity.

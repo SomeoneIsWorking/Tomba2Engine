@@ -12,19 +12,20 @@
 //     0x8011534C (`addu a3,a0,zero; lui v0,0x800f; addiu t2,zero,1; lbu v1,0(a3); lw t0,-12412(v0)`).
 //     0x80115364 is reached naturally as straight-line fallthrough of 0x8011534C — it is NOT a
 //     separate function.
-//  2. The recompiler's OWN A00-overlay function splitter (generated/ov_a00_disp.c, built from a
+//  2. The recorded binary evidence's OWN A00-overlay function splitter (authenticated executable/overlay evidence,
+//  built from a
 //     ROM-wide static analysis independent of this investigation) has real switch cases + `idx()`
 //     entries for 0x8011534C, 0x80115598 and 0x801158E0 — and NO case anywhere for 0x80115364.
-//     Dispatching rec_dispatch(c, 0x80115364u) while A00 is resident would fall to ov_a00_dispatch's
-//     `default:` -> rec_dispatch_miss -> abort.
-//  3. generated/shard_7.c:4639 (gen_func_8003D0BC, i.e. Render::overlayTypeDispatch's substrate
-//     body) really does contain `rec_dispatch(c, 0x80115364u);` for case 0x8003D1C4 — so this
+//     Dispatching typed runtime address dispatch(c, 0x80115364u) while A00 is resident would fall to ov_a00_dispatch's
+//     `default:` -> runtime dispatch fault -> abort.
+//  3. authenticated executable/overlay evidence (guest 0x8003D0BC, i.e. Render::overlayTypeDispatch's substrate
+//     body) really does contain `typed runtime address dispatch(c, 0x80115364u);` for case 0x8003D1C4 — so this
 //     literal, broken-looking call target IS a genuine artifact of the original ROM (some original
 //     FUN_8003D1C4 did `j 0x80115364`, a same-region tail-continuation the ORIGINAL compiler treated
-//     as reachable, that the recompiler's A00-side splitter never registered as an external entry).
+//     as reachable, that the recorded binary evidence's A00-side splitter never registered as an external entry).
 //     Since AREA_TYPE case 0x8003D1C4 corresponds to whatever area-type index #13 in the 22-entry
 //     jump table is (NOT area-type 0, the field's own type — see Engine::areaModeDispatch below,
-//     whose idx-0 handler is a *different*, real address: 0x8011534C), and since "recomp_path runs
+//     whose idx-0 handler is a *different*, real address: 0x8011534C), and since "retired comparison path runs
 //     perfectly" is the project's own invariant (CLAUDE.md), this call is either genuinely never
 //     reached by any live AREA_TYPE value the field ever sets 0x800BF870 to, or reached only while a
 //     DIFFERENT overlay (not A00) is resident in the MODE slot (in which case 0x80115364 lands on
@@ -38,8 +39,9 @@
 //     the 22-way per-area-mode STEP dispatcher keyed on the SAME byte 0x800BF870 overlayTypeDispatch
 //     reads) — mode idx 0's handler is `0x8011534Cu` directly, called with a0=0x800ED018. This is
 //     the scroll-wrap STEP, run once per frame while the field's AREA_TYPE/mode is 0.
-//   - FUN_8003DF04 (generated/shard_4.c gen_func_8003DF04, still SUBSTRATE/unowned) — a render-state
-//     dispatcher; case state==0 calls `rec_dispatch(c, 0x80115598u)` with a0=0x800ED018 (computed as
+//   - FUN_8003DF04 (authenticated executable/overlay evidence guest 0x8003DF04, still SUBSTRATE/unowned) — a
+//   render-state
+//     dispatcher; case state==0 calls `typed runtime address dispatch(c, 0x80115598u)` with a0=0x800ED018 (computed as
 //     (32783<<16)-12264 in the generated C, which is exactly 0x800ED018). This is the EMIT call,
 //     already independently identified and native-host-ported as Render::backdropRender's own
 //     banner ("reached via 0x8003df04's 16-state jump table @0x80014fc0; state 0 -> 0x8003df74 ->
@@ -67,9 +69,9 @@
 //                                    (a per-frame countdown/animation-index decrement block reading
 //                                    a DIFFERENT record table at 0x80147d84, unrelated to 0x800ED018).
 // Critically: this function's body (disassembled through 0x80115c4c, ~220 instructions) contains NO
-// jal/rec_dispatch to 0x8011534C or 0x80115598 anywhere — it does not call either leaf. And grepping
-// every generated shard (both MAIN's shard_*.c and A00's own ov_a00_shard_*.c) for a literal
-// `rec_dispatch(c, 0x801158E0u)` / `jal 0x801158e0` finds NO caller at all while A00 is resident (the
+// jal/typed runtime address dispatch to 0x8011534C or 0x80115598 anywhere — it does not call either leaf. And grepping
+// every authenticated executable/overlay evidence (both MAIN's shard_*.c and A00's own ov_a00_shard_*.c) for a literal
+// `typed runtime address dispatch(c, 0x801158E0u)` / `jal 0x801158e0` finds NO caller at all while A00 is resident (the
 // only hits are OTHER overlays reusing the same numeric address for unrelated code, e.g. A01/A05/A08).
 // So the original RE doc's guess ("the caller/driver that owns the node and decides WHEN this
 // emitter runs") is WRONG: 0x801158E0 is a genuine, separate object-type's per-frame state machine
@@ -135,7 +137,7 @@
 // every tile, including the last, always computes "next = pool-after-me" the same way) — it gets
 // PATCHED: keep the top length byte, OR in the OLD OT[0x7FF] head (mem32(0x800ED8C8) then
 // mem32(that+0x1FFC)), completing the chain into whatever was already queued in that bucket.
-// CORRECTION vs the original RE doc: `jal 0x80083de0` (func_80083DE0, already RE'd as a libgpu
+// CORRECTION vs the original RE doc: `jal 0x80083de0` (guest 0x80083DE0, already RE'd as a libgpu
 // draw-mode/texwin PACKET-HEADER BUILDER in wide_re_libgpu_leaves.cpp, NOT an OT-splice helper) does
 // NOT perform the OT link itself — it only fills in a TRAILING packet's mode/texwin fields (called
 // here with rgbBitsSrc=0, modeFlag=0, texWinSrc=0 -> a plain 0xE1000000 DR_TPAGE reset word, texwin
@@ -147,6 +149,8 @@
 #include "cfg.h"
 #include "core.h"
 #include "game.h"
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "render.h"
 #include "render_queue.h"
 #include <cstdint>
@@ -296,7 +300,7 @@ void TileGridLayer::emit(Core *c) {
       const int u = (tile & 0xFu) << 4;
       const int v = (int)(tile & 0xF0u) + 8; // field V-bias (+8) — this leaf is field-only
 
-      // Field offsets are relative to THE TILE'S OWN 16-byte packet base. In the gen body the
+      // Field offsets are relative to THE TILE'S OWN 16-byte packet base. In the guest-visible behavior the
       // data-store base register is a2 = s1 - 16 (0x80115744) while s1 advances FIRST (0x80115788),
       // so its literal encodings 19/20/23/24/28/30(a2) are +3/+4/+7/+8/+12/+14 off the tile base —
       // the canonical SPRT layout: [tag][color|code][xy][uv|clut]. A first draft copied the a2-based
@@ -348,15 +352,15 @@ void TileGridLayer::emit(Core *c) {
   const uint32_t oldHead = c->mem_r32(otBase + kOtBucketBg);
   c->mem_w32(last + 0u, (c->mem_r32(last + 0u) & 0xFF000000u) | oldHead);
 
-  // Trailing DR_TPAGE-reset header packet (func_80083DE0, already RE'd — wide_re_libgpu_leaves.cpp;
-  // unowned/substrate, invoked via rec_dispatch exactly like Font::glyphEmit's own tail call).
+  // Trailing DR_TPAGE-reset header packet (guest 0x80083DE0, already RE'd — wide_re_libgpu_leaves.cpp;
+  // unowned/substrate, invoked via typed runtime address dispatch exactly like Font::glyphEmit's own tail call).
   const uint32_t header = pool;
   c->r[4] = header;
   c->r[5] = 0u;
   c->r[6] = 0u;
   c->r[7] = tpage;                // r7 unused by the callee (alias only)
   c->mem_w32(c->r[29] + 16u, 0u); // 5th arg (stack): texWinSrc = 0
-  rec_dispatch(c, 0x80083DE0u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80083DE0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->mem_w32(header + 0u, first | 0x02000000u);
   c->mem_w32(otBase + kOtBucketBg, header);
   pool = header + 12u;
@@ -377,9 +381,6 @@ void TileGridLayer::emit(Core *c) {
 }
 
 void TileGridLayer::registerOverrides(Game *) {
-  extern void ov_a00_gen_8011534C(Core *);
-  extern void ov_a00_gen_80115598(Core *);
-  extern void engine_set_override_a00(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_a00(0x8011534Cu, &TileGridLayer::scrollStep, ov_a00_gen_8011534C);
-  engine_set_override_a00(0x80115598u, &TileGridLayer::emit, ov_a00_gen_80115598);
+  tomba::native::declareOverride(0x8011534Cu, "&TileGridLayer::scrollStep", &TileGridLayer::scrollStep);
+  tomba::native::declareOverride(0x80115598u, "&TileGridLayer::emit", &TileGridLayer::emit);
 }

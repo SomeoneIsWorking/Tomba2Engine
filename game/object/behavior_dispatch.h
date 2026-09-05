@@ -23,28 +23,20 @@ public:
   Core *core = nullptr;
 
   // dispatchObj(obj, handler): route ONE object's per-frame tick — set the fps60 current-object
-  //   bookkeeping, then run either the native behavior (if registered in the table) or the recomp
-  //   substrate leaf via rec_dispatch. Used by the field entity-list walkers (ObjectList / Array8
+  //   bookkeeping, then run either the native behavior (if registered in the table) or the guest instruction path
+  //   substrate leaf via typed runtime address dispatch. Used by the field entity-list walkers (ObjectList / Array8
   //   Dispatch / TransitionState3) and any other per-object dispatcher.
-  //   On the pure-substrate leg (c->game->psx_fallback — SBS core B — or c->game->verify.inSubstrateLeg
-  //   — MV_CHECK's strict-mirror replay, game/core/verify_harness.h) OR under pc_faithful itself
-  //   (!c->game->native_sync) the native table is skipped entirely and every handler routes through
-  //   rec_dispatch to the literal gen body — the same suppression rec_dispatch itself applies to
-  //   the override registry (runtime/recomp/overlay_router.cpp, overrides::dispatch), PLUS the
-  //   native_sync fork: the native beh_*
-  //   table is a native_sync=true REBUILD shortcut (matches the RESULT, not the PSX bytes), so
-  //   pc_faithful (which must be byte-exact to recomp_path) can't take it either.
-  //   Called directly by native *Faithful() C++ methods (bypassing rec_dispatch), so it must carry
-  //   its own copy of that gate rather than inheriting it.
+  //   The test-only verification substrate leg skips the native table and crosses the PSXPort guest
+  //   boundary. Gameplay has no selectable substrate/interpreter mode.
   void dispatchObj(uint32_t obj, uint32_t handler);
 
   // dispatchNative(handler): table lookup + call. Returns true if the handler was owned natively
-  //   (and ran), false if there's no native entry (caller must fall through to rec_dispatch). The
+  //   (and ran), false if there's no native entry (caller must fall through to typed runtime address dispatch). The
   //   behaviors read the object from c->r[4] which caller set — this class doesn't marshal it.
   bool dispatchNative(uint32_t handler);
 
   // nativeName(handler): the short slug for the native behavior at `handler`, or nullptr if the
-  //   object's logic still runs as the recomp substrate. Used by the `ents` REPL diagnostic to
+  //   object's logic still runs as the guest instruction path substrate. Used by the `ents` REPL diagnostic to
   //   flag which objects are owned.
   const char *nativeName(uint32_t handler) const;
 
@@ -65,7 +57,7 @@ public:
   // The A/B tool that ATTRIBUTES a divergence once tools/beh_ab.sh has found one. Wraps the dispatch
   // of one handler and logs, per invocation, exactly which bytes of the object's node block the
   // handler CHANGED (frame, object, offset, old->new). Because it sits at the DISPATCH SITE, the log
-  // has the same shape whether the native body or the substrate gen body ran — so `diff` between the
+  // has the same shape whether the native body or the substrate guest-visible behavior ran — so `diff` between the
   // native run and the PSXPORT_BEH_SUBSTRATE=<addr> run points at the first invocation, object and
   // node field where the rebuild stops matching the guest, which is where the instruction-level slip
   // lives. (Tracing inside the native body cannot do this: forcing the handler to the substrate

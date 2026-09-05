@@ -15,13 +15,13 @@ Tomba2Engine/tools/ — 5
   ab_leg.sh  ab_replay.sh  beh_ab.sh  pan_gate.sh  warpsweep.sh
 
 psxport/ — 12
-  scripts/bootstrap-workspace.sh  scripts/build-openbios.sh  scripts/sync-submodules.sh
-  tools/build_rmlui.sh  tools/build_xa_wavdump.sh  tools/clean.sh  tools/decomp.sh
-  tools/fmv_compare/build.sh  tools/fmv_export/build.sh
-  tools/recomp/build.sh  tools/scratch_reset.sh  tools/syntaxcheck.sh  tools/test_gpu_render.sh
+  the former workspace bootstrap tool  the former OpenBIOS build tool  the former dependency sync tool
+  the former RmlUi build tool  the former XA dump build tool  the former cleanup tool  the Ghidra evidence workflow
+  the former FMV comparison build tool  the former FMV export build tool
+  tools/guest instruction path/build.sh  the former scratch reset tool  the former syntax-check tool  tools/test_gpu_render.sh
 
 ORDER — by how often the thing is run and how much a silent failure costs:
-  1. psxport/scripts/sync-submodules.sh — its denominator discipline is good and must survive the port.
+  1. psxport/the former dependency sync tool — its denominator discipline is good and must survive the port.
   2. tools/pan_gate.sh, tools/ab_*.sh, tools/beh_ab.sh, tools/warpsweep.sh — A/B and sweep drivers.
   3. the build_*.sh / clean.sh / scratch_reset.sh helpers.
   4. decomp.sh — the Ghidra headless wrapper; careful, it is load-bearing for all RE work.
@@ -36,7 +36,7 @@ still exiting green on the legs it did run. That class of bug does not exist in 
 
 **2026-08-21 — launcher bulk removed; shader generator migrated.** `run.sh` remains the required stable shell entry point, but it
 is now a three-line `exec` wrapper. `tools/run.py` owns the actual launcher policy and preserves disc
-resolution, framework/build identity, Clang refusal, `--resume`, incremental discdump/recomp/native
+resolution, framework/build identity, Clang refusal, `--resume`, incremental discdump/guest instruction path/native
 builds, the current `tomba2_port` target, and all launch environment defaults. `tests/test_run.py`
 covers the positive command/exec flow plus missing-disc, missing-resume, and non-Clang refusals.
 psxport's `gen_gpu_shaders.py` now owns idempotent shader embedding and shared-include dependencies;

@@ -28,12 +28,10 @@ driven span is a REAL bug that the boot-only gate could never have seen.
 - **seaside-sweep.sbskeys** — from cold boot: tap Cross every 55 frames to blow through the
   long opening cutscene (title-select ~f1650 through the "house is on fire" dialogs to
   ~f17000), then a free-roam program in the area-0 seaside start (walk all four directions,
-  jump, grab, open the item menu). Reaches **273/411 owned addresses (66%), 0 divergences**
-  through f27500 (verified 2026-07-23). The residual ~138 are dominated by other-area /
-  event-triggered code (61 in field_owned_leaves.cpp, plus enemy/object behaviours for
-  actors not present in the seaside start) — those need REAL traversal of the game, not a
-  denser blind route. Extend this file (or add a new route that reaches another area) to
-  push coverage further.
+  jump, grab, open the item menu). Historical pre-dynarec observation reached 273/411
+  then-owned addresses through f27500. Those counts do not describe the current
+  native/JIT ownership after generated-body removal and are not conformance evidence.
+  Other-area and event-triggered behavior requires actual traversal, not a denser blind route.
 
 ## Building a route
 

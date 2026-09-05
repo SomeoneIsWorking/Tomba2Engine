@@ -1,37 +1,49 @@
 # Tomba! 1 codemap
 
-Tomba! 1 is a title-local consumer of the shared psxport framework. The repository-level `game/` tree
-is another engine and is outside this map.
+This map owns title-local placement only. Progress belongs in `project-state.md`; intent in
+`titles/tomba1/docs/project-goals.md`; ordering in `docs/migration.md`; evidence dependencies in
+`titles/tomba1/docs/re-frontier.md`. Root `game/` is the Tomba! 2 engine and is outside this map.
 
 ```text
-game/app        composes process-lifetime owners
+titles/tomba1/game/app        composes title process owners
     |
-game/core       owns executable/runtime/dispatch semantics
+titles/tomba1/game/core       owns Tomba! 1 native runtime and override policy
     |
-psxport         owns generic PSX platform, hardware, presentation, and oracle infrastructure
+psxport         owns shared Lightrec execution and PSX services
     |
-game/render     owns only title-derived widescreen projection and layout policy
+titles/tomba1/game/render     owns only title-derived widescreen projection and layout
 ```
 
 ## Ownership
 
-| Subsystem | Responsibility | Current or intended location | Entry point | Deep document |
+| Subsystem | Responsibility | Current or target location | Entry point | Deep document |
 |---|---|---|---|---|
-| Application | Compose runtime, registry, shared machine, and lifecycle | `game/app/` | future `game/app/main.cpp` | `game/app/README.md` |
-| Executable identity | Compare the selected image with tracked whole-file and PS-X header facts | `executable.json`, `tools/verify_executable.py` | `verify_executable.py --check` | `docs/info/claims/001-executable-identity.md` |
-| Framework seam | Own Tomba! 1 runtime policy and immutable guest facts | `game/core/` | future `Tomba1Runtime` | `game/core/README.md` |
-| Generated registry | Bind only `titles/tomba1/generated/` symbols to psxport | `game/core/` | future `tomba1_install_recomp` | `game/core/README.md` |
-| Harness integration | Expose the framework library, identity, isolation, and later oracle targets | `cmake/tomba1_port.cmake`, `tests/` | `tomba1_verify_scaffold` | `docs/re-frontier.md` |
-| Widescreen projection | Publish the title-derived horizontal projection and guest-wide contract | `game/render/` | future `WidescreenProjection` | `game/render/README.md` |
-| Widescreen layout | Preserve authored 2D anchors across a wide presentation | `game/render/` | future `WidescreenLayout` | `game/render/README.md` |
-| Generated output | Hold regenerable static-recompiler shards | `titles/tomba1/generated/` | future emitter target | `docs/re-frontier.md` |
+| Title game tree | Contain every Tomba! 1 application, core, and render owner without importing the root Tomba! 2 engine | `titles/tomba1/game/` | title application | `titles/tomba1/AGENTS.md` |
+| Application | Require authenticated title input and compose runtime, shared machine, and lifecycle | `titles/tomba1/game/app/` | `titles/tomba1/game/app/main.cpp` | `titles/tomba1/game/app/README.md` |
+| Executable identity | Compare the selected image with tracked whole-file and PS-X header facts | `titles/tomba1/executable.json`, `titles/tomba1/tools/verify_executable.py` | `verify_executable.py --check` | `titles/tomba1/docs/info/claims/001-executable-identity.md` |
+| Disc provisioner | Resolve one user-supplied disc, prove its `SYSTEM.CNF` boot target, identity-check the executable, and publish atomically | `titles/tomba1/tools/provision.py`, `titles/tomba1/tests/test_provision.py` | `provision.py [disc]` | `titles/tomba1/docs/info/claims/002-tomba-1-s-title-local-provisioner-publishes-no-e.md` |
+| Shared PSX executor | Translate remaining guest instructions with Lightrec; own state synchronization, bounded exits, image generations, invalidation, and generic override/original-call dispatch | shared `external/psxport/` | shared executor API | psxport codemap and migration docs |
+| Framework seam | Own Tomba! 1 immutable executable facts, native boot prefix, finite frame transaction, and title-facing executor composition | `titles/tomba1/game/core/` | `Tomba1Runtime`, `runNativeBootPrefix`, `Tomba1FrameDriver` | `titles/tomba1/game/core/README.md` |
+| Native override composition | Bind the title's six engine-neutral native owners by complete resident/overlay identity and address | `titles/tomba1/game/core/` | title override-install composition | `titles/tomba1/docs/re-frontier.md` |
+| Frame scheduler | Own the measured three-task frame order, R3000 contexts/stacks, and bounded yield/restart transitions | `titles/tomba1/game/core/frame_driver.*` | `Tomba1FrameDriver::stepFrame` | `titles/tomba1/docs/re-frontier.md` |
+| Disc synchronization | Own reached title CD startup, command/read services, internal/public sync bindings, and stream field cadence | `titles/tomba1/game/core/cd_native_startup.*`, `titles/tomba1/game/core/sync_native.*`, `titles/tomba1/game/core/stream_field_turn.*` | `initializeSynchronousCd`, title platform plan | `titles/tomba1/docs/issues/0006-libcd-internal-cdsync-reaches-guest-vsync-after-movie.md` |
+| DMA callback registration | Adapt title DMA registration and callback identity while preserving guest-visible return and DICR behavior | `titles/tomba1/game/core/sync_native.*` | title DMA callback override | `titles/tomba1/docs/issues/0005-movie-stream-stops-scheduling-after-lba-57838.md` |
+| Projection publication | Preserve the measured `SetGeomOffset`/`SetGeomScreen` state and expose title policy without importing Tomba! 2 rendering | `titles/tomba1/game/core/sync_native.cpp`, target policy in `titles/tomba1/game/render/` | title platform plan | `titles/tomba1/docs/info/claims/006-scus-942-36-publishes-its-resident-projection-th.md` |
+| Retired-execution exclusion | Keep the removed generator, emitted guest source, and offline dispatcher absent; prohibit interpreter-first gameplay modes | absent by design; enforced by title composition, provisioning, and policy checks | no entry point | `titles/tomba1/docs/re-frontier.md` |
+| Title tests | Own identity, provisioning, isolation, native-boundary, fallback-threshold, and negative checks | `titles/tomba1/tests/` | explicit C++ test executable or Python test | test source nearest the production boundary |
+| Title tools | Own executable/disc provisioning, identity verification, and title-local RE inspection without owning product execution | `titles/tomba1/tools/` | cohesive Python entry point | tool `--help` and nearest evidence doc |
+| Test-only independent executor | Reproduce deterministic boundaries and forced negatives; product absence is proved by link and selector inspection | separately built test target, including diagnostics, under `titles/tomba1/tests/` | standalone test executable | `titles/tomba1/docs/re-frontier.md` |
+| Widescreen projection | Own title-derived horizontal projection, visibility, and wide-buffer policy | `titles/tomba1/game/render/` | future `WidescreenProjection` | `titles/tomba1/game/render/README.md` |
+| Widescreen layout | Preserve authored 2D anchors across wide presentation | `titles/tomba1/game/render/` | future `WidescreenLayout` | `titles/tomba1/game/render/README.md` |
 
 ## Where does new work go?
 
 | Concern | Owner |
 |---|---|
-| Process startup and shutdown ordering | `game/app/` |
-| Guest addresses, ABI, boot, dispatch, and native behavior | `game/core/` |
-| Projection, visibility, edge coverage, and HUD/menu anchoring | `game/render/` |
-| Generic PSX hardware, renderer backend, input devices, audio devices, or differential engine | shared psxport repository |
-| Epic intent, capability state, atomic work, and evidence | their respective `docs/project-goals.md`, `docs/project-state.md`, `docs/issues/`, `docs/info/`, and `docs/re-frontier.md` authorities; not this codemap |
+| Process startup and shutdown ordering | `titles/tomba1/game/app/` |
+| Disc selection, `SYSTEM.CNF`, and executable publication | `titles/tomba1/tools/provision.py` |
+| Lightrec execution, runtime image generations, invalidation, bounded exits, or generic scoped original calls | shared psxport |
+| Tomba! 1 guest addresses, ABI, boot, frame order, CD/DMA policy, or native behavior | smallest cohesive owner under `titles/tomba1/game/core/` |
+| Projection, visibility, edge coverage, wide-buffer placement, and HUD/menu anchoring | `titles/tomba1/game/render/` |
+| Offline emission, generated registries, or interpreter-first gameplay selection | nowhere; these have no target owner |
+| Epic intent, capability state, atomic work, and evidence | their respective `titles/tomba1/docs/project-goals.md`, `titles/tomba1/docs/project-state.md`, `titles/tomba1/docs/issues/`, `titles/tomba1/docs/info/`, and `titles/tomba1/docs/re-frontier.md` authorities |

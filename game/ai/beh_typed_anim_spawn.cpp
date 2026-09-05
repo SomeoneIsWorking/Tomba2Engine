@@ -15,25 +15,24 @@
 //   STATE 3 : FUN_8007A624(node).   STATE >=4 : nothing.
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the direct node WRITES owned native;
-// every sub-behavior CALL stays reachable via rec_dispatch (pure-PSX leaf). Guest a0..a3 + the ONE
+// every sub-behavior CALL stays reachable via typed runtime address dispatch (pure-PSX leaf). Guest a0..a3 + the ONE
 // stack argument (sp+16) are set exactly as the guest does — so we mirror the guest prologue (sp -= 40)
-// so FUN_8004BD64 reads arg5 from the same frame slot the recomp does (that slot lives in the gate's
+// so FUN_8004BD64 reads arg5 from the same frame slot the guest instruction path does (that slot lives in the gate's
 // excluded stack window, so it never shows in the RAM diff, but the leaf must read the right value).
 // Both jump tables READ live from resident overlay RAM. Transcribed 1:1 as a register machine; the
-// byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net. NO GTE/render.
+// byte-exact A/B gate (full RAM+scratchpad vs original guest-body call) is the safety net. NO GTE/render.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_set_geom
 #include "guest_abi.h"
+#include "guest_jal.h"
 #include "inventory.h" // class Inventory — inv(c).giveAndFlag (FUN_8004D4C4)
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -152,8 +151,8 @@ S1:
     }
     goto Lret; // s1 >= 2
   }
-  case 1:                           // jt1 -> 0x8012dc10
-    guest_leaf(c, 0x8018C574u, s0); // FUN_8018C574(node)
+  case 1:                                                    // jt1 -> 0x8012dc10
+    tomba::guest::dispatchLeafToReturn(*c, 0x8018C574u, s0); // FUN_8018C574(node)
     goto Lret;
   case 2: {                               // jt1 -> 0x8012dc20
     s1 = c->mem_r8(s0 + 5);               // node[5]
@@ -183,8 +182,8 @@ S1:
   }
   case 3:
   case 4:
-  case 5:                           // jt1 -> 0x8012dca0
-    guest_leaf(c, 0x8007778Cu, s0); // FUN_8007778C(node)
+  case 5:                                                    // jt1 -> 0x8012dca0
+    tomba::guest::dispatchLeafToReturn(*c, 0x8007778Cu, s0); // FUN_8007778C(node)
     goto Lret;
   case 6: { // jt1 -> 0x8012dcb0
     s1 = c->mem_r8(s0 + 5);
@@ -263,8 +262,8 @@ Ltail35:
   inv(c).giveAndFlag(35, 1); // FUN_8004D4C4(35, 1) [native]
   goto Ltail_after;
 Ltail_after:
-  guest_leaf(c, 0x8004B0D8u, s0); // FUN_8004B0D8(node)
-  c->mem_w8(s0 + 4, 3);           // node[4] = 3
+  tomba::guest::dispatchLeafToReturn(*c, 0x8004B0D8u, s0); // FUN_8004B0D8(node)
+  c->mem_w8(s0 + 4, 3);                                    // node[4] = 3
   goto Lret;
 
 // ---------------- STATE 3 ----------------

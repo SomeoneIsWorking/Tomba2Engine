@@ -8,8 +8,8 @@
 // NO producer at all, because the one file that owned the shared writer FUN_80027768 went with it.
 //
 // ────────────────────────────────────────────────────────────────────────────────────────────────
-// RE — ground truth generated/shard_0.c `gen_func_8002BC9C`, read instruction by instruction, plus
-// generated/shard_5.c `gen_func_80027768` for the writer it feeds (whose record format is already
+// RE — ground truth authenticated executable/overlay evidence `guest 0x8002BC9C`, read instruction by instruction, plus
+// authenticated executable/overlay evidence `guest 0x80027768` for the writer it feeds (whose record format is already
 // owned by Render::meshQuadRecordsEmit). The controller does exactly this:
 //
 //   1. Publishes depth-cue IR0 = 0 (scratchpad 0x1F800090) and far colour CR21-23 = 0, i.e. the
@@ -128,7 +128,7 @@ void Render::radialPlumeRender(uint32_t node) {
   // The graphics-producer DB's NATIVE leg (external/psxport/docs/plans/graphics-producer-db.md).
   // KEYED BY THE CONTROLLER'S GUEST ADDRESS, NOT THE WRITER'S, and that is not a style choice: on the
   // GUEST leg OtAttr's shadow stack pushes only on INDIRECT dispatch (interp_diag.h — "direct
-  // recompiler-emitted func_XXXX(c) calls do NOT push"). This controller is a type-0x20 node render fn
+  // recorded func_XXXX(c) calls do NOT push"). This controller is a type-0x20 node render fn
   // reached by function pointer, so it pushes; the shared writer FUN_80027768 it calls is a plain `jal`
   // and does not. So the guest leg attributes these prims to 0x8002BC9C, and the native leg must key
   // the same row or the two legs never line up — which is the entire point of the comparison.

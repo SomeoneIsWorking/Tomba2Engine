@@ -4,6 +4,7 @@
 // directly owns context lifecycle, boot, and override registration; those slots stay null so the
 // callback bag cannot become a second authority.
 #include "core.h"
+#include "dev_warp.h"
 #include "engine.h"
 #include "game.h"
 #include "game_ctx.h"
@@ -23,11 +24,7 @@ static void tomba_renderFadeState(Core *c, FadeState *out) {
   out->g = s.g;
   out->b = s.b;
 }
-// REPL diagnostics — reach the game's engine subsystems (was direct eng(c).*
-// calls in repl.cpp).
-static const char *tomba_replBehaviorName(Core *c, unsigned int handle) {
-  return eng(c).behaviors.nativeName(handle);
-}
+// REPL camera diagnostics — reach the game's engine subsystem without exposing its type to psxport.
 static void tomba_replCamTeleport(Core *c, int x, int y, int z) {
   eng(c).camTeleport(x, y, z);
 }
@@ -50,18 +47,7 @@ static void tomba_fps60ReadSceneCam(Core *c, float R[3][3], float T[3]) {
 // SBS then combined the destination preload with an old-area door transition and ran stale objects
 // against the new table. All game addresses and ordering live here now.
 static void tomba_devWarp(Core *c, int area, int sub) {
-  const uint32_t dest = (uint32_t)area & 0x1fu;
-  const uint32_t wsm = c->mem_r32(0x1f800138u);
-  c->mem_w8(wsm + 0x6e, (uint8_t)dest);
-  c->mem_w8(wsm + 0x6d, 2);
-  eng(c).sop.transitionAreaLoad();
-  c->mem_w8(0x800bf871u, (uint8_t)((uint32_t)sub & 0x3fu));
-  c->mem_w8(0x800bf839u, 0); // no pending door transition after a completed cold warp
-  c->mem_w16(wsm + 0x48, 2);
-  c->mem_w16(wsm + 0x4a, 1);
-  c->mem_w16(wsm + 0x4c, c->mem_r8(0x80108f60u + dest));
-  c->mem_w16(wsm + 0x4e, 0);
-  eng(c).sop.transitionAreaEnter();
+  tomba::applyColdWarp(*c, area, sub);
 }
 // dev-warp area index (game/core/dev_areas.cpp) — count / sourced name / "is a
 // warp legal now".
@@ -134,31 +120,30 @@ static void tomba_audioSoundTestPlay(Core *c, int track) {
 }
 
 // tomba_schedFreshEntry — the fresh-task-entry native stage-body dispatch,
-// moved out of scheduler.cpp's recomp_run_generic_dispatch_stanza. entryPc is
+// moved out of the generic scheduler stanza. entryPc is
 // the fresh resume_pc. Two native stages:
-//   * GAME stagePrologue (cfg->stageGame == 0x8010637C): set the coro-redirect
+//   * GAME stagePrologue (cfg->stageGame == 0x8010637C): set the guest-continuation
 //   target and run stageMain,
-//     which runs stagePrologue + rec_coro_redirect(0x801063F4) → leaves
-//     c->coro_redirect_pc set. Return FALSE: the caller continues to
-//     rec_coro_run, taking the redirect start from c->coro_redirect_pc.
+//     which runs stagePrologue + requestGuestContinuation(0x801063F4) → leaves
+//     c->guest_continuation_pc set. Return FALSE: the caller continues to
+//     guest executor, taking the redirect start from c->guest_continuation_pc.
 //   * STAGE-0 startBinStage (cfg->stageStart == 0x8010649C): run the terminal
 //   startBinStage body. Return
 //     TRUE: the caller finalizes the stage-0 slot (task_ctx/base=2/in_stage=0)
-//     and early-returns the tick WITHOUT running rec_coro_run.
+//     and early-returns the tick WITHOUT running guest executor.
 // A non-stage fresh entry matches neither: returns false with
-// c->coro_redirect_pc untouched (0), so the caller runs rec_coro_run at the
+// c->guest_continuation_pc untouched (0), so the caller runs guest executor at the
 // plain resume_pc — exactly the original else-fall-through.
 static bool tomba_schedFreshEntry(Core *c, int /*slot*/, uint32_t /*base*/, uint32_t entryPc) {
   if (entryPc == c->cfg->stageGame) {
-    c->override_tgt = entryPc; // GAME stageMain: coro-redirect target
-    eng(c).stageMain();        // stagePrologue + rec_coro_redirect(0x801063F4)
-    return false;              // continue to rec_coro_run with the redirect start
+    eng(c).stageMain(); // stagePrologue + redirect to 0x801063F4
+    return false;       // continue to guest executor with the redirect start
   }
   if (entryPc == c->cfg->stageStart) {
-    eng(c).startBinStage(); // STAGE-0 fresh; terminal — skip rec_coro_run
+    eng(c).startBinStage(); // STAGE-0 fresh; terminal — skip guest executor
     return true;
   }
-  return false; // not a native stage: plain rec_coro_run at resume_pc
+  return false; // not a native stage: plain guest executor at resume_pc
 }
 
 static bool tomba_hasNativeHandlerForEntry(Core *c, uint32_t entryPc) {
@@ -224,33 +209,6 @@ static uint32_t tomba_schedRng(Core *c) {
 extern void tomba_fps60_world_pass(Core *c, float t);
 extern void tomba_fps60_temporal_rotate(Core *c);
 
-// tomba_selftestCameraOracle — the camera-oracle selftest branch
-// (game/camera/cutscene_camera_selftest.cpp), called by the framework selftest
-// harness through the hook so selftest.cpp names no game function.
-extern int run_camera_oracle(const char *exe_path);
-extern int run_effectmod_selftest(const char *exe_path);
-extern int run_cubetext_selftest(const char *exe_path);
-extern int run_sceneview_selftest(const char *exe_path);
-extern int run_icon_glyph_selftest(const char *exe_path);
-static int tomba_selftestGame(const char *which, const char *exePath) {
-  if (!strcmp(which, "camera")) {
-    return run_camera_oracle(exePath);
-  }
-  if (!strcmp(which, "effectmod")) {
-    return run_effectmod_selftest(exePath);
-  }
-  if (!strcmp(which, "cubetext")) {
-    return run_cubetext_selftest(exePath);
-  }
-  if (!strcmp(which, "sceneview")) {
-    return run_sceneview_selftest(exePath);
-  }
-  if (!strcmp(which, "iconglyph")) {
-    return run_icon_glyph_selftest(exePath);
-  }
-  return 2; // not ours -> selftest_run reports "unknown"
-}
-
 // Designated initializers make this the exact inventory of compatibility callbacks. The direct
 // GameRuntime slots (ctxCreate/ctxDestroy/bootInit/registerOverrides) are intentionally absent.
 static const GameHooks g_tomba_hooks = {
@@ -265,7 +223,6 @@ static const GameHooks g_tomba_hooks = {
     .schedFreshEntry = tomba_schedFreshEntry,
     .hasNativeHandlerForEntry = tomba_hasNativeHandlerForEntry,
     .renderFadeState = tomba_renderFadeState,
-    .replBehaviorName = tomba_replBehaviorName,
     .replCamTeleport = tomba_replCamTeleport,
     .replCamTeleportOff = tomba_replCamTeleportOff,
     .renderBbFrameReset = tomba_renderBbFrameReset,
@@ -278,7 +235,6 @@ static const GameHooks g_tomba_hooks = {
     .schedRng = tomba_schedRng,
     .fps60WorldPass = tomba_fps60_world_pass,
     .fps60TemporalRotate = tomba_fps60_temporal_rotate,
-    .selftestGame = tomba_selftestGame,
     .fps60ReadSceneCam = tomba_fps60ReadSceneCam,
 };
 

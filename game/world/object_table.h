@@ -10,19 +10,19 @@
 //
 // Owns guest FUN_80026C88: iterates the 40-slot fixed OBJECT TABLE at 0x800EC188 (stride 64);
 // for each ACTIVE slot (byte[0] != 0), dispatches its handler via the fn-ptr table at
-// 0x800AD52C indexed by byte[1] (a0 = slot). Faithful to the recomp body — the callee handlers
+// 0x800AD52C indexed by byte[1] (a0 = slot). Faithful to the guest instruction path — the callee handlers
 // stay substrate (each honors its own owned override in the super-call path).
 //
 // native_sync=true (default ./run.sh): dispatch() runs the shortcut body below, with the
 // `disp26c88verify` A/B gate on that channel (every dispatch compared byte-for-byte against
-// rec_super_call(0x80026C88), with a scoped exclusion for the dead stack region below entry sp).
-// native_sync=false (SBS core A / pc_faithful): dispatch() forks to dispatchFaithful() via MV_CHECK
-// (strict mirror TDD gate, game/core/verify_harness.h), a byte-exact mirror of gen_func_80026C88
+// psx::cpu::callOriginal(0x80026C88), with a scoped exclusion for the dead stack region below entry sp).
+// native_sync=false (SBS core A / pc_faithful): dispatch() forks to dispatchFaithful() via strict replay check
+// (strict mirror TDD gate, game/core/verify_harness.h), a byte-exact mirror of guest 0x80026C88
 // including the guest frame descent + s0/s1/s2/ra stack spill and jal-site r31 — those 16 bytes
 // of guest stack are observable under SBS strict compare and the disp26c88verify dead-stack
 // exclusion does NOT apply to this path. dispatchFaithful() is yield-free (its sole native
 // handler, handler27254, and the LEAF_POOL_RETURN leaf it may call, never scheduler_yield), so
-// MV_CHECK is safe to arm here.
+// strict replay check is safe to arm here.
 #pragma once
 #include <cstdint>
 class Core;
@@ -47,7 +47,7 @@ public:
   void dispatch();
 
 private:
-  // dispatchFaithful — faithful mirror of gen_func_80026C88 (generated/shard_2.c:1607): guest
+  // dispatchFaithful — faithful mirror of guest 0x80026C88 (authenticated executable/overlay evidence): guest
   // frame descent (sp-=32), s0/s1/s2/ra spill at [sp+16/20/24/28] with LIVE register values, the
   // jal-site r31=0x80026CE0 set immediately before every active-slot handler dispatch, full
   // epilogue restore. Reference-mirror style per Engine::fieldFrameFaithful (game/core/engine.cpp).

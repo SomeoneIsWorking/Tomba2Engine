@@ -11,7 +11,7 @@ screen for weeks while the producer census reported a fully green run-end line
 day and not one was caught by a test — all four were found by a person looking at the picture.
 
 Each leg runs under PSXPORT_GATE_PRESENTATION=1, which makes a dropped layer ABORT rather than log
-(runtime/recomp/present_ledger.h).
+(runtime/psx/present_ledger.h).
 
 SCENE SET — chosen so the gate CAN fail, not merely pass. `hut` and `menu` were identical across
 configs for the entire period the panel bug was live, so a gate built from those alone would have
@@ -55,6 +55,7 @@ def run_leg(pad: str, frames: int, fps60: int, timeout: int):
         "PSXPORT_FPS60": str(fps60),
         "PSXPORT_REPL": "1",
         "PSXPORT_NO_FMV": "1",
+        "PSXPORT_VK_HEADLESS": "1",
         "PSXPORT_NOPACE": "1",
         "PSXPORT_NOAUDIO": "1",
         "PSXPORT_PAD_REPLAY": os.path.join("replays", pad + ".pad"),

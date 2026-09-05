@@ -38,7 +38,7 @@ public:
   void cutIfDialog();
 
   // fieldBgmDirector(): NATIVE field BGM director (currently unwired — the frame loop plays the
-  //   recompiled libsnd path; this director played a HARDCODED song over everything from the menu
+  //   guest libsnd path; this director played a HARDCODED song over everything from the menu
   //   on). Drives the PC-native synth from the LIVE area bundle (guest 0x80182000: 10 SEPs + the
   //   field VAB @+0x26b4): while the GAME stage (0x8010637C) is active AND the bundle is present,
   //   start the area BGM natively (once, on entry) and keep it playing; stop it when leaving the
@@ -78,7 +78,7 @@ public:
   void setGain2(int32_t val);
 
   // registerOverrides(): wires FUN_80075D24 into the global override registry (no static
-  // `func_<addr>(c)` call site exists in the recompiled output — only reached via indirect
-  // rec_dispatch).
+  // `a direct guest-address call` call site exists in the guest output — only reached via indirect
+  // typed runtime address dispatch).
   void registerOverrides();
 };

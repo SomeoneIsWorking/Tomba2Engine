@@ -22,7 +22,7 @@
 // leg and nothing at all is drawn on the pc leg.
 //
 // THE PRODUCER = A SCOPED LEAF TAP, the same shape as PauseMenu (kanban #21). popupTick overrides
-// FUN_80072520 with a wrapper: raise a per-Core capture scope, run the UNTOUCHED gen body, lower it,
+// FUN_80072520 with a wrapper: raise a per-Core capture scope, run the UNTOUCHED guest-visible behavior, lower it,
 // then draw what the scope collected. One scope covers both sub-drawers and no other caller, so the
 // field HUD's and the pause menu's own FUN_8007E1B8 traffic can never leak in. Read-only: host
 // memory only, not one guest write outside gen.

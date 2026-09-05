@@ -15,11 +15,11 @@ object-highlight-8002ae0c-native-picture: FUN_8002AE0C has a reached state-nativ
 
 ## Evidence
 
-generated/shard_2.c gen_func_8002AE0C; scratch/logs/gate-run-20260822-{190956,191128}.log; scratch/screenshots/highlight_exact_{on,off}_255.ppm; docs/producers/0x8002AE0C.md
+authenticated executable/overlay evidence guest 0x8002AE0C; scratch/logs/gate-run-20260822-{190956,191128}.log; scratch/screenshots/highlight_exact_{on,off}_255.ppm; docs/producers/0x8002AE0C.md
 
 ## What would falsify it
 
-Falsified if a same-source compiled A/B produces no pixels inside the producer-reported boxes, if the queue-A live route no longer reaches FUN_8002AE0C, or if generated/shard_2.c semantics differ from the native transform/cue recipe
+Falsified if a same-source compiled A/B produces no pixels inside the producer-reported boxes, if the queue-A live route no longer reaches FUN_8002AE0C, or if authenticated executable/overlay evidence semantics differ from the native transform/cue recipe
 
 ## Re-confirmed 2026-08-22 19:15:24
 

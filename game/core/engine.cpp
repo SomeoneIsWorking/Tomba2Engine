@@ -26,10 +26,10 @@
 // dispatcher
 // (==2, 0x80108784) owns the 6-way running-sub-mode (sm[0x4a]) selection, but
 // its sub-handlers YIELD DEEP (they call resident 0x8007xxxx fns that wait
-// across frames). It can NOT be rec_dispatch'd (that nests a rec_interp with
+// across frames). It can NOT be typed runtime address dispatch'd (that nests a test-only reference execution with
 // its own CORO_SENTINEL; the deep yield's longjmp destroys that C frame and the
 // resume mis-reads the return as task-end, killing task 0 — later-168). It uses
-// the cooperative-yield handshake (rec_coro_redirect, later-169): native
+// the cooperative-yield handshake (requestGuestContinuation, later-169): native
 // dispatch, then hand to the handler IN-CONTEXT so the yield is the scheduler
 // returning, not a nested sentinel. Same mechanism unlocks owning
 // FUN_80052078/FUN_800499e8.
@@ -41,39 +41,40 @@
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "guest_abi.h" // GuestFrame/GuestFrameSpill/guest_dispatch — ABI vocabulary
+#include "guest_abi.h"
+#include "guest_call.h"
+#include "guest_jal.h" // GuestFrame/GuestFrameSpill/guest_dispatch — ABI vocabulary
+#include "guest_resume.h"
 #include "math/rng.h"  // class Rng — Slip #5 RNG cadence gate under SBS
 #include "placement.h" // ov_place_objects — native field object-placement driver (game/world)
 #include "pool.h"      // ov_pool_init_run — native object-pool init (game/world)
 #include "render.h"    // class Render — rend(c)->frame() / frameX() (per-frame render driver)
 #include <stdio.h>
 
-// dispatch a still-recomp leaf with up to 3 args set (helpers for the native
+// dispatch a still-guest leaf with up to 3 args set (helpers for the native
 // stage machines).
-#include "dualview_snapshot.h" // c->rsub.dualviewSnapshot.capturePre/restorePre
 // (g_render_psx + g_dualview both retired 2026-07-02 — reach as
 // c->rsub.mode.psxRender() / dualview())
 #include "game.h"
-#include "override_registry.h" // overrides::install — the one native-override registry   // class Game — Game::sbs
-#include "sbs.h"               // `sefprobe` probe below — Sbs::coreId/frame
-#include <lucent/log.h>        // Engine::devTeleportApply's `tp` line
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include <lucent/log.h>              // Engine::devTeleportApply's `tp` line
 static inline void d0(Core *c, uint32_t fn) {
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 static inline void d1(Core *c, uint32_t fn, uint32_t a0) {
   c->r[4] = a0;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 static inline void d2(Core *c, uint32_t fn, uint32_t a0, uint32_t a1) {
   c->r[4] = a0;
   c->r[5] = a1;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 static inline void d3(Core *c, uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2) {
   c->r[4] = a0;
   c->r[5] = a1;
   c->r[6] = a2;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 
 // TaskSm — typed lens over the GAME task-state-machine record at *0x1F800138
@@ -158,10 +159,8 @@ void Engine::stageAreaInit() {
   sm.setSubMode(0);
   sm.setStage4c(0);
   sm.setF69(0);
-  guest_dispatch(c, 0x80108708u,
-                 0x8007a8e0u); // per-area setup (resident system, synchronous)
-  guest_dispatch(c, 0x80108710u,
-                 0x8007b38cu); // per-area setup (resident system, synchronous)
+  tomba::guest::dispatchJalToReturn(*c, 0x8007a8e0u, 0x80108708u); // per-area setup (resident system, synchronous)
+  tomba::guest::dispatchJalToReturn(*c, 0x8007b38cu, 0x80108710u); // per-area setup (resident system, synchronous)
 }
 
 // sm[0x48] == 1 — area RESUME-INIT (re-enter a running area, sub-mode 1): like
@@ -183,21 +182,20 @@ void Engine::stageResumeInit() {
   c->mem_w8(0x1f8001ffu, 0xff); // DAT_1f8001ff = 0xff
   c->mem_w16(0x1f800278u,
              0); // DAT_1f800278 = 0 (16-bit; delay-slot before the setup call)
-  guest_dispatch(c, 0x80108760u,
-                 0x8007b3f4u); // per-area setup (resident system, synchronous)
-  c->mem_w8(0x1f800206u, 0);   // display flags cleared after setup
+  tomba::guest::dispatchJalToReturn(*c, 0x8007b3f4u, 0x80108760u); // per-area setup (resident system, synchronous)
+  c->mem_w8(0x1f800206u, 0);                                       // display flags cleared after setup
   c->mem_w8(0x1f800236u, 0);
   c->mem_w8(0x1f800234u, 0);
 }
 
 // (The staged Engine::s48_2 mirror of GAME.BIN 0x80108784 — which
-// coro-redirected each sm[0x4a] sub-handler to the substrate — was never called
+// guest-continuationed each sm[0x4a] sub-handler to the substrate — was never called
 // and is deleted. Engine::stageRunning below is the LIVE native dispatcher for
 // sm[0x48]==2; it calls the owned sub-mode handlers directly. RE note kept: a
-// sub-handler that YIELDS DEEP must not be rec_dispatch'd (that nests a
-// rec_interp whose CORO_SENTINEL the yield's longjmp destroys, mis-reading the
+// sub-handler that YIELDS DEEP must not be typed runtime address dispatch'd (that nests a
+// test-only reference execution whose CORO_SENTINEL the yield's longjmp destroys, mis-reading the
 // return as task-end and killing task 0, later-168) — reach such a handler via
-// rec_coro_redirect instead, as stageRunning still does for the sub-modes it
+// requestGuestContinuation instead, as stageRunning still does for the sub-modes it
 // does not own.)
 
 // The sm[0x4c] AREA machine (9-state load/intro/play scene state machine,
@@ -206,8 +204,8 @@ void Engine::stageResumeInit() {
 // `Engine::stageRunning`'s s4a==2 branch. RE note kept from the retired staging
 // body: the guest fn has NO jal to the yield primitive FUN_80051f80 in any of
 // its 9 states — it is a plain SYNCHRONOUS pause/save/quit-menu sequencer,
-// which is why areaLoadState needs no coro-redirect. (The old staged
-// s4c()/state[] coro-redirect mirror was never registered and is deleted — see
+// which is why areaLoadState needs no guest-continuation. (The old staged
+// s4c()/state[] guest-continuation mirror was never registered and is deleted — see
 // areaLoadState.)
 
 // Engine::areaLoadState — native ownership of FUN_80106478 (the
@@ -216,7 +214,7 @@ void Engine::stageResumeInit() {
 // scratch/decomp/game_all_list.c) has no jal to the yield primitive
 // FUN_80051f80 anywhere in its 9 states, so it's safe to call as a plain native
 // method (unlike FUN_801088d8's FIELD area machine, which genuinely yields and
-// stays behind rec_coro_redirect — that is a DIFFERENT sm[0x4c] context, reused
+// stays behind requestGuestContinuation — that is a DIFFERENT sm[0x4c] context, reused
 // field, not this one).
 //
 // WALKABLE-TOMBA SPAWN HUNT — NEGATIVE RESULT: none of states 0-8 spawn
@@ -237,7 +235,7 @@ void Engine::stageResumeInit() {
 // SOP/field bridge, it does not spawn anything either. Rules out the last
 // un-RE'd sibling of the sm[0x4c] area machine as a spawn candidate. NOTE
 // (found during this pass, not fixed here — out of scope for a readability-only
-// refactor): gen_func_80106478 descends a 24-byte frame (ra@+20, r16@+16,
+// refactor): guest 0x80106478 descends a 24-byte frame (ra@+20, r16@+16,
 // abi_extract --contract) that this native port never mirrors. Pre-existing gap
 // (predates this refactor); flagged for a follow-up pass under the "MIRROR THE
 // GUEST STACK" rule, not addressed here since adding the frame would be a
@@ -247,7 +245,8 @@ void Engine::areaLoadState() {
   TaskSm sm(c);
   switch (sm.stage4c()) {
   case 0: {
-    rec_dispatch(c, 0x8001CF2Cu); // engine tick (substrate)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8001CF2Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // engine tick (substrate)
     c->mem_w16(0x800BE222u,
                0x47FFu); // FUN_80075CEC(0x47ff): fade target (inlined —
                          // same private leaf music_coord.cpp inlines;
@@ -256,7 +255,10 @@ void Engine::areaLoadState() {
     sm.setStage4c((uint16_t)(sm.stage4c() + 1));
     eng(c).audioDispatch.dispatch3Way(0x2C,
                                       0); // native — was FUN_800750D8(0x2c,0)
-    rec_dispatch(c, 0x8004D8B0u);         // 128-byte zero-init (substrate; un-owned this pass)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x8004D8B0u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // 128-byte zero-init (substrate; un-owned this pass)
     c->mem_w8(0x1F800206u, 0);
     break;
   }
@@ -270,12 +272,14 @@ void Engine::areaLoadState() {
     c->r[5] = 0x70;
     c->r[6] = 0;
     c->r[7] = 0x17A;
-    rec_dispatch(c, 0x8007E8DCu); // camera/view helper (substrate)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8007E8DCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // camera/view helper (substrate)
     break;
   }
   case 2:
-    rec_dispatch(c, 0x8001CF2Cu);        // engine tick (substrate)
-    eng(c).audioDispatch.selectState(4); // native — was FUN_800750A4(4)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8001CF2Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // engine tick (substrate)
+    eng(c).audioDispatch.selectState(4);                                        // native — was FUN_800750A4(4)
     sm.setS4e(1);
     sm.setF6b(0);
     sm.setStage4c((uint16_t)(sm.stage4c() + 1));
@@ -283,11 +287,13 @@ void Engine::areaLoadState() {
     [[fallthrough]];
   case 3: {
     c->r[4] = sm.s4e();
-    rec_dispatch(c, 0x8007ED5Cu); // SAVE-prompt text render (substrate)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8007ED5Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // SAVE-prompt text render (substrate)
     if (c->mem_r16(0x800E7E68u) & 0x4000u) {
       uint16_t e = sm.s4e();
       if (e == 0) {
-        rec_dispatch(c, 0x80078824u); // AREA START POS write (substrate)
+        psx::cpu::dispatchGuestToReturn0(
+            *c, 0x80078824u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // AREA START POS write (substrate)
         sm.setStage4c(8);
         c->mem_w8(0x800BF84Au, 0);
       } else if (e == 1) {
@@ -319,8 +325,10 @@ void Engine::areaLoadState() {
   }
   case 4: {
     c->r[4] = sm.s4e();
-    rec_dispatch(c,
-                 0x8007EE74u); // CONTINUE/LOAD/QUIT prompt render (substrate)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x8007EE74u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // CONTINUE/LOAD/QUIT prompt render (substrate)
     if ((c->mem_r16(0x800E7E68u) & 0x4000u) == 0) {
       if (c->mem_r16(0x800E7E68u) & 0x2000u) {
         int16_t s = (int16_t)(sm.stage4c() - 1);
@@ -335,13 +343,15 @@ void Engine::areaLoadState() {
       if (e == 1) {
         sm.setStage4c(7);
         c->mem_w8(0x800BF84Au, 0);
-        rec_dispatch(c, 0x8001CF2Cu); // engine tick (substrate)
+        psx::cpu::dispatchGuestToReturn0(
+            *c, 0x8001CF2Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // engine tick (substrate)
       } else if (e == 0) {
         sm.setTop(2);
         sm.setSubMode(1);
         sm.setStage4c(0);
-        rec_dispatch(c, 0x8001CF2Cu); // engine tick (substrate; guest arg 0x11
-                                      // unused by callee)
+        psx::cpu::dispatchGuestToReturn0(
+            *c, 0x8001CF2Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // engine tick (substrate; guest arg
+                                                                                    // 0x11 unused by callee)
       }
       // e == 2: sm[0x4c]++ (no other write) falls straight through to the
       // shared tail below.
@@ -372,12 +382,14 @@ void Engine::areaLoadState() {
   }
   case 5: {
     c->r[4] = sm.s4e();
-    rec_dispatch(c, 0x8007EF60u); // QUIT-confirm render (substrate)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8007EF60u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // QUIT-confirm render (substrate)
     if (c->mem_r16(0x800E7E68u) & 0x4000u) {
       uint16_t e = sm.s4e();
       if (e == 0) {
         sm.setStage4c((uint16_t)(sm.stage4c() + 1));
-        rec_dispatch(c, 0x8001CF2Cu); // engine tick (substrate)
+        psx::cpu::dispatchGuestToReturn0(
+            *c, 0x8001CF2Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // engine tick (substrate)
         return;
       }
       if (e != 1) {
@@ -407,7 +419,10 @@ void Engine::areaLoadState() {
   case 7: {
     c->r[4] = 0;
     c->r[5] = 1;
-    rec_dispatch(c, 0x8007BF20u); // QUIT-confirm Y/N dialog SM (substrate)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x8007BF20u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // QUIT-confirm Y/N dialog SM (substrate)
     uint8_t result = sm.f6b();
     if (result == 7) {
       reloadEntityPool(); // native — was FUN_8007B3F4()
@@ -427,7 +442,10 @@ void Engine::areaLoadState() {
   case 8: {
     c->r[4] = 0x81;
     c->r[5] = 1;
-    rec_dispatch(c, 0x8007BF20u); // QUIT-confirm Y/N dialog SM (substrate)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x8007BF20u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // QUIT-confirm Y/N dialog SM (substrate)
     uint8_t result = sm.f6b();
     if (result == 9) {
       sm.setF6b(0);
@@ -451,7 +469,7 @@ void Engine::areaLoadState() {
 
 // ---- NATIVE PER-FRAME GAME LOOP (game_native path, mirrors DEMO demo_native)
 // ------------------------ The GAME stage is owned as a native per-frame
-// dispatcher instead of coro-redirecting into the guest loop 0x801063F4: each
+// dispatcher instead of guest-continuationing into the guest loop 0x801063F4: each
 // frame ov_game_frame runs ONE loop iteration natively (dispatch the sm[0x48]
 // handler + bump the frame counter), and "yield" = return. This re-wires the
 // previously-orphaned native handlers and descends ownership into gameplay (the
@@ -462,40 +480,38 @@ void Engine::areaLoadState() {
 #include "camera/cutscene_camera.h" // class CutsceneCamera — resident driver 0x8006EC44 (native)
 #include "render/screen_fade.h"     // class ScreenFade — the single fade driver
 #include "sop.h"                    // class Sop — transitionAreaLoad (sync FIELD transition load)
-void ov_game_func_801084F8(Core *); // generated/ov_game_disp.c — still-recomp: draw pause
                                     // menu + cursor/page-transition handling
 
 // FUN_8010810C page-1 dim-fade branch (task+0x6B == 1, "draw main pause menu" —
 // see game/ui/menu.cpp's RE of the same dispatcher). Disasm
-// (generated/ov_game_shard_0.c:1312-1320, label L_8010829C): while the
+// (authenticated executable/overlay evidence, label L_8010829C): while the
 // pause-menu page-1 handler is selected, EVERY frame it runs an UNCONDITIONAL,
 // NON-RAMPING flat-gray dim (FUN_8007E9C8(0x00808080, a1=0, weight=4) ->
 // engine_fade_set) then falls through to FUN_801084F8 (menu draw + cursor/page
-// nav, still recomp). This is NOT the reference per-node fade SM (no ramp
+// nav, still guest instruction path). This is NOT the reference per-node fade SM (no ramp
 // counter, no node state) — own JUST this page's shape here; the other 11 pages
-// + the dispatcher's bounds-check/table jump stay recomp via d0(c, 0x8010810cu)
+// + the dispatcher's bounds-check/table jump stay guest instruction path via d0(c, 0x8010810cu)
 // (own-caller-before-callee: the caller (ov_field_frame et al.) is already
 // native, but the callee's other pages are unexplored, so full transcription is
 // out of scope).
 void Engine::submitPage810c() {
   Core *c = core;
-  if (c->game && !c->game->native_sync) {
-    MV_CHECK(c, 0x8010810Cu, submitPage810cFaithful());
-    return;
-  }
   uint32_t task = c->mem_r32(0x1F800138u);
   if (task && c->mem_r8(task + 0x6Bu) == 1) {
     fade(c).set(ScreenFade::SUBTRACTIVE,
                 0x80,
                 0x80,
-                0x80);        // pause-menu dim: flat gray, held each frame page-1 handler runs
-    ov_game_func_801084F8(c); // still recomp: menu draw + cursor/page transitions
+                0x80); // pause-menu dim: flat gray, held each frame page-1 handler runs
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x801084F8u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // still guest instruction path: menu draw + cursor/page transitions
     return;
   }
   d0(c, 0x8010810cu);
 }
 
-// pc_faithful mirror of ov_game_gen_8010810C's page-1 (pause-menu dim) branch.
+// pc_faithful mirror of overlay guest 0x8010810C's page-1 (pause-menu dim) branch.
 // Guest frame (sp-32, ra@+24, r17@+20, r16@+16 -- gen's shared prologue spills
 // these on EVERY dispatch-table branch, so they're spilled here too even though
 // r17/r16 are unused on this branch) + jal-site ras (0x801082B0 fade leaf,
@@ -521,11 +537,15 @@ void Engine::submitPage810cFaithful() {
     c->r[5] = 0;
     c->r[6] = 4;
     c->r[31] = 0x801082B0u;
-    rec_dispatch(c, 0x8007E9C8u); // FUN_8007E9C8: fade-set GP0 packet builder
-                                  // (substrate -- byte-exact)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x8007E9C8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_8007E9C8: fade-set GP0 packet
+                                                                                // builder (substrate -- byte-exact)
     c->r[31] = 0x801082B8u;
-    ov_game_func_801084F8(c);           // still-recomp: menu draw + cursor/page nav
-    uint8_t v = c->mem_r8(0x800BF81Eu); // L_801084CC/L_801084D0 common epilogue tail
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x801084F8u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // still-guest: menu draw + cursor/page nav
+    uint8_t v = c->mem_r8(0x800BF81Eu);         // L_801084CC/L_801084D0 common epilogue tail
     c->mem_w8(0x1F800232u, 0);
     c->mem_w8(0x800BF81Eu, (uint8_t)(v & 2u));
     c->r[31] = c->mem_r32(sp + 24);
@@ -548,7 +568,7 @@ void Engine::submitPage810cFaithful() {
 
 // sm[0x48]==2 RUNNING, per-frame variant: dispatch sm[0x4a] handler. handler[0]
 // = the GAME->SOP bridge 0x8010882c (owned native, ov_game_submode0); the
-// others stay rec_dispatch leaves (synchronous; a not-yet-sync leaf that yields
+// others stay typed runtime address dispatch leaves (synchronous; a not-yet-sync leaf that yields
 // is contained by the scheduler setjmp = frame-done). GUEST FRAME MIRROR
 // (abi_extract --contract 0x80108784: single epilogue label at L_8010881C,
 // spill precedes the sm[0x4a]<6 check -> GuestFrame RAII is safe): sp-24,
@@ -593,7 +613,7 @@ void Engine::stageRunning() {
       eng(c).areaLoadState();
     } // native FUN_80106478
     else {
-      rec_dispatch(c, handler[s4a]);
+      psx::cpu::dispatchGuestToReturn0(*c, handler[s4a], psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     }
   }
 }
@@ -616,9 +636,8 @@ void Engine::submode0() {
       c->r[4] = 0;
       c->r[5] = 0;
       c->r[6] = 0;
-      guest_dispatch(c, 0x8010888Cu,
-                     0x8005082cu); // input reset (leaf, no yield)
-      TaskSm(c).setS50(0);         // re-derive base: input reset may relocate the task record
+      tomba::guest::dispatchJalToReturn(*c, 0x8005082cu, 0x8010888Cu); // input reset (leaf, no yield)
+      TaskSm(c).setS50(0); // re-derive base: input reset may relocate the task record
       TaskSm(c).setS4e((uint16_t)(TaskSm(c).s4e() + 1));
     } else if (sm.s4e() == 1) {
       c->r[31] = 0x801088B0u;
@@ -628,10 +647,10 @@ void Engine::submode0() {
       // other mode/field overlay, dispatch the guest fn (until that overlay is
       // owned natively too).
       if (c->mem_r32(0x80109450u) == 0x3C021F80u) {
-        (c->game && c->game->native_sync) ? eng(c).sop.fieldMode()          // native SOP (native_sync)
-                                          : eng(c).sop.fieldModeFaithful(); // byte-mirror (faithful)
+        eng(c).sop.fieldMode(); // native SOP; unowned calls cross the runtime guest boundary
       } else {
-        rec_dispatch(c, 0x80109450u); // other overlay -> guest
+        psx::cpu::dispatchGuestToReturn0(
+            *c, 0x80109450u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // other overlay -> guest
       }
     }
   } else if (sm.stage4c() == 1) {
@@ -656,7 +675,7 @@ void Engine::submode0() {
 //   the field RUNNING sub-machine handler:
 //     2->0x80106b98  3->0x801070b4  4->0x80107230  5->0x8010766c  6->0x80107790
 //     These are YIELD-FREE (transitive jal-graph scan: no FUN_80051f80 once
-//     CD/audio-busy are sync leaves), so they rec_dispatch synchronously
+//     CD/audio-busy are sync leaves), so they typed runtime address dispatch synchronously
 //     per-frame and return = the frame's gameplay work.
 //   sm[0x4c] >= 7 -> no-op (falls to the epilogue).
 
@@ -672,37 +691,33 @@ void Engine::submode0() {
 // either 0x800251f0 (default) or a light-toggle of base[8] (phase 2/7, gated on
 // 0x800bf816==0 && (0x800e7e68 & 0x0c00)); phases 3/20 do neither. Always ends
 // with 0x80077b5c. All leaf callees stay substrate; only the control flow is
-// native. Faithful to the recomp body; a direct child of ov_field_frame (was
+// native. Faithful to the guest instruction path; a direct child of ov_field_frame (was
 // `d0(c, 0x80025588)`).
 void Engine::sceneEventFifo() {
   Core *c = core;
-  // MV_CHECK on this fork FAILED at 0x801FE954 (a leaf's own stack spill slot)
+  // strict replay check on this fork FAILED at 0x801FE954 (a leaf's own stack spill slot)
   // with registers (v0/v1/s0-s7/gp/sp/fp/ra/hi/lo) all MATCHING — i.e.
   // sceneEventFifoFaithful()'s own control flow/constants are not in question.
-  // Re-derived gen_func_80025588 by hand against the mirror line-by-line
+  // Re-derived guest 0x80025588 by hand against the mirror line-by-line
   // (frame/ra discipline, the kind==0/1/>=2 branch at L_80025610..30, the FIFO
   // shift-loop trip count, and the phase 3/20-nothing vs 2/7-light-toggle vs
   // else-0x800251f0 branch at L_80025694..728) and found it byte-identical —
   // this method is NOT the bug. The FIFO-drain calls 6 leaves that all "stay
   // substrate" (0x80024e00/40aa4/74bf8/24f18/251f0/ 77b5c) and none is proven
-  // yield-free/side-effect-free: func_80074bf8's (music/track-control) call
-  // graph reaches gen_func_80086620, which dispatches through a RUNTIME
-  // function-pointer slot (not a static jump table the recompiler could
+  // yield-free/side-effect-free: guest 0x80074bf8's (music/track-control) call
+  // graph reaches guest 0x80086620, which dispatches through a RUNTIME
+  // function-pointer slot (not a static jump table the recorded binary evidence could
   // enumerate, unlike every other indirect dispatch in this call graph, which
   // resolves to a closed case set) — a plausible current-BGM- handler callback.
-  // MV_CHECK runs the whole call graph TWICE (native leg, then rewound
+  // strict replay check runs the whole call graph TWICE (native leg, then rewound
   // substrate leg) from one snapshot; any such leaf whose outcome depends on
   // state outside {RAM, scratchpad, GPRs, hi/lo} (audio/sequencer engine state,
   // an SPU voice cursor, ...) can legitimately produce a different
   // second-invocation result — exactly the documented gate limit ("host hw side
   // effects run twice while armed") already hit and handled the same way by
-  // sceneRenderListBuilder() right below. Plain call, not MV_CHECK; SBS (true
+  // sceneRenderListBuilder() right below. Plain call, not strict replay check; SBS (true
   // single-invocation lockstep) is the correct gate for this leaf chain. Re-arm
   // once the leaves are proven side-effect-free or ported native.
-  if (c->game && !c->game->native_sync) {
-    sceneEventFifoFaithful();
-    return;
-  } // faithful: gen mirror
   const uint32_t B = 0x800ed058u;
   uint8_t st = c->mem_r8(B + 2);
   if (st == 0) {
@@ -747,7 +762,7 @@ void Engine::sceneEventFifo() {
 }
 
 // pc_faithful field EVENT/COMMAND-QUEUE state machine — mirror of
-// gen_func_80025588 (struct
+// guest 0x80025588 (struct
 // @0x800ed058). Guest frame (sp-32; r16=B@+16, r17@+20, ra@+24) + jal-site ras
 // on every dispatch — the piece missing from sceneEventFifo() above: that
 // version never sets c->r[31] before d1/d2, so its FIFO-drain/setup leaves
@@ -755,7 +770,7 @@ void Engine::sceneEventFifo() {
 // confirmed to spill their incoming r31 onto their own guest stack frame at
 // entry) spill whatever stale ra happens to be sitting in c->r[31] instead of
 // gen's per-call-site constant. Control flow/store values are otherwise
-// byte-identical to sceneEventFifo() (verified against gen_func_80025588 line
+// byte-identical to sceneEventFifo() (verified against guest 0x80025588 line
 // by line); only the frame/ra discipline differs. The caller
 // (fieldFrameFaithful) already sets c->r[31]=0x80108B70 right before invoking
 // this — that value must be SPILLED here, not silently dropped.
@@ -772,7 +787,7 @@ void Engine::sceneEventFifoFaithful() {
   // `sefprobe` (2026-07-10, ovhit A/B triage — docs/findings/tooling.md "ovhit
   // A/B mismatch is often a call-GRAPH asymmetry, not a counting bug"): proves
   // this NATIVE Engine method is reached ONLY on SBS core A (pc_faithful) —
-  // core B (recomp_path/oracle) never enters it even once, despite both cores
+  // core B (retired comparison path/oracle) never enters it even once, despite both cores
   // having native_sync=false and byte-identical RAM every frame (0-diff SBS).
   // Core B reaches the SAME final RAM state via the pure-substrate per-frame
   // chain instead (a topologically different call graph that happens to
@@ -782,10 +797,7 @@ void Engine::sceneEventFifoFaithful() {
   // native-vs-substrate call-graph asymmetry" the next time ovhit flags an
   // A-only or B-only leaf.
   if (cfg_dbg("sefprobe")) {
-    Sbs *sbs = c->game ? c->game->sbs : nullptr;
-    int cid = sbs ? sbs->coreId(c) : -1;
-    cfg_logf(
-        "sefprobe", "f%u core=%c ENTRY st=%u", sbs ? sbs->frame() : 0, cid < 0 ? '-' : (cid ? 'B' : 'A'), (unsigned)st);
+    cfg_logf("sefprobe", "f%u ENTRY st=%u", c->game->timing.logicFrame, (unsigned)st);
   }
   if (st == 0) {
     c->mem_w8(B + 2, 1);
@@ -849,21 +861,17 @@ void Engine::sceneEventFifoFaithful() {
 // (0->0x8004f430, 1->0x8004f474, 2->0x8004f514, 3->0x8004f6d0, >=4 none). After
 // the sub-state, set bit0 of flag byte @0x800bf822 when (base[1]!=0 ||
 // base[0x0a]!=0) else clear it. phase>=2 is a no-op. Leaf callees stay
-// substrate. Faithful to the recomp body; a direct child of ov_field_frame (was
+// substrate. Faithful to the guest instruction path; a direct child of ov_field_frame (was
 // `d0(c, 0x8004fe84)`).
 void Engine::sceneRenderListBuilder() {
   Core *c = core;
-  // sceneRenderListBuilderFaithful dispatches through rec_dispatch to substrate
+  // sceneRenderListBuilderFaithful dispatches through typed runtime address dispatch to substrate
   // leaves (0x8004F430/74/514/6D0, selected by base[1]); those leaves are not
-  // proven yield-free, so MV_CHECK's synchronous compare can observe residual
+  // proven yield-free, so strict replay check's synchronous compare can observe residual
   // v0/v1 across a yield boundary and misreport it as a divergence (mv_tdd.log
   // 2026-07-08: 0x8004FE84 FAILED (2+ diffs) at v0/v1 — not a real yield-abort,
-  // a mismatch abort from this). Plain call, not MV_CHECK — yields — SBS-gated;
+  // a mismatch abort from this). Plain call, not strict replay check — yields — SBS-gated;
   // re-arm once the leaves are proven yield-free or ported native.
-  if (c->game && !c->game->native_sync) {
-    sceneRenderListBuilderFaithful();
-    return;
-  } // faithful: gen mirror
   const uint32_t B = 0x800bf548u;
   uint8_t phase = c->mem_r8(B + 0);
   if (phase == 0) {
@@ -904,7 +912,7 @@ void Engine::sceneRenderListBuilder() {
   }
 }
 
-// Faithful mirror of gen_func_8004FE84 (generated/shard_1.c) -- adds the
+// Faithful mirror of guest 0x8004FE84 (authenticated executable/overlay evidence) -- adds the
 // guest-stack frame discipline the plain native body (above) omits: sp-=24 at
 // entry, mem_w32(sp+16,r16_entry) unconditionally (before r16 is repurposed as
 // the struct base) / mem_w32(sp+20,r31_entry) unconditionally (gen's delay-slot
@@ -931,22 +939,22 @@ void Engine::sceneRenderListBuilderFaithful() {
     case 0:
       c->r[31] = 0x8004FF30u;
       c->r[4] = B;
-      rec_dispatch(c, 0x8004F430u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8004F430u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     case 1:
       c->r[31] = 0x8004FF40u;
       c->r[4] = B;
-      rec_dispatch(c, 0x8004F474u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8004F474u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     case 2:
       c->r[31] = 0x8004FF50u;
       c->r[4] = B;
-      rec_dispatch(c, 0x8004F514u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8004F514u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     case 3:
       c->r[31] = 0x8004FF60u;
       c->r[4] = B;
-      rec_dispatch(c, 0x8004F6D0u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8004F6D0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     default:
       break; // sub >= 4: no sub-handler (guest j 8004ff60)
@@ -984,13 +992,13 @@ void Engine::sceneRenderListBuilderFaithful() {
 // per-frame area update 0x80075a80. The object-walk 0x8007a904 and display
 // 0x80026c88 now run as the NATIVE ov_objwalk / ov_disp_26c88 (direct C calls —
 // the previously-orphan bodies wired into the live field frame); the remaining
-// callees stay rec_dispatch leaves until owned in turn. NOT yield-free
+// callees stay typed runtime address dispatch leaves until owned in turn. NOT yield-free
 // (0x8003F9A8 render orchestrator + other callees can scheduler_yield) — the
 // earlier "yield-free (transitive jal scan)" claim here was wrong; the fork
-// below is a plain call, proven by SBS full, not MV_CHECK (mv_tdd.log
+// below is a plain call, proven by SBS full, not strict replay check (mv_tdd.log
 // 2026-07-08: 0x80108B0C FAILED 10+ diffs — a double-run/rewind artifact, not a
 // real bug). pc_faithful field per-frame update — mirror of
-// ov_game_gen_80108B0C. Guest frame (sp-24, r16@+16, ra@+20, r16=0x1F800000
+// overlay guest 0x80108B0C. Guest frame (sp-24, r16@+16, ra@+20, r16=0x1F800000
 // live for callee spills) + jal-site ras on every child. The children run their
 // native owners (the ported path — byte-exactness is each owner's own gate);
 // the audio-command-queue tail 0x80075A80 is dispatched substrate per the f11
@@ -1072,8 +1080,10 @@ void Engine::fieldFrameFaithful() {
   c->r[31] = 0x80108BCCu;
   eng(c).postRenderTick();
   c->r[31] = 0x80108BD4u;
-  rec_dispatch(c,
-               0x80075A80u); // audio-cmd queue tail — substrate (lib fallback)
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x80075A80u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // audio-cmd queue tail — substrate (lib fallback)
   c->r[31] = c->mem_r32(sp + 20);
   c->r[16] = c->mem_r32(sp + 16);
   c->r[29] += 24;
@@ -1082,17 +1092,13 @@ void Engine::fieldFrameFaithful() {
 void Engine::fieldFrame() {
   Core *c = core;
   // yields — SBS-gated: fieldFrameFaithful() drives the render orchestrator
-  // (0x8003F9A8) and other callees that can scheduler_yield; MV_CHECK only
+  // (0x8003F9A8) and other callees that can scheduler_yield; strict replay check only
   // supports yield-free mirrors (strictCheck aborts on yield-while-inCheck) and
   // a rewind+replay of the substrate body here does not reproduce the same
   // interleaving as the live run, so the compare is bogus (10+ byte diffs at
   // 0x801FE8A0.. are an artifact of that double-run, not a real
   // native/substrate mismatch). Byte-exactness for this fork is proven by SBS
-  // full (core A vs core B), not MV_CHECK.
-  if (c->game && !c->game->native_sync) {
-    fieldFrameFaithful();
-    return;
-  } // faithful: gen mirror
+  // full (core A vs core B), not strict replay check.
   c->mem_w16(0x1f80017cu,
              (uint16_t)(c->mem_r16(0x1f80017cu) + 1)); // frame counter
   c->mem_w32(0x800bf878u, c->mem_r32(0x800bf878u) + 1);
@@ -1111,14 +1117,6 @@ void Engine::fieldFrame() {
     eng(c).sceneStateStep();                             // 0x80050de4 NATIVE (Engine::sceneStateStep)
     eng(c).areaModeDispatch();                           // 0x8001cac0 NATIVE (Engine::areaModeDispatch)
   }
-  // DUAL-VIEW: snapshot the post-gameplay / pre-render state so the
-  // side-by-side PSX render pass (the ACTUAL dualview feature,
-  // native_boot.cpp's mode.dualview() branch) can re-run the substrate render
-  // into the right-hand pane. No-op unless dualview is on; kept even though the
-  // plain pc_render fork below no longer rewinds (see comment there) because
-  // the dualview feature still needs a pre-render snapshot to make its second
-  // pass re-runnable.
-  c->rsub.dualviewSnapshot.capturePre(c);
   if (c->mem_r8(0x1f800136u) < 2) {
     rend(c)->frame(); // 0x8003f9a8 — substrate render orchestrator (ALWAYS
                       // runs, both render modes)
@@ -1129,14 +1127,14 @@ void Engine::fieldFrame() {
   // issue #32: "PSX render path ALWAYS executes underneath") to unconditionally
   // dispatch the FULL substrate orchestrator 0x8003f9a8 in BOTH render modes —
   // its guest writes (OT links, packet pool, walk cursors, scratchpad GTE
-  // workspace) are now BYTE-IDENTICAL to the recomp reference by construction,
+  // workspace) are now BYTE-IDENTICAL to the recorded guest behavior by construction,
   // exactly like fieldFrameFaithful()'s call to the same rend(c)->frame()
   // (which has never rewound them, is the fieldFrame the whole
   // pc_faithful/SBS-full byte-exact proof is built on).
   //
   // The restore this replaces predates that pivot: back when Render::frame()
   // ran a PARTIAL, pc_render-only pass list (see 9d436e3's diff) that genuinely
-  // diverged from the recomp reference's writes, rewinding them here was the
+  // diverged from the recorded guest behavior's writes, rewinding them here was the
   // correct decoupling (docs/findings/sbs.md 0x800BF81E finding,
   // later-284/292). The pivot changed Render::frame() but this fork of
   // fieldFrame() was never updated to match — an asymmetry between fieldFrame()
@@ -1145,11 +1143,11 @@ void Engine::fieldFrame() {
   // fieldFrameFaithful(), not this fork.
   //
   // The stale rewind's actual effect: it ran BEFORE the OT walk. The per-frame
-  // OT is main RAM (part of the 2MB dualviewSnapshot restores) and gets cleared
+  // OT is main RAM and gets cleared
   // once per frame near the top of the native_boot.cpp frame loop, before
   // c->game->pcSched.step() (which is what reaches this function) even starts;
   // capturePre above snapshots that CLEARED OT. mRender->frame() above then
-  // fills it. rec_dispatch(c,0x8003f9a8u) returns, this fork used to call
+  // fills it. typed runtime address dispatch(c,0x8003f9a8u) returns, this fork used to call
   // restorePre() and wipe the OT straight back to the pre-render (i.e. EMPTY)
   // snapshot — so by the time native_boot.cpp's own post-scheduler
   // eng(c).drawOTag(...) walk ran (the pc_render picture draw, a read-only pass
@@ -1164,7 +1162,7 @@ void Engine::fieldFrame() {
   // substrate writes above are gameplay-side (same call path fieldFrameFaithful
   // takes), not a pc_render violation.
   eng(c).submitPage810c();       // render submit (page-1 dim-fade owned; other pages
-                                 // recomp)
+                                 // guest instruction path)
   eng(c).postRenderTick();       // 0x80077d8c NATIVE (Engine::postRenderTick)
   eng(c).areaSlots.updateTail(); // 0x80075a80 NATIVE (AreaSlots::updateTail)
 }
@@ -1196,7 +1194,7 @@ constexpr uint32_t kAnimResult = 0x79u; // u8:  animTick's stashed VM return byt
 // Engine::animTick — FUN_8004190C. Ticks the animation VM (native
 // Animation::step, which is the full port of FUN_80076D68 — its 3 frame
 // sub-leaves stay substrate) and stashes its return byte into obj+0x79. Returns
-// 1 (matches recomp v0).
+// 1 (matches guest instruction path v0).
 uint32_t Engine::animTick(uint32_t obj) {
   Core *c = core;
   using namespace ObjAnimField;
@@ -1228,7 +1226,8 @@ void Engine::announcerCue(uint32_t id, uint8_t flag) {
   c->r[4] = base;
   c->r[5] = 0xFFFFFFFFu;
   c->r[6] = flag;
-  rec_dispatch(c, 0x8004FA38u); // announcer-cue queue push (substrate)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8004FA38u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // announcer-cue queue push (substrate)
 }
 
 // FUN_800518FC is NOT owned here — it is NodeXform::buildWithOffset
@@ -1261,18 +1260,18 @@ uint32_t Engine::walkStart(uint32_t obj, uint32_t mode, int16_t subMode) {
     return 0;
   }
   c->mem_w8(obj + kAnimMode, (uint8_t)mode);
-  guest_fn(c, 0x80054790u, 0x80054D58u, obj, mode); // pre-hook (substrate)
-  // gen_func_80054D14 passes FOUR args: a3 = subMode (sext16).
-  // gen_func_80077CFC consumes it as the anim PHASE SEED (obj+0x0E = a3 +
+  tomba::guest::dispatchJalToReturn(*c, 0x80054790u, 0x80054D58u, obj, mode); // pre-hook (substrate)
+  // guest 0x80054D14 passes FOUR args: a3 = subMode (sext16).
+  // guest 0x80077CFC consumes it as the anim PHASE SEED (obj+0x0E = a3 +
   // 0x1000) and as the frame-seek arg for the stream decoder
   // (FUN_80075FF8/75F0C a2). Leaving a3 stale seeked the decoder to a garbage
   // frame — Tomba's wrong walk pose + Charles' narration-scene vertex explosion
   // (2026-07-10).
   const uint32_t subMode32 = (uint32_t)(int32_t)subMode;
   if (subMode == 0) {
-    guest_fn(c, 0x80077C40u, 0x80054D78u, obj, 0x80017FE8u, mode, subMode32);
+    tomba::guest::dispatchJalToReturn(*c, 0x80077C40u, 0x80054D78u, obj, 0x80017FE8u, mode, subMode32);
   } else {
-    guest_fn(c, 0x80077CFCu, 0x80054D90u, obj, 0x80017FE8u, mode, subMode32);
+    tomba::guest::dispatchJalToReturn(*c, 0x80077CFCu, 0x80054D90u, obj, 0x80017FE8u, mode, subMode32);
   }
   c->r[2] = 1;
   return 1;
@@ -1314,11 +1313,11 @@ void Engine::uploadModeSprites() {
     p4 = 0x800A49C0u;
     break;
   default:
-    return; // recomp: any other value early-exits
+    return; // guest instruction path: any other value early-exits
   }
 
   // Stage the shared RECT on the guest stack (X, Y, W, H = u16 × 4). Y is
-  // patched per strip. The recomp allocates a 0x30-byte frame; we mirror it so
+  // patched per strip. The guest instruction path allocates a 0x30-byte frame; we mirror it so
   // LoadImage's arg1 pointer + any deep stack use falls in the same window.
   const uint32_t sp_save = c->r[29];
   const uint32_t ra_save = c->r[31];
@@ -1332,7 +1331,10 @@ void Engine::uploadModeSprites() {
     c->mem_w16(rect + 2u, y); // patch Y
     c->r[4] = rect;
     c->r[5] = data;
-    rec_dispatch(c, 0x80081218u); // LoadImage(rect, data) — substrate leaf
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x80081218u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // LoadImage(rect, data) — substrate leaf
   };
   upload(0x1E2, p0);
   upload(0x1E5, p1);
@@ -1377,7 +1379,7 @@ void Engine::gStateMutate(uint32_t G, uint8_t op) {
     }
     c->r[4] = 0x25;
     c->r[5] = 0;
-    rec_dispatch(c, 0x800310F4u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x800310F4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     n174 = f174 & 0xF7;
     n0D = f0D & 0xBD;
     c->mem_w8(G + 0x174u, n174);
@@ -1526,13 +1528,13 @@ void Engine::gStateMutate(uint32_t G, uint8_t op) {
 // FIELD RUNNING sub-machine 0x80106b98 — native control flow + state bodies
 // (decomp: scratch/decomp/game/80106b98.c). A 12-way switch on sm[0x4e]; the
 // running states call the native ov_field_frame (0x80108b0c) and the heavy leaf
-// callees rec_dispatch. NB the guest fall-throughs are faithful: case 2 -> 3,
+// callees typed runtime address dispatch. NB the guest fall-throughs are faithful: case 2 -> 3,
 // case 4 -> 1 (no break). sm[0x4e] >= 12 = no-op. This anchors the field frame
 // natively; the leaf callees (object-placement FUN_80072a78 etc.) are the next
 // descent. pc_faithful FIELD RUNNING sub-machine — exact mirror of
-// ov_game_gen_80106B98 (12 states on sm[0x4e]). Guest frame (sp-24, ra@+20,
+// overlay guest 0x80106B98 (12 states on sm[0x4e]). Guest frame (sp-24, ra@+20,
 // r16@+16, live values) + every leaf dispatched at its RE'd jal site so callee
-// spills byte-match core B. ov_game_func_80108B0C (the field per-frame update)
+// spills byte-match core B. overlay guest 0x80108B0C (the field per-frame update)
 // runs the native owner Engine::fieldFrame with the gen's r31. Notable gen
 // details the rebuilt fieldRun below got WRONG (kept there for native_sync,
 // fixed here): 0x1F800194 is a HALFWORD store of u16(0x800E7FEE) (not w32), the
@@ -1550,19 +1552,19 @@ void Engine::fieldRunFaithful() {
     switch (s4e) {
     case 0: { // L_80106BDC — area object/pool init chain
       c->r[31] = 0x80106BE4u;
-      rec_dispatch(c, 0x8007B18Cu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8007B18Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[31] = 0x80106BECu;
-      rec_dispatch(c, 0x800796DCu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x800796DCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[31] = 0x80106BF4u;
-      rec_dispatch(c, 0x800263E8u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x800263E8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[31] = 0x80106BFCu;
-      rec_dispatch(c, 0x80072A78u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80072A78u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[31] = 0x80106C04u;
-      rec_dispatch(c, 0x80075240u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80075240u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[31] = 0x80106C0Cu;
-      rec_dispatch(c, 0x800783DCu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x800783DCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[31] = 0x80106C14u;
-      rec_dispatch(c, 0x80078610u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80078610u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       sm = c->mem_r32(0x1f800138u);
       c->mem_w16(sm + 0x4e, 1);
       c->mem_w8(sm + 0x6b, 0);
@@ -1571,7 +1573,7 @@ void Engine::fieldRunFaithful() {
         c->mem_w16(sm + 0x4e, 9);
       } else if (c->mem_r8(0x800BF870u) == 8) {
         c->r[31] = 0x80106C88u;
-        rec_dispatch(c, 0x80114B90u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80114B90u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       } else if (c->mem_r16(0x800BF870u) == 21) {
         sm = c->mem_r32(0x1f800138u);
         c->mem_w16(sm + 0x4e, 11);
@@ -1579,24 +1581,24 @@ void Engine::fieldRunFaithful() {
       }
       c->r[4] = c->mem_r8(0x800BF870u);
       c->r[31] = 0x80106C98u;
-      rec_dispatch(c, 0x80074F24u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80074F24u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     }
     case 2: // L_80106DDC — G-state mutate, fall into 3
       c->r[4] = 0x800E7E80u;
       c->r[5] = 12;
       c->r[31] = 0x80106DECu;
-      rec_dispatch(c, 0x80058304u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80058304u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       sm = c->mem_r32(0x1f800138u);
       c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
       /* fallthrough */
     case 3: // L_80106E08 — settle audio, arm mode state
       c->r[31] = 0x80106E10u;
-      rec_dispatch(c, 0x80074BC4u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80074BC4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[4] = 0;
       if (c->mem_r8(0x800BF870u) == 8) {
         c->r[31] = 0x80106E2Cu;
-        rec_dispatch(c, 0x80114B90u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80114B90u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         c->r[4] = 0;
       }
       c->r[5] = 0;
@@ -1606,13 +1608,13 @@ void Engine::fieldRunFaithful() {
       c->mem_w16(sm + 0x4c, 0);
       c->mem_w16(sm + 0x4e, 0);
       c->r[31] = 0x80106E54u;
-      rec_dispatch(c, 0x8005082Cu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8005082Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     case 4: // L_80106CE0 — camera + mode-state re-arm, fall into 1
       c->r[31] = 0x80106CE8u;
-      rec_dispatch(c, 0x8006C7C4u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8006C7C4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[31] = 0x80106CF0u;
-      rec_dispatch(c, 0x800508A8u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x800508A8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       sm = c->mem_r32(0x1f800138u);
       c->mem_w16(sm + 0x4e, 1);
       /* fallthrough */
@@ -1624,7 +1626,7 @@ void Engine::fieldRunFaithful() {
           break;
         }
         c->r[31] = 0x80106D38u;
-        rec_dispatch(c, 0x80074BC4u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80074BC4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         int16_t ev = c->mem_r16s(0x800E7FEEu);
         uint16_t evu = c->mem_r16(0x800E7FEEu);
         if (ev == 0) { // L_80106F48 — s4e++
@@ -1655,7 +1657,7 @@ void Engine::fieldRunFaithful() {
       if (c->mem_r8(0x1F800236u) >= 5) {
         c->r[4] = 0;
         c->r[31] = 0x80106DCCu;
-        rec_dispatch(c, 0x80050894u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80050894u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       }
       sm = c->mem_r32(0x1f800138u);
       c->mem_w16(sm + 0x4a, 1); // L_80106FAC join (r2 = 1)
@@ -1666,9 +1668,9 @@ void Engine::fieldRunFaithful() {
     case 5: // L_80106CA0 — area-7 mode re-arm + field frame
       if (c->mem_r8(0x800BF870u) == 7) {
         c->r[31] = 0x80106CBCu;
-        rec_dispatch(c, 0x801128BCu);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x801128BCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         c->r[31] = 0x80106CC4u;
-        rec_dispatch(c, 0x800508A8u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x800508A8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       }
       sm = c->mem_r32(0x1f800138u);
       c->mem_w16(sm + 0x4e, 1);
@@ -1683,14 +1685,14 @@ void Engine::fieldRunFaithful() {
         c->mem_w16(0x1F800194u, evu);
       }
       c->r[31] = 0x80106E88u;
-      rec_dispatch(c, 0x80074BC4u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80074BC4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[16] = 0x800BF808u;
       c->mem_w8(0x800BF870u, (uint8_t)((c->mem_r16(0x800BF83Au) >> 8) & 31u));
       c->mem_w8(0x800BF871u, (uint8_t)(c->mem_r8(0x800BF83Au) & 63u));
       uint8_t trig = c->mem_r8(0x800BF839u);
       if (trig == 7) {
         c->r[31] = 0x80106ECCu;
-        rec_dispatch(c, 0x80114B90u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80114B90u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         c->mem_w8(0x800BF839u, 3);
         trig = c->mem_r8(0x800BF839u);
       }
@@ -1703,7 +1705,7 @@ void Engine::fieldRunFaithful() {
         c->mem_w16(sm + 0x4c, b);
       } else { // L_80106F0C
         c->r[31] = 0x80106F14u;
-        rec_dispatch(c, 0x8005245Cu);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x8005245Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         sm = c->mem_r32(0x1f800138u);
         c->mem_w16(sm + 0x48, 2);
         c->mem_w16(sm + 0x4a, 1);
@@ -1715,7 +1717,7 @@ void Engine::fieldRunFaithful() {
     case 7: // L_80106F38 — poll 0x80045580(1)
       c->r[4] = 1;
       c->r[31] = 0x80106F40u;
-      rec_dispatch(c, 0x80045580u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80045580u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       if (c->r[2] == 0) {
         break;
       }
@@ -1755,21 +1757,21 @@ void Engine::fieldRunFaithful() {
       c->r[5] = 0;
       c->r[6] = 0;
       c->r[31] = 0x80107058u;
-      rec_dispatch(c, 0x8007E9C8u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8007E9C8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       sm = c->mem_r32(0x1f800138u);
       c->mem_w8(sm + 0x6e, (uint8_t)(c->mem_r8(sm + 0x6e) - 1));
       sm = c->mem_r32(0x1f800138u);
       if (c->mem_r8(sm + 0x6e) == 0) {
         c->mem_w16(sm + 0x4e, 7);
         c->r[31] = 0x80107090u;
-        rec_dispatch(c, 0x8001CF2Cu);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x8001CF2Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       }
       break;
     }
     case 11: // L_80107098 — a0l fade sequencer on the BG node
       c->r[4] = 0x800E8008u;
       c->r[31] = 0x801070A4u;
-      rec_dispatch(c, 0x8010957Cu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8010957Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     default:
       break;
@@ -1783,35 +1785,31 @@ void Engine::fieldRunFaithful() {
 void Engine::fieldRun() {
   Core *c = core;
   // fieldRun can yield transitively (case 0's substrate init chain descends
-  // into loaders) — plain call, not MV_CHECK: fieldRunFaithful is not
+  // into loaders) — plain call, not strict replay check: fieldRunFaithful is not
   // byte-exact yet (12+ diffs at 0x801FE8xx / v0 / v1,
-  // scratch/logs/mv_tdd.log), and MV_CHECK's synchronous compare is wrong
+  // scratch/logs/mv_tdd.log), and strict replay check's synchronous compare is wrong
   // across a yield boundary regardless. SBS-gated; fix fieldRunFaithful and
-  // re-arm MV_CHECK once it's byte-exact and known yield-free (or drop this
+  // re-arm strict replay check once it's byte-exact and known yield-free (or drop this
   // call for a plain one permanently if it always yields).
-  if (c->game && !c->game->native_sync) {
-    fieldRunFaithful();
-    return;
-  } // faithful: gen mirror
   uint32_t sm = c->mem_r32(0x1f800138u);
   uint16_t s4e = c->mem_r16(sm + 0x4e);
   switch (s4e) {
   case 0:
     eng(c).pool.init();                  // OWNED native (game/world/pool.cpp) — replaces
-                                         // rec_dispatch(0x8007b18c)
+                                         // typed runtime address dispatch(0x8007b18c)
     eng(c).pool.resetControlBlock();     // OWNED native (game/world/pool.cpp) —
-                                         // replaces rec_dispatch(0x800796dc)
+                                         // replaces typed runtime address dispatch(0x800796dc)
     eng(c).pool.seedAreaObjects();       // OWNED native (game/world/pool.cpp) —
-                                         // replaces rec_dispatch(0x800263e8)
+                                         // replaces typed runtime address dispatch(0x800263e8)
     eng(c).placement.placeAreaObjects(); // OWNED native
                                          // (game/world/placement.cpp) —
-                                         // replaces rec_dispatch(0x80072a78)
+                                         // replaces typed runtime address dispatch(0x80072a78)
     eng(c).pool.reset75240();            // OWNED native (game/world/pool.cpp) — replaces
-                                         // rec_dispatch(0x80075240)
+                                         // typed runtime address dispatch(0x80075240)
     eng(c).pool.setupViewScroll();       // OWNED native (game/world/pool.cpp) —
-                                         // replaces rec_dispatch(0x800783dc)
+                                         // replaces typed runtime address dispatch(0x800783dc)
     eng(c).pool.finalViewInit();         // OWNED native (game/world/pool.cpp) —
-                                         // replaces rec_dispatch(0x80078610)
+                                         // replaces typed runtime address dispatch(0x80078610)
     sm = c->mem_r32(0x1f800138u);
     c->mem_w16(sm + 0x4e, 1);
     c->mem_w8(sm + 0x6b, 0);
@@ -1820,7 +1818,7 @@ void Engine::fieldRun() {
     } else if (c->mem_r8(0x800bf870u) == 8) {
       d0(c, 0x80114b90u);
     }
-    // HALFWORD read, matching gen (ov_game_gen_80106B98: `mem_r16((r4 +
+    // HALFWORD read, matching gen (overlay guest 0x80106B98: `mem_r16((r4 +
     // -1936))`) and the faithful mirror above. It was `mem_r32(...) == 0x15`,
     // which also covers bf872/73 and so was effectively never true — this
     // transition never fired under native_sync. (A first pass "fixed" it to
@@ -1833,12 +1831,12 @@ void Engine::fieldRun() {
     break;
   case 2:
     eng(c).gStateMutate(0x800E7E80u,
-                        0xC); // native — was rec_dispatch 0x80058304(G, 0xC)
+                        0xC); // native — was typed runtime address dispatch 0x80058304(G, 0xC)
     sm = c->mem_r32(0x1f800138u);
     c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
     /* fallthrough */
   case 3:
-    eng(c).audioDispatch.settleField(); // native — was rec_dispatch 0x80074BC4
+    eng(c).audioDispatch.settleField(); // native — was typed runtime address dispatch 0x80074BC4
     if (c->mem_r8(0x800bf870u) == 8) {
       d0(c, 0x80114b90u);
     }
@@ -1846,11 +1844,11 @@ void Engine::fieldRun() {
     c->mem_w16(sm + 0x4a, 2);
     c->mem_w16(sm + 0x4c, 0);
     c->mem_w16(sm + 0x4e, 0);
-    eng(c).modeStateArm.arm(); // native — was rec_dispatch 0x8005082C(0,0,0)
+    eng(c).modeStateArm.arm(); // native — was typed runtime address dispatch 0x8005082C(0,0,0)
     break;
   case 4:
     d0(c, 0x8006c7c4u);
-    eng(c).modeStateArm.armFromAreaTable(); // native — was rec_dispatch
+    eng(c).modeStateArm.armFromAreaTable(); // native — was typed runtime address dispatch
                                             // 0x800508A8
     c->mem_w16(c->mem_r32(0x1f800138u) + 0x4e, 1);
     /* fallthrough */
@@ -1859,7 +1857,7 @@ void Engine::fieldRun() {
     sm = c->mem_r32(0x1f800138u);
     if (c->mem_r8(0x800bf80du) == 3) { // (signed byte) special mode 3
       if (c->mem_r8(0x800bf80fu) == 0) {
-        eng(c).audioDispatch.settleField(); // native — was rec_dispatch
+        eng(c).audioDispatch.settleField(); // native — was typed runtime address dispatch
                                             // 0x80074BC4
         sm = c->mem_r32(0x1f800138u);
         if (c->mem_r16s(0x800e7feeu) == 0) { // halfword: guest uses lh here, never lw
@@ -1901,7 +1899,7 @@ void Engine::fieldRun() {
       c->mem_w8(0x800bf880u, 1);
       c->mem_w16(0x1f800194u, (uint16_t)c->mem_r16(0x800e7feeu));
     }
-    eng(c).audioDispatch.settleField(); // native — was rec_dispatch 0x80074BC4
+    eng(c).audioDispatch.settleField(); // native — was typed runtime address dispatch 0x80074BC4
     // _DAT_800bf870 = CONCAT11(...) & 0x3f1f  — the decomp's byte-swap-and-mask
     // of *0x800bf83a into bf870
     uint16_t b83a = c->mem_r16(0x800bf83au);
@@ -1997,11 +1995,11 @@ void Engine::fieldRun() {
 // set (the state-transition object update 0x8007b04c instead of the full
 // Tomba+object walk 0x8007a904) then the SAME render-submit 0x8010810c.
 // Faithful to disasm. Owned so the transition path is native+traceable (the
-// door freeze lives below here): the heavy callees stay rec_dispatch leaves to
+// door freeze lives below here): the heavy callees stay typed runtime address dispatch leaves to
 // descend into next — esp. 0x8007b04c (the per-object update that must, but
 // currently does not, tick the screen-transition sequencer FUN_80026ad0 to
-// completion). pc_faithful mirror of ov_game_gen_80108BE4
-// (generated/ov_game_shard_1.c). Reduced twin of fieldFrameFaithful
+// completion). pc_faithful mirror of overlay guest 0x80108BE4
+// (authenticated executable/overlay evidence). Reduced twin of fieldFrameFaithful
 // (0x80108B0C): same frame descent/spill/jal-site-ra shape, 9 gameplay-update
 // calls (drops sceneStateStep 0x80050de4 and areaModeDispatch 0x8001cac0, which
 // the full variant has and this one does not per gen), render orchestrator
@@ -2056,10 +2054,6 @@ void Engine::fieldFrameXFaithful() {
 
 void Engine::fieldFrameX() {
   Core *c = core;
-  if (c->game && !c->game->native_sync) {
-    MV_CHECK(c, 0x80108BE4u, fieldFrameXFaithful());
-    return;
-  } // faithful: gen mirror
   c->mem_w16(0x1f80017cu,
              (uint16_t)(c->mem_r16(0x1f80017cu) + 1)); // frame counter
   c->mem_w32(0x800bf878u, c->mem_r32(0x800bf878u) + 1);
@@ -2078,7 +2072,7 @@ void Engine::fieldFrameX() {
     rend(c)->frameX(); // 0x8003fa44 — NATIVE render orchestrator twin
   }
   eng(c).submitPage810c();       // render submit (page-1 dim-fade owned; other pages
-                                 // recomp)
+                                 // guest instruction path)
   eng(c).postRenderTick();       // 0x80077D8C NATIVE (was d0)
   eng(c).areaSlots.updateTail(); // 0x80075a80 NATIVE
 }
@@ -2091,12 +2085,12 @@ void Engine::fieldFrameX() {
 // THIS machine performs the swap. Two PSX leaves are owned here instead of
 // dispatched: (a) the SCREEN FADE FUN_8007e9c8(color,a1,4) -> engine_fade_set
 // (the PC-native engine fade — fixes the "fade missing on hut entry" bug; the
-// recomp fade built a PSX OT rect the native renderer no longer draws); (b) the
+// guest instruction path fade built a PSX OT rect the native renderer no longer draws); (b) the
 // cooperative area-load FUN_80044bd4(0x800452c0, area, mode, 1) ->
 // native_transition_area_load (sync, no task-spawn/yield — required by the
 // native per-frame model, mirrors ov_game_submode1 state 0). Everything else is
 // faithful control flow + sm field writes with the remaining leaves
-// rec_dispatched. Decomp: scratch/decomp/game/ transition.c
+// dynamically dispatched. Decomp: scratch/decomp/game/ transition.c
 // (FUN_80108a60/80107afc/80107d3c/80107e20/80107f3c) + scratch/decomp/bd4.c
 // (FUN_80044bd4: arg2->sm[0x6e]=area, arg3->sm[0x6d]=mode, clears 1f80019b,
 // spawns slot-1 task 0x800452c0).
@@ -2112,14 +2106,10 @@ static void native_area_load_bd4(Core *c, uint32_t area, uint32_t mode) {
   c->mem_w8(0x1f80019bu,
             0); // DAT_1f80019b = 0 (load-done flag, set back to 1 by the load)
   // NO RNG draw here: this is the FUN_80044bd4(...,flag=1) call. In
-  // gen_func_80044BD4 the flag==1 branch jumps to the epilogue (`if (r19==1)
-  // goto L_80044CB8`) BEFORE func_8009A450 — zero RNG draws. Only flag!=1 (see
-  // bd4Tail) draws the stamp. func_80051F14 (spawnPrim) draws no RNG either.
-  SV_CHECK(c,
-           0x800452C0u,
-           eng(c).sop.transitionAreaLoad(),
-           rec_dispatch(c, 0x800452C0u)); // skip leg vs the slot-1 task body
-                                          // oracle (observable compare)
+  // guest 0x80044BD4 the flag==1 branch jumps to the epilogue (`if (r19==1)
+  // goto L_80044CB8`) BEFORE guest 0x8009A450 — zero RNG draws. Only flag!=1 (see
+  // bd4Tail) draws the stamp. guest 0x80051F14 (spawnPrim) draws no RNG either.
+  eng(c).sop.transitionAreaLoad();
 }
 
 // FUN_80107afc — the MAIN door/sub-scene transition (sm[0x4c]==1..4). sm[0x4e]:
@@ -2320,10 +2310,6 @@ void Engine::transitionF3c() {
 // sm[0x4e]=0); 1-4 main; 5/6 d3c; 7 e20; 8 f3c.
 void Engine::fieldTransition() {
   Core *c = core;
-  if (c->game && !c->game->native_sync) {
-    fieldTransitionFaithful();
-    return;
-  } // yield-capable (spawnAndWait): plain call, no MV_CHECK
   uint32_t sm = c->mem_r32(0x1f800138u);
   uint16_t s4c = c->mem_r16(sm + 0x4c);
   switch (s4c) {
@@ -2355,7 +2341,7 @@ void Engine::fieldTransition() {
   }
 }
 
-// Faithful mirror of ov_game_gen_80108A60. Own frame: sp-=24, r31 spill @sp+16.
+// Faithful mirror of overlay guest 0x80108A60. Own frame: sp-=24, r31 spill @sp+16.
 // Dispatches sm[0x4c] exactly as the gen jump table (0/9=reset, 1-4=main,
 // 5/6=d3c, 7=e20, 8=f3c); every worker call gets its own jal-site ra constant
 // set immediately before the call.
@@ -2404,7 +2390,7 @@ void Engine::fieldTransitionFaithful() {
   c->r[29] += 24;
 }
 
-// Faithful mirror of ov_game_gen_80107AFC. Frame: sp-=24, r31 spill @sp+20, r16
+// Faithful mirror of overlay guest 0x80107AFC. Frame: sp-=24, r31 spill @sp+20, r16
 // spill @sp+16 (r16 is a dead s-reg for our control flow -- spilled/restored
 // verbatim for byte-fidelity only).
 void Engine::transitionMainFaithful() {
@@ -2420,13 +2406,13 @@ void Engine::transitionMainFaithful() {
     case 0:
       c->mem_w8(0x1f800234u, 1);
       c->r[31] = 0x80107B50u;
-      rec_dispatch(c, 0x8007A810u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8007A810u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[31] = 0x80107B58u;
-      rec_dispatch(c, 0x800798F8u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x800798F8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[31] = 0x80107B60u;
-      rec_dispatch(c, 0x8007B0F0u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8007B0F0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[31] = 0x80107B68u;
-      rec_dispatch(c, 0x801079ACu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x801079ACu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       sm = c->mem_r32(0x1f800138u);
       c->mem_w8(sm + 0x6b, 0x1f);
       c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
@@ -2438,7 +2424,7 @@ void Engine::transitionMainFaithful() {
       c->r[6] = 0;
       c->r[7] = 1;
       c->r[31] = 0x80107BB4u;
-      rec_dispatch(c, 0x80044BD4u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80044BD4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       goto epilogue;
     case 1: {
       sm = c->mem_r32(0x1f800138u);
@@ -2474,13 +2460,13 @@ void Engine::transitionMainFaithful() {
         c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
         c->r[4] = 0;
         c->r[31] = 0x80107CDCu;
-        rec_dispatch(c, 0x80050894u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80050894u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       }
       break;
     }
     case 4:
       c->r[31] = 0x80107D0Cu;
-      rec_dispatch(c, 0x80074E48u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80074E48u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       sm = c->mem_r32(0x1f800138u);
       c->mem_w16(sm + 0x48, 2);
       c->mem_w16(sm + 0x4a, 1);
@@ -2494,20 +2480,20 @@ void Engine::transitionMainFaithful() {
   // per-frame update tail (states 1/2/3 fall through here; state 0/4 skip it
   // via goto epilogue)
   c->r[31] = 0x80107CE4u;
-  rec_dispatch(c, 0x80059C60u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80059C60u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[31] = 0x80107CECu;
-  rec_dispatch(c, 0x8006EF38u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8006EF38u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[31] = 0x80107CF4u;
-  rec_dispatch(c, 0x8007B008u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8007B008u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[31] = 0x80107CFCu;
-  rec_dispatch(c, 0x8003FA1Cu);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8003FA1Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 epilogue:
   c->r[31] = c->mem_r32(sp + 20);
   c->r[16] = c->mem_r32(sp + 16);
   c->r[29] += 24;
 }
 
-// Faithful mirror of ov_game_gen_80107D3C. Frame: sp-=24, r16 spill @sp+16, r31
+// Faithful mirror of overlay guest 0x80107D3C. Frame: sp-=24, r16 spill @sp+16, r31
 // spill @sp+20.
 void Engine::transitionD3cFaithful() {
   Core *c = core;
@@ -2519,7 +2505,7 @@ void Engine::transitionD3cFaithful() {
   uint16_t st = c->mem_r16(sm + 0x4e);
   if (st == 1) {
     c->r[31] = 0x80107DC8u;
-    rec_dispatch(c, 0x8003FB84u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8003FB84u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     sm = c->mem_r32(0x1f800138u);
     c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
   } else if (st == 0) {
@@ -2531,11 +2517,11 @@ void Engine::transitionD3cFaithful() {
     c->r[6] = 0;
     c->r[7] = 1;
     c->r[31] = 0x80107DB8u;
-    rec_dispatch(c, 0x80044BD4u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80044BD4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   } else if (st == 2) {
     if (c->mem_r8(0x1f80019bu) == 0) {
       c->r[31] = 0x80107E10u;
-      rec_dispatch(c, 0x8003EA88u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8003EA88u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     } else {
       sm = c->mem_r32(0x1f800138u);
       c->mem_w16(sm + 0x48, 2);
@@ -2549,7 +2535,7 @@ void Engine::transitionD3cFaithful() {
   c->r[29] += 24;
 }
 
-// Faithful mirror of ov_game_gen_80107E20. Frame: sp-=32,
+// Faithful mirror of overlay guest 0x80107E20. Frame: sp-=32,
 // r16@sp+16/r17@sp+20/r18@sp+24/r31@sp+28.
 void Engine::transitionE20Faithful() {
   Core *c = core;
@@ -2563,15 +2549,15 @@ void Engine::transitionE20Faithful() {
   uint16_t st = c->mem_r16(sm + 0x4e);
   if (st == 1) {
     c->r[31] = 0x80107ECCu;
-    rec_dispatch(c, 0x8003E264u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8003E264u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     sm = c->mem_r32(0x1f800138u);
     c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
   } else if (st == 0) {
     c->r[4] = 9;
     c->r[31] = 0x80107E80u;
-    rec_dispatch(c, 0x80074BF8u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80074BF8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->r[31] = 0x80107E88u;
-    rec_dispatch(c, 0x8003E264u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8003E264u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     sm = c->mem_r32(0x1f800138u);
     c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
     c->mem_w8(0x1f800234u, 1);
@@ -2580,13 +2566,13 @@ void Engine::transitionE20Faithful() {
     c->r[6] = 0;
     c->r[7] = 1;
     c->r[31] = 0x80107EBCu;
-    rec_dispatch(c, 0x80044BD4u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80044BD4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   } else if (st == 2) {
     c->r[31] = 0x80107EF0u;
-    rec_dispatch(c, 0x8003E894u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8003E894u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     if (c->mem_r8(0x1f80019bu) != 0) {
       c->r[31] = 0x80107F0Cu;
-      rec_dispatch(c, 0x80074E48u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80074E48u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       sm = c->mem_r32(0x1f800138u);
       c->mem_w16(sm + 0x48, 2);
       c->mem_w16(sm + 0x4a, 1);
@@ -2601,9 +2587,9 @@ void Engine::transitionE20Faithful() {
   c->r[29] += 32;
 }
 
-// Faithful mirror of ov_game_gen_80107F3C. Frame: sp-=24, r31 spill @sp+16 (no
+// Faithful mirror of overlay guest 0x80107F3C. Frame: sp-=24, r31 spill @sp+16 (no
 // s-reg spills). State 0 uses the TEXGROUP loader (0x80044f58) instead of the
-// area loader (0x800452c0) -- both go through FUN_80044BD4 (rec_dispatch ->
+// area loader (0x800452c0) -- both go through FUN_80044BD4 (typed runtime address dispatch ->
 // PcScheduler::spawnAndWait), NOT a direct sync call.
 void Engine::transitionF3cFaithful() {
   Core *c = core;
@@ -2617,9 +2603,9 @@ void Engine::transitionF3cFaithful() {
     case 0: {
       c->r[4] = 9;
       c->r[31] = 0x80107F84u;
-      rec_dispatch(c, 0x80074BF8u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80074BF8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[31] = 0x80107F8Cu;
-      rec_dispatch(c, 0x8003E264u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8003E264u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->mem_w8(0x1f800234u, 1);
       sm = c->mem_r32(0x1f800138u);
       // gen: (int16_t) SIGNED 16-bit read of 0x1f800240, +26, &0xff -- NOT a
@@ -2631,47 +2617,47 @@ void Engine::transitionF3cFaithful() {
       c->r[7] = 1;
       c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
       c->r[31] = 0x80107FD0u;
-      rec_dispatch(c, 0x80044BD4u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80044BD4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     }
     case 1:
     case 5:
       c->r[31] = 0x80108098u;
-      rec_dispatch(c, 0x8003E264u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8003E264u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       sm = c->mem_r32(0x1f800138u);
       c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
       break;
     case 2:
       c->r[31] = 0x80107FE0u;
-      rec_dispatch(c, 0x8003E894u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8003E894u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       if (c->mem_r8(0x1f80019bu) != 0) {
         sm = c->mem_r32(0x1f800138u);
         c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
         c->r[31] = 0x80108010u;
-        rec_dispatch(c, 0x80074E48u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80074E48u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         c->r[31] = 0x80108018u;
         eng(c).audioDispatch.zoneTransitionSetup(9); // native, FUN_8001D71C
         c->r[31] = 0x80108020u;
-        rec_dispatch(c, 0x8003FB94u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x8003FB94u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       }
       break;
     case 3:
       c->r[31] = 0x80108030u;
-      rec_dispatch(c, 0x8003EBE0u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8003EBE0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       if (c->r[2] == 0) {
         goto epilogue; // still running -> stay
       }
       c->r[31] = 0x80108040u;
-      rec_dispatch(c, 0x8001CF2Cu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8001CF2Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       sm = c->mem_r32(0x1f800138u);
       c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
       break;
     case 4:
       c->r[4] = 8;
       c->r[31] = 0x80108050u;
-      rec_dispatch(c, 0x80074BF8u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80074BF8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[31] = 0x80108058u;
-      rec_dispatch(c, 0x8003E264u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8003E264u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       sm = c->mem_r32(0x1f800138u);
       c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
       c->r[4] = 0x800452C0u;
@@ -2679,14 +2665,14 @@ void Engine::transitionF3cFaithful() {
       c->r[6] = 0;
       c->r[7] = 1;
       c->r[31] = 0x80108088u;
-      rec_dispatch(c, 0x80044BD4u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80044BD4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     case 6:
       c->r[31] = 0x801080C0u;
-      rec_dispatch(c, 0x8003E894u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8003E894u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       if (c->mem_r8(0x1f80019bu) != 0) {
         c->r[31] = 0x801080DCu;
-        rec_dispatch(c, 0x80074E48u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80074E48u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         sm = c->mem_r32(0x1f800138u);
         c->mem_w16(sm + 0x48, 2);
         c->mem_w16(sm + 0x4a, 1);
@@ -2709,7 +2695,7 @@ epilogue:
 // state 1 = run ov_field_frame_x and check the mode-3 / area-change exit
 // conditions to hand back to the normal running handler (sm[0x4c]=2); state 2 =
 // bump to 1. Faithful to the disasm (hand-decompiled from the field overlay).
-// pc_faithful mirror of ov_game_gen_801070B4 (mid-transition running
+// pc_faithful mirror of overlay guest 0x801070B4 (mid-transition running
 // sub-machine, sm[0x4c]==3). Guest frame descent (24, ra spilled at sp+16) +
 // r31 set to the exact gen jal-site constant before every dispatch/native-call
 // boundary, so every callee's own frame push lands with the right ra at the
@@ -2733,22 +2719,23 @@ void Engine::fieldRunXFaithful() {
     if (s4e == 0) { // L_80107100: init
       c->r[31] = 0x80107108u;
       c->mem_w16(sm + 0x4e, 1);
-      rec_dispatch(c, 0x8006c77cu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8006c77cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[4] = 0;
       c->r[5] = 0;
       c->r[6] = 0;
       c->r[31] = 0x80107118u;
-      rec_dispatch(c, 0x8005082cu); // input reset
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x8005082cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // input reset
       // fall through to state 1 (L_80107118)
     }
 
     c->r[31] = 0x80107120u;
-    eng(c).fieldFrameX(); // ov_game_func_80108BE4 -- native owner
+    eng(c).fieldFrameX(); // overlay guest 0x80108BE4 -- native owner
 
     if (c->mem_r8(0x800bf80du) == 3) { // mode-3 exit (0x80107138)
       if (c->mem_r8(0x800bf80fu) == 0) {
         c->r[31] = 0x80107150u;
-        eng(c).audioDispatch.settleField(); // native owner -- was rec_dispatch
+        eng(c).audioDispatch.settleField(); // native owner -- was typed runtime address dispatch
                                             // 0x80074BC4
         sm = c->mem_r32(0x1f800138u);
         c->mem_w16(sm + 0x4c, 2); // back to normal running handler
@@ -2774,7 +2761,7 @@ void Engine::fieldRunXFaithful() {
           if (c->mem_r8(0x1f800236u) >= 5) { // 0x801071f0
             c->r[31] = 0x801071f8u;
             c->r[4] = 0;
-            rec_dispatch(c, 0x80050894u);
+            psx::cpu::dispatchGuestToReturn0(*c, 0x80050894u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
           }
           sm = c->mem_r32(0x1f800138u);
           c->mem_w16(sm + 0x4a, 1);
@@ -2791,10 +2778,6 @@ void Engine::fieldRunXFaithful() {
 
 void Engine::fieldRunX() {
   Core *c = core;
-  if (c->game && !c->game->native_sync) {
-    MV_CHECK(c, 0x801070B4u, fieldRunXFaithful());
-    return;
-  } // faithful: gen mirror, r31/frame discipline
   uint32_t sm = c->mem_r32(0x1f800138u);
   uint16_t s4e = c->mem_r16(sm + 0x4e);
   if (s4e >= 2) {
@@ -2810,7 +2793,7 @@ void Engine::fieldRunX() {
     // PcScheduler::spawnAndWait runs the spawned body inline when the waiting
     // task cannot suspend (kanban #50).
     c->r[31] = 0x80107108u;
-    rec_dispatch(c, 0x8006c77cu);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8006c77cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     d3(c, 0x8005082cu, 0, 0, 0); // input reset
     // fall through to state 1
   }
@@ -2819,7 +2802,7 @@ void Engine::fieldRunX() {
     if (c->mem_r8(0x800bf80fu) != 0) {
       return;
     }
-    eng(c).audioDispatch.settleField(); // native — was rec_dispatch 0x80074BC4
+    eng(c).audioDispatch.settleField(); // native — was typed runtime address dispatch 0x80074BC4
     sm = c->mem_r32(0x1f800138u);
     c->mem_w16(sm + 0x4c, 2); // back to normal running handler
     int16_t e_s = c->mem_r16s(0x800e7feeu);
@@ -2857,7 +2840,7 @@ void Engine::fieldRunX() {
   c->mem_w16(sm + 0x4e, 6);
 }
 
-// pc_faithful walkable-field area machine — mirror of ov_game_gen_801088D8 (7
+// pc_faithful walkable-field area machine — mirror of overlay guest 0x801088D8 (7
 // states on sm[0x4c]). Same recipe as Sop::fieldModeFaithful: guest frame +
 // jal-site ras; every un-owned leaf is the substrate dispatch at its RE'd jal
 // site; owned states run the native Engine methods. Case 0 dispatches the REAL
@@ -2878,13 +2861,17 @@ void Engine::submode1Faithful() {
     switch (s4c) {
     case 0: // L_80108918
       c->r[31] = 0x80108920u;
-      rec_dispatch(c, 0x8005245Cu);     // sound/CD setup leaf
-      c->r[4] = 0x800452C0u;            // area-DATA loader (task-1 body)
-      c->r[5] = c->mem_r8(0x800BF870u); // area index
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x8005245Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // sound/CD setup leaf
+      c->r[4] = 0x800452C0u;                                                      // area-DATA loader (task-1 body)
+      c->r[5] = c->mem_r8(0x800BF870u);                                           // area index
       c->r[6] = 0;
       c->r[7] = 2;
       c->r[31] = 0x8010893Cu;
-      rec_dispatch(c, 0x80044BD4u); // spawn-and-wait — parks the stage fiber
+      psx::cpu::dispatchGuestToReturn0(*c,
+                                       0x80044BD4u,
+                                       psx::cpu::ExecutionBudget::currentTurn(*c),
+                                       __func__); // spawn-and-wait — parks the stage fiber
       /* fallthrough */
     case 1: { // L_8010893C
       c->mem_w8(0x1f800234u, 0);
@@ -2904,15 +2891,15 @@ void Engine::submode1Faithful() {
       break;
     case 4:
       c->r[31] = 0x80108994u;
-      rec_dispatch(c, 0x80107230u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80107230u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     case 5:
       c->r[31] = 0x801089A4u;
-      rec_dispatch(c, 0x8010766Cu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8010766Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     case 6:
       c->r[31] = 0x801089B4u;
-      rec_dispatch(c, 0x80107790u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80107790u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     default:
       break;
@@ -2924,22 +2911,15 @@ void Engine::submode1Faithful() {
 
 void Engine::submode1Case0Native() {
   Core *c = core;
-  rec_dispatch(c, 0x8005245cu);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8005245cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   // The owned load is synchronous: retain FUN_80044BD4's flag-2 RNG stamp, then
   // continue without manufacturing a wait frame or loading-screen service.
   c->game->pcSched.completeSyncWait(c->mem_r32(0x1f800138u), /*flag=*/2);
-  SV_CHECK(c,
-           0x800452C0u,
-           sop.transitionAreaLoad(),
-           rec_dispatch(c, 0x800452C0u)); // observable gate vs the 0x800452C0 oracle
+  sop.transitionAreaLoad();
 }
 
 void Engine::submode1() {
   Core *c = core;
-  if (c->game && !c->game->native_sync) {
-    submode1Faithful();
-    return;
-  } // faithful: gen mirror on the stage fiber
   uint32_t sm = c->mem_r32(0x1f800138u);
   uint16_t s4c = c->mem_r16(sm + 0x4c);
   if (s4c <= 1) {
@@ -2967,13 +2947,13 @@ void Engine::submode1() {
     eng(c).fieldRunX();
     break; // mid-transition running sub-machine 0x801070b4 — native
   case 4:
-    rec_dispatch(c, 0x80107230u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80107230u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     break;
   case 5:
-    rec_dispatch(c, 0x8010766cu);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8010766cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     break;
   case 6:
-    rec_dispatch(c, 0x80107790u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80107790u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     break;
   default:
     break; // >=7: no-op
@@ -2994,7 +2974,7 @@ int Engine::frame() {
   Core *c = core;
   // Screen fade: reset at the top of every logic frame (PSX-faithful — OT slot
   // 4 empties each frame, so a frame with no NATIVE fade caller = no fade rect.
-  // Native SMs push after this via fade(c).applyLeafCall / set. Still-recomp
+  // Native SMs push after this via fade(c).applyLeafCall / set. Still-guest instruction path
   // SMs' fade calls don't reach the class yet — those are the top-down port
   // frontier for closing coverage.
   fade(c).frameStart();
@@ -3082,7 +3062,7 @@ void Engine::stagePrologue() {
 }
 
 // pc_faithful GAME stage body (fiber task; see engine.h). Byte shape:
-// ov_game_gen_8010637C + ov_game_gen_801063F4. stagePrologue leaves the guest
+// overlay guest 0x8010637C + overlay guest 0x801063F4. stagePrologue leaves the guest
 // frame descended and s0/s1/s2 holding the loop constants, exactly like the
 // substrate (the frame stays live for the whole stage). frame() bumps the
 // 0x1F800198 counter itself when it handles the state; the unowned-state
@@ -3098,30 +3078,33 @@ void Engine::stageBodyFaithful() {
       uint16_t s48 = c->mem_r16(sm + 0x48);
       if (s48 == 1) {
         c->r[31] = 0x8010644Cu;
-        rec_dispatch(c, 0x80108720u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80108720u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       } else if (s48 == 0) {
         c->r[31] = 0x8010643Cu;
-        rec_dispatch(c, 0x801086E0u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x801086E0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       } else if (s48 == 2) {
         c->r[31] = 0x8010645Cu;
-        rec_dispatch(c, 0x80108784u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80108784u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       }
       c->mem_w16(0x1f800198u, (uint16_t)(c->mem_r16(0x1f800198u) + 1));
     }
     c->r[4] = 1;
     c->r[31] = 0x80106470u;
-    rec_dispatch(c, 0x80051F80u); // loop-tail yield (override registry -> yieldPrim)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x80051F80u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // loop-tail yield (override registry -> yieldPrim)
   }
 }
 
-// OLD guest-loop entry (prologue + coro-redirect into the guest loop
+// OLD guest-loop entry (prologue + guest-continuation into the guest loop
 // 0x801063F4). SUPERSEDED by the native per-frame path (game_native in
 // PcScheduler::step calls eng(c).stagePrologue + eng(c).frame). Retained as a
 // reference / fallback; not on the live path.
 void Engine::stageMain() {
   Core *c = core;
   stagePrologue();
-  rec_coro_redirect(c, 0x801063F4u);
+  tomba::requestGuestContinuation(*c, 0x801063F4u);
 }
 
 // Engine::areaModeDispatch — the 22-way area-mode dispatcher at guest
@@ -3130,22 +3113,22 @@ void Engine::stageMain() {
 // resident stub (0x8001CB00, 0x8001CB10, ..., 0x8001CB90) that `jal
 // <overlay-handler>` then falls through to the shared epilogue 0x8001CB98.
 // Modes 1,2,3,8,9, 12,14,16,17,18,19,20 point to the epilogue directly (no-op
-// for that mode). We skip the stub hop and rec_dispatch the overlay handler
+// for that mode). We skip the stub hop and typed runtime address dispatch the overlay handler
 // directly. a0 = 0x800ED018 (fixed arg the dispatcher sets before the indirect
 // jr, kept identical). Engine::areaModeDispatchFaithful — byte-exact mirror of
-// gen_func_8001CAC0. The literal recompiler translation
-// (generated/shard_2.c:348-363) always descends a 24-byte frame and spills the
+// guest 0x8001CAC0. The literal recorded guest instruction listing
+// (authenticated executable/overlay evidence) always descends a 24-byte frame and spills the
 // incoming ra to sp+16 BEFORE testing the mode-index bound (MIPS delay-slot
 // store executes unconditionally). For a valid index (10 of 22 slots:
 // 0,4,5,6,7,10,11,13,15,21) the resident table at 0x80010000 holds the address
 // of a small STUB (0x8001CB00, CB10, CB20, CB30, CB40, CB50, CB60, CB70, CB80,
 // CB90) — never the overlay handler directly. Each stub sets r31 to its OWN
-// jal-site return address (stub_addr+8) before rec_dispatching the overlay
-// handler (generated/shard_{3,4,5,6,7,1}.c), then falls into the shared
-// epilogue gen_func_8001CB98 (r31 = mem_r32(sp+16); sp += 24). The other 12
+// jal-site return address (stub_addr+8) before dynamically dispatching the overlay
+// handler (authenticated executable/overlay evidence{3,4,5,6,7,1}.c), then falls into the shared
+// epilogue guest 0x8001CB98 (r31 = mem_r32(sp+16); sp += 24). The other 12
 // in-range indices (1,2,3,8,9,12,14,16,17,18,19,20) have a table entry that IS
 // 0x8001CB98 directly (no stub, no overlay call) — same for out-of-range
-// idx>=22, which gen_func_8001CAC0 special-cases to call func_8001CB98 without
+// idx>=22, which guest 0x8001CAC0 special-cases to call guest 0x8001CB98 without
 // even reading the table. All non-dispatching paths still perform the full
 // sp-24/spill/restore round trip, so the transient guest-stack word at
 // (orig_sp-8) is always overwritten with the caller's ra, exactly like gen —
@@ -3159,7 +3142,7 @@ void Engine::areaModeDispatchFaithful() {
              c->r[31]); // unconditional prologue spill (gen's delay-slot store)
   uint8_t idx = c->mem_r8(0x800BF870u);
   if (idx >= 22) {
-    rec_dispatch(c, 0x8001CB98u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8001CB98u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return;
   } // out-of-range: straight to shared epilogue
   static const uint32_t handler[22] = {
@@ -3190,24 +3173,22 @@ void Engine::areaModeDispatchFaithful() {
   };
   uint32_t target = handler[idx];
   if (!target) {
-    rec_dispatch(c, 0x8001CB98u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8001CB98u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return;
   } // table entry IS the epilogue addr for no-op modes
   c->r[4] = 0x800ED018u;  // a0 carried through from gen's early (dead-looking
                           // but live) load
   c->r[31] = stubRa[idx]; // mode-specific stub jal-site ra, NOT the field-frame
                           // caller's ra
-  rec_dispatch(c, target);
-  rec_dispatch(c,
-               0x8001CB98u); // shared epilogue: r31 = mem_r32(sp+16); sp += 24
+  psx::cpu::dispatchGuestToReturn0(*c, target, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x8001CB98u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // shared epilogue: r31 = mem_r32(sp+16); sp += 24
 }
 
 void Engine::areaModeDispatch() {
   Core *c = core;
-  if (c->game && !c->game->native_sync) {
-    MV_CHECK(c, 0x8001CAC0u, areaModeDispatchFaithful());
-    return;
-  } // faithful: gen+stub+epilogue mirror
   uint8_t idx = c->mem_r8(0x800BF870u);
   if (idx >= 22) {
     return;
@@ -3230,7 +3211,7 @@ void Engine::areaModeDispatch() {
     return;
   }
   c->r[4] = 0x800ED018u;
-  rec_dispatch(c, target);
+  psx::cpu::dispatchGuestToReturn0(*c, target, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 
 // Engine::sceneStateStep — the SCENE-INIT / SCENE-RUN state machine at guest
@@ -3239,28 +3220,28 @@ void Engine::areaModeDispatch() {
 // @0x80015A98 run, both keyed by 0x800BF870 = the area render-mode byte).
 // Handlers take a0 = the scene-state base 0x800F2418; the INIT branch
 // transitions phase 0 -> 1 after dispatch (default idx 9 sets phase=1 too — the
-// recomp's L_80050F90 label). All non-INIT/RUN phases no-op.
-// Engine::sceneStateStepFaithful — byte-exact mirror of gen_func_80050DE4
+// guest instruction path's L_80050F90 label). All non-INIT/RUN phases no-op.
+// Engine::sceneStateStepFaithful — byte-exact mirror of guest 0x80050DE4
 // (guest 0x80050DE4). Frame: sp -= 24; spill r16@sp+16 (unconditional, before
 // r16 is repurposed as the SCENE_STATE pointer); spill ra@sp+20 (unconditional
 // -- gen's branch-delay slot on the very first test, runs on every path). Both
 // restored at the single shared epilogue below (mirrors gen's L_80051118,
 // reached from every exit including the phase-out-of-range no-op). Every
-// rec_dispatch is preceded by r31 = the gen's per-index jal-site return address
+// typed runtime address dispatch is preceded by r31 = the gen's per-index jal-site return address
 // (required so a handler's own ra-spill lands on the same value CoreB
 // produces). The INIT block ALWAYS writes phase=1 to SCENE_STATE on the way out
 // -- including the idx==9 null-handler and the idx>=22 out-of-range case (gen's
 // shared L_80050F90 -> L_80050F94 fallback); the RUN block never writes
 // SCENE_STATE, in any case.
 //
-// v0 (r2) end-state (bug #TDD-80050DE4): the gen body is a literal MIPS
+// v0 (r2) end-state (bug #TDD-80050DE4): the guest-visible behavior is a literal MIPS
 // register-reuse translation that leaves v0 holding whichever scratch value the
 // LAST instruction on the taken path happened to write, even on paths that
 // dispatch nothing -- there is no dedicated "return value" in the source. The
 // original mirror never touched c->r[2] at all, so v0 leaked whatever the
-// PREVIOUS rec_dispatch call (elsewhere) had left there (observed: 0x80150000)
-// instead of the gen's own constant.  Traced every exit in generated/shard_7.c
-// (gen_func_80050DE4, lines 6729-6929):
+// PREVIOUS typed runtime address dispatch call (elsewhere) had left there (observed: 0x80150000)
+// instead of the gen's own constant.  Traced every exit in authenticated executable/overlay evidence
+// (guest 0x80050DE4, lines 6729-6929):
 //   - INIT (phase==0), idx<22 dispatched, idx==9 null, AND idx>=22 out-of-range
 //   ALL converge on
 //     L_80050F90 ("r2 = r0+1") -> L_80050F94 ("mem_w8(SCENE_STATE, r2)") ->
@@ -3269,7 +3250,7 @@ void Engine::areaModeDispatch() {
 //     falling into L_80050F94).
 //   - RUN (phase==1), idx<22 with a real target: v0 == the dispatched handler's
 //   own return value
-//     (falls out naturally from rec_dispatch reusing c->r[2] as its ABI return
+//     (falls out naturally from typed runtime address dispatch reusing c->r[2] as its ABI return
 //     slot -- no fixup needed here).
 //   - RUN, idx==9 (null slot): gen loads the RUN table entry (0x80051118, the
 //   epilogue label used
@@ -3312,7 +3293,10 @@ void Engine::sceneStateStepFaithful() {
       if (target) {
         c->r[31] = runRa[idx];
         c->r[4] = c->r[16];
-        rec_dispatch(c, target); // v0 = handler's own return value (natural)
+        psx::cpu::dispatchGuestToReturn0(*c,
+                                         target,
+                                         psx::cpu::ExecutionBudget::currentTurn(*c),
+                                         __func__); // v0 = handler's own return value (natural)
       } else {
         c->r[2] = 0x80051118u; // idx==9: gen's RUN-table literal, no call made
       }
@@ -3339,8 +3323,10 @@ void Engine::sceneStateStepFaithful() {
       if (target) {
         c->r[31] = initRa[idx];
         c->r[4] = c->r[16];
-        rec_dispatch(c,
-                     target); // v0 clobbered again below, matching gen's post-call reset
+        psx::cpu::dispatchGuestToReturn0(*c,
+                                         target,
+                                         psx::cpu::ExecutionBudget::currentTurn(*c),
+                                         __func__); // v0 clobbered again below, matching gen's post-call reset
       }
     }
     c->r[2] = 1;                              // gen: v0 == 1 on EVERY INIT exit (dispatched, idx==9, idx>=22
@@ -3361,10 +3347,6 @@ void Engine::sceneStateStepFaithful() {
 // 0x80050DE4. See engine.h.
 void Engine::sceneStateStep() {
   Core *c = core;
-  if (c->game && !c->game->native_sync) {
-    MV_CHECK(c, 0x80050DE4u, sceneStateStepFaithful());
-    return;
-  } // faithful: gen mirror
   static constexpr uint32_t SCENE_STATE = 0x800F2418u;
   int8_t phase = c->mem_r8s(SCENE_STATE);
 
@@ -3392,7 +3374,7 @@ void Engine::sceneStateStep() {
       return;
     }
     c->r[4] = SCENE_STATE;
-    rec_dispatch(c, target);
+    psx::cpu::dispatchGuestToReturn0(*c, target, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return;
   }
   if (phase != 0) {
@@ -3421,7 +3403,7 @@ void Engine::sceneStateStep() {
   uint32_t target = init[idx];
   if (target) {
     c->r[4] = SCENE_STATE;
-    rec_dispatch(c, target);
+    psx::cpu::dispatchGuestToReturn0(*c, target, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   }
   c->mem_w8(SCENE_STATE,
             1); // advance to RUN (all L_80050F94 paths, incl. the default at idx 9)
@@ -3438,8 +3420,8 @@ void Engine::sceneStateStep() {
 #include "ai/behaviors.h" // Behaviors::areaSeasidePerframe (FUN_80113C5C)
 
 // Engine::modePerFrameDispatchFaithful — pc_faithful mirror of
-// gen_func_80022A80 (disasm-verified 0x80022A80-0x80022AC8; the C body in
-// generated/shard_6.c also contains ~1.3KB of unrelated dead code from an
+// guest 0x80022A80 (disasm-verified 0x80022A80-0x80022AC8; the C body in
+// authenticated executable/overlay evidence also contains ~1.3KB of unrelated dead code from an
 // unlabeled neighboring function up to 0x8002313C — not part of this
 // dispatcher, see findings). Guest frame: sp-=24, ra spilled to sp+16
 // UNCONDITIONALLY (delay-slot store — fires on both the idx==3 early-return
@@ -3464,7 +3446,10 @@ void Engine::modePerFrameDispatchFaithful() {
     // 18+ stack/hi-lo diffs). It stays the native_sync shortcut below; the
     // faithful conversion of 0x80113C5C is a behaviors-wave item (lib-fallback
     // recipe meanwhile).
-    rec_dispatch(c, target); // NO null check — matches gen, fails fast on target==0
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     target,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // NO null check — matches gen, fails fast on target==0
   }
   c->r[31] = c->mem_r32(sp + 16);
   c->r[29] += 24;
@@ -3472,10 +3457,6 @@ void Engine::modePerFrameDispatchFaithful() {
 
 void Engine::modePerFrameDispatch() {
   Core *c = core;
-  if (c->game && !c->game->native_sync) {
-    MV_CHECK(c, 0x80022A80u, modePerFrameDispatchFaithful());
-    return;
-  } // faithful: gen mirror
   uint8_t idx = c->mem_r8(0x800BF870u);
   if (idx == 3) {
     return;
@@ -3490,7 +3471,7 @@ void Engine::modePerFrameDispatch() {
     Behaviors::areaSeasidePerframe(c);
     return;
   }
-  rec_dispatch(c, target);
+  psx::cpu::dispatchGuestToReturn0(*c, target, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 
 // Engine::postRenderTick — 3-state fx-trigger + countdown on byte 0x800BF842 at
@@ -3499,10 +3480,6 @@ void Engine::modePerFrameDispatch() {
 // b42. Zero = no-op. FX 41/42 leaf FUN_80074590 stays substrate.
 void Engine::postRenderTick() {
   Core *c = core;
-  if (c->game && !c->game->native_sync) {
-    MV_CHECK(c, 0x80077D8Cu, postRenderTickFaithful());
-    return;
-  }
   uint8_t b = c->mem_r8(0x800BF842u);
   if (b == 0) {
     return;
@@ -3521,19 +3498,19 @@ void Engine::postRenderTick() {
   c->mem_w8(0x800BF842u, (uint8_t)(b - 1));
 }
 
-// Engine::postRenderTickFaithful -- byte-exact mirror of gen_func_80077D8C.
+// Engine::postRenderTickFaithful -- byte-exact mirror of guest 0x80077D8C.
 // Descends the gen's own 24-byte guest frame, spills s0 (r16, the 0x800BF808
 // struct base) at sp+16 and the caller's ra at sp+20 exactly like the
 // reference-mirror shape (Engine::submode1Faithful), sets r31 to the gen's
 // jal-site constant before the FX-trigger leaf, and dispatches that leaf via
-// rec_dispatch so it runs the literal substrate body gen_func_80074590 (no
+// typed runtime address dispatch so it runs the literal substrate body guest 0x80074590 (no
 // override-registry entry exists for 0x80074590, so this is guaranteed
-// byte-identical -- including gen_func_80074590's own ra-to-stack spill, which
+// byte-identical -- including guest 0x80074590's own ra-to-stack spill, which
 // the native Sfx::trigger port does not reproduce and must not be used here).
-// v0/v1 (r2/r3) are dead to every known caller but gen_func_80077D8C leaves
+// v0/v1 (r2/r3) are dead to every known caller but guest 0x80077D8C leaves
 // them holding whatever value each branch happened to compute (b, b&0x7f, 135,
 // 0, 0x800C0000, 0x800BF808, b-1) instead of restoring/clearing them -- the
-// mirror must reproduce that leftover ABI end-state per-branch or MV_CHECK's
+// mirror must reproduce that leftover ABI end-state per-branch or strict replay check's
 // v0/v1 compare fails.
 void Engine::postRenderTickFaithful() {
   Core *c = core;
@@ -3555,9 +3532,12 @@ void Engine::postRenderTickFaithful() {
       c->r[4] = 41;
       c->r[5] = 2;
       c->r[6] = (uint32_t)-65;
-      c->r[31] = 0x80077DDCu;       // gen's jal-site ra for this call
-      rec_dispatch(c, 0x80074590u); // -> gen_func_80074590 (substrate, un-owned leaf)
-      c->r[2] = 135;                // v0 = 135 (gen literal, r3/v1 stays == 1)
+      c->r[31] = 0x80077DDCu; // gen's jal-site ra for this call
+      psx::cpu::dispatchGuestToReturn0(*c,
+                                       0x80074590u,
+                                       psx::cpu::ExecutionBudget::currentTurn(*c),
+                                       __func__); // -> guest 0x80074590 (substrate, un-owned leaf)
+      c->r[2] = 135;                              // v0 = 135 (gen literal, r3/v1 stays == 1)
       c->mem_w8(c->r[16] + 58, (uint8_t)c->r[2]);
     } else if (low == 2) {
       c->r[3] = 0x800C0000u; // v1 = lui r3,0x800c (gen's delay-slot clobber of low)
@@ -3565,7 +3545,7 @@ void Engine::postRenderTickFaithful() {
       c->r[5] = 2;
       c->r[6] = (uint32_t)-65;
       c->r[31] = 0x80077DF8u; // gen's jal-site ra for this call
-      rec_dispatch(c, 0x80074590u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80074590u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[2] = 0; // v0 = r0
       c->mem_w8(c->r[16] + 58, 0);
     } else {
@@ -3591,15 +3571,11 @@ void Engine::postRenderTickFaithful() {
 // future target).
 void Engine::frameStartTick() {
   Core *c = core;
-  if (c->game && !c->game->native_sync) {
-    frameStartTickFaithful();
-    return;
-  } // yields — SBS-gated: mode-keyed
   // dispatch (d) reaches dynamically-loaded overlay handlers
   // (0x8010F63C/0x80109024/0x80112220/ 0x8010F654) that can scheduler_yield;
-  // MV_CHECK's synchronous strictCheck only supports yield-free mirrors
+  // strict replay check's synchronous strictCheck only supports yield-free mirrors
   // (strictCheck aborts while inCheck), so this fork is a plain call, proven by
-  // SBS full (core A vs core B), not MV_CHECK.
+  // SBS full (core A vs core B), not strict replay check.
   static constexpr uint32_t G = 0x800E7E80u; // master G block base (== s0 in the guest)
 
   // (a) counter@0x800BF819: if nonzero, decrement + mask two 12-bit heading
@@ -3642,7 +3618,7 @@ void Engine::frameStartTick() {
       break;
     }
     c->r[4] = G;
-    rec_dispatch(c, target);
+    psx::cpu::dispatchGuestToReturn0(*c, target, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->mem_w8(0x1F800230u, 0);
   }
 
@@ -3670,19 +3646,19 @@ void Engine::frameStartTick() {
   (void)rngOf(c).next();
 }
 
-// Engine::frameStartTickFaithful — byte-exact mirror of gen_func_80059D28
+// Engine::frameStartTickFaithful — byte-exact mirror of guest 0x80059D28
 // (guest 0x80059D28), the FIRST call in ov_field_frame's gameplay-update block.
 // Descends the guest frame (sp-=24), spills incoming r31/r16 at +20/+16 per the
 // gen prologue, and sets the gen's per-case jal-site r31 constant at every
-// dispatch/call boundary so callee guest-stack ra spills (e.g. func_8005950C's
+// dispatch/call boundary so callee guest-stack ra spills (e.g. guest 0x8005950C's
 // spill at its own sp+28) byte-match core B. Callees kept substrate: the
 // mode-keyed overlay handler (targets at
 // 0x8010F63C/0x80109024/0x80112220/0x8010F654 — dynamically-loaded overlay
-// code, not in generated/), FUN_8005950C default, and the rand LFSR advance at
+// code, not in authenticated executable/overlay evidence), FUN_8005950C default, and the rand LFSR advance at
 // 0x8009A450 — dispatched to the real gen leaf (not the native Rng class) so
 // its v0/v1/hi/lo side effects, which are still live at this function's own
 // return (rand is the last statement before the epilogue), byte-match core B;
-// gen_func_8009A450 never touches r31, so the r31 set before it is
+// guest 0x8009A450 never touches r31, so the r31 set before it is
 // precautionary discipline only.
 void Engine::frameStartTickFaithful() {
   Core *c = core;
@@ -3723,23 +3699,23 @@ void Engine::frameStartTickFaithful() {
     switch (mode) {
     case 2:
       c->r[31] = 0x80059DF8u;
-      rec_dispatch(c, 0x8010F63Cu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8010F63Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     case 3:
       c->r[31] = 0x80059E08u;
-      rec_dispatch(c, 0x80109024u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80109024u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     case 7:
       c->r[31] = 0x80059E18u;
-      rec_dispatch(c, 0x80112220u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80112220u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     case 20:
       c->r[31] = 0x80059E28u;
-      rec_dispatch(c, 0x8010F654u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8010F654u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     default:
       c->r[31] = 0x80059E38u;
-      rec_dispatch(c, 0x8005950Cu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8005950Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       break;
     }
     c->mem_w8(0x1F800230u, 0);
@@ -3764,7 +3740,7 @@ void Engine::frameStartTickFaithful() {
       c->mem_w8(G + 0x180u, (uint8_t)(v - 1));
     }
   }
-  // (h) advance rand LFSR. gen_func_8009A450 is the LAST statement in the guest
+  // (h) advance rand LFSR. guest 0x8009A450 is the LAST statement in the guest
   // body before the epilogue, so its v0/v1/hi/lo side effects (masked value in
   // v0, the 0x41C64E6D multiplier loaded into v1, MULT's hi/lo product) are
   // still live in those registers when this function returns — the strict
@@ -3773,10 +3749,10 @@ void Engine::frameStartTickFaithful() {
   // matching the shared stream with substrate callers) but is a plain C++ call
   // with no register-level side effects, so it silently dropped v0/v1/hi/lo.
   // Dispatch the real gen leaf instead so those registers land bit-for-bit like
-  // core B (gen_func_8009A450 is a pure no-yield leaf — a plain call/
-  // rec_dispatch is safe here, same as the mode-dispatch calls above).
+  // core B (guest 0x8009A450 is a pure no-yield leaf — a plain call/
+  // typed runtime address dispatch is safe here, same as the mode-dispatch calls above).
   c->r[31] = 0x80059EC8u;
-  rec_dispatch(c, 0x8009A450u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8009A450u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   c->r[31] = c->mem_r32(sp + 20);
   c->r[16] = c->mem_r32(sp + 16);
@@ -3845,10 +3821,13 @@ void Engine::startStage(uint32_t stage) {
   native_load_overlay(c, task + 0xc, stage);
   c->mem_w16(task, 3); // task state = 3 (active)
   c->mem_w8(task + 0x6f, 0);
-  rec_dispatch(c, 0x80080890u); // EnterCriticalSection (BIOS leaf)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80080890u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // EnterCriticalSection (BIOS leaf)
   c->r[4] = c->mem_r32(task + 4);
-  rec_dispatch(c, 0x80080870u); // B(0Fh) reset (BIOS leaf)
-  rec_dispatch(c, 0x800808a0u); // ExitCriticalSection (BIOS leaf)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80080870u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // B(0Fh) reset (BIOS leaf)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x800808a0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // ExitCriticalSection (BIOS leaf)
   c->r[4] = 0xff000000u;
   scheduler_yield(c); // ChangeThread — native scheduler yield
 }
@@ -3890,10 +3869,10 @@ static void read_guest_str(Core *c, uint32_t addr, char *out, int cap) {
 // ov_load_texgroup/ov_unpack_group. See asset.h for the two cross-TU-callable
 // entry points used below (preload_texgroup, preload_stage1).
 
-// Stage-0 START.BIN state machine (overlay 0x80106728), PC-native. Recomp body
+// Stage-0 START.BIN state machine (overlay 0x80106728), PC-native. guest instruction path
 // of 0x8010649C is a per-iteration yield loop over 4 sm[0x48] states (see
-// decomp of ov_start_gen_8010649C in generated/ov_start_shard_0.c). We
-// previously ran all states inline in ONE tick — that collapsed ~7 recomp ticks
+// decomp of overlay guest 0x8010649C in authenticated executable/overlay evidence). We
+// previously ran all states inline in ONE tick — that collapsed ~7 guest instruction path ticks
 // into 1, producing the Slip #1 residual (docs/findings/sbs.md). Now split via
 // Engine::stage0Advance() which is called by the scheduler on each subsequent
 // tick with a per-task step counter, yielding after each step so native matches
@@ -4122,18 +4101,14 @@ static void startBinCommonAdvance(Core *c, Asset &asset) {
 // rule (2026-07-04): no code blocks inside if (native_sync) / if (!native_sync)
 // — call one of two named methods.
 void Engine::startBinStage() {
-  if (core->game->native_sync) {
-    startBinStageNative();
-  } else {
-    startBinStageFaithful();
-  }
+  startBinStageNative();
 }
 
 // ── STARTBINSTAGE — native_sync (default ./run.sh)
 // ────────────────────────────────────────── Collapsed native shortcut. Native
 // VRAM upload (bypasses libgs LoadImage), native ISO9660 file lookup (bypasses
 // libcd — libcd's dir/file cache is written from the same ISO9660 sectors so
-// any post-boot rec_dispatch into CdSearchFile short-circuits its newmedia
+// any post-boot typed runtime address dispatch into CdSearchFile short-circuits its newmedia
 // branch), inline preloadTexgroup (bypasses task-1 spawn), task-1 slot closed
 // with state=0 as if it ran-and- completed inline. No scheduler-only frames are
 // manufactured for already-synchronous host work.
@@ -4177,7 +4152,7 @@ void Engine::startBinStageNative() {
 }
 
 // ── STARTBINSTAGE — internal byte-exact SBS mirror (not a product launch mode)
-// ────────── The COMPLETE ov_start_gen_8010649C task body as a native port, run
+// ────────── The COMPLETE overlay guest 0x8010649C task body as a native port, run
 // on a PcScheduler fiber (runStage0FiberStanza) — faithful-execution model,
 // docs/faithful-execution.md. It executes on the guest machine state: locals in
 // the real guest frame (sp descent 456; LoadImage RECT at sp+400, per-iteration
@@ -4186,7 +4161,7 @@ void Engine::startBinStageNative() {
 // task-0 stack bytes), and suspension inside PcScheduler primitives — so the
 // per-frame slice cadence and every wait-loop stack byte match core B by
 // construction. Guest identity constants (call- site ra values, table
-// addresses) are the RE of the START.BIN overlay body (generated/
+// addresses) are the RE of the START.BIN overlay body (authenticated executable/overlay evidence
 // ov_start_shard_0.c + scratch/decomp/overlay.c FUN_801064f0).
 //
 // The body never returns: the sm==3 arm dispatches the still-substrate
@@ -4241,10 +4216,12 @@ void Engine::startBinStageFaithful() {
   c->r[4] = S + 400;
   c->r[5] = kStartBinLoadImageSrc;
   c->r[31] = 0x801064E8u;
-  rec_dispatch(c, 0x80081218u); // libgs LoadImage
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80081218u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // libgs LoadImage
   c->r[4] = 0;
   c->r[31] = 0x801064F0u;
-  rec_dispatch(c, 0x80080F6Cu); // DrawSync(0)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80080F6Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // DrawSync(0)
 
   // Three CdSearchFile loops. Loop registers live in the guest s-regs
   // (r16=CdlFILE ptr, r17=name-table ptr, r18=dest ptr, r19=index, r20=i*24)
@@ -4265,7 +4242,7 @@ void Engine::startBinStageFaithful() {
         c->r[4] = kNotFoundFmt;
         c->r[5] = c->mem_r32(c->r[17]);
         c->r[31] = L.raPrintf;
-        rec_dispatch(c, 0x8009A730u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x8009A730u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       }
       c->r[18] += 8;
       c->r[17] += 4;
@@ -4284,7 +4261,7 @@ void Engine::startBinStageFaithful() {
       c->r[4] = kNotFoundFmt;
       c->r[5] = c->r[17];
       c->r[31] = X.raPrintf;
-      rec_dispatch(c, 0x8009A730u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8009A730u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     }
   }
   cfg_logi("start.bin", "pc_faithful file table built via libcd (fiber body)");
@@ -4327,7 +4304,10 @@ void Engine::startBinStageFaithful() {
     case 3: // L_801067DC: stage swap to DEMO
       c->r[4] = 1;
       c->r[31] = 0x801067E4u;
-      rec_dispatch(c, 0x80052078u); // parks the fiber; stanza cancels on entry rewrite
+      psx::cpu::dispatchGuestToReturn0(*c,
+                                       0x80052078u,
+                                       psx::cpu::ExecutionBudget::currentTurn(*c),
+                                       __func__); // parks the fiber; stanza cancels on entry rewrite
       break;
     }
     c->r[4] = 1;
@@ -4340,7 +4320,7 @@ void Engine::startBinStageFaithful() {
 // position + facing from the start-pos table 0x800A54A8[area] (word = the
 // area's 8-byte-record sub-table), record[sub]: three int16 coords stored <<16
 // fixed to 0x800BF890/894/898, facing byte (masked 0x7F) to 0x800BFE38. Leaf,
-// no frame, no callees. ORACLE: gen_func_80078824
+// no frame, no callees. ORACLE: guest 0x80078824
 void Engine::setAreaStartPos() {
   Core *c = this->core;
   const uint32_t START_TABLE = 0x800A54A8u;                             // per-area start-pos table base
@@ -4357,20 +4337,13 @@ void Engine::setAreaStartPos() {
 // ── Engine anim-leaf overrides (phase-3 fallthrough-for-already-native,
 // 2026-07-15) ───────────────── animTick (FUN_8004190C) and walkStart
 // (FUN_80054D14) are native Engine methods, but the guest addresses were
-// registered NOWHERE — so their rec_dispatch/callObj callers
+// registered NOWHERE — so their typed runtime address dispatch/callObj callers
 // (beh_actor_tomba_proximity_ combat, beh_a06_scripted_actor) + the 5/9 direct
-// substrate func_<addr>(c) shard sites all ran the EMULATED body while direct
+// substrate a direct guest-address call shard sites all ran the EMULATED body while direct
 // native callers (beh_sop_intro_pilot) ran the port (a split). Found by
-// `codemap.py --substrate-fallthrough`. One `overrides::install` entry covers
-// both the registry's rec_dispatch path and shard_set_override (g_override[]);
-// core B stays pure substrate. MIRROR_VERIFY-gated.
-extern void shard_set_override(uint32_t, void (*)(Core *));
-extern void gen_func_8004190C(Core *);
-extern void gen_func_80054D14(Core *);
-extern void gen_func_80078824(Core *); // Engine::setAreaStartPos (engine.cpp)
-extern void gen_func_80086604(Core *); // Engine::activeModeCtx (startup.cpp)
-extern void gen_func_80086738(Core *); // Engine::installModeHandlers (startup.cpp)
-extern void gen_func_80086764(Core *); // Engine::runModeEnter (startup.cpp)
+// `codemap.py --substrate-fallthrough`. One `tomba::native::declareOverride` entry covers
+// both the registry's typed runtime address dispatch path and tomba::native::declareOverride (image-qualified runtime
+// dispatcher); core B stays pure substrate. MIRROR_VERIFY-gated.
 namespace {
 void ov_engineAnimTick(Core *c) {
   c->r[2] = eng(c).animTick(c->r[4]);
@@ -4393,12 +4366,10 @@ void ov_engineRunModeEnter(Core *c) {
 } // namespace
 
 void RegisterEngineAnimLeafOverrides(Game * /*game*/) {
-  using overrides::install;
-  install(0x8004190Cu, "Engine::animTick", ov_engineAnimTick, gen_func_8004190C, shard_set_override);
-  install(0x80054D14u, "Engine::walkStart", ov_engineWalkStart, gen_func_80054D14, shard_set_override);
-  install(0x80078824u, "Engine::setAreaStartPos", ov_engineSetAreaStartPos, gen_func_80078824, shard_set_override);
-  install(0x80086604u, "Engine::activeModeCtx", ov_engineActiveModeCtx, gen_func_80086604, shard_set_override);
-  install(
-      0x80086738u, "Engine::installModeHandlers", ov_engineInstallModeHandlers, gen_func_80086738, shard_set_override);
-  install(0x80086764u, "Engine::runModeEnter", ov_engineRunModeEnter, gen_func_80086764, shard_set_override);
+  tomba::native::declareOverride(0x8004190Cu, "Engine::animTick", ov_engineAnimTick);
+  tomba::native::declareOverride(0x80054D14u, "Engine::walkStart", ov_engineWalkStart);
+  tomba::native::declareOverride(0x80078824u, "Engine::setAreaStartPos", ov_engineSetAreaStartPos);
+  tomba::native::declareOverride(0x80086604u, "Engine::activeModeCtx", ov_engineActiveModeCtx);
+  tomba::native::declareOverride(0x80086738u, "Engine::installModeHandlers", ov_engineInstallModeHandlers);
+  tomba::native::declareOverride(0x80086764u, "Engine::runModeEnter", ov_engineRunModeEnter);
 }

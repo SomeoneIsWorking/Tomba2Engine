@@ -9,22 +9,21 @@
 //             then inner node[5]: 0 -> node[3]==3 ? FUN_8018CDC4 : FUN_80138A64; 1 -> byte 0x800BF809==0 ?
 //             FUN_80137198 : (skip); 2 -> FUN_8018CA1C; then if node[1]!=0 -> FUN_801389C8(node).
 //
-// Ownership model: CONTROL FLOW owned native; all 8 sub-behavior CALLs stay reachable via rec_dispatch
-// (pure-PSX leaf, a0=node). NO GTE/render. Transcribed 1:1 as a register machine (locals = guest regs,
-// goto labels = guest addresses). The handler writes no RAM, so the A/B gate (full RAM+scratchpad vs
-// rec_super_call) only confirms the routing chose the same leaves in the same order.
+// Ownership model: CONTROL FLOW owned native; all 8 sub-behavior CALLs stay reachable via typed runtime address
+// dispatch (pure-PSX leaf, a0=node). NO GTE/render. Transcribed 1:1 as a register machine (locals = guest regs, goto
+// labels = guest addresses). The handler writes no RAM, so the A/B gate (full RAM+scratchpad vs original guest-body
+// call) only confirms the routing chose the same leaves in the same order.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "guest_abi.h"
+#include "guest_jal.h"
 #include "object/actor.h" // Actor::boundsCull (FUN_8007778C — thin wrapper native)
 #include "spawn.h"        // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -62,7 +61,7 @@ Lef0:
   eng(c).spawn.despawn(obj);
   goto Lret; // STATE 3
 Ldf0:
-  guest_leaf(c, 0x80136F08u, obj);
+  tomba::guest::dispatchLeafToReturn(*c, 0x80136F08u, obj);
   goto Lret; // STATE 0
 
 Le00: // STATE 1
@@ -84,23 +83,23 @@ Le3c: {
   }
   // n5 == 0
   if (c->mem_r8(obj + 3) == 3) {
-    guest_leaf(c, 0x8018CDC4u, obj);
+    tomba::guest::dispatchLeafToReturn(*c, 0x8018CDC4u, obj);
   } else {
-    guest_leaf(c, 0x80138A64u, obj);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80138A64u, obj);
   }
   goto Led0;
 }
 Lea4: // n5 == 1
   if (c->mem_r8(0x800BF809u) == 0) {
-    guest_leaf(c, 0x80137198u, obj);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80137198u, obj);
   }
   goto Led0;
 Lec8: // n5 == 2
-  guest_leaf(c, 0x8018CA1Cu, obj);
+  tomba::guest::dispatchLeafToReturn(*c, 0x8018CA1Cu, obj);
   // fall into Led0
 Led0:
   if (c->mem_r8(obj + 1) != 0) {
-    guest_leaf(c, 0x801389C8u, obj);
+    tomba::guest::dispatchLeafToReturn(*c, 0x801389C8u, obj);
   }
 Lret:
   return;

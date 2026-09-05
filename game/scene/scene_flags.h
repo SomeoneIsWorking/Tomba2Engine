@@ -10,7 +10,7 @@
 //
 // The guest builds the base as `lui 0x800C; addiu -1936` in every function that touches it —
 // 32780<<16 - 1936 = 0x800BF870 — and the flag bytes sit at a fixed +324 into that block. Both
-// numbers are taken straight from gen_func_80042448 / gen_func_800420AC / gen_func_8004201C.
+// numbers are taken straight from guest 0x80042448 / guest 0x800420AC / guest 0x8004201C.
 #pragma once
 #include <cstdint>
 

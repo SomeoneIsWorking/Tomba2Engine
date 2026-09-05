@@ -1,7 +1,7 @@
 // collision_resolve.cpp — actor-vs-object CYLINDER COLLISION RESOLVE (guest FUN_80023D48) and its
 // vertical relative, the landing snap (guest FUN_8002423C). Both are wired by address at the bottom
 // of this file, so every caller — substrate included — reaches these bodies; the oracle leg runs
-// gen_func_80023D48 / gen_func_8002423C.
+// guest 0x80023D48 / guest 0x8002423C.
 //
 // RE, field map and outcome codes: docs/re/collision-resolve-23d48.md.
 //
@@ -17,11 +17,11 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // WHAT MAY AND MAY NOT BE FOLDED HERE (the readability pass, 2026-07-30 — read before editing)
 //
-// This body was a verbatim port_gen transcription; the pass that named its fields left the register
+// This body was a verbatim binary evidence transcription; the pass that named its fields left the register
 // dataflow alone, and this one lifts it. The rule the lift follows, and the evidence for it:
 //
 //   * CALLEE-SAVED registers (r16..r23, r30) and the ARGUMENT registers at each call site are
-//     written to c->r[N] exactly where the gen body writes them. A callee may spill its caller's
+//     written to c->r[N] exactly where the guest-visible behavior writes them. A callee may spill its caller's
 //     callee-saved registers, and O32 lets a callee stash its incoming a0..a3 into the CALLER's
 //     16-byte argument-save area — both would put a stale register value into guest RAM, which SBS
 //     compares. GuestReg<N> proxies give those a name without moving them out of the register file.
@@ -34,15 +34,16 @@
 //     function calls can observe a t-register, and the one guest-stack word any of them writes is
 //     the one the func_XXXX wrappers below exist to preserve.
 //
-// The equivalence gate for the lift is `port_check.py game/world/collision_resolve.cpp` (frame
+// The equivalence gate for the lift is `dynamic differential evidence game/world/collision_resolve.cpp` (frame
 // sizes, ordered call sites with their ra constants and targets, ordered store-width sequence).
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 #include "world/collision_resolve.h"
 #include "core.h"
 #include "game.h"
-#include "guest_abi.h"         // GuestFrame / GuestReg / guest_call / guest_mult
-#include "override_registry.h" // engine_set_override_main
-#include "rec_decls.h"         // gen_func_80023D48 — the body the oracle leg runs
+#include "guest_abi.h"
+#include "guest_call.h"
+#include "guest_jal.h"               // GuestFrame / GuestReg / guest_call / guest_mult
+#include "native_override_catalog.h" // tomba::native::declareOverride
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FIELD NAMES for the three records this function walks. r17/r22/r30 hold actor/other/anchor for the
@@ -95,8 +96,8 @@ constexpr uint32_t kAnchorZ = 52; // 0x34
 // an offset is a fact, a field name is a claim. See docs/re/collision-resolve-23d48.md.
 
 // ── this function's own guest stack ──────────────────────────────────────────────────────────────
-// Frame contract from `abi_extract.py 0x80023D48 --scaffold --guestabi`, program order. Not
-// hand-derived; regenerate if the gen body changes.
+// Frame contract from `binary ABI evidence 0x80023D48 --scaffold --guestabi`, program order. Not
+// hand-derived; regenerate if the guest-visible behavior changes.
 constexpr uint32_t kResolveFrameBytes = 80;
 constexpr GuestFrameSpill kResolveSpills[10] = {
     {17, 44},
@@ -188,9 +189,9 @@ constexpr uint32_t kContactLockSlot = 152; // 0x1F800098 — the "current lock o
                                            // some other interaction owns the actor this frame.
 constexpr uint32_t kContactKindSlot = 595; // 0x1F800253 — a per-frame contact-kind byte.
                                            // OBSERVED, not sourced: ActorTomba::framePreTick
-                                           // (gen_func_8002288C) masks it `&= 3` once per frame,
+                                           // (guest 0x8002288C) masks it `&= 3` once per frame,
                                            // FUN_800541F4 writes 1/3 there, and its readers
-                                           // (e.g. gen_func_80060C60) gate on `< 2`. Writing 4
+                                           // (e.g. guest 0x80060C60) gate on `< 2`. Writing 4
                                            // therefore parks it outside every `< 2` reader for
                                            // the rest of the frame. No source names this slot,
                                            // so the constant is named for what this body does
@@ -198,7 +199,7 @@ constexpr uint32_t kContactKindSlot = 595; // 0x1F800253 — a per-frame contact
 constexpr uint32_t kContactKindUndersideBump = 4;
 
 // ── this function's own guest stack ──────────────────────────────────────────────────────────────
-// From `abi_extract.py 0x8001F40C --scaffold --guestabi`, program order. Not hand-derived.
+// From `binary ABI evidence 0x8001F40C --scaffold --guestabi`, program order. Not hand-derived.
 constexpr uint32_t kClassifyFrameBytes = 56;
 constexpr GuestFrameSpill kClassifySpills[10] = {
     {17, 20},
@@ -247,7 +248,7 @@ constexpr uint32_t kContactDistSlot = 140; // 0x1F80008C — the XZ separation, 
                                            // is what the guest itself does here (sll/sra 16).
 
 // ── this function's own guest stack ──────────────────────────────────────────────────────────────
-// From `abi_extract.py 0x80023A04 --scaffold --guestabi`, program order. Not hand-derived.
+// From `binary ABI evidence 0x80023A04 --scaffold --guestabi`, program order. Not hand-derived.
 constexpr uint32_t kPolicyFrameBytes = 56;
 constexpr GuestFrameSpill kPolicySpills[10] = {
     {18, 24},
@@ -285,7 +286,7 @@ constexpr uint32_t kPolicyRestOnTopUnlessFlagged = 0x80023CE0u; // 4
 constexpr uint32_t kPairPushedOutInXz = 0;
 } // namespace
 
-// ORACLE: gen_func_80023D48
+// ORACLE: guest 0x80023D48
 void CollisionResolve::cylinderResolve(Core *c) {
   const uint32_t actorArg = c->r[4];
   const uint32_t otherArg = c->r[5];
@@ -316,11 +317,11 @@ void CollisionResolve::cylinderResolve(Core *c) {
     GuestReg<16> sampleOffsetX(c); // s0 — live across the rsin call below
 
     c->r[4] = (uint32_t)actor.s16(kActorAngle); // a0 = facing angle
-    guest_call(c, kRaSampleCos, func_80083F50);
+    tomba::guest::dispatchJalToReturn(*c, 0x80083F50u, kRaSampleCos);
     guest_mult(c, (int32_t)c->r[2], actor.s16(kActorSampleRadius));
     c->r[4] = (uint32_t)actor.s16(kActorAngle); // a0 = facing angle
     sampleOffsetX = (uint32_t)((int32_t)c->lo >> 12);
-    guest_call(c, kRaSampleSin, func_80083E80);
+    tomba::guest::dispatchJalToReturn(*c, 0x80083E80u, kRaSampleSin);
     guest_mult(c, (int32_t)c->r[2], actor.s16(kActorSampleRadius));
     const int32_t sinTimesRadius = (int32_t)c->lo;
 
@@ -343,7 +344,7 @@ void CollisionResolve::cylinderResolve(Core *c) {
     deltaZ = dz;
     c->r[5] = sampleOffsetZ;    // a1 still holds the Z offset at the call below
     c->r[4] = deltaXSq + c->lo; // a0 = dx² + dz²
-    guest_call(c, kRaSampleDist, func_80084080);
+    tomba::guest::dispatchJalToReturn(*c, 0x80084080u, kRaSampleDist);
     xzDistance = c->r[2];
     yBias = actor.u16(kActorYBias);
   } else {
@@ -361,7 +362,7 @@ void CollisionResolve::cylinderResolve(Core *c) {
     deltaZ = dz;
     c->r[5] = deltaXSq;         // a1 leftover, exactly as gen leaves it
     c->r[4] = deltaXSq + c->lo; // a0 = dx² + dz²
-    guest_call(c, kRaRawDist, func_80084080);
+    tomba::guest::dispatchJalToReturn(*c, 0x80084080u, kRaRawDist);
     xzDistance = c->r[2];
   }
 
@@ -407,7 +408,7 @@ void CollisionResolve::cylinderResolve(Core *c) {
   const int32_t contactDz = (int16_t)(uint32_t)deltaZ;
   c->r[4] = (uint32_t)(-contactDz);                                 // a0
   c->r[5] = (uint32_t)(int16_t)c->mem_r16(c->r[29] + kLocalDeltaX); // a1
-  guest_call(c, kRaContactAngle, func_80085690);
+  tomba::guest::dispatchJalToReturn(*c, 0x80085690u, kRaContactAngle);
   GuestReg<19> scratchpad(c); // s3 — dz is consumed, and gen reuses the register as the base
   scratchpad = kScratchpadBase;
   c->mem_w32(scratchpad + kContactAngleSlot, c->r[2]);
@@ -423,7 +424,7 @@ void CollisionResolve::cylinderResolve(Core *c) {
       c->r[4] = (uint32_t)(int16_t)c->mem_r16(scratchpad + kContactAngleSlot); // a0 = contact angle
       c->r[5] = (uint32_t)actor.s16(kActorFacingRef);                          // a1 = reference
       c->r[6] = 1u;                                                            // a2
-      guest_call(c, kRaFacingCmp, func_80077768);
+      tomba::guest::dispatchJalToReturn(*c, 0x80077768u, kRaFacingCmp);
       c->mem_w8(actor.base() + kActorFacing, (uint8_t)(c->r[2] + 2));
     }
 
@@ -431,11 +432,11 @@ void CollisionResolve::cylinderResolve(Core *c) {
     GuestReg<16> contactOffsetX(c); // s0 — live across the rsin call
 
     c->r[4] = c->mem_r32(scratchpad + kContactAngleSlot); // a0 = contact angle
-    guest_call(c, kRaPushCos, func_80083F50);
+    tomba::guest::dispatchJalToReturn(*c, 0x80083F50u, kRaPushCos);
     guest_mult(c, (int32_t)c->r[2], contactRadius);
     c->r[4] = c->mem_r32(scratchpad + kContactAngleSlot); // a0 = contact angle
     contactOffsetX = (uint32_t)((int32_t)c->lo >> 12);
-    guest_call(c, kRaPushSin, func_80083E80);
+    tomba::guest::dispatchJalToReturn(*c, 0x80083E80u, kRaPushSin);
     guest_mult(c, (int32_t)c->r[2], contactRadius);
     const uint32_t contactOffsetZ = (uint32_t)((int32_t)c->lo >> 12);
 
@@ -472,7 +473,7 @@ void CollisionResolve::cylinderResolve(Core *c) {
 // On acceptance v0 = 2, the actor's Y is snapped onto the object's rest height and the landed flag
 // at +0x29 is set.
 //
-// TWO THINGS HERE WOULD HAVE BEEN GOT WRONG BY HAND, and are right because port_gen took the body
+// TWO THINGS HERE WOULD HAVE BEEN GOT WRONG BY HAND, and are right because binary evidence took the body
 // verbatim rather than anyone re-typing it:
 //
 //  1. The dx and dz DIFFERENCES are truncated to 16 bits and sign-extended before squaring. Both
@@ -480,7 +481,7 @@ void CollisionResolve::cylinderResolve(Core *c) {
 //     negative world coordinates that are stored as u16 — it squares a value near 65535 instead of
 //     one near -1.
 //
-//  2. v0 IS LIVE, not a formality. 28 of the 29 call sites discard it, but generated/
+//  2. v0 IS LIVE, not a formality. 28 of the 29 call sites discard it, but authenticated executable/overlay evidence
 //     ov_a06_shard_0.c:2389 does `if (v0 == 2) mem_w8(r17 + 386, 0)` — zeroing the node-scan counter
 //     to break its loop on a successful landing. A wrong v0 therefore changes overlay a06's control
 //     flow and its guest writes, not merely a register compare.
@@ -492,7 +493,7 @@ void CollisionResolve::cylinderResolve(Core *c) {
 // on each — which is why kOtherX/Y/Z exist alongside kActorX/Y/Z at the same numeric offsets rather
 // than one table being reused for both roles.
 //
-// ORACLE: gen_func_8002423C
+// ORACLE: guest 0x8002423C
 void CollisionResolve::landOnObjectTop(Core *c) {
   const uint32_t actorArg = c->r[4];
   const uint32_t otherArg = c->r[5];
@@ -517,7 +518,7 @@ void CollisionResolve::landOnObjectTop(Core *c) {
   const uint32_t dz = actor.u16(kActorZ) - other.u16(kOtherZ);
   guest_mult(c, (int16_t)dz, (int16_t)dz);
   c->r[4] = deltaXSq + c->lo; // a0 = dx² + dz²
-  guest_call(c, kRaLandDist, func_80084080);
+  tomba::guest::dispatchJalToReturn(*c, 0x80084080u, kRaLandDist);
   const uint32_t xzDistance = c->r[2] & 0xFFFFu;
   const int32_t xzReach = actor.s16(kActorHeightLo) + other.s16(kOtherRadius);
   if (xzReach < (int32_t)xzDistance) {
@@ -586,12 +587,12 @@ void CollisionResolve::landOnObjectTop(Core *c) {
 // IRQ wait. Two calls, both to already-owned pure math leaves. It is arithmetic over guest records.
 //
 // EXTENT, established before anything was diffed. MAIN.EXE's own dispatch table
-// (generated/shard_disp.c) has consecutive entries 0x8001F40C and 0x8001F650 with nothing between,
+// (authenticated executable/overlay evidence) has consecutive entries 0x8001F40C and 0x8001F650 with nothing between,
 // so the body is [0x8001F40C, 0x8001F650) — 145 instructions, one entry, no jump table. Ghidra's
-// independent function boundary agrees. Do NOT be misled by generated/shard_3.c, which contains a
-// second copy of this body's tail (labels L_8001F58C / L_8001F620) inside gen_func_80010A08: that
+// independent function boundary agrees. Do NOT be misled by authenticated executable/overlay evidence, which contains a
+// second copy of this body's tail (labels L_8001F58C / L_8001F620) inside guest 0x80010A08: that
 // is linear-sweep output over a DATA region — the block ahead of it is `/* UNHANDLED special */`
-// garbage ending in `rec_dispatch(c, r0); return;`, and nothing branches to those labels. It is
+// garbage ending in `typed runtime address dispatch(c, r0); return;`, and nothing branches to those labels. It is
 // dead emitted code, not a folded sibling entry point.
 //
 // FOLDING RULES: identical to cylinderResolve's banner at the top of this file, and the callee audit
@@ -599,7 +600,7 @@ void CollisionResolve::landOnObjectTop(Core *c) {
 // Trig::ratan2 (0x80085690), both of which descend NO frame and write NO memory, so no t-register
 // value of ours is observable and the pure scratch becomes ordinary locals.
 //
-// ORACLE: gen_func_8001F40C
+// ORACLE: guest 0x8001F40C
 void CollisionResolve::classifyBodyContact(Core *c) {
   const uint32_t actorArg = c->r[4];
   const uint32_t otherArg = c->r[5];
@@ -628,14 +629,14 @@ void CollisionResolve::classifyBodyContact(Core *c) {
   // World coordinates are stored as u16, so each delta is truncated to 16 bits and sign-extended
   // BEFORE squaring — squaring the raw difference would square a value near 65535 instead of -1.
   // (The same trap the landOnObjectTop banner records; it is the reason both bodies came from
-  // port_gen rather than from anyone re-typing the arithmetic.)
+  // binary evidence rather than from anyone re-typing the arithmetic.)
   deltaX = (uint32_t)(int32_t)(int16_t)(actor.u16(kActorX) - other.u16(kOtherX));
   guest_mult(c, (int32_t)(uint32_t)deltaX, (int32_t)(uint32_t)deltaX);
   const uint32_t deltaXSq = c->lo;
   deltaZ = (uint32_t)(int32_t)(int16_t)(actor.u16(kActorZ) - other.u16(kOtherZ));
   guest_mult(c, (int32_t)(uint32_t)deltaZ, (int32_t)(uint32_t)deltaZ);
   c->r[4] = deltaXSq + c->lo; // a0 = dx² + dz²
-  guest_call(c, kRaBodyDist, func_80084080);
+  tomba::guest::dispatchJalToReturn(*c, 0x80084080u, kRaBodyDist);
   xzDistance = c->r[2];
 
   // ── gate 1: XZ overlap ─────────────────────────────────────────────────────────────────────────
@@ -664,7 +665,7 @@ void CollisionResolve::classifyBodyContact(Core *c) {
   // as cylinderResolve's own contact-angle call.
   c->r[4] = 0u - (uint32_t)deltaZ; // a0
   c->r[5] = (uint32_t)deltaX;      // a1
-  guest_call(c, kRaBodyContactAngle, func_80085690);
+  tomba::guest::dispatchJalToReturn(*c, 0x80085690u, kRaBodyContactAngle);
   c->mem_w32(kScratchpadBase + kContactAngleSlot, c->r[2]);
 
   // Note the UNSIGNED reads here: gate 1 compared the radii as s16, the penetration uses them as
@@ -754,7 +755,7 @@ void CollisionResolve::classifyBodyContact(Core *c) {
 //     80023C6C 80023CE0. Ghidra headless (scratch/decomp/objcol_23a04.c) independently recovers the
 //     same function as `switch (param_3 & 0xf)` with cases 0..4 landing on those blocks, so the
 //     index -> policy mapping is not inferred from block order.
-//  2. THE CALLER IS AN OBJECT-PAIR COLLISION PASS. generated/ov_a04_shard_1.c's ov_a04_gen_8010EDB0
+//  2. THE CALLER IS AN OBJECT-PAIR COLLISION PASS. authenticated executable/overlay evidence's overlay guest 0x8010EDB0
 //     walks a pair list out of the scratchpad (list pointer 0x1F80013C, count 0x1F800183), and for
 //     each pair switches on the two objects' TYPE bytes (+0x02) to choose which policy this contact
 //     gets — 0, 1, 3 and 4 all appear at its nine call sites. Two more callers are two-line wrappers
@@ -769,8 +770,8 @@ void CollisionResolve::classifyBodyContact(Core *c) {
 //     the signed +0x4A, +0x0C/+0x5F/+0x60 — same offsets, same roles, same record kind as the three
 //     bodies above, which is why this one reuses their tables instead of deriving a fourth set.
 //
-// EXTENT. [0x80023A04, 0x80023D48) — MAIN.EXE's own dispatch table (generated/shard_disp.c) has
-// consecutive entries 0x80023A04 and 0x80023D48 with nothing between, the gen body's epilogue
+// EXTENT. [0x80023A04, 0x80023D48) — MAIN.EXE's own dispatch table (authenticated executable/overlay evidence) has
+// consecutive entries 0x80023A04 and 0x80023D48 with nothing between, the guest-visible behavior's epilogue
 // (L_80023D18 + ten restores + jr/addiu) lands exactly on 0x80023D48, and Ghidra's independent
 // function boundary agrees. NOT established from "the next gen function in the shard" — the shard
 // split is not address order.
@@ -789,7 +790,7 @@ void CollisionResolve::classifyBodyContact(Core *c) {
 // Trig::ratan2/rcos/rsin/angleCmp), reached through their generated func_XXXX wrappers for the
 // guest-stack reason the header banner gives.
 //
-// ORACLE: gen_func_80023A04
+// ORACLE: guest 0x80023A04
 void CollisionResolve::resolveByContactPolicy(Core *c) {
   const uint32_t actorArg = c->r[4];
   const uint32_t otherArg = c->r[5];
@@ -823,7 +824,7 @@ void CollisionResolve::resolveByContactPolicy(Core *c) {
   deltaX = dx;
   deltaZ = dz;
   c->r[4] = deltaXSq + c->lo; // a0 = dx² + dz²
-  guest_call(c, kRaPairDist, func_80084080);
+  tomba::guest::dispatchJalToReturn(*c, 0x80084080u, kRaPairDist);
   const uint32_t distance = c->r[2];
   xzDistance = distance;
 
@@ -872,7 +873,7 @@ void CollisionResolve::resolveByContactPolicy(Core *c) {
   c->r[4] = (uint32_t)(0 - (int32_t)(int16_t)(uint32_t)deltaZ); // a0
   c->r[5] = (uint32_t)(int32_t)(int16_t)(uint32_t)deltaX;       // a1
   yPenetration = (uint32_t)yPenetration - verticalGap;
-  guest_call(c, kRaPairContactAngle, func_80085690);
+  tomba::guest::dispatchJalToReturn(*c, 0x80085690u, kRaPairContactAngle);
 
   c->r[4] = c->r[2]; // a0 = the contact heading, and gen leaves it there all the way
                      // into the rcos call below — so it stays on the register
@@ -892,12 +893,12 @@ void CollisionResolve::resolveByContactPolicy(Core *c) {
   if (xzIsShorterWayOut) {
     // ── horizontal push-out: put the actor back on the contact circle around the other object ────
     GuestReg<16> contactOffsetX(c); // s0 — live across the rsin call
-    guest_call(c, kRaPairPushCos, func_80083F50);
+    tomba::guest::dispatchJalToReturn(*c, 0x80083F50u, kRaPairPushCos);
     const int32_t contactRadius = actor.s16(kActorHeightLo) + other.s16(kOtherRadius);
     guest_mult(c, (int32_t)c->r[2], contactRadius);
     c->r[4] = c->mem_r32(scratchpad + kContactAngleSlot); // a0 = the heading again
     contactOffsetX = (uint32_t)((int32_t)c->lo >> 12);
-    guest_call(c, kRaPairPushSin, func_80083E80);
+    tomba::guest::dispatchJalToReturn(*c, 0x80083E80u, kRaPairPushSin);
     guest_mult(c, (int32_t)c->r[2], contactRadius);
 
     c->mem_w16(actor.base() + kActorX, (uint16_t)(other.u16(kOtherX) + contactOffsetX));
@@ -908,7 +909,7 @@ void CollisionResolve::resolveByContactPolicy(Core *c) {
       c->r[4] = (uint32_t)(int16_t)c->mem_r16(scratchpad + kContactAngleSlot); // a0 = the heading
       c->r[5] = (uint32_t)actor.s16(kActorFacingRef);                          // a1 = reference
       c->r[6] = 1u;                                                            // a2
-      guest_call(c, kRaPairFacingCmp, func_80077768);
+      tomba::guest::dispatchJalToReturn(*c, 0x80077768u, kRaPairFacingCmp);
       c->mem_w8(actor.base() + kActorFacing, (uint8_t)(c->r[2] + 2));
     }
     c->r[2] = kPairPushedOutInXz;
@@ -992,22 +993,17 @@ void CollisionResolve::resolveByContactPolicy(Core *c) {
     // measured 2026-07-30, deleting this line still gives port_check a PASS, because its
     // op-sequence extractor counts the five `guest_call` sites and drops the switch default on
     // both sides. That blind spot is recorded in docs/re/collision-resolve-23d48.md.
-    rec_dispatch(c, c->mem_r32(kPolicyTable + policyIndex * 4u));
+    psx::cpu::dispatchGuestToReturn0(
+        *c, c->mem_r32(kPolicyTable + policyIndex * 4u), psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return;
   }
 }
 
 void CollisionResolve::registerOverrides(Game *) {
-  engine_set_override_main(0x80023D48u, &CollisionResolve::cylinderResolve, gen_func_80023D48);
-  engine_set_override_main(0x8002423Cu, &CollisionResolve::landOnObjectTop, gen_func_8002423C);
-  overrides::install(0x8001F40Cu,
-                     "CollisionResolve::classifyBodyContact",
-                     &CollisionResolve::classifyBodyContact,
-                     gen_func_8001F40C,
-                     shard_set_override);
-  overrides::install(0x80023A04u,
-                     "CollisionResolve::resolveByContactPolicy",
-                     &CollisionResolve::resolveByContactPolicy,
-                     gen_func_80023A04,
-                     shard_set_override);
+  tomba::native::declareOverride(0x80023D48u, "&CollisionResolve::cylinderResolve", &CollisionResolve::cylinderResolve);
+  tomba::native::declareOverride(0x8002423Cu, "&CollisionResolve::landOnObjectTop", &CollisionResolve::landOnObjectTop);
+  tomba::native::declareOverride(
+      0x8001F40Cu, "CollisionResolve::classifyBodyContact", &CollisionResolve::classifyBodyContact);
+  tomba::native::declareOverride(
+      0x80023A04u, "CollisionResolve::resolveByContactPolicy", &CollisionResolve::resolveByContactPolicy);
 }

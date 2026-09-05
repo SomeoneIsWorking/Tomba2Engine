@@ -2,10 +2,10 @@
 // documented in docs/engine_re.md ("Graphics pipeline — the REAL draw path (libgpu)"). The table
 // lives at guest 0x800A5998 (32778<<16 + 22936); the per-frame loop FUN_80050b08 already names two
 // of this file's addresses from that doc. Wide-RE tier (docs/fleet-workflow.md §6): UNWIRED /
-// UNVERIFIED, hand-transliterated 1:1 from generated/shard_*.c gen_func_<addr> (ground truth — NOT
-// mechanically diffed yet). Nothing here is called from anywhere (no overrides::install registration,
-// no shard_set_override) — dead code that only needs to COMPILE. A wiring pass MUST re-diff every
-// line against the generated C before registering + SBS-gating (per §9).
+// UNVERIFIED, hand-transliterated 1:1 from authenticated executable/overlay evidence the cited guest instructions
+// (ground truth — NOT mechanically diffed yet). Nothing here is called from anywhere (no tomba::native::declareOverride
+// registration, no tomba::native::declareOverride) — dead code that only needs to COMPILE. A wiring pass MUST re-diff
+// every line against the generated C before registering + SBS-gating (per §9).
 //
 // Struct map confirmed this session (base = 0x800A0000, i.e. `(32778u<<16)`):
 //   +22936 (0x5998)  GPU_SYS: fn-ptr jump table (per docs/engine_re.md: +0x08 DMA-send, +0x14
@@ -14,7 +14,7 @@
 //                     while the flag byte @+22946 is >= 2 (POLARITY CORRECTED 2026-07-10 — the
 //                     original "< 2 / one-time init" reading was inverted; it's a steady-state
 //                     "GPU sys is up" hook), not itself in the jump table.
-//   +22944 (0x59A0)..+22950 (0x59A6): small ints/shorts read by func_80081FB0 (PutDrawEnv helper,
+//   +22944 (0x59A0)..+22950 (0x59A6): small ints/shorts read by guest 0x80081FB0 (PutDrawEnv helper,
 //                     NOT drafted this session — see MAP note below); +22946 is the same boot/reset
 //                     flag byte DrawSync/ClearOTagR both gate on.
 //   +23208 (0x5AA8)  GPU_DMA_FLAGS:  status/flags word pointer (indirect: the struct itself holds a
@@ -24,7 +24,7 @@
 //   +23212 (0x5AAC)  GPU_DMA_ARG0:   pointer, stores the caller's r4 arg (gpuDmaQueueReset).
 //   +23216 (0x5AB0)  GPU_DMA_ARG1:   pointer, zeroed at reset.
 //   +23220 (0x5AB4)  GPU_DMA_STATE:  pointer, flags word — reset writes (256u<<16 | 1025) = 0x01000401.
-//   +23260 (0x5ADC), +23264 (0x5AE0): the SAME two fields runtime/recomp/sync_overrides.cpp's
+//   +23260 (0x5ADC), +23264 (0x5AE0): the SAME two fields runtime/psx/sync_overrides.cpp's
 //                     `gpu_timeout_arm`/`gpu_timeout_chk` already own as the libgpu GPU-DMA-completion
 //                     TIMEOUT (arm/check) — CONFIRMS this whole struct is the libgpu OT-DMA-send
 //                     status block, and the 0x80082D04 queue cluster is its interrupt/completion-
@@ -34,7 +34,7 @@
 //
 // MAP-only this session (identified, NOT drafted — too large / too deep a callee chain):
 //   0x800815D0 = PutDrawEnv (CONFIRMED identity, already named in docs/engine_re.md). Calls
-//     func_80081FB0 (40-line struct-pack helper) which itself calls 5 more unowned leaves
+//     guest 0x80081FB0 (40-line struct-pack helper) which itself calls 5 more unowned leaves
 //     (0x80082240, 0x800822D8, 0x80082370, 0x80082220, 0x8008238C) — a proper port needs those RE'd
 //     first. Left for a dedicated frontier pass; this file only covers the two CONFIRMED single-leaf
 //     table entries (DrawSync, ClearOTagR) plus the queue-reset helper.
@@ -46,12 +46,10 @@
 //     FIFO streamer) — still MAPPED only, see the new file's header.
 #include "core.h"
 #include "game_ctx.h"
-#include "override_registry.h" // engine_set_override_main — declared, not locally extern'd
-#include "rec_decls.h"         // the gen_func_* bodies handed to the registry
+#include "guest_call.h"
+#include "native_override_catalog.h" // tomba::native::declareOverride — declared, not locally extern'd
 #include "render.h"
 #include <stdint.h>
-
-extern "C" void rec_dispatch(Core *c, uint32_t addr);
 
 namespace {
 constexpr uint32_t GPU_SYS_BASE = (32778u << 16);            // 0x800A0000
@@ -64,16 +62,16 @@ constexpr uint32_t GPU_DMA_ARG1_PTR = GPU_SYS_BASE + 23216;  // 0x800A5AB0
 constexpr uint32_t GPU_DMA_STATE_PTR = GPU_SYS_BASE + 23220; // 0x800A5AB4
 } // namespace
 
-// func_80080F6C (0x80080F6C) — DrawSync(mode). VERIFIED & WIRED 2026-07-10 (was DRAFT). RE'd from generated/shard_2.c
-// gen_func_80080F6C (25 gen-C ln). CONFIRMED identity via docs/engine_re.md's per-frame-loop RE ("FUN_80080f6c(0) =
-// DrawSync(0)
+// guest 0x80080F6C (0x80080F6C) — DrawSync(mode). VERIFIED & WIRED 2026-07-10 (was DRAFT). RE'd from authenticated
+// executable/overlay evidence guest 0x80080F6C (25 gen-C ln). CONFIRMED identity via docs/engine_re.md's per-frame-loop
+// RE ("FUN_80080f6c(0) = DrawSync(0)
 // // WAIT for previous frame's draw to finish"). Guest ABI: a0=mode (arg not read by this leaf body
 // itself — passed straight through to the callee as the 2nd dispatch's a1).
 //
 // When the boot/reset flag byte @GPU_BOOT_FLAG is >= 2: call the hook GPU_SYS_INIT_FN with (a0 = a
 // fixed BIOS-window constant 0x8001BEDC, a1 = mode). [POLARITY CORRECTED 2026-07-10 by the dedicated
 // PutDrawEnv/streamer pass: the original draft had `< 2` — inverted. The raw gen-C
-// (generated/shard_2.c gen_func_80080F6C) is `_t = (bootFlag < 2); if (_t) goto L_80080FA8;`, i.e.
+// (authenticated executable/overlay evidence guest 0x80080F6C) is `_t = (bootFlag < 2); if (_t) goto L_80080FA8;`, i.e.
 // bootFlag<2 SKIPS the hook call; the call happens on fallthrough, when bootFlag>=2. ClearOTagR
 // below and PutDrawEnv (wide_re_gpu_putdrawenv.cpp) have the same shape and polarity — all three
 // now agree. The hook is therefore NOT a "first frames after reset" init but a "GPU sys is up"
@@ -81,8 +79,8 @@ constexpr uint32_t GPU_DMA_STATE_PTR = GPU_SYS_BASE + 23220; // 0x800A5AB4
 // GPU_SYS_TABLE[+60] (table+0x3C = DrawSync's OWN table slot per the doc) with (a0 = mode).
 //
 // RE-VERIFY CORRECTION (2026-07-10, wiring pass): the prior draft's "no stack frame, leaf, sp
-// untouched" claim was WRONG — gen_func_80080F6C DOES push a -24 guest frame and spill s0/r16 +
-// ra (generated/shard_2.c:10854-10858: `sp-=24; mem_w32(sp+16,r16); r16=a0; ...
+// untouched" claim was WRONG — guest 0x80080F6C DOES push a -24 guest frame and spill s0/r16 +
+// ra (authenticated executable/overlay evidence: `sp-=24; mem_w32(sp+16,r16); r16=a0; ...
 // mem_w32(sp+20,ra)`), restored at both exits. Both call targets here (GPU_SYS_INIT_FN and the
 // table+0x3C entry) are ARBITRARY dispatch targets that may push their own frames — if this leaf
 // doesn't mirror gen's sp/ra, every downstream guest-stack write from those callees lands 24 bytes
@@ -108,11 +106,11 @@ void Render::drawSync() {
     uint32_t initFn = c->mem_r32(GPU_SYS_INIT_FN);
     c->r[5] = c->r[16];
     c->r[31] = 0x80080FA8u;
-    rec_dispatch(c, initFn);
+    psx::cpu::dispatchGuestToReturn0(*c, initFn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   }
   // BUG FIX (2026-07-10, wiring re-verify): GPU_SYS_TABLE (0x800A5998) is a POINTER FIELD holding
-  // the address of the real jump table — the gen body dereferences it TWICE
-  // (generated/shard_2.c:10854 lines 16-18: `r2=mem_r32(base+22936); r2=mem_r32(r2+60)`), not once.
+  // the address of the real jump table — the guest-visible behavior dereferences it TWICE
+  // (authenticated executable/overlay evidence lines 16-18: `r2=mem_r32(base+22936); r2=mem_r32(r2+60)`), not once.
   // The prior draft read `mem_r32(GPU_SYS_TABLE + 60)` directly (single deref), which — before the
   // table is ever relocated/reallocated to match the raw base+22936 address — reads garbage
   // (observed: 0xFFFFFFFF / stale scratch like 0x0101000A) and dispatches into nowhere, corrupting
@@ -122,23 +120,23 @@ void Render::drawSync() {
   uint32_t tableSlot60 = c->mem_r32(tableBase + 60); // table+0x3C, the DrawSync entry itself
   c->r[4] = c->r[16];
   c->r[31] = 0x80080FC4u;
-  rec_dispatch(c, tableSlot60);
+  psx::cpu::dispatchGuestToReturn0(*c, tableSlot60, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   epilogue();
 }
 
-// func_80081458 (0x80081458) — ClearOTagR(OT, entries). VERIFIED & WIRED 2026-07-10 (was DRAFT). RE'd from
-// generated/shard_7.c gen_func_80081458 (64 gen-C ln). CONFIRMED identity via docs/engine_re.md
+// guest 0x80081458 (0x80081458) — ClearOTagR(OT, entries). VERIFIED & WIRED 2026-07-10 (was DRAFT). RE'd from
+// authenticated executable/overlay evidence guest 0x80081458 (64 gen-C ln). CONFIRMED identity via docs/engine_re.md
 // ("FUN_80081458=ClearOTagR (table+0x2c)"; per-frame loop calls it as `FUN_80081458(ctx, 0x800)` = 2048 OT entries).
 //
 // NOTE: the guest C emission for this address contains a SECOND, unreachable-from-here prologue/
-// epilogue pair after this function's `return` (a recompiler artifact — the shard groups adjacent
+// epilogue pair after this function's `return` (a binary-boundary artifact — the shard groups adjacent
 // guest code without a clean symbol boundary). That trailing block is a DIFFERENT, un-RE'd MIPS
 // function reachable only via its own call sites (not via a call to 0x80081458) — NOT ported here.
 //
 // Guest ABI: a0=OT pointer, a1=entry count. Same boot-flag-gated hook pattern as DrawSync
 // (hook gets a0=fixed const 0x8001BF68, a1=OT, a2=entryCount) — and the SAME polarity correction
 // applies (2026-07-10, dedicated PutDrawEnv/streamer pass): the gen-C
-// (generated/shard_7.c gen_func_80081458) is `_t = (bootFlag < 2); if (_t) goto L_800814A0;`, i.e.
+// (authenticated executable/overlay evidence guest 0x80081458) is `_t = (bootFlag < 2); if (_t) goto L_800814A0;`, i.e.
 // bootFlag<2 SKIPS the hook; the call happens when bootFlag>=2 (the original draft had this
 // inverted). Then calls GPU_SYS_TABLE[+44] (table+0x2C, ClearOTagR's own slot) with
 // (a0=OT, a1=entryCount) — presumably the real hardware-facing OT-clear loop, opaque to this leaf.
@@ -148,7 +146,7 @@ void Render::drawSync() {
 // 0x800A0000, i.e. tail packet at **0x800A5A60** and tag content **0x800A5A4C** (the original
 // draft's 0x800A5B20/0x800A5B0C was a decimal→hex conversion slip, off by 0xC0). Writes a tag word
 // (0x04000000 | (0x800A5A4C & 0x00FFFFFF)) to 0x800A5A60, then sets *OT = (0x800A5A60 &
-// 0x00FFFFFF). Transcribed as literal constant-folded values (the gen body computes on raw
+// 0x00FFFFFF). Transcribed as literal constant-folded values (the guest-visible behavior computes on raw
 // addresses-as-integers, not memory reads through pointers, for this whole tail — no dereference).
 // Frame -32, spills ra/s17/s16 at +24/+20/+16 (s16=OT ptr kept live across the hook call,
 // s17=entryCount).
@@ -167,17 +165,17 @@ void Render::clearOTagR() {
     uint32_t initFn = c->mem_r32(GPU_SYS_INIT_FN);
     c->r[6] = c->r[17];
     c->r[31] = 0x800814A0u;
-    rec_dispatch(c, initFn);
+    psx::cpu::dispatchGuestToReturn0(*c, initFn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   }
   // Same missing-indirection bug as DrawSync above (fixed 2026-07-10): GPU_SYS_TABLE must be
-  // dereferenced once to get the table's real base, THEN +44 dereferenced again (generated/
-  // shard_7.c:12284 lines 19-22: `r2=mem_r32(base+22936); r2=mem_r32(r2+44)`).
+  // dereferenced once to get the table's real base, THEN +44 dereferenced again (authenticated executable/overlay
+  // evidence shard_7.c:12284 lines 19-22: `r2=mem_r32(base+22936); r2=mem_r32(r2+44)`).
   uint32_t tableBase = c->mem_r32(GPU_SYS_TABLE);
   uint32_t tableSlot44 = c->mem_r32(tableBase + 44); // table+0x2C, ClearOTagR's own entry
   c->r[4] = c->r[16];
   c->r[5] = c->r[17];
   c->r[31] = 0x800814BCu;
-  rec_dispatch(c, tableSlot44);
+  psx::cpu::dispatchGuestToReturn0(*c, tableSlot44, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   const uint32_t mask24 = (255u << 16) | 65535u;              // 0x00FFFFFF
   constexpr uint32_t kDummyTagAddr = 0x800A0000u + 23136u;    // 0x800A5A60 (gen-C decimal, CORRECTED — see header)
@@ -203,7 +201,7 @@ void Render::clearOTagR() {
 // Wiring (2026-07-10): promoted DrawSync/ClearOTagR from wide-RE draft to verified ownership per
 // docs/fleet-workflow.md §9. Re-verify found TWO real bugs, both fixed above:
 //   (1) DrawSync had a MISSING STACK FRAME — the draft claimed "no stack frame, leaf, sp untouched"
-//       but gen_func_80080F6C actually pushes a -24 frame and spills s0/r16+ra; every downstream
+//       but guest 0x80080F6C actually pushes a -24 frame and spills s0/r16+ra; every downstream
 //       guest-stack write from its 2 dispatch targets would have landed 24 bytes off from gen.
 //   (2) BOTH DrawSync and ClearOTagR read `GPU_SYS_TABLE + offset` with only ONE dereference —
 //       GPU_SYS_TABLE (0x800A5998) is actually a POINTER FIELD to the real jump table, and gen
@@ -212,13 +210,12 @@ void Render::clearOTagR() {
 //       the entire downstream OT chain (frame-0 SBS: 6109+ RAM bytes diverged, then a
 //       render-queue-overflow crash within a few frames). Root-caused via PSXPORT_THUNK_FORCE_GEN
 //       bisection + a temporary debug print, NOT by staring at the RE.
-// Both are substrate-called leaves (plain intra-shard C calls, not rec_dispatch) — wired via the
-// oracle-gated engine_set_override_main thunk so SBS core B keeps running the pure gen_func_* body.
-// OVHIT (PSXPORT_DEBUG=ovhit, 5-frame REPL run): both FIRE with MATCHING native/oracle counts —
-// `0x80080F6C native=1045 oracle=1045`, `0x80081458 native=1020 oracle=1020` — real gate coverage,
-// not a "0-diff because never called" false positive.
-// libgpuSetDrawMode (0x80083DE0, SetDrawMode) joined them 2026-07-29, after a line-by-line re-verify against its gen
-// body corrected a wrong-argument defect the draft carried (see its banner below), and
+// Both are substrate-called leaves (plain intra-shard C calls, not typed runtime address dispatch) — wired via the
+// oracle-gated tomba::native::declareOverride thunk so SBS core B keeps running the pure original guest instructions
+// body. OVHIT (PSXPORT_DEBUG=ovhit, 5-frame REPL run): both FIRE with MATCHING native/oracle counts — `0x80080F6C
+// native=1045 oracle=1045`, `0x80081458 native=1020 oracle=1020` — real gate coverage, not a "0-diff because never
+// called" false positive. libgpuSetDrawMode (0x80083DE0, SetDrawMode) joined them 2026-07-29, after a line-by-line
+// re-verify against its gen body corrected a wrong-argument defect the draft carried (see its banner below), and
 // libgpuDmaStatusReset joined on the same day after a re-verify found its draft already faithful.
 // vertexHeaderRepack remains an unwired, un-re-verified wide-RE draft.
 namespace {
@@ -239,22 +236,21 @@ void gpu_libgpu_leaves_install() {
     return;
   }
   done = true;
-  engine_set_override_main(0x80080F6Cu, ov_drawSync, gen_func_80080F6C);
-  engine_set_override_main(0x80081458u, ov_clearOTagR, gen_func_80081458);
-  engine_set_override_main(0x80083DE0u, libgpuSetDrawMode, gen_func_80083DE0);
-  engine_set_override_main(0x80082C68u, libgpuDmaStatusReset, gen_func_80082C68);
+  tomba::native::declareOverride(0x80080F6Cu, "ov_drawSync", ov_drawSync);
+  tomba::native::declareOverride(0x80081458u, "ov_clearOTagR", ov_clearOTagR);
+  tomba::native::declareOverride(0x80083DE0u, "libgpuSetDrawMode", libgpuSetDrawMode);
+  tomba::native::declareOverride(0x80082C68u, "libgpuDmaStatusReset", libgpuDmaStatusReset);
 }
 
 // libgpuDmaStatusReset (0x80082C68) — GPU-DMA status-block RESET. RE-VERIFIED + WIRED 2026-07-29
-// (line-by-line against generated/shard_2.c gen_func_80082C68:11051-11069: all four target addresses
-// 0x800A5AA8/AAC/AB0/AB4 and all four stored values matched, in store order, with only v0 missing).
-// Unlike libgpuSetDrawMode below, this draft was FAITHFUL — which is why the bank has to be checked
-// rather than assumed either way. RE'd from generated/shard_2.c gen_func_80082C68
-// (19 gen-C ln, no branches, no calls — fully self-contained). Not itself a GPU_SYS_TABLE entry
-// (no table dereference); writes the same status-block fields the 0x80082D04 completion-queue
-// cluster (MAPPED, not drafted — see file header) tests every call. Guest ABI: a0 = an opaque
-// pointer the caller owns (stashed verbatim into GPU_DMA_ARG0_PTR's target — this leaf never reads
-// through it, just stores it for the queue cluster to consume later).
+// (line-by-line against authenticated executable/overlay evidence guest 0x80082C68:11051-11069: all four target
+// addresses 0x800A5AA8/AAC/AB0/AB4 and all four stored values matched, in store order, with only v0 missing). Unlike
+// libgpuSetDrawMode below, this draft was FAITHFUL — which is why the bank has to be checked rather than assumed either
+// way. RE'd from authenticated executable/overlay evidence guest 0x80082C68 (19 gen-C ln, no branches, no calls — fully
+// self-contained). Not itself a GPU_SYS_TABLE entry (no table dereference); writes the same status-block fields the
+// 0x80082D04 completion-queue cluster (MAPPED, not drafted — see file header) tests every call. Guest ABI: a0 = an
+// opaque pointer the caller owns (stashed verbatim into GPU_DMA_ARG0_PTR's target — this leaf never reads through it,
+// just stores it for the queue cluster to consume later).
 //
 // Writes: *GPU_DMA_FLAGS_PTR = (1024u<<16) | 2  (0x04000002); *GPU_DMA_ARG0_PTR = a0;
 // *GPU_DMA_ARG1_PTR = 0; *GPU_DMA_STATE_PTR = (256u<<16) | 1025  (0x01000401).
@@ -268,12 +264,12 @@ static void libgpuDmaStatusReset(Core *c) {
   c->mem_w32(arg1Ptr, 0);
   uint32_t statePtr = c->mem_r32(GPU_DMA_STATE_PTR);
   c->mem_w32(statePtr, (256u << 16) | 1025u);
-  c->r[2] = statePtr; // v0: the gen body's last pointer load is left in r2 at return
+  c->r[2] = statePtr; // v0: the guest-visible behavior's last pointer load is left in r2 at return
 }
 
 // libgpuSetDrawMode (0x80083DE0) — libgpu **SetDrawMode(DR_MODE* p, int dfe, int dtd, int tpage,
 // RECT* tw)**. Was a DRAFT carrying a real defect; re-verified line-by-line against
-// generated/shard_0.c gen_func_80083DE0 and WIRED 2026-07-29.
+// authenticated executable/overlay evidence guest 0x80083DE0 and WIRED 2026-07-29.
 //
 // THE ARGUMENTS ARE NOW PINNED, and they identify the function. The draft described a1 as
 // "rgbBitsSrc" whose own low bits land in the mode word — but gen line 12643 masks **r7**, not r5:
@@ -281,7 +277,7 @@ static void libgpuDmaStatusReset(Core *c) {
 //     { int _t = (c->r[5] == c->r[0]); c->r[2] = c->r[7] & 2559u; if (_t) goto L_80083E08; }
 //
 // i.e. it BRANCHES on a1 and MASKS a3. The draft used a1 for both, and its banner asserted "a3(r7) =
-// UNUSED by this leaf (register alias only, verified: the gen body never reads r7)" — which that one
+// UNUSED by this leaf (register alias only, verified: the guest-visible behavior never reads r7)" — which that one
 // line disproves. Wiring it as drafted would have written a texture-page field built from the wrong
 // argument into every DR_TPAGE header the guest emits. This is exactly the re-verify that the
 // wide-RE bank requires before a draft is wired, doing its job.
@@ -334,17 +330,16 @@ static void libgpuSetDrawMode(Core *c) {
   c->r[2] = negOffX; // v0 on this path (see banner)
 }
 
-// vertexHeaderRepack (0x800847B0) — 20-byte SoA->AoS vertex-header REPACK. DRAFT. RE'd from generated/shard_4.c
-// gen_func_800847B0 (18 gen-C ln, fully self-contained — no calls, no branches). LOW confidence on
-// semantic name: the shape is a fixed 5-word struct copy from a0 to a1 with fields 0/1 swapped and
-// three of the five words additionally overwritten in their LOW 16 bits by a value taken from a
-// DIFFERENT source word — i.e. it repacks a {u32,u32,u32,u32,s16} source into a differently-ordered
-// destination where three fields are (high16 old, low16 new). This is the same "pack two logical
-// halfwords into one word" idiom used throughout the GT3/GT4 packet builders (game/render/
-// overlay_gt3gt4.cpp, overlay_ground_gt3gt4.cpp) — plausibly a shared vertex/UV-pair repacker for
-// that family, but NOT confirmed against a caller this session (no direct caller found in
-// generated/shard_*.c; reached only via rec_dispatch, consistent with the free-roam dispatch count).
-// Guest ABI: a0=src (20 B), a1=dst (20 B); no return value read by any caller pattern seen.
+// vertexHeaderRepack (0x800847B0) — 20-byte SoA->AoS vertex-header REPACK. DRAFT. RE'd from authenticated
+// executable/overlay evidence guest 0x800847B0 (18 gen-C ln, fully self-contained — no calls, no branches). LOW
+// confidence on semantic name: the shape is a fixed 5-word struct copy from a0 to a1 with fields 0/1 swapped and three
+// of the five words additionally overwritten in their LOW 16 bits by a value taken from a DIFFERENT source word — i.e.
+// it repacks a {u32,u32,u32,u32,s16} source into a differently-ordered destination where three fields are (high16 old,
+// low16 new). This is the same "pack two logical halfwords into one word" idiom used throughout the GT3/GT4 packet
+// builders (game/render/ overlay_gt3gt4.cpp, overlay_ground_gt3gt4.cpp) — plausibly a shared vertex/UV-pair repacker
+// for that family, but NOT confirmed against a caller this session (no direct caller found in authenticated
+// executable/overlay evidence; reached only via typed runtime address dispatch, consistent with the free-roam dispatch
+// count). Guest ABI: a0=src (20 B), a1=dst (20 B); no return value read by any caller pattern seen.
 static void vertexHeaderRepack(Core *c) {
   uint32_t src = c->r[4];
   uint32_t dst = c->r[5];

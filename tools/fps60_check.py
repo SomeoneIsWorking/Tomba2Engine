@@ -22,7 +22,7 @@ across several triples IS the bug report: that screen region contains an object 
 position while the rest of the scene advanced.
 
 USAGE
-  PSXPORT_DEBUG=fps60dump ... ./scratch/bin/tomba2_port ...     # capture (cap 600 files)
+  PSXPORT_DEBUG=fps60dump ... ./build/bin/tomba2_port ...     # capture (cap 600 files)
   tools/fps60_check.py                                          # walk scratch/framedump/
   tools/fps60_check.py --dir scratch/framedump --tile 16 --top 12
   tools/fps60_check.py --triple f001234                         # one triple, with a tile map

@@ -3,7 +3,7 @@
 // The leaf is shared by every UI family in the game (pause menu chrome, dialog chrome, field HUD,
 // the score/AP popup, …). Each family that has a native display producer needs to see the leaf's
 // arguments, but a guest address may have EXACTLY ONE override installed on it: a second
-// overrides::install silently replaces the first — it does not fail the build and it does not fail
+// tomba::native::declareOverride silently replaces the first — it does not fail the build and it does not fail
 // SBS (both write the same guest state), it only shows up as a missing layer in the picture. That is
 // the dual-ownership bug that broke the dialog box (kanban #28).
 //

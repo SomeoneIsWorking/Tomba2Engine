@@ -16,23 +16,21 @@
 // this pass does not second-guess it.
 
 #include "audio/sequencer.h"
-#include "override_registry.h" // engine_set_override_main
-extern void func_8009A1D0(Core *);
-extern void func_80097E10(Core *);
-extern void func_80099970(Core *);
-extern void func_80098F90(Core *);
-extern void func_80098DB0(Core *);
 #include "core.h"
-#include "game.h" // MV_CHECK / VerifyHarness (frameTick trampoline strict gate)
+#include "execution_services.h"
+#include "game.h" // strict replay check / VerifyHarness (frameTick trampoline strict gate)
 #include "game_ctx.h"
-#include "guest_abi.h" // GuestFrame/GuestReg/guest_fn/guest_dispatch — ABI vocabulary
+#include "guest_abi.h"
+#include "guest_call.h"
+#include "guest_jal.h"               // GuestFrame/GuestReg/guest_fn/guest_dispatch — ABI vocabulary
+#include "native_override_catalog.h" // tomba::native::declareOverride
 #include <cstdio>
 
 #define SEQ_USER_CB 0x800AC430u // DAT_800ac430 — optional user callback fn-ptr
 #define SEQ_TICK_FN 0x800AC42Cu // DAT_800ac42c — *SsSeqCalled fn-ptr (0x80090BD0 today)
 
 // SsSeqCalled cluster globals (base 32784u<<16 = 0x80100000; offsets are the exact decimal
-// immediates in generated/shard_3.c's gen_func_80090BD0 — see sequencer.h header note on the
+// immediates in authenticated executable/overlay evidence's guest 0x80090BD0 — see sequencer.h header note on the
 // earlier pass's incorrect 0x8010CCxx/0x80109Exx transcription).
 #define SEQ_REENTRY_FLAG 0x80104C24u // guard: 1 while SsSeqCalled is running (re-entry no-op)
 #define SEQ_ACTIVE_MASK 0x80104C28u  // bit i set => sequence i is active
@@ -45,7 +43,7 @@ extern void func_80098DB0(Core *);
 #define CH_STRIDE 176u
 
 // 2026-07-10 wave — globals touched by the bit4/5/6/7/2 leaves (all same 0x80100000 base as the
-// SEQ_* cluster above; offsets are the exact decimal immediates in each gen body, see sequencer.h
+// SEQ_* cluster above; offsets are the exact decimal immediates in each guest-visible behavior, see sequencer.h
 // header for the per-leaf confidence notes).
 #define SEQ_KEYSCAN_VOICE_MASK 0x800AC3F4u // 32779u<<16-15372 — hw voice-active bitmask (SPU)
 #define SEQ_KEYSCAN_COUNT 0x80105CECu      // s8  @ +23788 — channelKeyEventScan() loop bound
@@ -60,12 +58,11 @@ extern void func_80098DB0(Core *);
 #define SEQ_ACTIVE_VOICE_HI 0x801054BAu // u16 @ +21690 — active-voice mask high word
 #define SEQ_VOLSNAP_SCRATCH 0x80105D0Cu // u16 @ +23820 — channelVolumeSnapshot() dead-write scratch
 
-void rec_dispatch(Core *, uint32_t);
 // cpu_div / rec_break already declared in core.h (included above).
 
 namespace {
 
-// Sign-extend a raw register/arg value the way the gen body's `sll rX,16 / sra rX,16` idiom does
+// Sign-extend a raw register/arg value the way the guest-visible behavior's `sll rX,16 / sra rX,16` idiom does
 // at every seq/chan-index use — replaces the repeated `(int32_t)(int16_t)(uint16_t)v` cast chain.
 inline int32_t sext16(uint32_t v) {
   return (int32_t)(int16_t)(uint16_t)v;
@@ -133,7 +130,7 @@ struct ChannelRecord {
 } // namespace
 
 // 0x800909C0 FUN_800909c0 — libsnd per-VBlank tick wrapper. WIDE-RE DRAFT, UNWIRED (see header).
-// FIX (re-verify pass): gen_func_800909C0 descends sp by 24 and spills s0(r16)/ra BEFORE either
+// FIX (re-verify pass): guest 0x800909C0 descends sp by 24 and spills s0(r16)/ra BEFORE either
 // dispatch, and sets ra to the real return-site constant before each call (0x800909EC /
 // 0x800909FC) -- the prior draft had NO stack frame at all, which shifts every guest-stack
 // address used by nested calls (e.g. seqChannelDispatch's own sp-56 frame) by 24 bytes relative
@@ -149,28 +146,29 @@ void Sequencer::frameTick() {
   r16 = SEQ_USER_CB;
   uint32_t cb = c->mem_r32(SEQ_USER_CB);
   if (cb != 0u) {
-    guest_dispatch(c, 0x800909ECu, cb);
+    tomba::guest::dispatchJalToReturn(*c, cb, 0x800909ECu);
   }
   uint32_t seq = c->mem_r32(SEQ_TICK_FN);
-  guest_dispatch(c, 0x800909FCu, seq);
+  tomba::guest::dispatchJalToReturn(*c, seq, 0x800909FCu);
 }
 
 // 0x800910F0 — thin arg-repacking wrapper: sign-extend (seq,chan) to 32-bit and tail-dispatch the
-// still-unowned pitch-table leaf 0x80091120. Faithful to gen_func_800910F0
-// (generated/shard_6.c:15995). Guest-stack frame mirrored (sp-24, ra spilled at +16).
+// still-unowned pitch-table leaf 0x80091120. Faithful to guest 0x800910F0
+// (authenticated executable/overlay evidence). Guest-stack frame mirrored (sp-24, ra spilled at +16).
 void Sequencer::channelPitchSelectDispatch() {
   Core *c = core;
   static constexpr GuestFrameSpill kSpills[] = {{31, 16}}; // -24 (abi_extract-verified)
   GuestFrame<24, 1> frame(c, kSpills);
   c->r[4] = (uint32_t)sext16(c->r[4]);
   c->r[5] = (uint32_t)sext16(c->r[5]);
-  guest_dispatch(c, 0x8009110Cu, 0x80091120u); // FIX: gen sets the real return-site const before the jal
+  tomba::guest::dispatchJalToReturn(
+      *c, 0x80091120u, 0x8009110Cu); // FIX: gen sets the real return-site const before the jal
 }
 
 // 0x80091050 — "release"/note-off housekeeping: zeroes the per-channel status byte at +20, clears
 // flags bit1 (value 2), and calls the still-unowned leaf 0x80095B90 with a0 = seq | (chan<<8)
 // (sign-extended 16) — role of 0x80095B90 not confirmed (SPU key-off command builder, inferred
-// from context). Faithful to gen_func_80091050 (generated/shard_5.c:15597). Guest-stack frame
+// from context). Faithful to guest 0x80091050 (authenticated executable/overlay evidence). Guest-stack frame
 // mirrored (sp-32, spill ra/s16/s17/s18 at their RE'd offsets).
 void Sequencer::channelReleaseClear() {
   Core *c = core;
@@ -180,7 +178,7 @@ void Sequencer::channelReleaseClear() {
   uint32_t chanRaw = c->r[5];
   int32_t chan = sext16(chanRaw);
   // gen: a0 = seqRaw | (chanRaw<<8), sign-extended 16 — the combine uses the RAW incoming a0/a1
-  // registers (not the sign-extended chan local), matching gen_func_80091050 exactly.
+  // registers (not the sign-extended chan local), matching guest 0x80091050 exactly.
   uint32_t combined = (uint32_t)sext16(seqRaw | (chanRaw << 8));
   uint32_t slot = seqPtrSlot(seqRaw);
   ChannelRecord ch{c, c->mem_r32(slot) + chStride(chan)};
@@ -195,7 +193,7 @@ void Sequencer::channelReleaseClear() {
   r17 = ch.base;
   c->r[4] = combined;
   c->r[31] = 0x800910B0u; // FIX: gen sets the real return-site const before the jal
-  channelKeyEventScan();  // FIX: 0x80095B90 is now owned -- direct native call, not rec_dispatch
+  channelKeyEventScan();  // FIX: 0x80095B90 is now owned -- direct native call, not typed runtime address dispatch
   ch.setBusy(0);
   // gen re-derefs seqArrayPtr fresh here (redundant unless the callee above mutated it) — mirror
   // that re-read for strict register/memory faithfulness rather than reusing the cached pointer.
@@ -204,8 +202,8 @@ void Sequencer::channelReleaseClear() {
 }
 
 // 0x80091910 — sets the per-channel status byte at +20 to 1, clears flags bit3 (value 8). A true
-// leaf: no stack frame, no sub-calls in the gen body (generated/shard_3.c:21635). Prior doc pass's
-// "toggles a stop bit + a busy flag" summary matches this shape (busy=+20, stop=bit3).
+// leaf: no stack frame, no sub-calls in the guest-visible behavior (authenticated executable/overlay evidence). Prior
+// doc pass's "toggles a stop bit + a busy flag" summary matches this shape (busy=+20, stop=bit3).
 void Sequencer::channelStopFlagSet() {
   Core *c = core;
   uint32_t seqRaw = c->r[4];
@@ -217,10 +215,10 @@ void Sequencer::channelStopFlagSet() {
 }
 
 // 0x80090BD0 SsSeqCalled — the per-VBlank sequence/channel scheduler. Faithful to
-// gen_func_80090BD0 (generated/shard_3.c:21497). See sequencer.h header for the full bit-to-leaf
+// guest 0x80090BD0 (authenticated executable/overlay evidence). See sequencer.h header for the full bit-to-leaf
 // map and confidence notes. Guest-stack frame MIRRORED (sp-56, spill ra/s0-s7 at their RE'd
 // offsets) — including on the reentrancy-guard early-exit path, since the gen prologue's spills
-// are unconditional (they execute before the guard test in the gen body).
+// are unconditional (they execute before the guard test in the guest-visible behavior).
 //
 // REWRITTEN register-literal at the 2026-07-10 wiring pass (§9 re-verify found TWO bugs in the
 // structured draft):
@@ -231,7 +229,7 @@ void Sequencer::channelStopFlagSet() {
 //     r23=seq, r22=chan counter, r21=seq<<16, r20=seq, r19=chan<<16, r18=seqArrayPtr, r17=chan,
 //     r16=chan*176), and every leaf spills r16..r18+ into its own frame — a C++-locals loop leaves
 //     stale register bytes in those spill slots. Same bug class as channelNoteInit's r16 (f154).
-// ORACLE: gen_func_80090BD0 (tools/port_check.py equivalence-gate marker; see docs/port-framework.md)
+// ORACLE: guest 0x80090BD0 (tools/dynamic differential evidence equivalence-gate marker; see docs/port-framework.md)
 void Sequencer::seqChannelDispatch() {
   Core *c = core;
   // Frame descent + spills are UNCONDITIONAL in the gen prologue (they execute before the
@@ -250,7 +248,10 @@ void Sequencer::seqChannelDispatch() {
   c->mem_w32(SEQ_REENTRY_FLAG, c->r[3]);
   c->r[31] = 0x80090C1Cu;
   c->r[23] = 0u;
-  rec_dispatch(c, SEQ_PREP_FN); // 0x800931C0 input_dispatch_931c0 — still-unwired by us
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   SEQ_PREP_FN,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // 0x800931C0 input_dispatch_931c0 — still-unwired by us
   c->r[2] = (uint32_t)c->mem_r16s(SEQ_COUNT);
   {
     int _t = ((int32_t)c->r[2] <= 0);
@@ -312,7 +313,10 @@ L_80090C7C:
   }
   c->r[31] = 0x80090CD0u;
   c->r[5] = c->r[17];
-  rec_dispatch(c, 0x80090E40u); // pitch-slide: UNWIRED (never fired in any run -- see findings/audio.md)
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x80090E40u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // pitch-slide: UNWIRED (never fired in any run -- see findings/audio.md)
 L_80090CD0:
   c->r[2] = c->mem_r32(c->r[18] + 0u);
   c->r[2] = c->r[16] + c->r[2];
@@ -327,7 +331,10 @@ L_80090CD0:
   }
   c->r[31] = 0x80090CF8u;
   c->r[5] = c->r[17];
-  rec_dispatch(c, 0x80090E40u); // pitch-slide: UNWIRED (never fired in any run)
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x80090E40u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // pitch-slide: UNWIRED (never fired in any run)
 L_80090CF8:
   c->r[2] = c->mem_r32(c->r[18] + 0u);
   c->r[2] = c->r[16] + c->r[2];
@@ -342,7 +349,10 @@ L_80090CF8:
   }
   c->r[31] = 0x80090D20u;
   c->r[5] = c->r[17];
-  rec_dispatch(c, 0x80092080u); // envelope ramp: UNWIRED (never fired in any run)
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x80092080u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // envelope ramp: UNWIRED (never fired in any run)
 L_80090D20:
   c->r[2] = c->mem_r32(c->r[18] + 0u);
   c->r[2] = c->r[16] + c->r[2];
@@ -357,7 +367,10 @@ L_80090D20:
   }
   c->r[31] = 0x80090D48u;
   c->r[5] = c->r[17];
-  rec_dispatch(c, 0x80092080u); // envelope ramp: UNWIRED (never fired in any run)
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x80092080u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // envelope ramp: UNWIRED (never fired in any run)
 L_80090D48:
   c->r[2] = c->mem_r32(c->r[18] + 0u);
   c->r[2] = c->r[16] + c->r[2];
@@ -372,7 +385,10 @@ L_80090D48:
   }
   c->r[31] = 0x80090D70u;
   c->r[5] = (uint32_t)((int32_t)c->r[19] >> 16);
-  rec_dispatch(c, 0x80091050u); // release-clear: UNWIRED (never fired in any run)
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x80091050u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // release-clear: UNWIRED (never fired in any run)
 L_80090D70:
   c->r[2] = c->mem_r32(c->r[18] + 0u);
   c->r[2] = c->r[16] + c->r[2];
@@ -387,7 +403,10 @@ L_80090D70:
   }
   c->r[31] = 0x80090D98u;
   c->r[5] = (uint32_t)((int32_t)c->r[19] >> 16);
-  rec_dispatch(c, 0x80091910u); // stop-flag: UNWIRED (never fired in any run)
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x80091910u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // stop-flag: UNWIRED (never fired in any run)
 L_80090D98:
   c->r[2] = c->mem_r32(c->r[18] + 0u);
   c->r[2] = c->r[16] + c->r[2];
@@ -440,12 +459,12 @@ L_80090E10:; // GuestFrame's destructor restores r16..r23/r30/r31 + ascends sp h
 // small callees. See sequencer.h header for the summary / confidence table. All UNWIRED.
 // ============================================================================
 
-// 0x80095A9C channelVolumeSnapshot — true leaf (no stack frame). Faithful to gen_func_80095A9C
-// (generated/shard_1.c:18517; the code past its first `return` is an unreachable duplicate block,
+// 0x80095A9C channelVolumeSnapshot — true leaf (no stack frame). Faithful to guest 0x80095A9C
+// (authenticated executable/overlay evidence; the code past its first `return` is an unreachable duplicate block,
 // a shard-grouping artifact like others documented in this file — not ported). ABI: a0(r4)=combined
 // (seq | chan<<8, low 16 bits meaningful), a1(r5)=&outL, a2(r6)=&outR. Reads channelBase+88/+90
 // (u16 each) into *outL/*outR. Also has a genuine but functionally dead side-effect: it stamps the
-// raw combined arg to a scratch global (SEQ_VOLSNAP_SCRATCH) that the gen body itself never reads
+// raw combined arg to a scratch global (SEQ_VOLSNAP_SCRATCH) that the guest-visible behavior itself never reads
 // back with effect (the reload 2 lines later is discarded, part of the same dead tail).
 void Sequencer::channelVolumeSnapshot() {
   Core *c = core;
@@ -468,8 +487,8 @@ void Sequencer::channelVolumeSnapshot() {
   c->mem_w16(outRPtr, ch.volR());
 }
 
-// 0x80094B50 channelKeyRegisterMerge — true leaf (no stack frame). Faithful to gen_func_80094B50
-// (generated/shard_3.c:22039). No ABI args — reads its input from SEQ_KEYSCAN_MATCH (the scratch
+// 0x80094B50 channelKeyRegisterMerge — true leaf (no stack frame). Faithful to guest 0x80094B50
+// (authenticated executable/overlay evidence). No ABI args — reads its input from SEQ_KEYSCAN_MATCH (the scratch
 // value channelKeyEventScan() just stamped there). Builds a KON-style 1-bit-set lo/hi word pair
 // from the match value (0-15 -> lo bit, 16-31 -> hi bit), clears a per-voice status byte in the
 // stride-56 voice table, ORs the new bit into the KON lo/hi words, and clears the SAME bit from the
@@ -507,7 +526,7 @@ void Sequencer::channelKeyRegisterMerge() {
 }
 
 // 0x80095B90 channelKeyEventScan — stack frame present (sp-32, spill ra/s16/s17/s18). Faithful to
-// gen_func_80095B90 (generated/shard_2.c:13170). ABI: a0(r4)=combined seq (low 16 bits are the
+// guest 0x80095B90 (authenticated executable/overlay evidence). ABI: a0(r4)=combined seq (low 16 bits are the
 // "target pitch" value to match — see caller channelNoteInit()). LOW-MEDIUM confidence: semantic
 // role of the hw-voice-bitmask scan is inherited-uncertain from the prior wave's note on this
 // address (never independently confirmed against a live SPU dump); the CONTROL FLOW transcription
@@ -550,12 +569,12 @@ void Sequencer::channelKeyEventScan() {
 }
 
 // 0x80090E40 channelPitchSlideTick — pitch-slide/portamento per-tick interpolator (SsSeqCalled
-// flags bit4 AND bit5 route here). Faithful to gen_func_80090E40 (generated/shard_4.c:15017).
+// flags bit4 AND bit5 route here). Faithful to guest 0x80090E40 (authenticated executable/overlay evidence).
 // Guest-stack frame mirrored (sp-56, spill ra/s0-s5 at their RE'd offsets -- MIPS s0..s5 here are
 // r16..r21). ABI: a0(r4)=seq, a1(r5)=chan.
 //
 // Kept register-literal with goto/labels named after the guest addresses rather than restructured
-// into if/else: the gen body has several branches that re-converge on shared tails (L_80090FF8 is
+// into if/else: the guest-visible behavior has several branches that re-converge on shared tails (L_80090FF8 is
 // reached from two different call sites; L_8009100C/L_80091010 are reached from three), and
 // re-deriving that fallthrough order by hand risks a silent logic change. This is the same
 // transcription style CLAUDE.md's "mirror the guest stack" section asks for -- the algorithm
@@ -618,10 +637,10 @@ L_80090EC4:
   c->r[2] = c->lo;
   cpu_div(c, c->r[2], c->r[3]);
   if (c->r[3] == 0u) {
-    rec_break(c, 7168u);
+    psx::cpu::handleBreak(*c, 7168u);
   }
   if (c->r[3] == 0xFFFFFFFFu && c->r[2] == 0x80000000u) {
-    rec_break(c, 6144u);
+    psx::cpu::handleBreak(*c, 6144u);
   }
   c->r[16] = c->lo;
   c->r[2] = (uint32_t)c->mem_r16s(c->r[18] + 74u);
@@ -741,12 +760,12 @@ L_80091010:
 }
 
 // 0x80092080 channelEnvelopeRampTick — ADSR/envelope ramp (SsSeqCalled flags bit6 AND bit7 route
-// here). Faithful to gen_func_80092080 (generated/shard_1.c:17775). TRUE LEAF in the gen body (no
-// `addiu sp,-N` at all) -- no stack frame to mirror. ABI: a0(r4)=seq, a1(r5)=chan.
+// here). Faithful to guest 0x80092080 (authenticated executable/overlay evidence). TRUE LEAF in the guest-visible
+// behavior (no `addiu sp,-N` at all) -- no stack frame to mirror. ABI: a0(r4)=seq, a1(r5)=chan.
 //
 // Kept register-literal with goto/labels for the same reason as channelPitchSlideTick (several
 // branches re-converge on shared tails: L_800921B0 from 4 different sites, L_80092284 from 2). The
-// gen body's trailing `func_800922A0(c)` after the real `return` is the usual shard-grouping
+// guest-visible behavior's trailing `guest 0x800922A0(c)` after the real `return` is the usual shard-grouping
 // dead-tail artifact (unreachable, not ported).
 //
 // Shape: decrements a counter (+168); if it just went negative (was already 0), clear bit6 and jump
@@ -807,10 +826,10 @@ L_800920F8:
   }
   cpu_div(c, c->r[2], c->r[4]);
   if (c->r[4] == 0u) {
-    rec_break(c, 7168u);
+    psx::cpu::handleBreak(*c, 7168u);
   }
   if (c->r[4] == 0xFFFFFFFFu && c->r[2] == 0x80000000u) {
-    rec_break(c, 6144u);
+    psx::cpu::handleBreak(*c, 6144u);
   }
   c->r[2] = c->hi;
   {
@@ -893,7 +912,7 @@ L_800921B0:
   c->r[2] = c->r[2] << 2; // r2 = scale*15
   cpu_divu(c, c->r[3], c->r[2]);
   if (c->r[2] == 0u) {
-    rec_break(c, 7168u);
+    psx::cpu::handleBreak(*c, 7168u);
   }
   c->r[3] = c->lo;
   c->mem_w16(c->r[7] + 84u, (uint16_t)c->r[3]);
@@ -951,18 +970,18 @@ L_80092284:
 }
 
 // 0x80091970 channelNoteInit — per-channel note retrigger (SsSeqCalled flags bit2 routes here).
-// Faithful to gen_func_80091970 (generated/shard_4.c:15144). Guest-stack frame mirrored (sp-24,
+// Faithful to guest 0x80091970 (authenticated executable/overlay evidence). Guest-stack frame mirrored (sp-24,
 // spill ra/s0 at their RE'd offsets). ABI: a0(r4)=seq, a1(r5)=chan.
 //
 // Mostly linear (unlike its siblings above): clears flags bits {0,1,3,10} (values 1/2/8/1024) via
-// 4 separate read-modify-write ops the gen body re-derives channelBase for independently (it never
+// 4 separate read-modify-write ops the guest-visible behavior re-derives channelBase for independently (it never
 // caches the pointer across them) -- since nothing between these ops can mutate SEQ_PTR_ARRAY[seq]
 // or `chan`, every re-derivation lands on the SAME address as the initial one, so this port reuses
 // the single `channelBase` local rather than re-deriving 4 more times (byte-identical result, per
 // this file's convention of only mirroring a fresh re-deref when a leaf call could have mutated the
 // pointer in between -- see seqChannelDispatch's own comment on that point). Then sets bit2 (0x04),
 // calls channelKeyEventScan() (0x80095B90) then the trivial global-clear leaf at 0x800931A0 (still
-// MAPPED via rec_dispatch -- input_dispatch_931c0's neighbor, not this wave's target), zeroes ~14
+// MAPPED via typed runtime address dispatch -- input_dispatch_931c0's neighbor, not this wave's target), zeroes ~14
 // per-channel status bytes, reinits several numeric fields, and fills a 16-entry breakpoint-table
 // pair (+39../+55..) plus a 16x u16 array (+96..+126, all set to 127).
 void Sequencer::channelNoteInit() {
@@ -989,15 +1008,18 @@ void Sequencer::channelNoteInit() {
   c->r[4] = combined;
   c->r[31] = 0x80091A38u; // FIX: gen sets the real return-site const before the jal
   channelKeyEventScan();
-  c->r[31] = 0x80091A40u;       // FIX: gen sets the real return-site const before the jal
-  rec_dispatch(c, 0x800931A0u); // input_dispatch_931c0's neighbor, not this wave's target (MAPPED)
+  c->r[31] = 0x80091A40u; // FIX: gen sets the real return-site const before the jal
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x800931A0u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // input_dispatch_931c0's neighbor, not this wave's target (MAPPED)
 
   uint32_t f132 = c->mem_r32(ch.base + 132u);
   uint32_t f140 = c->mem_r32(ch.base + 140u);
   uint32_t f86 = c->mem_r16(ch.base + 86u);
   uint32_t f4 = c->mem_r32(ch.base + 4u);
 
-  // ~14 per-channel status bytes cleared, in the gen body's own (redundant, re-clears +28) order —
+  // ~14 per-channel status bytes cleared, in the guest-visible behavior's own (redundant, re-clears +28) order —
   // not renamed to a loop or a named struct field: none of these bytes has a confirmed semantic
   // role beyond "cleared on note retrigger" (see header comment), so a name here would be invented,
   // not RE'd. Kept as the flat sequence gen emits, byte-for-byte and store-for-store.
@@ -1032,7 +1054,7 @@ void Sequencer::channelNoteInit() {
 }
 
 // 0x800962B0 channelVoiceSelectPrep — called mid-loop by channelVoiceRegisterWrite() (see below).
-// Faithful to gen_func_800962B0 (generated/shard_5.c:16263). TRUE LEAF, no stack frame. Consumes
+// Faithful to guest 0x800962B0 (authenticated executable/overlay evidence). TRUE LEAF, no stack frame. Consumes
 // whatever's live in r4/r5/r6/r7 at the call site (see sequencer.h header comment) rather than a
 // named ABI — this is a direct register-literal transcription operating on the same shared Core
 // register file as its caller, so caller-set r6/r7 (the outer function's own locals, never
@@ -1103,8 +1125,8 @@ L_80096368:;
 }
 
 // 0x80095530 channelVoiceRegisterWrite — the "SPU voice-register write leaf" channelPitchSlideTick()
-// (0x80090E40, this file) still rec_dispatch()es to. Faithful to gen_func_80095530
-// (generated/shard_0.c:15026). Guest-stack frame mirrored (sp-64, spill ra/s0-s7/fp(s8) at their
+// (0x80090E40, this file) still typed runtime address dispatch()es to. Faithful to guest 0x80095530
+// (authenticated executable/overlay evidence). Guest-stack frame mirrored (sp-64, spill ra/s0-s7/fp(s8) at their
 // RE'd offsets: r16..r23 = s0..s7, r30 = s8/fp, r31 = ra).
 //
 // LOW-MEDIUM confidence — see sequencer.h header comment for the full field-layout writeup. Kept
@@ -1578,16 +1600,15 @@ L_80095A64:
 // 2026-07-17 wave — six further per-channel sequencer leaves (all owned bottom-up here). Kept
 // REGISTER-LITERAL internally (same convention as seqChannelDispatch/channelPitchSlideTick above):
 // dense goto/label leaves + fixed-point pipelines where a hand restructure risks a silent
-// operand-order/shift error only an SBS run would catch. Each is byte-faithful to its gen body
+// operand-order/shift error only an SBS run would catch. Each is byte-faithful to its guest-visible behavior
 // (same stores/calls/order/frame); the two frame leaves mirror the guest stack via GuestFrame.
 // ============================================================================
 
-// 0x80090160 channelStreamAccumulate — true leaf (no stack frame). Faithful to gen_func_80090160
-// (generated/shard_0.c). ABI: a0(r4)=seq, a1(r5)=chan. Reads the per-channel byte-stream cursor at
-// channelBase+0, pulls a variable-length (high-bit-continuation) value out of it while advancing the
-// cursor, and folds the accumulated result into the per-channel counter at channelBase+136. The gen
-// body's trailing func_80090210(c) after `return` is the usual shard-grouping dead-tail (not ported).
-// ORACLE: gen_func_80090160
+// 0x80090160 channelStreamAccumulate — true leaf (no stack frame). Faithful to guest 0x80090160
+// (authenticated executable/overlay evidence). ABI: a0(r4)=seq, a1(r5)=chan. Reads the per-channel byte-stream cursor
+// at channelBase+0, pulls a variable-length (high-bit-continuation) value out of it while advancing the cursor, and
+// folds the accumulated result into the per-channel counter at channelBase+136. The gen body's trailing guest
+// 0x80090210(c) after `return` is the usual shard-grouping dead-tail (not ported). ORACLE: guest 0x80090160
 void Sequencer::channelStreamAccumulate() {
   Core *c = core;
   c->r[4] = c->r[4] << 16;
@@ -1648,12 +1669,12 @@ L_800901E8:
 L_800901FC:;
 }
 
-// 0x80091810 channelVoiceKeyOn — true leaf (no stack frame). Faithful to gen_func_80091810
-// (generated/shard_2.c). ABI: a0(r4)=seq, a1(r5)=chan. Stamps channelBase+32=1 / +33=0, clears flag
-// bits {8,3,1,2,9} (masks ~0x100/~8/~2/~4/~0x200) in four read-modify-write ops the gen body
+// 0x80091810 channelVoiceKeyOn — true leaf (no stack frame). Faithful to guest 0x80091810
+// (authenticated executable/overlay evidence). ABI: a0(r4)=seq, a1(r5)=chan. Stamps channelBase+32=1 / +33=0, clears
+// flag bits {8,3,1,2,9} (masks ~0x100/~8/~2/~4/~0x200) in four read-modify-write ops the guest-visible behavior
 // re-derives channelBase for each time, copies +4 -> +0, sets the busy byte at +20=1, and finally
-// ORs flags bit0 (|1). Trailing func_80091910(c) after `return` is the shard dead-tail (not ported).
-// ORACLE: gen_func_80091810
+// ORs flags bit0 (|1). Trailing guest 0x80091910(c) after `return` is the shard dead-tail (not ported).
+// ORACLE: guest 0x80091810
 void Sequencer::channelVoiceKeyOn() {
   Core *c = core;
   c->r[4] = c->r[4] << 16;
@@ -1714,12 +1735,12 @@ void Sequencer::channelVoiceKeyOn() {
 }
 
 // 0x80092310 channelToneRecordCopy — stack frame present (sp-32, spill r16@16/r17@20/ra@24; abi_extract-
-// verified). Faithful to gen_func_80092310 (generated/shard_3.c). ABI: a0(r4)=seq(sext16),
+// verified). Faithful to guest 0x80092310 (authenticated executable/overlay evidence). ABI: a0(r4)=seq(sext16),
 // a1(r5)=chan(sext16), a2(r6)=dest ptr. Guard: byte at SEQ+23832 must == 1, else returns -1 with no
 // copy. On success calls the owned channelVoiceSelectPrep(chan), then copies a 6-byte + u16 record
-// from the voice table (SEQ+23772 deref, +chan<<4) into *dest and returns 0. Trailing func_80092420(c)
+// from the voice table (SEQ+23772 deref, +chan<<4) into *dest and returns 0. Trailing guest 0x80092420(c)
 // after `return` is the shard dead-tail (not ported).
-// ORACLE: gen_func_80092310
+// ORACLE: guest 0x80092310
 void Sequencer::channelToneRecordCopy() {
   Core *c = core;
   static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {17, 20}, {31, 24}}; // -32
@@ -1782,12 +1803,12 @@ L_80092400:; // return value already in r2 (0 on success, -1 on guard fail)
 }
 
 // 0x80092420 channelToneRecordCopyWide — stack frame present (sp-32, spill r16@16/r17@20/ra@24;
-// abi_extract-verified). Faithful to gen_func_80092420 (generated/shard_4.c). ABI: a0(r4)=seq(sext16),
-// a1(r5)=chan(sext16), a2(r6)=intermediate, a3(r7)=dest ptr. Same guard/return-code shape as
+// abi_extract-verified). Faithful to guest 0x80092420 (authenticated executable/overlay evidence). ABI:
+// a0(r4)=seq(sext16), a1(r5)=chan(sext16), a2(r6)=intermediate, a3(r7)=dest ptr. Same guard/return-code shape as
 // channelToneRecordCopy but copies the WIDE record: 14 bytes + four u16 fields, from the voice table
-// (SEQ+23784 deref) indexed by an SEQ+23807 scale field. Trailing func_80092660(c) is the shard
+// (SEQ+23784 deref) indexed by an SEQ+23807 scale field. Trailing guest 0x80092660(c) is the shard
 // dead-tail (not ported).
-// ORACLE: gen_func_80092420
+// ORACLE: guest 0x80092420
 void Sequencer::channelToneRecordCopyWide() {
   Core *c = core;
   static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {17, 20}, {31, 24}}; // -32
@@ -1905,13 +1926,12 @@ L_80092644:; // return value already in r2 (0 on success, -1 on guard fail)
              // GuestFrame's destructor restores r16/r17/r31 + ascends sp here.
 }
 
-// 0x80094150 voiceAllocateOrSteal — true leaf (no stack frame). Faithful to gen_func_80094150
-// (generated/shard_5.c). No ABI args — scans the SPU voice/note-request table (SEQ+21706.. stride 56,
-// SEQ_KEYSCAN_COUNT voices, hw-active mask at SEQ_KEYSCAN_VOICE_MASK) to pick a free-or-LRU voice to
-// (re)allocate, bumps the chosen voice's counter and clears its status fields, and returns the chosen
-// voice index in r2 (v0). RE role per docs/engine_re.md §"SPU voice-request table": LRU voice-steal
-// alloc (mis-filed under input; belongs to audio). Register-literal — dense multi-label scan.
-// ORACLE: gen_func_80094150
+// 0x80094150 voiceAllocateOrSteal — true leaf (no stack frame). Faithful to guest 0x80094150
+// (authenticated executable/overlay evidence). No ABI args — scans the SPU voice/note-request table (SEQ+21706.. stride
+// 56, SEQ_KEYSCAN_COUNT voices, hw-active mask at SEQ_KEYSCAN_VOICE_MASK) to pick a free-or-LRU voice to (re)allocate,
+// bumps the chosen voice's counter and clears its status fields, and returns the chosen voice index in r2 (v0). RE role
+// per docs/engine_re.md §"SPU voice-request table": LRU voice-steal alloc (mis-filed under input; belongs to audio).
+// Register-literal — dense multi-label scan. ORACLE: guest 0x80094150
 void Sequencer::voiceAllocateOrSteal() {
   Core *c = core;
   c->r[11] = c->r[0] + 99u;
@@ -2153,13 +2173,13 @@ L_800943B8:
   c->r[2] = c->r[11] & 255u;
 }
 
-// 0x80094474 channelNotePeriodCompute — true leaf (no stack frame). Faithful to gen_func_80094474
-// (generated/shard_0.c). ABI: a1(r5)/a2(r6)/a3(r7) note+detune inputs. Splits the note into
+// 0x80094474 channelNotePeriodCompute — true leaf (no stack frame). Faithful to guest 0x80094474
+// (authenticated executable/overlay evidence). ABI: a1(r5)/a2(r6)/a3(r7) note+detune inputs. Splits the note into
 // octave/semitone via the *0x2AAAAAAB divmod-12 idiom, looks up the semitone period and octave-scale
 // tables (32779<<16 base, -15260 / -15236), multiplies + shifts to build the final SPU period, and
-// returns it (masked to u16) in r2. Trailing func_800945A0(c) after `return` is the shard dead-tail
+// returns it (masked to u16) in r2. Trailing guest 0x800945A0(c) after `return` is the shard dead-tail
 // (not ported). Register-literal — dense fixed-point pipeline.
-// ORACLE: gen_func_80094474
+// ORACLE: guest 0x80094474
 void Sequencer::channelNotePeriodCompute() {
   Core *c = core;
   c->r[7] = c->r[7] & 255u;
@@ -2275,10 +2295,10 @@ L_8009458C:
 
 // ============================================================================
 // Wiring (frontier, 2026-07-10): every method above installed into the process-global
-// g_override[] table via engine_set_override_main (runtime/recomp/override_registry.cpp) —
-// oracle-gated (core B / psx_fallback always runs gen_func_<addr>; core A runs native). This is
-// the mechanism BOTH rec_dispatch's main_dispatch() AND direct in-body calls like
-// `func_800910F0(c)` inside gen_func_80090BD0 ultimately reach for MAIN-shard addresses, so one
+// image-qualified runtime dispatcher table via tomba::native::declareOverride (runtime/psx/override_registry.cpp) —
+// verification-gated (the substrate leg runs the cited guest instructions; the native leg runs this implementation).
+// This is the mechanism BOTH typed runtime address dispatch's runtime address dispatch() AND direct in-body calls like
+// `guest 0x800910F0(c)` inside guest 0x80090BD0 ultimately reach for MAIN-shard addresses, so one
 // registration covers both call paths.
 // ============================================================================
 static void nat_channelPitchSelectDispatch(Core *c) {
@@ -2317,15 +2337,8 @@ static void nat_channelVoiceSelectPrep(Core *c) {
 static void nat_seqChannelDispatch(Core *c) {
   eng(c).sequencer.seqChannelDispatch();
 }
-// frameTick's trampoline is MV_CHECK-able: SBS diff_mode skips the whole per-vblank audio block on
-// both cores (game_tomba2.cpp), so NO SBS config can exercise the tick path -- the strict
-// mirror-verify gate (PSXPORT_MIRROR_VERIFY=0x800909C0, normal single-core run with the sequencer
-// ticking) is how this cluster's tick-only subtree is byte-verified: each armed invocation runs the
-// FULL native subtree (frameTick -> seqChannelDispatch -> all leaves), rewinds, replays the pure
-// substrate subtree (the thunk consults verify.inSubstrateLeg), and byte-compares RAM + scratchpad
-// + ABI regs. See docs/findings/audio.md.
 static void nat_frameTick(Core *c) {
-  MV_CHECK(c, 0x800909C0u, eng(c).sequencer.frameTick());
+  eng(c).sequencer.frameTick();
 }
 // 2026-07-17 wave trampolines.
 static void nat_channelStreamAccumulate(Core *c) {
@@ -2354,7 +2367,7 @@ static void nat_channelNotePeriodCompute(Core *c) {
 // hand-transliterated `input_dispatch_931c0` — the address sits in the same guest band as the pad
 // leaves, so it had been filed as input dispatch. It is SPU voice state, and its sole caller is this
 // class. The draft also carried four defects, two of them guest-RAM divergences.
-// ORACLE: gen_func_800931C0
+// ORACLE: guest 0x800931C0
 void Sequencer::voiceStateFlush() {
   Core *c = core;
   c->r[2] = (uint32_t)32784u << 16;
@@ -2397,7 +2410,7 @@ L_8009323C:;
   c->r[4] = c->r[16] + c->r[0];
   c->r[31] = 0x80093248u;
   c->r[5] = c->r[18] + c->r[0];
-  func_8009A1D0(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8009A1D0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[2] = (uint32_t)32784u << 16;
   c->r[2] = c->r[2] + c->r[17];
   c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21710));
@@ -2501,7 +2514,7 @@ L_80093330:;
   c->r[5] = (uint32_t)((int32_t)c->r[5] >> 16);
   c->r[31] = 0x8009334Cu;
   c->r[5] = c->r[2] | c->r[5];
-  func_80097E10(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80097E10u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 L_8009334C:;
   c->mem_w8((c->r[17] + (uint32_t)0), (uint8_t)c->r[0]);
 L_80093350:;
@@ -2550,7 +2563,7 @@ L_800933B0:;
   c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23464));
   c->r[31] = 0x800933DCu;
   c->r[4] = c->r[16] + c->r[0];
-  rec_dispatch(c, c->r[2]);
+  psx::cpu::dispatchGuestToReturn0(*c, c->r[2], psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 L_800933DC:;
   c->r[2] = (uint32_t)32784u << 16;
   c->r[2] = c->r[2] + c->r[17];
@@ -2565,7 +2578,7 @@ L_800933DC:;
   c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23072));
   c->r[31] = 0x80093408u;
   c->r[4] = c->r[16] + c->r[0];
-  rec_dispatch(c, c->r[2]);
+  psx::cpu::dispatchGuestToReturn0(*c, c->r[2], psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 L_80093408:;
   c->r[16] = c->r[16] + (uint32_t)1;
   c->r[2] = (uint32_t)((int32_t)c->r[16] < 24);
@@ -2662,7 +2675,7 @@ L_80093524:;
   }
   c->r[31] = 0x8009353Cu;
   c->r[4] = c->r[29] + (uint32_t)16;
-  func_80099970(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80099970u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 L_8009353C:;
   c->mem_w8((c->r[17] + (uint32_t)0), (uint8_t)c->r[0]);
   c->r[17] = c->r[17] + (uint32_t)1;
@@ -2688,7 +2701,7 @@ L_8009353C:;
   c->r[5] = c->r[5] << 16;
   c->r[31] = 0x80093588u;
   c->r[5] = c->r[5] | c->r[2];
-  func_80098F90(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80098F90u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[4] = c->r[0] + (uint32_t)1;
   c->r[5] = (uint32_t)32784u << 16;
   c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21690));
@@ -2697,7 +2710,7 @@ L_8009353C:;
   c->r[5] = c->r[5] << 16;
   c->r[31] = 0x800935A8u;
   c->r[5] = c->r[5] | c->r[2];
-  func_80098F90(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80098F90u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[4] = c->r[0] + (uint32_t)8;
   c->r[5] = (uint32_t)32784u << 16;
   c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21694));
@@ -2706,7 +2719,7 @@ L_8009353C:;
   c->r[5] = c->r[5] << 16;
   c->r[31] = 0x800935C8u;
   c->r[5] = c->r[5] | c->r[2];
-  func_80098DB0(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80098DB0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[4] = c->r[0] + (uint32_t)8;
   c->r[5] = (uint32_t)32784u << 16;
   c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21698));
@@ -2715,7 +2728,7 @@ L_8009353C:;
   c->r[5] = c->r[5] << 16;
   c->r[31] = 0x800935E8u;
   c->r[5] = c->r[5] | c->r[2];
-  func_80097E10(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80097E10u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[1] = (uint32_t)32784u << 16;
   c->mem_w16((c->r[1] + (uint32_t)23536), (uint16_t)c->r[0]);
   c->r[1] = (uint32_t)32784u << 16;
@@ -2747,53 +2760,32 @@ static void nat_voiceStateFlush(Core *c) {
 
 void Sequencer::registerOverrides() {
   {
-    extern void gen_func_800931C0(Core *);
-    engine_set_override_main(0x800931C0u, nat_voiceStateFlush, gen_func_800931C0);
+    tomba::native::declareOverride(0x800931C0u, "nat_voiceStateFlush", nat_voiceStateFlush);
   }
-  extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-  extern void gen_func_800910F0(Core *);
-  extern void gen_func_80091050(Core *);
-  extern void gen_func_80091910(Core *);
-  extern void gen_func_80090E40(Core *);
-  extern void gen_func_80092080(Core *);
-  extern void gen_func_80091970(Core *);
-  extern void gen_func_80095A9C(Core *);
-  extern void gen_func_80095B90(Core *);
-  extern void gen_func_80094B50(Core *);
-  extern void gen_func_80095530(Core *);
-  extern void gen_func_800962B0(Core *);
-  extern void gen_func_80090BD0(Core *);
-  extern void gen_func_800909C0(Core *);
-  extern void gen_func_80090160(Core *);
-  extern void gen_func_80091810(Core *);
-  extern void gen_func_80092310(Core *);
-  extern void gen_func_80092420(Core *);
-  extern void gen_func_80094150(Core *);
-  extern void gen_func_80094474(Core *);
 
   // Bottom-up (fleet-workflow.md §9): leaves first, then the dispatch loop, then the tick wrapper.
   // Each was gated 0-diff at this tier before the next tier was added (see docs/findings/audio.md).
-  engine_set_override_main(0x800910F0u, nat_channelPitchSelectDispatch, gen_func_800910F0);
-  engine_set_override_main(0x80091970u, nat_channelNoteInit, gen_func_80091970);
-  engine_set_override_main(0x80095B90u, nat_channelKeyEventScan, gen_func_80095B90);
-  engine_set_override_main(0x80094B50u, nat_channelKeyRegisterMerge, gen_func_80094B50);
-  engine_set_override_main(0x80095530u, nat_channelVoiceRegisterWrite, gen_func_80095530);
-  engine_set_override_main(0x800962B0u, nat_channelVoiceSelectPrep, gen_func_800962B0);
-  engine_set_override_main(0x80090BD0u, nat_seqChannelDispatch, gen_func_80090BD0);
-  engine_set_override_main(0x800909C0u, nat_frameTick, gen_func_800909C0);
+  tomba::native::declareOverride(0x800910F0u, "nat_channelPitchSelectDispatch", nat_channelPitchSelectDispatch);
+  tomba::native::declareOverride(0x80091970u, "nat_channelNoteInit", nat_channelNoteInit);
+  tomba::native::declareOverride(0x80095B90u, "nat_channelKeyEventScan", nat_channelKeyEventScan);
+  tomba::native::declareOverride(0x80094B50u, "nat_channelKeyRegisterMerge", nat_channelKeyRegisterMerge);
+  tomba::native::declareOverride(0x80095530u, "nat_channelVoiceRegisterWrite", nat_channelVoiceRegisterWrite);
+  tomba::native::declareOverride(0x800962B0u, "nat_channelVoiceSelectPrep", nat_channelVoiceSelectPrep);
+  tomba::native::declareOverride(0x80090BD0u, "nat_seqChannelDispatch", nat_seqChannelDispatch);
+  tomba::native::declareOverride(0x800909C0u, "nat_frameTick", nat_frameTick);
   // 2026-07-17 wave — six further per-channel leaves, owned bottom-up.
-  engine_set_override_main(0x80090160u, nat_channelStreamAccumulate, gen_func_80090160);
-  engine_set_override_main(0x80091810u, nat_channelVoiceKeyOn, gen_func_80091810);
-  engine_set_override_main(0x80092310u, nat_channelToneRecordCopy, gen_func_80092310);
-  engine_set_override_main(0x80092420u, nat_channelToneRecordCopyWide, gen_func_80092420);
-  engine_set_override_main(0x80094150u, nat_voiceAllocateOrSteal, gen_func_80094150);
-  engine_set_override_main(0x80094474u, nat_channelNotePeriodCompute, gen_func_80094474);
+  tomba::native::declareOverride(0x80090160u, "nat_channelStreamAccumulate", nat_channelStreamAccumulate);
+  tomba::native::declareOverride(0x80091810u, "nat_channelVoiceKeyOn", nat_channelVoiceKeyOn);
+  tomba::native::declareOverride(0x80092310u, "nat_channelToneRecordCopy", nat_channelToneRecordCopy);
+  tomba::native::declareOverride(0x80092420u, "nat_channelToneRecordCopyWide", nat_channelToneRecordCopyWide);
+  tomba::native::declareOverride(0x80094150u, "nat_voiceAllocateOrSteal", nat_voiceAllocateOrSteal);
+  tomba::native::declareOverride(0x80094474u, "nat_channelNotePeriodCompute", nat_channelNotePeriodCompute);
   // DELIBERATELY UNWIRED (2026-07-10 wiring pass, honest-gate rule): 0x80091050 channelReleaseClear,
   // 0x80091910 channelStopFlagSet, 0x80090E40 channelPitchSlideTick, 0x80092080
   // channelEnvelopeRampTick, 0x80095A9C channelVolumeSnapshot. None EVER fired in any run tried
   // (SBS-full autonav gate, 12k-frame free-roam MIRROR_VERIFY run, 23k-tick input-driven gameplay
   // run with jumps/menu) -- their flag bits (0x02/0x08/0x10/0x20/0x40/0x80) never came up. §9-line-
-  // verified drafts stay banked above; seqChannelDispatch routes their bits via rec_dispatch to the
+  // verified drafts stay banked above; seqChannelDispatch routes their bits via typed runtime address dispatch to the
   // substrate body. A future session that reaches SEQ content with releases/slides/envelopes should
   // exercise, wire, and gate them. (nat_ trampolines kept for that pass.) See docs/findings/audio.md.
   (void)nat_channelReleaseClear;
@@ -2801,9 +2793,4 @@ void Sequencer::registerOverrides() {
   (void)nat_channelPitchSlideTick;
   (void)nat_channelEnvelopeRampTick;
   (void)nat_channelVolumeSnapshot;
-  (void)gen_func_80091050;
-  (void)gen_func_80091910;
-  (void)gen_func_80090E40;
-  (void)gen_func_80092080;
-  (void)gen_func_80095A9C;
 }

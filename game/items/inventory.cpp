@@ -4,7 +4,7 @@
 // pickup logic — is a valid native-ownership target. This module owns the engine's shared inventory core:
 // the central item-add routine and the two give-wrappers every per-item pickup handler funnels through.
 // Structured like a PC game's item code: an inventory_add(item, amount) primitive, a has()/count() query,
-// and the wrappers; the recomp body remains the behavioral reference + the live fallback for the per-item
+// and the wrappers; the guest instruction path remains the behavioral reference + the live fallback for the per-item
 // give-handlers and the event sink (those stay PSX, dispatched).
 //
 // ---- Reverse-engineering (disasm: tools/disas.py 0x<addr>) ----
@@ -27,29 +27,27 @@
 //         row0!=0 -> variant B: for i in [0,256): if count[i]!=0 && T[i*12]!=0 -> questref[i]++ ;
 //                    then questref[type]=0; B[0x31]++
 //   (3) ADD+CLAMP: count[type] += amount; if ((count[type] & 0xff) >= 100) count[type] = 99
-//   void return (the recomp epilogue sets nothing explicit; the two wrappers below ignore v0).
+//   void return (the guest instruction path epilogue sets nothing explicit; the two wrappers below ignore v0).
 //
 // FUN_8004D4C4  inventory_give_and_flag(a0=type, a1=amount): jal 0x8004D338(type,amount); jal 0x8004ED0C
 //   (type, 2)  — the give + the "item acquired" event/flag emit. set_item_flag (0x8004ED0C) has a jal to
 //   the event sink 0x8004FA38, so it stays PSX (dispatched in-context); we own only the call sequencing.
 // FUN_8004D4F4  inventory_give(a0=type, a1=amount): jal 0x8004D338(type,amount)  — give only.
 //
-// VERIFY: `invverify` — full RAM (0x200000) + scratchpad (0x400) A/B gate vs rec_super_call (same template
-// as playerverify/scriptvm): run native, snapshot, roll back, run the recomp body, diff. The pure-leaf core
+// VERIFY: `invverify` — full RAM (0x200000) + scratchpad (0x400) A/B gate vs original guest-body call (same template
+// as playerverify/scriptvm): run native, snapshot, roll back, run the guest instruction path, diff. The pure-leaf core
 // touches no stack below entry sp; the wrappers dispatch a PSX callee that leaves transient below-sp residue
 // in BOTH passes (same A/B artifact as the player/grid families), so the wrapper gate excludes the
 // top-of-RAM stack window [sp-0x800, sp) — far above all game data.
 #include "inventory.h"
 #include "cfg.h"
 #include "core.h"
-#include "game.h" // c->game->verify — the shared A/B verify scaffold
+#include "game.h"
 #include "game_ctx.h"
+#include "guest_call.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-void rec_super_call(Core *, uint32_t); // interpret the original PSX body (A/B oracle / super-call)
-void rec_dispatch(Core *, uint32_t);   // hybrid call: recomp body if emitted, else interpret
 
 // ---- inventory state block addresses ----
 #define INV_BASE 0x800BF870u
@@ -72,7 +70,7 @@ int Inventory::has(int item) const {
   return count(item) > 0;
 }
 
-// PC-native reimplementation of FUN_8004D338 (inventory_add). Writes are byte-identical to the recomp body.
+// PC-native reimplementation of FUN_8004D338 (inventory_add). Writes are byte-identical to the guest instruction path.
 void Inventory::addNative(Core *c, uint32_t type, uint32_t amount) {
   // (1) recently-acquired ring (types 23..28)
   if ((type - 23u) < 6u) {
@@ -116,18 +114,18 @@ void Inventory::addBody(Core *c) {
   addNative(c, c->r[4], c->r[5]);
 }
 
-// REENTRANCY GUARD: when a gate's rec_super_call interprets a WRAPPER body (give_and_flag = 0x8004D4C4),
+// REENTRANCY GUARD: when a gate's original guest-body call interprets a WRAPPER body (give_and_flag = 0x8004D4C4),
 // that body's `jal 0x8004D338` re-enters ov_inventory_add. We must NOT start a nested gate there (it would
 // snapshot/roll-back with the same buffers and corrupt the outer A/B). While inside a gate, every nested
 // inventory override runs its plain native body directly. (Same constraint the scriptvm/grid gates face;
 // here the wrapper→core call makes it explicit.)
 
-// Full RAM+scratchpad A/B vs rec_super_call. The pure-leaf core touches no guest stack; the wrappers
+// Full RAM+scratchpad A/B vs original guest-body call. The pure-leaf core touches no guest stack; the wrappers
 // dispatch the PSX event sink (0x8004ED0C->0x8004FA38), whose own below-sp frame differs harmlessly across
 // the twice-run passes, so the wrapper gate excludes the top-of-RAM stack window [sp-0x800, sp).
 void Inventory::abGate(Core *c, uint32_t addr, void (*native)(Core *), int exclude_stack, const char *nm) {
-  uint8_t *ram0 = c->game->verify.ram0();
-  uint8_t *ramN = c->game->verify.ramN();
+  uint8_t *ram0 = gctx(c)->verification.ram0();
+  uint8_t *ramN = gctx(c)->verification.ramN();
   uint8_t spad0[0x400], spadN[0x400];
   uint32_t regs0[32];
   memcpy(regs0, c->r, sizeof regs0);
@@ -144,7 +142,7 @@ void Inventory::abGate(Core *c, uint32_t addr, void (*native)(Core *), int exclu
   memcpy(c->scratch, spad0, 0x400);
   memcpy(c->r, regs0, sizeof regs0);
   inv(c).inGate++;
-  rec_super_call(c, addr);
+  psx::cpu::callOriginalToReturn(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   inv(c).inGate--; // inner jal 0x8004D338 re-enters native-only (guard)
   uint32_t v0_o = c->r[2];
   uint32_t sp = regs0[29] & 0x1FFFFFu, flo = (sp >= 0x800) ? sp - 0x800 : 0;
@@ -162,7 +160,7 @@ void Inventory::abGate(Core *c, uint32_t addr, void (*native)(Core *), int exclu
       break;
     }
   }
-  VerifyHarness::Check &chk = c->game->verify.check("invverify");
+  tomba::VerificationCounter &chk = gctx(c)->verification.inventory;
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0) { // these fns return void; v0 is dead, don't gate on it
     if (nb++ < 40) {
@@ -185,7 +183,7 @@ void Inventory::abGate(Core *c, uint32_t addr, void (*native)(Core *), int exclu
 }
 
 void Inventory::addEntry(Core *c) { // FUN_8004D338
-  if (c->game->verify.on("invverify") && !inv(c).inGate) {
+  if (gctx(c)->verification.on("invverify") && !inv(c).inGate) {
     abGate(c, 0x8004D338u, &Inventory::addBody, 0, "invverify");
     return;
   }
@@ -199,10 +197,10 @@ void Inventory::giveAndFlagBody(Core *c) {
   addNative(c, type, amount);
   c->r[4] = type;
   c->r[5] = 2; // set_item_flag(type, 2)
-  rec_dispatch(c, 0x8004ED0Cu);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8004ED0Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 void Inventory::giveAndFlagEntry(Core *c) { // FUN_8004D4C4
-  if (c->game->verify.on("invverify") && !inv(c).inGate) {
+  if (gctx(c)->verification.on("invverify") && !inv(c).inGate) {
     abGate(c, 0x8004D4C4u, &Inventory::giveAndFlagBody, 1, "invverify");
     return;
   }
@@ -214,7 +212,7 @@ void Inventory::giveBody(Core *c) {
   addNative(c, c->r[4], c->r[5]);
 }
 void Inventory::giveEntry(Core *c) { // FUN_8004D4F4
-  if (c->game->verify.on("invverify") && !inv(c).inGate) {
+  if (gctx(c)->verification.on("invverify") && !inv(c).inGate) {
     abGate(c, 0x8004D4F4u, &Inventory::giveBody, 1, "invverify");
     return;
   }

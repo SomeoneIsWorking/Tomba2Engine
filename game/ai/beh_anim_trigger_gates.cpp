@@ -15,22 +15,21 @@
 //                 it is < -127; then node[1]=1, FUN_80051C8C(node).
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the direct node/record WRITES owned native;
-// every sub-behavior CALL stays reachable via rec_dispatch (pure-PSX leaf, a0=node). NO GTE/render.
+// every sub-behavior CALL stays reachable via typed runtime address dispatch (pure-PSX leaf, a0=node). NO GTE/render.
 // Transcribed 1:1 as a register machine (locals = guest regs, goto labels = guest addresses); the guest
 // jump table becomes switch->goto; signed hword tests (lh/slti) preserved. The byte-exact A/B gate (full
-// RAM+scratchpad vs rec_super_call) is the safety net.
+// RAM+scratchpad vs original guest-body call) is the safety net.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_render_update (FUN_800517F8)
 #include "guest_abi.h"
+#include "guest_jal.h"
 #include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -76,25 +75,25 @@ void beh_anim_trigger_gates(Core *c) {
   goto Lret; // st >= 4 default
 
 Lc50: // STATE 0 — node[3] dispatch (per decomp FUN_80129c00
-      // + recomp ov_a00_gen_80129C00). Prior version had
+      // + guest instruction path overlay guest 0x80129C00). Prior version had
       // `v1 == 2 -> FUN_8012982C` which is a case-swap bug —
       // 4-record-alloc init runs on the WRONG node[3] value,
       // producing +8 extra allocations at 0x800ED098 vs the
-      // recomp path. Corrected: n3==3 dispatches 0x8012982C.
+      // guest instruction path. Corrected: n3==3 dispatches 0x8012982C.
   v1 = c->mem_r8(obj + 3);
   if (v1 == 3) {
-    guest_leaf(c, 0x8012982Cu, obj);
+    tomba::guest::dispatchLeafToReturn(*c, 0x8012982Cu, obj);
     goto Lret;
   }
   if (v1 < 4) {
     if ((int8_t)v1 < 0) {
       goto Lret;
     }
-    guest_leaf(c, 0x801296E0u, obj);
+    tomba::guest::dispatchLeafToReturn(*c, 0x801296E0u, obj);
     goto Lret;
   } // 0,1,2
   if (v1 == 4) {
-    guest_leaf(c, 0x80129984u, obj);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80129984u, obj);
     goto Lret;
   }
   goto Lret; // node[3] >= 5
@@ -110,10 +109,10 @@ Lcb0: // STATE 1 — jump table on node[3]
   case 1:
     goto Ld60;
   case 2:
-    guest_leaf(c, 0x80129160u, obj);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80129160u, obj);
     goto Lret; // case 2 @ db4
   case 3:
-    guest_leaf(c, 0x801292E4u, obj);
+    tomba::guest::dispatchLeafToReturn(*c, 0x801292E4u, obj);
     goto Lret; // case 3 @ dc4
   default:
     goto Ldd4; // case 4
@@ -137,7 +136,7 @@ Lce0: // STATE 1 / node[3]==0
   }
 }
 Ld3c:
-  guest_leaf(c, 0x8007778Cu, obj);
+  tomba::guest::dispatchLeafToReturn(*c, 0x8007778Cu, obj);
 Ld44:
   if (c->mem_r8(obj + 1) == 0) {
     goto Lret;
@@ -186,7 +185,7 @@ Ldd4: // STATE 1 / node[3]==4
     } while (a0i < (int)c->mem_r8(obj + 8));
   }
   c->mem_w8(obj + 1, 1);
-  guest_leaf(c, 0x80051C8Cu, obj);
+  tomba::guest::dispatchLeafToReturn(*c, 0x80051C8Cu, obj);
 Lret:
   return;
 }

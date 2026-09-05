@@ -1,18 +1,18 @@
 // game/render/text_label.cpp — Render::textLabelEmit, the per-character 3D TEXT-LABEL renderer
 // (FUN_80039F4C, renderWalk case 0x8003C0E8 — the REDIRECT census "0x80039F4C score strip").
 //
-// WHAT IT DRAWS (RE: Ghidra scratch/decomp/quad_emitters.c + ground truth generated/shard_1.c
-// gen_func_80039F4C, cross-checked instruction-by-instruction):
+// WHAT IT DRAWS (RE: Ghidra scratch/decomp/quad_emitters.c + ground truth authenticated executable/overlay evidence
+// guest 0x80039F4C, cross-checked instruction-by-instruction):
 //   - runs FUN_8003F174(node, 1) first — the node's MESH pass: per cmd (node+0xC0[i]) it loads GTE
 //     CR0-7 DIRECTLY from the PRE-COMPOSED matrix stored on the cmd at +0x18..0x34 (NOT the
 //     cmdListDispatch camera∘object compose — a different cmd layout for this node class) and runs
-//     func_8003F698 (the generic geomblk submit) — still substrate.
+//     guest 0x8003F698 (the generic geomblk submit) — still substrate.
 //   - then per CHARACTER of the label text: one glyph quad from the fixed template
 //     V0(-3,-7,-1) V1(5,-7,-1) V2(-3,9,-1) V3(5,9,-1) (built into the REAL guest stack sp+16..47),
-//     projected by func_8003F7D8 (RTPT/RTPS/AVSZ4, same shape as QuadRtptSubmit::submitQuad) under
+//     projected by guest 0x8003F7D8 (RTPT/RTPS/AVSZ4, same shape as QuadRtptSubmit::submitQuad) under
 //     the per-char PRE-COMPOSED MATRIX at cmd+0x18 loaded via libgte SetRotMatrix/SetTransMatrix
-//     (func_80084660/func_80084690 — NOT "pool-span markers"; that older note was a mis-RE).
-//     Glyph UV comes from func_80039E80 (char*8 → atlas u, ((char+32)>>5)*16+8 → v; space = skip);
+//     (guest 0x80084660/guest 0x80084690 — NOT "pool-span markers"; that older note was a mis-RE).
+//     Glyph UV comes from guest 0x80039E80 (char*8 → atlas u, ((char+32)>>5)*16+8 → v; space = skip);
 //     material patches: code 0x2D (textured raw), tpage half 0x1F, clut 0x7DFF (0x7C7F for the
 //     "Clear" variant node+3==2). Text = strcpy("Clear")+strcat(DAT_80014A1C) when node+3==2, else
 //     string table 0x800A33CC[node.s16[+96] * 3].ptr (word +4 of the 12-byte entry).
@@ -30,18 +30,13 @@
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
-#include "guest_abi.h" // GuestFrame / GuestFrameSpill / guest_call
+#include "guest_abi.h"
+#include "guest_jal.h" // GuestFrame / GuestFrameSpill / guest_call
+#include "native_override_catalog.h"
 #include "render.h"
 #include "render_internal.h" // withObjScope / cur_render_node
 #include <stdint.h>
 
-void func_8003F174(Core *);       // still-substrate: the node's pre-composed-matrix mesh pass
-void func_80039E80(Core *);       // still-substrate: per-char glyph UV fill (space → -1)
-void func_8003F7D8(Core *);       // still-substrate: RTPT/RTPS/AVSZ4 glyph projector
-void func_80084660(Core *);       // libgte SetRotMatrix  (CR0-4 <- MATRIX.m)
-void func_80084690(Core *);       // libgte SetTransMatrix(CR5-7 <- MATRIX.t)
-void func_8009A5B0(Core *);       // libc strcpy (substrate)
-void func_8009A490(Core *);       // libc strcat (substrate)
 int gpu_vk_wide_engine(Core *);   // gpu_vk.cpp — genuine engine-wide FOV active
 int gpu_vk_wide_engine_w(Core *); // gpu_vk.cpp — the wide screen width (nw)
 
@@ -49,7 +44,7 @@ namespace {
 constexpr uint32_t PKT_POOL_PTR = 0x800BF544u; // packet-pool bump-allocator write pointer
 constexpr uint32_t OTBASE_PTR = 0x800ED8C8u;   // *this = the active ordering-table base
 
-// Guest-stack frame contract — tools/abi_extract.py 0x80039F4C --scaffold --guestabi (ground truth).
+// Guest-stack frame contract — tools/binary ABI evidence 0x80039F4C --scaffold --guestabi (ground truth).
 constexpr GuestFrameSpill kSpills_80039F4C[7] = {
     {20, 104},
     {31 /*ra*/, 112},
@@ -74,7 +69,7 @@ void textLabelBody(Core *c) {
   // (1) mesh pass: per-cmd pre-composed-matrix geomblk submit (still substrate).
   c->r[4] = node;
   c->r[5] = 1;
-  guest_call(c, 0x80039F78u, func_8003F174);
+  tomba::guest::dispatchJalToReturn(*c, 0x8003F174u, 0x80039F78u);
 
   // (2) glyph template into the REAL guest stack (sp+16..47) — byte order per gen.
   for (int i = 0; i < 4; i++) {
@@ -89,10 +84,10 @@ void textLabelBody(Core *c) {
     c->r[4] = sp + 48u;
     c->r[5] = c->mem_r32(0x800A3A8Cu); // strcpy(buf, "Clear")
     c->r[18] = sp + 48u;               // gen: r18 = buf (live)
-    guest_call(c, 0x80039FE4u, func_8009A5B0);
+    tomba::guest::dispatchJalToReturn(*c, 0x8009A5B0u, 0x80039FE4u);
     c->r[4] = c->r[18];
     c->r[5] = 0x80014A1Cu; // strcat(buf, suffix)
-    guest_call(c, 0x80039FF4u, func_8009A490);
+    tomba::guest::dispatchJalToReturn(*c, 0x8009A490u, 0x80039FF4u);
     text = c->r[18];
   } else {
     const int32_t idx = (int32_t)(int16_t)c->mem_r16(node + 96u);
@@ -121,19 +116,19 @@ void textLabelBody(Core *c) {
     // glyph UV fill into the packet at the pool tail (space → v0=-1 → skip).
     c->r[4] = c->r[18];
     c->r[5] = c->mem_r32(PKT_POOL_PTR);
-    guest_call(c, 0x8003A05Cu, func_80039E80);
+    tomba::guest::dispatchJalToReturn(*c, 0x80039E80u, 0x8003A05Cu);
     if ((int32_t)c->r[2] != -1) {
       const uint32_t cmd = c->mem_r32(c->r[19] + 192u);
       c->r[16] = c->mem_r32(PKT_POOL_PTR);      // this glyph's packet
       c->mem_w32(PKT_POOL_PTR, c->r[16] + 40u); // bump
       c->r[4] = cmd + 24u;
-      guest_call(c, 0x8003A080u, func_80084660); // SetRotMatrix(cmd+0x18)
+      tomba::guest::dispatchJalToReturn(*c, 0x80084660u, 0x8003A080u); // SetRotMatrix(cmd+0x18)
       c->r[4] = c->mem_r32(c->r[19] + 192u) + 24u;
-      guest_call(c, 0x8003A08Cu, func_80084690); // SetTransMatrix(cmd+0x18)
+      tomba::guest::dispatchJalToReturn(*c, 0x80084690u, 0x8003A08Cu); // SetTransMatrix(cmd+0x18)
       c->r[4] = c->r[16];
       c->r[5] = sp + 16u;
       c->r[6] = sp + 80u;
-      guest_call(c, 0x8003A09Cu, func_8003F7D8); // project the template
+      tomba::guest::dispatchJalToReturn(*c, 0x8003F7D8u, 0x8003A09Cu); // project the template
       const int32_t otzm1 = (int32_t)c->r[2] - 1;
       if (otzm1 >= 0) {
         const uint32_t pk = c->r[16];
@@ -180,13 +175,11 @@ void ov_textLabelEmit(Core *c) {
 
 void Render::textLabelEmit() {
   Core *c = mCore;
-  // Oracle runs the body pure (the engine_set_override_main thunk routes core B to gen); everyone
+  // Oracle runs the body pure (the tomba::native::declareOverride thunk routes core B to gen); everyone
   // else gets the dbg_node diagnostic scope around the body.
   withObjScope(c, c->r[4], textLabelBody);
 }
 
 void text_label_install() {
-  extern void gen_func_80039F4C(Core *);
-  extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_main(0x80039F4Cu, ov_textLabelEmit, gen_func_80039F4C);
+  tomba::native::declareOverride(0x80039F4Cu, "ov_textLabelEmit", ov_textLabelEmit);
 }

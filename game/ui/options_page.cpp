@@ -6,17 +6,10 @@
 #include "engine.h"
 #include "game.h"
 #include "game_ctx.h" // eng(c) / rend(c)
-#include "override_registry.h"
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "render.h"       // Render::optionsBackdrop / optionsSolidBox + the psxRender() gate
 #include "render_queue.h" // RQ_OVERLAY
-
-extern void gen_func_8007F104(Core *);
-extern void gen_func_8007F250(Core *);
-extern void gen_func_8007F498(Core *);
-extern void gen_func_8007F73C(Core *);
-extern void gen_func_8007F8F8(Core *);
-extern void gen_func_8007FC24(Core *);
-extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
 
 namespace {
 
@@ -37,7 +30,7 @@ constexpr uint16_t kScreenH = 240u;
 
 } // namespace
 
-// ORACLE: gen_func_8007FC24
+// ORACLE: guest 0x8007FC24
 void OptionsPage::pushBackdrop(Core *c) {
   // Take a packet off the pool and bump it, exactly as the guest allocator does.
   const uint32_t packet = c->mem_r32(kPacketPoolPtr);
@@ -88,7 +81,7 @@ void OptionsPage::noteBox(Core *c, int x, int y, int w, int h, uint32_t flags) {
 
 void OptionsPage::drawCollected(Core *c) {
   const bool nothing = !mBackdrop && mBoxes.empty() && capture.empty();
-  if (!nothing && !(c->game->oracle || c->rsub.mode.psxRender())) {
+  if (!nothing && !c->rsub.mode.psxRender()) {
     if (mBackdrop) {
       rend(c)->optionsBackdrop();
     }
@@ -123,9 +116,9 @@ void OptionsPage::drawCollected(Core *c) {
 
 namespace {
 
-// One page builder's scope: raise the capture, run the untouched gen body (the page owns no state of
-// its own on the host side), lower it, then draw what the frame collected.
-template <void (*Gen)(Core *)> void pageScope(Core *c) {
+// One page builder's scope: raise the capture, run the original guest body dynamically, lower it,
+// then draw what the frame collected.
+template <std::uint32_t Address> void pageScope(Core *c) {
   OptionsPage &page = eng(c).optionsPage;
   const bool outer = !page.capture.capturing();
   if (outer) {
@@ -134,7 +127,7 @@ template <void (*Gen)(Core *)> void pageScope(Core *c) {
     page.mBackdrop = false;
   }
   page.capture.begin();
-  Gen(c);
+  psx::cpu::callOriginalToReturn(*c, Address, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   if (!outer) {
     return;
   }
@@ -155,12 +148,12 @@ void OptionsPage::install() {
     return;
   }
   done = true;
-  engine_set_override_main(0x8007F104u, pageScope<gen_func_8007F104>, gen_func_8007F104);
-  engine_set_override_main(0x8007F250u, pageScope<gen_func_8007F250>, gen_func_8007F250);
-  engine_set_override_main(0x8007F498u, pageScope<gen_func_8007F498>, gen_func_8007F498);
-  engine_set_override_main(0x8007F73Cu, pageScope<gen_func_8007F73C>, gen_func_8007F73C);
-  engine_set_override_main(0x8007F8F8u, pageScope<gen_func_8007F8F8>, gen_func_8007F8F8);
-  engine_set_override_main(0x8007FC24u, backdropEmit, gen_func_8007FC24);
+  tomba::native::declareOverride(0x8007F104u, "OptionsPage::page1", pageScope<0x8007F104u>);
+  tomba::native::declareOverride(0x8007F250u, "OptionsPage::page2", pageScope<0x8007F250u>);
+  tomba::native::declareOverride(0x8007F498u, "OptionsPage::page3", pageScope<0x8007F498u>);
+  tomba::native::declareOverride(0x8007F73Cu, "OptionsPage::page4", pageScope<0x8007F73Cu>);
+  tomba::native::declareOverride(0x8007F8F8u, "OptionsPage::page5", pageScope<0x8007F8F8u>);
+  tomba::native::declareOverride(0x8007FC24u, "OptionsPage::backdrop", backdropEmit);
   // The two shared group leaves (0x8007E1B8 / 0x8007E6DC) and the box emitter (0x8007FCC8) keep their
   // single existing owners — they route into this scope, they are not installed again here.
 }

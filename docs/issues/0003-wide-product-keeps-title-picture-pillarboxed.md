@@ -1,7 +1,7 @@
 ---
 id: 3
 title: Wide Tomba 2 product keeps the title picture pillarboxed
-status: open
+status: fix-verified
 symptom: A controlled aspect=1 product run expands gameplay to the full 16:9 width, but the title/menu picture remains centered in a narrow 4:3 region
 tags: widescreen,title,ui,live-product
 state_items: S005
@@ -29,9 +29,35 @@ itself. Frame 400 is the title/menu picture and frame 600 is live gameplay.
 This proves the product and gameplay-wide path work in the inspected run. It does not prove complete
 true widescreen because the title composition still uses a narrow authored picture.
 
-## Required fix
+## Root cause
 
-Trace the title/menu backdrop and 2D layout owners from their native producers, then give that scene
-an explicit wide composition. Preserve central scale and intentional artwork framing while filling
-the side regions semantically; do not stretch or crop the 4:3 image and do not special-case the final
-present texture.
+`Render::menuChrome` emits the title as two fixed-width textured quads covering the retail picture's
+authored 320-pixel width. The shared 2D transform correctly centers such textured 4:3 content in the
+wide canvas; only an untextured flat background is eligible for uniform full-canvas expansion. The
+result was therefore not a broken wide transform: the title had no owner for the additional side
+canvas, while gameplay already used native wide projection and culling producers.
+
+## Resolution
+
+`game/render/title_wide_composition.cpp` now owns that title-specific composition. In wide mode it
+fills only the additional side canvas with dim mirrored continuations of the retail picture's outer
+texture strips. The central picture retains its original scale, crop, texture coordinates, and draw
+order. The enhancement is a separate `pc/title-wide-margins` producer and performs no guest writes;
+there is no shared-renderer or final-present special case.
+
+The seam-corrected combined Clang product ran the real executable and disc for 620 frames and exited
+normally. `scratch/logs/tomba2-live-titlewide-final-3a8256e9.log` (SHA-256
+`7613ca8404b97add18f03535a01552f7ef3215167959aa668db73ec559380da0`) records Native rendering,
+interpolated 60fps, 620/620 reconciled frame fences, zero dropped layers, no guest-VSync violation or
+timeout, and 900 margin primitives across the same 450 title frames as `menuChrome`.
+
+- Frame 400 now has non-black content across the full 960-pixel sink width. A pixel comparison against
+  the pre-fix capture reports zero changed pixels in the original 718x520 title region and 121,513
+  changed pixels outside it. The final PPM SHA-256 is
+  `1e120f230106013a67ef804923f0d47ea058dddb2f51eb9b1ace9f0722955915`.
+- Frame 600 remains byte-for-byte identical at the pixel level to the pre-fix live-gameplay control.
+  Its PPM SHA-256 remains `caf7e911c68ed70c98e1b4c310f03be1655aa72274961fd44198a82e7d512937`.
+- The normal C++ policy gate and both native-frame-contract gates passed on the combined tree.
+
+The implementation is verified locally but remains unlanded until the operator integrates and
+commits the shared dirty batch.

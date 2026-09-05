@@ -8,10 +8,10 @@
 // lets a long span bend correctly across the perspective divide.
 //
 // ────────────────────────────────────────────────────────────────────────────────────────────────
-// RE — ground truth generated/shard_0.c `gen_func_8003B704`, read instruction by instruction. Ghidra
-// headless was not needed here: the emitter has no COP2 ops of its own (it only *loads* the camera
-// and hands the corners to FUN_8003B320), so the recompiler's translation is already legible C and
-// is the authority the project's own rules name for GTE-adjacent code.
+// RE — ground truth authenticated executable/overlay evidence `guest 0x8003B704`, read instruction by instruction.
+// Ghidra headless was not needed here: the emitter has no COP2 ops of its own (it only *loads* the camera and hands the
+// corners to FUN_8003B320), so the recorded guest instruction listing is already legible C and is the authority the
+// project's own rules name for GTE-adjacent code.
 //
 //   1. HALF-EXTENT. Two node angles give a unit direction, scaled by kHalfWidth (0x14):
 //        b = node.polar + (sceneMode < 4 ? kQuarterTurn : 0);  a = node.azimuth
@@ -32,7 +32,7 @@
 //      two V rows read from the 2-byte table entry at kBeamVTable[node.uvIndex].
 //
 //   4. The emitter loads the PURE CAMERA into the GTE control registers itself —
-//      `SetRotMatrix(0x1F8000F8) / SetTransMatrix(0x1F8000F8)` (func_80084660/80084690) — immediately
+//      `SetRotMatrix(0x1F8000F8) / SetTransMatrix(0x1F8000F8)` (guest 0x80084660/80084690) — immediately
 //      before building the corners. THAT SETTLES THE "CR CONTRACT" QUESTION docs/fps60-rework.md and
 //      the inventory left open: whatever perObjRenderDispatch / billboardCompose1 left in the control
 //      registers is overwritten here, so the corners this emitter builds ARE WORLD SPACE. The native
@@ -40,7 +40,7 @@
 //
 // NOT A TAP. Every input above is the game's own state — two node angle fields, two world positions,
 // a table index, a scene mode byte. No GTE register is read, no GP0 packet is inspected, no guest
-// pre-composed matrix is factored, and no `gen_func_*` body runs to make the picture. (The guest's
+// pre-composed matrix is factored, and no `original guest instructions` body runs to make the picture. (The guest's
 // own packet emission still runs underneath and still feeds psx_render; this file only adds the
 // native picture, and writes no guest memory.)
 //

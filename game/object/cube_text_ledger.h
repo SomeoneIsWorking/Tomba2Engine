@@ -5,9 +5,9 @@
 // native port.
 //
 // WIRED 2026-07-08 (frontier pass): activateSlot (FN_40B48) and deactivateSlot (FN_40C00) have
-// BOTH substrate callers (direct `func_<addr>(c)` from several shards) and a native caller
-// (actor_sm_reward.cpp's ActorReward::smEventDispatch, via rec_dispatch) — installed into the
-// override registry with a shard_set_override setter, same pattern as ActorReward, so both call
+// BOTH substrate callers (direct `a direct guest-address call` from several shards) and a native caller
+// (actor_sm_reward.cpp's ActorReward::smEventDispatch, via typed runtime address dispatch) — installed into the
+// override registry with a tomba::native::declareOverride setter, same pattern as ActorReward, so both call
 // paths reach the native body. spawnPopup (FN_40AA4) has only a substrate caller today but is
 // installed with a setter anyway for future-proofing/tracing consistency, matching ActorReward's
 // precedent.
@@ -29,13 +29,13 @@
 // advancing" gate — so this ledger's consumers are already native; only these 4 producers/leaves
 // were unowned.
 //
-// RE SOURCE: generated/shard_2.c:4542 (FUN_80040A58), shard_4.c:4944 (FUN_80040B48),
-// shard_5.c:5496 (FUN_80040C00), shard_3.c:11258 (FUN_80040AA4) — the recompiler's INSTRUCTION-
+// RE SOURCE: authenticated executable/overlay evidence (FUN_80040A58), shard_4.c:4944 (FUN_80040B48),
+// shard_5.c:5496 (FUN_80040C00), shard_3.c:11258 (FUN_80040AA4) — the recorded binary evidence's INSTRUCTION-
 // EXACT emission, walked register-by-register (ground truth per CLAUDE.md); Ghidra's decompile
 // (scratch/decomp/region4004x.c, region4004x_b.c) used for structure/naming, cross-checked against
 // the raw emission for every address computed from a `<hi>16<<16 + <lo>` pair.
 //
-// LAYOUT (base 0x800BF870 — the recompiler computes this base then indexes by fixed offsets;
+// LAYOUT (base 0x800BF870 — the recorded binary evidence computes this base then indexes by fixed offsets;
 // Ghidra's DAT_* names for the same cells are noted alongside):
 //   +0x04 (u32)         RUNNING_COST         — accumulator; += a slot's cost table value on both
 //                                              activate (start-index) and deactivate (stop-index).
@@ -51,7 +51,7 @@
 //   +0x44 (u8[]) SLOT_STATE array, indexed by slot — DAT_800BF8B4[slot]. 0 = inactive,
 //                                              1 = active, 0xFF = deactivated (terminal; a second
 //                                              deactivate on the same slot returns 0, no-op).
-// Absolute addresses used directly below (base+offset already folded in, matching the recompiler's
+// Absolute addresses used directly below (base+offset already folded in, matching the recorded binary evidence's
 // own constant folding at each call site):
 //   G_LEDGER_GATE  0x800E7FEE (s16) — same cell as actor_sm_reward.cpp's G_TALLY_CUR ("tally
 //                                     CURRENT/target display value"); read here only as a !=0 gate
@@ -99,9 +99,9 @@ public:
   // Returns the node pointer (0 if the allocator returned null).
   static void spawnPopup(Core *c); // a0 = value, a1 = variant; sets v0 (r2)
 
-  // Wire activateSlot/deactivateSlot/spawnPopup into the override registry (overrides::install),
-  // each with a shard_set_override setter so the substrate's direct func_<addr>(c) calls redirect
-  // here too, in addition to ActorReward's rec_dispatch(c, FN_40B48/FN_40C00) calls landing here.
-  // lookupCost is deliberately NOT registered — see the file header "WIRED 2026-07-08" note.
+  // Wire activateSlot/deactivateSlot/spawnPopup into the override registry (tomba::native::declareOverride),
+  // each with a tomba::native::declareOverride setter so the substrate's direct a direct guest-address call calls
+  // redirect here too, in addition to ActorReward's typed runtime address dispatch(c, FN_40B48/FN_40C00) calls landing
+  // here. lookupCost is deliberately NOT registered — see the file header "WIRED 2026-07-08" note.
   static void registerOverrides(Game *game);
 };

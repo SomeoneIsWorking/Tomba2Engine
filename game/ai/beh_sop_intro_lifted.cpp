@@ -12,23 +12,23 @@
 //     (per-area anim table), install animation via FUN_80077C40(node, 0x80017FE8, 2), stamp
 //     node+0x84 = 0x60, node+3 = 1, advance state to 1, lift Y (node+0x32 -= 0x60), and fire the
 //     one-shot SOP-overlay init helper FUN_8010AE30. If model attach fails, retry next frame.
-//   * 1 = RUNNING: visibility check (Actor::boundsCull — result unused here, matches the recomp);
+//   * 1 = RUNNING: visibility check (Actor::boundsCull — result unused here, matches the guest instruction path);
 //     run the SOP-overlay sub-tick FUN_8010B588 (the actor-specific per-frame behavior); then the
 //     animation/graphics leaf FUN_8004190C; then post-cull visibility update FUN_800518FC.
 //   * 3 = DESPAWN: standard pool return via Spawn::despawn (native).
-//   * anything else: no-op (matches the recomp's `bVar1 != 2 && bVar1 == 3` guard).
+//   * anything else: no-op (matches the guest instruction path's `bVar1 != 2 && bVar1 == 3` guard).
 //
 // Ghidra decomp: scratch/decomp/sop_scene_actors.c (FUN_8010B798) + scratch/decomp/sop_intro_helpers.c
-// (leaves). Faithful to the recomp — sub-behavior calls stay dispatched.
+// (leaves). Faithful to the guest instruction path — sub-behavior calls stay dispatched.
 
 #include "cfg.h"
 #include "core.h"
 #include "core/engine.h" // eng(c).spawn
 #include "game_ctx.h"
-#include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_call.h"
 #include "render/render.h" // rend(c)->mNodeXform.buildWithOffset (FUN_800518FC)
 #include "spawn.h"         // eng(c).spawn.despawn (FUN_8007A624, native)
-void rec_dispatch(Core *, uint32_t);
 uint32_t native_sop_overlay_shadow_spawn(Core *c, uint32_t parent); // FUN_8010AE30, native (sop_overlay_shadow.cpp)
 
 namespace {
@@ -49,14 +49,14 @@ inline int try_model_attach(Core *c, uint32_t obj) {
   c->r[5] = MODEL_ID;
   c->r[6] = c->mem_r32(MODEL_META_PTR);
   c->r[7] = MODEL_DATA_PTR;
-  rec_dispatch(c, 0x800519E0u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x800519E0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return (int)c->r[2];
 }
 inline void anim_env_setup(Core *c, uint32_t obj) {
   c->r[4] = obj;
   c->r[5] = ANIM_ENV_PTR;
   c->r[6] = 2;
-  rec_dispatch(c, 0x80077C40u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80077C40u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 inline void overlay_oneshot(Core *c, uint32_t obj) {
   (void)native_sop_overlay_shadow_spawn(c, obj);
@@ -65,15 +65,15 @@ inline void overlay_oneshot(Core *c, uint32_t obj) {
 // convergence pass — docs/findings/scene.md). It exposed a pre-existing ScriptInterp::step
 // divergence (obj+0x71 flags byte, RET_PAUSE mask mistranscribed as 0x02 instead of 0x01) on THIS
 // specific SOP intro script content — now fixed in game/scene/script_interp.cpp. This call site
-// stays on rec_dispatch(c, ...) per CLAUDE.md's dispatch-routing preference; it now transparently
+// stays on typed runtime address dispatch(c, ...) per CLAUDE.md's dispatch-routing preference; it now transparently
 // runs the native body since sopLiftedSubtick is installed in the shared override registry.
 inline void overlay_subtick(Core *c, uint32_t o) {
   c->r[4] = o;
-  rec_dispatch(c, 0x8010B588u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8010B588u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 inline void bounds_cull(Core *c, uint32_t o) {
   c->r[4] = o;
-  rec_dispatch(c, 0x8007778Cu);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8007778Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 inline void anim_graphics_tick(Core *c, uint32_t o) {
   (void)eng(c).animTick(o);

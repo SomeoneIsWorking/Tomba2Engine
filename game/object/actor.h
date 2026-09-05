@@ -25,13 +25,13 @@ public:
   Actor(Core *core, uint32_t addr) : c(core), obj(addr) {}
 
   // The raw guest node pointer (for legacy inline `mem_r*(obj+X)` in code paths that still index unnamed
-  // fields, and for `rec_dispatch` sub-behavior calls that take the node in c->r[4]). Prefer named
+  // fields, and for `typed runtime address dispatch` sub-behavior calls that take the node in c->r[4]). Prefer named
   // accessors — this is the escape hatch for the not-yet-RE'd offsets.
   uint32_t addr() const {
     return obj;
   }
-  // Core back-pointer for helper ports that need to reach rngOf(c).next() / trigOf(c).rcos / rec_dispatch —
-  // any per-actor tick natively porting one of the beh_ handlers' sub-behaviors.
+  // Core back-pointer for helper ports that need to reach rngOf(c).next() / trigOf(c).rcos / typed runtime address
+  // dispatch — any per-actor tick natively porting one of the beh_ handlers' sub-behaviors.
   Core *core() const {
     return c;
   }
@@ -322,7 +322,7 @@ public:
   // then dispatches the 5-way cull body via eng(c).cull.performBaseCull (game/render/cull.cpp —
   // FUN_8007712C reimplemented byte-exact, was previously the file-scope `cull_native_body`, now the
   // public entry). Result is the visibility flag returned by the cull body in c->r[2] (1 = visible,
-  // 0 = culled) — same value the guest recomp would return.
+  // 0 = culled) — same value the guest guest instruction path would return.
   uint32_t boundsCull() {
     int16_t dx = (int16_t)(posX_u() - c->mem_r16(0x1F8000D2u));
     int16_t dy = (int16_t)(posY_u() - c->mem_r16(0x1F8000D6u));
@@ -333,7 +333,7 @@ public:
     c->r[5] = (uint32_t)(int32_t)dx;
     c->r[6] = (uint32_t)(int32_t)dy;
     c->r[7] = (uint32_t)(int32_t)dz;
-    eng(c).cull.performBaseCull(); // FUN_8007712C body — native (was rec_dispatch)
+    eng(c).cull.performBaseCull(); // FUN_8007712C body — native (was typed runtime address dispatch)
     return c->r[2];
   }
   // boundsCullYOffset — the Y-offset variant of boundsCull (was FUN_800778E4). Identical to
@@ -351,7 +351,7 @@ public:
     c->r[5] = (uint32_t)(int32_t)dx;
     c->r[6] = (uint32_t)(int32_t)dy;
     c->r[7] = (uint32_t)(int32_t)dz;
-    eng(c).cull.performBaseCull(); // FUN_8007712C body — native (was rec_dispatch(0x800778E4))
+    eng(c).cull.performBaseCull(); // FUN_8007712C body — native (was typed runtime address dispatch(0x800778E4))
     return c->r[2];
   }
 

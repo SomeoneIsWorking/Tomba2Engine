@@ -20,7 +20,7 @@ producer exists today.
 Tomba carries the authoritative tracked `.clang-format` and `.clang-tidy` profiles. The normal CTest
 does not install a pre-commit hook and does not duplicate the verifier in this repo.
 
-The launcher boundary follows the same composition rule as Dusklight's host entry points: `run.sh`
+The launcher boundary follows the same composition rule as another game project's layout's host entry points: `run.sh`
 only enters the repository's locked Python environment, `bootstrap.py` only selects the launcher,
 and `tools/run.py` owns dependency checks, provisioning, CMake configuration, and process replacement.
 
@@ -35,7 +35,7 @@ and `tools/run.py` owns dependency checks, provisioning, CMake configuration, an
 | measured generic facts | `game/core/game_config.cpp` via `legacy_game_interface.h` | the entire `GameConfig` view remains until psxport's typed fact-group migration removes its consumers |
 | unmigrated generic callbacks | `game/core/game_hooks.cpp` | 26 callbacks remain; context, boot, and override slots are null and cannot become a second owner |
 
-This follows Dusklight's current game→platform ownership direction: the game owns lifecycle and policy,
+This follows another game project's layout's current game→platform ownership direction: the game owns lifecycle and policy,
 while the shared platform receives one derived object. The flat compatibility tables are isolated debt,
 not extension points. `tools/codemap.py` was regenerated after the combined runtime/render milestone;
 its guest-address ownership totals are 1,042 natives / 875 addresses / 1,033 live / 9 orphan. The
@@ -43,13 +43,13 @@ runtime move itself does not add guest ownership; the Area 21 producer accounts 
 
 ## Shared render ordering
 
-Tomba! 2 submits native world faces through psxport's `runtime/recomp/render_queue.{h,cpp}`. Equal-key
-opaque ties use `runtime/recomp/ot_lifo_depth.{h,cpp}`, which encodes the PSX `AddPrim` head-insertion
+Tomba! 2 submits native world faces through psxport's `runtime/psx/render_queue.{h,cpp}`. Equal-key
+opaque ties use `runtime/psx/ot_lifo_depth.{h,cpp}`, which encodes the PSX `AddPrim` head-insertion
 order as raster-distinct authored depths; `gpu_vk_next_distinct_3d_depth` owns the Vulkan `ord3d` mapping
 needed to prove those depths remain distinct after conversion. Game code must not duplicate or
 special-case that ordering policy.
 
-Textured raster sampling is framework-owned. `external/psxport/runtime/recomp/shaders_gpu/psx_uv.glsl`
+Textured raster sampling is framework-owned. `external/psxport/runtime/psx/shaders_gpu/psx_uv.glsl`
 is the one integer-native-pixel UV-phase implementation shared by opaque, semi-transparent, and
 semi-cover shaders. `gpu_vk_texture_phase_selftest.cpp` drives the shipping queue/shader/readback path
 at 1x and 3x for positive/negative X/Y and mixed slopes; game producers must preserve guest packet UVs

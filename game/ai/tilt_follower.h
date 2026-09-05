@@ -5,7 +5,7 @@
 // the leaf needs, plus a named constant per field, so the body reads as "take the owner's arm pitch,
 // wrap it, halve it, become that" rather than as a chain of mem_r16(base + 8).
 //
-// The write accessor is deliberately a ONE-LINER: tools/port_check.py harvests a lens setter's mem_wN
+// The write accessor is deliberately a ONE-LINER: tools/dynamic differential evidence harvests a lens setter's mem_wN
 // width by regex and counts `self.setPitch(v)` as exactly the store it performs, but ONLY for lenses
 // defined in a game/**/*.h header whose setters are single statements. A setter that grew a second
 // statement or a nested brace would silently stop counting, and the gate would compare a short

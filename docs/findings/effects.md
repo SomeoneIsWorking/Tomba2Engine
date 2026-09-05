@@ -51,7 +51,7 @@ Two layers, both from the node's own state:
    per-surface tint. U scroll = low byte of `node+0x36 << 5` (the texture frame walk).
 
 ### The port
-`game/render/fx_dust.cpp`. Real port, not a tap: no `gen_func_*` runs for the picture and no `gte_op` is
+`game/render/fx_dust.cpp`. Real port, not a tap: no `original guest instructions` runs for the picture and no `gte_op` is
 used. The transform chain is rebuilt host-side by the shared `MeshQuads` helpers (game/render/
 mesh_quads.{h,cpp}, which also now own the ONE walk of the 36-byte packed-mesh record format that
 narration_swirl.cpp used to keep privately), composed with the fps60-lerped camera via
@@ -108,7 +108,7 @@ alive, and its owner `0x800FD328` has `owner[0x1B] & 0x40`. Its live texture sta
 record `0x8009DDDC`, tpage `0x15`, CLUT `0x7C15`. These observations falsify both earlier hypotheses
 derived from an out-of-context debug-server spawn (missing owner link and uninitialised texture).
 
-The root cause was the native transform, in two coupled parts. The generated guest body builds the
+The root cause was the native transform, in two coupled parts. The authenticated executable/overlay evidence builds the
 Q12 rotation with `FUN_80085480`, then reads bytes `0x800A1CD4..D6`, shifts each left by two, and calls
 `FUN_80084520` (`Math::matColScale`) before camera composition. The native branch divided the Q12
 matrix by 4096 and omitted that column scale. Pre-fix all four reported centres sat within one pixel;
@@ -120,7 +120,7 @@ cluster around the enemy. The corrected `fxsprite` diagnostic reports `drawn=4/4
 about 28x8 pixels. `tests/test_mesh_quads_math.cpp` supplies the negative control: both the old unit
 matrix result and the raw unscaled Q12 result disagree with the expected Q12-plus-column-scale matrix.
 
-Framework-repin gate (2026-08-21): the preliminary psxport `9f1bb927` repin changed the recompiler
+Framework-repin gate (2026-08-21): the preliminary psxport `9f1bb927` repin changed the recorded binary evidence
 inputs, so the substrate was re-emitted before a second clean Clang rebuild. The definitive
 `692b9b20` pin then received another clean Clang 22.1.8 rebuild and bounded SBS true-oracle run of the
 tracked replay, which exited cleanly at f2802. At f2799 both native A and

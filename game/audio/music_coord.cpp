@@ -17,15 +17,13 @@
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
-#include "guest_abi.h"         // GuestFrame — voiceMixTick mirrors FUN_80075824's 32-byte frame
-#include "native_gate.h"       // fieldBgmDirector's `music` gate
-#include "override_registry.h" // overrides::install — the one native-override registry
-#include <lucent/log.h>        // `coord` diagnostic channel
+#include "guest_abi.h"
+#include "guest_jal.h"               // GuestFrame — voiceMixTick mirrors FUN_80075824's 32-byte frame
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include <lucent/log.h>              // `coord` diagnostic channel
 #include <stdio.h>
 #include <stdlib.h> // atoi (PSXPORT_FIELD_SONG)
 #include <string.h> // memcmp (fieldBgmDirector bundle validation)
-
-void rec_dispatch(Core *, uint32_t); // still-substrate leaves called from voiceMixTick
 
 // The game's CURRENT-SONG index. 4..7 are the dialog tones (regular/worry/etc, user-identified);
 // the looping area/ingame music uses other indices. Read-only from here.
@@ -165,7 +163,7 @@ void MusicCoord::voiceMixTick(uint32_t voice_base) {
   cfg_logf("vmt",
            "f%u %s state=%u cut=%u boost=%u cur=%d tgt=%d g2cur=%u g2tgt=%d base=%d",
            c->game->timing.logicFrame,
-           c->game->native_sync ? "A(skip)" : "B(oracle)",
+           "native",
            state,
            cutMode,
            boost,
@@ -222,8 +220,8 @@ void MusicCoord::voiceMixTick(uint32_t voice_base) {
     // ping the SPU queue, then disarm.
     if (vol < 0x11 && voice.lowVolArmed() && c->mem_r8(kSpQueueGate) == 0) {
       volReg = (uint32_t)vol; // live across the guest calls
-      guest_fn(c, kFnSetFadeTarget, 0x800759B4u, 0x47FF);
-      guest_fn(c, kFnSpuQueuePing, 0x800759C4u, c->mem_r8(kSpQueueIdx), 1);
+      tomba::guest::dispatchJalToReturn(*c, kFnSetFadeTarget, 0x800759B4u, 0x47FF);
+      tomba::guest::dispatchJalToReturn(*c, kFnSpuQueuePing, 0x800759C4u, c->mem_r8(kSpQueueIdx), 1);
       voice.disarmLowVol();
     }
     // Second-stage gain smoother: gain2Cur chases gain2Target by delta>>3. The game reads the
@@ -249,8 +247,7 @@ void MusicCoord::voiceMixTick(uint32_t voice_base) {
 void MusicCoord::setGain2(int32_t val) {
   Core *c = this->core;
   const uint32_t V = 0x800BE1F8u;
-  cfg_logf(
-      "vmt", "[gain2] f%u %s val=%d", c->game->timing.logicFrame, c->game->native_sync ? "A(skip)" : "B(oracle)", val);
+  cfg_logf("vmt", "[gain2] f%u %s val=%d", c->game->timing.logicFrame, "native", val);
   if (val < 0) {
     uint16_t snap = (uint16_t)(-(int16_t)val);
     c->mem_w16(V + 0x2Eu, snap); // target
@@ -266,7 +263,7 @@ void MusicCoord::setGain2(int32_t val) {
 static void eov_musicCoordSetGain2(Core *c) {
   int32_t val = (int32_t)c->r[4];
   eng(c).musicCoord.setGain2(val);
-  // Mirror gen_func_80075D24's register outputs (shard_1.c): r3 = 0x800BE1F8 (the voice block addr,
+  // Mirror guest 0x80075D24's register outputs (shard_1.c): r3 = 0x800BE1F8 (the voice block addr,
   // computed as 32780<<16 + (-7688)); r2 = the last value the substrate's branch leaves in r2:
   //   negative val: r2 = -val;  positive <8192: r2 = 1;  positive >=8192: r2 = 0.
   c->r[3] = 0x800BE1F8u;
@@ -277,10 +274,8 @@ static void eov_musicCoordSetGain2(Core *c) {
   }
 }
 
-extern void gen_func_80075D24(Core *);
-
 void MusicCoord::registerOverrides() {
-  overrides::install(0x80075D24u, "MusicCoord::setGain2", eov_musicCoordSetGain2, gen_func_80075D24);
+  tomba::native::declareOverride(0x80075D24u, "MusicCoord::setGain2", eov_musicCoordSetGain2);
 }
 
 // Called once per frame (native_step_frame). Enforces "dialogs stop the ingame music":
@@ -322,12 +317,9 @@ void MusicCoord::tick() {
 }
 
 // NATIVE field BGM director — see music_coord.h. Currently unwired from the frame loop (the
-// recompiled libsnd path is the music path); kept as the native-synth driver for the area bundle.
+// guest libsnd path is the music path); kept as the native-synth driver for the area bundle.
 void MusicCoord::fieldBgmDirector() {
   Core *c = core;
-  if (!c->game->native_gates.get("music")) {
-    return; // gated off -> recomp libsnd is the (oracle) music path
-  }
   // Are we in the field (GAME stage running)? The stage cell holds the active stage's task-0 entry.
   uint32_t stage = c->mem_r32(0x801fe00c);
   int in_field = (stage == 0x8010637Cu);

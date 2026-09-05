@@ -8,13 +8,11 @@
 #include "cfg.h"
 #include "core.h"
 #include "core/engine.h"
-#include "game.h" // c->game->verify — the shared A/B verify scaffold
+#include "game.h"
 #include "game_ctx.h"
-#include "guest_abi.h"         // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-#include "override_registry.h" // overrides::install — the one native-override registry
+#include "guest_abi.h"               // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include "scene/scene_flags.h"
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 // Guest-address constants (see scene_events.h for the full state map).
 static const uint32_t EVENTS_GATE_HW = 0x800E7FEEu; // int16 — 0 disables the event system
@@ -27,7 +25,7 @@ static const uint32_t TBL_A_BASE = 0x800A33C8u;     // classSize table A (stride
 static const uint32_t TBL_B_BASE = 0x800A3B38u;     // classSize table B (stride 4, 16 entries)
 static const uint32_t RING_REC_STRIDE = 0;          // stride not fixed — record slot is idx-indexed
                                                     // directly via head byte; stamp offsets 0x16 and
-                                                    // 0x1C are hard-wired (matches recomp).
+                                                    // 0x1C are hard-wired (matches guest instruction path).
 
 // --- Scene-command record (FUN_80042258 / FUN_80042448 handlers; r4 = record pointer) -------------
 // The command record whose selector byte the two handlers below decode. Field usage differs slightly
@@ -45,7 +43,7 @@ static const uint32_t ARM_READY_BYTE = 0x800BF80Eu; // u8 — set once this fram
 uint32_t SceneEvents::classSize(uint8_t argKey, bool nibbleLo) {
   Core *c = this->core;
   // Table A: 12-byte stride, we want byte @+1 of the entry. lbu zero-extends into 32-bit v0, so the
-  // recomp's `sra v0, v0, 4` on that (always 0..255) value is identical to a logical >> 4 — no sign
+  // guest instruction path's `sra v0, v0, 4` on that (always 0..255) value is identical to a logical >> 4 — no sign
   // extension in play. Pick low or high nibble per the a1 arg.
   uint32_t nibbleByte = c->mem_r8(TBL_A_BASE + (uint32_t)argKey * 12u + 1u);
   uint32_t nibble = nibbleLo ? (nibbleByte & 0x0Fu) : ((nibbleByte >> 4) & 0x0Fu);
@@ -53,14 +51,14 @@ uint32_t SceneEvents::classSize(uint8_t argKey, bool nibbleLo) {
 }
 
 // The arm primitive body. Wrapped by SceneEvents::arm below so it can be A/B'd via the verify harness.
-// Return value convention (mirrors the recomp exactly):
-//    -1 if events gate off (recomp's `addiu v0, zero, -1` on the early-return path)
-//     0 if the per-slot flag was already set (recomp's `addu v0, zero, zero` on the branch epilogue)
-//     1 if fresh arm (recomp's `addiu v0, zero, 1` seq at the tail — the +1 constant that also bumps
+// Return value convention (mirrors the guest instruction path exactly):
+//    -1 if events gate off (guest instruction path's `addiu v0, zero, -1` on the early-return path)
+//     0 if the per-slot flag was already set (guest instruction path's `addu v0, zero, zero` on the branch epilogue)
+//     1 if fresh arm (guest instruction path's `addiu v0, zero, 1` seq at the tail — the +1 constant that also bumps
 //                     the ring write head).
-// Guest-stack frame for gen_func_80040B48 (0x80040B48) — table order matches abi_extract's
-// 'prologue spills' section exactly (program order). Regenerate if the gen body changes:
-//   python3 tools/abi_extract.py 0x80040B48 --scaffold --guestabi
+// Guest-stack frame for guest 0x80040B48 (0x80040B48) — table order matches abi_extract's
+// 'prologue spills' section exactly (program order). Regenerate if the guest-visible behavior changes:
+//   python3 tools/binary ABI evidence 0x80040B48 --scaffold --guestabi
 // The frame is descended UNCONDITIONALLY in gen (even on the events-gate -1 early return), so the
 // RAII frame at entry covers every path. The spilled r31 is the CALLER's jal-site constant — every
 // native reacher sets it explicitly before calling in (see the "ra mirror" sites).
@@ -72,7 +70,7 @@ static constexpr GuestFrameSpill kSpills_80040B48[3] = {
 
 uint32_t SceneEvents::armBody(Core *c) {
   GuestFrame<32, 3> frame(c, kSpills_80040B48);
-  // Full 32-bit slot index — gen_func_80040B48 indexes SLOT_STATE with r4 UNMASKED (`r3 = r17 + base;
+  // Full 32-bit slot index — guest 0x80040B48 indexes SLOT_STATE with r4 UNMASKED (`r3 = r17 + base;
   // lbu r3+68`). Masking to a byte here was a latent deviation, observable only if an event ID ever
   // reached >= 256 (it never does in-game, but the verify gate would have caught it). Matches the
   // ground truth and the former CubeTextLedger::activateSlot copy now deduped onto this body.
@@ -101,9 +99,9 @@ uint32_t SceneEvents::armBody(Core *c) {
   c->mem_w32(STREAM_CURSOR, c->mem_r32(STREAM_CURSOR) + size);
 
   // (e) Append to the ring. record[idx]+0x16 = arg, record[idx]+0x1C = 0. Head byte holds `idx`
-  //     as a raw byte offset — the recomp reads it three times (once per stamp) then bumps it by 1;
+  //     as a raw byte offset — the guest instruction path reads it three times (once per stamp) then bumps it by 1;
   //     we do the same to preserve the exact write pattern (each read is fresh, so a concurrent
-  //     write between them would be racy, but the recomp isn't concurrent).
+  //     write between them would be racy, but the guest instruction path isn't concurrent).
   uint8_t idx = c->mem_r8(RING_HEAD_BYTE);
   c->mem_w8(RING_BASE + (uint32_t)idx + 0x16u, (uint8_t)eventId);
   idx = c->mem_r8(RING_HEAD_BYTE);
@@ -118,19 +116,19 @@ uint32_t SceneEvents::armBody(Core *c) {
 int32_t SceneEvents::arm(uint8_t eventId) {
   Core *c = this->core;
   c->r[4] = eventId;
-  c->game->verify.run(
-      &SceneEvents::armBody, 0x80040B48u, "sceneeventsarmverify", c->game->verify.on("sceneeventsarmverify"));
+  gctx(c)->verification.run(
+      &SceneEvents::armBody, 0x80040B48u, "sceneeventsarmverify", gctx(c)->verification.on("sceneeventsarmverify"));
   return (int32_t)c->r[2];
 }
 
 // FUN_80040B48 override entry (guest ABI: slot in r4, ret in r2). Single canonical body for every
-// caller that reaches the guest ADDRESS (substrate func_80040B48, and rec_dispatch(0x80040B48) from
-// ActorReward) — as opposed to the native `arm(eventId)` API used by ordinary engine code.
+// caller that reaches the guest ADDRESS (substrate guest 0x80040B48, and typed runtime address dispatch(0x80040B48)
+// from ActorReward) — as opposed to the native `arm(eventId)` API used by ordinary engine code.
 void SceneEvents::armOverride(Core *c) {
   c->r[2] = armBody(c);
 }
 
-// ORACLE: gen_func_80042258
+// ORACLE: guest 0x80042258
 // FUN_80042258 — two-phase dwell trigger over a scene-command record (r4). Leaf, no frame.
 uint32_t SceneEvents::delayedTrigger(Core *c) {
   const uint32_t rec = c->r[4];
@@ -138,7 +136,7 @@ uint32_t SceneEvents::delayedTrigger(Core *c) {
 
   if (phase == 0) {
     // Phase 0: reset the dwell timer and advance to phase 1.
-    const uint32_t p = c->mem_r8(rec + CMD_PHASE); // recomp reloads the phase byte before ++
+    const uint32_t p = c->mem_r8(rec + CMD_PHASE); // guest instruction path reloads the phase byte before ++
     c->mem_w16(rec + CMD_TIMER, 0);
     c->mem_w8(rec + CMD_PHASE, (uint8_t)(p + 1u));
     return 0;
@@ -149,7 +147,7 @@ uint32_t SceneEvents::delayedTrigger(Core *c) {
     if (c->mem_r16(rec + CMD_SELECT) & 1u) {
       c->mem_w16(LATCH_HALF_A, (uint16_t)c->mem_r16(rec + CMD_ARG_A));
     }
-    if (c->mem_r16(rec + CMD_SELECT) & 2u) { // recomp reloads the selector before testing bit 1
+    if (c->mem_r16(rec + CMD_SELECT) & 2u) { // guest instruction path reloads the selector before testing bit 1
       c->mem_w16(LATCH_HALF_B, (uint16_t)c->mem_r16(rec + CMD_ARG_B));
     }
 
@@ -170,7 +168,7 @@ uint32_t SceneEvents::delayedTrigger(Core *c) {
   return 0;
 }
 
-// ORACLE: gen_func_80042448
+// ORACLE: guest 0x80042448
 // FUN_80042448 — set/OR/AND a flag byte in the flag table per the record's op mode. Leaf, no frame.
 uint32_t SceneEvents::applyFlagOp(Core *c) {
   const uint32_t rec = c->r[4];
@@ -205,19 +203,8 @@ void SceneEvents::applyFlagOpOverride(Core *c) {
   c->r[2] = applyFlagOp(c);
 }
 
-extern void gen_func_80040B48(Core *);
-extern void gen_func_80042258(Core *);
-extern void gen_func_80042448(Core *);
-extern void shard_set_override(uint32_t, void (*)(Core *));
-
 void SceneEvents::registerOverrides(Game * /*game*/) {
-  overrides::install(
-      0x80040B48u, "SceneEvents::armBody", SceneEvents::armOverride, gen_func_80040B48, shard_set_override);
-  overrides::install(0x80042258u,
-                     "SceneEvents::delayedTrigger",
-                     SceneEvents::delayedTriggerOverride,
-                     gen_func_80042258,
-                     shard_set_override);
-  overrides::install(
-      0x80042448u, "SceneEvents::applyFlagOp", SceneEvents::applyFlagOpOverride, gen_func_80042448, shard_set_override);
+  tomba::native::declareOverride(0x80040B48u, "SceneEvents::armBody", SceneEvents::armOverride);
+  tomba::native::declareOverride(0x80042258u, "SceneEvents::delayedTrigger", SceneEvents::delayedTriggerOverride);
+  tomba::native::declareOverride(0x80042448u, "SceneEvents::applyFlagOp", SceneEvents::applyFlagOpOverride);
 }

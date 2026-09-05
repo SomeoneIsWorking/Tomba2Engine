@@ -6,8 +6,8 @@
 // gate — it has its own two gates (see below). Its primitive is an untextured flat screen-space
 // square, not a textured record quad.
 //
-// RE from ov_a0b_gen_801110BC, statically verified 2026-07-28 including the verifier's corrections
-// (docs/re/render-targets-static-re.md — read the ORIGINAL algorithm alongside the CORRECTED delta).
+// RE from overlay guest 0x801110BC, statically verified 2026-07-28 including the verifier's corrections
+// (docs/re/render-targets-binary-analysis.md — read the ORIGINAL algorithm alongside the CORRECTED delta).
 //
 // WHAT IT IS: 513 opaque pure-white specks filling a 2048-unit cube centred one half-step ahead of
 // the camera, wrapping infinitely on a world lattice keyed to the node's own anchor. The only depth
@@ -17,7 +17,7 @@
 // targets on the strength of its callee list. 0x80084660 is SetRotMatrix (5 lw + 5 ctc2), 0x80084690
 // is SetTransMatrix (3 lw + 3 ctc2), and gte_op(0x4A180001) is a plain RTPS sf=1 lm=0. The whole
 // setup is algebraically "the scene camera pre-translated by the field origin", which is exactly what
-// projComposeObjectHost(identity, origin) produces — so this needs no matrix helper and no gen body.
+// projComposeObjectHost(identity, origin) produces — so this needs no matrix helper and no guest-visible behavior.
 //
 // ORDERING IS DELIBERATELY NOT THE GUEST'S. The guest prepends every dot into ONE fixed OT bucket
 // (index 256) with no per-dot sorting, so its haze has no depth relationship to the scene at all.

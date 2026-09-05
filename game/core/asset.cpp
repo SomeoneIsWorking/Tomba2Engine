@@ -2,7 +2,7 @@
 // Owns the engine's loading domain (per CLAUDE.md THE BOUNDARY): the texture-group loader
 // orchestration, the LZ image decompressor, the CPU->VRAM upload, and the stage-0/1 boot preload
 // chain. The CD read + the task terminal-yield stay the retained platform/content mechanism (called
-// via rec_dispatch, not transcribed). See asset.h — instance-with-back-pointer subsystem, methods
+// via typed runtime address dispatch, not transcribed). See asset.h — instance-with-back-pointer subsystem, methods
 // take typed args directly (no MIPS taxi c->r[4..7] marshal).
 #include "asset.h"
 #include "cfg.h"
@@ -11,13 +11,12 @@
 #include "guest_call.h" // rc1-4 guest-call helpers (used by the preload chain below)
 #include <stdio.h>
 #include <stdlib.h>
-void rec_dispatch(Core *, uint32_t);
 // gpu_native_load_image is declared in core.h (the native CPU->VRAM upload).
 
-// PC-owned LZ image decompressor — replaces recompiled FUN_80044D8C (0x80044D8C). Rebuilds per-frame
+// PC-owned LZ image decompressor — replaces guest FUN_80044D8C (0x80044D8C). Rebuilds per-frame
 // CLUTs (0x801FCDC0) and sprite/texture data from compressed area assets. It was the source of the
-// gameplay 2D-sprite corruption: the SAME function gave correct output when recompiled but ZEROS
-// when flat-interpreted by the coroutine interpreter (rec_coro_run) at runtime — a recompiler-vs-
+// gameplay 2D-sprite corruption: the SAME function gave correct output when guest but ZEROS
+// when flat-interpreted by the coroutine interpreter (rec_coro_run) at runtime — a recorded binary evidence-vs-
 // interpreter divergence. A pure decompressor belongs to the PC side, so we own it natively here.
 //
 // ABI (matches the MIPS at 0x80044D8C, verified by disassembly):
@@ -66,14 +65,14 @@ uint32_t Asset::lzDecompress(uint32_t desc, uint32_t dst, uint32_t src0, uint32_
   return out - dst; // total bytes written
 }
 
-// PC-owned texture-group unpacker — replaces recompiled FUN_80044E84 (0x80044E84). Verified by
+// PC-owned texture-group unpacker — replaces guest FUN_80044E84 (0x80044E84). Verified by
 // disassembly: tablePtr = descriptor table base, anchorEnd = scratch-end anchor (0x1FD000). Layout:
 // [count:4] then [pad:4] then `count` 12-byte entries each { stride:2(@+4 from entry head),
 // field:2(@+6), srclen:4(@+8) }; source data starts 0x800 after the table base and advances by
 // srclen per entry. For each entry: dst = anchorEnd - 2*stride*field (outputs stack ending at the
 // anchor — transient scratch), decompress the entry's image there, then upload it (FUN_80081218)
 // and run the post step (FUN_80080f6c). Non-gameplay (asset unpack) → PC-owned, calling the native
-// decompressor directly; the two gfx-library sub-calls still route through the recomp/dispatch.
+// decompressor directly; the two gfx-library sub-calls still route through the guest instruction path/dispatch.
 void Asset::unpackGroup(uint32_t tablePtr, uint32_t anchorEnd) {
   Core *c = this->core;
   const int32_t count = (int32_t)c->mem_r32(tablePtr);
@@ -131,7 +130,7 @@ void Asset::unpackGroup(uint32_t tablePtr, uint32_t anchorEnd) {
     // synchronous native upload (no async DMA to drain). Owned as a skip; see note above uploadImage.
     if (cfg_dbg("unpacksync")) {
       c->r[4] = 0;
-      rec_dispatch(c, 0x80080F6Cu);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80080F6Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     }
   }
 }
@@ -142,7 +141,7 @@ void Asset::unpackGroup(uint32_t tablePtr, uint32_t anchorEnd) {
 // state maintained in the guest s-registers (nested callee prologues spill them into compared
 // task-1 stack bytes), and the two libgs leaves — LoadImage FUN_80081218 and DrawSync
 // FUN_80080F6C — dispatched at the live guest sp with their call-site ra constants, exactly as
-// core B's substrate body runs them. Byte shape: generated gen_func_80044E84 (shard_5.c).
+// core B's substrate body runs them. Byte shape: guest instructions at 0x80044E84 (shard_5.c).
 void Asset::unpackGroupFaithful(uint32_t tablePtr, uint32_t anchorEnd) {
   Core *c = this->core;
   c->r[29] -= 48;
@@ -182,10 +181,12 @@ void Asset::unpackGroupFaithful(uint32_t tablePtr, uint32_t anchorEnd) {
       c->r[4] = c->r[17];
       c->r[5] = c->r[16];
       c->r[31] = 0x80044F1Cu;
-      rec_dispatch(c, 0x80081218u); // libgs LoadImage at the live sp
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x80081218u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // libgs LoadImage at the live sp
       c->r[4] = 0;
       c->r[31] = 0x80044F24u;
-      rec_dispatch(c, 0x80080F6Cu); // libgs DrawSync(0)
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x80080F6Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // libgs DrawSync(0)
       const int32_t rem = (int32_t)c->r[20];
       c->r[20] = (uint32_t)(rem - 1);
       if (rem <= 0) {
@@ -205,7 +206,7 @@ void Asset::unpackGroupFaithful(uint32_t tablePtr, uint32_t anchorEnd) {
 }
 
 // PC-native TEXTURE-GROUP LOADER — owns the asset-load ORCHESTRATION FUN_80044F58 (0x80044F58): the
-// per-group loader a level uses to stream a texture set into VRAM. RE (tools/disas.py + gen_func_80044F58):
+// per-group loader a level uses to stream a texture set into VRAM. RE (tools/disas.py + guest 0x80044F58):
 // the current task selects a set via task[0x6D]=mode / task[0x6E]=set, then
 //   1. CD-load a 2KB HEADER from sector (filebase0 = *0x800BE0F0) + set  [+ a 4/26 bias in mode 2] -> 0x800EF478
 //   2. CD-load the compressed ARCHIVE from sector (filebase1 = *0x800BE0F8) + (hdr[0]>>11), len hdr[1]-hdr[0]
@@ -224,7 +225,7 @@ void Asset::unpackGroupFaithful(uint32_t tablePtr, uint32_t anchorEnd) {
 // at +20/+16 (live values), header/archive CD reads dispatched with their call-site ra constants,
 // unpackGroupFaithful for step 3 (its libgs leaves run at the live guest sp), and the metadata-
 // copy cursor kept in the guest s0 (selfClose's prologue spills it). Byte shape: generated
-// gen_func_80044F58. This method only runs on the pc_faithful task-1 path (runTask1PreloadStanza);
+// guest 0x80044F58. This method only runs on the pc_faithful task-1 path (runTask1PreloadStanza);
 // the native_sync shortcut is preloadTexgroup below.
 void Asset::loadTexgroup() {
   Core *c = this->core;
@@ -245,14 +246,18 @@ void Asset::loadTexgroup() {
   c->r[5] = hdr_sector;
   c->r[6] = 2048;
   c->r[31] = 0x80044FD8u;
-  rec_dispatch(c, 0x8001DC40u); // 1. CD-load 2KB header (platform)
-  c->r[16] = HDR;               // s0 = header base (live for spills)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8001DC40u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 1. CD-load 2KB header (platform)
+  c->r[16] = HDR;                                                             // s0 = header base (live for spills)
   uint32_t h0 = c->mem_r32(HDR + 0), h1 = c->mem_r32(HDR + 4);
   c->r[4] = 0x8018A000u;
   c->r[5] = c->mem_r32(0x800BE0F8u) + (h0 >> 11);
   c->r[6] = h1 - h0;
   c->r[31] = 0x80045008u;
-  rec_dispatch(c, 0x8001DC40u); // 2. CD-load compressed archive -> staging
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x8001DC40u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // 2. CD-load compressed archive -> staging
   c->r[4] = 0x8018A000u;
   c->r[5] = 0x001FD000u;
   c->r[31] = 0x8004501Cu;
@@ -285,17 +290,17 @@ void Asset::loadTexgroup() {
 // `PSXPORT_DEBUG=recdep` sweep (7,558 substrate dispatches per 6000 replay frames, 2026-07-29) and
 // looks exactly like the free win that Mtx::identity was — a LIVE native whose address nobody
 // installed. It is not. The body below is a REPLACEMENT, not a mirror: it writes host VRAM directly
-// and deliberately skips the guest's GsSortObject ring enqueue that the recompiled body performs.
+// and deliberately skips the guest's GsSortObject ring enqueue that the guest body performs.
 // Wiring it would make core A omit guest writes core B still makes, i.e. an SBS divergence by
 // construction. The dispatches are the faithful path doing its job, not a porting gap — leave them.
 //
 // PC-native CPU->VRAM upload — replaces the game's libgs-style upload library FUN_80081218
 // (0x80081218). RE (verified empirically vs the A0 upload log, later-62/63): desc = descriptor
 // { x:s16@0, y:s16@2, w:s16@4, h:s16@6 }, src = source pixel data (w*h contiguous 16-bit pixels,
-// row-major). The recomp body ENQUEUES an entry into the GsSortObject ring at 0x800A5AC8 (head/
+// row-major). The guest instruction path ENQUEUES an entry into the GsSortObject ring at 0x800A5AC8 (head/
 // tail @0x800A5AC8/5ACC) which is DMA'd to the GPU later as a 0xA0 packet. It is the SINGLE
 // chokepoint for BOTH the scene-load texture atlas AND every per-frame 16x1 CLUT — 5300+ calls
-// per attract run. The user's directive: the GPU library must be PC-native, not a faithful recomp.
+// per attract run. The user's directive: the GPU library must be PC-native, not a faithful guest instruction path.
 // So we write the rect straight into native VRAM here and DO NOT enqueue (the later ring flush/sync
 // then no-ops over an empty ring). Ordering is preserved: the upload still happens before this
 // frame's draws are processed, and CLUTs are double-buffered across frames (parity-alternated
@@ -315,7 +320,7 @@ void Asset::uploadImage(uint32_t desc, uint32_t src) {
 
 // FUN_80044F58 texture-group load, synchronous. (Mirrors loadTexgroup but driven by explicit
 // (mode,set) — no task-1 spawn, no terminal yield.) Header sector -> archive -> unpack -> copy the
-// 42-word per-set metadata table the still-recomp content reads back.
+// 42-word per-set metadata table the still-guest content reads back.
 void Asset::preloadTexgroup(uint32_t mode, uint32_t set) {
   Core *c = this->core;
   uint32_t hdr_sector = c->mem_r32(0x800BE0F0u) + set; // filebase0 + set
@@ -335,12 +340,19 @@ void Asset::preloadTexgroup(uint32_t mode, uint32_t set) {
 // FUN_800753D4 cel-load, SYNCHRONOUS. Original: FUN_80096480 (slot alloc + BAV cel load) -> store slot
 // at `out` -> FUN_80096980 (kick the upload state machine) -> cross-frame poll FUN_80096a40 until the
 // GPU-DMA upload completes. The alloc + kick carry no async wait (they leave the slot in state 1), so
-// run them as the recomp REFERENCE; our native GPU upload is synchronous, so we DROP the cross-frame
+// run them as the guest instruction path REFERENCE; our native GPU upload is synchronous, so we DROP the cross-frame
 // poll (the "no async" directive) instead of yielding for a DMA that already happened.
 static void preload_cel(Core *c, uint32_t out, uint32_t desc, uint32_t cbarg) {
-  int16_t slot = (int16_t)(rc3(c, 0x80096480u, desc, (uint32_t)-1, cbarg), c->r[2]); // FUN_80096480(desc,-1,cbarg)
-  c->mem_w16(out, (uint16_t)slot);                                                   // *(u16*)out = allocated slot
-  rc2(c, 0x80096980u, cbarg, (uint32_t)slot); // FUN_80096980(cbarg, slot): kick upload
+  psx::cpu::dispatchGuestToReturn3(
+      *c, 0x80096480u, desc, (uint32_t)-1, cbarg, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+  int16_t slot = (int16_t)c->r[2]; // FUN_80096480(desc,-1,cbarg)
+  c->mem_w16(out, (uint16_t)slot); // *(u16*)out = allocated slot
+  psx::cpu::dispatchGuestToReturn2(*c,
+                                   0x80096980u,
+                                   cbarg,
+                                   (uint32_t)slot,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // FUN_80096980(cbarg, slot): kick upload
   // FUN_800753D4 writes `out` a SECOND time with FUN_80096980's RETURN (the real slot handle; -1 when
   // the SPU-DMA kick found no free channel). Dropping this write-back left a stale positive slot id in
   // the cel handle (0x800BED84/0x800BED82) on the failure branch — the sprite/cel registrations then
@@ -354,12 +366,16 @@ static void preload_cel(Core *c, uint32_t out, uint32_t desc, uint32_t cbarg) {
   // 2). Deliver the sound-DMA-complete event first so 0x800993a0 returns immediately (no busy-wait, no yield),
   // then run the sync once. (later: in-game music VAB.)
   c->game->hle.deliverEvent(0xF0000009u, 0xFFFFFFFFu); // sound/DMA-complete event
-  rc1(c, 0x80096a40u, 0);                              // FUN_80096a40(0): upload sync (now non-blocking)
+  psx::cpu::dispatchGuestToReturn1(*c,
+                                   0x80096a40u,
+                                   0,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // FUN_80096a40(0): upload sync (now non-blocking)
 }
 
 // FUN_800754F4 cel/sprite VRAM build, synchronous. FUN_800753ac is itself an async CD read -> use the
 // sync loadfile; the two FUN_800753d4 cel-loads go through preload_cel; the ten FUN_80075448
-// sprite-cell registrations carry no CD/async wait, so run as recomp. `base` = work base 0x80182000.
+// sprite-cell registrations carry no CD/async wait, so run as guest instruction path. `base` = work base 0x80182000.
 static uint32_t preload_build_vram(Core *c, uint32_t base) {
   uint32_t s0 = base + 0x51000u;                                 // descriptor table (filled by the read)
   c->game->cd.loadFile(base, c->mem_r32(0x800BE108u), 0x51800u); // FUN_800753ac: read SND file (idx3)
@@ -381,7 +397,14 @@ static uint32_t preload_build_vram(Core *c, uint32_t base) {
   };
   uint32_t cell_h = (uint32_t)c->mem_r16s(0x800BED82u);
   for (int i = 0; i < 10; i++) {
-    rc4(c, 0x80075448u, (uint32_t)i, base + c->mem_r32(s0 + cells[i].off), cells[i].sz, cell_h);
+    psx::cpu::dispatchGuestToReturn4(*c,
+                                     0x80075448u,
+                                     (uint32_t)i,
+                                     base + c->mem_r32(s0 + cells[i].off),
+                                     cells[i].sz,
+                                     cell_h,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__);
   }
   return base + 26356; // v0 = base + 0x66f4
 }
@@ -413,7 +436,7 @@ void Asset::preloadStage1() {
 // SEQ/VAB VRAM build stays the substrate leaf 0x800754F4: its FUN_800753D4 poll loop yields
 // through scheduler_yield each frame the SsVabTransCompleted flag is still clear, which is what
 // spreads this body across two slices on core B — dispatching the real leaf reproduces both the
-// cadence and its stack bytes organically. Byte shape: generated gen_func_8004514C. The native_sync
+// cadence and its stack bytes organically. Byte shape: guest instructions at 0x8004514C. The native_sync
 // shortcut is preloadStage1() above (synchronous, no yields — must never run on this path).
 void Asset::preloadStage1AsTask() {
   Core *c = this->core;
@@ -427,7 +450,7 @@ void Asset::preloadStage1AsTask() {
   c->r[5] = c->mem_r32(0x800BE110u);
   c->r[6] = c->mem_r32(0x800BE114u);
   c->r[31] = 0x80045178u;
-  rec_dispatch(c, 0x8001DC40u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8001DC40u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[31] = 0x80045180u; // 2. texgroup sub-load
   c->r[17] = 0x800F0000u; //    (s1 upper set in the jal delay slot)
   loadTexgroup();         //    faithful FUN_80044F58
@@ -438,7 +461,7 @@ void Asset::preloadStage1AsTask() {
   c->r[6] = hi - lo;
   c->r[16] = hi - lo; // s0 = payload size
   c->r[31] = 0x800451ACu;
-  rec_dispatch(c, 0x8001DC40u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8001DC40u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   const uint32_t dat_end = (hi - lo) + 0x80158000u;
   c->mem_w32(0x1F800228u, dat_end);
   c->mem_w32(0x800ED014u, dat_end);
@@ -450,7 +473,7 @@ void Asset::preloadStage1AsTask() {
   }
   c->r[4] = 0x80182000u;  // 5. SEQ/VAB VRAM build — substrate
   c->r[31] = 0x80045228u; //    leaf; parks in its VAB poll
-  rec_dispatch(c, 0x800754F4u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x800754F4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->mem_w32(0x1F80022Cu, c->r[2]); // v0 = work-area end
   c->mem_w8(0x1F80019Bu, 1);        // done_flag -> task-0 wait exits
   c->r[31] = 0x80045244u;
@@ -467,7 +490,7 @@ void Asset::preloadStage1AsTask() {
 // frame descent 32 with ra/s1/s0 spills at +24/+20/+16 (live caller values), r16/r17 carried along
 // the shard's flow so deeper callees' spills match core B byte-for-byte. Every un-owned leaf is the
 // substrate dispatch at its RE'd jal site; owned leaves (0x80044F58 texgroup) run the native mirror.
-// Byte shape: generated gen_func_800452C0; RE: scratch/decomp/800452C0.c (Ghidra 2026-07-07).
+// Byte shape: guest instructions at 0x800452C0; RE: scratch/decomp/800452C0.c (Ghidra 2026-07-07).
 void Asset::areaDataLoadAsTask() {
   Core *c = this->core;
   uint32_t sm = c->mem_r32(0x1F800138u); // read before the frame descent (gen order)
@@ -487,15 +510,20 @@ void Asset::areaDataLoadAsTask() {
       c->mem_w8(0x1F800206u, 0);
       c->mem_w8(0x1F80019Bu, 1); // done_flag -> spawn-and-wait exits
       c->r[31] = 0x80045350u;
-      rec_dispatch(c, 0x80051FB4u); // terminal task end — does not return on a task
+      psx::cpu::dispatchGuestToReturn0(*c,
+                                       0x80051FB4u,
+                                       psx::cpu::ExecutionBudget::currentTurn(*c),
+                                       __func__); // terminal task end — does not return on a task
     }
   }
   c->r[31] = 0x80045358u;
-  rec_dispatch(c, 0x8001CF2Cu);          // kill the CD/load task (settle slot 2)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8001CF2Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // kill the CD/load task (settle slot 2)
   while (c->mem_r16(0x801FE0E0u) != 0) { // drain: wait for the slot-2 task to finish
     c->r[4] = 1;
     c->r[31] = 0x80045374u;
-    rec_dispatch(c, 0x80051F80u); // yield — parks the fiber one frame
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80051F80u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // yield — parks the fiber one frame
   }
   c->r[16] = 0x800C0000u;
   c->r[17] = 0x800BF870u;
@@ -510,11 +538,13 @@ void Asset::areaDataLoadAsTask() {
   c->r[5] = (area + 3) & 0xFFu;
   c->mem_w8(0x800BF870u, (uint8_t)area);
   c->r[31] = 0x800453DCu;
-  rec_dispatch(c, 0x80045080u); // area descriptor load
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80045080u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // area descriptor load
   c->r[4] = c->mem_r8(0x800BF870u);
   c->r[5] = c->mem_r32(0x1F80022Cu);
   c->r[31] = 0x800453F0u;
-  rec_dispatch(c, 0x8007566Cu); // per-area audio/vab select
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8007566Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // per-area audio/vab select
   c->r[31] = 0x800453F8u;
   loadTexgroup();         // 0x80044F58 — native mirror (direct call, mode 2)
   c->r[4] = 0x8018A000u;  // DAT payload staging buffer
@@ -526,11 +556,12 @@ void Asset::areaDataLoadAsTask() {
   c->r[5] += c->r[7];
   c->mem_w32(0x800A3EC8u, lo >> 11);
   c->r[31] = 0x80045430u;
-  rec_dispatch(c, 0x8001DC40u); // CD read: DAT payload -> 0x8018A000
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8001DC40u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // CD read: DAT payload -> 0x8018A000
   if (c->mem_r8(0x800BF89Cu) == 2) {
     c->r[4] = 0;
     c->r[31] = 0x80045448u;
-    rec_dispatch(c, 0x80045558u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80045558u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   }
   loadDescriptorChunk(((uint32_t)c->mem_r16(0x800BF89Eu) & 15u) << 1, 47); // FUN_80045258
   {                                                                        // relocation table -> module pointer table
@@ -562,7 +593,10 @@ void Asset::areaDataLoadAsTask() {
   c->mem_w8(0x1F800206u, 1);
   c->mem_w8(0x1F80019Bu, 1); // done_flag -> spawn-and-wait exits
   c->r[31] = 0x80045544u;
-  rec_dispatch(c, 0x80051FB4u); // terminal task end — does not return on a task
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x80051FB4u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // terminal task end — does not return on a task
   c->r[31] = c->mem_r32(sp + 24);
   c->r[17] = c->mem_r32(sp + 20);
   c->r[16] = c->mem_r32(sp + 16);

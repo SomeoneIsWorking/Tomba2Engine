@@ -17,24 +17,23 @@
 //
 // Ownership model (identical to the FUN_739ac handler / the FUN_73cd8 handler / the FUN_8012eb54 handler / the
 // FUN_80124e74 handler): CONTROL FLOW + node/global memory writes owned native; every sub-behavior CALL stays reachable
-// by address via rec_dispatch (a0..a2 set first; NO recursion into them). NO GTE, NO render packets here. RE'd 1:1 from
-// disas 0x8012D404..0x8012D4E8 (`jr ra`; 0x8012D4EC starts the next fn with its own prologue). It WRITES guest node
-// state the still-recomp content reads -> content-INTERFACE: gated byte-exact (full RAM+scratchpad A/B vs
-// rec_super_call). The idle/active field path is exercised by the gate; the scene-driven init is faithfully transcribed
-// and verifies when a scene drives it.
+// by address via typed runtime address dispatch (a0..a2 set first; NO recursion into them). NO GTE, NO render packets
+// here. RE'd 1:1 from disas 0x8012D404..0x8012D4E8 (`jr ra`; 0x8012D4EC starts the next fn with its own prologue). It
+// WRITES guest node state the still-guest content reads -> content-INTERFACE: gated byte-exact (full RAM+scratchpad A/B
+// vs original guest-body call). The idle/active field path is exercised by the gate; the scene-driven init is
+// faithfully transcribed and verifies when a scene drives it.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_record_init
-#include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-#include "object/actor.h"  // Actor::boundsCull (FUN_8007778C native)
-#include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_abi.h"
+#include "guest_jal.h"    // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "object/actor.h" // Actor::boundsCull (FUN_8007778C native)
+#include "spawn.h"        // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -99,7 +98,7 @@ void beh_cull_tick_render(Core *c) {
   // leaves 0x8012D4C4 there (the instruction after the delay slot at 0x8012D4C0), so the return-address
   // constant has to be set here or that stack word holds a stale ra and SBS diverges on it.
   c->r[4] = obj;
-  guest_dispatch(c, 0x8012D4C4u, 0x8012D27Cu);
+  tomba::guest::dispatchJalToReturn(*c, 0x8012D27Cu, 0x8012D4C4u);
   c->r[4] = obj;
   eng(c).graphicsBind.renderUpdate(); // 8012D4C4 jal 0x800517f8 (a0=s0)  render-state update
   // 8012D4CC j 0x8012d4dc (epilogue)

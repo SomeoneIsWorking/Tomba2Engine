@@ -16,24 +16,23 @@
 //   STATE 2 : nothing.   STATE 3 : FUN_8007A624(node).   STATE >=4 : nothing.
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the direct node/record/global WRITES owned
-// native; every sub-behavior CALL stays reachable via rec_dispatch (pure-PSX leaf). a0 fidelity in the
-// record loop kept by NOT clobbering c->r[4] between FUN_80051B04 (leaves the guest a0=rec) and the next
+// native; every sub-behavior CALL stays reachable via typed runtime address dispatch (pure-PSX leaf). a0 fidelity in
+// the record loop kept by NOT clobbering c->r[4] between FUN_80051B04 (leaves the guest a0=rec) and the next
 // FUN_8007AAE8 (reads it). The transient node[4]=3 store on the 0x800ED098<4 path is immediately
 // overwritten by node[4]=1 at the common tail — so the END RAM has node[4]=1 either way (mirrored).
 // Transcribed 1:1 as a register machine; signed (lh/slt) vs unsigned (lhu/lbu) preserved. The byte-exact
-// A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net. NO GTE/render.
+// A/B gate (full RAM+scratchpad vs original guest-body call) is the safety net. NO GTE/render.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_render_update (FUN_800517F8)
 #include "guest_abi.h"
+#include "guest_jal.h"
 #include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -105,7 +104,7 @@ S0: {
       c->mem_w32(rec + 8, 0);
       c->mem_w32(rec + 12, 0);
       uint32_t a2 = (uint32_t)c->mem_r16s(s4 + 6);
-      guest_leaf(c, 0x80051b04u, rec, 12, a2); // FUN_80051B04(rec, 12, (int16)src[6])
+      tomba::guest::dispatchLeafToReturn(*c, 0x80051b04u, rec, 12, a2); // FUN_80051B04(rec, 12, (int16)src[6])
       s4 += 8;
       s0 += 4;
     } while ((int32_t)s3 < (int32_t)c->mem_r8(nd + 8));
@@ -184,7 +183,7 @@ L5fa4: {
   if (!(c->mem_r8(0x800e7eaau) < 32)) {
     goto Lret;
   }
-  if (guest_leaf(c, 0x8007778cu, nd) == 0) {
+  if (tomba::guest::dispatchLeafToReturn(*c, 0x8007778cu, nd) == 0) {
     goto Lret;
   }
   goto L60b4;
@@ -192,7 +191,7 @@ L5fa4: {
 
 // ================= shared tail (state 0 & 1) =================
 L60b4:
-  guest_leaf(c, 0x80135414u, nd); // FUN_80135414(node)
+  tomba::guest::dispatchLeafToReturn(*c, 0x80135414u, nd); // FUN_80135414(node)
   c->r[4] = nd;
   eng(c).graphicsBind.renderUpdate(); // FUN_800517F8(node)
 Lret:

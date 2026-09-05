@@ -21,11 +21,11 @@
 # 0x80027768 — the packed-mesh 36-byte quad-record writer.
 #   owner:    Render::meshQuadRecordsEmit, game/render/mesh_quads.cpp:131 (decl game/render/render.h:447)
 #   evidence: render.h:438 — "the ONE host-side walk of the engine's packed-mesh quad-record format
-#             (FUN_80027768's 36-byte records)". docs/re/render-targets-static-re.md:180 confirms the
+#             (FUN_80027768's 36-byte records)". docs/re/render-targets-binary-analysis.md:180 confirms the
 #             record format is byte-identical to FUN_80027768's.
 #   cue:      EXPLICIT PARAMETER, not dropped — signature is (mesh, uBias, farColour[3], ir0, ot,
 #             screenBbox). fx_plume.cpp:128 passes (kNoFarColour, kCueOff); fx_dust.cpp:209 kCueFull.
-#             This is the "explicit IR0 cue" overload docs/re/render-targets-static-re.md:222 said was
+#             This is the "explicit IR0 cue" overload docs/re/render-targets-binary-analysis.md:222 said was
 #             still owed — that line is STALE, as is its claim the owner is FxMesh::draw (fx_mesh.cpp
 #             was deleted in abf3cf9).
 0x80027768
@@ -33,11 +33,11 @@
 # 0x8002847C — the 36-byte FOUR-CORNER sprite record writer (reached via the 0x800328EC wrapper).
 #   owner:    emitAnimQuadRecords, game/render/fx_sprite.cpp:288
 #   evidence: fx_sprite.cpp:774 states "FUN_8002847C = emitAnimQuadRecords";
-#             docs/re/render-targets-static-re.md:169 — "codemap reports NO owner for the address, but
+#             docs/re/render-targets-binary-analysis.md:169 — "codemap reports NO owner for the address, but
 #             the behaviour is fully owned by that static; nothing new is needed".
 #   cue:      EXPLICIT PARAMETERS ir0 = 0, farColour = nullptr by default = the identity, which is
-#             correct for this family BY CONSTRUCTION: gen_func_800328EC zeroes 0x1F800090 and passes
-#             a1=a2=0 (docs/re/render-targets-static-re.md:46, a verifier correction — the original
+#             correct for this family BY CONSTRUCTION: guest 0x800328EC zeroes 0x1F800090 and passes
+#             a1=a2=0 (docs/re/render-targets-binary-analysis.md:46, a verifier correction — the original
 #             spec said "whatever the frame left", right conclusion, wrong reason). FUN_8010C7F4's
 #             particle field is the one caller that genuinely DRIVES the cue.
 0x8002847C

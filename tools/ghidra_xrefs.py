@@ -1,5 +1,5 @@
 # Ghidra headless post-script: list every function that references a given address (read or write).
-# Runs under Ghidra's Jython/PyGhidra. Invoked via tools/decomp.sh-style pyghidraRun -H harness.
+# Runs under Ghidra's Jython/PyGhidra. Invoked via the Ghidra evidence workflow-style pyghidraRun -H harness.
 #
 # Script args: <addr_hex>
 # Prints, for every reference INTO <addr_hex>, the containing function name+entry and the

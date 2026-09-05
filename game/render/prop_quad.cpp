@@ -4,7 +4,8 @@
 // packet-pool and OT writes. pc_render deliberately does not consume that guest output. This producer
 // rebuilds the same picture from the controller's persistent object/node inputs and the shared packed
 // quad-record decoder, under the live/interpolated native camera. It is read-only: no GTE state,
-// guest packet, ordering table, scratchpad transform, or generated body is read or written here.
+// guest packet, ordering table, scratchpad transform, or authenticated executable/overlay evidence is read or written
+// here.
 #include "prop_quad.h"
 
 #include "core.h"

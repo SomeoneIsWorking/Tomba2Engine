@@ -15,10 +15,10 @@
 // draw goes through it is structurally absent from pc_render.
 //
 // ────────────────────────────────────────────────────────────────────────────────────────────────
-// RE — ground truth generated/ov_a00_shard_1.c `ov_a00_gen_801365C4`, read instruction by
-// instruction, plus its ONE caller `ov_a00_gen_80136748` (generated/ov_a00_shard_0.c:20083) for the
+// RE — ground truth authenticated executable/overlay evidence `overlay guest 0x801365C4`, read instruction by
+// instruction, plus its ONE caller `overlay guest 0x80136748` (authenticated executable/overlay evidence) for the
 // transform. There are no COP2 ops in either body — both only *set up* the GTE and hand corners to
-// FUN_8003B320 — so the recompiler's translation is legible C and is the authority the project's own
+// FUN_8003B320 — so the recorded guest instruction listing is legible C and is the authority the project's own
 // rules name for GTE-adjacent code.
 //
 //   1. THE STRIP. a0 = node, a1 = LENGTH. The emitter divides the length by kSegment (120):
@@ -59,11 +59,11 @@
 // ("never do this please NEVER"), and it is precisely what this file avoids by re-deriving P from
 // the node instead.
 //
-// THE GUEST'S OWN EMISSION IS UNTOUCHED. ropeStrip() runs the real ov_a00_gen_801365C4 body first
+// THE GUEST'S OWN EMISSION IS UNTOUCHED. ropeStrip() runs the real overlay guest 0x801365C4 body first
 // and only then adds the native picture, so psx_render, the oracle and SBS all see exactly what they
 // saw before; nothing here writes guest memory.
 //
-// SCOPE, stated honestly: FUN_801365C4 has exactly ONE caller in the whole recompiled image
+// SCOPE, stated honestly: FUN_801365C4 has exactly ONE caller in the whole guest image
 // (FUN_80136748), so this producer covers that caller class and no other. The transform contract is
 // the CALLER's, not the emitter's, which is why it cannot be generalised to the other ten callers of
 // FUN_8003B320 without RE'ing each of them — see kanban #103 for the shape that would.
@@ -76,15 +76,15 @@
 #include "game.h"
 #include "game_ctx.h"
 #include "gpu_native_internal.h" // gpu_frame_no — declared THERE, never re-declared here
-#include "proj_params.h"         // proj_pz_to_ord
+#include "guest_call.h"
+#include "native_override_catalog.h"
+#include "proj_params.h" // proj_pz_to_ord
 #include "projection.h"
 #include "render.h"
 #include "render_internal.h" // ObjScope, render_field_native_active
 #include "render_queue.h"
 #include <cstdint>
 #include <lucent/log.h>
-
-extern void ov_a00_gen_801365C4(Core *);
 
 namespace {
 
@@ -274,7 +274,7 @@ namespace {
 void ov_ropeStrip(Core *c) {
   const uint32_t node = c->r[4];
   const int32_t length = (int32_t)c->r[5];
-  ov_a00_gen_801365C4(c); // unchanged substrate emission
+  psx::cpu::callOriginalToReturn(*c, 0x801365C4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   if (!render_field_native_active(c)) {
     return;
   }
@@ -284,6 +284,5 @@ void ov_ropeStrip(Core *c) {
 } // namespace
 
 void fx_rope_strip_install() {
-  extern void engine_set_override_a00(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_a00(0x801365C4u, ov_ropeStrip, ov_a00_gen_801365C4);
+  tomba::native::declareOverride(0x801365C4u, "ov_ropeStrip", ov_ropeStrip);
 }

@@ -40,7 +40,7 @@
 #include "core.h"
 #include "core/engine.h"
 #include "game_ctx.h"
-void rec_dispatch(Core *, uint32_t);
+#include "guest_call.h"
 #include "player/actor_tomba.h" // eng(c).actorTomba.interactWalk (FUN_80022760)
 
 namespace {
@@ -65,7 +65,7 @@ constexpr uint32_t LEAF_G_POSTFRAME_10E904 = 0x8010E904u; // Tomba post-frame ti
 // Dispatch a G-arg sub-leaf.
 inline void gLeaf(Core *c, uint32_t leaf) {
   c->r[4] = G;
-  rec_dispatch(c, leaf);
+  psx::cpu::dispatchGuestToReturn0(*c, leaf, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 
 // Walk the aux render list, dispatching FUN_80112A60(item) per item type-gate.
@@ -86,24 +86,21 @@ inline void aux_list_walk(Core *c) {
       if (c->mem_r8(item + 3) != 1) {
         continue;
       }
-      // fall through into leaf dispatch (matches the recomp's LAB_80113D8C join point)
+      // fall through into leaf dispatch (matches the guest instruction path's LAB_80113D8C join point)
     } else if (typ >= 2) {
       if (typ != 4 && typ != 7) {
         continue; // only types 4/7 dispatch beyond
       }
     } // typ == 0 → dispatch below
     c->r[4] = item;
-    rec_dispatch(c, LEAF_AUX_ITEM_112A60);
+    psx::cpu::dispatchGuestToReturn0(*c, LEAF_AUX_ITEM_112A60, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   }
 }
 
 } // namespace
 
 void Behaviors::areaSeasidePerframe(Core *c) {
-  // Pre-tick now NATIVE (ActorTomba::framePreTick, port_check PASS vs gen_func_8002288C). The body
-  // reads its object out of r4 exactly as the guest does, so the argument is still set the same way.
-  c->r[4] = G;
-  eng(c).actorTomba.framePreTick(); // was gLeaf(LEAF_G_PRE_2288C)
+  psx::cpu::dispatchGuestToReturn1(*c, 0x8002288Cu, G, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   const uint8_t mode = c->mem_r8(G);
   const bool defaultMode = !(mode == 0 || mode == 2 || mode == 6);
@@ -112,7 +109,7 @@ void Behaviors::areaSeasidePerframe(Core *c) {
   if (defaultMode) {
     eng(c).actorTomba.interactWalk();     // native FUN_80022760 (Tomba interaction walk)
     eng(c).actorTomba.postInteractWalk(); // native FUN_801130C4 (default-mode post-tick)
-    runMode2Tick = true;                  // recomp falls through into `case 2`
+    runMode2Tick = true;                  // guest instruction path falls through into `case 2`
   }
   // G+0x158 is the RIDE/ATTACH POINTER — the object Tomba is currently holding onto (written by
   // FUN_80057a68 as `player[0x158] = FUN_80024548(player, 0)`), 0 when he is attached to nothing.
@@ -166,14 +163,17 @@ void Behaviors::areaSeasidePerframe(Core *c) {
   }
 
   // Fixed mid-update trio (fires in every mode 0/2/6 + default's fall-through).
-  rec_dispatch(c, LEAF_TRIO_22554);  // no-args engine tick
-  rec_dispatch(c, LEAF_TRIO_113700); // no-args
-  rec_dispatch(c, LEAF_TRIO_1138E8); // no-args
+  psx::cpu::dispatchGuestToReturn0(
+      *c, LEAF_TRIO_22554, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // no-args engine tick
+  psx::cpu::dispatchGuestToReturn0(
+      *c, LEAF_TRIO_113700, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // no-args
+  psx::cpu::dispatchGuestToReturn0(
+      *c, LEAF_TRIO_1138E8, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // no-args
 
   aux_list_walk(c);
 
   // Fixed post-update pair + Tomba post-frame tick.
-  rec_dispatch(c, LEAF_POST_112C0C);
-  rec_dispatch(c, LEAF_POST_112F14);
+  psx::cpu::dispatchGuestToReturn0(*c, LEAF_POST_112C0C, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+  psx::cpu::dispatchGuestToReturn0(*c, LEAF_POST_112F14, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   eng(c).actorTomba.postFrameWaterCheck(); // native FUN_8010E904 (Tomba post-frame water/sea)
 }

@@ -43,7 +43,7 @@
   ("bucket-softlock f1200, box opaque with legible text") today shows a field scene with no dialog box at
   all on BOTH legs, so re-running it compares two boxless images and passes. Locate by scene predicate,
   not frame number.
-- **refs:** kanban #94, #35, #98; psxport `284c012e` (`runtime/recomp/fps60.{cpp,h}`); `game/ui/panel.cpp`,
+- **refs:** kanban #94, #35, #98; psxport `284c012e` (`runtime/psx/fps60.{cpp,h}`); `game/ui/panel.cpp`,
   `game/ui/panel_fill.cpp`; `scratch/screenshots/live/{hut_fps0,hut_fps1_fixed,start_fps1_fixed,menu_fps1_fixed}.png`.
 
 ## The dialog box advances on CIRCLE, and `replays/bugs/bucket-softlock.pad` never presses it (kanban #2, 2026-07-28)
@@ -63,7 +63,7 @@
   own `{Square, Cross, Circle, Triangle}` table. Circle is the game's choice, not the port's.
 - **why the previous session concluded "softlock":** it tested with X. Cross does nothing in this
   state by design, so "does not move on X taps" was a true observation of the wrong button.
-  Keyboard binding is in `external/psxport/runtime/recomp/pad_input.cpp`: Circle = **L**, Cross = K.
+  Keyboard binding is in `external/psxport/runtime/psx/pad_input.cpp`: Circle = **L**, Cross = K.
 - **the replay is the broken instrument.** `tools/pad_decode.py replays/bugs/bucket-softlock.pad`
   shows the LAST input at f468; the dialog opens ~f470 and every frame from there to f1764 is
   PAD_NONE. A capture that never presses confirm cannot show the box advancing, so "parked for
@@ -88,7 +88,7 @@
   (0x18 grey in the reference) bottomed out at pure black. A uniform clamped subtract over the whole
   finished image is one full-screen `B - F` rect with `F = 0x404040` applied AFTER everything.
 - **NOT an exec-state fault (hypothesis tested and FALSIFIED).** The card and the operator both
-  suspected pc_faithful computed some colour state differently from recomp_path. Measured at f1120:
+  suspected pc_faithful computed some colour state differently from retired comparison path. Measured at f1120:
   every one of the **421 ordering-table packets is byte-identical** between the two exec paths
   (`debug otattr` to enumerate the pool addresses, then `rw <pool> <n+1>` on each — 0 differing
   lines), including the dim pair itself at `0x800C1A04` = `62404040 00000000 00F00140` + `E1000040`.
@@ -96,7 +96,7 @@
 - **the instrument that made it look like exec — READ THIS BEFORE TRUSTING A psx_render REFERENCE.**
   `PSXPORT_RENDER_PSX=1` at BOOT under the DEFAULT exec path returned a frame **byte-identical**
   (md5 `a42d99bcde4d`) to the plain pc_render frame, while logging `Render::psxRender=1`. So the
-  "psx leg" that read dark was never a psx frame. Only `PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1` (recomp
+  "psx leg" that read dark was never a psx frame. Only `PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1` (guest instruction path
   exec) produced a real OT-walked frame — and that one was bright, matching the USER reference. The
   bright leg changes BOTH variables, which is what made the fault read as exec. See instrument I002
   in `docs/info/`.
@@ -108,7 +108,7 @@
   headless readback applies to the ENTIRE finished frame with no ordering. So the dim landed twice:
   once correctly ordered (`PauseMenu::pushSubtractiveDim` at `kDimBucket`, ~4150 px) and once
   globally over all 76800. Evidence: `debug fadewatch` at f1120 reports `mode=2 rgb=(64,64,64)` on
-  the pc_faithful leg vs `mode=0 rgb=(0,0,0)` on the recomp leg (where no native tap runs).
+  the pc_faithful leg vs `mode=0 rgb=(0,0,0)` on the guest instruction path leg (where no native tap runs).
 - **fix (`game/ui/pause_menu.cpp`, `PauseMenu::releaseGlobalDim`):** the producer that draws the rect
   in its OT place is the layer's owner, so it releases the global copy — `pushSubtractiveDim` pushes
   the ordered quad and then clears the frame-scoped `ScreenFade` **only when it holds exactly this
@@ -146,15 +146,15 @@
   wrong fix — two producers for one page.
 - **fix — produce each element at ITS OWN guest emitter, scoped by the page** (`game/ui/options_page.cpp`,
   the #21/#35 template): a `UiGroupCapture` scope on each of the five builders; `FUN_8007FC24` PORTED
-  (`OptionsPage::pushBackdrop`, `port_check` PASS vs `gen_func_8007FC24`) with its picture drawn by
+  (`OptionsPage::pushBackdrop`, `port_check` PASS vs `guest 0x8007FC24`) with its picture drawn by
   `Render::optionsBackdrop`; `FUN_8007FCC8`'s rectangles recorded from its EXISTING single owner
-  `Panel::pushDialogBackdrop` (a second `overrides::install` on that address is the kanban #28 bug);
+  `Panel::pushDialogBackdrop` (a second `tomba::native::declareOverride` on that address is the kanban #28 bug);
   cursor + pad diagram captured off the two shared 2D group leaves. The host twins in
   `render_options.cpp` were deleted — what is left there is the two draw helpers and the title chrome
   Demo::s6 composites UNDER the Screen-adjust page. ONE producer now serves both entry points.
 - **two things that would have broken it:**
-  - **paint order is the OT bucket, not call order.** `gen_func_8007F104` calls the cursor
-    (`func_8007E998`) BEFORE the backdrop (`func_8007FC24`) but links the backdrop deeper, so pushing
+  - **paint order is the OT bucket, not call order.** `guest 0x8007F104` calls the cursor
+    (`guest 0x8007E998`) BEFORE the backdrop (`guest 0x8007FC24`) but links the backdrop deeper, so pushing
     at emitter-call time would have painted the backdrop over the cursor. `drawCollected` orders it:
     backdrop, then boxes newest-first (a bucket's list is LIFO), then `UiGroupCapture::paintOrder`.
   - **the 2D-BG band sits BEHIND the 3D world by construction** (`RQ_OM_2D_BG` maps into
@@ -185,13 +185,13 @@
 - **symptom:** the field-2D frontier still named special-character icons as a missing/substrate gap,
   even though options-page captures already showed the icons and the codemap found `iconGlyphTap`.
 - **cause:** the tracker conflated picture coverage with execution ownership. The tap called
-  `gen_func_80078988` for guest packet/OT state, then independently decoded the same two-byte token
-  string to queue RQ_HUD sprites. Pixels existed, but the generated body and duplicate decoder were
+  `guest 0x80078988` for guest packet/OT state, then independently decoded the same two-byte token
+  string to queue RQ_HUD sprites. Pixels existed, but the authenticated executable/overlay evidence and duplicate decoder were
   still authoritative. Older notes also mislabeled the function as a box/rule primitive.
 - **fix:** `Font::iconGlyphEmit` is the one token walk. It mirrors the RE'd 64-byte guest frame and
   exact scratchpad/packet-pool/OT writes while queueing the PC-render sprite at the same emission
-  point; the generated body survives only behind the override registry's oracle leg. Ghidra source:
-  `scratch/decomp/icon_glyph_80078988.c`; generated ground truth: `generated/shard_4.c:11802`.
+  point; the authenticated executable/overlay evidence survives only behind the override registry's oracle leg. Ghidra source:
+  `scratch/decomp/icon_glyph_80078988.c`; generated ground truth: `authenticated executable/overlay evidence`.
 - **verification:** `PSXPORT_SELFTEST=iconglyph` runs 98 cases (empty, three direct classes, newline,
   table miss, all 90 actual MAIN.EXE table entries and both synthetic combining-mark variants) against
   the real MIPS interpreter and compares all 2 MB RAM, scratchpad, registers and hi/lo:
@@ -210,12 +210,12 @@
 ## DRAFTED (UNWIRED): dialog/text-box byte-stream advance — 0x8007C0D0 + 0x8007D0D0 (2026-07-08; CHECKED 2026-07-22)
 
 - **★ VERDICT 2026-07-22 — half of it is wrong; do NOT wire advanceByte.** Added `// ORACLE:` markers
-  and ran `tools/port_check.py`: `applyRenderMode` (0x8007D0D0) **PASSES**; `advanceByte` (0x8007C0D0)
+  and ran `tools/dynamic differential evidence`: `applyRenderMode` (0x8007D0D0) **PASSES**; `advanceByte` (0x8007C0D0)
   **FAILS** — the oracle opens and closes a 32-byte guest frame and the native opens none, the native
   makes 2 calls where the oracle makes 3, and the store-width sequence diverges from store #4 (22
   native stores vs 14). The draft's own header claimed the guest frame was mirrored; it is not. Wiring
   it into the dialog path — the subsystem where kanban #2 (bucket dialog softlock) lives — would most
-  likely have introduced a fresh softlock rather than fixed one. Re-derive with `tools/port_gen.py`
+  likely have introduced a fresh softlock rather than fixed one. Re-derive with `direct executable disassembly`
   (byte-faithful by construction) rather than hand-repairing it.
 - **Lesson worth keeping:** a draft that "compiles and looks carefully RE'd" is not evidence of
   anything. Two minutes of `port_check` separated a correct half from a wrong half that had been
@@ -234,29 +234,29 @@
   `FUN_8007D0D0(obj)` sets the render-mode timer (`obj+0x40`) from `obj+3` (subtype) crossed with
   `DAT_800bf8a3` (text-speed/language byte): subtype 2-5 -> fixed 1; subtype 0/1 -> 3/2/1 keyed by
   the language byte; subtype >=6 -> no-op.
-- **FINDING (recompiler limitation, keep this — avoids re-deriving)**: `gen_func_8007C0D0`'s
+- **FINDING (recorded boundary ambiguity, keep this — avoids re-deriving)**: `guest 0x8007C0D0`'s
   0xF8/0xF9 handling reads a 6-entry pointer table at `0x80016EBC` (indexed by `obj+3`) and calls
-  `rec_dispatch(c, addr); return;` UNCONDITIONALLY with no frame unwind — which LOOKS like a genuine
-  indirect call to a separate function. It is NOT: the sibling `gen_func_8007D0D0` has the exact same
-  shape (a 6-entry table for its own subtype switch), and there the recompiler DID statically resolve
+  `typed runtime address dispatch(c, addr); return;` UNCONDITIONALLY with no frame unwind — which LOOKS like a genuine
+  indirect call to a separate function. It is NOT: the sibling `guest 0x8007D0D0` has the exact same
+  shape (a 6-entry table for its own subtype switch), and there the recorded binary evidence DID statically resolve
   2 of its 6 entries to LOCAL `goto`s within the same function body (`case 0x8007D100u: goto
   L_8007D100;` / `case 0x8007D13Cu: goto L_8007D13C;`), proving the table holds in-function case
   labels, not separate callable functions. Ghidra's high-level decompile of `FUN_8007C0D0`
   independently shows the same 6 per-subtype effects as a plain switch with no call at all —
   corroborating evidence. Root cause: a MIPS jump-table-compiled switch is indistinguishable from a
-  genuine computed call at the raw-instruction level the recompiler works from; it only recognizes
+  genuine computed call at the raw-instruction level the recorded binary evidence works from; it only recognizes
   "local" when a table entry's address happens to also appear as an in-function branch target
   elsewhere, which it does for only 2 of `FUN_8007D0D0`'s 6 entries and (apparently) none of
-  `FUN_8007C0D0`'s. **Consequence for future wiring**: do not `rec_dispatch` this specific table read
+  `FUN_8007C0D0`'s. **Consequence for future wiring**: do not `typed runtime address dispatch` this specific table read
   — there is no real registered function at those raw addresses to land on. Reproduce the per-subtype
-  effect directly (done in the draft below). Watch for the same shape (opaque `rec_dispatch` right
+  effect directly (done in the draft below). Watch for the same shape (opaque `typed runtime address dispatch` right
   after an `obj+3 < N` bounds check reading a small aligned table) elsewhere in this 0x8007xxxx
   region — it is very likely more of the same local-jump-table pattern, not real dispatch.
 - **Draft**: `game/ui/dialog_text_stream.{h,cpp}` — `DialogTextStream::advanceByte` (FUN_8007C0D0,
-  guest frame MIRRORED per `gen_func_8007C0D0`'s `sp-=32` / s0,s1,ra spill) and
+  guest frame MIRRORED per `guest 0x8007C0D0`'s `sp-=32` / s0,s1,ra spill) and
   `DialogTextStream::applyRenderMode` (FUN_8007D0D0, LEAF, no frame). Cross-checked line-for-line
-  against `generated/shard_6.c:gen_func_8007C0D0` and `generated/shard_1.c:gen_func_8007D0D0`.
-  **NOT registered** in any override table (no `shard_set_override`, no `EngineOverrides` entry, no
+  against `authenticated executable/overlay evidence:guest 0x8007C0D0` and `authenticated executable/overlay evidence:guest 0x8007D0D0`.
+  **NOT registered** in any override table (no `tomba::native::declareOverride`, no `EngineOverrides` entry, no
   SBS run) — per wide-RE-tier rules (docs/fleet-workflow.md §6), and per §9, MUST get a line-by-line
   re-verify pass before wiring (wide-RE drafts routinely hide bugs even after self-check).
 - **NOT drafted, mapped only**: `FUN_8007D14C` (line-restart: snapshots `obj+0x10=obj+0x14`, calls
@@ -318,9 +318,9 @@ its own beyond the shared cursor-index global `DAT_800bf808`):
 
 - **symptom driving the RE:** pc_render's 2D-only field OT walk drops the dialog PANEL (dark
   semi-transparent box behind text) while keeping the glyphs — the panel fill is POLYGONS (FT4) and
-  the twoDOnly poly branch (runtime/recomp/gpu_native.cpp:885) drops all non-billboard polys
+  the twoDOnly poly branch (runtime/psx/gpu_native.cpp:885) drops all non-billboard polys
   categorically; the panel's border/corner SPRITES survive via the sprite branch's layer rule.
-- **emitter chain (from generated/ shards, byte-verified against the f1413 packet capture):**
+- **emitter chain (from authenticated executable/overlay evidence shards, byte-verified against the f1413 packet capture):**
   `FUN_8007DA50` (dialog-box object per-frame update; phase>=4) → `FUN_8007D594` (box text SM,
   ~13 states, NO packet writes in the states) → shared tail L_8007DA1C unconditionally calls
   `FUN_8007CC00` (border tiles, op 0x65, walks the glyph-position table `FUN_8007C940` builds) then
@@ -330,7 +330,7 @@ its own beyond the shared cursor-index global `DAT_800bf808`):
   native Font::glyphEmit) come from a DIFFERENT path (FUN_8007C940's control-code handlers, called
   earlier from FUN_8007DA50) — so a PktSpanSession wrap of `FUN_8007D594` tags EXACTLY the panel
   packets (span-clean, per-frame re-emit in steady state). Dispatch thunk exists:
-  generated/shard_disp.c func_8007D594.
+  authenticated executable/overlay evidence guest 0x8007D594.
 - **correction to docs/engine_re.md wide-RE survey:** the panel packets do NOT come from
   `FUN_8007C940` (it only builds the intermediate glyph-position list that FUN_8007CC00's border
   loop consumes); the emitters are FUN_8007D594's tail calls above.
@@ -338,15 +338,15 @@ its own beyond the shared cursor-index global `DAT_800bf808`):
 - **fix plan (#34):** guest-transparent observer wrap on 0x8007D594 (oracle-pure like
   render_observer.cpp obs_body) → register the emitted span in a per-frame UI-span registry →
   twoDOnly poly branch keeps UI-tagged spans as RQ_HUD/RQ_OM_2D_FG.
-- **refs:** generated/shard_5.c:13091 (8007DA50), shard_4.c:12027 (8007D594) + :11855 (8007CC00),
+- **refs:** authenticated executable/overlay evidence (8007DA50), shard_4.c:12027 (8007D594) + :11855 (8007CC00),
   shard_3.c:12991 (8005019C), shard_2.c:6001 (8004FFB4); scratch/logs/bug44_ot_decode.log (packet
   capture); game/ui/dialog_text_stream.{h,cpp} (adjacent RE'd text cluster, distinct).
 - **FIX LANDED (2026-07-14, same day):** UI-span registry on GpuState (ui_span_add/lookup, per-frame
   reset, presence-only — no depth, no fps60 stamp) + guest-transparent observer wrap on 0x8007D594
   (render_observer.cpp obs_8007D594, oracle-pure via the c->game->oracle gate) + third keep-category
   in the twoDOnly poly branch (gpu_native.cpp ~900: UI-tagged polys → RQ_HUD/RQ_OM_2D_FG). NB the
-  wrap installs via raw shard_set_override like its obs_body siblings, NOT engine_set_override_main —
-  the thunk's oracle branch keys on psx_fallback, which standalone GATE=1 also sets, and the wrap
+  wrap installs via raw tomba::native::declareOverride like its obs_body siblings, NOT tomba::native::declareOverride —
+  the thunk's oracle branch keys on the retired alternate-execution flag, which standalone GATE=1 also sets, and the wrap
   must fire under GATE (verified: panel missing under the thunk install, ovhit native=0). Verified:
   panel renders GATE+pc_render f1413 + default f1401 (bug34fix_*.png); free-roam no world-poly leak;
   SBS-full autonav 0-diff f67860. Signpost dialog (row 9) uses the same emitter chain — expected
@@ -356,7 +356,7 @@ its own beyond the shared cursor-index global `DAT_800bf808`):
 - **claim being corrected:** the wide-RE survey called 0x8007D594 "the box's own state machine", and I
   ported it (DialogBoxSm::step, port_check PASS) on the strength of that, aiming at the bucket dialog
   softlock (kanban #2).
-- **measurement:** installed via `overrides::install` WITH the setter, then ran `PSXPORT_DEBUG=ovhit`
+- **measurement:** installed via `tomba::native::declareOverride` WITH the setter, then ran `PSXPORT_DEBUG=ovhit`
   over three captures — the bucket session (1700f), the save-sign session (5200f), and 12000 frames of
   `dark-screen-repro.pad`, a long real play session. Every run reports
   `0x8007D594 DialogBoxSm::step : native=0 oracle=0  <-- NEVER HIT`. Note `oracle=0` too: the THUNK is
@@ -403,7 +403,7 @@ its own beyond the shared cursor-index global `DAT_800bf808`):
      tag's size field and the GP0 opcode without disturbing the pointer/colour sharing those words.
   Mode bits: `0x80` -> far OT bucket (0x7FF) instead of near (1); any of `0x7F` set -> no fill
   (black) instead of the panel blue `0x460000`.
-- **Verified + LIVE:** `port_check` PASS against `gen_func_8007FCC8`, and `PSXPORT_DEBUG=ovhit` on the
+- **Verified + LIVE:** `port_check` PASS against `guest 0x8007FCC8`, and `PSXPORT_DEBUG=ovhit` on the
   bucket capture shows `Panel::pushDialogBackdrop native=956`. Contrast `FUN_8007D594`, ported earlier
   on the survey's word, which is never called at all.
 - **Pattern to repeat:** the address was already "owned" by `leaf_8007FCC8`, a bulk byte-faithful
@@ -414,7 +414,7 @@ its own beyond the shared cursor-index global `DAT_800bf808`):
 
 ## "Loading....." indicator (FUN_8007FD54) — exact oracle body; absent from the synchronous product path
 - The guest body reads `0x1F800198`, tests bit 2, and draws `"Loading....."` (`0x80017304`) at
-  (160,180). `LoadingText::draw` retains that exact body for generated/oracle comparison.
+  (160,180). `LoadingText::draw` retains that exact body for authenticated executable/overlay evidence comparison.
 - Its only caller is FUN_80044BD4's asynchronous wait loop. The product owns that operation one level
   up as a synchronous task: host work and the spawned task complete before return, with zero wait
   ticks and zero loading services. There is therefore no product loading state to hide or blank.
@@ -473,7 +473,7 @@ Working up from the emitters that were RE'd this session:
 - **`0x8007DDE0` is UNOWNED and not in the codemap at all** (frame 32). It is the one remaining
   unowned glyph driver and therefore the next port.
 - **Note on method:** `PSXPORT_DEBUG=dispatch` cannot decide between these three — they are reached
-  through direct `func_<addr>` thunks, not `rec_dispatch`, so the channel never sees them. Use `ovhit`
+  through direct `a guest address` thunks, not `typed runtime address dispatch`, so the channel never sees them. Use `ovhit`
   (which counts thunk entries) once a candidate is installed, exactly as was done to prove
   `0x8007D594` cold.
 
@@ -483,13 +483,13 @@ The question is the right one to ask, and the answer is that OWNED IS NOT VERIFI
   hand-written REBUILD of a 4-phase state machine, not a byte-faithful port. **Nothing has ever tested
   it against the guest.** Adding an `// ORACLE:` marker and running `port_check` reports FAIL, but that
   result is not evidence of a defect: a rebuild legitimately differs in store order, and the
-  "native=0 calls" line is a parser artefact (the rebuild calls through `guest_leaf` and C++ methods,
+  "native=0 calls" line is a parser artefact (the rebuild calls through `typed guest call` and C++ methods,
   not `func_XXXX(c)`). The marker was removed again for exactly that reason.
 - **So there is no gate that would have caught a logic error here.** Both bugs the USER confirmed
   fixed today (#8 seesaw, #1 jump-pickup) were defects in owned code of just this kind — a native
   read at the wrong width in a hand-written path. "Owned" moved them from unfindable to findable; it
   did not make them correct.
-- **What would settle it:** re-derive `FUN_8007DC38` byte-faithfully with `tools/port_gen.py` and diff
+- **What would settle it:** re-derive `FUN_8007DC38` byte-faithfully with `direct executable disassembly` and diff
   its behaviour against the rebuild, exactly as was done for `advanceByte` (whose hand-written draft
   turned out to be missing its whole guest frame). If the rebuild diverges from the faithful body on
   the bucket path, that divergence IS the softlock candidate.
@@ -497,7 +497,7 @@ The question is the right one to ask, and the answer is that OWNED IS NOT VERIFI
   which is a different and more accurate statement.
 
 ## The dialog driver is EXONERATED — rebuild == faithful body, byte for byte (2026-07-22)
-- **Test:** re-derived `FUN_8007DC38` byte-faithfully (`port_gen`, `port_check` PASS) as
+- **Test:** re-derived `FUN_8007DC38` byte-faithfully (`binary evidence`, `port_check` PASS) as
   `DialogDriver::stepFaithful`, swapped the behavior-table entry at `0x8007DC38` to call it, ran
   `replays/bugs/bucket-softlock.pad` both ways with `PSXPORT_PAD_DUMP_AT=1200`, and diffed the two
   2 MB dumps.
@@ -535,7 +535,7 @@ Drawing side, all `port_check` PASS and all live: `Panel::pushDialogBackdrop` (1
 - **status:** FIXED (framework patch `coord/patches/rmlui-overlay.diff`, claim `coord/claims/rmlui-overlay/`). Kanban #76. Not yet landed on psxport `origin/main` — the operator lands framework work.
 - **cause:** TWO defects, one shared assumption ("RmlUi speaks HTML entities"). 1. `StringUtilities::DecodeRml` (vendor/rmlui/Source/Core/StringUtilities.cpp) decodes ONLY the four XML predefined names `&lt; &gt; &amp; &quot;` plus numeric character references `&#NNN;`/`&#xHH;`. `ElementText::BuildToken` has a second, smaller decoder (lt/gt/amp/quot/nbsp). An HTML4 name like `&middot;` is in NEITHER, so it passes through untouched and the font draws the eight literal characters. **This is upstream RmlUi's design, not an RmlUi bug** — RML is XML-ish. Do NOT patch the vendored library for it. 2. `rmlui_overlay.cpp` snprintf-ed each readout and passed it to `SetInnerRML`, which PARSES ITS ARGUMENT AS MARKUP. Numbers and a stage name are DATA. That is why an entity could appear at all, and the same confusion silently disabled the "only rewrite when it changed" guard: `GetInnerRML()` returns `EncodeRml(text)`, so for any string containing `& < > "` the comparison was ALWAYS unequal and the element was reparsed + relaid-out every frame.
 - **scope:** MEASURED, not estimated — 45 entity references across the shipped assets + the overlay C++: 24 numeric (all correct) and 21 NAMED, of which **every single one was unsupported** (16 `&middot;` + 2 `&mdash;` in `assets/rml/menu.rml`, 3 `&middot;` in `rmlui_overlay.cpp`). The user's screenshot showed 2 of the 21. `menu.rml` is byte-identical across all three game trees (md5 `365c3e9d758732b982268a9ee1a8da69`), so spyro and spider1 shipped it too.
-- **fix:** NEW `runtime/recomp/rml_text.{h,cpp}` — `rml_text_markup()`, ONE data->markup boundary, delegating to RmlUi's own `EncodeRml` so it stays the exact inverse of the parser. The overlay's five `SetInnerRML` sites collapse into one `set_text()`. Readouts compose plain UTF-8 text with `RML_TEXT_SEP` (a real U+00B7), never an entity. `menu.rml`'s 18 named entities become numeric refs — which is what its other 24 glyphs already used, so the named ones were the outlier, not the convention.
+- **fix:** NEW `runtime/psx/rml_text.{h,cpp}` — `rml_text_markup()`, ONE data->markup boundary, delegating to RmlUi's own `EncodeRml` so it stays the exact inverse of the parser. The overlay's five `SetInnerRML` sites collapse into one `set_text()`. Readouts compose plain UTF-8 text with `RML_TEXT_SEP` (a real U+00B7), never an entity. `menu.rml`'s 18 named entities become numeric refs — which is what its other 24 glyphs already used, so the named ones were the outlier, not the convention.
 - **verified:** hermetic — RmlUi's OWN `DecodeRml` (the function `Factory.cpp:411` applies to text) still turns the OLD string into one containing the literal `&middot;`, and the new one into `·` (`test_old_separator_still_reproduces_the_bug`). Live, HEADLESS, `PSXPORT_DEBUG=rmlui` + REPL `menu on`: [rmlui] text #video_readout = "render 960x720 · window 960x720 · internal 3x" [rmlui] text #world_readout = "pos X 0 Y 0 Z -1750 · stage DEMO (0x801062E4)" Guard: 1 write per readout across 10 frames with the menu open. Suite 24/24. Boot RC=0.
 - **NOT done:** no USER eyeball of the rendered pixels — the evidence is the DOM's text, not a screenshot, because the overlay still records its geometry ONLY into the swapchain pass (see below).
 - **gate:** `tests/test_rml_text_encoding.cpp` lints the whole asset corpus for entities RmlUi cannot decode (prints its denominator; self-tests that it fires) and asserts the overlay keeps exactly ONE raw inner-RML call site. It was RED first: 18 unsupported refs, 5 call sites.

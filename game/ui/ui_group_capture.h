@@ -5,7 +5,7 @@
 // (POLY_FT4) and FUN_8007E6DC (SPRT), and the panel builders FUN_8005019C / FUN_8004FFB4 — so the
 // pause/item menu (kanban #21), the in-game START page (#35), the OPTIONS pages (#38), the
 // memory-card menu (#102) and the field HUD all reach the same four. Each leaf is owned ONCE — a
-// second overrides::install on one address is the dual-ownership bug that broke the dialog box
+// second tomba::native::declareOverride on one address is the dual-ownership bug that broke the dialog box
 // (kanban #28) — so the taps live where the address is owned (ui_ft4_tap.cpp, ui_sprite.cpp,
 // panel.cpp) and hand their arguments to `route`, which files them under whichever PAGE SCOPE is
 // currently raised. The GAME.BIN Save/Continue machine is classified as its own scope and routes

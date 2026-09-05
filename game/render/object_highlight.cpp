@@ -3,13 +3,13 @@
 // The queue-A object walk calls this controller after the object's ordinary mesh (and, for the tether
 // arm, after the tether) when the node type carries bit 0x40 or 0x80. The guest controller builds a
 // thin, fixed mesh at 0x8009FAE8 around the object, with its lateral scale selected by that type byte.
-// The guest-time leaf remains installed in field_owned_leaves.cpp and still owns every guest register,
-// scratchpad, GTE and packet write. This module independently rebuilds the picture from persistent node
+// The original guest controller executes through the JIT and owns its register, scratchpad, GTE and
+// packet writes. This module independently rebuilds the picture from persistent node
 // fields in Render::fieldObjectsRender, under the lerped native camera. It reads no GTE output, packet,
 // ordering table or guest-written scratch transform.
 //
-// Ground truth: the resident controller in generated/shard_2.c and packed-record writer in
-// generated/shard_5.c; the exact symbols are recorded in docs/producers/0x8002AE0C.md.
+// Ground truth: the resident controller in authenticated executable/overlay evidence and packed-record writer in
+// authenticated executable/overlay evidence; the exact symbols are recorded in docs/producers/0x8002AE0C.md.
 #include "core.h"
 #include "fps60.h"
 #include "game.h"

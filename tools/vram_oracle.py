@@ -28,7 +28,7 @@ from pathlib import Path
 import numpy as np  # a pure-python 524,288-pixel diff took ~5 min/frame; this is the whole sweep
 
 ROOT = Path(__file__).resolve().parent.parent
-BIN = ROOT / "scratch/bin/tomba2_port"
+BIN = ROOT / "build/bin/tomba2_port"
 SHOTS = ROOT / "scratch/screenshots"
 
 
@@ -118,6 +118,7 @@ def main():
     env = dict(os.environ)
     env.update(
         {
+            "PSXPORT_VK_HEADLESS": "1",
             "PSXPORT_NOAUDIO": "1",
             "PSXPORT_NO_FMV": "1",
             "PSXPORT_NOPACE": "1",

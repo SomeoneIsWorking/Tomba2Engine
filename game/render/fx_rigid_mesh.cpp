@@ -1,7 +1,7 @@
 // game/render/fx_rigid_mesh.cpp — native display producer for A00's single rigid effect mesh
 // (guest FUN_8013ED08).
 //
-// Generated ground truth (`ov_a00_gen_8013ED08`) is compact and fully attributable:
+// Generated ground truth (`overlay guest 0x8013ED08`) is compact and fully attributable:
 //
 //   *(u32*)0x1F800090 = 0;
 //   FUN_800318A0(node+0x2C, node+0x54, node+0x48);
@@ -16,7 +16,7 @@
 //
 // Material state is not inherited: this controller explicitly publishes IR0=0, so the shared
 // writer's DPCT/DPCS stage is the identity and the otherwise-live GTE far colour is irrelevant. No
-// guest register, scratch transform, packet, ordering table, or generated-body output is read.
+// guest register, scratch transform, packet, ordering table, or guest-execution output is read.
 #include "core.h"
 #include "effect_lerp.h"
 #include "fps60.h"

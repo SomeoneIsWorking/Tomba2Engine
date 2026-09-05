@@ -1,7 +1,7 @@
 // game/render/fps60_worldpass.cpp — TRANSITIONAL fps60 world-pass seam (see game_iface.h death condition).
 //
 // The interpolated-60fps lerp tier (Fps60) is a GENERIC renderer feature and lives framework-side
-// (runtime/recomp/fps60.cpp). Its interp present RE-RUNS the game's world passes one frame behind, under
+// (runtime/psx/fps60.cpp). Its interp present RE-RUNS the game's world passes one frame behind, under
 // the framework Fps60's lerped inputs, into its isolated sink. That re-run is the ONE place the framework
 // still reaches into game render — carried here, behind the fps60WorldPass hook. The temporal-rotation
 // hook below advances game-owned producer inputs after both presentation slots.
@@ -75,8 +75,7 @@ void tomba_fps60_world_pass(Core *c, float t) {
   // Area 21's reached variant-1/early-phase branch is the four-quad gradient helper and returns before
   // the tilemap loop. Rebuild it from the raw pitch captured by the real scene pass; the producer owns
   // the interpolation slot because PARALLAX_BG_SM's wrapped scroll is not the helper's input.
-  if (!voidBeat && !hutInterior && rend(c)->mBackdropTrusted && rend(c)->area21SkyGradientActive() &&
-      c->game->native_gates.get("area21-sky")) {
+  if (!voidBeat && !hutInterior && rend(c)->mBackdropTrusted && rend(c)->area21SkyGradientActive()) {
     rend(c)->area21SkyGradientRender(t);
   }
   // Field OBJECT walk under lerped per-object transforms (mObjOverrideOn + the captured projObj) AND the

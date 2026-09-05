@@ -6,8 +6,8 @@
 // SCOPE: the field-wide EVENT ARM primitive FUN_80040B48 (idempotent per-slot arm) and its size-class
 // helper FUN_80040A58 (two-level table lookup: table A @0x800A33C8, stride 12; table B @0x800A3B38,
 // stride 4). The class OWNS these two entry points; other engine paths that need to consult the
-// size-class table can call `classSize` directly (the recomp still has multiple substrate callers of
-// FUN_80040A58 — the shard-emitted func_80040A58 remains reachable via its address).
+// size-class table can call `classSize` directly (the guest instruction path still has multiple substrate callers of
+// FUN_80040A58 — the shard-emitted guest 0x80040A58 remains reachable via its address).
 //
 // STATE (field-wide, kept in guest RAM — this class is stateless, just methods over Core*):
 //   0x800E7FEE  int16   global "events enabled" gate (0 = disabled → arm() returns -1)
@@ -39,10 +39,10 @@ public:
   uint32_t classSize(uint8_t argKey, bool nibbleLo);
 
   // FUN_80040B48 override thunk (guest ABI: slot in r4, ret in r2). SceneEvents is the SOLE owner of
-  // FUN_80040B48 — registerOverrides installs it into the override registry (overrides::install),
-  // with a shard_set_override setter so both rec_dispatch callers (e.g. ActorReward) and the
-  // recompiler's g_override[] (substrate func_80040B48 sites) reach the same native body — the
-  // registry's own oracle-leg gate keeps psx_fallback running the recompiled body.
+  // FUN_80040B48 — registerOverrides installs it into the override registry (tomba::native::declareOverride),
+  // with a tomba::native::declareOverride setter so both typed runtime address dispatch callers (e.g. ActorReward) and
+  // the recorded binary evidence's image-qualified runtime dispatcher (substrate guest 0x80040B48 sites) reach the same
+  // native body — the registry's test-only substrate gate keeps differential verification on the guest body.
   // cube_text_ledger.cpp's CubeTextLedger::activateSlot used to be an independent second copy of this
   // exact body (found via `codemap.py --conflicts`); it was deduped onto this owner, the same way
   // FUN_80040A58 was deduped onto classSize.

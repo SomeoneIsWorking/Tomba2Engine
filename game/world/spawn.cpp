@@ -6,7 +6,7 @@
 // spawn dispatchers (FUN_8007A980 / FUN_8007AA38, via tables 0x80016E4C / 0x80016E64) tail-call to actually
 // place an NPC/item/effect node — so it runs on every spawn on the field. Pure pool/list memory: NO GTE,
 // NO render packets. Reimplemented PC-native; the per-type dispatch tables + their handlers stay PSX
-// (content-side type routing). The recomp body is the reference/super-call for the `spawnverify` gate.
+// (content-side type routing). The guest instruction path is the reference/super-call for the `spawnverify` gate.
 //
 // ABI:  node* spawn(a0 = ref, a1 = type_byte, a2 = mode, a3 = list_idx)  -> v0 = node (or 0 if pool full)
 //
@@ -36,8 +36,8 @@
 // node[+0]  = active byte (2 = live)   node[+0x0A]=node[10] = list id   node[+0x0C]=node[12] = entity type
 // node[+0x20]=node[32] = prev link     node[+0x24]=node[36] = next link
 //
-// `spawnverify` gate = full main-RAM (0x200000) + SCRATCHPAD (0x400) A/B vs rec_super_call(0x80079C3C),
-// over N live spawns. Native run -> snapshot+rollback -> super-call -> diff. The recomp body's own 40-byte
+// `spawnverify` gate = full main-RAM (0x200000) + SCRATCHPAD (0x400) A/B vs psx::cpu::callOriginal(0x80079C3C),
+// over N live spawns. Native run -> snapshot+rollback -> super-call -> diff. The guest instruction path's own 40-byte
 // stack frame is dead below entry sp on return; exclude [sp-0x800, sp) (sp ~0x1FExxx, RAM end 0x200000 —
 // far above all pool/game data; a real divergence alters persistent state). v0 (the node ptr) is compared.
 
@@ -46,11 +46,11 @@
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
-#include "override_registry.h" // overrides::install — the one native-override registry       // c->game->verify — the shared A/B verify scaffold
+#include "guest_call.h"
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry       // c->game->verify — the shared A/B verify scaffold
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
 
 // Pool addresses.
 static const uint32_t FREE_HEAD = 0x800E8098u;
@@ -63,7 +63,7 @@ static const uint32_t LIST_TAIL[3] = {0x800F23A8u, 0x800F239Cu, 0x800F23A0u};
 // Link `node` into active list `list` at position `mode` relative to `ref`, then stamp identity. This is
 // the body shared by ALL FIVE pool spawn primitives — pool-208 FUN_80079C3C, pool-2 FUN_80079DDC, and the
 // three pool variants FUN_80079F90 / FUN_8007A12C / FUN_8007A2C8 link + stamp identically (verified from all
-// disasms); only the free-list they pop from differs. When the target active list is EMPTY, the recomp
+// disasms); only the free-list they pop from differs. When the target active list is EMPTY, the guest instruction path
 // initializes BOTH end pointers (a head-insert also writes *tail, a tail-insert also writes *head); we match
 // that (caught by spawnvarverify: empty-list inserts that the seaside-only spawnverify never exercised).
 void Spawn::spawnLinkStamp(Core *c, uint32_t node, uint32_t ref, uint32_t type, uint32_t mode, uint32_t list) {
@@ -81,7 +81,7 @@ void Spawn::spawnLinkStamp(Core *c, uint32_t node, uint32_t ref, uint32_t type, 
   }
 
   // Insert by mode. Both "before" and "after" fall through to a head/tail insert when the neighbor link
-  // is null (matches the recomp's branch-to-0x80079d28 / 0x80079d90 fallbacks).
+  // is null (matches the guest instruction path's branch-to-0x80079d28 / 0x80079d90 fallbacks).
   bool do_head = false, do_tail = false;
   if (mode == 0) { // insert BEFORE ref
     uint32_t prev = c->mem_r32(ref + 32);
@@ -117,7 +117,7 @@ void Spawn::spawnLinkStamp(Core *c, uint32_t node, uint32_t ref, uint32_t type, 
     if (old != 0) {
       c->mem_w32(old + 32, node); // (*head)->prev = node
     } else {
-      c->mem_w32(tail, node); // list was EMPTY -> also init the tail ptr (recomp does this)
+      c->mem_w32(tail, node); // list was EMPTY -> also init the tail ptr (guest instruction path does this)
     }
     c->mem_w32(head, node); // *head = node
   } else if (do_tail) {
@@ -127,7 +127,7 @@ void Spawn::spawnLinkStamp(Core *c, uint32_t node, uint32_t ref, uint32_t type, 
     if (old != 0) {
       c->mem_w32(old + 36, node); // (*tail)->next = node
     } else {
-      c->mem_w32(head, node); // list was EMPTY -> also init the head ptr (recomp does this)
+      c->mem_w32(head, node); // list was EMPTY -> also init the head ptr (guest instruction path does this)
     }
     c->mem_w32(tail, node); // *tail = node
   }
@@ -183,8 +183,8 @@ uint32_t Spawn::spawnPool2Body(Core *c) {
 // which calls its spawn VARIANT as `variant(a0=0 ref, a1=type&0xff, a2=3 tail-insert, a3=list)` and returns
 // the new node. RE'd from disas 0x8007A980 + the 5 handlers (0x8007a9b8.. each: a0=0; a1&=0xff; a2=3; jal
 // variant; j epilogue). Owning this puts the engine in charge of object SPAWNING; the per-type variants
-// (which do the alloc + per-class init) stay reachable by address via rec_dispatch (content). Out-of-range
-// class returns 0 (the recomp's sltiu(cls,5)=0 lands in v0 and falls to the epilogue).
+// (which do the alloc + per-class init) stay reachable by address via typed runtime address dispatch (content).
+// Out-of-range class returns 0 (the guest instruction path's sltiu(cls,5)=0 lands in v0 and falls to the epilogue).
 //
 //   v0 = spawn(a0=class, a1=type, a2=list):
 //     cls = a0 & 0xff;  if (cls >= 5) return 0;
@@ -192,8 +192,8 @@ uint32_t Spawn::spawnPool2Body(Core *c) {
 //     return variant(0, a1 & 0xff, 3, a2);     // ref=0, type, mode=3 (tail), list=a2
 static const uint32_t SPAWN_VAR[5] = {0x80079C3Cu, 0x80079DDCu, 0x80079F90u, 0x8007A12Cu, 0x8007A2C8u};
 // Run the per-class spawn VARIANT NATIVELY (the 5 bodies are all owned in this TU) reading ref/type/mode/
-// list from r4..r7 and returning the node ptr. Replaces the former rec_dispatch(SPAWN_VAR[cls]) into the
-// PSX body — keeps the placement→spawn path fully native (PC calls PC). Defined after poolSpawn/POOL_VAR.
+// list from r4..r7 and returning the node ptr. Replaces the former typed runtime address dispatch(SPAWN_VAR[cls]) into
+// the PSX body — keeps the placement→spawn path fully native (PC calls PC). Defined after poolSpawn/POOL_VAR.
 uint32_t Spawn::dispatch(uint32_t cls_in, uint32_t type_in, uint32_t list) {
   Core *c = this->core;
   uint32_t cls = cls_in & 0xffu;
@@ -210,7 +210,6 @@ uint32_t Spawn::dispatch(uint32_t cls_in, uint32_t type_in, uint32_t list) {
   c->r[2] = node;
   return node;
 }
-void rec_dispatch(Core *, uint32_t);
 
 // FUN_80079F90 / FUN_8007A12C / FUN_8007A2C8 — the remaining three pool spawn primitives (dispatcher
 // classes 2/3/4). RE'd from disas (0x80079F90 / 0x8007A12C / 0x8007A2C8): each is byte-identical to the
@@ -259,7 +258,8 @@ uint32_t Spawn::spawnVariantNative(Core *c, uint32_t cls) {
 //   node = FUN_8007A980(class=0, type=6, list=1);  if (!node) return 0;
 //   if (a1) { node[+0x2c]=a1[+2]; node[+0x2e]=a1[+6]; node[+0x30]=a1[+0xa]; }
 //   node[+0x32] = (u16)a2;  FUN_80028E10(node, a0);  return node;
-// The owned spawn dispatcher does the alloc; the per-object init FUN_80028E10 stays content (rec_dispatch).
+// The owned spawn dispatcher does the alloc; the per-object init FUN_80028E10 stays content (typed runtime address
+// dispatch).
 uint32_t Spawn::spawnAndInitBody(Core *c) {
   uint32_t a0 = c->r[4], a1 = c->r[5], a2 = c->r[6];
   if (c->mem_r8(0x800E7E7Cu) < 7) {
@@ -277,7 +277,7 @@ uint32_t Spawn::spawnAndInitBody(Core *c) {
   c->mem_w16(node + 0x32, (uint16_t)a2);
   c->r[4] = node;
   c->r[5] = a0;
-  rec_dispatch(c, 0x80028E10u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80028E10u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return node;
 }
 
@@ -286,8 +286,8 @@ uint32_t Spawn::spawnAndInitBody(Core *c) {
 // the 5 free handlers 0x8007a718..0x8007a7a8 (each pushes the node to a pool free-list + bumps the count,
 // then falls into the shared epilogue at 0x8007a7d0 that clears node[+0]/[+4]). Steps:
 //   (1) UNLINK from the active doubly-linked list (standard removal w/ head/tail fixup). The head/tail vars
-//       are picked list-0 vs ANY-nonzero (list!=0 uses list-1's head/tail) — verbatim recomp quirk; it only
-//       matters when the freed node is AT a list end (interior removal uses the prev/next pointers only).
+//       are picked list-0 vs ANY-nonzero (list!=0 uses list-1's head/tail) — verbatim guest instruction path quirk; it
+//       only matters when the freed node is AT a list end (interior removal uses the prev/next pointers only).
 //   (2) node[+0x28] &= 0x7f  (clear the high bit)
 //   (3) cls = node[+0x28] & 0xff; if (cls < 5): push node onto pool[cls] free-list (node->next = *head;
 //       *head = node; cnt++); class 4 also calls the cleanup FUN_8007ADDC(node) (kept content via dispatch).
@@ -302,14 +302,14 @@ static const PoolDesc DESPAWN_POOL[5] = {
 };
 void Spawn::despawn(uint32_t node) {
   Core *c = this->core;
-  int s_v = c->game->verify.on("despawnverify");
+  int s_v = gctx(c)->verification.on("despawnverify");
   uint8_t *ram0 = nullptr;
   uint8_t *ramN = nullptr;
   uint8_t spad0[0x400], spadN[0x400];
   uint32_t regs0[32];
   if (s_v) {
-    ram0 = c->game->verify.ram0();
-    ramN = c->game->verify.ramN();
+    ram0 = gctx(c)->verification.ram0();
+    ramN = gctx(c)->verification.ramN();
     memcpy(regs0, c->r, sizeof regs0);
     memcpy(ram0, c->ram, 0x200000);
     memcpy(spad0, c->scratch, 0x400);
@@ -349,7 +349,7 @@ void Spawn::despawn(uint32_t node) {
       // FUN_8007ADDC — pool-4 child-record cleanup, inlined (disas 0x8007ADDC..0x8007AE2C).
       // Class-4 nodes own N child GraphicsBind records at node[+0xC0..+0xC0+4*(N-1)]; on despawn
       // those records are pushed back onto the shared record freelist (ptr @0x800E7E74 grows down,
-      // count @0x800ED098). The recomp loops i from N-1 to 0, so the LAST child is freed first —
+      // count @0x800ED098). The guest instruction path loops i from N-1 to 0, so the LAST child is freed first —
       // matches the freelist's LIFO reuse. Tail zeroes node[+9] (the child count).
       uint8_t n = c->mem_r8(node + 9);
       while (n != 0) {
@@ -379,14 +379,14 @@ void Spawn::despawn(uint32_t node) {
   if (!s_v) {
     return;
   }
-  // `despawnverify` A/B: snapshot the native result, roll back, super-call the recomp, diff.
+  // `despawnverify` A/B: snapshot the native result, roll back, super-call the guest instruction path, diff.
   memcpy(ramN, c->ram, 0x200000);
   memcpy(spadN, c->scratch, 0x400);
   memcpy(c->ram, ram0, 0x200000);
   memcpy(c->scratch, spad0, 0x400);
   memcpy(c->r, regs0, sizeof regs0);
   c->r[4] = node;
-  rec_super_call(c, 0x8007A624u);
+  psx::cpu::callOriginalToReturn(*c, 0x8007A624u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   uint32_t sp = regs0[29] & 0x1FFFFFu, flo = (sp >= 0x800) ? sp - 0x800 : 0;
   int ro = -1;
   for (uint32_t a = 0; a < 0x200000; a++) {
@@ -402,7 +402,7 @@ void Spawn::despawn(uint32_t node) {
       break;
     }
   }
-  VerifyHarness::Check &chk = c->game->verify.check("despawnverify");
+  tomba::VerificationCounter &chk = gctx(c)->verification.despawn;
   long &ng = chk.nMatch, &nb = chk.nMismatch;
   if (ro >= 0 || so >= 0) {
     if (nb++ < 40) {
@@ -424,7 +424,8 @@ uint32_t Spawn::spawnAndInit(uint32_t a0, uint32_t posSrc, uint32_t a2) { // FUN
   c->r[4] = a0;
   c->r[5] = posSrc;
   c->r[6] = a2;
-  c->game->verify.run(&Spawn::spawnAndInitBody, 0x8003116Cu, "spawninitverify", c->game->verify.on("spawninitverify"));
+  gctx(c)->verification.run(
+      &Spawn::spawnAndInitBody, 0x8003116Cu, "spawninitverify", gctx(c)->verification.on("spawninitverify"));
   return c->r[2];
 }
 
@@ -440,7 +441,7 @@ uint32_t Spawn::spawnAndInit(uint32_t a0, uint32_t posSrc, uint32_t a2) { // FUN
 //   [+2]    = a fixed content-type byte
 //   [+3]    = the caller's sub-index byte (three of the four leaves only — FUN_8013A730 has no 2nd
 //             guest arg and never touches [+3])
-// Pool-empty (dispatch()==0) propagates unchanged (recomp: `beq v0,zero,skip-the-stores; ... ; jr ra`).
+// Pool-empty (dispatch()==0) propagates unchanged (guest instruction path: `beq v0,zero,skip-the-stores; ... ; jr ra`).
 //   FUN_801360F4(node,sub): dispatch(cls=2,4,0); child[0x1C]=0x80135D64 (Spawn::despawn's sibling
 //                           beh_quad_record_table_seed); child[2]=7;  child[3]=sub.
 //   FUN_80139838(node,sub): dispatch(cls=1,4,0); child[0x1C]=0x801395C0 (beh_sibling_angle_track);
@@ -484,11 +485,10 @@ uint32_t Spawn::spawnLiftPlatformChild(uint32_t owner) { // FUN_8013A730
 // [+0x0B], owner back-pointer (arg0) at [+0x10], effect data-table ptr 0x80029F6C at [+0x18], caller
 // sub-index (arg1, low byte) at [+3], and OR 0x80 into the flag byte at [+0x28]. Pool-empty
 // (dispatch()==0) returns 0. The dispatcher FUN_8007A980 and the stamped handler/data addresses stay
-// substrate (content routing). READY-FRAME leaf: the gen body descends sp by 32 and spills the callee-
+// substrate (content routing). READY-FRAME leaf: the guest-visible behavior descends sp by 32 and spills the callee-
 // saved regs ra/s1/s0 (r31/r17/r16) at sp+24/+20/+16 with their LIVE incoming values, restoring them
 // before return — the native port mirrors that guest stack frame exactly (docs/faithful-execution.md).
-// ORACLE: gen_func_80031558
-extern void func_8007A980(Core *); // generated/shard_disp.c — per-type spawn dispatcher (FUN_8007A980)
+// ORACLE: guest 0x80031558
 uint32_t Spawn::spawnEffectChild(uint32_t owner, uint32_t sub) {
   Core *c = this->core;
   cfg_logf("fxspawn",
@@ -510,7 +510,8 @@ uint32_t Spawn::spawnEffectChild(uint32_t owner, uint32_t sub) {
   c->mem_w32((c->r[29] + (uint32_t)24), c->r[31]); // sw ra,0x18(sp)
   c->r[31] = 0x80031580u;
   c->r[6] = c->r[0] + (uint32_t)1;
-  func_8007A980(c); // dispatch arg list = 1 — FUN_8007A980
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8007A980u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // dispatch arg list = 1 — FUN_8007A980
   {
     int poolEmpty = (c->r[2] == c->r[0]);
     c->r[3] = (uint32_t)32771u << 16;
@@ -541,18 +542,19 @@ L_epilogue:;
   return c->r[2];
 }
 
-// Guest-ABI trampolines (registered via overrides::install): substrate/native rec_dispatch callers
-// reach the 4 native bodies above exactly like the recomp bodies — args in r4/r5, return in r2.
+// Guest-ABI trampolines (registered via tomba::native::declareOverride): substrate/native typed runtime address
+// dispatch callers reach the 4 native bodies above exactly like the guest instruction paths — args in r4/r5, return in
+// r2.
 //
 // REGISTER-FAITHFULNESS (2026-07-11, the f389 diverge root cause): the native C++ spawnTypedChild
 // above takes a SHORTCUT — it calls the native Spawn::dispatch which remaps args and calls native
-// spawn bodies, bypassing the substrate's gen_func_8007A980 table dispatch. That leaves different
+// spawn bodies, bypassing the substrate's guest 0x8007A980 table dispatch. That leaves different
 // r31/r3 values and different callee stack-frame residuals than the substrate. MIRROR_VERIFY
 // compares the full RAM+regs, so the trampoline MUST reproduce the substrate's EXACT dispatch path:
 // set up the same registers (r4=cls, r5=4, r6=0, r16=owner, r31=jal-site), call
-// rec_dispatch(0x8007A980), then do the child-field writes. Each variant's jal-site ra and post-
-// dispatch writes come from the substrate gen_ body (generated/ov_a00_shard_0.c).
-static constexpr uint32_t SPAWN_DISPATCH = 0x8007A980u; // gen_func_8007A980 — the table dispatch
+// typed runtime address dispatch(0x8007A980), then do the child-field writes. Each variant's jal-site ra and post-
+// dispatch writes come from the substrate gen_ body (authenticated executable/overlay evidence).
+static constexpr uint32_t SPAWN_DISPATCH = 0x8007A980u; // guest 0x8007A980 — the table dispatch
 static constexpr uint32_t HANDLER_LIFT = 0x8013A330u;   // child+0x1C handler (beh_lift_platform)
 static constexpr uint32_t HANDLER_QUADREC = 0x80135D64u;
 static constexpr uint32_t HANDLER_SIBANG = 0x801395C0u;
@@ -568,7 +570,7 @@ static void eov_spawnLiftPlatformChild(Core *c) {
   c->r[6] = 0;
   c->mem_w32(c->r[29] + 20, c->r[31]);
   c->r[31] = 0x8013A750u;
-  rec_dispatch(c, SPAWN_DISPATCH);
+  psx::cpu::dispatchGuestToReturn0(*c, SPAWN_DISPATCH, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[3] = (uint32_t)32788u << 16; // r3 = 0x80140000 (set before null-check, per substrate)
   if (c->r[2] != 0) {
     c->mem_w32(c->r[2] + 0x1Cu, HANDLER_LIFT);
@@ -596,7 +598,7 @@ static void eov_spawnQuadRecordChild(Core *c) {
   c->r[6] = 0;
   c->mem_w32(c->r[29] + 24, c->r[31]);
   c->r[31] = 0x8013611Cu;
-  rec_dispatch(c, SPAWN_DISPATCH);
+  psx::cpu::dispatchGuestToReturn0(*c, SPAWN_DISPATCH, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[3] = (uint32_t)32787u << 16; // 32787 (not 32788) per substrate
   if (c->r[2] != 0) {
     c->mem_w32(c->r[2] + 0x1Cu, HANDLER_QUADREC);
@@ -625,7 +627,7 @@ static void eov_spawnSiblingAngleChild(Core *c) {
   c->r[6] = 0;
   c->mem_w32(c->r[29] + 24, c->r[31]);
   c->r[31] = 0x80139860u;
-  rec_dispatch(c, SPAWN_DISPATCH);
+  psx::cpu::dispatchGuestToReturn0(*c, SPAWN_DISPATCH, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[3] = (uint32_t)32788u << 16;
   if (c->r[2] != 0) {
     c->mem_w32(c->r[2] + 0x1Cu, HANDLER_SIBANG);
@@ -654,7 +656,7 @@ static void eov_spawnChildTrigChild(Core *c) {
   c->r[6] = 0;
   c->mem_w32(c->r[29] + 24, c->r[31]);
   c->r[31] = 0x8013AC5Cu;
-  rec_dispatch(c, SPAWN_DISPATCH);
+  psx::cpu::dispatchGuestToReturn0(*c, SPAWN_DISPATCH, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[3] = (uint32_t)32788u << 16;
   if (c->r[2] != 0) {
     c->mem_w32(c->r[2] + 0x1Cu, HANDLER_CHILDTRIG);
@@ -670,25 +672,18 @@ static void eov_spawnChildTrigChild(Core *c) {
   c->r[16] = c->mem_r32(c->r[29] + 16);
   c->r[29] += 32;
 }
-extern void ov_a00_gen_801360F4(Core *);
-extern void ov_a00_gen_80139838(Core *);
-extern void ov_a00_gen_8013AC34(Core *);
-extern void ov_a00_gen_8013A730(Core *);
 
 // FUN_80031558 — guest-ABI adapter (args in c->r[4]/c->r[5], return in c->r[2]).
-extern void gen_func_80031558(Core *);
-extern void shard_set_override(uint32_t, void (*)(Core *));
 static void eov_spawnEffectChild(Core *c) {
   c->r[2] = eng(c).spawn.spawnEffectChild(c->r[4], c->r[5]);
 }
 
 void Spawn::registerTypedChildOverrides() {
-  using overrides::install;
-  install(0x801360F4u, "Spawn::spawnQuadRecordChild", eov_spawnQuadRecordChild, ov_a00_gen_801360F4);
-  install(0x80139838u, "Spawn::spawnSiblingAngleChild", eov_spawnSiblingAngleChild, ov_a00_gen_80139838);
-  install(0x8013AC34u, "Spawn::spawnChildTrigChild", eov_spawnChildTrigChild, ov_a00_gen_8013AC34);
-  install(0x8013A730u, "Spawn::spawnLiftPlatformChild", eov_spawnLiftPlatformChild, ov_a00_gen_8013A730);
-  install(0x80031558u, "Spawn::spawnEffectChild", eov_spawnEffectChild, gen_func_80031558, shard_set_override);
+  tomba::native::declareOverride(0x801360F4u, "Spawn::spawnQuadRecordChild", eov_spawnQuadRecordChild);
+  tomba::native::declareOverride(0x80139838u, "Spawn::spawnSiblingAngleChild", eov_spawnSiblingAngleChild);
+  tomba::native::declareOverride(0x8013AC34u, "Spawn::spawnChildTrigChild", eov_spawnChildTrigChild);
+  tomba::native::declareOverride(0x8013A730u, "Spawn::spawnLiftPlatformChild", eov_spawnLiftPlatformChild);
+  tomba::native::declareOverride(0x80031558u, "Spawn::spawnEffectChild", eov_spawnEffectChild);
 }
 
 // FUN_8007E110 — SCENE-ENTITY SPAWN primitive. RE'd from disas 0x8007E110..0x8007E1B4.
@@ -726,7 +721,7 @@ void Spawn::registerTypedChildOverrides() {
 //   *(u32)(node+0x50) = base + 0x10 + hCount*4;              # record-end
 //
 // Return: node ptr on success, 0 on freelist exhaustion (caller stashes in Actor::sceneHandle).
-// A/B'd via `sceneentityverify` (full main-RAM + scratchpad diff vs rec_super_call(0x8007E110u)).
+// A/B'd via `sceneentityverify` (full main-RAM + scratchpad diff vs psx::cpu::callOriginal(0x8007E110u)).
 uint32_t Spawn::sceneEntityBody(Core *c) {
   const uint32_t sceneId = c->r[4] & 0xFFFFu;
   const uint32_t subtype = c->r[5] & 0xFFu;
@@ -768,8 +763,8 @@ uint32_t Spawn::sceneEntity(uint16_t sceneId, uint8_t subtype) {
   Core *c = this->core;
   c->r[4] = sceneId;
   c->r[5] = subtype;
-  c->game->verify.run(
-      &Spawn::sceneEntityBody, 0x8007E110u, "sceneentityverify", c->game->verify.on("sceneentityverify"));
+  gctx(c)->verification.run(
+      &Spawn::sceneEntityBody, 0x8007E110u, "sceneentityverify", gctx(c)->verification.on("sceneentityverify"));
   return c->r[2];
 }
 
@@ -792,8 +787,8 @@ void Spawn::dropScoreGem(uint32_t sourceNode, int32_t value) {
   c->r[4] = sourceNode;
   c->r[5] = (uint32_t)value;
   c->r[6] = 0;
-  rec_dispatch(c, 0x80071B44u);
-  c->r[2] = 1; // recomp returns v0 = 1 (unread by every current callsite, but faithful)
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80071B44u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+  c->r[2] = 1; // guest instruction path returns v0 = 1 (unread by every current callsite, but faithful)
 }
 
 // FUN_8007E038 — VARIANT-OVERLAY SPAWN primitive. RE'd from disas 0x8007E038..0x8007E10C.
@@ -811,7 +806,7 @@ void Spawn::dropScoreGem(uint32_t sourceNode, int32_t value) {
 //   node[0x5C] = 0xFFFF; node[0x5E] = recordIndex;
 //   node[0x50] = base + 0x10 + (*(u16)base)*4;
 // Return: node ptr on success, 0 on guard-miss or freelist exhaustion.
-// A/B'd via `spawnoverlayverify` (full main-RAM + scratchpad diff vs rec_super_call(0x8007E038u)).
+// A/B'd via `spawnoverlayverify` (full main-RAM + scratchpad diff vs psx::cpu::callOriginal(0x8007E038u)).
 uint32_t Spawn::spawnOverlayVariantBody(Core *c) {
   const uint16_t recordIndex = (uint16_t)(c->r[4] & 0xFFFFu);
   const int16_t variant = (int16_t)(c->r[5] & 0xFFFFu); // guard needs the full 16-bit value
@@ -856,8 +851,10 @@ uint32_t Spawn::spawnOverlayVariant(uint16_t recordIndex, int16_t variant) {
   Core *c = this->core;
   c->r[4] = recordIndex;
   c->r[5] = (uint32_t)(int32_t)variant;
-  c->game->verify.run(
-      &Spawn::spawnOverlayVariantBody, 0x8007E038u, "spawnoverlayverify", c->game->verify.on("spawnoverlayverify"));
+  gctx(c)->verification.run(&Spawn::spawnOverlayVariantBody,
+                            0x8007E038u,
+                            "spawnoverlayverify",
+                            gctx(c)->verification.on("spawnoverlayverify"));
   return c->r[2];
 }
 
@@ -873,7 +870,7 @@ uint32_t Spawn::spawnOverlayVariant(uint16_t recordIndex, int16_t variant) {
 //   state >2: no-op.
 // No other substrate calls in this body. "kill" writes the CHILD's own node[4]=2 (its OWN 4-state
 // lifecycle then advances itself 2->3->despawn next ticks — see beh_variant_overlay_lifecycle.cpp),
-// deliberately dereferenced unconditionally exactly as the recomp does (no defensive null-check:
+// deliberately dereferenced unconditionally exactly as the guest instruction path does (no defensive null-check:
 // the state invariant guarantees obj[0x14] is non-null whenever state==1 is reached).
 void Spawn::tickLinkedOverlay(uint32_t obj, int16_t recordId) {
   Core *c = this->core;

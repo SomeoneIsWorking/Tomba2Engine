@@ -1,7 +1,8 @@
 // ParallaxBg::step — the per-frame body of guest FUN_8010BFFC. See parallax_bg.h for the SM
 // layout + purpose. Ghidra decomp: scratch/decomp/sop_bg_chain.c.
 //
-// Faithful to the recomp; the state-1 wrap loops are the recomp's over-then-rollback pattern
+// Faithful to the guest instruction path; the state-1 wrap loops are the guest instruction path's over-then-rollback
+// pattern
 // (`while (v < 0) v += mod;  v -= mod;`), and the underflow test on the SM+0x38 counter mirrors
 // the MIPS `sll 24 ; blez` idiom as a signed-byte `<= 0`.
 
@@ -19,7 +20,7 @@ constexpr uint32_t ANIM_COUNTER_0 = 0x8010D390u;
 constexpr uint32_t ANIM_COUNTER_1 = 0x8010D391u;
 constexpr uint32_t ANIM_COUNTER_2 = 0x8010D392u;
 
-// Wrap `v` into [0, mod). Faithful to the recomp's over-then-rollback loops (a normal `v % mod`
+// Wrap `v` into [0, mod). Faithful to the guest instruction path's over-then-rollback loops (a normal `v % mod`
 // would produce the same bytes for the values we see; kept explicit for byte-exact fidelity).
 inline int32_t wrapMod(int32_t v, int32_t mod) {
   if (v < 0) {
@@ -117,7 +118,7 @@ void ParallaxBg::step() {
 
     c->mem_w8(sm + 0x38u, 1);
 
-    // Clear the three SOP-overlay animation counters. Order mirrors the recomp (high→low), though
+    // Clear the three SOP-overlay animation counters. Order mirrors the guest instruction path (high→low), though
     // the ending bytes are the same either way.
     c->mem_w8(ANIM_COUNTER_2, 0);
     c->mem_w8(ANIM_COUNTER_1, 0);
@@ -125,5 +126,5 @@ void ParallaxBg::step() {
     return;
   }
 
-  // state >= 2: no-op (recomp: falls through the compound test `bVar2 < 2 && bVar2 == 0` false).
+  // state >= 2: no-op (guest instruction path: falls through the compound test `bVar2 < 2 && bVar2 == 0` false).
 }

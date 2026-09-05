@@ -13,24 +13,24 @@
 //   STATE 2 : nothing.   STATE 3 : FUN_8007A624(node).   STATE >=4 : nothing.
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the direct node/record WRITES owned
-// native; every sub-behavior CALL (incl. the trig/math helpers, which are ordinary rec_dispatch leaves
-// returning via v0 — NOT gte_op) stays PSX. a0 fidelity in the record loop is kept by NOT clobbering
-// c->r[4] between FUN_80051B04 (which leaves the guest a0) and the next FUN_8007AAE8 (which reads it).
-// Source/data tables read live from resident overlay RAM. No leaf takes a stack arg. Transcribed 1:1;
-// the byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net. NO GTE/render.
+// native; every sub-behavior CALL (incl. the trig/math helpers, which are ordinary typed runtime address dispatch
+// leaves returning via v0 — NOT gte_op) stays PSX. a0 fidelity in the record loop is kept by NOT clobbering c->r[4]
+// between FUN_80051B04 (which leaves the guest a0) and the next FUN_8007AAE8 (which reads it). Source/data tables read
+// live from resident overlay RAM. No leaf takes a stack arg. Transcribed 1:1; the byte-exact A/B gate (full
+// RAM+scratchpad vs original guest-body call) is the safety net. NO GTE/render.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_render_update (FUN_800517F8)
 #include "guest_abi.h"
+#include "guest_call.h"
+#include "guest_jal.h"
 #include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include "trig.h"  // class Trig — libgte rsin/rcos
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -38,13 +38,13 @@ constexpr uint32_t BEH_FN = 0x8013A900u;
 
 static inline uint32_t leafr(Core *c, uint32_t a0, uint32_t fn) { // returns v0
   c->r[4] = a0;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 static inline uint32_t leafr2(Core *c, uint32_t a0, uint32_t a1, uint32_t fn) { // returns v0
   c->r[4] = a0;
   c->r[5] = a1;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 
@@ -118,7 +118,7 @@ S0:
         src += 2;
         c->mem_w32(rec + 12, 0);
         uint32_t a2 = (uint32_t)c->mem_r16s(src);
-        guest_leaf(c, 0x80051B04u, rec, 12, a2); // FUN_80051B04(rec, 12, (int16)*src)
+        tomba::guest::dispatchLeafToReturn(*c, 0x80051B04u, rec, 12, a2); // FUN_80051B04(rec, 12, (int16)*src)
         src += 2;
         s2 += 1;
         s1 += 4;
@@ -131,8 +131,8 @@ S0:
       if (c->mem_r8(0x800BF8F7u) == 0) {
         goto Lret;
       }
-      guest_leaf(c, 0x801252C0u, nd, 5, 2); // FUN_801252C0(node, 5, 2)
-      guest_leaf(c, 0x801252C0u, nd, 5, 3); // FUN_801252C0(node, 5, 3)
+      tomba::guest::dispatchLeafToReturn(*c, 0x801252C0u, nd, 5, 2); // FUN_801252C0(node, 5, 2)
+      tomba::guest::dispatchLeafToReturn(*c, 0x801252C0u, nd, 5, 3); // FUN_801252C0(node, 5, 3)
       goto Lret;
     }
     if (n3 == 2) { // 0x8013aabc
@@ -168,7 +168,7 @@ S1: {
       goto L8c00;
     }
     // n3 in {1,2}: FUN_80135414
-    guest_leaf(c, 0x80135414u, nd);
+    tomba::guest::dispatchLeafToReturn(*c, 0x80135414u, nd);
     goto L8c00;
   }
   // n3 == 0: trig block @0x8013ab44

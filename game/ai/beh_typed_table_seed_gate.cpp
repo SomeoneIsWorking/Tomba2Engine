@@ -62,11 +62,12 @@
 //                    @+0x58, state @+0x168). Likely Tomba's actor slot; future RE candidate for a
 //                    `class PilotActor` view.
 //   - 0x8014A6F4     per-type CLAMP-BAND table {lo, hi} for oscBase (case [2] pilot-consult clamp).
-// Kept as `rec_dispatch` (recomp substrate) — the correct escape hatch until each is RE'd on its own.
+// Kept as `typed runtime address dispatch` (guest instruction path substrate) — the correct escape hatch until each is
+// RE'd on its own.
 //
 // PORTED OWNERSHIP RULES (per project CLAUDE.md): CONTROL FLOW + every named-field write owned native,
-// byte-for-byte; every still-opaque sub-behavior CALL stays a `rec_dispatch` leaf (a0/a1 set first).
-// NO GTE, NO render packets here. Gated byte-exact (full RAM+scratchpad A/B vs rec_super_call) via
+// byte-for-byte; every still-opaque sub-behavior CALL stays a `typed runtime address dispatch` leaf (a0/a1 set first).
+// NO GTE, NO render packets here. Gated byte-exact (full RAM+scratchpad A/B vs original guest-body call) via
 // channel "typed_table_seed_gateverify".
 
 #include "cfg.h"
@@ -74,19 +75,18 @@
 #include "game_ctx.h"
 #include "graphics_bind.h" // GraphicsBind::recordInit / renderUpdate
 #include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-#include "object/actor.h"  // class Actor + scene_phase / osc_base_table
-#include "rng.h"           // class Rng (rngOf(c).next()) — FUN_8009A450 (seed 0x80105EE8)
-#include "spawn.h"         // class Spawn (eng(c).spawn.despawn)
-#include "trig.h"          // class Trig (trigOf(c).rcos)  — FUN_80083F50 (Q12 cos LUT)
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
+#include "guest_call.h"
+#include "object/actor.h" // class Actor + scene_phase / osc_base_table
+#include "rng.h"          // class Rng (rngOf(c).next()) — FUN_8009A450 (seed 0x80105EE8)
+#include "spawn.h"        // class Spawn (eng(c).spawn.despawn)
+#include "trig.h"         // class Trig (trigOf(c).rcos)  — FUN_80083F50 (Q12 cos LUT)
 
 namespace {
 constexpr uint32_t BEH_FN = 0x80133C14u;
 
 enum class Sta : uint8_t { Init = 0, Active = 1, DespawnA = 2, DespawnB = 3 };
 
-// Un-RE'd sub-behaviors still called via rec_dispatch by this handler. (FUN_80077768 turn-direction
+// Un-RE'd sub-behaviors still called via typed runtime address dispatch by this handler. (FUN_80077768 turn-direction
 // lookup is NATIVE now — Trig::angleCmp; see run_turn_setup.)
 // FUN_8004766C = per-object TILE-BASED MOVEMENT STEP (snapshot pos → tile-clamp → per-type table
 // lookup → collision predicate → command-stream pump → integrate deltaX/deltaZ back into posX/posZ).
@@ -112,7 +112,7 @@ bool run_turn_setup(Actor &a) {
   uint8_t facing = c->mem_r8(obj + 0x5F); // per-actor "target facing" byte (angle >> 4)
   a.setSubState(4);
   // Turn direction: signed-half angle compare — "does target-facing lead current rotY by π/4..3π/4?"
-  // Returns 1 for TURN LEFT (+256), 0 for TURN RIGHT (-256). Was rec_dispatch(0x80077768); now native
+  // Returns 1 for TURN LEFT (+256), 0 for TURN RIGHT (-256). Was typed runtime address dispatch(0x80077768); now native
   // via class Trig (game/math/trig.h — Trig::angleCmp is FUN_80077768 owned static).
   int32_t leadCw = Trig::angleCmp((int32_t)facing << 4, (int32_t)rotY, 0);
   a.setTargetDelta((leadCw != 0) ? (int16_t)256 : (int16_t)-256);
@@ -343,7 +343,10 @@ void beh_typed_table_seed_gate(Core *c) {
     a.setCounterA(0);
     a.setCounterB(0);
     c->r[4] = a.addr();
-    rec_dispatch(c, SUB_TILE_MOVE_STEP);         // init snap: seed posX/posZ via tile step
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     SUB_TILE_MOVE_STEP,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__);  // init snap: seed posX/posZ via tile step
     a.setOscPhase((int16_t)0);                   // target-#4 accumulator reset
     uint16_t seed = osc_base_table(c, a.type()); // per-type oscBase seed
     a.setTriggerParam(-0xc8);                    // -200 world units (Y offset?)
@@ -352,7 +355,7 @@ void beh_typed_table_seed_gate(Core *c) {
   }
 
   // ---- STATE 1 (ACTIVE): tick the sub-state machine (native), then gate on global scene phase ----
-  state_one_tick(a); // native — was rec_dispatch(0x801337E4)
+  state_one_tick(a); // native — was typed runtime address dispatch(0x801337E4)
   const uint8_t phase = scene_phase(c);
 
   if (phase < 0x1c) {
@@ -361,8 +364,9 @@ void beh_typed_table_seed_gate(Core *c) {
   }
 
   if (phase == 0x22) {
-    a.setRenderMode((uint8_t)st);               // "this actor's phase" branch
-    eng(c).cull.enqueueVisibleClass4(a.addr()); // FUN_80077EBC — Cull::enqueueVisibleClass4 (was rec_dispatch)
+    a.setRenderMode((uint8_t)st); // "this actor's phase" branch
+    eng(c).cull.enqueueVisibleClass4(
+        a.addr()); // FUN_80077EBC — Cull::enqueueVisibleClass4 (was typed runtime address dispatch)
     // fall through to render tail
   } else {
     if (a.boundsCullYOffset(a.triggerParam()) == 0) { // FUN_800778E4 — Actor::boundsCullYOffset (native)
@@ -374,7 +378,7 @@ void beh_typed_table_seed_gate(Core *c) {
 
   // ---- render tail: per-frame tile move (integrates posX/posZ) + render-state update ---------------
   c->r[4] = a.addr();
-  rec_dispatch(c, SUB_TILE_MOVE_STEP);
+  psx::cpu::dispatchGuestToReturn0(*c, SUB_TILE_MOVE_STEP, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[4] = a.addr();
   eng(c).graphicsBind.renderUpdate();
 }

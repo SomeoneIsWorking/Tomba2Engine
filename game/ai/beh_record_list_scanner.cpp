@@ -19,23 +19,22 @@
 //   node[1]=1.
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the node/global memory WRITES owned native;
-// every sub-behavior CALL stays reachable by address via rec_dispatch (leaf, no recursion). NO GTE, NO
-// render packets. Gated byte-exact (full RAM+scratchpad A/B vs rec_super_call) like every owned behavior.
+// every sub-behavior CALL stays reachable by address via typed runtime address dispatch (leaf, no recursion). NO GTE,
+// NO render packets. Gated byte-exact (full RAM+scratchpad A/B vs original guest-body call) like every owned behavior.
 // v0 is NOT reproduced: the per-object dispatcher (call_handler) ignores the return; the gate compares
 // only RAM+scratchpad — matching the sibling objbeh gates.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
-#include "guest_abi.h"   // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_call.h"
 #include "mathlib.h"     // Bit::test7EC / test868 (FUN_8004D7EC / FUN_8004D868)
 #include "render/cull.h" // Cull::cullWrap77acc / installSceneRecord
 #include "spawn.h"       // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -145,7 +144,7 @@ void beh_record_list_scanner(Core *c) {
       uint32_t ret;
       if (area == 1 && c->mem_r8(0x800BF871u) >= 15) {
         c->r[4] = c->mem_r8(s4 + 12);
-        rec_dispatch(c, 0x80111CCCu);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80111CCCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         ret = c->r[2];
       } else {
         c->r[4] = obj;

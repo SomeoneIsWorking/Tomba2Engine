@@ -9,8 +9,8 @@
 //
 // These MUTATE GUEST MEMORY (the packet pool is guest RAM), so unlike a pc_render producer they are
 // faithful ports, byte-compared by SBS. The full RE — including two places where the Ghidra listing
-// is WRONG and generated/*.c is the ground truth — is in docs/findings/render.md, "The secondary-
-// effect handlers". The two facts that most shape the code below:
+// is WRONG and authenticated executable/overlay evidence is the ground truth — is in docs/findings/render.md, "The
+// secondary- effect handlers". The two facts that most shape the code below:
 //
 //   * A packet's colour word is a u32 at pkt+4, which SPANS pkt+4..pkt+7 — i.e. it overwrites the
 //     command byte at pkt+7. So effectFlatTint must read the command byte BEFORE writing colour and

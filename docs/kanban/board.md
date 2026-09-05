@@ -11,9 +11,9 @@
 - **#31 fps60: interpolated frames and real frames appear to be built differently**  `bug,render,fps60`
 - **#34 No headless repro exists for jump-over-pickup — the #1/#30 fix is RE-proven but symptom-unverified**  `verification`
 - **#36 dev-warp: cold cross-area warp self-destructs ~50 frames later, and ids >=22 are accepted but are not areas**  `bug,tooling`
-- **#37 areas 16/17/18 hang under cold warp — behaviour loop in gen_func_80040558**  `bug`
+- **#37 areas 16/17/18 hang under cold warp — behaviour loop in guest 0x80040558**  `bug`
 - **#40 RmlUi warp selector is unverified on screen — no window in the agent environment**  `verification`
-- **#46 recomp-MISS 0x80028E64 latent (label not emitted as entry) — NOT reproduced on current main**  `bug,recomp`
+- **#46 historical guest-entry miss 0x80028E64 latent (label not emitted as entry) — NOT reproduced on current main**  `bug,guest instruction path`
 - **#52 No A06/A08 cutscene replay exists — 11 beh_* script handlers are unreachable for A/B**  `verification`
 - **#53 Dust PUFF MESH layer is ported-unverified — never observed on screen (ring state 2/3 unreached)**  `verification,render`
 - **#54 Bucket's supporting POLE/ROPE invisible before pickup, visible after — state-gated missing producer**  `render,bug` — 📎 docs/reference/issues/issue54_bucket_pole_missing.png
@@ -43,22 +43,22 @@
 - **#120 Replace the bounded water-jet guest-GTE fallback with a native producer**  `render,debt`
 - **#121 Default launcher aborts in title attract when adjacent OT keys collapse to one float order**  `bug,render`
 
-## DOING (5)
+## DOING (6)
 - **#2 Bucket-pickup cutscene SOFTLOCKS with pc_skip ON (default config)**  `bug,pc-skip`
+- **#9 Remove pure loading-only screens**  `loading,enhancement`
 - **#45 CAMPAIGN: render everything natively — retire the substrate-GTE projection producers to float-native**  `render,campaign`
 - **#47 pc_skip: entering 'House on the Point' corrupts state (music stops, camera unfollows, interior vibrates)**  `bug,pc-skip`
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 - **#103 Cutscene machinery + fisherman + bridge ropes invisible under pc_render (area 0, live)**  `render,bug`
 
-## DONE (80)
+## DONE (79)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
 - **#5 Save-sign inspect SOFTLOCKS with pc_skip ON**  `bug,pc-skip`
-- **#6 Load-Game browser (DEMO s48==4) aborts: rec_dispatch miss 0x8018FA88**  `bug,recomp`
+- **#6 Load-Game browser (DEMO s48==4) aborts: typed runtime address dispatch miss 0x8018FA88**  `bug,guest instruction path`
 - **#7 DEMO OPTIONS sub-pages (Messages/Sound/Screen adjust/Controls) had no pc_render producer — SIGABRT two presses from the title**  `render`
 - **#8 Water-pump seesaw: Tomba's weight doesn't pull it down when grabbed while climbing (pc_skip ON)**  `bug,pc-skip`
-- **#9 Synchronous loads skip loading-only screens entirely**  `loading,enhancement`
 - **#11 Barrel top face renders BLACK on the blue side (red side correct)**  `bug,render`
 - **#12 Torch flame effect missing entirely under pc_render**  `render` — 📎 docs/reference/issues/issue12_13_missing_flame_object.png
 - **#13 HUD weapon carousel missing entirely under pc_render**  `render` — 📎 docs/reference/issues/issue12_13_missing_flame_object.png
@@ -71,10 +71,10 @@
 - **#21 Triangle menu renders fully transparent — its opaque background is missing**  `render` — 📎 docs/reference/issues/issue21_triangle_menu_reference.png
 - **#22 Health wheel native blend and AddPrim order differ from the PSX**  `render`
 - **#23 Roof flames do not lerp at fps60 while the burning-rope flame does**  `render,fps60` — 📎 docs/reference/issues/issue23_flame_no_lerp.png
-- **#24 Area 22 aborts on entry: rec_dispatch miss 0x80109200**  `bug,recomp`
+- **#24 Area 22 aborts on entry: typed runtime address dispatch miss 0x80109200**  `bug,guest instruction path`
 - **#25 pc_render area sweep: 24 of 32 areas sampled clean, coverage recorded**  `render`
 - **#26 Ghost pig boss fight (area 12): ceiling beam band renders warped/displaced under pc_render**  `render`
-- **#27 recomp: misread jump-table base blocked four areas (10/11/13/14) — FIXED**  `recomp`
+- **#27 guest instruction path: misread jump-table base blocked four areas (10/11/13/14) — FIXED**  `guest instruction path`
 - **#28 Dialog box background draws OVER its own text — dual ownership of 0x8004FFB4**  `bug,render`
 - **#29 Hut interior: wall decorations z-fight with the wall behind them**  `bug,render`
 - **#30 Jumping over an item picks it up again — REGRESSION of #1**  `bug,pc-skip`

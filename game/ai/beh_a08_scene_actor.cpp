@@ -13,7 +13,7 @@
 //                 fade(c).applyLeafCall.
 //
 // RE'd from Ghidra 12.0.4 A08 project + hand-disas spot-verify (scratch/decomp/a08_cutscene_
-// director.c). Substrate leaves kept reachable via rec_dispatch (each a small standalone leaf):
+// director.c). Substrate leaves kept reachable via typed runtime address dispatch (each a small standalone leaf):
 //   0x800778E4  = position update
 //   0x8004BD64  = position sync from parent
 //   0x80051B70  = music/anim queue+ready check (returns 0 when ready)
@@ -39,10 +39,9 @@
 #include "core/engine.h"
 #include "game_ctx.h"
 #include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_call.h"
 #include "render/screen_fade.h"
 #include <cstdint>
-
-extern "C" void rec_dispatch(Core *c, uint32_t addr);
 
 namespace {
 
@@ -119,35 +118,35 @@ constexpr uint32_t O_ANIM_2C = 0x2Cu; // used as base ptr for FUN_8013DD48
 
 inline void call1(Core *c, uint32_t a, uint32_t addr) {
   c->r[4] = a;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 inline uint32_t call1Ret(Core *c, uint32_t a, uint32_t addr) {
   c->r[4] = a;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 inline void call2(Core *c, uint32_t a, uint32_t b, uint32_t addr) {
   c->r[4] = a;
   c->r[5] = b;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 inline uint32_t call2Ret(Core *c, uint32_t a, uint32_t b, uint32_t addr) {
   c->r[4] = a;
   c->r[5] = b;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 inline void call3(Core *c, uint32_t a, uint32_t b, uint32_t d, uint32_t addr) {
   c->r[4] = a;
   c->r[5] = b;
   c->r[6] = d;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 inline uint32_t call3Ret(Core *c, uint32_t a, uint32_t b, uint32_t d, uint32_t addr) {
   c->r[4] = a;
   c->r[5] = b;
   c->r[6] = d;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 inline void call4(Core *c, uint32_t a, uint32_t b, uint32_t d, uint32_t e, uint32_t addr) {
@@ -155,7 +154,7 @@ inline void call4(Core *c, uint32_t a, uint32_t b, uint32_t d, uint32_t e, uint3
   c->r[5] = b;
   c->r[6] = d;
   c->r[7] = e;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 inline void call5(Core *c, uint32_t a, uint32_t b, uint32_t d, uint32_t e, uint32_t f, uint32_t addr) {
   c->r[4] = a;
@@ -165,7 +164,7 @@ inline void call5(Core *c, uint32_t a, uint32_t b, uint32_t d, uint32_t e, uint3
   const uint32_t sp = c->r[29] - 24u;
   c->r[29] = sp;
   c->mem_w32(sp + 16u, f); // MIPS calling convention: 5th arg on stack at sp+16
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[29] = sp + 24u;
 }
 
@@ -177,7 +176,7 @@ uint32_t sub8013DD48(Core *c, uint32_t param1, uint32_t param2) {
   c->r[5] = 0u;
   c->r[6] = 2u;
   c->r[7] = 0x47u;
-  rec_dispatch(c, 0x80072DDCu);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80072DDCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   const uint32_t iVar1 = c->r[2];
   c->r[29] = sp_save;
   if (iVar1 != 0) {
@@ -235,7 +234,7 @@ void cutsceneDirector(Core *c, uint32_t obj) {
       c->mem_w8(obj + O_SUB_5, (uint8_t)(st + 1u));
       c->r[4] = obj + O_ANIM_2C;
       c->r[5] = 0u;
-      rec_dispatch(c, 0x8013DD48u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8013DD48u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->mem_w16(obj + O_H_40, 8u);
     }
     break;
@@ -248,10 +247,10 @@ void cutsceneDirector(Core *c, uint32_t obj) {
     }
     c->mem_w8(obj + O_SUB_5, (uint8_t)(st + 1u));
     c->r[4] = obj + O_ANIM_2C;
-    rec_dispatch(c, 0x8013DD48u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8013DD48u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->r[4] = obj + O_ANIM_2C;
     c->r[5] = 2u;
-    rec_dispatch(c, 0x8013DD48u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8013DD48u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->mem_w16(obj + O_H_40, 8u);
     break;
   }
@@ -265,16 +264,16 @@ void cutsceneDirector(Core *c, uint32_t obj) {
     c->mem_w8(obj + O_SUB_5, (uint8_t)(st + 1u));
     c->r[4] = iVar8;
     c->r[5] = 3u;
-    rec_dispatch(c, 0x8013DD48u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8013DD48u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->r[4] = iVar8;
     c->r[5] = 4u;
-    rec_dispatch(c, 0x8013DD48u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8013DD48u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->r[4] = iVar8;
     c->r[5] = 5u;
-    rec_dispatch(c, 0x8013DD48u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8013DD48u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->r[4] = iVar8;
     c->r[5] = 6u;
-    rec_dispatch(c, 0x8013DD48u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x8013DD48u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->mem_w16(obj + O_H_40, 8u);
     break;
   }
@@ -286,7 +285,7 @@ void cutsceneDirector(Core *c, uint32_t obj) {
       for (int iVar8 = 7; iVar8 < 0x14; iVar8++) {
         c->r[4] = obj + O_ANIM_2C;
         c->r[5] = (uint32_t)iVar8;
-        rec_dispatch(c, 0x8013DD48u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x8013DD48u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       }
       c->mem_w16(obj + O_H_40, 0x5Au);
     }
@@ -357,7 +356,7 @@ void cutsceneDirector(Core *c, uint32_t obj) {
       h42 = (uint16_t)(h42 + 1u);
     }
     c->mem_w16(obj + O_H_42, h42);
-    // Recomp uses a local struct { u16 local_18=0x3F0, u16 local_16=0xE7, u16 local_14=0x10,
+    // guest instruction path uses a local struct { u16 local_18=0x3F0, u16 local_16=0xE7, u16 local_14=0x10,
     // u16 local_12=1 } on stack; passes ptr and computed sprite arg.
     const uint32_t sp_save = c->r[29];
     c->r[29] = sp_save - 24u;
@@ -367,12 +366,12 @@ void cutsceneDirector(Core *c, uint32_t obj) {
     c->mem_w16(ptr + 4u, 0x0010u);
     c->mem_w16(ptr + 6u, 0x0001u);
     const uint32_t idIdx = (uint32_t)c->mem_r8(DAT_80145A64 + (uint32_t)c->mem_r16(obj + O_H_42));
-    // (idIdx * 0x20) + (0x80145A64 - some absolute base). Recomp used the literal
+    // (idIdx * 0x20) + (0x80145A64 - some absolute base). guest instruction path used the literal
     // 0x7FEBA61C = -0x8014_59E4 sign-flipped, so effective base = 0x8014_59E4.
     const uint32_t spriteArg = idIdx * 0x20u - 0x7FEBA61Cu;
     c->r[4] = ptr;
     c->r[5] = spriteArg;
-    rec_dispatch(c, 0x80081218u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80081218u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->r[29] = sp_save;
   }
   (void)fellThrough;
@@ -489,8 +488,8 @@ int state0Init(Core *c, uint32_t obj) {
       c->mem_w16(obj + O_H_82, 0xF0u);
       c->mem_w16(obj + O_H_84, 0x1C0u);
       c->mem_w16(obj + O_H_86, 0x1C0u);
-      // Guest calls FUN_800517F8() with no obj arg (bug in recomp? — kept faithfully).
-      rec_dispatch(c, 0x800517F8u);
+      // Guest calls FUN_800517F8() with no obj arg (bug in guest instruction path? — kept faithfully).
+      psx::cpu::dispatchGuestToReturn0(*c, 0x800517F8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     }
     return LAB_none;
   case 0x11:
@@ -574,7 +573,7 @@ int state0Init(Core *c, uint32_t obj) {
   default:
     return LAB_none;
   }
-  return LAB_bc0; // recomp: `goto LAB_80128bc0` for cases that "break" without a `return LAB_none`
+  return LAB_bc0; // guest instruction path: `goto LAB_80128bc0` for cases that "break" without a `return LAB_none`
 }
 
 // ── State 1 (RUN) — variant switch ──────────────────────────────────────────────────────────────
@@ -591,7 +590,7 @@ int state1Run(Core *c, uint32_t obj) {
         (int16_t)(((int32_t)((uint32_t)c->mem_r16(G_1F8000E2) - (uint32_t)c->mem_r16(obj + O_H_32)) << 16) >> 16);
     c->r[4] = obj;
     c->r[5] = (uint32_t)(int32_t)sub;
-    rec_dispatch(c, 0x800778E4u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x800778E4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     return RET_none;
   }
   case 5:

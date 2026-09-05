@@ -1,7 +1,7 @@
 # Scene checklist — pc_render visual verification spine
 
 The ordered walkthrough of every scene from boot onward, each checked **default config**
-(pc_skip + pc_render, plain `./run.sh`) against the oracle (`PSXPORT_ORACLE=1` = pure recomp +
+(pc_skip + pc_render, plain `./run.sh`) against the oracle (`PSXPORT_ORACLE=1` = pure guest instruction path +
 pure PSX render). This is the burndown order for visual bugs: work TOP-DOWN, first unfixed scene
 first (USER 2026-07-14: "start from the narration cutscene"). Update the status column in the
 same commit as a fix; a scene is `OK` only after the USER eyeballs it (no visual self-verify).
@@ -17,7 +17,7 @@ under `PSXPORT_ORACLE=1`.
 | # | scene | reach | status | notes |
 |---|-------|-------|--------|-------|
 | 1 | SCEA license screen | boot (automatic) | UNCHECKED | native splash (native_scea_splash), baked asset |
-| 2 | OP.FMV opening movie | boot, wait past SCEA | UNCHECKED | recomp+psx_render SKIPS it (deferred); check pc path plays it |
+| 2 | OP.FMV opening movie | boot, wait past SCEA | UNCHECKED | guest instruction path+psx_render SKIPS it (deferred); check pc path plays it |
 | 3 | Title / main menu + attract demo | boot, wait | UNCHECKED | Demo stage; cursor sub-machine native (0x80106AC4) |
 | 4 | **Narration cutscene** (story slides after New Game) | `newgame`, watch | PARTIAL | 2026-07-14: MODE=skip pane sync FIXED (demo_start_game rendezvous + B-first stepping, 2acc746); field-slide beats pixel-near-identical (~4% text-edge residual). BUG #43 FIXED (Sop::fieldUpdate restored the substrate's unconditional 0x80109FE0 + 0x8003C048 render dispatches — vortex+Tabby+coin now draw on pc_skip; findings/scene.md). Cutscene-wide: #35 darkening, #27 fadeouts — awaiting user eyeball for OK |
 | 5 | Narration-end transition (was "loading screen") | after 4 | PARTIAL | 2026-07-14 re-verify: NO black+"Loading" card exists in the current build — BOTH default and oracle hold the frozen last-narration frame for the 2-6 frame beat-reset→scene-flip gap (f1124-1128) and roll straight into the fisherman scene. Default matches oracle; the 2026-07-08 "garbage vs black-hold" premise is not reproducible — user eyeball to confirm OK |

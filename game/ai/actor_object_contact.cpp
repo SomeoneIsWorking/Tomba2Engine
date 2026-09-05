@@ -40,12 +40,12 @@
 // 0x8001FF7C do. The name says what this body decides, which is measured.
 //
 // TRUE EXTENT: [0x8010E258, 0x8010E400). The single epilogue is L_8010E3E8 (six restores from
-// sp+16..sp+36, then sp += 40) and the trailing duplicate `return;` is the recompiler's dead-tail
+// sp+16..sp+36, then sp += 40) and the trailing duplicate `return;` is the recorded binary evidence's dead-tail
 // artifact. NOT established from "the next gen function in the shard" — that test is false here (the
 // shard split is not address order) and has produced a wrong answer repeatedly this session.
 //
-// MODULE: defined only by the A00 overlay, so it registers with ov_a00_set_override; the main-module
-// setter would leave the direct ov_a00_func_8010E258(c) callers on the substrate.
+// MODULE: defined only by the A00 overlay, so it registers with A00 tomba::native::declareOverride; the main-module
+// setter would leave the direct overlay guest 0x8010E258(c) callers on the substrate.
 //
 // GUEST STACK: frame 40 with SIX spills (r19,r20,ra,r18,r17,r16 at +28,+32,+36,+24,+20,+16 in the
 // guest's own program order). All five callee-saved registers stay GuestReg proxies rather than C++
@@ -55,12 +55,12 @@
 
 #include "core.h"
 #include "guest_abi.h"
-#include "ov_a00_decls.h"
-#include "override_registry.h"
+#include "guest_jal.h"
+#include "native_override_catalog.h"
 
 namespace {
 
-// tools/abi_extract.py 0x8010E258 --scaffold --guestabi, in the guest's program order
+// tools/binary ABI evidence 0x8010E258 --scaffold --guestabi, in the guest's program order
 constexpr GuestFrameSpill kSpills_8010E258[6] = {
     {19, 28},
     {20, 32},
@@ -71,7 +71,7 @@ constexpr GuestFrameSpill kSpills_8010E258[6] = {
 };
 
 // Return addresses at this function's four jal sites.
-constexpr uint32_t kRaAfterHitTest = 0x8010E284u;   // -> ov_a00_func_8010DFD8
+constexpr uint32_t kRaAfterHitTest = 0x8010E284u;   // -> overlay guest 0x8010DFD8
 constexpr uint32_t kRaAfterDistance = 0x8010E300u;  // -> Math::sqrtLzc   0x80084080
 constexpr uint32_t kRaAfterAngle = 0x8010E354u;     // -> Trig::ratan2    0x80085690
 constexpr uint32_t kRaAfterProximity = 0x8010E388u; // -> 0x80022D08
@@ -105,7 +105,7 @@ constexpr uint8_t kObjPhaseStruck = 2;
 
 } // namespace
 
-// ORACLE: ov_a00_gen_8010E258
+// ORACLE: overlay guest 0x8010E258
 //
 // LAYOUT NOTE: the PROXIMITY path is written first and the HIT path last, matching the guest's own
 // static order (the guest branches forward to its hit block, which it emits after the proximity
@@ -127,7 +127,7 @@ void ActorObjectContact::resolveHitOrProximity(Core *c) {
   const ContactObject obj{c, c->r[20]};
 
   c->r[6] = 1;
-  guest_call(c, kRaAfterHitTest, ov_a00_func_8010DFD8);
+  tomba::guest::dispatchJalToReturn(*c, 0x8010DFD8u, kRaAfterHitTest);
   const int32_t hit = (int32_t)c->r[2];
 
   if (hit < 0) {
@@ -149,7 +149,7 @@ void ActorObjectContact::resolveHitOrProximity(Core *c) {
     guest_mult(c, (int32_t)(uint32_t)deltaZ, (int32_t)(uint32_t)deltaZ);
 
     c->r[4] = dxSq + c->lo;
-    guest_dispatch(c, kRaAfterDistance, kSqrtLzc);
+    tomba::guest::dispatchJalToReturn(*c, kSqrtLzc, kRaAfterDistance);
     const uint32_t distance = c->r[2] & 0xFFFFu;
 
     uint32_t touching = 0;
@@ -160,7 +160,7 @@ void ActorObjectContact::resolveHitOrProximity(Core *c) {
         // The heading from the object to the actor, published where the follow-up reads it back.
         c->r[4] = (uint32_t)(0 - (int32_t)(uint32_t)deltaZ);
         c->r[5] = (uint32_t)deltaX;
-        guest_dispatch(c, kRaAfterAngle, kRatan2);
+        tomba::guest::dispatchJalToReturn(*c, kRatan2, kRaAfterAngle);
         c->mem_w32(kScratchpadBase + kContactAngleSlot, c->r[2]);
         touching = 1;
       }
@@ -175,7 +175,7 @@ void ActorObjectContact::resolveHitOrProximity(Core *c) {
     c->r[7] = 0;
     const uint32_t angle = c->mem_r32(kScratchpadBase + kContactAngleSlot);
     actor.setContactState((uint8_t)((int32_t)angle >> kAngleToByte));
-    guest_dispatch(c, kRaAfterProximity, kProximityFollowUp);
+    tomba::guest::dispatchJalToReturn(*c, kProximityFollowUp, kRaAfterProximity);
     return;
   }
 
@@ -184,7 +184,7 @@ void ActorObjectContact::resolveHitOrProximity(Core *c) {
   c->r[5] = c->r[20];
   c->r[6] = (uint32_t)hit;
   c->r[7] = 1;
-  guest_dispatch(c, kRaAfterHitApply, kHitFollowUp);
+  tomba::guest::dispatchJalToReturn(*c, kHitFollowUp, kRaAfterHitApply);
   // NOTE THE 129, and it is NOT a typo for 1. The guest compares the phase byte against 1, and that
   // branch's delay slot then leaves 129 in the same register, so the SECOND comparison — the kind
   // byte — is against 129. Reading it as 1 would gate the whole hit reaction on the wrong value, and
@@ -205,9 +205,6 @@ void ActorObjectContact::resolveHitOrProximity(Core *c) {
 }
 
 void ActorObjectContact::registerOverrides() {
-  overrides::install(0x8010E258u,
-                     "ActorObjectContact::resolveHitOrProximity",
-                     &ActorObjectContact::resolveHitOrProximity,
-                     ov_a00_gen_8010E258,
-                     ov_a00_set_override);
+  tomba::native::declareOverride(
+      0x8010E258u, "ActorObjectContact::resolveHitOrProximity", &ActorObjectContact::resolveHitOrProximity);
 }

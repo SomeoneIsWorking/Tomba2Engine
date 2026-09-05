@@ -19,31 +19,31 @@
 //   EVERY exit clears byte 0x800BF840 = 0 (epilogue).
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the node/global memory WRITES owned
-// native; every sub-behavior CALL stays reachable by address via rec_dispatch (leaf, no recursion).
+// native; every sub-behavior CALL stays reachable by address via typed runtime address dispatch (leaf, no recursion).
 // NO GTE, NO render packets. Transcribed 1:1 as a register machine (locals = guest regs, goto labels =
 // guest addresses) so delay-slot subtleties (e.g. the f570 `v1=512` clobber that makes the f574/f5b8
 // 0x100/0x20 sub-branches dead) are preserved exactly; the byte-exact A/B gate (full RAM+scratchpad vs
-// rec_super_call) is the safety net. a0/a1 are written into c->r only where the guest writes them, so
-// c->r evolves identically to the recomp across the leaf rec_dispatch calls. v0 is NOT reproduced (the
-// per-object dispatcher ignores the handler return; the gate compares only RAM+scratchpad).
+// original guest-body call) is the safety net. a0/a1 are written into c->r only where the guest writes them, so
+// c->r evolves identically to the guest instruction path across the leaf typed runtime address dispatch calls. v0 is
+// NOT reproduced (the per-object dispatcher ignores the handler return; the gate compares only RAM+scratchpad).
 //
 // FUN_8006F04C and FUN_8007E038 (this file's only two callers of each) are now OWNED NATIVE too:
-//   Bit::processLinkRequest()               — game/math/mathlib.{h,cpp} — was rec_dispatch(0x8006F04Cu)
-//   Spawn::spawnOverlayVariant(id, variant)  — game/world/spawn.{h,cpp} — was rec_dispatch(0x8007E038u)
-// PC calls PC directly for both (no rec_dispatch indirection) now that they're native.
+//   Bit::processLinkRequest()               — game/math/mathlib.{h,cpp} — was typed runtime address
+//   dispatch(0x8006F04Cu) Spawn::spawnOverlayVariant(id, variant)  — game/world/spawn.{h,cpp} — was typed runtime
+//   address dispatch(0x8007E038u)
+// PC calls PC directly for both (no typed runtime address dispatch indirection) now that they're native.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_record_alloc_g (FUN_8007AAE8)
 #include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-#include "mathlib.h"       // class Bit (eng(c).bit.testFE48 / setFE34)
-#include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_call.h"
+#include "mathlib.h" // class Bit (eng(c).bit.testFE48 / setFE34)
+#include "spawn.h"   // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -253,7 +253,7 @@ L618:
     goto L6cc;
   }
   c->r[4] = obj;
-  rec_dispatch(c, 0x8004766Cu);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8004766Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   v1 = c->mem_r16(0x1F8001A8u); // pad2
   v0 = v1 & 0x0002;
   if (v0 == 0) {
@@ -261,7 +261,7 @@ L618:
   }
   c->r[4] = obj;
   c->r[5] = 1;
-  rec_dispatch(c, 0x80047B5Cu);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80047B5Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   v0 = c->r[2];
   if (v0 == 0) {
     goto L6c8;
@@ -279,7 +279,7 @@ L684:
   }
   c->r[4] = obj;
   c->r[5] = 0;
-  rec_dispatch(c, 0x80047B5Cu);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80047B5Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   v0 = c->r[2];
   if (v0 == 0) {
     goto L6c8;
@@ -345,7 +345,7 @@ L760:
   }
 L784:
   c->r[4] = obj;
-  rec_dispatch(c, 0x8006F138u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8006F138u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   v0 = eng(c).bit.testFE48((int32_t)c->mem_r8(obj + 1) - 1); // FUN_8006EFF4 (native)
   if (v0 == 0) {
     goto L7cc;

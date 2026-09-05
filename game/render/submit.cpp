@@ -2,19 +2,19 @@
 //
 // These are the resident routines that take an object's pre-built primitive-record list, GTE-project
 // each record's model vertices, backface/frustum-cull, compute an ordering-table (OT) bucket, write the
-// screen-space GPU packet, and link it into the OT. The recompiled MIPS bodies threw away the float
+// screen-space GPU packet, and link it into the OT. The guest MIPS bodies threw away the float
 // view-space depth (only integer SXY survives into the packet), which is the ONLY reason the value-keyed
 // "attach" measurement-hack existed (recovering depth by correlating projected SXY against memory
 // stores). By owning the submit code natively we compute the projection and KEEP the real per-vertex
 // view-Z, carrying it straight to the renderer's depth path — no correlation, no bridge.
 //
-// Faithful-first: the native routine reproduces the recomp body BYTE-FOR-BYTE (identical packets, OT
-// links, packet-pool advance, cull decisions, return value), verified 0-diff vs the recomp body on real
+// Faithful-first: the native routine reproduces the guest instruction path BYTE-FOR-BYTE (identical packets, OT
+// links, packet-pool advance, cull decisions, return value), verified 0-diff vs the guest instruction path on real
 // field gameplay. The GTE math itself stays a
-// platform primitive (gte_op → the Beetle GTE), exactly as the recomp body called it, so projection
+// platform primitive (gte_op → the Beetle GTE), exactly as the guest instruction path called it, so projection
 // results are bit-identical; we own the control flow, record decode, packet assembly and OT insertion.
 //
-// RE (recomp bodies gen_func_8007FDB0 / gen_func_8008007C, decoded into clean form — docs/engine_re.md):
+// RE (guest instruction paths guest 0x8007FDB0 / guest 0x8008007C, decoded into clean form — docs/engine_re.md):
 //   args: a0 = primitive-record array, a1 = OT base, a2 = record count;  returns a0 advanced past the array.
 //   global packet-pool write pointer at 0x800BF544 (advanced past each committed packet).
 //
@@ -42,8 +42,6 @@
 
 // g_dbg_cur_geomblk retired — per-Core Render::mDbgCurGeomblk (sil_bbox_log_node diag)
 #include <math.h>
-
-void rec_super_call(Core *, uint32_t); // interpret the original PSX body (A/B oracle / super-call)
 
 #define COL_MASK 0xFFF0F0F0u // low-nibble-per-byte clear applied to RGB words (matches the GPU)
 
@@ -79,7 +77,7 @@ float proj_obj_center_ord(void);
 // The entity node the native render walk is currently rendering (set around each per-object dispatch,
 // below): the PER-INSTANCE identity for every prim an object emits, read by the objid overlay
 // (RenderQueue::emitOrQueue). g_dbg_render_node retired — per-Core Render::mDbgRenderNode (render.h);
-// cur_render_node lives in runtime/recomp/render_node.h.
+// cur_render_node lives in runtime/psx/render_node.h.
 #define PKT_POOL_PTR 0x800BF544u
 
 // PC-native per-vertex depth (Phase 2): because we OWN the projection, we know each vertex's real
@@ -111,7 +109,7 @@ static inline const float (*shadow_verts(const ProjVtx *p, int nv, int semi, flo
 }
 // fps60 (docs/fps60-rework.md, unified path): the interp present re-runs this SAME submit path under
 // lerped inputs (camera/object-transform/backdrop chokes) — nothing in this submit path needs to tag
-// for fps60. See runtime/recomp/fps60.cpp.
+// for fps60. See runtime/psx/fps60.cpp.
 
 // ENGINE-NATIVE directional lighting (user directive 2026-06-21: lighting must be engine-native, NOT a
 // screen-space deferred pass). Compute a real per-FACE normal from the prim's own view-space geometry
@@ -198,7 +196,7 @@ static inline void engine_shade_face(Core *c, const ProjVtx *p, int nv, uint8_t 
 }
 // ---- GAME SORT KEY (kanban #11) ---------------------------------------------------------------------
 // The OT bucket index the GUEST submitter files a face under — recomputed natively, step-for-step from
-// the RE'd recomp bodies gen_func_8007FDB0 (GT3) / gen_func_8008007C (GT4):
+// the RE'd guest instruction paths guest 0x8007FDB0 (GT3) / guest 0x8008007C (GT4):
 //   policy = GP0 code byte & 3:
 //     0/3 -> AVSZ3/AVSZ4: otz = Lm_D( (ZSF * ΣSZ) >> 12 )   (ZSF3 = CR29 for tris, ZSF4 = CR30 for quads)
 //     1   -> max(SZ...) >> 2
@@ -246,7 +244,7 @@ static SortKey game_sort_key(Core *c, const ProjVtx *p, int nv, uint32_t code, i
   int32_t b = otz >> 10;
   int32_t k = (otz >> (b & 31)) + (b << 9);
   // THE GUEST'S OWN RANGE TEST, literal: `if ((unsigned)(k-4) >= 2044) k = -1`, after which the submitter
-  // stores -1 and gen_func_80080000 skips the OT link entirely. The face is NOT DRAWN by the real game.
+  // stores -1 and guest 0x80080000 skips the OT link entirely. The face is NOT DRAWN by the real game.
   if ((uint32_t)(k - 4) >= 2044u) {
     return SortKey::droppedByGuest();
   }
@@ -291,7 +289,7 @@ static float key_to_ord(int key) {
   return proj_pz_to_ord(avg_sz);
 }
 
-// gen_func_8007FDB0 — POLY_GT3 (gouraud-textured triangle) submit.
+// guest 0x8007FDB0 — POLY_GT3 (gouraud-textured triangle) submit.
 // Record = 36 bytes: {+0 rgb0|code, +4 rgb1 (rgb2 = rgb1<<4), +8 uv0|clut, +12 uv1|tpage,
 //   +16 VXY0, +20 VZ0(lo)|VZ1(hi), +24 VXY1, +28 VXY2, +32 VZ2(lo)|uv2(hi)}.
 // PC-NATIVE POLY_GT3 submit — project the 3 model verts through the engine's composed transform in FLOAT
@@ -430,7 +428,7 @@ void Render::submitPolyGt3Native(Core *c) {
       const SortKey key = game_sort_key(c, p, 3, code, proj_zsf3());
       rend(c)->mGuestGate.noteKey(key);
       // GATE 4 — the guest computed a key and its own range test rejected it, so the submitter stores
-      // -1 and gen_func_80080000 never links the prim. `unknown()` is deliberately NOT this branch.
+      // -1 and guest 0x80080000 never links the prim. `unknown()` is deliberately NOT this branch.
       if (key.guestDrop) {
         continue;
       }
@@ -445,7 +443,7 @@ void Render::submitPolyGt3Native(Core *c) {
   c->r[2] = rec;
 }
 
-// gen_func_8008007C — POLY_GT4 (gouraud-textured quad) submit, PC-NATIVE.
+// guest 0x8008007C — POLY_GT4 (gouraud-textured quad) submit, PC-NATIVE.
 // Record = 44 bytes: {+0 rgb0(rgb1=<<4), +4 rgb2(rgb3=<<4), +8 uv0|clut, +12 uv1|tpage,
 //   +16 uv2(lo)|uv3(hi), +20 VXY0, +24 VZ0(lo)|VZ1(hi), +28 VXY1, +32 VXY2, +36 VZ2(lo)|VZ3(hi), +40 VXY3}.
 // Project the 4 model verts through the engine's composed transform in FLOAT (proj_native_xform, no
@@ -572,16 +570,16 @@ void Render::submitPolyGt4Native(Core *c) {
 }
 
 // =====================================================================================================
-// NATIVE PER-OBJECT RENDER FLUSH — gen_func_8003CDD8 (THE world/margin render submission, later-133).
+// NATIVE PER-OBJECT RENDER FLUSH — guest 0x8003CDD8 (THE world/margin render submission, later-133).
 //
 // This is the heart of "make it a PC game": the engine's per-object render — composing the camera ×
 // object-local transform and dispatching each object's persistent render-command list to the geometry
-// submitter — reimplemented in native C so NO guest render code runs (no gen_func_8003CDD8, no
-// gen_func_8003F698 dispatcher, no gen_func_800803DC) and NO guest packet/VRAM is touched beyond the
-// 1-word OT ordering node the native submitters already own. Decoded byte-for-byte from the recomp body
+// submitter — reimplemented in native C so NO guest render code runs (no guest 0x8003CDD8, no
+// guest 0x8003F698 dispatcher, no guest 0x800803DC) and NO guest packet/VRAM is touched beyond the
+// 1-word OT ordering node the native submitters already own. Decoded byte-for-byte from the guest instruction path
 // (docs/engine_re.md "Deferred render pipeline" / journal later-133):
 //
-//   gen_func_8003CDD8(a0=node, a1=flag): for each render command in the node's persistent list
+//   guest 0x8003CDD8(a0=node, a1=flag): for each render command in the node's persistent list
 //   (count at node+8 / node+9, cmd-ptr ARRAY at node+0xc0[i]):
 //     - geomblk = cmd+0x40; skip the command if it is 0.
 //     - COMPOSE the GTE transform: camera-rotation (scratch 0x1F8000F8 → CR0-4) × the object-local
@@ -593,12 +591,12 @@ void Render::submitPolyGt4Native(Core *c) {
 //     - Dispatch geomblk to the per-mode renderer with OT base *0x800ED8C8 (+cmd[0x3f]*4 when
 //       node[0xd]&0xf == 4) and the flush flag.
 //
-// The MVMVA matrix math stays a platform primitive (gte_op → the Beetle GTE), exactly as the recomp
+// The MVMVA matrix math stays a platform primitive (gte_op → the Beetle GTE), exactly as the guest instruction path
 // body called it, so the composed CR0-7 are bit-identical. The scratchpad temps (0x1F8000xx) are the
-// SAME the recomp body uses — pure CPU scratch, not render packet/VRAM. The dispatch routes the common
+// SAME the guest instruction path uses — pure CPU scratch, not render packet/VRAM. The dispatch routes the common
 // world path natively (native_dispatch → Render::gt3gt4 → the native submitPolyGt3/Gt4Native above);
 // the per-scene OVERLAY submitter variants (mode-table entries other than the GT3/GT4 path) are NOT yet
-// owned, so for those modes the original per-mode renderer is invoked (rec_dispatch) — the documented
+// owned, so for those modes the original per-mode renderer is invoked (typed runtime address dispatch) — the documented
 // next RE target (engine_re "OPEN — full field depth coverage").
 #define SCR 0x1F800000u          // PSX scratchpad base (the engine's GTE-compose temp area)
 #define MODE_BYTE 0x800BF870u    // *this = render-mode select (DAT_800bf870, 0..0x15)
@@ -607,9 +605,7 @@ void Render::submitPolyGt4Native(Core *c) {
 #define MVMVA_ROTCOL 0x4A49E012u // MVMVA: camera-rot(CR0-4) × IR vector → composed col
 #define MVMVA_TRANS 0x4A486012u  // MVMVA: camera-rot × V0 (object translation)
 
-void rec_dispatch(Core *, uint32_t); // interpret/run a guest fn (unowned overlay-variant modes)
-
-// gen_func_800803DC's first body (the generic GT3/GT4 renderer): split the geomblk's packed prim counts
+// guest 0x800803DC's first body (the generic GT3/GT4 renderer): split the geomblk's packed prim counts
 // (low16 tri, high16 quad), point past the 16-byte header to the record array, and run the two native
 // submitters in sequence (tri-submit returns the advanced record pointer = the quad array base).
 // g_dbg_cur_geomblk retired — per-Core Render::mDbgCurGeomblk
@@ -653,7 +649,7 @@ void Render::gt3gt4(uint32_t geomblk, uint32_t otbase) { // used by render_walk.
   // not pointing at a geometry block at all — measured on the Tomba!2 DEMO transition (gpu f1822):
   // node 800F06D8's geomblk 801E9AB4 held TEXTURE bytes, read back as gt3=63740 gt4=64760, and the
   // ~125k garbage quads that produced are what fed the render queue the frame that wedged it. The
-  // guest emitter (ov_a00_gen_80146478) reads the SAME two 16-bit fields, so this is faithful, not a
+  // guest emitter (overlay guest 0x80146478) reads the SAME two 16-bit fields, so this is faithful, not a
   // port defect — the diagnostic exists so the next occurrence is visible instead of inferred.
   const uint32_t gt3_count = counts & 0xFFFFu, gt4_count = counts >> 16;
   if (!geomblkRecordsFitInRam(geomblk, gt3_count, gt4_count)) {
@@ -717,7 +713,7 @@ void Render::fieldEntityRender(uint32_t es) {
   // Producer DB, native leg (external/psxport/docs/plans/graphics-producer-db.md). Keyed on the guest
   // entity-render loop this pass OWNS — 0x80109FE0, confirmed through tools/codemap.py --addr rather
   // than taken from this file's own banner (a banner address in this subsystem has already been wrong
-  // once: a comment reading "Render::perObjFlush/func_80051464" names an address that belongs to
+  // once: a comment reading "Render::perObjFlush/guest 0x80051464" names an address that belongs to
   // NodeXform::propagateAxis). Scoped here, not at the two call sites, for the same reason the dbg_node
   // tag below is: sceneNative's real per-logic-frame call and Fps60::tier1Render's present-time
   // re-render both come through this function, so neither can forget it.

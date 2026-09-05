@@ -3,17 +3,17 @@
 // entry "id_compare_motion_dispatch") when the node's motion-substate byte node[3] is 0x80 / 0x81.
 //
 // RE'd via Ghidra headless (A00 overlay project, scratch/ghidra/A00, functions FUN_80145AF0 /
-// FUN_801458E0) and cross-checked instruction-for-instruction against the recompiled substrate
-// (generated/ov_a00_shard_0.c: ov_a00_gen_80145AF0; generated/ov_a00_shard_1.c: ov_a00_gen_801458E0).
-// Same taxi convention as the rest of this overlay's owned leaves (Cull::cullWrapperFlag2 etc): the
-// object is c->r[4], no separate parameter; all field access goes through c->mem_r*/mem_w*.
+// FUN_801458E0) and cross-checked instruction-for-instruction against the guest execution
+// (authenticated executable/overlay evidence: overlay guest 0x80145AF0; authenticated executable/overlay evidence:
+// overlay guest 0x801458E0). Same taxi convention as the rest of this overlay's owned leaves (Cull::cullWrapperFlag2
+// etc): the object is c->r[4], no separate parameter; all field access goes through c->mem_r*/mem_w*.
 //
 // Object field layout used by BOTH methods (guest offsets from `node`, the a0 taxi arg — this is a
 // generic per-object record, not specific to this behavior; only the fields these two leaves touch
 // are named here):
 //   +0x00 kind byte (set to 7 on the one-shot hit in aimAtTargetAnchor)
 //   +0x04 outer per-object state (owned by beh_id_compare_motion_dispatch; aimAtTargetAnchor can
-//         clobber this to 2 via a 4-byte write that ALSO resets +0x07, matching the recomp's own
+//         clobber this to 2 via a 4-byte write that ALSO resets +0x07, matching the guest instruction path's own
 //         `*(u32*)(node+4) = 2` idiom already used elsewhere in beh_id_compare_motion_dispatch.cpp)
 //   +0x07 this behavior's own sub-phase byte (0..5 in orbitTargetMotion; 0..2(+) in aimAtTargetAnchor)
 //   +0x10 captured target pointer (u32) — written by orbitTargetMotion phase 0 (FUN_8011740C result);
@@ -43,7 +43,7 @@ public:
 
   // orbitTargetMotion (FUN_801458E0): node[3]==0x81 handler. A 6-phase machine on node[7]:
   //   0: acquire target (FUN_8011740C) into node[0x10]/node[0x14], seed direction flag + angle=0,
-  //      falls straight into phase 1 the same call (recomp fallthrough, not a "next frame" edge).
+  //      falls straight into phase 1 the same call (guest instruction path fallthrough, not a "next frame" edge).
   //   1: re-init (FUN_801402B8), orbit-rate const = 0x800, timer = 20, falls into phase 2.
   //   2: accumulate self position (+0x2C/+0x34) by (speed * rate) rotated by the direction bit;
   //      count the timer down; while >0 this phase repeats every frame (no fallthrough); on
@@ -51,7 +51,7 @@ public:
   //   3: re-init (FUN_801402B8 with different args), timer = 16, falls into phase 4.
   //   4: count 16 down; on expiry reset timer=16, advance to phase 5, set flag bit 4.
   //   5: sweep angle by +0x80/frame using the PRE-decrement timer value for the expiry test (a
-  //      recomp quirk preserved faithfully — see the `told` local); on expiry loop back to phase 1,
+  //      guest instruction path quirk preserved faithfully — see the `told` local); on expiry loop back to phase 1,
   //      flip the direction bit, clear angle + the "second lap" flag bit.
   //   default (phase>=6): no-op.
   // Common tail (every path, including the phase>=6 no-op): FUN_801406E4(node) + node[0x32] += 20.
@@ -61,7 +61,7 @@ public:
   //   phase 0: FUN_801406E4(node) re-arm, then falls into the phase-1 init block.
   //   phase 1: FUN_801402B8 init, phase=2, flag bit0 set, angle=0x800, falls into the aim recompute.
   //   phase 2: (direct entry) aim recompute only.
-  //   phase>2: plain return — NO common tail here (unlike orbitTargetMotion; matches recomp exactly).
+  //   phase>2: plain return — NO common tail here (unlike orbitTargetMotion; matches guest instruction path exactly).
   //   Aim recompute: self aim-point (+0x2E/0x32/0x36) := position-source's position (+0x2C/0x30/0x34)
   //   offset by a fixed (+0x28,-0xCD,+0) anchor delta; +0x58 cleared.
   //   Attack-window check: if the captured target's state (+0x7A) is 2 or 6, OR its (+0x6C==2 AND

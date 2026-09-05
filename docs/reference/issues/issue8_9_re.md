@@ -52,7 +52,7 @@ reaching these prims.**
 Effect billboards in Tomba2 are emitted as **op-0x60..0x7F textured rect/sprite** GP0 packets through the
 guest OT, OR as textured quads (POLY_GT4) — both funnel into the same texel sampler. Trace:
 
-### (a) Textured rect/sprite — `gp0_exec` op 0x60..0x7F (`runtime/recomp/gpu_native.cpp:899`)
+### (a) Textured rect/sprite — `gp0_exec` op 0x60..0x7F (`runtime/psx/gpu_native.cpp:899`)
 - `textured = op & 0x04`, `semi = op & 0x02` (`:900`). Dust/impact puffs are semi-transparent textured
   sprites (op 0x65/0x66/0x67).
 - Reads `u0 = uv & 0xFF`, `v0 = (uv>>8)&0xFF`, and **sets the CLUT from the same word**:
@@ -75,7 +75,7 @@ guest OT, OR as textured quads (POLY_GT4) — both funnel into the same texel sa
 
 ### (c) The texel sampler both paths reach
 - SW reference: `raster_sprite` (`gpu_native.cpp:659`) → `sample_tex(u,v)` (`:233`).
-- VK: `tritex.frag` (`runtime/recomp/shaders_vk/tritex.frag:29-39`), fed by `tritex.vert` (UV is
+- VK: `tritex.frag` (`runtime/psx/shaders_vk/tritex.frag:29-39`), fed by `tritex.vert` (UV is
   `noperspective` affine, `tritex.vert:14,27`).
 
 Both decode **identically** (this is verified, see §2): texture-window wrap, then per-mode
@@ -184,7 +184,7 @@ constant that happens to hide one scene.
    ALL prims (cross-page backgrounds keep working; effect cells stop marching). Keep SW (`sample_tex`)
    and VK (`tritex.frag`) in lock-step on whatever rule is adopted (they are equal today — keep them so).
 
-3. **If the effect renderer is still recomp content:** own its submit walk PC-native exactly like the
+3. **If the effect renderer is still guest instruction path content:** own its submit walk PC-native exactly like the
    aux-walks added for #4 (`engine_submit.cpp:837+`), reading the effect's texpage + texture-window +
    per-cell UV from the SCENE data and emitting the billboard via `gpu_draw_world_quad` with the cell's
    `tw_*` — so the confinement is the engine's own decision, not inherited from a possibly-dropped E2.
@@ -252,21 +252,21 @@ whether the bars are the atlas columns just right of the cell (off-page march, c
 ---
 
 ## Key file:line index
-- `runtime/recomp/gpu_native.cpp:899-1006` — op 0x60..0x7F textured rect/sprite decode + VK tee (effect
+- `runtime/psx/gpu_native.cpp:899-1006` — op 0x60..0x7F textured rect/sprite decode + VK tee (effect
   sprite path); **:905** CLUT from uv word, **:978** quad UV `{u0,u0+w,…}` (the affine U span), **:980**
   `mode = textured?s_tp_mode:3`, **:995-1003** `draw_semi`/`draw_tritri` carrying `tw_*`.
-- `runtime/recomp/gpu_native.cpp:233-246` — `sample_tex` SW reference: texwin wrap (`:234-235`) + 4/8/15bpp
+- `runtime/psx/gpu_native.cpp:233-246` — `sample_tex` SW reference: texwin wrap (`:234-235`) + 4/8/15bpp
   + CLUT (`:237-245`). **No U-clamp to cell** (the un-confined sampling).
-- `runtime/recomp/gpu_native.cpp:498-505` — `set_texpage`/`set_clut` (decode is correct).
-- `runtime/recomp/gpu_native.cpp:659-682` — `raster_sprite` (SW), `u0+dx` → `sample_tex` (the U span source).
-- `runtime/recomp/gpu_native.cpp:1125` — GP0-0xE2 texture-window decode (correct layout).
-- `runtime/recomp/gpu_native.cpp:1612-1617` — note: E1/E2 (texpage/texwindow) MUST be applied in draw order.
-- `runtime/recomp/shaders_vk/tritex.frag:29-39` — VK texel decode (matches SW exactly); **:30-35** the
+- `runtime/psx/gpu_native.cpp:498-505` — `set_texpage`/`set_clut` (decode is correct).
+- `runtime/psx/gpu_native.cpp:659-682` — `raster_sprite` (SW), `u0+dx` → `sample_tex` (the U span source).
+- `runtime/psx/gpu_native.cpp:1125` — GP0-0xE2 texture-window decode (correct layout).
+- `runtime/psx/gpu_native.cpp:1612-1617` — note: E1/E2 (texpage/texwindow) MUST be applied in draw order.
+- `runtime/psx/shaders_vk/tritex.frag:29-39` — VK texel decode (matches SW exactly); **:30-35** the
   prior-fix comment + removed `u&=255` (the bandaid that left #8/#9 open).
-- `runtime/recomp/shaders_vk/tritex.vert:14,27` — UV affine (`noperspective`) interpolation.
+- `runtime/psx/shaders_vk/tritex.vert:14,27` — UV affine (`noperspective`) interpolation.
 - `engine/engine_submit.cpp:300-340` — `submit_poly_gt4_native`: per-corner UV/CLUT/texpage, the
   GT4 billboard path (#9-stretched-quad candidate).
-- `runtime/recomp/gpu_gpu.cpp:1464-1485` — `draw_tritri`/`draw_semi` → `tex_emit` (carry `tw_*` to vertex).
+- `runtime/psx/gpu_gpu.cpp:1464-1485` — `draw_tritri`/`draw_semi` → `tex_emit` (carry `tw_*` to vertex).
 - prior commits: `2a11b4f` (the un-clamp "fix" that did not close #8/#9), `ca01e70` (tex_export
   `--frames` CLUT sprite-sheet decoder, built to RE the dust atlas).
 

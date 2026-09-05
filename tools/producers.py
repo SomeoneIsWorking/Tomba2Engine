@@ -175,7 +175,7 @@ None recorded. If `has_native` says true, the override table owns this address; 
 
 ## Evidence
 
-(Decompile with `external/psxport/tools/decomp.sh`, then cite it here. A `re_status` above `unknown`
+(Decompile with `external/psxport/the Ghidra evidence workflow`, then cite it here. A `re_status` above `unknown`
 with no `re_evidence` is a lint error — see `tools/producers.py check`.)
 """
 
@@ -1066,11 +1066,11 @@ def _selftest_repo(root: Path, key_time: str, docs_time: str = "", desync_pin: b
     (root / "game" / "render").mkdir(parents=True)
     (root / "docs").mkdir(parents=True)
     fw = root / FRAMEWORK
-    (fw / "runtime" / "recomp").mkdir(parents=True)
+    (fw / "runtime" / "guest instruction path").mkdir(parents=True)
     (fw / "docs").mkdir(parents=True)
     (root / "game" / "render" / "render_walk.cpp").write_text("ProducerScope scope(key);\n")
     (root / ".gitmodules").write_text('[submodule "external/psxport"]\n')
-    (fw / "runtime" / "recomp" / "producer_db.cpp").write_text("void appendClaims() {}\n")
+    (fw / "runtime" / "guest instruction path" / "producer_db.cpp").write_text("void appendClaims() {}\n")
     env = dict(os.environ, GIT_AUTHOR_NAME="selftest", GIT_AUTHOR_EMAIL="selftest@local",
                GIT_COMMITTER_NAME="selftest", GIT_COMMITTER_EMAIL="selftest@local")
 
@@ -1357,7 +1357,7 @@ def main() -> int:
                          "Pass each leg separately — do NOT cp several legs into one directory, the "
                          "runtime's 1-second stamp collides and one leg is lost")
     st.add_argument("--binary", default="",
-                    help="the built port whose runs these are (default scratch/bin/tomba2_port); its "
+                    help="the built port whose runs these are (default build/bin/tomba2_port); its "
                          "mtime must be newer than every key-deciding path or the report REFUSES")
     st.add_argument("--ref-time", default="",
                     help="ISO stamp standing for the code identity a claim must be re-earned under "

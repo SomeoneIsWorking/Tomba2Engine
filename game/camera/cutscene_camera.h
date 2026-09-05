@@ -3,10 +3,10 @@
 //
 // SCOPE (RESOLVED 2026-07-01, later-293 — docs/findings/camera.md): this IS the free-roam field camera, not
 // a cutscene-only camera. The earlier "cutscene-only, free-roam lives in a 0x8013xxxx overlay" conclusion was
-// a MEASUREMENT ARTIFACT: camtrace/recdep hook `rec_dispatch`, but the recompiler emits intra-MAIN calls as
-// DIRECT C calls (`func_8006EC44(c)`), so resident→resident camera dispatch was invisible to those meters. A
-// guest-stack backtrace at the view-matrix write proved the free-roam chain is the resident driver
-// 0x8006EC44 → snapFollow (0x8006E3B0) → lookAt (0x8006D02C) — all owned here. The class name is now a
+// a MEASUREMENT ARTIFACT: camtrace/recdep hook `typed runtime address dispatch`, but the recorded guest call graph
+// contains intra-MAIN calls as DIRECT C calls (`guest 0x8006EC44(c)`), so resident→resident camera dispatch was
+// invisible to those meters. A guest-stack backtrace at the view-matrix write proved the free-roam chain is the
+// resident driver 0x8006EC44 → snapFollow (0x8006E3B0) → lookAt (0x8006D02C) — all owned here. The class name is now a
 // misnomer (rename to `Camera` deferred, low priority); it serves SOP/cutscene AND free-roam.
 //
 // The per-frame DRIVER + its jump-table MODES + the init/mode-selector are `update()` / `init()` below.
@@ -19,9 +19,10 @@
 //     in this 2.5D game), scene heading, mode selectors, and the SCRATCHPAD scratch block `S`
 //     (0x1F8000D0) that holds the follow accumulators + the composed view matrix the projection reads.
 // Method params replace the guest register convention (no `c->r[4]=cam`); the arithmetic is the RE'd
-// engine behaviour, verified per-call against the recomp oracle (`camverify`) — see camera.cpp.
+// engine behaviour, verified per-call against the historical guest-execution reference (`camverify`) — see camera.cpp.
 #pragma once
 #include "core.h"
+#include "guest_call.h"
 #include <stdint.h>
 
 class Game;
@@ -29,7 +30,7 @@ class Game;
 class CutsceneCamera {
 public:
   // Wire the 2026-07-08 RE-ahead drafts (resetFollowAccum/pushMode/restoreMode/
-  // snapToMasterOffsetY200/orbitTick) into the global override registry (+ a shard_set_override
+  // snapToMasterOffsetY200/orbitTick) into the global override registry (+ a tomba::native::declareOverride
   // setter for pushMode, which also has direct same-module substrate callers). See
   // cutscene_camera.cpp for the wiring + guest-stack-frame notes.
   static void registerOverrides(Game *game);
@@ -63,9 +64,9 @@ public:
   //   (contiguous top-down ownership); still-unowned resident leaves + all field overlays run via the
   //   substrate. Reached indirectly (camera object behaviour pointer) — wire when the object walk is native.
   void update();
-  // pc_faithful mirror of gen_func_8006EC44: reproduces the gen's OWN guest-stack frame (r29-=24,
+  // pc_faithful mirror of guest 0x8006EC44: reproduces the gen's OWN guest-stack frame (r29-=24,
   // r16@sp+16 / r31@sp+20 spill-restore) and sets c->r[31] to the exact jal-site constant before every
-  // callee (native sibling call or rec_dispatch to a still-substrate leaf/overlay), so downstream
+  // callee (native sibling call or typed runtime address dispatch to a still-substrate leaf/overlay), so downstream
   // still-substrate leaves see the same c->r[29]/c->r[16] core B does. See cutscene_camera.cpp.
   void updateFaithful();
   void init();                    // 0x8006EA7C — first-frame field reset + render-mode-keyed mode selector.
@@ -178,12 +179,12 @@ private:
   // targets don't read them). update()/init() use these for the leaves/overlays they don't own yet.
   void sub(uint32_t fn) {
     c->r[4] = cam_;
-    rec_dispatch(c, fn);
+    psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   }
   void sub(uint32_t fn, uint32_t a1) {
     c->r[4] = cam_;
     c->r[5] = a1;
-    rec_dispatch(c, fn);
+    psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   }
   // update()'s MODE-byte (cam[0x64]&0x3F) dispatch — split out to keep update() readable.
   void dispatchMode(uint8_t mode);

@@ -5,8 +5,8 @@
 // NOT a sprite-family member. It programs no DQA and never calls FUN_800317CC, so SpriteAnchor does
 // not apply; it is scene geometry — a textured gouraud grid.
 //
-// RE from ov_a0e_gen_80110CA4, statically verified 2026-07-28 with its verifier's corrections
-// (docs/re/render-targets-static-re.md — read the ORIGINAL algorithm alongside the CORRECTED delta).
+// RE from overlay guest 0x80110CA4, statically verified 2026-07-28 with its verifier's corrections
+// (docs/re/render-targets-binary-analysis.md — read the ORIGINAL algorithm alongside the CORRECTED delta).
 //
 // WHAT IT DRAWS — two grids sharing one transform:
 //   GRID A: a 12000 x 16800 model-unit WALL at local Z = 0 — 7 rows (y = -7200..7200 step 2400) x
@@ -234,7 +234,7 @@ void Render::fxBackdropPlaneRender(uint32_t node) {
 // The tail half of FUN_80110CA4, and kanban #67. A fixed 200-slot pool of sprite particles drawn over
 // the waterfall — spray, embers or motes depending on how you read the art.
 //
-// THE KEY OBSERVATION, and why this port is small where the gen body is 441 lines: that body both
+// THE KEY OBSERVATION, and why this port is small where the guest-visible behavior is 441 lines: that body both
 // SIMULATES and DRAWS. Per live slot it integrates pos += vel and adds 25 to vel.y (gravity), writes
 // both back, then projects and emits; the rest of its bulk is the SPAWN state machine, which is where
 // all 34 of its PRNG draws live. A read-only producer reproduces NONE of that — the guest's own body

@@ -40,10 +40,10 @@
 // previous port in this session.
 //
 // TRUE EXTENT: [0x8010EA80, 0x8010EC58). Single epilogue L_8010EC40 (four restores from sp+16..sp+28,
-// then sp += 32); the trailing duplicate `return;` is the recompiler's dead-tail artifact. NOT taken
+// then sp += 32); the trailing duplicate `return;` is the recorded binary evidence's dead-tail artifact. NOT taken
 // from "the next gen function in the shard", which is a false test here.
 //
-// MODULE: A00 only, so ov_a00_set_override.
+// MODULE: A00 only, so A00 tomba::native::declareOverride.
 //
 // GUEST STACK: frame 32, spills r17,ra,r18,r16 at +20,+28,+24,+16 in the guest's program order. All
 // three callee-saved registers stay GuestReg proxies — each is live across at least one nested call.
@@ -51,8 +51,8 @@
 
 #include "core.h"
 #include "guest_abi.h"
-#include "ov_a00_decls.h"
-#include "override_registry.h"
+#include "guest_jal.h"
+#include "native_override_catalog.h"
 
 namespace {
 
@@ -96,7 +96,7 @@ constexpr uint16_t kRecoilTicks = 120;
 
 } // namespace
 
-// ORACLE: ov_a00_gen_8010EA80
+// ORACLE: overlay guest 0x8010EA80
 void ActorBump::respondToContact(Core *c) {
   GuestFrame<32, 4> frame(c, kSpills_8010EA80);
 
@@ -117,7 +117,7 @@ void ActorBump::respondToContact(Core *c) {
   }
 
   c->r[6] = 1;
-  guest_dispatch(c, kRaAfterClassify, kClassifyBodyContact);
+  tomba::guest::dispatchJalToReturn(*c, kClassifyBodyContact, kRaAfterClassify);
   const int32_t contactClass = (int32_t)c->r[2];
   if (contactClass < 0) {
     return;
@@ -132,26 +132,26 @@ void ActorBump::respondToContact(Core *c) {
       if ((actor.stateFlags() & (int32_t)actorbump::kSpecialBit) != 0) {
         c->r[4] = c->r[17];
         c->r[5] = c->r[18];
-        guest_dispatch(c, kRaAfterSpecial, kSpecialInteract);
+        tomba::guest::dispatchJalToReturn(*c, kSpecialInteract, kRaAfterSpecial);
         return;
       }
       c->r[4] = c->r[18];
       c->r[5] = (uint32_t)-32766;
       c->r[6] = 3;
       c->r[7] = 32;
-      guest_dispatch(c, kRaAfterGeneric, kGenericInteract);
+      tomba::guest::dispatchJalToReturn(*c, kGenericInteract, kRaAfterGeneric);
       return;
     }
 
     // ── PUSH APART: put the actor on the contact circle around the other body ──────────────────
     scratch = kScratchpadBase;
     c->r[4] = c->mem_r32(scratch + kContactAngleSlot);
-    guest_dispatch(c, kRaAfterCos, kRcos);
+    tomba::guest::dispatchJalToReturn(*c, kRcos, kRaAfterCos);
     guest_mult(c, (int32_t)c->r[2], actor.reach() + other.reach());
     c->r[4] = c->mem_r32(scratch + kContactAngleSlot);
     const int32_t offsetX = (int32_t)c->lo >> kTrigShift;
     scratch = (uint32_t)offsetX; // s0 carries it across the rsin call
-    guest_dispatch(c, kRaAfterSin, kRsin);
+    tomba::guest::dispatchJalToReturn(*c, kRsin, kRaAfterSin);
     guest_mult(c, (int32_t)c->r[2], actor.reach() + other.reach());
     actor.setPosX((uint16_t)(other.posX() + (uint32_t)scratch));
     const int32_t offsetZ = (int32_t)c->lo >> kTrigShift;
@@ -174,7 +174,7 @@ void ActorBump::respondToContact(Core *c) {
   c->r[4] = (uint32_t)actor.facing();
   c->r[5] = (uint32_t)c->mem_r16s(scratch + kContactAngleSlot);
   c->r[6] = 0;
-  guest_dispatch(c, kRaAfterAngleCmp, kAngleCmp);
+  tomba::guest::dispatchJalToReturn(*c, kAngleCmp, kRaAfterAngleCmp);
   // Hit from one side reads the angle straight; from the other it is biased half a turn, so the
   // recoil always drives him away from whatever struck him.
   const uint32_t angle = c->mem_r32(scratch + kContactAngleSlot);
@@ -189,9 +189,5 @@ void ActorBump::respondToContact(Core *c) {
 }
 
 void ActorBump::registerOverrides() {
-  overrides::install(0x8010EA80u,
-                     "ActorBump::respondToContact",
-                     &ActorBump::respondToContact,
-                     ov_a00_gen_8010EA80,
-                     ov_a00_set_override);
+  tomba::native::declareOverride(0x8010EA80u, "ActorBump::respondToContact", &ActorBump::respondToContact);
 }

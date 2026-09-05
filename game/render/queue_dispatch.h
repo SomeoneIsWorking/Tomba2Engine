@@ -74,7 +74,7 @@ public:
   //     A    0x1F80013C / 0x1F800144  0x1F800140 / 0x1F800146  0x800F2410
   //     B    0x1F800148 / 0x1F800150  0x1F80014C / 0x1F800152  0x800F26C8
   //     C    0x1F800154 / 0x1F80015C  0x1F800158 / 0x1F80015E  0x800F2738
-  // RE: the refresh block at the head of gen_func_8003BB50 / 8003BCF4 / 8003BF00 (and the native
+  // RE: the refresh block at the head of guest 0x8003BB50 / 8003BCF4 / 8003BF00 (and the native
   // mirrors in objlist_walk.cpp, which write the same six words).
   struct QueueSnapshot {
     uint32_t ptr;
@@ -96,7 +96,7 @@ public:
   // reading the jump-table arm as the whole story silently dropped the mesh: the cliff fisherman's body
   // and rod (176 polys over 18 render commands) were never submitted while his fishing line kept
   // drawing every frame, which is exactly how the bug presented (kanban #95). Verified in the
-  // recompiled substrate itself, generated/ov_a00_shard_1.c `ov_a00_gen_80122974`.
+  // guest execution itself, authenticated executable/overlay evidence `overlay guest 0x80122974`.
   //
   // Hence the node, not just the route: the guest's mesh call is CONDITIONAL, and on `== 1` precisely —
   // the walk's own entry gate only guarantees non-zero, so do not relax it to `!= 0`.

@@ -12,20 +12,19 @@
 //   STATE 2 : nothing.   STATE 3 : FUN_8007A624(node).   STATE >=4 : nothing.
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the direct node WRITES owned native;
-// every sub-behavior CALL stays reachable via rec_dispatch (pure-PSX leaf, a0=node). Transcribed 1:1 as
-// a register machine (the two near-identical branches share the L883c node[5]==1 test). The byte-exact
-// A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net. NO GTE/render.
+// every sub-behavior CALL stays reachable via typed runtime address dispatch (pure-PSX leaf, a0=node). Transcribed 1:1
+// as a register machine (the two near-identical branches share the L883c node[5]==1 test). The byte-exact A/B gate
+// (full RAM+scratchpad vs original guest-body call) is the safety net. NO GTE/render.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "guest_abi.h"
+#include "guest_jal.h"
 #include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -49,7 +48,7 @@ void beh_linked_advance_branch(Core *c) {
   }
   if ((int32_t)v1 < 2) {
     if (v1 == 0) {
-      guest_leaf(c, 0x80128308u, s0);
+      tomba::guest::dispatchLeafToReturn(*c, 0x80128308u, s0);
     }
     goto Lret;
   } // STATE 0
@@ -113,13 +112,13 @@ BB: // node[3]==1
   c->mem_w8(s0 + 5, (uint8_t)(n5 + 1));
 L88884:
   if (c->mem_r8(0x1F800207u) < 6) { // scratchpad byte
-    guest_leaf(c, 0x801281B8u, s0);
-    guest_leaf(c, 0x801285ECu, s0);
+    tomba::guest::dispatchLeafToReturn(*c, 0x801281B8u, s0);
+    tomba::guest::dispatchLeafToReturn(*c, 0x801285ECu, s0);
   }
   goto Lret;
 
 Ltail88b0:
-  guest_leaf(c, 0x801281B8u, s0); // FUN_801281B8(node)
+  tomba::guest::dispatchLeafToReturn(*c, 0x801281B8u, s0); // FUN_801281B8(node)
 Lret:
   return;
 }

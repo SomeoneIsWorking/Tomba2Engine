@@ -5,7 +5,7 @@ Pairs with `gfx-debug.md` (the debug workflow) and `config.md` (flags). VK is TH
 ONE render behavior (native per-pixel depth always on, no oracle to diff against).
 
 ## The GP0 → screen path
-1. The game (recomp + native engine) builds an ordering-table (OT) of GP0 primitive packets in guest RAM.
+1. The game (guest instruction path + native engine) builds an ordering-table (OT) of GP0 primitive packets in guest RAM.
 2. `ov_draw_otag` (game/game_tomba2.cpp) → `gpu_dma2_linked_list` (gpu_native.cpp) walks the OT and calls
    **`gp0_exec`** (gpu_native.c) per primitive. `gp0_exec` decodes each packet (poly/sprite/fill/copy/
    upload/env) — this is the single chokepoint where every drawn primitive passes.

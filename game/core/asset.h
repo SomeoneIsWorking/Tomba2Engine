@@ -58,14 +58,14 @@ public:
   // VRAM build. Two entry points for the same body:
   //   preloadStage1()       — inline direct call (native_sync stage0Advance, native area load)
   //   preloadStage1AsTask() — task-1 body wrapper (pc_faithful): also sets done_flag=1 and
-  //                           rec_dispatches 0x80051FB4 (task-end) so the caller of FUN_80044BD4
+  //                           dynamically dispatches 0x80051FB4 (task-end) so the caller of FUN_80044BD4
   //                           sees the wait-loop exit
   void preloadStage1();
   void preloadStage1AsTask();
 
   // areaDataLoadAsTask(): FUN_800452C0 — the walkable-field AREA-DATA loader, spawned by the
   //   submode1 case-0 spawn-and-wait (0x80044BD4(0x800452C0, area, 0, 2)). pc_faithful task-1
-  //   fiber body (runTask1PreloadStanza), byte-shape mirror of gen_func_800452C0: same-area
+  //   fiber body (runTask1PreloadStanza), byte-shape mirror of guest 0x800452C0: same-area
   //   fast path, slot-2 drain wait loop (yields), area descriptor + texgroup + DAT payload
   //   loads, relocation table, area-8 extra texgroup, done_flag + terminal task end.
   void areaDataLoadAsTask();

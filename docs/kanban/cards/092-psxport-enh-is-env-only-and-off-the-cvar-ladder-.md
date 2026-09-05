@@ -9,7 +9,7 @@ updated: 2026-08-12
 
 Found 2026-08-12 while bootstrapping the megamanx4 tree, which is the workspace's FIRST real pc_enh consumer.
 
-MEASURED: 'grep -rn cfg_enh( --include=*.cpp runtime/ ../Tomba2Engine/game ../spyro/game ../spider1/game' returns exactly ONE line — runtime/recomp/cfg.cpp:197, the definition itself. **cfg_enh() has zero call sites anywhere in the framework or in any of the four game trees**, and both enhancement names registered in psxport's docs/config.md are marked 'planned'. So the pc_enh class has never been exercised; Mega Man X4 is the first thing that needs it, because that port IS three enhancements (widescreen, load removal, drop-in co-op) and nothing else.
+MEASURED: 'grep -rn cfg_enh( --include=*.cpp runtime/ ../Tomba2Engine/game ../spyro/game ../spider1/game' returns exactly ONE line — runtime/psx/cfg.cpp:197, the definition itself. **cfg_enh() has zero call sites anywhere in the framework or in any of the four game trees**, and both enhancement names registered in psxport's docs/config.md are marked 'planned'. So the pc_enh class has never been exercised; Mega Man X4 is the first thing that needs it, because that port IS three enhancements (widescreen, load removal, drop-in co-op) and nothing else.
 
 THE DEFECT. cfg_enh reads lucent::config::text("PSXPORT_ENH") directly into a function-local seeded static. That puts it OFF the CVar ladder entirely: no Value (settings-file) layer, no Runtime (REPL) layer, no appearance in the CVar registry dump, and no row in the environment audit. The USER's standing ruling is 'use cvars not cfg_str' — and cfg_enh structurally cannot satisfy it.
 

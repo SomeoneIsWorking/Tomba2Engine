@@ -7,7 +7,7 @@ created: 2026-08-06
 updated: 2026-08-06
 ---
 
-MEASURED 2026-08-06, area 0, reached by newgame+skip 3000 with NO warp, both legs on the SAME exec leg (PSXPORT_GATE=1, recomp_path), one boot per leg, only PSXPORT_RENDER_PSX differing:
+MEASURED 2026-08-06, area 0, reached by newgame+skip 3000 with NO warp, both legs on the SAME exec leg (PSXPORT_GATE=1, retired comparison path), one boot per leg, only PSXPORT_RENDER_PSX differing:
   pc  -> scratch/screenshots/blockcull/ctl_a0_gpc.png  : the village field, hut, Tomba, terrain — correct.
   psx -> scratch/screenshots/blockcull/ctl_a0_gpsx.png : SKY AND SEA ONLY. No terrain, no hut, no Tomba.
 Same in area 13 after a dev warp (abg_a13_gpc.png vs abg_a13_gpsx.png): pc draws trunks/fence/terrain, psx draws only the fronds and the particle sparkle.

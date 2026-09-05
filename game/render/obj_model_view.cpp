@@ -16,11 +16,11 @@
 // matrix could be almost any compose step, so the identification is anchored on who calls it and
 // what they do next:
 //
-//  1. THE CALLERS. There is no `jal 0x800318A0` anywhere in the recompiled MAIN.EXE text (grep over
-//     generated/shard_*.c finds only the dispatch wrapper), which is why this address is reached
-//     through rec_dispatch and shows up as a recomp-dependency hotspot rather than a static call.
-//     Scanning the A00-resident RAM dumps for the encoded instruction (`jal` to 0x800318A0 ==
-//     0x0C00C628) finds exactly FOUR call sites, all in the A00 overlay:
+//  1. THE CALLERS. There is no `jal 0x800318A0` anywhere in the guest MAIN.EXE text (grep over
+//     authenticated executable/overlay evidence finds only the dispatch wrapper), which is why this address is reached
+//     through typed runtime address dispatch and shows up as a guest instruction path-dependency hotspot rather than a
+//     static call. Scanning the A00-resident RAM dumps for the encoded instruction (`jal` to 0x800318A0 == 0x0C00C628)
+//     finds exactly FOUR call sites, all in the A00 overlay:
 //         scratch/raw/bucket_f470.bin -> 0x8013CE6C, 0x8013D4F4, 0x8013ED28, 0x8013EF70
 //     whose containing functions are FUN_8013CDD4, FUN_8013D454, FUN_8013ED08, FUN_8013EF58.
 //     (scratch/raw/a4_now.bin holds a different overlay and finds four call sites of its own — same
@@ -30,11 +30,11 @@
 //     shows three of them calling this leaf and then IMMEDIATELY calling FUN_80027768 — the shared
 //     effect-mesh record writer, which has no native producer (portmap
 //     render-producer-effect-mesh). Three of the four are the A00-overlay mesh controllers
-//     ov_a00_gen_8013D454 / _8013ED08 / _8013EF58: each composes the node's transform into GTE
+//     overlay guest 0x8013D454 / _8013ED08 / _8013EF58: each composes the node's transform into GTE
 //     CR0-7 itself and then calls the shared writer FUN_80027768, and THIS is the leaf that does
 //     that composing — i.e. the RE entry point for a real producer. The fourth caller, FUN_8013CDD4, is
 //     already ported (game/render/widescreen_margin_quad.cpp) and calls this leaf through
-//     guest_fn() before its own RTPT run — its comment at :154 guessed the behaviour correctly from
+//     typed guest call () before its own RTPT run — its comment at :154 guessed the behaviour correctly from
 //     the scratchpad addresses alone; this port replaces the guess with the body.
 //
 //  3. WHAT THE ARGUMENTS ARE, read off those call sites rather than inferred:
@@ -51,25 +51,25 @@
 //     0x80085480 = Math::rotmat (game/math/gte_math.cpp:221, RotMatrix) and 0x80084520 =
 //     Math::matColScale (gte_math.cpp:500, the per-column fixed-point scale of a CR-packed 3x3).
 //
-// GROUND TRUTH FOR THE BODY: generated/shard_0.c:2975-3103 (gen_func_800318A0) — the recompiler's
-// per-instruction transcription, which is authoritative for COP2 traffic where Ghidra emits
-// unresolvable setCopReg/copFunction pseudo-calls. Frame/spill/call contract from
-// `tools/abi_extract.py 800318A0 --contract`. Draft from `tools/port_gen.py 800318A0`.
+// GROUND TRUTH FOR THE BODY: authenticated executable/overlay evidence (guest 0x800318A0) — the recorded binary
+// evidence's per-instruction transcription, which is authoritative for COP2 traffic where Ghidra emits unresolvable
+// setCopReg/copFunction pseudo-calls. Frame/spill/call contract from `tools/binary ABI evidence 800318A0 --contract`.
+// Draft from `direct executable disassembly 800318A0`.
 //
 // TRUE EXTENT: 0x800318A0 .. 0x80031AC0 inclusive (137 instructions, `jr ra` at 0x80031ABC with
 // `addiu sp,sp,0x30` in its delay slot — located by scanning the RAM dump forward from the entry).
 // Straight-line: no branches, ONE exit, which is why abi_extract reports a single 48-byte frame
-// close and its two "unreachable blocks" are just the recompiler's duplicated trailing `return`.
+// close and its two "unreachable blocks" are just the recorded binary evidence's duplicated trailing `return`.
 //
 // FAITHFUL-SUBSTRATE-MIRROR CARVE-OUT, same as WidescreenMarginQuad / OverlayGt3Gt4: this is the
 // SUBSTRATE's own GTE + scratchpad composer, not a pc_render producer. It reads no OT and honours no
 // draw order; every guest write below is part of the byte-exact state SBS compares.
 //
-// WHY THE TWO LEAVES ARE CALLED THROUGH func_80085480 / func_80084520 AND NOT mathOf(c).rotmat(...):
+// WHY THE TWO LEAVES ARE CALLED THROUGH guest 0x80085480 / guest 0x80084520 AND NOT mathOf(c).rotmat(...):
 // identical to the reason spelled out in game/world/collision_resolve.cpp's header banner. Those
 // substrate bodies descend guest stack frames the native methods do not mirror; going straight to
 // the Math methods would leave the callees' frame bytes below our sp unwritten while substrate core
-// B writes them, and SBS compares that memory. The generated wrappers keep each leaf's own guest
+// B writes them, and SBS compares that memory. The guest call boundaries keep each leaf's own guest
 // frame, and still reach the installed native through the override slot exactly as gen does.
 //
 // REGISTER RESIDUE, audited: gen leaves r2/r3/r4/r5/r7/r12-r14 dirty on return. Nothing consumes
@@ -80,12 +80,10 @@
 #include "obj_model_view.h"
 #include "core.h"
 #include "game.h"
-#include "guest_abi.h"         // GuestFrame / GuestReg / guest_call
-#include "override_registry.h" // overrides::install
-#include "rec_decls.h"         // func_80085480 / func_80084520 / gen_func_800318A0
+#include "guest_abi.h"
+#include "guest_jal.h"               // GuestFrame / GuestReg / guest_call
+#include "native_override_catalog.h" // tomba::native::declareOverride
 #include <cstdint>
-
-void shard_set_override(uint32_t addr, OverrideFn fn); // generated/shard_disp.c (C++ linkage)
 
 namespace {
 
@@ -122,7 +120,7 @@ constexpr uint32_t kMvmvaRotCol = 0x4A49E012u;   // mx=ROT, v=IR  — one COLUMN
 constexpr uint32_t kMvmvaWorldPos = 0x4A486012u; // mx=ROT, v=V0  — the object's world position
 
 // ── this function's own guest stack ──────────────────────────────────────────────────────────────
-// Frame contract from `abi_extract.py 800318A0 --contract`, program order. Not hand-derived.
+// Frame contract from `binary ABI evidence 800318A0 --contract`, program order. Not hand-derived.
 constexpr uint32_t kFrameBytes = 48;
 constexpr GuestFrameSpill kSpills[4] = {{18, 40}, {17, 36}, {16, 32}, {31 /*ra*/, 44}};
 // The three scale FACTORS are built as a guest-stack local and passed to Math::matColScale BY
@@ -150,7 +148,7 @@ constexpr uint32_t kRaColScale = 0x80031904u;  // -> Math::matColScale  0x800845
 
 } // namespace
 
-// ORACLE: gen_func_800318A0 (tools/port_check.py equivalence-gate marker; see docs/port-framework.md)
+// ORACLE: guest 0x800318A0 (tools/dynamic differential evidence equivalence-gate marker; see docs/port-framework.md)
 void ObjModelView::composeIntoGte(Core *c) {
   GuestFrame<kFrameBytes, 4> frame(c, kSpills);
 
@@ -167,7 +165,7 @@ void ObjModelView::composeIntoGte(Core *c) {
   //    PSX angle units into a CR-packed 3x3.
   c->r[4] = c->r[6]; // a0 = the angle vector the caller passed as a2
   c->r[5] = mtx;     // a1 = destination
-  guest_call(c, kRaRotMatrix, func_80085480);
+  tomba::guest::dispatchJalToReturn(*c, 0x80085480u, kRaRotMatrix);
 
   // 2. LOCAL SCALE, per column, in place. Each authored byte becomes a 1.12 factor.
   c->mem_w32(c->r[29] + kLocalScaleCol0, c->mem_r8(scaleBytes + 0) << kScaleByteShift);
@@ -175,7 +173,7 @@ void ObjModelView::composeIntoGte(Core *c) {
   c->mem_w32(c->r[29] + kLocalScaleCol2, c->mem_r8(scaleBytes + 2) << kScaleByteShift);
   c->r[4] = mtx;                        // a0 = the matrix to scale
   c->r[5] = c->r[29] + kLocalScaleCol0; // a1 = the three factors, on our own guest stack
-  guest_call(c, kRaColScale, func_80084520);
+  tomba::guest::dispatchJalToReturn(*c, 0x80084520u, kRaColScale);
 
   // 3. COMPOSE WITH THE CAMERA. Load the scene camera's view rotation into the GTE's rotation
   //    control matrix, then push each COLUMN of the local matrix through MVMVA and store the result
@@ -236,9 +234,5 @@ void ObjModelView::composeIntoGte(Core *c) {
 }
 
 void ObjModelView::registerOverrides(Game *) {
-  overrides::install(0x800318A0u,
-                     "ObjModelView::composeIntoGte",
-                     &ObjModelView::composeIntoGte,
-                     gen_func_800318A0,
-                     shard_set_override);
+  tomba::native::declareOverride(0x800318A0u, "ObjModelView::composeIntoGte", &ObjModelView::composeIntoGte);
 }

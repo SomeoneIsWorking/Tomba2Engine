@@ -8,7 +8,7 @@
 // 800FB960 is the node Tomba's attach pointer targets when he hangs on it. Simpler instances of the
 // same class live elsewhere in the area with cmds=3/7.
 //
-// WHY A LENS AT ALL. The twelve leaves of this orchestrator are byte-exact port_gen transcripts, and a
+// WHY A LENS AT ALL. The twelve leaves of this orchestrator are byte-exact binary evidence transcripts, and a
 // body where every read is `c->mem_r16(c->r[17] + 96)` cannot show you a state fork — which is the
 // whole difficulty of kanban #8, where a sub-part that should move does not. Naming the fields once,
 // here, serves all twelve; four are ported and eight remain.
@@ -19,7 +19,7 @@
 // like a position".
 //
 // port_check FOLLOWS THIS LENS: it harvests one-line write-accessors from game/**/*.h and counts a
-// setter as the stores it performs (port_check.py:138-160). Keep every setter a single line with its
+// setter as the stores it performs (dynamic differential evidence:138-160). Keep every setter a single line with its
 // mem_wN visible, or a converted body will silently stop being gate-able.
 #pragma once
 #include "core.h"
@@ -68,7 +68,7 @@ public:
   }
   // scale (+0x38/+0x3A/+0x3C, 3x s16): the part's per-axis scale in GTE 4.12 fixed point, so 0x1000
   //   is 1.0. Established from the WRITER, not from this reader: the companion's state-0 init
-  //   ov_a00_gen_80136F08 allocates every rig part through the generic child spawner 0x8007AAE8,
+  //   overlay guest 0x80136F08 allocates every rig part through the generic child spawner 0x8007AAE8,
   //   stores it into its own node+0xC0 slot, and seeds exactly this field group — sentinel +6 =
   //   slot-1, euler +8/+10/+12 from the role's blueprint, then 0x1000 into all three of +0x38,
   //   +0x3A and +0x3C. node_xform.cpp's independently-RE'd Node lens names the same three offsets
@@ -165,10 +165,10 @@ public:
   // meaning is pinned by what the assembly's own leaves write, not by the reader.
   //
   // strokePhase (+0x76, s16): how far through its stroke the assembly is, as a 0/1/2 tag rather than
-  //   an angle. ov_a00_gen_8012F5B4 (the sub-state leaf that drives the beam) sets it to 1 when the
+  //   an angle. overlay guest 0x8012F5B4 (the sub-state leaf that drives the beam) sets it to 1 when the
   //   swing crosses into the negative direction, and promotes 1 -> 2 on the frame the beam is clamped
   //   at the far limit (-2560, where it also flips the step at +0x4E to +512); it stores 0 on every
-  //   path that parks the beam at rest. The init leaf ov_a00_gen_8012ED84 zeroes it alongside
+  //   path that parks the beam at rest. The init leaf overlay guest 0x8012ED84 zeroes it alongside
   //   angleParam/armDuration/pendingCommand. So 1 = "first half-stroke reached", which is the single
   //   value the spawned companion arms on.
   int32_t strokePhase() const {

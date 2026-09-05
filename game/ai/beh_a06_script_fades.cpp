@@ -14,7 +14,7 @@
 // disas): 0 = pause loop, 1 = FA0(obj,0), 2 = FA0(obj,1), 3 = FA0(obj,0), >=4 = exit loop.
 //
 // RE'd from Ghidra decomp (scratch/decomp/a06_fade_fns.c + hand-disas 0x8013B29C) + spot-check of
-// raw MIPS. Substrate leaves kept reachable via rec_dispatch (each a small standalone leaf):
+// raw MIPS. Substrate leaves kept reachable via typed runtime address dispatch (each a small standalone leaf):
 //   0x8007E9C8  = ScreenFade set — native as `fade(c).applyLeafCall(color, mode)`
 //   0x8006CBD0  = geomblk / cmd-list attach (used by FUN_80139728 state 5)
 //   0x8006CBA8  = same family (used by FUN_8013B074)
@@ -29,10 +29,9 @@
 #include "core/engine.h"
 #include "game_ctx.h"
 #include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_call.h"
 #include "render/screen_fade.h"
 #include <cstdint>
-
-extern "C" void rec_dispatch(Core *c, uint32_t addr);
 
 namespace {
 
@@ -68,20 +67,20 @@ inline void setV0(Core *c, uint32_t v) {
 inline void callObj2(Core *c, uint32_t a, uint32_t b, uint32_t addr) {
   c->r[4] = a;
   c->r[5] = b;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 inline void callObj3(Core *c, uint32_t a, uint32_t b, uint32_t d, uint32_t addr) {
   c->r[4] = a;
   c->r[5] = b;
   c->r[6] = d;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 inline void callObj4(Core *c, uint32_t a, uint32_t b, uint32_t d, uint32_t e, uint32_t addr) {
   c->r[4] = a;
   c->r[5] = b;
   c->r[6] = d;
   c->r[7] = e;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 inline uint32_t callObj4Ret(Core *c, uint32_t a, uint32_t b, uint32_t d, uint32_t e, uint32_t addr) {
   callObj4(c, a, b, d, e, addr);
@@ -159,7 +158,7 @@ void beh_a06_fade_flash_ramp_80139728(Core *c) {
   case 7: {
     const int16_t v = (int16_t)(c->mem_r16(obj + O_LEVEL_40) - 0x10);
     c->mem_w16(obj + O_LEVEL_40, (uint16_t)v);
-    // recomp:  (int)((uint)uVar2 << 0x10) < 1 == v <= 0 as int32 — TERMINATE the SM.
+    // guest instruction path:  (int)((uint)uVar2 << 0x10) < 1 == v <= 0 as int32 — TERMINATE the SM.
     if (v <= 0) {
       setV0(c, 1u);
       return;
@@ -183,8 +182,8 @@ void beh_a06_fade_flash_ramp_80139728(Core *c) {
 // Allocates via FUN_80072DDC(param, 3, 3, 0x3F); if allocation succeeded, sets the new obj's
 // handler (obj+0x1C = &FUN_8012E194), obj[+0x03]=2, obj[+0x28] |= 0x80. If the global gate G_BF8D5
 // says "not yet" (!= -1), also calls FUN_8004D604(0x31, 1) — a follow-up hook.
-// GUEST FRAME (gen ov_a06_gen_8013AEF0, mirror-verify 0x80108B0C finding): sp-24, ra@+16 — pushed
-// BEFORE either rec_dispatch call and popped at the tail. Both callees (0x80072DDC, then
+// GUEST FRAME (gen overlay guest 0x8013AEF0, mirror-verify 0x80108B0C finding): sp-24, ra@+16 — pushed
+// BEFORE either typed runtime address dispatch call and popped at the tail. Both callees (0x80072DDC, then
 // transitively 0x8007A980; 0x8004D604) are real guest leaves that push their OWN frames relative
 // to c->r[29] and save the incoming r31, so this fn's frame + the jal-site RA constants must be
 // live or their frame-saves land at the wrong (unpushed) address / wrong RA value — exactly the
@@ -222,17 +221,17 @@ void beh_a06_sound_cmd_wait_8013AFD8(Core *c) {
   const uint32_t obj = c->r[4];
   const uint8_t st = c->mem_r8(obj + O_STATE_78);
   if (st == 0) {
-    // Recomp uses a local 6-byte stack struct { u16 0x34E8, u16 0xE1BA, u16 30000 } at sp+0x18. We
+    // guest instruction path uses a local 6-byte stack struct { u16 0x34E8, u16 0xE1BA, u16 30000 } at sp+0x18. We
     // reserve a small guest-stack slot for it (the substrate leaf reads by (u16*)ptr).
     const uint32_t sp_save = c->r[29];
     c->r[29] = sp_save - 24u;
-    const uint32_t scratchArg = c->r[29] + 6u; // matches recomp's auStack_18 offset
+    const uint32_t scratchArg = c->r[29] + 6u; // matches guest instruction path's auStack_18 offset
     c->mem_w16(scratchArg + 0u, 0x34E8u);
     c->mem_w16(scratchArg + 4u, 0xE1BAu);
     c->mem_w16(scratchArg + 8u, 30000u);
     callObj3(c, obj, 1u, scratchArg, 0x80070F00u);
     c->r[4] = 3u;
-    rec_dispatch(c, 0x800708B4u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x800708B4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->r[29] = sp_save;
     c->mem_w8(obj + O_STATE_78, (uint8_t)(st + 1u));
     setV0(c, 0u);
@@ -251,7 +250,7 @@ void beh_a06_sound_cmd_wait_8013AFD8(Core *c) {
 }
 
 // ── FUN_8013B074 — spawn a subobj + set field/anim params ───────────────────────────────────────
-// Recomp: builds { u16 0x3340, u16 0xDFEA, u16 0x6F86 } on stack; calls FUN_8003116C(0x718, ptr,
+// guest instruction path: builds { u16 0x3340, u16 0xDFEA, u16 0x6F86 } on stack; calls FUN_8003116C(0x718, ptr,
 // -0x32); sets obj[+0x28] |= 0x80 on the returned obj; then updates a bank of guest globals
 // (0x800E806C=2, 0x800E8076=0, 0x800E8078=0x800, 0x800E8074 = 7 * *(u32)0x801003F8) and calls
 // FUN_8006CBA8(ptr).
@@ -272,7 +271,7 @@ void beh_a06_spawn_subobj_8013B074(Core *c) {
   c->mem_w32(G_E8078, 0x800u);
   c->mem_w32(G_E8074, c->mem_r32(G_1003F8) * 7u);
   c->r[4] = scratchArg;
-  rec_dispatch(c, 0x8006CBA8u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x8006CBA8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[29] = sp_save;
   setV0(c, 1u);
 }

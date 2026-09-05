@@ -18,25 +18,24 @@
 //   STATE 3 (@0x8003b030): FUN_8007a624(node).
 //
 // CONTROL FLOW + every node/global WRITE owned native; every sub-behavior CALL stays a pure-PSX leaf via
-// rec_dispatch. RE'd 1:1 from disas 0x8003AD48 (Ghidra decomp scratch/decomp/field2/8003ad48.c
+// typed runtime address dispatch. RE'd 1:1 from disas 0x8003AD48 (Ghidra decomp scratch/decomp/field2/8003ad48.c
 // cross-checked). GOTCHA (record-alloc loop): FUN_8007aae8 carries a0 implicitly — its a0/a1 is the
-// leftover from the prior rec_dispatch (FUN_80073750 on the first iter, FUN_80051b04 thereafter, which
-// leaves a0=rec); we therefore must NOT write c->r[4] before each FUN_8007aae8, exactly as the recomp
-// doesn't. Byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net.
+// leftover from the prior typed runtime address dispatch (FUN_80073750 on the first iter, FUN_80051b04 thereafter,
+// which leaves a0=rec); we therefore must NOT write c->r[4] before each FUN_8007aae8, exactly as the guest instruction
+// path doesn't. Byte-exact A/B gate (full RAM+scratchpad vs original guest-body call) is the safety net.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_render_update (FUN_800517F8)
 #include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-#include "render/cull.h"   // Cull::cullWrap77acc / installSceneRecord
-#include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
-#include "ui/font.h"       // Font::measureLineWidth (FUN_80073750)
+#include "guest_call.h"
+#include "render/cull.h" // Cull::cullWrap77acc / installSceneRecord
+#include "spawn.h"       // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "ui/font.h"     // Font::measureLineWidth (FUN_80073750)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -68,13 +67,13 @@ void beh_cube_text_spawn(Core *c) {
     uint8_t type = c->mem_r8(nd + 3);
     if (type == 1) {
       c->r[4] = nd;
-      rec_dispatch(c, 0x8003A9A0u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8003A9A0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     } else if (type == 0) {
       c->r[4] = nd;
-      rec_dispatch(c, 0x8003A790u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8003A790u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     } else if (type == 2) {
       c->r[4] = nd;
-      rec_dispatch(c, 0x8003ABE4u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8003ABE4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     }
     c->mem_w8(nd + 1, 1);
     c->r[4] = nd;
@@ -113,10 +112,11 @@ void beh_cube_text_spawn(Core *c) {
     if ((len & 0xff) >= 33) {
       // overflow: log + bail to state 2
       c->r[4] = 0x80014A54u;
-      rec_dispatch(c, 0x8009A730u); // s_cube_moji_over_flow
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x8009A730u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // s_cube_moji_over_flow
       c->r[4] = 0x80014A6Cu;
       c->r[5] = tbl_strp(c, nd);
-      rec_dispatch(c, 0x8009A730u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8009A730u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->mem_w8(nd + 4, 2);
       return;
     }

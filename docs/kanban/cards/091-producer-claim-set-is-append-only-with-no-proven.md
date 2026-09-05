@@ -9,7 +9,7 @@ updated: 2026-08-12
 
 Found 2026-08-12 while closing #88, which it is NOT a duplicate of: #88 was prims keying at a submit leaf; this is the claim set being unable to retire a claim.
 
-THE MECHANISM. psxport runtime/recomp/producer_census.h::appendClaims() appends unconditionally and its own comment states the rationale: 'append-only; a claim earned by a native producer drawing is never un-earned by a later leg that skips it'. That rationale is CORRECT for the case it names — a guest leg does not run native producers, so absence on one leg must not retire a claim. It does NOT cover the case that actually occurred: **the producer's KEY moved because the CODE changed.** Nothing in the file records which build earned which address, so a live claim and a fossil are indistinguishable.
+THE MECHANISM. psxport runtime/psx/producer_census.h::appendClaims() appends unconditionally and its own comment states the rationale: 'append-only; a claim earned by a native producer drawing is never un-earned by a later leg that skips it'. That rationale is CORRECT for the case it names — a guest leg does not run native producers, so absence on one leg must not retire a claim. It does NOT cover the case that actually occurred: **the producer's KEY moved because the CODE changed.** Nothing in the file records which build earned which address, so a live claim and a fossil are indistinguishable.
 
 THE OBSERVATION THAT EXPOSED IT. Two native-leg runs, both 298 frames, both exactly 152,981 prims — the same workload — keyed at DIFFERENT addresses:
   run-2026-08-11T23:57:38.jsonl -> 0x800803DC  prims_native 152981  frames 298
@@ -37,7 +37,7 @@ missing, and an omitted leg is a silently-dropped negative, so the corpus is enu
   run 'newgame / run 200 / **warp 3** / run 300'            | k91/warp3       | **CRASHED — no run file at all**
 
 `warp 3` is disclosed rather than dropped because it is a NEGATIVE that cost the corpus a data point, not a
-nuisance: `exit=139` at 77.0s, `rec_dispatch_miss` -> `abort` on `[recomp-MISS 0] no recompiled fn for
+nuisance: `exit=139` at 77.0s, `runtime dispatch fault` -> `abort` on `[historical guest-entry miss 0] no guest fn for
 0x801127EC (caller ra=0xDEAD0000, a0=0x800E7E80, c->pc=0x8001DC40)`, overlay slot A03
 (`scratch/k91/warp3.gate.log`, `scratch/logs/gate-run-20260812-152727.log`). Mode 3 IS one of the 12
 generic-label modes, so this leg would have been a fourth independent replication of the positive; it is
@@ -67,7 +67,7 @@ DIAGNOSTIC LANDED (game side, available now): **`tools/producers.py stale`** rec
 
 **AND THE TOOL'S CORE ASSUMPTION, WHICH WAS UNSTATED AND FAILED IN EXACTLY THE CASE THIS CARD EXISTS FOR.** `stale` dated a RUN's wall clock against a COMMIT's time, silently assuming "the run happened after the commit, therefore the binary was built from it". Nothing checked that, so a run of a STALE or DIRTY binary started after a key-path commit was credited as re-earning every claim it touched — a genuine fossil read green. Fixed by making the artifact an input: the built binary must be newer than every key-deciding path (else exit 2), an uncommitted key-path edit raises the reference to that edit's mtime, and an earn is credited only to a leg whose `binary.txt` md5 (written by `tools/gate.py` before AND after the run) equals the present binary's. That produces a THIRD state — BUILD PROVENANCE UNKNOWN — because mtime cannot identify the binary a past run used, and calling those runs re-earned is the false negative while calling them fossils is a different lie. RESIDUAL, stated rather than hidden: an md5 recorded at launch is a real identity but `touch` fakes an mtime and nothing here can say which `PSXPORT_DIR` a build came from — which is what fix step 2 below (`PSXPORT_BUILD_ID` from `git describe --always --dirty`, emitted into every run's JSONL) finally settles.
 
-FIX (framework, psxport — HANDOVER, this session did not own that tree). Three changes, in this order, all in `runtime/recomp/producer_census.h` + `producer_db.cpp`. The measurement above is what makes each one specific rather than a guess.
+FIX (framework, psxport — HANDOVER, this session did not own that tree). Three changes, in this order, all in `runtime/psx/producer_census.h` + `producer_db.cpp`. The measurement above is what makes each one specific rather than a guess.
 
 1. **SEPARATE "earned this run" FROM "loaded from disk", which the runtime currently cannot distinguish.** `ProducerCensus::note()` adds to the same `mClaims[]` array that `loadClaims` filled, so `claimCount()` is a union and `appendClaims` writes the union. Add a parallel `bool mClaimEarnedHere[CLAIM_CAP]` set only on the `note()` path (native push on a GUEST key), and have `appendClaims` write BOTH facts per line. Without this step no provenance is recordable at all, and the diagnostic below has nothing to report.
 

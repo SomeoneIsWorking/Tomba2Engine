@@ -18,13 +18,13 @@
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the node memory WRITES owned native;
 // every sub-behavior CALL (FUN_80032A44 scatter-rng, FUN_8009A450 rng, FUN_8002B278, FUN_80031780,
-// FUN_8007A624) stays reachable by address via rec_dispatch (pure-PSX leaf, no recursion). NO GTE,
+// FUN_8007A624) stays reachable by address via typed runtime address dispatch (pure-PSX leaf, no recursion). NO GTE,
 // NO render packets. Transcribed 1:1 as a register machine (locals = guest regs, goto labels = guest
 // addresses) so delay-slot effects stay exact; the byte-exact A/B gate (full RAM+scratchpad vs
-// rec_super_call) is the safety net. a0/a1 are written into c->r ONLY where the guest writes them, so
-// c->r evolves identically to the recomp across the leaf rec_dispatch calls (the no-arg FUN_8009A450
-// calls inherit whatever the prior leaf left, exactly as the recomp does). v0 (handler return) is NOT
-// reproduced (the per-object dispatcher ignores it; the gate compares only RAM+scratchpad).
+// original guest-body call) is the safety net. a0/a1 are written into c->r ONLY where the guest writes them, so
+// c->r evolves identically to the guest instruction path across the leaf typed runtime address dispatch calls (the
+// no-arg FUN_8009A450 calls inherit whatever the prior leaf left, exactly as the guest instruction path does). v0
+// (handler return) is NOT reproduced (the per-object dispatcher ignores it; the gate compares only RAM+scratchpad).
 
 #include "cfg.h"
 #include "collision.h" // Collision::listScan (FUN_80031780)
@@ -37,8 +37,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 

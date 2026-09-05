@@ -60,6 +60,6 @@ public:
   // methods do not mirror. Calling trigOf(c).rcos(...) here would leave the callees' frame bytes
   // below this function's sp unwritten while substrate core B writes them, and SBS compares that
   // memory. The body therefore invokes them through their generated func_XXXX wrappers, which is
-  // what port_gen emits and what keeps the guest stack byte-identical.
+  // what binary evidence emits and what keeps the guest stack byte-identical.
   static void registerOverrides(Game *game);
 };

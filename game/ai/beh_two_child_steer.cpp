@@ -14,23 +14,22 @@
 //   STATE 2 : nothing.   STATE 3 : FUN_8007A624(node).   STATE >=4 : nothing.
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the direct node/record/global WRITES owned
-// native; every sub-behavior CALL stays reachable via rec_dispatch (pure-PSX leaf). a0 fidelity in the
-// record loop: the guest's a0 at the first FUN_8007AAE8 is the ORIGINAL state byte (node[4] read before
-// the ++), and a0 is not rewritten between the two FUN_8007AAE8 calls — so set c->r[4]=orig-state and
-// don't touch it across the loop. Transcribed 1:1 as a register machine; signed (lh/sra) vs unsigned
-// preserved. The byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net. NO GTE.
+// native; every sub-behavior CALL stays reachable via typed runtime address dispatch (pure-PSX leaf). a0 fidelity in
+// the record loop: the guest's a0 at the first FUN_8007AAE8 is the ORIGINAL state byte (node[4] read before the ++),
+// and a0 is not rewritten between the two FUN_8007AAE8 calls — so set c->r[4]=orig-state and don't touch it across the
+// loop. Transcribed 1:1 as a register machine; signed (lh/sra) vs unsigned preserved. The byte-exact A/B gate (full
+// RAM+scratchpad vs original guest-body call) is the safety net. NO GTE.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_render_update (FUN_800517F8)
 #include "guest_abi.h"
+#include "guest_jal.h"
 #include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -96,8 +95,8 @@ S0: {
     c->mem_w32(rec + 12, 0);
     s0 += 4;
   } while (s2 < 2);
-  guest_leaf(c, 0x80051b04u, c->mem_r32(nd + 0xc0), 12, 2); // FUN_80051B04(rec0, 12, 2)
-  guest_leaf(c, 0x80051b04u, c->mem_r32(nd + 0xc4), 12, 3); // FUN_80051B04(rec1, 12, 3)
+  tomba::guest::dispatchLeafToReturn(*c, 0x80051b04u, c->mem_r32(nd + 0xc0), 12, 2); // FUN_80051B04(rec0, 12, 2)
+  tomba::guest::dispatchLeafToReturn(*c, 0x80051b04u, c->mem_r32(nd + 0xc4), 12, 3); // FUN_80051B04(rec1, 12, 3)
   uint32_t rc1 = c->mem_r32(nd + 0xc4);
   c->mem_w16(rc1 + 0, 6);
   c->mem_w16(rc1 + 2, (uint16_t)(int16_t)-1400);
@@ -133,14 +132,14 @@ L_e74: {
   goto Lec; // n5 >= 2
 }
 L_eb8: {
-  guest_leaf(c, 0x80131840u, nd); // FUN_80131840(node)
+  tomba::guest::dispatchLeafToReturn(*c, 0x80131840u, nd); // FUN_80131840(node)
   goto Lec;
 }
 Lec: {
   uint16_t a = c->mem_r16(0x1f800162u);
   uint16_t b = c->mem_r16(nd + 0x32);
   uint32_t a1 = (uint32_t)(int32_t)(int16_t)(uint16_t)(a - b);
-  if (guest_leaf(c, 0x800778e4u, nd, a1) == 0) {
+  if (tomba::guest::dispatchLeafToReturn(*c, 0x800778e4u, nd, a1) == 0) {
     goto Lret; // FUN_800778E4(node, a1)
   }
   uint32_t rc1 = c->mem_r32(nd + 0xc4);

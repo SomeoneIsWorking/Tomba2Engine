@@ -19,22 +19,21 @@
 //   TAIL (LAB_d7e8) : if node[1]!=0 -> FUN_800518FC(node) + FUN_8011D82C(node); node[0x2B]=0.
 //
 // CONTROL FLOW + the direct node WRITES owned native; every sub-behavior CALL stays reachable via
-// rec_dispatch (pure-PSX leaf). NOTE: Ghidra typed several `lbu`-compare-to-0xFF as `== -1`; the real
+// typed runtime address dispatch (pure-PSX leaf). NOTE: Ghidra typed several `lbu`-compare-to-0xFF as `== -1`; the real
 // compares are `== 255`. scratch[0x160] is a SIGNED 16-bit (lh). The 0x2C/0x30/0x34 stores are 32-bit
-// lui-only constants (low 16 = 0). The byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the
+// lui-only constants (low 16 = 0). The byte-exact A/B gate (full RAM+scratchpad vs original guest-body call) is the
 // safety net.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "guest_abi.h"
+#include "guest_jal.h"
 #include "render/cull.h" // Cull::enqueueQueueA (FUN_80077E7C)
 #include "spawn.h"       // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -67,7 +66,7 @@ void beh_variant_actor_sm(Core *c) {
       return;
     }
     // STATE 0 (INIT)
-    if (guest_leaf(c, 0x800519e0u, nd, 0xd, c->mem_r32(0x800ecfb8u), 0x8014c0bcu) != 0) {
+    if (tomba::guest::dispatchLeafToReturn(*c, 0x800519e0u, nd, 0xd, c->mem_r32(0x800ecfb8u), 0x8014c0bcu) != 0) {
       return; // FUN_800519E0
     }
     c->mem_w32(nd + 0x7c, 0x8014de54u);
@@ -96,7 +95,8 @@ void beh_variant_actor_sm(Core *c) {
         c->mem_w8(nd + 0x7b, 0);
       }
     }
-    guest_leaf(c, 0x80041718u, nd, c->mem_r8(nd + 0x7b), 0); // FUN_80041718(node, node[0x7B], 0)
+    tomba::guest::dispatchLeafToReturn(
+        *c, 0x80041718u, nd, c->mem_r8(nd + 0x7b), 0); // FUN_80041718(node, node[0x7B], 0)
     c->mem_w8(nd + 4, (uint8_t)(c->mem_r8(nd + 4) + 1));
     return;
   }
@@ -105,7 +105,7 @@ void beh_variant_actor_sm(Core *c) {
   {
     uint8_t n3 = c->mem_r8(nd + 3);
     if (n3 == 0) {
-      guest_leaf(c, 0x8011d108u, nd);
+      tomba::guest::dispatchLeafToReturn(*c, 0x8011d108u, nd);
       goto Ltail;
     } // FUN_8011D108
     if (n3 != 1) {
@@ -115,14 +115,14 @@ void beh_variant_actor_sm(Core *c) {
     uint8_t n5 = c->mem_r8(nd + 5);
     if (n5 == 0) {
       if (c->mem_r8(0x1f800207u) != 10 || c->mem_r16s(0x1f800160u) >= 8000) {
-        if (guest_leaf(c, 0x8007778cu, nd) == 0) { // FUN_8007778C
+        if (tomba::guest::dispatchLeafToReturn(*c, 0x8007778cu, nd) == 0) { // FUN_8007778C
           if (c->mem_r8(0x800bf8bcu) == 255) {
             c->mem_w8(nd + 4, 3);
           }
         } else if (c->mem_r8(nd + 0x2b) == 3) {
           c->mem_w8(nd + 0x7a, 0x14);
-          guest_leaf(c, 0x80042354u, 1, 1);            // FUN_80042354(1,1)
-          guest_leaf(c, 0x80040d68u, nd, 0x80148d2cu); // FUN_80040D68(node, 0x80148D2C)
+          tomba::guest::dispatchLeafToReturn(*c, 0x80042354u, 1, 1);            // FUN_80042354(1,1)
+          tomba::guest::dispatchLeafToReturn(*c, 0x80040d68u, nd, 0x80148d2cu); // FUN_80040D68(node, 0x80148D2C)
           c->mem_w8(nd + 0x70, 2);
           c->mem_w8(nd + 5, (uint8_t)(c->mem_r8(nd + 5) + 1)); // LAB_d7d4
         }
@@ -134,14 +134,14 @@ void beh_variant_actor_sm(Core *c) {
         c->mem_w8(nd + 5, (uint8_t)(c->mem_r8(nd + 5) - 1)); // LAB_d7d4
       }
     }
-    guest_leaf(c, 0x80041098u, nd); // FUN_80041098
-    guest_leaf(c, 0x8004190cu, nd); // FUN_8004190C
+    tomba::guest::dispatchLeafToReturn(*c, 0x80041098u, nd); // FUN_80041098
+    tomba::guest::dispatchLeafToReturn(*c, 0x8004190cu, nd); // FUN_8004190C
   }
 
 Ltail:
   if (c->mem_r8(nd + 1) != 0) {
-    guest_leaf(c, 0x800518fcu, nd); // FUN_800518FC
-    guest_leaf(c, 0x8011d82cu, nd); // FUN_8011D82C
+    tomba::guest::dispatchLeafToReturn(*c, 0x800518fcu, nd); // FUN_800518FC
+    tomba::guest::dispatchLeafToReturn(*c, 0x8011d82cu, nd); // FUN_8011D82C
   }
   c->mem_w8(nd + 0x2b, 0);
 }

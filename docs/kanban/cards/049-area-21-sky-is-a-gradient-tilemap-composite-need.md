@@ -7,7 +7,7 @@ created: 2026-07-23
 updated: 2026-08-22
 ---
 
-**2026-08-22:** Fixed for the reached early phase. Generated `ov_a0l_gen_8010BE30` plus live state
+**2026-08-22:** Fixed for the reached early phase. Generated `overlay guest 0x8010BE30` plus live state
 (`bgstate=21`, `variant=1`, `phase=1`) show this branch calls `0x8010BB64` and returns; it does not
 continue into the tilemap loop. The helper emits four gouraud `POLY_G` bands across x[0,320], with
 guest colour words `0x00AC0606`, `0x00EA9898`, and `0x00390000`; their Y origin is derived from raw

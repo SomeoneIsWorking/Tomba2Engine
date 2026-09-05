@@ -13,7 +13,7 @@
 // and how hard to depth-cue its colours. One contract, one home — the emitters differ ABOVE this
 // line, never below it.
 //
-// The write accessors are deliberately ONE-LINERS: tools/port_check.py harvests a lens setter's
+// The write accessors are deliberately ONE-LINERS: tools/dynamic differential evidence harvests a lens setter's
 // mem_wN width by regex, so `publish.setScaleX(v)` counts as exactly the store it performs. A setter
 // that grew a second statement or a nested brace would silently stop counting.
 #pragma once

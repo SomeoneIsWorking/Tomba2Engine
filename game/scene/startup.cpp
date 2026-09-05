@@ -3,13 +3,13 @@
 // CdInit, VSync, DMA, heap — owned by the native platform) and then sets up the engine's OWN state:
 // frame/double-buffer pacing, the display + GTE projection, and the camera. Those engine pieces are pure
 // state setters with no PSX mechanism to preserve, so they are reimplemented PC-native here (readable C
-// that sets the same engine state), replacing the 1:1 `rec_dispatch` transcription in game_main.
+// that sets the same engine state), replacing the 1:1 `typed runtime address dispatch` transcription in game_main.
 //
 // Per the boundary (CLAUDE.md): this is ENGINE init → reimplement PC-native. The values/widths are the
 // engine's interface state that the rest of the engine + the retained PSX content read back, so they are
 // set EXACTLY as the original (verified against the MAIN.EXE disassembly — store widths matter; e.g. the
 // vblank counter is a halfword, the pacing/parity flags are bytes). RE source: scratch/decomp +
-// MAIN.EXE disasm (tools/recomp decode). later-159.
+// MAIN.EXE disasm (tools/guest instruction path decode). later-159.
 //
 // Structure: methods on `class Engine` (game/core/engine.h). Callers reach the init entry points as
 // `eng(c).initFrameState()` etc. Was the free functions eng_init_* — promoted with the class-instance
@@ -17,11 +17,11 @@
 #include "core.h"
 #include "engine.h"
 #include "game_ctx.h"
-#include "gpu_vk.h"      // gpu_vk_wide_engine / _ofx — the widescreen projection centre
+#include "gpu_vk.h" // gpu_vk_wide_engine / _ofx — the widescreen projection centre
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "proj_params.h" // libgte_set_geom_offset / _screen — SetGeomOffset / SetGeomScreen
 #include <stdint.h>
-
-void rec_dispatch(Core *, uint32_t); // run a guest fn (for the few sub-bits not yet PC-native)
 
 // FUN_80051794 (identity 3x3 rotation matrix + zero translation) is owned by `Mtx::identity`
 // (game/math/mtx.cpp) — the same leaf; deduped 2026-07-08 (this file used to carry a redundant
@@ -31,8 +31,6 @@ void rec_dispatch(Core *, uint32_t); // run a guest fn (for the few sub-bits not
 // flags the main loop reads (DAT_1f800235 = frame-rate divisor, DAT_1f800135 = buffer parity,
 // DAT_1f80019c = buffer-swap mode). Last write = FUN_8009a480(0x45) -> DAT_80105ee8 = 0x45 (a word).
 
-void func_80089160(Core *); // generated wrapper, called by allocRecordForSelector
-
 // FUN_8008913C — returns the base of record[0] or record[1] of the 240-byte-stride, 2-entry record
 // array at 0x80102500 that Engine::initAlloc builds, selected by whether (arg & 0xF0) is nonzero.
 //
@@ -40,7 +38,7 @@ void func_80089160(Core *); // generated wrapper, called by allocRecordForSelect
 // pass rejected it, because the body proves the selection but proves nothing about the argument
 // being a mode or an id — that reading comes from a comment elsewhere and an xref pass did not
 // resolve it. The argument's ROLE IS UNKNOWN and is left unknown here rather than guessed.
-// ORACLE: gen_func_8008913C
+// ORACLE: guest 0x8008913C
 void Engine::allocRecordForSelector() {
   Core *c = this->core;
   c->r[2] = (uint32_t)32784u << 16;
@@ -112,7 +110,10 @@ void Engine::initDisplay() {
 
   c->mem_w16(0x801003F8, kProjectionPlaneH); // DAT_801003f8 — initCamera reads H back from here
   libgte_set_geom_screen(c, kProjectionPlaneH);
-  rec_dispatch(c, 0x80050738u); // FUN_80050738: draw/disp env structs (still PSX; native next)
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x80050738u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // FUN_80050738: draw/disp env structs (still PSX; native next)
 }
 
 // FUN_80050a80 — engine CAMERA init: identity camera-rotation matrix at scratchpad 0x1F8000F8 (the same
@@ -207,7 +208,8 @@ static uint32_t eng_init_mode_ctrl(Core *c, uint32_t a0) {
     c->mem_w32(0x800abe88, 0);
     if ((int32_t)c->mem_r32(0x80102450) >= 150) {
       c->r[4] = c->mem_r32(0x800abe6c);
-      rec_dispatch(c, c->mem_r32(0x800abe3c));
+      psx::cpu::dispatchGuestToReturn0(
+          *c, c->mem_r32(0x800abe3c), psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     }
     c->mem_w32(0x80102450, 0);
   } else {
@@ -217,7 +219,8 @@ static uint32_t eng_init_mode_ctrl(Core *c, uint32_t a0) {
     c->mem_w32(0x800abe8c, 1);
     if ((int32_t)c->mem_r32(0x80102454) >= 150) {
       c->r[4] = c->mem_r32(0x800abe6c) + 0xf0;
-      rec_dispatch(c, c->mem_r32(0x800abe3c));
+      psx::cpu::dispatchGuestToReturn0(
+          *c, c->mem_r32(0x800abe3c), psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     }
     c->mem_w32(0x80102454, 0);
   } else {
@@ -229,29 +232,29 @@ static uint32_t eng_init_mode_ctrl(Core *c, uint32_t a0) {
 
 // FUN_80087a60 — a thin wrapper that just calls FUN_80086970; owned as initInput().
 // FUN_80086970 — engine INPUT subsystem init: orchestrates the input/controller setup. We own the
-// direct engine-state writes + the call sequence PC-native and rec_dispatch the sub-init callees.
+// direct engine-state writes + the call sequence PC-native and typed runtime address dispatch the sub-init callees.
 void Engine::initInput() {
   Core *c = this->core;
-  rec_dispatch(c, 0x80080890u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80080890u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->mem_w32(0x800abe70, 0);
   c->r[4] = 2;
   c->r[5] = 0x80102440u;
-  rec_dispatch(c, 0x80087400u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80087400u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[4] = 2;
   c->r[5] = 0x80102440u;
-  rec_dispatch(c, 0x800873f0u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x800873f0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   uint32_t v1 = c->mem_r32(0x800abe98);
   c->mem_w32(v1, (uint32_t)-2);
   c->mem_w32(v1 + 4, c->mem_r32(v1 + 4) | 1);
   c->r[4] = 3;
   c->r[5] = 0;
-  rec_dispatch(c, 0x80085b10u);
-  rec_dispatch(c, 0x800808a0u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80085b10u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x800808a0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   uint32_t handler = c->mem_r32(0x800abe3c);
   c->r[4] = c->mem_r32(0x800abe6c);
-  rec_dispatch(c, handler);
+  psx::cpu::dispatchGuestToReturn0(*c, handler, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[4] = c->mem_r32(0x800abe6c) + 0xf0;
-  rec_dispatch(c, handler);
+  psx::cpu::dispatchGuestToReturn0(*c, handler, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->mem_w32(0x80102454, 0);
   c->mem_w32(0x80102450, 0);
   c->mem_w32(0x800abe70, 1);
@@ -261,14 +264,14 @@ void Engine::initInput() {
 // (0x800bf4f8 / 0x800bf51a) that initSubsystems supplies. Installs the 6-entry mode dispatch table
 // (0x800abe38..0x800abe4c) + 0x800abe5c/6c, then builds the 480-byte allocator heap at 0x80102500:
 // 2 per-mode records (stride 240), each tagging its source byte 0xff and writing a 6-byte run + the
-// two roving pointers a2/a3 (+35 each). We own the direct writes + the loop native and rec_dispatch
+// two roving pointers a2/a3 (+35 each). We own the direct writes + the loop native and typed runtime address dispatch
 // the 3 callees (FUN_80089160 pre-init, FUN_8009a340 = the 480-byte clear, FUN_80086738 post) in-context.
 void Engine::initAlloc(uint32_t s1, uint32_t s2) {
   Core *c = this->core;
   c->mem_w32(0x800abe70, 0);
   c->mem_w32(0x800abe84, 0);
   c->r[4] = s1;
-  rec_dispatch(c, 0x80089160u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80089160u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   uint32_t s0 = 0x80102500u;
   c->mem_w32(0x800abe38, 0x80088cc8u);
   c->mem_w32(0x800abe3c, 0x80088c60u);
@@ -280,9 +283,10 @@ void Engine::initAlloc(uint32_t s1, uint32_t s2) {
   c->mem_w32(0x800abe5c, 0x80088dbcu);
   c->r[4] = s0;
   c->r[5] = 480;
-  rec_dispatch(c, 0x8009a340u); // clear the 480-byte heap
-  c->mem_w32(s0 + 48, s1);      // once: seed record[0].src = s1
-  c->mem_w32(s0 + 288, s2);     // once: seed record[1].src = s2
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x8009a340u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // clear the 480-byte heap
+  c->mem_w32(s0 + 48, s1);                                                    // once: seed record[0].src = s1
+  c->mem_w32(s0 + 288, s2);                                                   // once: seed record[1].src = s2
   uint32_t a0 = s0 + 64, a3 = 0x801024b8u, a2 = 0x80102470u;
   for (int t0 = 0; t0 < 2; t0++) {     // 2 records (a0 == s0+64 throughout: both advance 240)
     uint32_t v0 = c->mem_r32(a0 - 16); // = *(s0+48) -> the record's tagged source ptr (s1 / s2)
@@ -303,7 +307,7 @@ void Engine::initAlloc(uint32_t s1, uint32_t s2) {
     a0 += 240;
     s0 += 240;
   }
-  rec_dispatch(c, 0x80086738u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80086738u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->mem_w32(0x800abe70, 1);
 }
 
@@ -327,9 +331,9 @@ void Engine::initSubsystems() {
 }
 
 // FUN_80086604 — Engine::activeModeCtx. Accessor: returns the active mode/draw-env context pointer
-// held at the mode-state global 0x800ABE20. Leaf, no frame. (The gen body's trailing func_80086620
+// held at the mode-state global 0x800ABE20. Leaf, no frame. (The guest-visible behavior's trailing guest 0x80086620
 // is a fall-through decompiler artifact past the jr ra — not a callee.)
-// ORACLE: gen_func_80086604
+// ORACLE: guest 0x80086604
 uint32_t Engine::activeModeCtx() {
   Core *c = this->core;
   return c->mem_r32(0x800ABE20); // active mode/draw-env context ptr
@@ -338,7 +342,7 @@ uint32_t Engine::activeModeCtx() {
 // FUN_80086738 — Engine::installModeHandlers. Installs the mode handler table at 0x80102444:
 // [+0] = 0x800867CC, [+4] = 0x80086764 (Engine::runModeEnter); zeroes the guard slot [-4]
 // (0x80102440) and the trailing slot [+8] (0x8010244C). Leaf, no frame. Called from initAlloc.
-// ORACLE: gen_func_80086738
+// ORACLE: guest 0x80086738
 void Engine::installModeHandlers() {
   Core *c = this->core;
   const uint32_t TABLE = 0x80102444u; // mode handler table base
@@ -354,9 +358,9 @@ void Engine::installModeHandlers() {
 // loaded BEFORE the frame descent, matching the guest.
 // PORT_CHECK: UNPROVABLE — the mode-enter dispatch is an INDIRECT call through the runtime pointer
 // at 0x800ABE60 (guest jalr v0), so port_check cannot statically resolve the target; the oracle does
-// the identical indirect rec_dispatch(c, *0x800ABE60) with ra=0x800867B8. Frame + flag-gate + ra
-// constant verified by hand against gen_func_80086764. Not a divergence.
-// ORACLE: gen_func_80086764
+// the identical indirect typed runtime address dispatch(c, *0x800ABE60) with ra=0x800867B8. Frame + flag-gate + ra
+// constant verified by hand against guest 0x80086764. Not a divergence.
+// ORACLE: guest 0x80086764
 uint32_t Engine::runModeEnter() {
   Core *c = this->core;
   uint32_t ctx = c->mem_r32(0x800ABE98); // mode ctx ptr (loaded before frame descent)
@@ -367,7 +371,7 @@ uint32_t Engine::runModeEnter() {
     uint32_t handler = c->mem_r32(0x800ABE60);                              // mode-enter handler
     if (handler != 0) {
       c->r[31] = 0x800867B8u;
-      rec_dispatch(c, handler);
+      psx::cpu::dispatchGuestToReturn0(*c, handler, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     } // jalr handler
     result = 1;
   }
@@ -377,8 +381,8 @@ uint32_t Engine::runModeEnter() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
-// Override wiring for this file's one registered address. Installed via engine_set_override_main so
-// SBS core B keeps running the pure recompiled body while core A runs the native.
+// Override wiring for this file's one registered address. Installed via tomba::native::declareOverride so
+// SBS core B keeps running the pure guest body while core A runs the native.
 namespace {
 void ov_allocRecordForSelector(Core *c) {
   eng(c).allocRecordForSelector();
@@ -391,7 +395,5 @@ void startup_overrides_install() {
     return;
   }
   done = true;
-  extern void gen_func_8008913C(Core *);
-  extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_main(0x8008913Cu, ov_allocRecordForSelector, gen_func_8008913C);
+  tomba::native::declareOverride(0x8008913Cu, "ov_allocRecordForSelector", ov_allocRecordForSelector);
 }

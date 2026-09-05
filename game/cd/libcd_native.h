@@ -1,6 +1,6 @@
 // libcd_native.h — native-code wrapper around the substrate's libcd chain. Used by the
 // pc_faithful (native_sync=false) branch of file-table build; each method is a real C++ call the port
-// makes, which happens to delegate to the recompiled substrate leaf underneath. Byte-exact by
+// makes, which happens to delegate to the guest execution leaf underneath. Byte-exact by
 // construction: the writes to guest RAM (0x800AC2D4 dir-cache, 0x80102768 file-table, task stack
 // scratch) are the SAME writes the substrate emits — because it is literally that code running.
 //

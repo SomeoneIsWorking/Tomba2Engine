@@ -17,7 +17,6 @@
 // which is the framework's documented "this game has no such primitive".
 #include "game_iface.h"
 #include "legacy_game_interface.h"
-#include "overlay_table.h" // generated: REC_MAIN_LO/HI — the game owns this, not the framework
 
 // Task entry PCs, verbatim from the literals psxport's pc_scheduler.cpp used to carry. Values unchanged:
 // this is a MOVE of a declaration, not a re-measurement, so the port's scheduling must be identical and
@@ -47,11 +46,10 @@ static const GameConfig g_tomba_config = {
     .gameMain = 0x80050b08u, // FUN_80050b08 (native-overridden game-main; comment-only literal)
     .crt0 = 0x800896e0u,     // FUN_800896E0 (native crt0; comment-only literal)
 
-    // Recompiled MAIN .text range (physical, addr & 0x1FFFFFFF). Taken straight from the values our
-    // own recompiler run emits into generated/overlay_table.h, which is included below so these can
-    // never drift from the substrate they describe.
-    .recMainLo = REC_MAIN_LO,
-    .recMainHi = REC_MAIN_HI,
+    // Guest MAIN.EXE text range (physical, address & 0x1FFFFFFF), measured from the executable
+    // image. These title facts are runtime image bounds, not source-generation inputs.
+    .recMainLo = 0x00010000u,
+    .recMainHi = 0x000BE800u,
 
     // Name of the environment variable / .env key that points at THIS game's disc image. The disc
     // resolver in disc.c used to hardcode this string; it now reads it from here, so a second consumer
@@ -76,8 +74,6 @@ static const GameConfig g_tomba_config = {
     .putDrawEnv = 0x800815d0u,
     .drawSync = 0x80080f6cu,
     .irqEventClasses = {0xF2000003u, 0xF0000001u, 0xF0000009u},
-    .dualviewRenderOrch = 0x8003f9a8u,
-    .dualviewSubmit = 0x8010810cu,
 
     // --- scheduler task layout (scheduler.cpp, native_boot probes) ---
     .taskTableBase = 0x801fe000u,

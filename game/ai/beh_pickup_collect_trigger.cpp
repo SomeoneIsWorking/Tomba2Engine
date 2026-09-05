@@ -10,13 +10,13 @@
 // DAT_800bfa23 / toggles FUN_80040b48/c00(0x39/0x3a) + the all-collected (==0x1f) reward.
 //
 // Ownership model (same as the FUN_739ac handler/73cd8): CONTROL FLOW + node/global memory writes owned native;
-// every sub-behavior CALL stays reachable by address via rec_dispatch. NO GTE, NO render packets here.
-// RE'd 1:1 from disas 0x800741DC (state-1 dispatch is a plain if-chain, not a jump table). NB like 73cd8 it
-// calls cull FUN_8007778C and IGNORES the result. The case-4 path (node[5]==4) builds a small struct on the
-// guest stack and hands it to FUN_80027144, so this handler mirrors the recomp body's `sp -= 0x30` frame
-// discipline (see beh_pickup_collect_trigger wrapper) — the buffer then sits above the sub-call frames exactly as the
-// recomp would place it. It WRITES guest node state the still-recomp content reads → content-INTERFACE: gated
-// byte-exact (full RAM+scratchpad A/B vs rec_super_call). The idle field path is exercised by the gate; the
+// every sub-behavior CALL stays reachable by address via typed runtime address dispatch. NO GTE, NO render packets
+// here. RE'd 1:1 from disas 0x800741DC (state-1 dispatch is a plain if-chain, not a jump table). NB like 73cd8 it calls
+// cull FUN_8007778C and IGNORES the result. The case-4 path (node[5]==4) builds a small struct on the guest stack and
+// hands it to FUN_80027144, so this handler mirrors the guest instruction path's `sp -= 0x30` frame discipline (see
+// beh_pickup_collect_trigger wrapper) — the buffer then sits above the sub-call frames exactly as the guest instruction
+// path would place it. It WRITES guest node state the still-guest content reads → content-INTERFACE: gated byte-exact
+// (full RAM+scratchpad A/B vs original guest-body call). The idle field path is exercised by the gate; the
 // pad/scene-driven sub-states (incl. case 4) are faithfully transcribed and verify when a scene drives them.
 
 #include "bg_scene_transition_sm.h" // BgSceneTransitionSm::readyForProgress (FUN_80042728 native)
@@ -24,13 +24,12 @@
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_record_init — native graphics-bind (game/world)
-#include "object/actor.h"  // Actor::boundsCull (FUN_8007778C native)
-#include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_call.h"
+#include "object/actor.h" // Actor::boundsCull (FUN_8007778C native)
+#include "spawn.h"        // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -42,7 +41,7 @@ inline void do_case0(Core *c, uint32_t obj) {
     return;
   }
   int16_t sid = c->mem_r16s(0x800A4CF8u + (uint32_t)c->mem_r8(obj + 3) * 2);
-  // Spawn::sceneEntity — was rec_dispatch(0x8007E110); now native (spawn.cpp).
+  // Spawn::sceneEntity — was typed runtime address dispatch(0x8007E110); now native (spawn.cpp).
   uint32_t sceneNode = eng(c).spawn.sceneEntity((uint16_t)sid, /*subtype=*/0);
   c->mem_w32(obj + 0x14, sceneNode);
   if (sceneNode != 0) {
@@ -145,17 +144,17 @@ bool beh_pickup_collect_trigger_body(Core *c) {
         c->r[5] = buf;
         c->r[6] = 0x800;
         c->r[7] = 0x18;
-        rec_dispatch(c, 0x80027144u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80027144u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         eng(c).sfx.trigger(0xc, 0, 0); // FUN_80074590 (native)
         src = c->mem_r32(c->mem_r32(obj + 0xc0) + 0x40);
         c->r[4] = src;
         c->r[5] = buf;
         c->r[6] = 0x800;
         c->r[7] = 8;
-        rec_dispatch(c, 0x80027144u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80027144u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         eng(c).sfx.trigger(0xc, 0, 0); // FUN_80074590 (native)
         c->r[4] = 0x39;
-        rec_dispatch(c, 0x80040C00u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80040C00u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         uint8_t prev = c->mem_r8(0x800BFA23u);
         uint32_t bit = 1u << (c->mem_r8(obj + 3) & 0x1f);
         c->mem_w8(0x800BFA23u, (uint8_t)(prev | (uint8_t)bit));
@@ -167,7 +166,7 @@ bool beh_pickup_collect_trigger_body(Core *c) {
         }
         if ((((uint32_t)prev) | (bit & 0xff)) == 0x1f) {
           c->r[4] = 0x3a;
-          rec_dispatch(c, 0x80040C00u);
+          psx::cpu::dispatchGuestToReturn0(*c, 0x80040C00u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         }
       }
     } else if (sub > 3) { // sub in {5..98,100+} no-op; 99 re-arms -> case0
@@ -190,7 +189,7 @@ bool beh_pickup_collect_trigger_body(Core *c) {
         c->mem_w8(obj + 5, 99);
       } else {
         c->r[4] = obj;
-        rec_dispatch(c, 0x8007413Cu);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x8007413Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         iVar3 = (int)c->r[2];
         c->mem_w32(obj + 0x14, c->r[2]);
         do_inc = true;
@@ -205,8 +204,9 @@ bool beh_pickup_collect_trigger_body(Core *c) {
   return true;
 }
 
-// Mirror the recomp body's stack frame (addiu sp,-0x30) so case-4's FUN_80027144 buffer at sp+0x10 sits
-// above the rec_dispatch sub-call frames exactly as the recomp would place it. Net-zero on sp across return.
+// Mirror the guest instruction path's stack frame (addiu sp,-0x30) so case-4's FUN_80027144 buffer at sp+0x10 sits
+// above the typed runtime address dispatch sub-call frames exactly as the guest instruction path would place it.
+// Net-zero on sp across return.
 
 } // namespace
 

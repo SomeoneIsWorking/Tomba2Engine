@@ -17,7 +17,7 @@ needed). Raw listings: `801401B8.disas.txt`, `80115300.disas.txt` (covers 0x8011
 ## (a) 0x801401B8 boundary + verdict: ALREADY OWNED, and NOT a sprite drawer
 
 `tools/codemap.py --addr 801401B8` returns `OverlayGroundGt3Gt4::entityLoop` (LIVE,
-`game/render/overlay_ground_gt3gt4.cpp:363`), wired via `ov_a00_set_override`, SBS-gated. The live
+`game/render/overlay_ground_gt3gt4.cpp:363`), wired via `A00 tomba::native::declareOverride`, SBS-gated. The live
 disassembly (`801401B8.disas.txt` lines 2-65, function ends at `80140298`/`801402b4` jr ra) matches
 the existing port instruction-for-instruction:
 - prologue `addiu sp,-40`, spills s0-s4/ra (matches the port's mirrored 40-byte frame).
@@ -65,7 +65,7 @@ should be corrected in the doc so a future session doesn't re-open entityLoop lo
   `80115480` (a *second* clamp block using scratchpad `0x1f8000f0/f2`), values 0/other fall into the
   `80115368..8011547c` init block. **0x80115364 itself is mid-function** (a `beq`-target inside
   `8011534C`, not a real entry — the REAL leaf entry the dispatch table calls is `8011534C`; RE
-  double-checked against `overlay_type_dispatch.cpp`'s literal `rec_dispatch(c, 0x80115364u)` — the
+  double-checked against `overlay_type_dispatch.cpp`'s literal `typed runtime address dispatch(c, 0x80115364u)` — the
   live dump's function-start scan (back to the nearest `addiu sp,-N`) lands at `8011534C`, and
   `80115364` is simply the fall-through after an early `bne`/`beq` pair at the top, i.e. the same
   function, no separate prologue at `80115364`).
@@ -168,7 +168,7 @@ To port this as a `Render::` class method (paired guest-byte-exact + host-queue 
 `glyphEmit`/`panel.cpp`/GT3-GT4 convention already in the codebase):
 
 1. **Args from dispatch**: this leaf is reached via `Render::overlayTypeDispatch`'s case
-   `0x8003D1C4` — `rec_dispatch(c, 0x80115364u)` with `r[31]=0x8003D1CCu`. Per the dispatch
+   `0x8003D1C4` — `typed runtime address dispatch(c, 0x80115364u)` with `r[31]=0x8003D1CCu`. Per the dispatch
    contract (see `overlay_type_dispatch.cpp` banner), `a0` (r4) is whatever the CALLER of
    `overlayTypeDispatch` passed — same pass-through convention as entityLoop's `list=a0`. The node
    pointer IS `a0`.
@@ -217,22 +217,22 @@ this section is a summary; treat the .cpp as the source of truth where the two d
 
 ## Entry resolution (STEP 0) — 0x80115364 is dead for this feature; real entry is 0x8011534C
 
-Ground-truth checked three ways (live disas of the resident overlay, the recompiler's own A00
-function-splitter tables, and `generated/` cross-referencing):
+Ground-truth checked three ways (live disas of the resident overlay, the recorded binary evidence's A00
+function-splitter tables, and `authenticated executable/overlay evidence` cross-referencing):
 - 0x80115364 is the delay-slot instruction (`addiu sp,sp,-8`) of a branch INSIDE 0x8011534C, not a
-  separate function. `generated/ov_a00_disp.c` has real dispatch cases for 0x8011534C/0x80115598/
-  0x801158E0 and **no case anywhere for 0x80115364** — `rec_dispatch(c, 0x80115364u)` while A00 is
+  separate function. `authenticated executable/overlay evidence` has real dispatch cases for 0x8011534C/0x80115598/
+  0x801158E0 and **no case anywhere for 0x80115364** — `typed runtime address dispatch(c, 0x80115364u)` while A00 is
   resident would fail-fast.
 - `Render::overlayTypeDispatch`'s case 0x8003D1C4 really does contain that literal call
-  (`generated/shard_7.c:4639`, confirmed) — a genuine ROM artifact — but this AREA_TYPE case is
+  (`authenticated executable/overlay evidence`, confirmed) — a genuine ROM artifact — but this AREA_TYPE case is
   unrelated to the field's own AREA_TYPE (0): `Engine::areaModeDispatch`'s mode-idx-0 handler (the
   SAME 0x800BF870 selector byte) is the REAL, different, literal address 0x8011534Cu
   (`game/core/engine.cpp:2419`). This call path was never chased further — it doesn't matter for the
   field tile-grid, and per CLAUDE.md ("own it only if reachable") isn't worth force-fixing here.
 - The REAL live callers (found by grepping for existing native call sites, not by walking the
-  dispatch tree): `Engine::areaModeDispatch`/`areaModeDispatchFaithful` (mode idx 0 -> rec_dispatch
+  dispatch tree): `Engine::areaModeDispatch`/`areaModeDispatchFaithful` (mode idx 0 -> typed runtime address dispatch
   0x8011534C, a0=0x800ED018, per-frame STEP) and the still-unowned `FUN_8003DF04` render-state
-  dispatcher (state 0 -> rec_dispatch 0x80115598, a0=0x800ED018, per-frame EMIT) — both already
+  dispatcher (state 0 -> typed runtime address dispatch 0x80115598, a0=0x800ED018, per-frame EMIT) — both already
   independently referenced by the EXISTING native host-side producer `Render::backdropRender`
   (`game/render/render_walk.cpp`), which this session did not need to re-derive.
 
@@ -242,7 +242,7 @@ function-splitter tables, and `generated/` cross-referencing):
 (gated on a global style byte @0x800BF9E0, walks a 28-entry area-record table @0x80146f0c, calls
 `jal 0x8003116c` per matching record), ==2/3 -> 0x80115b68, >=4 -> 0x80115b70 (continues into an
 unrelated per-frame animation-countdown block touching a DIFFERENT table @0x80147d84). Its body
-contains **no call to 0x8011534C or 0x80115598 anywhere**, and grepping every generated shard (MAIN
+contains **no call to 0x8011534C or 0x80115598 anywhere**, and grepping every authenticated executable/overlay evidence (MAIN
 + A00's own) finds **no caller of 0x801158E0 at all** while A00 is resident. The original doc's
 guess that this is "the driver that decides when the emitter runs" is wrong — it's a separate
 object-type's per-frame state machine that happens to sit adjacent in the A00 code layout. Left
@@ -264,10 +264,10 @@ the whole tile batch is prepended onto whatever was already queued in that bucke
 ## Native port
 
 `TileGridLayer::scrollStep` (FUN_8011534C) and `TileGridLayer::emit` (FUN_80115598), wired via
-`engine_set_override_a00` (same mechanism as `OverlayGroundGt3Gt4`'s A00-local leaves), installed
-from `runtime/recomp/boot.cpp`. Guest half reproduces every write (node fields, 16-byte op-0x7C
+`tomba::native::declareOverride` (same mechanism as `OverlayGroundGt3Gt4`'s A00-local leaves), installed
+from `runtime/psx/boot.cpp`. Guest half reproduces every write (node fields, 16-byte op-0x7C
 packets, OT splice, trailing DR_TPAGE packet via the already-RE'd but still-substrate 0x80083DE0,
-called through `rec_dispatch` exactly like `Font::glyphEmit`'s own tail). Host half
+called through `typed runtime address dispatch` exactly like `Font::glyphEmit`'s own tail). Host half
 (`TileGridLayer::emit`'s inline `push2dQuad(RQ_BACKGROUND, ...)`) is gated
 `oracle || mRender->mode.psxRender()` — OFF during normal pc_render, since
 `Render::backdropRender` already owns that picture unconditionally; this leaf's host push exists

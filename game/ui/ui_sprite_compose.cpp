@@ -1,6 +1,6 @@
 // game/ui/ui_sprite_compose.cpp — UiSprite::compose, the multi-piece 2D sprite emitter.
 //
-// Guest FUN_8007E6DC, RE'd 2026-07-22 from gen_func_8007E6DC (shard_2). This is what
+// Guest FUN_8007E6DC, RE'd 2026-07-22 from guest 0x8007E6DC (shard_2). This is what
 // UiSprite::drawFromTable/drawFixedDef152 hand their marshalled structs to, and it is what actually
 // puts sprite packets in the ordering table.
 //
@@ -26,9 +26,8 @@
 //   +2 u16 attr      — bit 15 selects the semi-transparent sprite opcode; low 15 bits, if any,
 //                      override the CLUT half of the uv word
 #include "core.h"
+#include "guest_call.h"
 #include "ui/ui_sprite.h"
-
-void func_80083DE0(Core *); // generated/shard_disp.c — builds the draw-mode/tpage packet
 
 namespace {
 
@@ -48,7 +47,7 @@ constexpr uint32_t MODE_PACKET_BYTES = 12u;
 } // namespace
 
 // FUN_8007E6DC(placement r4, indexPtr r5, defBase r6, attrs r7)
-// ORACLE: gen_func_8007E6DC
+// ORACLE: guest 0x8007E6DC
 void UiSprite::compose(Core *c) {
   const uint32_t placement = c->r[4];
   const uint32_t indexPtr = c->r[5];
@@ -125,7 +124,7 @@ void UiSprite::compose(Core *c) {
   c->r[6] = 0;
   c->r[7] = (uint32_t)(int32_t)(int16_t)tpage;
   c->r[31] = 0x8007E890u; // jal-site ra
-  func_80083DE0(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80083DE0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   const uint32_t slot = c->mem_r32(OT_TABLE_PTR) + (uint32_t)c->mem_r8(attrs + 1) * 4u;
   c->mem_w32(modePacket, c->mem_r32(slot) | TAG_2_WORDS);

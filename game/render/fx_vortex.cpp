@@ -7,7 +7,8 @@
 // this is a fourth, so the node fell through and nothing drew. No producer, no picture.
 //
 // RE — Ghidra (scratch/decomp/vortex.c, from a live area-15 RAM dump) cross-read against the ground-truth
-// gen body generated/ov_a0f_shard_0.c:ov_a0f_gen_801143C4. The emitter draws THREE layers:
+// guest-visible behavior authenticated executable/overlay evidence:overlay guest 0x801143C4. The emitter draws THREE
+// layers:
 //
 //   (1) LENS FLARE (only while the behaviour's state byte node+4 == 1). RTPS the world anchor, then walk
 //       the anchor→screen-centre line: three glow sprites at 7/8, 3/8 and 3/2 of the vector, half-extents
@@ -28,7 +29,7 @@
 //       colour (0,0,1020) — which is why the swirl reads as dark blue-grey smoke.
 //
 // PORTED, NOT TAPPED: every position here comes from the node's own state projected through
-// projComposeCamera (the fps60-lerped scene camera) — no gen body runs for the picture, no gte_op, no
+// projComposeCamera (the fps60-lerped scene camera) — no guest-visible behavior runs for the picture, no gte_op, no
 // guest write. The one guest coupling the emitter has is the PRNG it consumes per particle; this producer
 // READS the seed at Rng::SEED_ADDR and iterates a HOST copy, so the sparkle keeps the guest's character
 // and stays identical between a real frame and its interpolated twin (the guest seed has not moved

@@ -19,7 +19,7 @@ public:
   Core *core = nullptr;
 
   // registerOverrides — dual-wire seedBlock/propagateRotmat/propagateAxis/buildAxis onto `game`
-  // via the process-global override registry (overrides::install + shard_set_override). Called
+  // via the process-global override registry (tomba::native::declareOverride + tomba::native::declareOverride). Called
   // once per Game — including SBS's own separately-constructed Games.
   static void registerOverrides(Game *game);
 
@@ -55,7 +55,7 @@ public:
   // world position into child+0x2C/30/34. Uses scratchpad 0x1F800000 (rotmat output) as the ONLY
   // work area — no intermediate 0x1F800040 buffer (unlike propagate()). Writes the child's world
   // matrix at child+0x18 (not child+0x24 — propagate()'s target). Called directly by the
-  // recompiled GraphicsBind::renderUpdateBody body (FUN_800517F8) as its "downstream render setup".
+  // guest GraphicsBind::renderUpdateBody body (FUN_800517F8) as its "downstream render setup".
   void propagateRotmat(uint32_t node);
 
   // propagateAxis (guest FUN_80051464): sibling of propagateRotmat() using the EXPLICIT
@@ -74,9 +74,9 @@ public:
 
   // ------------------------------------------------------------------------------------------
   // UNWIRED DRAFTS (2026-07-08 wide-RE wave, region 0x80050000-0x8005FFFF). RE'd from
-  // generated/shard_*.c ground truth (Ghidra's decompile mis-resolved a table base on one of
+  // authenticated executable/overlay evidence ground truth (Ghidra's decompile mis-resolved a table base on one of
   // these — see buildFromChild — so the generated C, not Ghidra, is the source of truth per
-  // CLAUDE.md). NOT registered anywhere (no overrides::install, no shard_set_override) and NOT
+  // CLAUDE.md). NOT registered anywhere (no tomba::native::declareOverride, no tomba::native::declareOverride) and NOT
   // SBS-gated — dead code until a frontier pass wires + verifies them.
   // ------------------------------------------------------------------------------------------
 
@@ -95,15 +95,15 @@ public:
   // Tail-dispatches to propagateRotmat(node) [mode==0] or propagate(node) [mode!=0] — SAME
   // register-faithfulness requirement as build()/buildWithOffset (the nested call's own frame
   // spills whatever is currently in r16..r23/r19..r20, so this method sets the callee-saved
-  // registers the recomp has live at that point; see .cpp for the exact trace against
-  // generated/shard_3.c gen_func_80051614).
+  // registers the guest instruction path has live at that point; see .cpp for the exact trace against
+  // authenticated executable/overlay evidence guest 0x80051614).
   void buildFromChild(uint32_t node, uint32_t inVec, uint32_t tableIdx, uint32_t mode);
 
   // worldPosFromLocal (guest FUN_80051D90): out[0..2] += node's LOCAL-frame world position
   // (node+0x2C/30/34), after transforming `inVec` by node's LOCAL matrix (node+0x18) via the
   // not-yet-owned libgte leaf FUN_800844C0 (ApplyMatrixLV variant that returns a packed SVECTOR,
   // not a VECTOR — distinct from the already-native Math::applyMatrixLV). Routed via
-  // rec_dispatch since FUN_800844C0 (0x800844C0) is outside this region's ownership.
+  // typed runtime address dispatch since FUN_800844C0 (0x800844C0) is outside this region's ownership.
   void worldPosFromLocal(uint32_t node, uint32_t inVec, uint32_t outVec);
 
   // worldPosFromComposed (guest FUN_80051D20): sibling of worldPosFromLocal() using node's

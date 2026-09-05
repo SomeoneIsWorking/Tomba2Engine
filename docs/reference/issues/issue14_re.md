@@ -66,8 +66,8 @@ op65 native_x=176 w=32 s_off_x=0 bg=0 X=176 XL=176 XR=208 da_x0=144 anchor=0 wid
 - `anchor=0` for ALL three → `ws_2d_anchor_off` correctly puts them in the centre third (centres 128/160/192
   are all inside L=106..R=213). The thirds logic is NOT the cause.
 - `da_x0=144`. The FB-relocation shader does `fx = (i_pos.x - i_da.x0)*ss + fb_x0`
-  (`runtime/recomp/shaders_vk/tritex.vert:34-35`), with `fb_x0 = margin*ss = 54`
-  (`runtime/recomp/gpu_gpu.cpp:807-808`, `push_wide`). So:
+  (`runtime/psx/shaders_vk/tritex.vert:34-35`), with `fb_x0 = margin*ss = 54`
+  (`runtime/psx/gpu_gpu.cpp:807-808`, `push_wide`). So:
   - ball 112 → (112−144)+54 = **22**
   - ball 144 → (144−144)+54 = **54**
   - ball 176 → (176−144)+54 = **86**
@@ -78,7 +78,7 @@ op65 native_x=176 w=32 s_off_x=0 bg=0 X=176 XL=176 XR=208 da_x0=144 anchor=0 wid
 ## Root cause
 
 ### Defect 1 — bottom-LEFT (the headline position bug)
-`runtime/recomp/shaders_vk/tritex.vert:30-39` — the scratch-FB relocation branch (taken only when
+`runtime/psx/shaders_vk/tritex.vert:30-39` — the scratch-FB relocation branch (taken only when
 `frame_via_fb()`, i.e. wide or ires>1) computes `local = i_pos - i_da.xy` and `fx = local.x*ss + fb_x0`.
 This subtraction of the PSX **drawing-area top-left** (GP0 `E3`, `gpu_native.cpp:1126`,
 `s_da_x0 = 144` this frame) is correct for 3D geometry (which is expressed relative to the active draw
@@ -145,14 +145,14 @@ at 4:3, the FB path must apply the same overdraw/order; if the three are MEANT t
 of one wider glyph that overlap on the real path), the engine should treat them as one logical HUD rect.
 
 **Files / lines**
-- `runtime/recomp/shaders_vk/tritex.vert:30-39` — FB relocation `fx = (i_pos.x - i_da.x0)*ss + fb_x0`
+- `runtime/psx/shaders_vk/tritex.vert:30-39` — FB relocation `fx = (i_pos.x - i_da.x0)*ss + fb_x0`
   (the `i_da.x0` subtraction is Defect 1's mechanism).
-- `runtime/recomp/gpu_gpu.cpp:801-809` — `push_wide`: `fb_x0 = margin*ss` (the only re-centring added back).
-- `runtime/recomp/gpu_native.cpp:990-994` — sprite 2D wide block (`ws_2d_local_x`); the place to make HUD
+- `runtime/psx/gpu_gpu.cpp:801-809` — `push_wide`: `fb_x0 = margin*ss` (the only re-centring added back).
+- `runtime/psx/gpu_native.cpp:990-994` — sprite 2D wide block (`ws_2d_local_x`); the place to make HUD
   sprite X buffer-relative / cancel the `i_da.x0` term (Fix 1 option 2).
-- `runtime/recomp/gpu_native.cpp:121-129` — `ws_2d_anchor_off` thirds (NOT the cause here; anchor=0).
-- `runtime/recomp/gpu_native.cpp:1126` — GP0 `E3` sets `s_da_x0` (=144 this frame).
-- `runtime/recomp/gpu_native.cpp:984-998` — HUD sprite RQ band (RQ_HUD / RQ_OM_2D_FG, submission order).
+- `runtime/psx/gpu_native.cpp:121-129` — `ws_2d_anchor_off` thirds (NOT the cause here; anchor=0).
+- `runtime/psx/gpu_native.cpp:1126` — GP0 `E3` sets `s_da_x0` (=144 this frame).
+- `runtime/psx/gpu_native.cpp:984-998` — HUD sprite RQ band (RQ_HUD / RQ_OM_2D_FG, submission order).
 
 **USER eyeball after fix:** at 16:9 the spiky-ball HUD is ONE ball at bottom-CENTRE (matching the 4:3
 shot), at ires>1 too; 4:3 unchanged.

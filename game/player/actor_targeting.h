@@ -1,6 +1,6 @@
 // game/player/actor_targeting.h — can the actor ACQUIRE this target: near enough, and in the right
 // direction? See actor_targeting.cpp for the evidence. Lenses only; setters are ONE-LINE single
-// statements so tools/port_check.py can count their stores (it harvests them by regex from
+// statements so tools/dynamic differential evidence can count their stores (it harvests them by regex from
 // game/**/*.h and stops counting a setter that grows a second statement).
 #pragma once
 #include "core.h"

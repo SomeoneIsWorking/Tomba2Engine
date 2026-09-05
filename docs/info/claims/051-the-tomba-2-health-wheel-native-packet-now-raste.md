@@ -4,7 +4,7 @@ kind: claim
 status: falsified
 created: 2026-08-21
 tags: render,oracle
-depends: external/psxport/runtime/recomp/shaders_gpu/psx_uv.glsl, external/psxport/runtime/recomp/gpu_vk_texture_phase_selftest.cpp#gpu_vk_run_texture_phase_selftest, game/render/field_hud.cpp#fieldHudItemRing
+depends: external/psxport/runtime/psx/shaders_gpu/psx_uv.glsl, external/psxport/runtime/psx/gpu_vk_texture_phase_selftest.cpp#gpu_vk_run_texture_phase_selftest, game/render/field_hud.cpp#fieldHudItemRing
 falsified_on: 2026-08-21
 ---
 

@@ -87,7 +87,7 @@ def search_re_notes(terms):
     """Raw search of docs/re/*.md — the standalone RE write-ups.
 
     These are neither findings (symptom-keyed) nor journal entries, and until 2026-07-29 they were
-    reachable by NOTHING: a ~1300-line static-RE doc and a full collision-resolve analysis both sat
+    reachable by NOTHING: a ~1300-line binary-analysis doc and a full collision-resolve analysis both sat
     in docs/re/ while `findings.py <symptom>` reported "likely NOT yet investigated". A note that
     the search tool cannot find is a note the next session re-derives. Yields (file, heading, snip).
     """

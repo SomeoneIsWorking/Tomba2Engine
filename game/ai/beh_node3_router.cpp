@@ -10,20 +10,19 @@
 //   STATE 2 : node[4]=3.   STATE 3 : FUN_8007A624(node).
 //
 // CONTROL FLOW + the direct node WRITES owned native; the sub-behavior CALLs stay reachable via
-// rec_dispatch (pure-PSX leaves). Store widths from the decompile (undefined2 = 16-bit sh, byte = sb,
-// the 0x3C store = 32-bit pointer). The byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is
+// typed runtime address dispatch (pure-PSX leaves). Store widths from the decompile (undefined2 = 16-bit sh, byte = sb,
+// the 0x3C store = 32-bit pointer). The byte-exact A/B gate (full RAM+scratchpad vs original guest-body call) is
 // the safety net.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "guest_abi.h"
+#include "guest_jal.h"
 #include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -43,15 +42,15 @@ void beh_node3_router(Core *c) {
   if (st == 1) {
     uint8_t n3 = c->mem_r8(nd + 3);
     if (n3 == 0) {
-      guest_leaf(c, 0x8011c674u, nd); // FUN_8011C674
+      tomba::guest::dispatchLeafToReturn(*c, 0x8011c674u, nd); // FUN_8011C674
     } else if (n3 == 1) {
-      guest_leaf(c, 0x8011ca04u, nd); // FUN_8011CA04
+      tomba::guest::dispatchLeafToReturn(*c, 0x8011ca04u, nd); // FUN_8011CA04
     }
     if (c->mem_r8(nd + 1) != 0) {
-      guest_leaf(c, 0x800518fcu, nd); // FUN_800518FC
+      tomba::guest::dispatchLeafToReturn(*c, 0x800518fcu, nd); // FUN_800518FC
     }
     c->mem_w8(nd + 0x2b, 0);
-    guest_leaf(c, 0x8011cd14u, nd); // FUN_8011CD14
+    tomba::guest::dispatchLeafToReturn(*c, 0x8011cd14u, nd); // FUN_8011CD14
   } else if (st < 2) {
     if (st == 0 && c->mem_r8(0x800bf89cu) > 3) {
       c->mem_w8(nd + 0x0b, 0x40);

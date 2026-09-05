@@ -2,7 +2,7 @@
 
 READ-ONLY RE, 2026-06-21. No source modified. Driven headless (`PSXPORT_VK_HEADLESS=1 PSXPORT_REPL=1`)
 with `PSXPORT_SETTINGS=<ini>` toggling aspect/ires, `shot` captures, `debug gp1/scene`. Reconciles the
-prior static RE (engine/engine_ui_rect.cpp draft + issue #6 gh comments) with the user's 2026-06-21 hint
+prior binary analysis (engine/engine_ui_rect.cpp draft + issue #6 gh comments) with the user's 2026-06-21 hint
 ("HUD is PC-ported; the gray box is negatively affected by ires and wide") and the live evidence.
 
 ---
@@ -133,7 +133,7 @@ The engine must OWN the UI atlas CLUT and bind it explicitly for inherit-descrip
 inheriting a GP0 latch. Concretely (when the menu page handler `0x8010829C` / the HUD gauge emitter is
 owned native): the engine knows which font/UI atlas the panel/gauge samples → set the prim's CLUT
 (`prim+0xE`) from the engine's own UI-atlas CLUT id at emit time. This is engine state, not a re-stamp of
-"whatever the hardware last latched". Until the page handler is owned, the panel stays as recomp and the
+"whatever the hardware last latched". Until the page handler is owned, the panel stays as guest instruction path and the
 defect is latent (it currently does not reproduce). Do **not** wire the draft `engine_ui_rect.cpp` (its
 last-bound-CLUT re-stamp is the forbidden PSX-latch replica). Do **not** relax `tritex.frag:52`.
 **USER eyeball:** after the fix, reach the real pause menu + the AP "3" gauge and confirm the backing is
@@ -175,14 +175,14 @@ wide/ires frames — fix the region math once.
 ## Key file:line index
 - `tritex.frag:40,41,52` — CLUT-0 discard, STP read, textured-semi STP gate (correct; do not change).
 - `engine/engine_ui_rect.cpp:16-54` — RE of `FUN_8007e1b8` CLUT-inherit; :1-7 the forbidden re-stamp.
-- `runtime/recomp/gpu_native.cpp:121-129` — `ws_2d_anchor_off` per-prim thirds anchoring (#6 tearing).
-- `runtime/recomp/gpu_native.cpp:824, 973-974` — `ws_2d_local_x` call sites (poly + sprite 2D widen).
-- `runtime/recomp/gpu_native.cpp:55-58` — `bg_2d` backdrop-vs-HUD coverage classifier.
-- `runtime/recomp/gpu_native.cpp:1214-1224` — GP1 0x05/0x07/0x08 set the PSX display region/vertical crop.
-- `runtime/recomp/gpu_gpu.cpp:318-325` — `use_fb`/`frame_via_fb` (scratch FB only on 3D + wide/ires).
-- `runtime/recomp/gpu_gpu.cpp:1205, 1220-1221, 1647` — FB present samples `[0,FBH]`, ignores display crop (#12).
-- `runtime/recomp/shaders_vk/tritex.vert:30-39` — FB relocation `fy = FB_Y0 + (y-da_y0)*ires`.
-- `runtime/recomp/shaders_vk/present.frag:8-16` — present samples a single contiguous `disp` rect.
+- `runtime/psx/gpu_native.cpp:121-129` — `ws_2d_anchor_off` per-prim thirds anchoring (#6 tearing).
+- `runtime/psx/gpu_native.cpp:824, 973-974` — `ws_2d_local_x` call sites (poly + sprite 2D widen).
+- `runtime/psx/gpu_native.cpp:55-58` — `bg_2d` backdrop-vs-HUD coverage classifier.
+- `runtime/psx/gpu_native.cpp:1214-1224` — GP1 0x05/0x07/0x08 set the PSX display region/vertical crop.
+- `runtime/psx/gpu_gpu.cpp:318-325` — `use_fb`/`frame_via_fb` (scratch FB only on 3D + wide/ires).
+- `runtime/psx/gpu_gpu.cpp:1205, 1220-1221, 1647` — FB present samples `[0,FBH]`, ignores display crop (#12).
+- `runtime/psx/shaders_vk/tritex.vert:30-39` — FB relocation `fy = FB_Y0 + (y-da_y0)*ires`.
+- `runtime/psx/shaders_vk/present.frag:8-16` — present samples a single contiguous `disp` rect.
 
 ## Caveats
 - #6 grayness and #12 bar were NOT live-reproduced this session (state unreachable headless); both are

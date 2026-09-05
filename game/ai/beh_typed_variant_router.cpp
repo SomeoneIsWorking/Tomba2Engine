@@ -21,22 +21,21 @@
 //   STATE 3 (EXIT) : FUN_8007a624(node).
 //
 // CONTROL FLOW + the direct node/global WRITES owned native; every sub-behavior CALL stays a pure-PSX
-// leaf via rec_dispatch. case-2's FUN_8004bd64 takes a 5th (stacked) arg pointing at an on-stack
-// {0xfffe,0,0xffea} short array: reproduced by mirroring the recomp frame (sp-0x30) into the guest stack
-// below entry sp (inside the gate's excluded [sp-0x800,sp) window) and dispatching with that frame sp.
-// Byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net.
+// leaf via typed runtime address dispatch. case-2's FUN_8004bd64 takes a 5th (stacked) arg pointing at an on-stack
+// {0xfffe,0,0xffea} short array: reproduced by mirroring the guest instruction path frame (sp-0x30) into the guest
+// stack below entry sp (inside the gate's excluded [sp-0x800,sp) window) and dispatching with that frame sp. Byte-exact
+// A/B gate (full RAM+scratchpad vs original guest-body call) is the safety net.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_set_geom
-#include "rng.h"           // class Rng (via rngOf(c).next())
-#include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_call.h"
+#include "rng.h"   // class Rng (via rngOf(c).next())
+#include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -44,11 +43,11 @@ constexpr uint32_t BEH_FN = 0x8011C164u;
 
 static inline void leaf1(Core *c, uint32_t a0, uint32_t fn) {
   c->r[4] = a0;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 static inline uint32_t leafr1(Core *c, uint32_t a0, uint32_t fn) {
   c->r[4] = a0;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 static inline uint32_t prng(Core *c) {
@@ -126,7 +125,7 @@ void beh_typed_variant_router(Core *c) {
       return;
     case 2: {
       // FUN_8004bd64(node, 1, *(node[0x10]+0xdc), same, &{0xfffe,0,0xffea}). 5th arg is stacked at
-      // sp+0x10; the local array at sp+0x18..0x1c. Mirror the recomp frame (sp-0x30) below entry sp.
+      // sp+0x10; the local array at sp+0x18..0x1c. Mirror the guest instruction path frame (sp-0x30) below entry sp.
       uint32_t fsp = c->r[29] - 0x30;
       c->mem_w16(fsp + 0x18, 0xfffe);
       c->mem_w16(fsp + 0x1a, 0x0000);

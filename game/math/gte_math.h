@@ -87,7 +87,7 @@ public:
   uint32_t matColScale(uint32_t dstPtr, uint32_t facPtr);
 
   // Wire all 7 addresses above into the global override registry (guest-ABI trampolines: args in
-  // r4..r6, return in r2) so EVERY caller reaching them via rec_dispatch or a direct shard call —
+  // r4..r6, return in r2) so EVERY caller reaching them via typed runtime address dispatch or a direct shard call —
   // substrate included, not just the direct mathOf(c).* call sites in node_xform.cpp/
   // cutscene_camera.cpp/graphics_bind.cpp — runs this native bit-exact math instead of
   // interpreting GTE ops. Called once from boot.cpp.

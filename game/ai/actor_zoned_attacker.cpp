@@ -1,6 +1,6 @@
 // game/ai/actor_zoned_attacker.cpp — PC-native bodies for the "zoned attacker" per-object
 // sub-behavior cluster: FUN_8014047C / FUN_80140544 / FUN_801409C0 / FUN_80143A00 / FUN_80144928 /
-// FUN_80144B50. All six are SUB-BEHAVIOR callees reached exclusively via `rec_dispatch(c, addr)`
+// FUN_80144B50. All six are SUB-BEHAVIOR callees reached exclusively via `typed runtime address dispatch(c, addr)`
 // from the already-native FUN_80145230 dispatcher (game/ai/beh_id_compare_motion_dispatch.cpp,
 // guest 0x8014xxxx OVERLAY area) — see that file's header comment for the call graph:
 //   state 0 (init)      -> FUN_80140544                      -> ActorZonedAttacker::typeInit
@@ -10,14 +10,14 @@
 //   state 1 node[3]==0/default     -> FUN_80143a00             -> defaultSubStateMachine
 //   state 2 (idle)      -> FUN_80144b50                        -> idleTick
 //
-// RE SOURCE: Ghidra headless decompile (tools/decomp.sh, project scratch/ghidra/A00,
+// RE SOURCE: Ghidra headless decompile (the Ghidra evidence workflow, project scratch/ghidra/A00,
 // scratch/decomp/cluster1.c) for all six bodies; every other FUN_xxxx / func_0x-address referenced
-// below stays an un-owned PSX leaf, reached uniformly via `rec_dispatch(c, addr)` (guest ABI: args
+// below stays an un-owned PSX leaf, reached uniformly via `typed runtime address dispatch(c, addr)` (guest ABI: args
 // in c->r[4..7], return in c->r[2]) — same discipline as game/object/actor_sm_reward.cpp. Two
 // leaves (FUN_800777FC / FUN_800518FC) already have a native PC class (Cull::cullWrapperFlag2 /
 // Engine::objMatrixCompose) but are NOT installed in the override registry (only their sole other
 // caller invokes them directly) — dispatching to their guest address still reaches the exact same
-// byte-identical substrate body, so this file keeps everything uniform via rec_dispatch rather than
+// byte-identical substrate body, so this file keeps everything uniform via typed runtime address dispatch rather than
 // special-casing those two.
 //
 // Field/global widths below are taken directly from Ghidra's explicit casts in the decompiled C
@@ -32,19 +32,18 @@
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
-#include "guest_abi.h"         // GuestFrame — guest-stack frame discipline for the override trampolines
-#include "object/actor.h"      // Actor — named-field lens over the guest object node
-#include "override_registry.h" // overrides::install — the one native-override registry
-#include "spawn.h"             // Spawn::spawnAndInit (FUN_8003116C, already native)
+#include "guest_abi.h" // GuestFrame — guest-stack frame discipline for the override trampolines
+#include "guest_call.h"
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include "object/actor.h"            // Actor — named-field lens over the guest object node
+#include "spawn.h"                   // Spawn::spawnAndInit (FUN_8003116C, already native)
 #include <cstdint>
-
-void rec_dispatch(Core *, uint32_t); // hybrid call: override if wired, else substrate
 
 namespace {
 
 enum { R_A0 = 4, R_A1 = 5, R_A2 = 6, R_A3 = 7, R_V0 = 2 };
 
-// Callee leaf addresses (all un-owned PSX leaves reached via rec_dispatch).
+// Callee leaf addresses (all un-owned PSX leaves reached via typed runtime address dispatch).
 constexpr uint32_t FN_80145C78 = 0x80145C78u;
 constexpr uint32_t FN_8009A450 = 0x8009A450u; // RNG read (same leaf the sibling caller reaches via rngOf(c).next())
 constexpr uint32_t FN_800781E0 = 0x800781E0u; // 2D distance
@@ -111,15 +110,15 @@ inline void call2(Core *c, uint32_t node, uint32_t addr, uint32_t a1, uint32_t a
   c->r[R_A0] = node;
   c->r[R_A1] = a1;
   c->r[R_A2] = a2;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 inline void call1(Core *c, uint32_t node, uint32_t addr) {
   c->r[R_A0] = node;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 
 // Guest-ABI frame contracts for the three override trampolines that allocate a guest stack frame
-// (from `python3 tools/abi_extract.py <addr> --contract`). Each trampoline MUST mirror its substrate
+// (from `python3 tools/binary ABI evidence <addr> --contract`). Each trampoline MUST mirror its substrate
 // gen_func's guest-stack frame (alloc + callee-save spills) — MIRROR_VERIFY compares the full guest
 // RAM+regs. An earlier draft had bare trampolines (no frame), leaving whatever stale bytes sat in the
 // spill slots; fixed by wrapping the body in GuestFrame (2026-07-11, the f389 diverge root-cause
@@ -130,7 +129,7 @@ static constexpr GuestFrameSpill kSpills_80144928[4] = {{16, 16}, {17, 20}, {18,
 // The three below were MISSING until 2026-07-21: their native bodies descended no frame at all while
 // the guest bodies descend sp and spill 4-5 callee-saved registers, so the guest-stack bytes could not
 // match the substrate (the "diverges at 0x801FE9xx" class CLAUDE.md's MIRROR THE GUEST STACK rule
-// names). Spill tables from `tools/abi_extract.py <addr> --scaffold --guestabi`, program order.
+// names). Spill tables from `tools/binary ABI evidence <addr> --scaffold --guestabi`, program order.
 static constexpr GuestFrameSpill kSpills_801409C0[5] = {{18, 24}, {16, 16}, {31, 32}, {19, 28}, {17, 20}}; // frame=40
 static constexpr GuestFrameSpill kSpills_80143A00[5] = {{16, 16}, {31, 32}, {19, 28}, {18, 24}, {17, 20}}; // frame=40
 static constexpr GuestFrameSpill kSpills_80144B50[4] = {{16, 32}, {31, 44}, {18, 40}, {17, 36}};           // frame=48
@@ -143,7 +142,7 @@ static constexpr GuestFrameSpill kSpills_80144B50[4] = {{16, 32}, {31, 44}, {18,
 // against FUN_80145c78(node[0x2a], node+0x2c), short-circuiting true once DAT_800e7eaa clears two
 // thresholds (2 then 0xb).
 // ----------------------------------------------------------------------------------------------
-// ORACLE: ov_a00_gen_8014047C
+// ORACLE: overlay guest 0x8014047C
 void ActorZonedAttacker::gateCheck(Core *c) {
   GuestFrame<24, 2> frame(c, kSpills_8014047C);
   const uint32_t node = c->r[R_A0];
@@ -156,7 +155,7 @@ void ActorZonedAttacker::gateCheck(Core *c) {
   } else if (n66 == (int8_t)0x80) {
     c->r[R_A0] = c->mem_r8(G_800E7EAA);
     c->r[R_A1] = G_800E7EAC;
-    rec_dispatch(c, FN_80145C78);
+    psx::cpu::dispatchGuestToReturn0(*c, FN_80145C78, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     result = (c->r[R_V0] != 0);
   } else {
     const uint32_t typePtr = c->mem_r32(node + 0x14);
@@ -173,7 +172,7 @@ void ActorZonedAttacker::gateCheck(Core *c) {
     }
     c->r[R_A0] = c->mem_r8(node + 0x2a);
     c->r[R_A1] = node + 0x2c;
-    rec_dispatch(c, FN_80145C78);
+    psx::cpu::dispatchGuestToReturn0(*c, FN_80145C78, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     const int32_t iVar3 = (int32_t)c->r[R_V0];
     result = (iVar2 != iVar3);
   }
@@ -185,7 +184,7 @@ void ActorZonedAttacker::gateCheck(Core *c) {
 // (FN_800519E0), seeds a grid-resolve + facing/parity flags, resets counters, and sets default
 // range/scroll constants (matches the "per-type init; then -> epilogue" comment in the caller).
 // ----------------------------------------------------------------------------------------------
-// ORACLE: ov_a00_gen_80140544
+// ORACLE: overlay guest 0x80140544
 void ActorZonedAttacker::typeInit(Core *c) {
   GuestFrame<32, 4> frame(c, kSpills_80140544);
   const uint32_t node = c->r[R_A0];
@@ -203,7 +202,7 @@ void ActorZonedAttacker::typeInit(Core *c) {
   c->r[R_A1] = 0x12u;
   c->r[R_A2] = c->mem_r32(G_800ECFB0);
   c->r[R_A3] = G_8014BE14;
-  rec_dispatch(c, FN_800519E0);
+  psx::cpu::dispatchGuestToReturn0(*c, FN_800519E0, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->mem_w32(node + 0x3c, c->mem_r32(G_800ECFB4));
   call1(c, node, FN_8004766C);
   if (c->r[R_V0] == 0) {
@@ -225,7 +224,7 @@ void ActorZonedAttacker::typeInit(Core *c) {
   c->r[R_A0] = node + 0x2c;
   c->r[R_A1] = (uint32_t)ix;
   c->r[R_A2] = (uint32_t)iy;
-  rec_dispatch(c, FN_800782B0);
+  psx::cpu::dispatchGuestToReturn0(*c, FN_800782B0, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   const int32_t s4 = (int32_t)(int16_t)c->r[R_V0];
   uint16_t v62 = a.stateEcho_u();
   const uint32_t val = (uint32_t)(s60 - s4 + 0x400) & 0xfffu;
@@ -258,12 +257,12 @@ void ActorZonedAttacker::typeInit(Core *c) {
 // recomputes the same zone internally (confirmed: Ghidra's signature for this function has no
 // live-in second parameter), so callers passing a stale/rough zone estimate is harmless.
 // ----------------------------------------------------------------------------------------------
-// ORACLE: ov_a00_gen_801409C0
+// ORACLE: overlay guest 0x801409C0
 void ActorZonedAttacker::pickAttackByRange(Core *c) {
   GuestFrame<40, 5> frame(c, kSpills_801409C0);
   const uint32_t node = c->r[R_A0];
   Actor a(c, node);
-  rec_dispatch(c, FN_8009A450);
+  psx::cpu::dispatchGuestToReturn0(*c, FN_8009A450, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   const uint32_t rngv = c->r[R_V0];
   if (c->mem_r16(G_800E7FFE) & 0x8200) {
     c->r[R_V0] = 0;
@@ -275,7 +274,7 @@ void ActorZonedAttacker::pickAttackByRange(Core *c) {
   const int32_t ty = c->mem_r16s(G_1F800164);
   c->r[R_A0] = (uint32_t)(int32_t)(int16_t)(nx - tx);
   c->r[R_A1] = (uint32_t)(int32_t)(int16_t)(ny - ty);
-  rec_dispatch(c, FN_800781E0);
+  psx::cpu::dispatchGuestToReturn0(*c, FN_800781E0, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   const int32_t dist = (int32_t)(int16_t)c->r[R_V0];
   int32_t zone;
   if ((c->mem_r16(G_800E7FFE) & 0x8200) == 0 && dist < 0x641) {
@@ -315,7 +314,7 @@ void ActorZonedAttacker::pickAttackByRange(Core *c) {
 // (node+0x40) after seeding a different anim cue; 5/6 run a ~30-frame countdown. Ends by advancing
 // node[0x32] (heading) by 0x10 and stepping FN_801406e4 every call.
 // ----------------------------------------------------------------------------------------------
-// ORACLE: ov_a00_gen_80144928
+// ORACLE: overlay guest 0x80144928
 void ActorZonedAttacker::approachAndFace(Core *c) {
   GuestFrame<32, 4> frame(c, kSpills_80144928);
   const uint32_t node = c->r[R_A0];
@@ -339,7 +338,7 @@ label_caseD_2: {
   c->r[R_A0] = (uint32_t)(int32_t)(int16_t)(tx - nx);
   c->r[R_A1] = (uint32_t)(int32_t)(int16_t)(ty - ny);
   c->r[R_A2] = (uint32_t)(int32_t)(int16_t)(tz - nz);
-  rec_dispatch(c, FN_80078240);
+  psx::cpu::dispatchGuestToReturn0(*c, FN_80078240, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   if (c->r[R_V0] < 0x3c0u) {
     goto label_ac8;
   }
@@ -436,7 +435,7 @@ label_dispatch:
 // (FUN_8014xxxx below) stays an un-RE'd PSX leaf — only the CONTROL FLOW + node/global writes are
 // owned here, matching the "not independently RE'd" convention.
 // ----------------------------------------------------------------------------------------------
-// ORACLE: ov_a00_gen_80143A00
+// ORACLE: overlay guest 0x80143A00
 void ActorZonedAttacker::defaultSubStateMachine(Core *c) {
   GuestFrame<40, 5> frame(c, kSpills_80143A00);
   const uint32_t node = c->r[R_A0];
@@ -486,7 +485,7 @@ void ActorZonedAttacker::defaultSubStateMachine(Core *c) {
         uVar7 = 0x201u;
         if ((int32_t)((uint32_t)bVar2 << 24) < 1) {
           c->mem_w32(node + 4, 0x301u);
-          rec_dispatch(c, FN_8009A450);
+          psx::cpu::dispatchGuestToReturn0(*c, FN_8009A450, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
           c->mem_w8(node + 100, (uint8_t)(c->r[R_V0] & 3));
           return;
         }
@@ -502,7 +501,7 @@ void ActorZonedAttacker::defaultSubStateMachine(Core *c) {
         const int32_t tz = c->mem_r16s(G_1F800164);
         c->r[R_A0] = (uint32_t)(int32_t)(int16_t)(nx - tx);
         c->r[R_A1] = (uint32_t)(int32_t)(int16_t)(nz - tz);
-        rec_dispatch(c, FN_800781E0);
+        psx::cpu::dispatchGuestToReturn0(*c, FN_800781E0, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         const int32_t d = (int32_t)(int16_t)c->r[R_V0];
         int32_t zone;
         if ((c->mem_r16(G_800E7FFE) & 0x8200) == 0 && d < 0x641) {
@@ -516,7 +515,7 @@ void ActorZonedAttacker::defaultSubStateMachine(Core *c) {
         }
         c->r[R_A0] = node;
         c->r[R_A1] = (uint32_t)zone;
-        rec_dispatch(c, FN_801409C0);
+        psx::cpu::dispatchGuestToReturn0(*c, FN_801409C0, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
         const int32_t r = (int32_t)(int16_t)c->r[R_V0];
         uVar7 = 0x301u;
         if (r != 0) {
@@ -600,7 +599,7 @@ void ActorZonedAttacker::defaultSubStateMachine(Core *c) {
       if (1 < bv) {
         return;
       }
-      rec_dispatch(c, FN_8009A450);
+      psx::cpu::dispatchGuestToReturn0(*c, FN_8009A450, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       uVar6 = c->r[R_V0];
       uVar7 = 0x101u;
       if ((uVar6 & 0x8000) == 0) {
@@ -701,7 +700,7 @@ void ActorZonedAttacker::defaultSubStateMachine(Core *c) {
       c->r[R_A0] = node;
       c->r[R_A1] = 0;
       c->r[R_A2] = 0x1900u;
-      rec_dispatch(c, FN_80141AC4);
+      psx::cpu::dispatchGuestToReturn0(*c, FN_80141AC4, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       const int32_t sVar4 = (int32_t)(int16_t)c->r[R_V0];
       if (sVar4 != 0) {
         c->mem_w16(node + 6, 3);
@@ -1000,7 +999,7 @@ void ActorZonedAttacker::defaultSubStateMachine(Core *c) {
       const int32_t tz = c->mem_r16s(G_1F800164);
       c->r[R_A0] = (uint32_t)(int32_t)(int16_t)(nx - tx);
       c->r[R_A1] = (uint32_t)(int32_t)(int16_t)(nz - tz);
-      rec_dispatch(c, FN_800781E0);
+      psx::cpu::dispatchGuestToReturn0(*c, FN_800781E0, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       // `slti v0,v0,800` [0x80144488] — the compare is on the FULL 32-bit v0, with NO
       // `sll 16 / sra 16` first (unlike the range ladders elsewhere in this cluster, which do
       // sign-extend). The rebuild sign-extended the low half, so a distance in 0x8000..0xFFFF read
@@ -1177,7 +1176,7 @@ LAB_801448e8:
 // EXACT same tail shape as the caller's own second_cull block (both close over FN_8014047c ->
 // FN_800777FC -> FN_800518FC -> node[0xb] fold).
 // ----------------------------------------------------------------------------------------------
-// ORACLE: ov_a00_gen_80144B50
+// ORACLE: overlay guest 0x80144B50
 void ActorZonedAttacker::idleTick(Core *c) {
   GuestFrame<48, 4> frame(c, kSpills_80144B50);
   const uint32_t node = c->r[R_A0];
@@ -1191,14 +1190,14 @@ void ActorZonedAttacker::idleTick(Core *c) {
   case 1:
     if (c->mem_r8(node + 6) == 0) {
       c->r[R_A0] = 4;
-      rec_dispatch(c, FN_80026100);
+      psx::cpu::dispatchGuestToReturn0(*c, FN_80026100, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       call2(c, node, FN_801402B8, 2u, 4u);
       c->mem_w16(node + 0x84, 0x14);
       c->mem_w16(node + 0x86, 100);
       c->r[R_A0] = 0x89u;
       c->r[R_A1] = 0;
       c->r[R_A2] = 0;
-      rec_dispatch(c, FN_80074590);
+      psx::cpu::dispatchGuestToReturn0(*c, FN_80074590, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->mem_w8(node + 0x1b, (uint8_t)(c->mem_r8(node + 0x1b) & 0xbf));
       c->mem_w8(node + 0xd, (uint8_t)(c->mem_r8(node + 0xd) & 0xfd));
       c->mem_w8(node + 6, 1);
@@ -1216,7 +1215,7 @@ void ActorZonedAttacker::idleTick(Core *c) {
       c->r[R_A1] = 0x20u;
       c->r[R_A2] = 0x30u;
       c->r[R_A3] = 0xffu;
-      rec_dispatch(c, FN_80077E20);
+      psx::cpu::dispatchGuestToReturn0(*c, FN_80077E20, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       goto LAB_80144bd0;
     }
     goto LAB_80144bd0;
@@ -1227,7 +1226,7 @@ void ActorZonedAttacker::idleTick(Core *c) {
       c->r[R_A1] = 0xffu;
       c->r[R_A2] = 0x30u;
       c->r[R_A3] = 0x30u;
-      rec_dispatch(c, FN_80077E20);
+      psx::cpu::dispatchGuestToReturn0(*c, FN_80077E20, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     }
   switchD_caseD_0: {
     bool bVar1;
@@ -1259,7 +1258,7 @@ void ActorZonedAttacker::idleTick(Core *c) {
           c->r[R_A0] = 0x88u;
           c->r[R_A1] = 0;
           c->r[R_A2] = 0;
-          rec_dispatch(c, FN_80074590);
+          psx::cpu::dispatchGuestToReturn0(*c, FN_80074590, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
           c->mem_w16(node + 6, 1);
           goto LAB_80144d20;
         }
@@ -1352,7 +1351,7 @@ void ActorZonedAttacker::idleTick(Core *c) {
     c->r[R_A0] = node;
     c->r[R_A1] = c->mem_r32(node + 0xc0);
     c->r[R_A2] = 1u;
-    rec_dispatch(c, FN_80080750);
+    psx::cpu::dispatchGuestToReturn0(*c, FN_80080750, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     const int32_t iVar5 = (int32_t)c->r[R_V0];
     if (iVar5 != 0) {
       goto LAB_801451b0;
@@ -1368,7 +1367,7 @@ switchD_caseD_2:
     c->r[R_A0] = (uint32_t)a.subFlag() << 4;
     c->r[R_A1] = (uint32_t)a.triggerParam();
     c->r[R_A2] = 0;
-    rec_dispatch(c, FN_80077768);
+    psx::cpu::dispatchGuestToReturn0(*c, FN_80077768, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     uint16_t v62 = a.stateEcho_u();
     v62 = (c->r[R_V0] == 0) ? (uint16_t)(v62 | 1) : (uint16_t)(v62 & 0xfffe);
     a.setStateEcho(v62);
@@ -1379,7 +1378,7 @@ switchD_caseD_2:
     c->r[R_A0] = 0x88u;
     c->r[R_A1] = 0;
     c->r[R_A2] = 0;
-    rec_dispatch(c, FN_80074590);
+    psx::cpu::dispatchGuestToReturn0(*c, FN_80074590, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   } else {
     if (c->mem_r8(node + 6) != 1) {
       c->mem_w8(node + 4, 3);
@@ -1403,16 +1402,16 @@ switchD_caseD_2:
       c->r[R_A0] = node;
       c->r[R_A1] = 0;
       c->r[R_A2] = 0;
-      rec_dispatch(c, FN_800495DC);
+      psx::cpu::dispatchGuestToReturn0(*c, FN_800495DC, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       despawnNow = (c->r[R_V0] != 0);
     }
     if (despawnNow) {
       c->r[R_A0] = node + 0x2c;
-      rec_dispatch(c, FN_800315D4);
+      psx::cpu::dispatchGuestToReturn0(*c, FN_800315D4, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       c->r[R_A0] = 0x1bu;
       c->r[R_A1] = 0;
       c->r[R_A2] = 0;
-      rec_dispatch(c, FN_80074590);
+      psx::cpu::dispatchGuestToReturn0(*c, FN_80074590, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       goto LAB_801451b0;
     }
     const int32_t sVar4 = a.accelY();
@@ -1460,7 +1459,7 @@ switchD_caseD_8:
     c->r[R_A1] = 0xffu;
     c->r[R_A2] = 0x30u;
     c->r[R_A3] = 0x30u;
-    rec_dispatch(c, FN_80077E20);
+    psx::cpu::dispatchGuestToReturn0(*c, FN_80077E20, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   switchD_caseD_7:;
   }
   if ((c->mem_r32(node + 4) & 0xffff00u) == 0x700u) {
@@ -1468,18 +1467,10 @@ switchD_caseD_8:
     c->r[R_A1] = 0x20u;
     c->r[R_A2] = 0x30u;
     c->r[R_A3] = 0xffu;
-    rec_dispatch(c, FN_80077E20);
+    psx::cpu::dispatchGuestToReturn0(*c, FN_80077E20, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   }
   goto switchD_caseD_2;
 }
-
-extern void ov_a00_gen_80145C78(Core *);
-extern void ov_a00_gen_8014047C(Core *);
-extern void ov_a00_gen_80140544(Core *);
-extern void ov_a00_gen_801409C0(Core *);
-extern void ov_a00_gen_80143A00(Core *);
-extern void ov_a00_gen_80144928(Core *);
-extern void ov_a00_gen_80144B50(Core *);
 
 // FUN_80145C78 — classifies (u8 at record+0x2A, s16 at record+0x36) into a {0,1,2} zone band.
 // 7,504 substrate dispatches per 6000 replay frames. Its only caller in the whole image is
@@ -1489,7 +1480,7 @@ extern void ov_a00_gen_80144B50(Core *);
 // that, because the body proves the classification but proves nothing about the byte being a story
 // phase — that reading comes from a comment elsewhere, not from here. zoneClassify says what is
 // demonstrable and stops.
-// ORACLE: ov_a00_gen_80145C78
+// ORACLE: overlay guest 0x80145C78
 void ActorZonedAttacker::zoneClassify(Core *c) {
   c->r[2] = (uint32_t)((int32_t)c->r[4] < 4);
   {
@@ -1531,16 +1522,14 @@ L_80145CC8:;
 }
 
 void ActorZonedAttacker::registerOverrides(Game * /*game*/) {
-  using overrides::install;
-  install(FN_80145C78, "ActorZonedAttacker::zoneClassify", &ActorZonedAttacker::zoneClassify, ov_a00_gen_80145C78);
-  install(FN_8014047C, "ActorZonedAttacker::gateCheck", ActorZonedAttacker::gateCheck, ov_a00_gen_8014047C);
-  install(0x80140544u, "ActorZonedAttacker::typeInit", ActorZonedAttacker::typeInit, ov_a00_gen_80140544);
-  install(
-      FN_801409C0, "ActorZonedAttacker::pickAttackByRange", ActorZonedAttacker::pickAttackByRange, ov_a00_gen_801409C0);
-  install(0x80143A00u,
-          "ActorZonedAttacker::defaultSubStateMachine",
-          ActorZonedAttacker::defaultSubStateMachine,
-          ov_a00_gen_80143A00);
-  install(0x80144928u, "ActorZonedAttacker::approachAndFace", ActorZonedAttacker::approachAndFace, ov_a00_gen_80144928);
-  install(0x80144B50u, "ActorZonedAttacker::idleTick", ActorZonedAttacker::idleTick, ov_a00_gen_80144B50);
+  tomba::native::declareOverride(FN_80145C78, "ActorZonedAttacker::zoneClassify", &ActorZonedAttacker::zoneClassify);
+  tomba::native::declareOverride(FN_8014047C, "ActorZonedAttacker::gateCheck", ActorZonedAttacker::gateCheck);
+  tomba::native::declareOverride(0x80140544u, "ActorZonedAttacker::typeInit", ActorZonedAttacker::typeInit);
+  tomba::native::declareOverride(
+      FN_801409C0, "ActorZonedAttacker::pickAttackByRange", ActorZonedAttacker::pickAttackByRange);
+  tomba::native::declareOverride(
+      0x80143A00u, "ActorZonedAttacker::defaultSubStateMachine", ActorZonedAttacker::defaultSubStateMachine);
+  tomba::native::declareOverride(
+      0x80144928u, "ActorZonedAttacker::approachAndFace", ActorZonedAttacker::approachAndFace);
+  tomba::native::declareOverride(0x80144B50u, "ActorZonedAttacker::idleTick", ActorZonedAttacker::idleTick);
 }

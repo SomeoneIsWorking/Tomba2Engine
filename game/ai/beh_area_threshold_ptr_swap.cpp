@@ -15,12 +15,12 @@
 //               FUN_80031780(node).
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the node memory WRITES owned native; the
-// 3 sub-behavior CALLs (FUN_8002B278, FUN_80031780, FUN_8007A624) stay reachable via rec_dispatch
+// 3 sub-behavior CALLs (FUN_8002B278, FUN_80031780, FUN_8007A624) stay reachable via typed runtime address dispatch
 // (pure-PSX leaf). NO GTE, NO render packets. Transcribed 1:1 as a register machine (locals = guest
 // regs, goto labels = guest addresses) so delay-slot effects stay exact (e.g. the c454 `sh a0,4`
 // 16-bit state store; the c494 `sltiu v0,v0,2` computed in a branch delay then read at L4a8). a0 is
 // written into c->r only for the leaf calls (= node, where the guest writes it). v0 (handler return)
-// is NOT reproduced; the gate compares only RAM+scratchpad vs rec_super_call.
+// is NOT reproduced; the gate compares only RAM+scratchpad vs original guest-body call.
 
 #include "cfg.h"
 #include "collision.h" // Collision::listScan (FUN_80031780)
@@ -32,8 +32,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 

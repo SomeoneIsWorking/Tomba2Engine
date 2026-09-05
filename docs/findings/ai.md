@@ -11,8 +11,8 @@
   timing-sensitive finding"). The standard 95s `SBS_MODE=full SBS_AUTONAV=1` gate (no `ovhit`)
   does NOT hit it — it only manifests once autonav timing happens to walk into a melee fight,
   which the extra `ovhit` bookkeeping overhead was observed to perturb into reaching earlier.
-- **root cause (line-by-line RE cross-check, `generated/ov_a00_shard_1.c:3527`,
-  `ov_a00_gen_80112188`):** ground truth's approach-angle scratch store,
+- **root cause (line-by-line RE cross-check, `authenticated executable/overlay evidence`,
+  `overlay guest 0x80112188`):** ground truth's approach-angle scratch store,
   `mem_w32((r20 + 156), r4)` (i.e. `mem_w32(0x1F80009C, angle)`), sits in the **delay slot** of
   the `bne` that branches on `margin < bandWidth` (gen line ~3603-3606):
   ```c
@@ -30,8 +30,8 @@
   the "only reproduces mid-fight, not on generic autonav" symptom. The "mismatched RA inside
   Trig::ratan2" framing from the original repro was a downstream artifact of the SBS write-watch
   attributing the (missing) write to whichever call frame happened to touch that scratch word next
-  — not a bug in `Trig::ratan2` itself (independently line-traced against `gen_func_80085690`,
-  `generated/shard_4.c:13206`, and found byte-faithful for the branches walked: x/y sign-strip,
+  — not a bug in `Trig::ratan2` itself (independently line-traced against `guest 0x80085690`,
+  `authenticated executable/overlay evidence`, and found byte-faithful for the branches walked: x/y sign-strip,
   the `a0&0x7FE00000`/`a1&0x7FE00000` overflow-guard split, and the `a0/(a1>>10)` vs
   `(a0<<10)/a1` division selection all match).
 - **fix:** moved the `c->mem_w32(0x1F80009Cu, (uint32_t)angle)` store to execute unconditionally
@@ -39,11 +39,11 @@
   semantics), collapsing the old if/else into `const bool doReposition = (margin < bandWidth) ||
   (margin < 3);`. `game/ai/actor_melee_engage.cpp`.
 - **sibling checked, no bug found:** `MeleeProximity::isAtApproachAnchor`
-  (`game/ai/melee_proximity.cpp`, `gen_func_8001F9DC`, `generated/shard_2.c:795`) writes the same
-  scratch word, but ground truth's store there (`generated/shard_2.c:848`) is a plain sequential
+  (`game/ai/melee_proximity.cpp`, `guest 0x8001F9DC`, `authenticated executable/overlay evidence`) writes the same
+  scratch word, but ground truth's store there (`authenticated executable/overlay evidence`) is a plain sequential
   instruction on the success path only (not a delay-slot write) — the native port already matches.
 - **verification:**
-  - Line-by-line RE cross-check of `gen_func_80112188` against the native port (this session) —
+  - Line-by-line RE cross-check of `guest 0x80112188` against the native port (this session) —
     confirmed the delay-slot bug above; no other discrepancies found on the paths traced (kindZBias
     polarity, dz/dx computation, Y-band test, reachHi/reachLo split, ratan2 argument order/rsin-
     rcos ordering all independently re-verified and matched the existing "BUG FIX" comments from
@@ -65,7 +65,7 @@
     live. This is a genuine gap in the fleet's autonav tooling (it never exercises enemy combat),
     worth flagging for a future workflow improvement, not just this bug.
 - **refs:** `game/ai/actor_melee_engage.cpp`, `game/ai/melee_proximity.cpp`,
-  `generated/ov_a00_shard_1.c:3527`, `generated/shard_2.c:795`, `generated/shard_4.c:13206`,
+  `authenticated executable/overlay evidence`, `authenticated executable/overlay evidence`, `authenticated executable/overlay evidence`,
   `docs/findings/render.md` ("PutDrawEnv cluster" entry, original repro note).
 # Findings — AI / combat
 
@@ -74,13 +74,13 @@
 - **symptom (the gap):** `ActorMeleeEngage::doIt` (0x80112188), `MeleeProximity::isAtApproachAnchor`
   (0x8001F9DC), and `beh_actor_tomba_proximity_combat` (0x800527C8) were all wired/registered but
   their "verified" status rested ENTIRELY on the RE line-by-line cross-check against
-  `generated/`, never on a real SBS run — the standard gate's autonav (`PSXPORT_SBS_AUTONAV=1`)
+  `authenticated executable/overlay evidence`, never on a real SBS run — the standard gate's autonav (`PSXPORT_SBS_AUTONAV=1`)
   never leaves the immediate seaside spawn area, so `PSXPORT_DEBUG=ovhit` read `A=0 B(gen)=0` for
   all three under the standard 95s gate command, confirmed live:
   `timeout 100 env PSXPORT_VK_HEADLESS=1 PSXPORT_SBS=1 PSXPORT_SBS_MODE=full PSXPORT_SBS_AUTONAV=1
   PSXPORT_NOAUDIO=1 PSXPORT_SBS_NOPAUSE=1 PSXPORT_DEBUG=ovhit ./scratch/bin/tomba2_port` — all
   three read `NEVER HIT` at 600+ frames.
-- **fix — `PSXPORT_SBS_AUTONAV=combat`** (runtime/recomp/sbs.cpp, `sbsCombatOn()` + the `Nav::DONE`
+- **fix — `PSXPORT_SBS_AUTONAV=combat`** (runtime/psx/sbs.cpp, `sbsCombatOn()` + the `Nav::DONE`
   combat leg): a NEW opt-in knob, off by default so the standard gate is unaffected. Deterministic
   input script (required — SBS runs two cores in lockstep off identical input, no wall-clock/RNG
   navigation allowed): once player control is reached, hold Right continuously and fire a Cross
@@ -89,7 +89,7 @@
   physical collision wall at world Z≈6190) and deep into the same corridor's `cull_substate_
   orchestrator` cluster (handler 0x8013259C, object 0x800F1190 by the time coverage fires).
 - **REAL BUG FOUND WHILE BUILDING THIS: `BTN_RIGHT` was `0x2000` (Circle) not `0x0020` (Right)**
-  in `runtime/recomp/sbs.cpp`'s pad-button constants (see the `BTN_RIGHT FIX` comment at the
+  in `runtime/psx/sbs.cpp`'s pad-button constants (see the `BTN_RIGHT FIX` comment at the
   constant's definition). This is a pre-existing bug, NOT introduced by this task — it also broke
   `PSXPORT_SBS_POSTDRIVE=1`'s existing "walk into things" script (Nav::DONE), which has been
   pressing Circle instead of walking Right since that knob was introduced (2026-07-08). Fixed by
@@ -106,7 +106,7 @@
     cascade RE'd in `game/ai/actor_melee_engage.h`/`melee_proximity.h`).
   - `0x800527C8 beh_actor_tomba_proximity_combat` — **still 0 hits** even at frame 2500 / world
     Z=14003 (well past both prior obstacles). Its call site is an INDIRECT per-object "think"
-    pointer (no static `func_800527C8(c)` call site exists anywhere in `generated/`) — no spawned
+    pointer (no static `guest 0x800527C8(c)` call site exists anywhere in `authenticated executable/overlay evidence`) — no spawned
     object in the ~150-entity reachable seaside/intro area (confirmed via a full live `ents` walk,
     `tools/dbgclient.py`) has its think-slot pointed at this address. Reaching it needs either a
     wider-area playthrough (past whatever area transition spawns the object that uses it) or
@@ -115,8 +115,8 @@
     coverage, same caveat as `docs/fleet-workflow.md` §9's standing rule.
   - `MeleeProximity::isAtApproachAnchor` and `ActorMeleeEngage::doIt` themselves show `A=N B(gen)=0`
     ("COUNT MISMATCH vs substrate") in the `ovhit` dump — this is the SAME known tooling caveat as
-    `quadrtpt`/`ovgtgnd`/other direct-`g_override`-wired A00-overlay leaves (`docs/config.md`
-    "ovhit" section, item 2): `noteSubstrateDispatch` isn't wired for every direct/g_override call
+    `quadrtpt`/`ovgtgnd`/other direct-`image-qualified runtime dispatcher`-wired A00-overlay leaves (`docs/config.md`
+    "ovhit" section, item 2): `noteSubstrateDispatch` isn't wired for every direct/image-qualified runtime dispatcher call
     site, so `B(gen)`'s count is a metric-tracking gap, not evidence the override didn't fire on
     core B — `sbs-div` (the real byte-level RAM/scratchpad compare) is the trustworthy signal.
 - **SBS divergence discovered by this coverage — RESOLVED (2026-07-10, same-day follow-up session).**
@@ -135,7 +135,7 @@
     ("`ActorMeleeEngage::doIt` — scratchpad 0x1F80009C stale-write on the arm-directly path",
     fixed in commit 76227b8, landed in this branch's history AFTER the combat-leg coverage that
     surfaced this paragraph was originally written, but BEFORE this follow-up session started).
-    `gen_func_80112188`'s `mem_w32(scratch+156, angle)` sits in the delay slot of the
+    `guest 0x80112188`'s `mem_w32(scratch+156, angle)` sits in the delay slot of the
     `margin < bandWidth` branch and fires unconditionally; the pre-fix native port gated it behind
     `if (margin < bandWidth)`, dropping the store on the "arm-directly" branch
     (`margin >= bandWidth && margin >= 3`) and leaving 0x1F80009C/9D stale on core A whenever a
@@ -162,7 +162,7 @@
   same as the standard `=1` leg (0-diff through f10440+). Nothing currently blocks promoting it to
   the default gate; it remains opt-in only because `docs/fleet-workflow.md` §2's standard command
   hasn't been updated to include it, not because of any known-red issue.
-- **refs:** `runtime/recomp/sbs.cpp` (`sbsCombatOn()`, `Nav::DONE`'s combat leg, `BTN_RIGHT` fix),
+- **refs:** `runtime/psx/sbs.cpp` (`sbsCombatOn()`, `Nav::DONE`'s combat leg, `BTN_RIGHT` fix),
   `game/ai/actor_melee_engage.{h,cpp}`, `game/ai/melee_proximity.{h,cpp}`,
   `game/ai/beh_actor_tomba_proximity_combat.{h,cpp}`, `docs/config.md` ("ovhit" +
   "Mirror TDD gate" sections), `docs/fleet-workflow.md` §9 (autonav-coverage caveat this closes
@@ -370,9 +370,9 @@ ported with the wrong signedness. Three separate bugs in this codebase have now 
 split (`git log -L` on the function returns only the import commit `ec7fe40`). #1 was never fixed,
 only masked — while the bucket-pickup softlock (#2) was live the pickup sequence could not complete,
 so the symptom was not visible; `f12ae00` fixed that softlock at 20:45 and the symptom came straight
-back. Neither today's recompiler jump-table fix (`external c0caeef2`) nor the
+back. Neither today's jump-table boundary correction (`external c0caeef2`) nor the
 `beh_prng_velocity_machine` rebuild (`f12ae00` / `0274c26`) is implicated: the rebuilt handler is
-byte-identical to its gen body (2 MB RAM+spad A/B on `replays/bugs/bucket-softlock.pad`,
+byte-identical to its guest-visible behavior (2 MB RAM+spad A/B on `replays/bugs/bucket-softlock.pad`,
 `PSXPORT_BEH_SUBSTRATE=80117658` vs native → `cmp -l` = 0 bytes).
 
 **Root cause.** `ActorTomba::proximityCheck` (guest `FUN_80022060`, reached
@@ -507,7 +507,7 @@ does not reproduce it" as evidence about the bug.
 
 - **ROOT-CAUSED + FIXED — `ActorZonedAttacker::defaultSubStateMachine` (0x80143A00): the node[5]
   jump-table arms were SHIFTED BY ONE.** Found because forcing `beh_id_compare_motion_dispatch`
-  (0x80145230) to its gen body changed 148 bytes of object state on the bucket capture (first at
+  (0x80145230) to its guest-visible behavior changed 148 bytes of object state on the bucket capture (first at
   f421); `PSXPORT_THUNK_FORCE_GEN` bisected the 6-address ActorZonedAttacker cluster to this one
   address (forcing it alone reproduced the same 148 bytes; the other five were 0).
   The real jump table (read out of the running game at **0x8010A1EC**) is
@@ -521,7 +521,7 @@ does not reproduce it" as evidence about the bug.
   0xD374 vs 0xD3F0, which then propagated into `Animation::applyFrame` positions.
   **Gate: `PSXPORT_THUNK_FORCE_GEN=0x80143A00` on bucket-softlock f2100 → 0 differing bytes (RAM +
   spad), was 148.** Two further fidelity defects were found in the same body while reading it against
-  `ov_a00_gen_80143A00` and fixed in the same pass: case 0xC compared `(int16_t)v0 < 800` where the
+  `overlay guest 0x80143A00` and fixed in the same pass: case 0xC compared `(int16_t)v0 < 800` where the
   guest `slti` compares the FULL 32-bit v0 (a distance in 0x8000..0xFFFF read as negative), and its
   near branch jumped to 0x80144550 (which first tests v0) instead of the guest's 0x80144558 (the
   unconditional `node[6] = 3` store).
@@ -537,7 +537,7 @@ does not reproduce it" as evidence about the bug.
   0x8007778C.** `Actor::boundsCull` is a separate rebuild that inlines `performBaseCull` rather than
   dispatching 0x8007712C, so the handler took a different cull path from the guest body it replaces —
   the dispatch trace showed the gen leg making a `Cull::cullWrapper ra=8011D9F4` call this leg never
-  made. Now routed through the registry with the RE'd ra constants (`guest_fn(c, 0x8007778C,
+  made. Now routed through the registry with the RE'd ra constants (`typed guest call (c, 0x8007778C,
   0x8011D9F4/0x8011DBA4, nd)`), per CLAUDE.md's one-registry rule. (This did NOT close its end-state
   diff — see OPEN below.)
 
@@ -545,8 +545,8 @@ does not reproduce it" as evidence about the bug.
   bytes** (final binary, after the fixes below), i.e. the rebuild is equivalent on every path that
   capture executes. `0x80145230` went 148 -> 0 with the ActorZonedAttacker fix.
   Residual on that capture: `0x80124E74 beh_jumptable_release_trigger` = **1 byte** at 0x800BF82C, and
-  it is NOT a rebuild slip — the store is the SAME site in both legs (`gen_func_8007074C` writing the
-  3-word block at 0x800BF824/28/2C from `gen_func_800424F0`), and the differing byte is the LOW half of
+  it is NOT a rebuild slip — the store is the SAME site in both legs (`guest 0x8007074C` writing the
+  3-word block at 0x800BF824/28/2C from `guest 0x800424F0`), and the differing byte is the LOW half of
   a `coord << 16` word that the guest's own opcode handler reads from an UNINITIALIZED stack slot
   (0x800424F0 writes only sp+26/30/34 and then loads sp+24/28/32 as words). The value is guest stack
   history, so it moves with any legal difference in stack churn. Watchpoint evidence:
@@ -586,7 +586,7 @@ does not reproduce it" as evidence about the bug.
 - **what this means for the port:** the class is a MULTI-PART ASSEMBLY driver. `cmds` is the sub-part
   count (12 for a pump, 3 and 7 for simpler instances), and the leaves are its per-frame sub-part
   logic over the child-record table at node+0xC0. That explains shapes that looked arbitrary from the
-  gen body alone — e.g. 0x80130AC4 samples the node at up to THREE offset points before asking the
+  guest-visible behavior alone — e.g. 0x80130AC4 samples the node at up to THREE offset points before asking the
   camera cull whether it is on screen, which is what a beam spanning several thousand world units
   needs and what a single-point cull would get wrong.
 - **NOT established, do not repeat as fact:** which sub-part the 0x80130D5C oscillator
@@ -610,12 +610,12 @@ does not reproduce it" as evidence about the bug.
   class 4 excluded it from a class-9 path.
 - **status:** STRUCTURE VERIFIED from the gen bodies 2026-07-30. The class lead is NOT what gates it.
 - **what the two bodies actually do:**
-  - `ov_a00_gen_80111304` (the producer, ov_a00_shard_1.c:2994+) takes a0=other, a1=obj. It reads
-    obj+0x80 (radius) << 2, calls `rec_dispatch(0x8002300C)` — an overlap test — and if that returns
+  - `overlay guest 0x80111304` (the producer, ov_a00_shard_1.c:2994+) takes a0=other, a1=obj. It reads
+    obj+0x80 (radius) << 2, calls `typed runtime address dispatch(0x8002300C)` — an overlap test — and if that returns
     ZERO it jumps straight to the exit having written NOTHING. Only on a nonzero result does it do
     `mem_w8(obj+43, 1)`, i.e. stamp the contact index. It then reads scratchpad byte 0x1F800137 and
     only reaches the `=2` (weight) path when that byte is zero.
-  - `ov_a00_gen_801130C4` (its caller, ov_a00_shard_0.c:4411+) reads a CANDIDATE LIST POINTER from
+  - `overlay guest 0x801130C4` (its caller, ov_a00_shard_0.c:4411+) reads a CANDIDATE LIST POINTER from
     scratchpad 0x1F80013C and a COUNT from 0x1F800144, copies the count into a working counter at
     0x1F800182, and **branches past the whole loop when the count is zero**. The loop body then walks
     the list, one candidate per iteration, calling down to the producer.
@@ -631,7 +631,7 @@ does not reproduce it" as evidence about the bug.
 - **NOT established:** who WRITES 0x1F800144, and whether the beam would pass the 0x8002300C overlap
   test if the list were populated. Both are unread. Nothing here says the producer is correct — only
   that the reason it is silent is upstream of the class filter that was previously suspected.
-- **refs:** generated/ov_a00_shard_1.c:2994-3010, generated/ov_a00_shard_0.c:4411-4437,
+- **refs:** authenticated executable/overlay evidence, authenticated executable/overlay evidence,
   docs/kanban/cards/008-*, game/ai/substate_edge_native.cpp (contactWeightApply)
 
 ## kanban #8: the contact stamp never happens because the OVERLAP TEST never passes
@@ -642,7 +642,7 @@ does not reproduce it" as evidence about the bug.
   saying it is skipped because the aux-list count at scratchpad 0x1F800144 is zero. The count IS zero,
   but it gates only ONE of the producer's EIGHT callers. Wiring 0x80111304 natively and counting shows
   it RUNS — 1,151 calls per 1500 frames under SBS, 6,000+ over the replay on the faithful path.
-- **what is actually true:** the producer writes item+0x2B = 1 only when `rec_dispatch(0x8002300C)`
+- **what is actually true:** the producer writes item+0x2B = 1 only when `typed runtime address dispatch(0x8002300C)`
   (an overlap test) returns nonzero. A host-only counter on that RETURN, added inside the now-native
   producer, reports **passes = 0 out of 6,000+ calls** across the whole replay, on both the default
   pc_skip path and the faithful `PSXPORT_PC_SKIP=0` path. The overlap test never passes.
@@ -661,7 +661,7 @@ does not reproduce it" as evidence about the bug.
 ## kanban #8: the candidate list is the CULL QUEUE, published by natively-owned Cull methods
 - **status:** located statically 2026-07-30. This is the upstream end of the contact-stamp chain.
 - **how:** the pair (list pointer at scratchpad 0x1F80013C, count at 0x1F800144) is published as an
-  adjacent `mem_w32 +316` / `mem_w16 +324` idiom. Scanning generated/ for that pair with the base
+  adjacent `mem_w32 +316` / `mem_w16 +324` idiom. Scanning authenticated executable/overlay evidence for that pair with the base
   register provably holding 0x1F800000 (8064u << 16) finds exactly FIVE publishers:
   - `0x8007703C` Cull::enqueueByClass · `0x8007712C` Cull::decide · `0x80077E7C` Cull::enqueueQueueA
   - `0x8003BB50` Render::objListWalk1 · `0x800798F8` Pool::initTypedPools
@@ -680,7 +680,7 @@ does not reproduce it" as evidence about the bug.
 - **NOT established:** which of the five publishers is the one that should be enqueueing the beams,
   whether any of them diverges from its guest body, and what class filter (if any) they apply. Nothing
   here says a Cull native is wrong — only that the search has moved into code we own.
-- **refs:** generated/shard_0.c:11145-11148, shard_1.c:5917-5921 and :15029-15032, shard_3.c:17775-17778,
+- **refs:** authenticated executable/overlay evidence, shard_1.c:5917-5921 and :15029-15032, shard_3.c:17775-17778,
   shard_6.c:12842-12849; game/render/cull.cpp; claim C024
 
 ## kanban #8: the candidate list is CULL QUEUE A — class 2/9 only, cap 24 — and our natives are faithful
@@ -711,14 +711,14 @@ does not reproduce it" as evidence about the bug.
   are some other class they are dropped by enqueueByClass by design, and the contact the card is chasing
   must arrive through a different mechanism entirely. That is the next thing to measure.
 - **refs:** game/render/cull.cpp:96-98 (queue tables), :151-169 (performBaseCull push), :214-228
-  (enqueueByClass class routing), :230-247 (enqueueQueueA); generated/shard_1.c:15022-15032,
+  (enqueueByClass class routing), :230-247 (enqueueQueueA); authenticated executable/overlay evidence,
   shard_0.c:11138-11148; claim C024
 
 ## Boss-fight logic: where it lives, and why it is NOT portable-and-gateable yet (recon 2026-07-30)
 - **status:** first recon. Boss logic had ZERO coverage anywhere — `findings.py boss` returned no
   match in the registry OR the journal before this.
 - **WHERE:** the Ghost Pig boss fight is **area 12** (name is USER-sourced, docs/areas.md), so its
-  code is overlay **A0C** — `generated/ov_a0c_*`, **170 distinct functions, ZERO natively owned**.
+  code is overlay **A0C** — `authenticated executable/overlay evidence`, **170 distinct functions, ZERO natively owned**.
 - **NOT on the port queue, by construction:** `codemap.py --unowned-rank` is fed by a recdep run over
   FIELD replays, which never enter area 12. So no A0C address can ever surface there. A0C is invisible
   to the normal target-selection path, and that is a property of the queue, not evidence A0C is cold.
@@ -733,7 +733,7 @@ does not reproduce it" as evidence about the bug.
   ONE is A0C-defined.
 - **I checked whether the INSTRUMENT was lying before believing that negative**, because a near-zero
   is exactly when to suspect the tool. `recdep` counts only substrate DISPATCH targets, so direct
-  intra-overlay calls would be invisible — but A0C makes **1001 rec_dispatch calls against 176 direct
+  intra-overlay calls would be invisible — but A0C makes **1001 typed runtime address dispatch calls against 176 direct
   ones**, so the meter would have seen the traffic. The code genuinely is not running.
 - **MY FIRST ATTRIBUTION WAS WRONG — corrected 2026-07-30, same day.** I blamed kanban #36 (cold warp
   dispatching the wrong overlay's handler). That is contradicted by a measurement recorded ON THAT VERY
@@ -784,24 +784,24 @@ reproduced the decisive observation independently before accepting it.
   not a multiple of 369) are field-phase aliases from the cumulative histogram, not area-12 code.
 - **Two residual unknowns resolved:** 0x80042354 is a sound-cue wrapper (8-byte table at 0x80015368 ->
   Sfx::trigger 0x80074590, publishes a0 to scratchpad 0x1F800137) and 0x8001CF2C is an audio-settle
-  spin on func_80089E1C(9,0,0). So area 12's entry-handler tail is BOSS-MUSIC SETUP plus the state-4
+  spin on guest 0x80089E1C(9,0,0). So area 12's entry-handler tail is BOSS-MUSIC SETUP plus the state-4
   arm, and bit 2 of 0x800BFA1A reads as "this boss already beaten" (it suppresses both). That is why
   my devWarpAreaEnter fix changed no reach: the thing it dispatches was never the fight's ignition.
 
 ## The area-12 SBS gate does NOT work today — PSXPORT_SBS_WARP aborts (tested 2026-07-30)
-Fable reported that `PSXPORT_SBS_WARP="frame:area[:sub]"` (external/psxport/runtime/recomp/sbs.cpp)
+Fable reported that `PSXPORT_SBS_WARP="frame:area[:sub]"` (external/psxport/runtime/psx/sbs.cpp)
 already provides a replay-free SBS gate into any area. The mechanism is real and it fires, but I
 TESTED IT FOR AREA 12 AND IT ABORTS:
 
     PSXPORT_SBS_WARP="1200:12" ... -> "[sbs] WARP fired at f1200: door-record 0x800BF83A=0C00 trig=3"
-    then: [recomp-MISS 0] no recompiled fn for 0x8010CC28 (caller ra=0x800587F8, a0=0x800E7E80)
+    then: [historical guest-entry miss 0] no guest fn for 0x8010CC28 (caller ra=0x800587F8, a0=0x800E7E80)
     41 checkpoints identical, then abort.
 
 0x8010CC28 is area 12's entry handler and ra=0x800587F8 is exactly the ActorTomba::enterOuterState0
 table-dispatch site. The miss means overlay A0C is NOT RESIDENT on that leg: the SBS warp writes the
 door record and lets the game run its own transition, but that path does not bring the destination
 overlay in, unlike the REPL dev warp which calls devWarpAreaLoad explicitly. This is the kanban #36
-signature verbatim ("recomp-MISS 0x8010AC20, caller ra=0x800587F8").
+signature verbatim ("historical guest-entry miss 0x8010AC20, caller ra=0x800587F8").
 
 CONSEQUENCE: the ~17 reachable idle-set functions are real and portable, but they are NOT SBS-gateable
 by this route yet. Do not cite SBS_WARP as an area-12 gate without re-testing it. It was built for

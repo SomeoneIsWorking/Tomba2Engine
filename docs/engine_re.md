@@ -2,7 +2,7 @@
 
 Living doc for the native-engine port (plan: reimplement Tomba2's engine in PC-native C). **Runtime is
 INTERPRETER-ONLY (later-103):** un-owned code runs the real PSX binary on the flat interpreter; the static
-recompiler is an offline analysis aid only. The **verification oracle is the Beetle emulator**
+recorded binary evidence is an offline analysis aid only. The **verification oracle is the Beetle emulator**
 (`runtime/wide60rt`). Source for all line refs: `scratch/decomp/ram_f1000_all.c` (Ghidra decomp of
 MAIN.EXE). Addresses are PSX RAM virtual addresses. **Verify against the oracle (or the original interpreted
 path) before relying on any field — decomp is point-in-time.**
@@ -33,7 +33,7 @@ sub-state). See "GAME stage state machine". In REAL free-roam (reach it with the
 the native **`ov_render_frame` runs every frame** (`debug rfprobe`: ~once/frame) — it IS the render driver
 (later-238 was right; my earlier "dormant" reading was an artifact of the BROKEN old AUTO_SKIP, which left
 the game in the PAUSED auto-menu where `ov_render_frame` is gated off by `*(0x1F800136) < 2`). BUT
-`ov_render_frame`'s passes mostly `rec_dispatch` the INTERPRETED PSX render, so the actual field geometry is
+`ov_render_frame`'s passes mostly `typed runtime address dispatch` the INTERPRETED PSX render, so the actual field geometry is
 built by PSX overlay code (next paragraph) → flat quads.
 
 **2. AREA / ASSET LOAD.** The area-load task `0x800452c0` → `FUN_8004514c` commits the area id to
@@ -73,7 +73,7 @@ pulled from disc by the asset pipeline (step 2). They are MODEL-SPACE; the per-o
 `cmd+0x18` (matrix) + `cmd+0x2c` (position).
 
 **7. RENDER + THE DEPTH REGRESSION (the user's "objects behind terrain/sea" bug).** The per-object render
-(`gen_func_8003CCA4` → `submit_perobj_flush`) walks node+0xC0 → geomblk → the GT3/GT4 submitters, which
+(`guest 0x8003CCA4` → `submit_perobj_flush`) walks node+0xC0 → geomblk → the GT3/GT4 submitters, which
 project each model vertex and emit a packet. There are TWO copies of the submit library: the resident
 `0x8007FDB0`/`0x8008007C` (native-owned `ov_submit_poly_gt3/4`) and a per-area **OVERLAY** copy
 (`0x801465EC`/`0x8013FE58`/`0x801401b8` entity loop). **Historically (later-166) the overlay copy was owned
@@ -87,7 +87,7 @@ world. That is exactly the regression: the field's objects + terrain are flatten
 composite by PSX OT order, so objects land behind terrain/sea.
 
 **The LIVE render path, traced with `PSXPORT_PCTRAP=0xADDR` (+`_SKIP=N`, dumps the guest call chain when the
-interpreter reaches ADDR — later-242):** `ov_render_frame` (native, every frame) → its passes `rec_dispatch`
+interpreter reaches ADDR — later-242):** `ov_render_frame` (native, every frame) → its passes `typed runtime address dispatch`
 the PSX bodies → the per-object geometry render goes `…→0x8003F698→0x80146478` (the OVERLAY GT3/GT4 renderer)
 and the ground/scene entities go `0x8003D0BC→0x801401B8 (entity loop)→0x8013FE58/0x8013FB88 (overlay GT4/GT3
 submitters)`, all INTERPRETED → is3d=0 flat. The native reimplementations DO exist — `submit_perobj_render`
@@ -97,7 +97,7 @@ secondary-effect pass 0x8003D584/F344/F3F4/F594) and `ov_field_entity_render` (0
 `ov_render_frame`) calls them, and those walk-lists are EMPTY in this field (`RLIST_HEAD==0`), so the
 interpreted PSX render runs instead. Confirmed: `groundnative` (route 0x8003D0BC→`ov_field_entity_render`) and
 routing all `submit_perobj_render` cases through the native flush BOTH leave the field 90.5% flat — they're
-off the live path. **The frontier: make `ov_render_frame`'s rec_dispatched passes call the NATIVE render
+off the live path. **The frontier: make `ov_render_frame`'s dynamically dispatched passes call the NATIVE render
 reimpls (per-object dispatch + entity loop + submitters) instead of the PSX bodies — own the render-pass call
 tree TOP-DOWN from `ov_render_frame`, NOT by reintroducing the removed scan-on-load override flip.**
 
@@ -138,7 +138,7 @@ the fn, understand the data, reimplement PC-native in `engine/`, keep the PSX-co
 Init-prefix slot (called from ov_game_main). No args, no return. Frame: `addiu sp,-48; sw ra,40(sp)`;
 epilogue `lw ra,40(sp); addiu sp,48; jr ra`. The body sets a handful of engine-state fields directly and
 orchestrates **14 callees in order**. SCOPE: own the orchestration + direct writes + the 3 ENGINE-STATE
-callees; KEEP the 8 libgpu/libgs/sound callees as `rec_dispatch` IN-CONTEXT (they do indirect draw-env /
+callees; KEEP the 8 libgpu/libgs/sound callees as `typed runtime address dispatch` IN-CONTEXT (they do indirect draw-env /
 FntLoad/FntOpen setup — later-182b nested-dispatch risk). Two of the kept callees (`0x80098330`,
 `0x80098d30`) read a struct that FUN_80075130 builds on **its own stack frame** at sp+16, so the native
 orchestrator MUST allocate the same sp-48 frame and populate sp+16..sp+26 before dispatching them, and pass
@@ -220,11 +220,11 @@ The 3 seaside boot cels load to slots 0/1/2 (descriptors 0x801846b4 / 0x801858d4
 `0x80105D18` after load = `01 01 01`.
 
 **Ownership model (later, this session):** the PROLOGUE (load + `*out=slot` + state-machine kick) is native
-(the two callees complete without yielding — verified state byte = 1 after them, matching the recomp); the
+(the two callees complete without yielding — verified state byte = 1 after them, matching the guest instruction path); the
 cross-frame DMA-wait loop is handed back IN-CONTEXT via the coro-redirect handshake (`rec_coro_redirect` to
-0x80075410, later-169) with the MIPS frame (sp-=0x20; s0/s1/ra saved) laid out byte-faithfully so the recomp
+0x80075410, later-169) with the MIPS frame (sp-=0x20; s0/s1/ra saved) laid out byte-faithfully so the guest instruction path
 loop+epilogue resume correctly. Cel-system callees (`FUN_80096480`/`80096980`/`80096a40`) stay dispatched.
-**VERIFY:** full main-RAM (2 MB) + scratchpad (1 KB) **0-diff** override-ON vs pure-recomp at field frame 120
+**VERIFY:** full main-RAM (2 MB) + scratchpad (1 KB) **0-diff** override-ON vs historical guest-only at field frame 120
 (newgame→skip 650→run 120, dumpram + .spad); cel-state table and all 3 slot stores byte-identical; 0 bad
 opcodes; reaches GAME. Diagnostic channel `celloadverify` (REPL `debug celloadverify`) logs each cel HIT.
 
@@ -270,11 +270,11 @@ size + mark slot LOADED(2). Return slot.
 
 **Callees**: `FUN_80099478`/`FUN_80099450` (the lock test/set — trivial single-word ops on 0x800AC638,
 owned inline). The **callback** (a2 = `FUN_800964b4` → the VRAM allocator `FUN_800977c0`) is the genuine
-leaf, KEPT dispatched (`rec_dispatch`) in the recomp's exact order — its free-list lives in tracked RAM
+leaf, KEPT dispatched (`typed runtime address dispatch`) in the guest instruction path's exact order — its free-list lives in tracked RAM
 (0x800AC5xx/6xx) so it returns the same VRAM base in an A/B re-run.
 
-**Verify**: `bavload` full RAM+scratchpad+v0 A/B gate vs `rec_super_call` (engine_bav.cpp) — native run →
-snapshot+rollback → recomp body → diff, excluding only the top-of-RAM stack window [sp-0x800, sp). **0-diff
+**Verify**: `bavload` full RAM+scratchpad+v0 A/B gate vs `original guest-body call` (engine_bav.cpp) — native run →
+snapshot+rollback → guest instruction path → diff, excluding only the top-of-RAM stack window [sp-0x800, sp). **0-diff
 over all 3 area-entry cel loads** (the natural exercise count for the reachable seaside field; this is a
 spawn-time loader, not per-frame). GOTCHAs caught by the gate: (1) lock semantics inverted (delay-slot `sw
 zero`); (2) the kind-shift inverted (`kind<5` → `<<2`, not `<<3`); (3) the C10/C98 index is **slot*4** (the
@@ -379,7 +379,7 @@ returns is IMPOSSIBLE (reached by `jr ra`, never fires). Therefore:
   the documented coro-redirect saved-ra/sentinel artifact, never game data). phase0 fires once + phase1 fires
   2000+ frames clean; phase2 (reached by poking sm[0x4a]=2) drives sm[0x48]->0 restart with no crash. The
   newgame->GAME path is unaffected (s7 only fires on the attract path).
-A plain rec_dispatch of a deep yielder kills task 0 (later-169).
+A plain typed runtime address dispatch of a deep yielder kills task 0 (later-169).
 A/B gate (override-on vs -off, REPL `run 150`): main-RAM + scratchpad 0-diff except task-0's saved-ra stack
 slot (CORO_SENTINEL vs guest return-PC, the coro-redirect artifact). `dumpram` now also dumps a `.spad`.
 
@@ -412,8 +412,8 @@ pre-change (guest-interpreted) build.
 fact: GAME.BIN contains exactly ONE yield call (`jal FUN_80051f80` @0x80106468), at the TOP-LEVEL loop
 (0x8010637C), AFTER the `sm[0x48]` dispatch returns — the sub-handlers do NOT yield in the overlay. But the
 sub-handlers call RESIDENT MAIN.EXE fns (`0x8007xxxx`) that DO yield deep (waiting on asset loads across
-frames). So the running dispatcher's callee can yield deep, which is why a `rec_dispatch` override killed
-task 0 (nested `rec_interp`+`CORO_SENTINEL`; the deep yield's longjmp destroys that C frame → resume
+frames). So the running dispatcher's callee can yield deep, which is why a `typed runtime address dispatch` override killed
+task 0 (nested `test-only reference execution`+`CORO_SENTINEL`; the deep yield's longjmp destroys that C frame → resume
 mis-reads the return as task-end, st=2→0 @f53). **The fix:** the override does its native work, sets
 `c->coro_redirect_pc` (via `rec_coro_redirect(c, target)`), and returns; the flat interp then runs `target`
 IN-CONTEXT (in the SAME task run / `interp_flat`), so a deep yield longjmps to the scheduler and resumes
@@ -439,7 +439,7 @@ also unlocks owning `FUN_80052078`/`FUN_800499e8` (see below).
 `FUN_80051e60` (`:?`) walks a **task table at `0x801fe000`**, stride **0x38 bytes**, until `0x801fe14f`
 (~6 task slots). Per slot, field `+0` = state: `2` = ready→switch to it (`FUN_80080880`=change-thread),
 `3` = needs-spawn (`FUN_80080860`=open-thread with args at +0x10/+0x18/+0x20, stores tid at +8). Thread
-funcs are already native (`ov_open_thread`/`ov_change_thread`/`ov_switch`, `runtime/recomp/threads.c`).
+funcs are already native (`ov_open_thread`/`ov_change_thread`/`ov_switch`, `runtime/psx/threads.c`).
 **Gameplay (entity update + render submission) runs inside the main gameplay task** — its body is the
 next RE target (see Open items).
 
@@ -509,18 +509,18 @@ handler's area-load state that **tears the old area's object tasks down BEFORE s
 own switch jump-table, not a separate companion table — the "12-way table" note above is superseded.)
 
 **`warp <area_id> [sub]` REPL dev command — now uses the DOOR RECORD (2026-07-10).**
-`runtime/recomp/native_boot.cpp` writes `0x800BF83A = (dest<<8)|sub` + `0x800BF839 = 3` at the frame-loop
+`runtime/psx/native_boot.cpp` writes `0x800BF83A = (dest<<8)|sub` + `0x800BF839 = 3` at the frame-loop
 top and lets the running field-run machine run the game's own transition. This **replaces** the old
 forced-`case0` warp (which seeded `0x800bf870` and drove `sm[0x4c]=0` to run `FUN_80044bd4` directly,
 skipping the teardown). Results (oracle + default configs, headless via `newgame`→field→`warp N`→`run 500`):
-- **Same-area `warp 0`: 0 recomp-miss, full object respawn, renders correctly** (both configs). The proper
+- **Same-area `warp 0`: 0 guest instruction path-miss, full object respawn, renders correctly** (both configs). The proper
   teardown+reload runs (`sm[0x4c]` 1→5).
-- **Cross-area teardown is now CLEAN:** the door-record path drops **`warp 1` from a 72-recomp-miss flood
+- **Cross-area teardown is now CLEAN:** the door-record path drops **`warp 1` from a 72-guest instruction path-miss flood
   (old forced-case0) to a single miss** (same for `warp 3`), on both configs. The stale-object bad-opcode
   flood the old note described is **GONE** — the earlier "CROSS-area is prerequisite-state-dependent /
   1000s of bad opcodes" diagnosis was for forced-case0 and is now obsolete for the door-record path.
 - **REMAINING cross-area blocker — the A0X MODE code overlay is not loaded during the warp.** The single
-  surviving miss is a **recomp-MISS**, not a bad-opcode derail: `warp 1` → `0x80109F7C` (A01's per-area
+  surviving miss is a **historical guest-entry miss**, not a bad-opcode derail: `warp 1` → `0x80109F7C` (A01's per-area
   object-init handler, jt[1]); `warp 3` → `0x8010B37C` (A03 code). `PSXPORT_DEBUG=ovload` shows the MODE
   slot (base `0x80108F9C`) only ever holds **SOP then A00** — the destination area's field-code overlay
   (`ov_a0<id>`) **never loads into the MODE slot**, so the per-area init handler (dispatched from resident
@@ -528,7 +528,7 @@ skipping the teardown). Results (oracle + default configs, headless via `newgame
   (OPN → AREA slot `0x18A000`) *does* load; only the CODE overlay step is missing. This is a distinct
   overlay-load-orchestration gap (the steady handler's `sm[0x4c]==1/5` area-load states don't fetch the
   A0X code overlay in this warp context), NOT a teardown problem — the scoped follow-up for a boss/level
-  selector. `ov_a03` etc. ARE recompiled; the gap is residency/loading, not recompilation.
+  selector. `ov_a03` etc. ARE guest; the gap is residency/loading, not source generation.
 
 ## Object / entity model — the entity LIST + node (RESOLVED via RAM-dump search)
 The active entities are a **doubly-linked list of pool nodes, stride 0xD0 (208 bytes)** (found by
@@ -567,7 +567,7 @@ pool/list memory; NO GTE, NO render packets. Reached by the per-type spawn dispa
 tail-jump (`jr v0`) to thin per-type handlers that call this. **`FUN_8007A980` ✅ OWNED
 `ov_spawn_dispatch` (entity_spawn.cpp): routes class→variant `{0x80079c3c, 0x80079ddc, 0x80079f90,
 0x8007a12c, 0x8007a2c8}` and calls `variant(ref=0, type, mode=3, list)`; the 5 spawn variants stay
-dispatched (content). `spawndispverify` gate = full RAM+scratchpad+v0 A/B vs `rec_super_call(0x8007A980)`:
+dispatched (content). `spawndispverify` gate = full RAM+scratchpad+v0 A/B vs `original guest-body call(0x8007A980)`:
 360+ live field spawns, 0 mismatches, clean. NEXT in the subsystem: the 5 variants + the replace-dispatcher
 `FUN_8007AA38`.** Body:
 - `cnt=u8[0x800e7e7c]; if (cnt<3) return 0;` (pool-low guard, keeps ≥2 spare).
@@ -578,7 +578,7 @@ dispatched (content). `spawndispverify` gate = full RAM+scratchpad+v0 A/B vs `re
 - stamp (all paths): `u8[node+0x0a]=a3` (list id), `u8[node+0]=2` (active), `u8[node+0x0c]=a1` (entity type).
 The per-type dispatch tables + handlers stay PSX (content-side type routing); only the alloc+link+init
 primitive is owned. `spawnverify` gate = full main-RAM(0x200000)+scratchpad(0x400)+v0 A/B vs
-`rec_super_call(0x80079C3C)`: **0 mismatches over 100+ live field spawns** (seaside, newgame→skip 650→run),
+`original guest-body call(0x80079C3C)`: **0 mismatches over 100+ live field spawns** (seaside, newgame→skip 650→run),
 clean boot, no bad opcode. Registered in game_tomba2.cpp via `entity_spawn_register()`.
 
 ### The field OBJECT-PLACEMENT DRIVER — `FUN_80072A78` ✅ OWNED `ov_place_objects` (engine/entity_spawn.cpp, later-210)
@@ -604,7 +604,7 @@ scratchpad+v0 A/B = **100+ live field calls 0-diff**, 0 bad opcode.
   via jump table `0x80016B50 = {b20,b60,bbc,c1c,c90,b14}`) — a scene/UI TRIGGER (on confirm pushes node[3]
   into 0x800BF871 + calls area-transition FUN_800782F0; plays SFX FUN_80074590; case3 seeds camera/save
   globals 0x800BF890.. + FUN_8005082C). Control flow + node/global writes owned native; sub-calls
-  rec_dispatched. `obj739acverify` full-RAM+scratchpad A/B = **1050+ live field calls 0-diff**, 0 bad opcode
+  dynamically dispatched. `obj739acverify` full-RAM+scratchpad A/B = **1050+ live field calls 0-diff**, 0 bad opcode
   (idle path fully exercised; input-driven node[5] 1..5 transitions faithfully transcribed, verify when driven).
 - **`FUN_80073CD8` ✅ OWNED `ov_beh_73cd8` (engine/objbeh_73cd8.cpp).** The resident generic sibling — same
   state-byte shape, but bigger: STATE 0 (init) seeds cull-record (FUN_80051B70 a1=0xc, a2=`(s16)DAT_800a4c94[area]`)
@@ -615,7 +615,7 @@ scratchpad+v0 A/B = **100+ live field calls 0-diff**, 0 bad opcode.
   for node[3]==2 via DAT_800bf907/8c3) → FUN_8007E110 → node+0x14; case2 pad-edge (`DAT_800e7e68 & DAT_1f800174`);
   case3 releases node+0x14 → idle; case6 FUN_80042728; case4 re-arms→case0; case0 on `node[0x2b]==3` advances +
   per-type FUN_80040B48(0x4e/0x4f/0x50). Tail: special-area (2/7/0x14) release of node+0x14 when `DAT_800e7e85!=0x1f`,
-  then node[0x2b]=0 + render FUN_800517F8. Control flow + node/global writes owned native; sub-calls rec_dispatched.
+  then node[0x2b]=0 + render FUN_800517F8. Control flow + node/global writes owned native; sub-calls dynamically dispatched.
   `obj73cd8verify` full-RAM+scratchpad A/B = **1400+ live field calls 0-diff**, 0 bad opcode.
 - **`FUN_800741DC` ✅ OWNED `ov_beh_741dc` (engine/objbeh_741dc.cpp).** The third resident handler that fires
   in the seaside field (a counting probe over {741dc,52078,499e8,4c930} showed only 741dc runs in seaside).
@@ -627,9 +627,9 @@ scratchpad+v0 A/B = **100+ live field calls 0-diff**, 0 bad opcode.
   re-arm); **case4** (driven) builds a 3-field struct on the guest stack (node+0x2e, node+0x32-(s16)node+0x84/2,
   node+0x36) → 2× FUN_80027144 + SFX FUN_80074590(0xc), then sets the per-type collected bit `1<<node[3]` in
   DAT_800bfa23 and toggles FUN_80040b48/c00(0x39/0x3a) incl. the all-collected (`==0x1f`) reward. Like 73cd8 it
-  calls cull FUN_8007778C and IGNORES the result. To make case4 byte-faithful, `ov_beh_741dc` mirrors the recomp
+  calls cull FUN_8007778C and IGNORES the result. To make case4 byte-faithful, `ov_beh_741dc` mirrors the guest instruction path
   body's `sp -= 0x30` prologue (wrapper) so the stack buffer at sp+0x10 sits above the sub-call frames exactly
-  where the recomp places it. Control flow + node/global writes owned native; sub-calls rec_dispatched.
+  where the guest instruction path places it. Control flow + node/global writes owned native; sub-calls dynamically dispatched.
   `obj741dcverify` full-RAM+scratchpad A/B = **500+ live field calls 0-diff**, 0 bad opcode (idle path; the
   pad/scene-driven sub-states incl. case4 faithfully transcribed, verify when driven).
   The remaining placement-installed handlers are scene-overlay code (0x8012/0x8013xxxx) that run only in OTHER
@@ -655,7 +655,7 @@ scratchpad+v0 A/B = **100+ live field calls 0-diff**, 0 bad opcode.
 area6: sub<6 `0x801437AC`/<9 `0x80143ACC`/else `0x80143AE0`; area8: sub<9 `0x8014304C`/<16 `0x801432B8`/<21
 `0x80143470`/else `0x80143614`; area0x15: sub0..4 `0x80115004/18/F4/180/1F8`/else `0x80115310`; **default:**
 if `u16@0x800BF870==0x704` none, else `0x800A4C28[area]` (0 → none). The seaside field (area 0) takes the
-default PTR-table path. `placeverify` gate = full main-RAM+scratchpad A/B vs `rec_super_call(0x80072A78)`:
+default PTR-table path. `placeverify` gate = full main-RAM+scratchpad A/B vs `original guest-body call(0x80072A78)`:
 **seaside field 0-diff** (both per-load calls), 0 bad opcode. Cross-area exercise of the special tables is
 blocked by the documented prerequisite-state warp limitation (the record-decode loop is shared & verified;
 table-select is a 1:1 disasm transcription). Registered in `entity_spawn_register()`.
@@ -668,9 +668,9 @@ for (n = DAT_800f2624; n; n = *(n+0x24)) { *(n+1) = 0; (*(handler@n+0x1c))(n); }
 Clears the render flag, then calls each node's handler (the PSX gameplay/render routine). A second
 walk of `DAT_800f2624` exists at `:18660` (likely a separate pass). **OWNED native (Phase 1) —
 `ov_entity_walk_7a904` (engine/entity.cpp), registered in game_tomba2.cpp.** The list traversal is
-reimplemented in C (capture `next` first, clear `+1`, dispatch each handler via `rec_dispatch`); the
+reimplemented in C (capture `next` first, clear `+1`, dispatch each handler via `typed runtime address dispatch`); the
 per-type handlers stay PSX / honor their own owned overrides. `walkverify` gate = full main-RAM +
-scratchpad A/B vs `rec_super_call(0x8007a904)` (same family as disp26c88/sm40558). This puts the engine
+scratchpad A/B vs `original guest-body call(0x8007a904)` (same family as disp26c88/sm40558). This puts the engine
 in charge of iterating the world's objects — the foundation for PC-owned per-object render
 classification (the proper #4 fix: know each object's render TYPE so depth/ordering falls out). NEXT
 (Phase 2): capture per-object render type + world transform during the walk and classify billboards /
@@ -699,10 +699,10 @@ foreground-decor at the source, instead of the late provenance heuristic at the 
 
 ## Per-object 2D BOX / hitbox-corner builder — `FUN_8003B220` (OWNED native, engine/hitbox.cpp)
 Pure resident LEAF (64 insns, ZERO jal, ZERO GTE, ZERO render packets, no scratchpad). ~1.64% of the
-seaside field's sampled interpreter time — the hottest still-recomp resident CONTENT leaf that is NOT a
+seaside field's sampled interpreter time — the hottest still-guest resident CONTENT leaf that is NOT a
 render-boundary fn. Signature `void FUN_8003B220(a0=dst struct, a1=base value, a2=params)`. It builds a
 small 2D box / corner set in the a0 struct from byte params in a2; every value is the one LIVE in memory at
-that point (the recomp re-loads each halfword), so the load/store ORDER is load-bearing. Semantics (all dst
+that point (the guest instruction path re-loads each halfword), so the load/store ORDER is load-bearing. Semantics (all dst
 fields are u16 halfwords, all a2 reads bytes):
 - `M32[a0+0]=a1`; then `a0[0] += (s8)a2[14]` (X origin += signed dx), `a0[2] += (s8)a2[15]` (Y origin),
   `a0[10]=a0[2]`, `a0[16]=a0[0]` (X snapshot), `a0[8]=a0[0]+(u8)a2[10]` (X far corner).
@@ -711,7 +711,7 @@ fields are u16 halfwords, all a2 reads bytes):
 - then scale ×5 (`sll x,2; addu x` = x*4+x): `a0[0]/[16]/[8]/[24]/[2]/[10]/[18]/[26] *= 5` in that exact
   reload order. v0 (ignored by callers) = the last computed value = `(s16)a0[26]_pre * 5`.
 The "×5" is the cell→pixel scale (the collision/tile grid uses 5-unit cells). OWNED native; gate `boxverify`
-= full main-RAM + scratchpad + v0 A/B vs rec_super_call(0x8003B220): **0 mismatches over 5000+ live field
+= full main-RAM + scratchpad + v0 A/B vs original guest-body call(0x8003B220): **0 mismatches over 5000+ live field
 calls** (press right 400 + press left 400). RAM/scratchpad were byte-identical from the first build — only
 the return reg needed mirroring (the gen's delay-slot `sh v0,26(a0)` leaves v0 in r2). a0 is typically a
 STACK-local struct (a0~0x801fe8c8). Registered in game_tomba2.cpp. (later: hitbox.cpp.)
@@ -719,7 +719,7 @@ STACK-local struct (a0~0x801fe8c8). Registered in game_tomba2.cpp. (later: hitbo
 ## RE survey — `0x80030000`-`0x8003BFFF` band (fleet agent, RE-ahead-of-frontier, UNWIRED/UNVERIFIED)
 
 Ghidra headless decompile of the whole band (`scratch/decomp/wr_re_80030000_8003c000.c`, project
-`ram_game`, 122 functions) + spot-check against `generated/shard_*.c` (ground truth for any GTE op —
+`ram_game`, 122 functions) + spot-check against `authenticated executable/overlay evidence` (ground truth for any GTE op —
 Ghidra's COP2 decompile of this band renders GTE data-register writes as synthetic
 `setCopReg`/`getCopReg`/`copFunction` "bus" pseudo-calls, unreliable for exact register indices).
 Codemap-confirmed unowned except `0x80031780`/`0x800310F4`/`0x8003116C`/`0x800312D4`/`0x80032A44`/
@@ -781,8 +781,8 @@ a single subsystem — it's at least four distinct clusters:
   word at `+0xE/0x16` for `cornerIndex` 1..3 only), permuting which physical `src` corner lands in
   which `dst` slot and applying a small per-byte `-1` shrink (low byte / high byte / both, depending on
   `cornerIndex`). `cornerIndex==0` is qualitatively different: full 32-bit copies, no byte-shrink, and
-  an EARLY RETURN that skips the shared tail — traced exactly from `generated/shard_3.c
-  gen_func_8003B054` (pure integer, no GTE, so Ghidra's decompile was independently reliable and cross-
+  an EARLY RETURN that skips the shared tail — traced exactly from `authenticated executable/overlay evidence
+  guest 0x8003B054` (pure integer, no GTE, so Ghidra's decompile was independently reliable and cross-
   checked clean). Purely mechanical; not attempting to name the "meaning" of the 4 corners without a
   caller to correlate against.
 - **`FUN_8003B320` — the "per-quad submitter" `game/render/submit.cpp`'s NESTING-SAFE-packet-span
@@ -791,16 +791,16 @@ a single subsystem — it's at least four distinct clusters:
   (`gte_op(c,0x4A280030)`), RTPS the 4th (`0x4A180001`), AVSZ4 (`0x4B68002E`), OT-bucket index from
   the AVSZ4 result (same exponent-shift formula as the already-owned `overlay_gt_otz_index` in
   `game/render/overlay_gt3gt4.cpp`, range gate `[4, 0x7FF]` — corrected from an initial off-by-one
-  during drafting, see `generated/shard_6.c gen_func_8003B320`'s exact `(otz-4) < 2044` compare), then
+  during drafting, see `authenticated executable/overlay evidence guest 0x8003B320`'s exact `(otz-4) < 2044` compare), then
   an on-screen bounds check (all 4 corners' SX<320 AND SY<240 — UNSIGNED, so a faithful 4:3-only
   frustum test, not `gpu_gpu_wide_engine`-aware) before bump-copying the pre-built 10-word packet
-  into the pool (`0x800BF544`) and linking it into the OT (`0x800ED8C8`). Traced from `generated/
-  shard_6.c gen_func_8003B320` (RE ground truth for the GTE ops; Ghidra's decompile of this one uses
+  into the pool (`0x800BF544`) and linking it into the OT (`0x800ED8C8`). Traced from `authenticated executable/overlay evidence
+  shard_6.c guest 0x8003B320` (RE ground truth for the GTE ops; Ghidra's decompile of this one uses
   synthetic bus pseudo-calls and was cross-checked, not relied on). Mirrors the already-owned
   `OverlayGt3Gt4::gt3/gt4` idiom (`gte_op`/`gte_read_data`/`gte_write_data`, same packet-pool/OT
   constants) rather than reinventing it.
 - Both compile into `scratch/bin/tomba2_port` (added to `cmake/tomba2_port.cmake`). NOT registered in
-  `EngineOverrides` or `g_override[]` — no wiring, no SBS run, per this fleet agent's scope (RE-ahead-
+  `EngineOverrides` or `image-qualified runtime dispatcher` — no wiring, no SBS run, per this fleet agent's scope (RE-ahead-
   of-frontier only). The caller side (which composes `composedXform` and builds `out`'s color/uv
   fields before calling `submitQuad`) is un-RE'd and outside this band (cluster 3 above is the leading
   hypothesis for who calls it, unconfirmed).
@@ -813,7 +813,7 @@ Geometry submission is NOT inline in the entity handlers. It is a **deferred two
 - **Phase 2 (flush):** a loop drains the command list, loading each command's GTE transform and dispatching
   it to a per-mode renderer that does the actual projection + packet build (GT3/GT4 etc.).
 
-**Render-command list + flush loop** (`gen_func_8003F174`, and a sibling at `gen_func_8003F0xx`; callers
+**Render-command list + flush loop** (`guest 0x8003F174`, and a sibling at `guest 0x8003F0xx`; callers
 0x8003d074/0x8003f138/0x8003f228): the list header has the command COUNT at `+8` (a second count/flag at
 `+9`); the commands are reached via a **pointer array at `list+0xc0`** (`lw 0xc0(cursor)`, cursor += 4 per
 iter). For each command struct `cmd`:
@@ -821,9 +821,9 @@ iter). For each command struct `cmd`:
   into the GTE control regs at flush via the `lwc2/ctc2` block — THIS is where the "96/54 ctc2 sites" live
   for queued objects (the transform is captured into the command at enqueue, replayed here).
 - `cmd+0x40` = the **geomblk pointer** (the model's primitive-record list) → passed as `a0` to the dispatcher.
-- flush calls dispatcher `gen_func_8003F698(a0=geomblk, a1=*0x800ED8C8 OTbase, a2=flag)`.
+- flush calls dispatcher `guest 0x8003F698(a0=geomblk, a1=*0x800ED8C8 OTbase, a2=flag)`.
 
-**Mode dispatcher `gen_func_8003F698`:** reads a render-mode byte `*0x800BF870` (`DAT_800bf870`, 0..0x15;
+**Mode dispatcher `guest 0x8003F698`:** reads a render-mode byte `*0x800BF870` (`DAT_800bf870`, 0..0x15;
 the engine_re cull note "if DAT_800bf870==4 force mode 2" is THIS global), indexes a **22-entry jump table at
 0x80015268**, tail-calls the per-mode renderer. Early-outs to the generic GT3/GT4 path (mode→0x800803DC) when
 `*0x1F800234 != 0`, `a2&1`, or mode≥0x16. Table (mode → renderer):
@@ -836,16 +836,16 @@ only mode 3 / ≥9). `*0x800BF870` is a GLOBAL set before/within a flush pass, s
   field, base/world commands carry flag=1, the widescreen-margin commands carry flag=0. The margin commands'
   geomblks are REAL (0x801exxxx model prim-lists) even though the node `+0x38` mdata is 0 — geometry is
   resolved at enqueue, not from `+0x38` (corrects later-129's "no model data").
-- **Command struct ENQUEUE — `gen_func_80051B70`** (and a multi/instanced loop variant ~0x80051A60, and a
+- **Command struct ENQUEUE — `guest 0x80051B70`** (and a multi/instanced loop variant ~0x80051A60, and a
   layer-builder ~0x8003AE28): args `a0`=object node, `a1`=model group idx, `a2`=model sub idx. Allocates the
-  command (`gen_func_8007AAE8`), stores the cmd ptr at **node+0xc0** (the object→command link), clears the cmd
+  command (`guest 0x8007AAE8`), stores the cmd ptr at **node+0xc0** (the object→command link), clears the cmd
   header (`+0/2/4/8/0xa/0xc`=0, `+6`=-1), sets scale `cmd+0x38/3a/3c`=0x1000, and resolves the geomblk via:
-- **Geomblk resolution (data-driven, leaf `gen_func_80051B04`):** `geomblk = T + *(T + sub*4 + 4)`, where
+- **Geomblk resolution (data-driven, leaf `guest 0x80051B04`):** `geomblk = T + *(T + sub*4 + 4)`, where
   `T = *(0x800ECF58 + group*4)`. A **two-level model table at 0x800ECF58**: outer index = group, inner =
   sub-model. Fully deterministic from the handler's `(group,sub)` selectors → the native render-half computes
   the geomblk the same way (no guessing). Stored to `cmd+0x40`.
-- **Transform build — `gen_func_80051C8C`:** builds the object's matrix into `node+0x98` (rotation from
-  `node+0x54/56/58` via `gen_func_80084D10/80084EB0/80085050`) and translation `node+0xac/b0/b4` from position
+- **Transform build — `guest 0x80051C8C`:** builds the object's matrix into `node+0x98` (rotation from
+  `node+0x54/56/58` via `guest 0x80084D10/80084EB0/80085050`) and translation `node+0xac/b0/b4` from position
   `node+0x2e/32/36`. This matrix is what the flush loads (cmd+0x18) into the GTE before projecting.
 - **Commands are PERSISTENT, not per-frame (later-132, via `PSXPORT_WWATCH`):** `cmd+0x40` was written exactly
   ONCE across 2905 frames — the render command (geomblk + base transform) is built at object spawn / scene
@@ -854,32 +854,32 @@ only mode 3 / ≥9). `*0x800BF870` is a GLOBAL set before/within a flush pass, s
   margin plan reads `node+0xc0` (its persistent cmd) for a culled margin object and adds it to the flush list,
   WITHOUT poking `+1` (which also ticks gameplay). Probes: `PSXPORT_DEBUG=cmdenq`/`flush`/`enq`,
   `PSXPORT_WWATCH=lo,hi` (word-store PC tap; NB byte stores like `list+8` count are not caught).
-- **NATIVE-OWNED (later-135) — `gen_func_8003CDD8` (the per-object flush), `gen_func_8003F698`
-  (dispatcher generic path) and `gen_func_800803DC` are now reimplemented in C** (`game/render/submit.cpp`
+- **NATIVE-OWNED (later-135) — `guest 0x8003CDD8` (the per-object flush), `guest 0x8003F698`
+  (dispatcher generic path) and `guest 0x800803DC` are now reimplemented in C** (`game/render/submit.cpp`
   `submit_perobj_flush`/`native_dispatch`/`native_gt3gt4`, registered on `0x8003CDD8`). The world render
-  submission runs with NO guest render code; **VRAM byte-identical** vs the recomp body (headless field
-  f328, A/B `PSXPORT_PEROBJ_RECOMP=1`). Only the per-scene overlay submitter variants (mode-table
-  `0x8013xxxx`) + the resident byte-packed `0x80027768` are still recomp (next RE). See journal later-135.
+  submission runs with NO guest render code; **VRAM byte-identical** vs the guest instruction path (headless field
+  f328, A/B `former static-path comparison setting=1`). Only the per-scene overlay submitter variants (mode-table
+  `0x8013xxxx`) + the resident byte-packed `0x80027768` are still guest instruction path (next RE). See journal later-135.
 - **CORRECTION (later-133/134) — THE OBJECT NODE *IS* its render-command list, and rendering is per-object.**
   `node+0xc0` is the BASE of a cmd-pointer ARRAY (count at `node+8`), not a single ptr. Each visible object
-  is rendered by **`gen_func_8003CCA4(node)`** (per-object render dispatch by `node+0xd` via jump table
-  @0x80014ec8) → **`gen_func_8003CDD8(node, flag)`** (the MAJOR world flush; loop @0x8003ce40 reads
+  is rendered by **`guest 0x8003CCA4(node)`** (per-object render dispatch by `node+0xd` via jump table
+  @0x80014ec8) → **`guest 0x8003CDD8(node, flag)`** (the MAJOR world flush; loop @0x8003ce40 reads
   `cmd = node[0xc0+i*4]`, `geomblk = cmd+0x40`, COMPOSES camera(`0x1f8000f8`)×object-matrix(`cmd+0x18`) into
-  the GTE, translation from `cmd+0x2c/0x30/0x34`) → dispatcher `gen_func_8003F698`. The minor flush
+  the GTE, translation from `cmd+0x2c/0x30/0x34`) → dispatcher `guest 0x8003F698`. The minor flush
   `0x8003F174` only drains the one static-decor list `0x800fb218` (8015ca04×24). The per-object transform
-  (`cmd+0x18`, `node+0x98`) is built each frame by **`gen_func_80051C8C(node)`** in the handler's VISIBLE
+  (`cmd+0x18`, `node+0x98`) is built each frame by **`guest 0x80051C8C(node)`** in the handler's VISIBLE
   branch — a culled object's is stale/zero, so the native margin must call it before the render. Native margin
   (engine/margin_render.cpp): collect re-included type-`0x03` nodes in cull (no +1), then per node
-  `gen_func_80051C8C` + `gen_func_8003CCA4` after the walk → +24 margin renders, base 100 byte-identical,
+  `guest 0x80051C8C` + `guest 0x8003CCA4` after the walk → +24 margin renders, base 100 byte-identical,
   gameplay 0-diff to render-cache. See journal later-133/later-134. RE REPL: `dbgclient.py ents/node/call/geomblk`.
 
 ## Geometry SUBMIT — `0x8007FDB0` (POLY_GT3 tri) + `0x8008007C` (POLY_GT4 quad) — NATIVE-OWNED (game/render/submit.cpp)
 These are the resident routines that turn a model's pre-built primitive-record list into GPU packets in
 the OT. Both are now reimplemented natively in `game/render/submit.cpp` (`submitPolyGt3Native`/`Gt4`),
-**0-diff vs the recomp body on the field** (A/B: `PSXPORT_SUBMIT_RECOMP=1` keeps the recomp bodies).
+**0-diff vs the guest instruction path on the field** (A/B: `former static-path comparison setting=1` keeps the guest instruction paths).
 This is the deletion of the reason the value-keyed "attach" depth-recovery hack existed — the engine now
 computes the projection and can carry the real per-vertex view-Z straight to the renderer (Phase 2).
-- **Caller** `gen_func_800803DC` (`0x800803DC`): `r16 = mem_r32(geomblk+0)` packs counts (low16 = tri
+- **Caller** `guest 0x800803DC` (`0x800803DC`): `r16 = mem_r32(geomblk+0)` packs counts (low16 = tri
   count, high16 = quad count); `a0 = geomblk+16` (record array). Calls tri-submit `(a0, OTbase, triN)`,
   then quad-submit `(ret, OTbase, quadN)` — **tri-submit RETURNS a0 advanced past its records** (= quad
   array base), so the return value matters. Records are tri[] then quad[], contiguous.
@@ -894,9 +894,9 @@ computes the projection and can carry the real per-vertex view-Z straight to the
   (max SZ)**, **type 2 = nearest (min SZ)**, **else = hardware AVSZ3/AVSZ4 average** (SZ FIFO: tri DR17-19,
   quad DR16-19). Then a log-compress `idx=(otz>>(sh&31))+(sh<<9), sh=otz>>10` and a **drawable clamp
   `idx∈[4,2047]`** (else the prim is dropped). Verified the min/max by exhaustively tracing both bodies.
-- **Note:** the recomp bodies are slightly **nondeterministic** run-to-run (≈300px at one field frame —
+- **Note:** the guest instruction paths are slightly **nondeterministic** run-to-run (≈300px at one field frame —
   uninitialised packet padding the GPU re-reads); the native versions are deterministic and match a
-  freshly-captured recomp run exactly.
+  freshly-captured guest instruction path run exactly.
 - **Phase-2 depth — DONE for the owned prims.** Each owned submit records the vertex SZ (view-Z) keyed by
   the packet word address (`projprim_set_pz`); the renderer reads it (`projprim_lookup_pz` →
   `proj_pz_to_ord`) for true D32 occlusion under `PSXPORT_NATIVE_DEPTH`/`PSXPORT_SBS`. The value-keyed
@@ -910,7 +910,7 @@ computes the projection and can carry the real per-vertex view-Z straight to the
   RTPT, OT tag-len `lui 0x0900`=GT3 / `lui 0x0C00`=GT4) and registers the native impl via
   `rec_set_interp_override_auto` at each entry. Scan-on-LOAD (not per-call: classify-on-every-call was far
   too slow + thrashed). The flat interp now honours interp-overrides (coro_native_call → interp_override_for).
-  VERIFIED 0-diff vs fully-interpreted (`PSXPORT_SUBMIT_RECOMP=1`) at f470/f560/f600. `PSXPORT_DEBUG=submit`
+  VERIFIED 0-diff vs fully-interpreted (`former static-path comparison setting=1`) at f470/f560/f600. `PSXPORT_DEBUG=submit`
   logs each owned overlay submitter; `PSXPORT_NO_OVERLAY_OWN=1` is the A/B.
 - **RESOLVED — field WORLD geometry is 100% engine-owned with real depth (later-166, re-measured).** The
   earlier "~70% of world polys fall to the 2D band / `0x80027768` is the next ownership target" claims are
@@ -985,9 +985,9 @@ computes the projection and can carry the real per-vertex view-Z straight to the
       — set as s2 in the DELAY SLOT @e4d8 (UNCONDITIONAL, before dispatch), sext16'd at each use; the e518 path
       overrides to -ee-600. (Mis-reading that delay slot as an ancestor-supplied s2 register, and forgetting the
       sext16, were the two bugs caught by the gate.) **PORT APPROACH (done):** own control flow + arithmetic
-      native, CALL libgte trig via `rec_dispatch` (0x80083e80=rsin, 0x80083f50=rcos, 0x80085690=ratan2,
+      native, CALL libgte trig via `typed runtime address dispatch` (0x80083e80=rsin, 0x80083f50=rcos, 0x80085690=ratan2,
       0x80084080=isqrt) — do NOT reproduce their LUTs. **GATE:** output is SCRATCHPAD → main-RAM A/B is BLIND;
-      use the per-call comparator `PSXPORT_DEBUG=camverify` (snapshot scratchpad, run native, restore, run recomp
+      use the per-call comparator `PSXPORT_DEBUG=camverify` (snapshot scratchpad, run native, restore, run guest instruction path
       oracle, compare) — 0-diff with d0 accumulating on the free-roam MOTION scene (continuous movement; a
       stopped scene is degenerate). Default field path = table1 case-0; special-camera modes ported but latent.
     - **Per-MODE orchestrators** (each calls the position smoothers + a matrix builder; different camera
@@ -1006,7 +1006,7 @@ computes the projection and can carry the real per-vertex view-Z straight to the
       cam[+0x58]; planar distance `s0d = isqrt(Δx²+Δz²)<<8`, angular error `angd = (ratan2(−Δz,Δx) − G[+0x140] − 1024)&0xfff`;
       (4) smooth cam[+0x14]: FAR (s0d>0x140000) → step ±65536/frame toward ±0x280000 by sign of (angd<2048); NEAR → snap to
       ±s0d (sign = angd<2048). Then cam[+0x58] += cam[+0x14]>>8, and cam[+0x08]=tX+rcos·cam58>>4 / cam[+0x10]=tZ−rsin·cam58>>4.
-      Own arithmetic native; CALL libgte trig via rec_dispatch. GATE: per-call comparator `PSXPORT_DEBUG=camverify`
+      Own arithmetic native; CALL libgte trig via typed runtime address dispatch. GATE: per-call comparator `PSXPORT_DEBUG=camverify`
       (also fires `ov_cam_dist_solve_verify`), 0-diff over 1800+ calls. **TRAP CAUGHT:** the far/near branch (`beq …,8006d5b8`)
       has a DELAY SLOT `slti v0,angd,2048` that executes on the TAKEN branch, so the NEAR-path store test `beq v0,zero,8006d5c4`
       is really `angd<2048` → NEGATE s0d. Missing that flipped the sign of the snapped distance; found by a trig-call spy that
@@ -1018,11 +1018,11 @@ computes the projection and can carry the real per-vertex view-Z straight to the
 Ghidra decomp: `scratch/ghidra/main_ram` project, va range 0x80060000-0x80070000 (163 fns, one shot). These
 5 addresses write the SAME cam_/S/G state as the already-owned orchestrators above and call already-owned
 methods, so they were added as new `CutsceneCamera` methods (game/camera/cutscene_camera.{h,cpp}) rather
-than a new class. WIRED since (CutsceneCamera::registerOverrides — all 5 on EngineOverrides, pushMode dual-wired via a psx_fallback-gated shard trampoline); this "NOT registered" note was stale.
+than a new class. WIRED since (CutsceneCamera::registerOverrides — all 5 on EngineOverrides, pushMode dual-wired via a the retired alternate-execution flag-gated shard trampoline); this "NOT registered" note was stale.
 - **`resetFollowAccum()`** — `FUN_8006E8F8`. Zeros cam[0x24]/cam[0x28], seeds scratchpad `S+0x1E` (the radius
   used by `initPlace`'s look-angle build) to -1750, resets cam[0x56] (heading) to 256. Ghidra's auto-analysis
   did NOT surface this address as a function (no static jal reaches it in the resident code — only
-  `rec_dispatch` from an a00-overlay caller does); read directly from `generated/shard_5.c:gen_func_8006E8F8`
+  `typed runtime address dispatch` from an a00-overlay caller does); read directly from `authenticated executable/overlay evidence:guest 0x8006E8F8`
   instead (instruction-exact ground truth per CLAUDE.md) rather than re-importing an overlay-specific dump.
 - **`pushMode(mode)`** / **`restoreMode()`** — `FUN_8006E1C0` / `FUN_8006E1E4`. A mode-stack-of-one: pushMode
   stashes the current cam[0x64] (the driver's MODE byte) into cam[0x67] and resets a 3-byte sub-state
@@ -1048,7 +1048,7 @@ the 5 that got drafted):
   `0x800E7E80`, same block `ActorTomba` already owns pieces of — confirmed via shared field offsets G+0x145/
   0x147/0x169/0x14a/0x165 with `game/player/actor_tomba.h`). Each `FUN_8006xxxx` is a SEPARATE per-frame
   "action" handler (attack/throw/examine/hit-react/respawn/grow-shrink-transform/etc.), driven by a giant
-  mode/sub-mode dispatcher at **`FUN_80058918`** (own band, ~9600-13300+ in `generated/shard_1.c`; itself
+  mode/sub-mode dispatcher at **`FUN_80058918`** (own band, ~9600-13300+ in `authenticated executable/overlay evidence`; itself
   unowned, out of this pass's 0x8006-0x8007 scope) that `jal`s straight into one of these per the action ID
   in G[5]/G[6]/G[7]. Each handler is its own 2-4 level state machine over those same 3 state bytes plus a
   large set of G-block fields (0x40-0x5f, 0x140-0x17e range) shared with the growth/settle/velocity methods
@@ -1074,19 +1074,19 @@ drafted — feed a future port, not a call graph): `FUN_80060268`/`FUN_8006032C`
 counter to a flicker mask written to G+0x44); `FUN_80060544` is their driver (10-case sequencer). All still
 substrate.
 
-## Projection setup — `gen_func_800509B4` (0x800509B4) = the NATIVE WIDESCREEN lever (RESOLVED later-98)
-Found by histogramming `gte_write_ctrl(reg,…)` in `generated/`: OFX/OFY/H (CR24/25/26) are written at
+## Projection setup — `guest 0x800509B4` (0x800509B4) = the NATIVE WIDESCREEN lever (RESOLVED later-98)
+Found by histogramming `gte_write_ctrl(reg,…)` in `authenticated executable/overlay evidence`: OFX/OFY/H (CR24/25/26) are written at
 exactly 2 sites — libgte `InitGeom` defaults + this one real config. The engine's projection config:
 ```
-gen_func_800509B4 (0x800509B4):
-  InitGeom (gen_func_80083FF8 / 0x80083FF8): ZSF3(cr29)=341, ZSF4(cr30)=256, H(cr26)=1000,
+guest 0x800509B4 (0x800509B4):
+  InitGeom (guest 0x80083FF8 / 0x80083FF8): ZSF3(cr29)=341, ZSF4(cr30)=256, H(cr26)=1000,
       DQA(cr27)=-4194, DQB(cr28)=320<<16, OFX/OFY=0  (libgte reset; H+depth-cue overwritten next)
-  SetGeomOffset(160,120)  (gen_func_800846D0 / 0x800846D0): OFX(cr24)=160<<16, OFY(cr25)=120<<16
-  SetGeomScreen(350)      (gen_func_800846F0 / 0x800846F0): H(cr26)=350; also caches H=350 @0x801003F8
+  SetGeomOffset(160,120)  (guest 0x800846D0 / 0x800846D0): OFX(cr24)=160<<16, OFY(cr25)=120<<16
+  SetGeomScreen(350)      (guest 0x800846F0 / 0x800846F0): H(cr26)=350; also caches H=350 @0x801003F8
 ```
 So the GTE projection is: **screen center (OFX,OFY)=(160,120), focal length H=350**, screen 320×240.
 Screen X = OFX + IR1·H/Sz, screen Y = OFY + IR2·H/Sz.
-- **NATIVE widescreen (no squish, no renderer trick):** override `gen_func_800509B4` to set **OFX=214**
+- **NATIVE widescreen (no squish, no renderer trick):** override `guest 0x800509B4` to set **OFX=214**
   (=428/2 for 16:9) and **widen the draw-environment + clip rect to 428** (keep OFY=120, H=350 → identical
   vertical FOV and per-unit scale). The GTE then projects vertices across the wider screen → genuinely
   wider horizontal FOV, computed by the engine's own projection. 2D HUD (drawn in screen space, bypasses
@@ -1120,7 +1120,7 @@ oracle at the SAME game-state, not by frame number).
 
 ## Lighting / shading model (RESOLVED — later-96, via GTE op histogram + control-reg snapshot)
 Tooling: `PSXPORT_GTEPROBE=<frame>` (gte_beetle.c) dumps the GTE ops that ACTUALLY execute + a
-lighting/fog control-register snapshot. Static-callsite histogram across `generated/shard_*.c` agrees.
+lighting/fog control-register snapshot. Static-callsite histogram across `authenticated executable/overlay evidence` agrees.
 
 **There is NO dynamic GTE lighting.** The hardware per-vertex lighting ops `NCDS/NCDT/NCCS/NCCT/NCS/
 NCT/CC/CDP` execute **zero** times (and have zero call-sites). So no normal·light-matrix shading, no
@@ -1147,7 +1147,7 @@ shading, SSAO, and a replacement per-pixel fog (read the scene FarColor from CR2
 all replacing/augmenting the baked color + GTE depth-cue. (Camera basis: see Camera section / CR24-31.)
 
 ## Graphics pipeline — the REAL draw path (libgpu), the ownership target (later-99)
-Today the recompiled game runs **Sony libgpu** → writes GP0/GP1 → our GPU emulator (gpu_native/gpu_gpu)
+Today the guest game runs **Sony libgpu** → writes GP0/GP1 → our GPU emulator (gpu_native/gpu_gpu)
 just rasterizes the resulting byte stream. "Owning the graphics" = reimplementing the libgpu layer in
 native C (game calls into OUR DrawOTag/PutDrawEnv/primitive code), so every draw is understood, not
 black-boxed. The layer is small and standard (libgpu), dispatched via a jump-table at **0x800A5998**
@@ -1215,17 +1215,17 @@ ctx parity1           [0x800EA118, 0x800EC188)   0x2070 B    OT head @0x800EC114
 - **GTE projection setters** (later-99): `ov_set_geom_offset` (0x800846D0 SetGeomOffset) + `ov_set_geom_screen`
   (0x800846F0 SetGeomScreen) in engine/game_tomba2.c. Native writes CR24=OFX<<16, CR25=OFY<<16, CR26=H.
   VERIFIED byte-identical: logs OFX=160/OFY=120/H=350, and the rendered frame is **0-pixel-diff** vs the
-  recomp body (PSXPORT_GEOM_RECOMP=1 A/B). The engine's projection config is now PC-native — the widescreen
+  guest instruction path (former static-path comparison setting=1 A/B). The engine's projection config is now PC-native — the widescreen
   FOV lever (widen OFX + draw-env clip) lives in our code. (Also owned earlier: LoadImage upload
   ov_upload_image 0x80081218; LZ/group asset codecs.)
 - **DrawOTag** (later-99): `ov_draw_otag` (0x80081560) → native `gpu_dma2_linked_list` (walk OT, decode
   each primitive, rasterize). The engine's per-frame DRAW SUBMISSION now goes straight through our native
-  renderer, not the DMA-register emulation. VERIFIED **0-pixel-diff** vs recomp (PSXPORT_OT_RECOMP=1) at
+  renderer, not the DMA-register emulation. VERIFIED **0-pixel-diff** vs guest instruction path (former static-path comparison setting=1) at
   f1500 (514-poly scene). Next: PutDrawEnv (FUN_800815d0) + PutDispEnv (FUN_8008179c) → full native screen
   geometry, then enable widescreen (wide OFX + wide clip + wide render target).
 - **Native projection — RTPS/RTPT in native C** (later-100, plan atomic-riding-sparkle Phase 1): the GTE
   per-vertex projection (matrix·vertex → view-space IR1/2/3, depth SZ, integer screen SX/SY) is now
-  reimplemented in native C in `runtime/recomp/gte_beetle.c` (`proj_native_vertex`, mirroring
+  reimplemented in native C in `runtime/psx/gte_beetle.c` (`proj_native_vertex`, mirroring
   mednafen/psx/gte.c: MultiplyMatrixByVector_PT + UNR `Divide`/`CalcRecip`/DivTable + TransformXY clamps).
   It ALSO emits the FLOAT data the integer GP0 packet throws away — subpixel screen (precise_x/y) +
   view-space pos + depth — which the renderer needs and the OT-reordered GP0 stream can't carry. **VERIFIED
@@ -1264,7 +1264,7 @@ ctx parity1           [0x800EA118, 0x800EC188)   0x2070 B    OT head @0x800EC114
   into the SAME primitive-buffer region (resident packets at ~phys 0xD3xxx, overlay packets at ~0xD9xxx) but
   via a DIFFERENT running pool-pointer global — so a single hardcoded pool pointer is the wrong (fragile,
   non-function-agnostic) capture point. **SOLVED (later-100d): capture by the SXY word's guest ADDRESS.** The
-  projection fns store the packed XY_FIFO word to packet memory (resident via recomp stores, overlay via
+  projection fns store the packed XY_FIFO word to packet memory (resident via guest instruction path stores, overlay via
   interp stores — BOTH funnel through `mem_w32`). Implemented (keyed by ADDRESS now, not node): at `gte_op`
   push each vertex's packed SXY + native float into a small pending ring (`s_pr`, 32 deep); `attach_store_hook`
   (called from `mem_w32` for stores into the prim-pool region phys 0xB0000–0xF0000, gated) match-and-consumes
@@ -1280,7 +1280,7 @@ ctx parity1           [0x800EA118, 0x800EC188)   0x2070 B    OT head @0x800EC114
   feed `projprim_lookup`'s view-space Z into a PC-native render target + real depth buffer; route 3D (hit) vs
   2D (miss) prims into separate passes; composite.
 
-### Native ownership plan (reimplement libgpu, keep recomp body as oracle via rec_set_override)
+### Native ownership plan (reimplement libgpu, keep guest instruction path as oracle via tomba::native::declareOverride)
 1. **IN PROGRESS — native classified display list (later-123).** The geometry submit fns now build a
    PC-native `NativePrim` (engine/native_dl.{h,c}: would-be packet words + per-vertex view-Z) instead of
    writing the GPU packet to guest RAM; they link only a zero-length ordering node into the guest OT.
@@ -1290,7 +1290,7 @@ ctx parity1           [0x800EA118, 0x800EC188)   0x2070 B    OT head @0x800EC114
    full DrawOTag ownership:** the sprite/tile/flat/line builders + env packets (the field's 389 rects + 11
    env still write guest packets via libgpu / inline AddPrim) — once those emit NativePrims too, the OT
    walk becomes a pure render of a fully-classified native scene graph and NO render data lives in guest
-   RAM. The recomp libgpu stays callable for A/B diff (PSXPORT_SUBMIT_RECOMP).
+   RAM. The guest instruction path libgpu stays callable for A/B diff (former static-path comparison setting).
 2. Own **PutDrawEnv/PutDispEnv** + the GTE projection (FUN_800509B4) → native widescreen.
 3. Own **MoveImage/LoadImage/StoreImage** (VRAM↔VRAM/CPU) → fixes reflection/copy effects (water, fades).
 4. Own the **OT clear/build** + the entity-list walk (Phase-1) → native 60fps interpolation.
@@ -1411,13 +1411,13 @@ functions — they're reached only from overlay code + a jump table. Layout:
   Down=0x40 move cursor `DAT_800bf808`; **Cross=0x4000** confirms). On Cross over "Options" (cursor 0)
   it sets `task+0x6B = cursor+3 = 3` → next frame the dispatcher enters the Options controller.
 - **Options controller `FUN_8007b45c`** (0x8007b45c, NOT in the decomp dump — disasm via
-  `tools/recomp/decode.py`): draws "Select Options" (`FUN_8007f104`: **Messages / Sound / Screen adjust /
+  `recorded binary decoding`): draws "Select Options" (`FUN_8007f104`: **Messages / Sound / Screen adjust /
   Controls** — the options the user deemed not worth keeping), dispatches its own sub-screens by
   `task+0x50` (table `0x80016E78`, 5 entries). Exits: **Triangle (0x1000)** → `task+0x6B=2` (close);
   **Circle (0x2000)** in the list → `task+0x6B=1` (back to the pause menu), resets cursor, sets
   `DAT_1f800136=1`. Menu SFX = `FUN_80074590(id, a1, 0)` (Circle: `0x14,0xFFF7`; Triangle/back: `0x11,0`).
 - **Replacement** (later-112, `engine/game_tomba2.c` `ov_options_menu`, gated `PSXPORT_UI`):
-  `rec_set_override(0x8007B45C, …)` shows our ImGui overlay instead of the game's options and owns the
+  `tomba::native::declareOverride(0x8007B45C, …)` shows our ImGui overlay instead of the game's options and owns the
   same Circle→page1 / Triangle→page2 back-nav + SFX. Faithful fallback: if the overlay isn't up
   (headless/window-less) it super-calls the real `FUN_8007b45c`. Verified the hook is reached
   (`PSXPORT_DEBUG=ui` + AUTO_GAMEPLAY → forced Cross at the auto-appearing menu logs the hit).
@@ -1439,7 +1439,7 @@ camera/widescreen work.** (Gameplay logic stays interpreted — the Beetle emula
 4. Camera basis + GTE projection setup (for native render submission, Phase 3).
 5. Whether handlers call the cull/submit path (`FUN_8007712c`) in field scenes, or a different render
    path (the journal noted the cull dispatcher didn't fire in the demo). `PSXPORT_DEBUG=obj` answers this.
-6. ~~Projection setup~~ — **DONE** (later-98): `gen_func_800509B4`, OFX/OFY/H = 160/120/350. Widescreen
+6. ~~Projection setup~~ — **DONE** (later-98): `guest 0x800509B4`, OFX/OFY/H = 160/120/350. Widescreen
    lever identified. Remaining: the draw-environment/clip-rect width setup (to widen the clip with OFX).
 7. **Water draw path** (broken in port): NOT GTE-projected (separate layer). Identify via provenance +
    dual-core state-synced diff. The immediate user-visible regression.
@@ -1480,7 +1480,7 @@ applies the cell tag's orientation, then re-accumulates onto the working coords:
 GOTCHAs: the TAG&3 quadrant map differs between the pre-mirror (q1→dz, q2→dx, q3→both) and the
 sign-negate (q0→both, q1→dx, q2→dz, q3→none); the slope products are MIPS signed (low word); `origDx/origDz`
 (t4/t5) are the PRE-transform offsets captured at entry. Verified via the `gridoffset` channel = full
-main-RAM + scratchpad + v0 A/B vs `rec_super_call` (exact 0-diff, no stack-window exclusion since there are
+main-RAM + scratchpad + v0 A/B vs `original guest-body call` (exact 0-diff, no stack-window exclusion since there are
 no dispatched callees): **8000+ live field calls 0-diff** (press right 250 + left 250, all tag branches
 exercised). Registered in game_tomba2.cpp.
 
@@ -1519,7 +1519,7 @@ the probes' position output is byte-derived from them.
 
 ### Why physics.cpp was NOT shipped (per the "can't cleanly isolate → return the trace" clause)
 The move-and-collide is intrinsically the iterative grid-SLIDE algorithm in `FUN_80046A44`, whose guest
-position bytes (`+0x2E/+0x32/+0x36`) the still-recomp AI reads back. Reproducing those bytes EXACTLY (the
+position bytes (`+0x2E/+0x32/+0x36`) the still-guest AI reads back. Reproducing those bytes EXACTLY (the
 content-interface gate: full RAM + scratchpad 0-diff) requires reproducing the exact `>>12` fixed-point
 rsin/rcos-table math, the atan2 slide pick, and the sub-step helper `FUN_8004602C`'s grid walk — i.e. a
 MIPS-faithful transcription, which the methodology explicitly rejects as the deliverable ("a native function
@@ -1532,9 +1532,9 @@ its `+0x66/+0x68` velocity update + gravity + the `FUN_80046A44` call, gating on
 
 ### OWNED — `FUN_80024448` actor move-and-collide SM step (PC-native, `engine/actor_sm_24448.cpp`)
 Owned 2026-06-21. The control flow + branch decisions + guest field writes are PC-native; the three
-fixed-point LEAVES it calls stay `rec_dispatch`ed (they compute exact `>>12` results the still-recomp AI/
+fixed-point LEAVES it calls stay `typed runtime address dispatch`ed (they compute exact `>>12` results the still-guest AI/
 render read back — transcribing them would be PSX-simulation). `sm24448verify` gate = full main-RAM +
-scratchpad + v0 A/B vs `rec_super_call(0x80024448)`, **650+ invocations, 0 mismatches, 0 bad-opcode** (driven
+scratchpad + v0 A/B vs `original guest-body call(0x80024448)`, **650+ invocations, 0 mismatches, 0 bad-opcode** (driven
 field + walk; the SM fires as the FALLBACK move-collide path of caller `FUN_80024548`, see below).
 - Body: read `+0x17E` (mode, signed) → probe `maxiter` = 37 (`<0`) else 74; read X-vel `+0x66` (lh→speed)
   and Y-vel `+0x68` (lhu, negated+sign-ext→ystep); clear `+0x17D`; call probe `FUN_80046A44(obj,xvel,
@@ -1612,7 +1612,7 @@ UI state. Issue #6 does not currently reproduce; deferred until it reappears.)
 
  Mechanics (post-super-call, per the issue's candidate (b)):
    1. Snapshot the pool head (*0x800BF544) BEFORE the faithful emit.
-   2. rec_super_call -> the PSX body emits its prim(s) into the pool.
+   2. original guest-body call -> the PSX body emits its prim(s) into the pool.
    3. If the descriptor is EXPLICIT (CLUT != 0): record it as the last-bound CLUT and return —
       the faithful path already stored it; we touch nothing.
    4. If the descriptor INHERITS (CLUT == 0) AND we have a remembered last-bound CLUT: rewrite
@@ -1636,7 +1636,7 @@ cluster for a future pass. The remaining ~180 addresses are untouched.
 ### Cluster A — the cube-text popup ledger (RE'd + NATIVE DRAFT, UNWIRED)
 
 `FUN_80040A58` / `FUN_80040AA4` / `FUN_80040B48` / `FUN_80040C00` are the two leaves
-`game/object/actor_sm_reward.cpp` already calls via `rec_dispatch` under the comment "UI/event
+`game/object/actor_sm_reward.cpp` already calls via `typed runtime address dispatch` under the comment "UI/event
 side-effect (leaf, not independently RE'd)" (its `FN_40B48`/`FN_40C00` constants) — plus their two
 siblings (the cost-table lookup + the popup spawner). All four back the SAME subsystem as the
 already-owned `game/ai/beh_cube_text_spawn.cpp` (`FUN_8003AD48`, the "cube letters"/flying-text
@@ -1646,7 +1646,7 @@ bg_scene_transition_sm.cpp` already gates on this ledger's counters (`0x800BF849
 count, `0x800ED06D` log index) as its "drain before advancing" wait — so the consumers of this
 ledger were already native; only the 4 producers were unowned.
 
-Full layout + RE (walked from the recompiler's INSTRUCTION-EXACT emission — `generated/shard_2.c:
+Full layout + RE (walked from the recorded guest instruction listing — `authenticated executable/overlay evidence:
 4542`, `shard_3.c:11258`, `shard_4.c:4944`, `shard_5.c:5496` — every `<hi>16<<16 + <lo>` constant
 hand-folded and cross-checked against Ghidra's decompile for structure) is in
 `game/object/cube_text_ledger.h`. Summary:
@@ -1667,7 +1667,7 @@ hand-folded and cross-checked against Ghidra's decompile for structure) is in
     variant)`.
 
 Draft: `game/object/cube_text_ledger.{h,cpp}`, added to `cmake/tomba2_port.cmake`. Compiles clean,
-links into `tomba2_port`. **UNWIRED** — no `shard_set_override`/`EngineOverrides` registration, and
+links into `tomba2_port`. **UNWIRED** — no `tomba::native::declareOverride`/`EngineOverrides` registration, and
 the SBS-full gate has NOT been run. A follow-up wave wires it (dual-registration, matching
 `actor_sm_reward.cpp`'s pattern, since the sole callers are substrate direct-calls) and gates it.
 
@@ -1711,7 +1711,7 @@ a neighboring function; needs a manual disas.py spot-check of the boundary befor
 
 Band: `0x800506D0 0x800420AC 0x80042090 0x80042E10 0x80043108 0x80041468 0x80040FA0` (0x800518FC and
 0x8004190C from the original assignment were already owned — `Engine::objMatrixCompose` /
-`Engine::animTick` — skipped). Source-of-truth throughout: `generated/shard_*.c` (instruction-exact;
+`Engine::animTick` — skipped). Source-of-truth throughout: `authenticated executable/overlay evidence` (instruction-exact;
 no Ghidra pass needed — none of these leaves touch GTE/COP2). The resident opcode-handler table at
 guest `0x800A3B78` (63 entries) and the FUN_80040FA0 internal switch-table at `0x8001534C` (7
 entries) were both READ DIRECTLY out of `scratch/bin/tomba2/MAIN.EXE` .rodata this session
@@ -1727,7 +1727,7 @@ addresses are script-opcode handlers, rather than inferred from field-offset pat
   `0x801FE000..0x801FE14F` divides out to precisely 3 iterations, confirming the long-standing "up
   to 3 cooperative tasks" comment). For each slot with state(+0)==1 (YIELDED), decrements the
   countdown at +2; on exact underflow to 0, re-arms state to 2 (RUNNABLE). Still-substrate call site:
-  `runtime/recomp/native_boot.cpp:129` (`rc0(c, 0x800506d0)`); wiring (swap that call for
+  `runtime/psx/native_boot.cpp:129` (`guest call (c, 0x800506d0)`); wiring (swap that call for
   `c->game->pcSched.tickSleepCountdown()`) is a frontier-tier follow-up.
 - **`ScriptInterp::op05WaitFrames`** (`0x80042090` = opcode table index 5) — decrements argA
   (obj+0x72) each call; the guest computes a sign-replicate idiom (`(v<<16)>>31`), NOT a 0/1 flag —
@@ -1747,24 +1747,24 @@ addresses are script-opcode handlers, rather than inferred from field-offset pat
   it jumps straight to the phase-increment tail. An initial draft that checked the sign bit
   unconditionally would have returned 1 (advance) in cases the guest never does. Fixed before landing.
 - **`ScriptInterp::advanceStep`** (`0x80040FA0`) — the REAL body of what `ScriptInterp::advanceEntry`
-  (already-wired, `game/scene/script_interp.cpp:102`) currently only `rec_dispatch`es to. NAMING TRAP
+  (already-wired, `game/scene/script_interp.cpp:102`) currently only `typed runtime address dispatch`es to. NAMING TRAP
   for future sessions: `advanceEntry`'s own doc comment says it implements `kAdvanceAddr =
   0x80040E54`, but its actual body dispatches to `0x80040FA0` (this draft) instead — `0x80040E54`
-  itself stays wholly substrate (out of this session's band; `advanceStep` still `rec_dispatch`es to
+  itself stays wholly substrate (out of this session's band; `advanceStep` still `typed runtime address dispatch`es to
   it). Body: calls `FUN_80040E54(obj, kindArg)` for a 0..6 index (>=7 -> immediate -1), then runs one
   of 7 straight-line case blocks that write the interpreter's OWN loop-control bytes (obj+0x70/0x71,
   the same fields `step()`'s loop-guard and pause-flag use) plus a shared "scratch" reset at
   obj+0x78 — verified index-by-index against the table read out of the .rodata. One case (index 2,
   `0x8004103C`) jumps directly to return and SKIPS the +0x78 tail write every other non-`-1` case
   performs — flagged in-code since it is easy to "normalize away" as an oversight. Once verified,
-  this should REPLACE `advanceEntry`'s `rec_dispatch(c, 0x80040FA0u)` call — a frontier-tier wiring
+  this should REPLACE `advanceEntry`'s `typed runtime address dispatch(c, 0x80040FA0u)` call — a frontier-tier wiring
   step, not done here.
 
 **Mapped only, NOT drafted (too dense/risky for this pass — refused per "quality of RE > quantity",
 same precedent as the `0x80050000-0x800527C8` cluster above):**
 
 - **`0x80043108`** (opcode table index 36, 95 dispatch hits — the highest-traffic unowned leaf in
-  this band besides the scheduler sweep). `generated/shard_5.c:7667`. Frame: sp-=40, spills
+  this band besides the scheduler sweep). `authenticated executable/overlay evidence`. Frame: sp-=40, spills
   s0/s1/s2/s3/s4/ra. Dispatches on obj+0x78 (phase byte, 0/1/2, same "phase" slot op34 uses) reading
   a secondary object via a pointer stored at obj+0x6C… no — via `obj+108` (a POINTER field, distinct
   from the interpreter's own OBJ_TABLE_A_7C at +0x7C) into a `target` struct read at target+2/+4/+6/
@@ -1780,7 +1780,7 @@ same precedent as the `0x80050000-0x800527C8` cluster above):**
   WRONG 6 times in one function (docs/fleet-workflow.md §9) — refused for a from-scratch manual
   transcription without a Ghidra cross-check pass. Needs its own dedicated RE session (Ghidra
   headless + a `scratch/decomp/` cross-check) before drafting.
-- **`0x80041468`** (opcode table index 31, 11 dispatch hits). `generated/shard_3.c:11362`. Frame:
+- **`0x80041468`** (opcode table index 31, 11 dispatch hits). `authenticated executable/overlay evidence`. Frame:
   sp-=48, spills s0/s1/ra. Switch on argA (0/2/3/4/other) driving `Trig::ratan2` (already-native,
   `0x80085690`) calls between obj/target position fields (+46/+54 self, a secondary object read via
   a pointer at `argA's sign bit`-selected base — either `obj` itself or `*(base+532)` where base is a
@@ -1796,12 +1796,12 @@ since all four are the actor-movement-script op family.
 
 ## Region MAP 0x80020000-0x8002FFFF — WIDE-RE pass (2026-07-08, UNWIRED drafts)
 
-Census: 184 `func_8002xxxx` defs across `generated/shard_{0,1,2,3,4,5,6,7,disp}.c`. 13 already
+Census: 184 `func_8002xxxx` defs across `authenticated executable/overlay evidence{0,1,2,3,4,5,6,7,disp}.c`. 13 already
 owned pre-pass (Actor/Cull/Engine/Array8Dispatch/Pool/ObjectTable/BgSceneTransitionSm/behavior
 handlers — see `docs/code-map.md`). This pass RE'd + drafted the ONE coherent, already-documented
 cluster found in the region: the 4 leaf handlers `ActorTomba::postInteractWalk`
 (game/player/actor_tomba.cpp, guest `FUN_801130C4`, out-of-region) names by address in its own
-header comment but had left as bare `rec_dispatch(c, LEAF_TYPE_*)` calls:
+header comment but had left as bare `typed runtime address dispatch(c, LEAF_TYPE_*)` calls:
 
 | addr | native (UNWIRED, private on ActorTomba) | postInteractWalk case | frame |
 |---|---|---|---|
@@ -1810,10 +1810,10 @@ header comment but had left as bare `rec_dispatch(c, LEAF_TYPE_*)` calls:
 | `0x800235A0` | `type7Interact(item)` | 7 | 32B, s0/s1+ra |
 | `0x80022C78` | `growthYSnap()` | (postFrameWaterCheck's `LEAF_WATER_SPLASH`) | none (leaf) |
 
-RE method: Ghidra headless decompile (`tools/decomp.sh` against the `main_ram` project) for
-structure, cross-checked line-by-line against `generated/shard_{7,0,4}.c` (ground truth) for the
+RE method: Ghidra headless decompile (`the Ghidra evidence workflow` against the `main_ram` project) for
+structure, cross-checked line-by-line against `authenticated executable/overlay evidence{7,0,4}.c` (ground truth) for the
 guest-stack frame shape and every `jal`-site `ra` constant. Ghidra's decompile of `FUN_80020364`
-was subtly WRONG in one place the raw recompiled C caught: the `(byte)(_DAT_1f80009c >> 4)` tag
+was subtly WRONG in one place the raw guest C caught: the `(byte)(_DAT_1f80009c >> 4)` tag
 and the trig-offset heading are reads of the FULL 32-bit `OUT_HEADING_SPAD` word (0x1F80009C,
 proximityCheck's `Trig::ratan2` result register width), not a 16-bit angle — Ghidra's C rendered
 it as `(int)*(short*)...` in one spot. The `mode&0x40`-set ladder (`DAT_1f800137`/`G[0]&6`/
@@ -1831,26 +1831,26 @@ Semantic notes (see game/player/actor_tomba.h doc-comments for the full per-func
 - `type8Interact`'s "just left growth-transition" branch (v0==1) and `growthYSnap` (`FUN_80022C78`)
   are BYTE-IDENTICAL on their shared tail (G+0x29/0x145/0x4A/0x50/0x148 reset + a G+0x17E-sign-
   gated ±0x8C/±0x46 Y re-snap using the SAME constants `ActorTomba::growthStep` uses for its own
-  Y-compensation) — confirmed by diffing `generated/shard_0.c:1112` against `:1466`. The draft
+  Y-compensation) — confirmed by diffing `authenticated executable/overlay evidence` against `:1466`. The draft
   calls `growthYSnap()` from `type8Interact` instead of duplicating the tail.
 - `rcos`/`rsin`/`angleCmp` (guest `FUN_80083F50`/`FUN_80083E80`/`FUN_80077768`) route through the
-  existing native `Trig` class (game/math/trig.h) rather than `rec_dispatch`, per the class-
+  existing native `Trig` class (game/math/trig.h) rather than `typed runtime address dispatch`, per the class-
   ownership convention newer files in this tree already use (contrast: this file's OLDER
   `proximityCheck` still dispatches `LEAF_ATAN2` — pre-existing debt, out of scope for this pass).
 - `FUN_8001F40C`/`FUN_8001FDB4`/`FUN_8001F054`/`FUN_8001F830`/`FUN_8001EC3C`/`FUN_8001FF7C` are all
-  0x8001xxxx (out of this band) and stay `rec_dispatch` substrate leaves — named as file-scope
+  0x8001xxxx (out of this band) and stay `typed runtime address dispatch` substrate leaves — named as file-scope
   `LEAF_*` constants for a future band-0x8001 pass to pick up.
 
 Remaining 171 unowned `func_8002xxxx` addresses were NOT individually RE'd this pass (only the
 above cluster was already flagged as a coherent, valuable target by existing documentation);
 they remain frontier for a future pass. `scratch/tmp/unowned_addrs.txt` /
 `scratch/decomp/region_8002.c` (this session's Ghidra batch decompile, 117/173 resolved) are
-local scratch artifacts (gitignored), not committed — regenerate via `tools/decomp.sh decomp
+local scratch artifacts (gitignored), not committed — regenerate via `the Ghidra evidence workflow decomp
 main_ram <out.c> list <addrs...>` against the `main_ram` Ghidra project.
 ## A00-overlay region map 0x80125000–0x8014E944 (WIDE-RE session, UNWIRED/UNVERIFIED drafts)
 Scope: the upper half of the A00 gameplay overlay (AI/spawn/render-leaf band; a sibling session
 owns 0x80108000–0x80125000). Method: `tools/codemap.py` cross-referenced against every top-level
-`ov_a00_gen_<addr>` definition in `generated/ov_a00_shard_{0,1}.c` (the recompiler's own register-
+`A00 overlay the cited guest instructions` definition in `authenticated executable/overlay evidence{0,1}.c` (the recorded binary evidence's register-
 accurate translation of a fresh recompile off the real disc — the project's preferred RE source
 for GTE-heavy leaves, since Ghidra's COP2 decompilation garbles GTE register indices into
 placeholder immediates). 334 distinct function addresses fall in this range; 44 were already
@@ -1869,10 +1869,10 @@ never itself ported:
   pool (0x800BF544) + OT. Differs from the field leaf: colour mask 0x00F0F0F0 (drops the top byte)
   instead of the field pair's 0xFFF0F0F0, and its Z-select flag encoding is `flag&3` (1=>max,
   2=>min, 0=>AVSZ3) rather than the field pair's `flag&2` bit — a DIFFERENT convention, hand-
-  verified by fully unrolling both stack-spill branches of the recompiled body to their
+  verified by fully unrolling both stack-spill branches of the guest body to their
   convergence point (not guessed from the field pair's shape).
 - **`FUN_8013FE58` → `OverlayGroundGt3Gt4::gt4`** — POLY_GT4 sibling, 44-byte record, RTPT(3pt)+
-  RTPS(4th)+NCLIP+AVSZ4-or-4-way-min/max. Per-slot colour-mask MIX verified from the recomp body:
+  RTPS(4th)+NCLIP+AVSZ4-or-4-way-min/max. Per-slot colour-mask MIX verified from the guest instruction path:
   rgb0 uses the standard 0xFFF0F0F0, rgb1–3 use the ground 0x00F0F0F0 — not simplified to one mask.
 - **`FUN_801401B8` → `OverlayGroundGt3Gt4::entityLoop`** — the caller: loads the shared camera GTE
   control-register block (CR0-7 from scratchpad 0x1F8000F8 — the SAME block the render-command-
@@ -1884,7 +1884,7 @@ never itself ported:
   spills around its two call sites) is NOT mirrored yet — left as plain C++ locals with an in-code
   note, rather than faked with placeholder writes, since those bytes have no other reader within
   the frame's lifetime and reproducing them exactly needs the real spilled values traced first.
-- **UNWIRED, UNVERIFIED**: not registered via `ov_a00_set_override` anywhere, no SBS run performed
+- **UNWIRED, UNVERIFIED**: not registered via `image-qualified A00 native registration` anywhere, no SBS run performed
   (per this session's mandate — RE ahead of the frontier, bank drafts, don't gate). `registerOverrides()`
   exists but is never called; a future session wires + SBS-gates it (same discipline as
   `OverlayGt3Gt4::registerOverrides`, via the overlay's own override table, not `EngineOverrides` —
@@ -1893,7 +1893,7 @@ never itself ported:
 ### Understood but NOT separate ownership targets
 - **`0x801469BC`** is DATA (the seaside placement table, 62 records / 22 handlers), not code — every
   handler it installs is already native (see port-progress.md's "SEASIDE PLACEMENT TABLE" entry).
-  It shows up in a naive function-address scan only because the recompiler's jump-table discovery
+  It shows up in a naive function-address scan only because the recorded binary evidence's jump-table discovery
   treats some of its bytes as call targets; not a function to RE.
 - **`0x80147FC4`** (4752 lines) is a **duplicate tail-shared copy** of `0x80146478`'s own call
   sequence into the field-object GT3/GT4 leaves (already documented in port-progress.md's GT3/GT4
@@ -1901,7 +1901,7 @@ never itself ported:
 
 ### Remaining 287 unowned addresses — mapped only, NOT RE'd (next-session triage)
 Not individually RE'd this session (quality-over-quantity given the size of the region). Rough
-shape from address adjacency + size distribution (`ov_a00_gen_*` body line counts):
+shape from address adjacency + size distribution (`ordinary A00 overlay guest bodies` body line counts):
 - **0x80125000–0x80133FFF (~140 addrs, mostly 10–450 lines each):** almost entirely per-object
   AI/behavior LEAVES already reached (but not yet ported) from the owned orchestrators in this
   band — `beh_substate_edge_orchestrator` (deps 0x8012E8A8/ED84/F494/F5B4/FD88/80130524…) and
@@ -1922,18 +1922,18 @@ shape from address adjacency + size distribution (`ov_a00_gen_*` body line count
   alone.
 - Full candidate list (all 290, pre-session): `scratch/logs/unowned_range.txt` in this session's
   worktree (not committed — regenerate via `tools/codemap.py --addr` swept over
-  `ov_a00_gen_*`/`ov_a00_func_*` addresses in `generated/ov_a00_shard_{0,1}.c` for 0x80125000–
+  `ordinary A00 overlay guest bodies`/`A00 overlay guest entries` addresses in `authenticated executable/overlay evidence{0,1}.c` for 0x80125000–
   0x8014E944).
 ===========================================================================================
  A00 OVERLAY BAND 0x80108000-0x80125000 — RE survey + one drafted leaf (2026-07-08, WIDE-RE)
 Assigned region for a wide-RE ownership sweep (a sibling agent took 0x80125000+). Dumped a real
 free-roam RAM snapshot (`PSXPORT_AUTO_SKIP=1 PSXPORT_REPL=1`, `run 400; dumpram scratch/ram/a00lo.bin`
-— free-roam reached at frame 216) and cross-checked against `generated/ov_a00_shard_{0,1}.c`
+— free-roam reached at frame 216) and cross-checked against `authenticated executable/overlay evidence{0,1}.c`
 (instruction-exact ground truth per CLAUDE.md; Ghidra import of the dump was ALSO started for
 struct/xref cross-check but a 2MB full auto-analyze run did not finish within this session's
-window — the port below relies on the recompiler C only).
+window — the port below relies on the recorded guest instruction listing only).
 
-**Region census** (`ov_a00_gen_<addr>` top-level entries in generated/ov_a00_shard_{0,1}.c whose
+**Region census** (`A00 overlay the cited guest instructions` top-level entries in authenticated executable/overlay evidence{0,1}.c whose
 address falls in [0x80108000, 0x80125000)): **260 functions total, 21 already natively owned
 (codemap cross-check), 239 still substrate-only.** A huge fraction of the low end of this band
 (0x8010810C-0x80109FE0-ish: Engine::s48_*/fieldFrame*/Sop::* machinery) and several named clusters
@@ -1941,7 +1941,7 @@ higher up (release_trigger_motion, attack_orbit_substate, beh_prng_velocity_mach
 beh_typed_init_exit_poker, beh_a06_multi_actor, beh_id_routed_dispatch) were already owned by prior
 sessions — this survey is the first full enumeration of what's LEFT in the band.
 
-Top-40 still-unowned functions by generated-source line count (a rough size/complexity proxy —
+Top-40 still-unowned functions by guest instruction count (a rough size/complexity proxy —
 `scratch/logs/inband_sizes_unowned.txt` has the full list of all 239):
 ```
 8010CF90 497   801234A4 463   8011F278 419   80110584 410   8011EAD0 340
@@ -1971,8 +1971,7 @@ existing and being correct; used here without needing to wire it, since this who
 code this session), or (b) arms a mutual attack state (self+5/target+94 stamps, a shared
 scratchpad "lock owner" slot at 0x1F800098 and an angle/cooldown word at 0x1F80009C) gated by a
 still-substrate "may attack now" check (`FUN_80055844`, not RE'd this session) and a disengage
-cleanup call (`FUN_80022C78`). No static call site to this address was found in ANY generated
-shard (only a mis-decoded data blob in `ov_a03_shard_1.c` — recompiler garbage, not a real call);
+cleanup call (`FUN_80022C78`). No static call site to this address was found in ANY authenticated executable/overlay evidence (only a mis-decoded data blob in `ov_a03_shard_1.c` — recorded binary evidence garbage, not a real call);
 reached only via a runtime function-pointer table this session did not chase.
 - **Transcription honesty note**: this ~250-line, ~30-branch MIPS DAG was hand-transcribed without
   a decompiler pass (Ghidra's auto-analysis of the RAM dump did not finish in this session's
@@ -1985,33 +1984,33 @@ reached only via a runtime function-pointer table this session did not chase.
   descent + s0-s7/s8/ra spills at their RE'd offsets, wrapping the native `doIt()` body — kept
   even though nothing calls it yet, so wiring later needs no re-RE (reference shape:
   `game/world/object_table.cpp`/`game/render/cull.cpp`).
-- **Refs**: `scratch/ram/a00lo.bin` (+`.spad`), `generated/ov_a00_shard_1.c:3527`,
+- **Refs**: `scratch/ram/a00lo.bin` (+`.spad`), `authenticated executable/overlay evidence`,
   `scratch/logs/a00_ownership.txt` / `a00_unowned.txt` / `inband_sizes_unowned.txt` (full census).
 
 ## WIDE-RE survey: 0x80010000-0x8001FFFF (early MAIN.EXE — kernel/libc vs melee-proximity family)
 
-Ghidra headless full-analysis import of `main_ram.bin` (2 MB KSEG0 dump, see `tools/decomp.sh`)
+Ghidra headless full-analysis import of `main_ram.bin` (2 MB KSEG0 dump, see `the Ghidra evidence workflow`)
 found only **33 real function starts** in this 64 KB band (`scratch/decomp/region_8001.c`), even
-though the recompiler emits **519 distinct `func_8001xxxx` addresses** here — the mismatch itself is
-the key finding: most of those 519 addresses are NOT independent functions, they're the recompiler's
+though the recorded guest call graph contains **519 distinct `func_8001xxxx` addresses** here — the mismatch itself is
+the key finding: most of those 519 addresses are NOT independent functions, they're the recorded binary evidence's
 address-granularity view of two very different things:
 
 ### 0x80010000-0x800109FF — kernel exception/trap chain (BIOS, DO NOT PORT)
-`func_800109F8 -> func_80010A00 -> func_80010A04 -> func_80010A08`, reading `cop0_mfc(c, 0)` (COP0
-status/cause) and calling `rec_break(c, <code>)` (a recompiler-emitted BIOS TRAP/break intrinsic).
+`guest 0x800109F8 -> guest 0x80010A00 -> guest 0x80010A04 -> guest 0x80010A08`, reading `cop0_mfc(c, 0)` (COP0
+status/cause) and calling `rec_break(c, <code>)` (a recorded BIOS TRAP/break intrinsic).
 This is the exception-vector trampoline chain, not game code — same category as the platform's
 existing `PlatformHle` BIOS table. Leave substrate.
 
 ### 0x80017930-0x8001CAC0 — BIOS jump table + embedded debug strings (DATA MISDECODED AS CODE)
-Ghidra's auto-analysis defined **zero** real functions in this ~19 KB span. The recompiler's own
-`func_XXXX`/`gen_func_XXXX` output here is almost entirely 2-instruction "trampoline" pairs spaced
-exactly 4 bytes apart (`void func_80017978(Core* c){ func_8001797C(c); return; }`, hundreds of
+Ghidra's auto-analysis defined **zero** real functions in this ~19 KB span. The recorded binary evidence's
+`the cited guest address`/`the cited guest instructions` output here is almost entirely 2-instruction "trampoline" pairs spaced
+exactly 4 bytes apart (`void guest 0x80017978(Core* c){ guest 0x8001797C(c); return; }`, hundreds of
 these) — the signature of a **jump table being scanned as code**, not a real call graph. Confirmed
-by decompiling `func_8001CC00`'s callee `func_8001CC24` (guest addr in this band): Ghidra decoded
+by decompiling `guest 0x8001CC00`'s callee `guest 0x8001CC24` (guest addr in this band): Ghidra decoded
 raw ASCII bytes as MIPS opcodes (`/* UNHANDLED op:0x18 raw=0x616E6F4D */` = the string bytes
 `"Mona..."`/`"...razuL"`/`"...Sterk"` etc, reversed-endian fragments of an embedded debug/panic
 string table). **This band is not portable game logic — it is BIOS-adjacent jump-table/string data
-that the recompiler's linear scan mis-split into hundreds of fake "functions". Do not RE or port
+that the recorded binary evidence's linear scan mis-split into hundreds of fake "functions". Do not RE or port
 individual `func_8001793x..8001CAxx` addresses as game logic; they are not independently meaningful.**
 
 ### 0x8001CB00-0x8001FFFC — REAL game/AI code: melee-proximity/cone-arbitration family
@@ -2050,7 +2049,7 @@ Y-band overlap test (combined height/half-extent) between two actor records, usi
   (`FUN_80077FB0`, `game/math/gte_math.cpp`) — a genuinely different sqrt variant used only by this
   AI-proximity family (and by `ActorMeleeEngage`, which already flagged it as "not RE'd this
   session" — now RE'd, still not ported: it's a small, pure, table-driven leaf but the 1024-entry
-  LUT content itself wasn't extracted this session, so it stays substrate/rec_dispatch'd for now).
+  LUT content itself wasn't extracted this session, so it stays substrate/typed runtime address dispatch'd for now).
 - `FUN_80085690` -> already-native `Trig::ratan2` (`game/math/trig.h`) — used directly by the drafts
   without wiring anything (same rationale `ActorMeleeEngage` used: `Trig` is RE'd-correct but
   orphaned/unwired; this whole session's drafts are themselves unwired dead code).
@@ -2059,7 +2058,7 @@ Y-band overlap test (combined height/half-extent) between two actor records, usi
   (`game/ai/melee_proximity.{h,cpp}`, UNWIRED, not SBS-verified). The simplest family member — a
   pure boolean test with one side effect (stamps the approach angle into shared scratchpad
   `0x1F80009C`, the SAME slot `ActorMeleeEngage` writes). Transcribed directly from
-  `generated/shard_2.c:795` (`gen_func_8001F9DC`, the recompiler's instruction-exact output — used
+  `authenticated executable/overlay evidence` (`guest 0x8001F9DC`, the recorded guest instruction listing — used
   as primary source over the Ghidra decompile per CLAUDE.md's RE-first/ground-truth rule). Guest
   40-byte frame (spills r19/r16/r17/r18/ra) mirrored in `isAtApproachAnchorFramed()` per the
   "mirror the guest stack" directive, kept dead/unused until a caller + SBS gate exist.
@@ -2070,7 +2069,7 @@ Y-band overlap test (combined height/half-extent) between two actor records, usi
     from its side-effect fields without risking a mistranscription; the other 8 are documented here
     as a mapped, high-confidence FAMILY for a fast follow-up, not guessed at).
   - **Refs**: `scratch/decomp/region_8001.c` (full Ghidra decompile of the 33 real functions),
-    `scratch/decomp/sqrt_80084080.c`, `generated/shard_2.c:795`, `scratch/bin/tomba2/main_ram.bin`
+    `scratch/decomp/sqrt_80084080.c`, `authenticated executable/overlay evidence`, `scratch/bin/tomba2/main_ram.bin`
     (import source, `scratch/ghidra/main_ram_re.gpr`).
 ## Wide-RE survey: 0x80070000-0x8007FFFF (2026-07-08, worktree agent-a13cd29e50a1478e5)
 
@@ -2109,19 +2108,19 @@ confidence, most self-contained cluster in the region:
   (already-owned, called directly -- no ABI shuffle needed). Case 3 additionally applies its OWN
   radial offset using a different rounding rule (`(v - (v>>31)) >> 13`, round-toward-zero) than the
   shared tail's plain `>>12` -- preserved exactly, not simplified, per a direct cross-check against
-  `generated/shard_1.c:gen_func_800702C0`'s raw MIPS-level arithmetic (Ghidra's C obscures this
+  `authenticated executable/overlay evidence:guest 0x800702C0`'s raw MIPS-level arithmetic (Ghidra's C obscures this
   distinction by printing both as casts). Guest frame MIRRORED (`addiu sp,-0x28`; s0/s1/s2/s3/ra
   spills at sp+16/20/24/28/32).
 - **`ActorReward::approachTargetX`** (FUN_80070650) -- trivial ease: steps obj+0x2e toward obj+0x60
   by +8/frame, snapping and zeroing obj+0x60 on arrival. Leaf, no guest-stack frame (confirmed via
-  `generated/shard_2.c:gen_func_80070650` -- no `sp` descent in the raw recompiled body). NOTE:
+  `authenticated executable/overlay evidence:guest 0x80070650` -- no `sp` descent in the raw guest body). NOTE:
   obj+0x60 is DUAL-USE across the object's two sub-modes (obj+5==0 uses it as a Y-bias in
   `resolvePosition`; obj+5==1 uses it as approachTargetX's target-X) -- same PSX field, different
   semantics per sub-mode, not a naming error.
 - Declarations added to `actor_sm_reward.h`; NOT added to `registerOverrides()` -- no
-  `EngineOverrides`/`shard_set_override` registration, no SBS run, per wide-RE-tier rules
-  (`docs/fleet-workflow.md` §6). `func_8007A624`/`0x8004A118`/`0x8004A2A0`/`0x8004B428` remain
-  unowned leaves reached via `rec_dispatch` (falls through to the substrate `gen_func_*` body).
+  `EngineOverrides`/`tomba::native::declareOverride` registration, no SBS run, per wide-RE-tier rules
+  (`docs/fleet-workflow.md` §6). `guest 0x8007A624`/`0x8004A118`/`0x8004A2A0`/`0x8004B428` remain
+  unowned leaves reached via `typed runtime address dispatch` (falls through to the substrate `original guest instructions` body).
 
 ### Surveyed, NOT drafted (mapped only -- future wide-RE targets)
 
@@ -2134,7 +2133,7 @@ confidence, most self-contained cluster in the region:
   **UPDATE (2026-07-08, wide-RE, worktree agent-a53f252288693983d): `FUN_8007C0D0` and
   `FUN_8007D0D0` themselves DRAFTED** (UNWIRED/UNVERIFIED, compiles) as `DialogTextStream::
   advanceByte`/`applyRenderMode` in `game/ui/dialog_text_stream.{h,cpp}` -- see docs/findings/ui.md
-  for the full trace, including a recompiler-limitation finding (an 0xF8/0xF9 table read looks like
+  for the full trace, including a recorded boundary ambiguity finding (an 0xF8/0xF9 table read looks like
   a real indirect call but is actually a local jump table, same shape as `FUN_8007D0D0`'s). The
   surrounding cluster (`FUN_8007D14C`/`FUN_8007D208`/`FUN_8007D594`/`FUN_8007C940` -- the box's own
   state machine, position/size layout, and the glyph-POSITION-list builder) remains mapped-not-drafted;
@@ -2182,8 +2181,8 @@ confidence, most self-contained cluster in the region:
 
 ### Refs
 - `scratch/decomp/region_8007.c` -- full Ghidra decompile of the 142 resolvable addresses.
-- `generated/shard_0.c` (FUN_80070018), `shard_1.c` (FUN_800702C0), `shard_2.c` (FUN_80070650) --
-  raw recompiled ground truth used for the byte-exact port (frame shape + the case-3 rounding rule).
+- `authenticated executable/overlay evidence` (FUN_80070018), `shard_1.c` (FUN_800702C0), `shard_2.c` (FUN_80070650) --
+  raw guest ground truth used for the byte-exact port (frame shape + the case-3 rounding rule).
 - Draft: `game/object/actor_sm_reward.{h,cpp}` (`ActorReward::update`/`resolvePosition`/
   `approachTargetX`).
 ## 2026-07-08 — Wide-RE survey of 0x80050000-0x8005FFFF (wide-RE tier, UNWIRED)
@@ -2191,13 +2190,13 @@ confidence, most self-contained cluster in the region:
 Region assigned exclusively to this pass. `PcScheduler` (0x80051F80/0x80051E60/0x80051F14/
 0x80051FB4/0x80052010/0x80052078/0x800520E0) and `NodeXform` (0x80051128/300/464/7BC/844/C8C/
 518FC) were already owned — skipped per the region note. Decompiled the full range via headless
-Ghidra (`generated/main_ram` project, `tools/decomp.sh decomp main_ram scratch/decomp/region_8005.c
-0x80050000 0x80060000`) — 145 functions. Cross-checked ground truth against `generated/shard_*.c`
-(gen_func_*) wherever a drafted function makes a nested call into already-owned code, per the "no
+Ghidra (`authenticated executable/overlay evidence` project, `the Ghidra evidence workflow decomp main_ram scratch/decomp/region_8005.c
+0x80050000 0x80060000`) — 145 functions. Cross-checked ground truth against `authenticated executable/overlay evidence`
+(original guest instructions) wherever a drafted function makes a nested call into already-owned code, per the "no
 disas.py walk" / "generated C is ground truth over Ghidra for register-level shape" rule — this
 caught a real Ghidra mislabel (see `NodeXform::buildFromChild` below).
 
-Of 152 `gen_func_8005xxxx` symbols in the region, 112 had no native owner (`tools/codemap.py
+Of 152 `guest 0x8005xxxx` symbols in the region, 112 had no native owner (`tools/codemap.py
 --addr`); the rest were `PcScheduler`/`NodeXform`/`Engine`/`ActorTomba`/AI-handler leaves already
 owned by prior sessions (native_boot_run, startup.cpp init chain, scene_transition.cpp,
 level_load.cpp, actor_melee_engage.cpp, release_trigger_motion.cpp, beh_jumptable_release_trigger,
@@ -2212,16 +2211,16 @@ euler, +0xB8/BA/BC scale, +0x98/0x18 composed matrices, +0xC0 child-record array
 in each method's doc comment.
 
 - **`0x80051B34` -> `NodeXform::copyMatrixBlock(src,dst)`** — frameless leaf, 5-word (20-byte)
-  packed-MATRIX copy. Verbatim from `generated/shard_3.c`.
+  packed-MATRIX copy. Verbatim from `authenticated executable/overlay evidence`.
 - **`0x800519E0` -> `GraphicsBind::recordArrayInit(obj,count,sceneBase,tmpl)`** — batch sibling of
   the already-owned `recordInit()`/`installSceneRecord()`: allocates `count` render records from a
   4-halfword-per-entry template array + resolves each record's sceneData pointer from an ascending
-  int32 offset array. RE'd from `generated/shard_1.c gen_func_800519E0`; its only callee
+  int32 offset array. RE'd from `authenticated executable/overlay evidence guest 0x800519E0`; its only callee
   (`FUN_8007AAE8` = `recordAllocBody`) is already native and frameless, so no nested register-
   faithfulness concern.
 - **`0x80051D90` -> `NodeXform::worldPosFromLocal(node,inVec,outVec)`** and **`0x80051D20` ->
   `NodeXform::worldPosFromComposed(node,inVec,outVec)`** — both call the still-unowned libgte leaf
-  `FUN_800844C0` (0x800844C0, OUTSIDE this region) via `rec_dispatch`, then add the node's local
+  `FUN_800844C0` (0x800844C0, OUTSIDE this region) via `typed runtime address dispatch`, then add the node's local
   (+0x2C/30/34) or composed (+0xAC/B0/B4) position onto the result. `FUN_800844C0` is a THIRD
   ApplyMatrixLV-shaped leaf distinct from the two already-native ones (`Math::applyMatlv` reads the
   matrix from GTE CR; `Math::applyMatrixLV` takes an explicit matrix ptr and returns unclamped
@@ -2229,15 +2228,15 @@ in each method's doc comment.
   via `mem_w16`. Flagged as a follow-up native port (not in this region, so not drafted here).
 - **`0x80051614` -> `NodeXform::buildFromChild(node,inVec,tableIdx,mode)`** — a THIRD node-build
   variant (sibling of `build()`/`buildWithOffset()`). **Ghidra mislabeled its parent-table read as
-  `(&DAT_800e7f40)[tableIdx]`** — decompiling `generated/shard_3.c gen_func_80051614` (ground
+  `(&DAT_800e7f40)[tableIdx]`** — decompiling `authenticated executable/overlay evidence guest 0x80051614` (ground
   truth) shows the base is the LITERAL `0x800E7E80`, which is `ActorTomba::G_ADDR` — i.e. this
   reads one of TOMBA'S OWN child-record slots (`G_ADDR + tableIdx*4 + 0xC0`), not a separate
-  global table. A textbook instance of the CLAUDE.md rule "generated/shard_*.c is
+  global table. A textbook instance of the CLAUDE.md rule "authenticated executable/overlay evidence is
   INSTRUCTION-EXACT ground truth (Ghidra garbles GTE/COP2)" — here it garbled a plain symbol
   resolution, not GTE, so the rule generalizes. Register-faithfulness for the tail-call into
   `propagate()`/`propagateRotmat()` was traced by hand against the generated C (r16 always
   `0x1F800000`; r17 only set on the `mode!=0` path — left untouched on `mode==0`, matching the
-  recomp exactly; r18=node, r19=parent, r20=mode, r21=inVec on both paths; r22/r23 never touched
+  guest instruction path exactly; r18=node, r19=parent, r20=mode, r21=inVec on both paths; r22/r23 never touched
   either side). Note left in-code that the guest `ra` literal at the tail-call site is NOT
   mirrored into `c->r[31]`, matching existing precedent in `build()`/`buildWithOffset()` (same
   open question, not introduced by this draft — see node_xform.cpp's own comment).
@@ -2285,24 +2284,24 @@ session per "quality of RE > quantity — refuse to draft what you can't verify"
    remaining ~100 functions are triaged into named families with call-graph evidence.
 
 `scratch/decomp/region_8005.c` (full Ghidra decompile, 145 functions), `scratch/decomp/
-region_8005_survey.txt` (first-lines-only survey of all 145), `generated/shard_1.c` /
-`generated/shard_3.c` / `generated/shard_6.c` / `generated/shard_7.c` (ground truth for the 5
+region_8005_survey.txt` (first-lines-only survey of all 145), `authenticated executable/overlay evidence` /
+`authenticated executable/overlay evidence` / `authenticated executable/overlay evidence` / `authenticated executable/overlay evidence` (ground truth for the 5
 drafted functions).
 
 ## Wide-RE survey: 0x80090000-0x8009FFFF (2026-07-08, worktree agent-a207c9725f2c28d79)
 
-Region assignment for this session. 194 `func_8009xxxx` symbols appear in `generated/shard_*.c`.
-Already-owned/known coming in (per `tools/codemap.py`, `runtime/recomp/sync_overrides.cpp`,
-`runtime/recomp/native_boot.cpp`, `runtime/recomp/interp.cpp` debug taps): `input_dispatch_931c0`
+Region assignment for this session. 194 `func_8009xxxx` symbols appear in `authenticated executable/overlay evidence`.
+Already-owned/known coming in (per `tools/codemap.py`, `runtime/psx/sync_overrides.cpp`,
+`runtime/psx/native_boot.cpp`, `runtime/psx/interp.cpp` debug taps): `input_dispatch_931c0`
 (0x800931C0), `Font::bank2Store`/`bankSelect` (0x80096370/0x800963A0), `bav_lock_ready`/`bav_lock_set`
 (0x80099450/0x80099478), `rand_lcg` (0x8009A450), `DecDCTinSync`/`DecDCToutSync` HLE (0x8009CAEC/
-0x8009CB80). Decompiled the full window (`tools/decomp.sh decomp main_ram scratch/decomp/region_8009.c
+0x8009CB80). Decompiled the full window (`the Ghidra evidence workflow decomp main_ram scratch/decomp/region_8009.c
 0x80090000 0x8009FFFF`, project `scratch/ghidra/main_ram` copied in from the main checkout) → 209
 functions resolved to `scratch/decomp/region_8009.c`.
 
 ### Finding: the whole band (minus the tail) is PSY-Q SDK LIBRARY code, not game/engine logic
 
-`runtime/recomp/sync_overrides.cpp` already documents `[0x80080000, 0x8009E000)` as "the SCEI LIBRARY
+`runtime/psx/sync_overrides.cpp` already documents `[0x80080000, 0x8009E000)` as "the SCEI LIBRARY
 TEXT (libgpu/libetc/libcd/libgs/libmdec) + the kernel". Reading the decompiled bodies confirms this
 band is entirely inside that library window and breaks into four PSY-Q library sub-clusters, none of
 which are game logic:
@@ -2313,14 +2312,15 @@ which are game logic:
   `FUN_8009a730("This is an old SEQ Data Format"/"This is not SEQ Data")` if the magic isn't `'S'`/`'p'`
   or version byte isn't 1 — `FUN_8009a730` is a printf-style debug-string emitter, not game text),
   `0x80090560`/`0x80090598`→`0x800905e0`=**SsSeqPlay**, `0x80090BD0`=**SsSeqCalled** (per-frame tick,
-  already tapped as `PSXPORT_DEBUG=seqtick`/`SEQDBG` in interp.cpp/native_boot.cpp), `0x80091050`/
+  already tapped as `PSXPORT_DEBUG=seqtick` in interp.cpp and `PSXPORT_DEBUG=seq` in
+  `game/core/frame_diagnostics.cpp`), `0x80091050`/
   `0x80091120`/`0x8009121C`/`0x80091460`=SEP (Sequence Event Point) track-step/event dispatcher,
   `0x80091AF0`=**SsSeqStop**, `0x80091F50`=**SsSeqSetVol** (already used by `repl.cpp`'s `mute`/`bgm`
   commands), `0x800939A0`=voice **keyon** (already tapped `PSXPORT_DEBUG=keyon`), `0x80090E40`=tempo/
   fade ramp, `0x80095530`/`0x80095A9C`/`0x80095B90`=per-voice pan/vol get/set.
 - **`0x800922xx-0x800962xx` — continued SEQ engine + `libsnd` heap/init.** `0x80096A70`/`0x80099310`/
   `0x800991B0`/`0x800993A0` = SPU driver heap alloc/init (already wired via `native_boot.cpp:231-234`,
-  `rc0/rc1(c, 0x80096a70/...)`).
+  `rc0/guest call (c, 0x80096a70/...)`).
 - **`0x800963xx-0x80099xxx` — `libgs`/font (mostly already flagged `✦ dispatch` in this doc's earlier
   "font/text system init" section) plus the owned `Font`/`bav_loader` cluster.** No new finds here
   beyond what's already documented.
@@ -2332,12 +2332,12 @@ which are game logic:
   verify checksum, retry up to 8x, `FUN_8009a730("card read error")` on failure). Real BIOS/hardware
   library — memory-card I/O, not game logic.
 - **`0x8009C2B0-0x8009C9xx` — raw `libspu` HARDWARE-REGISTER driver.** `0x8009C620`/`0x8009C784` (called
-  from `native_boot.cpp:244` as `rc1(c, 0x8009c620, 0)`) and `0x80096BF0`/`0x80096E70` poke a struct at
+  from `native_boot.cpp:244` as `guest call (c, 0x8009c620, 0)`) and `0x80096BF0`/`0x80096E70` poke a struct at
   `DAT_800ac604` whose field offsets (0xc0-0x1ae, control/status at +0x1aa/+0x1ae) match the real PSX
   SPU register map (`0x1F801Axx`+ transfer-control/status regs) — this is `Spu_Init`/`SpuMalloc`/
   `SpuSetTransferMode`, confirmed by the literal timeout strings `"SPU T.O.: %s"` / `"wait reset"` /
   `"wait dmaf clear W"` / `"wait wrdy H>L"` at `0x8009BB7C`/`0x8009BBEC` call sites. Textbook hardware
-  driver — belongs in `runtime/recomp` platform HLE if ever ported, never `game/`.
+  driver — belongs in `runtime/psx` platform HLE if ever ported, never `game/`.
 - **`0x8009C8E0-0x8009CC2C` — `libmdec` DCT sync (ALREADY HLE'd).** `0x8009C8E0`=DecDCTReset,
   `0x8009C9D0`=DecDCTin (arm), `0x8009CA60`=DecDCTout (arm), `0x8009CAEC`/`0x8009CB80`=DecDCTin/outSync
   (spin-wait on `DAT_800ad098`/`DAT_800ad078` bits — already the `sync_ok` HLE handlers in
@@ -2350,38 +2350,39 @@ which are game logic:
 **Verdict: nothing in `0x80090000-0x8009D06C` should be ported to `game/`.** It is SCEI/PSY-Q SDK
 LIBRARY internals (sequencer + SPU register driver + memory-card + MDEC sync) exactly as
 `sync_overrides.cpp`'s resident-library-window comment already asserts. The existing HLE taps
-(`sync_ok`, the `PSXPORT_DEBUG=seqtick/keyon/septrace/SEQDBG` interp.cpp probes, the `rc0/rc1` boot
+(`sync_ok`, the `PSXPORT_DEBUG=seqtick/keyon/septrace` interpreter probes, the title-owned
+`PSXPORT_DEBUG=seq` frame probe, the `rc0/rc1` boot
 wiring) are the correct treatment. FLAGGING per this session's brief rather than forcing a native
 class over PSX-hardware-register-poking code that has no "observable game result" to reimplement
 against — the SsSeq player's effect (which BGM track plays, at what volume) is already reachable and
 steerable through the existing taps/REPL commands (`repl.cpp:232-237`).
 
-### Finding: `0x8009EB78-0x8009EF18` is NOT REAL CODE — recompiler misdecode, not a function
+### Finding: `0x8009EB78-0x8009EF18` is NOT REAL CODE — data/code boundary misclassification, not a function
 
-`func_8009EB78`/`func_8009EBFC`/`func_8009EC80`/`func_8009EF18` (the only `func_8009xxxx` symbols past
+`guest 0x8009EB78`/`guest 0x8009EBFC`/`guest 0x8009EC80`/`guest 0x8009EF18` (the only `func_8009xxxx` symbols past
 0x8009D06C) decompile to garbage: `/* UNHANDLED op */` comments on nonsense raw words (e.g.
-`raw=0xFFFA0500`, `raw=0xF7F2F2ED`), and `rec_dispatch()` calls to targets like `0x8A0C23E0u` /
+`raw=0xFFFA0500`, `raw=0xF7F2F2ED`), and `typed runtime address dispatch()` calls to targets like `0x8A0C23E0u` /
 `0x8330AB58u` / `0x8B18A754u` — addresses with top bits set that are **not valid PSX RAM** (2 MB RAM
 tops out at `0x80200000`; even KSEG1 mirrors don't reach `0x8A..`/`0x83..`/`0x8B..` with those low
 bits). Ghidra's own auto-analysis (independently, via its control-flow analyzer) defines **zero
 functions** in `[0x8009E000, 0x8009FFFF]` — it also doesn't believe this is code. Together this means
-the static recompiler's linear/recursive sweep walked into non-code bytes (most likely tail DATA after
+the retired source-generation path's linear/recursive sweep walked into non-code bytes (most likely tail DATA after
 the SPU/libmcrd library — a padding/table region — being misread as instructions) and is chaining
 fabricated "functions" through equally fabricated jump targets. **Not a portable target — this is a
-recompiler-coverage bug, not a game function.** Flag for whoever owns recompiler/dispatch-table
-correctness: `func_8009EB78/EBFC/EC80/EF18` should not be treated as real dispatch entries; if
+recorded boundary-coverage defect, not a game function.** Flag for whoever owns recorded binary evidence/dispatch-table
+correctness: `guest 0x8009EB78/EBFC/EC80/EF18` should not be treated as real dispatch entries; if
 anything calls into this range at runtime it's itself a sign of a wrong branch target upstream.
 
 ### Refs
 - `scratch/decomp/region_8009.c` — full Ghidra decompile of the resolvable window (209 functions).
-- `runtime/recomp/sync_overrides.cpp`, `runtime/recomp/native_boot.cpp`, `runtime/recomp/interp.cpp`,
-  `runtime/recomp/repl.cpp` — existing HLE/tap wiring for this band (all consistent with the RE above,
+- `runtime/psx/sync_overrides.cpp`, `runtime/psx/native_boot.cpp`, `runtime/psx/interp.cpp`,
+  `runtime/psx/repl.cpp` — existing HLE/tap wiring for this band (all consistent with the RE above,
   no changes made).
 - No new `game/` files this session — see verdict above.
 ## Wide-RE survey: 0x80126000-0x8013FFFF (A00 gameplay overlay, middle band)
 
 Session scope: enumerate still-substrate addresses in the 0x80126000-0x8013FFFF band, RE + draft a
-tractable cluster, map the rest. Ground truth: `generated/ov_a00_shard_{0,1}.c` (`ov_a00_gen_<addr>`
+tractable cluster, map the rest. Ground truth: `authenticated executable/overlay evidence{0,1}.c` (`A00 overlay the cited guest instructions`
 symbols). `tools/codemap.py` regenerated (`docs/code-map.md`) after this session's drafts landed —
 449 addresses tracked, 24 ORPHAN (includes this session's 5 new drafts, correctly unwired).
 
@@ -2418,7 +2419,7 @@ at `0x80193F64`-ish aren't confirmed, and the top-level dispatcher is stateful a
 | 0x80126040 | 31 | leaf: obj[+7] type-gate + obj[+0x4A] angle += 512, clamp/wrap at 8192; clears obj[+0xBF] flag if obj[+0x29]==0 |
 | 0x801260CC | 30 | init: obj[+0x44]/[+0x56] seeded from `FUN_80077768(obj[+0x46]<<4, obj[+0x56])`; sets obj[+0x2F]/[+0x5F] |
 | 0x80126138 | 46 | physics integrator: accumulates fixed-point velocity (obj[+0x44]/[+0x48]/[+0x2C]/[+0x34]) from obj[+0x44]*obj[+0x48]/obj[+0x4C] products; obj[+0x29] gates a branch |
-| 0x801261FC | 28 | thin wrapper: calls `FUN_80077768`, shifts result >>4 into obj[+0x46], tail-calls `ov_a00_func_80125C4C` (OUT OF BAND — 0x80125C4C is below this survey's floor, unmapped) |
+| 0x801261FC | 28 | thin wrapper: calls `FUN_80077768`, shifts result >>4 into obj[+0x46], tail-calls `overlay guest 0x80125C4C` (OUT OF BAND — 0x80125C4C is below this survey's floor, unmapped) |
 | 0x80126264 | 117 | **TOP-LEVEL DISPATCHER** — 6-way switch on obj[+4] (0=init->80126468, 1=table-dispatch by obj[+5] into 80127420/801266C8/8012681C/80126F9C, 2=SFX/hitbox toggle via 0x80040B48/0x80040C00 + FUN_8004D4C4/FUN_8004B0D8, else passthrough to 0x8007778C/0x8007A624) |
 | 0x80126468 | 144 | 3-case inline switch keyed by obj[+3]*4 table lookup (own switch, not a call to siblings) — seeds obj[+0x2E..0x36] scale/anim fields from a per-type record at `(*(u32*)(obj+0x10))[+192][obj*4]`; case 2 branches into an SFX-cue block (`FUN_80077B38`) |
 | 0x801266C8 | 82 | obj[+6] 2-case sub-machine: countdown obj[+0x40], SFX gate (`FUN_80077B38` id 23), anim-flip via `FUN_80049250`/`FUN_80049674`/`FUN_80049760`, sets init fields (obj[+0x80..0x86], obj[+5]=2, obj[+6]=4) |
@@ -2446,10 +2447,10 @@ dispatcher's own header comment; only the case bodies remain):
 
 ### Full UNOWNED address list, 0x80126000-0x8013FFFF (excl. this session's drafts)
 
-153 addresses remain substrate-only in this band after this session (out of ~210 total `ov_a00_gen_*`
+153 addresses remain substrate-only in this band after this session (out of ~210 total `ordinary A00 overlay guest bodies`
 symbols in range). Not individually RE'd this session beyond the two clusters above — this table
 exists so a future agent can pick a slice without re-deriving the address list from scratch (diff
-`generated/ov_a00_shard_{0,1}.c` symbols against `docs/code-map.md`'s address column, same recipe
+`authenticated executable/overlay evidence{0,1}.c` symbols against `docs/code-map.md`'s address column, same recipe
 used here). Sizes are generated-C line counts (rough proxy for MIPS instruction count / complexity).
 
 | addr | lines | addr | lines | addr | lines |
@@ -2508,7 +2509,7 @@ used here). Sizes are generated-C line counts (rough proxy for MIPS instruction 
 
 ### A00 `FUN_8013ED08` — single rigid packed-mesh controller (2026-08-26)
 
-Ground truth: `generated/ov_a00_shard_0.c::ov_a00_gen_8013ED08` plus Ghidra
+Ground truth: `authenticated executable/overlay evidence::overlay guest 0x8013ED08` plus Ghidra
 `scratch/decomp/fx_ed08.c`. The entire 22-line body is:
 
 1. Write zero to `0x1F800090` (the shared mesh writer's IR0 publish slot).
@@ -2551,9 +2552,9 @@ TWO parallel jump tables selected by `obj+3` (a kind/mode gate) — table A @ `0
 80052E68/80052EB0/80052F00/80052F50`). Both tables' states pull Tomba's own G-block fields (writes
 `G+46/50/54/86/378/1`) toward the enemy — i.e. this IS the native mirror of "an enemy interrupting/
 snapping Tomba's walk state on engage", NOT a Tomba-internal state. **No static call site exists in
-any generated shard for `0x800527C8`** (confirmed: only reachable via an indirect function-pointer
+any authenticated executable/overlay evidence for `0x800527C8`** (confirmed: only reachable via an indirect function-pointer
 "think" slot this session did not chase down) — wiring needs that caller/spawn-table search first.
-Translated as a mechanical 1:1 transliteration of `generated/shard_3.c:13494` (register scratch kept
+Translated as a mechanical 1:1 transliteration of `authenticated executable/overlay evidence` (register scratch kept
 as `c->r[N]`, s0/s1 promoted to named `self`/`G` locals, goto/label control flow preserved exactly —
 same "don't risk a mis-restructure under time pressure" call `actor_melee_engage.cpp` made for a
 comparably dense DAG), so transcription risk is low but UNVERIFIED (no SBS gate; dead code).
@@ -2582,31 +2583,31 @@ returns immediately):
   anim-pointer's mode fields (`*0x1F800138 + 0x4C/0x4E`).
 
 **Drafted this session** as `ActorTomba::frameTick()` (`game/player/actor_tomba.{h,cpp}`) — a
-faithful 1:1 port from `gen_func_8005950C` (`generated/shard_4.c:7624`, ground truth; Ghidra's own
+faithful 1:1 port from `guest 0x8005950C` (`authenticated executable/overlay evidence`, ground truth; Ghidra's own
 decompile of this particular function matched it exactly, cross-checked line-by-line). Guest frame
 (`addiu sp,-32`; spill s0←a0=G, s1, s2, ra) is mirrored. **UNWIRED**: `Engine::frameStartTick`'s
-`default: target = 0x8005950Cu` dispatch site still reaches the substrate `func_8005950C` directly
-— wiring is a future frontier-tier step (EngineOverrides + `shard_set_override`, then SBS-gate).
+`default: target = 0x8005950Cu` dispatch site still reaches the substrate `guest 0x8005950C` directly
+— wiring is a future frontier-tier step (EngineOverrides + `tomba::native::declareOverride`, then SBS-gate).
 
 Also drafted (frameTick's full immediate sub-tree, all faithful 1:1 ports, all UNWIRED):
 
 - **`ActorTomba::turnBiasCompute`** (`0x80055C9C`) — frameless leaf (a0/G unused). Facing-vs-
   cached-view-heading delta → `(turn-in, turn-out)` bias pair at `0x1F80016C`/`0x1F80016E` (the SAME
   slots `beh_actor_tomba_proximity_combat`'s enemy-engage tables write). Faithful from
-  `generated/shard_1.c:9208`.
+  `authenticated executable/overlay evidence`.
 - **`ActorTomba::outerTransitionGate`** (`0x80053E50`) — the "still mid-transition" gate
-  `outerTransitionCommit` (and case 4) call first. Faithful from `generated/shard_4.c:7161`. Guest
+  `outerTransitionCommit` (and case 4) call first. Faithful from `authenticated executable/overlay evidence`. Guest
   frame: `addiu sp,-32`; spill s0,s1,s2,ra.
 - **`ActorTomba::outerTransitionCommit`** (`0x80053FDC(G, mode)`) — commits a new load target or
-  decrements the settle counter to walk-state 1. Faithful from `generated/shard_5.c:7749`. **Caught
+  decrements the settle counter to walk-state 1. Faithful from `authenticated executable/overlay evidence`. **Caught
   a real Ghidra decompiler error**: Ghidra's pseudocode for the decrement/settle tail showed
   `*param_1 != 2`; the ground-truth register trace (shard) proves the compare is against **0**, not
   2 — documented in the `.cpp` banner. Guest frame: `addiu sp,-32`; spill s0,s1,ra (no s2 slot).
 - **`ActorTomba::assetReady`** (`0x80045580`) — frameless-except-ra leaf, forwards a per-slot record
-  to the substrate loader-status leaf `FUN_80044CD4`. Faithful from `generated/shard_6.c:6274`
+  to the substrate loader-status leaf `FUN_80044CD4`. Faithful from `authenticated executable/overlay evidence`
   (matches Ghidra 1:1).
 - **`ActorTomba::resetLoadGate`** (`0x80042310`) — frameless-except-ra leaf, fires load-commit cues
-  + clears the pause latch. Faithful from `generated/shard_5.c:5613` (matches Ghidra 1:1).
+  + clears the pause latch. Faithful from `authenticated executable/overlay evidence` (matches Ghidra 1:1).
 
 **Still substrate / mapped-only, NOT drafted this pass** (too large for a single wide-RE session —
 each is its own dedicated-pass candidate, per the "Mapped-only families" section below):
@@ -2726,7 +2727,7 @@ list below are triaged from call-set/global overlap + a skim, NOT a full read �
 ### Next steps (for whoever picks up the follow-up wave)
 
 1. ~~RE `0x8005950C` first~~ — DONE 2026-07-08 (`ActorTomba::frameTick`, UNWIRED draft, compiles).
-   Next: wire it (EngineOverrides + `shard_set_override` at `Engine::frameStartTick`'s dispatch
+   Next: wire it (EngineOverrides + `tomba::native::declareOverride` at `Engine::frameStartTick`'s dispatch
    site) + SBS-gate, THEN tackle its own still-substrate direct callees in priority order:
    `0x80058648` (case-0 init, moderate size, concrete next RE target) and the two mode-N dispatch
    tables `0x80058918`/`0x80058F5C` (each cascades into ~50 more functions — the real bulk of this
@@ -2745,13 +2746,13 @@ list below are triaged from call-set/global overlap + a skim, NOT a full read �
 Follow-up on the "High-value next targets" flagged by the 2026-07-08 A00-band wide-RE session
 (above): the case-body leaves that `beh_substate_edge_orchestrator` (0x8012EB54,
 game/ai/beh_substate_edge_orchestrator.cpp) and `beh_cull_substate_orchestrator` (0x8013259C,
-game/ai/beh_cull_substate_orchestrator.cpp) dispatch out to via `rec_dispatch`. Both orchestrators
+game/ai/beh_cull_substate_orchestrator.cpp) dispatch out to via `typed runtime address dispatch`. Both orchestrators
 are LIVE and their own control flow is already owned; only the per-state BODIES stayed substrate.
-Ground truth for all 12: `generated/ov_a00_shard_0.c` / `ov_a00_shard_1.c`, symbol
-`ov_a00_gen_<addr>`.
+Ground truth for all 12: `authenticated executable/overlay evidence` / `ov_a00_shard_1.c`, symbol
+`A00 overlay the cited guest instructions`.
 
 **Status as of the 2026-07-10 wide-RE waves:** 8 DRAFTED (compile-only, UNWIRED — no EngineOverrides
-registration, no `shard_set_override`, no SBS run), 4 MAPPED (RE'd for call-graph + field shape, NOT
+registration, no `tomba::native::declareOverride`, no SBS run), 4 MAPPED (RE'd for call-graph + field shape, NOT
 transcribed). The 8th draft (`0x8012ED84`) was added by a dedicated single-function follow-up
 session after the original 2026-07-10 wave demoted all 3 remaining edge-orchestrator leaves to
 MAPPED-ONLY as too risky for one rushed pass — see the DRAFTED entry for `0x8012ED84` below for
@@ -2781,7 +2782,7 @@ details and the bugs caught during hand-tracing.
 - **`0x80130524`** (133 ln) — node[5]==3 sub-state. A 3-phase (obj[6] 0/1/2) heading-integrator
   state machine against a linked child's angle field (`obj[196]+0xA`/`+0x12`), gated by
   `obj[64]`/`obj[112]` counters and an RNG-ish leaf `0x80077768` (already-owned `Trig::angleCmp`,
-  called via `rec_dispatch` here rather than the direct method — signature not confirmed for this
+  called via `typed runtime address dispatch` here rather than the direct method — signature not confirmed for this
   call site). Common tail always calls the unowned leaf `0x801308E0(obj)`.
 
 ### DRAFTED — game/ai/beh_cull_substate_leaves.cpp
@@ -2794,7 +2795,7 @@ details and the bugs caught during hand-tracing.
   (`0x80051B70`) that seeds a batch of `4096`-scaled fields on success. Common tail resets ~12
   counter/flag fields, bumps `obj[4]`, and ends with a `NodeXform::buildWithOffset`-shaped call
   (`0x800518FC`, dual-owned per codemap — `Engine::objMatrixCompose` / `NodeXform::buildWithOffset`;
-  routed via `rec_dispatch` since this draft never confirmed which owner actually fires here).
+  routed via `typed runtime address dispatch` since this draft never confirmed which owner actually fires here).
 - **`0x80132954`** (70 ln) — node[5]==0 sub-state. `obj[6]==0`: countdown `obj[64]`, advance
   `obj[6]` on expiry. `obj[6]==1`: on a GBASE nibble clear, cycles a per-index 3×int16 jitter table
   (SAME shape as `0x8013272C`'s per-type table, different base constant) indexed by a rotating
@@ -2812,7 +2813,7 @@ details and the bugs caught during hand-tracing.
   (class=1792/item=52) vs "small" (class=2560/item=36) record-alloc request
   (`0x80027144`, unowned), then `Sfx::trigger`-shaped `0x80074590` and
   `SceneEvents::armBody`-shaped `0x80040B48(127)` (both dual-owned per codemap, routed via
-  `rec_dispatch`). On arm failure (<0), a GBASE bit-set + rolling counter gates
+  `typed runtime address dispatch`). On arm failure (<0), a GBASE bit-set + rolling counter gates
   `Engine::announcerCue`-shaped `0x8004ED94(110,65)`. `obj[4]=3` unconditionally at the end.
 
 ### DRAFTED — game/ai/beh_substate_edge_leaves.cpp, dedicated wide-RE pass 2026-07-10
@@ -2823,7 +2824,7 @@ a follow-up wide-RE session dedicated to this one function (the 2026-07-10 wave 
 effort to the smallest of the three instead of spreading thin across all 3, per
 docs/fleet-workflow.md §9 "correctness over coverage"). Near-mechanical goto-preserving
 transliteration (same style as `0x80132A88`/`0x80132EDC` below), cross-checked against ground
-truth (`generated/ov_a00_shard_1.c:18777-19125`) TWICE line-by-line. Confirmed structure:
+truth (`authenticated executable/overlay evidence`) TWICE line-by-line. Confirmed structure:
   1. The **5-entry** two-level lookup loop filling `obj[96]`/`[98]`/`[100]`/`[102]`/`[104]` from
      `class = byte_table[0x8014A334 + obj[3]]` / `obj[96+2i] = u16_table[0x8014A340 + (class*5+i)*2]`
      (already corrected 6->5 in the entry below — reconfirmed here).
@@ -2862,7 +2863,7 @@ truth (`generated/ov_a00_shard_1.c:18777-19125`) TWICE line-by-line. Confirmed s
      final `obj[3]`-gated call into `0x8004CBD8(obj, 0 or 6)` plus a fixed `0x800BF89C` byte-flag
      check gating `obj[5]=5`.
 UNVERIFIED/UNWIRED per docs/fleet-workflow.md §6/§9 (no EngineOverrides registration, no
-`shard_set_override`, no SBS run — the draft only needs to compile, confirmed clean build+link).
+`tomba::native::declareOverride`, no SBS run — the draft only needs to compile, confirmed clean build+link).
 LOW CONFIDENCE items flagged in-code: `r21`'s 0x800ECFAC global role, the 0x800BF89C byte's role,
 and the final child-slot `record[62] |= 3` write's exact purpose.
 
@@ -2878,12 +2879,12 @@ registers (r16-r23+r30 vs r16-r18), so a rushed draft would land squarely in
 docs/fleet-workflow.md §9's "bug-farm" territory. Per that doc: an honest MAP beats a buggy draft.
 
 - **`0x8012F5B4`** (428 ln, edge-orchestrator node[5]==1 sub-state) — calls unowned
-  `0x80130788`/`0x801308E0`/`0x801314B4`/`0x80131578`, plus `rec_dispatch` to
+  `0x80130788`/`0x801308E0`/`0x801314B4`/`0x80131578`, plus `typed runtime address dispatch` to
   `Sfx::trigger`-shaped `0x80074590`, an unowned `0x80074AF0`, and `Trig::rsin`-shaped `0x80083E80`
-  (already owned, routed via rec_dispatch here). Largest of the 6 edge-orchestrator leaves —
+  (already owned, routed via typed runtime address dispatch here). Largest of the 6 edge-orchestrator leaves —
   NOT triaged past the call list.
 - **`0x8012FD88`** (406 ln, edge-orchestrator node[5]==2 sub-state) — calls unowned
-  `0x80127384`/`0x801308E0`/`0x80131768`, plus `rec_dispatch` to `GraphicsBind`-shaped
+  `0x80127384`/`0x801308E0`/`0x80131768`, plus `typed runtime address dispatch` to `GraphicsBind`-shaped
   `0x8004CBD8`, `Sfx::trigger`-shaped `0x80074590`, and `Trig::angleCmp`-shaped `0x80077768`.
   NOT triaged past the call list.
 
@@ -2949,9 +2950,9 @@ drafts):**
 
 ### Notes for whoever wires these
 
-- Every drafted leaf uses `rec_dispatch(c, addr)` for ALL sub-calls (including ones codemap already
+- Every drafted leaf uses `typed runtime address dispatch(c, addr)` for ALL sub-calls (including ones codemap already
   shows as owned), per CLAUDE.md's "native call sites prefer routing wired addresses through
-  rec_dispatch" — this was a deliberate simplification (this session did not confirm exact C++
+  typed runtime address dispatch" — this was a deliberate simplification (this session did not confirm exact C++
   signatures for `Sfx::trigger` / `SceneEvents::armBody` / `Engine::announcerCue` /
   `GraphicsBind::installSceneRecord`/`recordInitBody` / `NodeXform::buildWithOffset` at these
   specific call sites — a wiring pass should confirm and switch to direct native calls where safe).
@@ -2967,15 +2968,15 @@ drafts):**
 ## Wide-RE wave 2026-07-09 — hot unowned leaves (0x80079528, 0x80079374, 0x800788AC)
 
 WIDE-RE TIER — all three drafts UNWIRED/UNVERIFIED (docs/fleet-workflow.md §6/§9): no override
-registration, no SBS run, must be diffed line-by-line against the gen body again before wiring.
+registration, no SBS run, must be diffed line-by-line against the guest-visible behavior again before wiring.
 Band: the two hottest unowned functions in a 600-frame free-roam (4235 dispatches each) plus a
 627-dispatch third (~1/frame).
 
 - **`FUN_80079528` = `Str::length`** (game/core/str.h/.cpp) — plain `strlen()`, byte-for-byte
   transcription, no stack frame, no sub-calls, a true leaf. CONFIRMED via disas +
-  `generated/shard_2.c:10049`. Note: Ghidra's decompile of this range folds in a SECOND,
+  `authenticated executable/overlay evidence`. Note: Ghidra's decompile of this range folds in a SECOND,
   UNREACHABLE function's bytes (0x80079554 onward — no dispatch entry, no caller anywhere in
-  `generated/`); the recompiler's `gen_func_80079528` is instruction-exact and shows only the
+  `authenticated executable/overlay evidence`); the recorded binary evidence's `guest 0x80079528` is instruction-exact and shows only the
   strlen loop is reachable through this entry point. Trivial to wire (no dependencies).
 
 - **`FUN_80079374` = `Font::drawText`** (game/ui/font.h/.cpp) — a thin arg-packing wrapper: packs
@@ -2984,15 +2985,15 @@ Band: the two hottest unowned functions in a 600-frame free-roam (4235 dispatche
   `0x00100008` constant (CONFIRMED discarded — semantic role of the constant NOT confirmed),
   writes `32` to scratchpad `0x1F800180` (role not confirmed), then tail-calls the still-unowned
   font/glyph emitter `FUN_80078CA8` (docs' existing "FUN_80078ca8" section — full string-draw
-  engine with cursor state at `0x1F800000..0x1F80001F`) via `rec_dispatch`, passing the 5th
+  engine with cursor state at `0x1F800000..0x1F80001F`) via `typed runtime address dispatch`, passing the 5th
   argument (color) on the stack at the callee's expected slot. Mirrors the guest's one-word `ra`
-  spill (`sp -= 32`, `sw ra,24(sp)`). CONFIRMED via disas + `generated/shard_7.c:11490`.
+  spill (`sp -= 32`, `sw ra,24(sp)`). CONFIRMED via disas + `authenticated executable/overlay evidence`.
 
 - **`FUN_800788AC` = `Engine::padEdgeFenceDraft`** (declared in game/core/engine.h, implemented in
   game/input/pad_edge_fence.cpp — no separate header, matches the file-per-leaf pattern) — the per-frame
   INPUT-EDGE FENCE, already partly documented above ("Per-frame fence FUN_800788ac") and
-  cross-referenced from `runtime/recomp/pad_input.cpp`. Currently reached from
-  `Engine::frameUpdate()` (game/game_tomba2.cpp:72) via `rec_dispatch(c, 0x800788ACu)` — this
+  cross-referenced from `runtime/psx/pad_input.cpp`. Currently reached from
+  `Engine::frameUpdate()` (game/game_tomba2.cpp:72) via `typed runtime address dispatch(c, 0x800788ACu)` — this
   draft does NOT replace that call site (stays unwired). Confirmed structure: stashes last
   frame's "cur" sample into "prev" (`0x800ECF54`/`0x800ECF56`), runs a countdown/refill state
   machine gated by scratchpad flag `0x1F80019A` (either popping a 4-byte-stride queue entry at
@@ -3001,13 +3002,13 @@ Band: the two hottest unowned functions in a 600-frame free-roam (4235 dispatche
   computes `PRESSED = cur & ~prev` into `DAT_800E7E68` and `RELEASED = prev & ~cur` into
   `DAT_800F23A4` (both CONFIRMED — match the existing doc + downstream readers), then tail-calls
   `FUN_8005229C` (CD/load sub-state-machine, existing doc's "region-8005 survey") passing the
-  `released` mask as `a0` (CONFIRMED from the gen body — a0 is left live from the release-mask
+  `released` mask as `a0` (CONFIRMED from the guest-visible behavior — a0 is left live from the release-mask
   compute, not explicitly reset before the call). MEDIUM confidence: the semantic ROLE of
   `0x800ECF54` — this pass shows it's a flat 16-bit "current sample" fed by either a queue entry's
   raw u16 value or `FUN_800524B4(0)`'s return, not necessarily "pad state" as an earlier pass's
   summary labeled it; `FUN_800524B4` was separately filed under a "controller vibration/analog-
   config subsystem" address family (0x80052144-0x800527C8) by that earlier pass, not
-  re-confirmed here. `FUN_800524B4`/`FUN_8005229C` themselves stay un-owned (`rec_dispatch`).
+  re-confirmed here. `FUN_800524B4`/`FUN_8005229C` themselves stay un-owned (`typed runtime address dispatch`).
 
 Not drafted (out of band): `FUN_80078CA8` (font/glyph emitter, called by drawText — large,
 separate scope), `FUN_800524B4`/`FUN_8005229C` (padEdgeFenceDraft's callees — separate scope,
@@ -3032,9 +3033,9 @@ via `tools/codemap.py --addr`. This region sits right at the psyq libc/libsnd bl
     that same function zeroes the very table and counter this body walks and increments. It is
     REACHED ~2x/frame because libsnd's `SsSetTickMode` also parks it in the user-callback slot
     `DAT_800AC430`, which `Sequencer::frameTick()` (0x800909C0) dispatches per frame — confirmed
-    live: the mirror gate reports entry `ra=0x800909EC`, the jal site inside `gen_func_800909C0`.
+    live: the mirror gate reports entry `ra=0x800909EC`, the jal site inside `guest 0x800909C0`.
   - NOT PlatformHle: no spin, no completion-flag poll, no MMIO read, no call to the trapped libetc
-    VSync 0x80085900; bounded 8-iteration loop. It is the handler, not a waiter — and the gen body
+    VSync 0x80085900; bounded 8-iteration loop. It is the handler, not a waiter — and the guest-visible behavior
     already ran ~12k times a run without hitting a trap, so the native runs in exactly the same
     place.
   - VERIFIED: `PSXPORT_MIRROR_VERIFY=0x80086288`, 800 invocations over 400 frames, 0 mismatches
@@ -3048,48 +3049,48 @@ via `tools/codemap.py --addr`. This region sits right at the psyq libc/libsnd bl
 - **0x800909C0 → `Sequencer::frameTick()`** (new: game/audio/sequencer.h/.cpp). libsnd's per-VBlank
   TICK WRAPPER, installed by `SsSetTickMode` (docs/journal.md 2026-06-15 "later 54" — already
   RE'd there: tick mode `DAT_800ac424=5`, `*SsSeqCalled` ptr `DAT_800ac42c=0x80090BD0`, optional
-  user-cb `DAT_800ac430=0x80086288`). 1:1 with `gen_func_800909C0` (generated/shard_7.c:14127): if
+  user-cb `DAT_800ac430=0x80086288`). 1:1 with `guest 0x800909C0` (authenticated executable/overlay evidence): if
   the user-cb slot is non-null, dispatch it; unconditionally dispatch `*SsSeqCalled`. Confidence:
   HIGH (2 straight-line dispatches, addresses match the journal's prior live-RAM-dump RE exactly).
   NOTE: `game/game_tomba2.cpp`'s `SEQ_TICK_WRAPPER` constant still routes to the interpreter/
   substrate body directly (unrelated call site) — this draft does not touch that wiring.
 
-- **0x8009A420 → `Core::guestMemset(dst, val, n)`** (runtime/recomp/mem.cpp/core.h). Confirmed
+- **0x8009A420 → `Core::guestMemset(dst, val, n)`** (runtime/psx/mem.cpp/core.h). Confirmed
   **psyq libc `memset`** — classic byte-fill loop with a NULL-dst guard and `n<=0` early-out,
-  returning the ORIGINAL dst pointer (not the advanced cursor). 1:1 with `gen_func_8009A420`
-  (generated/shard_1.c:19508). Confidence: HIGH — unambiguous libc shape. Already has a live
+  returning the ORIGINAL dst pointer (not the advanced cursor). 1:1 with `guest 0x8009A420`
+  (authenticated executable/overlay evidence). Confidence: HIGH — unambiguous libc shape. Already has a live
   (still-substrate) call site: `game/world/pool.cpp` `Pool::resetControlBlock()` / `Pool::init()`
-  both do `call_fn(c, 0x8009A420u)` i.e. `rec_dispatch` — a follow-up wiring pass can swap those
+  both do `call_fn(c, 0x8009A420u)` i.e. `typed runtime address dispatch` — a follow-up wiring pass can swap those
   to `c->guestMemset(...)` directly once this draft is SBS-gated.
 
 ### Mapped, NOT drafted (too deep for this pass — see reasoning below)
 
 - **0x80090BD0 = `SsSeqCalled`** (the sequencer engine `*SsSeqCalled` points at). RE'd via
-  generated/shard_3.c:21497: reentrancy-guarded (flag `0x8010CC24`) double loop — up to 7
+  authenticated executable/overlay evidence: reentrancy-guarded (flag `0x8010CC24`) double loop — up to 7
   sequences × up to 15 channels each (bounds read from `0x80109E70`/`0x80109E72` shorts), testing
   a per-sequence active bitmask (`0x8010CC28`) and then, per channel, testing 8 independent bits
   in a per-channel struct field at `channel[+152]` to conditionally call 7 DISTINCT unowned leaves
   (`0x800910F0`, `0x80090E40` from two call sites, `0x80092080` from two call sites, `0x80091050`,
   `0x80091910`, `0x80091970`) plus a prep call (`0x800931C0`). None of the 7 leaves is owned; each
   is itself nontrivial per-channel note/ADSR-flag state logic. Faithfully porting `SsSeqCalled`
-  needs those 7 leaves RE'd + owned FIRST. Left as a `rec_dispatch` call inside the drafted
+  needs those 7 leaves RE'd + owned FIRST. Left as a `typed runtime address dispatch` call inside the drafted
   `Sequencer::frameTick()` (see game/audio/sequencer.cpp header comment). Next step for whoever
   picks this up: RE `0x800910F0`/`0x80090E40`/`0x80092080`/`0x80091050`/`0x80091910`/`0x80091970`/
   `0x800931C0` as a cluster, THEN draft `SsSeqCalled` itself.
 
 - **0x80099490** and **0x800998E4** — both already have a LIVE native caller:
-  `AreaSlots::updateTail()` (game/world/area_slots.cpp) calls `rec_dispatch(c, 0x800998E4u)` (the
-  "buf-fill" step) and `rec_dispatch(c, 0x80099490u)` (the "common tail" step, called with
+  `AreaSlots::updateTail()` (game/world/area_slots.cpp) calls `typed runtime address dispatch(c, 0x800998E4u)` (the
+  "buf-fill" step) and `typed runtime address dispatch(c, 0x80099490u)` (the "common tail" step, called with
   `a0 = 0x800BE1F8`, the same control block `Pool::reset75240()` targets). Both are deep libsnd/SPU
   register-value builders:
-  - `0x80099490` (generated/shard_7.c:14849): reads a 2-byte flag/value field from `a0`, uses it to
+  - `0x80099490` (authenticated executable/overlay evidence): reads a 2-byte flag/value field from `a0`, uses it to
     select among fixed SPU-register-style constants (`0x8000,0x9000,0xA000,...,0xE000` — looks like
     ADSR/attenuation mode words) via a jump table at `0x8009xxxx - 14656` and `-14624` (two nearly-
     identical halves, one per stereo channel), clamps/encodes a second field into 15 bits, and
     writes the packed halfword to a struct at `0x8009xxxx - 14844 + 384`. Reads as an SPU
     voice-attenuation-mode word builder (channel volume/ADSR control-word packer), consistent with
     being "the common tail" of the per-frame area-audio slot state machine.
-  - `0x800998E4` (generated/shard_0.c:15899): for i in 0..23, tests a bit of a global armed-mask
+  - `0x800998E4` (authenticated executable/overlay evidence): for i in 0..23, tests a bit of a global armed-mask
     (`0x8009xxxx-14960`) AND a `u16` flag at a per-index 16-byte table row
     (`0x8009xxxx-14844 + i*16 + 12`), classifies into one of 4 states {0,1,2,3} written to
     `buf[i]` — exactly the "24-byte per-slot state buffer" `AreaSlots::updateTail` already
@@ -3103,8 +3104,8 @@ via `tools/codemap.py --addr`. This region sits right at the psyq libc/libsnd bl
   both verbatim (they're branchy but NOT dependent on other unowned leaves, unlike `SsSeqCalled`).
 
 - **0x8008913C** — 3-instruction leaf: `return (arg & 0xF0) ? (0x80102500+240) : 0x80102500` (table
-  address confirmed byte-exact from `generated/shard_0.c:13941`; the two 0x801025xx addresses are a
-  pair of adjacent fixed-size tables, contents not walked). No static caller found in `generated/`
+  address confirmed byte-exact from `authenticated executable/overlay evidence`; the two 0x801025xx addresses are a
+  pair of adjacent fixed-size tables, contents not walked). No static caller found in `authenticated executable/overlay evidence`
   (indirect-only, like the sequencer cluster above). Trivial to draft but its SEMANTIC role
   (attenuation-table select? stereo-pan table select?) is unconfirmed — left mapped rather than
   drafted under an unverified name/comment, per "no bandaid" — a wrong docstring is worse than an
@@ -3114,7 +3115,7 @@ via `tools/codemap.py --addr`. This region sits right at the psyq libc/libsnd bl
 ### Build-blocking discovery (fixed, out-of-band)
 
 `vendor/beetle-psx/mednafen/psx/spu.c` had `SPU_PeekRAM` (added 1c0d395a) but never its declared
-(`runtime/recomp/spu_state.h`) counterpart `SPU_PokeRAM`, used by `game/core/verify_harness.cpp`
+(`runtime/psx/spu_state.h`) counterpart `SPU_PokeRAM`, used by `game/core/verify_harness.cpp`
 `VerifyHarness::skipCheck`. A fresh checkout fails to LINK `tomba2_port` at all regardless of any
 wide-RE change. Fixed minimally (symmetric `memcpy(SPURAM, src, sizeof(SPURAM))`) in the committed
 fork per workflow-first — this blocked every build in this session, not just this band.
@@ -3130,31 +3131,31 @@ Band from the task brief's dispatch-count list: 0x80082D04(824) 0x80083364(629) 
   (0x80081458), table+0x3C=DrawSync (0x80080F6C) — matches the doc's per-frame-loop RE exactly (both
   addresses and both table offsets independently re-derived from the gen-C body, then cross-checked
   against the existing doc — full agreement).
-- The GPU-DMA-completion **TIMEOUT arm/check** pair already native-owned in `runtime/recomp/
+- The GPU-DMA-completion **TIMEOUT arm/check** pair already native-owned in `runtime/psx/
   sync_overrides.cpp` (`gpu_timeout_arm`/`gpu_timeout_chk`, guest 0x800834A0/0x800834D4) write fields
   at **0x800A5ADC/0x800A5AE0** — i.e. `(32778u<<16) + 23260/23264`, the SAME base as the jump table.
   This CONFIRMS the whole `0x800A5A80-0x800A5B20`-ish region is one libgpu OT-DMA-send status block,
   and ties the unexplored queue cluster below directly to that already-owned timeout pair.
 - **DRAFTED this session** (game/render/wide_re_libgpu_leaves.cpp, game/math/wide_re_gte_transform3.cpp
   — wide-RE tier, UNWIRED/UNVERIFIED, see file headers for full field-level RE):
-  - `func_80080F6C` = **DrawSync(mode)**. Boot-flag-gated one-time init hook, then table[+0x3C].
-  - `func_80081458` = **ClearOTagR(OT, entries)**. Same init-hook pattern, then table[+0x2C], then
+  - `guest 0x80080F6C` = **DrawSync(mode)**. Boot-flag-gated one-time init hook, then table[+0x3C].
+  - `guest 0x80081458` = **ClearOTagR(OT, entries)**. Same init-hook pattern, then table[+0x2C], then
     links `*OT` to a shared fixed "dummy tail packet" built at 0x800A5B20 — the classic ClearOTagR
     internal (every OT build shares one small terminator/padding structure). NOTE: the gen-C emission
     for this address contains a SECOND, unreachable prologue/epilogue pair after the real `return` — a
-    recompiler shard-grouping artifact (adjacent guest code with no clean symbol boundary), NOT ported.
-  - `func_80082C68` = GPU-DMA status-block RESET (writes the flags/arg0/arg1/state pointer targets the
+    recorded binary evidence shard-grouping artifact (adjacent guest code with no clean symbol boundary), NOT ported.
+  - `guest 0x80082C68` = GPU-DMA status-block RESET (writes the flags/arg0/arg1/state pointer targets the
     queue cluster below tests every call). Self-contained, no calls, no branches.
-  - `func_80083DE0` = libgpu draw-mode / texture-window packet-HEADER builder (raw GP0 command words
+  - `guest 0x80083DE0` = libgpu draw-mode / texture-window packet-HEADER builder (raw GP0 command words
     matching DR_TPAGE 0xE1 / DR_TWIN 0xE2 top-byte tags). LOW-MEDIUM confidence on exact SCEI name;
-    register-flow transcription is exact (verified twice against the gen body after an initial
+    register-flow transcription is exact (verified twice against the guest-visible behavior after an initial
     transcription error — see git history — mixed up which register fed which output field).
-  - `func_800847B0` = 20-byte SoA→AoS vertex-header repack (self-contained, no calls/branches). No
-    confirmed caller found in generated/shard_*.c (reached only via rec_dispatch, consistent with its
+  - `guest 0x800847B0` = 20-byte SoA→AoS vertex-header repack (self-contained, no calls/branches). No
+    confirmed caller found in authenticated executable/overlay evidence (reached only via typed runtime address dispatch, consistent with its
     free-roam dispatch count); LOW confidence on semantic role, but the same "two halfwords packed
     into one word" idiom the GT3/GT4 packet builders use (game/render/overlay_gt3gt4.cpp,
     overlay_ground_gt3gt4.cpp) — plausibly a shared vertex/UV-pair repacker for that family.
-  - `func_80084250` = GTE 3-vertex rotate-and-pack (3x RTPS via gte_op 0x4A486012, matrix loaded from
+  - `guest 0x80084250` = GTE 3-vertex rotate-and-pack (3x RTPS via gte_op 0x4A486012, matrix loaded from
     CR0-4). Reads its OWN 5-word input buffer as a rotation matrix and OVERWRITES it in place with the
     3 vertices' packed IR1/2/3 results — same address family as the owned Math cluster (matMul=
     0x80084110, applyMatlv=0x80084220, applyMatrixLV=0x80084470). MEDIUM confidence: register-level
@@ -3164,7 +3165,7 @@ Band from the task brief's dispatch-count list: 0x80082D04(824) 0x80083364(629) 
 - **MAPPED but NOT drafted this session** (too large / too deep a callee chain to transcribe with
   confidence in one pass — see game/render/wide_re_libgpu_leaves.cpp's file header for the full note):
   - `0x800815D0` = **PutDrawEnv** (CONFIRMED identity, already named in the per-frame-loop doc above).
-    Calls `func_80081FB0` (a 40-line struct-pack helper) which itself calls 5 more unowned leaves
+    Calls `guest 0x80081FB0` (a 40-line struct-pack helper) which itself calls 5 more unowned leaves
     (0x80082240, 0x800822D8, 0x80082370, 0x80082220, 0x8008238C) — needs those RE'd first. HIGH VALUE:
     the existing doc's own "Next" note says PutDrawEnv is the literal next widescreen-lever target.
   - `0x80082D04`/`0x80082FB4`/`0x80083364`/`0x80082424`/`0x80082734` — the GPU-DMA completion-callback
@@ -3178,7 +3179,7 @@ Band from the task brief's dispatch-count list: 0x80082D04(824) 0x80083364(629) 
 
 Dedicated single-cluster pass per the prior wave's explicit deferral above (citing fleet-workflow.md
 §9's "9 bugs in one function" risk given ~380 gen-C lines and mutual recursion). RE'd the full call
-graph from `generated/shard_*.c` `gen_func_<addr>` bodies line-by-line, every branch polarity checked
+graph from `authenticated executable/overlay evidence` `the cited guest instructions` bodies line-by-line, every branch polarity checked
 twice against the gen-C before transcription. **DRAFTED** (`game/render/wide_re_gpu_dma_queue.cpp`,
 wide-RE tier, UNWIRED/UNVERIFIED — see the file's header comment for the full field-level RE, ring
 entry layout, and per-function commentary; only summarized here):
@@ -3189,14 +3190,14 @@ entry layout, and per-function commentary; only summarized here):
   inline payload and appends `{fn, argValOrPtr-or-payloadPtr, arg3}` to the ring, installing Drain as
   the completion ISR on first use.
 - `0x80082FB4` = **GpuDmaQueueDrain()** — the completion-callback ring's drain body; ALSO the
-  interrupt-handler body Enqueue installs via `func_80085B80(2, &0x80082FB4)`. Drains ring entries via
-  `rec_dispatch`, fires a one-shot "queue fully drained" completion handler (`GPU_QSTAT_HANDLER`,
+  interrupt-handler body Enqueue installs via `guest 0x80085B80(2, &0x80082FB4)`. Drains ring entries via
+  `typed runtime address dispatch`, fires a one-shot "queue fully drained" completion handler (`GPU_QSTAT_HANDLER`,
   0x800A59AC) when the queue empties idle.
 - `0x80083364` = **GpuDmaQueueSync(mode)** — mode==0 BLOCKS until the queue drains and the DMA
   channel goes idle+ready (arm timeout, loop Drain+timeout-check); mode!=0 does a single-shot
   poll/drain-once and reports queue depth. Same mode-0-blocks/mode!=0-polls shape as the real SDK
   `DrawSync(mode)`, but a DIFFERENT function scoped to this queue (`DrawSync` itself is
-  `func_80080F6C`, already drafted in `wide_re_libgpu_leaves.cpp`).
+  `guest 0x80080F6C`, already drafted in `wide_re_libgpu_leaves.cpp`).
 - `0x80082424` = **GpuDmaSend(arrayPtr, count)** — the actual OT-linked-list DMA KICK: programs
   last-address + count fields, writes the DMA channel control register with the start value
   `0x11000002`, arms the timeout, busy-waits (timeout-checked) for the channel busy bit to clear.
@@ -3222,18 +3223,18 @@ idiom). HIGH confidence on role, MEDIUM-LOW on the rect-clip/chunking arithmetic
 against a live VRAM-transfer dump). Left for a dedicated follow-up RE pass.
 
 Build check: `cmake --build build2 --target tomba2_port` links clean with the new file added to
-`cmake/tomba2_port.cmake`. Still fully unwired — no `EngineOverrides`/`shard_set_override`
+`cmake/tomba2_port.cmake`. Still fully unwired — no `EngineOverrides`/`tomba::native::declareOverride`
 registration, no SBS run. A wiring pass must re-diff every line against the gen-C and go through the
 SBS gate before this cluster is live.
 
 ## Wide-RE wave 2026-07-10 — dedicated libgpu pass: LoadImage streamer (0x80082734) + PutDrawEnv (0x800815D0) chain DRAFTED
 
 Dedicated pass on the two libgpu targets every prior wave explicitly deferred. Both drafted from the
-raw `generated/shard_*.c` gen-C line-by-line (wide-RE tier, UNWIRED/UNVERIFIED, compile-checked).
+raw `authenticated executable/overlay evidence` gen-C line-by-line (wide-RE tier, UNWIRED/UNVERIFIED, compile-checked).
 
 **DRAFTED — `game/render/wide_re_gpu_loadimage_streamer.cpp`:**
 - `0x80082734` = **libgpu LoadImage()-internal chunked GP0-FIFO pixel streamer** (~196 dispatches/600
-  frames; gen at generated/shard_5.c:13663, 48-byte frame, spills ra/s0..s5). ABI: a0=RECT16 ptr
+  frames; gen at authenticated executable/overlay evidence, 48-byte frame, spills ra/s0..s5). ABI: a0=RECT16 ptr
   {x,y,w,h s16}, a1=pixel-word src ptr; ret -1 on timeout or empty clamped rect, else 0. Clamps w/h IN
   PLACE against its own clip-max pair, computes numWords=ceil(w*h/2), splits into 16-word FIFO chunks
   + a 0..15-word PIO remainder streamed through the raw GP0 port, then hands the chunked part to an
@@ -3248,18 +3249,18 @@ raw `generated/shard_*.c` gen-C line-by-line (wide-RE tier, UNWIRED/UNVERIFIED, 
   **0x800A5AA4** (+23204), NOT 0x5A84 as wide_re_gpu_dma_queue.cpp's header says.
 
 **DRAFTED — `game/render/wide_re_gpu_putdrawenv.cpp`:**
-- `0x800815D0` = **PutDrawEnv(drawEnvPtr)** (gen at generated/shard_1.c:15851, frame -32, spills
+- `0x800815D0` = **PutDrawEnv(drawEnvPtr)** (gen at authenticated executable/overlay evidence, frame -32, spills
   ra/s0/s1/s2; returns its argument). Boot-flag-gated hook (fires when flag>=2 — see corrections
-  below), then func_80081FB0 packs the DRAWENV into a GP0 packet at drawEnvPtr+28, ORs 0x00FFFFFF
+  below), then guest 0x80081FB0 packs the DRAWENV into a GP0 packet at drawEnvPtr+28, ORs 0x00FFFFFF
   into the packet's tag word, sends it via GPU_SYS_TABLE[+0x08] (a0=table[+0x18] VALUE-as-data,
   a1=packet, a2=64, a3=0), then memcpy(0x800A59B0, drawEnvPtr, 92) caches it as the current env.
   Keeps s0/s1/s2 LIVE in the guest register file across dispatches (callees spill them). HIGH
   confidence. Its callee chain, previously "5 unowned leaves": 4 DRAFTED here —
   `0x80082240` (SetDrawAreaTopLeft word, 0xE3, clamps vs clip-max−1), `0x800822D8`
   (SetDrawAreaBottomRight, 0xE4, same shape), `0x80082370` (SetDrawingOffset, 0xE5, 11-bit fields, no
-  clamp), `0x80082220` (DR_TPAGE mode word — standalone twin of func_80083DE0's inline computation,
+  clamp), `0x80082220` (DR_TPAGE mode word — standalone twin of guest 0x80083DE0's inline computation,
   byte-identical; a0→0x400 low bit, a1→0x200 tag bit), `0x8008238C` (DR_TWIN word — algebraically
-  identical to func_80083DE0's tail; 16-byte dead-store scratch frame mirrored). All HIGH confidence
+  identical to guest 0x80083DE0's tail; 16-byte dead-store scratch frame mirrored). All HIGH confidence
   (small, self-contained, each verified twice).
 - **PORTED 2026-07-30: `0x80081FB0` = libgpu `SetDrawEnv(DR_ENV *packet, DRAWENV *env)`** —
   `game/render/libgpu_draw_env.cpp`, class `LibgpuDrawEnv`. Identified from the callers: 0x800815D0
@@ -3283,10 +3284,10 @@ raw `generated/shard_*.c` gen-C line-by-line (wide-RE tier, UNWIRED/UNVERIFIED, 
 **CORRECTIONS APPLIED to the committed `wide_re_libgpu_leaves.cpp` drafts** (found by cross-checking
 the identical hook shape; §9's bug-prediction landing in practice — 2 real bugs in 2 "verified twice"
 drafts):
-1. `func_80080F6C` (DrawSync) and `func_80081458` (ClearOTagR) both had the boot-flag hook gate
+1. `guest 0x80080F6C` (DrawSync) and `guest 0x80081458` (ClearOTagR) both had the boot-flag hook gate
    INVERTED (`<2` vs the gen's skip-when-`<2`, i.e. call-when->=2). Fixed. Consequence: GPU_SYS_INIT_FN
    (0x800A599C) is a steady-state "GPU sys is up" hook, not a one-time boot init — doc naming updated.
-2. `func_80081458`'s dummy-tail-packet constants were 0x800A5B20/0x800A5B0C; gen decimals +23136/+23116
+2. `guest 0x80081458`'s dummy-tail-packet constants were 0x800A5B20/0x800A5B0C; gen decimals +23136/+23116
    = **0x800A5A60/0x800A5A4C** (off by 0xC0, decimal→hex slip). Fixed.
 Also fixed one bug in THIS pass's own first transcription (caught on self re-diff): the streamer's
 ceil-div carry is a LOGICAL `>>31` (srl), not arithmetic.
@@ -3298,8 +3299,8 @@ run. A wiring pass must re-diff every line against the gen-C and SBS-gate before
 
 **Correction to the prior wave's "Mapped, NOT drafted" entry above**: its globals for this cluster
 (reentrancy flag `0x8010CC24`, active-bitmask `0x8010CC28`, seq/chan bounds `0x80109E70`/`0x72`)
-were a transcription error. Re-derived directly from the current `generated/shard_3.c:21497`
-gen body: base `32784u<<16 = 0x80100000`, offsets are the exact decimal immediates in that file —
+were a transcription error. Re-derived directly from the current `authenticated executable/overlay evidence`
+guest-visible behavior: base `32784u<<16 = 0x80100000`, offsets are the exact decimal immediates in that file —
 **reentrancy flag = 0x80104C24, active-mask = 0x80104C28, per-sequence pointer array (4-byte
 stride) = 0x80104C30, sequence count (s16) = 0x801054B0, channels-per-sequence count (s16) =
 0x801054B2**. Per-channel record base = `*(seqArray + seq*4) + chan*176`; flags bitfield at
@@ -3318,17 +3319,17 @@ before touching this cluster again. Summary:
   (0x80091910, HIGH confidence, true leaf/no stack frame).
 - **MAPPED, NOT drafted** (control flow fully RE'd, field semantics beyond flags/counters
   inferred not confirmed, each has 2+ further unowned callees): `0x80090E40` (pitch-slide/
-  portamento interpolator, called for both bit4 and bit5 — generated/shard_4.c:15017),
-  `0x80092080` (ADSR/envelope ramp, called for both bit6 and bit7 — generated/shard_1.c:17775),
-  `0x80091970` (per-channel note-init/retrigger, called for bit2 — generated/shard_4.c:15144, also
+  portamento interpolator, called for both bit4 and bit5 — authenticated executable/overlay evidence),
+  `0x80092080` (ADSR/envelope ramp, called for both bit6 and bit7 — authenticated executable/overlay evidence),
+  `0x80091970` (per-channel note-init/retrigger, called for bit2 — authenticated executable/overlay evidence, also
   notable for reading a STALE/live `a2`(r6) register the SsSeqCalled caller never explicitly sets
   before this call site — a genuine ABI-register-passthrough dependency, not a bug; preserved by
-  routing through `rec_dispatch` rather than a clean C++ parameter). Next step for whoever picks
+  routing through `typed runtime address dispatch` rather than a clean C++ parameter). Next step for whoever picks
   this up: RE `0x80091120`/`0x80095A9C`/`0x80095530`/`0x80095B90`/`0x800931A0` (the 3 leaves'
   shared callees) as a cluster, then draft the 3 remaining leaves and swap `seqChannelDispatch()`'s
-  4 `rec_dispatch` call-outs for direct method calls.
+  4 `typed runtime address dispatch` call-outs for direct method calls.
 - `0x800931C0` (SsSeqCalled's one-shot "prep call") was already drafted by an earlier pass as
-  `input_dispatch_931c0` (game/input/input.cpp) — untouched here, still reached via `rec_dispatch`.
+  `input_dispatch_931c0` (game/input/input.cpp) — untouched here, still reached via `typed runtime address dispatch`.
 
 ### 2026-07-10 follow-up — the bit4/5/6/7/2 leaves DRAFTED, closing this cluster's ownership gap
 
@@ -3337,8 +3338,8 @@ bit4/5), `channelEnvelopeRampTick` (0x80092080, bit6/7), `channelNoteInit` (0x80
 3 of their own small callees (`channelVolumeSnapshot` 0x80095A9C, `channelKeyEventScan` 0x80095B90,
 `channelKeyRegisterMerge` 0x80094B50 — all true leaves, no further unowned dependencies). One callee
 stays MAPPED: 0x80095530 (a ~320-line SPU voice-register write loop `channelPitchSlideTick` calls).
-`seqChannelDispatch()`'s corresponding 4 `rec_dispatch` call-outs were swapped to direct native calls
-(the whole chain remains fully UNWIRED — no EngineOverrides/shard_set_override registration, no SBS
+`seqChannelDispatch()`'s corresponding 4 `typed runtime address dispatch` call-outs were swapped to direct native calls
+(the whole chain remains fully UNWIRED — no EngineOverrides/tomba::native::declareOverride registration, no SBS
 run). Full field-level RE (offsets, branch-fallthrough semantics, confidence per leaf) lives in
 `game/audio/sequencer.h`'s header comment, per this file's own "the class IS the RE artifact"
 convention — read it before touching this cluster again. One correction worth flagging: the two
@@ -3347,7 +3348,7 @@ with goto/labels named after the guest addresses rather than restructured into i
 because an initial semantic-shortcut attempt at `channelEnvelopeRampTick` got the rate<=0 step
 direction backwards (`cur - rate` vs the correct `cur + rate` when rate<=0) and silently dropped the
 "nonzero cpu_div remainder skips everything below, including the bit-clear tail" early-return — both
-caught by re-deriving directly from the exact `generated/shard_*.c` line numbers instead of trusting
+caught by re-deriving directly from the exact `authenticated executable/overlay evidence` line numbers instead of trusting
 a prose paraphrase. Lesson for future leaves in this style: prefer literal register transcription
 over hand-simplified control flow whenever branches re-converge on shared tails.
 
@@ -3358,15 +3359,15 @@ Wide-RE fleet pass over 8 hot unowned leaves in the free-roam dispatch histogram
 code is `game/ai/sop_intro_events.{h,cpp}` (5 of the 8, plus 2 confirmed dependencies pulled in for
 completeness) + `Demo::s3SubMachine` in game/scene/demo.cpp — **every one of these is DEAD CODE**: not
 registered in BehaviorDispatch::kTable, not called from any live path, every existing wired caller
-(beh_sop_intro_lifted.cpp, demo.cpp's s3()/demo_frame_s3()) still `rec_dispatch`es the substrate body.
+(beh_sop_intro_lifted.cpp, demo.cpp's s3()/demo_frame_s3()) still `typed runtime address dispatch`es the substrate body.
 Ghidra decomp sources: `scratch/decomp/band_sop.c` (0x8010AF60/B078/B2D4/B588/BEAC, from
 `ram_sop.bin`), `band_sop2.c` (0x8010B44C), `band_sop4.c` (0x8010B11C), `band_menu.c` (0x80106AC4,
-0x8010696C, from `ram_menu.bin`) — all gitignored `scratch/`, regenerate via `tools/decomp.sh` (see
+0x8010696C, from `ram_menu.bin`) — all gitignored `scratch/`, regenerate via `the Ghidra evidence workflow` (see
 each function's file-header comment for the exact import+decomp commands).
 
 - **0x8010B588 → `sopLiftedSubtick`** (game/ai/sop_intro_events.cpp) — HIGH confidence. The "lifted"
   SOP-intro actor's own deeper per-frame sub-tick — beh_sop_intro_lifted.cpp's state_running already
-  calls it via rec_dispatch and its own comment already named it "a deeper 6-state SM synced to the
+  calls it via typed runtime address dispatch and its own comment already named it "a deeper 6-state SM synced to the
   scene-beat global" (docs/port-progress.md's prior note, now filled in). A 6-state SM on node+6 that
   re-targets the actor's anim-table pointer (node+0x3C) and installs progressively bigger scene-record
   sets as SCENE_BEAT (0x800BF9B4) advances 2→3→6; states 1/6 poll ScriptInterp::step until the current
@@ -3402,9 +3403,9 @@ each function's file-header comment for the exact import+decomp commands).
   0x800A22B8 itself or entity_walk.py-scan live nodes for a +0x1C pointing here.
 - **0x80106AC4 → `Demo::s3SubMachine`** (game/scene/demo.cpp) — HIGH confidence, clean jr-ra leaf, no
   stack frame. The main-menu title-page cursor sub-machine both `Demo::s3()` and `demo_frame_s3()`
-  already document as "mirror of 0x8010696C" but still `rec_dispatch`; this is the byte-exact port
+  already document as "mirror of 0x8010696C" but still `typed runtime address dispatch`; this is the byte-exact port
   (3-outcome mirror of the s2 twin — adds a Circle/back-edge branch the s2 twin doesn't have). Still
-  calls the two commit/redraw leaves `FUN_80106690`/`FUN_80106824` via rec_dispatch (both codemap-
+  calls the two commit/redraw leaves `FUN_80106690`/`FUN_80106824` via typed runtime address dispatch (both codemap-
   checked: no native owner) and the already-native `Sfx::trigger`.
 - **0x8010C26C / 0x8010C79C — MAPPED, NOT drafted (by design, not oversight).** Already correctly
   flagged DEFERRED in docs/port-progress.md ("BG tile scroller" / "end-of-area text scroller" — both
@@ -3421,7 +3422,7 @@ registration, no SBS run, docs/fleet-workflow.md §6/§9) — full RE writeup li
 comments (this codebase's convention: "the class IS the RE artifact"), not duplicated here.
 
 - **`Sequencer::channelVoiceRegisterWrite()`** (0x80095530, `game/audio/sequencer.h`/`.cpp`) — the
-  "SPU voice-register write leaf" `channelPitchSlideTick()` (0x80090E40) still `rec_dispatch()`es to.
+  "SPU voice-register write leaf" `channelPitchSlideTick()` (0x80090E40) still `typed runtime address dispatch()`es to.
   A prior wave (2026-07-10, 1st band) filed it "MAPPED, NOT drafted — ~320 lines, too large/deep for
   this pass." Drafted this wave: register-literal/goto-label transcription (dense fixed-point pan/
   volume compute over the same stride-56 voice-record array `channelKeyEventScan()` reads, base
@@ -3435,11 +3436,11 @@ comments (this codebase's convention: "the class IS the RE artifact"), not dupli
 
 - **`Font::glyphEmit()`** (0x80078CA8, `game/ui/font.h`/`.cpp`) — the font/glyph emitter
   `Font::drawText()` (0x80079374) tail-calls. A 2026-07-09 wave filed it "large, separate scope, not
-  drafted" at "403 gen-C lines." Re-read this wave: `gen_func_80078CA8` (generated/shard_5.c:12298)
+  drafted" at "403 gen-C lines." Re-read this wave: `guest 0x80078CA8` (authenticated executable/overlay evidence)
   has a REAL `return` at gen-C line 210 with no label anywhere past it — lines 211-402 (192 lines, a
   hand-unrolled 20-word struct copy + two more OT-chain packet builds) are confirmed UNREACHABLE dead
   code, the same "shard-grouping artifact" documented elsewhere in this doc (e.g.
-  `channelEnvelopeRampTick`'s trailing `func_800922A0`). The REAL live body is ~180 lines — tractable.
+  `channelEnvelopeRampTick`'s trailing `guest 0x800922A0`). The REAL live body is ~180 lines — tractable.
   Drafted register-literal/goto-label: a null-terminated string walk with a per-BYTE dispatch (not
   per "control code" as the earlier doc phrasing implied) over a FIXED SCRATCH STRUCT at guest
   `0x800C0000` — this CORRECTS the prior wave's doc note that placed "cursor state" at scratchpad
@@ -3455,11 +3456,11 @@ comments (this codebase's convention: "the class IS the RE artifact"), not dupli
   other byte is the ordinary glyph-draw arm, which prepends a 4-word GP0 packet at the shared packet
   pool (`PKT_POOL_PTR` 0x800BF544 — same pool every other render leaf in `game/render/` uses, see
   `game/render/submit.cpp`) into the OT bucket for the caller's `color` arg. The function's tail
-  builds one more OT-chained packet via the ALREADY-OWNED `func_80083DE0`
-  (`game/render/wide_re_libgpu_leaves.cpp`, called via `rec_dispatch` since it's process-globally
+  builds one more OT-chained packet via the ALREADY-OWNED `guest 0x80083DE0`
+  (`game/render/wide_re_libgpu_leaves.cpp`, called via `typed runtime address dispatch` since it's process-globally
   wired) and returns a value (`(int16)size.w - color`) that `drawText()`'s existing body already
   confirms it discards. LOW-MEDIUM confidence: control flow + the scratch-struct base-address
-  correction are solid (direct re-read of the gen body); individual field roles beyond that
+  correction are solid (direct re-read of the guest-visible behavior); individual field roles beyond that
   (especially the never-written "line height" field) are inferred, not confirmed. See font.h header
   comment for the full byte-dispatch table.
 
@@ -3472,8 +3473,8 @@ bonus leaf `0x8004139C` (not assigned but trivial and fully understood, ported a
 `turnFacing`'s entire body). All five are now `ScriptInterp` methods in `game/scene/script_interp.
 {h,cpp}` — DRAFTED, UNWIRED, UNVERIFIED (no override registration, no SBS run; must compile, does).
 
-**Method.** `generated/shard_*.c` (instruction-exact ground truth) read and hand-traced first, THEN
-independently cross-checked against a fresh Ghidra headless decompile (`tools/decomp.sh import` +
+**Method.** `authenticated executable/overlay evidence` (instruction-exact ground truth) read and hand-traced first, THEN
+independently cross-checked against a fresh Ghidra headless decompile (`the Ghidra evidence workflow import` +
 `decomp ... list 0x80043108 0x80041468 0x80041438 0x80042ea4 0x8004139c`, output at
 `scratch/decomp/op36_op31_band.c` — worktree-local scratch, not committed). Every branch polarity in
 both target functions was traced TWICE (once from the raw generated C's own delay-slot-assignment
@@ -3484,7 +3485,7 @@ guarded `cpu_div`s back to back (dist/stepsRequested, then 4096/stepDiv), each f
 the guest's own `rec_break(7168)` div-by-zero and `rec_break(6144)` INT_MIN/-1-overflow traps (same
 idiom as `game/audio/sequencer.cpp`). Ghidra's decompile rendered a THIRD `trap(0x1c00)` call
 immediately after the FIRST division's post-clamp store (testing the just-clamped value for zero
-again) — that trap does not exist there in the raw recompiled C (`generated/shard_5.c:5727-5736`
+again) — that trap does not exist there in the raw guest C (`authenticated executable/overlay evidence`
 has no `rec_break` call between the clamp and the second `cpu_div`). Ghidra had folded the SECOND
 division's own (real) div-by-zero trap into the wrong position in its output. Confirmed by direct
 re-read of the raw C twice; the ported code omits the phantom trap and documents the finding inline
@@ -3494,7 +3495,7 @@ at the fix site (`game/scene/script_interp.cpp`, `op36MoveTowardScriptTarget`).
 Ghidra):** op31's actor-selection logic (`argA`'s sign bit 0x8000 selects between `self` and the
 global secondary-actor slot at scratchpad `0x1F800214`) was mislabeled BACKWARDS on this session's
 first hand-trace of the raw generated C (misreading which side of the `if(_t) goto` branch-delay
-pattern corresponded to which case). Re-deriving a second time directly from the recompiler's own
+pattern corresponded to which case). Re-deriving a second time directly from the recorded binary evidence's
 instruction ordering, and independently confirming against Ghidra's decompile (both agree: sign bit
 SET selects the scratchpad global, CLEAR selects self), caught and fixed it before any code existed.
 Documented inline at the fix site in `op31TurnTowardTarget`.
@@ -3516,7 +3517,7 @@ scheduler sleep-countdown + 4 ScriptInterp opcode handlers" section above for th
 **Field map (op36, `ScriptInterp::op36MoveTowardScriptTarget`, `0x80043108`).** Frame: sp-=40,
 spills s0(obj)@+16, s4(constant 1)@+32, ra@+36, s3(turn-mode flag)@+28, s2(scriptPtr)@+24,
 s1(step-count divisor, a LIVE local that survives the sqrt call)@+20 — all HIGH confidence, verified
-register-by-register against `generated/shard_5.c:5667`. Phase machine on obj+0x78 (0=init, 1=turn,
+register-by-register against `authenticated executable/overlay evidence`. Phase machine on obj+0x78 (0=init, 1=turn,
 2=pure interpolate — same phase slot op34/op31 use). Fields (all HIGH confidence): obj+0x72/0x74/0x76
 = target Z/Y/X (entry argA/B/C reused as literal coordinates); obj+0x2E/0x32/0x36 = self Z/Y/X;
 obj+0x48/0x4A/0x4C = dz/dy/dx; obj+0x44 = Q12 "fraction of move remaining" (starts 0x1000); obj+0x64
@@ -3528,9 +3529,9 @@ obj+0x66) — ported faithfully as written; the game-design purpose of the redun
 
 **Field map (op31, `ScriptInterp::op31TurnTowardTarget`, `0x80041468`).** Frame: sp-=48, spills
 s0(obj)@+32, ra@+40, s1(resolved target actor)@+36 — HIGH confidence, verified against
-`generated/shard_3.c:11362`. Phase 0: a 5-way mode switch on argA's low 15 bits (0/1/2/3/10) — modes
+`authenticated executable/overlay evidence`. Phase 0: a 5-way mode switch on argA's low 15 bits (0/1/2/3/10) — modes
 1/2/3/10 each call `Trig::ratan2` (via the wired `0x80085690` override, reached through
-`rec_dispatch` for register-ABI fidelity rather than a direct `c->trig.ratan2()` call, since this
+`typed runtime address dispatch` for register-ABI fidelity rather than a direct `c->trig.ratan2()` call, since this
 draft stays in a register-literal transcription style throughout for minimum transcription risk) —
 HIGH confidence on the arithmetic (independently confirmed against both raw C and Ghidra), MEDIUM
 confidence on the GAME-DESIGN meaning of each mode (mode 1/2 share scratchpad anchors 0x1F800160/
@@ -3545,7 +3546,7 @@ of the branch this session's own first pass got backwards (see above).
 
 **FUN_80041438 (`ScriptInterp::turnFacing`/`turnFacingFramed`) and FUN_8004139C
 (`ScriptInterp::stepAngleToward`).** HIGH confidence, both trivial leaves verified against
-`generated/shard_2.c:4628` and `generated/shard_1.c:6657` respectively and matching Ghidra's
+`authenticated executable/overlay evidence` and `authenticated executable/overlay evidence` respectively and matching Ghidra's
 independent decompile exactly with no discrepancies. `stepAngleToward` is a generic Q12-angle
 incremental-turn-toward-target primitive (snap if within `step`, else step by `step` the short way
 around the circle, re-test, snap if now within reach) operating on an arbitrary guest angle pointer
@@ -3554,7 +3555,7 @@ has no other known caller; a future session adding more callers should consider 
 Math/Trig-adjacent utility.
 
 **FUN_80042EA4 (`ScriptInterp::stepEventPulse`/`stepEventPulseFramed`).** HIGH confidence on the
-control flow (verified against `generated/shard_3.c:11682`, matches Ghidra's decompile exactly — no
+control flow (verified against `authenticated executable/overlay evidence`, matches Ghidra's decompile exactly — no
 discrepancy found here). A per-call "movement event" gate read via a flags-word pointer (obj+0x68 in
 every known op36 caller): 0 -> no-op; low 6 bits clear + bit 0x80 set -> an "arm once" latch gated on
 `*(int*)(obj+0x38)+4` (an owner/parent pointer's byte-at-+4), firing `Sfx::trigger` exactly once on
@@ -3570,10 +3571,10 @@ not traced this pass.
 confirms all five addresses (`0x80043108`, `0x80041468`, `0x80041438`, `0x80042EA4`, `0x8004139C`)
 now resolve to LIVE native owners with zero remaining unowned callees in this specific cluster
 (op36's `0x80084080` sqrt leaf and both functions' `0x80085690` ratan2 leaf remain still-substrate,
-routed via `rec_dispatch`/the wired override — expected, both are shared leaves used elsewhere in
+routed via `typed runtime address dispatch`/the wired override — expected, both are shared leaves used elsewhere in
 the codebase, not part of this band). UNWIRED: no `EngineOverrides` registration, no SBS run — per
 `docs/fleet-workflow.md` §9, a frontier-tier session must do the line-by-line wiring-time re-verify
-(diff against `generated/` one more time) before trusting this in-game, and the `ovhit` debug channel
+(diff against `authenticated executable/overlay evidence` one more time) before trusting this in-game, and the `ovhit` debug channel
 must show these opcodes actually firing during an SBS-full run before either is considered gated
 (free-roam autonav coverage for opcodes 31/36 specifically was NOT checked this pass).
 ## Wide-RE wave 2026-07-10 — dedicated pass: `0x8005950C` band's case-0 init driver (`0x80058648`)
@@ -3592,7 +3593,7 @@ correctly).
 frameTick's case-0 (INIT) handler. (Re)allocates Tomba's 17-record attach array via
 `GraphicsBind::recordArrayInit` (already-native, `0x800519E0`), resets a large block of G's
 per-frame scratch fields to fixed defaults, dispatches still-substrate `0x800682C4`/`0x80057FD4`
-plus the already-native `growthStep` (`0x80057DC0` — dispatched via `rec_dispatch` for now, not a
+plus the already-native `growthStep` (`0x80057DC0` — dispatched via `typed runtime address dispatch` for now, not a
 direct call, to keep this pass a pure mechanical transcription), and — only when `mode==0` — an
 indirect jump-table dispatch keyed by `DAT_800BF870` (the area/game-mode selector byte) through
 ONE of two 32-entry function-pointer tables at `0x800A45B8` or `0x800C45B8` (selected by a small
@@ -3604,12 +3605,12 @@ enumerate either table's 32 entries (a separate, orthogonal dedicated-pass targe
 Tail (all mode values): a `{5,6}`-vs-`G+348` gated settle-state stamp, then always tail-dispatches
 `matrixComposeAttached`.
 
-Faithful from `generated/shard_7.c:7739` (ground truth) — kept as a LITERAL register-level
+Faithful from `authenticated executable/overlay evidence` (ground truth) — kept as a LITERAL register-level
 transcription (goto/label-preserving, not restructured into named C++ control flow) per
 `docs/fleet-workflow.md` §9. Concrete evidence for why: a first restructuring attempt at the
 `{5,6}`-vs-`G+348` tail (gen lines 7843-7877) inverted BOTH inner branch polarities (the
 G+320-increment gate at gen 7849, and the G+6=0-vs-4 gate at gen 7871) — caught by re-diffing
-line-by-line against the recompiled C before committing, not by any runtime test (this draft is
+line-by-line against the guest C before committing, not by any runtime test (this draft is
 unwired — no SBS coverage). Guest frame: `addiu sp,-32`; spill `s0(r16)<-a0=G, s1(r17),
 s2(r18)<-a1=mode, ra(r31)`. Callees still un-triaged/substrate: `0x800682C4`, `0x80057FD4`
 (docs' existing "lift/ride interaction handler" lead), `0x80068214`, plus every entry of the two
@@ -3630,7 +3631,7 @@ G's own matrix (`G+152`) or an alt "attach B" matrix at `0x1F800060` (armed by a
 `G+325/326`), then MVMVA's (`Math::applyMatlv`, `0x80084220`) and accumulates the translate into
 `item+0x2C/30/34`.
 
-Faithful from `generated/shard_5.c:8654` (ground truth) — ALSO kept as a literal register-level
+Faithful from `authenticated executable/overlay evidence` (ground truth) — ALSO kept as a literal register-level
 transcription (9 branch targets over one densely-conditioned loop; same §9 rationale as above).
 Guest frame: `addiu sp,-64`; spill `r16..r23` (all of s0-s7), `r30` used here as a plain
 callee-saved scratch (NOT a frame pointer — gen loads it with the base scratchpad address
@@ -3645,9 +3646,9 @@ wiring pass, unrelated to this one).
 **Verification status.** Both compile+link clean (`cmake -S . -B build2 && cmake --build build2
 --target tomba2_port`, zero errors/warnings touching `actor_tomba.cpp`). `tools/codemap.py --addr`
 confirms `0x80058648`→`ActorTomba::enterOuterState0` and `0x800597AC`→`ActorTomba::
-matrixComposeAttached` now resolve LIVE. UNWIRED: frameTick's own `rec_dispatch` call sites for
+matrixComposeAttached` now resolve LIVE. UNWIRED: frameTick's own `typed runtime address dispatch` call sites for
 both addresses still reach the substrate (unchanged) — wiring + the mandatory line-by-line
-re-verify against `generated/` (per fleet-workflow.md §9) is a future frontier-tier step, and per
+re-verify against `authenticated executable/overlay evidence` (per fleet-workflow.md §9) is a future frontier-tier step, and per
 that same section, correctness here rests on the RE + the mechanical-transcription discipline, NOT
 on any SBS run (frameTick's own case-1/4 dispatch sites to `0x80058648`/`0x800597AC` are reached
 every frame Tomba is in outer-state 0/1/2/4/5/6, so SBS coverage should be good once wired — but
@@ -3658,13 +3659,13 @@ that's a claim for the wiring session to confirm, not this one).
 Both explicitly OUT OF BAND for this pass (too deep — ~46-55 case targets each, cascading into
 ~250 more functions per docs' earlier estimate). Both switch on a per-G mode byte at `G+0x5`
 (checked `< 60` before the table lookup; table base is computed at runtime as
-`0x80010000 + 23748 = 0x80015CC4`-style arithmetic in the recompiled C, i.e. a real `.rodata`
+`0x80010000 + 23748 = 0x80015CC4`-style arithmetic in the guest C, i.e. a real `.rodata`
 function-pointer array, NOT the same table `enterOuterState0` uses). Extracted directly from the
-recompiler's own `switch(c->r[2]) { case ADDR: goto L_ADDR; ... }` reconstruction (ground truth —
-`generated/shard_1.c:9611` for A, `generated/shard_3.c:14417` for B; scratch dumps
+recorded binary evidence's `switch(c->r[2]) { case ADDR: goto L_ADDR; ... }` reconstruction (ground truth —
+`authenticated executable/overlay evidence` for A, `authenticated executable/overlay evidence` for B; scratch dumps
 `scratch/re/g_80058918.c` / `scratch/re/g_80058F5C.c`, this session). Case ORDER below matches the
 switch's own declaration order (believed to match table-slot order, i.e. mode-byte value order,
-since the recompiler reconstructs the switch directly off the jump table — NOT independently
+since the recorded binary evidence reconstructs the switch directly off the jump table — NOT independently
 confirmed by reading the actual `.rodata` bytes this pass).
 
 **Table A (`0x80058918`, 46 case targets)** — case target -> first callee in that case's block
@@ -3741,11 +3742,11 @@ known template families are down.
 ### 2026-07-10 wide-RE pass — the `60064-65374` cluster triaged: 6 drafted, 4 mapped (still deep)
 
 All 10 addresses confirmed unowned (`tools/codemap.py --addr`, this session) and, per a
-cross-shard grep, appear ONLY as the dispatcher registration in `generated/shard_disp.c` — no
+cross-shard grep, appear ONLY as the dispatcher registration in `authenticated executable/overlay evidence` — no
 other emitted C references them by constant, consistent with being reached exclusively through
 table A/B's runtime `.rodata` case-target arrays (never a compiled call site). Every one of the
 10 receives **G in r4** — same param table A/B passes into all its case targets — so all 10 read/
-write G's own fields. Sorted by gen-C body size (`generated/shard_*.c` line count):
+write G's own fields. Sorted by gen-C body size (`authenticated executable/overlay evidence` line count):
 
 | addr | lines | shard:line | status |
 |---|---|---|---|
@@ -3763,7 +3764,7 @@ write G's own fields. Sorted by gen-C body size (`generated/shard_*.c` line coun
 **Drafted (6 of 10)** — see `game/player/actor_tomba.h`/`.cpp` (2026-07-10 banner) for full
 per-function doc comments. All are FAITHFUL DRAFTS, UNWIRED, literal register-level
 transcriptions (goto/label-preserving) per fleet-workflow.md §9 — flagged UNVERIFIED, needs a
-line-by-line re-diff against `generated/shard_*.c` before wiring (the §9 track record is
+line-by-line re-diff against `authenticated executable/overlay evidence` before wiring (the §9 track record is
 multiple bugs per draft even after self-check; this pass already caught and fixed one inverted
 branch polarity in `caseModeFsm_80061A7C`'s G+0x42 decrement during drafting — grep the .cpp for
 "matches gen" comments marking the spots that looked wrong at first glance but are correct, and
@@ -3784,7 +3785,7 @@ on game-visible meaning (quicksand/underwater/ladder/etc — deliberately not gu
 - **`0x8006228C`** (127L, shard_5.c:9664) — same G+0x6 4-state shape as the drafted cluster
   (states 0-3 gated by the same `< 2` / `==2` / `==3` branch pattern seen in
   `caseModeFsm_800620D0`/`caseModeFsm_80061A7C`); state-0 init writes G+0x146=0, resetSwap,
-  `func_80054D14(G,224,4)`, an SFX cue `func_80074590(58,0,0)`, then G+0x167(359)=30, G+0x7=0,
+  `guest 0x80054D14(G,224,4)`, an SFX cue `guest 0x80074590(58,0,0)`, then G+0x167(359)=30, G+0x7=0,
   G+0x40(64)=7, G+0x42(66)=0, G+0x6++ — a close sibling of the drafted 4, should port fast by
   diffing against `caseModeFsm_800620D0`.
 - **`0x800624B4`** (144L, shard_6.c:9622) — **NOT a leaf**: after an unconditional 2-byte
@@ -3793,21 +3794,21 @@ on game-visible meaning (quicksand/underwater/ladder/etc — deliberately not gu
   0x800163DC** (`32769<<16 + 25628`), landing on ANOTHER internal 5-way `switch` over the loaded
   address (cases `8006250C/800625D4/800625F8/8006261C/80062678` — all still-substrate, confirmed
   via the same cross-shard "only in shard_disp.c" grep this pass ran on the outer 10) with a
-  `default: rec_dispatch(c, r2)` catch-all for anything the switch's own reconstruction missed.
+  `default: typed runtime address dispatch(c, r2)` catch-all for anything the switch's own reconstruction missed.
   This is a genuine SECOND dispatch layer (not a flat G+0x6 FSM) — a dedicated follow-up pass
   should RE the 5-entry table's contents before drafting.
 - **`0x8006506C`** (175L, shard_1.c:12103) — same outer G+0x6 4-state shape (states 0-3, same
   `<2`/`==2`/`==3` gates) as the drafted cluster; state-0 init is unusually GATED (checks a bit
   in `mem_r32(G+380) & 0x88200`≈`{0x1088<<16|0x200}` against `0x200` before deciding whether to
-  run the usual resetSwap/func_80054D14/cue sequence at all, vs skipping straight past the
-  `func_80054D14(G,64,3)` call to a `G+0x15C(348)` bit-2 gated branch touching G+0x32(50)+32/
+  run the usual resetSwap/guest 0x80054D14/cue sequence at all, vs skipping straight past the
+  `guest 0x80054D14(G,64,3)` call to a `G+0x15C(348)` bit-2 gated branch touching G+0x32(50)+32/
   0x80(129)-ish fields) — NOT transcribed this pass; larger and more branchy than the 4 drafted.
 - **`0x80060C60`** (792L, shard_1.c:10924) — **NOT a leaf, same shape as `0x800624B4`**: an
   unconditional side-effect write (global byte `0x80080000+635`=0), then gates G+0x6 < 8 and
   indexes an **8-entry `.rodata` function-pointer table at 0x800163BC**
   (`32769<<16 + 25596`), landing on an internal 8-way `switch` (cases `80060CAC/80061010/
   800611B0/800611D8/800613F0/800614C0/800615C8/80061710` — all still-substrate) plus the same
-  `default: rec_dispatch` catch-all. At 792 lines this is by far the largest of the 10 and is
+  `default: typed runtime address dispatch` catch-all. At 792 lines this is by far the largest of the 10 and is
   itself the entry point into a THIRD dispatch layer (the 8 case targets are each presumably
   their own G+0x6-style FSM, unexplored) — explicitly OUT OF SCOPE for a single wide-RE pass,
   flagged for a dedicated follow-up exactly like table A/B itself was.
@@ -3824,10 +3825,10 @@ before drafting their case bodies.
 
 All 4 confirmed unowned (`tools/codemap.py --addr`, this session) before drafting; all 4 now
 `LIVE` in `docs/code-map.md` as `ActorTomba::` methods in `game/player/actor_tomba.{h,cpp}` —
-FAITHFUL DRAFTS, UNWIRED (no `EngineOverrides`/`shard_set_override` registration, no SBS run),
+FAITHFUL DRAFTS, UNWIRED (no `EngineOverrides`/`tomba::native::declareOverride` registration, no SBS run),
 compile+link clean (`cmake -S . -B build2 && cmake --build build2 --target tomba2_port`, zero
 warnings touching `actor_tomba.cpp`). Per fleet-workflow.md §9, a future wiring session must still
-re-diff these line-by-line against `generated/` before trusting them — this pass's own transcription
+re-diff these line-by-line against `authenticated executable/overlay evidence` before trusting them — this pass's own transcription
 was checked once during drafting, not independently re-verified after.
 
 | addr | lines | shard:line | status |
@@ -3839,44 +3840,44 @@ was checked once during drafting, not independently re-verified after.
 
 **`0x8006228C`** — same G+0x6 4-state shape as `caseModeFsm_800620D0`/`80061A7C` (states 0..3,
 `<2`/`==2`/`==3` gates), but state 1 is denser than its siblings: every call does
-`func_80055FBC(G,byte@G+327)` / `func_80076D68(G)` / `func_80056B48(G,0)` / `func_80055D5C(G)` /
-`G+0x32+=8` / `func_8005444C(G)`, and (only if `byte@G+0x29!=0`) decrements the `G+0x40` timer,
-firing `func_8005A714(G)` once when it wraps through 0 — but this state does NOT itself advance
+`guest 0x80055FBC(G,byte@G+327)` / `guest 0x80076D68(G)` / `guest 0x80056B48(G,0)` / `guest 0x80055D5C(G)` /
+`G+0x32+=8` / `guest 0x8005444C(G)`, and (only if `byte@G+0x29!=0`) decrements the `G+0x40` timer,
+firing `guest 0x8005A714(G)` once when it wraps through 0 — but this state does NOT itself advance
 `G+0x6`; a SEPARATE 8-bit counter at `G+0x167` (set to 30 by state 0/2's init) is what eventually
-re-idles the FSM or calls `func_80056D44(G,0)` once IT bottoms out. State 0 init writes
-`func_80054D14(G,224,4)`; state 2's near-identical init uses `224`→`223` (one-digit difference,
+re-idles the FSM or calls `guest 0x80056D44(G,0)` once IT bottoms out. State 0 init writes
+`guest 0x80054D14(G,224,4)`; state 2's near-identical init uses `224`→`223` (one-digit difference,
 easy to transcribe wrong — flagged during drafting). State 3 counts the same `G+0x40` timer down
 to re-idle, setting `G+4=4,G+5=32`.
 
 **`0x8006506C`** — same outer G+0x6 4-state shape, but state 0's init is GATED on
-`mem_r32(G+0x17C) & (0x1088<<16|0x200) == 0x200`: true → plain `func_80054D14(G,64,3)` + set
+`mem_r32(G+0x17C) & (0x1088<<16|0x200) == 0x200`: true → plain `guest 0x80054D14(G,64,3)` + set
 `G+6=3`; false → re-checks bit1 of `byte@G+0x15C` to choose between `G+6=2` or `G+6++`, both via
-`func_80054D14(G,64,3)` or `(G,24,3)`. The shared tail (state-1-ish, reached from every init path)
-branches on hardware/DAT flag bits (`0x8004CED4` bits 4/6) to pick `func_80062D8C` bias args and an
-SFX band (3 vs -2), then calls `func_80055824(G)` — the SAME leaf `caseModeFsm_80060064` uses
+`guest 0x80054D14(G,64,3)` or `(G,24,3)`. The shared tail (state-1-ish, reached from every init path)
+branches on hardware/DAT flag bits (`0x8004CED4` bits 4/6) to pick `guest 0x80062D8C` bias args and an
+SFX band (3 vs -2), then calls `guest 0x80055824(G)` — the SAME leaf `caseModeFsm_80060064` uses
 (documented there as "ActorTomba::frameTick's own leaf") — feeding a commit block that's near-
 identical to `caseModeFsm_80060064`'s own commit tail (G+5/6/356/7/344/88/64 resets, SFX cue 29,
-`func_80054D14(G,2|(byte@G+0x14A&1),20)`). State 2 reads `0x80047E68` bit4 OR's a
-`func_80055824(G)` fallback to jump the FSM to state 1 directly (`G+5=7,G+6=1`); state 3 is a
-simple `func_80076D68`/`func_80062D8C(G,129)`/conditional-SFX tail, no self G+6 write.
+`guest 0x80054D14(G,2|(byte@G+0x14A&1),20)`). State 2 reads `0x80047E68` bit4 OR's a
+`guest 0x80055824(G)` fallback to jump the FSM to state 1 directly (`G+5=7,G+6=1`); state 3 is a
+simple `guest 0x80076D68`/`guest 0x80062D8C(G,129)`/conditional-SFX tail, no self G+6 write.
 
 **`0x800624B4` (nested dispatch, 5-entry table @ 0x800163DC)** — full RE of all 5 inner case
 bodies, addresses as previously mapped:
 - `0x8006250C` (init) — clears `byte@0x800BF800`, sets `byte@0x800BF7FB=1`, `G+0=6`; conditionally
-  resetSwap+`func_800551C4`; `func_80067EF4(G,byte@G+111)` / `func_8001CF2C()` /
-  `func_80055D5C(G)`; `G+6++`; `func_80076D68(G)`; `func_800310F4(30,0)` (spawning-style, result
-  in r2 — OR's flag 0x80 into `result+0x28` if nonzero); SFX cue `func_80074590(22,0,30)`;
+  resetSwap+`guest 0x800551C4`; `guest 0x80067EF4(G,byte@G+111)` / `guest 0x8001CF2C()` /
+  `guest 0x80055D5C(G)`; `G+6++`; `guest 0x80076D68(G)`; `guest 0x800310F4(30,0)` (spawning-style, result
+  in r2 — OR's flag 0x80 into `result+0x28` if nonzero); SFX cue `guest 0x80074590(22,0,30)`;
   `G+0x10(dword)=result`; `G+0x40(timer)=5`.
 - `0x800625D4` — decrements `G+0x40` timer; on hitting the sign-extends-to-0 value, clears `G+1`
   and falls into the shared `G+6++` tail (label `L_80062668`).
-- `0x800625F8` — checks `DAT_800FE0A0` (word) != 0, calls `func_8001CF2C()`; either way falls to
+- `0x800625F8` — checks `DAT_800FE0A0` (word) != 0, calls `guest 0x8001CF2C()`; either way falls to
   the shared `G+6++` tail (via `L_80062664`).
 - `0x8006261C` — reads a lookup-table entry via `DAT_8009D014` (dword pointer) and a per-item
-  table indexed by `byte@G+0x17E & 15`; `func_80044CD4(G, entry>>11, entry2-entry)` — result==0
+  table indexed by `byte@G+0x17E & 15`; `guest 0x80044CD4(G, entry>>11, entry2-entry)` — result==0
   falls to the shared `G+6++` tail, nonzero exits without advancing.
 - `0x80062678` — gated on scratchpad `byte@0x1F8001AB(+411)!=0`; if `G+0x10(dword)` (set by case
-  `0x8006250C`) is nonzero, writes `item+4=2,item+5=0`; `func_80057FD4(G)`; `G+1=1`; conditional
-  `func_80074F24(byte)` on scratchpad `byte@+311==1`; commits `G+0=3`, `G+4(dword)=` scratchpad
+  `0x8006250C`) is nonzero, writes `item+4=2,item+5=0`; `guest 0x80057FD4(G)`; `G+1=1`; conditional
+  `guest 0x80074F24(byte)` on scratchpad `byte@+311==1`; commits `G+0=3`, `G+4(dword)=` scratchpad
   dword@+572, `G+0x172(word)=30`; conditionally clears scratchpad `byte@+311` and
   `byte@0x800BF7D9`.
 
@@ -3889,13 +3890,13 @@ cluster above):
 | case addr | gen-C lines (approx) | shape note |
 |---|---|---|
 | 0x80060CAC | ~191 | largest inner case; sets scratchpad busy flag, `G+326=4`, `G+7/358=0`,`G+359=5`,`G+6++`, clears scratchpad word@+568, then branches on scratchpad byte@+636 (difficulty/type selector, 0/1/other) picking one of 3 constant triples for `G+360/G+78/G+68` — looks like a difficulty-parameterized table, same shape family as `caseModeFsm_80060064`'s param picks |
-| 0x80061010 | ~88 | decrements a scratchpad dword counter (@+524) clamped by `G+0x42`; calls `func_800597AC(G)` — the ALREADY-DRAFTED `ActorTomba::matrixComposeAttached()` (same guest addr `0x800597AC`); computes 3 position-delta fields (`G+46/50/54` -= per-axis deltas read off a `G+0xDC`-pointed struct); calls `func_80060A80(G)` (still substrate); reads scratchpad byte@+636 again, branching into nested logic that reads `G+95`/scratchpad byte@+567/+595 to conditionally set `G+0x42` from scratchpad word@+524; on match, and if `byte@G+41!=0`, resets `G+7/325=0`, `G+6++`, `G+0x58(word)=scratchpad word@+78`, calls `func_80063B94(G,...)` |
+| 0x80061010 | ~88 | decrements a scratchpad dword counter (@+524) clamped by `G+0x42`; calls `guest 0x800597AC(G)` — the ALREADY-DRAFTED `ActorTomba::matrixComposeAttached()` (same guest addr `0x800597AC`); computes 3 position-delta fields (`G+46/50/54` -= per-axis deltas read off a `G+0xDC`-pointed struct); calls `guest 0x80060A80(G)` (still substrate); reads scratchpad byte@+636 again, branching into nested logic that reads `G+95`/scratchpad byte@+567/+595 to conditionally set `G+0x42` from scratchpad word@+524; on match, and if `byte@G+41!=0`, resets `G+7/325=0`, `G+6++`, `G+0x58(word)=scratchpad word@+78`, calls `guest 0x80063B94(G,...)` |
 | 0x800611B0 | ~10 | **DRAFTED** (see actor_tomba.cpp) — `byte@G+327` picks 1792-or-256 → `G+0x14C`; `G+0x14E=0`; `G+6++`; falls through (undrafted) into 0x800611D8 in gen |
-| 0x800611D8 | ~110 | sets bit0 of `byte@G+375`; `func_80076D68(G)`; `func_80055E28(G,0)`; picks 1792-or-256 off `byte@G+330` bit0 into a scratch reg, feeds into a further branch (not traced past `L_80061210` this pass) |
+| 0x800611D8 | ~110 | sets bit0 of `byte@G+375`; `guest 0x80076D68(G)`; `guest 0x80055E28(G,0)`; picks 1792-or-256 off `byte@G+330` bit0 into a scratch reg, feeds into a further branch (not traced past `L_80061210` this pass) |
 | 0x800613F0 | ~50 | scratchpad busy flag=2; scratchpad dword@+524 += 32 (position/counter accumulate) |
 | 0x800614C0 | ~64 | same scratchpad-busy-flag+dword@+524+=32 opening as `0x800613F0` — likely a near-duplicate/sibling case, not diffed this pass |
-| 0x800615C8 | ~72 | scratchpad busy flag=2; `func_80076D68(G)`; further body not traced |
-| 0x80061710 | ~42 | scratchpad busy flag=2; `func_80076D68(G)`; `func_80055D5C(G)`; further body not traced |
+| 0x800615C8 | ~72 | scratchpad busy flag=2; `guest 0x80076D68(G)`; further body not traced |
+| 0x80061710 | ~42 | scratchpad busy flag=2; `guest 0x80076D68(G)`; `guest 0x80055D5C(G)`; further body not traced |
 
 A follow-up pass should finish RE'ing + drafting these 7 (especially `0x80061010`, which is the
 only one of the whole `60064-65374`+nested cluster observed calling an ALREADY-NATIVE method —
@@ -3985,16 +3986,16 @@ four are DO-NOT-PORT (data / epilogue artifact / continuation / kept-substrate).
   submit whose entry is 0x8007FDB0; shares its 24-byte frame. pc_render overlay already exists;
   faithful port = co-own with 0x8007FDB0. Touches packet heap ptr 0x800BF544, scratchpad
   0x1F800080/84.
-- **0x80080880** — `scheduler_yield` (runtime/recomp/scheduler.cpp). ALREADY OWNED. BIOS ChangeThread
+- **0x80080880** — `scheduler_yield` (runtime/psx/scheduler.cpp). ALREADY OWNED. BIOS ChangeThread
   (B0 fn 0x10) — cooperative yield/task-end funnel, wired via PlatformHle. Leaf.
-- **0x80080890** — EnterCriticalSection (runtime/recomp; PcScheduler::enterCritical). ready-leaf →
-  READY NOW. `a0=1; syscall op1`. Wire via overrides::install(0x80080890,…). Dep rec_syscall
+- **0x80080890** — EnterCriticalSection (runtime/psx; PcScheduler::enterCritical). ready-leaf →
+  READY NOW. `a0=1; syscall op1`. Wire via tomba::native::declareOverride(0x80080890,…). Dep rec_syscall
   (owned). Not a game/ class.
 - **0x80084080** — `Math::sqrtLzcs` (game/math/gte_math.cpp). ready-leaf → READY NOW. isqrt via GTE
   LZCS normalize + guest LUT 0x800A6310. Distinct from isqrt16/matMul (later-186 mis-attribution
   fixed). Deps owned (gte data r/w, 0x80084110). **Upstream of 0x80023870.**
 - **0x80084360** — `Math::compMatrixLV` (game/math/gte_math.cpp). ready-leaf → READY NOW. GTE
-  CompMatrixLV P=R×M in-place into a1, returns a1. Tail func_80084470 is a decompiler artifact, NOT
+  CompMatrixLV P=R×M in-place into a1, returns a1. Tail guest 0x80084470 is a decompiler artifact, NOT
   a callee. No deps.
 - **0x80084520** — `Math::matScaleColumns` (game/math/matrix.cpp). ready-leaf → READY NOW. Non-uniform
   column-scale of packed 3x3 by {sx,sy,sz} 1.12-fixed, in-place, returns a0. Leaf, no callees.
@@ -4020,11 +4021,11 @@ four are DO-NOT-PORT (data / epilogue artifact / continuation / kept-substrate).
   data.
 - **0x80096590** — `ov_bav_load` (game/ui/bav_loader.cpp). ALREADY OWNED, 0-diff verified. Per-area
   CEL loader (16 slots @0x80105D18, VRAM tpage/clut patch). 1072-byte frame. RE-confirm only.
-- **0x80098330** — DO-NOT-PORT (kept substrate). libgs FntOpen. Deliberately rec_dispatch'd
+- **0x80098330** — DO-NOT-PORT (kept substrate). libgs FntOpen. Deliberately typed runtime address dispatch'd
   (engine_re.md, nested-dispatch risk); FUN_80075130 dispatches in-context. 136-byte frame if ever
   owned → game/ui/font.cpp::Font::fntOpen.
 - **0x80099490** — `AreaAudio::applyVoiceAttr` (game/audio/area_audio.cpp). ready-leaf → READY NOW.
-  libspu voice-attr packer into *0x800AC604 image (mask==0 = apply-all). Tail rec_dispatch is a ROM
+  libspu voice-attr packer into *0x800AC604 image (mask==0 = apply-all). Tail typed runtime address dispatch is a ROM
   jump-table data lookup, no game callee. Leaf. Port before 0x80099970 for the struct lens.
 - **0x80099970** — `SpuVoiceEngine::applyVoiceParams` (game/audio/spu_voice_params.cpp). ready-frame.
   Walks 24 SPU voices, composes shadow slots (*0x800AC604, voice*0x10) + note table 0x800AC5C0. 56-

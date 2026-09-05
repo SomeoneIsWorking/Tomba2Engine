@@ -12,7 +12,7 @@ A banked draft's own faithfulness claim is worth nothing — of five drafts chec
 
 ## Evidence
 
-libgpuSetDrawMode (game/render/wide_re_libgpu_leaves.cpp): masked a1 where the gen body masks a3, while its banner asserted 'the gen body never reads r7'. beh_substate_edge_leaves.cpp (all four drafts): descend sp and write NONE of their 22 guest stack spills, stashing registers in C++ locals. Timing::vsyncCallbackDispatch (external/psxport/runtime/recomp/timing.cpp): data addresses 0x4000 too high AND r16/r17 spills swapped, under a banner claiming faithfulness to gen_func_80086288. FAITHFUL on check: libgpuDmaStatusReset and GteTransform3::rotate3AndPackIr. Every defect was self-consistent — the code restores what it saved, so nothing looks wrong without diffing the gen body.
+libgpuSetDrawMode (game/render/wide_re_libgpu_leaves.cpp): masked a1 where the guest-visible behavior masks a3, while its banner asserted 'the guest-visible behavior never reads r7'. beh_substate_edge_leaves.cpp (all four drafts): descend sp and write NONE of their 22 guest stack spills, stashing registers in C++ locals. Timing::vsyncCallbackDispatch (external/psxport/runtime/psx/timing.cpp): data addresses 0x4000 too high AND r16/r17 spills swapped, under a banner claiming faithfulness to guest 0x80086288. FAITHFUL on check: libgpuDmaStatusReset and GteTransform3::rotate3AndPackIr. Every defect was self-consistent — the code restores what it saved, so nothing looks wrong without diffing the guest-visible behavior.
 
 ## What would falsify it
 

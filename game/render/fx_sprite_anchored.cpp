@@ -63,17 +63,17 @@
 //     two coexist by design.
 //
 // TRUE EXTENT: [0x80027CB4, 0x80027E5C), 0x1A8 bytes / 106 instructions. Established three ways,
-// not assumed — and NOT by "the next function in the shard", which is a false test here: port_gen's
-// live-extent splitter puts the body at generated/shard_7.c:1966-2062, but the next gen function in
-// THAT file is gen_func_80028E10 (line 2064), because the recompiler's shard split is not address
+// not assumed — and NOT by "the next function in the shard", which is a false test here: binary evidence's
+// live-extent splitter puts the body at authenticated executable/overlay evidence, but the next gen function in
+// THAT file is guest 0x80028E10 (line 2064), because the recorded binary evidence's shard split is not address
 // order. The address-adjacent siblings live in shard_2.c. So:
-//   1. The gen body's own last basic block, L_80027E4C, is the epilogue (restore ra/s0, sp += 24),
+//   1. The guest-visible behavior's own last basic block, L_80027E4C, is the epilogue (restore ra/s0, sp += 24),
 //      which places the last instruction at 0x80027E58.
 //   2. Disassembly of that block confirms it exactly: `jr ra` at 0x80027E54 with its delay slot
 //      `addiu sp, sp, 24` at 0x80027E58 — so the body ends at 0x80027E5C exclusive.
 //   3. 0x80027E5C is itself a KNOWN function entry — it is sibling FUN_80027E5C, and it starts with
 //      its own `addiu sp, sp, -24` / `sw s0, 16(sp)` prologue — so the extent cannot run on.
-//   abi_extract's 4 "unreachable blocks" are the recompiler's duplicated `return;` tails inside this
+//   abi_extract's 4 "unreachable blocks" are the recorded binary evidence's duplicated `return;` tails inside this
 //   extent (the body has one shared epilogue reached from four places), not a folded sibling.
 //
 // THE TRAP IN THE GATE: the OT-key scratchpad slot IS the working variable. The guest computes the
@@ -121,7 +121,7 @@
 //
 // HOW IT WAS IDENTIFIED (callers first, per CLAUDE.md)
 //   * Its ONLY static caller is 0x80033080, and that function is nothing but this pair:
-//     `{ FUN_80027E5C(node); FUN_800288AC(node); }` (generated/shard_6.c:3286 — a 24-byte frame, two
+//     `{ FUN_80027E5C(node); FUN_800288AC(node); }` (authenticated executable/overlay evidence — a 24-byte frame, two
 //     jals, nothing else). 0x80033080 is the weapon-impact burst's node render fn: the native walk
 //     dispatches it by name (game/render/render_walk.cpp:754 -> Render::impactBurstRender) and
 //     kanban #15 identifies it as the impact effect. So this emitter draws the burst's sprite and
@@ -146,32 +146,32 @@
 //
 // TRUE EXTENT: [0x80027E5C, 0x8002801C), 0x1C0 bytes / 112 instructions. Established three ways, and
 // again NOT by "the next function in the shard", which is false here for the second time in this
-// family: the body is generated/shard_0.c:1719-1820 and the next gen function in THAT file is
-// gen_func_8002918C, while the address-adjacent neighbours live in shard_7 (0x80027CB4) and shard_1
-// (0x8002801C). The recompiler's shard split is not address order. So:
-//   1. The gen body's own last basic block, L_8002800C, is the single shared epilogue (restore
+// family: the body is authenticated executable/overlay evidence and the next gen function in THAT file is
+// guest 0x8002918C, while the address-adjacent neighbours live in shard_7 (0x80027CB4) and shard_1
+// (0x8002801C). The recorded binary evidence's shard split is not address order. So:
+//   1. The guest-visible behavior's own last basic block, L_8002800C, is the single shared epilogue (restore
 //      ra from sp+20, s0 from sp+16, sp += 24).
 //   2. Disassembly confirms it: `jal 0x80027a4c` at 0x80028000 with delay slot at 0x80028004 (hence
 //      the ra constant 0x80028008), `sw v0, 56(s0)` at 0x80028008, then `jr ra` at 0x80028014 with
 //      its delay slot `addiu sp, sp, 24` at 0x80028018 — last instruction at 0x80028018.
-//   3. 0x8002801C is itself a KNOWN function entry (generated/shard_1.c:2984 gen_func_8002801C) with
+//   3. 0x8002801C is itself a KNOWN function entry (authenticated executable/overlay evidence guest 0x8002801C) with
 //      its own `addiu sp,-24` / `sw s0,16(sp)` prologue, and it is already whitelisted in
 //      render_walk.cpp:697 as a FOURTH family member (separate-XY-scale). The extent cannot run on.
-//   abi_extract's 4 "unreachable blocks" are the recompiler's duplicated `return;` tails, not a
+//   abi_extract's 4 "unreachable blocks" are the recorded binary evidence's duplicated `return;` tails, not a
 //   folded sibling — the body has one shared epilogue reached from four places.
 //
-// TOOL DEFECT WORTH KNOWING (not worked around, just not relied on): `abi_extract.py --contract`
-// reports only ONE of this function's two call sites — the func_80031780 one at ra 0x80027FC8 — and
-// silently omits the func_80027A4C call at ra 0x80028008. It does the same on member one (it finds
+// TOOL DEFECT WORTH KNOWING (not worked around, just not relied on): `binary ABI evidence --contract`
+// reports only ONE of this function's two call sites — the guest 0x80031780 one at ra 0x80027FC8 — and
+// silently omits the guest 0x80027A4C call at ra 0x80028008. It does the same on member one (it finds
 // 0x80027E20 and omits 0x80027E48). The pattern in both is a jal that FALLS THROUGH to the epilogue
 // label rather than ending its block with a goto. Both ra constants below therefore come from the
-// gen body and the disassembly above, not from the contract dump.
+// guest-visible behavior and the disassembly above, not from the contract dump.
 #include "fx_sprite_anchored.h"
 #include "core.h"
 #include "game.h"
 #include "guest_abi.h"
-#include "override_registry.h"
-#include "rec_decls.h"
+#include "guest_jal.h"
+#include "native_override_catalog.h"
 
 namespace {
 
@@ -217,9 +217,9 @@ constexpr uint32_t kOtKeySpan = 0x7FCu; // valid keys are kOtKeyMin .. kOtKeyMin
 constexpr int32_t kOtKeyCulled = -1;
 constexpr int32_t kOtDepthShift = 2; // SZ3 >> 2 before the node's bias is added
 
-// --- guest ABI (tools/abi_extract.py <addr> --contract / --scaffold --guestabi) ----------------------
+// --- guest ABI (tools/binary ABI evidence <addr> --contract / --scaffold --guestabi) ----------------------
 // Return addresses at each member's two jal sites. See the TOOL DEFECT note in the banner: the
-// contract dump omits the second jal of each member, so these come from the gen body + disassembly.
+// contract dump omits the second jal of each member, so these come from the guest-visible behavior + disassembly.
 constexpr uint32_t kRaUniformListTailResolve = 0x80027E20u; // 0x80027CB4: jal 0x80031780
 constexpr uint32_t kRaUniformSpriteWriter = 0x80027E48u;    // 0x80027CB4: jal 0x80027A4C
 constexpr uint32_t kRaByteListTailResolve = 0x80027FC8u;    // 0x80027E5C: jal 0x80031780
@@ -239,8 +239,8 @@ void FxSpriteAnchored::loadSceneCameraToGte(Core *c) {
   }
 }
 
-// PORT_GEN: 80027CB4 generated/shard_7.c:1966-2062
-// ORACLE: gen_func_80027CB4
+// GUEST_ADDRESS: 80027CB4 authenticated executable/overlay evidence
+// ORACLE: guest 0x80027CB4
 // FUN_80027CB4 — stamp this node's sprite cluster ONCE at the node's own world anchor, sized purely
 // by distance. a0 = the type-0x20 render node.
 void FxSpriteAnchored::emitUniformScale(Core *c) {
@@ -302,7 +302,7 @@ void FxSpriteAnchored::emitUniformScale(Core *c) {
   // resolver instead. This is the exclusive alternative to emitting — never both.
   if (culled) {
     c->r[4] = c->r[16];
-    guest_call(c, kRaUniformListTailResolve, func_80031780);
+    tomba::guest::dispatchJalToReturn(*c, 0x80031780u, kRaUniformListTailResolve);
     return;
   }
 
@@ -314,14 +314,14 @@ void FxSpriteAnchored::emitUniformScale(Core *c) {
 
   c->r[4] = node.recordHead();                        // a0 = the sprite-record list
   c->r[5] = (node.texturePage() << 16) | node.clut(); // a1 = the texture binding
-  guest_call(c, kRaUniformSpriteWriter, func_80027A4C);
+  tomba::guest::dispatchJalToReturn(*c, 0x80027A4Cu, kRaUniformSpriteWriter);
 
   // Emitting once means the writer's returned list tail is meaningful; remember it on the node.
   node.setRecordTail(c->r[2]);
 }
 
-// PORT_GEN: 80027E5C generated/shard_0.c:1719-1820
-// ORACLE: gen_func_80027E5C
+// GUEST_ADDRESS: 80027E5C authenticated executable/overlay evidence
+// ORACLE: guest 0x80027E5C
 // FUN_80027E5C — stamp this node's sprite cluster ONCE at the node's own world anchor, at the
 // distance-derived size RESCALED by the node's own 4.4 size byte. a0 = the type-0x20 render node.
 void FxSpriteAnchored::emitByteScale(Core *c) {
@@ -383,7 +383,7 @@ void FxSpriteAnchored::emitByteScale(Core *c) {
   // resolver instead. This is the exclusive alternative to emitting — never both.
   if (culled) {
     c->r[4] = c->r[16];
-    guest_call(c, kRaByteListTailResolve, func_80031780);
+    tomba::guest::dispatchJalToReturn(*c, 0x80031780u, kRaByteListTailResolve);
     return;
   }
 
@@ -399,21 +399,14 @@ void FxSpriteAnchored::emitByteScale(Core *c) {
 
   c->r[4] = node.recordHead();                        // a0 = the sprite-record list
   c->r[5] = (node.texturePage() << 16) | node.clut(); // a1 = the texture binding
-  guest_call(c, kRaByteSpriteWriter, func_80027A4C);
+  tomba::guest::dispatchJalToReturn(*c, 0x80027A4Cu, kRaByteSpriteWriter);
 
   // Emitting once means the writer's returned list tail is meaningful; remember it on the node.
   node.setRecordTail(c->r[2]);
 }
 
 void FxSpriteAnchored::registerOverrides(Game *) {
-  overrides::install(0x80027CB4u,
-                     "FxSpriteAnchored::emitUniformScale",
-                     &FxSpriteAnchored::emitUniformScale,
-                     gen_func_80027CB4,
-                     shard_set_override);
-  overrides::install(0x80027E5Cu,
-                     "FxSpriteAnchored::emitByteScale",
-                     &FxSpriteAnchored::emitByteScale,
-                     gen_func_80027E5C,
-                     shard_set_override);
+  tomba::native::declareOverride(
+      0x80027CB4u, "FxSpriteAnchored::emitUniformScale", &FxSpriteAnchored::emitUniformScale);
+  tomba::native::declareOverride(0x80027E5Cu, "FxSpriteAnchored::emitByteScale", &FxSpriteAnchored::emitByteScale);
 }

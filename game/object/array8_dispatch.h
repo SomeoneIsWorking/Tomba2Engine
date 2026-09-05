@@ -10,7 +10,7 @@
 //
 // Owns guest FUN_80026368: iterates the 8-slot fixed object array at 0x80100400 (stride 0x4C); for
 // each ACTIVE slot (byte[0] != 0) dispatches its method by type byte[2] through the jump table at
-// 0x8009D314 (a0 = slot). Faithful to the recomp body: no type bound-check (guest indexes raw),
+// 0x8009D314 (a0 = slot). Faithful to the guest instruction path: no type bound-check (guest indexes raw),
 // inactive slots still advance.
 #pragma once
 #include <cstdint>
@@ -26,10 +26,10 @@ public:
   static constexpr uint32_t METHOD_TABLE = 0x8009D314u; // type byte -> u32 handler
 
   // tick: one call = one full sweep of the 8-slot array. Was `ov_arr8_dispatch_26368` /
-  // rec_dispatch(0x80026368).
+  // typed runtime address dispatch(0x80026368).
   void tick();
 
-  // tickFaithful(): byte-exact mirror of gen_func_80026368 -- reproduces the guest stack frame
+  // tickFaithful(): byte-exact mirror of guest 0x80026368 -- reproduces the guest stack frame
   // (sp -= 32; spill s0/s1/s2/ra at sp+16/20/24/28) and the per-slot jal-site r31 (0x800263C0)
   // that the plain tick() loop does not. Used by the internal faithful/oracle leg.
   void tickFaithful();

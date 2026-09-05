@@ -22,8 +22,8 @@ There are TWO depth sources in the renderer, and **only the second is alive for 
 ### (a) Per-vertex real depth — for ENGINE-OWNED 3D geometry only
 The owned submitters (POLY_GT3 `submit_poly_gt3_native` `engine/engine_submit.cpp:242`, POLY_GT4
 `submit_poly_gt4_native` :287, byte-packed GT4, and native terrain) project model verts in float
-(`proj_native_xform` `runtime/recomp/gte_beetle.cpp:244`) and tee the quad **directly** to the rasterizer
-via `gpu_draw_world_quad` (`runtime/recomp/gpu_native.cpp:579`) with a per-vertex `depth[k] =
+(`proj_native_xform` `runtime/psx/gte_beetle.cpp:244`) and tee the quad **directly** to the rasterizer
+via `gpu_draw_world_quad` (`runtime/psx/gpu_native.cpp:579`) with a per-vertex `depth[k] =
 proj_pz_to_ord(p[k].pz)` (`gte_beetle.cpp:201`). This bypasses the guest OT entirely → real D32 per-pixel
 occlusion. It carries the **sub-integer view-Z** fix (`gte_beetle.cpp:277-290`): `out->pz` is built from
 `tmp2_unshifted/4096.0` (12-bit fraction intact) instead of the GP0 integer SZ.
@@ -38,7 +38,7 @@ For a prim drawn through the guest OT (`gpu_dma2_linked_list` → `gp0_exec`), d
 **provenance span lookup**, keyed by the OT node address:
 
 - During an object's render, `g_pkt_track=1` is set and every guest store into the packet pool
-  `[0x800BFE68, 0x800E7E68)` extends `[g_pkt_lo, g_pkt_hi)` (`runtime/recomp/mem.cpp:226-229`).
+  `[0x800BFE68, 0x800E7E68)` extends `[g_pkt_lo, g_pkt_hi)` (`runtime/psx/mem.cpp:226-229`).
 - After the object renders, `gpu_obj_depth_add(lo, hi, ord)` records that span + the object's
   world-position depth `ord = proj_pz_to_ord(object_world_view_depth(...))`
   (`gpu_native.cpp:82`, span table; `engine_submit.cpp:576` world depth = camera-forward·(obj−cam)>>12).
@@ -55,7 +55,7 @@ the per-object dispatch `ov_render_cmd` (`:123`, the universal chokepoint at `0x
 `ov_rwalk_aux_bcf4`/`_bf00`/`_eec0` (`:837/:899/:952`, addresses `0x8003BCF4/0x8003BF00/0x8003EEC0`,
 registered `game_tomba2.cpp:1392-1397`).
 
-### Band layout (`runtime/recomp/gpu_gpu.cpp:184-201`)
+### Band layout (`runtime/psx/gpu_gpu.cpp:184-201`)
 Single D32 buffer, nearer = larger ord, clear 0.0, compare GREATER_OR_EQUAL:
 - 2D **BACKGROUND** band `[0, 0.0625)` — `set_order_2d_bg`, for non-projected backdrops (sky/sea/**painted
   tilemap**), ordered by OT index.

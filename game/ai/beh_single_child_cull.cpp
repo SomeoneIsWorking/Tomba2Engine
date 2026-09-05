@@ -11,24 +11,23 @@
 //   STATE 2 : nothing.   STATE 3 : FUN_8007A624(node).   STATE >=4 : nothing.
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + the direct node/global WRITES owned
-// native; every sub-behavior CALL stays reachable via rec_dispatch (pure-PSX leaf). a0 fidelity: the
+// native; every sub-behavior CALL stays reachable via typed runtime address dispatch (pure-PSX leaf). a0 fidelity: the
 // guest sets a0=node before the STATE-0 FUN_80051B70 (delay-slot `addu a0,s0,zero`) and again before
 // FUN_8013A730; in STATE 1, a0 is still the original node[4] byte (compared vs mem[0x800E7EAA]). The
 // dead `addiu v1,v0,-1936` (= 0x800BF870, never stored/read) is dropped — no RAM effect. Transcribed
 // 1:1 as a register machine; signed (sh) preserved. The byte-exact A/B gate (full RAM+scratchpad vs
-// rec_super_call) is the safety net. NO GTE.
+// original guest-body call) is the safety net. NO GTE.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_render_update (FUN_800517F8)
 #include "guest_abi.h"
+#include "guest_jal.h"
 #include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -88,7 +87,7 @@ S0: {
   c->mem_w8(nd + 4, (uint8_t)(s + 1));        // node[4]++
   c->mem_w16(nd + 0x32, (uint16_t)(h + 128)); // node[0x32] += 128
   c->mem_w8(nd + 3, 0);
-  c->mem_w32(nd + 0x10, guest_leaf(c, 0x8013a730u, nd)); // node[0x10] = FUN_8013A730(node)
+  c->mem_w32(nd + 0x10, tomba::guest::dispatchLeafToReturn(*c, 0x8013a730u, nd)); // node[0x10] = FUN_8013A730(node)
   goto Lret;
 }
 
@@ -101,8 +100,8 @@ S1: {
     work = (c->mem_r8(0x800e7eaau) != st); // st = original node[4] byte
   }
   if (work) {
-    if (guest_leaf(c, 0x8007778cu, nd) != 0) { // FUN_8007778C(node)
-      guest_leaf(c, 0x80132020u, nd);          // FUN_80132020(node)
+    if (tomba::guest::dispatchLeafToReturn(*c, 0x8007778cu, nd) != 0) { // FUN_8007778C(node)
+      tomba::guest::dispatchLeafToReturn(*c, 0x80132020u, nd);          // FUN_80132020(node)
       c->r[4] = nd;
       eng(c).graphicsBind.renderUpdate(); // FUN_800517F8(node)
     }

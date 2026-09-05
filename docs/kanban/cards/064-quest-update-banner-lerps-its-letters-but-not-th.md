@@ -10,7 +10,7 @@ updated: 2026-08-04
 USER 2026-07-28 with a capture of the 'A Red Treasure Chest' banner. Reached STATICALLY — read from the port's own source, no live run.
 
 ROOT CAUSE. Render::textLabelEmit (game/render/text_label.cpp, guest FUN_80039F4C) draws a text-label node in two halves and only ONE of them produces a display-pass record:
-  - step (1) MESH pass: func_8003F174(node,1) = Render::subPartWalk — per sub-part, load that sub-part's own transform into the GTE and submit its geomblk through func_8003F698. These are the WOODEN PLANKS. Captures NOTHING; it only emits guest packets.
+  - step (1) MESH pass: guest 0x8003F174(node,1) = Render::subPartWalk — per sub-part, load that sub-part's own transform into the GTE and submit its geomblk through guest 0x8003F698. These are the WOODEN PLANKS. Captures NOTHING; it only emits guest packets.
   - step (4) GLYPH pass: per character, one quad from the fixed template V(-3,-7,-1)..(5,9,-1), and for each surviving glyph it pushes a Render::WqRec (template corners + the cmd+0x18 pre-composed matrix factored against the scene camera) so Render::billboardsRender emits the LETTERS through the float camera path.
 So the two halves are on different presentation tiers. At 60fps the letters interpolate under the lerped camera and the boards step at 30Hz — which is precisely the capture: glyphs sitting at inconsistent, per-letter offsets on their planks rather than fixed to them.
 
@@ -38,7 +38,7 @@ CONSEQUENCES, all of them good:
   - No overlay hunt. The emitter is Render::textLabelEmit / FUN_80039F4C, already owned and already half-producing (game/render/text_label.cpp).
   - #16 (sign text jitters at fps60), #23 and this card are ONE bug seen through three strings. One display-pass producer for the MESH half closes all three.
   - It is reachable at GAME START, so a repro needs no navigation — PSXPORT_AUTO_SKIP passes through it. That makes verification cheap once the producer exists.
-The root cause in the body above stands unchanged: the glyph pass pushes a Render::WqRec per character and lerps, the mesh pass (func_8003F174 = Render::subPartWalk, the planks) captures nothing. Still no matcher and no anchor/stamp.
+The root cause in the body above stands unchanged: the glyph pass pushes a Render::WqRec per character and lerps, the mesh pass (guest 0x8003F174 = Render::subPartWalk, the planks) captures nothing. Still no matcher and no anchor/stamp.
 
 **2026-07-28:** 2026-07-28 IMPLEMENTATION ATTEMPT — the producer is written and measured, and it is NOT wired, because wiring it as-is DOUBLE-DRAWS. Recording this so the next attempt starts from the measurement instead of repeating it.
 
@@ -46,7 +46,7 @@ WHAT WAS BUILT: game/render/subpart_capture.cpp — Render::subPartCapture(c, no
 
 IT FIRES AND IT IS THE RIGHT OBJECT: on an AUTO_SKIP boot, subpartcap logs node=800FB218 walking ~26 sub-parts, each geomblk=8015CA04 with gt3=0 gt4=6 — six quads per sub-part, i.e. one box per PLANK, ~156 quads for the banner. That is the plank strip.
 
-WHY IT IS NOT WIRED — the A/B, on a deterministic frame. replays/bugs/bucket-softlock.pad reaches the 'Go to the Burning House!' banner at replay frame 240 (PSXPORT_PAD_SHOT_AT=240). Enabling the call changes exactly 26 of 76800 pixels, ALL inside the banner band x61..252 y66..86. ~156 extra quads that move only 26 edge pixels are a SECOND COPY landing exactly on the first: the sub-parts are ALREADY drawn at guest time (func_8003F698 -> the native GT3/GT4 submitters), so on a REAL frame the two copies coincide and only rounding differs — and on an INTERPOLATED frame only the WqRec copy would move, GHOSTING the planks. That is worse than the bug being fixed. The premise in this card's body — that the mesh half 'produces only guest packets, nothing the display pass can draw' — is therefore WRONG for the drawing half: the planks do get drawn, natively, at guest time. What they do not get is a display-pass record, which is why they do not lerp.
+WHY IT IS NOT WIRED — the A/B, on a deterministic frame. replays/bugs/bucket-softlock.pad reaches the 'Go to the Burning House!' banner at replay frame 240 (PSXPORT_PAD_SHOT_AT=240). Enabling the call changes exactly 26 of 76800 pixels, ALL inside the banner band x61..252 y66..86. ~156 extra quads that move only 26 edge pixels are a SECOND COPY landing exactly on the first: the sub-parts are ALREADY drawn at guest time (guest 0x8003F698 -> the native GT3/GT4 submitters), so on a REAL frame the two copies coincide and only rounding differs — and on an INTERPOLATED frame only the WqRec copy would move, GHOSTING the planks. That is worse than the bug being fixed. The premise in this card's body — that the mesh half 'produces only guest packets, nothing the display pass can draw' — is therefore WRONG for the drawing half: the planks do get drawn, natively, at guest time. What they do not get is a display-pass record, which is why they do not lerp.
 
 THE PREREQUISITE, and it is the real unit of work: capture and guest-time draw must be MUTUALLY EXCLUSIVE per prim, not additive. Render::gt3gt4 already has the pattern — it skips its own projection+submit when the transform was captured upstream (submit.cpp, the fps60 mWorldCaptureOnly / rqRedirect tier-1 path). subPartWalk's sub-parts need the same treatment before subPartCapture can be turned on. Until then the call site carries the full writeup and the producer stays compiled-but-unwired (the demo_leaf_a.cpp precedent).
 
@@ -88,7 +88,7 @@ Those two together ARE the bug, and they close the earlier null result. With onl
 WIRED. subPartCapture + mSubPartDrawSuppress are now live in subPartWalk. Verification:
   - frame 240 of bucket-softlock.pad: 26 of 76800 px vs the guest-time-draw baseline, all inside the banner band, edge rounding only — banner fully intact, planks and letters all present (scratch/screenshots/wired_f240.png).
   - no double-draw: the suppression scope means the sub-part is drawn once, by the display pass.
-  - smoke: replays/boot-smoke/short-session.pad and replays/bugs/ingame-item-menu.pad both exit 0 with 0 fatal / 0 abort / 0 recomp-MISS.
+  - smoke: replays/boot-smoke/short-session.pad and replays/bugs/ingame-item-menu.pad both exit 0 with 0 fatal / 0 abort / 0 historical guest-entry miss.
 STILL WORTH A USER EYEBALL at 60fps on a real banner — the guest-units argument and the still-frame agreement are strong, but only the moving picture proves the letters now stay on their planks. #16 (sign text) and #23 are the same emitter and should be re-checked in the same pass.
 
 **2026-07-28:** 2026-07-28 FIX VERIFIED IN GUEST UNITS — 1740 agree / 0 differ.

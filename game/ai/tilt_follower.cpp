@@ -14,8 +14,9 @@
 //   4. call 0x80125C4C only if the node's contact byte is non-zero.
 //
 // HOW IT WAS IDENTIFIED (from the caller and from fields other subsystems already named)
-//   * ITS CALLER NAMES ITS ROLE. The only non-dispatch-table reference in all of generated/ is
-//     ov_a00_gen_80125E0C (generated/ov_a00_shard_1.c:13983), the per-object behaviour handler
+//   * ITS CALLER NAMES ITS ROLE. The only non-dispatch-table reference in all of authenticated executable/overlay
+//   evidence is
+//     overlay guest 0x80125E0C (authenticated executable/overlay evidence), the per-object behaviour handler
 //     already owned as game/ai/beh_pure_substate_dispatch.cpp. That file's own banner enumerates the
 //     dispatch: "STATE 1 : … then node[5] -> 0/FUN_80125FE0, 1/FUN_801255CC, 2/FUN_80125800". So this
 //     is substate 0 of outer state 1 of that behaviour, invoked with a0 = the node.
@@ -46,15 +47,15 @@
 // quarter turn the wrong way) instead of the correct -548.
 //
 // TRUE EXTENT: [0x80125FE0, 0x80126038). The body's single epilogue is L_80126030 (restore ra from
-// sp+16, sp += 24), and the recompiler's trailing duplicate `return;` after it is the usual
-// dead-tail artifact, not a second function — port_gen's live-extent splitter agrees and trims
+// sp+16, sp += 24), and the recorded binary evidence's trailing duplicate `return;` after it is the usual
+// dead-tail artifact, not a second function — authenticated instruction extents agrees and trims
 // nothing here. Deliberately NOT established from "the next gen function in the shard": that test is
 // false on this project (the shard split is not address order) and has produced a wrong answer four
 // times in this session.
 //
-// MODULE: defined only by the A00 overlay (`ov_a00_gen_80125FE0`, generated/ov_a00_shard_1.c), so it
-// registers with ov_a00_set_override. Using the main-module shard_set_override would leave the direct
-// `ov_a00_func_80125FE0(c)` call site in its caller on the substrate.
+// MODULE: defined only by the A00 overlay (`overlay guest 0x80125FE0`, authenticated executable/overlay evidence), so
+// it registers with A00 tomba::native::declareOverride. Using the main-module tomba::native::declareOverride would
+// leave the direct `overlay guest 0x80125FE0(c)` call site in its caller on the substrate.
 //
 // GUEST STACK: frame 24, one spill (ra at +16) — mirrored via GuestFrame, per "MIRROR THE GUEST
 // STACK". Nothing else is live across the one call, so no GuestReg proxies are needed here.
@@ -62,12 +63,12 @@
 
 #include "core.h"
 #include "guest_abi.h"
-#include "ov_a00_decls.h"
-#include "override_registry.h"
+#include "guest_jal.h"
+#include "native_override_catalog.h"
 
 namespace {
 
-// tools/abi_extract.py 0x80125FE0 --scaffold --guestabi
+// tools/binary ABI evidence 0x80125FE0 --scaffold --guestabi
 constexpr GuestFrameSpill kSpills_80125FE0[1] = {
     {31 /*ra*/, 16},
 };
@@ -85,7 +86,7 @@ constexpr uint32_t kRaAfterContactBehaviour = 0x80126030u;
 
 } // namespace
 
-// ORACLE: ov_a00_gen_80125FE0
+// ORACLE: overlay guest 0x80125FE0
 void TiltFollower::applyHalvedOwnerPartPitch(Core *c) {
   GuestFrame<24, 1> frame(c, kSpills_80125FE0);
 
@@ -105,13 +106,10 @@ void TiltFollower::applyHalvedOwnerPartPitch(Core *c) {
     return;
   }
   c->r[4] = self.mAt;
-  guest_call(c, kRaAfterContactBehaviour, ov_a00_func_80125C4C);
+  tomba::guest::dispatchJalToReturn(*c, 0x80125C4Cu, kRaAfterContactBehaviour);
 }
 
 void TiltFollower::registerOverrides() {
-  overrides::install(0x80125FE0u,
-                     "TiltFollower::applyHalvedOwnerPartPitch",
-                     &TiltFollower::applyHalvedOwnerPartPitch,
-                     ov_a00_gen_80125FE0,
-                     ov_a00_set_override);
+  tomba::native::declareOverride(
+      0x80125FE0u, "TiltFollower::applyHalvedOwnerPartPitch", &TiltFollower::applyHalvedOwnerPartPitch);
 }

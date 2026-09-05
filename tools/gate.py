@@ -45,17 +45,19 @@ BIN = os.path.join(REPO, 'scratch', 'bin', 'tomba2_port')
 EXE = os.path.join(REPO, 'scratch', 'bin', 'tomba2', 'MAIN.EXE')
 LOGDIR = os.path.join(REPO, 'scratch', 'logs')
 
-# Anything here in the output fails the gate. A recomp MISS aborts the process by design, but it can
+# Anything here in the output fails the gate. A guest instruction path MISS aborts the process by design, but it can
 # also appear in a line that scrolls past a watchdog kill, so it is matched as text too.
 FAIL_PATTERNS = [
     r'\bFATAL\b',
     r'\babort\b',
     r'Aborted',
-    r'recomp[- ]MISS',
-    r'rec_dispatch miss',
+    r'guest instruction path[- ]MISS',
+    r'typed runtime address dispatch miss',
     r'\bASSERT\b',
     r'Segmentation fault',
     r'std::bad_alloc',
+    r'VSync:\s*timeout',
+    r'GUEST VSYNC VIOLATION',
 ]
 # The cfg subsystem names a knob that matched nothing. Not fatal, but it means a flag the caller was
 # relying on did NOTHING, so it is surfaced loudly rather than buried.
@@ -108,10 +110,7 @@ def run_gate(script: str, frames_hint: int, debug: str, watchdog: int,
                       f"belongs to the user). Extract it once, then re-run this gate.")
 
     env = dict(os.environ)
-    # NOT setting PSXPORT_VK_HEADLESS: the binary is headless BY DEFAULT (gpu_vk.cpp requires
-    # PSXPORT_VK_WINDOW=1 to open a window, precisely so an agent that forgets a flag fails safe), and
-    # setting it only produces a known-false "UNKNOWN knob" line — gpu_vk does not initialise until
-    # after the startup validator has run (external/psxport/runtime/recomp/config.cpp:386).
+    env['PSXPORT_VK_HEADLESS'] = '1'
     env['PSXPORT_NOPACE'] = '1'
     env['PSXPORT_NOAUDIO'] = '1'
     env['PSXPORT_REPL'] = '1'

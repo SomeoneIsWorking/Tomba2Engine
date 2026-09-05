@@ -9,26 +9,25 @@
 // (FUN_80074590), seeds camera/save globals (case 3), etc.
 //
 // Ownership model (same as actor_sm_24448 / script_vm): CONTROL FLOW + node/global memory writes are
-// owned native; every sub-behavior CALL stays reachable by address via rec_dispatch (each honors its own
-// override identically). NO GTE, NO render packets here. RE'd 1:1 from disas 0x800739AC (+ jump table
-// 0x80016B50 = {b20,b60,bbc,c1c,c90,b14}). It WRITES guest node state the still-recomp content reads →
-// content-INTERFACE: gated byte-exact (full RAM+scratchpad A/B vs rec_super_call). The IDLE field path
-// (state0 init, then state1 cull→render with node[5]==0 / node[0x2b]!=3) is fully exercised by the gate;
-// the input-driven transition sub-states (node[5] 1..5, the warp/confirm paths) are faithfully
-// transcribed and verify when a scene drives them (same caveat as the camera alt-mode orchestrators).
+// owned native; every sub-behavior CALL stays reachable by address via typed runtime address dispatch (each honors its
+// own override identically). NO GTE, NO render packets here. RE'd 1:1 from disas 0x800739AC (+ jump table 0x80016B50 =
+// {b20,b60,bbc,c1c,c90,b14}). It WRITES guest node state the still-guest content reads → content-INTERFACE: gated
+// byte-exact (full RAM+scratchpad A/B vs original guest-body call). The IDLE field path (state0 init, then state1
+// cull→render with node[5]==0 / node[0x2b]!=3) is fully exercised by the gate; the input-driven transition sub-states
+// (node[5] 1..5, the warp/confirm paths) are faithfully transcribed and verify when a scene drives them (same caveat as
+// the camera alt-mode orchestrators).
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_record_init — native graphics-bind (game/world)
 #include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-#include "object/actor.h"  // Actor::boundsCull (FUN_8007778C — thin wrapper native)
-#include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_call.h"
+#include "object/actor.h" // Actor::boundsCull (FUN_8007778C — thin wrapper native)
+#include "spawn.h"        // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -132,7 +131,8 @@ void beh_scene_ui_trigger(Core *c) {
       uint8_t v0 = c->mem_r8(obj + 5), v1 = c->mem_r8(obj + 3);
       c->mem_w8(obj + 5, (uint8_t)(v0 + 1));
       c->mem_w8(0x800BF871u, v1);
-      eng(c).sceneTransition.areaMaskTrigger(c->mem_r8(0x800BF870u), (uint8_t)v1); // was rec_dispatch 0x800782F0
+      eng(c).sceneTransition.areaMaskTrigger(c->mem_r8(0x800BF870u),
+                                             (uint8_t)v1); // was typed runtime address dispatch 0x800782F0
     }
     break;
   case 1: // jt[1]=0x80073b60
@@ -144,21 +144,21 @@ void beh_scene_ui_trigger(Core *c) {
       break;
     } // ca0: node[5]=4 -> render
     c->r[4] = c->mem_r8(obj + 3);
-    rec_dispatch(c, 0x800737F8u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x800737F8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     if (c->mem_r16(0x800E7E68u) & 0x2000) {
       sfx_advance(c, obj); // confirm edge -> SFX + advance
     }
   } break;
   case 2: // jt[2]=0x80073bbc
   {
-    rec_dispatch(c, 0x800738B0u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x800738B0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     uint16_t pad = c->mem_r16(0x800E7E68u);
     if (pad & 0x4000) {
       sfx_advance(c, obj);
     } else if (pad & 0x2000) {
       c->mem_w8(obj + 5, 4);
       c->r[4] = 1;
-      rec_dispatch(c, 0x80074BF8u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80074BF8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     }
   } break;
   case 3: // jt[3]=0x80073c1c: seed camera/save globals + FUN_8005082C
@@ -176,7 +176,7 @@ void beh_scene_ui_trigger(Core *c) {
     c->mem_w8(taskp + 0x6b, 8);
     uint8_t v0 = c->mem_r8(obj + 5);
     c->mem_w8(obj + 5, (uint8_t)(v0 + 1));
-    eng(c).modeStateArm.arm(); // native — was rec_dispatch 0x8005082C(0,0,0)
+    eng(c).modeStateArm.arm(); // native — was typed runtime address dispatch 0x8005082C(0,0,0)
   } break;
   case 4: // jt[4]=0x80073c90: -> state 2, advance sub
   {

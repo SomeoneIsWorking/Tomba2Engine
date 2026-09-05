@@ -1,11 +1,11 @@
 // game/input/pad_edge_fence.cpp — Engine::padEdgeFence, the port of FUN_800788AC.
 //
 // WIRED 2026-07-16 (pad_edge_fence_install below): §9 line-by-line re-verify against
-// gen_func_800788AC (generated/shard_3.c:17840) passed with ZERO diffs — every address constant
+// guest 0x800788AC (authenticated executable/overlay evidence) passed with ZERO diffs — every address constant
 // (0x800ECF54/56 cur/prev, 0x1F80019A poll flag, 0x800BED88/8C queue cursor/countdown,
 // 0x800E7E68 pressed, 0x800F23A4 released), the branch structure, both jal-site ra constants
 // (0x80078940/0x80078978), the store order, and the a0=released tail-call argument all match.
-// `Engine::frameUpdate()`'s `rec_dispatch(c, 0x800788ACu)` now routes here via the override.
+// `Engine::frameUpdate()`'s `typed runtime address dispatch(c, 0x800788ACu)` now routes here via the override.
 //
 // ROLE (already partly documented, see docs/engine_re.md "Per-frame fence FUN_800788ac"):
 // the top-level engine loop's per-frame fence, called exactly once per logic frame
@@ -22,7 +22,7 @@
 //      survey, XA audio cue queue family 0x800521F4/0x8005229C/0x8005245C).
 //
 // CONFIDENCE — the byte-level control flow below is CONFIRMED (transcribed 1:1 from
-// generated/shard_3.c:17840 gen_func_800788AC, instruction-exact ground truth, cross-checked
+// authenticated executable/overlay evidence guest 0x800788AC, instruction-exact ground truth, cross-checked
 // against tools/disas.py 0x800788AC --all 55). The SEMANTIC label of 0x800ECF54 ("cur") is
 // MEDIUM confidence: docs/engine_re.md's existing summary calls it "cur pad state", but this RE
 // pass shows the SAME word gets overwritten with either a queue-entry's u16 value OR the return
@@ -30,15 +30,12 @@
 // config subsystem", 0x80052144-0x800527C8 — not independently re-confirmed here). Whatever its
 // true source, DAT_800ECF54 is read/written as a flat 16-bit "current sample" and DAT_800ECF56 as
 // the one-frame-delayed "previous sample" — that structural role is solid regardless of what
-// produces the sample. FUN_800524B4 and FUN_8005229C themselves stay un-owned (rec_dispatch).
+// produces the sample. FUN_800524B4 and FUN_8005229C themselves stay un-owned (typed runtime address dispatch).
 #include "core.h"
 #include "core/engine.h"
 #include "game_ctx.h"
-
-void rec_dispatch(Core *, uint32_t);
-void func_80087E2C(Core *);
-void func_80087AEC(Core *);
-void func_80087EAC(Core *);
+#include "guest_call.h"
+#include "native_override_catalog.h"
 
 #define CUR_PREV_BASE 0x800ECF54u   // +0 = cur (u16), +2 = prev (u16)
 #define POLL_FLAG 0x1F80019Au       // scratchpad u8 — gates queue-pop vs FUN_800524B4(0) path
@@ -74,7 +71,7 @@ void Engine::padEdgeFence() {
     c->r[4] = 0;
     c->r[2] = 1u;       // live at the jal (the ==1 compare literal)
     c->r[3] = pollFlag; // live at the jal (the loaded poll byte)
-    rec_dispatch(c, FN_PAD_SAMPLE);
+    psx::cpu::dispatchGuestToReturn0(*c, FN_PAD_SAMPLE, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     c->mem_w16(CUR_PREV_BASE, (uint16_t)c->r[2]);
   } else {
     uint16_t countdown = (uint16_t)(c->mem_r16(QUEUE_COUNTDOWN) - 1);
@@ -115,7 +112,10 @@ void Engine::padEdgeFence() {
   c->r[2] = 0x800F0000u;
   c->r[3] = ~(uint32_t)cur;
   c->r[5] = 0x800E0000u;
-  rec_dispatch(c, FN_CD_SM); // FUN_8005229C — CD/load sub-state-machine tail-call
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   FN_CD_SM,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // FUN_8005229C — CD/load sub-state-machine tail-call
 
   c->r[31] = c->mem_r32(c->r[29] + 20); // lw ra,20(sp)
   c->r[16] = c->mem_r32(c->r[29] + 16); // lw s0,16(sp)
@@ -141,7 +141,7 @@ void Engine::padEdgeFence() {
 // "un-owned CD/load sub-state-machine". So the tree now holds three incompatible readings of this
 // address — CD/load, XA audio, controller vibration — none of them derived from the body. That is
 // the argument for the neutral name, not against it. Whoever resolves it should fix FN_CD_SM too.
-// ORACLE: gen_func_8005229C
+// ORACLE: guest 0x8005229C
 void Engine::padFenceTail() {
   Core *c = core;
   c->r[29] = c->r[29] + (uint32_t)-24;
@@ -228,11 +228,11 @@ L_8005232C:;
   c->mem_w8((c->r[16] + (uint32_t)4), (uint8_t)c->r[0]);
   c->r[31] = 0x80052350u;
   c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[0]);
-  func_80087EAC(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80087EACu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 L_80052350:;
   c->r[31] = 0x80052358u;
   c->r[4] = c->r[0] + c->r[0];
-  func_80087AEC(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80087AECu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[3] = c->r[0] + (uint32_t)6;
   {
     int _t = (c->r[2] != c->r[3]);
@@ -244,12 +244,12 @@ L_80052350:;
   c->r[5] = (uint32_t)32778u << 16;
   c->r[31] = 0x80052370u;
   c->r[5] = c->r[5] + (uint32_t)16280;
-  func_80087E2C(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80087E2Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   goto L_8005244C;
 L_80052378:;
   c->r[31] = 0x80052380u;
   c->r[4] = c->r[0] + c->r[0];
-  func_80087AEC(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80087AECu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[3] = c->r[0] + (uint32_t)6;
   {
     int _t = (c->r[2] != c->r[3]);
@@ -261,7 +261,7 @@ L_80052378:;
   c->r[5] = (uint32_t)32778u << 16;
   c->r[31] = 0x80052398u;
   c->r[5] = c->r[5] + (uint32_t)16280;
-  func_80087E2C(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80087E2Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[2] = c->r[0] + (uint32_t)2;
   c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]);
   goto L_8005244C;
@@ -283,7 +283,7 @@ L_800523BC:;
   c->mem_w8((c->r[16] + (uint32_t)4), (uint8_t)c->r[0]);
   c->r[31] = 0x800523D4u;
   c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[0]);
-  func_80087EAC(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80087EACu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[2] = c->r[0] + (uint32_t)3;
   c->mem_w8((c->r[16] + (uint32_t)7), (uint8_t)c->r[0]);
   c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[2]);
@@ -317,11 +317,11 @@ L_800523E4:;
   c->mem_w8((c->r[16] + (uint32_t)4), (uint8_t)c->r[0]);
   c->r[31] = 0x80052428u;
   c->mem_w8((c->r[16] + (uint32_t)5), (uint8_t)c->r[0]);
-  func_80087EAC(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80087EACu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 L_80052428:;
   c->r[31] = 0x80052430u;
   c->r[4] = c->r[0] + c->r[0];
-  func_80087AEC(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80087AECu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[3] = c->r[0] + (uint32_t)6;
   {
     int _t = (c->r[2] != c->r[3]);
@@ -333,7 +333,7 @@ L_80052428:;
   c->r[5] = (uint32_t)32778u << 16;
   c->r[31] = 0x80052448u;
   c->r[5] = c->r[5] + (uint32_t)16280;
-  func_80087E2C(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80087E2Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->mem_w8((c->r[16] + (uint32_t)6), (uint8_t)c->r[0]);
 L_8005244C:;
   c->r[31] = c->mem_r32((c->r[29] + (uint32_t)20));
@@ -352,18 +352,14 @@ void ov_padFenceTail(Core *c) {
   eng(c).padFenceTail();
 }
 } // namespace
-extern void gen_func_800788AC(Core *);
 void pad_edge_fence_install() {
   {
-    extern void gen_func_8005229C(Core *);
-    extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-    engine_set_override_main(0x8005229Cu, ov_padFenceTail, gen_func_8005229C);
+    tomba::native::declareOverride(0x8005229Cu, "ov_padFenceTail", ov_padFenceTail);
   }
   static bool done = false;
   if (done) {
     return;
   }
   done = true;
-  extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_main(0x800788ACu, ov_padEdgeFence, gen_func_800788AC);
+  tomba::native::declareOverride(0x800788ACu, "ov_padEdgeFence", ov_padEdgeFence);
 }

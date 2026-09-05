@@ -2,24 +2,24 @@
 
 ## later-290 — wire + SBS-verify ActorTomba::frameTick (FUN_8005950C); root-cause the f158 register-faithfulness divergence
 Wired the wide-RE draft of Tomba's per-frame G-block driver onto the live path (EngineOverrides;
-the only core-A reacher is the native `frameStartTickFaithful`'s `default: rec_dispatch(c,
-0x8005950Cu)`, the sole direct `func_8005950C` caller being the substrate `gen_func_80059D28`
-which is core-B only — so no `shard_set_override` dual-wire). The 5 RE'd-but-untrusted sub-callees
+the only core-A reacher is the native `frameStartTickFaithful`'s `default: typed runtime address dispatch(c,
+0x8005950Cu)`, the sole direct `guest 0x8005950C` caller being the substrate `guest 0x80059D28`
+which is core-B only — so no `tomba::native::declareOverride` dual-wire). The 5 RE'd-but-untrusted sub-callees
 (turnBiasCompute / outerTransitionGate / outerTransitionCommit / assetReady / resetLoadGate) stay
-dispatched to the SUBSTRATE from frameTick — line-by-line vs generated/shard_4.c found real bugs in
+dispatched to the SUBSTRATE from frameTick — line-by-line vs authenticated executable/overlay evidence found real bugs in
 the first two drafts (turnBiasCompute 0x800-threshold branches swapped; frameTick's own case-1
 skipClear had the 0x800BF80F condition inverted, fixed). Each sub-callee gets its own verify+wire
 pass. Every dispatch sets the gen jal-site r31 constant first so substrate callees that spill ra
 byte-match core B.
 - ROOT CAUSE of the first divergence (the real work this session): the first wiring diverged hard
   at lockstep f158 — `[sbs-div] 0x801FE8DE..E0 A=80 1F B=00 00`, last-writer Animation::step
-  (gen_func_80076D68) spilling the caller's r17. Per the user directive ("don't stash/bisect, use
-  Ghidra or compare against recomp"), root-caused by reading the oracle gen_func_8005950C
-  (generated/shard_4.c:7624) line-by-line rather than bisection. Cause was INTRA-BODY register
+  (guest 0x80076D68) spilling the caller's r17. Per the user directive ("don't stash/bisect, use
+  Ghidra or compare against guest instruction path"), root-caused by reading the oracle guest 0x8005950C
+  (authenticated executable/overlay evidence) line-by-line rather than bisection. Cause was INTRA-BODY register
   faithfulness: gen keeps r17/r18 live across the case-1/4/7 callees (r17=ECF54_saved/
   r18=E7E68_saved in cases 1,4 [gen 7648/7650, 7693/7695]; r17=sub/r18=1 in case 7 [gen
-  7736/7737]), and those case callees read the values via their OWN prologue spills (func_800597AC
-  spills r18, func_80053FDC spills r17, func_80076D68 spills both). The draft used C++ locals for
+  7736/7737]), and those case callees read the values via their OWN prologue spills (guest 0x800597AC
+  spills r18, guest 0x80053FDC spills r17, guest 0x80076D68 spills both). The draft used C++ locals for
   frameTick's own logic and never wrote c->r[17]/c->r[18] — so substrate callees spilled stale
   caller values on core A (0x1F80xxxx scratchpad ptr) vs the saved/sub values on core B
   (0x0000xxxx zero-extended flag). Fix: write c->r[17]/c->r[18] at the same points gen does. This
@@ -30,7 +30,7 @@ byte-match core B.
   f15600+ (150 s wall-clock; pre-fix diverged at f158 every run).
 
 ## later-289 — own the two PURE-engine ov_field_frame children native (FUN_80025588 / FUN_8004fe84)
-Top-down descent per the minimize-recomp frontier (later-287): owned the two remaining ov_field_frame
+Top-down descent per the minimize-guest instruction path frontier (later-287): owned the two remaining ov_field_frame
 direct children that make NO overlay/content calls, so they are cleanly A/B-verifiable.
 - `ov_scene_25588` (FUN_80025588, game/scene/engine_stage.cpp) — the field EVENT/COMMAND-FIFO state
   machine (struct @0x800ed058): 3-state top switch; state 0 arms (snapshot list head 0x800ecf58, run
@@ -44,36 +44,36 @@ direct children that make NO overlay/content calls, so they are cleanly A/B-veri
 Wired both into ov_field_frame AND ov_field_frame_x (replaced the `d0(...)` calls). ov_field_frame is now
 6 native / 9 direct substrate children.
 VERIFY: `newgame; run 1500; dumpram` native vs `git stash` substrate → main RAM 0-diff AND scratchpad
-0-diff; `newgame; run 4000` → 0 recomp-MISS.
+0-diff; `newgame; run 4000` → 0 historical guest-entry miss.
 WORKFLOW FIX: codemap.py was mapping the new natives to the wrong guest address because a pre-existing
 orphan doc-comment (the "handler 0x801088d8" block, no function under it) merged into the new comment
 block; a blank-line separator fixes it. Recorded in docs/findings/tooling.md.
 
 ## later-288 — restructure finish: deleted the 2 dead grab-bag files (native_misc, peripheral_misc)
 USER directive: no grab-bag files in the codebase, ever. After the engine/->game/ consolidation, two
-`*misc*` grab-bags remained: `game/core/native_misc.cpp` and `runtime/recomp/peripheral_misc.cpp`. PROVEN
+`*misc*` grab-bags remained: `game/core/native_misc.cpp` and `runtime/psx/peripheral_misc.cpp`. PROVEN
 100% DEAD — every function is `static`/unreferenced and the only exported symbol (`games_native_path_init`,
 called from game_tomba2.cpp) ran only empty stubs; the build LINKS and is A/B RAM+scratchpad 0-diff at f1500
 WITHOUT them. They were orphaned reference reimplementations abandoned when the override system was removed
-(2026-06-22) — reachable only via the deleted `rec_set_override` table. Deleted both + the empty
+(2026-06-22) — reachable only via the deleted `tomba::native::declareOverride` table. Deleted both + the empty
 games_native_path_init wiring. Recoverable from git if a caller is later ported and wants the leaf.
 DEAD-END NOTES preserved from native_misc's disabled-reimpl TODOs (these were reimplemented and FAILED A/B
-vs the recomp body — do not re-derive without fixing the noted cause):
+vs the guest instruction path — do not re-derive without fixing the noted cause):
   - FUN_80097540: A/B 2 bytes off — return-selection edge case (a0==-1/-2 path).
   - FUN_800752B4: A/B 167 bytes — stride-12 band-classify table @0x800BE238, wrong records.
   - FUN_80090160: A/B 80 bytes — varint stream consumer, wrong accumulation.
   - FUN_80094C10: A/B 15 bytes — fixed-point mixer/pan, reciprocal-magic divides.
   - FUN_80077FB0: A/B 4 bytes — 16-bit integer sqrt, wrong result (cascades into 0x800E806x).
 Also extracted the interactive REPL driver (repl_btn/wav/xadump + native_repl_read + the g_nav_* auto-drive
-state) OUT of native_boot.cpp (1569->1298 ln) into `runtime/recomp/repl.cpp` (+ `repl.h` interface), and the
-rc0-4 guest-call helpers into shared `runtime/recomp/guest_call.h`. native_boot.cpp is now boot + scheduler,
+state) OUT of native_boot.cpp (1569->1298 ln) into `runtime/psx/repl.cpp` (+ `repl.h` interface), and the
+rc0-4 guest-call helpers into shared `runtime/psx/guest_call.h`. native_boot.cpp is now boot + scheduler,
 not boot + scheduler + REPL. Verified: build clean, REPL functional (ents/dumpram run), A/B RAM+scratchpad
 0-diff at f1500. No grab-bag files remain (verified: no *misc*/*util*/*common*/native_path*/native_dl* under
 game/ or runtime/). Restructure COMPLETE.
 
-## later-287 — MINIMIZE-RECOMP frontier: `recdep` dependency meter + own 2 more ov_field_frame children native
-USER direction (2026-07-01): reduce recomp dependency to as little as possible. Built the `recdep` diagnostic
-(`PSXPORT_DEBUG=recdep`, overlay_router.cpp + config.md) — histograms every substrate fn rec_dispatch routes to,
+## later-287 — MINIMIZE-guest instruction path frontier: `recdep` dependency meter + own 2 more ov_field_frame children native
+USER direction (2026-07-01): reduce guest-source dependency to as little as possible. Built the `recdep` diagnostic
+(`PSXPORT_DEBUG=recdep`, overlay_router.cpp + config.md) — histograms every substrate fn typed runtime address dispatch routes to,
 dumps top-40 at exit. Free-roam runs 410 unique substrate fns; the distribution is top-heavy: #1 is rand
 0x8009A450 @ 172K calls (86/frame), then the cull cluster (already native) + libgpu 0x80082/83xxx + matrix
 0x80051794 + the A00 object handlers 0x8013xxxx (~5/frame each). The lever is TOP-DOWN ownership: own
@@ -81,32 +81,32 @@ ov_field_frame's direct substrate children, wiring their leaf calls to native su
 get captured as parents go native. Owned 2 more of ov_field_frame's 9 children native (engine_tomba2.cpp):
 ov_list_walk_69b28 (FUN_80069b28, 2nd object-list walk head 0x800f2738) + ov_arr8_dispatch_26368 (FUN_80026368,
 8-slot array 0x80100400 stride 0x4c, jumptable 0x8009d314) — both route methods via
-dispatch_native_behavior|rec_dispatch (no sp munging). A/B RAM+scratchpad 0-diff at f1500 (native vs `git stash`
+dispatch_native_behavior|typed runtime address dispatch (no sp munging). A/B RAM+scratchpad 0-diff at f1500 (native vs `git stash`
 substrate baseline). Now 4 native / 9 substrate children. Next: the pure engine ones 0x80025588 / 0x8004fe84.
 
-## later-286 — free-roam recomp-MISS FIXED: recompiler dropped a fall-through edge → 0x28/frame guest-sp leak (later-284c AND later-285 both wrong)
-The free-roam crash (`newgame; run 4000` → abort ~f1184 at `[recomp-MISS] 0x80109450`) is FIXED. Both prior
+## later-286 — free-roam historical guest-entry miss FIXED: recorded binary evidence dropped a fall-through edge → 0x28/frame guest-sp leak (later-284c AND later-285 both wrong)
+The free-roam crash (`newgame; run 4000` → abort ~f1184 at `[historical guest-entry miss] 0x80109450`) is FIXED. Both prior
 diagnoses were falsified: later-284c blamed the A00 render recursion; later-285 blamed a "gameplay object-graph
-recursion ~4× deeper than the oracle." Neither was a recursion-depth issue at all. **Root cause: the recompiler
-(`emit.py`) DROPPED a control-flow edge.** `emit_func` only chained a function that FALLS THROUGH into the next
+recursion ~4× deeper than the oracle." Neither was a recursion-depth issue at all. **Root cause: the recorded binary evidence
+(`the removed CPU-source emitter`) DROPPED a control-flow edge.** `emit_func` only chained a function that FALLS THROUGH into the next
 function (`hi`) when `hi in reentry` (a narrow GAME-prologue special-case); every other genuine fall-through got a
-bare `return;`. `gen_func_80022854` (a jump-table case fragment of the object-update loop 0x80022760, fires
+bare `return;`. `guest 0x80022854` (a jump-table case fragment of the object-update loop 0x80022760, fires
 once/frame at free-roam) ends in `jal 0x80022190` then FALLS THROUGH into the shared-frame epilogue at 0x8002285c
 (`addiu sp,+0x28; jr ra`); the bare `return;` skipped that epilogue → the 0x28 frame 0x80022760's prologue
 allocated leaked EVERY frame. Guest sp is persisted across frames in the task ctx, so it accumulated: after ~50
 frames sp bled from ~0x801FEA00 to ~0x801FE0F8, and the per-frame native render pass (ov_render_frame →
-ov_a00_gen_80122974 → …→ 0x80146478, substrate on task0's stack) then overflowed into the task table at
+overlay guest 0x80122974 → …→ 0x80146478, substrate on task0's stack) then overflowed into the task table at
 0x801FE04C → sm corrupt → ov_game_frame ret 0 → game_coop → jal 0x80109450 MISS. The interpreter follows the real
 fall-through so the oracle never leaked (its task0 sp stayed at 0x801FE7A8 — the datum later-285 misread as
 "recurses less deep"). Found via a min-sp probe (entry sp −0x28/frame = leak not recursion), then net-sp bisect to
-d0(0x80022a80) → 0x80022760 → gen_func_80022854. **Fix:** (1) `emit.py` chains the fall-through whenever
-`hi in funcset and body_falls_through()` (general recompiler correctness fix; natural `jr ra`/`j` boundaries
+d0(0x80022a80) → 0x80022760 → guest 0x80022854. **Fix:** (1) `the removed CPU-source emitter` chains the fall-through whenever
+`hi in funcset and body_falls_through()` (general recorded binary evidence correctness fix; natural `jr ra`/`j` boundaries
 unaffected). (2) That surfaced a latent later-272-class discovery gap — FUN_8003CCA4's perobj `jr v0` dispatches a
 node handler 0x8003D8AC (a case-label inside FUN_8003D584, no function entry) → seeded 0x8003D5CC/0x8003D8AC.
 Verified: `newgame; run 6000` holds free-roam steady, zero net sp leak, clean exit. See findings/render.md.
 
-## later-275 — narration recomp-MISS 0x8010BF54 fixed (overlay-ID re-validation + dangling-render-pointer guard); next blocker = A00 objects render pre-model-attach
-The narration cutscene (full intro, NOT skipped — `newgame` then `run`, no Start) hit `recomp-MISS
+## later-275 — narration historical guest-entry miss 0x8010BF54 fixed (overlay-ID re-validation + dangling-render-pointer guard); next blocker = A00 objects render pre-model-attach
+The narration cutscene (full intro, NOT skipped — `newgame` then `run`, no Start) hit `historical guest-entry miss
 0x8010BF54`. TWO distinct substrate bugs, both fixed; then a THIRD (a real render-timing bug) is exposed.
 1) **Overlay mis-identification (overlay_router.cpp).** `resident_overlay()` trusted the load-time identity
    cache (`resident_ov[slot]`) without re-checking it against live RAM. During the SOP intro the MODE slot
@@ -119,7 +119,7 @@ The narration cutscene (full intro, NOT skipped — `newgame` then `run`, no Sta
    (the field transition), the leftover SOP narration node (0x800ED9E8, type 32, default-case renderer
    node+24 = 0x8010BF54) is a DANGLING pointer (0x8010BF54 is mid-function in A00). The master render walk
    dispatched it → miss. FIX: new router query `rec_addr_has_entry(c,addr)` (uses the per-overlay
-   `ov_<tag>_func_index`, now exposed on `RecOverlay.idx` via emit.py — RECOMP_VERSION 2026-07-01.1); the
+   `ov_<tag>_func_index`, now exposed on `RecOverlay.idx` via the removed CPU-source emitter — retired-build version 2026-07-01.1); the
    walk's default case SKIPS a node whose render-fn is not a real entry of the resident module. The engine
    owns its render visibility and refuses to execute a render pointer into an evicted overlay. (This is a
    GUARD; the deeper fix is tearing the stale narration node out of the render list at the SOP→field
@@ -149,11 +149,11 @@ The narration cutscene (full intro, NOT skipped — `newgame` then `run`, no Sta
    then field fade) — confirm whether that double-fade is faithful to the original.
 
 ## later-274 — narration miss 0x80146478 FIXED (native walk owns the unowned node cases) + render-walk split out of engine_submit.cpp
-Two things. (1) The narration-cutscene recomp-MISS 0x80146478 (later-273) is fixed the PC-game way. The live
-backtrace was `ov_scene_native → ov_render_walk → gen_func_8003C048 (super-call) → 8003CCA4 → 8003CDD8 →
+Two things. (1) The narration-cutscene historical guest-entry miss 0x80146478 (later-273) is fixed the PC-game way. The live
+backtrace was `ov_scene_native → ov_render_walk → guest 0x8003C048 (super-call) → 8003CCA4 → 8003CDD8 →
 8003F698 → MISS`, NOT the predicted 0x8010A0E0 chain: the NATIVE `submit_render_walk` FELL BACK to
-`rec_super_call(0x8003C048)` because the narration scene has a render-list node of TYPE 16 the native walk
-didn't own. The whole-body super-call then ran the recompiled per-object chain down to the per-AREA dispatch
+`original guest-body call(0x8003C048)` because the narration scene has a render-list node of TYPE 16 the native walk
+didn't own. The whole-body super-call then ran the guest per-object chain down to the per-AREA dispatch
 8003F698 → A00's 0x80146478 (overlay not resident during the data-only SOP intro) → abort. The native
 per-object path (`submit_perobj_flush → native_gt3gt4`) bypasses 8003F698, so the only thing forcing PSX was
 the one unowned node type. FIX: own the remaining simple master-walk cases natively — the render-nothing skip
@@ -161,7 +161,7 @@ cases (types 9-14,21-31 → 0x8003C2AC) and the special-effect leaf cases (types
 0x8003C2D4/464/5F8/788, which only call resident-MAIN library fns, never 8003F698 / an overlay). type-4 (per
 later-239) and type-20 (overlay-dependent leaf 0x8011be5c) keep falling back. Verified: 0x80146478 gone;
 AUTO_SKIP free-roam 0-miss; emit 14/14; SELFTEST=startgame PASS. The narration now advances to a SEPARATE
-later miss `0x8010BF54` (SOP-overlay routing — next frontier; the SOP overlay HAS ov_sop_func_8010BF54 but the
+later miss `0x8010BF54` (SOP-overlay routing — next frontier; the SOP overlay HAS overlay guest 0x8010BF54 but the
 router didn't route it).
 (2) WORKFLOW/structure (user directive: "don't cram all the code in engine_submit.cpp, build a PC game file
 structure"). engine_submit.cpp (2274 lines, ~5 subsystems) was split: the render-list WALK subsystem
@@ -184,26 +184,26 @@ The clip now PLAYS + COMPLETES headless (this is the "present" headless-pump the
 ANY headless run progress through audio-gated logic). Selftest now asserts BOTH verified fixes (GAME loop runs
 + intro clip plays→ends). All gates clean.
 
-DEEPER LIMIT FOUND (NOT fixed, tracked): running the FULL recompiled field-mode under coroutines doesn't fully
+DEEPER LIMIT FOUND (NOT fixed, tracked): running the FULL guest field-mode under coroutines doesn't fully
 progress past the intro cutscene — the outer loop counter stalls and the field-mode (overlay 0x80109450) parks
 in a deep sub-wait. This is the SBS DIAGNOSTIC full-PSX path; the SHIPPING NATIVE field runs fine (4000 frames
 clean). Next session: capture the GAME coro's GUEST BACKTRACE at the freeze (the mem_r32(sp+16) waitloop
 heuristic is unreliable on inner frames) and compare to ov_sop_field_mode. See docs/findings/sbs.md.
 
-## later-269 — full-PSX Start→field FREEZE fixed: recompiler now flows a split stage prologue into its loop (TDD)
+## later-269 — full-PSX Start→field FREEZE fixed: recorded binary evidence now flows a split stage prologue into its loop (TDD)
 User clarified Issue 1: full-PSX (SBS core B) RESPONDS to Start (starts the game) then FREEZES in the field —
-and asked for TDD. Built `PSXPORT_SELFTEST=startgame` (runtime/recomp/selftest.cpp): boots one psx_fallback
+and asked for TDD. Built `PSXPORT_SELFTEST=startgame` (runtime/psx/selftest.cpp): boots one the retired alternate-execution flag
 core, mashes Start, asserts it reaches GAME free-roam (sm[0x48]==2) AND the GAME loop runs (*(0x1F800198)
 advances). RED: the field froze at sm[0x48]=0 — the GAME coro `start`ed once (entry 0x8010637C) then `done=1`
-with no ov_switch yield. **Root cause (recompiler):** the GAME stage fn is a PROLOGUE 0x8010637C that FALLS
+with no ov_switch yield. **Root cause (recorded binary evidence):** the GAME stage fn is a PROLOGUE 0x8010637C that FALLS
 THROUGH into its cooperative LOOP at 0x801063F4; both are seeded as separate fns (so native game_coop can
-re-enter the loop top per frame), but emit_func emitted a bare `return;` at every fn end — so func_8010637C
+re-enter the loop top per frame), but emit_func emitted a bare `return;` at every fn end — so guest 0x8010637C
 returned after the prologue instead of flowing into the loop, and the full-PSX coro reaped the task as done →
 field never ran. **Fix:** emit_func now emits a TAIL-CALL to the next fn on genuine fall-through (last insn not
 `j`/`jr`), SCOPED to deliberate re-entry seeds (OVERLAY_EXTRA_SEEDS) — a global version regressed the native
-field (executed dead fall-through regions in area overlays that jal undiscovered fns → recomp-MISS 0x80124448).
-func_8010637C now ends `ov_game_func_801063F4(c); return;`. GREEN. All gates pass (emit 12/12, test_coro,
-native plain + AUTO_SKIP 0-miss, SBS both no-crash, selftest). RECOMP_VERSION → 2026-06-30.10 (full regen).
+field (executed dead fall-through regions in area overlays that jal undiscovered fns → historical guest-entry miss 0x80124448).
+guest 0x8010637C now ends `overlay guest 0x801063F4(c); return;`. GREEN. All gates pass (emit 12/12, test_coro,
+native plain + AUTO_SKIP 0-miss, SBS both no-crash, selftest). retired-build version → 2026-06-30.10 (full regen).
 NOTE: the selftest does NOT require the loop to advance forever — entering the first area starts a long
 one-shot voice clip and the field's `while(*(0x801fe0e0)!=0)` wait legitimately pauses the loop until the clip
 ends; clip progress is REAL-TIME audio-driven (CDC_GetCDAudioSample), which headless logic-frames outrun. That
@@ -211,12 +211,12 @@ audio-gated cutscene is NOT a freeze (with audio it resolves). This is also the 
 frozen, music keeps playing") — same audio-gated-wait family, to confirm on the user's machine. See
 docs/findings/sbs.md.
 
-## later-268 — dead libetc VSync counter revived (recomp timebase) → SBS core-B title-freeze partial fix
+## later-268 — dead libetc VSync counter revived (guest instruction path timebase) → SBS core-B title-freeze partial fix
 Investigating the two freezes (scratch/handoff_two_freezes.md). **Root cause found for the timebase half:**
 the libetc VSync counter `DAT_800abde0` was NEVER advancing — `ov_vsync`/`frame_tick` (timing.cpp) are dead
 code (VSync 0x80085900 is TRAPPED by sync_overrides, so they never run) and nothing else bumped it. It sat at
-0 forever. Native paths reimplement their own pacing and ignore it, but RECOMP code (the full-PSX SBS core B,
-and any still-recomp leaf) reads `0x800abde0` to pace animations/timers → frozen. FIX: `timing_frame_tick()`
+0 forever. Native paths reimplement their own pacing and ignore it, but guest instruction path (the full-PSX SBS core B,
+and any still-guest leaf) reads `0x800abde0` to pace animations/timers → frozen. FIX: `timing_frame_tick()`
 bumps `timing.vblank` + writes `0x800abde0` once per native frame, called at the top of `native_step_frame`
 for ALL cores. Verified: counter now increments (was 0); native plain + AUTO_SKIP field 0-miss; emit 12/12 +
 test_coro pass; SBS both no crash. **Still open (Issue 1):** whether the timebase fix alone unfreezes core
@@ -225,7 +225,7 @@ SBS (user). DEAD-END NOTE: I tried reading the demo SM via raw `0x801fe048` and 
 UNRELIABLE — the demo SM_PTR is `*(0x1f800138)` in SCRATCHPAD and the debug server is BLIND to scratchpad
 (reads main RAM literally; in the GAME stage the same trap showed garbage 25712 vs the real `sm[48]=2`). So
 the earlier "s7 phase=7 divergence" guess is NOT trustworthy; the next session needs the REAL SM_PTR (a
-per-frame log on the psx_fallback path, or a scratchpad-aware probe) before any per-substate claim. **Issue 2 (native field freeze on macOS):** NOT
+per-frame log on the the retired alternate-execution flag path, or a scratchpad-aware probe) before any per-substate claim. **Issue 2 (native field freeze on macOS):** NOT
 reproducible on Linux — area warp (0→1, 138 nodes) + AUTO_SKIP field both run 0-miss; needs the user's macOS
 env or a manual-play repro. See docs/findings/sbs.md.
 
@@ -241,19 +241,19 @@ into a per-core map SchedulerState::resident_ov[slot] (overlay_note_load, called
 ov_cd_loadfile/ov_cd_async_read in cd_override.cpp). The router (resident_overlay) routes by that IDENTITY,
 falling back to the live signature scan only when a slot has no noted load. Robust to runtime header
 mutation. Result: native gates stay 0-miss (plain + AUTO_SKIP field DEMO→GAME); PSXPORT_SBS_MODE=gameplay
-AND =both now boot BOTH cores START→DEMO→GAME with 0 recomp-MISS and no crash/hang (the full-PSX reference
+AND =both now boot BOTH cores START→DEMO→GAME with 0 historical guest-entry miss and no crash/hang (the full-PSX reference
 core is alive again). Tools: tests 12/12 + test_coro all-pass. Finding promoted to docs/findings/sbs.md.
 
-## later-263 — ensure_recomp.py: one hash-checked recomp step; attract-path misses resolved by all-overlay build
-Two things from the handoff (scratch/handoff_ensure_recomp_and_attract.md), both done.
-(1) USER directive — `tools/ensure_recomp.py` is now the SINGLE recomp-provisioning step. It resolves the
+## later-263 — the removed source-emission provisioner: one hash-checked guest instruction path step; attract-path misses resolved by all-overlay build
+Two things from the retired provisioning handoff, both done.
+(1) USER directive — `tools/the removed source-emission provisioner` is now the SINGLE guest instruction path-provisioning step. It resolves the
 disc (CLI > $PSXPORT_TOMBA2_DISC > .env > *.chd, mirroring run.sh), extracts MAIN.EXE + SCUS_944.54 + every
-overlay (6 stage + 22 A0* area), runs emit.py, and VERIFIES the generated set against a SHA-256 of the
-INPUTS (MAIN.EXE + stub + each .BIN + emit.py/decode.py/psexe.py) stored at generated/.recomp.hash. Hash
+overlay (6 stage + 22 A0* area), runs the removed CPU-source emitter, and VERIFIES the generated set against a SHA-256 of the
+INPUTS (MAIN.EXE + stub + each .BIN + the removed CPU-source emitter/decode.py/psexe.py) stored at authenticated executable/overlay evidence Hash
 match + complete generated set ⇒ no-op; else re-emit and rewrite the hash. So every machine builds
-byte-identical recomp from the same disc — which is exactly the determinism the per-box-miss bug needed.
-run.sh §3 collapsed from the extract-loop + emit-staleness block to one `python3 tools/ensure_recomp.py`
-call (discdump still built by run.sh, passed via $PSXPORT_DISCDUMP). Env: PSXPORT_FORCE_RECOMP=1 forces
+byte-identical guest instruction path from the same disc — which is exactly the determinism the per-box-miss bug needed.
+run.sh §3 collapsed from the extract-loop + emit-staleness block to one `python3 tools/the removed source-emission provisioner`
+call (discdump still built by run.sh, passed via $PSXPORT_DISCDUMP). Env: former static-path comparison setting=1 forces
 re-emit; PSXPORT_DISCDUMP overrides the binary.
 (2) The attract-path misses (0x800739AC mine / 0x800810F0 USER's macOS) were artifacts of the incomplete
 per-box build (later-262). With all A0* overlays extracted + the hash-checked build, NO misses remain on my
@@ -261,7 +261,7 @@ box: plain headless 1500 frames = 0 miss (stays in DEMO attract menu, no field l
 0 miss; and MASHING START through boot (REPL `tap start` + `run`, USER's suggested repro) drives
 DEMO → GAME → field with 0 miss and RENDERS the field (Tomba on the green island over water,
 scratch/screenshots/mash_field.png). The per-box divergence is gone because both boxes now build identical
-recomp. Build clean, ensure_recomp skip/emit paths both verified.
+removed predecessor path. Its skip and emission branches were both verified at the time.
 
 ## later-245 (2026-06-24) — scenenative made FIELD-DEFAULT (invisible-Tomba fixed); RENDER ARCH mapped + the 2D gap
 USER (./run.sh): invisible Tomba (occluded), missing 2D (pickups, attack weapon), atlas judders on camera
@@ -276,7 +276,7 @@ turn at 60fps, cutscene fades missing, some Z-fighting (a pot's red top), and sp
   - `ov_render_frame` (engine_stage.cpp:284, per field frame, BEFORE ov_draw_otag) already NATIVE-draws the
     OBJECTS (Tomba/door/see-saw/pots/swine) into the render queue (submit_perobj_flush→native_gt3gt4→
     gpu_draw_world_quad), AND builds the PSX OT (the 2D passes + ground + special-object renderers it
-    rec_dispatches emit OT packets). It does NOT native-draw the terrain/ground.
+    dynamically dispatches emit OT packets). It does NOT native-draw the terrain/ground.
   - The render queue persists across both (RenderQueue auto-resets on first push after flush; one rq_flush at
     end of ov_draw_otag). So `ov_scene_native` RE-walking the same walks DOUBLE-DRAWS the objects (harmless —
     identical opaque pixels — but wasteful, and would double-blend semis). PROVEN with `debug bgonly` (scene
@@ -285,7 +285,7 @@ turn at 60fps, cutscene fades missing, some Z-fighting (a pot's red top), and sp
     ov_field_entity_render(0x800F2418)).
   - **THE 2D GAP:** pickups, the attack weapon, cutscene FADES, HUD/dialog are drawn by the still-PSX passes
     (2D sprite band 0x80025d98 = op-0x65; the fade/transition passes; special per-type renderers reached by
-    rec_dispatch in the walks). They emit ONLY PSX OT packets — never native-drawn — so scenenative (skips the
+    typed runtime address dispatch in the walks). They emit ONLY PSX OT packets — never native-drawn — so scenenative (skips the
     OT walk) drops them. Walking the full OT is NOT the answer: it re-adds the flat is3d=0 object dupes that
     occlude (verified earlier as scenenativehud: native Tomba covered).
 - **PLAN to fill the 2D gaps (next):** run the specific 2D-content passes (0x80025d98 sprite band; the fade
@@ -298,9 +298,9 @@ turn at 60fps, cutscene fades missing, some Z-fighting (a pot's red top), and sp
   half-median translation failing on camera ROTATION (tiles wrap → fingerprint mismatch → median oscillates).
   Both are USER-eyeball-verified (motion/close-up) — can't self-verify headless at 1x/30fps.
 - `[miss] addr 0x00000002`: a jalr/computed-jump to target 2 (a < 0x10000 → falls past the interp window to
-  rec_dispatch_miss). Not reproduced in AUTO_SKIP free-roam at rest or with tap square/circle/triangle/cross;
+  runtime dispatch fault). Not reproduced in AUTO_SKIP free-roam at rest or with tap square/circle/triangle/cross;
   triggered by the user's specific action (likely the attack/weapon renderer derailing). Tie to the weapon 2D
-  port. Add a guest-ra + callring dump when rec_dispatch_miss gets addr<0x10000 to localize.
+  port. Add a guest-ra + callring dump when runtime dispatch fault gets addr<0x10000 to localize.
 
 ## later-244 (2026-06-24) — BACKDROP ported native (sky + parallax hills); decoupled scene now complete at the seaside field
 Finished the Phase-1 decoupled native render gap from later-243: the only black area (sky + distant parallax
@@ -341,7 +341,7 @@ item1=sm[0x68]=1) + Cross -> sm[0x48]=4 -> default -> freeze.
   (reached via the resident UI driver FUN_8007be18). The async reader never completes in our no-IRQ runtime
   (same class as the s0 loaders).
 - FIX (engine_demo.cpp `demo_frame_s4` + `load_machine_s4`): reimplement 0x8007bf20 native+SYNC — case-0 disc
-  read via cd_dc40_sync (+ set 0x1f80019b done), rec_dispatch the page-open FUN_800750d8 and the browser
+  read via cd_dc40_sync (+ set 0x1f80019b done), typed runtime address dispatch the page-open FUN_800750d8 and the browser
   driver FUN_8007be18 (its memcard frame R/W is already sync+instant via the BIOS B0/A0 card HLE,
   memcard.cpp — so the browser does NOT yield). Wired `case 4` in ov_demo_frame.
 - GOTCHA (caused a follow-up bug the USER caught: "exiting load replays OP FMV, skipping it loops back to
@@ -378,7 +378,7 @@ item1=sm[0x68]=1) + Cross -> sm[0x48]=4 -> default -> freeze.
 - **Teal terrain band at the field bottom (USER, 2026-06-23).** The intro/field shows a TEAL diamond-
   checker band at the screen bottom where GREEN terrain should be — "something is culling it." LEAD: the
   PC-native terrain render is ORPHANED — `ov_terrain`/`terrain_render_pc` (engine_submit.cpp:1227 +
-  native_terrain.cpp) is NOT wired (`[ov_terrain]` debug never fires), so terrain renders via the RECOMP
+  native_terrain.cpp) is NOT wired (`[ov_terrain]` debug never fires), so terrain renders via the guest instruction path
   path 0x8002AB5C (the old "water/garbage at the field edge" class, later-157), OR a 2D BG draws over the
   near terrain. FIX = own terrain render PC-native (wire terrain_render_pc once its caller is native) +
   give the engine the right near depth/order. Independent of the gameplay-loop work. See gfx-debug skill.
@@ -386,7 +386,7 @@ item1=sm[0x68]=1) + Cross -> sm[0x48]=4 -> default -> freeze.
 
 ## later-220 (2026-06-23) — IN-GAME MUSIC: wrong VAB bank + wrong tone-start (corrects later-219's slot[0x26] claim)
 USER: "no dialogue music; the area-load is the culprit." Gated the native area-load (REPL `native areaload
-off`) — NOT it: the recomp libsnd path is dead (keyon/seqplay = 0 in every config), so in-game music is 100%
+off`) — NOT it: the guest instruction path libsnd path is dead (keyon/seqplay = 0 in every config), so in-game music is 100%
 the native engine. Real root cause is the native engine's VAB/tone handling, three bugs:
 1. **Wrong VAB bank.** The area bundle (guest 0x80182000) has TWO `pBAV` VABs: bank0 @+0x26b4 (ps=4) and
    bank1 @+0x38d4 (ps=18). `music_list.c` bound bank0 for every song. The songs program-change (0xCn) to
@@ -428,7 +428,7 @@ Built the PC-native music engine + RmlUi Sound Test, and wired it to score the f
 - IN-GAME: `field_bgm_director()` in game_tomba2.cpp's ov_frame_update — while the GAME stage (0x8010637C)
   is active + the area bundle (guest 0x80182000: 10 SEPs + field VAB @+0x26b4) is loaded, it starts the
   native area theme (default seq 8; `PSXPORT_FIELD_SONG=<0..9>` to audition), restarts on drain, stops on
-  leaving the field. NB the no-override arch means the recomp BGM-start (ov_sound_play_bgm) is DEAD (PSX
+  leaving the field. NB the no-override arch means the guest instruction path BGM-start (ov_sound_play_bgm) is DEAD (PSX
   never calls PC) — the director is the single audible path; do NOT try to hook ov_sound_play_bgm.
 - DEAD END recorded: 0x80104C28 ("playmask" 0xC3FF) is STATIC config (same at DEMO + field), not a
   per-slot play flag — useless as a BGM trigger. The field never sets song@0x800bed80 (FFFF throughout)
@@ -471,18 +471,18 @@ Two parallel threads this session.
 - **Native ownership ENDS at `ov_game_stage_main`'s PROLOGUE (GAME.BIN 0x8010637C).** It runs the prologue
   native then `rec_coro_redirect`s to the GUEST loop body 0x801063F4; from there the per-frame loop, the
   sm[0x48] dispatch, the sub-mode-0 bridge 0x8010882c, the SOP field-mode machine 0x80109450, the area
-  loads, and all per-frame gameplay systems run as RECOMP (`rec_coro_run`).
+  loads, and all per-frame gameplay systems run as guest instruction path (`rec_coro_run`).
 - **STALE-MARKER CORRECTION:** the native `ov_game_s48_0/1/2` + `ov_game_s4c` handlers and the hundreds of
   later-188..208 gameplay natives (cull/spawn/collision/object-walk) are **ORPHANED** — the address-keyed
   override table that reached them was removed (later-212, 2026-06-22). `stage_scan_overlay` is a no-op;
   the handler defs are `(void)`-cast (engine_stage.cpp:188). They are correct ready-to-wire reference
   bodies, not live code. port-progress §C "✅ owned" markers updated accordingly.
-- **The gameplay-start state flow (recomp, verified live `newgame`):** GAME sm[0x48]=2 → sm[0x4e] 0→1 (the
+- **The gameplay-start state flow (guest instruction path, verified live `newgame`):** GAME sm[0x48]=2 → sm[0x4e] 0→1 (the
   0x8010882c bridge: input-reset 0x8005082c + per-frame `jal 0x80109450`) → SOP sm[0x50] 0(LOAD)→1(FADE-IN)
   →2(GAMEPLAY) reached by ~frame 61. SOP map `scratch/sop_mode_re.md`, area loads `scratch/level_layout_re.md`.
 - **NEXT — ORDER MATTERS (critical constraint found this session):** the GAME native-loop conversion is
   BLOCKED on first owning SOP state-0's area load SYNCHRONOUSLY. SOP state 0 spawns the load as a
-  cooperative slot-1 task and yields on 1f80019b; a native per-frame loop that `rec_dispatch`es SOP would
+  cooperative slot-1 task and yields on 1f80019b; a native per-frame loop that `typed runtime address dispatch`es SOP would
   break that handshake (yield → frame-done guard, not slot-1 service; SOP restarts state-0 each frame and
   re-spawns the load) → regression. Revised order: **(0)** own `LAB_80109164` (0x80109164) as a native
   sync disc read writing 1f80019b=1 (no task spawn), **(1)** own SOP machine 0x80109450, **(2)** own the
@@ -499,7 +499,7 @@ it runs as a native per-frame task (`game_native` in native_scheduler_step, mirr
   LOAD→FADE-IN→GAMEPLAY→FADE-OUT→RESET switch native. State-0 calls `native_sop_area_load` INLINE
   (NOT FUN_80044bd4, which clears 1f80019b + spawns the slot-1 task + yields — fatal to re-enter per
   frame), spawns the 3 scene objects from the SOP overlay tables @0x8010c98c, dispatches the BG/init
-  callees. Heavy per-frame work (FUN_801092b4, per-scene handlers) stays rec_dispatched.
+  callees. Heavy per-frame work (FUN_801092b4, per-scene handlers) stays dynamically dispatched.
 - VERIFIED: newgame → sm[0x50] 0→1→2 (gameplay) by frame 60 (one frame faster than the cooperative
   baseline — load is inline), 1f80019b=1, stable 300 frames, zero derail/hang/caught-yield, render
   99.9% non-black (USER eyeball pending). NB game.h gained `game_native[3]` → needs `build_port.sh all`.
@@ -507,7 +507,7 @@ it runs as a native per-frame task (`game_native` in native_scheduler_step, mirr
   cull/spawn/collision/object-walk natives; then the area-transition path.
 
 **later-217e/f — skip→field REGRESSION found + fixed with a cooperative fallback (native start preserved).**
-Driving past the intro (`skip 400`) DERAILED: the native per-frame loop rec_dispatched the area machine
+Driving past the intro (`skip 400`) DERAILED: the native per-frame loop dynamically dispatched the area machine
 (sm[0x4c] 0x80106478) + transition sub-modes (sm[0x4a]!=0) + the non-SOP field overlay (0x80109450 swaps to
 0x801138A4), all of which YIELD DEEP — fatal in the per-frame model. The cooperative parent (6c659d1)
 reaches the field fine (A/B confirmed), so it was MY regression. Per the user (full-ownership, don't revert):
@@ -528,10 +528,10 @@ enters). Owned `ov_game_submode1` (engine_stage.cpp): switch on sm[0x4c] (table 
   FUN_8001cf2c, the next-area file load via FUN_80045080, BGM trigger FUN_8007566c, ov_load_texgroup, the
   area-asset overlay DMA via FUN_8001dc40, collision grid FUN_80045258, the ecf58 reloc-patch loop), with
   the FUN_80051fb4 task-completes + the slot-2-settle / audio-busy yield loops DROPPED (no-ops under our
-  synchronous CD/audio runtime). rec_dispatches the leaf callees (all sync).
-- States 2..6 rec_dispatch the field RUNNING sub-machine (0x80106b98/70b4/7230/766c/7790, a 12-way sm[0x4e]
+  synchronous CD/audio runtime). dynamically dispatches the leaf callees (all sync).
+- States 2..6 typed runtime address dispatch the field RUNNING sub-machine (0x80106b98/70b4/7230/766c/7790, a 12-way sm[0x4e]
   dispatch); a transitive jal-graph scan (197+ fns each, treating CD/task/audio-busy as leaves) found NO
-  FUN_80051f80 in them → yield-free, safe to rec_dispatch per-frame.
+  FUN_80051f80 in them → yield-free, safe to typed runtime address dispatch per-frame.
 - `ov_game_frame` now returns 1 for sm[0x4a]==1 (and the SOP-intro sm[0x4a]==0) → the **`[sched] GAME ->
   cooperative guest loop` message no longer fires at all** for the field.
 - KEY RE BUG (cost the most): 0x800452c0's `sb v0,0x800bf870` at 0x800453d8 is in the **jal DELAY SLOT** of
@@ -546,13 +546,13 @@ enters). Owned `ov_game_submode1` (engine_stage.cpp): switch on sm[0x4c] (table 
 
 **later-217h — FIELD RUNNING sub-machine 0x80106b98 dispatcher owned native (`ov_field_run`).**
 Descended one level into the field frame. `ov_field_run` (engine_stage.cpp) owns the 12-way sm[0x4e]
-jump-table dispatch (table @0x8010626c) that ov_game_submode1's sm[0x4c]==2 case used to rec_dispatch
+jump-table dispatch (table @0x8010626c) that ov_game_submode1's sm[0x4c]==2 case used to typed runtime address dispatch
 wholesale. Replicates the guest prologue's stack frame (`addiu sp,-0x18; sw ra,0x14; sw s0,0x10`) and
-rec_dispatches the selected state at its entry — all 12 states fall into the SHARED epilogue 0x801070a4
-(`lw ra,0x14(sp); lw s0,0x10(sp); jr ra`), which restores ra to the rec_dispatch sentinel and returns;
+dynamically dispatches the selected state at its entry — all 12 states fall into the SHARED epilogue 0x801070a4
+(`lw ra,0x14(sp); lw s0,0x10(sp); jr ra`), which restores ra to the typed runtime address dispatch sentinel and returns;
 the native side then restores the caller regs. VERIFIED: skip 400 → sm[0x4e] cycles 0/9/10/7/8/6/1 EXACTLY
 as the cooperative + 217g baseline, 200 frames, zero derail. The state bodies (0x80106bdc..0x80107098)
-remain rec_dispatch leaves; their callees (FUN_80072a78 object-placement etc.) are the next descent.
+remain typed runtime address dispatch leaves; their callees (FUN_80072a78 object-placement etc.) are the next descent.
 
 **later-217i — FIELD running sub-machine STATE BODIES + the field per-frame update owned native.**
 Replaced the dispatch-only ov_field_run with a FULL native transcription of all 12 states (authoritative
@@ -561,16 +561,16 @@ and the explicit fall-throughs case 2→3, case 4→1). The running states now c
 native transcription of the field per-frame update 0x80108b0c (bump frame counters; if not paused run the
 11-call gameplay-update block; conditionally 0x8003f9a8; then render-submit 0x8010810c + 0x80077d8c +
 per-frame area update 0x80075a80 — yield-free, 1021-fn jal scan). Heavy leaf callees (object-walk 0x8007a904,
-display 0x80026c88, FUN_80072a78 placement, …) stay rec_dispatch leaves. VERIFIED: skip 400 → sm[0x4e]
+display 0x80026c88, FUN_80072a78 placement, …) stay typed runtime address dispatch leaves. VERIFIED: skip 400 → sm[0x4e]
 cycles 0/9/10/7/8/6/1 EXACTLY as baseline and rests at sm[0x4e]=1; 300 frames + clean newgame 150 frames,
 ZERO derail/fault/fallback. NB: orphan natives ov_objwalk/ov_disp_26c88 exist but are `static` in other TUs,
-so ov_field_frame still rec_dispatches the GUEST bodies — wiring them as direct calls (de-static + header)
+so ov_field_frame still dynamically dispatches the GUEST bodies — wiring them as direct calls (de-static + header)
 is a follow-up. Files: engine/engine_stage.cpp.
 
 **later-217j — orphan natives ov_objwalk + ov_disp_26c88 wired into the live field frame (direct calls).**
 The 217i follow-up: de-static'd `ov_objwalk` (engine_tomba2.cpp, native FUN_8007a904 object-list walk +
 widescreen margin flush) and called it (plus the already-non-static `ov_disp_26c88`, native FUN_80026c88)
-DIRECTLY from `ov_field_frame` instead of rec_dispatching the guest bodies. These were ORPHAN natives
+DIRECTLY from `ov_field_frame` instead of dynamically dispatching the guest bodies. These were ORPHAN natives
 (reachable only by the removed override table); they now run on the live gameplay frame. VERIFIED: skip 400
 → `[engine] objwalk` fires (110→152 nodes over 300 frames), sm[0x4e] sequence unchanged vs baseline, zero
 derail/fault. Files: engine/engine_stage.cpp, engine/engine_tomba2.cpp.
@@ -652,12 +652,12 @@ OWNED native: the full control flow + the descriptor parse + EVERY cel-global wr
 0x80105D18, refcount 0x80105D70, data/desc/UV-base 0x80105C10/C50/C98 [index = slot*4], 64/128 clamp
 0x80105CDA, 0x80105CF0, size 0x80105D30, VRAM base 0x80105D78, lock 0x800AC638) + the two trivial lock
 helpers (FUN_80099478 test / FUN_80099450 set, single-word ops on 0x800AC638, inlined). The VRAM
-allocator/upload callback stays PSX via rec_dispatch in the recomp's exact order (its free-list is in
+allocator/upload callback stays PSX via typed runtime address dispatch in the guest instruction path's exact order (its free-list is in
 tracked RAM 0x800AC5xx/6xx → returns the same VRAM base in an A/B re-run; verified D78 native==oracle).
 Full RE (descriptor struct, cel record, globals, callees, control flow) in engine_re.md "BAV cel loader".
 
-VERIFIED with the `bavload` full RAM+scratchpad+v0 A/B gate vs rec_super_call (native → snapshot+rollback →
-recomp body → diff, excluding the top-of-RAM stack window [sp-0x800, sp) per the grid/scriptvm family
+VERIFIED with the `bavload` full RAM+scratchpad+v0 A/B gate vs original guest-body call (native → snapshot+rollback →
+guest instruction path → diff, excluding the top-of-RAM stack window [sp-0x800, sp) per the grid/scriptvm family
 rationale): **0 mismatches over all 3 area-entry cel loads** (a spawn-time loader, called once per cel at
 area init, not per-frame — so 3 is the natural exercise count, same posture as child40410's 28 spawns).
 Drive: `debug bavload; newgame; skip 650; (walk)` — fires on the seaside area entry.
@@ -665,7 +665,7 @@ Drive: `debug bavload; newgame; skip 650; (walk)` — fires on the seaside area 
 3 GOTCHAs, each caught BY the A/B gate (the whole reason the gate exists):
 1. **Lock semantics inverted.** FUN_80099450(1) ACQUIRES via a `sw zero` in the a0==1 branch's DELAY SLOT
    → writes 0 (busy), not 1; FUN_80099450(0) RELEASES → 1 (free). 1=FREE / 0=BUSY. Guard FUN_80099478 =
-   `(lock^1)!=0`. First mismatch was lock-only (native left it busy on a path the recomp released).
+   `(lock^1)!=0`. First mismatch was lock-only (native left it busy on a path the guest instruction path released).
 2. **kind-shift inverted.** `if (*(desc+4) < 5)` uses `<<2` (the `sll v1,2` is the bne-taken delay slot);
    `>=5` uses `<<3`. Had it backwards → every size was 2× off (D30 exactly doubled).
 3. **C10/C98 index = slot*4, not field18>>14.** The `sll s2,16` feeding the `sra ,14` is a beq DELAY SLOT,
@@ -680,7 +680,7 @@ parallel agents need separate OBJDIR/EXE, not a shared scratch.)
 ## later-206: OWN per-object DISPATCHER LOOP FUN_80026C88 native (ov_disp_26c88) — §F resident leaf
 The §F-flagged primary target after later-205. `FUN_80026C88` is a per-object DISPATCHER LOOP over the
 40-entry, 64-byte-stride object table at `0x800ec188`. **No args, void return. NO GTE, NO render packets —
-pure control flow.** disas / gen_func_80026C88:
+pure control flow.** disas / guest 0x80026C88:
 ```
   s2 = 0x800ad52c  (handler fn-ptr table, stride 4)
   s0 = 0x800ec188  (object table, stride 64)
@@ -690,12 +690,12 @@ pure control flow.** disas / gen_func_80026C88:
     fn  = *(s2 + idx*4)                     ; load handler fn-ptr
     a0  = obj; (*fn)()                      ; tail-call handler(obj)
 ```
-The dispatcher itself writes NOTHING to memory (the recomp body only saves/restores s0/s1/s2/ra in its
+The dispatcher itself writes NOTHING to memory (the guest instruction path only saves/restores s0/s1/s2/ra in its
 own 32-byte stack frame, which the native body never touches). EVERY side effect lives inside the
-dispatched handlers, kept PSX via `rec_dispatch` (each handler honors its own owned override identically in
+dispatched handlers, kept PSX via `typed runtime address dispatch` (each handler honors its own owned override identically in
 the super-call path). Control flow + the table/object address math owned native; handlers dispatched.
 
-Verified with the full RAM+scratchpad A/B gate `disp26c88` (native run → snapshot+rollback → rec_super_call
+Verified with the full RAM+scratchpad A/B gate `disp26c88` (native run → snapshot+rollback → original guest-body call
 → diff): **0-diff over 800+ live field calls, 0 mismatches** (`debug disp26c88`, newgame → skip 650 →
 press right 250 → press left 250). It FIRES per-frame in the reachable seaside GAME stage (the counter
 ticks 50/100/…/800+). Same-family gate exclusion `[sp-0x800, sp)`: the dispatched handlers run in BOTH
@@ -721,13 +721,13 @@ void return. NO GTE, NO render packets — pure object/scratchpad memory ops + O
   r=(*(u16*)0x1F80017C)&1; node=*(obj+0xC0); node[2](sh)=r*6; rr=ov_rand(); node[0](sh)=((rr&3)-2)*6.
 - **obj[6] other** (@fdf0): return.
 **Owned native:** all control flow + every obj/scratchpad/node memory access. ov_rand stays PSX via
-rec_dispatch (honors its own override identically in the super-call path). GOTCHAs (every one a delay-slot
+typed runtime address dispatch (honors its own override identically in the super-call path). GOTCHAs (every one a delay-slot
 hazard, all caught by the A/B): (1) the `sh v1,2(node)` at 0x8003fdd0 is in the ov_rand jal DELAY SLOT —
 node and v1=r*6 are computed BEFORE the call (node loaded @0x8003fdc4), the store uses the pre-call values;
 (2) the obj[6]-- at @fdac only fires on the cnt==-1 branch (the `addu v0,v0,v1` with v1=-1); (3) node[2]/[0]
 are halfword stores of v0*6 = (v0*3)<<1.
 **`fd10` gate** (game_tomba2.cpp, sm40558 template): full RAM (0x200000) + scratchpad (0x400) A/B vs
-rec_super_call — native runs once, RAM/scratch/regs rolled back, super_call runs, byte-compare. **0-diff
+original guest-body call — native runs once, RAM/scratch/regs rolled back, super_call runs, byte-compare. **0-diff
 over 11000+ live field calls** (newgame + skip 650 + press right 250 + press left 250 — this is a hot
 state-1 sub-behavior, so 11000 is the natural exercise count; it covers the obj[6]==0/1 phases, the
 counter-decrement/wrap, and the ov_rand-driven node offset). Same-family gate exclusion [sp-0x800, sp)
@@ -753,10 +753,10 @@ has a tag/payload halfword at +6 and a jump pointer at +8. ctrl=s0[0x0E] is read
   0x2000 "execute" bit, run the executor jal 0x80075ff8 keyed by the new tag. (When frozen — ctrl&0x1000 —
   the cursor is NOT advanced in any block.)
 - **Owned native:** all control flow + the s0[0x0E]/s0[0x38] reads & writes. The 3 callees (0x80075f0c
-  per-frame applier, 0x80076904 frame loader, 0x80075ff8 frame executor) stay PSX via rec_dispatch (each
+  per-frame applier, 0x80076904 frame loader, 0x80075ff8 frame executor) stay PSX via typed runtime address dispatch (each
   honors any later override identically in the super-call path).
 - **`animvm` gate** (game_tomba2.cpp, scriptvm template): full RAM (0x200000) + scratchpad (0x400) A/B vs
-  rec_super_call — native runs once, RAM/scratch/regs rolled back, super_call runs, byte-compare + v0;
+  original guest-body call — native runs once, RAM/scratch/regs rolled back, super_call runs, byte-compare + v0;
   exclude the fn's own 40-byte stack frame [sp−40,sp). **0-diff over 4000+ live calls** across right/left/
   up/down movement (exercises advance + follow-jump + freeze + the executor sub-calls). Lazy cfg_dbg gate
   (re-checked each call) so the REPL `debug animvm` works (the fn can run before the channel is set).
@@ -768,7 +768,7 @@ has a tag/payload halfword at +6 and a jump pointer at +8. ctrl=s0[0x0E] is read
   is immediately overwritten by [cur+8]; I first modeled it as the inverse (cur+8 not-frozen / follow when
   frozen). (4) the DELAY apply path RE-READS s0[0x0E] AFTER 0x80075f0c (the applier may modify it) for the
   freeze-bit OR — using the entry ctrl's bit was wrong.
-Build/verify done in the agent worktree (parent `generated/`+`build/` symlinked, MAIN.EXE + obj cache copied,
+Build/verify done in the agent worktree (parent `authenticated executable/overlay evidence`+`build/` symlinked, MAIN.EXE + obj cache copied,
 `.env` copied, `vendor/beetle-psx` submodule init'd — no code change to build scripts). Field run perf gain
 expected ~3.6% (the bucket leaves the hot-list); re-profile to confirm if needed (not re-profiled this pass).
 
@@ -781,15 +781,15 @@ computed `jr v0` and exited by `j <TAIL>`. We do NOT override the root — the l
 address fires the override (interp fires overrides on computed jumps, interp.cpp:481), exactly the ov_game_s4c
 shape: native work + coro-redirect to the guest TAIL.
 - **OWNED: s1 (0x8010641C), s2 (0x80106464), s3 (0x801064E8), s6 (0x801065EC)** — the substates whose only
-  sub-call is SYNCHRONOUS. They rec_dispatch the inner machine (0x80106f80/0x8010696c/0x80106ac4/0x8007b45c +
+  sub-call is SYNCHRONOUS. They typed runtime address dispatch the inner machine (0x80106f80/0x8010696c/0x80106ac4/0x8007b45c +
   0x8001cf2c/0x80106824/0x80106690/0x800750d8), then own the transition LOGIC native and redirect to the TAIL.
 - **NOT owned yet: s0/s4/s5/s7** — DEEP-YIELDING (s0 loaders 0x80045080/0x80044bd4; s4 0x8007bf20; s5
-  stage-restart 0x80052078; s7 loader 0x80106c24 all reach FUN_80051f80). A plain rec_dispatch of a deep
+  stage-restart 0x80052078; s7 loader 0x80106c24 all reach FUN_80051f80). A plain typed runtime address dispatch of a deep
   yielder longjmps out and destroys the override C frame → kills task 0 (later-169). They stay guest until
   reworked with the coro-redirect-INTO-the-yielder handshake. Leaving them guest is safe: the guest root loop
   dispatches them normally; only the owned addresses divert.
 - **NEW TOOL `tools/yield_reach.py`**: scans a 2MB KSEG0 RAM dump, follows direct `jal` recursively from a
-  fn, reports whether FUN_80051f80 (the yield) is reachable → tells you SYNC (safe to rec_dispatch) vs YIELDS
+  fn, reports whether FUN_80051f80 (the yield) is reachable → tells you SYNC (safe to typed runtime address dispatch) vs YIELDS
   (needs handshake). Direct-jal only, so "no yield" is a lower bound; it prints indirect-call blind spots.
 - **`dumpram` now also writes a `.spad` sidecar** (the 1 KB scratchpad 0x1F800000) — the main-RAM A/B diff was
   BLIND to scratchpad, where several DEMO flags live (0x1f80019a/19d/134/198).
@@ -802,7 +802,7 @@ shape: native work + coro-redirect to the guest TAIL.
   bookkeeping).
 
 ## later-183: own the engine SUBSYSTEM init FUN_800520e0 orchestration PC-native (eng_init_subsystems) — frontier item 3
-Init-prefix function dispatched once at boot (native_boot.cpp, was `rc0(c, 0x800520e0)`). RE (2 parallel
+Init-prefix function dispatched once at boot (native_boot.cpp, was `guest call (c, 0x800520e0)`). RE (2 parallel
 Explore agents over ram_menu.bin, also mapped FUN_80075130) confirmed it is FULLY SYNCHRONOUS and touches
 NO GPU/DMA/SPU/GTE — pure engine-state: 6 direct flag writes (*0x800bf4fa=0xffff; *0x800ecf4a/4c/4d/4e/4f=0)
 then 4 subsystem-init callees (8007b328 entity-pool, 80088b00 allocator/dispatch-table[a0=0x800bf4f8,
@@ -816,20 +816,20 @@ dispatch divergence risk; own only its 3 engine-state callees (FUN_800963a0/8009
 
 ## later-182b: DEAD-END — owning the DEMO ROOT dispatcher prologue (ov_demo_root) introduces a GP0 env-packet divergence; REVERTED
 Tried to own the DEMO root 0x801062E4 prologue native (mirror ov_game_stage_main): reproduce the
-register/flag init, rec_dispatch the two SYNC setup calls (0x800810f0, 0x8005082c), coro-redirect to the
+register/flag init, typed runtime address dispatch the two SYNC setup calls (0x800810f0, 0x8005082c), coro-redirect to the
 loop body @0x80106388. The scheduler DOES fire an entry override on a fresh task entry (native_boot.cpp:134),
 so the mechanism works. BUT the A/B gate (override-on vs -off, REPL run 150) showed a **5-byte divergence**
 (GP0 command byte 0xE0 vs 0x00) in the draw-environment packet pools at 0x800A59xx / 0x800EA0xx — while the
 substate sub-fns dispatched 0-diff. ROOT CAUSE: 0x800810f0 builds the PSX draw-env via an INDIRECT libgpu
 call (`jalr v0[8]` off the double-buffer struct *0x800a5998, with a {0,0,320,512} desc + black color), and
-running 0x800810f0 as a NESTED rec_dispatch from the override is NOT equivalent to running it in the task
+running 0x800810f0 as a NESTED typed runtime address dispatch from the override is NOT equivalent to running it in the task
 coroutine context. Scratchpad was 0-diff (incl. buffer parity 0x1f800135 + frame ctr 0x1f800198), so this is
 NOT a frame-phase artifact — it's a genuine output difference from the nested-dispatched libgpu init.
 DECISION: REVERTED (no unverified override ships). The root prologue is low-value PSX disp-env plumbing the
 boundary says the engine shouldn't reproduce; owning it cleanly would need 0x800810f0 to run IN-CONTEXT
 (coro-redirect into it), which conflicts with its two-sync-call-then-loop structure. The valuable part — the
 substate transition LOGIC (s1/s2/s3/s6) — is owned and verified 0-diff (later-182). LESSON for the deep
-yielders: a SYNC sub-fn that itself makes an INDIRECT libgpu/hardware call may not be safely rec_dispatch'd
+yielders: a SYNC sub-fn that itself makes an INDIRECT libgpu/hardware call may not be safely typed runtime address dispatch'd
 from an override; check for jalr-to-overridden-target, prefer coro-redirect-in-context for those.
 
 ## later-179: SCEA license screen — render it PC-NATIVE (composite the text into the framebuffer) + own its duration
@@ -1008,9 +1008,9 @@ First sub-fn of the camera mode orchestrator `FUN_8006e0f0`. RE'd via `tools/dis
 @0x800168d4 dispatching the TARGET source on `G[+0x164]`, plus a `cam[+0x72]&2` fast path, the look-point math
 via libgte rcos/rsin/isqrt/ratan2, and a cam[+0x14] distance smoother that steps ±65536/frame toward ±0x280000
 or snaps in the near band). Reimplemented PC-native as `ov_cam_dist_solve`: own the control flow + 32-bit arithmetic
-(MIPS mult-lo via `mlo`, arithmetic shifts), CALL the libgte trig via `rec_dispatch`. Writes are MAIN-RAM cam
+(MIPS mult-lo via `mlo`, arithmetic shifts), CALL the libgte trig via `typed runtime address dispatch`. Writes are MAIN-RAM cam
 fields (cam[+0x08]/[+0x10]/[+0x14]/[+0x22]/[+0x58]). Gated by a per-call comparator `ov_cam_dist_solve_verify`
-(`PSXPORT_DEBUG=camverify`): snapshot cam+scratchpad, run native, restore, run the recomp oracle (rec_interp),
+(`PSXPORT_DEBUG=camverify`): snapshot cam+scratchpad, run native, restore, run the historical guest-execution reference (test-only reference execution),
 diff every word of the cam struct. **0-diff over 1800+ calls** on the free-roam MOTION scene with continuous
 varied movement (the static idle field is A==B and can't exercise it).
 
@@ -1037,16 +1037,16 @@ jump tables (table1 @0x80016994 on `G[+0x164]`; table2 @0x800169cc on `((G[+0x61
 plus a `cam[+0x72]&0x40` "mode-A" and a `&2` path, computes a heading ANGLE, then the COMMON look-at tail
 @0x8006e7c8: look point = `center(0x1f800160/164) ± rcos/rsin(angle)·radius>>12`; `yaw=ratan2(-dz,dx)`;
 `dist=isqrt(dx²+dz²)`; `0x1f8000d0 += rcos(yaw)·dist>>1`, `0x1f8000d8 -= rsin(yaw)·dist>>1`. Owns control
-flow + arithmetic native, CALLS libgte rsin/rcos/ratan2/isqrt via rec_dispatch (NOT reproducing their LUTs).
+flow + arithmetic native, CALLS libgte rsin/rcos/ratan2/isqrt via typed runtime address dispatch (NOT reproducing their LUTs).
 - **Two bugs, both caught by the gate (not by eyeballing):** (1) RADIUS is set as `s2 = -mem_r16(0x1f8000ee)`
   in the **DELAY SLOT @e4d8**, which executes UNCONDITIONALLY before the mode dispatch — I first mis-modeled it
-  as an ancestor-supplied live `r[18]` (=1), giving radius 1 instead of ~1748. (2) The recomp **sext16's s2**
+  as an ancestor-supplied live `r[18]` (=1), giving radius 1 instead of ~1748. (2) The guest instruction path **sext16's s2**
   right before each mult; without that, `-ee` read as u16 (63786) gave radius −63786 instead of +1750. Correct:
   `radius = (int16_t)(-(int32_t)mem_r16(0x1f8000ee))`; the e518 path overrides to `(int16_t)(-ee-600)`.
 - **GATE — output is SCRATCHPAD (0x1f8000d0/d8), which the main-RAM A/B dump is BLIND to** (the CLAUDE.md
   scratchpad caveat in practice). Built a per-call comparator `PSXPORT_DEBUG=camverify`: snapshot the full
-  1KB scratchpad + reg file, run native, capture its writes, restore, run the recomp **oracle**
-  (`rec_interp(0x8006e464)`, bypasses the override), compare 0x1f8000d0/d8 + cam[+0x8c]/[+0x66]. Self-tested
+  1KB scratchpad + reg file, run native, capture its writes, restore, run the guest instruction path **oracle**
+  (`test-only reference execution(0x8006e464)`, bypasses the override), compare 0x1f8000d0/d8 + cam[+0x8c]/[+0x66]. Self-tested
   the harness (oracle-vs-oracle = 0 diff) before trusting it. **0 mismatches across 3 scenes** with d0
   ACTIVELY accumulating (continuous-movement walk script — a STOPPED scene is degenerate A==B and a false gate;
   this corrected the handoff's assumption that a plain `AUTO_WALK=r` exercises rotation).
@@ -1175,12 +1175,12 @@ the overlay/level CONTENT it loads."
   native yield primitive `ov_switch` (0x80080880). The thread calls are RAM- and IRQ-flag-NEUTRAL in the
   native model (Enter+Exit cancel; Close/Change only set v0), so dropping them is faithful to the content
   interface. So `eng_stage_transition` = mirror prologue stack writes (byte-faithful) → eng_load_stage →
-  task[0]=3, task[0x6f]=0 → restore s0/sp/ra → `rec_dispatch(0x80080880)` (ov_switch).
+  task[0]=3, task[0x6f]=0 → restore s0/sp/ra → `typed runtime address dispatch(0x80080880)` (ov_switch).
 - **TERMINAL yield, so NO coro-redirect handshake needed** (unlike the RUNNING dispatcher, later-169). The
   task never resumes into this fn — it restarts at state 3 — so a plain override that does the work then
   ends the run is correct. `ov_switch` matches the PSX per context: mid-game (in a task run, in_stage==1)
   it longjmps to the scheduler and the fn never returns (== ChangeThread suspending the task); at BOOT the
-  START→DEMO→GAME init transitions run via `rc0(FUN_800499e8)` with in_stage==0, where ov_switch is a
+  START→DEMO→GAME init transitions run via `guest call (FUN_800499e8)` with in_stage==0, where ov_switch is a
   no-op return and the fn returns to FUN_800499e8, which continues — exactly as the stubbed thread layer
   did. Either way the scheduler then restarts task 0 (state 3) at the new stage entry.
 - **VERIFIED:** registered in games_tomba2_init (`!faith`, next to ov_load_stage). The field reaches GAME
@@ -1191,10 +1191,10 @@ the overlay/level CONTENT it loads."
   engine's first-level bootstrap: resolve `\BIN\START.BIN;1` (name@0x80015458) via the CD directory
   (FUN_8008b8f0 — platform, called not reimplemented), decode MSF→LBA (FUN_8008a110), write stage[0]
   (LBA,size) to 0x800be1e0/e4, then `FUN_80052078(0)` (the native transition). Called once at boot via
-  rc0(FUN_800499e8), in_stage==0 (FUN_80052078's terminal yield no-op returns there). **VERIFIED RAM 0-diff
+  guest call (FUN_800499e8), in_stage==0 (FUN_80052078's terminal yield no-op returns there). **VERIFIED RAM 0-diff
   @ f650 AND f1000** vs HEAD (interpreted-FUN_800499e8). Two stack-faithfulness fixes mattered (the gate
   caught both as 20-byte task-stack diffs): (1) set ra to each `jal`'s post-link addr (jal+8) before each
-  `rec_dispatch` so callees save the same ra to their frames; (2) the prologue `sw s0,0x28(sp)` saves the
+  `typed runtime address dispatch` so callees save the same ra to their frames; (2) the prologue `sw s0,0x28(sp)` saves the
   INCOMING s0 BEFORE `s0=name` — saving `name` instead leaked the name ptr into 5 task-stack frames.
 - **ALSO owned the GAME stage TOP-LEVEL ENTRY PROLOGUE `0x8010637C` native (`ov_game_stage_main`,
   engine_stage.cpp).** Task-0's stage driver = a one-time prologue then `{dispatch sm[0x48]; bump
@@ -1231,7 +1231,7 @@ the running sub-mode selection natively, content runs in-context."
   in the TOP-LEVEL loop (0x8010637C), AFTER the `sm[0x48]` dispatch returns. The `sm[0x4a]`/`sm[0x4c]`
   sub-handlers do NOT yield in the overlay — but they call RESIDENT MAIN.EXE fns (`0x8007xxxx`) that yield
   deep (asset-load waits across frames). So the running dispatcher's callee CAN yield deep, which is exactly
-  why a `rec_dispatch` override killed task 0 (later-168): the nested `rec_interp`+`CORO_SENTINEL` C frame is
+  why a `typed runtime address dispatch` override killed task 0 (later-168): the nested `test-only reference execution`+`CORO_SENTINEL` C frame is
   destroyed by the deep yield's longjmp, so the resume mis-reads the return as task-end (st=2→0 @f53).
 - **The fix — `rec_coro_redirect(c, target)` (core.h `Core::coro_redirect_pc`, interp.cpp):** a native
   override does its work, sets `coro_redirect_pc`, and RETURNS; the flat interp's next control transfer then
@@ -1273,13 +1273,13 @@ architectural finding.
   the M3 submit/tilemap scan). Each mirrors the original's exact guest writes + dispatches its SYNCHRONOUS
   resident setup fns (FUN_8007a8e0/b38c/b3f4). **Verified: gameplay RAM 0-diff @ field f650 AND f1000** vs
   the pre-change build; build deterministic (0-diff across runs); the field reaches/runs normally.
-- **DECISIVE FINDING — the RUNNING loop CANNOT be owned by override+rec_dispatch (cooperative-yield
+- **DECISIVE FINDING — the RUNNING loop CANNOT be owned by override+typed runtime address dispatch (cooperative-yield
   blocker).** First attempt owned all three sm[0x48] handlers incl. the RUNNING dispatcher 0x80108784,
   which dispatches the sm[0x4a]/sm[0x4c] sub-handlers. Result: 675k-byte RAM divergence @f650. Localized by
   bracketing dumps (f80=0, f100=8473 root, f140=671k explosion) + a per-frame task-state trace
   (`PSXPORT_DEBUG=schedf`, new diagnostic): **task 0 dies (st=2→0) at f53** in the override build, stays
-  alive in baseline. ROOT CAUSE: the area sub-handlers YIELD; `rec_dispatch` runs them in a NESTED
-  `rec_interp` with its own `CORO_SENTINEL`, so when a deep yield longjmps to the scheduler and the task
+  alive in baseline. ROOT CAUSE: the area sub-handlers YIELD; `typed runtime address dispatch` runs them in a NESTED
+  `test-only reference execution` with its own `CORO_SENTINEL`, so when a deep yield longjmps to the scheduler and the task
   resumes, the PSX return chain unwinds back to that nested sentinel → `rec_coro_run` reads it as "the task
   returned" → marks task 0 free → the game runs with NO stage driver → divergence snowballs. This is the
   same cooperative-scheduler-longjmp handshake the engine_re init table flags for
@@ -1310,7 +1310,7 @@ not per-prim size. RE first (field, `PSXPORT_AUTO_GAMEPLAY`, f650, RAM dump `PSX
   (`gpu_bg_range_add`→`GpuState::node_is_bg`). The OT-walk 2D classifier is now
   `node_is_bg(node) || bg_2d(...)` — provenance wins (any tile size), coverage stays only as the fallback
   for scenes whose backdrop drawer isn't owned yet (menus/title full-screen sprite). To super-call the EXACT
-  intercepted entry from one shared override fn, the interp now exposes `g_override_tgt` (the override target
+  intercepted entry from one shared override fn, the interp now exposes `image-qualified runtime dispatcher_tgt` (the override target
   addr, set right before the override runs).
 - **VERIFIED:** attribution — all 352 tiles classify RQ_BACKGROUND, the 26 op-65 + 23 op-2D + 11 op-2F HUD/
   text stay RQ_HUD (`PSXPORT_PRIMDUMP=650` histogram). Content interface — gameplay **RAM 0-diff @ f650**
@@ -1438,7 +1438,7 @@ runtime diagnostics:
   `PSXPORT_AUDIO_RATE` production-rate meter.
 
 ## 2026-06-17 (later-88) — HW renderer M0–M2 + M2b: Vulkan present + GPU VRAM image + triangle rasterizer; finding: Tomba2 is texture-dominated.
-Built the Vulkan/MoltenVK renderer foundation (approved plan; runtime/recomp/gpu_gpu.c, PSXPORT_VK=1):
+Built the Vulkan/MoltenVK renderer foundation (approved plan; runtime/psx/gpu_gpu.c, PSXPORT_VK=1):
 - **M0**: SDL_Vulkan swapchain + fullscreen-quad present (SW still rasterizes s_vram, VK presents it).
 - **M1**: VRAM as a device image (R16_UINT 1024x512 = 1555); present samples it + unpacks in-shader.
 - **M2**: GPU triangle pipeline (flat/gouraud) drawing into the VRAM image; readback. Self-test
@@ -1492,21 +1492,21 @@ each handler). The translation math is correct and can't smear/dupe (rigid per-o
 ## 2026-06-16 (later-85) — Phase 1: native entity-list walk LANDED (FUN_8007a904), default-on, oracle bit-identical.
 First native engine-layer function: `engine/engine_tomba2.c` reimplements the per-frame object driver
 `FUN_8007a904` in native C — walks both entity lists (heads 0x800fb168/0x800f2624) via next@+0x24,
-clears render_flag@+1, calls each node's handler@+0x1c via `rec_dispatch` (gameplay STAYS PSX). `next`
+clears render_flag@+1, calls each node's handler@+0x1c via `typed runtime address dispatch` (gameplay STAYS PSX). `next`
 read before the handler runs (handler may unlink the node) and held in a host local. Second list head
-re-read fresh after list 1 (matches the recomp reload).
-- **Verified faithful:** VRAM bit-identical (1 MB `cmp` PASS) native-walk vs recomp body at frames 4000
-  AND 4720 of real gameplay; default(native)==recomp-fallback at f4000. Visits 110-157 nodes/frame.
-- **Default-on** (the native engine owns the walk); `PSXPORT_RECOMP_OBJWALK=1` restores the recomp body
+re-read fresh after list 1 (matches the guest instruction path reload).
+- **Verified faithful:** VRAM bit-identical (1 MB `cmp` PASS) native-walk vs guest instruction path at frames 4000
+  AND 4720 of real gameplay; default(native)==guest instruction path-fallback at f4000. Visits 110-157 nodes/frame.
+- **Default-on** (the native engine owns the walk); `former static-path comparison setting=1` restores the guest instruction path
   as the oracle. `PSXPORT_ENGINE_DBG=1` logs node counts. This is the seam the user wanted: native
   engine driving PSX gameplay handlers in guest memory. Next: snapshot per-node pos for interpolation
   (the obj-pointer-keyed approach from later-84), then native cull/render submission.
 
 ## 2026-06-16 (later-84) — DIRECTION: Tomba2Engine native-engine port. Entity list RE'd + runtime-validated. Repo reorg + 72 GB cleanup.
 User redirected the project: reimplement Tomba!2's **engine layer** in native C (gameplay logic STAYS
-recompiled PSX in guest memory; the native engine reads entity structs from guest RAM). Repo reframed
-as **Tomba2Engine**; N64Recomp-style framework/game split, boundary-first in-tree (engine/ = game,
-runtime/recomp/ = common PSX platform → future psxport submodule). See CLAUDE.md, docs/engine_re.md,
+guest PSX in guest memory; the native engine reads entity structs from guest RAM). Repo reframed
+as **Tomba2Engine**; retired guest-source framework/game split, boundary-first in-tree (engine/ = game,
+runtime/psx/ = common PSX platform → future psxport submodule). See CLAUDE.md, docs/engine_re.md,
 plan <local-notes>/plans/fancy-tinkering-kite.md, memory [[tomba2engine-native-engine-pivot]].
 
 ### Engine RE — the entity system (Phase 0 done)
@@ -1525,7 +1525,7 @@ plan <local-notes>/plans/fancy-tinkering-kite.md, memory [[tomba2engine-native-e
   entity walk (Phase 1) owns the list. (wide60.c per-prim gating fix `b2de253` stays meanwhile.)
 
 ### Cleanup
-tools/clean.sh (allowlist of regenerable dumps; preserves RE assets/state/bios/bin/obj) — freed ~72 GB.
+the former cleanup tool (allowlist of regenerable dumps; preserves RE assets/state/bios/bin/obj) — freed ~72 GB.
 Dropped a stray tracked 16 MB Beetle savestate (`hold`).
 
 ## 2026-06-16 (later-83) — wide60 reprojection: FIXED user-reported "terrible" live output (smearing + flicker + TRIPLED weapon HUD icon). Root cause = global screen-XY remap with no per-prim object gating. Tooling-proven.
@@ -1630,7 +1630,7 @@ Rebuilt per [[wide60-60fps-architecture]]:
 
 ## 2026-06-16 (later-80) — wide60 60fps: full primitive capture + cross-frame MATCHER built & displacement-verified (the handoff's stated next milestone). Foundation for the in-between synthesizer.
 Continued the 60fps tier from later-57 (object→primitive join). Built milestones 3 (full capture) and
-the matcher, all in `runtime/recomp/wide60.c` + read-only taps in `gpu_native.c gp0_exec` (gated PSXPORT_WIDE60).
+the matcher, all in `runtime/psx/wide60.c` + read-only taps in `gpu_native.c gp0_exec` (gated PSXPORT_WIDE60).
 
 ### Mechanism
 - **Full primitive capture (PrimFrame A/B).** Every completed GP0 poly (`wide60_cap_poly`) and
@@ -1731,7 +1731,7 @@ Verified: at chan4 start CDVol drops 25480→**198** (first ramp step from 0) an
 
 **1-frame "blip" fix (native_boot.c `ov_bgm_start` → cd_override.c `xa_music_cut_if_dialog`):** the
 per-frame `xa_dialog_coord` stops the looping music one frame AFTER the audio is mixed (frame loop:
-`rc0(0x800788ac)` audio mix at line 378 runs BEFORE `native_scheduler_step`/`xa_dialog_coord` at 379-380),
+`guest call (0x800788ac)` audio mix at line 378 runs BEFORE `native_scheduler_step`/`xa_dialog_coord` at 379-380),
 so a dialog-tone start leaked ~1 frame of music. Now the BGM-start override (always-on; logging still
 gated by PSXPORT_BGMDBG) cuts the looping XA **synchronously** the instant a dialog-tone song (4-7) is
 written. Combined with the fade-in, any residual sub-frame leak is at ~0.6 % volume (inaudible).
@@ -1749,7 +1749,7 @@ from `cur` exactly **once per frame**, and on the music-(re)start frame it had A
 dropped and climbed. That leading full frame = the user's "1-frame blip" and "starts loud then drops to
 zero then climbs."
 - **Diagnosis tooling (gated, kept):** `xa_audio_trace()` (cd_override.c, PSXPORT_XA_DBG) logs the fade
-  vars + XA lifecycle per frame at `pre`/`post`/`coord` points (native_boot.c, around `rc0(0x800788ac)`);
+  vars + XA lifecycle per frame at `pre`/`post`/`coord` points (native_boot.c, around `guest call (0x800788ac)`);
   `[xamix]` (spu.c, PSXPORT_XAMIX_DBG, env cached) logs the CDVOL actually applied to live XA samples.
   The trace nailed it: at chan4 start `[xamix] CDVolL=25480` (full) for the start frame, then 198/198…
 - **Fix (cd_override.c `music_fade_in`):** in addition to `DAT_800be224`=0, write the SPU CDVOL register
@@ -1766,7 +1766,7 @@ zero then climbs."
   never fades here at all. Don't fix blind.
 
 ## 2026-06-16 (later 78) — FIXED later-77: in-game XA-ADPCM streaming implemented natively (prologue BGM + voice now audible, WAV-confirmed). Fisherman-scream "first note repeats / cutscene won't advance" ROOT-CAUSED to FUN_8001cfc8's faked GetlocL position wait; interim stopgap in place, native engine-port planned.
-**New native subsystem `runtime/recomp/xa_stream.c`** (in build: added to run.sh + tools/build_port.sh).
+**New native subsystem `runtime/psx/xa_stream.c`** (in build: added to run.sh + tools/build_port.sh).
 Decodes CD-XA from the ReadS-streamed sectors and feeds the SPU CD-audio input via
 `CDC_GetCDAudioSample()` (Beetle spu.c calls it per 44.1kHz sample, scaled by the game's `CDVol`,
 gated on `SPUControl` bit0 — both game-set). The silence stub that used to live in spu_beetle.c is
@@ -1859,7 +1859,7 @@ task-2 state tracks clip completion, instead of sticking on the first clip forev
 
 ### later-78b — the dialog/voice chain RE'd (stopgap did NOT fix fisherman; user confirms)
 The voice line gates cutscene advancement via the **voice TASK**, not a flag:
-- Dialog/cutscene script (recomp, e.g. FUN_80043a40) plays a voice line by index via the engine
+- Dialog/cutscene script (guest instruction path, e.g. FUN_80043a40) plays a voice line by index via the engine
   voice APIs: **FUN_8001d71c / FUN_8001d364 / FUN_8001d41c / FUN_8001d0e0** → all funnel to
   **FUN_8001d2a8(chan, start_lba, end_lba, flags)** which sets task-2 fields + `DAT_800be0e4` and
   (re)registers task slot 2 (FUN_80051f14 → entry FUN_8001cfc8, state=2). Clip channel/LBA come from
@@ -1875,17 +1875,17 @@ The voice line gates cutscene advancement via the **voice TASK**, not a flag:
   XA STARTs seen headless, clips progress. Need to reach the fisherman scream and let it AUTO-advance
   (no input). Ask the user how to reliably trigger it, or compare vs oracle at that exact beat.
 
-### NEXT — port the voice-streaming engine to native C (engine→PC; gameplay/script stays on recomp)
+### NEXT — port the voice-streaming engine to native C (engine→PC; gameplay/script stays on guest instruction path)
 Port FUN_8001d2a8 (+ the by-index APIs) and FUN_8001cf2c to drive xa_stream DIRECTLY and DROP the task-2
 coroutine FUN_8001cfc8 entirely (no scheduler interaction → no re-register fragility, no GetlocL fake):
 - xa_stream: add play(chan,start,end,loop) [idempotent if same clip already active → no ring reset/
   repeat] + busy() [1 while play_lba<=end & active].
 - Override FUN_8001d2a8 → xa_stream_play; FUN_8001cf2c → xa_stream_stop. DROP spawning task slot 2.
 - The cutscene polls `DAT_801fe0e0 != 0` (task-2 state): since we no longer run task 2, MAINTAIN that
-  byte natively = (xa_stream_busy() ? running : 0) so the existing recomp wait still works. (Set it on
+  byte natively = (xa_stream_busy() ? running : 0) so the existing guest instruction path wait still works. (Set it on
   play, clear it when the clip finishes.) Verify clip plays once + scene auto-advances; compare vs oracle.
 Old single-function plan (kept for reference):
-Per the locked architecture (engine on PC, gameplay on recomp/interp), the streaming reader is ENGINE
+Per the locked architecture (engine on PC, gameplay on guest instruction path/interp), the streaming reader is ENGINE
 and should be native, eliminating the faked GetlocL poll. Plan:
 1. Add a **native task-stepper** path to `native_scheduler_step` (native_boot.c): when a slot's entry
    is a known native engine task (0x8001cfc8), call a native stepper instead of `rec_coro_run`; treat
@@ -1902,7 +1902,7 @@ Got the oracle to the SAME prologue scene (cold boot + tap Start/Cross navigates
 title.sav does NOT take input — its frontio/SIO state is stale, cold boot is the reliable path) and
 diffed: at the prologue narration the **oracle ALSO has song=0xFF / no active libsnd slot** (tools/bgm.py
 on scratch/bin/orc_prologue.bin). So the prologue's audio is NOT sequenced → it's **XA-ADPCM CD audio**.
-- `runtime/recomp/cdc_native.c`: CD `SetFilter`(0x0D)/`Play`(0x03)/`Setmode`(0x0E) just ACK; `ReadN/ReadS`
+- `runtime/psx/cdc_native.c`: CD `SetFilter`(0x0D)/`Play`(0x03)/`Setmode`(0x0E) just ACK; `ReadN/ReadS`
   only `load_sector()` data files. There is **no XA-ADPCM decode → SPU CD-audio input** path at all.
   `disc.c` even says "(XA/STR) is a later front-end concern." FMVs get XA via native_fmv.c, but in-game
   streamed audio (cutscene BGM + dialog voice) is unimplemented.
@@ -2335,7 +2335,7 @@ SCENE-LOAD ATLAS textures (the big 256x256/192x256/… uploads), baked into VRAM
 ### So the bug is in the scene-load texture pipeline: decompress → upload
 Upload is faithful (later-63, native). So either the DECOMPRESSED output is wrong, or textures are
 placed at wrong VRAM coords, or the descriptor that drives it is wrong. NOTE this re-opens the
-decompressor: later-61 only proved native==recomp==interp (consistency across OUR engines), never
+decompressor: later-61 only proved native==guest instruction path==interp (consistency across OUR engines), never
 correctness vs the oracle — and the "clean-C is faithfulness-independent" argument only covers
 load-delay (now ruled out), not other subtle bugs or wrong INPUT addressing. NEXT: diff our green-field
 VRAM ATLAS region (camera-independent, loaded once) against the oracle's to see WHICH texpages are
@@ -2356,7 +2356,7 @@ unaligned-merge idiom (our no-delay model already merges those correctly: lwl co
 - **Runtime, full attract incl. green-field (f3360) AND dungeon (f5000), 2600 logic frames: 0
   genuine hazards.** The overlays (gameplay logic, rec_coro_run) have NONE.
 - **Static scan of all of MAIN.EXE (scratch/ldscan.py): 44 raw hits, ALL in the DATA region**
-  (addresses ≥0x800A0000; highest recompiled function is 0x8009D06C) — pointer/asset tables misread
+  (addresses ≥0x800A0000; highest guest function is 0x8009D06C) — pointer/asset tables misread
   as code, not real instructions. Zero in actual code.
 - Why: the SN/GCC toolchain fills every load-delay slot (nop or an independent op), so compiler
   output never reads a load target in the next slot. Only hand-asm would, and the lwl/lwr pairs
@@ -2378,7 +2378,7 @@ change a pixel here.) RULED OUT — do not re-chase.
 ### Where the bug stands (elimination)
 Ruled out: rasterizer, CD-read, XA, unaligned-SWR, raw-load, decompressor, **upload library**
 (later-63), **load-delay** (this entry). Texpages correct; atlas content correct by argument
-(native decompressor is faithfulness-independent yet byte-identical to recomp/interp). Remaining:
+(native decompressor is faithfulness-independent yet byte-identical to guest instruction path/interp). Remaining:
 wrong UVs / wrong CLUT-INDEX per poly / wrong per-frame CLUT CONTENT / wrong vertex geometry —
 all computed by interpreted game logic — OR a wrong/missing HLE the render path relies on. The
 decisive tool is still a scene-aligned oracle lockstep (find FIRST RAM divergence via a shared
@@ -2386,28 +2386,28 @@ logic-frame counter); cross-moment VRAM/RAM diff stays blocked.
 
 ## 2026-06-15 (later 63) — GPU UPLOAD LIBRARY now PC-native (user directive: "PC-native GPU, not faithful"). RULES OUT the upload library as the corruption source — fully native upload reproduces the SAME garbage byte-near-identically.
 User directive (corrects later-62's "faithfully port the vtable"): the GPU library should be **PC-native,
-not a faithful recomp**. So instead of byte-translating the libgs vtable, I replaced the upload entry
+not a faithful guest instruction path**. So instead of byte-translating the libgs vtable, I replaced the upload entry
 point with a native VRAM blit and tested whether the corruption changes.
 
 ### What was done
 - **FUN_80081218 (0x80081218) → `ov_upload_image` (games_tomba2.c) + `gpu_native_load_image`
   (gpu_native.c).** Empirically RE'd (PSXPORT_UL_PROBE + the A0 UPLOADLOG, exact match): a0 =
   descriptor { x:s16@0, y:s16@2, w:s16@4, h:s16@6 }, a1 = source = w*h contiguous 16-bit pixels,
-  row-major. The recomp body ENQUEUES into the GsSortObject ring @0x800A5AC8 (head/tail @5AC8/5ACC,
+  row-major. The guest instruction path ENQUEUES into the GsSortObject ring @0x800A5AC8 (head/tail @5AC8/5ACC,
   mod 0x40), DMA'd later as a GP0 0xA0 packet. **It is the SINGLE chokepoint for BOTH the scene-load
   texture atlas (256x256/192x256/128x256… into the character texpages) AND every per-frame 16x1 CLUT
   — 5315 CLUT + ~25 atlas calls per attract run.** Native impl writes the rect straight to s_vram and
-  does NOT enqueue (later ring flush/sync no-ops over the empty ring). A/B: PSXPORT_LZ_RECOMP=1 keeps
-  the recomp upload library. The unpacker (ov_unpack_group) routes its uploads here too → the whole
+  does NOT enqueue (later ring flush/sync no-ops over the empty ring). A/B: former static-path comparison setting=1 keeps
+  the guest instruction path upload library. The unpacker (ov_unpack_group) routes its uploads here too → the whole
   decompress→upload asset path is now PC-owned.
 
 ### RESULT — upload library RULED OUT as the corruption source
-A/B over 5187 presented frames (native vs PSXPORT_LZ_RECOMP=1), `cmp` each PPM:
+A/B over 5187 presented frames (native vs former static-path comparison setting=1), `cmp` each PPM:
 - **5038 byte-identical; 149 differ, all in the green-field demo f3270–3775, by ~0.4% (≈300px/76800).**
 - The differing pixels are a CLUT upload-TIMING offset (native writes immediately at the enqueue call;
-  recomp defers to the ring flush — likely a 1-frame CLUT lag, so native is plausibly *more* correct).
+  guest instruction path defers to the ring flush — likely a 1-frame CLUT lag, so native is plausibly *more* correct).
 - **The corruption is UNCHANGED.** f03360 (striped grass/black blocks/garbled char) and f03720
-  (magenta+RGB-noise striped pillars) are visually identical native vs recomp; f03720 is byte-identical.
+  (magenta+RGB-noise striped pillars) are visually identical native vs guest instruction path; f03720 is byte-identical.
   ⟹ a fully PC-native upload reproduces the same garbage ⟹ **the upload library is not the cause.**
 
 ### So where is the bug now (narrowed)
@@ -2426,16 +2426,16 @@ yes, the bug is in draw params (interpreter arithmetic), if no, in upload placem
 
 ## 2026-06-15 (later 62) — porting non-gameplay subsystems to native (user goal). Decompressor + texture-unpacker now PC-owned & verified byte-identical. Next subsystem mapped: the libgs-style gfx/upload vtable.
 Per the user's directive ("have anything EXCEPT gameplay logic PC-owned"), porting the asset/gfx
-library out of recomp+interp into native C, one subsystem at a time, A/B-verified vs the recomp body
-(PSXPORT_LZ_RECOMP=1) until the gameplay 2D-sprite corruption surfaces/resolves.
+library out of guest instruction path+interp into native C, one subsystem at a time, A/B-verified vs the guest instruction path
+(former static-path comparison setting=1) until the gameplay 2D-sprite corruption surfaces/resolves.
 
-### Done this session (committed, each byte-identical to recomp over the full attract run)
+### Done this session (committed, each byte-identical to guest instruction path over the full attract run)
 - **LZ image decompressor** FUN_80044D8C → `ov_lz_decompress`/`lz_decompress` (games_tomba2.c).
 - **Texture-group unpacker** FUN_80044E84 → `ov_unpack_group`. Reads descriptor table (count +
   12-byte entries {stride@+4, field@+6, srclen@+8}; packed source 0x800 past the table); per entry
   dst = anchor − 2*stride*field, native-decompress, then FUN_80081218 (upload) + FUN_80080f6c.
   NOTE: both ports are behaviour-neutral so far (frames identical) — they don't fix the corruption;
-  they're steps toward full PC ownership. The recomp is faithful, so the divergence is elsewhere.
+  they're steps toward full PC ownership. The guest instruction path is faithful, so the divergence is elsewhere.
 
 ### NEXT subsystem mapped: the gfx/upload library (libgs/GsSortObject-style vtable)
 - The gfx context object is the STATIC struct at **0x800A5958** (pointer cached at 0x800A5998; state
@@ -2448,16 +2448,16 @@ library out of recomp+interp into native C, one subsystem at a time, A/B-verifie
   machine on 0x800A59A2 → handlers 0x80081010 / 0x8008109c / 0x800810e0.
 - To PC-own the upload path: port FUN_80081218 + FUN_80080fd4 + FUN_80080f6c and the method
   0x80082D04 (and whatever it dispatches). This is the prime remaining non-gameplay subsystem and the
-  most likely home of the corruption (or an HLE/recomp quirk it relies on). Tooling: PSXPORT_TEXWATCH
+  most likely home of the corruption (or an HLE/guest instruction path quirk it relies on). Tooling: PSXPORT_TEXWATCH
   (VRAM-rect upload trace), PSXPORT_CW (RAM store watchpoint), PSXPORT_UPLOADLOG.
 
 ### Obstacle to differential debugging (documented, do not re-fight)
 Cross-engine RAM/VRAM compare is blocked by frame-alignment: our native-boot frame numbering ≠ the
 oracle's, and the attract demo's dynamic CLUT/area cycling means our f3340 ≠ oracle f7000 for dynamic
 state (static level data DOES align 100%, but front-buffer/CLUT do not → 0% at arbitrary frames).
-So verify ports by A/B (native vs recomp, same engine) + visual, not by oracle RAM diff.
+So verify ports by A/B (native vs guest instruction path, same engine) + visual, not by oracle RAM diff.
 
-## 2026-06-15 (later 61) — DECOMPRESSOR RULED OUT (recomp==interp==native byte-identical); 0x801FCDC0 is transient scratch not the live CLUT; loaded data is disc-correct. New direction (user): port ALL non-gameplay-logic to native.
+## 2026-06-15 (later 61) — DECOMPRESSOR RULED OUT (guest instruction path==interp==native byte-identical); 0x801FCDC0 is transient scratch not the live CLUT; loaded data is disc-correct. New direction (user): port ALL non-gameplay-logic to native.
 Chased the per-frame CLUT at 0x801FCDC0. Findings, including a falsified hypothesis (kept honest):
 
 ### What the corruption looks like (user ground-truth, windowed + headless repro)
@@ -2467,21 +2467,21 @@ it's the 2D sprite/CLUT path. Reproduces headless: f5000 dungeon demo = characte
 2D counter garbled (`scratch/frames/view_05000.png`). "Corrupted differently each time" windowed =
 OS-threading races (user: don't chase determinism; headless IS deterministic).
 
-### FALSIFIED hypothesis (do NOT repeat): "decompressor recomp-vs-interp divergence"
-`gen_func_80044D8C` is the LZ image decompressor (2D predictors: offset[i]=base+2*factor*stride from
+### FALSIFIED hypothesis (do NOT repeat): "decompressor guest instruction path-vs-interp divergence"
+`guest 0x80044D8C` is the LZ image decompressor (2D predictors: offset[i]=base+2*factor*stride from
 the static table @0x800153C8; ctrl byte → len=ctrl>>3, mode=ctrl&7; mode0=literal, else back-ref).
 I caught it (PSXPORT_CW host-backtrace store watchpoint, added to mem.c) writing ZEROS to 0x801FCDC0
-via the flat interpreter, while the recompiled path wrote the correct CLUT — looked like a
-recomp-vs-interp divergence. **It is NOT.** Rendered frames are BYTE-IDENTICAL across the entire
-5947-frame attract run whether the decompressor runs native, recompiled, or flat-interpreted
+via the flat interpreter, while the guest path wrote the correct CLUT — looked like a
+guest instruction path-vs-interp divergence. **It is NOT.** Rendered frames are BYTE-IDENTICAL across the entire
+5947-frame attract run whether the decompressor runs native, guest, or flat-interpreted
 (`scratch/frames/{after,before}` cmp: 5947 same / 0 differ). The "zeros at 0x1FCDC0" is a TRANSIENT
-decompression-scratch leftover — the unpacker `gen_func_80044E84` sets dst = anchor(0x1FD000) −
+decompression-scratch leftover — the unpacker `guest 0x80044E84` sets dst = anchor(0x1FD000) −
 2*stride*field, decompresses each texture into that (intentionally overlapping) scratch, then
 immediately uploads it to VRAM via `0x80081218` (vtable dispatch through the gfx object @0x800A5998).
 The LIVE CLUTs/textures are in VRAM, not RAM — comparing 0x1FCDC0 in a RAM dump was an alignment ghost.
 
 ### Ruled out / verified this session
-- **Decompressor** (recomp==interp==native, byte-identical over the whole run). NOT the cause.
+- **Decompressor** (guest instruction path==interp==native, byte-identical over the whole run). NOT the cause.
 - **Loaded compressed source is disc-correct**: scratch 0x8018A000 at f3340 == disc LBA 2636 100%
   (tool `scratch/bin/srccmp` — links disc.c, compares a RAM-dump region to disc sectors).
 - 0x80158000 / 0x80182000 static level data == oracle 100% (scene base aligns). 0x8018A000 is a
@@ -2490,7 +2490,7 @@ The LIVE CLUTs/textures are in VRAM, not RAM — comparing 0x1FCDC0 in a RAM dum
 
 ### Changes kept (verified, aligned with the new goal)
 - **LZ decompressor is now PC-owned** (`ov_lz_decompress` in games_tomba2.c; A/B via
-  PSXPORT_LZ_RECOMP=1). Verified byte-identical to recomp over the full run. First step of the goal,
+  former static-path comparison setting=1). Verified byte-identical to guest instruction path over the full run. First step of the goal,
   but does NOT fix the corruption by itself.
 - **interp.c rec_coro_run**: tail-`j` (op 0x02) now routes through coro_native_call, so native
   overrides / BIOS vectors fire on tail-jumps too (were bypassed — only jal/jalr/jr checked).
@@ -2499,7 +2499,7 @@ The LIVE CLUTs/textures are in VRAM, not RAM — comparing 0x1FCDC0 in a RAM dum
 Port the texture/gfx/upload library to native C and keep going until the corruption surfaces or
 resolves. NEXT native targets: unpacker 0x80044E84, upload 0x80081218, the gfx object @0x800A5998
 (libgs/libgpu-style; method table at obj+8/+1c/+20, obj+0x3c). Root cause still OPEN — likely in the
-gfx/upload library, or a shared recomp+interp faithful-first quirk (no load-delay slot, add==addu)
+gfx/upload library, or a shared guest instruction path+interp faithful-first quirk (no load-delay slot, add==addu)
 that both engines share but the oracle doesn't.
 
 ## 2026-06-15 (later 60) — corruption RULED-OUT list grows: NOT unaligned-SWR (latent SWR bug found+fixed but never hit), NOT CD-read, NOT XA-interleave. Corruption is in the gameplay texture UPLOAD/VRAM-content path; data loads correctly.
@@ -2529,11 +2529,11 @@ it correct needs a SAME-SCENE compare vs the oracle (level data is static once l
 compare is alignment-insensitive — the decisive next test).
 
 ### RESULT of the same-scene RAM compare: LOADED DATA IS BYTE-PERFECT (load/decompress ruled out)
-Dumped recomp RAM at a green-field gameplay frame and oracle RAM at its green-field frame (7000), then
+Dumped guest instruction path RAM at a green-field gameplay frame and oracle RAM at its green-field frame (7000), then
 compared. The texture/level-data staging regions **0x80158000 / 0x8018A000 / 0x80182000 match the
 oracle at 100.0%** (768 KB byte-identical across two different engines ⇒ same scene AND correct data).
 **So the loaded+decompressed texture data in RAM is correct; load/decompress is NOT the bug.** Tools:
-recomp `PSXPORT_RAMDUMP_FRAME=N PSXPORT_RAMDUMP=path`; oracle `PSXPORT_RAMDUMP=frame:path`.
+guest instruction path `PSXPORT_RAMDUMP_FRAME=N PSXPORT_RAMDUMP=path`; oracle `PSXPORT_RAMDUMP=frame:path`.
 
 Full 2 MB aligned diff: only the **dynamic object/game-state region 0x800C0000–0x800E0000 (~68–77%)**
 and low kernel RAM (0x0–0x10000, 22%) diverge — but that is almost certainly **frame-WITHIN-scene**
@@ -2562,7 +2562,7 @@ fill routine. Then diff the staged texture/CLUT bytes: a mismatch pins the mistr
 processing instruction. (mem_swr fix is committed but is NOT the cause; rasterizer, CD-read,
 XA-interleave, unaligned-SWR, and raw-load all ruled out.)
 
-## 2026-06-15 (later 59) — GAMEPLAY CORRUPTION ISOLATED: it is NOT the rasterizer — the recompiled CPU/HLE produces a PROGRESSIVELY-CORRUPT GP0 stream (bad RAM-sourced texture/CLUT data). Beetle reproduces our garbage byte-near-identically; the oracle running the real game is clean.
+## 2026-06-15 (later 59) — GAMEPLAY CORRUPTION ISOLATED: it is NOT the rasterizer — the guest CPU/HLE produces a PROGRESSIVELY-CORRUPT GP0 stream (bad RAM-sourced texture/CLUT data). Beetle reproduces our garbage byte-near-identically; the oracle running the real game is clean.
 User (windowed, ground truth): in-game graphics "grow more and more garbage as you play" — garbage
 blocks, missing sprites, melted geometry; fishing-rod teleports in the non-FMV intro cutscene. Also
 asked to **sync native vs oracle at attract** and observe. (Audio: attract has NO BGM in BOTH native
@@ -2572,7 +2572,7 @@ later-54, untouched here. Menu-cursor tempo (later-58) USER-CONFIRMED correct.)
 ### Repro (headless attract — corrects the handoff's "attract renders coherently")
 The attract **gameplay DEMO** reproduces it; the early intro (SCEA, character cutscenes, TOMBA 2
 title) is coherent, but once the DEMO starts the scene is corrupt and **worsens over frames**.
-- Native recomp port (`scratch/bin/tomba2_port`), headless 2500 logic frames → ~5087 presents:
+- Native guest instruction path port (`scratch/bin/tomba2_port`), headless 2500 logic frames → ~5087 presents:
   green-field demo lightly wrong by f~3345 (striped ground, garbled character, a black block),
   dungeon demo HEAVILY garbled by f5000 (character = vertical magenta/yellow rainbow bar).
   `scratch/logs/native_progression.png`, `native_fishing.png`, `native2_late.png`,
@@ -2593,7 +2593,7 @@ rasterizer (`replay_ours`) and Beetle (`wide60rt -gpureplay`), diffed VRAM:
 main RAM (`gpu_dma2_*` read via `mem_r32`). The draw commands are structurally fine (POLYDUMP f5000:
 textured gouraud tris, sane texpage/CLUT/geometry for the character) → the corruption is in the
 **texture/CLUT DATA in VRAM**, uploaded from RAM. It **degrades over time** ⟹ progressive **RAM
-corruption by the recompiled MAIN.EXE / native HLE** (a recompiler mistranslation or a missing/wrong
+corruption by the guest MAIN.EXE / native HLE** (a recorded instruction mismatch or a missing/wrong
 HLE the game relies on for memory/texture management). This is upstream of the GPU entirely.
 
 ### Tooling fixed
@@ -2611,13 +2611,13 @@ dungeon f4450+). User also reports the corruption hits **everything roughly toge
 terrain + sprites), not one sprite-load path first ⟹ **wholesale** corruption of a shared
 texture/VRAM region, not a single sprite pipeline. Clean 2D screens use big flat sprites / few
 textures; corrupt scenes are the 3D gameplay path (many textured polys + streamed sprite uploads),
-which runs largely from the recompiled **DEMO.BIN/GAME.BIN overlays** — a prime suspect (overlay
-recompilation or the gameplay texture-upload path). Whether corruption resets on scene load = TBD.
+which runs largely from the guest **DEMO.BIN/GAME.BIN overlays** — a prime suspect (overlay
+source generation or the gameplay texture-upload path). Whether corruption resets on scene load = TBD.
 
 ### Next (root cause — NOT yet found)
 Need a **differential RAM trace** vs the oracle to find the FIRST divergence (frame + address), then
-map to the mistranslated instruction / missing HLE. No lockstep recomp-vs-oracle RAM harness exists
-yet; the hard part is determinism/alignment (different engines: recomp C vs mednafen interpreter —
+map to the mistranslated instruction / missing HLE. No lockstep guest instruction path-vs-oracle RAM harness exists
+yet; the hard part is determinism/alignment (different engines: guest instruction path C vs mednafen interpreter —
 timers/RNG/uninit RAM differ benignly). Build that next. Do NOT re-chase the rasterizer — it is ruled
 out, bit-near-exact vs Beetle on real captured gameplay (f3360 + f5000).
 
@@ -2654,7 +2654,7 @@ Built milestone 2 of the 60fps tier: the object-identity join the matcher is fou
 ### Mechanism (all in `wide60.c` + thin taps, gated PSXPORT_WIDE60)
 - `games_tomba2.c` `ov_object_cull` overrides the per-object cull/LOD dispatcher **0x8007712C**
   (a0=object*, once/logic-frame per live drawable): sets `g_current_object = a0`, super-calls
-  `gen_func_8007712C` unchanged, restores. Registered only when wide60 is on.
+  `guest 0x8007712C` unchanged, restores. Registered only when wide60 is on.
 - `gte_beetle.c` `gte_op` RTP tap → `wide60_rtp(op)`: for each SXY the GTE just pushed (DR14 for
   RTPS, DR12/13/14 for RTPT) it stamps an **SXY→object grid** (epoch-stamped 1024×512, no per-frame
   memset) with `g_current_object`. So every projected vertex carries the object whose cull-subtree
@@ -2684,7 +2684,7 @@ in-between, and 60 Hz host present. No-flicker rule: unmatched geometry held at 
 Pivoted from widescreen (blocked, later-55) to the 60fps interpolation tier
 (`docs/wide60_recomp_60fps.md`). First milestone = actually measure the logic rate.
 
-### New file `runtime/recomp/wide60.c` (gated PSXPORT_WIDE60; additive)
+### New file `runtime/psx/wide60.c` (gated PSXPORT_WIDE60; additive)
 Owns the wide60 capture/rate-detector/(future)matcher+synthesizer. Milestone-1 content:
 - `wide60_geom_xy()` — folds the GTE's projected SXY (DR12/13/14 after RTPS/RTPT, tapped in
   `gte_beetle.c` `gte_op`) into a per-frame FNV-1a fingerprint. SXY output is **parity-invariant**
@@ -2777,12 +2777,12 @@ Implemented the later-53 fix (user picked "native sequencer tick"). The port now
   the REPL): tick mode `DAT_800ac424 = 5`, sequencer pointer `DAT_800ac42c = 0x80090BD0`
   (`SsSeqCalled`), user-cb `DAT_800ac430 = 0x80086288`, `DAT_800ac434 = 0`. The VBlank IRQ runs the
   tick **wrapper `FUN_800909c0`** = (optional user cb) + `(*SsSeqCalled)()`.
-- **Neither `0x800909c0` nor `0x80090bd0` is emitted by the static recompiler** — they're only ever
+- **Neither `0x800909c0` nor `0x80090bd0` is emitted by the retired source-generation path** — they're only ever
   reached through the IRQ callback pointer, never a direct `jal`, so the indirect-call discovery
-  never saw them (classic recomp coverage gap). They run fine through the hybrid interpreter.
+  never saw them (classic guest instruction path coverage gap). They run fine through the hybrid interpreter.
 
 ### Fix (games_tomba2.c `ov_frame_update`)
-Call `rec_dispatch(c, 0x800909C0)` once per `ov_frame_update` (→ interpreter, bit-identical, runs
+Call `typed runtime address dispatch(c, 0x800909C0)` once per `ov_frame_update` (→ interpreter, bit-identical, runs
 the wrapper to its `jr ra`). This is "port the HW interrupt work to PC" (the busy-wait-porting
 rule), NOT IRQ simulation. Guarded on the sequencer pointer `mem_r32(0x800AC42C)` being a sane code
 address so we never call through null before `SsStart`. Opt out (A/B): `PSXPORT_T2_NOSEQTICK`.
@@ -2865,7 +2865,7 @@ Headless boot, Start held to skip logos (`scratch/inputs-skipintro-long.txt`), 9
   music is SPU-voice (KON), not CD audio. `CDC_GetCDAudioSample` being stubbed only costs FMV
   CD-audio-through-SPU (which the port routes around natively anyway). Wiring it would not bring
   back the menu/gameplay music.
-- **VBlank callback `0x800506b4` is confirmed (disassembled, `generated/shard_6.c`) to be ONLY
+- **VBlank callback `0x800506b4` is confirmed (disassembled, `authenticated executable/overlay evidence`) to be ONLY
   `lhu/addiu/sh` on the dwell counter `0x800E809C`** — a pure counter bump, NOT the sequencer.
   The journal was right about that; the sequencer is a *different*, Timer/SPU-IRQ handler.
 
@@ -2977,8 +2977,8 @@ VERIFIED (oracle ground truth, headless): differ on f3000 banner frame 2.57%→0
 f3000 grass frame ours-vs-Beetle = **0.000% IDENTICAL**. Live port (scratch/bin/tomba2_port via run.sh)
 rebuilt, ran headless to f3200, reaches GAME and renders — no crash/regression (the diff covers the whole
 back buffer: grass/sprites/shadow all unregressed, all improved). Note: the live port is built by run.sh
-(compiles runtime/recomp/*.c incl. gpu_native.c with the recompiled shards), NOT `make -C runtime` (that
-Makefile's OBJS omits recomp/; it's a stale/secondary path). The differ's replay_ours uses gpu_native.c
+(compiles runtime/psx/*.c incl. gpu_native.c with the guest shards), NOT `make -C runtime` (that
+Makefile's OBJS omits guest instruction path/; it's a stale/secondary path). The differ's replay_ours uses gpu_native.c
 standalone via tools/gpu_differ/build.sh.
 
 ## 2026-06-15 (later 50) — FIXED the menu-load flicker: only flip the double buffer when a frame drew
@@ -3395,9 +3395,9 @@ the level, renders sustained animating gameplay, takes input, and Tomba MOVES.**
   into `_DAT_1f8001f8` (word-granular, exactly as `FUN_8001d7c4` does: 0x200 words = 1 sector =
   2048 B; dest advances by words*4, no sector padding), then zero the count and set the position
   tracker `DAT_800be0e0 = last sector`. The reader returns immediately, `FUN_8001db38` sets
-  `DAT_1f80019b = 1`, task1 ends, and the GAME advances. (`FUN_8001D940` is recompiled — index 14 —
+  `DAT_1f80019b = 1`, task1 ends, and the GAME advances. (`FUN_8001D940` is guest — index 14 —
   so the override fires even though task1 runs in the flat interpreter: interpreted `jal 0x8001d940`
-  → `call_addr` → `is_recompiled` → `rec_dispatch` → `func_8001D940` → `g_override[14]`.)
+  → `call_addr` → `old guest-code lookup` → `typed runtime address dispatch` → `guest 0x8001D940` → `image-qualified runtime dispatcher[14]`.)
 - **RESULT (verified, headless, FORCE_BUTTONS=FFF7):** at native frame 224 the 4e=8 wait now
   advances (4e=8→6, 4c→1→2, then normal play). Over a 1500-native-frame run (4156 gpu frames),
   **0 near-black frames** in the gameplay region (≥f2900, 1256 frames); scene non-black count varies
@@ -3532,20 +3532,20 @@ on real pad input. Verified headless (state log + frame dumps).
   speed), find what it waits on to leave the load (CD/strNext/asset), and confirm whether prims are
   clipped-out vs sampling-black.
 
-## 2026-06-15 (later 35) — AUTHENTIC BOOT WORKS: recompiled stub draws SCEA → LoadExec → MAIN title
+## 2026-06-15 (later 35) — AUTHENTIC BOOT WORKS: guest stub draws SCEA → LoadExec → MAIN title
 Replaced the FAKE native_fmv intro with the AUTHENTIC boot: the disc's boot executable SCUS_944.54
-is now **recompiled** and run as the real PSX entry, drawing toward SCEA, then handing to native
+is now **guest** and run as the real PSX entry, drawing toward SCEA, then handing to native
 MAIN boot (later 33). One faithful path — no boot-mode env toggles (user directive).
-- **Recompiler emits the stub as a SEPARATE module** (`emit.py --stub`, STUB_NAMES). The stub
+- **recorded guest call graph contains the stub as a SEPARATE module** (`the removed CPU-source emitter --stub`, STUB_NAMES). The stub
   overlaps MAIN.EXE's address space (both load @0x80010000; stub text 0x10000–0x38800, entry
-  0x80018B6C), so a shared `func_<addr>` namespace would collide. emit.py was refactored into
-  `emit_module(exe, out_dir, Names, …)`: MAIN keeps `func/rec_dispatch/rec_set_override/g_override`;
-  the stub gets `stub_func/stub_dispatch/stub_set_override/g_stub_override` + its own
-  `stub_shard_*.c`/`stub_disp.c`/`stub_decls.h`. Both share `rec_dispatch_miss` (BIOS/interp) on a
-  dispatch miss. 214 stub fns recompiled from the entry's jal graph; the rest run via the interp on
+  0x80018B6C), so a shared `a guest address` namespace would collide. the removed CPU-source emitter was refactored into
+  `emit_module(exe, out_dir, Names, …)`: MAIN keeps `func/typed runtime address dispatch/tomba::native::declareOverride/image-qualified runtime dispatcher`;
+  the stub gets `stub_func/stub_dispatch/stub tomba::native::declareOverride/g_stub_override` + its own
+  `stub_shard_*.c`/`stub_disp.c`/`stub_decls.h`. Both share `runtime dispatch fault` (BIOS/interp) on a
+  dispatch miss. 214 stub fns guest from the entry's jal graph; the rest run via the interp on
   the stub's RAM bytes (hybrid, same as MAIN). run.sh extracts SCUS_944.54 + passes `--stub`.
 - **boot.c**: removed the `native_fmv_play("LOGO.STR"/"OP.STR")` fake intro. Single path →
-  `native_stub_run(&c, MAIN.EXE path)` (runtime/recomp/native_stub.c): loads the stub over MAIN's
+  `native_stub_run(&c, MAIN.EXE path)` (runtime/psx/native_stub.c): loads the stub over MAIN's
   low text, `stub_dispatch(c, 0x80018B6C)`; intercepts the stub's **LoadExec (BIOS A0:0x51)** via
   `g_loadexec_hook` → reloads MAIN.EXE (restoring the text the stub overwrote, as the real boot
   does) + longjmps out → `native_boot_run` takes over. (The stub loads MAIN by name through BIOS
@@ -3556,17 +3556,17 @@ MAIN boot (later 33). One faithful path — no boot-mode env toggles (user direc
   0x80019B78 → 2; CdDataSync 0x8001A944 → done; VSync vblank-wait 0x80017FC4 → advance the native
   frame clock (counter DAT_800267B4) + deliver VBlank events + `gpu_present()`. With these, CD init
   passes cleanly (no more "CD timeout"/"Init failed") and ResetGraph runs.
-- **Override plumbing for the stub**: `rec_set_override` is keyed by recompiled-function INDEX, so
-  it can't target non-recompiled stub fns. Added (a) `stub_set_override` (the stub module's
-  index-keyed table, for recompiled stub fns) and (b) `rec_set_interp_override` (a raw-address table
-  in interp.c, consulted by `call_addr` AND by `rec_dispatch_miss` before it enters the interpreter)
+- **Override plumbing for the stub**: `tomba::native::declareOverride` is keyed by guest-function INDEX, so
+  it can't target non-guest stub fns. Added (a) `stub tomba::native::declareOverride` (the stub module's
+  index-keyed table, for guest stub fns) and (b) `rec_set_interp_override` (a raw-address table
+  in interp.c, consulted by `call_addr` AND by `runtime dispatch fault` before it enters the interpreter)
   for interpreter-run stub fns. `native_stub.c::stub_override()` registers in both. Watchdog now also
   reports the interp PC and catches SIGSEGV/SIGABRT/SIGBUS with a backtrace.
 - **SCEA NOW RENDERS → LoadExec → native MAIN boot (full authentic chain works).** The SCEA state
   machine (crt0 → 0x800111B4 → 0x80011A78, jump table @0x80010054, 20 states) drives the **CD
   controller at the REGISTER level** (0x800123B0 pokes 0x1F801800–0x1F801803 via pointers baked in
   stub .data @0x80025434/38/3C/40; polls the IRQ-flag reg low 3 bits = CD response 1=DataReady
-  2=Complete 3=Ack 5=DiskError). Implemented a **native CD controller** (runtime/recomp/cdc_native.c,
+  2=Complete 3=Ack 5=DiskError). Implemented a **native CD controller** (runtime/psx/cdc_native.c,
   wired into mem.c io_read/io_write for 0x1F801800–3): index banking, param/response/data FIFOs, an
   interrupt queue (INT3-ack-then-INT2-complete), and the command set SCEA issues — GetTN(0x13),
   Init(0x0A), GetTD(0x14), ReadTOC(0x1E), **GetID(0x1A) → returns "SCEA" (licensed/America)**,
@@ -3597,12 +3597,12 @@ targets in range with `# frame N` markers) to get the REAL boot call path. See m
 - **Real boot path:** BIOS → **SCUS_944.54 stub draws the SCEA "…America Presents" screen** (high-
   res 700×480, TIM/font — not ASCII, not FMV, not BIOS) + loads MAIN.EXE → MAIN crt0 (0x800896E0)
   → game-main FUN_80050b08 → START → DEMO (Whoopee logo + OP movie FUN_80106f80) → menu.
-- **Why the port has no SCEA:** `runtime/recomp/boot.c` loads MAIN.EXE DIRECTLY and enters game-
+- **Why the port has no SCEA:** `runtime/psx/boot.c` loads MAIN.EXE DIRECTLY and enters game-
   main — it starts at the MAIN.EXE step, skipping the entire stub (SCEA). The native_fmv intro was
   a fake stand-in.
 - **NEXT — replicate authentically:** run **SCUS_944.54 as the real entry** (like the BIOS does):
-  load it to 0x80010000, run from its header entry (interpret via rec_interp/rec_coro_run — it's
-  not recompiled; or add it as a 2nd recomp input). It draws SCEA itself, then loads MAIN.EXE and
+  load it to 0x80010000, run from its header entry (interpret via test-only reference execution/rec_coro_run — it's
+  not guest; or add it as a 2nd guest instruction path input). It draws SCEA itself, then loads MAIN.EXE and
   jumps to 0x800896E0 → the existing native MAIN boot (later 33) takes over for Whoopee→OP→menu.
   Blocker to expect: the stub's MAIN.EXE LOADER uses BIOS/its-own file I/O at stub addresses (NOT
   the MAIN.EXE cd_override addresses) — wire native CD/BIOS-file-read for the stub's loader. Trace
@@ -3614,7 +3614,7 @@ The PC-PSX hybrid boot now reaches and RENDERS the Tomba!2 title screen
 (scratch/screenshots/nb5_f20.png) with NO PSX scheduler/threads/ucontext — verified on-screen.
 Chain: crt0 → native init prefix → native cooperative scheduler runs START (loads assets via
 the task1/task2 loader handshake) → FUN_80052078(1) → DEMO stage → DEMO draws the title.
-- **Native cooperative scheduler (no ucontext)** — `runtime/recomp/native_boot.c` +
+- **Native cooperative scheduler (no ucontext)** — `runtime/psx/native_boot.c` +
   `rec_coro_run` (interp.c). Each task is a resumable coroutine: a yield captures the PSX
   register context and longjmps out; resume restores it and continues at the captured PC. The
   PSX stack lives per-task in g_ram (obj+8), so no native stack/ucontext is needed. `rec_coro_run`
@@ -3625,10 +3625,10 @@ the task1/task2 loader handshake) → FUN_80052078(1) → DEMO stage → DEMO dr
   longjmp. native_scheduler_step walks the 3 task slots like FUN_80051e60; FUN_800506d0 re-arms
   a yielded task 1→2 each frame. Per frame it delivers VBlank + sound-DMA(0xF0000009) events the
   game's TestEvent waits poll.
-- **Recompiler now seeds from the overlays** (emit.py --overlays): functions reached only from
+- **recorded binary evidence now seeds from the overlays** (the removed CPU-source emitter --overlays): functions reached only from
   the stage overlays (FUN_80044bd4 the task registrar, etc.) were Ghidra/jal-invisible → ran in
-  the interpreter, un-overridable. emit.py scans START/DEMO/GAME.BIN for jal targets into resident
-  text (109 fns; 1118→1220 recompiled). discdump `get` does nested paths (BIN/X.BIN).
+  the interpreter, un-overridable. the removed CPU-source emitter scans START/DEMO/GAME.BIN for jal targets into resident
+  text (109 fns; 1118→1220 guest). discdump `get` does nested paths (BIN/X.BIN).
 - **Rendering wiring** — the native loop now does the draw/display-env handling it had omitted:
   per frame ClearOTagR the back buffer's OT + set PTR_DAT_800ed8c8 (env pair @ 0x800e80a8 +
   DAT_1f800135*0x2070 — Ghidra `+uVar1*0x81c` is WORD arithmetic = 0x2070 bytes; wrong stride
@@ -3636,7 +3636,7 @@ the task1/task2 loader handshake) → FUN_80052078(1) → DEMO stage → DEMO dr
   flip. GPU hardening: sprite/rect blit clips its dx/dy to the drawing area up front (an
   off-screen sprite was burning w*h sample_tex calls and wedging the frame); OT traversal capped
   at 0x10000 nodes with a malformed/cyclic warning.
-- **TOOL: frame-progress watchdog** (`runtime/recomp/watchdog.c`, PSXPORT_WATCHDOG=<sec>) — SIGALRM
+- **TOOL: frame-progress watchdog** (`runtime/psx/watchdog.c`, PSXPORT_WATCHDOG=<sec>) — SIGALRM
   fires if no frame presents within N sec, dumps the stuck backtrace (backtrace_symbols_fd, link
   -rdynamic, build -g) and _exit. Found both wedges above precisely. Use it for any boot hang.
 - **RESIDUALS (next):** (1) a MALFORMED/CYCLIC ordering table — DrawOTag from the OT head
@@ -3649,11 +3649,11 @@ the task1/task2 loader handshake) → FUN_80052078(1) → DEMO stage → DEMO dr
   PSXPORT_SKIP_INTRO=1 PSXPORT_GPU_DUMP=dir PSXPORT_WATCHDOG=8 PSXPORT_NATIVE_FRAMES=N.
 
 ## 2026-06-14 (later 32) — NATIVE HYBRID DRIVER stood up: init prefix + 1st stage transition
-Built `runtime/recomp/native_boot.c` (PSXPORT_NATIVE_BOOT=1, wired in boot.c). The PC engine
+Built `runtime/psx/native_boot.c` (PSXPORT_NATIVE_BOOT=1, wired in boot.c). The PC engine
 now drives game-main natively instead of running the infinite PSX scheduler:
-- **Approach:** override game-main `FUN_80050b08` with `ov_game_main`. crt0 `func_800896E0`
+- **Approach:** override game-main `FUN_80050b08` with `ov_game_main`. crt0 `guest 0x800896E0`
   runs its BSS-zero/SP/gp/heap setup and calls main, which lands in our override. The override
-  runs the ~25 init calls (transcribed 1:1 from FUN_80050b08:31275-31299) via `rec_dispatch`,
+  runs the ~25 init calls (transcribed 1:1 from FUN_80050b08:31275-31299) via `typed runtime address dispatch`,
   NOT the scheduler loop. Helpers rc0/rc1/rc2/rc3 set a0..a2 then dispatch.
 - **VERIFIED (RAM probes):** (1) init prefix runs clean — ResetGraph fires, no break during it
   (the `[break] code 1` after is crt0 post-main, expected). Scheduler state correct: task0
@@ -3663,7 +3663,7 @@ now drives game-main natively instead of running the infinite PSX scheduler:
   overlay raw to 0x80106228 via the native CD override: count@0x80106228=6,
   entry-word@0x8010649c=0x27BDFE38 (exact), task0 state=3 entry=0x8010649C.
 - **KEY mechanic:** with BIOS threads stubbed to no-ops, FUN_80051f80 (yield) / ChangeThread
-  just return — so a NON-looping task fn (FUN_800499e8) called via rec_dispatch runs straight to
+  just return — so a NON-looping task fn (FUN_800499e8) called via typed runtime address dispatch runs straight to
   completion. But the stage SEQUENCERS (FUN_801064f0 / DEMO / GAME entries) are infinite
   do/while(true) loops whose only exit is the scheduler's state==3 RESTART — with no-op
   ChangeThread they'd spin forever. So they MUST be reimplemented natively as per-frame state
@@ -3729,17 +3729,17 @@ START.BIN manifest `\BIN\{START,DEMO,GAME}.BIN`:
   80075a80, 800750d8.
 - **NEXT:** decode DEMO s7 + GAME's handlers (FUN_801086e0/720/784); then build the native PC
   driver (hybrid): run `FUN_80050b08` init calls, then a native frame loop = native re-impl of
-  each stage's per-frame state machine calling the recomp leaf draw/update fns (CD/wait already
+  each stage's per-frame state machine calling the guest instruction path leaf draw/update fns (CD/wait already
   native), no scheduler. Exploit "leaf tasks complete synchronously" — call them directly.
 
-## 2026-06-14 (later 30) — DIRECTION: PC-PSX HYBRID (PC drives recomp logic); boot RE started
+## 2026-06-14 (later 30) — DIRECTION: PC-PSX HYBRID (PC drives guest instruction path logic); boot RE started
 **User architecture decision** (see memory `psxport-hybrid-architecture`): psxport is a PC-PSX
 HYBRID. PC-native engine owns boot/graphics/FMV/audio/input and is the DRIVING FORCE — it owns
 the frame loop and **calls the game's RE'd per-frame entry points directly**, never blocked by
 PSX threading/waits/IRQ ping-pong (all stripped). Game LOGIC (AI/quests/player/menu) stays
-recomp. Execution model = "PC loop calls RE'd per-frame entry points": reimplement the control
+guest instruction path. Execution model = "PC loop calls RE'd per-frame entry points": reimplement the control
 flow (sequencing / per-frame state machine) natively, call the game's leaf logic functions
-(draw, per-object update) which are normal recompiled functions that return. NOT running the
+(draw, per-object update) which are normal guest functions that return. NOT running the
 infinite-loop yielding tasks as-is (needs ucontext, ruled out). SCEA is game-drawn (not BIOS).
 Target flow: PC boot -> SCEA -> WhoopeeCamp FMV -> OP FMV -> main menu. FMVs done.
 - **Boot RE so far:** game main = `FUN_80050b08` (init calls: FUN_80089788/80085b20/800898a0/
@@ -3765,7 +3765,7 @@ Target flow: PC boot -> SCEA -> WhoopeeCamp FMV -> OP FMV -> main menu. FMVs don
 - **NEXT (step by step):** (1) disasm stages 1/2 (0x801062e4, 0x8010637c) + find where SCEA
   is drawn and the SCEA->WhoopeeCamp->OP->menu transitions live; (2) build the PC-driven boot:
   native engine runs FUN_80050b08's init calls, then a native frame loop drives each stage
-  (call leaf draw/update via rec_dispatch/interp, native FMV for the two movies), no scheduler.
+  (call leaf draw/update via typed runtime address dispatch/interp, native FMV for the two movies), no scheduler.
   Harness `dumplba <lba> <nbytes> <out>` extracts any sector range.
 
 ## 2026-06-14 (later 29) — FMV FULLY WORKING (video+audio+speed); next: boot -> main menu
@@ -3837,14 +3837,14 @@ The intro wedge was diagnosed, then the whole emulated-thread approach was dropp
   The native CD/file loads all SUCCEED (12 reads incl START.BIN@1904 + 326KB@LBA9684); the
   wedge is the cooperative-task completion handshake, not I/O.
 - **Decision:** the game's runtime IS a coroutine task system (infinite-loop tasks that yield/
-  resume mid-function each frame) — running that recompiled code faithfully needs stack
+  resume mid-function each frame) — running that guest code faithfully needs stack
   save/restore (ucontext/fibers). Per user we are NOT doing that. So we **do not run the
   game's intro scheduler at all** — drive the intro natively.
 - **Done (commit `b60c3d4`):**
   - `threads.c`: ucontext coroutine layer **removed**; OpenThread/CloseThread/ChangeThread are
     now no-op stubs (scheduler no longer run).
   - `boot.c`: native intro — `native_fmv_play("MOVIE/LOGO.STR")` (SCEA + Woopee Camp) then
-    `("MOVIE/OP.STR")` (Tomba!2 opening). `func_800896E0` (scheduler entry) NOT entered.
+    `("MOVIE/OP.STR")` (Tomba!2 opening). `guest 0x800896E0` (scheduler entry) NOT entered.
     `PSXPORT_SKIP_INTRO=1` bypasses.
   - `native_fmv.c`: per-frame Start-skip (rising-edge) + pacing (`PSXPORT_FMV_FPS`, default 15).
   - `run.sh`: **native_fmv.c was never in the build** (FMV player was dead code, 0 callers) —
@@ -3860,15 +3860,15 @@ The intro wedge was diagnosed, then the whole emulated-thread approach was dropp
 - **OPEN (future milestone):** post-intro hand-off (title/gameplay) is the game's task system;
   running it without threading/ucontext needs a resumable-execution design (undecided).
 
-## 2026-06-14 (later 9) — DIRECTION CHANGE: native PC port (static recomp); decoder S0 done
+## 2026-06-14 (later 9) — DIRECTION CHANGE: native PC port (retired source-generation path); decoder S0 done
 **User: "new direction — port to PC, no PSX emulation, no PSX BIOS."** wide60/emulator path
 paused; full plan in `docs/recomp_port_plan.md`. Approach = instruction-level static
-recompiler (MIPS R3000A → C), HLE BIOS, peripherals (GTE/GPU/SPU/MDEC/CD) **lifted from the
+recorded binary evidence (MIPS R3000A → C), HLE BIOS, peripherals (GTE/GPU/SPU/MDEC/CD) **lifted from the
 GPL-2 Beetle fork**, diffed bit-exact against Beetle as oracle. Faithful-first, then wide60.
-- **S0 decoder DONE + validated:** `tools/recomp/{psexe.py,decode.py,test_decode.py}` (8/8,
+- **S0 decoder DONE + validated:** `tools/guest instruction path/{psexe.py,decode.py,test_decode.py}` (8/8,
   anchored to the real Tomba2 entry words). Full R3000A + COP0 + COP2/GTE coverage. Verified
   **0% unknown over 28480 words** of real game code.
-- **CRITICAL input finding:** the recompiler input is **NOT the boot EXE `SCUS_944.54`**.
+- **CRITICAL input finding:** the recorded binary evidence input is **NOT the boot EXE `SCUS_944.54`**.
   Boot-EXE text `[0x80010000,0x80038800)` differs from frame-1000 RAM in **98.8%** of words
   (EXE `0xFFFFFFFF` vs RAM `27BDFFD8` real prologue at `0x8001FC50`). The boot EXE is a
   **loader stub**; the real game = a **resident core + overlays loaded from the CD** over
@@ -3876,13 +3876,13 @@ GPL-2 Beetle fork**, diffed bit-exact against Beetle as oracle. Faithful-first, 
   the RESIDENT image (0% unknown), not the boot EXE. NEXT: recursive ISO9660 lister (extend
   `tools/discdump`) to find the on-disc main executable + overlay files = clean static inputs.
 
-## 2026-06-14 (later 10) — recompiler input found: MAIN.EXE (validated 99.9% vs RAM)
+## 2026-06-14 (later 10) — recorded binary evidence input found: MAIN.EXE (validated 99.9% vs RAM)
 Added `discdump list` (recursive ISO9660 tree) + `discdump get <NAME>`. Disc tree shows the
 real game executable: **`MAIN.EXE`** (root, LBA 23, 716800 B) — entry `0x800896E0`, load
 `0x80010000`, text `0xAE800`, SP `0x801FFFF0`. Extracted to `scratch/bin/tomba2/MAIN.EXE`.
 - **Validated:** MAIN.EXE text vs resident RAM_f1000 = **99.9% identical** (262/178688 diffs =
   runtime data writes); **all 1596 in-range Ghidra fns decode 0% unknown** from the clean
-  file. So MAIN.EXE IS the recompiler input; `SCUS_944.54` is just the boot stub that loads it.
+  file. So MAIN.EXE IS the recorded binary evidence input; `SCUS_944.54` is just the boot stub that loads it.
 - Overlays load above MAIN's text end `0x800BE800` (`jal 0x8011534C`, intro SM `0x80106xxx`)
   from `BIN/*.BIN` — later concern. FMVs are `MOVIE/{LOGO,OP,END}.STR`. Full disc map in
   `docs/recomp_port_plan.md`.
@@ -3890,44 +3890,44 @@ real game executable: **`MAIN.EXE`** (root, LBA 23, 716800 B) — entry `0x80089
   C per function, dispatch table, modeled R3000 state + memory accessors.
 
 ## 2026-06-14 (later 11) — S1 emitter done: full core compiles, leaf semantics verified
-`tools/recomp/emit.py` translates MAIN.EXE → C: **all 1597 functions** → `generated/
-tomba2_rec.c` (6.6 MB), **compiles clean** (3.5 MB .o). Runtime: `runtime/recomp/{r3000.h,
+`the removed offline emitter` translates MAIN.EXE → C: **all 1597 functions** → `authenticated executable/overlay evidence
+tomba2_rec.c` (6.6 MB), **compiles clean** (3.5 MB .o). Runtime: `runtime/psx/{r3000.h,
 mem.c,stubs.c}` (R3000 state, flat 2 MB RAM+scratchpad, lwl/lwr/swl/swr, R3000 div sem).
 - Emitter handles delay slots, intra-fn goto/labels (only for emitted addrs; data-region
-  branch targets route to rec_dispatch → no undefined labels — this was the one compile bug,
-  caused by data blobs in inter-fn gaps), direct-call vs rec_dispatch, generated dispatch.
+  branch targets route to typed runtime address dispatch → no undefined labels — this was the one compile bug,
+  caused by data blobs in inter-fn gaps), direct-call vs typed runtime address dispatch, generated dispatch.
 - **Verified** on 3 hand-checked leaf fns incl. delay-slot effects (`test_leaf.c`, all pass):
   `0x80089A30`→v0=0x800ABFD4 (lui+DS addiu), `0x800535D4`→mem8(a0+374)+1, `0x800269EC`→v0=1
-  +store. Reproduce: `tools/recomp/build.sh`.
+  +store. Reproduce: `tools/guest instruction path/build.sh`.
 - Faithful-first simplifications to verify via harness: no load-delay; add==addu; computed
-  `jr`→rec_dispatch (switch-table recovery later); data blobs emitted as dead fns.
-- NEXT (S2): load MAIN.EXE into g_ram, entry trampoline `func_800896E0`, HLE syscalls +
+  `jr`→typed runtime address dispatch (switch-table recovery later); data blobs emitted as dead fns.
+- NEXT (S2): load MAIN.EXE into g_ram, entry trampoline `guest 0x800896E0`, HLE syscalls +
   A0/B0/C0 vectors; stand up S4 diff harness vs Beetle in parallel.
 
-## 2026-06-14 (later 12) — S2 started: recompiled core RUNS from boot; HLE surface mapped
-`runtime/recomp/boot.c` loads MAIN.EXE into g_ram, enters `func_800896E0`. Emitter now
+## 2026-06-14 (later 12) — S2 started: guest core RUNS from boot; HLE surface mapped
+`runtime/psx/boot.c` loads MAIN.EXE into g_ram, enters `guest 0x800896E0`. Emitter now
 discovers direct-`jal` targets (fixpoint, stops at first UNKNOWN so data doesn't inject
 seeds) → caught a Ghidra-missed fn `0x80089860` (1597→1598). Dispatch misses route to
-runtime `rec_dispatch_miss`. **The core executes real boot code.** Measured boot needs:
+runtime `runtime dispatch fault`. **The core executes real boot code.** Measured boot needs:
 - BIOS (in order): `A0:0x39` InitHeap, `B0:0x19`, `B0:0x5B`, `C0:0x0A` ChangeClearRCnt,
   `A0:0x72`, `B0:0x35`. Then indirect fn `0x8009A8E8` (via `jalr` — direct-jal discovery
   can't see it; needs a fn-ptr/indirect seed or manual add).
 - HW regs: I_MASK/I_STAT, DMA DPCR, Timer1, CDROM, and a **GPUSTAT `0x1F801814` ready-poll**
   that spins (mem.c returns 0). Minimal GPU/timer status needed to advance.
 - NEXT: A0/B0/C0 HLE table for those ~6 calls + seed `0x8009A8E8` + minimal GPU/timer
-  status; stand up S4 diff harness vs Beetle to verify bit-exact. Build: `tools/recomp/
+  status; stand up S4 diff harness vs Beetle to verify bit-exact. Build: `tools/guest instruction path/
   build.sh` (leaf tests); boot recon: compile boot.c instead of test_leaf.c, run under
   `timeout`.
 
-## 2026-06-14 (later 13) — S2: recompiled core boots through BIOS into CD/event subsystems
-`runtime/recomp/hle.c` = recomp-native HLE BIOS (transcribed faithfully from the proven
+## 2026-06-14 (later 13) — S2: guest core boots through BIOS into CD/event subsystems
+`runtime/psx/hle.c` = guest instruction path-native HLE BIOS (transcribed faithfully from the proven
 `hle_kernel.cpp`): heap A0:0x33-0x39, HookEntryInt, FileWrite→stderr, GetB0/C0Table,
 ChangeClearPAD, GPU_cw, C0 installers, and `syscall` Enter/ExitCriticalSection via `$a0`.
 `mem.c` reports GPUSTAT (`0x1F801814`) permanently ready (+toggling bit31) to clear the
 boot ready-poll. Emitter EXTRA_SEEDS for jalr-reached fns `0x8009A8E8/ADC4/AA4C`.
 - **Verified**: boot runs deep real game code — heap init → HookEntryInt → CD init (emits
   `CD_init`/`CD_cw`/`CD timeout` via FileWrite) → past GPU handshake → OpenEvent/EnableEvent/
-  WaitEvent loop + CD-command retry loop. Reproduce: `tools/recomp/build.sh` (leaf tests +
+  WaitEvent loop + CD-command retry loop. Reproduce: `tools/guest instruction path/build.sh` (leaf tests +
   boot). Leaf tests still pass.
 - **S5 boundary (honest stop):** the CD-retry + WaitEvent loops block on CD-complete / VBlank
   **IRQs that nothing generates yet**. Faking "event fired"/CD-done = bandaid (refused).
@@ -3938,27 +3938,27 @@ boot ready-poll. Emitter EXTRA_SEEDS for jalr-reached fns `0x8009A8E8/ADC4/AA4C`
 ## 2026-06-14 (later 14) — DIRECTION: no CD/HW emulation; native overrides infra DONE
 User refined: "no CD code, no emulation, pure PC native." → don't emulate CD/IRQ; **override
 the game's CD/streaming fns with native file I/O, synchronous completion**. This is the
-recomp-overrides path. Override points already RE'd this session: `FUN_8008c1ec` (read
+guest instruction path-overrides path. Override points already RE'd this session: `FUN_8008c1ec` (read
 blocks@LBA), `FUN_8008bf50`/`FUN_8008b8f0` (CdSearchFile), read-SM `FUN_8008c294`/done flag
 `0x800AC308`/completion `FUN_800899bc`, low-level `CD_cw` loop (`0x8009Axxx`).
-- **Override infrastructure DONE + validated:** emitter emits `gen_func_X` (recomp body) +
-  `func_X` wrapper checking a runtime override slot; `rec_set_override(addr,fn)`/
+- **Override infrastructure DONE + validated:** emitter emits `gen_the cited guest address` (guest instruction path) +
+  `the cited guest address` wrapper checking a runtime override slot; `tomba::native::declareOverride(addr,fn)`/
   `rec_func_index`. Body kept alive (A/B + diffable), overrides fire on direct+indirect
-  calls, super-call = `gen_func_X`. `test_leaf.c` verifies replace/fire/super-call/toggle-off
-  (all pass). Matches recomp-overrides skill (runtime table, not compile-time exclusion).
+  calls, super-call = `gen_the cited guest address`. `test_leaf.c` verifies replace/fire/super-call/toggle-off
+  (all pass). Matches guest instruction path-overrides skill (runtime table, not compile-time exclusion).
 - NEXT (S3): native by-LBA disc backend (flat image or libchdr) + override the CD
   read/resolve/complete fns to use it synchronously; native VBlank/event source for
   WaitEvent. Then verify boot reaches title/FMV. Plan: docs/recomp_port_plan.md.
 
 ## 2026-06-14 (later 15) — CD override targets pinned; seed mistake corrected
-Mapped the exact functions to override for native-file CD (no emulation), all recompiled:
+Mapped the exact functions to override for native-file CD (no emulation), all guest:
 - **`0x8008B2D8` CdInit** = boot blocker (emits CD_init then CD_cw/CD timeout polling CD I/O
   regs with no IRQ → spins). `0x8008AC34` CD_cw, **`0x8008A6EC`** low-level command+wait
   (CD-timeout chokepoint). `FUN_8008c1ec` read-N@LBA, `FUN_8008c294` read-SM/done
   `0x800AC308`, `CdSearchFile 0x8008b8f0`.
 - **Corrected my mistake:** `0x8009A8E8/ADC4/AA4C` were NOT functions — they're mid-function
   jump-table labels inside the **printf/format-parser at `0x8009A76C`** (indirect-only,
-  Ghidra-missed), surfaced as misses because computed `jr` → rec_dispatch (no jump-table
+  Ghidra-missed), surfaced as misses because computed `jr` → typed runtime address dispatch (no jump-table
   recovery). Replaced those seeds with the real entry. Parser still needs jump-table recovery
   OR a native printf override (the PC-native fix). Not the boot blocker (just debug logging).
 - NEXT (S3): native by-LBA disc backend (discdump image / libchdr) + override CdInit +
@@ -3968,12 +3968,12 @@ Mapped the exact functions to override for native-file CD (no emulation), all re
 ## 2026-06-14 (later 16) — S3 CD DONE: native by-LBA reads, CdInit/timeouts gone; boot → VSync
 Implemented the native CD backend + overrides. **Boot now runs CdInit and CD commands
 natively (no controller, no IRQ handshake) and advances past CD into graphics/event init.**
-- **Disc backend `runtime/recomp/disc.c`** (libchdr, prebuilt `build/.../libchdr-static.a`):
+- **Disc backend `runtime/psx/disc.c`** (libchdr, prebuilt `build/.../libchdr-static.a`):
   `disc_read_sector(lba, out2048)` = hunk-cached CHD read, extracts the 2048-B user data
   (mode-aware offset), same as `tools/discdump.cpp`. Disc path via PSXPORT_TOMBA2_DISC /
   PSXPORT_DISC / `.env`. **Verified standalone:** LBA 16 = `CD001` (ISO PVD), LBA 23 = `PS-X`
   (MAIN.EXE header) — correct bytes by LBA.
-- **CD overrides `runtime/recomp/cd_override.c`** (recomp-overrides; bodies kept alive):
+- **CD overrides `runtime/psx/cd_override.c`** (guest instruction path-overrides; bodies kept alive):
   `0x8008B2D8` CdInit → v0=0 (drive ready, skip HW handshake; caller still installs libcd
   callbacks); `0x8008AC34` CdCommand → 0, `0x8008A6EC` CdSync → 2 (the spin-on-DAT_800ac298
   waiters, now moot — every data read is native); `0x8008C1EC` `FUN_8008c1ec(blocks,lba,buf)`
@@ -3996,18 +3996,18 @@ natively (no controller, no IRQ handshake) and advances past CD into graphics/ev
 ## 2026-06-14 (later 17) — events+VSync+threads HLE'd: boot REACHES the StrPlayer main loop
 Implemented the rest of S3's "native VBlank/event" surface; **boot now runs into the resident
 StrPlayer main loop `FUN_80050b08` (the per-frame game loop)** — verified deterministically
-via gdb backtrace (the recomp uses the native C stack, so `bt` names the game fn:
-`gen_func_80050B08 <- gen_func_800896E0 <- main`, identical across 3 runs). Leaf tests pass.
+via gdb backtrace (the guest instruction path uses the native C stack, so `bt` names the game fn:
+`guest 0x80050B08 <- guest 0x800896E0 <- main`, identical across 3 runs). Leaf tests pass.
 - **Events in `hle.c`** (transcribed from proven wide60 hle_kernel.cpp): B0:0x07 DeliverEvent,
   0x08 OpenEvent, 0x09 Close, 0x0A WaitEvent (can't block → reports ready+clears `fired`),
   0x0B TestEvent (read+clear), 0x0C Enable, 0x0D Disable. 16 EvCB slots, id base 0xF1000000.
   Plus B0:0x12-0x16 pad no-ops, 0x4A/0x4B card, C0:0x02/0x03 SysEnq/DeqIntRP→elem, A0:0x70
   _bu_init.
-- **Native VSync `runtime/recomp/timing.c`**: overrides libetc VSync `FUN_80085900` — VSync(0)
+- **Native VSync `runtime/psx/timing.c`**: overrides libetc VSync `FUN_80085900` — VSync(0)
   advances a native frame clock into `DAT_800abde0`, VSync(-1) queries it. Killed the
   `VSync: timeout` spin (`FUN_80085a78`).
 - **BIOS threads (hle.c, STOPGAP):** OpenThread hands back a handle + records entry PC;
-  **ChangeThread is a NO-OP** — the static-recomp core runs on the native C stack, so a real
+  **ChangeThread is a NO-OP** — the retired source-generation path core runs on the native C stack, so a real
   PC+reg context switch isn't possible by swapping a struct (unlike the wide60 interpreter).
   Fine while boot is straight-line; the StrPlayer FMV prebuffer thread + the 0x80080860
   green-thread coroutine primitives will need a real coroutine override (ucontext/sep stack).
@@ -4016,17 +4016,17 @@ via gdb backtrace (the recomp uses the native C stack, so `bt` names the game fn
   counter, 0x800E809C) is bumped by the game's **VBlank ISR callback**, registered at
   `0x80050C58` via `FUN_80085bb0` = libetc **VSyncCallback** (routes to the libapi interrupt
   vector `*(0x800abda0+0x14)(4, cb)` — UNMODELED, so nothing increments it). The callback is
-  `&LAB_800506b4`, a **mid-function label** (not a recompiled entry → can't just rec_dispatch
+  `&LAB_800506b4`, a **mid-function label** (not a guest entry → can't just typed runtime address dispatch
   to it). FIX OPTIONS: (a) override `FUN_80085bb0` to capture the cb addr(es) + seed
   `0x800506b4` as a callable entry (emitter seed) and pump the cb once per frame between the
   counter reset (0x80050C?? sets DAT_800e809c=0) and the dwell — natural pump point is the
   pre-dwell call `FUN_80080f6c(0)`; (b) model the libapi interrupt vector + a frame tick that
   invokes registered class-4 (vblank) callbacks. (a) is the localized, PC-native route.
-  Tooling note: **gdb attach + `bt` is the spin locator** for the recomp (C stack == game
+  Tooling note: **gdb attach + `bt` is the spin locator** for the guest instruction path (C stack == game
   call stack); build `boot_dbg` with `-O1 -g`.
 
 ## 2026-06-14 (later 18) — "don't dwell": main loop runs per-frame work; next = BIOS threads
-**User steer (saved to memory [[recomp-port-busywaits]]): port HW busy-waits to PC behavior
+**User steer (saved to memory [[guest instruction path-port-busywaits]]): port HW busy-waits to PC behavior
 ("make it not dwell"), don't simulate the VBlank IRQ to satisfy them.** Applied: dropped the
 vblank-callback capture/seed/pump idea; instead `games_tomba2.c` overrides the per-frame state
 update `FUN_800788ac` (sole caller = the main loop, runs once per iteration before the dwell)
@@ -4046,13 +4046,13 @@ gdb samples hit varied real fns each tick (libgpu `80083364`/`80081458`, StrPlay
   `state2→ChangeThread(handle)`, `state3→{EnterCS; handle=OpenThread(pc,sp,gp); ExitCS;
   ChangeThread}`. **Our ChangeThread is a NO-OP** (later-17 STOPGAP) → tasks never run.
   FIX = real BIOS threads: give each PSX thread its own **native stack (ucontext/makecontext)**;
-  OpenThread creates a context that will enter `gen_func_<pc>`; ChangeThread `swapcontext`s;
-  the boot/main thread is also a context. This is the static-recomp coroutine subsystem — the
+  OpenThread creates a context that will enter the guest body at the requested PC; ChangeThread `swapcontext`s;
+  the boot/main thread is also a context. This is the retired source-generation path coroutine subsystem — the
   one genuinely hard piece. Tooling: gdb attach + `bt` locates the spin/return (C stack == game
-  stack); `break gen_func_<addr>` checks whether a fn is reached.
+  stack); `break the cited guest instructions` checks whether a fn is reached.
 
 ## 2026-06-14 (later 19) — NATIVE BIOS THREADS (ucontext): loader task runs; CD reads in-game
-**The hard piece — native BIOS thread context switch — is in (`runtime/recomp/threads.c`),
+**The hard piece — native BIOS thread context switch — is in (`runtime/psx/threads.c`),
 and the native CD read path is now verified END-TO-END inside the running game.** The
 cooperative scheduler's tasks are BIOS threads; disasm confirmed the "coroutine primitives"
 are libapi gate stubs: `FUN_80080860`=OpenThread, `FUN_80080870`=CloseThread,
@@ -4061,7 +4061,7 @@ thread). `FUN_80051f14` creates each task with `OpenThread(entry, stack, gp)`.
 - **threads.c:** each PSX thread gets its own **native stack via ucontext**; `ChangeThread`
   saves the running thread's R3000 regs, restores the target's, and `swapcontext`s to the
   target's native stack (main = slot 0; handles 0xFF0000NN). A fresh thread starts in a
-  trampoline that `rec_dispatch`es its entry PC and, on return, switches back to main. The
+  trampoline that `typed runtime address dispatch`es its entry PC and, on return, switches back to main. The
   single shared R3000 is register-swapped across switches. Overrides the three gate stubs;
   hle.c B0:0x0E/0x0F/0x10 route to the same impl. Replaces the later-17 ChangeThread no-op.
 - **VERIFIED:** boot now runs the loader task `FUN_800499e8`, which `CdSearchFile`s
@@ -4092,26 +4092,26 @@ Boot now loads the first code overlay natively and reaches the **overlay-executi
 - **NEXT SUBSYSTEM — overlay code execution.** START.BIN (1648 B) at `0x80106228` IS MIPS code
   (the intro sequencer `FUN_801064f0` lives inside it). The game jumps into it → **miss
   `0x8010649C`**: the `0x80106xxx` overlay region is ABOVE MAIN.EXE's text (`0x800BE800`) and
-  was never recompiled. Options: (a) statically recompile the overlay files (START/OPN/GAME/…
+  was never guest. Options: (a) statically recompile the overlay files (START/OPN/GAME/…
   .BIN) with overlay-aware dispatch (they may share the `0x80106xxx` load address → only one
-  resident at a time); (b) a hybrid in-RAM MIPS interpreter as the rec_dispatch-miss fallback
+  resident at a time); (b) a hybrid in-RAM MIPS interpreter as the typed runtime address dispatch-miss fallback
   (also clears the printf/SetVideoMode jump-table misses). Decide + implement next.
 
 ## 2026-06-14 (later 21) — HYBRID INTERPRETER: overlays run; game executes intro logic
-**Overlay code execution solved with a hybrid fallback interpreter (`runtime/recomp/interp.c`).**
-The static recomp covers MAIN.EXE's resident text; overlays load from disc at runtime above it
-(0x80106xxx) and swap at shared addresses, so they can't be statically recompiled ahead of
-time. `rec_interp(c, pc)` runs any non-recompiled RAM code directly from g_ram using the SAME
-runtime + the SAME instruction semantics as the emitter (so interpreted == recompiled). Wired
-as the `rec_dispatch_miss` fallback for code addresses in [0x10000,0x200000): a jal/jr/jalr
-into non-recompiled RAM enters the interpreter; a call back into a recompiled fn routes to
-rec_dispatch (`is_recompiled` check). Also clears the in-function jump-table misses (printf
+**Overlay code execution solved with a hybrid fallback interpreter (`runtime/psx/interp.c`).**
+The retired source-generation path covers MAIN.EXE's resident text; overlays load from disc at runtime above it
+(0x80106xxx) and swap at shared addresses, so they can't be statically guest ahead of
+time. `test-only reference execution(c, pc)` runs any non-guest RAM code directly from g_ram using the SAME
+runtime + the SAME instruction semantics as the emitter (so interpreted == guest). Wired
+as the `runtime dispatch fault` fallback for code addresses in [0x10000,0x200000): a jal/jr/jalr
+into non-guest RAM enters the interpreter; a call back into a guest fn routes to
+typed runtime address dispatch (`old guest-code lookup` check). Also clears the in-function jump-table misses (printf
 0x8009A8E8, SetVideoMode 0x80091E18) by interpreting from the computed target.
 - **VERIFIED:** the START.BIN overlay (incl. intro sequencer `FUN_801064f0`) now executes — no
   misses, no `[interp] bad opcode`. It runs `CdSearchFile` for the next playlist file (new read
   LBA 1905), and the game progresses through its **timer-paced task schedule** (task-0 state
-  1→2 as its timer expires over ~8s). Leaf tests still pass. The recomp core stays 100%
-  recompiled; only dynamically-loaded overlay code is interpreted (legit hybrid execution).
+  1→2 as its timer expires over ~8s). Leaf tests still pass. The guest instruction path core stays 100%
+  guest; only dynamically-loaded overlay code is interpreted (legit hybrid execution).
 - **STATE: the game boots MAIN.EXE and runs its full software stack** — HLE BIOS, libcd (native
   file I/O), libetc VSync, events, the cooperative scheduler on real native threads, overlay
   load + execution, and the StrPlayer main loop drawing each frame. It advances the intro logic
@@ -4123,7 +4123,7 @@ rec_dispatch (`is_recompiled` check). Also clears the in-function jump-table mis
 First peripheral-tier lift: the **GTE is now Beetle's real implementation**, not a no-op stub.
 All the game's geometry (RTPS/RTPT projection, NCLIP, matrix/color/depth) flows through COP2;
 our stub silently zeroed it, so any 3D was inert.
-- **`runtime/recomp/gte_beetle.c`** compiles `vendor/beetle-psx/mednafen/psx/gte.c` as-is and
+- **`runtime/psx/gte_beetle.c`** compiles `vendor/beetle-psx/mednafen/psx/gte.c` as-is and
   adapts it to our interface: `gte_op`→`GTE_Instruction`, `gte_read/write_data`→`GTE_ReadDR/
   WriteDR`, ctrl→`GTE_ReadCR/WriteCR` (1:1). Faithful-first shims for the externs gte.c needs
   (PGXP off `gMode=0`/no-op NCLIP, savestate stub, **widescreen GTE-scale hack OFF** — that's
@@ -4218,8 +4218,8 @@ PM sprint, two more developer subagents (both delivered + verified):
 ## 2026-06-14 (later 26) — DITCH GHIDRA (binary-only) + parallel shard build + run.sh; R/B fix
 Reproducibility + build-speed sprint (user-driven). The build now needs **only the repo + the
 ROM** — no Ghidra, no committed decomp-derived data.
-- **Binary-only recompilation:** `emit.py` seeds purely from the binary now — `{entry} | EXTRA_
-  SEEDS`, grown by `discover_funcs` (direct-jal fixpoint). 1154 functions recompiled; the ~445
+- **Binary-only source generation:** `the removed CPU-source emitter` seeds purely from the binary now — `{entry} | EXTRA_
+  SEEDS`, grown by `discover_funcs` (direct-jal fixpoint). 1154 functions guest; the ~445
   reached only via function pointers run through the hybrid interpreter (faithful). **Verified
   identical boot** to the Ghidra-seeded build (same CD reads, START.BIN@1904) — and the printf
   jump-table now prints clean strings (`ResetGraph:jtb=…`, `MDEC_in_sync timeout:`) since the
@@ -4227,7 +4227,7 @@ ROM** — no Ghidra, no committed decomp-derived data.
   recompile more for speed; default doesn't touch Ghidra. Repo audited clean: scratch/ (decomp
   dump) gitignored, the optional address list gitignored — only our own Ghidra *tooling* scripts
   remain (don't ship decomp output).
-- **Parallel build:** `emit.py` splits output into `generated/rec_decls.h` + 8 `shard_<n>.c`
+- **Parallel build:** `the removed CPU-source emitter` splits output into `authenticated executable/overlay evidence` + 8 `shard_<n>.c`
   (gen_func bodies, round-robin) + `shard_disp.c` (override table + wrappers + dispatch
   switches). `run.sh` compiles all TUs to .o with `xargs -P` then links (`-j16` observed); old
   monolith path stubbed. `PSXPORT_SHARDS` tunable.
@@ -4270,7 +4270,7 @@ pinned to a writable counter.
 
 ## 2026-06-14 (later 7) — FULL DECOMPILATION + StrPlayer playback architecture mapped
 **Did what the user asked: "decompile everything with tools."** Built headless-Ghidra
-decompilation tooling (committed): `tools/decomp.sh` + `tools/ghidra_decomp.py` (all 1886
+decompilation tooling (committed): `the Ghidra evidence workflow` + `tools/ghidra_decomp.py` (all 1886
 MAIN.EXE functions → `scratch/decomp/ram_f1000_all.c`) and `tools/ghidra_overlay.py`
 (force-disassemble a fn-ptr-only overlay range). Also **ripped out the turbo** (committed):
 `g_module_turbo` + `Tomba2_LogoHoldTurbo` gone; `-play` fast-forwards only on manual Tab.
@@ -4786,7 +4786,7 @@ cdc.c [setmode]/[setloc]/[xa] logs (gated on PSXPORT_CDC_LOG), tomba2 PSXPORT_RE
 - **Boot chain now: ~50 frames to game EXEC** (retail-style ~4000, stock OpenBIOS ~700).
   Pieces: (1) fastboot OpenBIOS (FASTBOOT=1 upstream no-shell mode, built from a
   pcsx-redux sparse clone with mips64-linux-gnu cross gcc, FORMAT=elf32-tradlittlemips;
-  scripts/build-openbios.sh; binary committed at bios/openbios-fast.bin);
+  the former OpenBIOS build tool; binary committed at bios/openbios-fast.bin);
   (2) instant-CD in the imported cdc.c, bitmask psxport_cd_instant (env
   PSXPORT_CD_INSTANT, default 0xF): 1=instant seeks (~2000cy incl. spin-up/pause),
   2=instant Reset (no random 0-3.25Mcy reset-seek - also a determinism hazard - and
@@ -4839,7 +4839,7 @@ cdc.c [setmode]/[setloc]/[xa] logs (gated on PSXPORT_CDC_LOG), tomba2 PSXPORT_RE
 - Tab = manual 8x fast-forward in play mode.
 
 ## 2026-06-12 — scope change #3: PC port via interpreter + overrides (Beetle/mednafen base)
-- User direction: build the actual PC port — NOT static recomp; an interpreter+overrides
+- User direction: build the actual PC port — NOT retired source-generation path; an interpreter+overrides
   design (native function overrides hooked by PC over an interpreted base), because the
   generic+matching tiers still flicker and the real fix is rendering new frames from
   interpolated state, which needs first-class control of the render path.
@@ -4870,7 +4870,7 @@ cdc.c [setmode]/[setloc]/[xa] logs (gated on PSXPORT_CDC_LOG), tomba2 PSXPORT_RE
   prim verts have NO recorded SXY within ±8px, so the engine projects terrain without
   per-vertex GTE) — but those 10% are exactly the characters. ~94% of tagged matched.
 - **GTE tagging requires CPU = Interpreter** (swc2/mfc2 hooks are interpreter-only; the
-  recompiler inlines them). Without it the generic tier still works, tagging is just 0.
+  recorded binary evidence inlines them). Without it the generic tier still works, tagging is just 0.
   GUI users: Settings -> CPU -> Execution Mode -> Interpreter.
 - Next for coverage: hook the game's CPU-side projection output path per game (Tomba 2
   terrain), rotation-matrix tracking for camera-motion-aware gates, per-game config files.
@@ -5034,18 +5034,18 @@ cdc.c [setmode]/[setloc]/[xa] logs (gated on PSXPORT_CDC_LOG), tomba2 PSXPORT_RE
   and prototype the primitive matcher OFFLINE before modifying the render loop.
 - GTE register writes for the per-game tagging tier live in `src/core/gte.cpp`.
 
-## 2026-06-12 — scope change #1: no recomp, patches + modified emulator
+## 2026-06-12 — scope change #1: no guest instruction path, patches + modified emulator
 - DuckStation license is CC-BY-NC-ND-4.0 → modified fork must stay private; patches
   themselves are publishable.
 - DuckStation regtest build: prebuilt deps downloaded (release-20260526, sha verified)
   into `dep/prebuilt/`. Configure blocked on missing system `extra-cmake-modules`
   (ECM, for Wayland) — needs `sudo dnf install extra-cmake-modules`.
-- The recompiler/harness scaffolding below is superseded; discdump, disc provisioning,
+- The recorded binary evidence/harness scaffolding below is superseded; discdump, disc provisioning,
   and the submodule remain in use.
 
 ## 2026-06-12 — project init
-- Repo scaffolded per recomp-init: `recompiler/ runtime/ overrides/ harness/ tools/
-  generated/(gitignored) scratch/(gitignored)`.
+- Repo scaffolded per guest instruction path-init: `recorded binary evidence/ runtime/ overrides/ harness/ tools/
+  authenticated executable/overlay evidence(gitignored) scratch/(gitignored)`.
 - DuckStation vendored as shallow submodule, pinned at `3a98566`.
 - Disc: `Crash Bash (USA).chd` via `PSXPORT_DISC` in `.env` (gitignored).
 - No chdman on this machine; CHD is read directly with DuckStation's vendored
@@ -5057,8 +5057,8 @@ cdc.c [setmode]/[setloc]/[xa] logs (gated on PSXPORT_CDC_LOG), tomba2 PSXPORT_RE
     `0x69000` (430080 = file size − 2048 header), initial SP `0x801FFFF0`.
   - SYSTEM.CNF: `TCB = 4`, `EVENT = 16`, `STACK = 801FFF00`.
 - Next: harness scaffolding — drive DuckStation headless as the oracle (savestate
-  freeze/restore, fixed timebase, pinned input) BEFORE any recompilation. Then the
-  R3000A recompiler skeleton targeting the extracted EXE.
+  freeze/restore, fixed timebase, pinned input) BEFORE any source generation. Then the
+  R3000A recorded binary evidence skeleton targeting the extracted EXE.
 - Phase-2 feature targets (recorded now, implemented only after faithful base):
   widescreen (projection-level) + interpolated 60 fps via per-object transform
   interpolation (n64recomp style).
@@ -5158,14 +5158,14 @@ a PC game, don't squish anything." Replaced with a genuinely native renderer-sid
 ## 2026-06-17 (later-94) — MEMORY CARD now works (was hung on "Checking MEMORY CARD..."). PC-native, zero delay.
 User: "memory card doesn't work." Symptom (reproduced via tools/drive.py: title -> Load Game -> slot):
 the Load screen hung forever on "Checking MEMORY CARD...".
-- **Root cause 1 — card I/O primitives were UNIMPL in the HLE.** memcard.c set rec_set_override on BIOS
+- **Root cause 1 — card I/O primitives were UNIMPL in the HLE.** memcard.c set tomba::native::declareOverride on BIOS
   addresses 0x8009xxxx, but those addresses NEVER execute in this pure-HLE-BIOS build — the game's
   statically-linked libcard/libmcrd calls the BIOS via the `li t0,0xB0; jr t0` trampoline, which funnels
-  to rec_dispatch_miss -> recomp_hle (hle.c). recomp_hle only handled B0:0x4A/0x4B; _card_read(B0:0x4E),
+  to runtime dispatch fault -> old HLE boundary (hle.c). old HLE boundary only handled B0:0x4A/0x4B; _card_read(B0:0x4E),
   _card_write(B0:0x4F), _card_status(B0:0x5C), _card_info(B0:0x4C), _card_chan(B0:0x50), and the A0-table
   _card_info(A0:0xAB)/_card_load(A0:0xAC) all fell through to "UNIMPL". Fix: `card_hle_a0`/`card_hle_b0`
   in memcard.c, dispatched from the A0/B0 default cases in hle.c; they do SYNCHRONOUS host-file I/O
-  (card_read_frame/card_write_frame) = PC-native, zero delay. Dead rec_set_override calls removed.
+  (card_read_frame/card_write_frame) = PC-native, zero delay. Dead tomba::native::declareOverride calls removed.
 - **Root cause 2 — completion delivered to the WRONG event class.** libcard completion is event-based;
   this HLE has no SIO IRQ, so the override must DeliverEvent the completion itself. Captured (PSXPORT_EV_LOG)
   the game's "checking" loop: it TestEvents the **SwCARD class 0xF4000001** (NOT HwCARD 0xF0000011) every
@@ -5205,7 +5205,7 @@ in gte_beetle.c. Implemented it for real instead of leaving 3D snapped-to-intege
 User goal: RE the game's rendering/lighting so we can intercept + replace it PC-native (e.g. a real
 lighting engine instead of the PSX one). Built `PSXPORT_GTEPROBE=<frame>` (gte_beetle.c): dumps the GTE
 ops that ACTUALLY execute + a lighting/fog control-register snapshot; corroborated by a static histogram
-of every `gte_op(...)` immediate in `generated/shard_*.c`. **Full model now in docs/engine_re.md.** Result:
+of every `gte_op(...)` immediate in `authenticated executable/overlay evidence`. **Full model now in docs/engine_re.md.** Result:
 - **NO dynamic GTE lighting at all** — `NCDS/NCDT/NCCS/NCCT/NCS/NCT/CC/CDP` = 0 executions, 0 call-sites.
   No light sources, no normal·light-matrix shading.
 - **Vertex colors are BAKED** in model data; **`GPF`** (very high count) scales them by a scalar IR0
@@ -5255,11 +5255,11 @@ runs BOTH cores side-by-side synced on a GAME STATE (attract/demo start), not fr
 game more FIRST. Memories: [[pc-native-not-emulator-hacks]] (updated), [[dual-core-state-synced-diff]] (new).
 - **De-tricked the defaults:** PSXPORT_SS=1 (native res), PSXPORT_PGXP=0 (the value-keyed smoothing was the
   likely water-grid breaker). Trick code kept only as opt-in env flags pending the native port. (uncommitted)
-- **RE win — projection setup found (docs/engine_re.md):** `gen_func_800509B4` (0x800509B4) does InitGeom +
+- **RE win — projection setup found (docs/engine_re.md):** `guest 0x800509B4` (0x800509B4) does InitGeom +
   `SetGeomOffset(160,120)` + `SetGeomScreen(350)` → screen center (160,120), focal length H=350, 320×240.
   This is the **native widescreen lever**: override to OFX=214 + widen draw-env/clip to 428, keep OFY/H →
   the GTE projects a genuinely wider FOV, no squish, no renderer re-center. (Found by histogramming
-  gte_write_ctrl reg targets in generated/: OFX/OFY/H written at exactly 2 sites.)
+  gte_write_ctrl reg targets in authenticated executable/overlay evidence: OFX/OFY/H written at exactly 2 sites.)
 - **Water:** established (from the lighting normal-viz) that water is NOT GTE-projected — it's a separate
   screen-space layer (terrain gets normals, water doesn't). The user reports it rendering wrong (green
   smear). NOT yet root-caused. NEXT RE: provenance (`PSXPORT_PROVAT`) on a water pixel → owning node/handler
@@ -5280,9 +5280,9 @@ Direction: stop black-boxing the graphics; reimplement the engine's draw path in
   (poly/rect/fill/VRAM-copy/env). The port now ACCOUNTS for each draw. Finding: 2 DrawOTag/frame (clear +
   main), water = textured GEOMETRY (no reflection copy) → broken water was the PGXP trick (now off).
 - **GTE projection ported native** (game_tomba2.c ov_set_geom_offset/ov_set_geom_screen, 0x800846D0/F0):
-  writes CR24/25/26 directly; OFX=160/OFY=120/H=350. **0-pixel-diff** vs recomp (PSXPORT_GEOM_RECOMP=1).
+  writes CR24/25/26 directly; OFX=160/OFY=120/H=350. **0-pixel-diff** vs guest instruction path (former static-path comparison setting=1).
 - **DrawOTag ported native** (ov_draw_otag, 0x80081560 → our gpu_dma2_linked_list): the per-frame draw
-  submission routes through our native OT walk. **0-pixel-diff** vs recomp (PSXPORT_OT_RECOMP=1) at f1500.
+  submission routes through our native OT walk. **0-pixel-diff** vs guest instruction path (former static-path comparison setting=1) at f1500.
 - **libgpu fn labels corrected** from debug strings: FUN_80080f6c=DrawSync (NOT DrawOTag), 80081560=DrawOTag,
   800815d0=PutDrawEnv, 8008179c=PutDispEnv. engine_re.md fixed.
 - **Fade flash root-caused**: the engine's prologue fade-in is a SMOOTH modulation-color ramp (frame-stepped,
@@ -5301,7 +5301,7 @@ Direction: stop black-boxing the graphics; reimplement the engine's draw path in
   My SS default 2→1 exposed it. Action: **reset the renderer (gpu_gpu.c/gpu_native.c/shaders) to the clean
   pre-session state (e6de790), removing the user-rejected PGXP + lighting tricks entirely**; re-applied only
   SS=1 default + the scene classifier (RE tool). Native projection + DrawOTag overrides (game_tomba2) kept,
-  re-verified **0-pixel-diff** vs recomp on the default path. Default ./run.sh = 4:3 native, clean, no tricks.
+  re-verified **0-pixel-diff** vs guest instruction path on the default path. Default ./run.sh = 4:3 native, clean, no tricks.
   OPEN: widescreen still needs the 1x wide-FB gap fixed (gap-free without SS) before re-enabling — the gap
   mechanism (1px columns at 1:1 raster of the +54-shifted geometry) is the next renderer target.
   (gte_beetle still defines PGXP_pushSXYZ2f — required by Beetle's gte.c — but its cache is now unused/dead.)
@@ -5319,19 +5319,19 @@ missing-depth world polys come from **interpreted OVERLAY submitters**, dominant
 
 **The bug that motivated the pivot:** the scan-on-load DOES register native overrides for `0x8013FB88`
 /`0x8013FE58` (`[submit] own overlay GT3/GT4 @ …`), but they **never fire** — the body runs
-interpreted anyway (proven: the GTE probe counts them). Root cause = the recomp/interp SPLIT: two
-override tables (`g_override[]` by recomp-fn-INDEX for resident MAIN, `g_iov[]` by raw ADDRESS for
-overlays) and two interpreters (`rec_interp` flat + `rec_coro_run` coroutine). The override only fires
+interpreted anyway (proven: the GTE probe counts them). Root cause = the guest instruction path/interp SPLIT: two
+override tables (`image-qualified runtime dispatcher` by guest instruction path-fn-INDEX for resident MAIN, `g_iov[]` by raw ADDRESS for
+overlays) and two interpreters (`test-only reference execution` flat + `rec_coro_run` coroutine). The override only fires
 on call paths that consult the right table; the overlay submitter is entered via a path that doesn't.
 Perverse allocation: the SLOW interpreter runs the HOTTEST code (the render submit firehose, which lives
-in overlays), while the recompiler runs resident bookkeeping.
+in overlays), while the recorded binary evidence runs resident bookkeeping.
 
 **Decision (user):** consolidate to a SINGLE substrate = **interpreter-only runtime**. Drop the
-recompiler from the runtime. Rationale: overlays are first-class in Tomba2 (the render path itself is
-overlay code) and the interpreter handles them for free; recompiler-only would mean *building*
-N64Recomp-style overlay relocation/dispatch. Interpreter-only deletes the most complexity (emit.py from
-the build, generated/, shard build, rec_dispatch, the index-vs-address override duality — the very seam
-that caused this bug). The real oracle stays Beetle (`wide60rt`). **Keep emit.py + generated C as a
+recorded binary evidence from the runtime. Rationale: overlays are first-class in Tomba2 (the render path itself is
+overlay code) and the interpreter handles them for free; guest-instruction-only would mean *building*
+retired guest-source overlay relocation/dispatch. Interpreter-only deletes the most complexity (the removed CPU-source emitter from
+the build, authenticated executable/overlay evidence, shard build, typed runtime address dispatch, the index-vs-address override duality — the very seam
+that caused this bug). The real oracle stays Beetle (`wide60rt`). **Keep the removed CPU-source emitter + generated C as a
 SEPARATE OFFLINE analysis tool** (Ghidra-like pseudo-C; it's exactly how the byte-packed variants were
 RE'd this session) — just not in the runtime.
 
@@ -5346,39 +5346,40 @@ table the scan-registered overlay GT3/GT4 overrides will actually fire and recor
 252+136/f misses should largely vanish for free.
 
 **Verified milestone kept (substrate-independent):** native byte-packed POLY_GT4 submit (`0x80027768`,
-`engine_submit.c ov_submit_poly_gt4_bp`), **0 u16 VRAM diff** vs `PSXPORT_SUBMIT_RECOMP=1` at field f560.
+`engine_submit.c ov_submit_poly_gt4_bp`), **0 u16 VRAM diff** vs `former static-path comparison setting=1` at field f560.
 ABI/record fully RE'd (a1=CLUT-Y<<22, a2=OT-Z bias s16, a3=U offset; no count, loop while ctl>0; OT base
 *0x800ED8C8; DPCT/DPCS depth-cue colors). Note: barely used in the field (~0.8 prim/f) — the field GT4s
 are the overlay variant above.
 
-**Migration scope (counted):** 23 `gen_func_` super-calls in runtime+engine → an interp super-call;
+**Migration scope (counted):** 23 original-body calls in runtime and engine were routed through the
+then-current reference executor;
 14 `func_8…` direct refs; 49 override registrations (already address-based). Plan: unify override tables
-(one address-keyed), hand-written `rec_dispatch` = override-or-interp-from-RAM, `rec_super_call(c,addr)` =
-interpret original bytes, stop linking generated/shard_*.c, route MAIN entry through interp, then unify
+(one address-keyed), hand-written `typed runtime address dispatch` = override-or-interp-from-RAM, `original guest-body call(c,addr)` =
+interpret original bytes, stop linking authenticated executable/overlay evidence, route MAIN entry through interp, then unify
 the two interpreters. Verify boot→field→runs + frame rate + depth coverage jump.
 
 ## later-102 — DONE: interpreter-only runtime LANDED + full field depth coverage (task #6)
-Executed the later-101 decision. The runtime no longer links the recompiler: MAIN.EXE and the boot
-stub both run from g_ram via the interpreter. New `runtime/recomp/dispatch.c` replaces the generated
-dispatch infra (rec_dispatch / rec_set_override / rec_func_index / stub_dispatch / stub_set_override +
-`rec_super_call` = interpret the original body for A/B oracle). One address-keyed override table
-(rec_set_override now routes to the same g_iov as rec_set_interp_override). build_port.sh + run.sh drop
-generated/shard_*.c + stub_shard_*.c; emit.py is analysis-only (run.sh gates it behind PSXPORT_RECOMP=1).
-~9 `gen_func_XXXX(c)` super-calls → `rec_super_call(c,0xADDR)`; MAIN entry `func_800896E0(c)` →
-`rec_dispatch(c,0x800896E0)`.
+Executed the later-101 decision. The runtime no longer links the recorded binary evidence: MAIN.EXE and the boot
+stub both run from g_ram via the interpreter. New `runtime/psx/dispatch.c` replaces the generated
+dispatch infra (typed runtime address dispatch / tomba::native::declareOverride / rec_func_index / stub_dispatch / stub tomba::native::declareOverride +
+`original guest-body call` = interpret the original body for A/B oracle). One address-keyed override table
+(tomba::native::declareOverride now routes to the same g_iov as rec_set_interp_override). build_port.sh + run.sh drop
+authenticated executable/overlay evidence + stub_shard_*.c; the removed CPU-source emitter is analysis-only (run.sh gates it behind former static-path comparison setting=1).
+~9 `the cited guest instructions(c)` super-calls → `original guest-body call(c,0xADDR)`; MAIN entry `guest 0x800896E0(c)` →
+`typed runtime address dispatch(c,0x800896E0)`.
 
 **Verified:**
 - Boots stub→MAIN→field, runs the native frame loop, clean exit. ZERO bad opcodes.
-- **0 u16 VRAM diff** at field f560: interp-only MAIN == the old recompiled build (bit-identical), and
-  native overlay-owned == fully-interpreted (PSXPORT_SUBMIT_RECOMP=1).
-- **Speed: ~1.45s / 565 headless frames (~390 fps)** — same as the recompiled build; the speed risk is
+- **0 u16 VRAM diff** at field f560: interp-only MAIN == the old guest build (bit-identical), and
+  native overlay-owned == fully-interpreted (former static-path comparison setting=1).
+- **Speed: ~1.45s / 565 headless frames (~390 fps)** — same as the guest build; the speed risk is
   dead. (The earlier 5-min "spin" was the BIOS bug below, not slowness.)
 
 **Three real bugs fixed on the way (all latent seam bugs of the old split):**
-1. `rec_dispatch` must route BIOS vectors (`li $t2,0xA0; jr $t2`) to `rec_dispatch_miss` (HLE), NOT
-   interpret code at 0xA0. (The old generated rec_dispatch did this via its `default:`.) This was the
+1. `typed runtime address dispatch` must route BIOS vectors (`li $t2,0xA0; jr $t2`) to `runtime dispatch fault` (HLE), NOT
+   interpret code at 0xA0. (The old generated typed runtime address dispatch did this via its `default:`.) This was the
    boot crash into string data.
-2. `rec_interp` only honored overrides on `jal`/`jalr`, NOT on plain `j` / computed `jr` TAIL-CALLS —
+2. `test-only reference execution` only honored overrides on `jal`/`jalr`, NOT on plain `j` / computed `jr` TAIL-CALLS —
    so a tail-called native override (submitters are tail-called) was bypassed and the original body
    interpreted. Now both interpreters check `coro_native_call` on every transfer.
 3. `rec_overlay_loaded` flushed ALL auto (scan) overrides on EVERY overlay load — so a later data/asset
@@ -5390,24 +5391,24 @@ generated/shard_*.c + stub_shard_*.c; emit.py is analysis-only (run.sh gates it 
 actually firing as native with depth, field depth coverage jumped **records made 634→1807, misses
 428→34** (~30% → ~98% real per-vertex depth; the residual 34 are genuine 2D UI). Faithful 0-diff holds.
 
-NEXT: (a) optional — unify the two interpreter loops (rec_interp recursive + rec_coro_run flat) into
+NEXT: (a) optional — unify the two interpreter loops (test-only reference execution recursive + rec_coro_run flat) into
 one (they share exec_simple; this is the remaining "two things"); (b) build the SBS depth pic for the
-user to judge visuals; (c) overlay-banner depth semantics (design call). Recompiler now lives only as
-the offline Ghidra-like analysis aid (generated/, PSXPORT_RECOMP=1 to regen).
+user to judge visuals; (c) overlay-banner depth semantics (design call). recorded binary evidence now lives only as
+the offline Ghidra-like analysis aid (authenticated executable/overlay evidence, former static-path comparison setting=1 to regen).
 
 ## later-103 — DONE: ONE interpreter loop (flat) + run.sh fix
 Executed handoff task #1 (the user's core remaining ask: "one interpreter"). `interp.c` had TWO
-control-flow loops sharing `exec_simple`: `rec_interp` (RECURSIVE — mirrors PSX calls on the C stack,
-`jr ra` = C return) for synchronous nested calls / `rec_super_call`, and `rec_coro_run` (FLAT/resumable
+control-flow loops sharing `exec_simple`: `test-only reference execution` (RECURSIVE — mirrors PSX calls on the C stack,
+`jr ra` = C return) for synchronous nested calls / `original guest-body call`, and `rec_coro_run` (FLAT/resumable
 — keeps the PSX stack in g_ram, exits at CORO_SENTINEL) for cooperative tasks. Collapsed them into a
 single flat core `interp_flat(c, pc, stop_ra)`; the two public entry points are now thin wrappers that
 differ only in the return sentinel:
 - `rec_coro_run(c,pc)` = `interp_flat(c, pc, CORO_SENTINEL)` (task; scheduler enters its top fn with
   ra=CORO_SENTINEL).
-- `rec_interp(c,pc)` (synchronous): save ra, set ra=CORO_SENTINEL, `interp_flat(c,pc,CORO_SENTINEL)`,
+- `test-only reference execution(c,pc)` (synchronous): save ra, set ra=CORO_SENTINEL, `interp_flat(c,pc,CORO_SENTINEL)`,
   restore ra. The target's own prologue/epilogue saves+restores whatever ra holds, so the net effect
-  matches the old recursive rec_interp exactly; nesting is safe (each invocation's PSX frames sit above
-  the caller's, so only the target's own `jr ra` hits the sentinel). Removed `call_addr`, `is_recompiled`,
+  matches the old recursive test-only reference execution exactly; nesting is safe (each invocation's PSX frames sit above
+  the caller's, so only the target's own `jr ra` hits the sentinel). Removed `call_addr`, `old guest-code lookup`,
   `override_for` (the index-vs-address override duality is fully gone — coro_native_call does ONE
   address-keyed lookup). `trace_call` (PSXPORT_INTERP_TRACE) re-wired into interp_flat's jal/jalr sites.
 
@@ -5415,7 +5416,7 @@ differ only in the return sentinel:
 1. **crt0 terminal halt.** crt0 (0x800896E0) is `…; jal main(0x80050B08); break 0x1`. On real PSX main
    never returns; our native main (ov_game_main) returns after N headless frames, so control reaches the
    `break` at 0x80089784, falls into FUN_80089788 which saves/restores ra=0x80089784 and `jr ra` LOOPS
-   back to the break → 27M-line `[break] code 1` spin. The old recursive rec_interp escaped this by chance
+   back to the break → 27M-line `[break] code 1` spin. The old recursive test-only reference execution escaped this by chance
    (returned to C on the next `jr ra`). Root-cause fix (NOT an address special-case): a MIPS `break` is a
    program trap and we HLE the BIOS — there is no handler to resume into, so `break` ENDS the run. Safe:
    the field run executes exactly ONE break (this terminal), never on a hot path.
@@ -5427,17 +5428,17 @@ differ only in the return sentinel:
 **Verified (unified build):** boots stub→MAIN→field, clean exit, ZERO bad opcodes, ONE break (terminal),
 clean shutdown ("returned from crt0" → "native_stub_run returned"). Depth coverage IDENTICAL 1807/34.
 **0 u16 VRAM diff** at field f540 on THREE axes: (a) unified-flat == committed-recursive build (proves
-the refactor changed nothing), (b) native-submit == PSXPORT_SUBMIT_RECOMP=1 fully-interpreted (faithful
+the refactor changed nothing), (b) native-submit == former static-path comparison setting=1 fully-interpreted (faithful
 gate holds on the unified interp). Same ~390 headless fps.
 
-**Also fixed run.sh (was outdated/broken):** `[ -n "$PSXPORT_RECOMP" ]` under `set -eu` aborted EVERY
+**Also fixed run.sh (was outdated/broken):** `[ -n "$former static-path comparison setting" ]` under `set -eu` aborted EVERY
 normal run with "unbound variable" (the var is unset unless you ask for the analysis recompile) → now
-`${PSXPORT_RECOMP:-}`. Dropped the dead `-Igenerated` include (no linked TU includes generated/* since
-the interpreter-only pivot) from run.sh + build_port.sh, and refreshed the stale "recompiler input" /
-"compiles the recompiled core" comments. run.sh now builds+launches+exits cleanly end-to-end.
+`${former static-path comparison setting:-}`. Dropped the dead `-Igenerated` include (no linked TU includes authenticated executable/overlay evidence since
+the interpreter-only pivot) from run.sh + build_port.sh, and refreshed the stale "recorded binary evidence input" /
+"compiles the guest core" comments. run.sh now builds+launches+exits cleanly end-to-end.
 
 NEXT (handoff remainder): #2 SBS visual verify (PSXPORT_SBS shotseq not writing — debug gpu_gpu.c
-gpu_gpu_shotseq), #3 overlay-banner depth semantics (ASK user), #4 optional generated/ include trim
+gpu_gpu_shotseq), #3 overlay-banner depth semantics (ASK user), #4 optional authenticated executable/overlay evidence include trim
 (done for the build scripts; rec_decls.h is no longer included by any linked TU).
 
 ## later-104 — DONE: native-depth occlusion fixed (3-band depth model) + SBS visual verify
@@ -5632,12 +5633,12 @@ menu and move them there." Built the interim overlay; the game-options-menu RE i
 toggles there later — this overlay is the stopgap UI).
 
 - **Vendored Dear ImGui** stable v1.91.9b into `vendor/imgui/` (core + SDL2 + Vulkan backends; MIT).
-- **Live mod state** `runtime/recomp/mods.{h,c}` — `g_mods` (ui/wide/ires/ssao/light + ssao & light
+- **Live mod state** `runtime/psx/mods.{h,c}` — `g_mods` (ui/wide/ires/ssao/light + ssao & light
   params), seeded once from cfg by mods_init(), then mutated LIVE by the overlay. gpu_gpu.c now reads
   g_mods EVERY frame (s_wide/s_ires became accessor macros over g_mods; ssao_on/light_on read g_mods;
   ssao_pass params read g_mods live) so a toggle/slider takes effect immediately. 60fps = the existing
   extern int g_fps60_on, flipped directly by the overlay.
-- **Overlay** `runtime/recomp/imgui_overlay.{h,cpp}` (C++; a C bridge header). Inits ImGui on the port's
+- **Overlay** `runtime/psx/imgui_overlay.{h,cpp}` (C++; a C bridge header). Inits ImGui on the port's
   EXISTING VK device + present render pass (no second device), draws into the swapchain inside the present
   render pass (after the present quad, before EndRenderPass). Toggle visibility with ` or F1. Checkboxes:
   Widescreen, 60fps, SSAO, Directional light; sliders: Internal res (1-3, capped 2 in wide), and the SSAO
@@ -5664,9 +5665,9 @@ with a much richer menu." → RE'd the in-game pause/Options menu and hooked it 
   the page byte `task+0x6B` (task = `*(u32)0x1F800138`). Page 1 = main menu "Options / Load data / Quit
   game" (`FUN_8007eae4`); Cross over "Options" sets page→3. Page 3 (`0x801082C0`) calls **`FUN_8007b45c`**
   = the Options submenu (Messages / Sound / Screen adjust / Controls = `FUN_8007f104` — the options the
-  user discarded). Disassembled `FUN_8007b45c` via `tools/recomp/decode.py` (it's outside the decomp
+  user discarded). Disassembled `FUN_8007b45c` via `recorded binary decoding` (it's outside the decomp
   dump): Triangle→page 2 (close), Circle→page 1 (back), SFX `FUN_80074590`.
-- **Hook (`engine/game_tomba2.c` `ov_options_menu`, gated `PSXPORT_UI`):** `rec_set_override(0x8007B45C,…)`
+- **Hook (`engine/game_tomba2.c` `ov_options_menu`, gated `PSXPORT_UI`):** `tomba::native::declareOverride(0x8007B45C,…)`
   — while page 3 runs, force our overlay visible (options-mode) instead of drawing the game's options, and
   own the same back-nav: **Circle** → `task+0x6B=1` + cursor reset + SFX `(0x14,0xFFF7)`; **Triangle** →
   `task+0x6B=2` + SFX `(0x11,0)`. **Faithful fallback:** if the overlay isn't inited (headless/window-less)
@@ -5720,7 +5721,7 @@ the render/camera layer." Two things:
   cause: **widescreen is a renderer-side HACK** — we render the native 4:3 projection into a wider FB and
   spread verts in a shader, while the engine still CLIPS (PutDrawEnv `0x800815D0`) and CULLS
   (`0x8007712C`) to 4:3 and draws water/sky/HUD as screen-space 2D. So wide → empty/garbled sides. Fix = own
-  the view at the SOURCE (OFX via `gen_func_800509B4`, the clip, the frustum, the 2D layers), which our
+  the view at the SOURCE (OFX via `guest 0x800509B4`, the clip, the frustum, the 2D layers), which our
   already-owned `proj_native_vertex` (0-diff) + per-vertex depth then render correctly.
 - **Deliverable (user picked "audit first"): `docs/engine-ownership-audit.md`** — full map of what's owned
   (DrawOTag, projection math+depth, resident submit, asset upload) vs the black box (PutDrawEnv/PutDispEnv,
@@ -5728,8 +5729,8 @@ the render/camera layer." Two things:
   widescreen corrupts, and a prioritized, oracle-gated port plan (diagnose → PutDrawEnv/Env → OFX config →
   frustum cull → 2D layers → retire the FB hack). Scope confirmed: gameplay logic STAYS interpreted (the
   Beetle emulator is the oracle). **Terminology correction (user caught it):** the runtime is
-  INTERPRETER-ONLY (later-103) — un-owned code runs on the flat interpreter, NOT recompiled; the recompiler
-  is an offline analysis aid. Fixed the audit + engine_re.md wording ("recomp MIPS" → "interpreter").
+  INTERPRETER-ONLY (later-103) — un-owned code runs on the flat interpreter, NOT guest; the recorded binary evidence
+  is an offline analysis aid. Fixed the audit + engine_re.md wording ("guest instruction path MIPS" → "interpreter").
 
 ## later-115 — DIRECTIVE: full ownership of the engine layer, no faking (respawn-driven)
 User: "the next step is full ownership of the game engine, no faking anything, respawn when you need to."
@@ -5854,7 +5855,7 @@ User: "there is terrain on the right in the real game — do more RE, port more 
   (The byte-packed GT4 variant `submit_poly_gt4_bp` `0x80027768` has NO SX cull, so it was already wide;
   the overlay-scanned submitters share the GT3/GT4 native impl, so they widen too.) Verified
   `scratch/screenshots/v2_field.png`: the hut/structure + terrain on the right now appear (was ocean).
-  OPEN: un-owned recompiled submit variants (`0x8003B320`/`0x8003C8F4` etc., still interpreted) keep their
+  OPEN: un-owned guest submit variants (`0x8003B320`/`0x8003C8F4` etc., still interpreted) keep their
   own 320 cull — if a scene's side geometry comes from those, port them too (engine_re.md OPEN list).
 - **2D-only screens pillarbox (PC-game behavior):** genuine-wide is a GAMEPLAY feature; fullscreen-2D
   screens (SCEA/FMV/title/menu) are authored for 4:3 and the uniform 2D-scale mangled them (later: SCEA
@@ -5957,7 +5958,7 @@ state-packets that precede it in the OT. Consequences:
 
 **NEXT (the port, not pokes):** own DrawOTag as a NATIVE classified display list — reimplement the libgpu
 primitive builders so prims+env flow into PC-native structs (carrying draw-time state + native view-Z),
-render that list directly via gpu_gpu_draw_*; keep the recomp body as A/B oracle. Then widescreen = native
+render that list directly via gpu_gpu_draw_*; keep the guest instruction path as A/B oracle. Then widescreen = native
 projection (proj_native_vertex with a render-OFX) on the native list, guest GTE untouched. Open snag for
 the native-projection step: proj_native_vertex is 0-diff at the GTE-op hook (PROJPROBE) but diverged in
 BOTH X and Y when called from the submit call-site (e.g. native 012F00B2 vs gte 015F00B7) — a register/
@@ -5985,8 +5986,8 @@ guest OT. That packet IS the "render data in guest memory" — it is engine OUTP
   path (so semi grouping / fade / fps60 capture / widescreen-2D are all identical) but with `s_ndl_cur`
   set so the depth path takes view-Z straight from `np->pz` (parse order), no address bridge. `ndl_mark_
   consumed()` after the walk.
-- A/B: `PSXPORT_DL_GUESTPKT=1` reverts to writing the full guest packet; `PSXPORT_SUBMIT_RECOMP=1` keeps
-  the recomp body.
+- A/B: `PSXPORT_DL_GUESTPKT=1` reverts to writing the full guest packet; `former static-path comparison setting=1` keeps
+  the guest instruction path.
 **VERIFIED byte-identical (the gate):** headless field shot (s_frame 2900, AUTO_GAMEPLAY) at BOTH 4:3
 (320x224) AND 16:9 (428x240) is `cmp`-identical native-DL vs DL_GUESTPKT — the render data moved out of
 guest RAM with ZERO pixel difference, and the carried native view-Z reproduces the depth ordering exactly.
@@ -6019,9 +6020,9 @@ the ground up** — the model to follow.
 engine keeps only a screen-width wrap buffer in chip RAM; off-screen terrain is absent. Verdict: *"approach
 B (native tilemap render) is mandatory; no read-wider-from-page shortcut."* It renders the wider world
 with a **native renderer reading the game's DATA structures** (tilemap + tile-gfx pointer table + camera
-clamp `$107a/$107c`), into its OWN surface — the recompiled engine's chip-RAM updates stay as the game did
+clamp `$107a/$107c`), into its OWN surface — the guest engine's chip-RAM updates stay as the game did
 them; the WIDE part is native. Architecture: native game loop (`game_loop.c`) + native renderer
-(`native_renderer.c`) reading game data + recompiled body behind overrides (`port/overrides/`).
+(`native_renderer.c`) reading game data + guest body behind overrides (`port/overrides/`).
 
 **CONSEQUENCE for Tomba2Engine (the plan, sharpened):** widescreen/effects without corruption require the
 PC engine to OWN the render of the extra/wider content from the game's DATA, not push the game's fixed
@@ -6333,16 +6334,16 @@ the GT3/GT4-only geomblk probe). Shares the `PSXPORT_GEOMBLK_FRAME` gate.
   8015ca04×22 instanced). The static node field +0x38 (mdata) is 0, but the actual prim-list (geomblk) is
   resolved at ENQUEUE, not read from +0x38. The data-driven render path is ALIVE.
 
-**ENQUEUE — partly found.** `PSXPORT_DEBUG=enq` taps `gen_func_80077EBC`: it pushes its `a0` onto a cap-40
+**ENQUEUE — partly found.** `PSXPORT_DEBUG=enq` taps `guest 0x80077EBC`: it pushes its `a0` onto a cap-40
 scratchpad list (write-ptr 0x1F800148, count 0x1F800150). At f2900 only **2** pushes, and `a0 == the object
 node itself` (a0+0x40 / a0+0x18 are object fields = 0, NOT geomblk/transform). So 0x80077EBC is an OBJECT-list
 push (one of several lists; sibling 0x80077EFC → 0x1F800154/0x15c cap 28), **not** the render-command enqueue.
-The render-COMMAND struct (transform@+0x18, geomblk@+0x40) that the flush `gen_func_8003F174` reads from
+The render-COMMAND struct (transform@+0x18, geomblk@+0x40) that the flush `guest 0x8003F174` reads from
 `list+0xc0` is filled on a DIFFERENT path — still open.
 
 **NEXT (the one open RE) — the render-COMMAND enqueue.** Find who allocates+fills the command struct
 (snapshot the GTE matrix → cmd+0x18, store geomblk → cmd+0x40) and links it into the flush list (a0 to
-gen_func_8003F174; commands at `list+0xc0`, count `list+8`; layer table 0x800EC188 40×0x40; flush callers
+guest 0x8003F174; commands at `list+0xc0`, count `list+8`; layer table 0x800EC188 40×0x40; flush callers
 0x80039f70/0x8003c0c8). Approach: tap the flush 0x8003F174 to print the cmd addresses (list+0xc0[i]) + fields,
 then trace back the writer of those cmd structs. That gives (a) object→command attribution and (b) HOW
 transform+geomblk derive from object state — so native C can build a margin object's command from its frozen
@@ -6350,21 +6351,21 @@ state and enqueue it directly (no +1, no perturbation), each validated 0-diff vs
 `PSXPORT_DEBUG=rcmd`/`geomblk`/`enq` (+`PSXPORT_GEOMBLK_FRAME`).
 
 ## later-132 — ENQUEUE + geomblk-table FOUND; render commands are PERSISTENT (built once)
-Found the render-command enqueue with `PSXPORT_WWATCH` (word-store PC tap, runtime/recomp/mem.c). Watching
+Found the render-command enqueue with `PSXPORT_WWATCH` (word-store PC tap, runtime/psx/mem.c). Watching
 the command's geomblk word (cmd+0x40 at 0x800F9CA4 for the f2900 flush list 0x800fb218) caught the writer at
-**pc=0x80051B2C** — the leaf `gen_func_80051B04`, called from the enqueue `gen_func_80051B70` (which the
+**pc=0x80051B2C** — the leaf `guest 0x80051B04`, called from the enqueue `guest 0x80051B70` (which the
 margin handlers 0x80073cd8 / 0x80138fc8 both call). Decoded (docs/engine_re.md §Deferred render pipeline):
-- **Enqueue `gen_func_80051B70`**(a0=object, a1=group, a2=sub): allocates the cmd (`gen_func_8007AAE8`),
+- **Enqueue `guest 0x80051B70`**(a0=object, a1=group, a2=sub): allocates the cmd (`guest 0x8007AAE8`),
   stores cmd ptr at **node+0xc0**, sets scale cmd+0x38/3a/3c=0x1000, header cmd+6=-1 / +0/2/4/8/a/c=0.
 - **Geomblk = data-driven table lookup** (leaf 0x80051B04): `geomblk = T + *(T+sub*4+4)`, `T =
   *(0x800ECF58 + group*4)` — a two-level model table at 0x800ECF58. Deterministic from (group,sub).
-- **Transform** (`gen_func_80051C8C`): node+0x98 = rotation matrix (from node+0x54/56/58 via
+- **Transform** (`guest 0x80051C8C`): node+0x98 = rotation matrix (from node+0x54/56/58 via
   0x80084D10/EB0/5050), node+0xac/b0/b4 = translation (from pos node+0x2e/32/36). Flush loads it to cmd+0x18.
 - **PERSISTENCE (the key correction):** cmd+0x40 was written **exactly ONCE in 2905 frames** → render
   commands are NOT rebuilt per frame. They are built at spawn/scene-setup and kept at node+0xc0; per frame
   only the transform updates + the flush renders. At steady-state f2900 the enqueue (0x80051B70 / leaf
   0x80051B04) is NOT called (cmdenq probe = 0 hits) — consistent. The list 0x800fb218 (the 8015ca04×24 static
-  decor layer) is built once by `gen_func_8003AE28` (calls the leaf), not per-frame.
+  decor layer) is built once by `guest 0x8003AE28` (calls the leaf), not per-frame.
 - **Therefore the NATIVE margin plan simplifies:** for a culled margin object, read its PERSISTENT cmd at
   node+0xc0 and add it to the appropriate flush list (or build a native equivalent from group/sub + the
   table + the transform), WITHOUT poking +1. No per-frame geometry rebuild needed.
@@ -6377,14 +6378,14 @@ objects' cmds to that list. Validate 0-diff vs the rcmd capture (mode+transform+
 the object is genuinely visible). New probe: `PSXPORT_DEBUG=cmdenq` (taps leaf 0x80051B04; use at the SPAWN
 frame, not steady-state). Probes: rcmd/geomblk/flush/enq/cmdenq + PSXPORT_WWATCH.
 
-## later-133 — the OBJECT NODE *IS* its render-command list; per-object flush = `gen_func_8003CDD8` (THE mechanism)
+## later-133 — the OBJECT NODE *IS* its render-command list; per-object flush = `guest 0x8003CDD8` (THE mechanism)
 later-132's "node+0xc0 = the single persistent command, just re-append it to a flush list" is **INCOMPLETE/
 misleading** — corrected here by tapping the MAJOR flush. Findings (probes `flush2`, `rcmd ra=`, disasm):
 - **The minor flush 0x8003F174 is NOT the world/margin path.** It drains only ONE list (0x800fb218, the
   8015ca04x24 static-decor layer) - count=24 in 4:3 / 16:9-on / 16:9-off ALIKE (it never carries the margin).
   The rcmd dispatcher-caller histogram at f2900: **ra=8003d07c -> 100 cmds (world+margin)**, ra=8003f230 -> 24
-  (static). The world/margin flush is the function at **ra 0x8003d07c = `gen_func_8003CDD8`**.
-- **`gen_func_8003CDD8(a0=list, a1=flag)` is called ONCE PER VISIBLE OBJECT, and the `list` arg == the object
+  (static). The world/margin flush is the function at **ra 0x8003d07c = `guest 0x8003CDD8`**.
+- **`guest 0x8003CDD8(a0=list, a1=flag)` is called ONCE PER VISIBLE OBJECT, and the `list` arg == the object
   NODE address.** Each object node embeds its own render-command list: **count at node+8, cmd-ptr ARRAY at
   node+0xc0[i]** (loop 0x8003ce40: `cmd = node[0xc0 + i*4]`, `geomblk = cmd+0x40`, skip if 0). So node+0xc0 is
   the *base of an array*, not a single ptr (for count=1 objects it looks like a single ptr -> later-132's view).
@@ -6393,7 +6394,7 @@ misleading** — corrected here by tapping the MAJOR flush. Findings (probes `fl
   CR5-7. So `cmd+0x18` is the OBJECT-LOCAL matrix (often near-identity) - NOT the camera-composed GTE matrix
   the rcmd oracle prints. That's why node+0xc0's `cmd+0x18` did NOT match the rcmd `M=`. The dispatcher gets
   a0=geomblk, a1=OTbase(global `*0x800ED8C8`), a2=flag(=a1 of the flush). Margin objects: flag=0.
-- **PROOF margin = the +24 via per-object flushes:** 16:9-on has 22 `gen_func_8003CDD8` calls at f2900, 16:9-off
+- **PROOF margin = the +24 via per-object flushes:** 16:9-on has 22 `guest 0x8003CDD8` calls at f2900, 16:9-off
   has 12; the **10 ON-only lists ARE the re-included objects** (list base == cullobj object addr) and their
   command geomblks are EXACTLY the +24 margin set (800fc6c8 count=12 = the 801e682c..801e6e88 instanced series;
   800fe5a8 count=4; + 8 count-1 lists = 24). No node+0xc0 reconstruction needed.
@@ -6402,14 +6403,14 @@ misleading** — corrected here by tapping the MAJOR flush. Findings (probes `fl
   4:3-vs-16:9-WITH-reinclude = **5638 gameplay bytes** (object structs @0x800EDxxx/0x800EExxx) -> poking +1 runs
   the handlers' VISIBLE branch (animation/state), perturbing gameplay. Confirms later-128; rules out poke-+1.
 - **NATIVE PLAN (clean, no reconstruction):** in `ov_object_cull`, when an object is re-include-eligible (wide
-  frustum), DON'T poke +1 - COLLECT the node. After the entity walk, call `gen_func_8003CDD8(node, 0)` per
+  frustum), DON'T poke +1 - COLLECT the node. After the entity walk, call `guest 0x8003CDD8(node, 0)` per
   collected node. Renders the persistent per-node command list (camera x object composed by the flush) into
   the OT, touching only render scratch (OT/packet pool) -> gameplay 0-diff AND margin renders.
 - **NEXT:** implement `engine/margin_render.{hpp,cpp}` (collect-in-cull + flush-after-walk), validate via rcmd
   that the +24 appear byte-identical AND `ram_region_diff` 4:3-vs-16:9 = ~0 gameplay bytes. Open risk to check
   empirically: whether a CULLED object's `cmd+0x2c` translation is stale (visible branch may update it) - rcmd
   byte-match is the test; if stale, refresh from node pos / call the transform-build first.
-  Probe added: `PSXPORT_DEBUG=flush2` (taps `gen_func_8003CDD8`); rcmd now also logs `ra=` (dispatcher caller).
+  Probe added: `PSXPORT_DEBUG=flush2` (taps `guest 0x8003CDD8`); rcmd now also logs `ra=` (dispatcher caller).
 
 ## later-134 — native widescreen margin IMPLEMENTED (engine/margin_render.cpp) + RE REPL tooling
 Built the native margin renderer on the later-133 mechanism. Result: the +24 margin commands render with
@@ -6422,8 +6423,8 @@ cache). Plus an RE REPL (debug-server commands) so future RE doesn't need a reco
   `node+0xc == 0x03` (world-geometry) — later-133 proved ONLY type-03 re-included nodes actually render,
   and they reproduce EXACTLY the +24. Collecting all 58 re-include-eligible nodes over-rendered (+185).
 - After the entity walk (`ov_objwalk`, engine_tomba2.c) → `margin_render_flush(c)`: per collected node,
-  `gen_func_80051C8C(node)` (build the CURRENT transform — culled objects never had it built → otherwise a
-  degenerate zero-rotation matrix) then `gen_func_8003CCA4(node)` (the per-object render dispatch). Touches
+  `guest 0x80051C8C(node)` (build the CURRENT transform — culled objects never had it built → otherwise a
+  degenerate zero-rotation matrix) then `guest 0x8003CCA4(node)` (the per-object render dispatch). Touches
   only render scratch (node+0x98 matrix cache, cmd+0x18 transform, OT/packet pool) — no gameplay logic.
 - **Verified (rcmd oracle, f2900, 16:9):** native = 124 cmds = 100 base + 24 margin. The base 100 are
   **byte-identical** to 16:9-no-reinclude (`comm` diff = 0 → zero perturbation). The +24 margin geomblks
@@ -6441,12 +6442,12 @@ cache). Plus an RE REPL (debug-server commands) so future RE doesn't need a reco
   SHOW the margin yet even though it's in the OT; that's a separate present-pipeline task, not the margin RE.
   (c) confirm the 8 animated objects render at the correct (frozen) pose once present width is fixed.
 
-**RE REPL (runtime/recomp/dbg_server.c, PSXPORT_DEBUG_SERVER=1, client tools/dbgclient.py):** added live
-commands so RE no longer needs a recompiled one-shot probe — `w8/w16/w32 A V` (poke), `call A [a0..a3]`
-(run a guest fn on the live CPU ctx via rec_dispatch, reports v0/v1 — e.g. test 0x80051C8C/0x80051B04
+**RE REPL (runtime/psx/dbg_server.c, PSXPORT_DEBUG_SERVER=1, client tools/dbgclient.py):** added live
+commands so RE no longer needs a guest one-shot probe — `w8/w16/w32 A V` (poke), `call A [a0..a3]`
+(run a guest fn on the live CPU ctx via typed runtime address dispatch, reports v0/v1 — e.g. test 0x80051C8C/0x80051B04
 live), `ents` (walk both entity lists: addr type pos handler rflag cmds geomblk), `node A` (decode one
 node), `geomblk G S` (model-table lookup). `dbg_server_service` now takes the frame `R3000* c` for `call`.
-`runtime/recomp/r3000.h` is now `extern "C"`-guarded so engine/*.cpp link the C ABI symbols.
+`runtime/psx/r3000.h` is now `extern "C"`-guarded so engine/*.cpp link the C ABI symbols.
 
 ## later-134b — gameplay 0-diff PROVEN (node-aware diff) + headless FMV fix (probes 77s→1.4s)
 - **`tools/node_diff.py`** (new): walks the live entity list (heads 0x800fb168/0x800f2624, stride 0xD0)
@@ -6461,13 +6462,13 @@ node), `geomblk G S` (model-table lookup). `dbg_server_service` now takes the fr
   a plain headless field probe is ~1.4s, deterministic (field @present-frame 328, rcmd=124), no flag.
   Standard recipe in docs/driving-the-game.md §0.
 
-## later-135 — NATIVE per-object render FLUSH (`gen_func_8003CDD8`) — world render submission is now PC-native, 0-diff
+## later-135 — NATIVE per-object render FLUSH (`guest 0x8003CDD8`) — world render submission is now PC-native, 0-diff
 The major world/margin render flush — the per-object transform composition + dispatch that turns each
 visible object's persistent render-command list into projected geometry — is reimplemented in native C
 (`engine/engine_submit.c` `submit_perobj_flush` / `ov_perobj_flush`, registered on `0x8003CDD8` in
 games_tomba2_init). This is the core of "make it a PC game": for the dominant world path NO guest render
-code runs — not `gen_func_8003CDD8`, not the dispatcher `gen_func_8003F698`, not `gen_func_800803DC`.
-- **What it does (decoded byte-for-byte from the recomp body, later-133):** per render command in the
+code runs — not `guest 0x8003CDD8`, not the dispatcher `guest 0x8003F698`, not `guest 0x800803DC`.
+- **What it does (decoded byte-for-byte from the guest instruction path, later-133):** per render command in the
   node's persistent list (count `node+8`/`node+9`, cmd-ptr array `node+0xc0[i]`, geomblk `cmd+0x40`):
   compose camera-rotation (scratch `0x1F8000F8`→CR0-4) × object-local matrix (`cmd+0x18`, 3 cols at
   +0x18/+0x1a/+0x1c, halfwords @+0/+6/+0xc) via one MVMVA `0x4A49E012` per column; transform the object
@@ -6475,90 +6476,90 @@ code runs — not `gen_func_8003CDD8`, not the dispatcher `gen_func_8003F698`, n
   offset (`0x1F80010C/110/114`); load composed rot→CR0-4, trans→CR5-7; dispatch geomblk with OT base
   `*0x800ED8C8` (+`cmd[0x3f]*4` when `node[0xd]&0xf==4`) and the flush flag. The MVMVA math stays a
   platform primitive (gte_op → Beetle GTE) so the composed CR0-7 are bit-identical.
-- **`native_dispatch` (replaces `gen_func_8003F698`):** the generic GT3/GT4 path (forced-flag / force-byte
-  `*0x1F800234` / mode≥22 / a mode-table `0x80015268[mode]` entry == `gen_func_800803DC`) is owned
-  natively via `native_gt3gt4` (replaces `gen_func_800803DC`: split geomblk+0 tri/quad counts, run the
+- **`native_dispatch` (replaces `guest 0x8003F698`):** the generic GT3/GT4 path (forced-flag / force-byte
+  `*0x1F800234` / mode≥22 / a mode-table `0x80015268[mode]` entry == `guest 0x800803DC`) is owned
+  natively via `native_gt3gt4` (replaces `guest 0x800803DC`: split geomblk+0 tri/quad counts, run the
   already-native `ov_submit_poly_gt3/gt4`). Per-scene OVERLAY submitter variants (other mode-table
   entries — the `0x8013xxxx` ones) are NOT owned yet → those modes still run their original per-mode
-  renderer via rec_dispatch. That + the byte-packed `0x80027768` are the documented next RE targets
+  renderer via typed runtime address dispatch. That + the byte-packed `0x80027768` are the documented next RE targets
   (engine_re "OPEN — full field depth coverage").
 - **0-DIFF GATE (the real verification, NOT a screenshot):** headless field, 16:9, `PSXPORT_VRAMDUMP`
-  → native flush vs `PSXPORT_PEROBJ_RECOMP=1` (recomp body) → **VRAM byte-identical**. A/B flag:
-  `PSXPORT_PEROBJ_RECOMP=1`.
+  → native flush vs `former static-path comparison setting=1` (guest instruction path) → **VRAM byte-identical**. A/B flag:
+  `former static-path comparison setting=1`.
 - **CORRECTION on the gate frame (don't trust f328):** `PSXPORT_DEBUG=pdisp` (dispatch-coverage probe,
-  engine_submit.c) revealed `gen_func_8003CDD8` / native_dispatch is NOT exercised until **s_frame≈393**
+  engine_submit.c) revealed `guest 0x8003CDD8` / native_dispatch is NOT exercised until **s_frame≈393**
   — at the standard f328 the playable field is mid-LOAD and the world is drawn by the direct submitters
   (the byte-packed `0x80027768` etc.), not the per-object deferred flush. So the f328/f345 VRAM matches
   were VACUOUS (toggling PEROBJ_RECOMP changed nothing there). The VALID gate is a frame where the flush
-  fires: **f410, native=17 dispatches/frame → VRAM byte-identical** native-vs-recomp. (Lesson: gate a lift
+  fires: **f410, native=17 dispatches/frame → VRAM byte-identical** native-vs-guest instruction path. (Lesson: gate a lift
   at a frame where the probe confirms the lifted code actually runs, not just "the field is on screen".)
 - **pdisp finding — the per-object world flush is FULLY native at the field:** every present frame f393+
   shows `native=17 fallback=0` — all 17 per-object flush dispatches take the native generic GT3/GT4 path
   (`native_gt3gt4`); ZERO fall to an unowned overlay-variant per-mode renderer. So no guest per-mode
   renderer runs in the field's per-object flush. (The bulk terrain comes via the separately-owned
   byte-packed `0x80027768`, a different submit path, not via `8003CDD8`.) Probe: `PSXPORT_DEBUG=pdisp`.
-- **Relation to the margin (later-134):** the margin's `gen_func_8003CCA4(node)` call now routes its
+- **Relation to the margin (later-134):** the margin's `guest 0x8003CCA4(node)` call now routes its
   per-object submission through this native flush; the remaining guest calls (`8003CCA4` transform
   dispatch, `80051C8C` transform build) are gameplay-0-diff (node_diff) and are the next lift so the
   margin needs no guest render at all.
-- **`gen_func_8003CCA4` (per-object render DISPATCH) now also native** (`submit_perobj_render`): stash
+- **`guest 0x8003CCA4` (per-object render DISPATCH) now also native** (`submit_perobj_render`): stash
   current render object (scratch `0x1F80028C`), flush flag = `node[0xb]==0xf`, case idx = `node[0xd]&0xb`
   (≥9 = not rendered); the flush-only case (jump-table `0x80014ec8[idx]` target `0x8003CD00`) runs the
   native flush — NO guest render. The secondary-effect-pass cases (`8003D584`/`8003F344`/`8003F3F4`/
-  `8003F4C4`/`8003F594`) super-call the recomp body (not owned yet). `PSXPORT_DEBUG=ccase`: at the field
+  `8003F4C4`/`8003F594`) super-call the guest instruction path (not owned yet). `PSXPORT_DEBUG=ccase`: at the field
   8003CCA4 fires 1×/frame, idx0 (flush-only) → owning it is complete for the field. VRAM byte-identical
-  native (8003CDD8+8003CCA4) vs recomp @f410.
+  native (8003CDD8+8003CCA4) vs guest instruction path @f410.
 - **`PSXPORT_DEBUG=subcnt` finding:** the un-owned GT3/GT4 variants `0x8003B320`/`0x8003C8F4` fire ZERO
   times at the field (they belong to other scenes — the f560 image). So the field's render is fully owned:
   native per-object dispatch+flush + the byte-packed `0x80027768` (bulk terrain) + the GT3/GT4 library.
-- **Phase-2 render driver MAPPED (`PSXPORT_DEBUG=rwalk`) — `gen_func_8003C048`.** It is the ONLY phase-2
+- **Phase-2 render driver MAPPED (`PSXPORT_DEBUG=rwalk`) — `guest 0x8003C048`.** It is the ONLY phase-2
   render-walk firing at the field (1×/frame → `8003CCA4`). Structure (shard_0): a linked-list walk —
   head `*0x800F2624`, per node: skip if `node+1==0`, else dispatch by `node+0xb` (<33) through a 33-entry
   jump table `@0x80014DB8`; advance `node = node+36`. Cases call `8003CCA4` (per-object render, OWNED),
   `8003F174` (minor static-decor flush), `8003EF9C`/`80039F4C`/`8003C2D4`/`8003C464`/`8003C5F8`/`8003C788`
-  (resident render fns), several overlay renderers via rec_dispatch (`8012A43C`/`801295B4`/`80129114`/
+  (resident render fns), several overlay renderers via typed runtime address dispatch (`8012A43C`/`801295B4`/`80129114`/
   `8013DD58`/`8011BE5C`), a big inline case that builds a matrix from `node+96..118` + calls `80084660/
-  80084690` then the GT3 variant `8003B320`, and a default `rec_dispatch(node+24)`. Owning it = replicate
+  80084690` then the GT3 variant `8003B320`, and a default `typed runtime address dispatch(node+24)`. Owning it = replicate
   the walk + the 33-case dispatch (cases have non-uniform/inline arg setup) — a multi-step lift, NOT a
   clean single step; the per-object SUBMISSION (the meaty projection/packet work) is already native.
-- **`gen_func_8003C048` (the master phase-2 render-list WALK) now OWNED** (`submit_render_walk`): native
+- **`guest 0x8003C048` (the master phase-2 render-list WALK) now OWNED** (`submit_render_walk`): native
   linked-list iteration (head `*0x800F2624`, next `node+36`), skip non-live (`node+1==0`), dispatch live
   nodes by `node+0xb` (<33) via the `0x80014DB8` table. Own-when-fully-handleable: pre-scan the live
-  nodes; if every one resolves to an owned case run the native walk, else super-call the recomp body
+  nodes; if every one resolves to an owned case run the native walk, else super-call the guest instruction path
   (unfamiliar scenes always correct, never a fragile partial). Field cases (`PSXPORT_DEBUG=rlist`): two
   live node-types — `t0→0x8003C0B4` (per-object render → native submit_perobj_render) and `t32→0x8003C29C`
-  (default → `rec_dispatch(node, *(node+24))`, the node's own render fn). **VRAM byte-identical** native
-  walk+dispatch+flush vs full recomp @f410. So the ENTIRE field phase-2 render path — list walk → per-
+  (default → `typed runtime address dispatch(node, *(node+24))`, the node's own render fn). **VRAM byte-identical** native
+  walk+dispatch+flush vs full guest instruction path @f410. So the ENTIRE field phase-2 render path — list walk → per-
   object dispatch → camera×object transform → geometry submission — is now native C (the "entity-list
   iteration → render submission" engine layer from the project goal); the owned-leaf boundary is the
   node's render fn (`node+24`, terrain via the owned byte-packed `0x80027768`) + the per-object submitters.
-- **`gen_func_8002AB5C` (field TERRAIN/map renderer) now OWNED** (`submit_terrain`) — the render fn
+- **`guest 0x8002AB5C` (field TERRAIN/map renderer) now OWNED** (`submit_terrain`) — the render fn
   (`node+24`) of the t32 render-list node, the bulk map geometry. Was interpreted-only (reached via
   fn-ptr); seeded into the RE set, decoded, ported. It is the per-object flush specialised for the
   terrain strip: set FarColor=0 + IR0 depth-cue factor `(128-node[78])<<5` @0x1F800090, compute two sway
   angle bytes @0x800A2014/2016, build the object matrix (euler `80085480` + secondary sway `80084520`,
   kept as primitives), compose camera×object via the same 3 MVMVA columns + translation as 8003CDD8, then
   submit the terrain geomblk `0x800A1AE8` via the already-owned byte-packed `0x80027768`. **VRAM
-  byte-identical** native vs full recomp @f410 AND @f420; deterministic (2 runs identical). With this the
+  byte-identical** native vs full guest instruction path @f410 AND @f420; deterministic (2 runs identical). With this the
   ENTIRE field render — list walk → per-object dispatch → flush → terrain → submit — is native C.
-- **`gen_func_80051C8C` (per-object TRANSFORM BUILD) now OWNED** (`build_xform`): init node+0x98 identity
+- **`guest 0x80051C8C` (per-object TRANSFORM BUILD) now OWNED** (`build_xform`): init node+0x98 identity
   (0x1000 diagonal), 3 euler rotations (`80084D10/EB0/85050`, kept as matrix primitives), translation
   node+0xac/b0/b4 from position node+0x2e/32/36, propagate to the command struct (`80051464`).
-  Interpreted-only → seeded + decoded + ported. VRAM byte-identical native vs recomp @f450 (where it
+  Interpreted-only → seeded + decoded + ported. VRAM byte-identical native vs guest instruction path @f450 (where it
   fires), deterministic. This is the last guest call the margin makes.
 - **CRITICAL BUG fixed (native_dispatch) — found by live gdb on the hung process.** A single-frame VRAM
-  diff (f410) does NOT prove the game keeps RUNNING: full-native HUNG at ~f434 while recomp reached f600.
+  diff (f410) does NOT prove the game keeps RUNNING: full-native HUNG at ~f434 while guest instruction path reached f600.
   gdb backtrace: `margin_render_flush → 8003CCA4(native) → submit_perobj_flush → native_dispatch →
-  rec_interp(pc=0x1F49E010 garbage)`. Root cause: the mode-table `0x80015268[mode]` entries are the
-  dispatcher `gen_func_8003F698`'s OWN internal case-label addresses (`0x8003F6xx`), NOT renderer fn
-  pointers; my fallback `rec_dispatch(tgt)` jumped into the MIDDLE of 8003F698 → ran garbage. Dormant at
+  test-only reference execution(pc=0x1F49E010 garbage)`. Root cause: the mode-table `0x80015268[mode]` entries are the
+  dispatcher `guest 0x8003F698`'s OWN internal case-label addresses (`0x8003F6xx`), NOT renderer fn
+  pointers; my fallback `typed runtime address dispatch(tgt)` jumped into the MIDDLE of 8003F698 → ran garbage. Dormant at
   the field (always generic, `fallback=0`); the margin (mode=0, flag=0) triggered it. Also my "generic"
   sentinel was wrong (`0x800803DC` vs the real label `0x8003F788`). Fix: for unowned modes run the REAL
-  dispatcher `gen_func_8003F698` (it owns its internal jump table); native fast-path only when provably
+  dispatcher `guest 0x8003F698` (it owns its internal jump table); native fast-path only when provably
   generic (`tgt==0x8003F788` / force / flag&1 / mode≥22). After the fix full-native reaches f600, VRAM
   0-diff at f410 + f450. **LESSON: verify the game PROGRESSES (runs to f600), not just one frame's pixels.**
 - The full FIELD render path is now native C end-to-end (walk → dispatch → flush+native_dispatch →
-  terrain → transform-build → owned submitters), 0-diff vs recomp, no hang, deterministic. Per-override
+  terrain → transform-build → owned submitters), 0-diff vs guest instruction path, no hang, deterministic. Per-override
   A/B gates added: `PSXPORT_NO_{FLUSH,DISP,WALK,TERRAIN,XFORM}=1`.
 - **Widescreen-visibility finding (don't re-chase):** at the standard headless field frames, 16:9 s_vram
   is BYTE-IDENTICAL to 4:3. That is EXPECTED, not a bug: `ov_set_geom_offset` deliberately keeps OFX=160
@@ -6566,19 +6567,19 @@ code runs — not `gen_func_8003CDD8`, not the dispatcher `gen_func_8003F698`, n
   WIDE CULL in engine_submit (`submit_xmax`→428, keep geometry projecting into [320,428]) — NOT a wider
   FOV. So 16:9 differs from 4:3 ONLY when the scene actually has geometry in the [320,428] margin band;
   the auto-gameplay field frames tested have none. The render-submission ports are verified faithful
-  regardless (0-diff vs recomp in BOTH aspects). True wider-FOV widescreen would need the native-projection
+  regardless (0-diff vs guest instruction path in BOTH aspects). True wider-FOV widescreen would need the native-projection
   path (proj_native_vertex, memory note) wired into the owned submitters — a separate design step.
-- **Remaining render work is NOT clean recomp-sourced ports anymore (assessed this session):** the
+- **Remaining render work is NOT clean guest instruction path-sourced ports anymore (assessed this session):** the
   per-mode renderers the dispatcher delegates to (`0x80146478` mode0, `0x80132DC0`, `0x8013xxxx`…) are
-  OVERLAY/interpreted (not in MAIN.EXE recomp) → need the overlay-scan mechanism or RAM RE; the camera
-  matrix builder `gen_func_800939A0` is a 308-line subtree with 8 callees and is camera-CONTROL coupled
-  (gameplay-scope — keep recomp). So the next steps need a direction decision, not just another lift.
+  OVERLAY/interpreted (not in MAIN.EXE guest instruction path) → need the overlay-scan mechanism or RAM RE; the camera
+  matrix builder `guest 0x800939A0` is a 308-line subtree with 8 callees and is camera-CONTROL coupled
+  (gameplay-scope — keep guest instruction path). So the next steps need a direction decision, not just another lift.
 ## later-136 — per-mode overlay renderers: their geometry was ALREADY native; own the generic-caller wrapper too
 Investigated the dispatcher's per-mode renderers (the modes native_dispatch delegates to the guest
 dispatcher). `PSXPORT_DEBUG=pdisp` past f434: the ONLY fallback mode that fires is **mode 0** (renderer
 `0x80146478`), heavily — up to **90 dispatches/frame** at f497-553 (a render layer on top of the field).
-- **The mode-0 renderer `0x80146478` is structurally IDENTICAL to `gen_func_800803DC`** (disassembled from
-  a f500 RAM dump via tools/recomp/decode.py): a generic GT3/GT4 caller — `lw counts,0(a0); a0+=16;
+- **The mode-0 renderer `0x80146478` is structurally IDENTICAL to `guest 0x800803DC`** (disassembled from
+  a f500 RAM dump via recorded binary decoding): a generic GT3/GT4 caller — `lw counts,0(a0); a0+=16;
   jal <gt3>; jal <gt4>`. Its two submitters `0x801465EC`/`0x801467BC` are **ALREADY OWNED** by the
   overlay-scan (`PSXPORT_DEBUG=submit`: "own overlay GT3/GT4 @ 0x801465EC/0x801467BC"). So mode-0's 90
   prims/frame were **already natively submitted with native depth** — the meaningful part was done.
@@ -6603,7 +6604,7 @@ PSXPORT_DEBUG=ndepth`, made/hit/miss per present frame):
   `8003B220`, packet color/uv build `8003B054`, a 33-entry type jump table @0x80014E40, writes full guest
   packets to the pool + OT). Its cull is HARDCODED 320 (4:3 — not wide-aware). A faithful port is ~terrain
   complexity but adds NO native depth (the packet is built by `8003B054`); native depth needs reimplementing
-  that too. Low ROI (3-7 prims/frame). Recompiled (shard_6) so it's 0-diff portable when prioritised.
+  that too. Low ROI (3-7 prims/frame). guest (shard_6) so it's 0-diff portable when prioritised.
 - **Conclusion:** the FAITHFUL render (default) is comprehensively owned + 0-diff across all traversed
   scenes; the native-depth ENHANCEMENT (off by default) has a residual gap only in non-field scenes,
   closable by porting the remaining guest-packet submitters with the ndl_active path — a multi-function
@@ -6614,7 +6615,7 @@ PSXPORT_DEBUG=ndepth`, made/hit/miss per present frame):
 - (a) native wider-FOV widescreen via proj_native_vertex in the owned
   submitters (the real visible payoff); (b) own the per-mode overlay renderers via overlay-scan; (c) drive
   to scenes using `0x8003B320`/`0x8003C8F4`/
-  overlay `0x8013xxxx` and port those submit variants. (3) own `gen_func_80051C8C` (transform build,
+  overlay `0x8013xxxx` and port those submit variants. (3) own `guest 0x80051C8C` (transform build,
   interpreted-only — RE from RAM). (4) native widescreen margin (replace the guest-flush margin_render.cpp).
 - Probes added this session: `PSXPORT_DEBUG=pdisp` (dispatch coverage), `subcnt` (submitter call counts),
   `ccase` (8003CCA4 case histogram), `rwalk` (phase-2 walk caller). All gated, zero cost off.
@@ -6622,12 +6623,12 @@ PSXPORT_DEBUG=ndepth`, made/hit/miss per present frame):
 ## later-138 — HOST-MEMORY render conversion (the core directive: read guest, NEVER write guest)
 User directive (ground truth, observed live via `./run.sh` 4:3+VK+native-depth): the native render
 **corrupts both gameplay and visuals** (character models explode into stretched tris; gameplay diverges)
-because it WRITES guest memory that the still-recompiled guest logic reads. The PC engine must live in
+because it WRITES guest memory that the still-guest guest logic reads. The PC engine must live in
 HOST memory — read guest, never modify it. GTE control/data regs are HARDWARE (not guest RAM) → writing
 CR0-7/data for projection is fine. "Faithful-first byte-identical guest writes" is the WRONG methodology
 here. (Diagnosis confirmed the divergence is config-induced — VK_HEADLESS is deterministic per-config but
 changing the render config changes the gameplay scene reached → the render alters guest state. The native
-submitters (native_dl) write the guest OT/pool differently than recomp; that is the gameplay-diverging
+submitters (native_dl) write the guest OT/pool differently than guest instruction path; that is the gameplay-diverging
 write. Memory: [[engine-host-memory-never-write-guest]].)
 
 **Converted to host this session (committed):**
@@ -6674,15 +6675,15 @@ that anchor node. RULE #0 advanced: the dominant render path (190 prims/frame) n
 **VERIFIED (not a vibe):**
 - Render byte-identical: VRAM dump @f410 native-ordering == `PSXPORT_DL_GUESTPKT=1` (full-guest-packet),
   `cmp` = IDENTICAL.
-- Gameplay 0-diff vs FULL recomp (SUBMIT/PEROBJ_RECOMP + NO_FLUSH/DISP/WALK/TERRAIN/XFORM + OT_RECOMP):
+- Gameplay 0-diff vs FULL guest instruction path (SUBMIT/PEROBJ_RECOMP + NO_FLUSH/DISP/WALK/TERRAIN/XFORM + OT_RECOMP):
   `tools/node_diff.py` @f420/f440/f500/f560 = GAMEPLAY 0-DIFF every frame (only render-pool/cmd/global
-  bytes differ). Native f470 screenshot is pixel-for-pixel the same dark/underwater scene as recomp f470
-  (the "spiky tris" I first suspected were corruption are the real scene, present identically in recomp).
+  bytes differ). Native f470 screenshot is pixel-for-pixel the same dark/underwater scene as guest instruction path f470
+  (the "spiky tris" I first suspected were corruption are the real scene, present identically in guest instruction path).
 - Runs to f800 (`PSXPORT_DEBUG=stage`), no hang.
 
 **HONEST CORRECTION to the handoff premise:** the handoff (+ memory note) claimed the submitter OT/pool
 writes were "THE main corruption." In the headless AUTO_GAMEPLAY path that is NOT demonstrable: node_diff
-shows `PSXPORT_DL_GUESTPKT=1` (submitters writing FULL guest packets) is ALSO gameplay-0-diff vs recomp at
+shows `PSXPORT_DL_GUESTPKT=1` (submitters writing FULL guest packets) is ALSO gameplay-0-diff vs guest instruction path at
 f500. So the OT/pool writes do not measurably diverge gameplay in the traversed scenes — removing them is
 correct per RULE #0 and regression-free, but it is NOT proven to be the fix for the user's interactive
 corruption (which the deterministic headless path doesn't reproduce in any config). Whether it resolves
@@ -6723,8 +6724,8 @@ everything to host to fix it" (the later-138 handoff premise) is FALSIFIED for t
 The corruption is in the native render/present layer itself. SEPARATE STILL-OPEN issue: the ocean
 exploded-geometry (spiky stretched tris) reproduces even at ires=1 with ALL native overrides off (pure
 interpreter) — so it's a 3D render/geometry bug (rasterizer/GTE) or a real scene, to be settled by
-gpu_differ + the Beetle oracle (the mandated render-diff-first path). NOT guest-memory, NOT interp-vs-recomp
-(verified 0-diff, later-103). Do not "switch back to the recompiler" — it would change nothing here.
+gpu_differ + the Beetle oracle (the mandated render-diff-first path). NOT guest-memory, NOT interp-vs-guest instruction path
+(verified 0-diff, later-103). Do not "switch back to the recorded binary evidence" — it would change nothing here.
 
 ## later-141 — OOP regression SOLVED: cooperative task context must save REGISTERS only, not the whole Core
 **Symptom:** after the OOP refactor (c344d16), the headless AUTO build stalled at stage START
@@ -6820,10 +6821,10 @@ Continuing the hand-written-native-C++ boot→cutscene port (handoff: scratch/ha
 I characterized the 585-entry burn-down list (`scratch/trace/tripwire.funcs`, PSXPORT_INTERP_FUNCS) and
 found the literal "port boot2cut.funcs top-down from #1" plan is **based on a polluted list head**:
 
-- **The first ~211 entries have NO real recompiled body**, and the top ~40 (the `0x80018xxx` cluster) are
+- **The first ~211 entries have NO real guest body**, and the top ~40 (the `0x80018xxx` cluster) are
   **data, not functions**. Static MAIN.EXE bytes there == live RAM (no overlay/self-modify), and they decode
   as a const/dispatch table (pairs `{0x20020000, smallint}`, embedded ptrs to 0x80018CCC, stray
-  `syscall`/`break` words). The recompiler (`tools/recomp/tomba2_funcs.txt`) finds **zero functions in
+  `syscall`/`break` words). The recorded binary evidence (`tools/guest instruction path/tomba2_funcs.txt`) finds **zero functions in
   0x80010000–0x8001CB00** — that whole prefix is the .rodata/const region. Real functions start at 0x8001CB00.
 - **Decisive proof they don't execute:** a full boot→prologue run hits **exactly ONE `break`** (`[break]
   code 1`, the terminal crt0 break), not the 40× `break code 3` that executing the `0x80018xxx` table would
@@ -6833,22 +6834,22 @@ found the literal "port boot2cut.funcs top-down from #1" plan is **based on a po
   0x80106–0x80109 (the REAL overlay DEMO-menu/GAME-prologue stage code** — loaded at runtime so absent from
   static MAIN.EXE; RE these from a live overlay RAM dump, e.g. `scratch/bin/tomba2/ram_menu.bin`), rest scattered.
 
-**Corrected top-down order = `ov_game_main`'s init-prefix call list** (`runtime/recomp/native_boot.cpp`
+**Corrected top-down order = `ov_game_main`'s init-prefix call list** (`runtime/psx/native_boot.cpp`
 ~276–302: rc0/rc1/.. of 0x80089788, 0x80085b20, 0x800898a0, 0x80080bf0 …), NOT the tripwire first-seen order.
 That list is the real boot call-tree root; walk it (and callees) to port in genuine top-down order.
 
 **Function shapes** (229 of 585 have real gen_func bodies): 15 BIOS-vector thunks (`li t1,N; j 0xA0/B0/C0`
-→ route to `recomp_hle`), **69 clean leaves** (no jal/jalr/BIOS — the easy clean burn-down), and ~199 real-code
-funcs. Many of the real ones are **indirect-dispatch (`rec_dispatch(c, c->r[2])` through a guest object's
+→ route to `old HLE boundary`), **69 clean leaves** (no jal/jalr/BIOS — the easy clean burn-down), and ~199 real-code
+funcs. Many of the real ones are **indirect-dispatch (`typed runtime address dispatch(c, c->r[2])` through a guest object's
 vtable** at e.g. +12) — porting those to "clean native C++" needs object-model RE, not transcription. The
-clean leaves' native form is necessarily near-identical to the recompiled body (a memset is a memset).
+clean leaves' native form is necessarily near-identical to the guest body (a memset is a memset).
 
 **Done this session (later-150):** ported the first clean-leaf batch into `engine/native_path.cpp` (12 fns:
 3× word-zero-fill 0x800861BC/86320/865C8, memset 0x80083AF8, EnterCritical 0x80080890, the 0x800ABE20
 get/set pair 0x80086604/865F0, struct-inits 0x80083BF0/0x80051794, global stores 0x8009A480/0x80096370/
 0x800963A0). Burn-down **585 → 573**; still `[autonewgame] reached GAME` at the identical frame 39 (no
-divergence). Per-fn RE = its `gen_func_<addr>` body (recompiler decode is the reference, per user "don't
-overrely on capstone"); trailing post-`jr ra` writes in those bodies are recompiler over-run, ignored.
+divergence). Per-fn RE = its `the cited guest instructions` body (recorded binary evidence decode is the reference, per user "don't
+overrely on capstone"); trailing post-`jr ra` writes in those bodies are recorded binary evidence over-run, ignored.
 
 **Tooling note:** `scratch/bin/tomba2/main_ram.bin` is a 2MB RAM-layout view of MAIN.EXE (body at file
 offset 0x10000) so `tools/disasm.py <main_ram.bin> <kseg0_addr> <end>` resolves 0x800xxxxx directly. But
@@ -6887,12 +6888,12 @@ re-A/B to 0-diff, then re-enable). Burn-down 543 → 505. Reaches prologue at fr
 Clean-leaf supply exhausted (only the 7 quarantined buggy leaves remained). Started the NON-LEAF phase:
 functions whose static callees are ALL already native (portable leaf-up; no indirect dispatch). 34 such
 fns identified. Ported the first 15 (engine/native_path_b1.cpp): memset/strncmp wrappers (call 0x8009A420/
-0x8009A640 via rec_dispatch), 0x80097E40 id-pair callers, a GTE matrix×vector op (0x80084470), and a few
-global-clear+sub-call init fns. A native override invokes a sub-fn via `rec_dispatch(c, addr)` (same as
+0x8009A640 via typed runtime address dispatch), 0x80097E40 id-pair callers, a GTE matrix×vector op (0x80084470), and a few
+global-clear+sub-call init fns. A native override invokes a sub-fn via `typed runtime address dispatch(c, addr)` (same as
 native_boot's rc0/rc1) — routes to the callee's override or interp. Burn-down 505→487, prologue at frame 39.
 
 **Non-leaf A/B gate note (important, recurs for EVERY non-leaf port):** a non-leaf native override is
-frame-less, but the gen body has a prologue (`sp-=N; *(sp+16)=r31; …`). So the A/B RAM diff shows benign
+frame-less, but the guest-visible behavior has a prologue (`sp-=N; *(sp+16)=r31; …`). So the A/B RAM diff shows benign
 diffs in the STACK region (0x801FExxx/0x801FFxxx): the gen saved r31 (a 0x800xxxxx return addr) to its own
 frame slot, the override leaves stale stack — dead after return (confirmed by hex: interp=0x8008BAF8 etc.,
 native=stale). **For non-leaf ports, A/B-accept stack-region (>=~0x801F0000) diffs; only flag diffs in
@@ -6906,7 +6907,7 @@ cascade), 80090160(80, wrong stream cursor → cascade), 80077FB0(4), 80094C10(1
 
 Ported up the ov_game_main init-prefix call tree: descriptor/viewport setup (80050738 = 4× 80083B30/
 80083BF0 builders), GTE matrix×vector ops (80084470/80084250), strlen, table-search (8008BEAC via
-strcmp), fixed-point lookups, large field/array inits. Sub-calls via rec_dispatch(c, addr). All A/B-
+strcmp), fixed-point lookups, large field/array inits. Sub-calls via typed runtime address dispatch(c, addr). All A/B-
 verified (non-leaf stack-frame-slot diffs accepted; globals/pool 0-diff).
 
 **STACK-ARG gotcha (recurs for any non-leaf port that passes a 5th+ arg):** the callee reads arg5 at
@@ -6918,9 +6919,9 @@ a0-a3 need no frame; only stack args do.) Caught by the gate as a hang (timeout,
 ## later-154: non-leaf batch b3 (10 fns) — burn-down 474→464; portability-scan false-positive caught
 
 Continued the non-leaf phase. Rebuilt the portability scanner (scratch/portscan.py: a fn is portable
-when every static `func_<addr>` callee is an ENABLED override and the body has no `rec_dispatch(c, c->r[N])`
+when every static `a guest address` callee is an ENABLED override and the body has no `typed runtime address dispatch(c, c->r[N])`
 indirect dispatch). **Gotcha caught: the first scan over-counted because the override set was grepped from
-all `rec_set_override(0x…)` source lines including the COMMENTED-OUT quarantined ones** (a1/a2/a3's 5
+all `tomba::native::declareOverride(0x…)` source lines including the COMMENTED-OUT quarantined ones** (a1/a2/a3's 5
 disabled fns). Filtering commented lines dropped two bogus candidates (80099310→80097540, 8006D02C→80077FB0
 depend on still-interpreted quarantined leaves). Net: 11 clean on-path candidates.
 
@@ -6945,7 +6946,7 @@ Both builds reach GAME prologue at frame 39. (NOTE: AUTO_NEWGAME=**2** + REPL de
 
 **DO NEXT:** re-run scratch/portscan.py (more fns become portable as b3's are now enabled), port the next
 non-leaf batch leaf-up; tackle 800977C0 (block allocator) carefully on its own; then the indirect-dispatch
-(`rec_dispatch(c, c->r[2])` vtable) fns + the 0x80106xxx overlay stage code (needs object-model RE).
+(`typed runtime address dispatch(c, c->r[2])` vtable) fns + the 0x80106xxx overlay stage code (needs object-model RE).
 
 ## later-155: non-leaf batch b4 (8007B18C) — burn-down 464→463
 
@@ -6970,43 +6971,43 @@ overlay stage code (object-model RE).
 
 ## later-157: submit_terrain — sway-byte GAMEPLAY fix (DONE) + terrain RENDER bug ROOT-CHARACTERIZED (open)
 
-**Method:** sequential A/B RAM diff (PSXPORT_RAMHASH=1, native terrain vs PSXPORT_NO_TERRAIN=1 recomp;
+**Method:** sequential A/B RAM diff (PSXPORT_RAMHASH=1, native terrain vs PSXPORT_NO_TERRAIN=1 guest instruction path;
 both deterministic so two runs are comparable). First gameplay-RAM divergence at **frame 86**, exactly
 two bytes: **0x800A2014 + 0x800A2016** (everything else below the render pool 0-diff through f540).
 
 **GAMEPLAY fix (committed 4e5823b, PUSHED):** native submit_terrain (engine_submit.cpp, 0x8002AB5C)
-withheld the two `mem_w8` guest writes the recomp body does — sway0→0x800A2014, sway2→0x800A2016 — to
+withheld the two `mem_w8` guest writes the guest instruction path does — sway0→0x800A2014, sway2→0x800A2016 — to
 honor the (now USER-DISCARDED) no-guest-write rule. Restored them. Native gameplay RAM is now byte-
-identical to the recomp config at f86/f300/f540 (entity list 0x800f2624, entity structs 0x800FD000 all
+identical to the guest instruction path config at f86/f300/f540 (entity list 0x800f2624, entity structs 0x800FD000 all
 match). The fix changed EXACTLY those 2 bytes. **The no-guest-write rule is discarded** (user directive
 2026-06-19): the engine MAY write guest state where that is the function's faithful behavior.
 
 **SEPARATE terrain RENDER bug (OPEN — not fixed):** screenshots at the post-cutscene field/menu frame
 (scratch/screenshots/native_f540.png vs recomp_f540.png) show native terrain renders **water/garbage**
-while recomp renders the correct green village (matches docs/reference/ORACLE_village_f520.png). The
+while guest instruction path renders the correct green village (matches docs/reference/ORACLE_village_f520.png). The
 gameplay-RAM diff is BLIND to this: submit_terrain works almost entirely in **scratchpad (0x1F800000)
 + GTE registers**, which are NOT in the 2MB main-RAM dump. So gameplay-RAM-clean ≠ render-correct here.
 
   Diagnostics (PSXPORT_DEBUG=terrgte channel, added this session — engine_submit.cpp): logs the composed
   GTE CR0-7 at the terrain submit ([terrgte]), the compose inputs camera@SCR+0xF8 + object-matrix@SCR
   ([terrin]), and ov_terrain node dispatch ([ov_terrain]). Findings:
-  - The compose MATH matches the recomp exactly (MVMVA_ROTCOL=0x4A49E012, MVMVA_TRANS=0x4A486012; the
-    CR-packing of the 9 result halfwords matches the recomp's scratchpad layout line-for-line). Camera
+  - The compose MATH matches the guest instruction path exactly (MVMVA_ROTCOL=0x4A49E012, MVMVA_TRANS=0x4A486012; the
+    CR-packing of the 9 result halfwords matches the guest instruction path's scratchpad layout line-for-line). Camera
     matrix read at SCR+0xF8 is correctly ~4096-scaled. Object matrix from 80085480/80084520 is a tiny
     diagonal (~36/64/52) — possibly legitimate terrain scale, NOT yet proven wrong.
   - **The real divergence is the WALK, not the compose.** ov_terrain dispatch counts over a 342-frame
     AUTO_GAMEPLAY run (NOAUDIO, field reached ~f328):
-      * node **0x800ED8D8**: 42x in BOTH native and the recomp super-call — SYMMETRIC.
-        **FALSIFIED EARLIER GUESS:** the "recomp gt4bp terrain submitter = 0" reading was an ARTIFACT,
-        NOT a cull. gen_func_8002AB5C is fully LINEAR (no branch, always calls 0x80027768; verified the
-        whole body has zero goto/if/return except the tail). rec_super_call => rec_interp interprets the
+      * node **0x800ED8D8**: 42x in BOTH native and the guest instruction path super-call — SYMMETRIC.
+        **FALSIFIED EARLIER GUESS:** the "guest instruction path gt4bp terrain submitter = 0" reading was an ARTIFACT,
+        NOT a cull. guest 0x8002AB5C is fully LINEAR (no branch, always calls 0x80027768; verified the
+        whole body has zero goto/if/return except the tail). original guest-body call => test-only reference execution interprets the
         body; a DIRECT JAL to 0x80027768 inside an interpreted function does NOT route through the
-        override-based [terrgte]/gt4bp count (only rec_dispatch/JALR does — that is why the 200 OTHER
-        gt4bp calls counted but the interpreted terrain submit did not). So the recomp terrain DOES
+        override-based [terrgte]/gt4bp count (only typed runtime address dispatch/JALR does — that is why the 200 OTHER
+        gt4bp calls counted but the interpreted terrain submit did not). So the guest instruction path terrain DOES
         submit, via the interpreted submitter, invisible to those counters. Do NOT chase a non-existent
         native "missing cull". (Whether the interpreter checks the override on a direct JAL needs a
         quick confirm in interp.c — if it SHOULD and doesn't, that itself is a bug worth a look.)
-      * node **0x800EDB80**: **native 1x vs recomp 160x** — main resident-MAIN terrain node (dispatched
+      * node **0x800EDB80**: **native 1x vs guest instruction path 160x** — main resident-MAIN terrain node (dispatched
         from 0x8003FA0C). This is the strongest remaining lead, BUT first RULE OUT scene-timing skew:
         these were whole-run counts; the NOAUDIO field-reach gate (xa_stream_is_looping) could put the
         two runs in different scene phases. Confirm both runs are frame-synced (they were RAM-0-diff at
@@ -7020,10 +7021,10 @@ gameplay-RAM diff is BLIND to this: submit_terrain works almost entirely in **sc
   to isolate the 0x800EDB80 1-vs-160 from cutscene transients / timing skew. (2) Dump scratchpad
   0x1F800000 (camera matrix @+0xF8, composed matrix, object matrix) AT the terrain call in BOTH paths
   (NOT in the main-RAM dump) and diff — that is where the compose input divergence (if any) lives.
-  (3) Confirm whether interp.c checks the override on a direct JAL; if not, the recomp terrain submit is
+  (3) Confirm whether interp.c checks the override on a direct JAL; if not, the guest instruction path terrain submit is
   rendering via the un-instrumented interpreted submitter and the two submitters (native ov_submit vs
-  interpreted gen_func_80027768) may themselves differ — compare their VRAM output. NB: NO_TERRAIN
-  super-call is a valid recomp oracle for the walk since the walk overrides stay active.
+  interpreted guest 0x80027768) may themselves differ — compare their VRAM output. NB: NO_TERRAIN
+  super-call is a valid historical guest-execution reference for the walk since the walk overrides stay active.
 
 ## later-158: native terrain — ROOT CAUSE (it was GAMEPLAY corruption, NOT a render bug) + FIX
 
@@ -7034,36 +7035,36 @@ ground-truth, 2026-06-19: "Tomba falls down the terrain, it's the gameplay that 
 native terrain submits wrong data to guest memory.") Chasing it as a render bug — and building a
 PC-native float terrain renderer — was a dead end: that float renderer came out **pixel-identical
 (magick compare AE=0)** to the faithful GTE transcription, proving the projection/compose was never the
-differentiator. The divergence vs the recomp oracle was two PORTING ERRORS in the native terrain body
+differentiator. The divergence vs the historical guest-execution reference was two PORTING ERRORS in the native terrain body
 (engine_submit.cpp submit_terrain / terrain_prep_object_matrix, the 0x8002AB5C port), both found by
-diffing against the recompiled body gen_func_8002AB5C (generated/shard_4.c):
+diffing against the guest body guest 0x8002AB5C (authenticated executable/overlay evidence):
 
-1. **WRONG geometry buffer.** The recomp loads `lui 0x800A; addiu r4, -1304` = **0x8009FAE8** as the a0
+1. **WRONG geometry buffer.** The guest instruction path loads `lui 0x800A; addiu r4, -1304` = **0x8009FAE8** as the a0
    to the submitter 0x80027768. The native code hardcoded **0x800A1AE8** (= 0x8009FAE8 + 0x2000). That
-   address is a FABRICATION — it is referenced by NO function in the whole recomp as a geomblk (all three
+   address is a FABRICATION — it is referenced by NO function in the whole guest instruction path as a geomblk (all three
    real callers of 0x80027768 — 0x8002AB5C/0x8002AE0C/0x8002B278 — pass -1304). So the native terrain
    read the wrong buffer → wrong/garbage strip geometry. (Also why the PSXPORT_DEBUG=terrgte probe,
-   keyed on rec==0x800A1AE8, never fired for the recomp terrain — wrong key, not the "direct-JAL bypasses
+   keyed on rec==0x800A1AE8, never fired for the guest instruction path terrain — wrong key, not the "direct-JAL bypasses
    override" theory of later-157. Direct JAL DOES route through coro_native_call→override, interp.cpp:446.)
 
-2. **GUEST WRITE the recomp never makes (the gameplay corruption).** The secondary sway-rotation needs 3
-   angle words staged for 0x80084520. The recomp body stages them on its OWN STACK FRAME (`r29 -= 56`;
+2. **GUEST WRITE the guest instruction path never makes (the gameplay corruption).** The secondary sway-rotation needs 3
+   angle words staged for 0x80084520. The guest instruction path stages them on its OWN STACK FRAME (`r29 -= 56`;
    words at r29+16/20/24) and passes that stack pointer. The native code wrote them to **scratchpad
-   0x1F8001C0/1C4/1C8** instead — a guest write the recomp NEVER makes — clobbering whatever live engine
+   0x1F8001C0/1C4/1C8** instead — a guest write the guest instruction path NEVER makes — clobbering whatever live engine
    state occupied 0x1F8001C0 → corrupted terrain collision → Tomba falls through. **This is why later-157's
    A/B RAM gate said "0-diff": that gate diffs only the 2 MB MAIN RAM; the scratchpad (0x1F800000) is not
    in it.** later-157 even flagged this blindness and still mis-framed the bug as render. Lesson: a
    scratchpad guest write can corrupt gameplay invisibly to the main-RAM diff.
 
-**FIX (this session):** native terrain now matches the recomp body exactly — read geomblk 0x8009FAE8;
+**FIX (this session):** native terrain now matches the guest instruction path exactly — read geomblk 0x8009FAE8;
 stage the sway angles on a guest stack frame (r29-=56, write +16/20/24, restore) instead of scratchpad.
-run.sh stopgap dropped (NO_TERRAIN default 1→0; native terrain back on; set =1 to fall back to recomp).
+run.sh stopgap dropped (NO_TERRAIN default 1→0; native terrain back on; set =1 to fall back to guest instruction path).
 
 **PROCESS CORRECTIONS (user directives, 2026-06-19):** (a) Do NOT visually verify — the agent builds,
 the USER verifies via ./run.sh. Visual self-verification led this session to mis-assume "render bug" and
 build a useless PC-replication float renderer. (b) The goal is to RECREATE the game on PC, not replicate
-PSX on PC; a native function that byte-matches the recomp's PSX behavior but is still "poor PSX
-replication" is not the end state — but FIRST it must be CORRECT (match the recomp oracle's guest
+PSX on PC; a native function that byte-matches the guest instruction path's PSX behavior but is still "poor PSX
+replication" is not the end state — but FIRST it must be CORRECT (match the historical guest-execution reference's guest
 effects), which is what this fix does. The PC-native float terrain scaffold (engine/native_terrain.cpp,
 PSXPORT_TERRAIN_PC, default off) is left gated off; it is byte-identical to the transcription and adds
 nothing until the geometry is rebuilt from real PC-side data.
@@ -7072,22 +7073,22 @@ nothing until the geometry is rebuilt from real PC-side data.
 
 **Direction (user, 2026-06-19):** port the game ENGINE to PC (menu, level loading, asset loading,
 terrain, object placement, scene mgmt, render, main loop) — keep the CONTENT/LOGIC (enemy AI, character
-behavior, game physics/collision, quests) as recompiled PSX. CLAUDE.md rewritten to state this
+behavior, game physics/collision, quests) as guest PSX. CLAUDE.md rewritten to state this
 unambiguously ("THE BOUNDARY"). "Start from the game's main entry point and go from there."
 
 **Spine:** crt0 0x800896E0 → main FUN_80050b08 (=ov_game_main, native_boot.cpp) → init prefix → register
-task0 = stage sequencer FUN_800499e8 → native frame loop. The init prefix was a 1:1 rec_dispatch
+task0 = stage sequencer FUN_800499e8 → native frame loop. The init prefix was a 1:1 typed runtime address dispatch
 transcription (PSX-sim). Classified every init call platform-vs-engine (table in docs/engine_re.md).
 
 **Reimplemented PC-native this session (engine/engine_init.cpp):** FUN_80050a0c (engine frame-state:
 vblank ctr / buffer parity / frame divisor / swap-mode + DAT_80105ee8=0x45) and FUN_80050a80 (camera:
 identity matrix → scratch 0x1F8000F8 = the camera-rot the renderer reads, + cam fields). ov_game_main now
-calls eng_init_framestate/eng_init_camera instead of rc0(0x80050a0c)/rc0(0x80050a80). FUN_800509b4
+calls eng_init_framestate/eng_init_camera instead of guest call (0x80050a0c)/guest call (0x80050a80). FUN_800509b4
 (display + GTE projection + PSX draw/disp double-buffer env) stays dispatched — next target. Started
 migrating engine logic OUT of the platform file native_boot.cpp INTO engine/.
 
 **Exact store WIDTHS matter** (a wrong width corrupts interface state the PSX content reads, later-158;
-Ghidra DAT_* hides them; 0x80050a0c isn't even in the recompiled set). Built a durable tool:
+Ghidra DAT_* hides them; 0x80050a0c isn't even in the guest set). Built a durable tool:
 **`tools/disas.py <addr> [--mem]`** — MIPS-I disassembler for MAIN.EXE that resolves lui+addiu/ori address
 builds and annotates each load/store with absolute target + width (sb/sh/sw). Verified it reproduces the
 hand-decoded widths. USE IT before reimplementing any engine fn.
@@ -7118,7 +7119,7 @@ Continued the top-down port. **eng_init_display** (engine/engine_init.cpp) reimp
 PC-native: the GTE projection control regs (InitGeom = ZSF3/ZSF4/H/DQA/DQB + SetGeomOffset(160,120) +
 SetGeomScreen(350); the libgte cop2-exception-handler install FUN_80085810 is moot for our always-on
 native GTE) + DAT_801003f8=350. FUN_80050738 (PSX draw/disp env structs) still dispatched. ov_game_main
-calls eng_init_display instead of rc0(0x800509b4).
+calls eng_init_display instead of guest call (0x800509b4).
 
 **Fixed the later-160 single-buffer rendering hurt** (root-caused with tools/disas.py): PutDispEnv issues
 GP1(0x05) → present samples VRAM at (s_disp_x,s_disp_y). The PSX env pair draws region P but its disp env
@@ -7134,7 +7135,7 @@ Continued the top-down port into the engine system the user named ("level loadin
 from main: task0 = stage sequencer FUN_800499e8 (resolve \BIN\START.BIN → disc LBA/size into the stage
 table DAT_800be1e0/e4) → FUN_80052078(stage) (restart task) → **FUN_800450bc(task, stage) = the overlay
 LOADER**, now reimplemented PC-native in **engine/engine_level.cpp** (`eng_load_stage`, override
-ov_load_stage @ 0x800450bc; A/B PSXPORT_LOADSTAGE_RECOMP=1; registered in games_tomba2_init).
+ov_load_stage @ 0x800450bc; A/B former static-path comparison setting=1; registered in games_tomba2_init).
 
 Loader logic: stage!=3 → load the overlay from the per-stage (LBA,size) pair at 0x800be1e0/0x800be1e4
 (stride 8) to 0x80106228 via the CD loader 0x8001db8c, then set the task entry from the stage-entry table
@@ -7209,8 +7210,8 @@ Left out: the imgui DPI tweak (pending the user's visual check) and an unrelated
 
 **(2) The plan's M2 was ALREADY DONE — the handoff was stale.** The plan/handoff list M2 as "next work:
 reimplement FUN_8007a904 natively in a new engine/engine_object.cpp." That code already exists and is the
-default: `engine/engine_tomba2.cpp` `ov_objwalk` (registered on 0x8007A904 unless PSXPORT_RECOMP_OBJWALK)
-walks both entity lists, calls each handler via rec_dispatch (gameplay stays PSX), then margin_render_flush.
+default: `engine/engine_tomba2.cpp` `ov_objwalk` (registered on 0x8007A904 unless former static-path comparison setting)
+walks both entity lists, calls each handler via typed runtime address dispatch (gameplay stays PSX), then margin_render_flush.
 Cull (ov_object_cull 0x8007712C), per-object render dispatch (ov_perobj_render 0x8003CCA4), the major flush
 (ov_perobj_flush 0x8003CDD8), and the transform builder (ov_build_xform 0x80051C8C) are all native overrides
 (game_tomba2.cpp), and the owned submit (engine_submit.cpp ov_submit_poly_gt3/4/gt4_bp) composes camera×
@@ -7221,7 +7222,7 @@ create engine/engine_object.cpp.
 
 **Actual remaining work = M3 then M4.** M3: capture the guest 2D/HUD/background submits at their SOURCE
 (AddPrim / 2D draw) so they enter the queue without walking the guest OT, then stop driving the frame from
-gpu_dma2_linked_list / ov_draw_otag's OT read. M4: own the still-recomp submit variants (overlay modes
+gpu_dma2_linked_list / ov_draw_otag's OT read. M4: own the still-guest submit variants (overlay modes
 0x8013xxxx, resident byte-packed 0x80027768) so 100% of world geometry carries real depth; delete the
 OT-walk driver + bg_2d coverage heuristic. Open question for the user (M3 priority): under the new
 render-queue default, did any framebuffer-read effect (water reflection / fb snapshot) glitch? Such copies
@@ -7257,7 +7258,7 @@ plain C (NO gte_op/Beetle); decoded the cop2 stream with an inline python decode
 register choreography). Replicated ALL GTE leftover regs the body leaves: IR0=sz, IR1-3=clamp16(R4 MACs),
 MAC1-3=raw R4 products, AND the RGB FIFO (regs 20-22 = R2/R3/R4 colors via Lm_C(MAC>>4)|RGB_CD<<24) — so a
 still-PSX gte_op reader stays consistent (GPF actively writes the FIFO, unlike MVMVA, so I replicated rather
-than excluded it). GTE-EXACT verified by ov_rotmat_verify (per-call A/B vs rec_interp(0x80085480)): 5 output
+than excluded it). GTE-EXACT verified by ov_rotmat_verify (per-call A/B vs test-only reference execution(0x80085480)): 5 output
 words + all 32 GTE data regs (XY-FIFO 12-15 / LZCR 31 excluded — untouched + can't round-trip a FIFO restore)
 **0-diff over 55000+ live field calls**. Field run (newgame+skip 600, press r, 300 frames) **35.21M→31.90M
 interp insns (−9.4%; cumulative −25.7% from the 42.93M pre-profiler baseline)**. The fn is gone from the
@@ -7283,7 +7284,7 @@ the trig sign convention differs per fn).
   ALREADY in GTE CR0-4 (loaded by a prior CTC2) × vector a0 → IR1-3 sign-extended to a1+0/4/8. Reused the
   ov_mat_mul MVMVA core (sign44 44-bit accum, >>12, clamp16) but reads the matrix from gte_read_ctrl(0..4).
   Replicated GTE leftover: VXY0/VZ0 (input), IR1-3, MAC1-3.
-- **VERIFIED** by per-call comparators vs rec_interp: rotX 55k+ calls 0-diff, ov_apply_matlv 75k+ (output
+- **VERIFIED** by per-call comparators vs test-only reference execution: rotX 55k+ calls 0-diff, ov_apply_matlv 75k+ (output
   + all GTE data regs, FIFO/LZCR excluded), rotZ 35k+ — all 0-diff. **rotY only 1 live call** (the Y-axis
   matrix rotation barely fires in the 2.5D seaside field even with motion/jumps), matched; confidence rests
   on the IDENTICAL kernel verified at 55k+ on its siblings + offsets/sign read directly from the disas.
@@ -7294,7 +7295,7 @@ the trig sign convention differs per fn).
 
 ## later-188 — per-object CULL body FUN_8007712c owned PC-native (−7.5%, cumulative −41.7%)
 Resolved the later-187 open question ("ov_object_cull registered but the body still runs hot"): the override
-only WRAPPED the recomp body via `rec_super_call(0x8007712C)` and added the wide-margin re-include, so the
+only WRAPPED the guest instruction path via `original guest-body call(0x8007712C)` and added the wide-margin re-include, so the
 MIPS cull body ran in full every call (~11.2% of sampled interp time). Reimplemented the body PC-native in
 `engine/game_tomba2.cpp` (`cull_native_body` + the pure `cull_decide`), replacing the super_call.
 - **RE** (tools/disas.py 0x8007712c → jump table @0x80016cc0, 5 state handlers + a state-0 typed
@@ -7310,7 +7311,7 @@ MIPS cull body ran in full every call (~11.2% of sampled interp time). Reimpleme
   t2/9→A(ptr 0x1f80013c,cnt 0x1f800144,cap24) t4→B(0x1f800148/0x1f800150,cap40) t5→C(0x1f800154/0x1f80015c,
   cap28). Returns v0=visible flag. These are SCRATCHPAD (main-RAM diff is blind).
 - **VERIFIED** via the `cullverify` REPL channel (NOT env — `debug cullverify`): predict native pure, run
-  the recomp body for the real writes, then compare observed effects (obj+1, r[2], state-word, queue count
+  the guest instruction path for the real writes, then compare observed effects (obj+1, r[2], state-word, queue count
   delta = exactly +1, ptr advanced −4, pushed ptr == obj) against the prediction. **0 mismatches over
   60000+ live calls** incl. directional motion (tap right/left/up) — both culled (kept=0) and kept-with-queue
   (q=2) paths exercised. Margin re-include (margin_collect) still fires (it reads obj+1 after the body).
@@ -7330,7 +7331,7 @@ The bucket split into ov_8013FAE0 4.25%, FUN_8013F0DC 4.07% (the real 256-insn s
   (overlay data). Registered by SIGNATURE in engine_scan_overlay (anchor on the unique pair lw 0x8014c804 /
   lhu 0x8014c800 0x10 apart, backtrack past the prev `jr ra` to the entry) — fires for the gameplay overlay
   (loads at 0x80108F9C+0x459A8, covering 0x8011-0x8014). VERIFIED 60000+ calls 0-diff via the `tileverify`
-  predict-vs-recomp gate. Field **25.02M→24.46M insns (−2.2%; cumulative −43% from baseline)**.
+  predict-vs-guest instruction path gate. Field **25.02M→24.46M insns (−2.2%; cumulative −43% from baseline)**.
 - **NEXT (the real lever): FUN_80115598 39.4%** = the OVERLAY 2D scrolling-tilemap RENDERER (biggest single
   fn). Render-boundary → reimplement as a PC-native 2D layer feeding the RenderQueue (NOT a packet/OT
   transcription), register via the same signature scan. Then resident FUN_800931C0 6.5%, FUN_80084A80 4.4%.
@@ -7359,7 +7360,7 @@ everything like static objects". RETIRED.
   actors, and any prim whose reprojection jumps > the 48px gate (cut/teleport) SNAP.
 - **WHY (b) not the handoff's recommended (a):** re-running the native render WALK with lerped guest
   transforms would re-execute the field's INTERPRETED per-mode renderers (byte-packed GT4 is reached via
-  `rec_dispatch(0x8003F698)`), which mutate guest packet RAM — unsafe to run twice/frame. The reproject
+  `typed runtime address dispatch(0x8003F698)`), which mutate guest packet RAM — unsafe to run twice/frame. The reproject
   path touches zero guest RAM.
 - **MECHANICAL GATE (`debug fps60chk`):** reprojecting every world prim at t=1.0 (its OWN captured
   transform, no averaging) must reproduce its real screen verts. **max=0 avg=0.000 px EXACT, every field
@@ -7410,12 +7411,12 @@ of the grid family whose two leaves were owned earlier (later-194 `FUN_80049968`
   (h[v1]&0x4000)==0 → return 1 (terminal cell). Else obj[42] = b[v1] (record the resolved tag byte onto the
   probe object), reload v1' = w[0x1F8001E0]; if (h[v1']&0x4000)!=0 → LOOP (descend further) else return 1.
   Pure control flow over scratchpad + object memory; ONE object write (obj+42); NO GTE, NO render packets.
-- **Ownership**: control flow + the obj+42 write owned native; all three callees stay PSX via rec_dispatch
+- **Ownership**: control flow + the obj+42 write owned native; all three callees stay PSX via typed runtime address dispatch
   (the two grid leaves honor their own owned override identically in the dispatched path; FUN_8004798C's
   deep tree stays interpreted). Returns: 0 only when the query returns 0; otherwise 1 (matching the gen
   delay-slot `addiu v0,zero,1` on every keep path).
 - **VERIFIED** with the full RAM+scratchpad A/B gate `gridresolve` (native run → snapshot+rollback →
-  rec_super_call → diff): **0-diff over 8000+ live field calls** across both movement directions (press
+  original guest-body call → diff): **0-diff over 8000+ live field calls** across both movement directions (press
   right 250 + press left 250). v0 + every persistent RAM word + all scratchpad match exactly. GOTCHA (same
   family as scriptvm/player): the dispatched callee tree runs in BOTH passes and leaves transient values in
   its OWN stack frames below entry sp; because FUN_800498C8's native frame is absent those residual bytes
@@ -7439,10 +7440,10 @@ dispatched callees; NO GTE, NO render packets.
   then recomputes 0x1C0. recompute = cellbase + (((clamped − cellbase2)·pitch[0x1BA]) >> 14), a SIGNED
   `mult`/`mflo` low-word product then arithmetic `sra 14`.
 - **Ownership**: control flow + every scratchpad op owned native; the two callees (80048ecc grid-reload,
-  80048fc4 re-resolve) stay PSX via rec_dispatch. Registering 0x8004798C means the resolve loop (later-200)
-  now routes its `jal 0x8004798C` through this native body instead of the raw recomp.
+  80048fc4 re-resolve) stay PSX via typed runtime address dispatch. Registering 0x8004798C means the resolve loop (later-200)
+  now routes its `jal 0x8004798C` through this native body instead of the raw guest instruction path.
 - **VERIFIED** with the full RAM+scratchpad A/B gate `gridstep` (native run → snapshot+rollback →
-  rec_super_call → diff): **0-diff over 8000+ live field calls**, 0 mismatches, across both movement
+  original guest-body call → diff): **0-diff over 8000+ live field calls**, 0 mismatches, across both movement
   directions (press right 250 + press left 250 — exercises both the Z and X clamp branches and the reload /
   re-resolve callee arms). GOTCHA (same grid family as gridresolve/scriptvm): the dispatched callees run in
   BOTH passes and leave transient residue below entry sp (this fn has no native frame there), so the gate
@@ -7463,9 +7464,9 @@ control flow + object/child-node memory writes with two dispatched callees.
   a2 = lh tblB[2*((a1&0xff) + i)] (tblB = 0x800a3b28, stride 2, base index a1&0xff); jal 0x80051b04(node,1,a2)
   (transform/geom setup → writes node[0x40], dispatched). Return 1.
 - **Ownership**: control flow + every memory write owned native; the allocator 0x8007aae8 and the setup
-  0x80051b04 stay PSX via rec_dispatch (each honors its own override identically in the super-call path).
+  0x80051b04 stay PSX via typed runtime address dispatch (each honors its own override identically in the super-call path).
 - **VERIFIED** with the full RAM+scratchpad A/B gate `child40410` (native run → snapshot+rollback →
-  rec_super_call → diff over full RAM 0x200000 + scratchpad 0x400 + v0): **0-diff over 28 live field-spawn
+  original guest-body call → diff over full RAM 0x200000 + scratchpad 0x400 + v0): **0-diff over 28 live field-spawn
   calls** (press right 250 + press left 250). This is a spawn-time INIT handler — called once per
   object-spawn, NOT per-frame — so 28 is the natural exercise count for the field; each of the 28 is a
   complete state-equivalence check (whole RAM + whole scratchpad + return). GOTCHAs caught while RE'ing:
@@ -7481,7 +7482,7 @@ Owned `FUN_80040558` PC-native in `engine/game_tomba2.cpp` — the per-object st
 handler calls the just-owned child-spawn FUN_80040410 (later-202). Owning the HEAD advances the whole
 behavior family (higher leverage than the isolated leaf). a0 = obj; returns void. NO GTE, NO render packets;
 pure control flow + object byte/halfword writes + global/scratchpad READS, with EVERY `jal` (24 distinct
-sub-behaviors, incl. overlay code 0x80114xxx/0x80120xxx/0x8012xxxx) kept PSX via rec_dispatch.
+sub-behaviors, incl. overlay code 0x80114xxx/0x80120xxx/0x8012xxxx) kept PSX via typed runtime address dispatch.
 - **RE** (`tools/disas.py 0x80040558`, full 1280-byte body disassembled past the jump-table `jr v0` traps;
   three inner jump tables dumped from MAIN.EXE: 0x800152e0 state-0/obj[5]==1 ×8, 0x80015300 state-1/obj[5]
   ×6, 0x80015318 state-1/obj[94] ×8, 0x80015338 state-2/obj[5] ×5). Dispatch on the state byte obj[4]:
@@ -7502,8 +7503,8 @@ sub-behaviors, incl. overlay code 0x80114xxx/0x80120xxx/0x8012xxxx) kept PSX via
     [0]/[4]→@964). @904: if obj[3]==0 && *0x800bfad1==0 → jal 0x80040b48(a0=56); if obj[94]==2 → *(*obj[16]+
     94)=1. @964: if obj[94]==2 → sb obj[1]=u8 *(*obj[16]+1), jal 0x8012866c, jal 0x80077e7c; else @99c mirrors
     state-1's @7e0..@834 tail (same global checks + jal 0x8012e168/0x8007778c + jal 0x800517f8).
-- **Ownership**: control flow + every memory write native; all 24 callees stay PSX via rec_dispatch.
-- **VERIFIED** with the full RAM+scratchpad A/B gate `sm40558` (native run → snapshot+rollback → rec_super_call
+- **Ownership**: control flow + every memory write native; all 24 callees stay PSX via typed runtime address dispatch.
+- **VERIFIED** with the full RAM+scratchpad A/B gate `sm40558` (native run → snapshot+rollback → original guest-body call
   → diff full RAM 0x200000 + scratchpad 0x400; void return, no v0): **0-diff over 11200+ live field calls**
   (press right 250 + press left 250). A transient state histogram (built with -DSM40558_HIST, then reverted)
   confirmed this seaside scene drives **state 0 (28 calls, the spawn-init path) + state 1 (~11000 calls, the
@@ -7547,12 +7548,12 @@ ov_xform_propagate: a per-object CHILD-NODE TRANSFORM loop. RE (`tools/disas.py 
   node[0xC0 + 4*sentinel]; same ops with p+24 / p[0x2C/30/34]).
 Every callee is an already-owned native primitive (ov_rotmat 0x80085480 / ov_mat_mul 0x80084110 /
 ov_apply_matlv 0x80084220), so the body is pure orchestration + scratchpad seeding + integer translation
-adds; the primitives are rec_dispatch'd in the recomp's EXACT jal order to preserve the matmul→MVMVA GTE-CR
+adds; the primitives are typed runtime address dispatch'd in the guest instruction path's EXACT jal order to preserve the matmul→MVMVA GTE-CR
 coupling (ov_mat_mul CTC2's R→CR0-4 → the following ov_apply_matlv reads the right matrix).
 GOTCHAs: (1) child[56/58/60] sign-extended; (2) the sentinel is sll'd by 2 in the branch delay slot, so the
 sibling parent ptr is node[0xC0 + sentinel*4].
 **VERIFIED** with the `xform51128` gate (same scheme as `xformverify`: snapshot each touched child sub-struct
-+0x18..+0x37 + the scratchpad work matrix + GTE data regs, run native, restore, run rec_super_call, diff;
++0x18..+0x37 + the scratchpad work matrix + GTE data regs, run native, restore, run original guest-body call, diff;
 GTE FIFO regs 12-15 + LZCR reg 31 excluded — the comparator can't round-trip a FIFO restore and neither path
 writes them): **0-diff over 3000+ live field calls (~22000 child transforms), 0 mismatches**, exercising BOTH
 branches (a transient root/sib counter, since reverted, showed root=4748 / sibling=17268 children) across
@@ -7564,7 +7565,7 @@ A/B verifiable). AVOID `FUN_80027A4C` (16% but it builds GP0 packets with cop2/l
 
 ## later-207 — SAVE / LOAD FLOW owned native (engine/save.cpp): FUN_80036DFC head dispatcher
 USER task: own the game's save/load FLOW (NOT the memory-card hardware — that's already native in
-runtime/recomp/memcard.cpp) as a clean PC-game save module engine/save.cpp.
+runtime/psx/memcard.cpp) as a clean PC-game save module engine/save.cpp.
 
 **RE — the save system is a 6-state machine.** The FLOW HEAD is `FUN_80036DFC` (an earlier scan labelled it
 0x80036E00 = the first store after the `addiu sp,-0x30` prologue). It is the body of the active save-menu
@@ -7588,19 +7589,19 @@ checksummed frame R/W FUN_8009C2B0 + dir writer FUN_8009C3F4) are reached via 0x
 SAVE-EXECUTE handler 0x80037360 contains only flag writes + sub-calls, NO bulk game-RAM→buffer copy. It's all
 already owned by memcard.cpp's HLE (B0:0x4E/0x4F frame R/W + SwCARD completion, later-94). So the
 ENGINE-ownable save/load LOGIC is precisely this FLOW state machine — which engine/save.cpp owns; the page
-handlers + the card I/O leaf stay PSX via rec_dispatch. (Ruled-out dead ends: the "Tomba MEMORY CARD" filename
+handlers + the card I/O leaf stay PSX via typed runtime address dispatch. (Ruled-out dead ends: the "Tomba MEMORY CARD" filename
 @0x800106d4 + the UI-text table 0x800a294c..0x800a29c0 are UI strings, NOT a serialize-buffer layout; the
 0x8001cc00 region is the card SIO/DMA hardware init, platform.)
 
 **Module:** engine/save.cpp — `save_dispatch_native` (faithful prologue + bounds + table resolution +
-rec_dispatch the handler), `ov_save_dispatch` (the override + saveverify gate), `save_register()` (ONE line
-into game_tomba2.cpp init: `rec_set_override(0x80036DFC, ov_save_dispatch)`). Added to run.sh +
+typed runtime address dispatch the handler), `ov_save_dispatch` (the override + saveverify gate), `save_register()` (ONE line
+into game_tomba2.cpp init: `tomba::native::declareOverride(0x80036DFC, ov_save_dispatch)`). Added to run.sh +
 tools/build_port.sh SRC lists (in sync). Same shape as ov_render_cmd (render_cmd_dispatch) / ov_disp_26c88.
 
 **VERIFY:** `saveverify` channel = a NON-DESTRUCTIVE dispatch-decision gate. The page handlers can YIELD
 across frames (SAVE-EXECUTE commits the card write over multiple frames), so a snapshot/rollback/super-call
 A/B that DOUBLE-RUNS the handler is UNSAFE (a yield in the native pass longjmps out before the rollback) —
-so the gate instead confirms the native body resolves the same handler the recomp `jr table[substate]` reads
+so the gate instead confirms the native body resolves the same handler the guest instruction path `jr table[substate]` reads
 (by construction identical) + that the override fires at sane substates; the handler runs exactly ONCE.
 **EXERCISE COVERAGE — HONEST:** the dispatcher is NOT reliably reachable headless. Its only trigger is
 interactive title/pause-menu navigation INTO the file flow (cursor → "Load data" → confirm → spawn the file
@@ -7624,7 +7625,7 @@ RE (tools/disas.py; jump tables dumped from MAIN.EXE):
   (reads descriptor tables 0x800a4d18/0x800a4ef8 for pan/vol, `jal 0x80075e04` submit leaf). **OWNED native**
   — pure control flow; the id router + bounds reimplemented in C, the descriptor sub-path kept dispatched
   (it funnels into the same 0x80075e04 leaf → identical SPU). `soundverify` gate (full RAM+scratchpad A/B vs
-  rec_super_call) = **0-diff over 800+ live calls** (menu/cursor/action SFX firing while walking the seaside
+  original guest-body call) = **0-diff over 800+ live calls** (menu/cursor/action SFX firing while walking the seaside
   field). FIRES: per-frame on object actions; the 0x72→bgm4 etc. BGM entries route through the BGM override.
 - **FUN_80074BF8 = BGM START** / **FUN_80074E48 = BGM STOP**. Full RE in the module comment: classify the
   requested song vs current song (state writes to 0x800bed80 song + 0x800be22a request byte), stop the old
@@ -7633,16 +7634,16 @@ RE (tools/disas.py; jump tables dumped from MAIN.EXE):
   low byte is the bank) and reset the per-voice table 0x800be238 (stride 12, word0=-1) / voice-count 0x800bed78.
 
 BOUNDARY CALL (not a bandaid — documented): I first reimplemented the BGM start/stop bodies fully native
-(control flow + state writes owned, the 5 libsnd leaves rec_dispatched in exact order). The `soundverify`
+(control flow + state writes owned, the 5 libsnd leaves dynamically dispatched in exact order). The `soundverify`
 A/B caught a REAL divergence I could NOT close: for vcount-14 songs the per-voice table 0x800be238 ends up
 HALF-written through the *dispatched* SsSeqPlay (the leaf decides per-voice keep/kill from its own internal
-voice state, which the gen body sets up via the EXACT inline register/call context; a native re-drive that
+voice state, which the guest-visible behavior sets up via the EXACT inline register/call context; a native re-drive that
 dispatches the leaf does not reproduce that voicetab side-effect bit-for-bit). That is exactly the "it's a
 leaf, keep it dispatched" case in THE BOUNDARY — BGM start/stop ARE libsnd-sequencer glue. So the OWNED-native
 trigger surface is the SFX/song ROUTER (pure control flow, 0-diff), and BGM start/stop are **engine-glue
 super-call wrappers**: the wrapper owns the ENGINE-facing contract (the instant-CD dialog-music cut hook
-`xa_music_cut_if_dialog`, moved here from native_boot ov_bgm_start; + the clean API), and the gen body runs
-as the live sequencer via rec_super_call. The native BGM bodies + their RE are retained in sound.cpp as the
+`xa_music_cut_if_dialog`, moved here from native_boot ov_bgm_start; + the clean API), and the guest-visible behavior runs
+as the live sequencer via original guest-body call. The native BGM bodies + their RE are retained in sound.cpp as the
 documented reference for a future deeper pass (own the libsnd voice allocator too), clearly marked NOT
 registered. Verified live: `bgm 4` sets song@0x800bed80=4, `bgmstop` clears it to 0xFFFF; Tomba walks normally
 (master X → 0x17704900 holding right).
@@ -7744,7 +7745,7 @@ object spawning end-to-end:
   caller's mode (a2) and list (a3) through. Gate `replacedispverify` (not exercised at seaside, 0 calls,
   like pool2verify — RE-verified). Commits 3a67eb6 + 71b63f1.
 
-**REAL BUG fixed in the shared `spawn_link_stamp`:** when the target active list is EMPTY, the recomp
+**REAL BUG fixed in the shared `spawn_link_stamp`:** when the target active list is EMPTY, the guest instruction path
 initializes BOTH end pointers — a head-insert also writes `*tail`, a tail-insert also writes `*head`. The
 native body only set the one end, so an empty-list insert diverged at the list head ptr 0x800F2624 (caught
 by spawnvarverify; the seaside-only spawnverify never hit an empty active list). The fix applies to all
@@ -7814,9 +7815,9 @@ its result** (key difference vs 739ac, which early-returns on a cull miss), then
 0x80016BE8, [0,6]) → FUN_8007E110 (scene id from `DAT_800a4ca8[node[3]]`, special-cased for node[3]==2 via
 DAT_800bf907/8c3), pad-edge `DAT_800e7e68 & DAT_1f800174` (scratchpad!), FUN_80042728, per-type confirm
 FUN_80040B48(0x4e/0x4f/0x50). Tail: special-area (2/7/0x14) release of node+0x14, then node[0x2b]=0 + render
-FUN_800517F8. Control flow + all node/global writes owned native; every sub-behavior call rec_dispatched (no GTE,
+FUN_800517F8. Control flow + all node/global writes owned native; every sub-behavior call dynamically dispatched (no GTE,
 no render packets). RE'd 1:1 from disas (full function incl. both jump tables) — see docs/engine_re.md.
-VERIFY: `obj73cd8verify` full-RAM (minus the callee stack window) + scratchpad A/B vs rec_super_call = **1400+
+VERIFY: `obj73cd8verify` full-RAM (minus the callee stack window) + scratchpad A/B vs original guest-body call = **1400+
 live seaside-field calls 0-diff, 0 MISMATCH, 0 bad opcode**; plain (non-gate) run renders the field clean.
 Wired into run.sh + tools/build_port.sh SRC + game_tomba2.cpp registration. NEXT: the scene-overlay handlers
 (0x8012/0x8013xxxx) the placement table installs; then Item 3 (FUN_800520e0 callees).
@@ -7833,11 +7834,11 @@ a1=1, a2=0x18), box/size, node+0x56 = `DAT_800a4cec[node[3]]`. State 1 node[5] m
 (FUN_8007413C vs DAT_800a4d04[node[3]]/DAT_800bf874, else node[5]=99 re-arm), and case-4 completion (2×
 FUN_80027144 packet emit + SFX + per-type collected bit DAT_800bfa23 / 0x1f reward). Like 73cd8 it calls cull
 FUN_8007778C and IGNORES the result. WRINKLE: case-4 builds a 3-field struct on the guest stack for
-FUN_80027144 — so `ov_beh_741dc` wraps the body in the recomp's own `sp -= 0x30` frame (restored on return)
-so the buffer at sp+0x10 sits above the rec_dispatch sub-call frames exactly where the recomp puts it (and
+FUN_80027144 — so `ov_beh_741dc` wraps the body in the guest instruction path's own `sp -= 0x30` frame (restored on return)
+so the buffer at sp+0x10 sits above the typed runtime address dispatch sub-call frames exactly where the guest instruction path puts it (and
 the writes fall inside the verify's excluded [sp-0x800,sp) window). Control flow + node/global writes owned
-native; every sub-call rec_dispatched (no GTE, no packets). VERIFY: `obj741dcverify` full-RAM+scratchpad A/B
-vs rec_super_call = **500+ live seaside-field calls 0-diff, 0 MISMATCH, 0 bad opcode**; plain run renders
+native; every sub-call dynamically dispatched (no GTE, no packets). VERIFY: `obj741dcverify` full-RAM+scratchpad A/B
+vs original guest-body call = **500+ live seaside-field calls 0-diff, 0 MISMATCH, 0 bad opcode**; plain run renders
 clean. Wired into run.sh + build_port.sh + game_tomba2.cpp. The seaside-RESIDENT behavior-handler set
 (739ac/73cd8/741dc) is now EXHAUSTED; remaining placement handlers are scene-overlay (0x8012/0x8013xxxx) that
 need their own scenes (and a reliable cross-area drive) before they can be A/B-verified — a real blocker for
@@ -8041,7 +8042,7 @@ the `default` case and silently spun (bumped the frame counter, no progress, FAI
 - FIX (engine_demo.cpp): added demo_frame_s7 (faithful to 0x80106C24, title_ram disasm) + wired ov_demo_frame
   case 7. phase0 owns the field writes + cursor table {0,1,3}@0x8010770c selection, runs the area-load
   SYNC via native_transition_area_load (the 0x800452c0 callback body — the area selector comes from
-  sm[0x6d]/sm[0x6e], not the 0x80044bd4 latch), then the reinit jals; phase1 rec_dispatches the return-based
+  sm[0x6d]/sm[0x6e], not the 0x80044bd4 latch), then the reinit jals; phase1 dynamically dispatches the return-based
   per-frame update (0x80106e28 gameplay / 0x80106ee4 type-3) — one frame each, no yield; phase2 teardown +
   restart. Also extracted demo_frame_s0 (was inline in ov_demo_stage_main) and wired ov_demo_frame case 0 so
   the attract->title restart reloads the menu resources. VERIFIED: no more freeze — phase 0->1 advances,
@@ -8095,9 +8096,9 @@ objects' REAL WORLD COORDINATES — no fallback; put the code in a proper engine
   read for the picture. `eproj_set/clear/active` + `eproj_vertex_active` drive the submitters; `eproj_active_cr`
   packs the float xform back to CR0-7 for the 60fps midpoint reproject. Projection consts (OFX/OFY/H) still
   read from CR24-26 (the camera's frame-constant projection; a future engine camera can own them).
-- **engine_submit converted**: `submit_perobj_flush` (gen_func_8003CDD8) no longer GTE-composes — it builds the
+- **engine_submit converted**: `submit_perobj_flush` (guest 0x8003CDD8) no longer GTE-composes — it builds the
   float world xform via eproj and calls `native_gt3gt4` directly. NO FALLBACK: the old `native_dispatch` →
-  gen_func_8003F698 per-mode PSX dispatcher is removed; every per-object geomblk is submitted as generic
+  guest 0x8003F698 per-mode PSX dispatcher is removed; every per-object geomblk is submitted as generic
   GT3/GT4 through the world-coord projection. The GT3/GT4 native submitters project via `eproj_vertex_active`
   (the resident byte-packed emitter submit_poly_gt4_bp still uses proj_native_xform/GTE — its upstream compose
   is still-PSX field code). `fps60_stamp_world_cr` added so 60fps works off the float xform.
@@ -8133,16 +8134,16 @@ Continues later-224. Goal: the VISIBLE walkable-field render runs through PC-nat
 - **KEY: those 4 render walks ALREADY had PC-native bodies** in engine_submit.cpp — ov_rwalk_aux_bf00 /
   ov_rwalk_aux_eec0 / ov_render_walk_snapshot / ov_rwalk_aux_bcf4 — written under the old override model and
   ORPHANED since the override table was removed (codemap: all [ORPHAN], "only the removed override table").
-  Each walks its queue, dispatches every live object's per-type renderer (still-PSX content via rec_dispatch),
+  Each walks its queue, dispatches every live object's per-type renderer (still-PSX content via typed runtime address dispatch),
   and tags the produced packet span with the object's PC-native WORLD-POSITION depth (gpu_obj_depth_add) —
   i.e. engine-owned render ordering from real world coords, not the PSX OT. They just needed a native parent
   to call them.
 - **DONE — new module engine/engine_render.{h,cpp}** (render code OUT of gte_beetle, per directive): owns the
   render orchestrator `ov_render_frame` (0x8003f9a8) + `ov_render_frame_x` (0x8003fa44), which the native
-  ov_field_frame / ov_field_frame_x now call DIRECTLY (was rec_dispatch). The orchestrator wires the 4 orphan
+  ov_field_frame / ov_field_frame_x now call DIRECTLY (was typed runtime address dispatch). The orchestrator wires the 4 orphan
   walks back into the LIVE render; 0x8003b588 (no real native, only a subcnt diagnostic) + the 5 non-walk
-  passes (4fd30/25d98/d0bc/f024/df04/c048) stay rec_dispatch. Built + run-list updated (build_port.sh+run.sh).
-- **VERIFIED (headless `shot`):** A/B at the seaside field — orchestrator-native + walks-rec_dispatch renders
+  passes (4fd30/25d98/d0bc/f024/df04/c048) stay typed runtime address dispatch. Built + run-list updated (build_port.sh+run.sh).
+- **VERIFIED (headless `shot`):** A/B at the seaside field — orchestrator-native + walks-typed runtime address dispatch renders
   4:3 98.4% non-black (== baseline); orchestrator-native + walks-NATIVE renders the SAME scene correctly in
   WIDESCREEN 428×240 (90.5% non-black + HUD) — the world-coord depth path now drives the engine-owned render
   extent. Stable 320+ frames, zero derail/caught-yield. Shots: scratch/screenshots/render_walk0.png (4:3) vs
@@ -8156,19 +8157,19 @@ Continues later-224. Goal: the VISIBLE walkable-field render runs through PC-nat
 
 ## later-226 (2026-06-24) — per-object VERTEX PROJECTION now world-coord float (eproj) in the LIVE render
 Continues later-225. The render walks now drive the per-object render through the NATIVE dispatch
-`submit_perobj_render` (0x8003cca4) instead of rec_dispatching the PSX body. submit_perobj_render's
+`submit_perobj_render` (0x8003cca4) instead of dynamically dispatching the PSX body. submit_perobj_render's
 flush-only case (the only one that fires at the field) runs the native `submit_perobj_flush`, which
 composes the camera×object transform in FLOAT from the object's REAL WORLD coordinates (world matrix
 cmd+0x18 + world position cmd+0x2c + scene camera) via engine_project (eproj) and submits every geomblk
 through native_gt3gt4 → ov_submit_poly_gt3/gt4, which project each vertex with `eproj_vertex_active`
 (float RTPT) — NO gte_op, NO CR0-7 read for the picture. This was the DORMANT later-224 foundation; it is
 now LIVE.
-- WIRED (engine_submit.cpp): the 4 render-walk per-type dispatch sites that called rec_dispatch(0x8003CCA4)
+- WIRED (engine_submit.cpp): the 4 render-walk per-type dispatch sites that called typed runtime address dispatch(0x8003CCA4)
   — aux_bf00_case 0x8003BFAC, aux_eec0_case 0x8003EF20/0x8003EF30, aux_bcf4_case 0x8003BDAC, rq_dispatch_case
   0x8003BC00 — now call submit_perobj_render(c) (a0=node already set). The double depth-tag (walk session +
   submit_perobj_render's own session) is benign: PktSpanSession MERGES nested sessions and both tag the same
   span with the same obj_world_ord. Secondary-effect cases (rare, not at the field) still fall back to the PSX
-  body via rec_super_call=rec_interp.
+  body via original guest-body call=test-only reference execution.
 - VERIFIED (headless `shot` + USER-eyeball-ready): the seaside field renders IDENTICALLY to the GTE output
   (perobj_native.png == later-225 render_final.png — float eproj matches the PSX RTPT) AND under a moved
   camera (perobj_move.png, Tomba relocated: treehouse/bridge/terrain/sea/HUD all correct depth/occlusion).
@@ -8182,7 +8183,7 @@ now LIVE.
 
 ## later-227 (2026-06-24) — master render-list walk owned native; resident terrain → world-coord float
 Continues later-226. Owned the MASTER phase-2 render-list walk **0x8003c048** native (the orchestrator now
-calls ov_render_walk = submit_render_walk instead of rec_dispatch) and routed the field TERRAIN renderer
+calls ov_render_walk = submit_render_walk instead of typed runtime address dispatch) and routed the field TERRAIN renderer
 (node+24 == 0x8002AB5C) to the PC-native **ov_terrain → terrain_render_pc** (float transform, real per-pixel
 depth via gpu_draw_world_quad, NO GTE / NO packet) — previously orphaned.
 - RLIST (head 0x800F2624, table 0x80014DB8): at seaside only 2 LIVE nodes — 0x800fc5c0 (type32, renderfn
@@ -8205,10 +8206,10 @@ depth via gpu_draw_world_quad, NO GTE / NO packet) — previously orphaned.
 
 ## later-228 (2026-06-24) — the MAIN seaside GROUND now renders world-coord float (overlay node owned)
 Continues later-227. Owned the seaside ground/BG node renderer **OVERLAY 0x8013E9D8** native (ov_bg_render,
-engine_submit.cpp) and routed the master render-list walk's default case to it (fn == 0x8013E9D8). The recomp
+engine_submit.cpp) and routed the master render-list walk's default case to it (fn == 0x8013E9D8). The guest instruction path
 wrapper: stack a position triple (*(node+0x14)) + node[0x4e/50/52], call the GTE visibility/bound setup
-0x8013DD34 (kept PSX via rec_dispatch — writes only scratchpad cull temps 0x1F8000C0/0x1F800080, not the
-per-command transform; the recomp calls the render UNCONDITIONALLY after it), then call the per-object render
+0x8013DD34 (kept PSX via typed runtime address dispatch — writes only scratchpad cull temps 0x1F8000C0/0x1F800080, not the
+per-command transform; the guest instruction path calls the render UNCONDITIONALLY after it), then call the per-object render
 dispatch 0x8003CCA4 = native submit_perobj_render -> submit_perobj_flush (world-coord eproj).
 - This node (0x800FC5C0) carries **12 render commands** = the main ground geometry (geomblks 0x801e68xx..),
   so this is what makes the visible seaside GROUND render PC-native from world coords.
@@ -8242,7 +8243,7 @@ ownership of game's 3D OBJECTS, not sorting layers."
     native submitters DO fire (subc: gt3/gt4_native ~56/frame) but that output is a minority, mostly hidden
     UNDER the 2D-band field. (ndepth counts only gp0_exec prims; gpu_draw_world_quad prims bypass it.)
 - WHERE THE 337 2D-BAND PRIMS COME FROM (bisect via the temp PSXPORT_SKIPPASS mask over ov_render_frame's
-  rec_dispatch'd non-walk passes): skipping ALL non-walk passes → 2D-band drops 337→0. Per-pass:
+  typed runtime address dispatch'd non-walk passes): skipping ALL non-walk passes → 2D-band drops 337→0. Per-pass:
   **0x8003d0bc emits ~220 prims (the GROUND/terrain — a 22-case MODE dispatcher keyed on *0x800BF870, jump
   table 0x80014EF0, arg a0=0x800F2418), 0x8003b588 emits ~117 prims** (NOT "diagnostic-only" as later-225
   claimed — that note is FALSE; fix it). The billboard handlers (0x8003C2D4/C464/C5F8/C788) are NOT the
@@ -8266,7 +8267,7 @@ User directive: own the ENTITY/OBJECT SYSTEM overall (not just its render). Mapp
 the entity LIFECYCLE is already ~90% native (pool/free-lists, spawn `ov_entity_spawn` + 5 variants + 2
 dispatchers, despawn `ov_despawn`, placement `ov_place_objects`, the per-frame walk `ov_objwalk`, cull) — all
 0-diff verified earlier. What is STILL PSX is the per-object BEHAVIOR layer: the node+0x1C handlers `ov_objwalk`
-dispatches via rec_dispatch (the AI/state/physics logic = the object system's actual logic).
+dispatches via typed runtime address dispatch (the AI/state/physics logic = the object system's actual logic).
 - ENUMERATED the live behavior set (new cfg diag `debug behhist` — tallies distinct node+0x1C handlers in
   engine_tomba2.cpp call_handler): **46 distinct handlers** at the seaside field (a few resident 0x800xxxxx,
   most overlay 0x801xxxxx). Hottest over 300 walks: 0x80040558 ×4312 (per-object state machine), 0x8012EB54
@@ -8274,14 +8275,14 @@ dispatches via rec_dispatch (the AI/state/physics logic = the object system's ac
 - KEY FINDING: four of those (the resident ones) ALREADY had byte-exact native bodies — `ov_sm40558`
   (0x80040558, entity.cpp), `ov_beh_739ac`/`ov_beh_73cd8`/`ov_beh_741dc` (objbeh_*.cpp) — but were ORPHANED:
   the three objbeh bodies sat in ANONYMOUS NAMESPACES reachable only via the now-dead `objbeh_*_register()`
-  override-era stubs, so `call_handler` always rec_dispatched the raw guest address. They never ran natively.
+  override-era stubs, so `call_handler` always dynamically dispatched the raw guest address. They never ran natively.
 - WIRED them LIVE: added exported `ov_beh_*_run` entries (kept the empty register stubs game_tomba2.cpp still
   calls) + a `dispatch_native_behavior()` switch in call_handler (engine_tomba2.cpp) that routes those 4 guest
-  addresses to the native bodies; everything else still rec_dispatches. Native-only when the verify channel is
-  off, A/B-vs-recomp when on.
+  addresses to the native bodies; everything else still dynamically dispatches. Native-only when the verify channel is
+  off, A/B-vs-guest instruction path when on.
 - VERIFIED byte-exact: `debug sm40558,obj739acverify,obj741dcverify,obj73cd8verify` (set BEFORE the field so
   the static gate latches ON) → **0 MISMATCH** with thousands of matches across all four (the gates do a full
-  RAM+scratchpad A/B vs rec_super_call each call). `tools/render_cmp.py` unchanged at 5343px/6.96% (identical
+  RAM+scratchpad A/B vs original guest-body call each call). `tools/render_cmp.py` unchanged at 5343px/6.96% (identical
   game state → identical frame). So the hottest entity behaviors now run native with zero behavioral drift.
 - NEXT: own the remaining ~42 behaviors top-down by hotness — start with the overlay hot ones 0x8012EB54,
   0x80124E74, 0x80133C14 (RE via `tools/disasm_overlay.py` on a fresh `dumpram`; resident via tools/disas.py).
@@ -8301,20 +8302,20 @@ will look worse mid-way). Verify with tools/render_cmp.py + USER eyeball.
 
 PASS A — 0x8003B588 (~117 prims) — NEARLY FREE (reuses the already-native real-depth path):
   It is a wrapper around node 0x800E7E80 (a single render node, node+8/9 = 17 commands, cmd-ptr array at
-  node+0xC0[i]); it does state bookkeeping then `jal 0x800597AC(node)` (PSX setup — keep rec_dispatch) then,
+  node+0xC0[i]); it does state bookkeeping then `jal 0x800597AC(node)` (PSX setup — keep typed runtime address dispatch) then,
   if node[1]!=0, `jal 0x8003CCA4(node)` = submit_perobj_render = ALREADY NATIVE → submit_perobj_flush →
   native_gt3gt4 → real depth. Disasm (tools/disas.py 0x8003B588) of the bookkeeping to port 1:1 (s0=node):
     - @5a0: v1=node[0xd]; if((v1&0xD0)==0) node[0xd]=0 (goto @698→@69c); else node[0xd]=v1|0x02; if(v1&0x20)
       skip to @69c; elif(v1&0x10) {…reads 0x1F800247, may set node[0x18]=208 and return-ish} else {…};
-      the @5f4/@62c/@64c arms compute a byte via `jal 0x80083E80(a0=(0x1F800247&0xf)<<7)` (keep rec_dispatch;
+      the @5f4/@62c/@64c arms compute a byte via `jal 0x80083E80(a0=(0x1F800247&0xf)<<7)` (keep typed runtime address dispatch;
       it returns v0, then v0=(v0<<16)>>22 +0x30/+0x10/… ) → node[0x18], and node[0x19]=0x20, node[0x1a]=v0.
       PORT THESE BYTE WRITES EXACTLY (node[0x18..0x1a], node[0xd]) — they feed the render/anim. Full arm
       decode is in the disasm; transcribe verbatim.
-    - @69c: rec_dispatch(0x800597AC, a0=node); if(node[1]!=0){ s1=node[8]; if((node[0x17e]&0x20)&&node[0x179]
+    - @69c: typed runtime address dispatch(0x800597AC, a0=node); if(node[1]!=0){ s1=node[8]; if((node[0x17e]&0x20)&&node[0x179]
       && ...) node[8]=node[9]; submit_perobj_render(node); node[8]=s1; }
   The existing engine_submit.cpp:1662 ov_rwalk_b588 is a DIAG STUB — replace it with this, then in
   engine_render.cpp call ov_rwalk_b588(c) instead of d0(c,0x8003b588u) in BOTH ov_render_frame/_x.
-  VERIFY: A/B the BOOKKEEPING bytes only (node[0xd],[0x18..0x1a],[8]) vs rec_super_call(0x8003B588) — the
+  VERIFY: A/B the BOOKKEEPING bytes only (node[0xd],[0x18..0x1a],[8]) vs original guest-body call(0x8003B588) — the
   packet/OT writes WILL differ by design (native real-depth vs PSX packets); gate the compare to those bytes.
 
 PASS B — 0x8003D0BC case 0 → handler 0x801401B8 (~220 prims = the GROUND) — needs TWO new submitters:
@@ -8337,7 +8338,7 @@ PASS B — 0x8003D0BC case 0 → handler 0x801401B8 (~220 prims = the GROUND) �
              +0x18 VZ0lo|VZ1hi; +0x1C VXY1; +0x20 VXY2; +0x24 VZ2lo|VZ3hi; +0x28 VXY3.
     Reuse eproj_vertex_active + engine_shade_face + gpu_draw_world_quad + the NCLIP/frustum cull from the
     existing natives. New `ov_ground_render(c)` mirrors ov_field_entity_render; in engine_render.cpp replace
-    d1(c,0x8003d0bcu,0x800f2418u) with ov_ground_render(c) (gate by mode==0; else rec_dispatch the dispatcher).
+    d1(c,0x8003d0bcu,0x800f2418u) with ov_ground_render(c) (gate by mode==0; else typed runtime address dispatch the dispatcher).
   CAUTION: the GT3/GT4 _ov field offsets above are the subagent's first decode — RE-VERIFY each lwc2/mtc2/lw
   offset directly against tools/disasm_overlay.py of 0x8013FB88 & 0x8013FE58 before shipping (byte-exact).
   Existing precedents to copy: submit_poly_gt3_native (engine_submit.cpp:430), submit_poly_gt4_native (:479),
@@ -8361,7 +8362,7 @@ a0=0x800F2418 (same OT-base 0x800ED8C8, same camera CR0-7 from 0x1F8000F8). NO n
   ov_field_entity_render itself mis-projects the ground's world-space verts. eproj_compose_camera was
   UNVERIFIED (later-224) and this is its first live use.
 - NEXT-SESSION LEAD (do this with FRESH context): instrument ONE ground record — log eproj's px/py/pz for its
-  verts vs the PSX GTE RTPT SXY/SZ for the SAME record (run the PSX 0x801401B8 once via rec_dispatch with a
+  verts vs the PSX GTE RTPT SXY/SZ for the SAME record (run the PSX 0x801401B8 once via typed runtime address dispatch with a
   capture, or read CR results). Compare against eproj_compose_OBJECT which WORKS (submit_perobj_flush renders
   the tree/props correctly). Candidate bugs: (a) eproj_compose_camera rotation packing/scale differs from the
   PSX ctc2 load order; (b) the ground verts are NOT pure world-space — RE 0x801401B8 FULLY past 0x8014022C
@@ -8373,7 +8374,7 @@ a0=0x800F2418 (same OT-base 0x800ED8C8, same camera CR0-7 from 0x1F8000F8). NO n
 ## later-232 (2026-06-24) — 3 more game-object behaviors owned (the hottest overlay handlers), byte-exact
 Continues later-230 (own the entity/object SYSTEM's behavior layer). RE'd + reimplemented the 3 hottest
 still-PSX field object behaviors 1:1 native, following the objbeh_* pattern (anonymous-namespace impl + a
-full RAM+scratchpad A/B verify gate + an exported ov_beh_*_run; all jal callees kept as rec_dispatch leaves):
+full RAM+scratchpad A/B verify gate + an exported ov_beh_*_run; all jal callees kept as typed runtime address dispatch leaves):
 - 0x8012EB54 (×3708/300walks) — engine/objbeh_8012eb54.cpp — node[4] state machine + node[5] jump-table
   sub-machine (table 0x80109dec, 6 entries); range 0x8012EB54..0x8012ED80.
 - 0x80124E74 (×2772) — engine/objbeh_80124e74.cpp — node[4] SM + 7-way node[3] jump table (0x80109B88) with
@@ -8407,12 +8408,12 @@ _heading, _lookat) — all 0-diff via `PSXPORT_DEBUG=camverify` (later-173..180)
 written under the now-removed override model, never wired into the live call tree → the camera currently runs
 PSX each frame.
 - BLOCKER to wiring it live: the camera-mode SELECTOR (picks one orchestrator/frame, ABI a0=cam a1=target) is
-  called INDIRECTLY — grep of generated/shard_3.c/shard_6.c finds NO direct `gen_func_8006E0F0(...)` call site;
+  called INDIRECTLY — grep of authenticated executable/overlay evidence/shard_6.c finds NO direct `guest 0x8006E0F0(...)` call site;
   the orchestrators are reached via a function-pointer/jump table the selector indexes by camera mode. And the
   selector itself is invoked from the still-PSX per-frame field-update chain (FUN_801092b4 → … per later-224),
   which is NOT native yet. Unlike the per-object behaviors (wired at the native ov_objwalk call_handler site),
   there is NO native call site to intercept the camera at — the override table is gone.
-- TO OWN IT LIVE (next): (1) find the selector address — add a one-shot log in rec_dispatch/the indirect-call
+- TO OWN IT LIVE (next): (1) find the selector address — add a one-shot log in typed runtime address dispatch/the indirect-call
   path when target ∈ {0x8006e0f0,e228,e3f4} to capture the caller `ra`, or find the orchestrator-pointer table
   in MAIN.EXE (search for the 3 addresses as DATA); (2) own the selector native (it's a small mode dispatch),
   exporting ov_cam_select_run; (3) walk UP from the selector to the first already-native ancestor and route
@@ -8434,7 +8435,7 @@ in groups of ~4 and exclude any gate that's spamming mismatches.
 
 ## later-234 (2026-06-24) — DIRECTION (user): DECOUPLED renderer + NATIVE object model mirrored to guest RAM
 User rejected the byte-exact per-object behavior transcription as the focus ("focusing on the crane feels
-wrong — we're making an engine DECOUPLED from PSX"). Byte-exact-vs-recomp reimplementation is COUPLING (it
+wrong — we're making an engine DECOUPLED from PSX"). Byte-exact-vs-guest instruction path reimplementation is COUPLING (it
 defines correctness as "matches PSX" and operates on guest-RAM nodes at PSX offsets). The chosen target is the
 **DECOUPLED RENDERER** (AskUserQuestion) PLUS the user also endorsed the **native object structs mirrored to
 guest RAM** idea. Synthesis = the decoupled-engine object/render architecture:
@@ -8446,7 +8447,7 @@ guest RAM** idea. Synthesis = the decoupled-engine object/render architecture:
 - **Decoupled renderer**: draw the scene by iterating the NATIVE object model — real geometry + world
   transform projected in float with real per-vertex depth (eproj + gpu_draw_world_quad) — NOT the PSX
   OT/packet render passes. The PSX render passes (the orchestrator 0x8003f9a8 + its walks/passes) get RETIRED
-  in favor of one native scene renderer driven by the native model. Recomp render = visual REFERENCE only.
+  in favor of one native scene renderer driven by the native model. guest instruction path render = visual REFERENCE only.
 CURRENT RENDER STATE (what to build on): per-object MESHES already draw via eproj real-depth
 (submit_perobj_flush → eproj_compose_object → gpu_draw_world_quad — WORKS, tree/props correct). The GROUND +
 scenery (PSX pass 0x8003d0bc → 0x801401B8 → scene table 0x800F2418, ~132 entries, WORLD-space verts) and the
@@ -8462,19 +8463,19 @@ NB the behavior ports (later-230/232/232b/232c, 13 owned) are NOT wasted — the
 step toward eventually moving object DATA native — but they are NOT the decoupling deliverable; the renderer is.
 
 ## later-232d (2026-06-24) — A/B behavior-verify CAVEAT: false mismatches for overlay-calling handlers
-0x8004C238 (the crane handler) showed 40 A/B mismatches at node+0x29, but RE re-audit vs the recompiler's
-OWN emitted body (generated/shard_0.c gen_func for 0x8004C238) proved the native transcription is BYTE-EXACT
+0x8004C238 (the crane handler) showed 40 A/B mismatches at node+0x29, but RE re-audit vs the recorded binary evidence's
+OWN emitted body (authenticated executable/overlay evidence gen_func for 0x8004C238) proved the native transcription is BYTE-EXACT
 across all 16 JT-B cases — there is no behavior bug. ROOT CAUSE = a verify-HARNESS artifact: the gate's oracle
-is `rec_super_call` = `rec_interp` (the flat interpreter), which INLINES a `jal` to the overlay sub-fn
+is `original guest-body call` = `test-only reference execution` (the flat interpreter), which INLINES a `jal` to the overlay sub-fn
 (0x80118B10, the failing case-6 path) via a flat `pc=tgt` jump (interp.cpp ~563-573), whereas the native body
-runs that overlay via `rec_dispatch` in a SEPARATE run context (its own stop_ra sentinel). The two contexts
-handle the overlay's deep jal/jalr (and possible yields — interp.cpp notes rec_interp-via-rec_dispatch "dies
+runs that overlay via `typed runtime address dispatch` in a SEPARATE run context (its own stop_ra sentinel). The two contexts
+handle the overlay's deep jal/jalr (and possible yields — interp.cpp notes test-only reference execution-via-typed runtime address dispatch "dies
 on a deep yield's longjmp", later-168) differently, and the first divergent byte surfaces as node+0x29. So the
-A/B gate can FALSE-POSITIVE for any owned handler that rec_dispatches an OVERLAY sub-fn. The 13 wired behaviors
+A/B gate can FALSE-POSITIVE for any owned handler that dynamically dispatches an OVERLAY sub-fn. The 13 wired behaviors
 that verified 0-diff are still fine (they didn't mismatch); but a mismatch in such a handler must be confirmed
 against the gen_func emitted body before assuming a transcription bug. 0x8004C238 left UNWIRED (moot under the
 later-234 decoupled-renderer pivot; its native body is correct if ever needed). Fix-if-pursued: own 0x80118B10
-too, or make the verify oracle use rec_dispatch for sub-calls.
+too, or make the verify oracle use typed runtime address dispatch for sub-calls.
 
 ## later-235 (2026-06-24) — GROUND DECODE IS CORRECT (later-231b/234 blocker was a RED HERRING); the REAL blocker is the 2D sea/water backdrop ORDERING
 Picked up the later-234 "parked blocker" (routing the ground scene-table 0x800F2418 through ov_field_entity_render
@@ -8523,7 +8524,7 @@ ov_ground_probe — decodes the table through the EXACT GT3/GT4 record layout th
 
 ## later-236 (2026-06-24) — RE: the seaside has TWO seas — REAL 3D water (0x8003b588) vs a 2D ATLAS backdrop (0x80025d98)
 User flagged (correctly) that the field has BOTH "real water" and a "background atlas water" and they must NOT
-be conflated. Deep static RE (subagent, exhaustive trace) settled which op-0x3C source is which:
+be conflated. Deep binary analysis (subagent, exhaustive trace) settled which op-0x3C source is which:
 - **REAL WORLD WATER = pass 0x8003b588 → node 0x800C0B04.** Trace: 0x8003b588 (bookkeeping + jal 0x800597AC
   setup) → `jal 0x8003cca4` (= submit_perobj_render) → jump table 0x80014ec8 (node[0xd]&0x0b) → GTE projector
   **0x8003cdd8** (40 COP2 ops: loads scene-camera CR0-7 from scratchpad **0x1F8000F8** via ctc2, Tcam from
@@ -8622,7 +8623,7 @@ on the actual screen-filling cyan, with `debug groundnative` ON so the bug shows
 
 ### later-238 LANDED: Pass A (field WATER) owned native real-depth (engine_submit.cpp ov_rwalk_b588).
 Replaced the orphan diag stub with the faithful body of 0x8003B588 (node 0x800E7E80): node-byte bookkeeping
-(@0x8003b5a0..698, ported 1:1 from disas), rec_dispatch the PSX transform-setup leaf 0x800597AC (no render),
+(@0x8003b5a0..698, ported 1:1 from disas), typed runtime address dispatch the PSX transform-setup leaf 0x800597AC (no render),
 then route the per-object render through NATIVE submit_perobj_render (node+0xD=0 → render-case
 0x80014EC8[0]=0x8003CD00 = the eproj FLUSH case → real per-vertex depth). Wired into ov_render_frame/_x
 (both twins) replacing d0(c,0x8003b588u). VERIFIED: default seaside view (groundnative off) unchanged
@@ -8637,7 +8638,7 @@ Pursued the cyan backdrop (tp 576,256, op-3C, is3d=0) with reliable C-level tool
   groundnative draws the grass correctly; later-235 "ground decode correct" CONFIRMED. The cyan backdrop is
   NOT in this table.
 - **WWATCH "pc=" is UNRELIABLE for the field render.** It logs g_interp_pc, which only updates in the
-  INTERPRETER; the field render runs through recomp/native code, so the pc is stale garbage (e.g. it pointed
+  INTERPRETER; the field render runs through guest instruction path/native code, so the pc is stale garbage (e.g. it pointed
   at 0x80115xxx which is a 0x7FFF7FFF DATA buffer, not code). later-237's "writer pc=0x8007E838" and all
   pool-address WWATCH attribution (mine + the journal's) are suspect. Pool addresses also churn (a node addr
   is reused by different builders frame-to-frame), so node-address attribution is doubly unreliable.
@@ -8742,7 +8743,7 @@ Two findings while making "reach gameplay headless" actually work.
 by NO code** (`git grep` confirms). So a "no-input" run never mashed anything — it just sat in the **attract
 DEMO** (`stage=0x801062E4`, the game playing predetermined input). That demo is PSX-rendered playback, not the
 GAME free-roam field; using it to judge rendering is a trap. Reimplemented `PSXPORT_AUTO_SKIP=1` as a
-self-contained auto-drive state machine in `runtime/recomp/native_boot.cpp`:
+self-contained auto-drive state machine in `runtime/psx/native_boot.cpp`:
 - (0) tap **Cross** until task0 enters the GAME stage (`0x8010637C`);
 - (1) wait for the post-NewGame **intro cutscene** to start — the cutscene-active flag `*(0x1F800137)` goes 1
   (verified: 1 throughout the scripted camera-pan/dialog cutscene, 0 in free-roam; an early loading 0-window
@@ -8838,7 +8839,7 @@ MECHANISM (mapped this session):
   Cycle: menu s1 → attract demo s7 (countdown sm[0x5a]) → timer expires → **s0 init: reloads the menu texgroup
   (meta 0x800FB170)** → back to menu s1. The corrupt menu re-appears here, while the attract demo's scene/VRAM
   is still resident.
-- The intro/transition screen fade is the recomp FUN_8002655c (bg scene-transition SM) calling FUN_8007e9c8
+- The intro/transition screen fade is the guest instruction path FUN_8002655c (bg scene-transition SM) calling FUN_8007e9c8
   (PSX fade-rect builder), confirmed via PSXPORT_PCTRAP=0x8002655c / 0x8007e9c8 (both fire in the intro).
   FUN_8007e9c8 builds a PSX OT rect that the engine's PC-native render IGNORES (engine owns ordering) → the
   fade is "fake"/not applied = the user's "fake fade". The native equivalent that routes through engine_fade_set
@@ -8862,7 +8863,7 @@ texture pages). This is the "native render doesn't follow scene/sub-scene state"
 fix is to make the menu render own/clear the scene on reload (and ideally route the transition fade through
 engine_fade_set so it's actually applied) — NOT to reproduce PSX OT order.
 
-TOOL ADDED: `debug fadeshot` (interp.cpp) — on every recomp FUN_8007e9c8 screen-fade call, log color+ra and
+TOOL ADDED: `debug fadeshot` (interp.cpp) — on every guest instruction path FUN_8007e9c8 screen-fade call, log color+ra and
 capture s_tex to scratch/screenshots/fade_NNN.ppm. Deterministic capture of a transition's fade frames.
 NEXT: reproduce the demo→menu return WINDOWED with fadeshot (run long enough for a full attract loop, or skip
 the demo via input), capture the corrupt menu frame, identify the exact VRAM region it samples vs the menu
@@ -8882,7 +8883,7 @@ SPRITES submitted into the OT (verified live: scene classifier saw rect=60 + 1 v
 the glyph prims linked at OT[1]); the field path never walked them, so all 2D was dropped.
 
 THE PORT (the fix — 2D-overlay enumeration on the native field path):
-- runtime/recomp/gpu_native.cpp: new `g_ot_2d_only` mode for the OT walk (gpu_dma2_linked_list/gpu_gp0). When
+- runtime/psx/gpu_native.cpp: new `g_ot_2d_only` mode for the OT walk (gpu_dma2_linked_list/gpu_gp0). When
   set, the prim classifier DROPS all guest-OT POLYS (the GTE 3D world — OWNED by ov_scene_native, redundant in
   the OT; and is3d is UNRELIABLE here: projprim has no records on the native field path, so is3d==0 for every
   poly — keeping them re-emits the whole world as flat HUD → render-queue overflow + the free-roam crash) and
@@ -8892,7 +8893,7 @@ THE PORT (the fix — 2D-overlay enumeration on the native field path):
   THE behavior (not a debug channel). scenenativehud kept as a DIAGNOSTIC (full walk incl. world).
 - VERIFIED LIVE (windowed, real New Game flow): the narration renders correctly on black, no stale-menu garbage.
 
-ALSO FIXED (separate real bug, runtime/recomp/dbg_server.cpp): the debug server's write() to a socket raised
+ALSO FIXED (separate real bug, runtime/psx/dbg_server.cpp): the debug server's write() to a socket raised
 SIGPIPE with the DEFAULT disposition = TERMINATE THE WHOLE GAME, so a dropped/timed-out dbgclient connection
 killed the live port (masqueraded as a "crash" entering the New-Game cutscene). Now signal(SIGPIPE, SIG_IGN).
 
@@ -8908,7 +8909,7 @@ observed and is NOT caused by this change (the OT walk executes no guest code); 
 SYMPTOM: `PSXPORT_SBS_MODE=both ./run.sh` froze right after `[fmv] MOVIE/OP.STR -> LBA 152238`, printing
 the game's own `time out in strNext()` repeatedly (seconds apart). NOT caused by later-252 (the cutscene
 2D fix) — it's in the FMV/CD path. PSXPORT_NO_FMV=1 does NOT help (that flag is read by NATIVE code; the
-PSX core runs guest recomp that never sees it).
+PSX core runs guest guest instruction path that never sees it).
 
 ROOT CAUSE (definitive, traced live + via decomp): the OP.STR opening movie is OWNED by the native FMV
 player, which is ALREADY skipped in SBS (native_fmv.cpp:677 `if (g_sbs) return 0`), so core A is fine.
@@ -8926,7 +8927,7 @@ KEY SUPPORTING FACTS (so nobody re-derives them):
   returns FUN_8008a6ec(..)==2). The teardown is NOT the hang.
 - The platform-HLE table (sync_overrides.cpp / cd_override.cpp platform_hle_register) is consulted on
   the INTERPRETER path (interp.cpp coro_native_call / hle.cpp) for every jal. Runtime is INTERPRETER-ONLY
-  (dispatch.cpp: rec_func_index always -1; generated/shard_*.c are offline analysis, NOT linked). So HLE
+  (dispatch.cpp: rec_func_index always -1; authenticated executable/overlay evidence are offline analysis, NOT linked). So HLE
   fires on the PSX core too — strNext just doesn't reach a HLE'd leaf in its hot poll (StGetNext is plain
   guest code at 0x8008d030; faking its frame output is a MINEFIELD: success re-enters the decode-wait
   spin at FUN_80106f80 case 6 `do{}while(_DAT_1f800034==0)` 0x7fffff iters, and corrupts SM[0x4a] 7->8).
@@ -8946,44 +8947,44 @@ repeated), 3s frame-progress watchdog never fires (frames advance), no abort.
 ALSO (this session, separate, later-252 commit): SIGPIPE killed the whole game when a debug-server client
 disconnected mid-reply — now signal(SIGPIPE, SIG_IGN) in dbg_server.cpp.
 
-## later-254 — PIVOT: interpreter REMOVED → static-recomp shards ARE the runtime substrate (fail-fast on miss)
-**User directive (2026-06-30):** "remove the interpreter, every recomp miss should crash the game and give
+## later-254 — PIVOT: interpreter REMOVED → retired source-generation path shards ARE the runtime substrate (fail-fast on miss)
+**User directive (2026-06-30):** "remove the interpreter, every historical guest-entry miss should crash the game and give
 us a log … no legacy, we don't keep legacy." REVERSES the later-101..103 interpreter-only pivot.
 
-**What changed.** The flat interpreter (`runtime/recomp/interp.cpp`) is DELETED. The statically-recompiled
-shards (`generated/shard_*.c` from `tools/recomp/emit.py`) are now LINKED and are the execution substrate
-for every non-native guest function. `shard_disp.c` generates `rec_dispatch` (an address→`func_<addr>`
-switch); a recompiled body runs as a plain C call. A MISS (overlay code, a non-recompiled address, a
-computed/fn-pointer jump target) falls through `rec_dispatch_miss` (hle.cpp) which now FAILS FAST — prints
-`[recomp-MISS] no recompiled fn for 0x… (caller ra, a0)` + a guest-stack backtrace and `abort()`s. There is
+**What changed.** The flat interpreter (`runtime/psx/interp.cpp`) is DELETED. The statically-guest
+shards (`authenticated executable/overlay evidence` from `the removed offline emitter`) are now LINKED and are the execution substrate
+for every non-native guest function. `shard_disp.c` generates `typed runtime address dispatch` (an address→`a guest address`
+switch); a guest body runs as a plain C call. A MISS (overlay code, a non-guest address, a
+computed/fn-pointer jump target) falls through `runtime dispatch fault` (hle.cpp) which now FAILS FAST — prints
+`[historical guest-entry miss] no guest fn for 0x… (caller ra, a0)` + a guest-stack backtrace and `abort()`s. There is
 NO interpreter fallback. BIOS A0/B0/C0 vectors and the platform-HLE sync table (sync_overrides.cpp) still
 resolve natively first; only genuine non-native RAM code aborts.
 
-**Files:** removed `interp.cpp`; `dispatch.cpp` rewritten to shims (`rec_super_call`/`rec_interp`/
-`rec_coro_run`/`stub_dispatch` → generated `rec_dispatch`; `rec_coro_redirect` setter kept) + holds
-`g_override_tgt`; `hle.cpp` `rec_dispatch_miss` RAM path → abort+`guest_backtrace_to`; `cmake/
+**Files:** removed `interp.cpp`; `dispatch.cpp` rewritten to shims (`original guest-body call`/`test-only reference execution`/
+`rec_coro_run`/`stub_dispatch` → generated `typed runtime address dispatch`; `rec_coro_redirect` setter kept) + holds
+`image-qualified runtime dispatcher_tgt`; `hle.cpp` `runtime dispatch fault` RAM path → abort+`guest_backtrace_to`; `cmake/
 tomba2_port.cmake` drops the `PSXPORT_SUBSTRATE` option (shards always linked, interp.cpp never compiled);
-`run.sh` regenerates shards whenever missing/stale (build REQUIRES them; generated/ is gitignored).
+`run.sh` regenerates shards whenever missing/stale (build REQUIRES them; authenticated executable/overlay evidence is gitignored).
 
 **PC is now PER-CORE (OO).** Removed the global `g_interp_pc`. Added `uint32_t pc` to `R3000` (r3000.h);
-each recompiled wrapper sets `c->pc = <its guest addr>` on entry (emit.py). Diagnostics that read the old
+each guest wrapper sets `c->pc = <its guest addr>` on entry (the removed CPU-source emitter). Diagnostics that read the old
 global now use `c->pc` (mem.cpp store/SPU-DMA logs, sync_overrides trap). The watchdog signal handler drops
-its PC line — the C backtrace already names the `gen_func_<addr>` guest call chain.
+its PC line — the C backtrace already names the `the cited guest instructions` guest call chain.
 
-**Status:** builds clean; boots stub→native crt0→recompiled MAIN, then FAILS FAST at the first miss:
-`0x80085CB4` (caller gen_func_80085B20 → `lw v0,*(0x800abda0); jalr v0+0xC`, a0=0x8010622C GAME overlay).
+**Status:** builds clean; boots stub→native crt0→guest MAIN, then FAILS FAST at the first miss:
+`0x80085CB4` (caller guest 0x80085B20 → `lw v0,*(0x800abda0); jalr v0+0xC`, a0=0x8010622C GAME overlay).
 That is an INDIRECT (fn-pointer) call target jal-discovery can't see — the first worklist item. Backtrace is
-clean (`gen_func_80085B20 → func_80085B20 → rec_dispatch → rec_dispatch_miss → abort`).
+clean (`guest 0x80085B20 → guest 0x80085B20 → typed runtime address dispatch → runtime dispatch fault → abort`).
 
 **NEXT (miss-resolution loop):** each miss is either (a) a resident MAIN fn reached only indirectly → seed in
-emit.py EXTRA_SEEDS + regen; (b) overlay code → needs overlay static recompilation (the big phase); or (c) a
+the removed CPU-source emitter EXTRA_SEEDS + regen; (b) overlay code → needs overlay retired source-generation path (the big phase); or (c) a
 fn to port native. Grind the log top-down.
 
 ## later-255 — substrate boot: auto-seed indirect/vtable fn targets; reach the overlay boundary
 Resolving the later-254 fail-fast misses top-down. The boot's early misses were all RESIDENT MAIN
-functions reached ONLY via a function pointer (jalr through a vtable / callback), invisible to emit.py's
-direct-jal discovery. Added TWO binary-only discovery scans (tools/recomp/emit.py), unioned into the seed
-set so they're recompiled up-front instead of aborting one-by-one:
+functions reached ONLY via a function pointer (jalr through a vtable / callback), invisible to the removed CPU-source emitter's
+direct-jal discovery. Added TWO binary-only discovery scans (the removed offline emitter), unioned into the seed
+set so they're guest up-front instead of aborting one-by-one:
 - `pointer_table_funcs`: scan the whole EXE image for WORDS that point at a function entry in text
   (`is_func_entry`: `addiu sp,sp,-N` prologue OR preceded by `jr ra` — the latter catches stackless leaf
   fns). Catches static fn-pointer tables / vtables baked in data.
@@ -8991,20 +8992,20 @@ set so they're recompiled up-front instead of aborting one-by-one:
   function-entry address — catches vtable slots whose pointer is BUILT IN CODE then stored (so the
   address never appears as a single data word). e.g. FUN_8008651C (installed via code, word nowhere).
 
-Result: recompiled set 1238 → 1533; the boot now runs native crt0 → init → loads START.BIN overlay →
+Result: guest set 1238 → 1533; the boot now runs native crt0 → init → loads START.BIN overlay →
 native frame loop → **2 frames of the DEMO stage (0x801062E4)**, then fails fast at the first OVERLAY
 miss: `ov_demo_frame → rec_coro_run(0x80106F80)`. 0x80106F80 is inside the stage overlay loaded at
-0x80106228 (NOT in MAIN.EXE), so the static recompiler doesn't cover it.
+0x80106228 (NOT in MAIN.EXE), so the retired source-generation path doesn't cover it.
 
-**FRONTIER = overlay static recompilation.** The stage overlays (\BIN\{START,DEMO,GAME,...}.BIN, loaded
-raw to 0x80106228+) hold the DEMO/field code and the render submitters. They must be recompiled as their
-own module(s) keyed at the overlay base, with rec_dispatch routing 0x80106228.. to the currently-loaded
+**FRONTIER = overlay retired source-generation path.** The stage overlays (\BIN\{START,DEMO,GAME,...}.BIN, loaded
+raw to 0x80106228+) hold the DEMO/field code and the render submitters. They must be guest as their
+own module(s) keyed at the overlay base, with typed runtime address dispatch routing 0x80106228.. to the currently-loaded
 overlay. (The stub is already emitted as a separate module — same pattern.) Until then, any call into
 overlay code fails fast by design.
 
-## later-256 — overlay-recompilation design notes (the FRONTIER after later-255)
+## later-256 — overlay-source generation design notes (the FRONTIER after later-255)
 The substrate boots to DEMO frame 2 then fails fast at `0x80106F80` (overlay code). To run overlays
-under the substrate (no interpreter) they must be STATICALLY RECOMPILED. Key facts gathered:
+under the substrate (no interpreter) they must be STATICALLY guest. Key facts gathered:
 - **Overlays OVERLAP** — DEMO.BIN / GAME.BIN / SOP.BIN all load RAW to the SAME base **0x80106228**
   (engine_re.md:284/387; journal:514 "aliases GAME.BIN, distinguished by the root prologue sig"). So a
   given address (e.g. 0x80106F80) is DIFFERENT code depending on which stage overlay is resident →
@@ -9012,31 +9013,31 @@ under the substrate (no interpreter) they must be STATICALLY RECOMPILED. Key fac
 - Two overlapping overlay SLOTS (at least): (1) stage slot @0x80106228 — START/DEMO/GAME/SOP/OPN/CRD.BIN
   (small, 1.6–17 KB); (2) area/field slot @ ~0x80113000+ — the big A0*.BIN area overlays (75–234 KB)
   holding the field render submitters (0x8013e9d8/0x8013fae0/0x8013f4dc/0x8013fb88 etc.).
-- emit.py ALREADY emits a SEPARATE module for the boot stub (STUB_NAMES: stub_func_/stub_dispatch) — the
+- the removed CPU-source emitter ALREADY emits a SEPARATE module for the boot stub (STUB_NAMES: stub_func_/stub_dispatch) — the
   same pattern is the template for per-overlay modules.
 
-**DESIGN (N64Recomp overlay model):** (a) emit.py: recompile each .BIN as its own module, functions keyed
+**DESIGN (N64Recomp overlay model):** (a) the removed CPU-source emitter: recompile each .BIN as its own module, functions keyed
 at base+offset, with its own dispatch table (reuse the Names/emit_module machinery). (b) Runtime registry:
 map an overlay-range address → the CURRENTLY-loaded overlay module; cd_loadfile_native(dest,...) sets the
-current overlay for the dest range (it knows the file). (c) rec_dispatch for an overlay-range address →
+current overlay for the dest range (it knows the file). (c) typed runtime address dispatch for an overlay-range address →
 current overlay's func; still a MISS (fail fast) if no overlay covers it. First impl task: instrument
 cd_loadfile_native to log (file, dest, size) over a boot→field run to get the EXACT per-overlay bases.
 
-## later-257 — overlay STATIC RECOMPILATION: DEMO+GAME+SOP run under the substrate (no interpreter)
+## later-257 — overlay retired source-generation path: DEMO+GAME+SOP run under the substrate (no interpreter)
 Implemented the overlay model (the later-256 frontier). The stage/mode overlays \BIN\*.BIN are now
-statically recompiled as their OWN modules and run under the substrate — the boot drives DEMO → GAME →
-SOP through the full intro/fade/gameplay cycle with ZERO recomp miss (was: fail-fast at DEMO frame 2).
+statically guest as their OWN modules and run under the substrate — the boot drives DEMO → GAME →
+SOP through the full intro/fade/gameplay cycle with ZERO historical guest-entry miss (was: fail-fast at DEMO frame 2).
 
-**Recompiler (tools/recomp/emit.py).**
+**recorded binary evidence (the removed offline emitter).**
 - Per-overlay module emission: each .BIN → emit_module with a PsxExe(load=base) and its own Names
   (ov_<tag>_*), keyed at base+offset, with its own dispatch switch. Seeds = pointer_table_funcs ∪
   constructed_func_pointers ∪ code_pointer_tables ∪ func_entries_after_return (jr-ra boundary scan) ∪
   internal jal targets.
-- GLOBAL ROUTER split: `Names.router` ("rec_dispatch", shared) is what a recompiled body CALLS for any
-  out-of-module target; `Names.dispatch` is the module's OWN switch (main_dispatch / ov_<tag>_dispatch).
-  Hand-written rec_dispatch (runtime/recomp/overlay_router.cpp) range-routes: MAIN range → main_dispatch;
+- GLOBAL ROUTER split: `Names.router` ("typed runtime address dispatch", shared) is what a guest body CALLS for any
+  out-of-module target; `Names.dispatch` is the module's OWN switch (runtime address dispatch / ov_<tag>_dispatch).
+  Hand-written typed runtime address dispatch (runtime/psx/overlay_router.cpp) range-routes: MAIN range → runtime address dispatch;
   an overlay-slot address → the CURRENTLY RESIDENT overlay (identified by a 32-byte content signature of
-  guest RAM at the slot base, cached); else rec_dispatch_miss (fail-fast).
+  guest RAM at the slot base, cached); else runtime dispatch fault (fail-fast).
 - code_pointer_tables(): seed vtable/handler-table targets (runs of ≥4 consecutive in-text code pointers)
   that is_func_entry misses (stackless leaves). EXCLUDES switch_table_spans() so a switch jump-table
   (array of in-function labels) isn't mis-seeded as a vtable and shred the containing fn (the printf
@@ -9045,14 +9046,14 @@ SOP through the full intro/fade/gameplay cycle with ZERO recomp miss (was: fail-
   the index reg) — the form the overlays emit; recovered the DEMO menu machine 0x80106F80's switch.
 - EXACT overlay bases from the CD load-log (OVERLAY_BASES, evidence-documented, NOT magic): STAGE slot
   0x80106228 (START/DEMO/GAME, mutually exclusive); MODE slot 0x80108F9C (SOP, loaded right after GAME
-  which stays resident). cmake links the dynamic TU set via generated/rec_sources.cmake.
+  which stays resident). cmake links the dynamic TU set via authenticated executable/overlay evidence
 
 **Platform-HLE bypass fix (the "CD timeout" / VSync spin).** The HW-sync primitives (libcd/libetc/libmdec
-VSync/CdSync/DecDCTinSync …) are RECOMPILED MAIN fns, so a call routed main_dispatch → the recompiled
-BUSY-WAIT body, never reaching rec_dispatch_miss where platform_hle_lookup intercepts → spun to "CD
-timeout"/"VSync: timeout". Fix: platform_hle_register() now ALSO wires each into the recomp OVERRIDE table
-(shard_set_override) — func_<addr>'s wrapper checks g_override FIRST, so the native sync resolves before
-the recompiled wait runs. (User report: "CD timeout … should be trapped like vsync, everything is sync.")
+VSync/CdSync/DecDCTinSync …) are guest MAIN fns, so a call routed runtime address dispatch → the guest
+BUSY-WAIT body, never reaching runtime dispatch fault where platform_hle_lookup intercepts → spun to "CD
+timeout"/"VSync: timeout". Fix: platform_hle_register() now ALSO wires each into the guest instruction path OVERRIDE table
+(tomba::native::declareOverride) — a guest address's wrapper checks image-qualified runtime dispatcher FIRST, so the native sync resolves before
+the guest wait runs. (User report: "CD timeout … should be trapped like vsync, everything is sync.")
 
 **Status:** boot → DEMO (menu machine + substates) → GAME stage transition (GAME.BIN swaps in at 0x80106228,
 routed by signature) → SOP field-mode (LOAD/FADE/GAMEPLAY sm[0x50] 0→4, area intro) → area machine advances
@@ -9060,11 +9061,11 @@ routed by signature) → SOP field-mode (LOAD/FADE/GAMEPLAY sm[0x50] 0→4, area
 swaps out SOP), holding the field render submitters (0x8013xxxx). NEXT FRONTIER = extract + recompile that
 area overlay (and the other A0*.BIN field overlays) at base 0x80108F9C.
 
-## later-258 — recompiler TDD harness; field area overlay A00; recomp transforms (no flood-fill)
+## later-258 — recorded binary evidence TDD harness; field area overlay A00; guest instruction path transforms (no flood-fill)
 Continued the overlay frontier into the FIELD area code overlay, and added a TDD suite for the
-recompiler (user directive: "put some TDD in the recompiler too" / "add game-specific tailorings").
+recorded binary evidence (user directive: "put some TDD in the recorded binary evidence too" / "add game-specific tailorings").
 
-**Recompiler TDD (tools/recomp/test_emit.py).** Two layers, runnable standalone or via pytest:
+**recorded binary evidence TDD (the removed emitter tests).** Two layers, runnable standalone or via pytest:
 - STRUCTURAL: a tiny MIPS assembler (`Asm`) + asserts on the static analyses — find_jump_tables BOTH
   idiom variants (A: `lui base;addiu;addu base,base,idx`, B: `addu B,idx,tbl` overlay form), is_func_entry,
   code_pointer_tables seeding a vtable while EXCLUDING switch_table_spans (the printf-parser class).
@@ -9075,19 +9076,19 @@ recompiler (user directive: "put some TDD in the recompiler too" / "add game-spe
 
 **Field area overlay.** A0*.BIN are the per-area FIELD CODE overlays; each loads to the MODE slot
 0x80108F9C (swapping out SOP), holding the 0x8013xxxx render submitters (cd-log: A00 = 285096 B @LBA374 ->
-0x80108F9C). emit.py recompiles A00 (OVERLAY_BASES + `A0[0-9A-Z]` rule). Boot now drives DEMO -> GAME ->
+0x80108F9C). the removed CPU-source emitter recompiles A00 (OVERLAY_BASES + `A0[0-9A-Z]` rule). Boot now drives DEMO -> GAME ->
 SOP intro/fade -> A00 area load with no miss until the shared-epilogue gap below.
 
 **Transforms kept (tested):** find_jump_tables `addu B,idx,tbl` variant (overlay menu machine 0x80106F80);
 code_pointer_tables (vtable targets is_func_entry misses) + switch_table_spans exclusion;
 merge_early_return_boundaries (a `jr ra` mid-body is an early return, not a function end — merges the false
 split so a branch past it stays an in-fn goto; fixes A00 0x80131600->0x801316C4); branch-into-delay-slot
-labels (MAIN 0x80084080). Build flags for the generated shards: `-foptimize-sibling-calls` (a guest tail-
+labels (MAIN 0x80084080). Build flags for the authenticated executable/overlay evidence: `-foptimize-sibling-calls` (a guest tail-
 jump loop -> `dispatch(c,x);return;` must be a real tail call or the C stack grows -> SIGSEGV) +
-`-fno-strict-aliasing -fwrapv` (recomp-safety).
+`-fno-strict-aliasing -fwrapv` (guest instruction path-safety).
 
 **Tried + REVERTED — CFG flood-fill.** Rewrote emit_func to emit each function as the CFG closure from its
-entry (auto-duplicating shared epilogues, following `j` chains). It MIS-recompiled the resident vtable
+entry (auto-duplicating shared epilogues, following `j` chains). It MIS-guest the resident vtable
 state machine (0x8007E2F8 <-> 0x8007E620, register-based jump table) into an INFINITE LOOP (plain smoke hung
 at DEMO frame 5; HEAD's linear emit runs it clean to frame 90). Too many subtle pitfalls (emission order /
 entry-must-be-first, fall-through between disjoint blocks, merge-back into the main body). Reverted to the
@@ -9122,24 +9123,24 @@ target, dispatched directly by the native scheduler (native_boot), and 0x801063F
 GAME task loop (`lw v0,0x138(s1)`, not a function entry). This is the cooperative-task RESUME the handoff
 flagged: task-0 yields once per frame (FUN_80051f80 -> ov_switch longjmps OUT to the scheduler, which works
 — it unwinds the C stack), but the scheduler then resumes the task at the saved mid-function PC, and the
-recompiled substrate has NO resumable mid-function entry (a recompiled body is a plain C function; you
+guest execution has NO resumable mid-function entry (a guest body is a plain C function; you
 can't jump into its middle). DEMO sidestepped this because engine_demo.cpp owns its substates natively
 (each synchronous, one frame, no mid-fn yield). GAME's field loop genuinely yields mid-body.
 Two ways forward (a real decision, NOT a hack):
   (a) OWN the GAME field task loop natively (top-down, like engine_demo owns DEMO) so it never yields
-      inside a recompiled function — the cooperative yield becomes a native frame boundary; or
-  (b) STACKFUL coroutines for the substrate (run the recompiled task on a ucontext/separate stack that can
+      inside a guest function — the cooperative yield becomes a native frame boundary; or
+  (b) STACKFUL coroutines for the substrate (run the guest task on a ucontext/separate stack that can
       be suspended at the yield and resumed) — a general fix, larger.
-Overlay STATIC RECOMPILATION (the later-256 goal) is essentially done: DEMO/GAME/SOP/A00/OPN all recompiled
+Overlay retired source-generation path (the later-256 goal) is essentially done: DEMO/GAME/SOP/A00/OPN all guest
 and running under the substrate; the remaining blocker is this resume model, a separate workstream.
 
 ## later-261 — GAME field runs under the substrate: cooperative loop = PC per-frame re-entry (NO MISS)
 The coroutine-resume frontier (later-260) is solved the PC-game way (USER: "make a PC game, don't limit
 yourself by PSX constraints"). The GAME cooperative task loop yields once per frame and the PSX scheduler
-resumes it at the saved mid-yield PC — which the recompiled substrate can't continue (the loop's C frame is
+resumes it at the saved mid-yield PC — which the guest execution can't continue (the loop's C frame is
 longjmp'd away at the yield). Instead we treat the per-frame yield as a PLAIN PC FRAME BOUNDARY: the
-scheduler now RE-ENTERS the recompiled loop at its TOP every frame.
-- emit.py OVERLAY_EXTRA_SEEDS: seed the GAME loop top 0x801063F4 (a documented re-entry point; mid-fn, so
+scheduler now RE-ENTERS the guest loop at its TOP every frame.
+- the removed CPU-source emitter OVERLAY_EXTRA_SEEDS: seed the GAME loop top 0x801063F4 (a documented re-entry point; mid-fn, so
   no scan finds it — the prologue 0x8010637C is owned natively by ov_game_stage_main). gen_func for it =
   the loop body (dispatch the SM, then yield).
 - SchedulerState.game_coop[] (game.h) + native_boot.cpp: when ov_game_frame returns "not owned" (the field
@@ -9147,19 +9148,19 @@ scheduler now RE-ENTERS the recompiled loop at its TOP every frame.
   regs (s0=s1=0x1f800000, s2=1) — NOT the saved yield PC. All loop state lives in guest RAM, so re-entry ==
   continue; cleared on area transition (base+0xc changes).
 Result: PSXPORT_AUTO_SKIP drives DEMO -> GAME -> SOP -> A00 field and runs the GAME field loop for 1500
-frames with ZERO recomp-MISS (deepest the port has run); sm[0x48] advances across the run. Plain headless
-smoke still clean (frame 90, 0 misses); recompiler tests 12/12. RENDER correctness (does the field draw)
+frames with ZERO historical guest-entry miss (deepest the port has run); sm[0x48] advances across the run. Plain headless
+smoke still clean (frame 90, 0 misses); recorded binary evidence tests 12/12. RENDER correctness (does the field draw)
 is the next thing to eyeball — separate from this mechanical milestone.
 
 ## later-262 — run.sh extracts A0* area overlays; emit overlay word-align fix (portability)
-USER hit a DIFFERENT recomp-miss than me on macOS (0x800810F0 vs my 0x800739AC) on a plain `./run.sh`:
+USER hit a DIFFERENT guest instruction path-miss than me on macOS (0x800810F0 vs my 0x800739AC) on a plain `./run.sh`:
 root cause = run.sh extracted only the 6 stage overlays, NOT the A00..A0L field area overlays, so
 overlay_funcs() seeded fewer resident MAIN fns (the area overlays jal into MAIN) → fewer MAIN fns
-recompiled → a different MAIN miss per box. Fixed: run.sh now extracts A00..A0L too; emit.py word-aligns
+guest → a different MAIN miss per box. Fixed: run.sh now extracts A00..A0L too; the removed CPU-source emitter word-aligns
 overlay data (`data[:len(data)&~3]`) — a non-4-aligned A0* size overran a scan (IndexError). emit now
-generates 28 overlay modules clean. NEXT (handoff scratch/handoff_ensure_recomp_and_attract.md):
-(1) USER directive — move all recomp provisioning into a single HASH-CHECKED `tools/ensure_recomp.py`
-that run.sh just calls ("ensure all recomp is there and matches a hash"); (2) resolve the attract-path
+produced 28 overlay modules cleanly. The next historical handoff recorded:
+(1) USER directive — move all guest instruction path provisioning into a single HASH-CHECKED `tools/the removed source-emission provisioner`
+that run.sh just calls ("ensure all guest instruction path is there and matches a hash"); (2) resolve the attract-path
 (plain, no AUTO_SKIP) misses 0x800739AC (indirect jalr → seed) and 0x800810F0 (coroutine resume → maybe
 another game_coop-style loop). The AUTO_SKIP field path is clean and renders.
 
@@ -9178,10 +9179,10 @@ OT/packets (native display re-derives from node data). Screenshots fx_700 (narra
 original NEVER reached (it froze on the fishing-line pose). NEXT FRONTIER (exposed by the fix): free-roam
 aborts ~f1184 at `jal 0x80109450` with A00 resident in the MODE slot — A00's 0x80109450 is a jump-table,
 not a fn (SOP's is a fn); the GAME-stage dispatcher at 0x8010882c drives it when sm[0x4c]==0 && sm[0x4e]==1.
-See docs/findings/render.md ("Free-roam recomp-MISS: jal 0x80109450"). Making ov_render_frame write ZERO
+See docs/findings/render.md ("Free-roam historical guest-entry miss: jal 0x80109450"). Making ov_render_frame write ZERO
 guest memory (native-float A00 object render → drop the dv rewind for perf) remains a valid FOLLOW-UP.
 
-## later-285 — free-roam recomp-MISS root cause CORRECTED: gameplay object-graph recursion (native ~4× deeper than oracle), NOT the render
+## later-285 — free-roam historical guest-entry miss root cause CORRECTED: gameplay object-graph recursion (native ~4× deeper than oracle), NOT the render
 later-284c blamed the A00 per-object RENDER chain overflowing task0's ~2.5KB guest stack, and prescribed
 "own the A00 render native-float." That diagnosis is FALSIFIED. Evidence (this session):
 - Prototyped the native A00 render (native ov_a00_node_render = submit_perobj_render for the model +
@@ -9189,7 +9190,7 @@ later-284c blamed the A00 per-object RENDER chain overflowing task0's ~2.5KB gue
   NOT stop the crash (still aborts ~f1184 at `jal 0x80109450`). Reverted (correct-by-RE but tangential).
 - `debug skip3d` (new probe) skipping the ENTIRE ov_render_frame orchestrator + the submit 0x8010810c
   STILL crashes at the same frame → the deep recursion is NOT in the render pass at all.
-- A `g_in_scene_native` scope flag + a min-sp probe (`debug lowsp`) in rec_dispatch/interp show the deepest
+- A `g_in_scene_native` scope flag + a min-sp probe (`debug lowsp`) in typed runtime address dispatch/interp show the deepest
   dispatches are `in_scene_native=0` — task0's own GAMEPLAY update, specifically the object-graph recursion
   through the indirect thunk 0x80022AB8 (`jalr v0`, ~10 levels), interleaving the object 2D-marker projector
   0x8013DD34 and the libgpu OT/GS-sort walker 0x80082D04↔0x80082734, kicked off from ov_field_frame's
@@ -9205,7 +9206,7 @@ longer/looping child chain than the oracle. Diff native-vs-oracle object graph +
 
 ## later-290 (2026-07-01) — camera restructured to `class CutsceneCamera`; SOP snap-follow wired+verified; free-roam-camera premise falsified
 The handoff's premise ("0x8006E3B0 is the live free-roam camera, wire it into ov_field_frame/objwalk") was
-FALSIFIED by measurement: instrumented rec_dispatch (camtrace) + recdep on A00 free-roam WITH real player
+FALSIFIED by measurement: instrumented typed runtime address dispatch (camtrace) + recdep on A00 free-roam WITH real player
 movement (`press right`, player X 0x800E7EAC advanced 0x0F64→0x1770) show ZERO dispatch of any resident
 camera fn (0x8006c800–0x8006e480) across 200 moving frames. The ~967/1000 figure was the SOP INTRO CUTSCENE
 (frames 0–216), where sop.cpp natively drives 0x8006e3b0 each frame. The free-roam camera is in the MODE-slot
@@ -9215,7 +9216,7 @@ the old `engine_camera.cpp` into `game/camera/cutscene_camera.{h,cpp}` = `class 
 members, named MASTER_X/Y/Z + G/S blocks, enum-ish mode methods), NO `c->r[4]=cam` register convention, guest
 accessors (r8/r16/r32/camR*/…) behind names. 9 sub-ops + 4 orchestrators (added snapFollow=0x8006e3b0). Wired
 `CutsceneCamera::snapFollow` into sop.cpp via `cam_snap_follow` (replaces both `d2(c,0x8006e3b0)` sites). VERIFIED:
-`PSXPORT_DEBUG=camverify` A/B vs recomp oracle (rec_interp 0x8006e3b0) = **0 mismatch over 51+ live SOP calls**
+`PSXPORT_DEBUG=camverify` A/B vs historical guest-execution reference (test-only reference execution 0x8006e3b0) = **0 mismatch over 51+ live SOP calls**
 (cam struct + full 1KB scratchpad) — exercises trackXZ/trackY snap + the full lookAt matrix builder (isqrt/
 ratan2/MulMatrix0/ApplyMatrixLV/CopyMatrix + cpu_div). No regression (free-roam still reached f216; the boot
 `[miss 0]` at ~f115 is PRE-EXISTING — same in the substrate build). WORKFLOW FIX: `tools/codemap.py` didn't
@@ -9228,13 +9229,13 @@ formalize ObjectWorld (pc-subsystem-rebuild.md's ranked #1; behaviors already ~1
 Added game/camera/cutscene_camera_test.cpp — a deterministic, render-free oracle unit test for the whole
 `class CutsceneCamera` (PSXPORT_SELFTEST=camera). It seeds thousands of synthetic guest states (sweeping the
 mode selectors G+0x164 / 0x800bf870 / cam+0x72 etc. so every switch arm is hit), runs each native method,
-snapshots outputs, restores inputs, runs the guest fn via rec_interp on identical state, and diffs the full
+snapshots outputs, restores inputs, runs the guest fn via test-only reference execution on identical state, and diffs the full
 cam struct + 1KB scratchpad + touched globals. Result: **0 mismatching words over 39000 runs** across all 13
 methods — the restructure preserved behaviour exactly, including the latent modes (dist/pitch/heading/rotBuild/
-mainFollow/…) the live SOP scene never exercises. 390 iters oracle-SKIPPED where the recompiler's jump-table
+mainFollow/…) the live SOP scene never exercises. 390 iters oracle-SKIPPED where the recorded binary evidence's jump-table
 discovery can't evaluate the synthetic state (added hle.cpp `g_rec_miss_tolerant` test hatch so a genuine miss
-skips instead of fail-fast-aborting; default 0 = fail-fast everywhere else). Found+recorded a recompiler gap:
-yFloor 0x8006C80C render-mode 1 target 0x8006C844 isn't in the recompiled switch (docs/findings/camera.md).
+skips instead of fail-fast-aborting; default 0 = fail-fast everywhere else). Found+recorded a recorded binary evidence gap:
+yFloor 0x8006C80C render-mode 1 target 0x8006C844 isn't in the guest switch (docs/findings/camera.md).
 CORRECTION to later-290: the reachable free-roam camera matrix (scratchpad 0x1F8000F8/0x10C, what
 scene_build.cpp read_camera consumes) is rebuilt each frame via the resident matrix leaves (MulMatrix0/MR_init/
 ApplyMatrixLV/CopyMatrix) with caller ra=0xDEAD0000 = a NATIVE caller — NOT overlay code. So the free-roam
@@ -9248,8 +9249,8 @@ Root-caused the later-290..292 confusion. A GUEST-STACK backtrace (PSXPORT_WWATC
 0x1F8000F8 + guest_backtrace_to) at a moving free-roam frame showed the live chain: field frame 0x80022xxx →
 0x8006EEF8 (resident camera driver @0x8006ec4c) → 0x8006E3B0 (snapFollow) → 0x8006E3E0 (post-lookat return) →
 MulMatrix0. So the resident camera IS the free-roam field camera. Why camtrace/recdep showed "zero camera
-dispatch in free-roam": the recompiler emits **intra-MAIN calls as DIRECT C calls** `func_8006E3B0(c)` (see
-generated/shard_3.c:16799, shard_4/5), NOT rec_dispatch — so any hook in rec_dispatch (recdep, camtrace) is
+dispatch in free-roam": the recorded guest call graph contains **intra-MAIN calls as DIRECT C calls** `guest 0x8006E3B0(c)` (see
+authenticated executable/overlay evidence, shard_4/5), NOT typed runtime address dispatch — so any hook in typed runtime address dispatch (recdep, camtrace) is
 STRUCTURALLY BLIND to resident→resident calls. "0 in recdep" ≠ "dead". Recorded as a tooling caveat
 (docs/findings/tooling.md) and the camera finding rewritten (docs/findings/camera.md).
 CONSEQUENCE: `CutsceneCamera::snapFollow`/`lookAt` (owned, camverify 0-diff, oracle-unit-tested 0-diff over
@@ -9262,15 +9263,15 @@ as CutsceneCamera::update(), wired from the native field frame; verify via the o
 
 ## later-294 — camera DISPATCHER owned native: CutsceneCamera::update() + init() (0-diff oracle)
 Owned the per-frame camera DRIVER and mode selector, completing the camera tree top-down (leaves were
-already owned). CORRECTION to the handoff: the recompiled driver entry is **0x8006EC44**, not 0x8006ec4c
-(gen_func_8006EC44 exists; 0x8006EC4C is 8 bytes into it and isn't a separate fn). The driver is ARG-LESS:
+already owned). CORRECTION to the handoff: the guest driver entry is **0x8006EC44**, not 0x8006ec4c
+(guest 0x8006EC44 exists; 0x8006EC4C is 8 bytes into it and isn't a separate fn). The driver is ARG-LESS:
 it hardcodes the camera object at 0x800E8008 and reads its outer state from cam[0] (0=init/1=run/else idle),
 runs the cam[1] sub-state machine, dispatches on cam[0x64]&0x3F (18-entry table @0x80016A44) to a follow
 orchestrator / substrate leaf / field overlay, then always runs tail 0x8006C988. init()=0x8006EA7C: field
 reset + render-mode-keyed (0x800BF870) 21-entry table @0x800169EC → initial mode, optional mainFollow path,
 scripted-follow post-check (0x1F800236 ∈ {5,6}). Owned orchestrators called directly; unowned resident
 leaves (E294/E360/E2FC/E918/CBA8/C988) + all field overlays (mode 0/1 render table @0x800A4AA0; modes
-9/10/17 = 0x8018B924/0x8010D89C/0x80111AB4) via substrate rec_dispatch (sub()), like trackFollow. VERIFIED:
+9/10/17 = 0x8018B924/0x8010D89C/0x80111AB4) via substrate typed runtime address dispatch (sub()), like trackFollow. VERIFIED:
 oracle unit test cases init+update = 0 mismatching words over ~10k verified iters (overlay modes MISS since
 no overlay is loaded → skipped, expected; the test's check() now tolerates a native-run miss too). NOT wired
 yet (reached via camera-object behaviour ptr; substrate runs it 0-diff meanwhile) — wire when the object

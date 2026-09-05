@@ -121,11 +121,11 @@ as its own unrelated missing effect.
 ### 0.3 UNDER `PSXPORT_GATE=1`, EVERY NATIVE OVERRIDE RUNS ITS `gen` BODY — so every diagnostic inside one is SILENT
 
 Measured 2026-08-06, and it invalidates a whole class of "I looked and saw nothing" results.
-`PSXPORT_GATE=1` sets `Game::psx_fallback = 1` (`native_boot.cpp:605`), and the ONE dispatch decision
+`PSXPORT_GATE=1` sets `Game::the retired alternate-execution flag = 1` (`native_boot.cpp:605`), and the ONE dispatch decision
 in `override_registry.cpp:74` is
 
 ```cpp
-const bool oracle = (c->game && (c->game->psx_fallback || c->game->verify.inSubstrateLeg)) || forced(e.addr);
+const bool oracle = (c->game && (c->game->the retired alternate-execution flag || c->game->verify.inSubstrateLeg)) || forced(e.addr);
 if (oracle) { e.oracleHits++; e.gen(c); return; }
 ```
 
@@ -170,7 +170,7 @@ the water-jet picture but does **not** close its native-producer debt.
 | **Looks like in game** | the weapon-IMPACT radial plume; the weapon SWING / CHARGE effect; the water jet's mesh half ("Water came out from the faucet!"); a 4-copy radial plume that is the commonest effect node in a field dump; plus up to 14 further effect controllers not yet identified by sight |
 | **Guest producer** | shared writer `FUN_80027768`, reached from **20 distinct controllers**. Named ones: `0x800288AC` (impact plume), `0x8002BC9C` (4-copy plume), `0x8002A834` (SwingFx), `0x8013D454` MESH branch, `0x8013D828`, `0x8013ED08`, `0x8013EF58` (A00 overlay), and the unowned twelve `0x80028B70 0x8002C138 0x8002C6AC 0x8002CD18 0x8002D65C 0x8002DF68 0x8002F36C 0x8002FDD0 0x80030264 0x80030D68` (census in `docs/findings/render.md`, "the mesh writer has 20 callers") |
 | **Why absent** | commit **`abf3cf9`** ("Delete the GTE-register render taps; four layers are now honestly absent", 2026-08-04) removed `game/render/fx_mesh.cpp/.h`, `mesh_emit_tap.cpp`, `swing_fx.cpp/.h`. `mesh_emit_tap.cpp` had been the **single owner** of `FUN_80027768` and dispatched to whichever controller SCOPE was up. No scope, no picture — and pc_render does not ordinarily walk the guest OT. **The deletion was CORRECT**: those producers re-derived quads from the transform the substrate controller had just composed into GTE CR0–7, i.e. a family-wide tap. It temporarily left the whole family producer-less; four controller-state producers now replace four paths. The water-jet exception replays only the exact GT4 packets written inside its one controller scope and requires all packet-addressed guest depths to resolve; it is explicit fallback debt, not a reconstructed transform or shared-family owner. |
-| **Evidence** | `tools/codemap.py --addr` finds native owners for closed controllers `0x8002BC9C`, `0x8002A834`, `0x800288AC`, and `0x8013ED08`; `0x80027768` resolves specifically to `waterJetWriterTap` plus the `hack` frontier warning, while `0x8013D828` and `0x8013EF58` still have no owner. `ov_a00_gen_8013ED08` grounds every native input and explicitly zeroes IR0, so no inherited GTE material state is needed; build/format/tidy are green, while live reachability/oracle comparison remains serialized. The water-jet true-software-oracle run reaches f530 with B byte-identical at all eight samples; live f460/470/480/490/510/520 calls each replay exactly two guest GT4 packets with 8/8 exact depth hits, zero misses/stale, while f450/f500 are exact no-emission controls. |
+| **Evidence** | `tools/codemap.py --addr` finds native owners for closed controllers `0x8002BC9C`, `0x8002A834`, `0x800288AC`, and `0x8013ED08`; `0x80027768` resolves specifically to `waterJetWriterTap` plus the `hack` frontier warning, while `0x8013D828` and `0x8013EF58` still have no owner. `overlay guest 0x8013ED08` grounds every native input and explicitly zeroes IR0, so no inherited GTE material state is needed; build/format/tidy are green, while live reachability/oracle comparison remains serialized. The water-jet true-software-oracle run reaches f530 with B byte-identical at all eight samples; live f460/470/480/490/510/520 calls each replay exactly two guest GT4 packets with 8/8 exact depth hits, zero misses/stale, while f450/f500 are exact no-emission controls. |
 | **Collateral** | **kanban #14 and #15 are closed by controller-state producers**, not by resurrecting `fx_mesh.cpp`. The 2026-07-28 A00 water-jet picture is visible again through the bounded fallback, but its native producer remains open. **Claim C011** remains **falsified** because sixteen controllers are still producer-less. |
 | **Porting needs** | one native producer per controller, reading the controller's OWN node state (`node+0x48` angles, `node+0x2C/0x30` position, model table at `node+0x50`) and projecting with the native camera — the shape `fx_sprite.cpp` / `fx_dust.cpp` / `fx_line.cpp` already use. **The RE is largely DONE — do not re-derive it:** kanban #15's 2026-07-28 entry carries the full `FUN_8002BC9C` decode; `docs/findings/render.md` "The A00-overlay effect-mesh controllers" carries `0x8013D454/D828/ED08/EF58` |
 | **Do NOT** | resurrect the deleted family-wide tap or widen the water-jet exception. `game/render/guest_gte_water_jet.cpp` is scoped to `0x8013D454`, emits exact integer guest output at logic time, and must die when that controller gains a real node-state producer |
@@ -205,11 +205,11 @@ address NOWHERE". Ownership here is BEHAVIOURAL, held by shared writers that car
 
 | guest writer | native owner | evidence |
 |---|---|---|
-| `0x80027768` | **`Render::meshQuadRecordsEmit`** (`game/render/mesh_quads.cpp:131`, declared `render.h:447`) | "the ONE host-side walk of the engine's packed-mesh quad-record format (FUN_80027768's 36-byte records)". Its signature ALREADY takes the cue explicitly — `(mesh, uBias, farColour[3], ir0, ot, screenBbox)` — which is exactly the "overload taking an explicit EObjXform and an explicit IR0 cue" `docs/re/render-targets-static-re.md:222` said was still owed. `fx_plume.cpp:128` calls it `(…, kNoFarColour, kCueOff, …)`, `fx_dust.cpp:209` with `kCueFull` |
-| `0x8002847C` | **`emitAnimQuadRecords`** (`game/render/fx_sprite.cpp:288`) | `fx_sprite.cpp:774` states outright "FUN_8002847C = emitAnimQuadRecords"; `docs/re/render-targets-static-re.md:169` concurs — "codemap reports NO owner for the address, but the behaviour is fully owned by that static; nothing new is needed". Its cue defaults are `ir0 = 0, farColour = nullptr` = the identity |
+| `0x80027768` | **`Render::meshQuadRecordsEmit`** (`game/render/mesh_quads.cpp:131`, declared `render.h:447`) | "the ONE host-side walk of the engine's packed-mesh quad-record format (FUN_80027768's 36-byte records)". Its signature ALREADY takes the cue explicitly — `(mesh, uBias, farColour[3], ir0, ot, screenBbox)` — which is exactly the "overload taking an explicit EObjXform and an explicit IR0 cue" `docs/re/render-targets-binary-analysis.md:222` said was still owed. `fx_plume.cpp:128` calls it `(…, kNoFarColour, kCueOff, …)`, `fx_dust.cpp:209` with `kCueFull` |
+| `0x8002847C` | **`emitAnimQuadRecords`** (`game/render/fx_sprite.cpp:288`) | `fx_sprite.cpp:774` states outright "FUN_8002847C = emitAnimQuadRecords"; `docs/re/render-targets-binary-analysis.md:169` concurs — "codemap reports NO owner for the address, but the behaviour is fully owned by that static; nothing new is needed". Its cue defaults are `ir0 = 0, farColour = nullptr` = the identity |
 
 And the cue SEMANTICS are settled by a verified correction, not an assumption:
-`docs/re/render-targets-static-re.md:46` (a `[MINOR]` verifier correction) shows `gen_func_800328EC`
+`docs/re/render-targets-binary-analysis.md:46` (a `[MINOR]` verifier correction) shows `guest 0x800328EC`
 **explicitly zeroes** `0x1F800090` and passes `a1=a2=0`, so **IR0 is 0 BY CONSTRUCTION** for this family
 — the original spec's "it is whatever the frame left" reached the right conclusion for the wrong reason.
 `emitAnimQuadRecords`' own comment records the general rule: *"Most emitters in this family force IR0 = 0,
@@ -235,7 +235,7 @@ That is a small additive PORT, not a judgement call: an opt-in CLUT-row bias on
 surface further writer arguments the native does not yet model; the writer's `a1`/`a3` semantics are
 tabulated in that RE file, and `a3` (`node+0x29`, a U offset applied to the PACKET and not the record,
 so a read-only producer must apply it itself) maps onto the existing `uBias`.
-Two caveats that are real: `docs/re/render-targets-static-re.md` is STALE where it says the writer is
+Two caveats that are real: `docs/re/render-targets-binary-analysis.md` is STALE where it says the writer is
 "owned by `FxMesh::draw` … a GUEST-TIME scoped tap" — `fx_mesh.cpp` was deleted in `abf3cf9` and the
 replacement is the explicit-cue `meshQuadRecordsEmit` above; and a producer may **not** call
 `Rng::next()` for the mesh IR0 dither, because it writes the guest seed at `0x80105EE8` (ibid. :222).
@@ -289,7 +289,7 @@ orphan.
 #### R1-CLOSED-4 — A00 single rigid mesh (`FUN_8013ED08`) *(ported 2026-08-26; runtime verification pending)*
 
 `Render::rigidMeshEffectRender` in `game/render/fx_rigid_mesh.cpp` replaces one retired controller
-scope with a display-pass owner. `ov_a00_gen_8013ED08` states the complete contract in 22 generated
+scope with a display-pass owner. `overlay guest 0x8013ED08` states the complete contract in 22 generated
 lines: publish IR0=0; compose `node+0x2C` position, `node+0x54` unsigned scale bytes and `node+0x48`
 Euler angles through `FUN_800318A0`; call `FUN_80027768(*(node+0x50), 0, (s16)node+0x32,
 (u8)node[7])`. The native route uses `MeshQuads`, `EffectLerp`, `projComposeObjectHost`, and the
@@ -305,8 +305,8 @@ persistent far-colour publisher, not to assume black or force the cue off.
 #### R1-CLOSED-1 — the FOUR-COPY RADIAL PLUME (`FUN_8002BC9C`) *(ported 2026-08-06)*
 
 Native producer `Render::radialPlumeRender`, `game/render/fx_plume.cpp`, portmap step
-`render-producer-plume-bc9c` (**ported-unverified**). RE from ground truth `generated/shard_0.c
-gen_func_8002BC9C` plus `generated/shard_5.c gen_func_80027768` for the writer.
+`render-producer-plume-bc9c` (**ported-unverified**). RE from ground truth `authenticated executable/overlay evidence
+guest 0x8002BC9C` plus `authenticated executable/overlay evidence guest 0x80027768` for the writer.
 
 **Why this one first:** it was the most RESIDENT unowned controller in the census (5 nodes carried it
 as their `+0x18` render fn in one field dump) and it is live-and-skipped in area 0 on
@@ -329,7 +329,7 @@ as their `+0x18` render fn in one field dump) and it is live-and-skipped in area
   averages the four projected depths (AVSZ4), adds the CALLER's sort bias, compresses to an
   ordering-table bucket and drops anything outside `[4, 2048)`. `MeshOtBias` (`mesh_quads.h`) carries
   that, and the OT-unit→view-unit factor is derived from the game's OWN authored constant — its
-  projection init `gen_func_80083FF8` sets `ZSF4 = 256`, so the key is mean-depth/4 and one bias unit is
+  projection init `guest 0x80083FF8` sets `ZSF4 = 256`, so the key is mean-depth/4 and one bias unit is
   four view units. **No GTE control register is read to get it.** It is opt-in: the two pre-existing
   callers of the shared walk (`fx_dust`, `narration_swirl`) have not had their bias arguments RE'd, and
   claiming them would be jumping ahead of the RE, so they are byte-for-byte unchanged.
@@ -377,10 +377,10 @@ as their `+0x18` render fn in one field dump) and it is live-and-skipped in area
 
 Native producer `Render::beamQuadRender`, `game/render/fx_beam.cpp`, portmap step
 `render-producer-beam-b704` (**ported-unverified**). RE from ground truth
-`generated/shard_0.c gen_func_8003B704`.
+`authenticated executable/overlay evidence guest 0x8003B704`.
 
 **The CR-contract question this row carried as OPEN is answered, and the answer was inside the
-emitter all along:** it calls `func_80084660` / `func_80084690` (libgte `SetRotMatrix` /
+emitter all along:** it calls `guest 0x80084660` / `guest 0x80084690` (libgte `SetRotMatrix` /
 `SetTransMatrix`) with `a0 = 0x1F8000F8` — **the pure camera** — overwriting whatever
 `perObjRenderDispatch` / `billboardCompose1` left in CR0–7, immediately before it builds its corners.
 So the corners are **world space**, and the producer needs nothing but the node's own state plus the
@@ -418,7 +418,7 @@ It rebuilds the object transform from persistent anchor/angles (`obj+44` / `obj+
 three authored scale bytes (`node+0..2`, multiplied by 10 with the guest's byte wrap), then sends
 `mem32(obj+80)` through the one shared packed-quad record walker. The shared walker now carries the
 controller's exact fog, U/CLUT-row bias, forced-tpage and semi-transparency policy as explicit style
-inputs. No GTE register, guest packet, OT, scratchpad transform, or generated body supplies the
+inputs. No GTE register, guest packet, OT, scratchpad transform, or authenticated executable/overlay evidence supplies the
 picture.
 
 Headless `bucket-softlock.pad` evidence: 460 requested replay frames exit 0 with no failure signature;
@@ -440,10 +440,10 @@ Tracked as portmap `render-mesh-flush` (blocked).
 
 | area | layer | guest producer | state |
 |---|---|---|---|
-| 21 | early-phase sky **GRADIENT — PORTED + draw-verified; pixel parity open** | `gen_func_8003DF04` special-case → `0x8010BE30`; reached variant 1 / phase 1 calls `ov_a0l_gen_8010BB64` (four POLY_G quads spanning x[0,320], colours `0x00AC0606` / `0x00EA9898` / `0x00390000`, pitch-derived Y from s16 `0x1F8000F0`) and then returns | `Render::area21SkyGradientRender`, `game/render/area21_sky_gradient.cpp`; same-binary ON/OFF changes 53,907 px. At aligned frame 3615/state `(21,1,1,pitch=-175)`, ON is coherent and close to the PSX-render reference while OFF loses the background; ON vs reference remains 20,094 px above 8/255, so it is not pixel parity. The independent oracle path is unaligned (GAME entry +11 frames). The tilemap loop belongs to a different variant/phase branch and remains excluded until that branch is visibly reached |
+| 21 | early-phase sky **GRADIENT — PORTED + draw-verified; pixel parity open** | `guest 0x8003DF04` special-case → `0x8010BE30`; reached variant 1 / phase 1 calls `overlay guest 0x8010BB64` (four POLY_G quads spanning x[0,320], colours `0x00AC0606` / `0x00EA9898` / `0x00390000`, pitch-derived Y from s16 `0x1F8000F0`) and then returns | `Render::area21SkyGradientRender`, `game/render/area21_sky_gradient.cpp`; same-binary ON/OFF changes 53,907 px. At aligned frame 3615/state `(21,1,1,pitch=-175)`, ON is coherent and close to the PSX-render reference while OFF loses the background; ON vs reference remains 20,094 px above 8/255, so it is not pixel parity. The independent oracle path is unaligned (GAME entry +11 frames). The tilemap loop belongs to a different variant/phase branch and remains excluded until that branch is visibly reached |
 | 14 | waterfall backdrop's **sprite tail** — ~~unported~~ | `FUN_80110CA4` tail-calls `0x801104D0`, 440 gen lines | **NOT A GAP — kanban #67 is STALE.** `codemap --addr 0x801104D0` returns `Render::fxBackdropSparkRender` LIVE (`fx_backdrop_plane.cpp:210`), called from `fxBackdropPlaneRender` exactly as the guest tail-calls it. Its card's stated blocker (34 `FUN_8009A450` calls writing the seed) does not apply: the guest's own body keeps the pool simulated underneath, so the producer only READS slot state — the randomness is upstream. Status is **ported-unverified**, because the pool reads `live=0/200` in the only capture: an EMPTY POOL, not a dead producer. Needs a scene that populates it, not a port |
 | 21 | the **jet effect** | `FUN_8010C1D8` (A0L) | kanban #66 todo, blocked: returns immediately unless `*(u8*)0x800BFA55 >= 4`, and it reads 1 in the standard capture. Port is otherwise ready |
-| 4 | ambient effect + a **342-point tile field** | `FUN_8013B118`; the field is `ov_a04_func_8013AD90` (218 lines of raw GP0 tile emit, **no analogue anywhere in `game/render/`**) | kanban #68 todo. Of its three stated blockers, **the PRNG one is resolved**: `GuestRngMirror` (`game/render/guest_rng_mirror.{h,cpp}`) exists, is in `cmake/tomba2_port.cmake`, and is a per-logic-frame read-only seed snapshot built for exactly this. The two that remain are real: every branch is gated off in the only reachable state (story phase `0x800E7EAA` = 1), and the 342-point field has no analogue in the tree. The field deserves its own row once reachable |
+| 4 | ambient effect + a **342-point tile field** | `FUN_8013B118`; the field is `overlay guest 0x8013AD90` (218 lines of raw GP0 tile emit, **no analogue anywhere in `game/render/`**) | kanban #68 todo. Of its three stated blockers, **the PRNG one is resolved**: `GuestRngMirror` (`game/render/guest_rng_mirror.{h,cpp}`) exists, is in `cmake/tomba2_port.cmake`, and is a per-logic-frame read-only seed snapshot built for exactly this. The two that remain are real: every branch is gated off in the only reachable state (story phase `0x800E7EAA` = 1), and the 342-point field has no analogue in the tree. The field deserves its own row once reachable |
 
 ### R6 — Layers with a producer that still never draw *(NOT missing producers — different fix)*
 

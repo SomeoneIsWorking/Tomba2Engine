@@ -3,6 +3,8 @@
 #include "cfg.h" // cfg_logf panelq probe
 #include "core.h"
 #include "game.h"
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "render.h"           // Render::mode.psxRender() gate
 #include "render_queue.h"     // RenderQueue::push2dQuad / emitOrQueue + RQ_HUD / RQ_OM_2D_FG
 #include "ui_group_capture.h" // UiGroupCapture::routePanel* — a raised page owns its own panels
@@ -15,7 +17,7 @@ constexpr uint16_t kPanelTpage = 0x5Fu;
 struct TpageDecode {
   int x, y, mode, blend;
 };
-// Same bit layout as GpuState::set_texpage (runtime/recomp/gpu_native.cpp) — tp_x=(tp&0xF)*64,
+// Same bit layout as GpuState::set_texpage (runtime/psx/gpu_native.cpp) — tp_x=(tp&0xF)*64,
 // tp_y=((tp>>4)&1)*256, blend=(tp>>5)&3, mode=(tp>>7)&3.
 TpageDecode decodeTpage(uint16_t tp) {
   TpageDecode d;
@@ -292,10 +294,6 @@ void Panel::pushDialogGlyphs(Core *c, uint32_t box) {
 // ---- Panel taps: own FUN_8004FFB4 (panelFill), FUN_8005019C (panelBuild) and FUN_8007CC00
 // (dialog glyph row) globally — see panel.h for the architecture note (mirrors
 // ScreenFade::installLeafTap).
-extern void gen_func_8004FFB4(Core *);
-extern void gen_func_8005019C(Core *);
-extern void gen_func_8007CC00(Core *);
-extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
 namespace {
 void panelFillTap(Core *c) {
   const uint32_t rectPtr = c->r[4];
@@ -303,8 +301,8 @@ void panelFillTap(Core *c) {
   const uint16_t attr = (uint16_t)c->r[6];
   const int32_t otBucket = (int32_t)c->r[7];
   Panel::fillQuad(c); // guest packet pool / OT / stack — the readable rebuild in panel_fill.cpp,
-                      // proven byte-identical to gen_func_8004FFB4 by A/B dump-diff
-  if (c->game->oracle || c->rsub.mode.psxRender()) {
+                      // proven byte-identical to guest 0x8004FFB4 by A/B dump-diff
+  if (c->rsub.mode.psxRender()) {
     return; // read-only overlay gate
   }
   // A PAGE owns its whole ordering table, panels included: when a page scope is raised the panel is
@@ -322,9 +320,13 @@ void panelBuildTap(Core *c) {
   const uint16_t style = (uint16_t)c->r[5];
   const uint32_t shadow = c->r[6];
   const int32_t otBucket = (int32_t)c->r[7];
-  gen_func_8005019C(c); // byte-exact guest packet pool / OT / stack; nests through the panelFill
-                        // tap above (calls the func_8004FFB4 WRAPPER, not gen_ direct — see panel.h)
-  if (c->game->oracle || c->rsub.mode.psxRender()) {
+  psx::cpu::callOriginalToReturn(
+      *c,
+      0x8005019Cu,
+      psx::cpu::ExecutionBudget::currentTurn(*c),
+      __func__); // byte-exact guest packet pool / OT / stack; nests through the panelFill
+                 // tap above (calls the guest 0x8004FFB4 WRAPPER, not gen_ direct — see panel.h)
+  if (c->rsub.mode.psxRender()) {
     return; // read-only overlay gate
   }
   if (UiGroupCapture::routePanelCorners(c, rectPtr, style, shadow, otBucket)) {
@@ -337,8 +339,11 @@ void panelBuildTap(Core *c) {
 namespace {
 void dialogGlyphsTap(Core *c) {
   const uint32_t box = c->r[4];
-  gen_func_8007CC00(c); // byte-exact guest packet pool / OT / stack
-  if (c->game->oracle || c->rsub.mode.psxRender()) {
+  psx::cpu::callOriginalToReturn(*c,
+                                 0x8007CC00u,
+                                 psx::cpu::ExecutionBudget::currentTurn(*c),
+                                 __func__); // byte-exact guest packet pool / OT / stack
+  if (c->rsub.mode.psxRender()) {
     return; // read-only overlay gate
   }
   Panel::pushDialogGlyphs(c, box);
@@ -351,7 +356,7 @@ void Panel::install() {
     return;
   }
   done = true;
-  engine_set_override_main(0x8004FFB4u, panelFillTap, gen_func_8004FFB4);
-  engine_set_override_main(0x8005019Cu, panelBuildTap, gen_func_8005019C);
-  engine_set_override_main(0x8007CC00u, dialogGlyphsTap, gen_func_8007CC00);
+  tomba::native::declareOverride(0x8004FFB4u, "panelFillTap", panelFillTap);
+  tomba::native::declareOverride(0x8005019Cu, "panelBuildTap", panelBuildTap);
+  tomba::native::declareOverride(0x8007CC00u, "dialogGlyphsTap", dialogGlyphsTap);
 }

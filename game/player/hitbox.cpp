@@ -1,10 +1,10 @@
 // game/player/hitbox.cpp — PC-native ownership of FUN_8003B220.
 //
 // FUN_8003B220 — per-object 2D BOX / hitbox-corner BUILDER (a pure resident leaf; ~1.64% of the seaside
-// field's sampled interpreter time, the hottest still-recomp resident CONTENT leaf that is NOT a
+// field's sampled interpreter time, the hottest still-guest resident CONTENT leaf that is NOT a
 // render-boundary fn). 64 instructions, ZERO jal, ZERO GTE, ZERO render packets — it only reads bytes
 // from the a2 parameter block and writes halfwords into the a0 output struct, so it is verifiable by a
-// full main-RAM + scratchpad 0-diff A/B gate against the recomp body (`boxverify`).
+// full main-RAM + scratchpad 0-diff A/B gate against the guest instruction path (`boxverify`).
 //
 // Signature (from the disasm): void FUN_8003B220(void* a0 = dst, int32_t a1 = base value, void* a2 = params)
 //
@@ -29,12 +29,13 @@
 //   a0[18]     = a0[18] * 5                           ; Y far corner *5
 //   a0[26]     = a0[26] * 5                           ; Y far corner snapshot *5
 // (the "*5" comes from `sll v0,x,2; addu v0,v0,x` = x*4 + x). Every read uses the value LIVE in memory at
-// that point (the recomp re-loads each field), so order matters — this mirrors the exact load/store order.
+// that point (the guest instruction path re-loads each field), so order matters — this mirrors the exact load/store
+// order.
 //
 // VERIFY: `boxverify` REPL channel = full main-RAM (0x200000) + full scratchpad (0x400) + v0 A/B vs
-// rec_super_call(0x8003B220). The fn touches NO scratchpad and has no callees, so no stack-exclusion
+// psx::cpu::callOriginal(0x8003B220). The fn touches NO scratchpad and has no callees, so no stack-exclusion
 // window is needed (its own 0-byte frame: it never adjusts sp). Native run -> snapshot+rollback ->
-// rec_super_call -> diff.
+// original guest-body call -> diff.
 
 #include "cfg.h"
 #include "core.h"
@@ -43,13 +44,11 @@
 #include <cstdlib>
 #include <cstring>
 
-void rec_super_call(Core *, uint32_t);
-
 static inline int16_t s16(uint32_t v) {
   return (int16_t)(uint16_t)v;
 }
 
-// Pure native body. Mirrors the recomp's exact in-memory load/store order so the result is byte-exact.
+// Pure native body. Mirrors the guest instruction path's exact in-memory load/store order so the result is byte-exact.
 static void hitbox_build_3b220(Core *c) {
   const uint32_t a0 = c->r[4];
   const uint32_t a1 = c->r[5];
@@ -107,7 +106,7 @@ static void hitbox_build_3b220(Core *c) {
   int32_t last = (int32_t)lyfs * 5;
   c->mem_w16(a0 + 26, (uint16_t)last); // a0[26] = Y far snap*5
 
-  // The gen body returns v0 = the last computed value (the `sh v0,26(a0)` delay-slot store: v0 =
+  // The guest-visible behavior returns v0 = the last computed value (the `sh v0,26(a0)` delay-slot store: v0 =
   // sll(v1,2)+v1 = lyfs*5, register-width). This fn is void and callers ignore v0, but mirror it so the
   // `boxverify` gate is byte-exact incl. the return register.
   c->r[2] = (uint32_t)last;

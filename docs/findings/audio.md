@@ -7,23 +7,23 @@
   session, confirm unowned via `tools/codemap.py --addr`, port a cohesive 3-8-address cluster.
 - **finding: there is no such cluster — the band is (almost) pure DATA, not code.** Verified three
   independent ways:
-  1. **Static function census.** Every `func_XXXXXXXX` the recompiler ever declared
-     (`generated/rec_decls.h`, 2214 total) whose entry falls in `[0x800A0000, 0x800BFFFF]`: exactly
+  1. **Static function census.** Every `func_XXXXXXXX` the recorded binary evidence ever declared
+     (`authenticated executable/overlay evidence`, 2214 total) whose entry falls in `[0x800A0000, 0x800BFFFF]`: exactly
      **7** — `0x800A0C58 0x800A0D4C 0x800A44F4 0x800A44FC 0x800A4504 0x800A4514 0x800A5958`. All 7 have
-     **zero callers anywhere in generated code** (`grep` for the address as a call target — direct or via
-     `rec_dispatch` — turns up nothing) and their emitted bodies are visibly garbage: strings of
+     **zero callers anywhere in authenticated executable/overlay evidence** (`grep` for the address as a call target — direct or via
+     `typed runtime address dispatch` — turns up nothing) and their emitted bodies are visibly garbage: strings of
      `/* UNHANDLED special/regimm */` comments over nonsense conditions (`c->r[0] == c->r[0]`,
-     `(int32_t)c->r[25] <= 0` with no prior use of r25) — the classic signature of the recompiler's
+     `(int32_t)c->r[25] <= 0` with no prior use of r25) — the classic signature of the recorded binary evidence's
      linear scanner decoding a stretch of **rodata/data bytes as if they were MIPS instructions**. No
      overlay (`ov_*_decls.h`, all 30) places any function in this range either.
   2. **Live `recdep` histogram** (a new `PSXPORT_DEBUG=recdep,recdep-all` full-dump mode was added this
-     session — see `runtime/recomp/overlay_router.cpp` / `docs/config.md` — because the default top-40
+     session — see `runtime/psx/overlay_router.cpp` / `docs/config.md` — because the default top-40
      cap was hiding rare targets). Ran `PSXPORT_AUTO_SKIP=1` free-roam sessions covering: plain walking
      (8000 frames), continuous attack/Square-hold from f220 (4000 frames), and the original REPL-driven
      newgame/skip/run path (100k+ frames cumulative) — **zero dispatch hits land in
      `[0x800A0000,0x800BFFFF]`** in any of them (full histograms in `scratch/logs/recdep_r{D,E,F}.log`).
-  3. **Ghidra headless auto-analysis** (independent disassembler, not the psxport recompiler) on a
-     free-roam RAM dump: `tools/decomp.sh decomp <proj> out.c 0x800A0000 0x800BE800` — Ghidra's own
+  3. **Ghidra headless auto-analysis** (independent disassembler, not the psxport recorded binary evidence) on a
+     free-roam RAM dump: `the Ghidra evidence workflow decomp <proj> out.c 0x800A0000 0x800BE800` — Ghidra's own
      function-discovery pass (after full `-analyze`) finds **0 functions** in the entire range.
      (`text 0xAE800` loaded at `0x80010000` means the band sits inside the loaded EXE image — it's
      just the rodata/data tail of that image, not a second code region.)
@@ -64,7 +64,7 @@
 - **fix:**
   1. New method `MusicCoord::voiceMixTick(uint32_t voice_base)` in music_coord.{h,cpp} — full port of
      FUN_80075824's three branches (silent state / dialog mode / ramp path), the low-vol arm hook
-     (`FUN_80075CEC(0x47FF)` inlined, `FUN_800750D8` still rec_dispatched), and the common tail.
+     (`FUN_80075CEC(0x47FF)` inlined, `FUN_800750D8` still dynamically dispatched), and the common tail.
   2. `engine_stage.cpp:1329` swapped `musicFadeIn()` → `voiceMixTick(0x800BE1F8)`.
   3. `MusicCoord::musicFadeIn`'s header comment rewritten to stop claiming it's the FUN_80075824
      port (it's an original PC helper for the "music starts too loud on instant-CD" mod).
@@ -77,14 +77,14 @@
   class doesn't recur.
 - **refs:** RE output for the port: `$CLAUDE_JOB_DIR/tmp/f80075824.c`, `$CLAUDE_JOB_DIR/tmp/audio_parent.c`
   (parent FUN_80075A80 = `Engine::areaUpdateTail`); SBS extension that pinpointed the write site:
-  runtime/recomp/sbs.cpp `recordDivergence` + wwatch-hit block; skills: `sbs-diverge` (find),
+  runtime/psx/sbs.cpp `recordDivergence` + wwatch-hit block; skills: `sbs-diverge` (find),
   `ghidra-re` (RE), this file (record).
 
 ## Sequencer (libsnd SsSeqCalled) cluster wiring — 5 bugs found at §9 re-verify; 8 addresses wired 0-diff, 5 left unwired-honest (2026-07-10)
 
 - **symptom / task:** promote the banked wide-RE Sequencer drafts (game/audio/sequencer.{h,cpp} —
   0x800909C0 frameTick, 0x80090BD0 SsSeqCalled, and 11 leaves) from draft to VERIFIED ownership.
-- **status: DONE for 8 addresses (wired via `engine_set_override_main`, SBS-full 0-diff through
+- **status: DONE for 8 addresses (wired via `tomba::native::declareOverride`, SBS-full 0-diff through
   f9030 + 23k-invocation MIRROR_VERIFY byte-compare); 5 addresses DELIBERATELY UNWIRED** (never
   fired in any run — honest-gate rule; drafts stay banked in sequencer.cpp).
 - **bugs found at re-verify (fleet-workflow §9 predicted "multiple bugs even in high-confidence
@@ -110,7 +110,7 @@
      guest return address before the jal (0x80090C1C/CA8/CD0/CF8/D20/D48/D70/D98/DC0, 0x800909EC/FC,
      0x8009110C, 0x800910B0, 0x80091A38/40, 0x80095C0C, 0x8009567C); the drafts set none of them.
 - **wired + how each was verified** (SBS gate = `PSXPORT_SBS_MODE=full` autonav, NOAUDIO; MV =
-  `PSXPORT_MIRROR_VERIFY=0x800909C0` single-core run — SBS diff_mode SKIPS the whole per-vblank
+  `PSXPORT_MIRROR_VERIFY=0x800909C0` single-core run — SBS the retired in-process comparison mode SKIPS the whole per-vblank
   audio block on BOTH cores (game_tomba2.cpp), so NO SBS config can exercise the tick path; the
   strict mirror gate is the byte-verifier for the tick subtree):
   - 0x800909C0 frameTick + 0x80090BD0 seqChannelDispatch — MV: 3000 armed invocations per run
@@ -128,21 +128,21 @@
   0x80091910 channelStopFlagSet, 0x80090E40 channelPitchSlideTick, 0x80092080
   channelEnvelopeRampTick, 0x80095A9C channelVolumeSnapshot. Their flag bits
   (0x02/0x08/0x10/0x20/0x40/0x80) never came up in reachable content. §9-line-verified drafts stay
-  banked; native seqChannelDispatch routes those bits via `rec_dispatch` to the substrate body. A
+  banked; native seqChannelDispatch routes those bits via `typed runtime address dispatch` to the substrate body. A
   future session reaching SEQ content with note-releases/pitch-slides/envelope-ramps should
   exercise, wire, and gate them (nat_ trampolines already exist in registerOverrides).
 - **tooling added:** `PSXPORT_SBS_EXIT_FRAME=<n>` (sbs.cpp, docs/config.md) — clean `exit(0)` at
   frame n so atexit hit-count dumps print (a `timeout`-killed gate dies via the watchdog's SIGTERM
   `_exit(130)`, skipping atexit — hit counts are how a wiring pass proves addresses FIRED).
 - **oracle-integrity fix:** engine_override_thunk.cpp now consults `verify.inSubstrateLeg` — before
-  this, MV_CHECK's "substrate replay" leg on a thunk-wired address ran the NATIVE body and compared
+  this, strict replay check's "substrate replay" leg on a thunk-wired address ran the NATIVE body and compared
   native-vs-native (fake pass). overlay_router already had the gate; the thunk didn't.
 - **dead end recorded:** tried exercising the 5 dormant leaves with an input-driven REPL run
   (jump SFX, pause-menu open/close, walking) — bits never set. Tomba!2's field BGM is XA, not SEQ;
   SEQ appears to be used for jingles/SFX whose reachable content only uses bit0 (pitch select) +
   bit2 (note init) here.
-- **refs:** game/audio/sequencer.{h,cpp}, runtime/recomp/engine_override_thunk.cpp,
-  runtime/recomp/sbs.cpp, docs/engine_re.md (SsSeqCalled cluster entries), scratch/logs/sbs_gate.log
+- **refs:** game/audio/sequencer.{h,cpp}, runtime/psx/engine_override_thunk.cpp,
+  runtime/psx/sbs.cpp, docs/engine_re.md (SsSeqCalled cluster entries), scratch/logs/sbs_gate.log
   + mv_final.log (regenerable).
 
 ## `channelNoteInit` (0x80091970) flagged by the new generalized `MIRROR_VERIFY=all` gate — OPEN, needs re-check (2026-07-10)
@@ -158,7 +158,7 @@
   leaves small ints `0x7F`/`0x82` — looks like the same v0/v1-dead-scratch-vs-live-pointer pattern
   as the render cluster, see docs/findings/render.md's `MIRROR_VERIFY=all` entry, but NOT
   individually re-verified here). **OPEN** — re-RE `channelNoteInit`'s callers from
-  `gen_func_80093650`/`SEQ_PREP_FN` to confirm whether v0/v1 are genuinely dead at this call site or
+  `guest 0x80093650`/`SEQ_PREP_FN` to confirm whether v0/v1 are genuinely dead at this call site or
   whether the draft is missing a real return value a caller consumes.
 
 ## pc_skip vs oracle: SPU register stream divergences — MODE=skip (2026-07-10, OPEN)
@@ -185,8 +185,8 @@
   `./run.sh` default config) and core B is the pure oracle (`pc_skip=false`, and — this is the key
   fact the earlier symptom writeup didn't establish — **B ALSO never takes any `EngineOverrides`
   entry under SBS**: `engine_override_thunk`'s `verify.inSubstrateLeg` gate forces the oracle leg to
-  stay pure substrate for every wired address, so B always executes the literal recompiled
-  `gen_func_80075824`/`gen_func_80075D24` (voiceMixTick/setGain2), never the native C++ port, even
+  stay pure substrate for every wired address, so B always executes the literal guest
+  `guest 0x80075824`/`guest 0x80075D24` (voiceMixTick/setGain2), never the native C++ port, even
   though the port is globally registered). Confirmed by instrumenting both `MusicCoord::voiceMixTick`
   and `MusicCoord::setGain2` (new `PSXPORT_DEBUG=vmt` channel, `[vmt]`/`[gain2]` traces,
   game/audio/music_coord.cpp) — under the SBS-skip repro, **every** `[vmt]`/`[gain2]` line tags
@@ -231,13 +231,13 @@
     session** — same phase-skew-vs-real-bug question as (b), needs the same k-shift/timing analysis
     once the ramp harness lands; flagging so it isn't silently dropped from the 54-line symptom set.
 - **workflow fix (tooling defect found + fixed while root-causing)**: `Timing::logicFrame`
-  (`runtime/recomp/timing.h`) was **silently 0 for the entire run under SBS**. It was only ever
+  (`runtime/psx/timing.h`) was **silently 0 for the entire run under SBS**. It was only ever
   written by the standalone `native_boot.cpp` frame loop (`c->game->timing.logicFrame = f;` right
   before calling `native_step_frame`); SBS reaches `native_step_frame` via `dc_step_frame()` /
   `stepCore()`, which never runs that loop, so every consumer (`Cd::audioTrace`'s `[xa f%u ...]` tag,
   the new `[vmt]`/`[gain2]` traces, any future frame-tagged debug print) silently printed `f0` forever
   under SBS. Fixed by moving the assignment into `native_step_frame()` itself (the single per-frame
-  entry point both the standalone loop and `dc_step_frame` funnel through) — `runtime/recomp/
+  entry point both the standalone loop and `dc_step_frame` funnel through) — `runtime/psx/
   native_boot.cpp`. This is exactly the workflow-first class of bug CLAUDE.md flags: a diagnostic that
   looked like it worked (never errored, printed a plausible-looking `f0`) but was quietly useless for
   its actual purpose under the one mode (SBS) most debugging happens in.

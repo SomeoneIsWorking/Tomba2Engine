@@ -12,7 +12,7 @@ The contact producer's candidate list is cull queue A (0x1F80013C ptr / 0x1F8001
 
 ## Evidence
 
-line-by-line read of game/render/cull.cpp:96-247 against gen_func_8007712C/8007703C/80077E7C; consumer read width confirmed mem_r8 vs mem_w16 publisher, benign at cap 24
+line-by-line read of game/render/cull.cpp:96-247 against guest 0x8007712C/8007703C/80077E7C; consumer read width confirmed mem_r8 vs mem_w16 publisher, benign at cap 24
 
 ## What would falsify it
 

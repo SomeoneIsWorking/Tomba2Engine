@@ -7,12 +7,12 @@
 // "Function boundaries" section names 0x80115364 (Render::overlayTypeDispatch case 0x8003D1C4) as
 // the dispatch entry. That address is NOT a real function entry (see .cpp "entry resolution") and
 // that call path is dead for the field. The REAL, live callers are:
-//   - Engine::areaModeDispatch(Faithful) (game/core/engine.cpp, mode idx 0) -> rec_dispatch(c,
+//   - Engine::areaModeDispatch(Faithful) (game/core/engine.cpp, mode idx 0) -> typed runtime address dispatch(c,
 //     0x8011534Cu) with a0=0x800ED018 — per-frame STEP (scroll wrap).
-//   - the still-unowned FUN_8003DF04 state dispatcher -> rec_dispatch(c, 0x80115598u) with
+//   - the still-unowned FUN_8003DF04 state dispatcher -> typed runtime address dispatch(c, 0x80115598u) with
 //     a0=0x800ED018 for render-state 0 — per-frame EMIT.
-// This class owns those TWO leaf bodies directly (wired via engine_set_override_a00, the SAME
-// mechanism OverlayGroundGt3Gt4 uses for its A00-local leaves — neither is reached via rec_dispatch
+// This class owns those TWO leaf bodies directly (wired via tomba::native::declareOverride, the SAME
+// mechanism OverlayGroundGt3Gt4 uses for its A00-local leaves — neither is reached via typed runtime address dispatch
 // from a literal MAIN jal, both are reached through per-node function-pointer / table dispatch that
 // resolves to these two addresses at runtime).
 //
@@ -35,7 +35,7 @@ public:
                                    // 16-byte op-0x7C sprite packet per visible tile into the
                                    // shared packet pool (0x800BF544), splice into OT bucket
                                    // 0x7FF, append a trailing DR_TPAGE reset packet via the
-                                   // already-RE'd func_80083DE0.
+                                   // already-RE'd guest 0x80083DE0.
 
   static void registerOverrides(Game *game);
 };

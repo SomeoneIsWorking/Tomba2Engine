@@ -5,7 +5,7 @@
 // will migrate in here over time, out of the submit.cpp / render_frame.cpp / render_walk.cpp grab-bags).
 //
 // Owned by Core via a POINTER (`Core::mRender`) — construction/destruction lives in the Core ctor/dtor
-// in runtime/recomp/core.cpp; back-pointer `mCore` is wired there, and each embedded sub-subsystem's
+// in runtime/psx/core.cpp; back-pointer `mCore` is wired there, and each embedded sub-subsystem's
 // own back-pointer is wired there too. Callers reach members as `rend(c)->mNodeXform.build(node)`.
 #pragma once
 #include "effect_lerp.h" // class EffectLerp — the effect-node actor-transform interpolation tier           // class Lighting — per-area light registry (sun / lava+torch)
@@ -28,7 +28,7 @@ public:
 
   // ---- render-side per-Core subsystems ------------------------------------
   // (The host-only render SUBSTRATE members — mode/diag/otAttr/dualviewSnapshot/stats/projprim/
-  // pgxp/projParams — moved to the framework-owned `class RenderSubstrate` (runtime/recomp/
+  // pgxp/projParams — moved to the framework-owned `class RenderSubstrate` (runtime/psx/
   // render_substrate.h), reached as `mCore->rsub.<member>`, so the framework no longer includes this
   // game umbrella just to reach a projection cache or compare-mode toggle. Byte-neutral host layout.)
   // Active per-object xform for the GT3/GT4 submitters. Set once per render command by the per-object
@@ -64,7 +64,7 @@ public:
   // overlay has REPURPOSED the memory their leftover pointers still reference. Reading through a stale
   // pointer into repurposed bytes is garbage geometry / a garbage tilemap (found via the narration-end
   // -> fisherman-cutscene loading-screen bug: pc_render showed a tiled noise/atlas-grid garbage frame
-  // where the oracle — pure PSX render, same recomp gameplay — shows the expected black load-hold,
+  // where the oracle — pure PSX render, same guest instruction path gameplay — shows the expected black load-hold,
   // because the PSX render path simply isn't drawing from these structures during the same window).
   //
   // Both structures happen to get explicitly RE-ZEROED (count/W momentarily 0) as part of the SAME
@@ -120,7 +120,7 @@ public:
   // CORRECTED the same day, so read the whole note. The guest dispatch chain DOES execute on the leg
   // where the census measures: `PSXPORT_DEBUG=ovhit` over a 200-frame field replay shows FUN_8003CDD8
   // dispatched 1195 times, FUN_8003F698 9507 times, and the generic-overlay emitter FUN_80146478 6245
-  // times. What does NOT run is the NATIVE body of any override: PSXPORT_GATE=1 sets psx_fallback, and
+  // times. What does NOT run is the native body of an override on the test-only substrate leg, and
   // overrides::runEntry routes every registered address to its `gen` body on that leg (482 registry
   // entries, ZERO with native hits, 268 with oracle hits). An instrumented native body therefore logs
   // nothing while its guest function is executing thousands of times — which is exactly how the first
@@ -132,7 +132,7 @@ public:
   // was idle. Resolving from data has no such dependency and is simpler.
   //
   // SO THE KEY IS NOT A COUNTERFACTUAL ON THIS LEG: the resolution below reads the same MODE_FORCE /
-  // MODE_BYTE / MODE_TABLE state the executing gen body reads, so it names the emitter the guest
+  // MODE_BYTE / MODE_TABLE state the executing guest-visible behavior reads, so it names the emitter the guest
   // ACTUALLY used. `primsGuest` stays 0 for these rows because the guest leg's own attribution is
   // structurally blind for packet-pool stores (docs/findings/render.md), NOT because nothing ran —
   // a guest-side comparison is possible in principle and is blocked by that, not by absence.
@@ -199,7 +199,7 @@ public:
 
   // perObjFlush: per-object native GT3/GT4 flush — composes the float camera×object transform from
   // the object's real world coords and submits every geomblk cmd on node+0xC0 through gt3gt4.
-  // Taxi-parameter c->r[4] = node (recomp-shaped body, mirrors the guest ABI).
+  // Taxi-parameter c->r[4] = node (guest instruction path-shaped body, mirrors the guest ABI).
   void perObjFlush();
   // NO perObjFlushPreComposed. The F174-class node types (renderWalk table types 1/4 — text labels
   // etc.) hold a PRE-COMPOSED MATRIX at cmd+0x18, and the native flush for them worked by factoring
@@ -209,7 +209,7 @@ public:
   // builds its transform from the banner's own state instead.
 
   // terrain (guest 0x8002AB5C): the field terrain render entry. Picks the area's light config for
-  // the frame, then either super-calls the recomp body (dual-core diff neutralize path) or runs the
+  // the frame, then either super-calls the guest instruction path (dual-core diff neutralize path) or runs the
   // PC-native float terrain render. Taxi-parameter c->r[4] = node. Was ov_terrain.
   void terrain();
 
@@ -239,7 +239,7 @@ public:
   // Lighting::areaKeyFrom); caches the result in mShadeCfg for the per-face shading routine.
   void shadeSelect();
 
-  // gt3gt4 (gen_func_800803DC's first body): the generic GT3/GT4 renderer — split the geomblk's packed
+  // gt3gt4 (guest 0x800803DC's first body): the generic GT3/GT4 renderer — split the geomblk's packed
   // prim counts (low16 tri, high16 quad) and run the two native submitters in sequence.
   void gt3gt4(uint32_t geomblk, uint32_t otbase);
 
@@ -315,6 +315,10 @@ public:
   // --- shared DATA-DRIVEN menu emitter (reproduces the guest menu builders, read-only) --------------
   // menuChrome: black backdrop + the 2 logo sprites (FUN_80106690) shared by every front-end menu page.
   void menuChrome();
+  // titleWideMargins: PC-only wide composition around the authored 320-pixel title artwork. The
+  // central picture is never stretched or cropped; mirrored, dimmed edge strips fill the additional
+  // title canvas directly in the native render queue.
+  void titleWideMargins();
   // menuItemsAndCursor: reproduces FUN_80106824(param1, param2) — the cursor (template 0x98) + the two
   // item text-images (templates {0x8e,0x8f} for page 0 / {0x90,0x91} for page 1), with the selected item
   // RAW (bright) and the other modulated 0x50 (dim), per the live selection. param2 selects which item is
@@ -382,7 +386,7 @@ public:
     uint32_t rec0 = 0;    // the four-corner record list to emit
     // SIGNED. FUN_8012D9E8 reads its numerator with a sign-extending lh (`(int16_t)mem_r16(node+0x70)`),
     // and a negative numerator is meaningful — it mirrors the model. Holding it unsigned turned a small
-    // negative into ~65536x the intended scale; caught 2026-07-28 by the static-RE verify pass.
+    // negative into ~65536x the intended scale; caught 2026-07-28 by the binary-analysis verify pass.
     int32_t numerX = 0, numerY = 0;
     int dqa = 6;
     int gateBias = 0;  // what FUN_800317CC's OT-key range gate is given
@@ -648,7 +652,7 @@ public:
 
   // ---- HEADS[0] flush-all census (kanban #77) --------------------------------------------------
   // The guest has NO render walk over HEADS[0] (0x800FB168) — its nodes reach vanilla's picture only
-  // through the cull's class-keyed render queues, consumed by gen_func_8003BB50. This walk flushes the
+  // through the cull's class-keyed render queues, consumed by guest 0x8003BB50. This walk flushes the
   // whole list instead, which is how geometry vanilla never shows gets on screen. The census measures
   // the arm; it does NOT gate it. Read the banner in render_walk.cpp before changing that — it records
   // the two gates that were tried and measured wrong.
@@ -677,7 +681,7 @@ public:
   // guest state, but its PICTURE must come from the display pass so the fps60 interp re-run derives
   // it under lerped inputs like every other world prim. Each real frame, billboardEmit RECORDS one
   // BbRec per emitted particle (host memory only): the particle's local quad corners (the ×5 ints
-  // func_8003B220 built), the node's composed MAT_OUT rotation + world anchor, and the RESOLVED
+  // guest 0x8003B220 built), the node's composed MAT_OUT rotation + world anchor, and the RESOLVED
   // material words (post node+92 override + node+13 case patches). billboardsRender (called from
   // fieldObjectsRender, so field + hut + tier1Render's interp re-run all reach it) projects each
   // record through the SAME float camera path the world uses (sceneCam choke — fps60-lerped at the
@@ -769,7 +773,7 @@ public:
   void backdropTexpagePublishTick();
 
   // backdropTilemapDrawer — resolve the resident field/narration backdrop drawer the guest would
-  // dispatch (gen_func_8003DF04 @0x8003DF04) and report whether it is the SHARED tilemap routine (the one
+  // dispatch (guest 0x8003DF04 @0x8003DF04) and report whether it is the SHARED tilemap routine (the one
   // that reads PARALLAX_BG_SM @0x800ED018 and emits 16x16 textured-sprite tiles) plus its baked per-tile
   // V texel bias into `vAdd`. Every area's backdrop drawer is that same routine compiled per overlay; the
   // only thing that varies is the V bias (seaside 0x80115598 samples (tile&0xF0)+8, every other area
@@ -783,9 +787,9 @@ public:
 
   // ---- SUBSTRATE MIRROR: per-object cmd-list dispatch (guest FUN_8003CDD8 / FUN_8003F698) --------
   // These run UNDER the render-underneath architecture (issue #32): the substrate walk cluster calls
-  // them as PLAIN intra-shard C calls (func_8003CDD8/func_8003F698), never through rec_dispatch, so
-  // they are owned via the shard override table (shard_set_override) — same mechanism RenderObserver
-  // already uses for the sibling 0x8003xxxx render leaves. Guest-writing here is LEGAL/REQUIRED (the
+  // them as PLAIN intra-shard C calls (guest 0x8003CDD8/guest 0x8003F698), never through typed runtime address
+  // dispatch, so they are owned via the shard override table (tomba::native::declareOverride) — same mechanism
+  // RenderObserver already uses for the sibling 0x8003xxxx render leaves. Guest-writing here is LEGAL/REQUIRED (the
   // scratchpad GTE compose + the OT/packet-pool writes made by the callee are part of BOTH SBS cores'
   // faithful RAM) — this is NOT the read-only pc_render display pass. See perobj_dispatch.cpp for the
   // full RE (byte-exact substrate mirror via the shared gte_op/gte_write_ctrl primitives, not a
@@ -797,7 +801,7 @@ public:
   void cmdListDispatch();
   // perModeDispatch (FUN_8003F698): a0=geomblk (r4), a1=otbase (r5), a2=flag (r6). Selects the area's
   // per-mode renderer via the mode-select byte + jump table, or falls back to the generic GT3/GT4
-  // packet emitter (func_800803DC) when the generic-force flag or a2&1 is set.
+  // packet emitter (guest 0x800803DC) when the generic-force flag or a2&1 is set.
   void perModeDispatch();
 
   // ---- SUBSTRATE MIRROR: per-object render-type dispatch + billboard/special-effect leaves --------
@@ -805,7 +809,7 @@ public:
   // TYPE dispatch (CCA4) and 3 of its "special effect" leaf renderers (C2D4/C464/C8F4 build a
   // camera-composed billboard quad per particle and emit it into the OT/packet pool — see
   // perobj_billboard.cpp for the full RE). Same ownership mechanism as cmdListDispatch/perModeDispatch
-  // above: reached as plain intra-shard C calls, owned via shard_set_override. These were previously
+  // above: reached as plain intra-shard C calls, owned via tomba::native::declareOverride. These were previously
   // wrapped by the transparent RenderObserver (depth-tag) wrapper — CCA4/C2D4/C464/C8F4 fold that
   // wrapping in directly now that they're native (see perobj_billboard.cpp), so RenderObserver no
   // longer wraps these 4 addresses.
@@ -871,9 +875,9 @@ public:
   // (mem8(node+11)>=33), and dispatches each live node through a 33-entry jump table (@0x800104B8) to
   // one of: perObjRenderDispatch/billboardCompose1/billboardCompose2/billboardCompose3/billboardComposeC5F8
   // (owned siblings, reached natively via the override registry), several still-substrate leaves
-  // (func_8003F174/EF9C/80039F4C/800726D4 +
-  // rec_dispatch to 0x8012A43C/801295B4/80129114/8013DD58), a "generic particle" case (0x8003C188,
-  // mode-4 direct dispatch or a func_8003B054+80084660/90+8003B320 packet-emit sequence), a fully
+  // (guest 0x8003F174/EF9C/80039F4C/800726D4 +
+  // typed runtime address dispatch to 0x8012A43C/801295B4/80129114/8013DD58), a "generic particle" case (0x8003C188,
+  // mode-4 direct dispatch or a guest 0x8003B054+80084660/90+8003B320 packet-emit sequence), a fully
   // dynamic per-node dispatch through node+24 (case 0x8003C29C), and a no-op skip entry. THE point of
   // owning this loop: it is the caller CCA4Frame/CmdListFrame's register-faithfulness fixes assumed —
   // gen keeps the loop's node pointer and next pointer LIVE in the real r16/r17 registers (and two
@@ -884,7 +888,7 @@ public:
 
   // ---- SUBSTRATE MIRROR: per-AREA-TYPE overlay dispatch (guest FUN_8003D0BC) -----------------------
   // overlayTypeDispatch (FUN_8003D0BC, a0=list — never touched by this fn's own body, plain
-  // pass-through from the caller, gen_func_8003F9A8 passes SCENE_ENT_TABLE @0x800F2418): reads the
+  // pass-through from the caller, guest 0x8003F9A8 passes SCENE_ENT_TABLE @0x800F2418): reads the
   // AREA_TYPE byte @0x800BF870 (the same render-mode-select byte perModeDispatch/renderWalk's case
   // 0x8003C188 both read); if >=22, no-op. Else dispatches through a 22-entry jump table
   // (@0x80014EF0) to one of 20 per-area-type overlay leaves — area type 0 reaches the ALREADY-OWNED
@@ -895,10 +899,9 @@ public:
   // ---- SUBSTRATE MIRROR: libgpu GPU-DMA completion-callback QUEUE (wide-RE, wired 2026-07-10) -----
   // 0x80082D04/0x80082FB4/0x80083364/0x80082424 — see game/render/wide_re_gpu_dma_queue.cpp for the
   // full RE (struct map, call graph, ring-entry layout). Reached as plain intra-shard C calls from
-  // the substrate (NOT via rec_dispatch), owned via engine_set_override_main so the SBS oracle keeps
-  // running the pure gen_func_* body.
-  // Guest ABI args are read from c->r[4..7] inside each method (same convention as
-  // perObjRenderDispatch/billboardCompose1 above) so the override thunk's `native(Core*)` shape
+  // the substrate (NOT via typed runtime address dispatch), owned via tomba::native::declareOverride so the SBS oracle
+  // keeps running the pure original guest instructions body. Guest ABI args are read from c->r[4..7] inside each method
+  // (same convention as perObjRenderDispatch/billboardCompose1 above) so the override thunk's `native(Core*)` shape
   // needs no per-address adapter.
   void gpuDmaQueueEnqueue(); // FUN_80082D04(fn,argValOrPtr,sizeBytes,arg3) -> queue depth / -1 timeout
   void gpuDmaQueueDrain();   // FUN_80082FB4() — also the GPU-DMA-completion ISR body
@@ -920,9 +923,9 @@ public:
   // no args (guest ABI: none read), each walks a fixed object-pointer list/array, dispatching each live
   // entry's TYPE byte through a table to one of: the already-owned perObjRenderDispatch/
   // billboardCompose1/billboardCompose2 (this file's siblings), a handful of still-substrate leaves
-  // (called as plain func_XXXX(c), matching gen), or a per-object vtable slot (rec_dispatch, per
-  // CLAUDE.md — never dropped). See game/render/objlist_walk.cpp for the full RE (per-function
-  // scratchpad cursor layout, jump-table addresses, case-label maps).
+  // (called as plain the cited guest address(c), matching gen), or a per-object vtable slot (typed runtime address
+  // dispatch, per CLAUDE.md — never dropped). See game/render/objlist_walk.cpp for the full RE (per-function scratchpad
+  // cursor layout, jump-table addresses, case-label maps).
   void objListWalk1();         // FUN_8003BB50 — list @0x800F2410, cursor 0x1F80013C/146
   void objListWalk2();         // FUN_8003BCF4 — list @0x800F26C8, cursor 0x1F800148/152 (1st entry only)
   void objListWalk2Continue(); // FUN_8003BED8 — shared tail: continues objListWalk2's SAME guest frame
@@ -931,6 +934,6 @@ public:
 
 private:
   // Native POLY_GT3/GT4 submitters (guest-ABI bodies: rec/otbase/count in r4/r5/r6).
-  static void submitPolyGt3Native(Core *c); // gen_func_8007FDB0
-  static void submitPolyGt4Native(Core *c); // gen_func_80080114
+  static void submitPolyGt3Native(Core *c); // guest 0x8007FDB0
+  static void submitPolyGt4Native(Core *c); // guest 0x80080114
 };

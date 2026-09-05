@@ -57,14 +57,14 @@
 //
 // TRUE EXTENT: [0x800281EC, 0x8002847C), 0x290 bytes / 164 instructions. Established three ways,
 // not assumed:
-//   1. port_gen's live-extent splitter puts the body at generated/shard_2.c:1726-1880, with
-//      gen_func_80027144 before it (line 1658) and gen_func_800293F4 after it (line 1882) — no
+//   1. authenticated instruction extents puts the body at authenticated executable/overlay evidence, with
+//      guest 0x80027144 before it (line 1658) and guest 0x800293F4 after it (line 1882) — no
 //      adjacent sibling was folded in.
 //   2. `jr ra` sits at 0x80028474 with its delay slot `addiu sp,sp,56` at 0x80028478 (disas
 //      spot-check, run only after the Ghidra decompile).
 //   3. 0x8002847C is itself a KNOWN function entry — the four-corner record writer FUN_8002847C
 //      that game/render/fx_sprite.cpp's fxAnimSpriteRender reproduces — so the extent cannot run on.
-//   abi_extract's 3 "unreachable blocks" are the recompiler's duplicated `return;` tails inside this
+//   abi_extract's 3 "unreachable blocks" are the recorded binary evidence's duplicated `return;` tails inside this
 //   extent, not a folded sibling.
 //
 // THE TRAP IN THE LOOP: the particle walk is a DO-WHILE, not a while. A node whose particle count is
@@ -74,8 +74,8 @@
 #include "core.h"
 #include "game.h"
 #include "guest_abi.h"
-#include "override_registry.h"
-#include "rec_decls.h"
+#include "guest_jal.h"
+#include "native_override_catalog.h"
 
 namespace {
 
@@ -118,7 +118,7 @@ constexpr int32_t kOtDepthShift = 2; // SZ3 >> 2 before the node's bias is added
 // --- per-particle size ------------------------------------------------------------------------------
 constexpr int32_t kParticleSizeShift = 8; // scale = MAC0 * particle.sizeMul >> 8
 
-// --- guest ABI (tools/abi_extract.py 800281EC --contract / --scaffold --guestabi) --------------------
+// --- guest ABI (tools/binary ABI evidence 800281EC --contract / --scaffold --guestabi) --------------------
 // Return addresses at this function's two jal sites.
 constexpr uint32_t kRaListTailResolve = 0x80028318u; // jal 0x80031780
 constexpr uint32_t kRaSpriteWriter = 0x8002842Cu;    // jal 0x80027A4C
@@ -149,8 +149,8 @@ void FxSpriteSwarm::loadSceneCameraToGte(Core *c) {
   }
 }
 
-// PORT_GEN: 800281EC generated/shard_2.c:1726-1880
-// ORACLE: gen_func_800281EC
+// GUEST_ADDRESS: 800281EC authenticated executable/overlay evidence
+// ORACLE: guest 0x800281EC
 // FUN_800281EC — stamp this node's sprite cluster once per particle, projecting and sizing each
 // particle independently. a0 = the type-0x20 render node.
 void FxSpriteSwarm::emitPerParticle(Core *c) {
@@ -191,7 +191,7 @@ void FxSpriteSwarm::emitPerParticle(Core *c) {
   recordHeadReg = node.recordHead();
 
   c->r[4] = c->r[17];
-  guest_call(c, kRaListTailResolve, func_80031780);
+  tomba::guest::dispatchJalToReturn(*c, 0x80031780u, kRaListTailResolve);
 
   // The remaining publish-slot addresses the guest also parks in callee-saved registers (s0 holds
   // the scratchpad base, s4/s7/fp the individual slots; fp duplicates s5's scale-X address).
@@ -250,7 +250,7 @@ void FxSpriteSwarm::emitPerParticle(Core *c) {
       publish.setScaleX(scale);
       publish.setScaleY(scale);                           // square: one size, both axes
       c->r[5] = (node.texturePage() << 16) | node.clut(); // a1 = the texture binding
-      guest_call(c, kRaSpriteWriter, func_80027A4C);
+      tomba::guest::dispatchJalToReturn(*c, 0x80027A4Cu, kRaSpriteWriter);
     }
 
     particleIndexReg = particleIndexReg + 1;
@@ -261,9 +261,5 @@ void FxSpriteSwarm::emitPerParticle(Core *c) {
 }
 
 void FxSpriteSwarm::registerOverrides(Game *) {
-  overrides::install(0x800281ECu,
-                     "FxSpriteSwarm::emitPerParticle",
-                     &FxSpriteSwarm::emitPerParticle,
-                     gen_func_800281EC,
-                     shard_set_override);
+  tomba::native::declareOverride(0x800281ECu, "FxSpriteSwarm::emitPerParticle", &FxSpriteSwarm::emitPerParticle);
 }

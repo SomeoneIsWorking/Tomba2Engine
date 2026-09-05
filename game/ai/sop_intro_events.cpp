@@ -3,19 +3,19 @@
 // docs/engine_re.md "SOP intro-cutscene scene actors"). §9 re-verified + wired 2026-07-10 (docs/
 // fleet-workflow.md §9): every function's guest-stack frame (all six push one — the original draft
 // omitted the mirror entirely) was cross-checked instruction-by-instruction against
-// generated/ov_sop_shard_*.c and found otherwise byte-exact; the ONLY defect was the missing
+// authenticated executable/overlay evidence and found otherwise byte-exact; the ONLY defect was the missing
 // r16/r17/r31 spill/restore, now fixed per-function above. Wired via the shared override registry
-// (RegisterSopIntroEventOverrides, bottom of this file, `overrides::install`) — sopBeatAdvanceWalk/
-// Narration and sopIntroEffectTick/beh_orbit_spark_effect are reached only via rec_dispatch (no
+// (RegisterSopIntroEventOverrides, bottom of this file, `tomba::native::declareOverride`) — sopBeatAdvanceWalk/
+// Narration and sopIntroEffectTick/beh_orbit_spark_effect are reached only via typed runtime address dispatch (no
 // setter needed); sopOrbitPathStep/sopIntroEffectSpawn/sopLiftedSubtick have DIRECT intra-shard call
-// sites in ov_sop_shard_*.c that bypass rec_dispatch, so those three also pass the ov_sop_set_override
-// setter (same shape as game/ai/actor_melee_engage.cpp).
+// sites in the SOP overlay binary that bypass typed runtime address dispatch, so those three also pass the SOP
+// tomba::native::declareOverride setter (same shape as game/ai/actor_melee_engage.cpp).
 //
 // Ghidra decomp source: `scratch/decomp/band_sop.c` (FUN_8010AF60/8010B078/8010B2D4/8010B588/8010BEAC),
 // `scratch/decomp/band_sop2.c` (FUN_8010B44C), `scratch/decomp/band_sop4.c` (FUN_8010B11C) — imported
 // from `scratch/bin/tomba2/ram_sop.bin` (the SOP intro-cutscene RAM dump), Ghidra project `ram_sop`.
-// scratch/ is gitignored; regenerate with `tools/decomp.sh import scratch/bin/tomba2/ram_sop.bin
-// ram_sop` then `tools/decomp.sh decomp ram_sop <out.c> list <addrs...>` if these files are gone.
+// scratch/ is gitignored; regenerate with `the Ghidra evidence workflow import scratch/bin/tomba2/ram_sop.bin
+// ram_sop` then `the Ghidra evidence workflow decomp ram_sop <out.c> list <addrs...>` if these files are gone.
 //
 // CONTEXT (confirmed, docs/engine_re.md "SOP intro-cutscene scene actors"): Sop::fieldMode spawns 3
 // scene actors at sm[0x50]==0 LOAD — beh_sop_intro_pilot (0x8010ACFC, model 0x11), beh_sop_intro_lifted
@@ -30,11 +30,11 @@
 #include "core/engine.h" // eng(c).spawn / eng(c).placement / eng(c).script
 #include "game.h"
 #include "game_ctx.h"
-#include "override_registry.h" // overrides::install — the one native-override registry
-#include "render/render.h"     // rend(c)->mNodeXform.buildWithOffset (FUN_800518FC)
-#include "spawn.h"             // Spawn::dispatch/despawn (native)
-#include "world/placement.h"   // Placement::spawnWithParent (native, FUN_80072DDC)
-void rec_dispatch(Core *, uint32_t);
+#include "guest_call.h"
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include "render/render.h"           // rend(c)->mNodeXform.buildWithOffset (FUN_800518FC)
+#include "spawn.h"                   // Spawn::dispatch/despawn (native)
+#include "world/placement.h"         // Placement::spawnWithParent (native, FUN_80072DDC)
 
 namespace {
 constexpr uint32_t SCENE_BEAT = 0x800BF9B4u; // shared SOP scene-beat byte (docs/engine_re.md)
@@ -61,10 +61,10 @@ constexpr uint32_t SCENE_BEAT = 0x800BF9B4u; // shared SOP scene-beat byte (docs
 //   state 2: countdown; on expiry: Engine::walkStart(node, 2, 6), -> state 3, timer = 0x1E (30).
 //   state 3: countdown; on expiry: return 1 (done signal; state stays 3, no further writes).
 //
-// GUEST FRAME (2026-07-10 §9 re-verify fix): ov_sop_gen_8010AF60 pushes `addiu sp,-24` and spills
+// GUEST FRAME (2026-07-10 §9 re-verify fix): overlay guest 0x8010AF60 pushes `addiu sp,-24` and spills
 // s0(r16)/ra(r31) at sp+16/sp+20 before ANY body work — the original draft omitted this entirely.
 // Mirror it: decrement r29, stash the incoming r16/r31 (they're callee-saved — Engine::walkStart
-// below calls still-substrate leaves via rec_dispatch, which DOES clobber the shared r16/r31
+// below calls still-substrate leaves via typed runtime address dispatch, which DOES clobber the shared r16/r31
 // register file), restore both + r29 before every return so the caller's registers/guest-stack
 // bytes come back byte-exact (docs/faithful-execution.md; game/ai/melee_proximity.cpp is the
 // reference shape for a same-size frame).
@@ -128,9 +128,9 @@ uint32_t sopBeatAdvanceWalk(Core *c) { // FUN_8010AF60
 //   state 1: countdown; on expiry: byte at (0x800BF80C + 3) = 1 (a flag byte within a shared dword);
 //     return 1 (done). Otherwise return 0.
 //
-// GUEST FRAME (2026-07-10 §9 fix): same shape as sopBeatAdvanceWalk — ov_sop_gen_8010B078 pushes
+// GUEST FRAME (2026-07-10 §9 fix): same shape as sopBeatAdvanceWalk — overlay guest 0x8010B078 pushes
 // `addiu sp,-24` + s0/ra spills at sp+16/sp+20. Mirrored below (r16/r31 not touched by
-// GraphicsBind::setXformBlk's own rec_dispatch(0x8006CBD0) call, but restore unconditionally to
+// GraphicsBind::setXformBlk's own typed runtime address dispatch(0x8006CBD0) call, but restore unconditionally to
 // stay correct if that ever changes).
 uint32_t sopBeatAdvanceNarration(Core *c) { // FUN_8010B078
   const uint32_t savedSp = c->r[29];
@@ -179,10 +179,10 @@ uint32_t sopBeatAdvanceNarration(Core *c) { // FUN_8010B078
 // exceeds 0x1BFF (one full 0x1C00-unit revolution), at which point state advances again. State 3 resets
 // state to 0, installs anim env (Animation::attach, obj, env=0x8001B860, mode=2) and returns 1 (the
 // "orbit complete" signal sopIntroEffectTick polls for) — every other state/tick returns 0.
-// GUEST FRAME (2026-07-10 §9 fix): ov_sop_gen_8010B11C pushes `addiu sp,-24` + s0(r16)/ra(r31)
+// GUEST FRAME (2026-07-10 §9 fix): overlay guest 0x8010B11C pushes `addiu sp,-24` + s0(r16)/ra(r31)
 // spills at sp+16/sp+20, same as the beat-advance pair above. The state==3 branch's
-// rec_dispatch(0x80077C40) (Animation::attach, still substrate) DOES clobber the shared r16/r31
-// register file internally, so restoring the SAVED incoming values (not whatever rec_dispatch left
+// typed runtime address dispatch(0x80077C40) (Animation::attach, still substrate) DOES clobber the shared r16/r31
+// register file internally, so restoring the SAVED incoming values (not whatever typed runtime address dispatch left
 // behind) is required, not optional. Restructured to a single exit point below so every return path
 // shares the one epilogue.
 uint32_t sopOrbitPathStep(Core *c) { // FUN_8010B11C
@@ -202,7 +202,10 @@ uint32_t sopOrbitPathStep(Core *c) { // FUN_8010B11C
     c->r[4] = node;
     c->r[5] = 0x8001B860u;
     c->r[6] = 2;
-    rec_dispatch(c, 0x80077C40u); // Animation::attach (still substrate here)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x80077C40u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // Animation::attach (still substrate here)
     result = 1;
   } else if (state == 0 || state == 1 || state == 2) {
     if (state == 0) {
@@ -221,7 +224,7 @@ uint32_t sopOrbitPathStep(Core *c) { // FUN_8010B11C
       c->mem_w16(node + 0xB8, (uint16_t)(b8 + 0x80));
       c->mem_w16(node + 0xBA, (uint16_t)(ba + 0x80));
       c->mem_w16(node + 0xBC, (uint16_t)(bc + 0x80));
-      if (c->mem_r16(node + 0xB8) > 0x0FFFu) { // unsigned compare, faithful to the recomp
+      if (c->mem_r16(node + 0xB8) > 0x0FFFu) { // unsigned compare, faithful to the guest instruction path
         c->mem_w8(node + 6, (uint8_t)(c->mem_r8(node + 6) + 1));
       }
     }
@@ -251,7 +254,7 @@ uint32_t sopOrbitPathStep(Core *c) { // FUN_8010B11C
       c->mem_w8(node + 6, (uint8_t)(c->mem_r8(node + 6) + 1));
     }
   }
-  // else: out-of-range state — matches recomp's implicit `return 0` (result stays 0)
+  // else: out-of-range state — matches guest instruction path's implicit `return 0` (result stays 0)
 
   c->r[31] = savedR31;
   c->r[16] = savedR16;
@@ -266,9 +269,9 @@ uint32_t sopOrbitPathStep(Core *c) { // FUN_8010B11C
 // already-native Placement::spawnWithParent (FUN_80072DDC): spawn(a1=type=3, a2=class=3, a3=flag=0x1A)
 // -> class==3 routes to Spawn::dispatch(cls=3,type=3,list=1); on success install sopIntroEffectTick
 // as the child's node+0x1C handler (mirrors sop_overlay_shadow.cpp's SHADOW_HANDLER pattern) and
-// re-stamp node+0x10 = parent (redundant with spawnWithParent's own write — faithful to the recomp,
+// re-stamp node+0x10 = parent (redundant with spawnWithParent's own write — faithful to the guest instruction path,
 // which re-writes it).
-// GUEST FRAME (2026-07-10 §9 fix): ov_sop_gen_8010B44C pushes `addiu sp,-24` + s0(r16)/ra(r31)
+// GUEST FRAME (2026-07-10 §9 fix): overlay guest 0x8010B44C pushes `addiu sp,-24` + s0(r16)/ra(r31)
 // spills at sp+16/sp+20 around the Placement::spawnWithParent call (0x80072DDC, still substrate —
 // clobbers the shared r16/r31 register file). Mirrored below.
 uint32_t sopIntroEffectSpawn(Core *c) { // FUN_8010B44C
@@ -306,18 +309,18 @@ uint32_t sopIntroEffectSpawn(Core *c) { // FUN_8010B44C
 //   state 0 = INIT: model attach 0xC via GraphicsBind::recordArrayInit(node, 0xC,
 //     *(u32*)0x800ECF98, 0x800A4BC8). On success: node+0x3C = *(u32*)0x800ECF9C, Animation::attach
 //     (node, env=0x8001B860, mode=0), zero node+0xB8/BA/BC, -> state 1, node+0x32 -= 0x8C (Y lift).
-//   state 1 = RUNNING: Cull::wrapFrame(node) (result unused, matches recomp); sub-state @node+5:
+//   state 1 = RUNNING: Cull::wrapFrame(node) (result unused, matches guest instruction path); sub-state @node+5:
 //     sub 1 -> ScriptInterp::step(node); if node+0x70 == 0xFF (-1 as u8) sub-state++;
 //     sub 0 -> sopOrbitPathStep(node); once it signals done (returns 1): sub-state++, install the
 //       ALTERNATE anim env (node, env=0x8001B860, data=0x8010CAB8) via ScriptInterp::init, node+0x70=1.
 //     Always then: Engine::animTick(node); Engine::objMatrixCompose(node).
 //   state 3 = DESPAWN: Spawn::despawn(node).
-//   anything else: no-op (matches the recomp's `bVar1 != 2 && bVar1 == 3` guard shape).
-// GUEST FRAME (2026-07-10 §9 fix): ov_sop_gen_8010B2D4 pushes `addiu sp,-32` + spills s1(r17)@sp+20
+//   anything else: no-op (matches the guest instruction path's `bVar1 != 2 && bVar1 == 3` guard shape).
+// GUEST FRAME (2026-07-10 §9 fix): overlay guest 0x8010B2D4 pushes `addiu sp,-32` + spills s1(r17)@sp+20
 // (=node, held live across the whole function), ra(r31)@sp+24, s0(r16)@sp+16 (r16 is reused
-// internally by the recomp as a scratch base pointer during the INIT branch; our native body never
+// internally by the guest instruction path as a scratch base pointer during the INIT branch; our native body never
 // needs a persistent r16, so only the callee-save contract — preserve the CALLER's incoming r16 —
-// matters here). Every `rec_dispatch` call inside (Cull::wrapFrame/recordArrayInit/Animation::attach)
+// matters here). Every `typed runtime address dispatch` call inside (Cull::wrapFrame/recordArrayInit/Animation::attach)
 // is still-substrate and clobbers the shared r16/r17/r31 register file, so restoring the SAVED
 // incoming values before return is required.
 void sopIntroEffectTick(Core *c) { // FUN_8010B2D4
@@ -338,7 +341,10 @@ void sopIntroEffectTick(Core *c) { // FUN_8010B2D4
 
   if (state == 1) {
     c->r[4] = node;
-    rec_dispatch(c, 0x8007778Cu); // Cull::wrapFrame (still substrate here; result unused)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x8007778Cu,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // Cull::wrapFrame (still substrate here; result unused)
 
     uint8_t sub = c->mem_r8(node + 5);
     if (sub == 1) {
@@ -362,14 +368,20 @@ void sopIntroEffectTick(Core *c) { // FUN_8010B2D4
     c->r[5] = 0xCu;
     c->r[6] = c->mem_r32(0x800ECF98u);
     c->r[7] = 0x800A4BC8u;
-    c->r[31] = 0x8010B348u;       // gen's return constant at this site
-    rec_dispatch(c, 0x800519E0u); // GraphicsBind::recordArrayInit (still substrate here)
+    c->r[31] = 0x8010B348u; // gen's return constant at this site
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x800519E0u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // GraphicsBind::recordArrayInit (still substrate here)
     if (c->r[2] == 0) {
       c->mem_w32(node + 0x3Cu, c->mem_r32(0x800ECF9Cu));
       c->r[4] = node;
       c->r[5] = 0x8001B860u;
       c->r[6] = 0;
-      rec_dispatch(c, 0x80077C40u); // Animation::attach (still substrate here)
+      psx::cpu::dispatchGuestToReturn0(*c,
+                                       0x80077C40u,
+                                       psx::cpu::ExecutionBudget::currentTurn(*c),
+                                       __func__); // Animation::attach (still substrate here)
       c->mem_w16(node + 0xB8u, 0);
       c->mem_w16(node + 0xBAu, 0);
       c->mem_w16(node + 0xBCu, 0);
@@ -454,14 +466,17 @@ void sopLiftedSubtickBody(Core *c) {
       return;
     }
     c->mem_w32(node + 0x3Cu, c->mem_r32(0x800ECFA8u));
-    // r31 = gen call-site constants (ov_sop_gen_8010B588): every callee here spills the caller's
+    // r31 = gen call-site constants (overlay guest 0x8010B588): every callee here spills the caller's
     // ra into its own guest frame (attach's frame mirror / FUN_80051B04's substrate prologue), so
     // a stale r31 lands as a real guest-stack byte diff (watch-cut f328, 0x801FE90C).
     c->r[4] = node;
     c->r[5] = 0x8010D39Cu;
     c->r[6] = 2;
     c->r[31] = 0x8010B644u;
-    rec_dispatch(c, 0x80077C40u); // Animation::attach (still substrate here)
+    psx::cpu::dispatchGuestToReturn0(*c,
+                                     0x80077C40u,
+                                     psx::cpu::ExecutionBudget::currentTurn(*c),
+                                     __func__); // Animation::attach (still substrate here)
     c->r[31] = 0x8010B654u;
     eng(c).graphicsBind.installSceneRecord(c->mem_r32(node + 0xC4u), 0x12u, 0x0Fu); // FUN_80051B04
     c->r[31] = 0x8010B664u;
@@ -484,7 +499,8 @@ void sopLiftedSubtickBody(Core *c) {
     c->r[6] = 2;
     c->r[7] = 6;
     c->r[31] = 0x8010B6C8u;
-    rec_dispatch(c, 0x80077CFCu); // still substrate (no native owner)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80077CFCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // still substrate (no native owner)
     c->r[31] = 0x8010B6D8u;
     eng(c).graphicsBind.installSceneRecord(c->mem_r32(node + 0xC4u), 0x12u, 1u);
     c->r[31] = 0x8010B6E8u;
@@ -517,9 +533,9 @@ void sopLiftedSubtickBody(Core *c) {
 }
 } // namespace
 
-// GUEST FRAME (2026-07-10 §9 fix): ov_sop_gen_8010B588 pushes `addiu sp,-24` + s0(r16)/ra(r31)
+// GUEST FRAME (2026-07-10 §9 fix): overlay guest 0x8010B588 pushes `addiu sp,-24` + s0(r16)/ra(r31)
 // spills at sp+16/sp+20 (r16 = node, held live across the whole switch). The state==3/4 branches'
-// rec_dispatch calls (Animation::attach, the 4-arg anim-attach variant) are still-substrate and
+// typed runtime address dispatch calls (Animation::attach, the 4-arg anim-attach variant) are still-substrate and
 // clobber the shared r16/r31 register file, so this mirrors the frame around the whole body
 // (early-return-heavy, factored into sopLiftedSubtickBody above so every return path still hits
 // this one entry/exit).
@@ -554,12 +570,12 @@ void sopLiftedSubtick(Core *c) { // FUN_8010B588
 //   states 0(after init)/1: node+1=1 (active flag); node+0x4E -= 0x20 (short, orbit phase decrement);
 //     node+0x50: v=old value, v2=v-9; store v2; if v2 is NEGATIVE as signed 16-bit, overwrite with
 //     v+0x4B instead (wraparound — NOT v2+0x4B) — a bounded angular counter.
-//   states 2/3: Spawn::despawn(node) (recomp shows the call with no visible arg — the real ABI is a0 =
+//   states 2/3: Spawn::despawn(node) (guest instruction path shows the call with no visible arg — the real ABI is a0 =
 //     node like every other despawn call in this codebase; matches eng(c).spawn.despawn(node)).
 //   state > 3: no-op.
-// GUEST FRAME (2026-07-10 §9 fix): ov_sop_gen_8010BEAC pushes `addiu sp,-24` + ra(r31) ONLY at
+// GUEST FRAME (2026-07-10 §9 fix): overlay guest 0x8010BEAC pushes `addiu sp,-24` + ra(r31) ONLY at
 // sp+16 — unlike its five siblings above, this leaf never reuses r16 as a scratch/base register
-// (it addresses everything off the live a0=r4 directly), so no s0 spill exists in the recomp
+// (it addresses everything off the live a0=r4 directly), so no s0 spill exists in the guest instruction path
 // prologue. Mirror just the ra spill/restore; restructured to a single exit so the early-return
 // branches (state>3, state==2/3) share it.
 void beh_orbit_spark_effect(Core *c) { // FUN_8010BEAC
@@ -606,22 +622,14 @@ void beh_orbit_spark_effect(Core *c) { // FUN_8010BEAC
 }
 
 // ===================================================================================================
-// Wiring (2026-07-10). `overrides::install` keeps SBS core B / MV_CHECK's substrate-replay
-// leg running the literal ov_sop_gen_* body (the pure reference the native port is byte-compared
+// Wiring (2026-07-10). `tomba::native::declareOverride` keeps SBS core B / strict replay check's substrate-replay
+// leg running the literal ordinary SOP overlay guest bodies body (the pure reference the native port is byte-compared
 // against) via oracle-gated dispatch — same shape as game/ai/actor_melee_engage.cpp /
 // game/ai/beh_actor_tomba_proximity_combat.cpp.
-extern void ov_sop_gen_8010AF60(Core *);
-extern void ov_sop_gen_8010B078(Core *);
-extern void ov_sop_gen_8010B11C(Core *);
-extern void ov_sop_gen_8010B2D4(Core *);
-extern void ov_sop_gen_8010B44C(Core *);
-extern void ov_sop_gen_8010B588(Core *);
-extern void ov_sop_gen_8010BEAC(Core *);
-// ov_sop_set_override: the setter passed to `overrides::install` for addresses with a DIRECT
-// ov_sop_func_XXXX(c) call site inside ov_sop_shard_*.c (bypasses rec_dispatch, so installing
-// without a setter would be invisible to that call shape) — sopOrbitPathStep/sopIntroEffectSpawn/
-// sopLiftedSubtick only.
-extern void ov_sop_set_override(uint32_t, void (*)(Core *));
+// SOP tomba::native::declareOverride: the setter passed to `tomba::native::declareOverride` for addresses with a DIRECT
+// SOP overlay the cited guest address(c) call site inside the SOP overlay binary (bypasses typed runtime address
+// dispatch, so installing without a setter would be invisible to that call shape) —
+// sopOrbitPathStep/sopIntroEffectSpawn/ sopLiftedSubtick only.
 
 namespace {
 void ov_sopBeatAdvanceWalk(Core *c) {
@@ -650,16 +658,15 @@ void ov_behOrbitSparkEffect(Core *c) {
 } // namespace
 
 void RegisterSopIntroEventOverrides(Game * /*game*/) {
-  using overrides::install;
-  // Reached only via rec_dispatch (animation-event fn-ptr table / node+0x1C dispatch) — no direct
+  // Reached only via typed runtime address dispatch (animation-event fn-ptr table / node+0x1C dispatch) — no direct
   // intra-shard call site, so setter omitted.
-  install(0x8010AF60u, "sopBeatAdvanceWalk", ov_sopBeatAdvanceWalk, ov_sop_gen_8010AF60);
-  install(0x8010B078u, "sopBeatAdvanceNarration", ov_sopBeatAdvanceNarration, ov_sop_gen_8010B078);
-  install(0x8010B2D4u, "sopIntroEffectTick", ov_sopIntroEffectTick, ov_sop_gen_8010B2D4);
-  install(0x8010BEACu, "beh_orbit_spark_effect", ov_behOrbitSparkEffect, ov_sop_gen_8010BEAC);
-  // Direct intra-shard call sites (ov_sop_func_XXXX(c), bypass rec_dispatch) -> ov_sop_set_override
-  // installs the thunk so those callers reach native too.
-  install(0x8010B11Cu, "sopOrbitPathStep", ov_sopOrbitPathStep, ov_sop_gen_8010B11C, ov_sop_set_override);
-  install(0x8010B44Cu, "sopIntroEffectSpawn", ov_sopIntroEffectSpawn, ov_sop_gen_8010B44C, ov_sop_set_override);
-  install(0x8010B588u, "sopLiftedSubtick", ov_sopLiftedSubtick, ov_sop_gen_8010B588, ov_sop_set_override);
+  tomba::native::declareOverride(0x8010AF60u, "sopBeatAdvanceWalk", ov_sopBeatAdvanceWalk);
+  tomba::native::declareOverride(0x8010B078u, "sopBeatAdvanceNarration", ov_sopBeatAdvanceNarration);
+  tomba::native::declareOverride(0x8010B2D4u, "sopIntroEffectTick", ov_sopIntroEffectTick);
+  tomba::native::declareOverride(0x8010BEACu, "beh_orbit_spark_effect", ov_behOrbitSparkEffect);
+  // Direct intra-shard call sites (SOP overlay the cited guest address(c), bypass typed runtime address dispatch) ->
+  // SOP tomba::native::declareOverride installs the thunk so those callers reach native too.
+  tomba::native::declareOverride(0x8010B11Cu, "sopOrbitPathStep", ov_sopOrbitPathStep);
+  tomba::native::declareOverride(0x8010B44Cu, "sopIntroEffectSpawn", ov_sopIntroEffectSpawn);
+  tomba::native::declareOverride(0x8010B588u, "sopLiftedSubtick", ov_sopLiftedSubtick);
 }

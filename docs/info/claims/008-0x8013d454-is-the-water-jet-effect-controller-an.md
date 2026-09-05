@@ -12,7 +12,7 @@ tags: render
 
 ## Evidence
 
-A/B on replays/bugs/walk-dust-puff.pad frames 460/470/480/490/510/520 with the four engine_set_override_a00 installs compiled out: 700-1367 px differ per frame in a moving ~30x40 bbox tracking the stream; f500 alone matches (between pulses). Leg proven by fxmesh ctrl=8013D454 counts, 68 vs 0. Commit df97314.
+A/B on replays/bugs/walk-dust-puff.pad frames 460/470/480/490/510/520 with the four tomba::native::declareOverride installs compiled out: 700-1367 px differ per frame in a moving ~30x40 bbox tracking the stream; f500 alone matches (between pulses). Leg proven by fxmesh ctrl=8013D454 counts, 68 vs 0. Commit df97314.
 
 ## What would falsify it
 

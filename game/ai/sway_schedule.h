@@ -6,7 +6,7 @@
 // constant per field, so the body reads as "the sequence has reached step 7, so start slowing the
 // rocking down" rather than as a chain of mem_r8(0x800BF870 + 0x170).
 //
-// The write accessors are deliberately ONE-LINERS: tools/port_check.py harvests a lens setter's
+// The write accessors are deliberately ONE-LINERS: tools/dynamic differential evidence harvests a lens setter's
 // mem_wN width by regex and counts `self.setRate(v)` as exactly the store it performs, but ONLY for
 // lenses defined in a game/**/*.h header whose setters are single statements. A setter that grew a
 // second statement or a nested brace would silently stop counting, and the gate would then compare a
@@ -69,7 +69,7 @@ constexpr uint32_t kBlockBase = 0x800BF870u;
 // uses it to skip a state forward, so the sentinel reading is not local to this leaf.
 constexpr uint32_t kFinishedFlag = kBlockBase + 0x48u; // 0x800BF8B8
 // +0x170: the area's scripted EVENT-STEP counter. Incremented by exactly 1 at guest 0x80117084
-// (generated/ov_a00_shard_0.c:6461, inside ov_a00_gen_80116F64) when a scene event completes, and
+// (authenticated executable/overlay evidence, inside overlay guest 0x80116F64) when a scene event completes, and
 // compared against ascending thresholds by several already-owned behaviours (6/16/28 in
 // beh_area_threshold_ptr_swap.cpp, 20 elsewhere). That is what makes it a progress counter rather
 // than a mode byte: one writer, +1, many ascending readers.

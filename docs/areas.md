@@ -32,7 +32,7 @@ Cite the source in the row. `USER` is authoritative.
 | 7 | | | |
 | 8 | Water Temple | USER 2026-07-23 | |
 | 9 | | | |
-| 10 | | | was unreachable until the recompiler jump-table fix (kanban #27) |
+| 10 | | | was unreachable until the jump-table boundary correction (kanban #27) |
 | 11 | | | ditto |
 | 12 | Ghost pig boss fight | USER 2026-07-23 | kanban #26 — ceiling beam band renders arced under pc_render |
 | 13 | | | was unreachable until kanban #27 |

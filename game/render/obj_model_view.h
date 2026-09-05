@@ -19,7 +19,7 @@ constexpr uint32_t kComposeTrans = 20u;
 // every access exactly as the guest does, so it can never go stale across a call — the same idiom as
 // game/world/collision_resolve.cpp's Rec.
 //
-// IT LIVES IN THE HEADER ON PURPOSE, and the setters are deliberately ONE-LINERS: tools/port_check.py
+// IT LIVES IN THE HEADER ON PURPOSE, and the setters are deliberately ONE-LINERS: tools/dynamic differential evidence
 // harvests a lens setter's mem_wN widths by regex to count `compose.setElem(...)` as the store it
 // performs, and that harvester scans `game/**/*.h` ONLY. A lens defined in the .cpp is invisible to
 // it, so every store made through it silently vanishes from the width sequence and the method FAILs

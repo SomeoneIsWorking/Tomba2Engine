@@ -2,7 +2,7 @@
 //
 // TombaRuntime allocates/frees this opaque aggregate through GameRuntime inheritance;
 // Core::gameCtx holds the resulting void*. The
-// back-pointer wiring below moved VERBATIM out of Core::Core() (runtime/recomp/core.cpp) when the
+// back-pointer wiring below moved VERBATIM out of Core::Core() (runtime/psx/core.cpp) when the
 // 9 game subsystems were pulled OFF Core into TombaCtx — each `this` there is `c` here, each member
 // prefixed with `ctx->`. No wiring line was dropped.
 #include "game_ctx.h"
@@ -10,6 +10,7 @@
 void *createTombaContext(Core &core) {
   Core *c = &core;
   TombaCtx *ctx = new TombaCtx();
+  ctx->verification.bind(core);
   // Wire up owned subsystems' back-pointers so their methods can reach this Core's guest memory.
   ctx->screenFade.core = c;
   ctx->engine.core = c;

@@ -20,22 +20,21 @@
 //   STATE 2 & 3 (@0x8005a380): both -> FUN_8007a624(node).
 //
 // CONTROL FLOW + every node/global/scratchpad WRITE owned native byte-for-byte; every sub-behavior CALL
-// stays a pure-PSX leaf via rec_dispatch. Goto labels = guest addresses so delay-slot store ordering is
-// exact. RE'd 1:1 from disas 0x80059ED8 (Ghidra decomp scratch/decomp/field2/80059ed8.c cross-checked).
-// GOTCHAs: target[0x17e]/[0x44]/[0x32]/[0x4a] are signed `lh`; mem16(0x1f80017c) is `lhu`; the 0x1f8001a6
-// nibble = ((int16)v>>8)&0xf and sign bit = (int16)v & 0x8000; scroll math uses arithmetic >>2 on a signed
-// delta. Byte-exact A/B gate (full RAM+scratchpad vs rec_super_call) is the safety net.
+// stays a pure-PSX leaf via typed runtime address dispatch. Goto labels = guest addresses so delay-slot store ordering
+// is exact. RE'd 1:1 from disas 0x80059ED8 (Ghidra decomp scratch/decomp/field2/80059ed8.c cross-checked). GOTCHAs:
+// target[0x17e]/[0x44]/[0x32]/[0x4a] are signed `lh`; mem16(0x1f80017c) is `lhu`; the 0x1f8001a6 nibble =
+// ((int16)v>>8)&0xf and sign bit = (int16)v & 0x8000; scroll math uses arithmetic >>2 on a signed delta. Byte-exact A/B
+// gate (full RAM+scratchpad vs original guest-body call) is the safety net.
 
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-#include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_call.h"
+#include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -108,7 +107,7 @@ void beh_camera_target_follow(Core *c) {
       c->r[4] = 0x2c;
       c->r[5] = p + 0x2c;
       c->r[6] = 0xFFFFFFECu; // FUN_800312d4(0x2c, target+0x2c, -20)
-      rec_dispatch(c, 0x800312D4u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x800312D4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     }
   }
 
@@ -137,7 +136,8 @@ void beh_camera_target_follow(Core *c) {
     } else {
       c->r[4] = nd;
       c->r[5] = (uint32_t)(int32_t)s16(c, nd + 0x32);
-      rec_dispatch(c, 0x800489E4u); // FUN_800489e4(node, (s16)node[0x32])
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x800489E4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_800489e4(node, (s16)node[0x32])
       uint32_t iv5 = c->r[2];
       uint16_t da6 = c->mem_r16(0x1F8001A6u);
       if (iv5 != 0) {
@@ -208,39 +208,39 @@ void beh_camera_target_follow(Core *c) {
       if (c->mem_r8(0x800BF816u) == 0) {
         c->r[4] = nd;
         c->r[5] = p;
-        rec_dispatch(c, 0x8010C5A8u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x8010C5A8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       }
       break;
     case 4:
       if (c->mem_r8(0x800BF816u) == 0) {
         c->r[4] = nd;
         c->r[5] = p;
-        rec_dispatch(c, 0x80115AFCu);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80115AFCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       }
       break;
     case 6:
       if (c->mem_r8(0x800BF816u) == 0) {
         c->r[4] = nd;
         c->r[5] = p;
-        rec_dispatch(c, 0x80114294u);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80114294u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       }
       break;
     case 8:
       if (c->mem_r8(p + 0x16b) == 0) {
         c->r[4] = nd;
         c->r[5] = p;
-        rec_dispatch(c, 0x8011332Cu);
+        psx::cpu::dispatchGuestToReturn0(*c, 0x8011332Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
       }
       break;
     case 0xb: {
       c->r[4] = nd;
       c->r[5] = p;
-      rec_dispatch(c, 0x8010BC10u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8010BC10u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     } break;
     case 0xe: {
       c->r[4] = nd;
       c->r[5] = p;
-      rec_dispatch(c, 0x8010B238u);
+      psx::cpu::dispatchGuestToReturn0(*c, 0x8010B238u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     } break;
     default:
       break;

@@ -4,7 +4,7 @@
 // See rope_swing.cpp for the identification evidence. This header holds the two typed lenses the
 // tick needs — the rope's swing-state block and one segment — plus a named constant per field.
 //
-// The write accessors are deliberately ONE-LINERS: tools/port_check.py harvests a lens setter's
+// The write accessors are deliberately ONE-LINERS: tools/dynamic differential evidence harvests a lens setter's
 // mem_wN width by regex and counts `sw.setSwingVel(v)` as exactly the store it performs, but ONLY
 // for lenses defined in a game/**/*.h header whose setters are single statements. A setter that grew
 // a second statement would silently stop counting and the gate would compare a short sequence.

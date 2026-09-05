@@ -21,12 +21,12 @@ public:
 
   // step(node): advance node's animation-VM one frame. Returns v0 via c->r[2] (some callers
   // read the returned "keep-going" flag). Retains the `animvm` A/B verify gate against the
-  // recomp super-call at 0x80076D68 for regression checking.
+  // guest instruction path super-call at 0x80076D68 for regression checking.
   void step(uint32_t node);
 
   // stepFramed(node): step()'s guest-frame-mirrored body — descends FUN_80076D68's real 40-byte
   // stack frame (spilling the LIVE incoming r16/r17/r18/r19/ra), runs the VM, then ascends. The
-  // frame mirror itself is correct and RE'd from generated/shard_7.c, but NOT currently wired to
+  // frame mirror itself is correct and RE'd from authenticated executable/overlay evidence, but NOT currently wired to
   // anything (see registerOverrides()'s comment / docs/findings/animation.md): wiring it exposed a
   // separate, PRE-EXISTING fidelity gap in anim_vm_76d68 for one pool-adjacent "node" address
   // (0x800E7E80), unrelated to the frame. Kept available (public) for whoever picks that up.
@@ -37,7 +37,7 @@ public:
   // record (indexed by the u16 at cursor[0]) and unpacks its packed rotation/scale payload into
   // the node's per-limb sub-structures (array of struct* at node+192, stride 4). Called every
   // time the anim-VM (step()/FUN_80076D68) or attach() (FUN_80077C40) loads a new frame. Was
-  // rec_dispatch(c, 0x80076904u); now native (see loadFrame's own header comment in
+  // typed runtime address dispatch(c, 0x80076904u); now native (see loadFrame's own header comment in
   // animation.cpp for the full field-packing RE).
   void loadFrame(uint32_t node);
 
@@ -46,7 +46,7 @@ public:
   // at node's cursor (node+0x38) — the same cursor field as loadFrame/step's keyframe stream, but
   // a distinct, coarser chain format reused by many non-animation behavior handlers as a generic
   // "tick this countdown, advance this event chain" primitive. Returns 0 (ADVANCE/FOLLOW, tag
-  // 0/0x4000) or 1 (HOLD/FOLLOW-terminal, tag 0x8000/0xc000). Was rec_dispatch(c, 0x80077B5Cu) /
+  // 0/0x4000) or 1 (HOLD/FOLLOW-terminal, tag 0x8000/0xc000). Was typed runtime address dispatch(c, 0x80077B5Cu) /
   // the `leaf1(c, nd, 0x80077B5Cu)` call-site idiom in ~10 beh_ handlers.
   uint32_t advanceLinkChain(uint32_t node);
 
@@ -55,7 +55,7 @@ public:
   // seeds the countdown (node+0xE) from the entry's descriptor low-12 bits, calls loadFrame(node),
   // then — if the descriptor's 0x2000 "execute" bit is set — dispatches the frame executor
   // (FUN_80075ff8, kept reachable by address; same call shape as step()'s exec_tail) exactly like
-  // the anim-VM would for this entry's tag. Was rec_dispatch(c, 0x80077C40u) / the `call3(c, obj,
+  // the anim-VM would for this entry's tag. Was typed runtime address dispatch(c, 0x80077C40u) / the `call3(c, obj,
   // table, id, 0x80077C40u)` idiom.
   void attach(uint32_t node, uint32_t table, uint32_t id);
 
@@ -70,15 +70,14 @@ public:
   void applyFrame(uint32_t node, int32_t snapCursor);
 
   // registerOverrides(): wires FUN_80076904 / FUN_80077B5C / FUN_80077C40 / FUN_80075F0C into
-  // the override registry (overrides::install) at their guest addresses, so every existing
-  // rec_dispatch call site (native
+  // the override registry (tomba::native::declareOverride) at their guest addresses, so every existing
+  // typed runtime address dispatch call site (native
   // beh_ handlers AND any substrate-internal caller) reaches these native methods uniformly.
-  // FUN_80075F0C (applyFrame) is ALSO dual-wired via shard_set_override (see .cpp) because the
-  // substrate reaches it through direct `func_<addr>(c)` call sites, not just rec_dispatch.
-  // FUN_80076D68 (step) is DELIBERATELY NOT wired here (investigated + reverted 2026-07-08 — see
-  // the .cpp comment above gov_animApplyFrame / docs/findings/animation.md): the frame mirror
-  // (stepFramed()) is correct, but wiring surfaces an unrelated, pre-existing anim_vm_76d68
-  // fidelity gap for node address 0x800E7E80 (pool-adjacent, not a normal animation node) that
-  // needs its own RE session. Called once from boot.cpp.
+  // FUN_80075F0C (applyFrame) is ALSO dual-wired via tomba::native::declareOverride (see .cpp) because the
+  // substrate reaches it through direct `a direct guest-address call` call sites, not just typed runtime address
+  // dispatch. FUN_80076D68 (step) is DELIBERATELY NOT wired here (investigated + reverted 2026-07-08 — see the .cpp
+  // comment above gov_animApplyFrame / docs/findings/animation.md): the frame mirror (stepFramed()) is correct, but
+  // wiring surfaces an unrelated, pre-existing anim_vm_76d68 fidelity gap for node address 0x800E7E80 (pool-adjacent,
+  // not a normal animation node) that needs its own RE session. Called once from boot.cpp.
   void registerOverrides();
 };

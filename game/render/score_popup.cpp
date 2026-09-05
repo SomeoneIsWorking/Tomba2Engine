@@ -4,18 +4,17 @@
 #include "core.h"
 #include "engine.h"
 #include "game.h"
-#include "game_ctx.h"     // eng(c) / rend(c)
+#include "game_ctx.h" // eng(c) / rend(c)
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "render.h"       // Render::emitUiFt4 / emitUiSprites + rsub.mode.psxRender() gate
 #include "render_queue.h" // RQ_OVERLAY
 #include <algorithm>
 #include <lucent/log.h> // `scorepopup` diagnostic channel
 #include <numeric>
 
-extern void gen_func_80072520(Core *);
-extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-
 void ScorePopup::collect(Core *c, const UiGroupArgs &a) {
-  if (c->game->oracle || c->rsub.mode.psxRender()) {
+  if (c->rsub.mode.psxRender()) {
     return; // read-only overlay gate
   }
   ScorePopup &popup = eng(c).scorePopup;
@@ -77,7 +76,7 @@ void ScorePopup::drawCollected() {
 namespace {
 
 // FUN_80072520 — the popup entity's per-frame handler. Scope wrapper: it owns no host state of its
-// own, so the guest half is the untouched gen body (the 60-frame timer, the two sub-drawers, the
+// own, so the guest half is the untouched guest-visible behavior (the 60-frame timer, the two sub-drawers, the
 // despawn and the 0x800BF83C bookkeeping all stay byte-exact).
 void popupTick(Core *c) {
   ScorePopup &popup = eng(c).scorePopup;
@@ -86,7 +85,7 @@ void popupTick(Core *c) {
     popup.mGroups.clear();
   }
   popup.mInDraw = true;
-  gen_func_80072520(c);
+  psx::cpu::callOriginalToReturn(*c, 0x80072520u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   if (!outer) {
     return;
   }
@@ -102,5 +101,5 @@ void ScorePopup::install() {
     return;
   }
   done = true;
-  engine_set_override_main(0x80072520u, popupTick, gen_func_80072520);
+  tomba::native::declareOverride(0x80072520u, "popupTick", popupTick);
 }

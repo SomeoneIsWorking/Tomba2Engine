@@ -6,7 +6,7 @@
 // native producer, so pc_render (which does not walk the guest OT) drew nothing.
 //
 // RE — Ghidra on live area-2 / area-7 RAM dumps (scratch/decomp/minimap.c, minimap7.c) plus the guest's
-// own dispatcher (game/core/field_owned_leaves.cpp leaf_80025D98, L_80025F0C / L_80025F40). The two
+// own dispatcher (guest 0x80025D98, branches at 0x80025F0C / 0x80025F40). The two
 // drawers are the SAME routine compiled into each area's overlay with different data — each emits three
 // packets into the near HUD bucket:
 //   * a DR_MODE (FUN_80083DE0(p,0,0,tpage,0)) selecting the area's map texture page;
@@ -18,7 +18,7 @@
 // The OT insert order (dot, map, mode — LIFO into the same bucket) means the guest paints mode, then map,
 // then dot; this producer submits them in that painted order.
 //
-// PORTED, NOT TAPPED: nothing here runs a gen body — the producer reads the player's world position and
+// PORTED, NOT TAPPED: nothing here runs a guest-visible behavior — the producer reads the player's world position and
 // the area's own map constants and emits two host quads. Read-only: no guest write. The layer is
 // RQ_OVERLAY (HUD chrome sits one band BELOW glyph text at RQ_HUD, so dialogue never ends up under it).
 #include "core.h"

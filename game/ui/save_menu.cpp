@@ -1,7 +1,7 @@
 // game/ui/save_menu.cpp — Tomba!2 SAVE / LOAD FLOW (the game's save-system orchestration), PC-native.
 //
 // SCOPE (per CLAUDE.md: the engine owns save/load FLOW; the memory-card hardware + libmcrd file I/O
-// are the PLATFORM leaf, already native in runtime/recomp/memcard.cpp and kept dispatched here):
+// are the PLATFORM leaf, already native in runtime/psx/memcard.cpp and kept dispatched here):
 // this module owns the SAVE/LOAD-MENU STATE MACHINE — the head dispatcher that drives the
 // "Load data" / "Save" / format / delete pages reached from the title's Load-Game screen and the
 // in-game pause menu's "Load data" entry. It is the game's save/load FLOW logic.
@@ -64,23 +64,21 @@
 // sub-calls, no bulk game-RAM->buffer copy.)
 //
 // VERIFY: the `saveverify` REPL gate (PSXPORT_DEBUG / `debug saveverify`) runs the native dispatch, then
-// snapshots+rolls back full RAM + scratchpad + regs, runs the recomp body via rec_super_call, and diffs.
-// Because the dispatcher tail-calls (and the handlers it dispatches run identically in both passes,
-// leaving transient residue below the entry sp where this fn's own 0x30 frame is also dead on return),
-// the gate excludes the top-of-RAM stack window [sp-0x800, sp) — far above all game data — exactly as the
-// dispatcher/state-machine family gates do (disp26c88 / sm40558). See docs/port-progress.md §SAVE.
+// snapshots+rolls back full RAM + scratchpad + regs, runs the guest instruction path via original guest-body call, and
+// diffs. Because the dispatcher tail-calls (and the handlers it dispatches run identically in both passes, leaving
+// transient residue below the entry sp where this fn's own 0x30 frame is also dead on return), the gate excludes the
+// top-of-RAM stack window [sp-0x800, sp) — far above all game data — exactly as the dispatcher/state-machine family
+// gates do (disp26c88 / sm40558). See docs/port-progress.md §SAVE.
 
 #include "save_menu.h"
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
+#include "guest_call.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-void rec_super_call(Core *, uint32_t); // interpret the original PSX body (super-call / A/B oracle)
-void rec_dispatch(Core *, uint32_t);   // hybrid call: recomp body if emitted, else interpret
 
 namespace {
 
@@ -99,8 +97,8 @@ enum { R_A0 = 4, R_S0 = 16, R_S1 = 17, R_S2 = 18, R_SP = 29, R_RA = 31 };
 // SaveMenu::runHandler(task) — resolve and run ONE save-menu page handler for the given
 // substate (0..5), faithfully reproducing the dispatcher's prologue so the handler can unwind the
 // frame and tail-return through it. The page handlers themselves (cursor/page logic + libmcrd file I/O)
-// stay PSX via rec_dispatch. Returns nothing; the handler sets v0/the task fields just as the PSX body
-// would. Out-of-range substate (>=6) is the dispatcher's no-op return path.
+// stay PSX via typed runtime address dispatch. Returns nothing; the handler sets v0/the task fields just as the PSX
+// body would. Out-of-range substate (>=6) is the dispatcher's no-op return path.
 // ------------------------------------------------------------------------------------------------
 void SaveMenu::runHandler(uint32_t task) {
   Core *c = core;
@@ -128,7 +126,11 @@ void SaveMenu::runHandler(uint32_t task) {
 
   // ---- dispatch: handler = table[substate]; jr handler (tail-call, frame + regs live) ----
   uint32_t handler = c->mem_r32(SAVE_HANDLER_TBL + substate * 4u);
-  rec_dispatch(c, handler); // the page handler runs the load/save page logic + unwinds the frame itself
+  psx::cpu::dispatchGuestToReturn0(
+      *c,
+      handler,
+      psx::cpu::ExecutionBudget::currentTurn(*c),
+      __func__); // the page handler runs the load/save page logic + unwinds the frame itself
 }
 
 // ------------------------------------------------------------------------------------------------

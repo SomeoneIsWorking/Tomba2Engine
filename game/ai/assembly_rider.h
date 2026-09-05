@@ -44,7 +44,7 @@
 // byte and the queue its handler pushes to agree, which is an independent check on the reading.
 //
 // port_check FOLLOWS THESE LENSES: it harvests one-line `void` write-accessors from game/**/*.h and
-// counts a setter as the stores it performs (port_check.py find_lens_setters). Keep every setter a
+// counts a setter as the stores it performs (dynamic differential evidence find_lens_setters). Keep every setter a
 // single statement with its mem_wN visible, or the converted body silently stops being gate-able.
 #pragma once
 #include "assembly_node.h"

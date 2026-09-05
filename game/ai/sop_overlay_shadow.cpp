@@ -41,9 +41,8 @@
 // pass, see docs/port-progress.md).
 //
 // Registered in BehaviorDispatch::kTable as `beh_sop_overlay_shadow` (0x8010AB38, SOP overlay) — a
-// native_sync=true-only shortcut like every other native `beh_*`; pc_faithful / SBS full always take the
-// substrate body via rec_dispatch (BehaviorDispatch::dispatchObj's `!native_sync` term), so this cannot
-// affect the byte-exact gate.
+// Native override like every other `beh_*`; the test-only verification leg takes the guest body via
+// the typed runtime address dispatcher, so this cannot affect the differential gate.
 
 #include "cfg.h"
 #include "core.h"
@@ -102,7 +101,7 @@ void beh_sop_overlay_shadow(Core *c) {
         c->mem_w16(node + 0x4Cu, c->mem_r16(parent + 0x36u));
 
         // Both ramps key off (yAnchor - anchorY) == elev (the anchorY term cancels — matches the
-        // recomp's `*(param_1+0x4a) - *(iVar4+0x32)` reduction exactly since 0x4a was just stamped
+        // guest instruction path's `*(param_1+0x4a) - *(iVar4+0x32)` reduction exactly since 0x4a was just stamped
         // anchorY+elev above).
         const int32_t diff = (int32_t)yAnchor - (int32_t)anchorY; // == elev
 

@@ -16,7 +16,7 @@
 // FIDELITY: this reads as game code but is byte-exact against the guest. Every store keeps the guest's
 // width, signedness and ORDER (including stores the guest puts in a jal delay slot, which execute
 // BEFORE the callee — those are marked). Sub-behaviour leaves that are not yet owned are reached by
-// rec_dispatch with the guest's own a0..a2, so they see the identical interface. The handler pushes
+// typed runtime address dispatch with the guest's own a0..a2, so they see the identical interface. The handler pushes
 // the guest's 32-byte frame via GuestFrame so the guest stack bytes match too (CLAUDE.md "MIRROR THE
 // GUEST STACK"). RE: Ghidra decompile of FUN_80117658 off a live RAM dump (scratch/decomp/pickup.c);
 // equivalence proven by A/B 2 MB RAM+scratchpad dump diff on replays/bugs/bucket-softlock.pad.
@@ -26,18 +26,17 @@
 #include "game_ctx.h"
 #include "graphics_bind.h" // GraphicsBind::setGeom / recordInit / renderUpdate
 #include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-#include "inventory.h"     // class Inventory — inv(c).give / giveAndFlag
-#include "spawn.h"         // class Spawn (eng(c).spawn.despawn)
+#include "guest_call.h"
+#include "inventory.h" // class Inventory — inv(c).give / giveAndFlag
+#include "spawn.h"     // class Spawn (eng(c).spawn.despawn)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
 // ---------------------------------------------------------------------------------------------
-// Guest routines this handler drives that are not owned natively yet. Reached through rec_dispatch
+// Guest routines this handler drives that are not owned natively yet. Reached through typed runtime address dispatch
 // with the guest's own argument registers, so the interface they observe is unchanged.
 namespace Guest {
 constexpr uint32_t kPlaySfx = 0x80074590u; // FUN_80074590(id, 0, 0) — SFX / song router
@@ -295,25 +294,25 @@ struct PickupObj {
 
 // Guest-ABI call helpers: set a0..a2, dispatch, return v0. -------------------------------------
 inline uint32_t call0(Core *c, uint32_t fn) {
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 inline uint32_t call1(Core *c, uint32_t a0, uint32_t fn) {
   c->r[4] = a0;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 inline uint32_t call2(Core *c, uint32_t a0, uint32_t a1, uint32_t fn) {
   c->r[4] = a0;
   c->r[5] = a1;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 inline uint32_t call3(Core *c, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t fn) {
   c->r[4] = a0;
   c->r[5] = a1;
   c->r[6] = a2;
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 

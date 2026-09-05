@@ -21,7 +21,7 @@ public:
   void objectCull();
 
   // performBaseCull — the byte-exact PC-native reimplementation of FUN_8007712C's body ALONE (no
-  // widescreen margin re-include). Called from Actor::boundsCull to replace the last rec_dispatch
+  // widescreen margin re-include). Called from Actor::boundsCull to replace the last typed runtime address dispatch
   // in the bounds-cull chain — same taxi convention as objectCull (r[4]=obj, r[5]/[6]/[7]=dx/dy/dz),
   // same side effects (obj[+1] flag + per-class render-list push), same return in r[2]. Was the
   // file-scope `cull_native_body` helper — now the public entry point Actor::boundsCull dispatches to.
@@ -38,7 +38,7 @@ public:
   // call; see cullWrap77accFramed()'s comment for why framing this method itself is a bug.
   void cullWrap77acc();
 
-  // cullWrap77accFramed — GUEST-ABI ENTRY ONLY, used by the shard_set_override trampoline
+  // cullWrap77accFramed — GUEST-ABI ENTRY ONLY, used by the tomba::native::declareOverride trampoline
   // (gov_cullWrap77acc). Mirrors FUN_80077ACC's real `addiu sp,-24; sw ra,16(sp)` frame around
   // cullWrap77acc()'s body, for callers reached through the actual guest call graph (where
   // c->r[29] is a real guest sp). Do NOT call this from native C++ — see cullWrap77acc()'s comment
@@ -57,14 +57,14 @@ public:
   // UNFRAMED — see cullWrapperFlag2Framed()'s comment (same class of bug/fix as cullWrap77acc).
   void cullWrapperFlag2();
 
-  // cullWrapperFlag2Framed — GUEST-ABI ENTRY ONLY, used by the shard_set_override trampoline
+  // cullWrapperFlag2Framed — GUEST-ABI ENTRY ONLY, used by the tomba::native::declareOverride trampoline
   // (gov_cullWrapperFlag2). Mirrors FUN_800777FC's real `addiu sp,-24; sw ra,16(sp)` frame around
   // cullWrapperFlag2()'s body. Do NOT call from native C++ — see cullWrapperFlag2()'s comment.
   void cullWrapperFlag2Framed();
 
   // enqueueQueueC (FUN_80077EFC): MANUAL push of `obj` onto queue C (0x1F800154/0x1F80015C, cap 28) —
   // sibling of enqueueQueueA/enqueueVisibleClass4. Same slti-N gate + push + counter bump shape.
-  // Returns 0 on cap-hit, new 1-based count on success (matches recomp).
+  // Returns 0 on cap-hit, new 1-based count on success (matches guest instruction path).
   uint32_t enqueueQueueC(uint32_t obj);
 
   // enqueueQueueA (FUN_80077E7C): MANUAL push of `obj` onto queue A (0x1F80013C/0x1F800144, cap 24) —
@@ -72,7 +72,7 @@ public:
   // game/world/entity.cpp + game/ai/beh_* use this as an unconditional queue insert (early bail if
   // count >= 24; no visibility check). Body from disas 0x80077E7C.
   //
-  // Returns v0 as the recomp does — on cap-hit v0=0 (the slti's false result); on success v0 =
+  // Returns v0 as the guest instruction path does — on cap-hit v0=0 (the slti's false result); on success v0 =
   // old_counter + 1 (i.e. the NEW 1-based count). beh_jumptable_release_trigger uses this return.
   uint32_t enqueueQueueA(uint32_t obj);
 
@@ -82,7 +82,7 @@ public:
   //   * class 2 or 9 → queue A (cap 24, sibling of enqueueQueueA)
   //   * class 5      → queue C (cap 28, sibling of enqueueQueueC)
   //   * other        → no-op (returns 0)
-  // Returns v0 = new 1-based count on push, 0 on cap-hit or unknown class (matches recomp).
+  // Returns v0 = new 1-based count on push, 0 on cap-hit or unknown class (matches guest instruction path).
   uint32_t enqueueByClass(uint32_t obj);
 
   // ---- SUBMISSION RECORD (kanban #77) -----------------------------------------------------------
@@ -117,7 +117,7 @@ public:
   // list-add tail performBaseCull runs when the base cull KEEPS a class-4 object, but callable
   // directly by beh_ handlers whose scene-specific logic decides an object should render this frame
   // (bypassing the base cull test). Respects the cap-40 limit at *(0x1F800150). Callers set obj[+1]=1
-  // themselves; this method only manipulates the queue. Was rec_dispatch(0x80077EBCu) in 5+ handlers.
+  // themselves; this method only manipulates the queue. Was typed runtime address dispatch(0x80077EBCu) in 5+ handlers.
   uint32_t enqueueVisibleClass4(uint32_t obj); // returns v0 (new count on push, 0 on cap-hit)
 
   // cullWrapperFlag1 (FUN_80077870): CULL WRAPPER variant of cullWrapper — same taxi shape (obj in
@@ -150,7 +150,7 @@ public:
 
   // NOTE on wiring (RESOLVED 2026-07-08): this whole camera-relative-wrapper family (cullWrapper/
   // cullWrapperFlag2/cullWrap77acc/cullWrapperOffset/cullWrapperOffsetFlag1/cullWrapperOffsetY) is
-  // now wired via shard_set_override (see cull.cpp registerOverrides()). Each substrate body
+  // now wired via tomba::native::declareOverride (see cull.cpp registerOverrides()). Each substrate body
   // (FUN_8007778C etc.) pushes a REAL guest-stack frame (`addiu sp,-24` + `sw ra,16(sp)`); the
   // 2026-07-08 wiring attempt diverged at 0x801FE906 because the native methods didn't replicate
   // that frame. Fixed by mirroring it: wrapFrame() descends the frame, spills the LIVE incoming
@@ -162,7 +162,7 @@ private:
   // wrapFrame — shared frame mirror for the whole cullWrapper* family: every one of the 6
   // variants has the IDENTICAL shape (`addiu sp,-24; sw ra,16(sp); ...; jal 0x8007712C; lw
   // ra,16(sp); addiu sp,24`), differing only in the guest ra constant used for the internal jal.
-  // RE'd instruction-exact from generated/shard_{0,1,2,4,5,7}.c (gen_func_8007778C/800777FC/
+  // RE'd instruction-exact from authenticated executable/overlay evidence{0,1,2,4,5,7}.c (guest 0x8007778C/800777FC/
   // 80077ACC/800779D0/80077A4C/800778E4). Mirrors the descent + LIVE-ra spill + ascent around
   // performBaseCull() so the guest stack bytes byte-match the substrate (no SBS exclusion needed).
   void wrapFrame(uint32_t raConst);
@@ -185,7 +185,7 @@ private:
   int coneCullBody(int commit);
 
   // Far-limit multiplier fork (issue #22 / Slip #3-shape, docs/findings/sbs.md). Faithful keeps the
-  // stock per-state far limits (×1) so SBS against recomp_path doesn't diverge at 0x800EE489; skip
+  // stock per-state far limits (×1) so SBS against retired comparison path doesn't diverge at 0x800EE489; skip
   // applies the extended multiplier (PSXPORT_CULL_FAR_MULT override, else CULL_FAR_MULT). The two
   // modes deliberately do not converge.
   int cullFarMult();

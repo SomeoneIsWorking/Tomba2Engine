@@ -9,20 +9,20 @@
 // (the only ones seaside objects hit) call `FUN_8003cdd8` unconditionally as their entire body, so
 // CDD8/F698 are a clean, non-conflicting slice of the SAME dispatch chain.
 //
-// CALL-SITE MECHANISM: unlike the walk-cluster addresses the override registry's rec_dispatch
-// interception targets (rec_dispatch-only, nullptr setter), CDD8 and F698 are reached from CCA4's
-// generated body as PLAIN INTRA-SHARD C CALLS (`func_8003CDD8(c)` / `func_8003F698(c)` — see
-// generated/shard_5.c gen_func_8003CCA4 and generated/shard_6.c gen_func_8003CDD8).
-// overrides::dispatch only intercepts inside rec_dispatch, so it cannot see these calls; the ONLY
-// interception point is the g_override[] slot each func_XXXX wrapper
-// in shard_disp.c already checks (`if (g_override[N]) { g_override[N](c); return; }`).
-// shard_set_override() is that installer.
+// CALL-SITE MECHANISM: unlike the walk-cluster addresses the override registry's typed runtime address dispatch
+// interception targets (typed runtime address dispatch-only, nullptr setter), CDD8 and F698 are reached from CCA4's
+// authenticated executable/overlay evidence as PLAIN INTRA-SHARD C CALLS (`guest 0x8003CDD8(c)` / `guest 0x8003F698(c)`
+// — see authenticated executable/overlay evidence guest 0x8003CCA4 and authenticated executable/overlay evidence guest
+// 0x8003CDD8). overrides::dispatch only intercepts inside typed runtime address dispatch, so it cannot see these calls;
+// the ONLY interception point is the image-qualified runtime dispatcher slot each the cited guest address wrapper in
+// shard_disp.c already checks (`if (image-qualified runtime dispatcher[N]) { image-qualified runtime dispatcher[N](c);
+// return; }`). tomba::native::declareOverride() is that installer.
 //
 // RE (Ghidra headless decompile of a live free-roam RAM dump, scratch/bin/field_ram.bin, cross-checked
-// against the ACTUAL recompiled body in generated/shard_6.c + generated/shard_4.c — the recompiler's
-// gte_write_ctrl/gte_write_data/gte_op/gte_read_data calls are ground truth, not the raw Ghidra pseudo-C
-// which mislabels COP2 moves as fictitious setCopReg/copFunction helpers). Independently corroborated by
-// game/render/submit.cpp's pre-existing "later-133" comment block (a RETIRED, issue-#32-superseded
+// against the ACTUAL guest body in authenticated executable/overlay evidence + authenticated executable/overlay
+// evidence — the recorded binary evidence's gte_write_ctrl/gte_write_data/gte_op/gte_read_data calls are ground truth,
+// not the raw Ghidra pseudo-C which mislabels COP2 moves as fictitious setCopReg/copFunction helpers). Independently
+// corroborated by game/render/submit.cpp's pre-existing "later-133" comment block (a RETIRED, issue-#32-superseded
 // native lift of this exact pair) — same scratch addresses, same MVMVA opcodes; used here as a second
 // source cross-check for the GTE compose shape.
 //
@@ -48,27 +48,26 @@
 // FUN_8003F698 (a0=geomblk r4, a1=otbase r5, a2=flag r6): if the generic-force scratch flag
 // (MODE_FORCE 0x1F800234) is clear AND (a2&1)==0, index the 22-entry mode table (MODE_TABLE
 // 0x80015268) by the area's render-mode byte (MODE_BYTE 0x800BF870, bound-checked <22) and
-// rec_dispatch the resolved handler address (owned per-area leaves like 0x80146478 live outside this
-// band — untouched, reached transparently via rec_dispatch exactly as the recomp body reaches them).
-// Otherwise (or mode>=22) fall back to func_800803DC (the substrate's generic GT3/GT4 packet emitter).
+// typed runtime address dispatch the resolved handler address (owned per-area leaves like 0x80146478 live outside this
+// band — untouched, reached transparently via typed runtime address dispatch exactly as the guest instruction path
+// reaches them). Otherwise (or mode>=22) fall back to guest 0x800803DC (the substrate's generic GT3/GT4 packet
+// emitter).
 #include "cfg.h"
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
 #include "gpu_native_internal.h" // gpu_frame_no — declared THERE, never re-declared here
-#include "guest_abi.h"      // GuestFrame/guest_dispatch — perModeDispatch's demo migration (docs/port-framework.md)
+#include "guest_abi.h"
+#include "guest_call.h"
+#include "guest_jal.h" // GuestFrame/guest_dispatch — perModeDispatch's demo migration (docs/port-framework.md)
+#include "native_override_catalog.h"
 #include "producer_scope.h" // ProducerScope — graphics-producer DB, native leg
 #include "render.h"
 #include "render_internal.h" // render_field_native_active (REDIRECT below)
 #include <lucent/log.h>
-
-void rec_dispatch(Core *, uint32_t); // overlay_router.cpp — the shared choke point for owned/substrate leaves
-void func_800803DC(Core *);          // generated/shard_disp.c — generic GT3/GT4 packet emitter (still substrate)
-void shard_set_override(uint32_t addr, OverrideFn fn); // generated/shard_disp.c (C++ linkage)
-
 namespace {
-// Guest-stack frame RAII, mirroring gen_func_8003CDD8's real `addiu sp,-56` prologue (spills
-// r16..r23/ra at +16..+48) and gen_func_8003F698's real `addiu sp,-24` prologue (spills ra only at
+// Guest-stack frame RAII, mirroring guest 0x8003CDD8's real `addiu sp,-56` prologue (spills
+// r16..r23/ra at +16..+48) and guest 0x8003F698's real `addiu sp,-24` prologue (spills ra only at
 // +16) — see CLAUDE.md "MIRROR THE GUEST STACK". Neither function's own C++ body needs r16..r23 as
 // meaningful cross-call state (register-faithfulness concern only applies to nested TAIL-CALLS that
 // themselves spill a caller's live callee-saved regs — cmdListDispatch/perModeDispatch never set
@@ -108,8 +107,8 @@ struct CmdListFrame {
 } // namespace
 
 // DEMO MIGRATION (docs/port-framework.md validation #4): PerModeFrame's hand-rolled RAII replaced
-// by runtime/recomp/guest_abi.h's GuestFrame<FrameSize, NumSpills> — the contract-driven form
-// tools/abi_extract.py <addr> --scaffold --guestabi emits straight from gen_func_8003F698's real
+// by runtime/psx/guest_abi.h's GuestFrame<FrameSize, NumSpills> — the contract-driven form
+// tools/binary ABI evidence <addr> --scaffold --guestabi emits straight from guest 0x8003F698's real
 // `addiu sp,-24` prologue (ra spill only, at sp+16). Behavior identical; this is purely the OPT-IN
 // style swap the framework's deliverable 2 exists to validate (SBS-full 0-diff gate covers it).
 static constexpr GuestFrameSpill kSpills_8003F698[1] = {{31 /*ra*/, 16}};
@@ -205,21 +204,21 @@ RedirCensus g_redir;
 
 // FUN_8003CDD8 — per-object cmd-list dispatch: composes the WORLD object transform (camera-rot x
 // object-local, via MVMVA) into GTE CR0-7 for each active render command, then calls FUN_8003F698.
-// ORACLE: gen_func_8003CDD8 (tools/port_check.py equivalence-gate marker; see docs/port-framework.md)
+// ORACLE: guest 0x8003CDD8 (tools/dynamic differential evidence equivalence-gate marker; see docs/port-framework.md)
 void Render::cmdListDispatch() {
   Core *c = mCore;
-  CmdListFrame frame(c); // real -56 guest frame (RE: gen_func_8003CDD8 prologue) — descended even
+  CmdListFrame frame(c); // real -56 guest frame (RE: guest 0x8003CDD8 prologue) — descended even
                          // on the immediate-return path below, exactly like gen.
   const uint32_t node = c->r[4];
   const uint32_t flag = c->r[5];
   if (c->mem_r8(node + 8) == 0 || c->mem_r8(node + 9) == 0) {
     return;
   }
-  // Exact control flow of the recomp body: count (node+8) is re-checked at the TOP of every
+  // Exact control flow of the guest instruction path: count (node+8) is re-checked at the TOP of every
   // iteration (bails mid-list if the active count ever shrinks); capacity (node+9) gates only the
   // BACK-edge (post-increment), so it is never consulted before running i==0's body. Re-read both
   // fields fresh each time rather than caching (nothing in this body writes them, but this loop must
-  // reproduce the recomp's exact reads, not an equivalent-in-practice shortcut).
+  // reproduce the guest instruction path's exact reads, not an equivalent-in-practice shortcut).
   int i = 0;
   for (;;) {
     if (i >= (int)c->mem_r8(node + 8)) {
@@ -311,7 +310,7 @@ void Render::cmdListDispatch() {
       // COVERAGE (bug #48, docs/findings/render.md "Z-fight sweep 2026-07-14"; render.h banner):
       // independent of which per-mode target this cmd resolves to, if Render::perObjFlush (render_walk.
       // cpp) has ALREADY drawn this SAME node's cmd list natively this frame, the perModeDispatch call
-      // below is a redundant guest-OT copy for EVERY target (func_800803DC's generic emitter and every
+      // below is a redundant guest-OT copy for EVERY target (guest 0x800803DC's generic emitter and every
       // owned per-mode leaf alike all draw the identical geomblk this cmd already carries) — not just
       // the generic-overlay REDIRECT case. PROVENANCE via Render::nativeObjDrawn (perObjFlush is the
       // only writer): nodes on OTHER walk lists perObjFlush never visits (e.g. the Bcf4 aux list the
@@ -357,7 +356,7 @@ void Render::cmdListDispatch() {
         // hi16}, GT3 records at +16 (36B stride), GT4 after (44B stride) — so drawing them natively is a
         // REDIRECT of identical data through the owned path, not a reconstruction:
         //   0x80146478  OverlayGt3Gt4::gt3/gt4 — the generic OVERLAY leaf (the original case)
-        //   0x800803DC  func_800803DC          — the generic GT3/GT4 emitter every mode falls back to
+        //   0x800803DC  guest 0x800803DC          — the generic GT3/GT4 emitter every mode falls back to
         // Adding the second is the point of the exercise (USER 2026-08-19: solve missing graphics
         // globally, not object by object): it is not one effect's producer, it is the DEFAULT path for
         // every object whose area mode has no specific renderer, and it was the second-largest unowned
@@ -418,16 +417,16 @@ void Render::cmdListDispatch() {
       c->r[4] = geomblk;
       c->r[5] = otbase;
       c->r[6] = flag;
-      // Register-faithfulness (f62 residual root cause, 2026-07-09): gen_func_8003CDD8 keeps r16..r23
+      // Register-faithfulness (f62 residual root cause, 2026-07-09): guest 0x8003CDD8 keeps r16..r23
       // LIVE as loop-invariant/loop-index scratch for its ENTIRE loop body (r16=i the loop counter,
       // r17=r23=SCR scratchpad base 0x1F800000, r18=node, r19=SCR+0xD0, r20=OTBASE_PTR, r21=WORLD_POS,
-      // r22=flag — verified against generated/shard_6.c gen_func_8003CDD8 lines 5119-5285). These
-      // survive the nested func_8003F698/func_800803DC call chain via plain MIPS callee-save (never
-      // explicitly reloaded before each per-iteration call). The still-substrate `func_800803DC`
+      // r22=flag — verified against authenticated executable/overlay evidence guest 0x8003CDD8 lines 5119-5285). These
+      // survive the nested guest 0x8003F698/guest 0x800803DC call chain via plain MIPS callee-save (never
+      // explicitly reloaded before each per-iteration call). The still-substrate `guest 0x800803DC`
       // (unowned generic GT3/GT4 emitter) SPILLS the incoming r16/r17 to its own guest stack frame
       // (sp+16/sp+20) before reusing them as locals, then restores them on return — i.e. r16/r17's
       // CALLER value is genuine guest-stack-visible state, not dead scratch. Native cmdListDispatch used
-      // C++ locals for `i`/`node`/`flag` and never wrote c->r[16..23], so func_800803DC's prologue was
+      // C++ locals for `i`/`node`/`flag` and never wrote c->r[16..23], so guest 0x800803DC's prologue was
       // spilling STALE leftover register content instead of gen's real loop state — the exact SBS diff
       // at 0x801FE870..0x801FE878 (verified: gen's r16=i, r17=SCR match the two divergent words byte-
       // for-byte). Set the full live set here (not just r16/r17) since perModeDispatch's mode-table path
@@ -441,7 +440,7 @@ void Render::cmdListDispatch() {
       c->r[21] = WORLD_POS;
       c->r[22] = flag;
       c->r[23] = SCR;
-      c->r[31] = 0x8003D07Cu; // RE'd return-address constant (gen_func_8003CDD8, right before func_8003F698)
+      c->r[31] = 0x8003D07Cu; // RE'd return-address constant (guest 0x8003CDD8, right before guest 0x8003F698)
       perModeDispatch();
     } // if (geomblk != 0)
     i++;
@@ -452,12 +451,12 @@ void Render::cmdListDispatch() {
 }
 
 // MODE_TABLE's 22 entries are NOT the final FUN_ target addresses — they are addresses of F698's OWN
-// internal case labels (jump-table entries the recompiler statically resolved when it built the
+// internal case labels (jump-table entries the recorded binary evidence statically resolved when it built the
 // switch below), confirmed by reading the live table out of a free-roam RAM dump
 // (scratch/bin/field_ram.bin @0x80015268, all 22 words are one of these 11 literals). Each label's
-// body immediately rec_dispatch'es a fixed real target; 0x8003F788 is the "generic" label that falls
-// through to func_800803DC instead. This mapping is fixed game DATA (identical to the switch in
-// generated/shard_4.c gen_func_8003F698), not something that varies at runtime.
+// body immediately typed runtime address dispatch'es a fixed real target; 0x8003F788 is the "generic" label that falls
+// through to guest 0x800803DC instead. This mapping is fixed game DATA (identical to the switch in
+// authenticated executable/overlay evidence guest 0x8003F698), not something that varies at runtime.
 static uint32_t perModeCaseTarget(uint32_t caseLabel) {
   switch (caseLabel) {
   case 0x8003F6E8u:
@@ -486,8 +485,8 @@ static uint32_t perModeCaseTarget(uint32_t caseLabel) {
 }
 
 // RE'd return-address constant gen sets in r31 immediately before each case's dispatch call (see
-// generated/shard_4.c gen_func_8003F698, labels L_8003F6E8.. — each is `caseLabel + 8`). Register-
-// faithfulness (2026-07-09, the f118 residual root cause): a prior draft called rec_dispatch without
+// authenticated executable/overlay evidence guest 0x8003F698, labels L_8003F6E8.. — each is `caseLabel + 8`). Register-
+// faithfulness (2026-07-09, the f118 residual root cause): a prior draft called typed runtime address dispatch without
 // ever touching c->r[31], leaving whatever STALE value the caller (perObjRenderDispatch/cmdListDispatch)
 // left there instead — a real, reproducible SBS diff at FUN_80146478's own ra spill slot
 // (0x801FE8D0..). Mirrored below per CLAUDE.md ("MIRROR THE GUEST STACK... register-faithfulness").
@@ -506,7 +505,7 @@ static uint32_t perModeCaseReturnAddr(uint32_t caseLabel) {
 // is what tells perModeDispatch whether it dispatches through a label (needing that label's own RE'd
 // return-address constant) or falls through to the generic emitter. The generic path deliberately
 // reports caseLabel 0 for BOTH of its shapes: routing disabled/out-of-range, and the recognized
-// generic label 0x8003F788 whose body is just `func_800803DC(c)`.
+// generic label 0x8003F788 whose body is just `guest 0x800803DC(c)`.
 uint32_t Render::resolvePerModeEmitter(Core *c, uint32_t flag, uint32_t *caseLabelOut) {
   *caseLabelOut = 0;
   if (c->mem_r8(MODE_FORCE) == 0 && (flag & 1u) == 0) {
@@ -518,10 +517,10 @@ uint32_t Render::resolvePerModeEmitter(Core *c, uint32_t flag, uint32_t *caseLab
         *caseLabelOut = caseLabel;
         return target;
       }
-      // caseLabel == 0x8003F788 (or an unrecognized label) -> the recomp's own `default:
-      // rec_dispatch(c, c->r[2])` would dispatch the RAW label address here; since 0x8003F788 IS the
-      // generic-fallback label (whose body is just `func_800803DC(c)`, no rec_dispatch), reproduce
-      // that directly rather than rec_dispatch-ing a label address that has no recompiled entry.
+      // caseLabel == 0x8003F788 (or an unrecognized label) -> the guest instruction path's own `default:
+      // typed runtime address dispatch(c, c->r[2])` would dispatch the RAW label address here; since 0x8003F788 IS the
+      // generic-fallback label (whose body is just `guest 0x800803DC(c)`, no typed runtime address dispatch), reproduce
+      // that directly rather than typed runtime address dispatch-ing a label address that has no guest entry.
       if (caseLabel != 0x8003F788u) {
         *caseLabelOut = caseLabel;
         return caseLabel;
@@ -532,19 +531,19 @@ uint32_t Render::resolvePerModeEmitter(Core *c, uint32_t flag, uint32_t *caseLab
 }
 
 // FUN_8003F698 — per-mode render dispatcher: routes to the area's per-mode renderer (mode-select byte
-// + jump table) or the generic GT3/GT4 packet emitter (func_800803DC).
+// + jump table) or the generic GT3/GT4 packet emitter (guest 0x800803DC).
 void Render::perModeDispatch() {
   Core *c = mCore;
-  GuestFrame<24, 1> frame(c, kSpills_8003F698); // real -24 guest frame (RE: gen_func_8003F698 prologue, ra spill only)
+  GuestFrame<24, 1> frame(c, kSpills_8003F698); // real -24 guest frame (RE: guest 0x8003F698 prologue, ra spill only)
   const uint32_t flag = c->r[6];
   uint32_t caseLabel = 0;
   const uint32_t emitter = resolvePerModeEmitter(c, flag, &caseLabel);
   if (caseLabel != 0) {
-    guest_dispatch(c, perModeCaseReturnAddr(caseLabel), emitter);
+    tomba::guest::dispatchJalToReturn(*c, emitter, perModeCaseReturnAddr(caseLabel));
     return;
   }
-  c->r[31] = 0x8003F790u; // RE'd: L_8003F788's own r31 set before func_800803DC (the generic label)
-  func_800803DC(c);
+  c->r[31] = 0x8003F790u; // RE'd: L_8003F788's own r31 set before guest 0x800803DC (the generic label)
+  psx::cpu::dispatchGuestToReturn0(*c, 0x800803DCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 
 namespace {
@@ -557,29 +556,25 @@ void ov_perModeDispatch(Core *c) {
 } // namespace
 
 // ORACLE-PURITY FIX (2026-07-09, the f118 residual root cause): these two were installed via the RAW
-// shard_set_override — the process-global g_override[] table shard_disp.c's func_8003CDD8/func_8003F698
-// wrappers consult on BOTH cores, with no oracle gate. That means SBS core B (supposed to be the pure
-// gen_func_* substrate) was ALSO running this native code whenever gen_func_8003CCA4 (correctly running
-// pure on B via its own engine_set_override_main registration) called func_8003CDD8(c) — exactly the
-// failure mode override_registry.h's own banner documents ("a trampoline that omitted its
-// psx_fallback guard silently ran native on core B and turned SBS into a native-vs-native fake
-// 0-diff"). Concretely: native Render::perObjRenderDispatch never mirrors gen_func_8003CCA4's
-// `c->r[18] = node` prologue assignment (r18 is plain scratch to the native C++ body), so when B's PURE
-// gen_func_8003CCA4 called into this SAME native cmdListDispatch, the CmdListFrame RAII spilled A's
-// stale r18 instead of B's real node pointer — a genuine cross-core state leak, not just a byte diff.
-// Fixed by routing through the shared override registry (engine_set_override_main) like every other
-// engine/game native in this call chain (perobj_billboard.cpp, overlay_gt3gt4.cpp,
-// overlay_ground_gt3gt4.cpp, quad_rtpt_submit.cpp) — B now always runs the real gen_func_8003CDD8/
-// gen_func_8003F698 bodies, closing the leak at its source.
+// tomba::native::declareOverride — the per-Core image-qualified runtime dispatcher table shard_disp.c's guest
+// 0x8003CDD8/guest 0x8003F698 wrappers consult on BOTH cores, with no oracle gate. That means SBS core B (supposed to
+// be the pure original guest instructions substrate) was ALSO running this native code whenever guest 0x8003CCA4
+// (correctly running pure on B via its own tomba::native::declareOverride registration) called guest 0x8003CDD8(c) —
+// exactly the failure mode override_registry.h's own banner documents ("a trampoline that omitted its missing substrate
+// guard silently ran native on the reference leg and turned SBS into a native-vs-native fake 0-diff"). Concretely:
+// native Render::perObjRenderDispatch never mirrors guest 0x8003CCA4's `c->r[18] = node` prologue assignment (r18 is
+// plain scratch to the native C++ body), so when B's PURE guest 0x8003CCA4 called into this SAME native
+// cmdListDispatch, the CmdListFrame RAII spilled A's stale r18 instead of B's real node pointer — a genuine cross-core
+// state leak, not just a byte diff. Fixed by routing through the shared override registry
+// (tomba::native::declareOverride) like every other engine/game native in this call chain (perobj_billboard.cpp,
+// overlay_gt3gt4.cpp, overlay_ground_gt3gt4.cpp, quad_rtpt_submit.cpp) — B now always runs the real guest 0x8003CDD8/
+// guest 0x8003F698 bodies, closing the leak at its source.
 void perobj_dispatch_install() {
   static bool done = false;
   if (done) {
     return;
   }
   done = true;
-  extern void gen_func_8003CDD8(Core *);
-  extern void gen_func_8003F698(Core *);
-  extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_main(0x8003CDD8u, ov_cmdListDispatch, gen_func_8003CDD8);
-  engine_set_override_main(0x8003F698u, ov_perModeDispatch, gen_func_8003F698);
+  tomba::native::declareOverride(0x8003CDD8u, "ov_cmdListDispatch", ov_cmdListDispatch);
+  tomba::native::declareOverride(0x8003F698u, "ov_perModeDispatch", ov_perModeDispatch);
 }

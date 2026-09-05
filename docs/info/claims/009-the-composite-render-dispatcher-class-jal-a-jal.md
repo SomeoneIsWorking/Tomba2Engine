@@ -16,4 +16,4 @@ Scanned every distinct stored code pointer in a field dump (3231 MAIN.EXE + the 
 
 ## What would falsify it
 
-if the recompiled binary changes, or if a render fn turns out to dispatch through a jalr rather than a jal (the scan rejects jalr outright)
+if the guest binary changes, or if a render fn turns out to dispatch through a jalr rather than a jal (the scan rejects jalr outright)

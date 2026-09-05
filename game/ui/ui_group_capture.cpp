@@ -21,7 +21,7 @@ namespace {
 // to the list is added for panels and groups alike and the two can never disagree about which page
 // is on the stack.
 UiGroupCapture *raisedScope(Core *c) {
-  if (c->game->oracle || c->rsub.mode.psxRender()) {
+  if (c->rsub.mode.psxRender()) {
     return nullptr; // read-only overlay gate
   }
   Engine &e = eng(c);

@@ -13,7 +13,7 @@ FUN_800328EC is a third shared sprite writer with 6 overlay controllers behind i
 
 ## Evidence
 
-codemap --addr 0x800328EC: no native owner. rec_dispatch call sites resolved to enclosing recompiled functions: 0x8013D454, 0x8012D9E8, 0x8012E868, 0x801346C0, 0x8013B118 (x2), 0x8010C1D8, plus two MAIN.EXE sites. Emitter contract decoded from ov_a01_gen_8012E868. 2026-07-28.
+codemap --addr 0x800328EC: no native owner. typed runtime address dispatch call sites resolved to enclosing guest functions: 0x8013D454, 0x8012D9E8, 0x8012E868, 0x801346C0, 0x8013B118 (x2), 0x8010C1D8, plus two MAIN.EXE sites. Emitter contract decoded from overlay guest 0x8012E868. 2026-07-28.
 
 ## What would falsify it
 

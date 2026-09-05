@@ -28,7 +28,7 @@ whether the seesaw is working. Exit code 0 if a grab was observed, 2 if it never
 """
 import argparse, os, socket, subprocess, sys, time
 
-BIN = "./scratch/bin/tomba2_port"
+BIN = "./build/bin/tomba2_port"
 ATTACH_PTR = 0x800E7FD8          # G+0x158: the object Tomba is holding (0 = nothing)
 
 
@@ -93,7 +93,7 @@ def main():
     env.update({
         # PSXPORT_NOPACE: drive to the grab point as fast as the host can. Headless is PACED like a
         # windowed run now (they are one program), so "fast" has to be ASKED for.
-        "PSXPORT_NOWINDOW": "1", "PSXPORT_NOAUDIO": "1", "PSXPORT_NO_FMV": "1",
+        "PSXPORT_VK_HEADLESS": "1", "PSXPORT_NOAUDIO": "1", "PSXPORT_NO_FMV": "1",
         "PSXPORT_NOPACE": "1",
         "PSXPORT_NATIVE_FRAMES": "100000", "PSXPORT_DEBUG_SERVER": str(a.port),
         "PSXPORT_PAD_REPLAY": a.replay,

@@ -22,7 +22,7 @@
 //   TAG & 4  : swap the X/Z offsets (around the slope step, applied twice — i.e. transpose).
 //   TAG & 8  : slope mode select (sheared X-from-Z vs the divided Z-from-X form).
 //
-// `gridoffset` REPL channel = full main-RAM + scratchpad A/B vs rec_super_call (no dispatched callees,
+// `gridoffset` REPL channel = full main-RAM + scratchpad A/B vs original guest-body call (no dispatched callees,
 // so a pure 0-diff over both regions + v0 is the exact gate; no stack-window exclusion needed).
 #include "grid_offset.h"
 #include "cfg.h"
@@ -30,7 +30,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
 
 // MIPS-exact signed 32x32->lo multiply (low word).
 static inline uint32_t mlo(int32_t a, int32_t b) {
@@ -38,9 +37,9 @@ static inline uint32_t mlo(int32_t a, int32_t b) {
 }
 
 // MIPS-exact signed 32/32 division (quotient). The PSX `div` traps on /0 and on INT_MIN/-1 via the
-// recomp's `break`; the recomp body never actually divides by zero here (the divisor a3^0x3F is the
-// 6-bit-complemented cell low byte, non-zero in practice) — mirror the C99 truncating-toward-zero
-// quotient, guarding the two UB cases exactly as MIPS hardware leaves them.
+// guest instruction path's `break`; the guest instruction path never actually divides by zero here (the divisor a3^0x3F
+// is the 6-bit-complemented cell low byte, non-zero in practice) — mirror the C99 truncating-toward-zero quotient,
+// guarding the two UB cases exactly as MIPS hardware leaves them.
 static inline int32_t mdiv(int32_t a, int32_t b) {
   if (b == 0) {
     return (a >= 0) ? -1 : 1; // MIPS div-by-0 quotient

@@ -15,13 +15,13 @@ FUN_8002A834 weapon-charge starburst is faithfully owned by a read-only display-
 
 ## Evidence
 
-RE: generated/shard_0.c gen_func_8002A834 and generated/shard_5.c gen_func_80027768. Runtime: scratch/logs/c14_charge_fresh.log reports B=PURE-ORACLE(interp+softGPU), native 10 copies/60 quads beginning f667. Saved pre-A vs fresh A: 0-pixel deltas f650/f660, then 843/642/939/1001 pixels at f670/f680/f690/f700 within the starburst footprint; B SHA256-identical before/after at all six frames. Durable summary: docs/findings/render.md #14.
+RE: authenticated executable/overlay evidence guest 0x8002A834 and authenticated executable/overlay evidence guest 0x80027768. Runtime: scratch/logs/c14_charge_fresh.log reports B=PURE-ORACLE(interp+softGPU), native 10 copies/60 quads beginning f667. Saved pre-A vs fresh A: 0-pixel deltas f650/f660, then 843/642/939/1001 pixels at f670/f680/f690/f700 within the starburst footprint; B SHA256-identical before/after at all six frames. Durable summary: docs/findings/render.md #14.
 
 The bounded route reached 261/484 owned addresses; the claim is scoped to this exercised controller path.
 
 Final combined-tree rerun: scratch/logs/c14_charge_combined.log contains the same 38 swingfx lines byte-for-byte, exits cleanly at f705, and its six B captures remain byte-identical. Combined A also contains the independent #55/#72 native graphic and is therefore not used as a whole-frame #14 isolation hash.
 
-Repin verification against definitive psxport `692b9b20e3d4a6194452522060fd2657c2235f40`: after the preliminary 9f framework forced a full recompilation-substrate re-emission, the final pin received another clean Clang 22.1.8 rebuild. `replays/bugs/weapon-charge-starburst.pad` again exited cleanly at f705. All 38 `swingfx` lines and every A and B capture at f650/f660/f670/f680/f690/f700 are byte-identical to the retained 9f run. Evidence: `scratch/logs/repin_692_c14.log`, `scratch/screenshots/repin_692_c14_f*_{A,B}.ppm`.
+Repin verification against definitive psxport `692b9b20e3d4a6194452522060fd2657c2235f40`: after the preliminary 9f framework forced a full source generation-substrate re-emission, the final pin received another clean Clang 22.1.8 rebuild. `replays/bugs/weapon-charge-starburst.pad` again exited cleanly at f705. All 38 `swingfx` lines and every A and B capture at f650/f660/f670/f680/f690/f700 are byte-identical to the retained 9f run. Evidence: `scratch/logs/repin_692_c14.log`, `scratch/screenshots/repin_692_c14_f*_{A,B}.ppm`.
 
 ## What would falsify it
 

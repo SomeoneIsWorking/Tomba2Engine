@@ -19,11 +19,12 @@
 //     kicks a directional grid snap via FUN_80041194 on first entry).
 //
 // WIRING: the sole caller (FUN_8004AAC4) is SUBSTRATE, which calls each of these by a DIRECT C call
-// (`func_<addr>(c)`, emitted by the recompiler) — that path checks the recompiler's OWN g_override[]
-// table, not rec_dispatch. So registerOverrides() below installs each address into the single
-// override registry (overrides::install) WITH a shard_set_override setter: the setter redirects the
-// substrate's direct call, while the same registry entry also serves any native caller reaching
-// these via rec_dispatch(c, addr) — both paths land here and get traced by the `dispatch` channel.
+// (`a direct guest-address call`, emitted by the recorded binary evidence) — that path checks the recorded binary
+// evidence's OWN image-qualified runtime dispatcher table, not typed runtime address dispatch. So registerOverrides()
+// below installs each address into the single override registry (tomba::native::declareOverride) WITH a
+// tomba::native::declareOverride setter: the setter redirects the substrate's direct call, while the same registry
+// entry also serves any native caller reaching these via typed runtime address dispatch(c, addr) — both paths land here
+// and get traced by the `dispatch` channel.
 #pragma once
 struct Core;
 class Game;
@@ -47,9 +48,9 @@ public:
   static void resolvePosition(Core *c); // FUN_800702C0(obj a0) -- position-source switch (obj+0x5e)
   static void approachTargetX(Core *c); // FUN_80070650(obj a0) -- ease obj+0x2e toward obj+0x60
 
-  // Wire all five guest addresses into the override registry (overrides::install), each with a
-  // shard_set_override setter so the substrate's direct func_<addr>(c) calls from FUN_8004AAC4
-  // redirect here too — a native caller reaching these via rec_dispatch also lands here and gets
+  // Wire all five guest addresses into the override registry (tomba::native::declareOverride), each with a
+  // tomba::native::declareOverride setter so the substrate's direct a direct guest-address call calls from FUN_8004AAC4
+  // redirect here too — a native caller reaching these via typed runtime address dispatch also lands here and gets
   // `dispatch`-channel traced.
   static void registerOverrides(Game *game);
 };

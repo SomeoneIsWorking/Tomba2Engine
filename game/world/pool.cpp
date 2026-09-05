@@ -3,20 +3,19 @@
 //
 // All method bodies below reimplement per-guest-address inits (0x800796DC, 0x8007B18C, 0x800263E8,
 // 0x80075240, 0x800783DC, 0x80078610, 0x80074F24) 1:1 from their disas. Sub-leaves each dispatches
-// stay PSX via rec_dispatch. Incidental v0 mirrors the recomp epilogue where noted so downstream
-// content-interface reads see the same value.
+// stay PSX via typed runtime address dispatch. Incidental v0 mirrors the guest instruction path epilogue where noted so
+// downstream content-interface reads see the same value.
 
 #include "pool.h"
 #include "core.h"
 #include "game_ctx.h"
+#include "guest_call.h"
 #include "mtx.h"       // class Mtx — libgte helpers (identity)
 #include "placement.h" // Placement::spawnWithParent (FUN_80072DDC)
 #include <stdint.h>
 
-void rec_dispatch(Core *, uint32_t);
-
 static inline void call_fn(Core *c, uint32_t fn) {
-  rec_dispatch(c, fn);
+  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 
 // 0x800796DC — zero the 104-byte control block at 0x800BF808, seed two bytes, clear ~30 scratchpad
@@ -56,11 +55,11 @@ void Pool::resetControlBlock() {
   c->mem_w8(S + 595, 0);
   c->mem_w8(S + 563, 0);
   c->mem_w8(S + 571, 0);
-  eng(c).sceneTransition.areaMaskTrigger((uint8_t)a4, (uint8_t)a5); // was rec_dispatch 0x800782F0
-  eng(c).modeStateArm.armFromAreaTable();                           // was rec_dispatch 0x800508A8
+  eng(c).sceneTransition.areaMaskTrigger((uint8_t)a4, (uint8_t)a5); // was typed runtime address dispatch 0x800782F0
+  eng(c).modeStateArm.armFromAreaTable();                           // was typed runtime address dispatch 0x800508A8
   uint32_t v = c->mem_r8(S + 566);
   uint8_t arg = (v == 0u || (uint32_t)(v - 7u) < 2u) ? 0u : 0xFFu;
-  eng(c).modeStateArm.arm(arg, arg, arg); // was rec_dispatch 0x8005082C
+  eng(c).modeStateArm.arm(arg, arg, arg); // was typed runtime address dispatch 0x8005082C
   c->mem_w8(0x800BF9D4u, 0);
   c->r[2] = 0x800C0000u; // incidental v0
 }
@@ -77,7 +76,7 @@ void Pool::clearBf548Region() {
 // FUN_800798F8 — the 5 typed object pools + list-head init. See pool.h for the pool table + free-
 // list head/count addresses. Each pool is built as a singly-linked free-list via slot[+0x24] =
 // next-slot (last is 0), with slot[+0x28] = pool class byte. All slot bodies are memset to 0.
-// Faithful to the recomp; the redundant slot[+0x0C] writes (memset already zeroed) are preserved
+// Faithful to the guest instruction path; the redundant slot[+0x0C] writes (memset already zeroed) are preserved
 // for byte-exact fidelity.
 void Pool::initTypedPools() {
   Core *c = core;
@@ -92,7 +91,7 @@ void Pool::initTypedPools() {
     uint32_t stride;   // slot size in bytes
     uint32_t count;    // slot count
     uint8_t klass;     // slot[+0x28] class byte
-    uint8_t meta;      // slot[+0x0C] byte (all zero, matches recomp)
+    uint8_t meta;      // slot[+0x0C] byte (all zero, matches guest instruction path)
     uint32_t headVar;  // free-list head ptr addr
     uint32_t countVar; // free-count byte addr
   };
@@ -112,7 +111,7 @@ void Pool::initTypedPools() {
       const uint32_t nextSlot = (i + 1 < p.count) ? (slot + p.stride) : 0u; // last-slot next = 0
       c->mem_w32(slot + 0x24u, nextSlot);
       c->mem_w8(slot + 0x28u, p.klass);
-      c->mem_w8(slot + 0x0Cu, p.meta); // matches the recomp's redundant write
+      c->mem_w8(slot + 0x0Cu, p.meta); // matches the guest instruction path's redundant write
     }
     c->mem_w32(p.headVar, p.base);
     c->mem_w8(p.countVar, (uint8_t)p.count);
@@ -381,7 +380,7 @@ void Pool::selectStateIndex(uint8_t area) {
     s0 = c->mem_r8(tbl + q);
   }
 
-  eng(c).audioDispatch.dispatch3Way(s0, 1); // native — was rec_dispatch 0x800750D8
+  eng(c).audioDispatch.dispatch3Way(s0, 1); // native — was typed runtime address dispatch 0x800750D8
   c->mem_w8(0x1F80023Bu, (uint8_t)s0);
   c->mem_w8(0x800BE22Bu, 0);
   c->r[2] = 0x800C0000u; // incidental v0

@@ -5,8 +5,8 @@
 // SCOPE (deferred-libgpu carve-out, per docs/port-progress.md §A): own the ORCHESTRATION + the direct
 // memsets/field writes + the 3 ENGINE-STATE callees (FUN_800963a0 font-bank select, FUN_80096370
 // font-bank2, FUN_800752b4 glyph-class table fill). KEEP the 8 libgpu/libgs/sound callees as
-// `rec_dispatch` IN-CONTEXT, exactly where the recomp body calls them — they do indirect draw-env /
-// FntLoad/FntOpen setup and carry the later-182b nested-dispatch divergence risk, so we do NOT own them.
+// `typed runtime address dispatch` IN-CONTEXT, exactly where the guest instruction path calls them — they do indirect
+// draw-env / FntLoad/FntOpen setup and carry the later-182b nested-dispatch divergence risk, so we do NOT own them.
 //
 // CRITICAL stack detail: two of the KEPT (dispatched) libgpu callees (0x80098330 / 0x80098d30) read a
 // struct that FUN_80075130 builds on ITS OWN STACK FRAME at sp+16. So this native orchestrator allocates
@@ -19,14 +19,14 @@
 #include "ui/font.h"
 #include "cfg.h" // cfg_logf fontq probe
 #include "core.h"
-#include "game.h"         // Game::activeRq — glyphQueuePush's dual-emit target
-#include "guest_abi.h"    // GuestFrame/guest_fn — ABI vocabulary (2026-07-15 readability pass)
-#include "rec_decls.h"    // generated oracle bodies + direct guest callee wrappers
+#include "game.h" // Game::activeRq — glyphQueuePush's dual-emit target
+#include "guest_abi.h"
+#include "guest_call.h"
+#include "guest_jal.h" // GuestFrame/guest_fn — ABI vocabulary (2026-07-15 readability pass)
+#include "native_override_catalog.h"
 #include "render.h"       // Render::mode.psxRender() gate
 #include "render_queue.h" // RenderQueue::push2dQuad + RQ_HUD
 #include <stdint.h>
-
-void rec_dispatch(Core *, uint32_t); // run a kept (libgpu/sound) callee in-context
 
 namespace {
 // Font-bank engine-state bytes (own leaves FUN_800963a0/FUN_80096370).
@@ -71,7 +71,7 @@ struct FntOpenParams {
 };
 
 // Font::init's own guest-stack frame (sp-=48; sw ra,40(sp)) — confirmed via
-// `tools/abi_extract.py 0x80075130 --contract`: the ONLY prologue spill is ra at sp+40.
+// `tools/binary ABI evidence 0x80075130 --contract`: the ONLY prologue spill is ra at sp+40.
 constexpr GuestFrameSpill kInitSpills[] = {{31, 40}};
 } // namespace
 
@@ -90,7 +90,7 @@ void Font::bankSelect(uint32_t bank) {
 }
 
 // FUN_80096370 — font-bank2 store. `*kFontBank2Addr(sb) = bank; jr ra`. Leaf; does NOT set v0
-// (recomp body left v0 untouched — the caller ignores it). At the init call bank=0.
+// (guest instruction path left v0 untouched — the caller ignores it). At the init call bank=0.
 void Font::bank2Store(uint32_t bank) {
   this->core->mem_w8(kFontBank2Addr, (uint8_t)bank);
 }
@@ -121,10 +121,10 @@ void Font::glyphClassFill(int32_t cls) {
   c->r[2] = (uint32_t)kGlyphClassCount; // loop-exit count (caller ignores)
 }
 
-// FUN_80075130 — font / text system init orchestrator. No args, no return. Mirrors the recomp frame
+// FUN_80075130 — font / text system init orchestrator. No args, no return. Mirrors the guest instruction path frame
 // (sp -= 48; sw ra,40(sp)) because dispatched callees #11/#13 read a struct at sp+16. Owns the direct
 // writes + the 3 engine callees; guest_fn-dispatches the 8 libgpu/sound callees IN ORDER, IN-CONTEXT,
-// using the jal-site ra constants `tools/abi_extract.py 0x80075130 --contract` reports per call site
+// using the jal-site ra constants `tools/binary ABI evidence 0x80075130 --contract` reports per call site
 // (single exit point — safe for GuestFrame RAII per the tail-jump gotcha in docs/faithful-execution.md).
 void Font::init() {
   Core *c = this->core;
@@ -133,7 +133,7 @@ void Font::init() {
   FntOpenParams fntOpen{c, fsp + 16u};
 
   // #1 sound/libgs/lib init — dispatched
-  guest_fn(c, 0x8008e040u, 0x80075140u);
+  tomba::guest::dispatchJalToReturn(*c, 0x8008e040u, 0x80075140u);
 
   // #2 FUN_800963a0(24) — own
   bankSelect(24);
@@ -141,15 +141,15 @@ void Font::init() {
   bank2Store(0);
 
   // #4 FUN_80098f90(0, 0xffffff) — dispatched
-  guest_fn(c, 0x80098f90u, 0x80075160u, 0u, 0x00ffffffu);
+  tomba::guest::dispatchJalToReturn(*c, 0x80098f90u, 0x80075160u, 0u, 0x00ffffffu);
   // #5 FUN_80091d70(1) — dispatched
-  guest_fn(c, 0x80091d70u, 0x80075168u, 1u);
+  tomba::guest::dispatchJalToReturn(*c, 0x80091d70u, 0x80075168u, 1u);
   // #6 FUN_80091b50(0x800be3d8, 14, 1) — dispatched
-  guest_fn(c, 0x80091b50u, 0x8007517Cu, 0x800be3d8u, 14u, 1u);
+  tomba::guest::dispatchJalToReturn(*c, 0x80091b50u, 0x8007517Cu, 0x800be3d8u, 14u, 1u);
   // #7 FUN_80090700(127, 127)  (a1 = a0 in the original delay slot) — dispatched
-  guest_fn(c, 0x80090700u, 0x80075188u, 127u, 127u);
+  tomba::guest::dispatchJalToReturn(*c, 0x80090700u, 0x80075188u, 127u, 127u);
   // #8 FUN_80090980() — dispatched
-  guest_fn(c, 0x80090980u, 0x80075190u);
+  tomba::guest::dispatchJalToReturn(*c, 0x80090980u, 0x80075190u);
 
   // direct: *kTextCursorFlagAddr = 0 (sw)  [800751a0/9c]
   c->mem_w32(kTextCursorFlagAddr, 0);
@@ -171,15 +171,15 @@ void Font::init() {
   fntOpen.setSize(16384);
 
   // #10 FUN_80098ce0(1) — dispatched
-  guest_fn(c, 0x80098ce0u, 0x800751F8u, 1u);
+  tomba::guest::dispatchJalToReturn(*c, 0x80098ce0u, 0x800751F8u, 1u);
   // #11 FUN_80098330(fsp+16) — dispatched (reads the FntOpen struct above)
-  guest_fn(c, 0x80098330u, 0x80075200u, fntOpen.base);
+  tomba::guest::dispatchJalToReturn(*c, 0x80098330u, 0x80075200u, fntOpen.base);
   // #12 FUN_80098150(1) — dispatched
-  guest_fn(c, 0x80098150u, 0x80075208u, 1u);
+  tomba::guest::dispatchJalToReturn(*c, 0x80098150u, 0x80075208u, 1u);
   // #13 FUN_80098d30(fsp+16) — dispatched (reads the FntOpen struct)
-  guest_fn(c, 0x80098d30u, 0x80075210u, fntOpen.base);
+  tomba::guest::dispatchJalToReturn(*c, 0x80098d30u, 0x80075210u, fntOpen.base);
   // #14 FUN_80098db0(1, 0xffffff) — dispatched
-  guest_fn(c, 0x80098db0u, 0x80075220u, 1u, 0x00ffffffu);
+  tomba::guest::dispatchJalToReturn(*c, 0x80098db0u, 0x80075220u, 1u, 0x00ffffffu);
 
   // direct: kTextStateByteA/B = 0 (sb each)
   c->mem_w8(kTextStateByteA, 0);
@@ -228,9 +228,9 @@ int32_t Font::measureLineWidth(Core *c, uint32_t strAddr) {
 
 namespace {
 // Font::drawText's guest-stack frame (sp-=32; sw ra,24(sp)) — confirmed via
-// `tools/abi_extract.py 0x80079374 --contract`: the only real register spill is ra at sp+24 (the
+// `tools/binary ABI evidence 0x80079374 --contract`: the only real register spill is ra at sp+24 (the
 // contract's other sp+16/sp+48 "r8" entries are the incoming/outgoing `color` stack argument, not
-// a callee-save spill — handled explicitly below, same as the recomp body does).
+// a callee-save spill — handled explicitly below, same as the guest instruction path does).
 constexpr GuestFrameSpill kDrawTextSpills[] = {{31, 24}};
 
 constexpr uint32_t kScrGlyphAdvance = 0x1F800180u; // per-call horizontal-advance scratch (role
@@ -239,7 +239,7 @@ constexpr uint32_t kScrGlyphAdvance = 0x1F800180u; // per-call horizontal-advanc
 
 // FUN_80079374 — WIDE-RE TIER DRAFT (2026-07-09), UNWIRED/UNVERIFIED. See header doc for the
 // full RE. Mirrors the guest frame because the callee it tail-calls (still-unowned FUN_80078CA8)
-// is reached via rec_dispatch and expects the caller's stack-arg convention (5th arg at sp+16 of
+// is reached via typed runtime address dispatch and expects the caller's stack-arg convention (5th arg at sp+16 of
 // ITS caller's frame, i.e. THIS frame after the sp-=32 descent) — single exit point, safe for
 // GuestFrame RAII per the tail-jump gotcha in docs/faithful-execution.md.
 void Font::drawText(Core *c, int32_t x, int32_t y, int32_t w, uint32_t str, uint32_t color) {
@@ -247,7 +247,7 @@ void Font::drawText(Core *c, int32_t x, int32_t y, int32_t w, uint32_t str, uint
 
   // a0' = (int16)x | (y << 16) — packed vertex {x: lo16 sign-extended, y: hi16}
   uint32_t vertex = (uint32_t)(int32_t)(int16_t)(uint16_t)x | ((uint32_t)y << 16);
-  // a1' = constant 0x00100008 (original a1/w argument is discarded — confirmed from the gen body)
+  // a1' = constant 0x00100008 (original a1/w argument is discarded — confirmed from the guest-visible behavior)
   constexpr uint32_t kA1Const = 0x00100008u;
   // a2' = (int16)w — sign-extended low16(w) ONLY. BUG FIX (verify pass): the prior draft OR'd a
   // fabricated "h" arg into the upper 16 bits (see font.h header for the call-site trace proving
@@ -256,16 +256,17 @@ void Font::drawText(Core *c, int32_t x, int32_t y, int32_t w, uint32_t str, uint
 
   c->mem_w16(kScrGlyphAdvance, 32); // sh v0(32),384(v1) — scratchpad write, role unconfirmed
 
-  c->mem_w32(c->r[29] + 16, color);                                   // 5th arg on stack, at the callee's expected slot
-  guest_fn(c, 0x80078CA8u, 0x800793B4u, vertex, kA1Const, size, str); // FUN_80078CA8 (still unowned)
+  c->mem_w32(c->r[29] + 16, color); // 5th arg on stack, at the callee's expected slot
+  tomba::guest::dispatchJalToReturn(
+      *c, 0x80078CA8u, 0x800793B4u, vertex, kA1Const, size, str); // FUN_80078CA8 (still unowned)
 }
 
-// ORACLE: gen_func_80079324
+// ORACLE: guest 0x80079324
 // FUN_80079324 — SIBLING of drawText (0x80079374): the SAME arg-packing wrapper around the same
 // still-unowned emitter FUN_80078CA8, differing only in the a1 constant (0x00080008 = {w:8,h:8},
 // half-height 8x8 glyphs vs drawText's 0x00100008) and the scratchpad advance value it writes to
 // 0x1F800180 before the call (-32 vs drawText's +32), and the tail-call return-address constant
-// (0x80079364 vs 0x800793B4). Byte-faithful to gen_func_80079324; mirrors the guest frame (sp-=32,
+// (0x80079364 vs 0x800793B4). Byte-faithful to guest 0x80079324; mirrors the guest frame (sp-=32,
 // ra spilled at sp+24) exactly as drawText does — single exit point, safe for GuestFrame RAII.
 void Font::drawTextSmall(Core *c, int32_t x, int32_t y, int32_t w, uint32_t str, uint32_t color) {
   GuestFrame<32, 1> frame(c, kDrawTextSpills);
@@ -286,12 +287,12 @@ void Font::drawTextSmall(Core *c, int32_t x, int32_t y, int32_t w, uint32_t str,
 
   c->mem_w16(kScrGlyphAdvance, (uint16_t)-32); // sh -32,384(v1) — scratchpad advance = -32
 
-  c->mem_w32(c->r[29] + 16, color);            // 5th arg on stack, at the callee's expected slot
-  guest_dispatch(c, 0x80079364u, 0x80078CA8u); // ra=0x80079364; FUN_80078CA8 (still unowned)
+  c->mem_w32(c->r[29] + 16, color);                                // 5th arg on stack, at the callee's expected slot
+  tomba::guest::dispatchJalToReturn(*c, 0x80078CA8u, 0x80079364u); // ra=0x80079364; FUN_80078CA8 (still unowned)
 }
 
 // FUN_80078CA8 — the font/glyph emitter drawText() tail-calls. WIDE-RE TIER DRAFT (2026-07-10,
-// disjoint band), UNWIRED/UNVERIFIED. Faithful to gen_func_80078CA8 (generated/shard_5.c:12298),
+// disjoint band), UNWIRED/UNVERIFIED. Faithful to guest 0x80078CA8 (authenticated executable/overlay evidence),
 // LIVE BODY ONLY (gen-C lines 1-210; 211-402 is confirmed-unreachable dead code, no label targets
 // it). See font.h for the full RE writeup (per-byte dispatch table, scratch-struct layout,
 // dead-tail note). Guest-stack frame mirrored (sp-56, spill ra/s0-s5 at their RE'd offsets: r16..
@@ -305,7 +306,7 @@ void Font::drawTextSmall(Core *c, int32_t x, int32_t y, int32_t w, uint32_t str,
 // 4bpp, op 0x65 = raw (color ignored). Read-only on guest state. The struct is the SCRATCHPAD
 // block at 0x1F800000 (glyphEmit's r18 = 8064<<16), not main RAM.
 void Font::glyphQueuePush(Core *c) {
-  if (c->game->oracle || c->rsub.mode.psxRender()) {
+  if (c->rsub.mode.psxRender()) {
     return; // guest OT walk owns the picture
   }
   const uint32_t st = 0x1F800000u;
@@ -447,7 +448,10 @@ L_80078D74: {
   c->r[5] = c->r[5] << 16;
   c->r[31] = 0x80078DA8u;
   c->r[5] = (uint32_t)((int32_t)c->r[5] >> 16);
-  rec_dispatch(c, 0x80078988u); // FUN_80078988 -- still unowned, out of this wave's band
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x80078988u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // FUN_80078988 -- still unowned, out of this wave's band
   c->r[2] = (uint32_t)c->mem_r16(c->r[18] + 8u);
   c->r[16] = c->r[16] + 1u;
   goto L_80078F70;
@@ -470,7 +474,7 @@ L_80078DB4: {
   c->r[5] = c->r[5] << 16;
   c->r[31] = 0x80078DE8u;
   c->r[5] = (uint32_t)((int32_t)c->r[5] >> 16);
-  rec_dispatch(c, 0x80078988u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80078988u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[2] = (uint32_t)c->mem_r16(c->r[18] + 8u);
   c->r[16] = c->r[16] + 1u;
   goto L_80078F70;
@@ -493,7 +497,7 @@ L_80078DF4: {
   c->r[5] = c->r[5] << 16;
   c->r[31] = 0x80078E28u;
   c->r[5] = (uint32_t)((int32_t)c->r[5] >> 16);
-  rec_dispatch(c, 0x80078988u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80078988u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[2] = (uint32_t)c->mem_r16(c->r[18] + 8u);
   c->r[16] = c->r[16] + 1u;
   goto L_80078F70;
@@ -515,7 +519,7 @@ L_80078E34: {
   c->r[5] = c->r[5] << 16;
   c->r[31] = 0x80078E64u;
   c->r[5] = (uint32_t)((int32_t)c->r[5] >> 16);
-  rec_dispatch(c, 0x80078988u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80078988u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[2] = (uint32_t)c->mem_r16(c->r[18] + 8u);
   c->r[16] = c->r[16] + 1u;
   goto L_80078F70;
@@ -614,7 +618,7 @@ L_80078F04:
   // prepended as a guest packet is ALSO pushed to the native render queue, so pc_render draws text
   // (field HUD, SOP captions, attract) without transcribing the OT. Host-only: reads the completed
   // scratch struct (+8 xy, +12 uv, +14 clut, +16 wh; op 0x65 = raw textured sprite, tpage 0x1F fixed
-  // by the tail's func_80083DE0 header), writes NO guest byte and NO register — the faithful body
+  // by the tail's guest 0x80083DE0 header), writes NO guest byte and NO register — the faithful body
   // above is unaffected. Gated off under psx_render/oracle where the guest OT walk draws the packet
   // itself (a push there would double-draw). Special-char icon arms (FUN_80078988) stay substrate —
   // their icons are a follow-up producer.
@@ -632,7 +636,7 @@ L_80078F78:
     }
   }
 L_80078F88:
-  // tail: final OT-chained packet via the already-owned func_80083DE0 (draw-mode/texwin header).
+  // tail: final OT-chained packet via the already-owned guest 0x80083DE0 (draw-mode/texwin header).
   c->r[5] = c->r[0] + c->r[0];
   c->r[6] = c->r[5] + c->r[0];
   c->r[17] = 0x800C0000u - 2748u; // PKT_POOL_PTR
@@ -641,7 +645,10 @@ L_80078F88:
   c->mem_w32(c->r[29] + 16u, c->r[0]);
   c->r[31] = 0x80078FA8u;
   c->r[4] = c->r[16] + c->r[0];
-  rec_dispatch(c, 0x80083DE0u); // func_80083DE0 -- already owned, process-globally wired
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x80083DE0u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // guest 0x80083DE0 -- already owned, process-globally wired
   c->r[2] = 0x800F0000u;
   c->r[4] = c->mem_r32(c->r[2] - 10040u);
   c->r[2] = c->r[19] << 2;
@@ -674,15 +681,16 @@ L_80078F88:
 
 // ------------------------------------------------------------------------------------------------
 // WIRING (verify pass, 2026-07-10, docs/fleet-workflow.md §9): drawText re-diffed line-by-line
-// against generated/shard_7.c:11490 -- one real bug found+fixed (the fabricated "h" 6th argument,
+// against authenticated executable/overlay evidence -- one real bug found+fixed (the fabricated "h" 6th argument,
 // see font.h header for the full call-site trace). glyphEmit re-diffed against
-// generated/shard_5.c:12298 -- byte-exact, no bugs found (also confirms the dead-tail-code claim:
+// authenticated executable/overlay evidence -- byte-exact, no bugs found (also confirms the dead-tail-code claim:
 // the live body's `return` at gen-C line 210 has no label past it). Both are PLAIN intra-shard C
-// calls at their call sites (func_X(c), not rec_dispatch), so they wire via the oracle-gated
-// engine_set_override_main thunk -- SBS core B keeps running the pure gen_func_* body.
+// calls at their call sites (the cited guest address(c), not typed runtime address dispatch), so they wire via the
+// oracle-gated tomba::native::declareOverride thunk -- SBS core B keeps running the pure original guest instructions
+// body.
 namespace {
 // ov_drawText: extracts drawText's typed args from the guest ABI registers at function entry
-// (a0..a2 = x,y,w; a3 = str; caller's stack[+16] = color -- matches gen_func_80079374's own read of
+// (a0..a2 = x,y,w; a3 = str; caller's stack[+16] = color -- matches guest 0x80079374's own read of
 // sp+48 AFTER its own sp-=32, i.e. the SAME physical slot read here BEFORE any descent).
 void ov_drawText(Core *c) {
   int32_t x = (int32_t)c->r[4];
@@ -775,7 +783,7 @@ void emitGuestIconSprite(Core *c, uint32_t bucket) {
 }
 
 void queueHostIconSprite(Core *c, const IconScratch &glyph) {
-  if (c->game->oracle || c->rsub.mode.psxRender()) {
+  if (c->rsub.mode.psxRender()) {
     return;
   }
   const int x = glyph.x(), y = glyph.y();
@@ -815,7 +823,7 @@ void queueHostIconSprite(Core *c, const IconScratch &glyph) {
 
 // iconGlyphEmit — FUN_80078988, the SJIS/token ICON-GLYPH string emitter glyphEmit's 0x01..0x04
 // special-char arms call (a0=x, a1=y, a2=size-class w, a3=2-byte-token string; 5th stack arg =
-// OT bucket). RE from gen_func_80078988 (generated/shard_4.c:11802): second scratchpad glyph
+// OT bucket). RE from guest 0x80078988 (authenticated executable/overlay evidence): second scratchpad glyph
 // struct at 0x1F800020, op-0x75 8x8 sprites, clut from the size class (w<16 → row w+496 x-nibble
 // 0x3F, else w+480/0x3E). Token decode per 2-byte big-endian pair:
 //   0x0A0A                         -> newline (x = arg x, y += 8)
@@ -827,9 +835,9 @@ void queueHostIconSprite(Core *c, const IconScratch &glyph) {
 // Emit: glyph quad at (x,y) uv=((code&31)<<3, ((code&0xFFF)>>5)<<3), x += 8; if code&0x8000 a
 // combining-mark quad at the advanced x (u = code&0x1000 ? 64 : 56, v=64) then x += 5 more.
 // One walk owns both outputs: exact guest packet/state writes for the retained PSX execution seam,
-// and read-only RQ_HUD items for pc_render. The former tap called gen_func_80078988 and then decoded
+// and read-only RQ_HUD items for pc_render. The former tap called guest 0x80078988 and then decoded
 // the same string again; that duplicate authority is gone.
-// ORACLE: gen_func_80078988
+// ORACLE: guest 0x80078988
 void Font::iconGlyphEmit(Core *c) {
   const uint32_t rawOriginX = c->r[4];
   const int originX = (int16_t)(uint16_t)c->r[4];
@@ -880,7 +888,7 @@ void Font::iconGlyphEmit(Core *c) {
         c->r[4] = c->mem_r32(tokenEntry);
         c->r[5] = cursor;
         c->r[6] = 2u;
-        guest_call(c, 0x80078AA4u, func_8009A640);
+        tomba::guest::dispatchJalToReturn(*c, 0x8009A640u, 0x80078AA4u);
         if (c->r[2] == 0) {
           rawCode = c->mem_r16(tokenEntry + 4u);
           break;
@@ -923,7 +931,7 @@ void Font::iconGlyphEmit(Core *c) {
   c->r[5] = 0u;
   c->r[6] = 0u;
   c->r[7] = 31u;
-  guest_call(c, 0x80078C30u, func_80083DE0);
+  tomba::guest::dispatchJalToReturn(*c, 0x80083DE0u, 0x80078C30u);
 
   const uint32_t otSlot = iconOtSlot(c, savedBucket);
   c->r[4] = otSlot;
@@ -941,9 +949,8 @@ void font_wide_re_install() {
     return;
   }
   done = true;
-  extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_main(0x80079374u, ov_drawText, gen_func_80079374);
-  engine_set_override_main(0x80079324u, ov_drawTextSmall, gen_func_80079324); // 8x8 sibling of drawText
-  engine_set_override_main(0x80078CA8u, Font::glyphEmit, gen_func_80078CA8);
-  engine_set_override_main(0x80078988u, Font::iconGlyphEmit, gen_func_80078988); // icon/SJIS glyph strings
+  tomba::native::declareOverride(0x80079374u, "ov_drawText", ov_drawText);
+  tomba::native::declareOverride(0x80079324u, "ov_drawTextSmall", ov_drawTextSmall); // 8x8 sibling of drawText
+  tomba::native::declareOverride(0x80078CA8u, "Font::glyphEmit", Font::glyphEmit);
+  tomba::native::declareOverride(0x80078988u, "Font::iconGlyphEmit", Font::iconGlyphEmit); // icon/SJIS glyph strings
 }

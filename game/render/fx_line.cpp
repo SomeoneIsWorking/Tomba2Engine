@@ -29,7 +29,7 @@
 //
 // PORTED, NOT TAPPED: every point is read from the emitting object's own state and projected through
 // projComposeCamera — the fps60-lerped scene camera — so the ropes interpolate like every other native
-// producer. No gen body runs for the picture, no gte_op, no guest write. The screen-space expansion of
+// producer. No guest-visible behavior runs for the picture, no gte_op, no guest write. The screen-space expansion of
 // a segment into a quad lives HERE, in the producer, so the render queue stays quads-only.
 #include "core.h"
 #include "game.h"
@@ -331,7 +331,7 @@ void Render::worldLineDraw(int ax, int ay, int az, int bx, int by, int bz) {
 //
 // RE (Ghidra scratch/decomp/fx_e08c.c + raw LWC2/COP2 decoding — the decompile alone was NOT enough,
 // see below; re-derived 2026-08-06 against the emitter's own instruction stream in
-// generated/ov_a00_shard_0.c `ov_a00_gen_8013E08C`). The guest:
+// authenticated executable/overlay evidence `overlay guest 0x8013E08C`). The guest:
 //   * builds a UNIFORM SCALE matrix in scratchpad 0x1F800000, all three CR-packed diagonal slots =
 //     (s16)node+0x50 << 4 (1.3.12), off-diagonals cleared;
 //   * derives the stroke COLOUR from the SAME field — v = 0x80 - ((node+0x50 - 0x14) * 0x80) / 200 —
@@ -370,7 +370,7 @@ void Render::worldLineDraw(int ax, int ay, int az, int bx, int by, int bz) {
 // the ring clear of the ground it sits on. The native queue orders by real per-vertex depth (the
 // engine owns ordering — see CLAUDE.md), so there is no OT index to bias.
 //
-// Read-only, no gen body, projects through the native (fps60-lerped) camera — so the ring
+// Read-only, no guest-visible behavior, projects through the native (fps60-lerped) camera — so the ring
 // interpolates like the rest of this file's producers.
 void Render::shockwaveRingRender(uint32_t node) {
   Core *c = mCore;

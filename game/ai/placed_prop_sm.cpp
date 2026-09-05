@@ -15,29 +15,12 @@
 #include "placed_prop_sm.h"
 #include "core.h"
 #include "game.h"
-#include "guest_abi.h" // GuestFrame / GuestReg / guest_call / guest_dispatch
-#include "override_registry.h"
-#include "rec_decls.h"
+#include "guest_abi.h"
+#include "guest_jal.h" // GuestFrame / GuestReg / guest_call / guest_dispatch
+#include "native_override_catalog.h"
 
 // Resident MAIN.EXE callees. Declared here (not inline in the body — CLAUDE.md) so guest_call can
 // take their address; every one of them routes through its own override thunk.
-extern void func_80040410(Core *); // build the prop's two display pieces
-extern void func_8003FBC4(Core *); // kind 0 init — grid resolve + slope align
-extern void func_8003FC00(Core *); // kind 1 init — step +Z until the grid probe succeeds, then align
-extern void func_8003FC78(Core *); // kind 4 init — yaw straight from node[0x2A] << 4
-extern void func_8003FC8C(Core *); // kind 6 init — RETRIES until this prop's room is the active one
-extern void func_8003FD10(Core *); // sub 0 tick — wobble the two pieces
-extern void func_8003FED8(Core *); // sub 1 tick — wobble + SFX 0x19
-extern void func_8003FFCC(Core *); // sub 2 tick — SFX 0x1A + spawn the prop's contents
-extern void func_8004022C(Core *); // sub 3 tick — gravity fall, burst + despawn on landing
-extern void func_80040390(Core *); // sub 4 tick — one-shot burst + despawn on contact
-extern void func_8003FE00(Core *); // finish sub 2
-extern void func_80040B48(Core *); // SceneEvents::arm (owned, game/scene/scene_events.cpp)
-extern void func_80077E7C(Core *); // Cull::enqueueQueueA (owned, game/render/cull.h)
-extern void func_8007778C(Core *); // Actor::boundsCull   (owned, game/object/actor.h)
-extern void func_800517F8(Core *); // build the node's matrix from its eulers + draw its pieces
-extern void func_8007A624(Core *); // Spawn::despawn
-extern void shard_set_override(uint32_t, void (*)(Core *));
 
 // ---------------------------------------------------------------------------------------------
 // Guest globals this state machine reads.
@@ -149,13 +132,13 @@ bool roomIsActive(Core *c, const PlacedProp &prop) {
 
 } // namespace
 
-// Guest-stack frame contract, from `abi_extract.py 80040558 --scaffold --guestabi`.
+// Guest-stack frame contract, from `binary ABI evidence 80040558 --scaffold --guestabi`.
 static constexpr GuestFrameSpill kSpills_80040558[2] = {
     {16, 16},
     {31 /*ra*/, 20},
 };
 
-// ORACLE: gen_func_80040558
+// ORACLE: guest 0x80040558
 void PlacedPropSm::step(Core *c) {
   GuestFrame<24, 2> frame(c, kSpills_80040558);
   GuestReg<16> node(c); // s0 = the node, live across every call (see header TRAP)
@@ -173,7 +156,7 @@ void PlacedPropSm::step(Core *c) {
       // short (it then parks the prop in state 3 itself), in which case we stay in sub 0 and retry.
       c->r[5] = prop.variant();
       c->r[4] = node;
-      guest_call(c, kRaBuildPieces, func_80040410);
+      tomba::guest::dispatchJalToReturn(*c, 0x80040410u, kRaBuildPieces);
       if (c->r[2] != 0) {
         prop.setPropSub((uint8_t)(prop.sub() + 1));
       }
@@ -197,32 +180,32 @@ void PlacedPropSm::step(Core *c) {
       switch (prop.kind()) {
       case kKindGroundAligned: // JT[0] = 0x80040650
         c->r[4] = node;
-        guest_call(c, kRaKind0Init, func_8003FBC4);
+        tomba::guest::dispatchJalToReturn(*c, 0x8003FBC4u, kRaKind0Init);
         break;
       case kKindGroundProbeAhead: // JT[1] = 0x80040660
         c->r[4] = node;
-        guest_call(c, kRaKind1Init, func_8003FC00);
+        tomba::guest::dispatchJalToReturn(*c, 0x8003FC00u, kRaKind1Init);
         break;
       case kKindOwnedPiece: // JT[2] = 0x80040670
         c->r[4] = node;
-        guest_dispatch(c, kRaKind2Init, kFnKind2Init);
+        tomba::guest::dispatchJalToReturn(*c, kFnKind2Init, kRaKind2Init);
         break;
       case kKindFixedYaw: // JT[4] = 0x80040680
         c->r[4] = node;
-        guest_call(c, kRaKind4Init, func_8003FC78);
+        tomba::guest::dispatchJalToReturn(*c, 0x8003FC78u, kRaKind4Init);
         break;
       case kKindOverlayA04: // JT[5] = 0x80040690
         c->r[4] = node;
-        guest_dispatch(c, kRaKind5Init, kFnKind5Init);
+        tomba::guest::dispatchJalToReturn(*c, kFnKind5Init, kRaKind5Init);
         break;
       case kKindRoomGatedGround: // JT[6] = 0x800406A0
         c->r[4] = node;
-        guest_call(c, kRaKind6Init, func_8003FC8C);
+        tomba::guest::dispatchJalToReturn(*c, 0x8003FC8Cu, kRaKind6Init);
         initDone = (c->r[2] != 0);
         break;
       case kKindOverlayA05: // JT[7] = 0x800406B0
         c->r[4] = node;
-        guest_dispatch(c, kRaKind7Init, kFnKind7Init);
+        tomba::guest::dispatchJalToReturn(*c, kFnKind7Init, kRaKind7Init);
         initDone = (c->r[2] != 0);
         break;
       default: // JT[3], and kind >= 8 -> 0x800406C0
@@ -260,27 +243,27 @@ void PlacedPropSm::step(Core *c) {
     switch (prop.sub()) {
     case kActiveWobble: // JT[0] = 0x80040750
       c->r[4] = node;
-      guest_call(c, kRaSub0Tick, func_8003FD10);
+      tomba::guest::dispatchJalToReturn(*c, 0x8003FD10u, kRaSub0Tick);
       break;
     case kActiveWobbleSfx: // JT[1] = 0x80040760
       c->r[4] = node;
-      guest_call(c, kRaSub1Tick, func_8003FED8);
+      tomba::guest::dispatchJalToReturn(*c, 0x8003FED8u, kRaSub1Tick);
       break;
     case kActiveReleaseDrop: // JT[2] = 0x80040770
       c->r[4] = node;
-      guest_call(c, kRaSub2Tick, func_8003FFCC);
+      tomba::guest::dispatchJalToReturn(*c, 0x8003FFCCu, kRaSub2Tick);
       break;
     case kActiveFall: // JT[3] = 0x80040780
       c->r[4] = node;
-      guest_call(c, kRaSub3Tick, func_8004022C);
+      tomba::guest::dispatchJalToReturn(*c, 0x8004022Cu, kRaSub3Tick);
       break;
     case kActiveBurstOnContact: // JT[4] = 0x80040790
       c->r[4] = node;
-      guest_call(c, kRaSub4Tick, func_80040390);
+      tomba::guest::dispatchJalToReturn(*c, 0x80040390u, kRaSub4Tick);
       break;
     case kActiveOverlayTick: // JT[5] = 0x800407A0
       c->r[4] = node;
-      guest_dispatch(c, kRaSub5Tick, kFnSub5Tick);
+      tomba::guest::dispatchJalToReturn(*c, kFnSub5Tick, kRaSub5Tick);
       break;
     default:
       break; // node[5] >= 6 -> straight to 0x800407A8
@@ -290,7 +273,7 @@ void PlacedPropSm::step(Core *c) {
     switch (prop.kind()) {
     case kKindOverlayA05: // JT[7] = 0x800407D8
       c->r[4] = node;
-      guest_dispatch(c, kRaKind7PreDraw, kFnKind7PreDraw);
+      tomba::guest::dispatchJalToReturn(*c, kFnKind7PreDraw, kRaKind7PreDraw);
       [[fallthrough]];
     case kKindGroundAligned: // JT[0,1,3,4,6] = 0x800407E0
     case kKindGroundProbeAhead:
@@ -305,24 +288,24 @@ void PlacedPropSm::step(Core *c) {
         }
         prop.setPropVisible(1);
         c->r[4] = node;
-        guest_call(c, kRaActiveEnqueue, func_80077E7C);
+        tomba::guest::dispatchJalToReturn(*c, 0x80077E7Cu, kRaActiveEnqueue);
       } else { // 0x80040834
         if ((prop.flags28() & kFlagSkipCull) != 0) {
           goto activeClearGate;
         }
         if (c->mem_r8(kGblAreaId) == kAreaOverlayCull) {
           c->r[4] = node;
-          guest_dispatch(c, kRaActiveOverlayCull, kFnOverlayCull);
+          tomba::guest::dispatchJalToReturn(*c, kFnOverlayCull, kRaActiveOverlayCull);
         } else {
           c->r[4] = node;
-          guest_call(c, kRaActiveBoundsCull, func_8007778C);
+          tomba::guest::dispatchJalToReturn(*c, 0x8007778Cu, kRaActiveBoundsCull);
         }
         if (c->r[2] == 0) {
           goto activeClearGate; // 0x80040870 — culled
         }
       }
       c->r[4] = node; // 0x80040878 — visible: transform + draw
-      guest_call(c, kRaActiveDraw, func_800517F8);
+      tomba::guest::dispatchJalToReturn(*c, 0x800517F8u, kRaActiveDraw);
       prop.setPropGate(0);
       goto activeEndOfFrame;
     }
@@ -334,15 +317,15 @@ void PlacedPropSm::step(Core *c) {
         goto activeClearGate;
       }
       c->r[4] = node;
-      guest_dispatch(c, kRaOwnedPieceSync, kFnOwnedPieceSync);
+      tomba::guest::dispatchJalToReturn(*c, kFnOwnedPieceSync, kRaOwnedPieceSync);
       c->r[4] = node;
-      guest_call(c, kRaOwnedPieceEnqueue, func_80077E7C);
+      tomba::guest::dispatchJalToReturn(*c, 0x80077E7Cu, kRaOwnedPieceEnqueue);
       prop.setPropGate(0);
       goto activeEndOfFrame;
     }
     case kKindOverlayA04: // JT[5] = 0x800408C0
       c->r[4] = node;
-      guest_dispatch(c, kRaKind5Draw, kFnKind5Draw);
+      tomba::guest::dispatchJalToReturn(*c, kFnKind5Draw, kRaKind5Draw);
       [[fallthrough]];
     default: // kind >= 8 lands here too
       break;
@@ -361,7 +344,7 @@ void PlacedPropSm::step(Core *c) {
     case kFinishArmEvent: // JT[1] = 0x80040904
       if (prop.variant() == 0 && c->mem_r8(kGblFinishGate) == 0) {
         c->r[4] = 56; // scene-event id 56
-        guest_call(c, kRaArmSceneEvent, func_80040B48);
+        tomba::guest::dispatchJalToReturn(*c, 0x80040B48u, kRaArmSceneEvent);
       }
       if (prop.kind() != kKindOwnedPiece) {
         goto finishRender; // 0x8004092C
@@ -370,11 +353,11 @@ void PlacedPropSm::step(Core *c) {
       break;
     case kFinishRestart: // JT[2] = 0x8004094C
       c->r[4] = node;
-      guest_call(c, kRaFinishSub2, func_8003FE00);
+      tomba::guest::dispatchJalToReturn(*c, 0x8003FE00u, kRaFinishSub2);
       break;
     case kFinishWobbleSfx: // JT[3] = 0x8004095C
       c->r[4] = node;
-      guest_call(c, kRaFinishSub3, func_8003FED8);
+      tomba::guest::dispatchJalToReturn(*c, 0x8003FED8u, kRaFinishSub3);
       break;
     default:
       break; // JT[0], JT[4], node[5] >= 5
@@ -386,9 +369,9 @@ void PlacedPropSm::step(Core *c) {
     }
     prop.setPropVisible(c->mem_r8(prop.owner() + PlacedProp::kOffVisible));
     c->r[4] = node;
-    guest_dispatch(c, kRaFinishOwnedSync, kFnOwnedPieceSync);
+    tomba::guest::dispatchJalToReturn(*c, kFnOwnedPieceSync, kRaFinishOwnedSync);
     c->r[4] = node;
-    guest_call(c, kRaFinishOwnedEnqueue, func_80077E7C);
+    tomba::guest::dispatchJalToReturn(*c, 0x80077E7Cu, kRaFinishOwnedEnqueue);
     break;
 
   finishRender: // 0x8004099C
@@ -399,31 +382,31 @@ void PlacedPropSm::step(Core *c) {
       }
       prop.setPropVisible(1);
       c->r[4] = node;
-      guest_call(c, kRaFinishEnqueue, func_80077E7C);
+      tomba::guest::dispatchJalToReturn(*c, 0x80077E7Cu, kRaFinishEnqueue);
     } else { // 0x800409EC
       if ((prop.flags28() & kFlagSkipCull) != 0) {
         break;
       }
       if (c->mem_r8(kGblAreaId) == kAreaOverlayCull) {
         c->r[4] = node;
-        guest_dispatch(c, kRaFinishOverlayCull, kFnOverlayCull);
+        tomba::guest::dispatchJalToReturn(*c, kFnOverlayCull, kRaFinishOverlayCull);
       } else {
         c->r[4] = node;
-        guest_call(c, kRaFinishBoundsCull, func_8007778C);
+        tomba::guest::dispatchJalToReturn(*c, 0x8007778Cu, kRaFinishBoundsCull);
       }
       if (c->r[2] == 0) {
         break; // 0x80040A28 — culled
       }
     }
     c->r[4] = node; // 0x80040A30
-    guest_call(c, kRaFinishDraw, func_800517F8);
+    tomba::guest::dispatchJalToReturn(*c, 0x800517F8u, kRaFinishDraw);
     break;
   }
 
   // ======================= STATE 3 — DESPAWN (0x80040A40) =====================
   case kStateDespawn:
     c->r[4] = node;
-    guest_call(c, kRaDespawn, func_8007A624);
+    tomba::guest::dispatchJalToReturn(*c, 0x8007A624u, kRaDespawn);
     break;
 
   default:
@@ -432,5 +415,5 @@ void PlacedPropSm::step(Core *c) {
 }
 
 void PlacedPropSm::registerOverrides(Game *) {
-  overrides::install(0x80040558u, "PlacedPropSm::step", &PlacedPropSm::step, gen_func_80040558, shard_set_override);
+  tomba::native::declareOverride(0x80040558u, "PlacedPropSm::step", &PlacedPropSm::step);
 }

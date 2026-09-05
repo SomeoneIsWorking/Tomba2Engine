@@ -9,8 +9,8 @@ camera path driven twice, and a FRAME SERIES to look at.
 WHY IT IS NOT A SEPARATE TEST BINARY. The whole value of this tool is that it exercises the code path
 that SHIPS. A second executable would have its own renderer, its own object graph and its own camera,
 and would drift from the game within a week — it would test something the real game never does, which
-is worse than no test at all. So this is a CLIENT: it drives the real `scratch/bin/tomba2_port` over
-the debug server that already exists (external/psxport/runtime/recomp/dbg_server.cpp). Nothing here
+is worse than no test at all. So this is a CLIENT: it drives the real `build/bin/tomba2_port` over
+the debug server that already exists (external/psxport/runtime/psx/dbg_server.cpp). Nothing here
 changes what the game does; with the sandbox not in use, not one byte of the shipping path differs.
 
 WHY SPAWNING IS `call`, NOT A NEW MECHANISM. The debug server can already invoke a guest function on
@@ -105,7 +105,7 @@ def launch(port, extra_env=None, timeout=90):
                PSXPORT_VK_HEADLESS="1", PSXPORT_NOAUDIO="1", PSXPORT_NOPACE="1",
                PSXPORT_DEBUG_SERVER=str(port), PSXPORT_AUTO_SKIP="1")
     env.update(extra_env or {})
-    exe = f"{REPO}/scratch/bin/tomba2_port"
+    exe = f"{REPO}/build/bin/tomba2_port"
     if not os.path.exists(exe):
         sys.exit(f"sandbox: {exe} does not exist — build first (cmake --build build --target tomba2_port -j6)")
     with open(log, "wb") as fp:

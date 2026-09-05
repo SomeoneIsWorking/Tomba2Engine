@@ -7,9 +7,9 @@ bug (Tomba falls through the floor in the fisherman cutscene; f400 model corrupt
 **full nothing-global FIRST, then build the in-process dual-core diff, then diff-driven terrain fix.**
 
 ## Architecture
-- `class Game` (runtime/recomp/game.h) OWNS `Core core` (CPU regs + 2 MB RAM + scratchpad) **plus**
+- `class Game` (runtime/psx/game.h) OWNS `Core core` (CPU regs + 2 MB RAM + scratchpad) **plus**
   every subsystem's state as a `*State` sub-struct member. `Game()` sets `core.game = this`.
-- `Core` keeps a back-pointer `Game* game`. The interpreter + generated shards already thread
+- `Core` keeps a back-pointer `Game* game`. The interpreter + authenticated executable/overlay evidence already thread
   `Core* c` everywhere, so we do NOT re-thread the CPU handle. Subsystem code that holds a `Core* c`
   reaches migrated state via `c->game->...`; new subsystem code may take `Game*` directly.
 - `boot.cpp`: `Game* game = new Game(); Core* c = &game->core;` — single instance today; two instances
@@ -28,7 +28,7 @@ bug (Tomba falls through the floor in the fisherman cutscene; f400 model corrupt
   → SIGSEGV in interpreted guest code (looks unrelated). Always `build_port.sh all` per phase.
 
 ## Global inventory (file-scope `static` counts; targets, hardest last)
-runtime/recomp: gpu_gpu 107, gpu_native 46, gte_beetle 20, interp 16, native_fmv 12, dbg_server 12,
+runtime/psx: gpu_gpu 107, gpu_native 46, gte_beetle 20, interp 16, native_fmv 12, dbg_server 12,
 gpu_trace 11, hle 10, native_stub 9, cd_override 8, native_boot 7, imgui_overlay 6, pad_input 5,
 memcard 5, sync_overrides 4, threads 3, timing 2, mem 1, boot 1. (~459 lines; many are CONST tables /
 fn-ptr tables / string literals that are read-only and may stay shared — only MUTABLE state must move.)
@@ -197,7 +197,7 @@ Flag init-once-then-read tables case by case; when in doubt, move it (safe).
 Asked defer-vs-migrate for the renderer, the user chose **migrate render fully first** (honor "nothing
 file-scope global" literally; enables future per-core render-output diffing). Biggest chunk (~164 of
 ~459 statics) and **cross-module**: the VRAM/display state is NOT mere file-scope statics — `s_vram`,
-`s_prov`, `s_disp_x/y` are plain globals exported via `runtime/recomp/gpu_native_internal.h` and
+`s_prov`, `s_disp_x/y` are plain globals exported via `runtime/psx/gpu_native_internal.h` and
 consumed by gpu_native, gpu_gpu, gpu_trace, gpu_debug.
 - **Design:** put ALL render state on a `GpuState` member of `Game` (VRAM `s_vram`+`s_interp`+`s_prov`,
   `s_fb_base`, draw clip `s_da_*`, offset `s_off_*`, tex mode `s_tp_*`, CLUT `s_clut_*`, GP0 parse
@@ -222,5 +222,5 @@ consumed by gpu_native, gpu_gpu, gpu_trace, gpu_debug.
 ## After de-globalization
 Build the dual-core diff: `Game a, b;` (b neutralizes the override under test, e.g. terrain → super-call),
 step both the same frames, compare `core.ram` (excluding the render-pool region 0x800BE000–0x800EC000
-which legitimately differs native-vs-recomp), STOP + report the first diverging frame + byte addrs +
+which legitimately differs native-vs-guest instruction path), STOP + report the first diverging frame + byte addrs +
 the responsible guest function. Then fix `submit_terrain` from that precise evidence.

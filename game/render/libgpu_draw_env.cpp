@@ -13,7 +13,7 @@
 //     FUN_800815d0 is `SetDrawEnv(env+0x1c, env); env->dr_env.tag |= 0xffffff; dma_send(...);
 //     memcpy(0x800a59b0, env, 0x5c); return env;` — that is libgpu PutDrawEnv verbatim, right down
 //     to returning its own argument and caching the env as "the current one". The second caller
-//     (gen_func at generated/shard_1.c:16027, guest 0x800816A0) is the same shape but links an OT
+//     (gen_func at authenticated executable/overlay evidence, guest 0x800816A0) is the same shape but links an OT
 //     pointer into the tag instead of the terminator: DrawOTagEnv. Both pass a0 = env+28, a1 = env,
 //     which fixes a0 = DR_ENV destination and a1 = DRAWENV source.
 //   * The five callees pin every word. They are already natively owned in
@@ -30,10 +30,10 @@
 //
 // TRUE EXTENT: [0x80081FB0, 0x80082220), 0x270 bytes / 156 instructions. Established three ways, not
 // assumed: `jr ra` sits at 0x80082218 with its delay slot `addiu sp,sp,40` at 0x8008221C (disas);
-// 0x80082220 is a CALL TARGET of this very function, so it must be a function entry; and port_gen's
-// live-extent splitter reports 12834-12980 of generated/shard_4.c with the next gen body in that
-// shard being gen_func_80082504, i.e. no adjacent sibling was folded in. abi_extract's 4 "unreachable
-// blocks" are the recompiler's duplicated `return;` tails inside this extent, not a folded sibling.
+// 0x80082220 is a CALL TARGET of this very function, so it must be a function entry; and binary evidence's
+// live-extent splitter reports 12834-12980 of authenticated executable/overlay evidence with the next guest-visible
+// behavior in that shard being guest 0x80082504, i.e. no adjacent sibling was folded in. abi_extract's 4 "unreachable
+// blocks" are the recorded binary evidence's duplicated `return;` tails inside this extent, not a folded sibling.
 //
 // THE TWO TRAPS IN THE TAIL
 //  1. The clear primitive is chosen by ALIGNMENT, and the two choices use DIFFERENT COORDINATE
@@ -45,9 +45,9 @@
 //     misplacement of the background wipe.
 //  2. The clamp against 0x800A59A4/0x800A59A6 (framebuffer limits, 1024 x 512 — verified in three
 //     2 MB RAM dumps under scratch/bin/; the pair is written by GPU init, never by a static store in
-//     generated/) compares the limit SIGNED and stores back the UNSIGNED read minus one. It applies
-//     ONLY to the clear rect's w/h. The clip words themselves are clamped inside the 0xE3/0xE4
-//     builders, and the clear rect's x/y are NOT clamped at all.
+//     authenticated executable/overlay evidence) compares the limit SIGNED and stores back the UNSIGNED read minus one.
+//     It applies ONLY to the clear rect's w/h. The clip words themselves are clamped inside the 0xE3/0xE4 builders, and
+//     the clear rect's x/y are NOT clamped at all.
 //
 // The 8-line stack RECT at sp+16..23 is real guest memory (SBS compares the guest stack), so it is
 // mirrored through ClearRectScratch rather than held in C locals.
@@ -55,8 +55,8 @@
 #include "core.h"
 #include "game.h"
 #include "guest_abi.h"
-#include "override_registry.h"
-#include "rec_decls.h"
+#include "guest_jal.h"
+#include "native_override_catalog.h"
 
 namespace {
 // libgpu's framebuffer clip limits, read by this function and by the 0xE3/0xE4 word builders.
@@ -101,8 +101,8 @@ uint32_t LibgpuDrawEnv::clampToFrameBuffer(Core *c, int32_t value, uint32_t limi
   return (uint32_t)value;
 }
 
-// PORT_GEN: 80081FB0 generated/shard_4.c:12834-12980
-// ORACLE: gen_func_80081FB0
+// GUEST_ADDRESS: 80081FB0 authenticated executable/overlay evidence
+// ORACLE: guest 0x80081FB0
 // libgpu SetDrawEnv(DR_ENV *packet, DRAWENV *env) — compile the frame's drawing environment (clip
 // rect, drawing origin, texture page/window, optional background clear) into the GP0 command packet.
 void LibgpuDrawEnv::setDrawEnv(Core *c) {
@@ -122,29 +122,29 @@ void LibgpuDrawEnv::setDrawEnv(Core *c) {
   // --- the six state commands, in packet order ---------------------------------------------------
   c->r[4] = (uint32_t)env.clipX();
   c->r[5] = (uint32_t)env.clipY();
-  guest_call(c, kRaClipTopLeft, func_80082240);
+  tomba::guest::dispatchJalToReturn(*c, 0x80082240u, kRaClipTopLeft);
   packet.setClipTopLeft(c->r[2]);
 
   // Bottom-right is inclusive: origin + size - 1, truncated back to s16 the way the guest does.
   c->r[4] = (uint32_t)(int32_t)(int16_t)(uint16_t)(env.clipWRaw() + env.clipXRaw() - 1u);
   c->r[5] = (uint32_t)(int32_t)(int16_t)(uint16_t)(env.clipYRaw() + env.clipHRaw() - 1u);
-  guest_call(c, kRaClipBottomRight, func_800822D8);
+  tomba::guest::dispatchJalToReturn(*c, 0x800822D8u, kRaClipBottomRight);
   packet.setClipBottomRight(c->r[2]);
 
   c->r[4] = (uint32_t)env.offsetX();
   c->r[5] = (uint32_t)env.offsetY();
-  guest_call(c, kRaDrawOffset, func_80082370);
+  tomba::guest::dispatchJalToReturn(*c, 0x80082370u, kRaDrawOffset);
   packet.setDrawOffset(c->r[2]);
 
   c->r[4] = env.drawOnDisplay();
   c->r[5] = env.dither();
   c->r[6] = env.texturePage();
-  guest_call(c, kRaDrawMode, func_80082220);
+  tomba::guest::dispatchJalToReturn(*c, 0x80082220u, kRaDrawMode);
   // The guest sets up the next call's argument in the delay slot BEFORE storing the mode word; kept
   // in that order so the store sequence matches the oracle statement for statement.
   c->r[4] = env.texWindowAddr();
   packet.setDrawMode(c->r[2]);
-  guest_call(c, kRaTexWindow, func_8008238C);
+  tomba::guest::dispatchJalToReturn(*c, 0x8008238Cu, kRaTexWindow);
   packet.setTexWindow(c->r[2]);
 
   packet.setMaskBits(kGp0SetMaskBits);
@@ -186,6 +186,5 @@ void LibgpuDrawEnv::setDrawEnv(Core *c) {
 }
 
 void LibgpuDrawEnv::registerOverrides(Game *) {
-  overrides::install(
-      0x80081FB0u, "LibgpuDrawEnv::setDrawEnv", &LibgpuDrawEnv::setDrawEnv, gen_func_80081FB0, shard_set_override);
+  tomba::native::declareOverride(0x80081FB0u, "LibgpuDrawEnv::setDrawEnv", &LibgpuDrawEnv::setDrawEnv);
 }

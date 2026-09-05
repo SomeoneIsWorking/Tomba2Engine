@@ -25,7 +25,7 @@
 //     [5th arg STACKED at sp+0x10], FUN_8006cba8(&DAT_800e7eac).
 //
 // CONTROL FLOW + every node/global/scratchpad WRITE owned native byte-for-byte; every sub-behavior CALL
-// stays a pure-PSX leaf via rec_dispatch. RE'd 1:1 from disas 0x80127798 (Ghidra decomp
+// stays a pure-PSX leaf via typed runtime address dispatch. RE'd 1:1 from disas 0x80127798 (Ghidra decomp
 // scratch/decomp/field2/80127798.c cross-checked — NB Ghidra wrongly flagged FUN_80054d14 "noreturn";
 // it returns normally, so case-2's camera-setup tail after it IS reachable and is transcribed here).
 // GOTCHAs: scratchpad[0x207] gate is `(val-29) < 3` UNSIGNED; case-4 writes are CONCAT22 = store the HIGH
@@ -34,22 +34,21 @@
 // The node[5]==3 transition path has no headless coverage (fires on area switch) — transcribed from disas
 // + verifiable via the A/B gate the moment a transition is triggered. Byte-exact gate is the safety net.
 
-#include "camera/cutscene_camera.h" // CutsceneCamera::runInitSeedGrp (was rec_dispatch 0x8006CBA8)
+#include "camera/cutscene_camera.h" // CutsceneCamera::runInitSeedGrp (was typed runtime address dispatch 0x8006CBA8)
 #include "cfg.h"
 #include "core.h"
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_record_init
 #include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_call.h"
 #include "object/actor.h"  // Actor::boundsCull (FUN_8007778C native)
 #include "render/cull.h"   // Cull::enqueueQueueA (FUN_80077E7C)
-#include "render/render.h" // rend(c)->mNodeXform (was rec_dispatch 0x80051844)
+#include "render/render.h" // rend(c)->mNodeXform (was typed runtime address dispatch 0x80051844)
 #include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include "trig.h"          // class Trig — libgte ratan2
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -69,7 +68,7 @@ static inline int16_t s16(Core *c, uint32_t a) {
 }
 
 static void cd0_tail(Core *c, uint32_t nd) { // @0x80127cd0
-  rend(c)->mNodeXform.build(nd);             // was rec_dispatch 0x80051844
+  rend(c)->mNodeXform.build(nd);             // was typed runtime address dispatch 0x80051844
   c->mem_w8(nd + 1, 1);
   eng(c).cull.enqueueQueueA(nd); // FUN_80077E7C (native; return ignored)
 }
@@ -79,7 +78,7 @@ static void dat_tail(Core *c, uint32_t nd) { // @0x80127c9c (sub==3 only)
   c->mem_w16(0x1F8000C2u, 0);
   c->mem_w16(0x1F8000C4u, 0);
   uint32_t a2 = c->mem_r32(G_f5c);     // *PTR_DAT_800e7f5c
-  uint32_t fsp = c->r[29] - 0x38;      // mirror the recomp frame (prologue sp-=0x38)
+  uint32_t fsp = c->r[29] - 0x38;      // mirror the guest instruction path frame (prologue sp-=0x38)
   c->mem_w32(fsp + 0x10, 0x1F8000C0u); // FUN_8004bd64's 5th arg, stacked at sp+0x10
   c->r[4] = nd;
   c->r[5] = 0;
@@ -99,7 +98,8 @@ static void node6_phase(Core *c, uint32_t nd) {
   case 0: // @0x801279b8 — start fade
     c->r[4] = 1;
     c->r[5] = 1;
-    rec_dispatch(c, 0x80042354u); // FUN_80042354(1,1)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80042354u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_80042354(1,1)
     c->mem_w8(0x800BF9B5u, 3);    // (v0=3 from the call's delay-slot store)
     c->r[31] = 0x801279D8u;       // ra mirror: gen jal-site (armBody spills ra)
     eng(c).sceneEvents.arm(0x42); // area-transition event; FUN_80040B48 (native)
@@ -126,7 +126,8 @@ static void node6_phase(Core *c, uint32_t nd) {
     c->r[4] = G;
     c->r[5] = 0x71;
     c->r[6] = 8;
-    rec_dispatch(c, 0x80054D14u); // FUN_80054d14(&DAT_800e7e80,0x71,8)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80054D14u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_80054d14(&DAT_800e7e80,0x71,8)
     // --- camera-transition setup (reachable; Ghidra's "noreturn" on FUN_80054d14 was wrong) ---
     c->mem_w8(nd + 6, (uint8_t)(c->mem_r8(nd + 6) + 1));
     int s2 = (int16_t)(8268 - c->mem_r16(G_eb6));       // (int16)(0x204c - hi(eb4))
@@ -208,7 +209,7 @@ void beh_area_transition_machine(Core *c) {
     if (Actor(c, nd).boundsCull() == 0) {
       return; // FUN_8007778C gate — Actor::boundsCull (native)
     }
-    rend(c)->mNodeXform.build(nd); // was rec_dispatch 0x80051844
+    rend(c)->mNodeXform.build(nd); // was typed runtime address dispatch 0x80051844
     return;
   }
   if (st >= 2) {
@@ -278,5 +279,6 @@ void beh_area_transition_machine(Core *c) {
   c->r[5] = 0;
   c->r[6] = 0;
   c->r[7] = 0;
-  rec_dispatch(c, 0x80041194u); // FUN_80041194(node, 0, 0, 0)
+  psx::cpu::dispatchGuestToReturn0(
+      *c, 0x80041194u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_80041194(node, 0, 0, 0)
 }

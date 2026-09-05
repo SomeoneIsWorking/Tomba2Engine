@@ -37,7 +37,7 @@ failure survives alongside `costume_now.png`. Therefore the screenshot plus aggr
 the native/guest split, but cannot identify which native producer or which transform/state contract was
 active. The earlier `submitQuad` paragraph is a hypothesis, not a root cause.
 
-STATIC RE NARROWING, NOT A CAUSE CLAIM: MAIN `gen_func_8004DF94` is an equippable-item controller. It
+BINARY ANALYSIS NARROWING, NOT A CAUSE CLAIM: MAIN `guest 0x8004DF94` is an equippable-item controller. It
 subtracts 102 from its item id and dispatches a nine-way table. One branch reads
 `*(u32*)0x800BF880 & 0x3000` and calls `Engine::gStateMutate(G=0x800E7E80, op=4)` when clear or `op=5`
 when set. The native `gStateMutate` body shows op 4 setting `G+0x174` bit `0x10` and `G+0x0D` bits

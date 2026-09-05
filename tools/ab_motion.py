@@ -21,7 +21,7 @@ puts them in the same place):
 
     # reference leg
     PSXPORT_GATE=1 PSXPORT_RENDER_PSX=1 PSXPORT_VK_HEADLESS=1 PSXPORT_NOAUDIO=1 PSXPORT_NOPACE=1 \
-      PSXPORT_DEBUG_SERVER=5971 PSXPORT_AUTO_SKIP=1 ./scratch/bin/tomba2_port <MAIN.EXE>
+      PSXPORT_DEBUG_SERVER=5971 PSXPORT_AUTO_SKIP=1 ./build/bin/tomba2_port <MAIN.EXE>
     # pc leg: same, minus PSXPORT_GATE / PSXPORT_RENDER_PSX, on another port
     # then shoot N frames into two directories with identical driving, e.g. via dbgclient `shot`
 

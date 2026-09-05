@@ -2,24 +2,24 @@
 // beh_substate_edge_orchestrator (game/ai/beh_substate_edge_orchestrator.cpp, guest 0x8012EB54).
 //
 // STATUS: UNWIRED / UNVERIFIED (wide-RE tier, docs/fleet-workflow.md §6). These are hand-
-// transliterated 1:1 from generated/ov_a00_shard_{0,1}.c ground truth (ov_a00_gen_<addr>) — NOT
-// mechanically diffed against it yet. Per §9, a wiring pass MUST re-diff every line against the
+// transliterated 1:1 from authenticated executable/overlay evidence{0,1}.c ground truth (A00 overlay the cited guest
+// instructions) — NOT mechanically diffed against it yet. Per §9, a wiring pass MUST re-diff every line against the
 // generated C before registering + SBS-gating. Nothing here is called from anywhere (not installed
-// in the override registry, no shard_set_override) — dead code that only needs to COMPILE.
+// in the override registry, no tomba::native::declareOverride) — dead code that only needs to COMPILE.
 //
 // ══ KNOWN DEFECT, THE THREE REMAINING DRAFTS: GUEST STACK SPILLS MISSING (found 2026-07-29) ══
 //
 // Every draft here descends sp (`c->r[29] -= N`) and then writes NOT ONE of its callee-saved spills
 // into guest memory. There is not a single `mem_w32(c->r[29] + …)` in this file. They stash the
 // registers in C locals instead and restore them from there. What the guest bodies actually do,
-// per `abi_extract.py <addr> --contract`:
+// per `binary ABI evidence <addr> --contract`:
 //
 //     0x8012E8A8  frame 48   8 spills  (r16-r22, ra @ +16..+44)
 //     0x80130524  frame 24   2 spills  (r16 @ +16, ra @ +20)
 //     0x8012ED84  frame 56  10 spills  (r16-r23, r30, ra @ +16..+52)
 //
 // That is 20 guest stack writes these drafts omit. (0x8012F494 was the fourth; it has since been
-// REPLACED by a port_gen body in game/ai/substate_edge_native.cpp and deleted from here — a second
+// REPLACED by a port_guest-visible behavior in game/ai/substate_edge_native.cpp and deleted from here — a second
 // analysis found EIGHT defects in it, of which the missing spills were only one.) Wiring any of them as-is is a
 // GUARANTEED SBS divergence: the native leg leaves those bytes stale while the substrate leg writes them, and the
 // byte-compare covers the stack. This is the "MIRROR THE GUEST STACK" rule in CLAUDE.md — descending
@@ -27,7 +27,7 @@
 //
 // It is LATENT, not live: all four are unwired, so nothing is broken today. Fixing it is part of the
 // wiring pass, not a separate job — and the cheap fix is to REGENERATE each body with
-// `tools/port_gen.py`, which emits the prologue verbatim and cannot omit a spill by construction.
+// `direct executable disassembly`, which emits the prologue verbatim and cannot omit a spill by construction.
 // Hand-transliteration is precisely where this class of error is introduced.
 //
 // Drafted 2026-07-08: 0x8012E8A8 (162 gen-C ln), 0x8012F494 (64 ln), 0x80130524 (133 ln).
@@ -50,17 +50,18 @@
 #include "game_ctx.h"
 #include "math/gte_math.h" // Math::rotmat/matMul/applyMatlv/applyMatrixLV/rotY/rotZ (mathOf(c))
 #include "math/mtx.h"      // Mtx::identity (mtxOf(c))
+#include "native_override_catalog.h"
 #include <stdint.h>
-
-extern "C" void rec_dispatch(Core *c, uint32_t addr);
 
 namespace {
 constexpr uint32_t SCR_A = 0x1F800000u; // scratch matrix A (rotmat/identity dest)
 constexpr uint32_t SCR_B = 0x1F800020u; // scratch matrix B (identity/rotZ/rotY compose dest)
 } // namespace
 
-// (removed 99 lines: the hand draft — REPLACED by a port_gen body in game/ai/substate_edge_native.cpp. This file's
+// (removed 99 lines: the hand draft — REPLACED by a port_guest-visible behavior in game/ai/substate_edge_native.cpp.
+// This file's
 //  drafts omit their guest stack spills (see the banner above); do not resurrect it.)
 
-// (removed 461 lines: the hand draft — REPLACED by a port_gen body in game/ai/substate_edge_native.cpp. This file's
+// (removed 461 lines: the hand draft — REPLACED by a port_guest-visible behavior in game/ai/substate_edge_native.cpp.
+// This file's
 //  drafts omit their guest stack spills (see the banner above); do not resurrect it.)

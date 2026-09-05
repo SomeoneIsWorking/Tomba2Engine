@@ -21,10 +21,10 @@
 //   0x800BF9B5 (== base 0x800BF870 + 0x145; jt[5] gate byte, ==3 -> node[1]=1)
 //
 // Ownership model (identical to the FUN_739ac handler / the FUN_73cd8 handler / the FUN_8012eb54 handler): CONTROL FLOW
-// + node/global memory writes owned native; every sub-behavior CALL stays reachable by address via rec_dispatch (NO
-// recursion into them). NO GTE, NO render packets here. RE'd 1:1 from disas 0x8012D4EC..0x8012D904
-// (overlay), JT 0x80109D94. It WRITES guest node state the still-recomp content reads -> content-INTERFACE:
-// gated byte-exact (full RAM+scratchpad A/B vs rec_super_call). Most sub-states are scene/progress driven
+// + node/global memory writes owned native; every sub-behavior CALL stays reachable by address via typed runtime
+// address dispatch (NO recursion into them). NO GTE, NO render packets here. RE'd 1:1 from disas 0x8012D4EC..0x8012D904
+// (overlay), JT 0x80109D94. It WRITES guest node state the still-guest content reads -> content-INTERFACE:
+// gated byte-exact (full RAM+scratchpad A/B vs original guest-body call). Most sub-states are scene/progress driven
 // and only exercise when a scene drives them (same caveat as the sibling orchestrators) — see Report.
 
 #include "cfg.h"
@@ -36,8 +36,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 

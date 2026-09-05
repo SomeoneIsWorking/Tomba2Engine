@@ -21,14 +21,14 @@ MEASURED, 1,100 frames of ingame-options-page.pad, unpaced, clang, QUIET machine
     pre                                0.02         0.5
     tick-LOGIC (THE GAME)              0.00         0.0
 
-THE GAME IS FREE. All of Tomba!2 — AI, physics, scripts, the whole recompiled MIPS substrate — measures 0.00 ms. 100% of the frame is the port's own machinery.
+THE GAME IS FREE. All of Tomba!2 — AI, physics, scripts, the whole guest MIPS substrate — measures 0.00 ms. 100% of the frame is the port's own machinery.
 
 WHAT THAT MEANS FOR THE TARGET. If the game costs nothing, the ceiling is set entirely by our overhead. A renderer submitting a few hundred textured quads at 320x240 and a cooperative scheduler with three task slots should together cost on the order of 0.1-0.3 ms:
     at 0.30 ms/frame  ->  3,300 fps   (111x realtime)
     at 0.15 ms/frame  ->  6,700 fps   (222x realtime)
 We measure 226 fps, 7.5x realtime. So this port is roughly 15-30x slower than it should be, and none of that gap is the game.
 
-FOR SCALE: the PSX gave this game 1.13M CPU cycles per frame at 33.8 MHz. We spend ~18M cycles per frame on a 4 GHz superscalar core — 16x the CYCLE COUNT on a core doing far more per cycle. An INTERPRETING emulator does better than that, and we are a native recompilation.
+FOR SCALE: the PSX gave this game 1.13M CPU cycles per frame at 33.8 MHz. We spend ~18M cycles per frame on a 4 GHz superscalar core — 16x the CYCLE COUNT on a core doing far more per cycle. An INTERPRETING emulator does better than that, and we are a native source generation.
 
 WHY MY OWN PERF WORK (#117) WAS THE WRONG ALTITUDE. The three fixes there are real and verified — 30.9%, pixel-identical — but they optimise INSIDE the 55%, and never asked why PRESENT-cpu is 2.42 ms at all. 30% off the wrong number leaves the number wrong.
 
@@ -49,13 +49,13 @@ CHECK `uptime` FIRST — a loaded machine makes every number here meaningless (s
 
 WHAT I DID: read `tick-LOGIC 0.00` off the perf line and reported that all of Tomba!2 measures nothing.
 
-WHAT PHASE 0 ACTUALLY MEASURES: game_tomba2.cpp:84-86 brackets ONE call — rec_dispatch(c, 0x800788AC), described as "real per-frame state update (still-PSX leaf)". That was the whole per-frame update when the port ran the guest's own loop. It is not any more: the work moved to PcScheduler, so phase 0 now brackets a path that no longer carries it and honestly reports 0.00 for what it still measures.
+WHAT PHASE 0 ACTUALLY MEASURES: game_tomba2.cpp:84-86 brackets ONE call — typed runtime address dispatch(c, 0x800788AC), described as "real per-frame state update (still-PSX leaf)". That was the whole per-frame update when the port ran the guest's own loop. It is not any more: the work moved to PcScheduler, so phase 0 now brackets a path that no longer carries it and honestly reports 0.00 for what it still measures.
 
 WHERE THE GAME ACTUALLY IS: phase 3, and native_boot.cpp:157 says so in a comment — "SCHED-LOGIC = the cooperative scheduler step (the real per-frame GAME logic)", wrapping pcSched.step(). That is 1.28 ms.
 
     phase                                ms     % of frame   what it is
     PRESENT-cpu                        2.42        54.8      our renderer (world build + VRAM upload + VK submit)
-    SCHED-LOGIC                        1.28        29.0      THE GAME (recompiled substrate + native game code)
+    SCHED-LOGIC                        1.28        29.0      THE GAME (guest execution + native game code)
     post                               0.40         9.0
     audio                              0.30         6.8
     pre                                0.02         0.5
@@ -64,7 +64,7 @@ WHERE THE GAME ACTUALLY IS: phase 3, and native_boot.cpp:157 says so in a commen
 THIS IS EXACTLY THE FAILURE THE PROJECT RULES NAME: a diagnostic that can only print nothing. Phase 0 cannot distinguish "this is free" from "the work moved and I am not measuring it any more", and it prints the same 0.00 for both. It has been printing that on every perf run since the scheduler took over, and today it fooled me into telling the USER the game was free.
 
 THE REVISED PICTURE, and it is less dramatic but still bad:
-  * The PSX gave this game ~1.13M CPU cycles per frame at 33.8 MHz. We spend 1.28 ms on a 4 GHz core = ~5.1M cycles — about 4.5x the CYCLE COUNT the original used, from statically recompiled MIPS running on a superscalar core that should beat the original per cycle, not lose to it.
+  * The PSX gave this game ~1.13M CPU cycles per frame at 33.8 MHz. We spend 1.28 ms on a 4 GHz core = ~5.1M cycles — about 4.5x the CYCLE COUNT the original used, from statically guest MIPS running on a superscalar core that should beat the original per cycle, not lose to it.
   * The renderer at 2.42 ms for a few hundred textured quads at 320x240 remains the clearest outlier and is still the biggest single item.
 
 A REALISTIC TARGET, stated as arithmetic rather than ambition: renderer to ~0.2 ms and substrate to ~0.3 ms gives ~0.9 ms/frame -> ~1,100 fps, ~37x realtime. That is a 5x improvement available, not the 15-30x I claimed. The claim of 3,000-6,000 fps rested on the game being free and is withdrawn.
@@ -95,7 +95,7 @@ SESSION TOTAL ON THIS CARD'S TWO ITEMS:
     frame                      4.42 ms     3.29 ms
     fps                        226         304
 
-STILL OPEN, and item 2 of this card is untouched: SCHED-LOGIC / GAME-LOGIC at ~1.0 ms for a three-slot cooperative scheduler plus the recompiled substrate. That is now the largest remaining item after the renderer, and nobody has looked at it. The renderer at 1.75 ms is still ~10x what submitting a few hundred quads should cost, so it is not finished either — but the cheap structural win there has been taken.
+STILL OPEN, and item 2 of this card is untouched: SCHED-LOGIC / GAME-LOGIC at ~1.0 ms for a three-slot cooperative scheduler plus the guest execution. That is now the largest remaining item after the renderer, and nobody has looked at it. The renderer at 1.75 ms is still ~10x what submitting a few hundred quads should cost, so it is not finished either — but the cheap structural win there has been taken.
 
 **2026-08-20:** 2026-08-20 — MORE PROFILING, per the USER. The quarter of the frame that resolved to nothing now has a name, and one confident guess about it was wrong.
 
@@ -254,7 +254,7 @@ WHERE THE FRAME STANDS NOW — the ordering contest is no longer the largest nam
 
 Built the instrument this card recorded as "the one that would finish this" and never built:
 -Wl,--wrap=memcpy/memmove attributing every byte to __builtin_return_address(0)
-(runtime/recomp/memcensus.cpp, PSXPORT_MEMCENSUS=1), resolved by tools/prof_hot.py — which now takes
+(runtime/psx/memcensus.cpp, PSXPORT_MEMCENSUS=1), resolved by tools/prof_hot.py — which now takes
 either input shape rather than growing a second copy of the symbol machinery.
 
 FIRST RUN, 100% RESOLVED, 12.29 GB over the 1,100-frame scene:
@@ -283,7 +283,7 @@ less work with better asymptotics and identical output, not because it was a spe
 
 WHAT THE CENSUS ALSO SHOWS, recorded rather than acted on:
   * dv_save copies all 2 MB of guest RAM about once per logic frame — that is fps60's
-    snapshot-and-restore. psxport/CLAUDE.md already documents Dusklight's alternative
+    snapshot-and-restore. psxport/CLAUDE.md already documents another game project's layout's alternative
     (RECORD-AND-REPLACE: never snapshot guest state) and why the precision argument gates adopting it
     against a GTE-side s16 matrix. This is the measured size of what that would remove.
   * SPU_UpdateFromCDC at ~5.9% under PSXPORT_NOAUDIO=1 is NOT waste: NOAUDIO only suppresses OPENING

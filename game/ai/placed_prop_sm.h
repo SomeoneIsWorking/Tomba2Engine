@@ -6,7 +6,7 @@
 // (node[+0x1C]) and reached from the object-list walk (FUN_8007A904 -> ObjectList::walkAllFaithful ->
 // BehaviorDispatch::dispatchObj). Four spawn sites install it, and they are the identity evidence:
 //
-//   * FUN_8004D8D8 (gen_func_8004D8D8, resident) — the AREA PLACEMENT-RECORD walker. It walks the
+//   * FUN_8004D8D8 (guest 0x8004D8D8, resident) — the AREA PLACEMENT-RECORD walker. It walks the
 //     per-area 0x10-byte record table at *(u32*)(0x800A3F00 + 4*area) until the 0xFF terminator, and
 //     for every record whose CLASS byte (record[+1]) is 2 it allocates a node (FUN_80072DDC) and does
 //         node[+0x1C] = 0x80040558;  node[+2] = 8;
@@ -14,7 +14,7 @@
 //     (record[+4/+6/+8] -> node[+0x2C/+0x30/+0x34] << 16), its variant (record[+3] -> node[+3]) and —
 //     the important one — record[+13] -> node[+0x5E], the KIND byte this state machine dispatches on.
 //     So the "kind" is a per-placement designer choice baked into the area's record table.
-//   * ov_a01_gen_80127E94, ov_a04_gen_8011F5FC, ov_a05_gen_80114874 — three overlay spawners that
+//   * overlay guest 0x80127E94, overlay guest 0x8011F5FC, overlay guest 0x80114874 — three overlay spawners that
 //     install the same handler for their own kinds (a05 hard-codes node[+0x5E] = 7 and pre-seeds the
 //     very same defaults this SM's state 0 writes: node[0x80]=64, node[0x82]=128).
 //
@@ -53,7 +53,7 @@
 // +0x01 is the visible/submit marker (Cull::enqueueByClass writes it), +0x28 bit 0x80 is the
 // "skip the cull, always submit" flag (same gate as game/ai/beh_visibility_gate_dispatch.cpp).
 //
-// TRAP — v0 IS DEAD AT RETURN. The gen body leaves whatever happened to be in v0 there, and the
+// TRAP — v0 IS DEAD AT RETURN. The guest-visible behavior leaves whatever happened to be in v0 there, and the
 // value differs per exit path (it is a `void` function; Ghidra types it `void`). The port does NOT
 // reproduce those dead delay-slot constants. Proof the caller cannot see them: the only reachable
 // caller is the object-list walk FUN_8007A904, which reads `node = c->r[16]` immediately after the

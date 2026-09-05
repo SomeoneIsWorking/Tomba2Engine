@@ -3,19 +3,19 @@
 // pc_render); this file is the RE trace + the byte-exact transcription.
 //
 // RE: Ghidra headless decompile of a live seaside-field RAM dump (scratch/decomp/render146.c,
-// FUN_80146478 / FUN_801465ec / FUN_801467bc) cross-checked against the recompiler's own
-// register-accurate translation (generated/ov_a00_shard_0.c ov_a00_gen_80146478/801465EC,
-// generated/ov_a00_shard_1.c ov_a00_gen_801467BC — the recompiler output is a strict per-
-// instruction transcription so it is the more precise source for GTE register indices/opcodes,
-// which Ghidra's COP2 decompilation garbles into placeholder immediates).
+// FUN_80146478 / FUN_801465ec / FUN_801467bc) cross-checked against the recorded binary evidence's
+// register-accurate translation (authenticated executable/overlay evidence overlay guest 0x80146478/801465EC,
+// authenticated executable/overlay evidence overlay guest 0x801467BC — the recorded guest instruction listing is a
+// strict per- instruction transcription so it is the more precise source for GTE register indices/opcodes, which
+// Ghidra's COP2 decompilation garbles into placeholder immediates).
 //
 // FUN_80146478(rec_header, ot_base): uVar2 = *rec_header (low16 = GT3 count, high16 = GT4 count);
 //   gt3(rec_header+16, ot_base, uVar2&0xffff) -> returns the GT4 array base; gt4(that, ot_base,
 //   uVar2>>16). Owned natively as OverlayGt3Gt4::submitBlock since 2026-07-29 — it was left on the
 //   substrate when the two leaves were ported and was, at 127,275 hits per 6000 replay frames, the
-//   busiest remaining rec_dispatch target in the game. Wiring the leaves directly (rather than only
+//   busiest remaining typed runtime address dispatch target in the game. Wiring the leaves directly (rather than only
 //   through this dispatcher) is still what covers the OTHER call site: a duplicate tail-shared copy
-//   of the same call sequence the recompiler folded into FUN_80147FC4.
+//   of the same call sequence the recorded binary evidence folded into FUN_80147FC4.
 //
 // Both leaves emit the SAME PSX GP0 packet shapes the main engine's submit.cpp targets
 // (POLY_GT3 / POLY_GT4 — gouraud-textured tri/quad), but via the GTE (RTPT + NCLIP + AVSZ3/a
@@ -27,8 +27,8 @@
 #include "cfg.h"
 #include "core.h"
 #include "game.h"
-#include "ov_a00_decls.h"      // the generated ov_a00_gen_* bodies this file hands to the registry
-#include "override_registry.h" // engine_set_override_a00 — declared, not locally extern'd
+#include "guest_call.h"
+#include "native_override_catalog.h" // tomba::native::declareOverride — declared, not locally extern'd
 #include <stdio.h>
 
 #define PKT_POOL_PTR                                                                                                   \
@@ -41,7 +41,7 @@
 // Shared near-plane-aware OTZ pick: given the record's "blend/flag" byte (top byte of the record's
 // second colour word) and the 3 raw SZ FIFO values (GTE data regs 17/18/19, i.e. SZ1/SZ2/SZ3 —
 // RTPT/RTPS write SZ1..SZ3, leaving SZ0 the prior value), reproduce the exact clamp-then-average
-// the recomp body performs when flag != 0. flag&2 selects min-clamp (additive-style blend, whose
+// the guest instruction path performs when flag != 0. flag&2 selects min-clamp (additive-style blend, whose
 // nearer faces should NOT lose the depth sort to a farther match) vs max-clamp (subtractive-style).
 static int32_t overlay_gt_z_blend(uint32_t flag, int32_t sz1, int32_t sz2, int32_t sz3) {
   int32_t a = sz1, b = sz2;
@@ -70,7 +70,7 @@ static int32_t overlay_gt_z_blend(uint32_t flag, int32_t sz1, int32_t sz2, int32
 // both leaves): pull the exponent nibble (bits [12:10] treated as a shift count), rebuild an
 // index, then gate to the live OT range [4, 0x7ff) before it's used to index the bucket array.
 // Returns -1 if the record is out of the OT's representable depth range (record dropped, exactly
-// as the recomp body silently drops it — packet-pool writes already made are simply orphaned,
+// as the guest instruction path silently drops it — packet-pool writes already made are simply orphaned,
 // the same "written but pointer never advanced" pattern pkt_span.h documents for other unowned
 // renderers).
 static int32_t overlay_gt_otz_index(int32_t z) {
@@ -104,9 +104,9 @@ static int32_t overlay_gt_otz_index(int32_t z) {
 // 32-byte stack frame below) are part of the byte-exact state, so the frame is MIRRORED rather than
 // elided: sp descends 32, s1/ra/s0 spill at +20/+24/+16 in that program order, and the two guest
 // return-address constants are live in ra across the calls. Contract confirmed by
-// `abi_extract.py 0x80146478 --contract` (frame_size 32, 3 spills, 2 direct call sites), not by hand.
+// `binary ABI evidence 0x80146478 --contract` (frame_size 32, 3 spills, 2 direct call sites), not by hand.
 //
-// The two leaves are reached through their GENERATED ov_a00_func_* wrappers, not by calling
+// The two leaves are reached through their GENERATED A00 overlay guest entries wrappers, not by calling
 // OverlayGt3Gt4::gt3/gt4 directly, even though on this leg the table resolves to exactly those two
 // natives. Calling them directly measurably works and is one indirection cheaper — but it bypasses
 // the registry's per-address hit counters, and `PSXPORT_DEBUG=ovhit` then reports the two busiest
@@ -142,13 +142,16 @@ void OverlayGt3Gt4::submitBlock(Core *c) {
   c->r[5] = otBase;
   c->r[6] = counts & 0xFFFFu;
   c->r[31] = kRaAfterGt3;
-  ov_a00_func_801465EC(c);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x801465ECu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 
   c->r[4] = c->r[2]; // the GT4 run begins where the GT3 run ended
   c->r[5] = c->r[17];
   c->r[6] = counts >> 16;
   c->r[31] = kRaAfterGt4;
-  ov_a00_func_801467BC(c); // its v0 falls through as this function's return value
+  psx::cpu::dispatchGuestToReturn0(*c,
+                                   0x801467BCu,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // its v0 falls through as this function's return value
 
   c->r[31] = c->mem_r32(sp + kSpillRa);
   c->r[17] = c->mem_r32(sp + kSpillS1);
@@ -168,7 +171,7 @@ void OverlayGt3Gt4::submitBlock(Core *c) {
 //   +16 VXY0, +20 VZ0(lo)|VZ1(hi), +24 VXY1, +28 VXY2, +32 VZ2(lo)|uv2hi(hi)}.
 // Output POLY_GT3 packet = 40 bytes (10 words): {+0 OT tag(len=9<<24|next), +4 rgb0|code RAW
 //   (unmasked — a real asymmetry vs the GT4 leaf below and vs submit.cpp's own GT3, verified by
-//   the recomp body: this record's colour0 word never passes through COL_MASK), +8 SXY0,
+//   the guest instruction path: this record's colour0 word never passes through COL_MASK), +8 SXY0,
 //   +12 uv0|clut, +16 rgb1&MASK, +20 SXY1, +24 uv1|tpage, +28 rgb2&MASK, +32 SXY2, +36 uv2hi}.
 void OverlayGt3Gt4::gt3(Core *c) {
   uint32_t rec = c->r[4], ot_base = c->r[5], count = c->r[6];
@@ -210,7 +213,7 @@ void OverlayGt3Gt4::gt3(Core *c) {
     int32_t sxy0 = (int32_t)gte_read_data(12), sxy1 = (int32_t)gte_read_data(13), sxy2 = (int32_t)gte_read_data(14);
 
     // frustum reject: unsigned-compare the packed SXY words against 240<<16, then (after <<16
-    // each) against 320<<16 — the recomp body's own screen-bound test, reproduced literally.
+    // each) against 320<<16 — the guest instruction path's own screen-bound test, reproduced literally.
     uint32_t t240 = 240u << 16;
     bool any1 = ((uint32_t)sxy0 < t240) || ((uint32_t)sxy1 < t240) || ((uint32_t)sxy2 < t240);
     if (!any1) {
@@ -267,7 +270,7 @@ void OverlayGt3Gt4::gt3(Core *c) {
 // Output POLY_GT4 packet = 52 bytes (13 words): {+0 tag(len=0xC<<24|next), +4 rgb0&MASK, +8 SXY0,
 //   +12 uv0|clut, +16 rgb1&MASK, +20 SXY1, +24 uv1|tpage, +28 rgb2&MASK, +32 SXY2, +36 uv2,
 //   +40 rgb3&MASK, +44 SXY3, +48 uv3}. Unlike the GT3 leaf above, rgb0 here IS masked — verified
-// against the recomp body, not "fixed" to match GT3 (the asymmetry is faithful, not a bug).
+// against the guest instruction path, not "fixed" to match GT3 (the asymmetry is faithful, not a bug).
 void OverlayGt3Gt4::gt4(Core *c) {
   uint32_t rec = c->r[4], ot_base = c->r[5], count = c->r[6];
   if (count == 0) {
@@ -330,7 +333,7 @@ void OverlayGt3Gt4::gt4(Core *c) {
       int32_t sz1 = (int32_t)gte_read_data(16), sz2 = (int32_t)gte_read_data(17), sz3 = (int32_t)gte_read_data(18),
               sz4 = (int32_t)gte_read_data(19);
       // 4-point variant: clamp sz1 vs sz2 and sz3 vs sz4 pairwise first, then combine — the
-      // recomp body's exact widened form of the 3-point blend above (see FUN_801467bc decomp).
+      // guest instruction path's exact widened form of the 3-point blend above (see FUN_801467bc decomp).
       int32_t a = sz1, b = sz2, e = sz3, f = sz4;
       if (flagbyte & 2u) {
         if (a - b >= 0) {
@@ -375,11 +378,11 @@ void OverlayGt3Gt4::gt4(Core *c) {
 }
 
 void OverlayGt3Gt4::registerOverrides(Game *) {
-  // engine_set_override_a00 (runtime/recomp/override_registry.h) installs into the ONE process-global
-  // override registry, which runs ov_a00_gen_* on the oracle leg (core B) and the native handler
-  // everywhere else — NOT a raw ov_a00_set_override, since these are engine/game natives and the
-  // oracle must run the pure recompiled body.
-  engine_set_override_a00(0x80146478u, &OverlayGt3Gt4::submitBlock, ov_a00_gen_80146478);
-  engine_set_override_a00(0x801465ECu, &OverlayGt3Gt4::gt3, ov_a00_gen_801465EC);
-  engine_set_override_a00(0x801467BCu, &OverlayGt3Gt4::gt4, ov_a00_gen_801467BC);
+  // tomba::native::declareOverride (runtime/psx/override_registry.h) installs into the ONE process-global
+  // override registry, which runs ordinary A00 overlay guest bodies on the oracle leg (core B) and the native handler
+  // everywhere else — NOT a raw image-qualified A00 native registration, since these are engine/game natives and the
+  // oracle must run the pure guest body.
+  tomba::native::declareOverride(0x80146478u, "&OverlayGt3Gt4::submitBlock", &OverlayGt3Gt4::submitBlock);
+  tomba::native::declareOverride(0x801465ECu, "&OverlayGt3Gt4::gt3", &OverlayGt3Gt4::gt3);
+  tomba::native::declareOverride(0x801467BCu, "&OverlayGt3Gt4::gt4", &OverlayGt3Gt4::gt4);
 }

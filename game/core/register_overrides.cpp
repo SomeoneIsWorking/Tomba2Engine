@@ -1,30 +1,21 @@
-// register_overrides.cpp — the Tomba!2 override-registration block (game_iface.h seam).
+// Collect Tomba! 2's subsystem-owned native declarations for TombaRuntime.
 //
-// MOVED here VERBATIM from runtime/recomp/boot.cpp (2026-07-17 framework/game decoupling): this is
-// the clean game→framework seam already (every call is an overrides::install via a subsystem's
-// registerOverrides), it just used to live in the framework boot file, dragging ~25 game #includes
-// into runtime/recomp/. TombaRuntime now calls it through GameRuntime inheritance, so the framework
-// never names any game type and the legacy callback table is no longer a second owner.
-//
-// register_engine_overrides — call each subsystem's registerOverrides(), which installs its native
-// handlers into the ONE process-global override registry (overrides::install, override_registry.h:
-// one { native, gen } entry per address, oracle-leg-gated dispatch shared by the g_<mod>_override[]
-// thunks and rec_dispatch). Installing is idempotent — re-registering the same address just
-// overwrites the same global slot — so it's safe to call once per harness-owned Game (main(),
-// dc_boot_init) and twice under SBS full (mA + mB). See the ordering note in native_boot.cpp: this
-// MUST run before crt0_setup/game_init so the init prefix can reach a registered thunk.
+// Subsystem registerOverrides() calls declare handlers in native_override_catalog. Repeating an
+// identical declaration is idempotent; conflicting owners are refused rather than overwritten.
+// TombaRuntime separately binds resident declarations to each Core's explicit resident image token
+// after loading, including the final boot reload. PSXPort's per-Core dispatcher then selects a native
+// handler or executes the guest body through Lightrec. Declaring an overlay handler does not activate it.
 #include "register_overrides.h"
 #include "actor_bump.h"           // class ActorBump — bump response (0x8010EA80)
 #include "actor_object_contact.h" // class ActorObjectContact — hit / proximity contact (0x8010E258)
 #include "actor_targeting.h"      // class ActorTargeting — acquire a target (0x8001FAE0)
 #include "assembly_companion.h"   // class AssemblyCompanion — assembly companion idle tick (0x80138A64)
-#include "contact_stamp.h"        // class ContactStamp — the kanban #8 contact producer (0x80111304)
 #include "core.h"
-#include "cull_substate_native.h" // class CullSubstateLeaves — A00 cull-substate leaf (0x80133550)
 #include "engine.h"
 #include "game.h"
 #include "game_ctx.h"
-#include "mtx.h"                  // class Mtx — libgte matrix leaves (MR_init identity, 0x80051794)
+#include "mtx.h" // class Mtx — libgte matrix leaves (MR_init identity, 0x80051794)
+#include "native_override_catalog.h"
 #include "placed_prop_sm.h"       // class PlacedPropSm — placed scene-prop behaviour (0x80040558)
 #include "rope_swing.h"           // class RopeSwing — hanging rope swing + segment bend (0x801281B8)
 #include "sway_schedule.h"        // class SwaySchedule — rocking-rate schedule + sway tick (0x8012D27C)
@@ -44,7 +35,6 @@
 #include "graphics_bind.h"         // class GraphicsBind — object render-bind subsystem (recordArrayInit)
 #include "gte_transform3.h"        // class GteTransform3 — GTE 3-vertex rotate+pack (0x80084250)
 #include "hud_gauge_emitter.h"     // class HudGaugeEmitter — self-contained HUD gauge emitter (0x8004FD30/0x8004FB4C)
-#include "input.h"                 // class Input — SPU voice-table init leaf (0x80093650)
 #include "libapi_intr.h"           // class LibapiIntr — kernel interrupt-mask primitives (0x80085C9C)
 #include "libgpu_draw_env.h"       // class LibgpuDrawEnv — libgpu SetDrawEnv (0x80081FB0)
 #include "math/trig.h"             // class Trig — rsin/ratan2/angleCmp override wiring
@@ -53,13 +43,11 @@
 #include "obj_model_view.h"        // class ObjModelView — shared effect-mesh model-view compose leaf (0x800318A0)
 #include "overlay_ground_gt3gt4.h" // class OverlayGroundGt3Gt4 — A00-overlay GROUND/SCENE GT3/GT4 cluster
 #include "overlay_gt3gt4.h"        // class OverlayGt3Gt4 — A00-overlay GT3/GT4 packet-emitter cluster
-#include "pad_sampler.h"           // class PadSampler — port-0 button-mask sampler (0x800524B4)
 #include "quad_rtpt_submit.h"      // class QuadRtptSubmit — 0x8003xxxx rope/flame quad rotate+RTPT submit
 #include "scene/scene_events.h"    // class SceneEvents — scene-event ARM (FUN_80040B48 sole owner)
 #include "sop_intro_events.h" // RegisterSopIntroEventOverrides — SOP intro-cutscene sub-tick/sub-motion/timer cluster
-#include "substate_edge_native.h" // class SubstateEdgeLeaves — A00 orchestrator leaves (0x80130AC4/801316CC/80131134)
+#include "substate_edge_native.h" // class SubstateEdgeLeaves — authored child-oscillator loop (0x801316CC)
 #include "tile_grid_layer.h" // class TileGridLayer — A00-overlay field scroll-wrap + tile-grid sprite emitter (0x8011534C/0x80115598)
-#include "ui_ft4_layout.h"          // class UiFt4Layout — POLY_FT4 UI vertex-layout case block (0x8007E2F8)
 #include "widescreen_margin_quad.h" // class WidescreenMarginQuad — A00-overlay widescreen-margin OT.GT4 emitter (0x8013CDD4)
 
 // Free-function beh_* wide-RE clusters (verified+wired) — same "class-ifying is a separate axis"
@@ -68,15 +56,12 @@ void RegisterBehToySpawnFamilyOverrides(
     Game *game); // game/ai/beh_toy_spawn_family.cpp (0x80127420/801274BC/80127720/8012763C/80127510)
 void RegisterEngineAnimLeafOverrides(Game *game); // game/core/engine.cpp (0x8004190C animTick / 0x80054D14 walkStart)
 void RegisterBehActorTombaProximityCombatOverride(
-    Game *game);                    // game/ai/beh_actor_tomba_proximity_combat.cpp (0x800527C8)
-void register_field_owned_leaves(); // BYTE-FAITHFUL batch of 94 field-spine leaves
+    Game *game); // game/ai/beh_actor_tomba_proximity_combat.cpp (0x800527C8)
 
 void interact_scan_install();         // game/player/interact_scan.cpp — guest FUN_80024794
-void dialog_box_sm_install();         // game/ui/dialog_box_sm.cpp — guest FUN_8007D594 (dialog box SM)
 void dialog_backdrop_install();       // game/ui/dialog_backdrop.cpp — guest FUN_8007FCC8 (box backdrop)
 void loading_text_install();          // game/ui/loading_text.cpp — guest FUN_8007FD54 ("Loading.....")
 void ui_sprite_install();             // game/ui/ui_sprite.cpp — guest FUN_8007E8DC / FUN_8007E998
-void dialog_sibling_install();        // game/ui/dialog_driver_sibling.cpp — guest FUN_8007DDE0
 void compose_tint_gate_install();     // game/render/compose_tint_gate.cpp — guest FUN_8003EF9C
 void subpart_walk_install();          // game/render/subpart_walk.cpp — guest FUN_8003F174
 void shared_transform_walk_install(); // game/render/subpart_walk_shared.cpp — guest FUN_8003F07C
@@ -84,32 +69,21 @@ void shared_transform_walk_install(); // game/render/subpart_walk_shared.cpp —
 void register_engine_overrides(Game &owner) {
   Game *const game = &owner;
   interact_scan_install();         // interaction scanner: promotes an in-range object to ACTIVATED
-  dialog_box_sm_install();         // dialog/message box state machine (port_check PASS vs gen_func_8007D594)
   dialog_backdrop_install();       // message-box backdrop rect — LIVE on the dialog path
   loading_text_install();          // "Loading....." blinker (RE'd; no fork — see kanban #9)
   ui_sprite_install();             // 2D sprite entry points, LIVE on the dialog path
-  dialog_sibling_install();        // sibling glyph driver — installed to measure whether it is live
   compose_tint_gate_install();     // per-type render gate (render frontier)
   subpart_walk_install();          // sub-part walker (render frontier — last of the per-type list)
   shared_transform_walk_install(); // its rigid-node sibling
   Core *c = &game->core;
-  // PcScheduler primitives: the framework class supplies the native handlers; the game passes the
-  // generated substrate bodies + override setter (linked here, game-side) — P1.7c decoupling.
-  extern void shard_set_override(uint32_t, void (*)(Core *));
-  extern void gen_func_80051F80(Core *), gen_func_80051F14(Core *), gen_func_80044BD4(Core *),
-      gen_func_80052010(Core *), gen_func_80051FB4(Core *);
-  game->pcSched.registerOverrides({shard_set_override,
-                                   gen_func_80051F80,
-                                   gen_func_80051F14,
-                                   gen_func_80044BD4,
-                                   gen_func_80052010,
-                                   gen_func_80051FB4});
+  // The legacy C++-fiber scheduler bindings were intentionally removed. Yield-capable guest work
+  // must resume from stored CPU context through typed executor exits; it cannot retain a generated
+  // original body or suspend a native C++ stack.
   mathOf(c).registerOverrides();               // GTE matMul/applyMatlv/applyMatrixLV/rotmat/rotX/Y/Z (0x80084110 etc.)
   eng(c).animation.registerOverrides();        // loadFrame/advanceLinkChain/attach/applyFrame (0x80076904 etc.)
   eng(c).areaSlots.registerOverrides();        // primeCountdown/updateCell (0x80074A38/0x8007496C)
   eng(c).musicCoord.registerOverrides();       // setGain2 (0x80075D24)
   ActorReward::registerOverrides(game);        // reward/tally window actor SM family
-  eng(&game->core).installFieldTransitions();  // ov_game field-transition sub-machine handlers
   ActorZonedAttacker::registerOverrides(game); // 0x8014xxxx zoned-attacker sub-behavior cluster
   eng(c).spawn.registerTypedChildOverrides();  // A00-overlay typed-child spawners
   eng(c).releaseTriggerMotion.registerOverrides(); // release-trigger sub-motion cluster
@@ -131,17 +105,11 @@ void register_engine_overrides(Game &owner) {
   eng(c).bgSceneTransitionSm.registerOverrides(); // BG scene-transition opcode leaves (0x80042758/80042884)
   eng(c).audioDispatch.registerOverrides();       // field-audio BGM start/override leaves (0x80075024/80075070)
   eng(c).sfx.registerOverrides();                 // SFX trigger wrapper (0x80074810)
-  Input::registerOverrides(game);                 // SPU voice-table init leaf (0x80093650)
   SceneEvents::registerOverrides(game);      // scene-event ARM FUN_80040B48 (sole owner; deduped from cube_text_ledger)
   CubeTextLedger::registerOverrides(game);   // cube-text popup ledger deactivate/spawn (0x80040C00/80040AA4)
   ActorTomba::registerOverrides(game);       // postInteractWalk sub-handlers (0x80020364/800205CC/800235A0/80022C78)
   ActorMeleeEngage::registerOverrides(game); // A00-overlay melee-engage/reposition/arm leaf (0x80112188)
   MeleeProximity::registerOverrides(game);   // melee-proximity/approach-anchor leaf (0x8001F9DC)
-  Engine::registerFieldSeqSchedulerTick();   // per-frame field sequence scheduler (0x80075A80)
-  Engine::registerAnnouncerCuePush();        // announcer/message cue queue push (0x8004FA38)
-  Engine::registerSpawnType6Node();          // type-6 pool-node spawn helper (0x800310F4)
-  register_field_owned_leaves();             // BYTE-FAITHFUL batch of 94 field-spine leaves
-  Engine::registerFieldTargetCursor();       // field target-select cursor (0x800251F0)
   CutsceneCamera::registerOverrides(game);   // resetFollowAccum/pushMode/restoreMode/snapToMasterOffsetY200/orbitTick
                                              // (0x8006E8F8/8006E1C0/8006E1E4/8006EA00/8006EF38)
   RegisterBehToySpawnFamilyOverrides(game); // toy/child spawner leaves (0x80127420/801274BC/80127720/8012763C/80127510)
@@ -165,15 +133,11 @@ void register_engine_overrides(Game &owner) {
   TiltFollower::registerOverrides();           // pitch at half the owner sub-part's tilt (0x80125FE0)
   SwaySchedule::registerOverrides();           // rocking rate winds down over the area-0 event
                                                // sequence, then the per-type sway (0x8012D27C)
-  ContactStamp::registerOverrides(game);       // contact stamp producer (0x80111304)
-  CullSubstateLeaves::registerOverrides(game); // A00 cull-substate orchestrator leaf (0x80133550)
   AssemblyCompanion::registerOverrides();      // idle tick (0x80138A64) + rig pose (0x801389C8) of the
                                                // companion a field assembly spawns
   AssemblyRider::registerOverrides();          // per-frame tick of the rider perched on a seaside
                                                // pump's arm-end (0x80118B10, area 0)
-  UiFt4Layout::registerOverrides(game);        // POLY_FT4 UI vertex-layout case 0 (0x8007E2F8)
-  PadSampler::registerOverrides(game);         // port-0 button-mask sampler (0x800524B4)
-  SubstateEdgeLeaves::registerOverrides(game); // A00 substate-edge orchestrator leaves (45,900 dispatches/6000 frames)
+  SubstateEdgeLeaves::registerOverrides(game); // authored A00 child-oscillator loop (0x801316CC)
   CollisionResolve::registerOverrides(game);   // actor-vs-object cylinder collision resolve (0x80023D48)
   LibapiIntr::registerOverrides(
       game); // libapi SetIntrMask (0x80085C9C) — I_MASK swap through libapi's hw-pointer table
@@ -195,7 +159,7 @@ void register_engine_overrides(Game &owner) {
   Demo::registerOverrides(game); // main-menu title cursor sub-machine (0x80106AC4) — the r16/r17
   // register-liveness gap that blocked this wire (docs/findings/ai.md "Demo::s3SubMachine r16
   // register-liveness SBS divergence") is FIXED (2026-07-10): s3SubMachine's own port was missing the
-  // `r17 = 0x1F800000` scratch-register prep ov_demo_gen_80106AC4:333 does right before calling
+  // `r17 = 0x1F800000` scratch-register prep overlay guest 0x80106AC4:333 does right before calling
   // 0x80106824 — that instruction's only purpose is a post-call re-read of *0x1F800138, but 0x80106824
   // spills the INCOMING r17 to its own guest stack (sp+36) before restoring it, so the value must
   // match for byte-exact SBS. Root cause was never r16 (that was already correct) — see the finding.

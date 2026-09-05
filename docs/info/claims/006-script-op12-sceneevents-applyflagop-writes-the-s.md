@@ -8,7 +8,7 @@ tags:
 
 ## Claim
 
-Script op12 (SceneEvents::applyFlagOp) writes the scene-flag table at 0x800BF870+idx+324, matching gen_func_80042448; scene-flag readers (op04/op06) and writers now share one definition in game/scene/scene_flags.h
+Script op12 (SceneEvents::applyFlagOp) writes the scene-flag table at 0x800BF870+idx+324, matching guest 0x80042448; scene-flag readers (op04/op06) and writers now share one definition in game/scene/scene_flags.h
 
 ## Evidence
 

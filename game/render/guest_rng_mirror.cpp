@@ -4,7 +4,7 @@
 #include "game.h"
 
 namespace {
-// gen_func_8009A450's own constants: multiplier 0x41C60000 | 20077, increment 12345.
+// guest 0x8009A450's own constants: multiplier 0x41C60000 | 20077, increment 12345.
 constexpr uint32_t kMul = 0x41C64E6Du;
 constexpr uint32_t kInc = 12345u;
 } // namespace

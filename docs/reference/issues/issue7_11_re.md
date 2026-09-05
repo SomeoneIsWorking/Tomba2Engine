@@ -61,7 +61,7 @@ Evidence captured (`scratch/screenshots/`):
 3. `native_boot_run` plays the intro FMVs **before** crt0 (`native_boot.cpp:627-630`):
    `native_fmv_play(c,"MOVIE/LOGO.STR")` then `"MOVIE/OP.STR"`. Each frame is uploaded to **VRAM(0,0)**
    and presented by `present_rgb555` (`native_fmv.cpp:535-551`, `gpu_gp0(0xA0000000)` dest (0,0)).
-4. `rec_dispatch(crt0)` → `ov_game_main` (`native_boot.cpp:634`, `:361`) → native frame loop → DEMO
+4. `typed runtime address dispatch(crt0)` → `ov_game_main` (`native_boot.cpp:634`, `:361`) → native frame loop → DEMO
    stage 0x801062E4 builds the title.
 
 **What the skip does** (the actual skip trigger is in the FMV player, NOT a dedicated skip routine):
@@ -205,12 +205,12 @@ caveat is that `PSXPORT_VK_HEADLESS` forces FMV-skip, so the repro uses `PSXPORT
 same one a user sees. Final visual sign-off is the windowed eyeball in §5.
 
 ## Key file:line index
-- FMV-skip trigger + early-return (no teardown): `runtime/recomp/native_fmv.cpp:644-658` (pace/skip),
+- FMV-skip trigger + early-return (no teardown): `runtime/psx/native_fmv.cpp:644-658` (pace/skip),
   `:710-771` (`native_fmv_play_lba` loop + breaks + return), `:535-551` (`present_rgb555` → VRAM(0,0)).
-- Boot order / FMV calls / skip env: `runtime/recomp/native_boot.cpp:611-638`, FMVs at `:627-630`,
+- Boot order / FMV calls / skip env: `runtime/psx/native_boot.cpp:611-638`, FMVs at `:627-630`,
   `skip_fmv` at `:624`; native frame loop `:439-597`.
-- SCEA splash composite (white-fill text into `s_vram(0,0)`): `runtime/recomp/gpu_native.cpp:1539-1558`;
-  driver `runtime/recomp/native_stub.cpp:121-188` (`ov_stub_vsync`), `:199-213` (`ov_stub_cdread` hold),
+- SCEA splash composite (white-fill text into `s_vram(0,0)`): `runtime/psx/gpu_native.cpp:1539-1558`;
+  driver `runtime/psx/native_stub.cpp:121-188` (`ov_stub_vsync`), `:199-213` (`ov_stub_cdread` hold),
   hand-off `:76`, `:231-255`.
 - Present samples stale `s_vram`: `gpu_native.cpp:1296` (`present_window`), `:1270-1295` (`blit_src`),
   `:1400-1510` (`gpu_present_ex`) — no `s_vram` clear anywhere on the boot→title path.

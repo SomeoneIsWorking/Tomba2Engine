@@ -4,16 +4,10 @@
 #include "core.h"
 #include "engine.h"
 #include "game_ctx.h" // eng(c)
-#include "override_registry.h"
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "render_queue.h" // RQ_OVERLAY
 #include <lucent/log.h>
-
-// The CRD overlay's own generated bodies + its override table setter. Game code may name generated
-// symbols (the FRAMEWORK may not) — same shape as ui_sprite.cpp's use of shard_set_override. There
-// is no engine_set_override_crd forwarder because the framework's RecompRegistry carries only the
-// MAIN / A00 / GAME module setters.
-extern void ov_crd_gen_8018FBCC(Core *);
-extern void ov_crd_set_override(uint32_t, void (*)(Core *));
 
 void CardMenu::drawCollected(Core *c) {
   // ONE LAYER, ONE ORDER — see the ONE LIST note in ui_group_capture.h. Everything the card menu
@@ -54,7 +48,7 @@ void CardMenu::drawCollected(Core *c) {
 namespace {
 
 // FUN_8018FBCC — the card overlay's per-frame entry (the 17-state card-menu machine). Scope
-// wrapper: it owns no guest state of its own, so the guest half is the untouched gen body.
+// wrapper: it owns no guest state of its own, so the guest half executes dynamically.
 void cardFrame(Core *c) {
   CardMenu &page = eng(c).cardMenu;
   const bool outer = !page.capture.capturing();
@@ -62,7 +56,7 @@ void cardFrame(Core *c) {
     page.capture.clear();
   }
   page.capture.begin();
-  ov_crd_gen_8018FBCC(c); // byte-exact: the state machine, its page drawers and its card I/O
+  psx::cpu::callOriginalToReturn(*c, 0x8018FBCCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   if (!outer) {
     return;
   }
@@ -78,5 +72,5 @@ void CardMenu::install() {
     return;
   }
   done = true;
-  overrides::install(0x8018FBCCu, "CardMenu::cardFrame", cardFrame, ov_crd_gen_8018FBCC, ov_crd_set_override);
+  tomba::native::declareOverride(0x8018FBCCu, "CardMenu::cardFrame", cardFrame);
 }

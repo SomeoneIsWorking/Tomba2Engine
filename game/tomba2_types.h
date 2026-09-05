@@ -1,8 +1,8 @@
 // Tomba2Engine — native types mirroring Tomba! 2's own engine structures.
 //
 // These mirror the real in-RAM layout of the game's engine objects so the native engine
-// (engine_tomba2.c, being lifted from the recompiled MIPS) can read/write the SAME RAM as the
-// not-yet-lifted recomp code during the incremental transition. Field offsets are RE'd in
+// (engine_tomba2.c, being lifted from the guest MIPS) can read/write the SAME RAM as the
+// not-yet-lifted guest instruction path during the incremental transition. Field offsets are RE'd in
 // docs/engine_re.md — VERIFY there before trusting any field. PSX RAM is little-endian.
 #ifndef TOMBA2_TYPES_H
 #define TOMBA2_TYPES_H

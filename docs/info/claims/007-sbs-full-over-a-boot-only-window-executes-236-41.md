@@ -32,7 +32,7 @@ would convert a real signal into a lie, so the baseline is left where it is.
 
 WHAT I DID CHECK, statically:
   - the instrument still exists — `overrides::coverage(int* total, int* unreached)` is declared at
-    external/psxport/runtime/recomp/override_registry.h:83 and defined at override_registry.cpp:167,
+    external/psxport/runtime/psx/override_registry.h:83 and defined at override_registry.cpp:167,
     so the measurement is still takeable.
   - the DENOMINATOR has moved. The claim's `411 owned addresses` dates from 2026-07-23;
     tools/codemap.py now counts 472 installed addresses over 312 files. That is a different counter

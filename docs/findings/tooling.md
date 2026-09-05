@@ -62,9 +62,9 @@
      `c->mRender->cmdListDispatch()` (5 sites) / `c->mRender->billboardEmit()`,
      `outerTransitionCommit()`'s unconditional first-statement call to `outerTransitionGate()`,
      `OverlayGroundGt3Gt4::entityLoop`'s `gt3(c)`/`gt4(c)` calls — bypasses BOTH ovhit counters on
-     the NATIVE side (never touches `rec_dispatch`, never touches the `g_override[]` wrapper since
+     the NATIVE side (never touches `typed runtime address dispatch`, never touches the `image-qualified runtime dispatcher` wrapper since
      it's a direct C++ call), while the SUBSTRATE side's IDENTICAL direct intra-shard call DOES hit
-     the g_tab wrapper (`shard_set_override`/`engine_set_override_main` installs at the wrapper,
+     the g_tab wrapper (`tomba::native::declareOverride`/`tomba::native::declareOverride` installs at the wrapper,
      which intercepts regardless of caller) — giving the `native=0, oracle=N` shape. PROVEN, not
      just plausible: `billboardEmit`'s oracle count (22689) equals `billboardCompose1`(17007) +
      `billboardCompose2`(5682) EXACTLY (its only two native callers); `outerTransitionGate`'s oracle
@@ -75,13 +75,13 @@
      — that finding predates `ovhit`; this is it resurfacing through a different counter.
   2. **The two SBS cores reach a shared leaf via structurally different call GRAPHS.** Core A
      (pc_faithful) runs the ported native `Engine` per-frame driver (`frameStartTickFaithful`,
-     `sceneEventFifoFaithful`, …), which explicitly `rec_dispatch`es to wired leaves. Core B
-     (recomp_path/oracle) reaches the SAME final RAM state via the PURE SUBSTRATE per-frame chain
+     `sceneEventFifoFaithful`, …), which explicitly `typed runtime address dispatch`es to wired leaves. Core B
+     (retired comparison path/oracle) reaches the SAME final RAM state via the PURE SUBSTRATE per-frame chain
      instead — a topologically different call graph. PROVEN via a runtime probe, not static
      reading: `sefprobe` (game/core/engine.cpp, gated `PSXPORT_DEBUG=sefprobe`) printed on every
      entry to `Engine::sceneEventFifoFaithful`; over a 200-frame SBS-full run it showed 78 core=A
      `ENTRY` lines and ZERO core=B lines, despite `mB->pc_skip=false` (same as A, per
-     runtime/recomp/sbs.cpp:1576) and 0-diff RAM every frame. Core B never runs this native method
+     runtime/psx/sbs.cpp:1576) and 0-diff RAM every frame. Core B never runs this native method
      at all — it reaches `Animation::advanceLinkChain` (called from this method's own unconditional
      tail, `d1(c, 0x80077b5cu, B)`) via the substrate's OWN per-frame chain instead, which for THIS
      particular leaf is ALSO reached from an independent still-substrate a00-overlay caller
@@ -95,17 +95,17 @@
     once at f0 with `ra=DEAD0000` from the native boot driver's task0 bootstrap (`FUN_80050b08`
     equivalent) — a one-time native-only call with no oracle-side per-frame equivalent, same class
     as (1)/(2) but at boot-scale rather than per-frame-scale.
-- **dead end — DO NOT "fix" by adding a `noteSubstrateDispatch` call inside a psx_fallback-gated
-  hand-rolled `shard_set_override` trampoline's gen branch.** Tried live during this triage
+- **dead end — DO NOT "fix" by adding a `noteSubstrateDispatch` call inside a the retired alternate-execution flag-gated
+  hand-rolled `tomba::native::declareOverride` trampoline's gen branch.** Tried live during this triage
   (`EngineOverrides::traceGenHit` helper + call sites in pc_scheduler.cpp/graphics_bind.cpp/
-  cube_text_ledger.cpp), then reverted: the gen branch is ALSO reached via `rec_dispatch`'s own
-  `main_dispatch(c,addr)` fallthrough for a resident-module target (`generated/shard_disp.c
-  main_dispatch` calls the SAME `func_<addr>(c)` wrapper), which `noteSubstrateDispatch` (called
-  inside `rec_dispatch`, BEFORE the fallthrough) already counted — so the extra trampoline-side call
-  DOUBLE-COUNTS every rec_dispatch-routed invocation. Confirmed: `PcScheduler::yieldPrim`, which
+  cube_text_ledger.cpp), then reverted: the gen branch is ALSO reached via `typed runtime address dispatch`'s own
+  `runtime address dispatch(c,addr)` fallthrough for a resident-module target (`authenticated executable/overlay evidence
+  runtime address dispatch` calls the SAME `a direct guest-address call` wrapper), which `noteSubstrateDispatch` (called
+  inside `typed runtime address dispatch`, BEFORE the fallthrough) already counted — so the extra trampoline-side call
+  DOUBLE-COUNTS every typed runtime address dispatch-routed invocation. Confirmed: `PcScheduler::yieldPrim`, which
   matched EXACTLY at A=2990/B(gen)=2990 before the change, became B(gen)=5989 (~2×) after. The two
-  ovhit counters are each individually complete for their OWN call shape (rec_dispatch vs raw
-  g_override wrapper); a mismatch between them is real, structural, caller-graph information, not
+  ovhit counters are each individually complete for their OWN call shape (typed runtime address dispatch vs raw
+  image-qualified runtime dispatcher wrapper); a mismatch between them is real, structural, caller-graph information, not
   an instrumentation gap to paper over with more counting.
 - **fix:** documentation only (docs/config.md "A/B call-count MISMATCH triage" + the permanent
   `sefprobe` probe as the reference technique for the next such question) — no code/counter change
@@ -120,16 +120,6 @@
   pc_scheduler.cpp; docs/findings/render.md "dead end avoided" (the pre-existing sibling finding
   for the cmdListDispatch chain, predates `ovhit`).
 
-## Engine/game overrides on the process-global g_override[]/g_ov_* tables contaminated the SBS oracle (false 0-div)
-- **symptom:** SBS full reported 0 `sbs-div` through 15000+ frames for clusters that were actually WRONG. The oracle (core B) was running the NATIVE mirror for several render-packet-emitter clusters, not the pure substrate — so SBS compared native-vs-native and reported a clean gate, masking every real divergence.
-- **status:** fixed 2026-07-09 (central oracle-gated thunk installer).
-- **cause:** `g_override[]` and the `g_ov_<mod>_override[]` arrays are single PROCESS-GLOBAL tables shared by every Core, including SBS core B. The generated wrapper `func_X(c){ c->pc=X; if(g_override[i]){g_override[i](c);return;} gen_func_X(c); }` consults that table on BOTH cores. Four render clusters landed 2026-07-08 (`perobj_billboard` 0x8003CCA4/C2D4/C464/C8F4, `overlay_gt3gt4` 0x801465EC/679BC, `overlay_ground_gt3gt4` 0x8013FB88/3FE58/401B8, `quad_rtpt_submit` 0x8003B054/B320) with trampolines that called the native method UNCONDITIONALLY — no `psx_fallback` gate — so core B ran native. The `rec_dispatch`→`EngineOverrides` path was NOT affected (overlay_router.cpp already gates it on `!psx_fallback`); only the direct-substrate-call path was broken. (Per-trampoline `psx_fallback` gates work — gte_math/cull/node_xform/etc. self-gate correctly — but they get FORGOTTEN each new cluster, which is how this regressed.)
-- **what "clean oracle" means (the spec):** the oracle runs ONLY PlatformHle (async→sync conversions + HLE BIOS, which MUST fire on both cores or the no-IRQ runtime hangs) + the pure `gen_func_*`/`ov_*_gen_*` body for everything else. This matches what `PSXPORT_GATE=1` ran ~7 days ago (commit 95157d3, before the 2026-07-08 render clusters landed).
-- **fix:** `runtime/recomp/engine_override_thunk.cpp` — ONE shared thunk installed into the table; it reads `c->pc` (the wrapper stamps it immediately before invoking the override, so it is the guest address at entry) and runs `gen` on the oracle, `native` everywhere else. Engine/game installs go through `engine_set_override_main` / `engine_set_override_a00`; the raw `shard_set_override`/`ov_*_set_override` is reserved for PlatformHle + the scheduler primitives. The four contaminating clusters were converted; the gate now lives in one place and can't be forgotten per-cluster.
-- **verification:** post-fix `PSXPORT_SBS_MODE=full` autonav immediately surfaced **19 real `[sbs-div]` at f117** in the packet pool (0x800BFFxx) + scratchpad — the exact render-cluster guest-RAM writes the false 0-div had been hiding. (Those f117 divergences are now eligible bug-hunt targets per docs/bug-hunt-workflow.md: the render clusters ARE fully owned → debug+fix.) Core A ran 117 frames through boot→field via the thunk, so the thunk routes correctly on the native side too.
-- **rule / how to avoid re-deriving:** if SBS suddenly shows 0-div where it used to diverge, SUSPECT THE ORACLE (a new cluster installed ungated) before believing a fix. Never call raw `shard_set_override`/`ov_*_set_override` for engine/game code — use `engine_set_override_*`. The `rec_dispatch` path needs no per-cluster work (already gated).
-- **refs:** runtime/recomp/engine_override_thunk.cpp; game/render/{perobj_billboard,overlay_gt3gt4,overlay_ground_gt3gt4,quad_rtpt_submit}.cpp; runtime/recomp/overlay_router.cpp:183 (the rec_dispatch gate, already correct); docs/bug-hunt-workflow.md "Oracle integrity".
-
 ## codemap.py mis-parsed inline description addresses as owner tags
 - **symptom:** `tools/codemap.py --addr <hex>` reported false owners for many addresses. E.g. `0x8003E264 → ov_transition_e20 [LIVE]` was wrong: ov_transition_e20's real guest address is 0x80107E20, and 0x8003E264 is just a description reference (`// FUN_80107e20 — … 1 effect 0x8003e264 …`). Trap: acting on that mapping would try to "wire" a substrate address as if it were already native.
 - **status:** fixed 7a396b4 (2026-07-02, session 15)
@@ -137,53 +127,53 @@
 - **fix:** owner harvest now runs only on the TAG PORTION of each header line (left of the first `—`/`:`/`- `). For headers without an in-tag address (mostly class methods like `Engine::frameStartTick — per-frame prologue at guest 0x80059D28`), the last-resort scan takes the FIRST address in textual order across the whole comment block, so a description-referenced callee (FUN_8005950C) doesn't outrank the earlier owner declaration (0x80059D28). Net: 228 → 212 owned addresses; all removed entries were description refs.
 - **refs:** tools/codemap.py parse_file tag_portion; commit 7a396b4.
 
-## recdep / any rec_dispatch hook is BLIND to resident→resident (intra-MAIN) calls
-- **symptom:** `recdep` and ad-hoc `camtrace`-style hooks in `rec_dispatch` show ZERO calls to a resident MAIN function (e.g. the camera 0x8006E3B0/0x8006D02C) even while it demonstrably runs every frame — leading to a WRONG "that code never runs here" conclusion (cost later-290..292 chasing a phantom free-roam camera).
+## recdep / any typed runtime address dispatch hook is BLIND to resident→resident (intra-MAIN) calls
+- **symptom:** `recdep` and ad-hoc `camtrace`-style hooks in `typed runtime address dispatch` show ZERO calls to a resident MAIN function (e.g. the camera 0x8006E3B0/0x8006D02C) even while it demonstrably runs every frame — leading to a WRONG "that code never runs here" conclusion (cost later-290..292 chasing a phantom free-roam camera).
 - **status:** known-issue / measurement caveat (2026-07-01, later-293)
-- **cause:** the recompiler emits **intra-module (MAIN→MAIN) calls as DIRECT C calls** `func_XXXX(c)` (see generated/shard_*.c, shard_disp.c `func_XXXX`), NOT via `rec_dispatch`. `rec_dispatch` only fires for CROSS-module / overlay / unknown-indirect targets. So any hook in `rec_dispatch` (recdep histogram, camtrace) sees ONLY cross-module and indirect calls — it is structurally blind to the (large) set of resident→resident calls. Absence from recdep does NOT mean "not executed".
-- **fix / how to actually tell if a resident fn runs:** don't infer from recdep. Use a GUEST-STACK backtrace at a known side effect (`PSXPORT_WWATCH=<addr>` on a memory location the fn writes + `guest_backtrace_to`, i.e. PSXPORT_WWATCH_BT), or instrument the recompiled `func_XXXX` / `gen_func_XXXX` directly, or grep the shards for `func_XXXX(c)` call sites. recdep remains valid for its stated purpose (ranking substrate/overlay dependency to minimize cross-module dispatch) — just never read "0 in recdep" as "dead".
-- **refs:** runtime/recomp/overlay_router.cpp rec_dispatch (only cross-module); generated/shard_3.c:16799 func_8006E3B0(c) direct; docs/findings/camera.md (the false trail this caused).
+- **cause:** the recorded guest call graph contains **intra-module (MAIN→MAIN) calls as DIRECT C calls** `the cited guest address(c)` (see authenticated executable/overlay evidence, shard_disp.c `the cited guest address`), NOT via `typed runtime address dispatch`. `typed runtime address dispatch` only fires for CROSS-module / overlay / unknown-indirect targets. So any hook in `typed runtime address dispatch` (recdep histogram, camtrace) sees ONLY cross-module and indirect calls — it is structurally blind to the (large) set of resident→resident calls. Absence from recdep does NOT mean "not executed".
+- **fix / how to actually tell if a resident fn runs:** don't infer from recdep. Use a GUEST-STACK backtrace at a known side effect (`PSXPORT_WWATCH=<addr>` on a memory location the fn writes + `guest_backtrace_to`, i.e. PSXPORT_WWATCH_BT), or instrument the guest `the cited guest address` / `the cited guest instructions` directly, or grep the shards for `the cited guest address(c)` call sites. recdep remains valid for its stated purpose (ranking substrate/overlay dependency to minimize cross-module dispatch) — just never read "0 in recdep" as "dead".
+- **refs:** runtime/psx/overlay_router.cpp typed runtime address dispatch (only cross-module); authenticated executable/overlay evidence guest 0x8006E3B0(c) direct; docs/findings/camera.md (the false trail this caused).
 
-## EngineOverrides::register_ is BLIND to a direct substrate call — needs shard_set_override too
+## EngineOverrides::register_ is BLIND to a direct substrate call — needs tomba::native::declareOverride too
 - **symptom:** a new native port (ActorReward, FUN_80049A60/9E54/A3D4/B150/B208) registered ONLY via
   `EngineOverrides::register_` would silently never run when its sole caller is still-substrate
   (`FUN_8004AAC4`, unowned) — the SBS gate would show a fake 0-diff (both cores keep running the OLD
   substrate body unchanged), which looks identical to a real verified port. Same shape as the recdep
   blind-spot above: absence-of-divergence does NOT mean "reached".
 - **status:** documented workaround (this session) — a real fix would make `EngineOverrides::register_`
-  always also wire `shard_set_override`, closing the gap generally; not done here (out of scope for a
+  always also wire `tomba::native::declareOverride`, closing the gap generally; not done here (out of scope for a
   single-cluster port).
-- **cause:** `EngineOverrides::run()` fires ONLY inside `rec_dispatch(c, addr)` — i.e. only for calls a
-  NATIVE caller makes explicitly through `rec_dispatch`. The recompiler's OWN emitted calls (`func_XXXX
-  (c)` for a direct jal, or the `main_dispatch` switch for an indirect jalr) NEVER go through
-  `rec_dispatch` — they check the recompiler's separate `g_override[]` table (`shard_disp.c`'s
-  `func_XXXX` wrapper: `if (g_override[i]) { g_override[i](c); return; } gen_func_XXXX(c);`).
-  `EngineOverrides::register_` does NOT populate `g_override[]`. So an EngineOverrides-only registration
+- **cause:** `EngineOverrides::run()` fires ONLY inside `typed runtime address dispatch(c, addr)` — i.e. only for calls a
+  NATIVE caller makes explicitly through `typed runtime address dispatch`. The recorded binary evidence's OWN emitted calls (`the cited guest address
+  (c)` for a direct jal, or the `runtime address dispatch` switch for an indirect jalr) NEVER go through
+  `typed runtime address dispatch` — they check the recorded binary evidence's separate `image-qualified runtime dispatcher` table (`shard_disp.c`'s
+  `the cited guest address` wrapper: `if (image-qualified runtime dispatcher[i]) { image-qualified runtime dispatcher[i](c); return; } the cited guest instructions(c);`).
+  `EngineOverrides::register_` does NOT populate `image-qualified runtime dispatcher`. So an EngineOverrides-only registration
   is invisible to a substrate-originated call — only visible to a native caller that already knows to
-  reach the address via `rec_dispatch`. `PlatformHle::register_` (sync_overrides.cpp) already works
-  around this for its own table by calling `extern void shard_set_override(uint32_t, OverrideFn)` after
+  reach the address via `typed runtime address dispatch`. `PlatformHle::register_` (sync_overrides.cpp) already works
+  around this for its own table by calling `extern void tomba::native::declareOverride(uint32_t, OverrideFn)` after
   registering — the same fix a new game-logic port needs when its caller is still substrate.
-- **gotcha (core-B safety):** `g_override[]` is a SINGLE PROCESS-GLOBAL array shared by every `Core`
-  (unlike EngineOverrides, which is per-`Game`) — so `shard_set_override` can NOT gate on
-  `psx_fallback` the way `rec_dispatch` does for EngineOverrides. The installed function itself must
-  check `c->game->psx_fallback` and fall back to calling the real `gen_func_XXXX(c)` when true, or SBS
+- **gotcha (core-B safety):** `image-qualified runtime dispatcher` is a SINGLE PROCESS-GLOBAL array shared by every `Core`
+  (unlike EngineOverrides, which is per-`Game`) — so `tomba::native::declareOverride` can NOT gate on
+  `the retired alternate-execution flag` the way `typed runtime address dispatch` does for EngineOverrides. The installed function itself must
+  check `c->game->the retired alternate-execution flag` and fall back to calling the real `the cited guest instructions(c)` when true, or SBS
   core B (the pure substrate reference) would silently start running the native port too — turning the
   compare into "native vs itself" (a fake 0-diff that proves nothing). See game/object/actor_sm_reward.cpp
   `ov_sm*` trampolines for the pattern.
 - **fix (this session, local):** register BOTH tables from one `registerOverrides(Game*)`: `EngineOverrides
-  ::register_` (native-caller tracing) + `shard_set_override` with a `psx_fallback`-gated trampoline
+  ::register_` (native-caller tracing) + `tomba::native::declareOverride` with a `the retired alternate-execution flag`-gated trampoline
   (actual substrate-call redirection). Called once from `boot.cpp`'s `main()`.
 - **FALSIFIED claim, corrected 2026-07-08:** the line above used to also claim this single call was
   "sufficient for EVERY Core/Game created afterward (including SBS's two separately-constructed
-  cores...) because `g_override[]` is process-global, populated once." That is true ONLY for the
-  `g_override[]`/`shard_set_override` half. It is FALSE for the `EngineOverrides::register_` half:
-  `EngineOverrides` is a **per-Game** member (`game->engine_overrides`), and `rec_dispatch`'s gate
+  cores...) because `image-qualified runtime dispatcher` is process-global, populated once." That is true ONLY for the
+  `image-qualified runtime dispatcher`/`tomba::native::declareOverride` half. It is FALSE for the `EngineOverrides::register_` half:
+  `EngineOverrides` is a **per-Game** member (`game->engine_overrides`), and `typed runtime address dispatch`'s gate
   reads the CALLING Core's OWN Game (`c->game->engine_overrides.run(c, addr)`). SBS/DualCore/
   Selftest each construct their OWN `Game` instances and never ran `boot.cpp`'s `main()`, so their
   `engine_overrides` table was **completely empty** — see the next entry, which is the bug this
   false claim was hiding.
-- **refs:** runtime/recomp/overlay_router.cpp `rec_dispatch` (EngineOverrides gate); generated/shard_disp.c
-  `func_XXXX` wrapper + `shard_set_override`; runtime/recomp/sync_overrides.cpp `PlatformHle::register_`
+- **refs:** runtime/psx/overlay_router.cpp `typed runtime address dispatch` (EngineOverrides gate); authenticated executable/overlay evidence
+  `the cited guest address` wrapper + `tomba::native::declareOverride`; runtime/psx/sync_overrides.cpp `PlatformHle::register_`
   (the pre-existing dual-registration precedent); game/object/actor_sm_reward.{h,cpp}.
 
 ## CRITICAL (found + fixed 2026-07-08): SBS/DualCore/Selftest never populated their own Game's EngineOverrides table — every EngineOverrides-only override was COMPLETELY INERT under SBS
@@ -198,9 +188,9 @@
 - **root cause, signal (2) — NOT a bug, an ORPHAN (already-documented pattern, re-confirmed):**
   `Math::applyMatlv`/`applyMatrixLV`/`rotZ`/`rotY` are real native C++ methods with their OWN
   NEW callers (`NodeXform::propagate` etc., per `codemap.py --addr`) — but they were NEVER
-  registered as an `EngineOverrides` entry NOR dual-wired via `shard_set_override`. So OLD
+  registered as an `EngineOverrides` entry NOR dual-wired via `tomba::native::declareOverride`. So OLD
   overlay-resident callers (still-substrate AI code in the 0x8014xxxx range, calling these MAIN-
-  module addresses cross-module — hence visible to `rec_dispatch`/`recdep`) still run the OLD
+  module addresses cross-module — hence visible to `typed runtime address dispatch`/`recdep`) still run the OLD
   substrate `gen_func` body every time. `recdep`'s "high count for an owned function" is exactly
   the already-documented "recdep hot-leaf leaderboard: entries may ALREADY be native-ported
   (ORPHAN)" finding above, generalized past render/cull functions to Math. Confirmed empirically:
@@ -210,9 +200,9 @@
   `EngineOverrides` is per-`Game`. `boot.cpp`'s `main()` populates it on ONE throwaway `Game` it
   constructs itself, then (for SBS/DualCore/Selftest) hands off to a harness that builds its OWN
   separate `Game`(s) and boots them via the shared `dc_boot_init(Core*)` (native_boot.cpp) —
-  which NEVER called any `registerOverrides()`. Result: on every SBS core (A AND B), `rec_dispatch`'s
+  which NEVER called any `registerOverrides()`. Result: on every SBS core (A AND B), `typed runtime address dispatch`'s
   `c->game->engine_overrides.run(c, addr)` check ALWAYS missed for every override wired ONLY via
-  `EngineOverrides::register_` (no `shard_set_override` dual-registration) — that's Animation
+  `EngineOverrides::register_` (no `tomba::native::declareOverride` dual-registration) — that's Animation
   (loadFrame/advanceLinkChain/attach), ActorZonedAttacker (6 addresses), Spawn (4 addresses),
   ReleaseTriggerMotion (6 addresses), and — until this session's separate fix below — PcScheduler
   (5 addresses). **Both SBS cores silently ran the IDENTICAL substrate body for all of these
@@ -223,27 +213,27 @@
   since the mechanism was introduced (2026-07-07).
 - **separate, additional finding — PcScheduler's 5 primitives were ALSO blind even OUTSIDE SBS:**
   independent of the above, `PcScheduler::yieldPrim/spawnPrim/spawnAndWait/forceClose/selfClose`
-  were registered via `EngineOverrides::register_` ONLY (no `shard_set_override`). Every real
-  substrate call site to these 5 guest addresses is a DIRECT intra-module `func_<addr>(c)` (grep
-  `generated/shard_*.c`: 15/7/2/7/8 call sites respectively) — never `rec_dispatch` — so even on
+  were registered via `EngineOverrides::register_` ONLY (no `tomba::native::declareOverride`). Every real
+  substrate call site to these 5 guest addresses is a DIRECT intra-module `a direct guest-address call` (grep
+  `authenticated executable/overlay evidence`: 15/7/2/7/8 call sites respectively) — never `typed runtime address dispatch` — so even on
   the default (non-SBS) `pc_faithful`/`pc_skip` path these 5 addresses ran the OLD substrate body
   for every real in-game yield/close. A live default-path run before the fix showed exactly ONE
   `[dispatch]` hit total across all 5 (spawnPrim, called once from the native boot driver at
   `ra=DEAD0000` — not from gameplay) and zero for the other four, despite the game visibly
   scheduling tasks every frame.
 - **fix:**
-  1. `game/core/pc_scheduler.cpp`: dual-register all 5 primitives via `shard_set_override` with
-     psx_fallback-gated trampolines (the `game/object/actor_sm_reward.cpp` pattern), each calling
+  1. `game/core/pc_scheduler.cpp`: dual-register all 5 primitives via `tomba::native::declareOverride` with
+     the retired alternate-execution flag-gated trampolines (the `game/object/actor_sm_reward.cpp` pattern), each calling
      the NEW `EngineOverrides::traceHit()` before invoking the native handler so the hit stays
      observable on the `dispatch`/`ovhit` channels despite bypassing `run()`.
-  2. `runtime/recomp/boot.cpp`: extracted the inline registration block in `main()` into
+  2. `runtime/psx/boot.cpp`: extracted the inline registration block in `main()` into
      `void register_engine_overrides(Game*)`.
-  3. `runtime/recomp/native_boot.cpp`: call `register_engine_overrides(c->game)` inside
+  3. `runtime/psx/native_boot.cpp`: call `register_engine_overrides(c->game)` inside
      `dc_boot_init` — the ONE shared boot helper SBS/DualCore/Selftest all use — BEFORE
      `crt0_setup`/`game_init` (a live crash proved ordering matters: `game_init`'s init prefix can
-     itself reach a direct-substrate g_override[] call before the table is populated, aborting
+     itself reach a direct-substrate image-qualified runtime dispatcher call before the table is populated, aborting
      `traceHit`'s "unregistered" assert).
-  4. `runtime/recomp/engine_overrides.{h,cpp}`: added `traceHit(Core*, addr)` (records a hit that
+  4. `runtime/psx/engine_overrides.{h,cpp}`: added `traceHit(Core*, addr)` (records a hit that
      bypassed `run()`) and `dumpHitCounts()` (the `ovhit` channel — per-address hit counts dumped
      at exit, flagging any registered-but-zero address).
 - **verification:** rebuilt, re-ran. Default path (`PSXPORT_AUTO_SKIP=1`,
@@ -257,8 +247,8 @@
   bug in `anim_unpack_pose_triple` (`stream = s + 5` ate a shared nibble → `stream = s + 4`);
   post-fix SBS full autonav is 0 sbs-div through f9100+. Full trail in
   docs/findings/animation.md ("anim_unpack_pose_triple ate a shared nibble").
-- **refs:** runtime/recomp/engine_overrides.{h,cpp}; runtime/recomp/boot.cpp
-  `register_engine_overrides`; runtime/recomp/native_boot.cpp `dc_boot_init`; game/core/
+- **refs:** runtime/psx/engine_overrides.{h,cpp}; runtime/psx/boot.cpp
+  `register_engine_overrides`; runtime/psx/native_boot.cpp `dc_boot_init`; game/core/
   pc_scheduler.cpp; docs/config.md `dispatch`/`ovhit`; scratch/logs/default_ovhit.log,
   scratch/logs/sbs_ovhit3.log (this session's evidence, worktree-local, not committed).
 
@@ -293,14 +283,14 @@
 ## recdep hot-leaf leaderboard: entries may ALREADY be native-ported (ORPHAN) — check codemap FIRST
 - **symptom:** the handoff points at the top substrate-dispatch entries by calls/frame (e.g. 0x8007778C @115k, 0x80077ACC @48k, 0x8002B278 @38k, 0x8004D7EC @36k) as "port these next". Session-2026-07-02 disassembled 0x8007778C to reimplement — only to discover `tools/codemap.py --addr 0x8007778C` already shows it as `ov_cull_wrapper` in game/render/cull.cpp, ORPHAN. Same for the other three. Wasted time on a redundant RE pass before the check.
 - **status:** workflow rule (2026-07-02)
-- **cause:** the leaderboard measures rec_dispatch hits at CALL SITES — a hot substrate leaf can appear either because it has no native port OR because a written-but-orphan native port isn't wired into its native callers. The two states look identical at the recdep layer.
-- **fix / rule:** for EVERY frontier target the handoff (or recdep) lists, run `tools/codemap.py --addr 0xADDR` FIRST before disassembling. If it's already ORPHAN, the work is WIRING (grep the callers, replace `rec_dispatch(c, 0xADDR)` with the native call), not porting. Only if codemap says NO native owner do you disassemble and reimplement.
+- **cause:** the leaderboard measures typed runtime address dispatch hits at CALL SITES — a hot substrate leaf can appear either because it has no native port OR because a written-but-orphan native port isn't wired into its native callers. The two states look identical at the recdep layer.
+- **fix / rule:** for EVERY frontier target the handoff (or recdep) lists, run `tools/codemap.py --addr 0xADDR` FIRST before disassembling. If it's already ORPHAN, the work is WIRING (grep the callers, replace `typed runtime address dispatch(c, 0xADDR)` with the native call), not porting. Only if codemap says NO native owner do you disassemble and reimplement.
 - **refs:** game/render/cull.cpp (ov_cull_wrapper / ov_cull_wrap_77acc / ov_cone_cull_2b278 all ORPHAN); game/math/mathlib.cpp ov_bittest_4d7ec (was ORPHAN, wired e9f4b1e); scratch/logs/recdep_new.log
 
 ## ORPHAN native with a `_verify` wrapper is NOT proof it's byte-perfect
 - **symptom:** trying to wire ov_orch597AC (FUN_800597AC) at engine_submit.cpp:1211 tripped a 9-byte main-RAM A/B mismatch @0x1FFCC9 at frame 500 even though the native has an `orchverify` gate. Wire had to be reverted.
 - **status:** workflow caveat (2026-07-02)
-- **cause:** a `*_verify` wrapper (record_gate / an inline snapshot+super_call harness) means someone WROTE the compare scaffolding, not that the compare has ever RUN clean. The gate is off by default (cfg_dbg("orchverify") is 0 unless set), so the default path is unverified native. Wire-time A/B may still fail if the native impl and recomp body actually differ.
+- **cause:** a `*_verify` wrapper (record_gate / an inline snapshot+super_call harness) means someone WROTE the compare scaffolding, not that the compare has ever RUN clean. The gate is off by default (cfg_dbg("orchverify") is 0 unless set), so the default path is unverified native. Wire-time A/B may still fail if the native impl and guest instruction path actually differ.
 - **fix / rule:** the wire-time A/B (main-RAM + scratchpad cmp = 0) is the ONLY proof. If a wire trips a diff, revert immediately — the "byte-perfect" native was never actually proven. Optionally rerun with the gate on (e.g. `PSXPORT_DEBUG=orchverify`) to localize the divergence, but do NOT ship the wire.
 - **refs:** attempted wire reverted 2026-07-02; game/render/engine_submit.cpp ov_orch597AC (orchverify gate); the earlier successful wires in this session (ov_unpack_group, ov_obj_pos_compose, spawn_dispatch, ov_obj_record_init, the collision-grid trio) all had A/B = 0.
 
@@ -309,10 +299,10 @@
   right there in game/math/gte_math.cpp — RE'd to the 44-bit GTE accumulator, with a header comment
   calling it "the biggest single perf lever" (16.2% of hot interpreter time, 55k+ calls/frame). The class
   had NO `registerOverrides()` method at all; nothing ever called `EngineOverrides::register_` or
-  `shard_set_override` for its 7 addresses (matMul/applyMatlv/applyMatrixLV/rotmat/rotX/rotY/rotZ —
+  `tomba::native::declareOverride` for its 7 addresses (matMul/applyMatlv/applyMatrixLV/rotmat/rotX/rotY/rotZ —
   0x80084110/80084220/80084470/80085480/80084D10/80084EB0/85050). Only the small number of direct
   `c->math.*` call sites in node_xform.cpp/cutscene_camera.cpp/graphics_bind.cpp ever ran it; every
-  substrate-originated `func_<addr>(c)` call (the actual hot path) still ran the interpreted `gen_func_*`
+  substrate-originated `a direct guest-address call` call (the actual hot path) still ran the interpreted `original guest instructions`
   GTE-op body untouched.
 - **status:** fixed (this session) — `Math::registerOverrides()` added + called from `boot.cpp`; SBS
   0-diff over 3 separate runs (~7000/~7650/final frames) with an instrumented print CONFIRMING the
@@ -324,8 +314,8 @@
   direct call sites from node_xform.cpp DO make it call-graph-reachable, so it read as "LIVE" by that
   metric even before this fix — LIVE ≠ "every caller of the guest address reaches this native").
 - **fix:** dual-wire same as `ActorReward` (see the entry above this file) — `EngineOverrides::register_`
-  for `rec_dispatch`-based native callers + `shard_set_override` with a `psx_fallback`-gated trampoline
-  for the substrate's own direct `func_<addr>(c)` calls. Verify a wire ACTUALLY fires (not just "SBS
+  for `typed runtime address dispatch`-based native callers + `tomba::native::declareOverride` with a `the retired alternate-execution flag`-gated trampoline
+  for the substrate's own direct `a direct guest-address call` calls. Verify a wire ACTUALLY fires (not just "SBS
   stayed 0-diff", which is also true of a no-op wire) with a temporary instrumented print in the
   installed trampoline, reverted before commit.
 - **also fixed:** codemap.py's "comment block immediately above the def" heuristic found nothing for 4 of
@@ -336,34 +326,34 @@
   wrong block MERGED in).
 - **WORKFLOW GAP flagged, not fixed:** `dc_boot_init` (shared by SBS/dualcore/selftest) never calls ANY
   subsystem's `registerOverrides()` — those only run in `boot.cpp`'s `main()`, on a throwaway `Game`
-  that SBS never uses. `shard_set_override` still works under SBS (process-global table, populated once
+  that SBS never uses. `tomba::native::declareOverride` still works under SBS (process-global table, populated once
   by that throwaway `game` before `Sbs::run()` diverts) but `EngineOverrides::register_` does NOT (SBS's
-  `mA`/`mB` each get an empty `engine_overrides` — `rec_dispatch`'s `EngineOverrides::run` can never fire
+  `mA`/`mB` each get an empty `engine_overrides` — `typed runtime address dispatch`'s `EngineOverrides::run` can never fire
   on an SBS core). This likely explains the "0 dispatch hits observed" caveats on other clusters
   (`ActorZonedAttacker`, `ActorReward`) — not that autonav doesn't reach those actors, but that
   `EngineOverrides` is structurally unreachable under SBS regardless. Real fix: call every subsystem's
   `registerOverrides()` from `dc_boot_init` too. Out of scope here — touches every prior cluster's wiring.
-- **refs:** game/math/gte_math.{h,cpp} (Math::registerOverrides); runtime/recomp/boot.cpp; docs/port-
+- **refs:** game/math/gte_math.{h,cpp} (Math::registerOverrides); runtime/psx/boot.cpp; docs/port-
   progress.md "GTE matrix cluster" session entry; the `ActorReward` dual-wiring entry above.
 
-## Wiring a banked draft found 2 real transcription bugs via generated/ byte-trace (not caught by SBS alone)
+## Wiring a banked draft found 2 real transcription bugs via authenticated executable/overlay evidence byte-trace (not caught by SBS alone)
 
 - **symptom:** two wide-RE-drafted-but-unwired clusters (game/object/cube_text_ledger.{h,cpp},
   game/player/actor_tomba.cpp's 4 postInteractWalk sub-handlers) were ready to wire onto the frontier.
   Both had extensive RE doc comments and "matches Ghidra 1:1" claims, but a line-by-line cross-check
-  against `generated/shard_*.c` (the recompiler's own emission — ground truth per faithful-execution.md)
+  against `authenticated executable/overlay evidence` (the recorded guest instruction listing — ground truth per faithful-execution.md)
   found two real bugs the draft-time RE missed.
 - **bug 1 — register-leak clobbered:** `ActorTomba::type7Interact` set `c->r[6] = item` before its
-  second dispatch call (`LEAF_STEP_MODE_FLAG`). Ground truth (`gen_func_800235A0`) never reloads r6
+  second dispatch call (`LEAF_STEP_MODE_FLAG`). Ground truth (`guest 0x800235A0`) never reloads r6
   there — a2 is a caller-saved scratch register left over from the FIRST call's (`LEAF_PROX_STEP`)
   side effects, and the original PSX compiler simply never re-set it, so whatever that callee left in
   r6 becomes an unintended argument to the second callee. Since `LEAF_PROX_STEP` is the SAME substrate
   body on both SBS cores, its post-call r6 value is naturally identical either way — clobbering it with
   `item` broke that identity. This is the kind of bug that's easy to miss reading a decompile (Ghidra
-  hides "unused" register carryover) but jumps out immediately in the raw per-register recompiler
+  hides "unused" register carryover) but jumps out immediately in the raw per-register recorded binary evidence
   emission.
 - **bug 2 — polarity swap:** `ActorTomba::growthYSnap` picked the growth-offset constant backwards:
-  `(g17E < 0) ? 0x8C : 0x46` when ground truth (`gen_func_80022C78`) is `(g17E < 0) ? 0x46 : 0x8C` — the
+  `(g17E < 0) ? 0x8C : 0x46` when ground truth (`guest 0x80022C78`) is `(g17E < 0) ? 0x46 : 0x8C` — the
   branch-taken path explicitly RESETS the constant register at its target label, while the fallthrough
   keeps the branch instruction's own delay-slot preset; a decompile-level read can easily flip which
   path "owns" which constant. The same swapped constant was inlined a second time in
@@ -373,7 +363,7 @@
   but only on a play-through that actually reaches type7Interact's `v0>=0` path; bug 2's growth-flag
   branch requires the grow/shrink mechanic to trigger. A short autonav SBS run can easily land 0-diff
   while never exercising the buggy branch, then regress later. **Lesson: for a wired draft, do the
-  register/constant-level RE cross-check against `generated/` BEFORE relying on a single SBS run to
+  register/constant-level RE cross-check against `authenticated executable/overlay evidence` BEFORE relying on a single SBS run to
   "prove" it — SBS confirms no divergence on the states it reached, not correctness of unreached
   branches.**
 - **fix:** both corrected in game/player/actor_tomba.cpp (see the in-code "BUG FIX" comments); re-gated
@@ -384,32 +374,32 @@
 - **also wired this session (no bugs found):** `CubeTextLedger::activateSlot`/`deactivateSlot`/
   `spawnPopup` (0x80040B48/80040C00/80040AA4), dual-wired same as `ActorReward`; `lookupCost`
   (0x80040A58) deliberately left UNwired since it's only ever reached by a direct intra-function call
-  from inside `gen_func_80040B48`/`gen_func_80040C00`'s own bodies — no rec_dispatch caller exists, and
-  wiring it via `shard_set_override` would risk diverting core B's reference execution (the g_override[]
+  from inside `guest 0x80040B48`/`guest 0x80040C00`'s own bodies — no typed runtime address dispatch caller exists, and
+  wiring it via `tomba::native::declareOverride` would risk diverting core B's reference execution (the image-qualified runtime dispatcher
   table is process-global and unconditional at the reader, unlike `EngineOverrides` which self-gates on
-  `psx_fallback`).
-- **refs:** game/object/cube_text_ledger.{h,cpp}; game/player/actor_tomba.{h,cpp}; runtime/recomp/
-  boot.cpp `register_engine_overrides`; generated/shard_2.c:4542 (`gen_func_80040A58`), shard_3.c:11258
-  (`gen_func_80040AA4`), shard_4.c:4944 (`gen_func_80040B48`), shard_5.c:5496 (`gen_func_80040C00`),
-  shard_7.c:1379 (`gen_func_80020364`), shard_0.c:1112/1466 (`gen_func_800205CC`/`gen_func_80022C78`),
-  shard_4.c:1267 (`gen_func_800235A0`).
+  `the retired alternate-execution flag`).
+- **refs:** game/object/cube_text_ledger.{h,cpp}; game/player/actor_tomba.{h,cpp}; runtime/psx/
+  boot.cpp `register_engine_overrides`; authenticated executable/overlay evidence (`guest 0x80040A58`), shard_3.c:11258
+  (`guest 0x80040AA4`), shard_4.c:4944 (`guest 0x80040B48`), shard_5.c:5496 (`guest 0x80040C00`),
+  shard_7.c:1379 (`guest 0x80020364`), shard_0.c:1112/1466 (`guest 0x800205CC`/`guest 0x80022C78`),
+  shard_4.c:1267 (`guest 0x800235A0`).
 
-## Title Load-Game browser aborts: rec_dispatch miss on 0x8018FA88 (CRD.BIN recompiled at the WRONG BASE)
+## Title Load-Game browser aborts: typed runtime address dispatch miss on 0x8018FA88 (CRD.BIN guest at the WRONG BASE)
 - **symptom:** booting headless with NO replay and selecting at the title (`tap right`, `tap x`,
   then run ~60 frames) aborts with
-  `[recomp-MISS 0] no recompiled fn for 0x8018FA88 (caller ra=0x8007BE60, a0=0x00000000,
+  `[historical guest-entry miss 0] no guest fn for 0x8018FA88 (caller ra=0x8007BE60, a0=0x00000000,
   c->pc=0x8007BE18)`. A plain boot (no taps) is clean in every FMV config, and replays that never
   touch the title menu are clean — so the trigger is entering the title menu SELECTION, not boot.
 - **status:** FIXED (kanban #6). `OVERLAY_BASES["CRD"]` 0x80108F9C -> 0x8018A000 in
-  `external/psxport/tools/recomp/emit.py`; regen + rebuild. The browser now runs and RENDERS
+  `the removed offline emitter`; regen + rebuild. The browser now runs and RENDERS
   (`scratch/screenshots/card_browser.png` — "Select slot" + the two MEMORY CARD slot panels), and the
   attract substate (s48==7) reaches full 3D field render.
-- **call path:** `ov_demo_gen_801062E4` (DEMO stage) -> `FUN_8007BF20` (the s48==4 handler — demo.cpp
+- **call path:** `overlay guest 0x801062E4` (DEMO stage) -> `FUN_8007BF20` (the s48==4 handler — demo.cpp
   already documents "s4 (0x8007bf20 yields)", i.e. the LOAD-GAME browser substate) -> `FUN_8007BE18`
-  -> `rec_dispatch(0x8018FA88)`. The target is a LITERAL in MAIN (`generated/shard_4.c:11667`,
-  `c->r[4] = c->r[4] & 255u; rec_dispatch(c, 0x8018FA88u);`), so the game genuinely calls it.
-- **cause:** **CRD.BIN was recompiled at the wrong base.** `OVERLAY_BASES["CRD"]` was a GUESS
-  (0x80108F9C, the MODE slot) — emit.py's own comment flagged it "UNVERIFIED ... capture its real
+  -> `typed runtime address dispatch(0x8018FA88)`. The target is a LITERAL in MAIN (`authenticated executable/overlay evidence`,
+  `c->r[4] = c->r[4] & 255u; typed runtime address dispatch(c, 0x8018FA88u);`), so the game genuinely calls it.
+- **cause:** **CRD.BIN was guest at the wrong base.** `OVERLAY_BASES["CRD"]` was a GUESS
+  (0x80108F9C, the MODE slot) — the removed CPU-source emitter's own comment flagged it "UNVERIFIED ... capture its real
   dest then and fix". CRD actually loads into the OPN slot at **0x8018A000**. `PSXPORT_DEBUG=cd`
   while driving the title selection prints
   `[cd] async read 6265 words (25060 B) @ LBA 1866 -> 0x8018A000`, and LBA 1866 / 25060 B is exactly
@@ -419,7 +409,7 @@
   **CRD = memory CARD (the save-slot browser), not "credits"** — which is why it is on the title
   Load-Game path at all.
 - **falsified (my earlier note on this same bug, corrected):** "0x8018FA88 belongs to an overlay that
-  is never extracted+recompiled" — WRONG. All 28 overlays were extracted and CRD *was* recompiled;
+  is never extracted+guest" — WRONG. All 28 overlays were extracted and CRD *was* guest;
   only its base was wrong. The misleading signal was the miss diagnostic's
   `resident overlay for this slot = (addr not in any slot range)`, which reports the address against
   the MODELED slot ranges — so a wrong-base overlay looks identical to a missing one. Do not go
@@ -464,29 +454,29 @@
   - "FMV playback shifts the pad-frame index" (windowed records with FMVs, agents replay with
     `PSXPORT_NO_FMV=1`) — FALSE. `Fmv::pace` calls `pollSdl()` only, never `serviceFrame()`, so FMV
     playback ticks no pad frames and NO_FMV cannot shift the sequence.
-- **refs:** `runtime/recomp/pad_input.{h,cpp}` (`pumpHostInput`, the record/replay block),
-  `runtime/recomp/native_boot.cpp` (pause loop), kanban #8, skill `live-session`.
+- **refs:** `runtime/psx/pad_input.{h,cpp}` (`pumpHostInput`, the record/replay block),
+  `runtime/psx/native_boot.cpp` (pause loop), kanban #8, skill `live-session`.
 
-## Ghidra silently TRUNCATES decompiled bodies on this dump — always cross-check against `generated/` (2026-07-21)
+## Ghidra silently TRUNCATES decompiled bodies on this dump — always cross-check against `authenticated executable/overlay evidence` (2026-07-21)
 - **symptom:** a decompiled function looks complete and self-consistent, ends in a plausible
   `return ...;`, and is MISSING most of its body. Seen on `FUN_80024548`: Ghidra emitted 39 lines
-  ending `return FUN_80083e80(...)`, while the function really continues for 127 lines of recompiled C.
+  ending `return FUN_80083e80(...)`, while the function really continues for 127 lines of guest C.
   Reading conclusions off the short version means reasoning about code that does not exist.
 - **cause (partly fixed):** Ghidra's non-returning-function analyzer mislabels ordinary leaf helpers
   (trig/math tables reached via a jump) as `noreturn`. Every caller then decompiles to
   `/* WARNING: Subroutine does not return */` with everything after the call discarded and a
   fabricated `return 0`.
-- **fix:** `PSXPORT_CLEAR_NORETURN=all` (or a comma list of entry addresses) on `tools/decomp.sh` —
+- **fix:** `PSXPORT_CLEAR_NORETURN=all` (or a comma list of entry addresses) on `the Ghidra evidence workflow` —
   clears the flag before decompiling. `all` is the right default for a game RAM dump: genuine noreturn
   is essentially absent, misanalysis is not. Verified on `FUN_80024548`: 2 flags cleared, the
   "does not return" warning gone.
 - **BUT THE TRUNCATION SURVIVED THE FIX** on that function — the warning disappeared and the body was
   still short. So the flag is one cause, not the only one.
-- **RULE:** for any function that matters, cross-check the decompile against `generated/`
-  (`awk '/void gen_func_<ADDR>\(/,/^}$/' generated/shard_*.c`). That is the recompiler's own
+- **RULE:** for any function that matters, cross-check the decompile against `authenticated executable/overlay evidence`
+  (`awk '/void the cited guest instructions\(/,/^}$/' authenticated executable/overlay evidence`). That is the recorded binary evidence's
   translation of the real instruction stream — authoritative, complete, and already in the repo.
-  Ghidra is for READABILITY; `generated/` is for ground truth. Note overlay code (0x8011xxxx+) is NOT
-  in `generated/` (MAIN.EXE only), so there the RAM-dump decompile is all there is — treat its
+  Ghidra is for READABILITY; `authenticated executable/overlay evidence` is for ground truth. Note overlay code (0x8011xxxx+) is NOT
+  in `authenticated executable/overlay evidence` (MAIN.EXE only), so there the RAM-dump decompile is all there is — treat its
   completeness with suspicion and check the disassembly at the tail.
 
 ## PSXPORT_WWATCH is BLIND to scratchpad (0x1F800000-0x1F8003FF) — control it before trusting a zero (2026-07-21)
@@ -534,7 +524,7 @@
   dump that does not contain the state you are reasoning about is worse than no dump.
 - **what survived this in #8:** whole-run `PSXPORT_WWATCH` counts, which never depended on the dump —
   in particular "`+0x2b` is never written non-zero" was measured across a pre-fix replay that DID reach
-  the grab (verified visually at pad frame 6424). The RE of the code paths (from Ghidra + generated/)
+  the grab (verified visually at pad frame 6424). The RE of the code paths (from Ghidra + authenticated executable/overlay evidence)
   is also unaffected.
 
 ## tools/width_audit.py — catch the "ported at the wrong width/signedness" defect class (2026-07-22)
@@ -555,15 +545,15 @@
   `== 0x15`, which can essentially never be true because the read also covers bf871..73, so that state
   transition NEVER FIRED under pc_skip; and it was written with `mem_w32`, zeroing three adjacent live
   bytes. Plus three `mem_r32(0x800E7FEE)` where the guest uses `lh`.
-- **★ VERIFY EVERY HIT AGAINST `generated/` BEFORE CHANGING CODE.** An early version resolved
+- **★ VERIFY EVERY HIT AGAINST `authenticated executable/overlay evidence` BEFORE CHANGING CODE.** An early version resolved
   addresses by scanning the RAM dump for a nearby `lui`, which missed accesses whose base was set up
   further back: it reported "guest uses: lbu" for the area id `0x800BF870` while gen plainly does
   `c->mem_r16((c->r[4] + (uint32_t)-1936))`, and acting on it produced a WRONG edit (`mem_r8` where gen
-  uses `mem_r16`). The guest side is now CONSTANT PROPAGATION OVER `generated/` (C with the constants
+  uses `mem_r16`). The guest side is now CONSTANT PROPAGATION OVER `authenticated executable/overlay evidence` (C with the constants
   written out, so a base set anywhere in the function resolves), with the dump scan kept only to cover
-  overlay code that is not in `generated/`. That took coverage from 1135 to ~5400 addresses and made
+  overlay code that is not in `authenticated executable/overlay evidence`. That took coverage from 1135 to ~5400 addresses and made
   the area-id false positive disappear — which is how the change was validated. The rule still stands:
-  the audit says WHERE to look, `generated/` says what is true.
+  the audit says WHERE to look, `authenticated executable/overlay evidence` says what is true.
 - **CONVERGED (2026-07-22): 60 hits -> 6, all benign.** 864 accesses agree, 43 unresolved, and the 6
   remaining are all `0x800BF80D` compared `== 0` / `!= 0` / `== 3`, where signedness cannot matter.
   Getting there meant closing FOUR false-positive modes; each one, left in, would have invited a wrong
@@ -599,7 +589,7 @@
   softlock": ownership makes a bug findable, not absent. Both bugs the USER confirmed fixed on
   2026-07-22 (#8 seesaw, #1 jump-pickup) were defects in owned hand-written code.
 - **There IS a way to test a rebuild, demonstrated on `FUN_8007DC38`:** generate the byte-faithful body
-  with `tools/port_gen.py` (which is `port_check` PASS by construction), swap the behavior-table entry
+  with `direct executable disassembly` (which is `port_check` PASS by construction), swap the behavior-table entry
   to call it, run a replay with `PSXPORT_PAD_DUMP_AT`, diff the 2 MB dumps against a run of the
   rebuild, swap back. Zero diff means equivalent ON THAT PATH. It took minutes and converted the
   dialog driver from "unverified" to "verified".
@@ -609,7 +599,7 @@
   filename and will silently overwrite the baseline (see the entry above).
 
 ### ★ USE `PSXPORT_MIRROR_VERIFY=all` — the campaign already has a built-in gate (found 2026-07-22)
-The manual A/B below (port_gen a faithful body, swap the table entry, dump, diff) WORKS, but it was
+The manual A/B below (binary evidence a faithful body, swap the table entry, dump, diff) WORKS, but it was
 reinventing something that already exists: `PSXPORT_MIRROR_VERIFY=<addr>` runs a behaviour handler's
 native and substrate legs and compares their guest writes and registers, and `=all` surveys every
 handler in one run (`PSXPORT_MIRROR_VERIFY_CONTINUE=1` to log instead of aborting at the first hit).
@@ -619,15 +609,15 @@ save-sign handler sat undetected. Prefer it; the manual A/B is for when you need
 
 **First survey (bucket capture, 1300 frames):** ONE mismatch, at `0x80086738`
 (`Engine::installModeHandlers`) — native `v0=80102500` vs substrate `v0=80102444`, plus `v1`.
-**Benign, verified not assumed:** the only real call site (`generated/shard_1.c:16529`) overwrites
+**Benign, verified not assumed:** the only real call site (`authenticated executable/overlay evidence`) overwrites
 `v0` with 1 on the very next instruction, so both values are dead. A differing scratch register at a
 call site that discards it is exactly the noise the dispatch-site comment warns rebuilds produce.
 **Caveat, now TRIAGED (2026-07-22):** the survey ends in rc=139, and it is neither corruption nor a
 harness bug — it is the harness's own deliberate abort:
 `FATAL: yield inside a strict-check leg — this mirror is not yield-free; gate it with SBS lockstep
-instead of MV_CHECK`. A handler under strict-check performed a SCHEDULER YIELD; the backtrace is
-`gen_func_80044F58` -> `scheduler_yield` -> `PcScheduler::selfClose` -> `VerifyHarness::strictCheck`.
-MV_CHECK replays a leg, and a coroutine yield mid-replay cannot be unwound, so it refuses.
+instead of strict replay check`. A handler under strict-check performed a SCHEDULER YIELD; the backtrace is
+`guest 0x80044F58` -> `scheduler_yield` -> `PcScheduler::selfClose` -> `VerifyHarness::strictCheck`.
+strict replay check replays a leg, and a coroutine yield mid-replay cannot be unwound, so it refuses.
 **Consequence for the campaign:** `=all` cannot be a blanket survey while any yielding handler is in
 range — it will always die at the first one. Verify yield-free handlers individually with
 `PSXPORT_MIRROR_VERIFY=<addr>`, and gate the yielding ones (0x80044F58 and anything else that trips
@@ -635,7 +625,7 @@ this) with SBS lockstep, exactly as the message says. The survey is still useful
 passes and one benign mismatch before hitting the yield.
 
 ### A/B campaign log (kanban #10) — rebuilds tested for equivalence
-Method per entry: `port_gen` the byte-faithful body, swap the behavior-table entry to it, run
+Method per entry: `binary evidence` the byte-faithful body, swap the behavior-table entry to it, run
 `replays/bugs/bucket-softlock.pad` with `PSXPORT_PAD_DUMP_AT=1200` both ways, diff the 2 MB dumps,
 swap back. Cost is two runs (~2 min) per handler.
 
@@ -650,26 +640,26 @@ casually wrong, so a divergence when one turns up is a strong signal rather than
 faithful body OUT of the tree — generate it into `scratch/ab/`, wire it only for the two runs, and
 remove it, or the repo accumulates dead duplicates of every handler.
 
-## codemap.py is BLIND to an address wired through the UNNAMED engine_set_override_* forwarder
+## codemap.py is BLIND to an address wired through the UNNAMED tomba::native::declareOverride* forwarder
 - **symptom:** `tools/codemap.py --addr 80040558` prints `NO native owner found` and the address is
   absent from `docs/code-map.md`, while the address IS fully owned — a native is registered for it and
   `docs/parity-map.md` even carries a verified multi-thousand-frame SBS gate for it. A work queue built
   from the codemap then dispatches it as "still UNOWNED" and a session re-ports it from scratch.
 - **status:** fixed 2026-07-30 (0x80040558 switched to the named registry form; codemap now resolves it)
-- **cause:** codemap's owner scan keys on `overrides::install(0xADDR, "Class::method", …)` — the form
+- **cause:** codemap's owner scan keys on `tomba::native::declareOverride(0xADDR, "Class::method", …)` — the form
   that carries a NAME STRING — plus `// FUN_XXXXXXXX` banners. The thin forwarder
-  `engine_set_override_main(addr, native, gen)` (external/psxport/runtime/recomp/override_registry.h)
+  `tomba::native::declareOverride(addr, native, gen)` (external/psxport/runtime/psx/override_registry.h)
   has NO name argument, so an address wired only that way has nothing to attach an owner name to and
   drops out of the map. game/ai/node_lifecycle_sm.cpp also had no `FUN_80040558` banner, so the
   fallback missed too.
 - **fix:** register engine/game natives with the NAMED form
-  `overrides::install(0x…u, "Class::method", native, gen, <setter>)`. Treat
-  `engine_set_override_main/_a00/_game` as the render-emitter convenience path only. Grep the tree for
+  `tomba::native::declareOverride(0x…u, "Class::method", native, gen, <setter>)`. Treat
+  `tomba::native::declareOverride/_a00/_game` as the render-emitter convenience path only. Grep the tree for
   remaining unnamed forwarder call sites when an address looks suspiciously unowned.
 - **refs:** game/ai/placed_prop_sm.cpp, tools/codemap.py:283/610, docs/parity-map.md node-lifecycle-sm-40558
 
-## port_check.py takes FILES, not addresses — and a lens setter with a space before `(` counts ZERO stores
-- **symptom:** (a) `port_check.py 80040558` used to print a warning and exit 0, reading as a PASS while
+## dynamic differential evidence takes FILES, not addresses — and a lens setter with a space before `(` counts ZERO stores
+- **symptom:** (a) `dynamic differential evidence 80040558` used to print a warning and exit 0, reading as a PASS while
   nothing was checked (it now REFUSES, but a queue that passes an address still gates nothing).
   (b) A correct, byte-equivalent port FAILs with `memory-store width sequence mismatch` and a native
   width list that is missing whole groups of stores.
@@ -679,21 +669,21 @@ remove it, or the repo accumulates dead duplicates of every handler.
   method body and inside typed-lens setters harvested from `game/**/*.h`. A setter written
   `{ c->mem_w8 (n + kOff, v); }` (space added to align a column) matches nothing and contributes zero
   widths, so every store through that setter vanishes from the native sequence.
-- **fix:** always run `port_check.py game/<sub>/<file>.cpp` and read the per-method
+- **fix:** always run `dynamic differential evidence game/<sub>/<file>.cpp` and read the per-method
   PASS / FAIL / UNPROVABLE line. Never align whitespace between `mem_wN` and `(`; align the arguments
-  instead. (Same trap applies to `MEM_W_ANY_RE` in external/psxport/tools/abi_extract.py.)
-- **refs:** external/psxport/tools/port_check.py:60-64/362, abi_extract.py:199, game/ai/placed_prop_sm.h
+  instead. (Same trap applies to `MEM_W_ANY_RE` in external/psxport/tools/binary ABI evidence.)
+- **refs:** external/psxport/tools/dynamic differential evidence:60-64/362, binary ABI evidence:199, game/ai/placed_prop_sm.h
 
 ## abi_extract --contract silently dropped whole blocks: two spaces killed a conditional branch
 - **status:** found + fixed 2026-07-30 (framework 58fd3184). The highest-blast-radius instrument
   defect found so far, and the one whose output looked most like a correct answer.
-- **cause:** `COMPOUND_DELAY_RE` / `COMPOUND_NODELAY_RE` classify a recompiled line as a CONDITIONAL
-  BRANCH. Both hardcoded exactly ONE space around the `if`. The recompiler emits
+- **cause:** `COMPOUND_DELAY_RE` / `COMPOUND_NODELAY_RE` classify a guest line as a CONDITIONAL
+  BRANCH. Both hardcoded exactly ONE space around the `if`. The recorded guest call graph contains
   `);  if (_t) goto L_x; }` with TWO spaces when the delay slot is empty, so such lines were
   classified as ORDINARY STATEMENTS. The CFG then never received the `cond_taken` edge, the branch
   target block became UNREACHABLE, and every call site and every store inside it was dropped.
 - **how it surfaced:** the contract for 0x80027E5C listed ONE call site when the body makes TWO
-  (reported func_80031780, omitted func_80027A4C). An agent porting the SIBLING 0x80027CB4 hit the
+  (reported guest 0x80031780, omitted guest 0x80027A4C). An agent porting the SIBLING 0x80027CB4 hit the
   same omission earlier and worked around it WITHOUT recording it — which is why it survived a second
   encounter. Record the tool defect, not just your workaround.
 - **blast radius, measured not estimated:** 19,528 of 83,921 compound conditional lines misclassified
@@ -710,18 +700,18 @@ remove it, or the repo accumulates dead duplicates of every handler.
 - **the lesson that generalises:** a truncated list is indistinguishable from a complete one. The tool
   printed "call sites (1)" with total confidence. Any instrument that enumerates should be able to say
   what it could NOT see.
-- **refs:** external/psxport/tools/abi_extract.py COMPOUND_DELAY_RE/COMPOUND_NODELAY_RE
+- **refs:** external/psxport/tools/binary ABI evidence COMPOUND_DELAY_RE/COMPOUND_NODELAY_RE
 
 ## port_check FALSE-FAILs a correct rebuild when the guest duplicates a store across a branch
-- **symptom:** `port_check.py game/math/gte_math.cpp` on a freshly-ported leaf reports
+- **symptom:** `dynamic differential evidence game/math/gte_math.cpp` on a freshly-ported leaf reports
   `FAIL: memory-store width sequence mismatch at store #9: oracle=[16 x10] native=[16 x9]`.
   The native is CORRECT; the oracle simply has one more STATIC store than any execution performs.
   First hit porting guest 0x800851F0 (`Math::rotMatSoftYXZ`) on 2026-07-30.
 - **status:** OPEN — instrument defect, NOT a port defect. The port it flagged was proven
   byte-identical by execution (see below), so treat this verdict class as UNTRUSTWORTHY until fixed.
-- **cause:** `abi_extract.extract_op_sequence` (external/psxport/tools/abi_extract.py, the loop at
-  `for _line_no, stmt in stream:`) is a **LINEAR** pass over the gen body's statements — it has no
-  CFG. It appends every `mem_w*` it sees in text order. When the recompiler duplicates one store
+- **cause:** `abi_extract.extract_op_sequence` (external/psxport/tools/binary ABI evidence, the loop at
+  `for _line_no, stmt in stream:`) is a **LINEAR** pass over the guest-visible behavior's statements — it has no
+  CFG. It appends every `mem_w*` it sees in text order. When the recorded binary evidence duplicates one store
   into BOTH ARMS of a conditional (very common: the store sat in a branch delay slot, so it gets
   copied into the taken block and the fall-through block), the linear pass counts it TWICE, while
   exactly one arm ever executes. A correct single-store rebuild then has N-1 stores and FAILs.
@@ -733,7 +723,7 @@ remove it, or the repo accumulates dead duplicates of every handler.
   contortion CLAUDE.md bans ("do NOT contort readable code back into a transcription").
 - **what to do instead:** prove equivalence by EXECUTION and cite it. For 0x800851F0 that is
   `scratch/re/gen_rotmatsoftyxz_equiv.py` -> `rotmatsoftyxz_equiv.cpp`: it extracts BOTH bodies
-  mechanically from the tree (oracle from `generated/shard_2.c`, native from `game/math/gte_math.cpp`
+  mechanically from the tree (oracle from `authenticated executable/overlay evidence`, native from `game/math/gte_math.cpp`
   — neither hand-typed), loads the REAL sin/cos LUT out of `MAIN.EXE`, runs 3,525,420 angle triples
   (edge cross-product + full-turn sweeps + 3M randoms) and diffs all 9 output shorts. Result:
   **0 differed**, with `--selftest` first proving the comparator fires (3,525,420/3,525,420 caught
@@ -748,11 +738,11 @@ remove it, or the repo accumulates dead duplicates of every handler.
 
 ## port_check's store-sequence axis is STATIC, so a store duplicated across branch arms false-FAILs
 - **status:** confirmed 2026-07-30, NOT fixed (the fix changes a verdict every agent depends on).
-- **the artifact:** the recompiler routinely COPIES a store into BOTH arms of a branch (the classic
-  branch-delay-slot duplication). `gen_func_800851F0` stores `mem_w16(out+16)` twice — once in each
+- **the artifact:** the recorded binary evidence routinely COPIES a store into BOTH arms of a branch (the classic
+  branch-delay-slot duplication). `guest 0x800851F0` stores `mem_w16(out+16)` twice — once in each
   arm of the Z-angle sign test, converging at L_8008534C — so the body has **10 static** stores but
   only **9 execute**. `extract_op_sequence` is a purely LINEAR pass with no CFG, so it counts 10, and
-  a correct single-store rebuild reports 9 and FAILs. Verified by reading the gen body, not inferred.
+  a correct single-store rebuild reports 9 and FAILs. Verified by reading the guest-visible behavior, not inferred.
 - **this is a SECOND, distinct CFG-blindness from the conditional-branch regex fix landed the same
   day.** That one repaired branch DETECTION for `parse_contract`. This one is that
   `extract_op_sequence` has no CFG at all, by design ("tolerant view").
@@ -773,74 +763,17 @@ remove it, or the repo accumulates dead duplicates of every handler.
   tree (neither hand-typed), loads the real sin/cos LUT out of MAIN.EXE, and diffs all 9 outputs over
   3,525,420 angle triples — with a `--selftest` that must report EVERY case differing on perturbed
   input before the negative is trusted. Both classes run, both verified.
-- **refs:** external/psxport/tools/abi_extract.py extract_op_sequence; generated/shard_2.c
-  gen_func_800851F0 lines 57 + 72
-
-## port_check is blind to a switch-default rec_dispatch — and the way to find that out is SELF-MUTATION
-- **status:** confirmed 2026-07-30. Narrow, symmetric, not fixed. The METHOD that found it matters more.
-- **the blind spot:** `port_check`'s op-sequence extractor recognises `guest_call(...)` and
-  `guest_dispatch(c, 0x..., ...)` (GUEST_DISPATCH_RE). A bare `rec_dispatch(...)` sitting in a
-  `switch` default — the guest's real indirect `jr` tail — matches NEITHER, so it is dropped from the
-  call list **on both sides**. Being symmetric it cannot hide a native-vs-oracle mismatch, so it is not
-  urgent. But it does mean: **a PASS is not evidence that an indirect tail-dispatch was reproduced.**
-  Deleting the `default: rec_dispatch(...)` line entirely still PASSes.
-- **HOW IT WAS FOUND, and this is the part to copy.** The agent did not trust its own PASS. It made
-  FIVE mutated copies of its finished port (in gitignored scratch, never the shared tree) and checked
-  the gate rejected each:
-      extra static store (un-share a write)      -> FAIL (19 vs 18 widths)   ✓ fires
-      merged store (fold two policies together)  -> FAIL (17 vs 18 widths)   ✓ fires
-      corrupted one ra constant                  -> FAIL (call[3] ra differs) ✓ fires
-      dropped a real guest_call                  -> FAIL (call count 5 vs 4)  ✓ fires
-      dropped `default: rec_dispatch(...)`       -> PASS                      <- BLIND SPOT
-  Four of five mutations proved the gate discriminates; the fifth found where it does not. This is the
-  per-port form of "a discriminator must be run against BOTH classes before you trust it", and it costs
-  minutes. Adopt it whenever a port PASSes on the first try.
-- **the right response when you hit it:** keep the `default: rec_dispatch(...)` (it is the guest's
-  real `jr`, even when unreachable given a bounds-checked table), and do NOT write a comment claiming
-  the gate requires it — it does not. State plainly that the gate cannot see it.
-- **refs:** external/psxport/tools/port_check.py GUEST_DISPATCH_RE; docs/re/collision-resolve-23d48.md
-
-## port_check is blind to `guest_fn(...)` — the call shape guest_abi.h tells new ports to use
-- **status:** found 2026-07-30, NOT fixed. False-FAIL only, so nothing already green is wrong.
-- **the defect:** port_check has `GUEST_CALL_RE` and `GUEST_DISPATCH_RE` but NO `GUEST_FN_RE`. A
-  `guest_fn(...)` call therefore falls through the extractor with `pending_ra == None` and is dropped
-  from the call list entirely, producing a call-count FAIL on a byte-correct port.
-- **why it stings:** `runtime/recomp/guest_abi.h` section 4 declares guest_fn to be "THE call shape
-  for faithful bodies... New ports use guest_fn". So the gate penalises exactly the shape the
-  framework documents as preferred. An agent hitting this will either think its port is wrong, or
-  quietly rewrite to an older shape to appease the gate — which is how a directive gets silently
-  eroded by a tool.
-- **for whoever fixes it:** the argument ORDERS differ — `guest_dispatch(c, ra, target)` versus
-  `guest_fn(c, target, ra, ...)`. A fix that assumes one order will mis-attribute ra constants.
-- **workaround used meanwhile:** `guest_dispatch` + explicit `c->r[4..7]` argument setup, which stays
-  inside what the gate can verify. Correct, just more verbose than the documented idiom.
-- **refs:** external/psxport/tools/port_check.py GUEST_CALL_RE/GUEST_DISPATCH_RE;
-  runtime/recomp/guest_abi.h section 4
-
-## port_check's switch-default skip is FORMATTING-dependent — a multi-line `default:` false-FAILs
-- **status:** found 2026-07-30, not fixed (shared tool, another port was mid-flight).
-- **the defect:** both `abi_extract.py` (~:936) and `port_check.py` (~:416) skip a `rec_dispatch` only
-  when the literal text `default:` appears in the SAME `;`-delimited sub-statement. The recompiler
-  emits its whole switch on one line, so the oracle's default arm is skipped; a native that writes the
-  same arm across multiple lines is NOT, and the method fails with
-  `call count mismatch: oracle=3 native=4 … native targets=[None, …]`.
-- **so the gate depends on how you FORMAT the arm**, which is not a property of the code's behaviour.
-  Writing `default: rec_dispatch(c, target); break;` on ONE line passes; the identical arm split over
-  three lines fails. That is a booby trap for exactly the readable style this project asks for.
-- **the proper fix:** emit `switch_default_rec_dispatch` on both sides of `extract_op_sequence`, the
-  way `--contract` already does, instead of pattern-matching the source text.
-- **workaround until then:** put the whole default arm on one line and note why.
-- **related, already recorded:** the gate cannot SEE a switch-default rec_dispatch at all when it is
-  skipped, so deleting the arm entirely also passes. Two different failure modes on the same construct.
+- **refs:** external/psxport/tools/binary ABI evidence extract_op_sequence; authenticated executable/overlay evidence
+  guest 0x800851F0 lines 57 + 72
 
 ## codemap `--addr` answered "NO native owner found" for 26 addresses that HAD a live override
 - **symptom:** `tools/codemap.py --addr <hex>` reported no owner for 26 guest addresses with a
-  shipping `overrides::install` / `engine_set_override_*` wiring. CLAUDE.md sends every agent to
+  shipping `tomba::native::declareOverride` / `tomba::native::declareOverride*` wiring. CLAUDE.md sends every agent to
   that command BEFORE reimplementing a `FUN_xxxx`, so the false negative reads as "free to port"
   and directly causes duplicated work. Clusters: `game/render/fx_mesh.cpp` (11), `game/ui/
   options_page.cpp` (5), `game/object/cube_text_ledger.cpp` (2), `game/player/actor_tomba.cpp` (2),
   `game/math/gte_math.cpp` (1), `game/ui/panel.cpp` (1), plus `0x8009A420` installed from
-  `external/psxport/runtime/recomp/mem.cpp`. Separately `game/render/mesh_emit_tap.cpp` — the SINGLE
+  `external/psxport/runtime/psx/mem.cpp`. Separately `game/render/mesh_emit_tap.cpp` — the SINGLE
   installer of `0x80027768` — appeared 0 times in `docs/code-map.md`, and `--addr 80027768` named
   only its two CONSUMERS, sending a debugging session to the wrong two files.
 - **status:** FIXED 2026-08-05 (tools/codemap.py). `--selftest` asserts one case per ownership shape
@@ -848,10 +781,10 @@ remove it, or the repo accumulates dead duplicates of every handler.
   today).
 - **cause:** the scanner indexed only by native DEFINITION — a name carrying the address
   (`ov_<hex>`), an adjacent/def-line/file-header comment tag, a header declaration tag, or the
-  quoted name of an `overrides::install`. The dominant real-world shape has none of those: the
+  quoted name of an `tomba::native::declareOverride`. The dominant real-world shape has none of those: the
   handler is a file-local static in an ANONYMOUS NAMESPACE (`armTap_8002BC9C`, `panelBuildTap`,
-  `meshEmitTap`), or a MACRO-GENERATED symbol with no textual definition at all
-  (`FX_A00_CONTROLLER_SCOPE(8013ED08)`), or a TEMPLATE instantiation (`pageScope<gen_func_8007F104>`).
+  `meshEmitTap`), or a macro-instantiated handler with no textual definition at all
+  (`FX_A00_CONTROLLER_SCOPE(8013ED08)`), or a TEMPLATE instantiation (`pageScope<guest 0x8007F104>`).
   The install call site was the only record of ownership and was not indexed. `mesh_emit_tap.cpp`
   additionally missed the file-header fallback because its banner says "the SINGLE **owner of**
   guest FUN_80027768" while `FILE_HEADER_ADDR_RE` matches only "**ownership of** FUN_xxxx".
@@ -860,7 +793,7 @@ remove it, or the repo accumulates dead duplicates of every handler.
   install is visible. The install file is reported as the answer to "where do I debug this from".
 - **also fixed in the same pass:** `--substrate-fallthrough` reported 268 addresses as falling
   through to the emulated substrate; 182 of those were false — `load_registered_addrs` only matched
-  `<x>set_override(0xADDR, …)` and could not see `overrides::install(0xADDR, …)` (where the setter
+  `<x>set_override(0xADDR, …)` and could not see `tomba::native::declareOverride(0xADDR, …)` (where the setter
   is an ARGUMENT, not the callee) nor anything installed from the submodule. Now 86.
 - **dead end recorded:** do NOT special-case the file header wording for `mesh_emit_tap.cpp`. The
   address had a live install; the install site is the general answer and fixes the whole family.

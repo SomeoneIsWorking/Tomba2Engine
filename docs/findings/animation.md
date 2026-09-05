@@ -8,11 +8,11 @@
   frame that each variant's compiled body pushes before its internal `jal FUN_8007712C`.
 - **Fix, layer 1 (the assigned task)**: `Cull::wrapFrame(raConst)` mirrors each wrapper's own 24-byte
   frame — descend sp, spill the LIVE incoming `ra` at `sp+16` (RE'd instruction-exact from
-  generated/shard_{0,1,2,4,5,7}.c), set `ra` to the per-site constant, run the body, restore, ascend.
-  All 6 RA constants RE'd from the actual `c->r[31] = 0x…;` line in each `gen_func_*` body.
+  authenticated executable/overlay evidence{0,1,2,4,5,7}.c), set `ra` to the per-site constant, run the body, restore, ascend.
+  All 6 RA constants RE'd from the actual `c->r[31] = 0x…;` line in each `original guest instructions` body.
 - **Fix, layer 2 (found this session, not obviously implied by the task)**: mirroring the OUTER
-  wrapper frame alone still diverged at `0x801FE904..908`. RE'ing `gen_func_8007712C` itself
-  (generated/shard_1.c) showed FUN_8007712C — the cull body EVERY wrapper calls — ALSO pushes its
+  wrapper frame alone still diverged at `0x801FE904..908`. RE'ing `guest 0x8007712C` itself
+  (authenticated executable/overlay evidence) showed FUN_8007712C — the cull body EVERY wrapper calls — ALSO pushes its
   own real 40-byte frame (`sw r19,28(sp)` [obj, before repurpose] / `sw r16,16(sp)` [dx] /
   `sw r17,20(sp)` [dy] / `sw r18,24(sp)` [dz] / `sw ra,32(sp)`), NESTED one level deeper. The
   existing native `Cull::performBaseCull()` (a pure-C++ reimplementation, no r29 use at all) never
@@ -31,7 +31,7 @@
   variants (cullWrapper, cullWrapperOffset, cullWrapperOffsetFlag1, cullWrapperOffsetY) have no
   native callers and are framed directly, no split needed.
 - **Verification**: `PSXPORT_SBS_MODE=full` autonav headless, 95s run reaching frame 8790+: **0
-  sbs-div lines**. All 6 `shard_set_override` trampolines confirmed firing with substantial hit
+  sbs-div lines**. All 6 `tomba::native::declareOverride` trampolines confirmed firing with substantial hit
   counts via a temporary counter (removed after confirmation) — e.g. 8007778C≈160k,
   80077ACC≈67k, 800777FC≈8k, 800779D0≈8k, 80077A4C≈5.6k, 800778E4≈2.7k hits in a 30s sample.
 - **Method note**: the "arbitrary sp for a native leaf-dispatch/direct-C++ caller" bug class (layer
@@ -43,8 +43,8 @@
 
 ## INVESTIGATED, REVERTED: `Animation::step` (FUN_80076D68) wiring — frame mirror is correct, but exposes a pre-existing `anim_vm_76d68` fidelity gap for a pool-adjacent node address (2026-07-08)
 
-- **Task**: wire `Animation::step` (0x80076D68) via `shard_set_override`, mirroring its real 40-byte
-  guest-stack frame (`Animation::stepFramed()`, RE'd from generated/shard_7.c gen_func_80076D68 —
+- **Task**: wire `Animation::step` (0x80076D68) via `tomba::native::declareOverride`, mirroring its real 40-byte
+  guest-stack frame (`Animation::stepFramed()`, RE'd from authenticated executable/overlay evidence guest 0x80076D68 —
   frame layout confirmed correct: `sw r16,16(sp)` [BEFORE repurpose to node] / `sw ra,32(sp)` /
   `sw r19,28(sp)` / `sw r18,24(sp)` / `sw r17,20(sp)`).
 - **First bug found (same "arbitrary sp" class as the Cull wrappers above)**: `step()`'s existing
@@ -55,15 +55,15 @@
   `stepFramed()` as a separate, guest-ABI-only entry point, exactly like the Cull wrapper split.
 - **Second bug found**: `EngineOverrides::register_(0x80076D68u, …, eov_animStep)` is ALSO reached
   by a native "leaf dispatch" convenience call — `ActorZonedAttacker::call1(c, node, FN_80076D68)`
-  (game/ai/actor_zoned_attacker.cpp) calls `rec_dispatch(c, addr)` directly from native behavior
+  (game/ai/actor_zoned_attacker.cpp) calls `typed runtime address dispatch(c, addr)` directly from native behavior
   code, not from a real guest call site. `EngineOverrides::run()` intercepts this BEFORE the
   substrate's own dispatch, so `eov_animStep` must ALSO stay unframed (verified: no substrate call
-  site reaches 0x80076D68 via `rec_dispatch` at all — every one uses the direct `func_80076D68(c)`
+  site reaches 0x80076D68 via `typed runtime address dispatch` at all — every one uses the direct `guest 0x80076D68(c)`
   trampoline instead, so `EngineOverrides::run()` for this address only ever sees the native
   leaf-dispatch case).
 - **Third bug found (a routing mistake introduced while fixing the second)**: after making
-  `eov_animStep` unframed, `gov_animStep` (the `shard_set_override` trampoline, reached ONLY from
-  genuine direct substrate `func_80076D68(c)` calls with a real guest sp) was ROUTING THROUGH
+  `eov_animStep` unframed, `gov_animStep` (the `tomba::native::declareOverride` trampoline, reached ONLY from
+  genuine direct substrate `guest 0x80076D68(c)` calls with a real guest sp) was ROUTING THROUGH
   `eov_animStep` — silently losing the frame mirror for the one call path that actually needed it.
   Fixed: `gov_animStep` calls `stepFramed()` directly, never through `eov_animStep`.
 - **After fixing all three routing bugs, the divergence PERSISTED** (f3773, packet_pool region,
@@ -76,7 +76,7 @@
   - Isolated to exactly one call: node address **0x800E7E80**, which sits immediately after the
     active-object-pool free-counter (0x800E7E7C — see game/render/cull.cpp's `CULL_FAR_MULT`
     comment), called from one specific site (ra=0x8005AA90). A targeted A/B test (falling back to
-    `gen_func_80076D68` for just this one address, native routing for everything else) made the
+    `guest 0x80076D68` for just this one address, native routing for everything else) made the
     divergence disappear completely — 0-diff through 7000+ frames.
   - Conclusion: `anim_vm_76d68` (the existing native reimplementation of FUN_80076D68 — NOT written
     or touched this session) has a genuine, pre-existing fidelity gap for whatever this
@@ -85,13 +85,13 @@
     edge case doesn't match the substrate. This is a LOGIC bug in `anim_vm_76d68`, not a
     stack-frame problem — out of scope for a frame-mirror fix.
 - **Decision**: reverted `Animation::step`'s wiring entirely (both `EngineOverrides::register_` and
-  `shard_set_override` for 0x80076D68) rather than special-case the one address (that would be a
+  `tomba::native::declareOverride` for 0x80076D68) rather than special-case the one address (that would be a
   banned magic-constant bandaid, not a fix). `stepFramed()` is KEPT (correct, RE'd, documented) as
   dead code available for whoever RE's the 0x800E7E80 call site and either fixes `anim_vm_76d68`'s
   handling of it or determines it needs its own dedicated native path.
 - **Needed next**: RE the caller at ra=0x8005AA90 (what does it actually think 0x800E7E80 is —
   a real animation node from a struct at a fixed offset, or a bug in ITS OWN argument
-  computation?) and RE what `gen_func_80076D68` does with that address on the substrate side that
+  computation?) and RE what `guest 0x80076D68` does with that address on the substrate side that
   `anim_vm_76d68` doesn't reproduce.
 
 ## SUPERSEDED 2026-07-08 (later same day): the "no single guest call site" premise below was WRONG — attach's frame IS now mirrored, `isDeadStackScratch` DELETED
@@ -100,19 +100,19 @@ The section below (kept for the historical bisection method + evidence) conclude
 single guest call site to mirror against" and that r29 at each call site is "whatever an unrelated
 prior guest call left it at". That conclusion was never actually measured — it was inferred from
 "every reacher is a native leaf-dispatch convenience call". A direct probe disproves it:
-`PSXPORT_DEBUG=animstack` (temporary instrumentation in `runtime/recomp/overlay_router.cpp`'s
-`rec_dispatch`, comparing `c->r[29]` at every reach of 0x80077C40 on both SBS cores over a full
+`PSXPORT_DEBUG=animstack` (temporary instrumentation in `runtime/psx/overlay_router.cpp`'s
+`typed runtime address dispatch`, comparing `c->r[29]` at every reach of 0x80077C40 on both SBS cores over a full
 autonav run) shows r29 is **IDENTICAL between core A and core B at every single call**, every frame.
-This is obvious in hindsight: `rec_dispatch` is a plain native C++ function on BOTH cores and never
+This is obvious in hindsight: `typed runtime address dispatch` is a plain native C++ function on BOTH cores and never
 itself pushes/pops a guest frame, so whichever caller (a beh_* handler reached at a specific point in
 the per-object walk) currently holds some value in r29, THAT value passes through unchanged to attach
 on A and B alike — because the caller itself is reached identically on both cores up to that point.
 
 **Fix**: mirrored attach's real 32-byte frame (`addiu sp,-32; sw ra,24(sp); sw r17,20(sp); sw
-r16,16(sp)`, RE'd from `generated/shard_5.c gen_func_80077C40`) with the same LIVE-spill/restore RAII
+r16,16(sp)`, RE'd from `authenticated executable/overlay evidence guest 0x80077C40`) with the same LIVE-spill/restore RAII
 pattern as `NodeXform`'s frames (node_xform.cpp) and `Cull::performBaseCullFramed` (cull.cpp) — spill
 whatever's currently in `c->r[16]/r[17]/r[31]` at the RE'd offsets, run the body, restore. Deleted
-`Sbs::Impl::isDeadStackScratch` and all 5 call sites in `runtime/recomp/sbs.cpp` entirely.
+`Sbs::Impl::isDeadStackScratch` and all 5 call sites in `runtime/psx/sbs.cpp` entirely.
 
 **Verification**: `PSXPORT_SBS_MODE=full` + `PSXPORT_SBS_AUTONAV=1`, headless, `isDeadStackScratch`
 removed: 0 divergence at 0x801FE908..0x801FE914 through 8400+ frames (the exact range the exclusion
@@ -125,19 +125,19 @@ for the next "no single call site" refusal: MEASURE r29 before concluding it var
 
 - **Task**: replace the `isDeadStackScratch` (0x801FE908..0x801FE914) SBS exclusion for
   `Animation::attach` with a proper frame mirror, following the `ObjectTable::dispatch` pattern.
-- **RE**: `gen_func_80077C40` (generated/shard_5.c) does have a real 32-byte frame (`sw ra,24(sp)`
+- **RE**: `guest 0x80077C40` (authenticated executable/overlay evidence) does have a real 32-byte frame (`sw ra,24(sp)`
   / `sw r17,20(sp)` / `sw r16,16(sp)`), and mirroring it (descend, spill LIVE incoming r16/r17/ra,
   run the body, restore, ascend) is mechanically straightforward and was implemented.
 - **Why it doesn't work, unlike `ObjectTable::dispatch`**: `ObjectTable::dispatch` mirrors cleanly
   because it has exactly ONE call shape, reached the same way every time (a single guest
   dispatch loop). `Animation::attach` has NO single guest call site to mirror against — EVERY
-  reacher is a NATIVE C++ "leaf dispatch" convenience call: `rec_dispatch(c, 0x80077C40u)` /
+  reacher is a NATIVE C++ "leaf dispatch" convenience call: `typed runtime address dispatch(c, 0x80077C40u)` /
   `call3(...)` / `leaf3(...)` from beh_a06_scripted_actor.cpp, beh_id_routed_dispatch.cpp,
   beh_sop_intro_narration.cpp, beh_sop_intro_lifted.cpp — reached via `EngineOverrides::run()`,
   never from compiled guest code executing a real `jal FUN_80077C40`. (The substrate's OWN direct
-  `func_80077C40(c)` call sites — e.g. generated/shard_2.c:6568 — never reach this native override
-  at all: attach is registered only via `EngineOverrides`, not `shard_set_override`, so
-  `g_override[]` stays empty for this address and those calls just run `gen_func_80077C40`
+  `guest 0x80077C40(c)` call sites — e.g. authenticated executable/overlay evidence — never reach this native override
+  at all: attach is registered only via `EngineOverrides`, not `tomba::native::declareOverride`, so
+  `image-qualified runtime dispatcher` stays empty for this address and those calls just run `guest 0x80077C40`
   unmodified on both cores, byte-identical by construction — they were never the problem.)
 - **Result of mirroring anyway**: at every native leaf-dispatch call site, `c->r[29]` is whatever
   an unrelated prior guest call left it at — not a frame belonging to this call. Pushing/popping 32
@@ -145,7 +145,7 @@ for the next "no single call site" refusal: MEASURE r29 before concluding it var
   `0x801FE906` (f62) — a DIFFERENT address than the original residual, proof the "mirror" was
   overwriting live data rather than reproducing a real frame.
 - **Decision**: reverted to the original unframed body; `isDeadStackScratch` restored in
-  `runtime/recomp/sbs.cpp` with an updated comment recording this investigation. The residual stays
+  `runtime/psx/sbs.cpp` with an updated comment recording this investigation. The residual stays
   masked — it is provably inert scratch (see the exclusion's own comment for the
   `PSXPORT_SBS_BYTETRACE` verification), and there is no canonical guest frame for it to byte-match
   against.
@@ -166,7 +166,7 @@ for the next "no single call site" refusal: MEASURE r29 before concluding it var
   - Disabling only `loadFrame`'s own `ov.register_`: divergence UNCHANGED — because `loadFrame` is also
     reached directly as a plain C++ call from `Animation::attach`/`Animation::step`, independent of its
     own EngineOverrides entry (own registration only matters for *other* callers that reach it via
-    `rec_dispatch`).
+    `typed runtime address dispatch`).
   - Disabling only `advanceLinkChain`: divergence UNCHANGED — not the cause.
   - Disabling only `attach` (0x80077C40): **0 sbs-div through 7400+ frames** — isolates the bug to
     `Animation::attach` (which internally calls the native `loadFrame`).
@@ -201,11 +201,11 @@ for the next "no single call site" refusal: MEASURE r29 before concluding it var
 - **Residual RESOLVED (2026-07-08)**: `0x801FE90C..0x801FE910` (4 B, later widened to the full
   `0x801FE908..0x801FE914` 3-word frame) diverged f61-f116 only: `A=00 00 00 00` vs `B=<stack value,
   e.g. 0x800ECF58>`.
-  - **RE** (`generated/shard_5.c` `gen_func_80077C40`, the compiled body of `Animation::attach`):
+  - **RE** (`authenticated executable/overlay evidence` `guest 0x80077C40`, the compiled body of `Animation::attach`):
     prologue does `sp -= 32; mem_w32(sp+24, ra); mem_w32(sp+20, r17); mem_w32(sp+16, r16);` where
     `r17 = r4 + r0` (its own `node` argument, copied verbatim) and `r16` = a table-lookup pointer.
     The epilogue reloads all three from the SAME offsets then `sp += 32` and returns. Its two leaf
-    callees (`func_80076904`/loadFrame, `func_80075FF8`) never touch `sp` at all — confirmed by
+    callees (`guest 0x80076904`/loadFrame, `guest 0x80075FF8`) never touch `sp` at all — confirmed by
     scanning both bodies for `r[29]` writes (none). So the ENTIRE set of writes attach's compiled
     body makes to its own stack frame is these 3 words, and the ONLY reads of them are its own
     epilogue's restore, before the frame is popped.
@@ -219,7 +219,7 @@ for the next "no single call site" refusal: MEASURE r29 before concluding it var
     scene's actors (f61-f116); the frame converges the instant ordinary (matching, non-attach)
     traffic reuses that stack depth at f117, and stays byte-identical through 11,900+ further
     frames in the verification run.
-  - **Fix**: `runtime/recomp/sbs.cpp` — added `Sbs::Impl::isDeadStackScratch(addr)`, a narrow,
+  - **Fix**: `runtime/psx/sbs.cpp` — added `Sbs::Impl::isDeadStackScratch(addr)`, a narrow,
     unconditional (non-pc_skip-gated) exclusion for exactly `0x801FE908..0x801FE914`, wired into
     every RAM-compare call site (`checkDivergence`'s `scan`, the rewind-pause first-byte loop,
     `summarizeDivergence`'s masked-byte counter) alongside the existing `isPcSkipScratch`. Same
@@ -233,12 +233,12 @@ for the next "no single call site" refusal: MEASURE r29 before concluding it var
 - **Bisection method note**: `register_engine_overrides()` disabling one `ov.register_` line at a time,
   full rebuild each step, is slow (~2 min/cycle) but the ONLY reliable way to isolate which of several
   co-registered natives caused a cascading divergence — direct in-process A/B diffing inside an
-  EngineOverrides handler (`rec_super_call` re-entry from inside the handler itself) is UNSAFE: it
+  EngineOverrides handler (`original guest-body call` re-entry from inside the handler itself) is UNSAFE: it
   corrupts the coroutine/fiber scheduler's `c->pc`/stack bookkeeping and hangs/crashes (tried once here,
   reverted). Use `PSXPORT_SBS_PREWATCH=<addr>` + `sbs bt`/`sbs diff` + manual `r <addr>` guest-RAM reads
   instead — safe, and gives the exact last-writer `pc`/`ra` (though `pc` is STALE/unreliable for a write
-  made from inside a native EngineOverrides handler, since `rec_dispatch` returns before the substrate's
-  `func_X` trampoline would have stamped `c->pc = X` — a real but out-of-scope tooling gap, noted for
+  made from inside a native EngineOverrides handler, since `typed runtime address dispatch` returns before the substrate's
+  `the cited guest address` trampoline would have stamped `c->pc = X` — a real but out-of-scope tooling gap, noted for
   workflow follow-up, not fixed here).
 - **refs**: commits b078729 (register_engine_overrides fix), 7187c93 (Math wiring) — the two prior
   commits that made this gate honest; this fix commit; `game/object/animation.cpp`.
@@ -251,16 +251,16 @@ for the next "no single call site" refusal: MEASURE r29 before concluding it var
   r16@+16/r17@+20/r18@+24/ra@+28); the 5 sub-callees were deliberately dispatched to substrate
   (their own drafts had transcription bugs).
 - **Symptom**: first wiring diverged hard at lockstep f158 — `[sbs-div] f158 0x801FE8DE..E0 (2 B)
-  A=80 1F  B=00 00`. Last-writer on BOTH cores: `Animation::step` (gen_func_80076D68, pc=80076D68)
+  A=80 1F  B=00 00`. Last-writer on BOTH cores: `Animation::step` (guest 0x80076D68, pc=80076D68)
   spilling `r17` (word at sp+20; the divergent halfword at sp+22 is its high half). The spilled
   value is the CALLER's r17: core A = `0x1F80xxxx` (a stale scratchpad pointer), core B =
   `0x0000xxxx` (a zero-extended 16-bit flag word).
 - **Root cause — NOT frame/spill mirroring (that was already right), but intra-body register
-  assignments**: `gen_func_8005950C` keeps `r17`/`r18` LIVE across the case-1/4/7 callees —
+  assignments**: `guest 0x8005950C` keeps `r17`/`r18` LIVE across the case-1/4/7 callees —
   `r17=ECF54_saved` / `r18=E7E68_saved` at gen lines 7648/7650 (case 1) and 7693/7695 (case 4),
   and `r17=sub` / `r18=1` at gen lines 7736/7737 (case 7). The case callees then read those values
-  via THEIR OWN prologue spills: `func_800597AC` (matrix-compose) spills `r18@+32`,
-  `func_80053FDC` (outerTransitionCommit) spills `r17@+20`, `func_80076D68` (Animation::step)
+  via THEIR OWN prologue spills: `guest 0x800597AC` (matrix-compose) spills `r18@+32`,
+  `guest 0x80053FDC` (outerTransitionCommit) spills `r17@+20`, `guest 0x80076D68` (Animation::step)
   spills `r17@+20`+`r18@+24`. The wide-RE draft used C++ locals (`savedE7E68`/`savedCF54`/`sub`)
   for frameTick's own computation and never wrote `c->r[17]`/`c->r[18]` — so the substrate callees
   spilled the stale CALLER values on core A and the SAVED/SUB values on core B. The `0x1F80` vs
@@ -276,7 +276,7 @@ for the next "no single call site" refusal: MEASURE r29 before concluding it var
   for the substrate callees to observe).
 - **General rule (same family as the NodeXform/attach frame-mirror findings above, but a distinct
   flavor)**: a native port that reproduces a function's FRAME prologue correctly can STILL diverge
-  if the gen body assigns callee-saved registers (s0-s7 = r16-r23) mid-body and holds them live
+  if the guest-visible behavior assigns callee-saved registers (s0-s7 = r16-r23) mid-body and holds them live
   across callees. C++ locals cover the function's OWN logic but NOT the register state a substrate
   callee reads by spilling that register. Mirror gen's mid-body `r[N] = …` assignments verbatim,
   not just its prologue/epilogue. Audit for this any time SBS's last-writer is a substrate callee
@@ -285,14 +285,14 @@ for the next "no single call site" refusal: MEASURE r29 before concluding it var
   0 VIOLATION through f15600+ (150 s wall-clock, run stopped only on the external timeout — no
   crash/divergence). Pre-fix the same run diverged at f158 every time.
 - **refs**: `game/player/actor_tomba.{h,cpp}` (`ActorTomba::frameTick`); oracle
-  `generated/shard_4.c gen_func_8005950C` (L7624); this fix commit.
+  `authenticated executable/overlay evidence guest 0x8005950C` (L7624); this fix commit.
 
 ## RESOLVED: turnBiasCompute/outerTransitionGate/outerTransitionCommit/assetReady — §9 promotion found a MIPS branch-delay-slot misread + 6 missing r31 mirrors + 1 wrong-constant gate (2026-07-10)
 
 - **Task**: promote the 4 banked `frameTick` sub-callee drafts (guest `0x80055C9C`/`0x80053E50`/
   `0x80053FDC`/`0x80045580`, all UNWIRED since the 2026-07-08 wave — frameTick dispatched to
   substrate for these on purpose per its own banner, "drafts are untrusted") to verified ownership
-  per fleet-workflow.md §9: line-by-line re-diff against `generated/shard_*.c`, fix, wire, SBS-gate.
+  per fleet-workflow.md §9: line-by-line re-diff against `authenticated executable/overlay evidence`, fix, wire, SBS-gate.
 - **Bug 1 (turnBiasCompute, `0x80055C9C`) — MIPS branch-delay-slot misread, the real root cause**:
   the non-wide-variant path's `r3==5` check is `{ int _t=(r3==r2); r3=3072; if(_t) goto wide; }` —
   the delay-slot assignment `r3=3072` executes UNCONDITIONALLY (branch-delay-slot semantics: the
@@ -307,12 +307,12 @@ for the next "no single call site" refusal: MEASURE r29 before concluding it var
   looked consistent and led to a false "fix" (swapping what looked like inverted 1536/2560
   thresholds — that swap WAS independently correct and is kept, see below, but didn't explain the
   observed divergence). Only a live debug trace (temporary `fprintf` inserted into
-  `gen_func_80055C9C` itself, gated on a throwaway env var, reverted before commit) proved the
+  `guest 0x80055C9C` itself, gated on a throwaway env var, reverted before commit) proved the
   runtime r3 value was `0x00000C00` (3072) with mode=0 facing=0 — impossible under the "r3=mode"
   reading — which is what surfaced the delay-slot semantics. Lesson for future §9 passes: when a
-  hand-traced "fix" doesn't converge SBS, get a REAL runtime value out of the generated function
+  hand-traced "fix" doesn't converge SBS, get a REAL runtime value out of the authenticated executable/overlay evidence
   before re-deriving again; MIPS branch-delay-slot idioms in the flattened `{ ...; r3=X; if(_t)
-  goto L; }` recompiler output are an easy misread (the assignment looks like "the delay slot's
+  goto L; }` recorded guest instruction listing are an easy misread (the assignment looks like "the delay slot's
   dead value for the taken path" but it is NOT dead on the not-taken path).
 - **Bug 2 (turnBiasCompute) — real, independent of bug 1**: the mask/threshold selection was
   genuinely inverted in the pre-existing draft (`mem_r16(0x800E805A)&0x800` bit SET should select
@@ -320,11 +320,11 @@ for the next "no single call site" refusal: MEASURE r29 before concluding it var
   bug 1.
 - **Bug 3 (outerTransitionCommit, `0x80053FDC`) — wrong gate constant**: the decrement-and-settle
   tail's commit-vs-rearm gate compared the walk-state byte `G+0x0` against the literal `0` (`g0 !=
-  0 && (g0&4)==0` → commit), but gen's `gen_func_80053FDC` compares it against the literal `2`
+  0 && (g0&4)==0` → commit), but gen's `guest 0x80053FDC` compares it against the literal `2`
   (`r3==2` → rearm, independent of the `&4` check) — i.e. gen never special-cases `g0==0` and DOES
   special-case `g0==2`. Fixed to `g0 != 2 && (g0&4)==0`.
 - **Bug 4 (outerTransitionGate `0x80053E50`, outerTransitionCommit `0x80053FDC`, assetReady
-  `0x80045580`) — 6 + 1 missing branch-delay-slot `r31` mirrors**: every `rec_dispatch(c, addr)`
+  `0x80045580`) — 6 + 1 missing branch-delay-slot `r31` mirrors**: every `typed runtime address dispatch(c, addr)`
   call site to a still-substrate leaf needs `c->r[31]` set to gen's jal-site return-address constant
   immediately before the call (the callee spills `ra` to ITS OWN guest-stack frame, which is a
   live, SBS-compared guest-RAM byte). The wide-RE drafts had the correct ARGS at every call site but
@@ -336,33 +336,33 @@ for the next "no single call site" refusal: MEASURE r29 before concluding it var
   callee spills/restores `ra` into a guest frame; `0x80054024`/`0x80054054`/`0x80054108`/
   `0x80054118` for outerTransitionCommit's own substrate dispatches; `0x800455B0` for assetReady).
 - **Wiring gotcha — EngineOverrides alone is insufficient (fleet-workflow.md §1 step 3, learned
-  the hard way)**: all 4 addresses have DIRECT substrate `func_<addr>(c)` callers (e.g.
-  `generated/shard_2.c`'s `gen_func_8005DE54`, one of the mode-N table 0x80058918/0x80058F5C
-  targets, calls `func_80055C9C(c)` with a DIFFERENT facing source than frameTick's own call) that
-  never go through `rec_dispatch`, so `EngineOverrides::register_` alone misses them. First attempt
-  hand-rolled a `shard_set_override` + manual `psx_fallback` gate (copying the older
+  the hard way)**: all 4 addresses have DIRECT substrate `a direct guest-address call` callers (e.g.
+  `authenticated executable/overlay evidence`'s `guest 0x8005DE54`, one of the mode-N table 0x80058918/0x80058F5C
+  targets, calls `guest 0x80055C9C(c)` with a DIFFERENT facing source than frameTick's own call) that
+  never go through `typed runtime address dispatch`, so `EngineOverrides::register_` alone misses them. First attempt
+  hand-rolled a `tomba::native::declareOverride` + manual `the retired alternate-execution flag` gate (copying the older
   `Math::registerOverrides` pattern) — works, but violates CLAUDE.md's newer rule ("engine/game
-  natives on the process-global g_override[]/g_ov_* tables MUST install via `engine_set_override_*`
-  ... never the raw shard_set_override"); rewired through `engine_set_override_main`
-  (`runtime/recomp/engine_override_thunk.cpp`) instead — the single oracle-gated choke point, no
+  natives on the per-Core image-qualified runtime dispatcher/old overlay tables tables MUST install via `tomba::native::declareOverride*`
+  ... never the raw tomba::native::declareOverride"); rewired through `tomba::native::declareOverride`
+  (`runtime/psx/engine_override_thunk.cpp`) instead — the single oracle-gated choke point, no
   per-cluster gate to forget.
 - **ovhit tooling caveat — RESOLVED 2026-07-10** (was: pre-existing, not introduced here):
   `PSXPORT_DEBUG=ovhit`'s atexit dump showed 0 hits for ALL EngineOverrides addresses (including
   already-verified ones like `GraphicsBind::recordArrayInit`) in SBS-full runs. Root cause was
   TWO-FOLD, not just target binding: (1) `s_ovhitTarget` bound to whichever `Game`'s
   `EngineOverrides::register_` fired FIRST via a single static pointer — and `main()`
-  (runtime/recomp/boot.cpp) unconditionally constructed+registered a THROWAWAY `Game` before even
+  (runtime/psx/boot.cpp) unconditionally constructed+registered a THROWAWAY `Game` before even
   checking whether to dispatch to the SBS/DualCore/Selftest harness (each of which builds its own
   separate Game(s) and registers those separately via `dc_boot_init`), so the throwaway always won
   the race and its table stayed all-zero forever (never actually driven); (2) several long-verified
   addresses (PutDrawEnv 0x800815D0, DrawSync 0x80080F6C, renderWalk 0x8003C048, and most of the
-  billboard/sequencer/font/GT3GT4 clusters) are wired ONLY through `engine_set_override_main`/`_a00`
-  (`runtime/recomp/engine_override_thunk.cpp`'s `g_tab`), a COMPLETELY SEPARATE table from
+  billboard/sequencer/font/GT3GT4 clusters) are wired ONLY through `tomba::native::declareOverride`/`_a00`
+  (`runtime/psx/engine_override_thunk.cpp`'s `g_tab`), a COMPLETELY SEPARATE table from
   `EngineOverrides` — they were never in the table `ovhit` was dumping at all, regardless of which
   instance it picked. Fixed: (a) `main()` now only registers its own `Game` on the plain no-harness
   path (right before `game->stub.run(path)`), so a harness run never creates the throwaway
   registration in the first place; (b) the dump target is a bounded registry of every instance that
-  DID register, picking the non-`psx_fallback` one as primary and its `sbs`-matched peer for a
+  DID register, picking the non-`the retired alternate-execution flag` one as primary and its `sbs`-matched peer for a
   substrate-parity column (`A=<hits> B(gen)=<count>`); (c) `engine_override_thunk`'s own dump
   merged into the SAME `ovhit` channel so g_tab-only addresses show up too. Verified: SBS-full run
   with `PSXPORT_DEBUG=ovhit PSXPORT_SBS_EXIT_FRAME=3000` now prints `EngineOverrides primary = core
@@ -375,6 +375,6 @@ for the next "no single call site" refusal: MEASURE r29 before concluding it var
   VIOLATION through f6720+ (95s wall-clock window, `PSXPORT_SBS_EXIT_FRAME` clean-exit variant also
   ran 0-diff through f5910+/f6000). Pre-fix (bug 1 present) diverged within ~160 frames every run.
 - **refs**: `game/player/actor_tomba.{h,cpp}` (all 4 methods + `registerOverrides`); oracle
-  `generated/shard_1.c gen_func_80055C9C` (L9208), `generated/shard_4.c gen_func_80053E50` (L7161),
-  `generated/shard_5.c gen_func_80053FDC` (L7749), `generated/shard_6.c gen_func_80045580` (L6274);
-  `runtime/recomp/engine_override_thunk.cpp`; this commit.
+  `authenticated executable/overlay evidence guest 0x80055C9C` (L9208), `authenticated executable/overlay evidence guest 0x80053E50` (L7161),
+  `authenticated executable/overlay evidence guest 0x80053FDC` (L7749), `authenticated executable/overlay evidence guest 0x80045580` (L6274);
+  `runtime/psx/engine_override_thunk.cpp`; this commit.

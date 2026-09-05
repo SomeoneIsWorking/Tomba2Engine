@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """codemap.py — index the PC-native engine's reverse-engineering ownership by GUEST ADDRESS.
 
-WHY THIS EXISTS (read this first): the native port has a thousand-odd hand-written reimplementations
-of specific Tomba!2 functions (the live count is in the header of the generated docs/code-map.md —
+WHY THIS EXISTS (read this first): the native port has many hand-written implementations
+of specific Tomba!2 functions (the live count is in the header of docs/code-map.md —
 never hard-coded in prose, which is how "~350" survived into three documents long after it was
 wrong), scattered across game/**.cpp and the psxport runtime, each tied to a guest MIPS address only
 by its symbol name (`ov_800753D4`), a header comment (`// 0x800753D4 — ...`), or — for the whole
-anonymous-namespace family — by nothing at all except its `overrides::install` call site. There is
-no other index. Worse, the OLD override system that wired address->native was
-REMOVED (top-down PC-driven now), so the great majority of these natives are currently ORPHANED:
+anonymous-namespace family — by nothing at all except its `tomba::native::declareOverride` call site. There is
+no other index. The image-qualified dispatcher owns the live address-to-native relationship; native
+implementations not declared there may still be called directly, but are not guest-address overrides:
 real, correct code that nothing calls. Without a map you cannot answer the one question that saves
 hours — "is FUN_XXXX already owned natively, and where?" — so you re-derive code that already exists
 (this tool was written after exactly that happened: native_cb_loadidx duplicated ov_load_texgroup).
@@ -16,8 +16,7 @@ hours — "is FUN_XXXX already owned natively, and where?" — so you re-derive 
 WHAT IT DOES: scans the native sources, extracts for each native function:
   - the GUEST ADDRESS(es) it implements (from the `ov_<hex>` name and/or the header comment),
   - its file:line and symbol,
-  - the addresses it DEPENDS on (rec_dispatch / call_fn / rc1..rc4 / super_call targets — i.e.
-    still-PSX leaves it calls; these are the things that BREAK now overrides are gone),
+  - the guest addresses it dispatches or calls through the shared runtime,
   - which other native symbols call it directly (C call graph),
   - a reachability verdict: LIVE (transitively C-called from a native_boot dispatch root) vs ORPHAN.
 
@@ -43,9 +42,8 @@ USAGE:
                                         #   gate; run it whenever you change selftest() or the scanner.
   tools/codemap.py --conflicts          # broad cross-file NAMING smell (over-reports inline helpers /
                                         #   consumers that install nothing; use --dup-installs + --addr)
-  tools/codemap.py --substrate-fallthrough  # native-owned addrs that are a DISPATCH TARGET but NOT
-                                        #   override-registered — callers silently hit the emulated
-                                        #   substrate (register + MIRROR_VERIFY to native-ize; --all
+  tools/codemap.py --guest-fallthrough  # native-owned addrs that are a DISPATCH TARGET but NOT
+                                        #   registered — callers execute the ordinary guest body; --all
                                         #   includes soft-attributed owners)
   tools/codemap.py --unowned-rank [f]   # THE PORT TARGET QUEUE: still-unowned guest fns ranked by
                                         #   recdep hotness (default f = scratch/logs/recdep_rank.txt),
@@ -54,21 +52,16 @@ USAGE:
   tools/codemap.py --orphans            # list owned addresses whose native is currently ORPHANED
   tools/codemap.py --stdout             # print the full markdown to stdout instead of writing the file
 """
-import os, re, sys, glob
+import glob
+import os
+import re
+import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC_GLOBS = ["engine/**/*.cpp", "engine/**/*.h", "game/**/*.cpp", "game/**/*.h",
-             "runtime/recomp/**/*.cpp", "runtime/recomp/**/*.c"]
-# The INSTALL-SITE corpus is deliberately WIDER than the native-definition corpus above. The PSX
-# platform lives in the SUBMODULE (external/psxport/runtime/recomp/), not in a top-level runtime/ —
-# `runtime/recomp/**` in SRC_GLOBS matches nothing in this checkout. That is fine for native DEFS
-# (framework code is not this game's port surface) but NOT for override installs: mem.cpp installs
-# 0x8009A420 (ov_guestMemset) from the submodule, and before this glob existed `--addr 8009A420`
-# answered "NO native owner found" for an address with a live, shipping install. An address with a
-# live install has an owner, period, wherever the install call site happens to live.
-INSTALL_GLOBS = SRC_GLOBS + ["external/psxport/runtime/**/*.cpp", "external/psxport/runtime/**/*.c"]
-# Native-dispatch ROOTS: symbols native_boot.cpp calls directly (top-down) to enter native code.
-# Everything reachable from these by direct C call is LIVE; the rest is ORPHANED (was override-only).
+SRC_GLOBS = ["game/**/*.cpp", "game/**/*.h"]
+INSTALL_GLOBS = SRC_GLOBS
+# Native-dispatch roots: symbols called directly from title composition. Every override declaration
+# is also treated as live by the index builder below.
 ROOTS = {"ov_game_stage_main", "ov_start_bin_stage", "native_task0_bootstrap",
          "ov_game_main", "native_boot_run"}
 
@@ -88,12 +81,11 @@ METHOD_RE = re.compile(r'^\s*(?:static\s+)?(?:inline\s+)?[\w:*&<>]+\s+(\w+::\w+)
 FREEFN_RE = re.compile(r'^\s*(?:static\s+)?(?:inline\s+)?[\w:*&<>]+\s+(\w+)\s*\(\s*Core\s*\*')
 ADDR_RE = re.compile(r'0x(8[0-9A-Fa-f]{7})')
 FUN_RE  = re.compile(r'FUN_(8[0-9a-fA-F]{7})')
-# `leaf_<hex>` is the naming used by the bulk byte-faithful ports in game/core/field_owned_leaves.cpp
-# (190 of them). Without `leaf` here every one answered `--addr` with "NO native owner found", so
-# ownership questions about them were silently wrong — the exact failure that sent a 2026-07-21
-# investigation down a chain of "all unowned substrate" conclusions that were not true.
+# Recognize address-suffixed native symbols independently of their subsystem's naming convention.
 NAMEHEX = re.compile(r'^(?:ov|native|eng|leaf)_([0-9A-Fa-f]{6,8})$')
-DEP_RE  = re.compile(r'(?:rec_dispatch|rec_super_call|super_call|call_fn|rc[0-4]|rec_coro_redirect)\s*\(\s*c\s*,\s*0x(8[0-9A-Fa-f]{7})')
+DEP_RE = re.compile(
+    r'(?:dispatchGuest(?:ToReturn)?[0-4]?|callOriginal(?:ToReturn)?)\s*\(\s*\*?c\s*,\s*0x(8[0-9A-Fa-f]{7})'
+)
 # A file-level header ("game/player/hitbox.cpp — PC-native ownership of FUN_8003B220.") tags the ONE
 # guest address the file exists to own, for files where the tag sits at the top (file/module doc
 # comment) rather than immediately above the def (e.g. hitbox.cpp's def is preceded by an unrelated
@@ -143,19 +135,6 @@ def file_header_addr(lines):
     return (m.group(1) or m.group(2)).upper() if m else None
 
 
-def load_override_table():
-    """Authoritative addr->symbol map recovered from the pre-removal override registrations
-    (tools/codemap_overrides.tsv, snapshotted from git faeb436^). Ground truth for any native
-    that predates the override removal; new top-down natives fall back to the name/comment heuristic."""
-    sym2addrs, path = {}, os.path.join(ROOT, "tools/codemap_overrides.tsv")
-    if os.path.exists(path):
-        for ln in open(path):
-            parts = ln.rstrip("\n").split("\t")
-            if len(parts) == 2 and parts[0]:
-                sym2addrs.setdefault(parts[1], []).append(parts[0].upper())
-    return sym2addrs
-
-
 def load_behavior_table():
     """Authoritative addr->symbol map for per-object behavior handlers registered in
     BehaviorDispatch::kTable (game/object/behavior_dispatch.cpp) — the pc_skip=true-only native
@@ -172,10 +151,10 @@ def load_behavior_table():
     return sym2addrs
 
 
-# --- PlatformHle ownership (the SECOND owning table, invisible to the source scan) -----------------
+# --- PlatformHle ownership (the second owning table, invisible to the title scan) -----------------
 #
-# This scanner only sees natives in game/ + runtime/. The BIOS/hardware-sync primitives are owned by
-# a different mechanism entirely: PlatformHle (external/psxport/runtime/recomp/sync_overrides.cpp),
+# This scanner only sees title natives in game/. The BIOS/hardware-sync primitives are owned by
+# PlatformHle (external/psxport/runtime/psx/platform_hle.cpp),
 # wired from addresses the GAME states in GameConfig::hle (game/core/game_config.cpp). Nothing about
 # that ownership appears as a native def in the scanned corpus, so `--addr` used to answer
 # "NO native owner found" for every one of them — a FALSE NEGATIVE that reads as "free to port".
@@ -188,15 +167,17 @@ def load_behavior_table():
 #
 # Both halves are parsed from source, never hardcoded, so a re-wiring of either file stays honest.
 HLE_CFG_SRC = "game/core/game_config.cpp"
-HLE_REG_SRC = "external/psxport/runtime/recomp/sync_overrides.cpp"
+HLE_REG_SRC = "external/psxport/runtime/psx/platform_hle.cpp"
 
 
 def load_platform_hle_table():
     """addr -> (config field, handler fn) for every entry PlatformHle::initBuiltins() installs.
 
-    Joins two source files: `reg(h.<field>, <handler>);` in sync_overrides.cpp gives field->handler,
-    `.<field> = 0x<hex>u` in game_config.cpp gives field->addr. A field wired but left 0 in the
-    config is NOT installed (initBuiltins skips it) and is deliberately absent here.
+    Joins two source files: direct `install(config.<field>, <handler>);` calls and binder calls such as
+    `bindVSyncBoundary(config.vsyncTrap);` in platform_hle.cpp give field->handler, while
+    `.<field> = 0x<hex>u` in game_config.cpp gives field->addr. Binder ownership is derived from the
+    binder's own `register_(addr, <handler>)` call rather than naming a special case here. A field
+    wired but left 0 in the config is NOT installed and is deliberately absent here.
 
     Returns (table, note). `note` is non-empty when the join could not be performed — an empty table
     from a moved/renamed source must NOT be reported as "nothing is HLE-owned"."""
@@ -207,14 +188,25 @@ def load_platform_hle_table():
             missing.append(label)
     if missing:
         return {}, "could not read " + " and ".join(missing)
-    field2fn = dict(re.findall(r'\breg\(\s*h\.(\w+)\s*,\s*(\w+)\s*\)', open(reg_path, encoding="utf-8").read()))
+    reg_txt = open(reg_path, encoding="utf-8").read()
+    field2fn = dict(re.findall(r'\binstall\(\s*config\.(\w+)\s*,\s*(\w+)\s*\)', reg_txt))
+    binder2fn = {}
+    for binder, body in re.findall(
+            r'void\s+PlatformHle::(\w+)\s*\([^)]*\)\s*\{(.*?)\n\}', reg_txt, re.DOTALL):
+        handler = re.search(r'\bregister_\(\s*\w+\s*,\s*(\w+)\s*\)', body)
+        if handler:
+            binder2fn[binder] = handler.group(1)
+    for binder, field in re.findall(r'\b(\w+)\(\s*config\.(\w+)\s*\)', reg_txt):
+        if binder in binder2fn:
+            field2fn[field] = binder2fn[binder]
     cfg_txt = open(cfg_path, encoding="utf-8").read()
     for field, fn in field2fn.items():
         m = re.search(r'\.' + field + r'\s*=\s*0x([0-9A-Fa-f]+)u?\s*,', cfg_txt)
         if m and int(m.group(1), 16):
             table[m.group(1).upper().zfill(8)] = (field, fn)
     if not field2fn:
-        return {}, f"no `reg(h.<field>, …)` entries parsed from {HLE_REG_SRC} (registrar shape changed?)"
+        return {}, (f"no direct `install(config.<field>, …)` or binder `(config.<field>)` entries parsed from "
+                    f"{HLE_REG_SRC} (registrar shape changed?)")
     if not table:
         return {}, f"{len(field2fn)} registrar entries found, but none resolved to an address in {HLE_CFG_SRC}"
     return table, ""
@@ -313,44 +305,6 @@ def collect_files():
 CLASS_OPEN_RE = re.compile(r'^\s*class\s+(\w+)\b[^;{]*\{')
 DECL_RE = re.compile(r'^\s*(?:static\s+)?(?:virtual\s+)?[\w:*&<>]+\s+(\w+)\s*\([^;{]*\)\s*(?:const)?\s*(?:override)?\s*;')
 
-# --- IS THAT ADDRESS EVEN A FUNCTION? the recompiled-body oracle -----------------------------------
-#
-# WHY THIS EXISTS. A header decl tag is prose, and prose mentions DATA addresses. mesh_quads.h:31 says
-# "The engine's packed sin/cos LUT at 0x800A6490 ..." above `static void trig(...)`, and
-# scan_decl_tags read that as "MeshQuads::trig owns guest function 0x800A6490" — so `--addr 800A6490`
-# answered with a confident LIVE owner for an address that is a 4096-entry table, not code. A wrong
-# owner does not fail loudly: it mints a plausible row (a graphics-producer key, a port-map hit) that
-# nothing downstream can detect. The recompiler is the authority on what is CODE: it emitted a body
-# for every reachable guest function, in the main executable (`gen_func_<hex>`) and in each overlay
-# (`ov_<ov>_gen_<hex>` / `ov_<ov>_func_<hex>`). An address with no emitted body is not a function.
-GEN_GLOBS = ["generated/*.h", "generated/*.c"]
-GEN_FUNC_RE = re.compile(r'\b[a-z0-9_]*(?:gen|func)_(8[0-9A-Fa-f]{7})\b')
-# Floor under which the oracle is treated as ABSENT rather than as "these are all the functions".
-# generated/ is GITIGNORED, so a fresh clone that has not run the recompiler has no oracle at all --
-# and a guard that rejects every tag because its corpus is empty is the silent-instrument failure this
-# tool exists to prevent. The real tree emits ~8000; 1000 is a floor, not a target.
-GEN_MIN = 1000
-
-
-def load_recomp_funcs():
-    """({ADDR}, note) -- every guest address the recompiler emitted a BODY for. A NON-EMPTY note means
-    the oracle is UNAVAILABLE: every guard consulting it must then DISABLE itself and say so in the
-    output, never reject on an empty corpus."""
-    files = sorted({f for g in GEN_GLOBS for f in glob.glob(os.path.join(ROOT, g))})
-    addrs = set()
-    for path in files:
-        addrs |= {m.group(1).upper()
-                  for m in GEN_FUNC_RE.finditer(open(path, encoding="utf-8", errors="replace").read())}
-    if len(addrs) < GEN_MIN:
-        return set(), (f"generated/ yielded only {len(addrs)} recompiled function bodies from "
-                       f"{len(files)} file(s), under the {GEN_MIN} floor -- generated/ is gitignored, "
-                       f"so a tree that has not run the recompiler has NO oracle. The NOT-A-FUNCTION "
-                       f"guard on header declaration tags is DISABLED for this run, and a DATA address "
-                       f"mentioned in a decl comment can again be indexed as a function owner.")
-    return addrs, ""
-
-
-GEN_FUNCS, GEN_NOTE = load_recomp_funcs()
 # Every candidate decl tag the guards REFUSED, so `--addr` can explain the resulting negative instead
 # of turning a fabricated owner into an unexplained "NO native owner found".
 DECL_TAG_REJECTS = []
@@ -358,7 +312,7 @@ DECL_TAG_SEEN = [0]      # denominator: declarations whose adjacent comment carr
 QUALIFIED_RE = re.compile(r'\b[A-Z]\w*::\w+')
 
 
-def decl_tag_verdict(sym, first_line, gen_funcs):
+def decl_tag_verdict(sym, first_line):
     """(ADDR, "") if `first_line` is a genuine ownership tag for `sym`; (None, why) if it is refused.
 
     Pure, so --selftest can drive it with synthetic tags -- both a shape that MUST be refused and a
@@ -378,10 +332,6 @@ def decl_tag_verdict(sym, first_line, gen_funcs):
     if others:
         return None, (f"the tag names {others[0]} BEFORE the address, so 0x{addr} is a cross-reference "
                       f"to that native, not an ownership claim by {sym}")
-    # GUARD 2 -- NOT A FUNCTION (see load_recomp_funcs). Disabled, loudly, when the oracle is absent.
-    if gen_funcs and addr not in gen_funcs:
-        return None, (f"0x{addr} has NO recompiled function body in generated/ -- it is a DATA address "
-                      f"this comment merely mentions, so it cannot be {sym}'s guest function")
     return addr, ""
 
 
@@ -431,7 +381,7 @@ def scan_decl_tags(files):
             if not first_line:
                 continue
             sym = f"{class_stack[-1][0]}::{dm.group(1)}"
-            addr, why = decl_tag_verdict(sym, first_line, GEN_FUNCS)
+            addr, why = decl_tag_verdict(sym, first_line)
             if addr or why:
                 DECL_TAG_SEEN[0] += 1
             if why:
@@ -447,23 +397,13 @@ def scan_decl_tags(files):
 
 
 def load_installs():
-    """Authoritative addr->symbol map recovered from the LIVE override registry call sites:
-    `overrides::install(0xADDR, "Class::method", native, gen[, setter])`
-    (runtime/recomp/override_registry.h). The quoted second argument IS the owning symbol — the
-    same qualified name METHOD_RE captures at the DEFINITION — so a native wired ONLY by an install
-    (no `// FUN_xxxx` tag on its def line, no "ownership of FUN_xxxx" file header, and absent from
-    the faeb436^ snapshot tsv that load_override_table reads) is still attributed to its guest
-    address. Without this pass such a native reports 'NO native owner found' AND, worse, stays
-    invisible as a SECOND owner of an address some other file already claims — which is exactly how
-    cube_text_ledger.cpp's CubeTextLedger::activateSlot silently duplicated scene_events.cpp's
-    SceneEvents::armBody on FUN_80040B48 (the --conflicts dual-ownership detector depends on this).
+    """Authoritative symbol-to-address map from current native declarations.
 
-    This keys on the CURRENT wiring idiom. It replaced the older EngineOverrides
-    `ov.register_(0xADDR, "sym", fn)` parser, which by 2026-07-28 matched ZERO call sites in the
-    tree while `DialogBoxSm::step` (installed on 0x8007D594, live at 963 hits on the bucket replay)
-    read as unowned — the exact re-derivation trap this index exists to prevent."""
+    The quoted name is the ownership label exposed by the live image-qualified dispatcher. A native
+    with no address-bearing definition remains discoverable because its declaration is the binding
+    authority."""
     sym2addrs = {}
-    reg = re.compile(r'overrides::install\s*\(\s*0x([0-9A-Fa-f]{8})u?\s*,\s*"([^"]+)"')
+    reg = re.compile(r'tomba::native::declareOverride\s*\(\s*0x([0-9A-Fa-f]{8})u?\s*,\s*"([^"]+)"')
     for path in collect_files():
         try:
             txt = open(path, encoding="utf-8", errors="replace").read()
@@ -474,18 +414,18 @@ def load_installs():
     return sym2addrs
 
 
-# --- INDEX BY INSTALL SITE (the fix for the anonymous-namespace blind spot) -----------------------
+# --- Index by declaration site -------------------------------------------------------------------
 #
 # Everything above indexes by native DEFINITION: a symbol whose name, adjacent comment, header tag or
-# quoted install name states a guest address. That misses an entire, very common shape — a handler
+# quoted declaration name states a guest address. That misses an entire, very common shape — a handler
 # that is a FILE-LOCAL STATIC inside an anonymous namespace, carrying no address in its name, no
-# per-def tag, and no quoted name at the install:
+# per-def tag, and no address in its name:
 #
 #     namespace {
 #     void armTap_8002BC9C(Core* c) { ... }              // no tag, file-local, invisible above
 #     }
-#     void FxMesh::install() {
-#       engine_set_override_main(0x8002BC9Cu, armTap_8002BC9C, gen_func_8002BC9C);   // <-- THE TRUTH
+#     void FxMesh::registerOverrides() {
+#       tomba::native::declareOverride(0x8002BC9Cu, "FxMesh::armTap", armTap_8002BC9C);
 #     }
 #
 # 26 guest addresses were in exactly this state (11 in fx_mesh.cpp, 5 in options_page.cpp, 2 each in
@@ -499,15 +439,15 @@ def load_installs():
 # address. Handler identity is a bonus, not a requirement.
 #
 # Also fixes the mirror-image failure: mesh_emit_tap.cpp is the SINGLE installer of 0x80027768 and
-# appeared 0 times in the generated map, while `--addr 80027768` named only its two CONSUMERS
+# appeared 0 times in the emitted map, while `--addr 80027768` named only its two CONSUMERS
 # (FxMesh::draw, SwingFx::drawMesh) — sending a debugging session to the wrong two files. Its handler
 # `meshEmitTap` is anonymous-namespace and its file header says "the SINGLE owner of guest
 # FUN_80027768", which FILE_HEADER_ADDR_RE ("ownership of FUN_xxxx") does not match. Indexing the
-# install site fixes it without special-casing the file.
+# declaration site fixes it without special-casing the file.
 INSTALL_SITE_RE = re.compile(
-    r'\b(overrides::install|engine_set_override_\w+|shard_set_override|ov_\w+_set_override'
-    r'|rec_set_override|install)\s*\(\s*(?:c\s*,\s*)?0x([0-9A-Fa-f]{8})u?\s*,\s*'
-    r'(?:"([^"]*)"\s*,\s*)?&?([A-Za-z_][\w:]*(?:<[^;()<>]*>)?)?')
+    r'\b(tomba::native::declareOverride)\s*\(\s*0x([0-9A-Fa-f]{8})u?\s*,\s*'
+    r'"([^"]*)"\s*,\s*&?([A-Za-z_][\w:]*(?:<[^;()<>]*>)?)?'
+)
 
 
 def collect_install_files():
@@ -552,9 +492,9 @@ def load_install_sites():
     """addr -> [ {file, line, idiom, name, handler, defline, anon, tokenpaste} ] for every override
     install call site that names a LITERAL guest address, across INSTALL_GLOBS.
 
-    `name` is the quoted symbol name when the idiom carries one (`overrides::install`), else "".
+    `name` is the declaration's quoted ownership label.
     `defline` is the line where the handler's `<sym>(Core*` definition was found in the SAME file, or
-    0 when it has none there — the case for a MACRO-GENERATED handler symbol (a `#define` that
+    0 when it has none there — the case for a MACRO-EXPANDED handler symbol (a `#define` that
     token-pastes `armTap_##hex`, so no such text exists), for a handler the regex could not name at
     all, and for some template instantiations. A missing defline is NOT a missing owner: the install
     site itself is the address's home.
@@ -624,7 +564,7 @@ def _competing_claim_files(owners, inst):
 def synth_install_owners(natives, sites):
     """Owner records for every (address, install-file) pair the definition scan did not already
     produce. These are FIRST-CLASS entries — they land in `idx`, so `--addr`, `--conflicts`,
-    `--unowned-rank` and the generated markdown all answer from the same index and cannot disagree.
+    `--unowned-rank` and the emitted markdown all answer from the same index and cannot disagree.
 
     Deliberately keyed on (addr, FILE) rather than (addr): mesh_emit_tap.cpp must appear as an owner
     of 0x80027768 even though fx_mesh.cpp and swing_fx.cpp already claim that address by name — the
@@ -651,46 +591,24 @@ def synth_install_owners(natives, sites):
 
 
 def load_registered_addrs():
-    """Set of guest addresses CURRENTLY wired to a native override at runtime: EngineOverrides
-    `register_(0xADDR, ...)`, any `*set_override(...)` family (shard_set_override / engine_set_override_* /
-    rec_set_override / ov_sop_set_override), and BehaviorDispatch::kTable {0xADDR, beh_*} entries. The
-    faeb436^ tsv snapshot is historical (pre-removal) and is NOT counted — it does not reflect current
-    runtime wiring. Used by --substrate-fallthrough to separate a dispatched-and-wired address from one
-    that still falls through to substrate."""
-    addrs = set()
-    reg = re.compile(r'(?:\.register_\w*|[A-Za-z_]*set_override)\s*\(\s*(?:c\s*,\s*)?0x([0-9A-Fa-f]{8})')
-    for path in collect_files():
-        try:
-            txt = open(path, encoding="utf-8", errors="replace").read()
-        except OSError:
-            continue
-        for m in reg.finditer(txt):
-            addrs.add(m.group(1).upper())
+    """Guest addresses currently declared as native overrides."""
+    addrs = set(load_install_sites())
     for a_list in load_behavior_table().values():
         addrs.update(a.upper() for a in a_list)
-    # The regex above only sees the `<something>set_override(0xADDR, …)` shape. It does NOT see
-    # `overrides::install(0xADDR, "name", native, gen, setter)` / a bare `install(0xADDR, …)` (the
-    # current idiom — the setter is an ARGUMENT there, not the callee) nor anything installed from
-    # the psxport submodule. Union in the install-site index so --substrate-fallthrough cannot
-    # report a live, registered address as falling through to the substrate.
-    addrs.update(load_install_sites())
     return addrs
 
 
-# Dispatch idioms that route through the override table (→ substrate when the target is UNREGISTERED).
-# PRECISE capture of the TARGET address only (not any 0x8 on the line): the target is the first address
-# argument. Two arg shapes: `idiom(c, 0xADDR...)` (rec_dispatch/guest_leaf/…) and `callObj/call(c, arg,
-# …, 0xADDR)` (address is a later arg). guest_fn is DELIBERATELY EXCLUDED — it is an explicit "run the
-# substrate leaf" call (a native that intends the emulated body), not a fallthrough.
+# Shared-runtime calls whose first address argument is a literal.
 DISPATCH_TARGET_RES = [
-    re.compile(r'\b(?:rec_dispatch|rec_super_call|super_call|guest_leaf|guest_dispatch|call_fn|rc[0-4])\s*\(\s*c\s*,\s*0x([0-9A-Fa-f]{8})'),
-    re.compile(r'\b(?:callObj\d|call\d)\s*\(\s*c\s*,[^;{}]*?0x([0-9A-Fa-f]{8})'),
+    re.compile(
+        r'\b(?:dispatchGuest(?:ToReturn)?[0-4]?|callOriginal(?:ToReturn)?)\s*\(\s*\*?c\s*,\s*0x([0-9A-Fa-f]{8})'
+    ),
 ]
 
 
 def scan_dispatched_addrs():
     """Set of guest addresses reached as the TARGET of a dispatch idiom with a literal address. Dynamic
-    dispatches (rec_dispatch(c, handler) with a variable) carry no literal and are correctly ignored."""
+    dispatches with a variable address carry no literal and are correctly ignored."""
     addrs = set()
     for path in collect_files():
         try:
@@ -703,8 +621,7 @@ def scan_dispatched_addrs():
     return addrs
 
 
-OVR = load_override_table()
-OVR.update(load_behavior_table())
+OVR = load_behavior_table()
 OVR.update(scan_decl_tags(collect_files()))
 OVR.update(load_installs())
 
@@ -766,7 +683,7 @@ def parse_file(path, natives):
         # header-comment address(es) before the first em-dash/colon.
         impl = list(OVR.get(sym, []))
         # AUTHORITATIVE attribution = a real ownership source (override tsv / behavior table / decl-tag /
-        # live EngineOverrides register_) or a name-for-address (ov_<hex>/gen_func_<hex>). SOFT = the
+        # live image-qualified registration) or an address-bearing native symbol. SOFT = the
         # comment/header-prose fallbacks below, which also fire on a fn that merely MENTIONS an address
         # it traces or reads (a diagnostic tracer, a data-list head) — those must NOT count toward the
         # --conflicts dual-ownership signal, or it drowns in false positives.
@@ -856,7 +773,7 @@ def ordinary_corpus(files, natives):
     by_file = {}
     for n in natives:
         if n["bstart"] < 0:
-            continue   # install-site owner: no body of its own to blank (a negative range would
+            continue   # declaration-site owner: no body of its own to blank (a negative range would
                        # index from the END of the file and silently delete an unrelated call site)
         by_file.setdefault(n["file"], []).append((n["bstart"], n["bend"]))
     chunks = []
@@ -872,7 +789,7 @@ def ordinary_corpus(files, natives):
 
 def build(natives, files):
     by_sym = {n["sym"]: n for n in natives}
-    # Callee detection runs over natives that have a BODY. An install-site owner is a bare handler
+    # Callee detection runs over natives that have a BODY. An declaration-site owner is a bare handler
     # name with no body, and folding it in actively broke liveness: the synthetic `gov_turnBiasCompute`
     # collided with the real `ActorTomba::gov_turnBiasCompute` on the same bare name, which pushed
     # that name out of the unique-bare-name table and reported a live method as ORPHAN.
@@ -962,7 +879,7 @@ def build(natives, files):
                 callers[cal].add(n["sym"])
 
     # REGISTRY-WIRED NATIVES ARE LIVE (added 2026-07-30). A native handed to the override registry —
-    # `install(0xADDR, "name", SYMBOL, gen, setter)` or `engine_set_override_<mod>(0xADDR, SYMBOL, gen)`
+    # `install(0xADDR, "name", SYMBOL, gen, setter)` or `tomba::native::declareOverride<mod>(0xADDR, SYMBOL, gen)`
     # — is invoked by GUEST dispatch through g_<mod>_override[], never by a C++ call anywhere in the
     # tree. find_callees() therefore cannot see it, and the symbol was reported ORPHAN, which this
     # file's own legend defines as "genuinely dead code until something calls it".
@@ -970,7 +887,7 @@ def build(natives, files):
     # That was wrong for 170 of the 181 ORPHAN rows — 94% — measured before this fix. The beh_* case
     # was already special-cased above for exactly this reason (a pointer-table registration read as a
     # value, not a call); this generalises it to the registry, which the beh_ prefix rule misses for
-    # any symbol not matching a known prefix, e.g. every `leaf_<addr>` in field_owned_leaves.cpp.
+    # any symbol not matching a known prefix.
     registry_wired = set()
     for f in files:
         try:
@@ -979,7 +896,11 @@ def build(natives, files):
             continue
         for m in re.finditer(r'\binstall\s*\(\s*(?:0x[0-9A-Fa-f]+u?|\w+)\s*,\s*"[^"]*"\s*,\s*&?([A-Za-z_][\w:]*)', txt):
             registry_wired.add(m.group(1).split('::')[-1] if '::' not in m.group(1) else m.group(1))
-        for m in re.finditer(r'\bengine_set_override_\w+\s*\(\s*(?:0x[0-9A-Fa-f]+u?|\w+)\s*,\s*&?([A-Za-z_][\w:]*)', txt):
+        for m in re.finditer(
+            r'\b(?:tomba::native::)?declareOverride\s*\(\s*(?:0x[0-9A-Fa-f]+u?|\w+)\s*,'
+            r'\s*"[^"]*"\s*,\s*&?([A-Za-z_][\w:]*)',
+            txt,
+        ):
             registry_wired.add(m.group(1))
 
     # reachability from ROOTS via the native-to-native graph
@@ -1090,14 +1011,14 @@ def uninstalled_claims(idx, sites):
 # of by archaeology, and makes "the scanner still covers shape X" a measurement rather than a claim.
 SHAPES = {
     "install-only": (
-        "the definition scan produced NO owner in the installing file — the install site IS the owner",
+        "the definition scan produced NO owner in the installing file — the declaration site IS the owner",
         lambda a, s, claim: s["file"] not in claim),
     "consumers-claim-elsewhere": (
         "sole installer, its file absent from the definition scan, while OTHER files claim the address "
         "by name — `--addr` would otherwise name only the CONSUMERS",
         lambda a, s, claim: s["file"] not in claim and bool(claim)),
     "no-textual-def": (
-        "handler symbol has NO textual definition in the installing file (macro-generated, or a "
+        "handler symbol has NO textual definition in the installing file (macro-expanded, or a "
         "handler the install regex could not name) — the install LINE is the owner",
         lambda a, s, claim: s["defline"] == 0),
     "token-paste-handler": (
@@ -1106,13 +1027,6 @@ SHAPES = {
     "template-handler": (
         "a TEMPLATE instantiation as the handler",
         lambda a, s, claim: "<" in (s["handler"] or "")),
-    "anon-ns-unnamed": (
-        "handler defined in an ANONYMOUS namespace, installed with no quoted registry name and no "
-        "address tag on its definition",
-        lambda a, s, claim: s["anon"] and not s["name"]),
-    "submodule-install": (
-        "the install call site lives in the psxport SUBMODULE, outside the native-definition corpus",
-        lambda a, s, claim: s["file"].startswith("external/psxport/")),
 }
 
 
@@ -1157,26 +1071,23 @@ def shape_census(natives, sites):
 # cross-checked against the census, so a fixture cannot drift away from the shape it claims to prove,
 # and a fixture whose file has been DELETED is reported as ROTTED with live replacements listed.
 SELFTEST_POSITIVE = [
-    ("8004FFB4", "game/ui/panel.cpp",                "anonymous-namespace handler, no address tag, no quoted name", "anon-ns-unnamed"),
-    ("80003A4C", "external/psxport/runtime/recomp/pad_input.cpp", "handler with NO textual definition — the install LINE is the owner", "no-textual-def"),
+    ("8004FFB4", "game/ui/panel.cpp",                "anonymous-namespace handler with a declaration", "install-only"),
+    ("8004FD30", "game/render/hud_gauge_emitter.cpp", "member-function handler with an explicit native declaration", ""),
     ("8007F104", "game/ui/options_page.cpp",         "TEMPLATE instantiation as the handler", "template-handler"),
-    ("80040AA4", "game/object/cube_text_ledger.cpp", "overrides::install with a quoted name, method untagged", ""),
+    ("80040AA4", "game/object/cube_text_ledger.cpp", "tomba::native::declareOverride with a quoted name, method untagged", ""),
     ("80055C9C", "game/player/actor_tomba.cpp",      "file-local gov_* forwarder, no tag", ""),
     ("80077FB0", "game/math/gte_math.cpp",           "static eov_* guest-ABI shim, no tag", ""),
-    ("8005019C", "game/ui/panel.cpp",                "anonymous-namespace tap", "anon-ns-unnamed"),
+    ("8005019C", "game/ui/panel.cpp",                "anonymous-namespace tap", ""),
     ("8007E1B8", "game/render/ui_ft4_tap.cpp",       "single installer that the definition scan missed entirely", "consumers-claim-elsewhere"),
-    ("8009A420", "external/psxport/runtime/recomp/mem.cpp", "install from the psxport SUBMODULE", "submodule-install"),
 ]
 # A shape the scanner IMPLEMENTS but that no longer has a live example here, so no fixture can assert
 # it. Named rather than dropped: silence would read as "covered". The selftest prints the count with
 # its denominator, and FAILS the moment an example reappears un-pinned — the coverage claim in
 # `--addr`'s blind-spot list is then a measurement again instead of a memory.
 #
-# token-paste-handler: the exemplars were fx_mesh.cpp's FX_CONTROLLER_SCOPE / FX_A00_CONTROLLER_SCOPE,
-# which token-pasted `armTap_##hex` / `a00Tap_##hex`. Both died with the file in abf3cf9. The
-# MECHANISM they exercised (defline == 0 -> the install line is the owner) is still asserted, by
-# 0x80003A4C above; only the token-paste sub-form is unexemplified.
-SELFTEST_UNEXEMPLIFIED = ["token-paste-handler"]
+# Current typed native declarations name concrete handlers; the corpus has no macro-only or
+# token-pasted handler definition. The census must fail if either shape reappears without a fixture.
+SELFTEST_UNEXEMPLIFIED = ["no-textual-def", "token-paste-handler"]
 # Addresses that must resolve to NOTHING. 0x80000000/0x8FFFFFF8 are not code; 0x800834A0 is
 # PlatformHle-owned and must be reported as such, never as a scanned native.
 SELFTEST_NEGATIVE = ["80000004", "8FFFFFF8"]
@@ -1187,7 +1098,7 @@ def selftest():
     pm_steps, pm_note = load_portmap()
     fails = []
     print(f"corpus: {len(natives)} indexed natives, {len(idx)} owned addresses, "
-          f"{sum(len(v) for v in sites.values())} install sites in {len(collect_install_files())} files, "
+          f"{sum(len(v) for v in sites.values())} declaration sites in {len(collect_install_files())} files, "
           f"{len(pm_steps)} port-map steps.")
     census = shape_census(natives, sites)
     for a, want_file, why, shape in SELFTEST_POSITIVE:
@@ -1251,12 +1162,18 @@ def selftest():
         print(f"  [{'ok ' if not got else 'FAIL'}] 0x{a} -> (nothing), as it must be  [negative control]")
         if got:
             fails.append(f"0x{a}: expected NO owner, index claims one — the index says yes to everything")
-    # The blind-spot list printed by the negative branch of --addr claims installs are found across
-    # the psxport submodule and that macro/template/anon-namespace handlers are covered. Assert the
-    # corpus really reaches there, so the claim cannot rot into a comforting lie.
-    if not any(os.path.relpath(f, ROOT).startswith("external/psxport/") for f in collect_install_files()):
-        fails.append("INSTALL_GLOBS no longer reaches external/psxport/runtime — the blind-spot list "
-                     "printed by --addr claims it does.")
+    hle_tbl, hle_note = load_platform_hle_table()
+    hle_cases = {
+        "800834A0": ("gpuTimeoutArm", "gpuTimeoutArm"),
+        "80085900": ("vsyncTrap", "frameBoundary"),
+    }
+    for a, want in hle_cases.items():
+        got = hle_tbl.get(a)
+        print(f"  [{'ok ' if got == want else 'FAIL'}] 0x{a} -> {want[1]}  [PlatformHle owner]")
+        if got != want:
+            fails.append(f"0x{a}: expected PlatformHle owner {want}, got {got or '(nothing)'}")
+    if hle_note:
+        fails.append(f"PlatformHle ownership table unavailable: {hle_note}")
     if pm_note:
         fails.append(f"port-map cross-reference unavailable: {pm_note}")
     # PROVE THE DELIBERATELY-ABSENT FILTER FIRES. On the current tree every `absent:` step's address
@@ -1273,17 +1190,12 @@ def selftest():
         fails.append("the deliberately-absent filter fires on a step with NO absent: field")
     if not [s for s in portmap_hits(probe, "80000000", ["nowhere/none.cpp"]) if s["absent"]]:
         fails.append("the deliberately-absent filter does NOT fire on the OWNER-FILE key")
-    # PROVE THE DECL-TAG GUARDS FIRE, AND THAT THEY ARE NOT A BLANKET NO. Both guards refuse a
-    # candidate ownership tag, and a refusal is invisible in the index -- exactly the shape that rots
-    # into either a blanket no (every tag refused, --addr goes quiet tree-wide) or a dead guard (the
-    # regression that put a DATA address in the index as a LIVE function owner). Synthetic fixtures,
-    # so nothing here can rot with a tree address; the ACCEPT controls are the half that matters.
-    ORACLE = {"80085480", "800AAAAA"}
+    # Prove the declaration-tag cross-reference guard fires and is not a blanket rejection.
+    # Binary code/data classification belongs to disassembly evidence, not an executable-source
+    # corpus, so this index deliberately validates only the ownership association.
     guard_cases = [
         ("MeshQuads::rotmat", "// Math::rotmat (FUN_80085480) element math on three Euler angles.",
          None, "cross-reference: another native named before the address"),
-        ("MeshQuads::trig",   "// The engine's packed sin/cos LUT at 0x800A6490 (word = cos<<16|sin)",
-         None, "not-a-function: no recompiled body for that address"),
         ("Math::rotmat",      "// Math::rotmat (FUN_80085480) -- libgte RotMatrix.",
          "80085480", "ACCEPT control: the qualified name IS the declared symbol"),
         ("Trig::rsin",        "// rsin(a): guest 0x800AAAAA. Reads the LUT that FUN_80085480 also uses.",
@@ -1292,34 +1204,24 @@ def selftest():
          None, "no address: not a tag, and not counted as a rejection"),
     ]
     for csym, cline, want, why in guard_cases:
-        got, cwhy = decl_tag_verdict(csym, cline, ORACLE)
+        got, cwhy = decl_tag_verdict(csym, cline)
         ok = got == want
         print(f"  [{'ok ' if ok else 'FAIL'}] decl-tag guard: {why} -> "
               f"{('0x' + got) if got else 'refused/none'}")
         if not ok:
             fails.append(f"decl-tag guard fixture ({why}) returned {got!r}, expected {want!r} "
                          f"[{cwhy or 'no reason given'}]")
-    # ...and that the guard is DISABLED, not inverted, when the oracle is missing.
-    if decl_tag_verdict("MeshQuads::trig", "// LUT at 0x800A6490", set())[0] != "800A6490":
-        fails.append("the not-a-function guard still rejects with an EMPTY oracle -- a missing "
-                     "generated/ must disable the guard, never reject every tag")
-    # On the REAL tree both reasons must have live examples: a guard with zero hits is unasserted.
+    # On the real tree the rejection reason must have a live example: a guard with zero hits is
+    # asserted only by its synthetic fixture.
     r_xref = [r for r in DECL_TAG_REJECTS if "cross-reference" in r[3]]
-    r_data = [r for r in DECL_TAG_REJECTS if "NO recompiled function body" in r[3]]
-    print(f"  [{'ok ' if GEN_FUNCS else 'WARN'}] recompiled-function oracle: {len(GEN_FUNCS)} guest "
-          f"function bodies in generated/ (floor {GEN_MIN})"
-          + (f" -- UNAVAILABLE: {GEN_NOTE}" if GEN_NOTE else ""))
     print(f"  [ -- ] decl-tag guards refused {len(DECL_TAG_REJECTS)} of {DECL_TAG_SEEN[0]} "
           f"address-carrying declaration tag(s): "
-          f"{len(r_xref)} cross-reference, {len(r_data)} not-a-function"
-          + (f" (first: {r_xref[0][1]}:{r_xref[0][2]} {r_xref[0][0]})" if r_xref else "")
-          + (f" (first: {r_data[0][1]}:{r_data[0][2]} {r_data[0][0]})" if r_data else ""))
+          f"{len(r_xref)} cross-reference"
+          + (f" (first: {r_xref[0][1]}:{r_xref[0][2]} {r_xref[0][0]})" if r_xref else ""))
     if not r_xref:
         fails.append("the decl-tag CROSS-REFERENCE guard refused nothing in this tree -- it is "
                      "asserted only by a synthetic fixture; if the tree genuinely no longer holds "
                      "the shape, say so here rather than leaving a guard nothing measures")
-    if GEN_FUNCS and not r_data:
-        fails.append("the decl-tag NOT-A-FUNCTION guard refused nothing in this tree -- same problem")
     real_absent = [s for s in pm_steps if s["absent"]]
     print(f"  [{'ok ' if real_absent else 'FAIL'}] {PORTMAP_DOC} carries {len(real_absent)} step(s) "
           f"with an `absent:` field (of {len(pm_steps)}); the filter is exercised on a fixture too")
@@ -1360,12 +1262,12 @@ def selftest_negative_controls():
          lambda: globals().__setitem__("SELFTEST_POSITIVE",
              saved[0] + [("8002BC9C", dead, "the abf3cf9 rot, replayed", "anon-ns-unnamed")]),
          "ROTTED FIXTURE"),
-        ("SCANNER REGRESSION (install-site scan resolves nothing)",
+        ("SCANNER REGRESSION (declaration-site scan resolves nothing)",
          lambda: globals().__setitem__("INSTALL_SITE_RE", re.compile(r'(?!x)x()()()')),
          "has ZERO live examples in the tree"),
         ("FIXTURE DRIFT (pinned as a shape it is not an example of)",
          lambda: globals().__setitem__("SELFTEST_POSITIVE",
-             [(a, f, w, "template-handler" if a == "8009A420" else s) for a, f, w, s in saved[0]]),
+             [(a, f, w, "template-handler" if a == "8004FFB4" else s) for a, f, w, s in saved[0]]),
          "but the census does not classify it as one"),
         ("UNEXEMPLIFIED SHAPE REAPPEARS (declared absent, examples exist)",
          lambda: globals().__setitem__("SELFTEST_UNEXEMPLIFIED", ["template-handler"]),
@@ -1395,7 +1297,7 @@ def selftest_negative_controls():
 
 
 def load_index():
-    """The one index every command answers from: definition-scanned natives + install-site owners."""
+    """The one index every command answers from: definition-scanned natives + declaration-site owners."""
     natives = []
     files = collect_files()
     for f in files:
@@ -1418,12 +1320,12 @@ def main():
         natives, files, sites, *_ = load_index()
         census = shape_census(natives, sites)
         n_sites = sum(len(v) for v in sites.values())
-        print(f"corpus: {n_sites} install sites over {len(sites)} addresses in "
+        print(f"corpus: {n_sites} declaration sites over {len(sites)} addresses in "
               f"{len(collect_install_files())} files.")
         for k, (why, _) in SHAPES.items():
             rows = census[k]
             tag = "  [declared UNEXEMPLIFIED]" if k in SELFTEST_UNEXEMPLIFIED else ""
-            print(f"\n{k}: {len(rows)} of {n_sites} install site(s){tag}\n  {why}")
+            print(f"\n{k}: {len(rows)} of {n_sites} declaration site(s){tag}\n  {why}")
             for a, f, ln in rows[:8]:
                 print(f"    0x{a}  {f}:{ln}")
             if len(rows) > 8:
@@ -1443,7 +1345,7 @@ def main():
             print(f"0x{a}: OWNED by PlatformHle as `{hle[1]}()`  [{HLE_REG_SRC}]")
             print(f"    wired from GameConfig::hle.{hle[0]} ({HLE_CFG_SRC}) — a BIOS/libgpu/libetc/libcd/"
                   f"libmdec primitive, NOT a porting target.")
-            print(f"    The recompiled body never runs; do NOT install a second override on this address.")
+            print(f"    The guest body never runs; do NOT install a second override on this address.")
         inst = sites.get(a.zfill(8), [])
         if not owners and not hle:
             print(f"0x{a}: NO native owner found.")
@@ -1451,8 +1353,6 @@ def main():
                 if f"0x{a.upper()}" in rwhy or a.upper() in rwhy:
                     print(f"    NOTE: a header declaration tag for {rsym} ({rfile}:{rline}) mentions "
                           f"this address and was REFUSED -- {rwhy}")
-            if GEN_NOTE:
-                print(f"    WARNING: not-a-function guard DISABLED -- {GEN_NOTE}")
             # State the reach of that negative: what was actually searched, with its DENOMINATOR, and
             # what this method genuinely cannot see. A bare "NO native owner" from a scan that
             # silently saw nothing is a lie — and so is a blind-spot list that names the wrong blind
@@ -1462,14 +1362,14 @@ def main():
             n_def_files = len(files)
             n_inst_files = len(collect_install_files())
             n_sites = sum(len(v) for v in sites.values())
-            # Name the roots that ACTUALLY matched, not the globs. `engine/**` and `runtime/recomp/**`
+            # Name the roots that ACTUALLY matched, not the globs. `engine/**` and `runtime/psx/**`
             # are in SRC_GLOBS and match nothing in this checkout (the platform lives in the
             # submodule), so printing the glob list would overstate the search.
             roots = sorted({os.path.relpath(f, ROOT).split("/")[0] for f in files})
             print(f"    SEARCHED (denominator): {len(natives)} indexed natives from {n_def_files} "
                   f"source files under {'/, '.join(roots)}/ (of SRC_GLOBS "
                   f"{' '.join(SRC_GLOBS)} — the rest match no file in this checkout); "
-                  f"{n_sites} override install sites (literal-address) across {n_inst_files} files "
+                  f"{n_sites} override declaration sites (literal-address) across {n_inst_files} files "
                   f"incl. external/psxport/runtime/; {len(hle_tbl)} PlatformHle entries; "
                   f"{len(pm_steps)} {PORTMAP_DOC} steps."
                   + (f"  WARNING: PlatformHle table UNAVAILABLE, {hle_note}" if hle_note else ""))
@@ -1496,12 +1396,12 @@ def main():
         elif hle_note:
             print(f"    WARNING: PlatformHle ownership NOT checked — {hle_note}")
         if inst:
-            print(f"  INSTALLED — {len(inst)} live override install site(s). DEBUG FROM HERE: the file "
+            print(f"  INSTALLED — {len(inst)} live override declaration site(s). DEBUG FROM HERE: the file "
                   f"holding the install owns this address at runtime.")
             for s in inst:
                 nm = f' as "{s["name"]}"' if s["name"] else ""
                 dl = f", handler defined at line {s['defline']}" if s["defline"] else \
-                     " (handler has no textual definition in this file — macro-generated or a template)"
+                     " (handler has no textual definition in this file — macro-expanded or a template)"
                 print(f"    {s['file']}:{s['line']}  {s['idiom']}() -> {s['handler'] or '?'}{nm}{dl}")
         for n in owners:
             st = "LIVE" if n["sym"] in live else "ORPHAN"
@@ -1539,8 +1439,8 @@ def main():
             for f, syms in claimed:
                 print(f"    claims by name but does NOT install: {f}  ({', '.join(syms)})")
         print(f"\n{len(rows)} guest address(es) claimed by name in 2+ files where exactly the "
-              f"install-site file is the runtime owner. Scanned {len(idx)} owned addresses against "
-              f"{sum(len(v) for v in sites.values())} install sites. Each row is EITHER a legitimate "
+              f"declaration-site file is the runtime owner. Scanned {len(idx)} owned addresses against "
+              f"{sum(len(v) for v in sites.values())} declaration sites. Each row is EITHER a legitimate "
               f"host-side twin (a native-ABI reimplementation called directly by C++, e.g. a math "
               f"leaf) OR a stale orphan — check with `--addr <hex>` and delete the duplicate if it "
               f"has no caller. It is NOT a double-install: `--dup-installs` stays the signal for that.")
@@ -1645,12 +1545,12 @@ def main():
     if "--dup-installs" in args:
         # The SOURCE-LEVEL twin of the runtime duplicate-owner abort (override_registry.cpp): an address
         # is a real double-owner only if TWO files each INSTALL an override for it. This keys on the
-        # actual install call site — engine_set_override_<mod>(0xADDR, …) / overrides::install(0xADDR, …)
+        # actual install call site — tomba::native::declareOverride<mod>(0xADDR, …) / tomba::native::declareOverride(0xADDR, …)
         # / a bare install(0xADDR, …) in a register_* fn — NOT on a "// FUN_XXXX" banner or an
         # address-named helper, which is why it agrees with the guard while --conflicts (below) does not:
         # a host-twin like Render::guestStrLen reproduces FUN_80079528 and is CALLED inline, it does not
         # install on the address, so it is not an owner of it. This is the check to trust for kanban #32.
-        ipat = re.compile(r'(?:engine_set_override_(?:main|a00|game)|overrides::install|shard_set_override'
+        ipat = re.compile(r'(?:tomba::native::declareOverride(?:main|a00|game)|tomba::native::declareOverride|tomba::native::declareOverride'
                           r'|(?<![A-Za-z_])install)\(\s*(0x[0-9A-Fa-f]+)')
         byaddr = {}
         for f in files:
@@ -1683,7 +1583,7 @@ def main():
             auth = [n for n in ns if n.get("authoritative")]
             inst = sites.get(a.zfill(8), [])
             if inst:
-                # With install sites indexed, the install file appears as an owner of its address.
+                # With declaration sites indexed, the install file appears as an owner of its address.
                 # That would list every ordinary "central register fn installs a gov_*/eov_* shim
                 # around a body in a sibling file" as a cross-file conflict (15 such rows on this
                 # tree — actor_tomba's action handlers, panel's fill tap, engine's mode handlers).
@@ -1703,11 +1603,11 @@ def main():
               f"and `--addr <hex>` to classify each as owner / inline-helper / stale-orphan).")
         return
 
-    if "--substrate-fallthrough" in args:
-        # An address that HAS a native owner AND is the TARGET of a dispatch idiom (rec_dispatch/
-        # guest_leaf/…) but is NOT override-registered → those callers silently run the EMULATED body
+    if "--guest-fallthrough" in args:
+        # An address that HAS a native owner AND is the TARGET of a dispatch idiom (typed runtime address dispatch/
+        # typed guest call/…) but is NOT override-registered → those callers silently run the EMULATED body
         # while any direct-native callers run the port. That split is how FUN_800518FC hid (fixed
-        # 2026-07-15). Register + MIRROR_VERIFY to native-ize. Boot/stage handlers reached only by a
+        # 2026-07-15). Register + differential validation to native-ize. Boot/stage handlers reached only by a
         # direct native_boot call (never a dispatch target) do NOT appear — the precise target capture
         # excludes them. Still a candidate list: a few may be intentionally direct-call-only. `authOnly`
         # (default) restricts to authoritative owners; pass `--all` to include soft-attributed owners.
@@ -1721,11 +1621,11 @@ def main():
                 rows.append((a, ns))
         for a, ns in rows:
             syms = ", ".join(sorted(set(n["sym"] for n in ns)))
-            print(f"0x{a}: native owner {syms} — dispatch target, NOT override-registered → callers hit SUBSTRATE")
+            print(f"0x{a}: native owner {syms} — dispatch target, NOT override-registered → callers hit ORDINARY GUEST PATH")
             for n in ns:
                 print(f"    {n['file']}:{n['line']}")
         print(f"\n{len(rows)} native-owned address(es) dispatched but not override-registered — dispatch/"
-              f"guest_leaf callers fall through to the emulated substrate. Register + MIRROR_VERIFY to "
+              f"typed guest call callers fall through to the emulated ordinary guest path. Register + differential validation to "
               f"native-ize (review each; a few may be intentionally direct-call-only).")
         return
 
@@ -1740,7 +1640,7 @@ def main():
     # default: emit the markdown index
     out = []
     out.append("# Code map — guest address → PC-native owner\n")
-    out.append("> GENERATED by `tools/codemap.py` — do not edit by hand; rerun the tool.\n")
+    out.append("> EMITTED by `tools/codemap.py` — do not edit by hand; rerun the tool.\n")
     out.append("Before reimplementing any `FUN_xxxx`, look it up here (or `tools/codemap.py --addr <hex>`).")
     out.append("A native may exist already. **LIVE** = reachable by a real call from either a native_boot")
     out.append("dispatch root or ordinary (non-native-tagged) game/engine code — free-function syntax")
@@ -1752,11 +1652,11 @@ def main():
     n_sites = sum(len(v) for v in sites.values())
     out.append(f"Totals: {len(natives)} native fns, {len(idx)} owned addresses, "
                f"{n_live} LIVE / {len(natives)-n_live} ORPHAN. "
-               f"{n_sites} override install sites over {len(sites)} addresses.\n")
+               f"{n_sites} override declaration sites over {len(sites)} addresses.\n")
     out.append("**A row can come from a DEFINITION or from an INSTALL SITE.** An address whose "
                "handler is a file-local static in an anonymous namespace (no address in its name, no "
-               "tag, no quoted registry name) has no findable definition — the `overrides::install` "
-               "/ `engine_set_override_*` call site is its only ownership record, and the file "
+               "tag, no quoted registry name) has no findable definition — the `tomba::native::declareOverride` "
+               "/ `tomba::native::declareOverride*` call site is its only ownership record, and the file "
                "holding that call site is where you debug it from. Those rows say so in the summary "
                "column.\n")
     out.append(f"**Cross-check `{PORTMAP_DOC}` before porting anything.** This map answers WHERE "
@@ -1777,7 +1677,7 @@ def main():
     # SECOND OWNING TABLE. This document is grepped directly ("is 0xADDR in code-map.md?"), so a table
     # listing only the source-scanned natives answers "not owned" for every BIOS/hardware-sync
     # primitive — the false negative that put 0x800834A0 at the top of the port queue at 33,152 hits
-    # when PlatformHle had owned it all along. These are NOT porting targets: their recompiled bodies
+    # when PlatformHle had owned it all along. These are NOT porting targets: their guest bodies
     # deliberately never run (the arm/check pair would call libetc VSync, which this port traps).
     hle_tbl, hle_note = load_platform_hle_table()
     out.append("\n## PlatformHle-owned (BIOS / hardware-sync primitives — NOT porting targets)\n")
@@ -1785,7 +1685,7 @@ def main():
                f"(`{HLE_REG_SRC}`), wired from the addresses this game states in "
                f"`GameConfig::hle` (`{HLE_CFG_SRC}`). No native def exists for these, so the scanner "
                "above cannot see them — grepping only that table reports them as unowned. The "
-               "recompiled body NEVER runs; installing an override on one is a double-install.\n")
+               "guest body NEVER runs; installing an override on one is a double-install.\n")
     if hle_tbl:
         out.append("| addr | handler | GameConfig::hle field |")
         out.append("|------|---------|-----------------------|")

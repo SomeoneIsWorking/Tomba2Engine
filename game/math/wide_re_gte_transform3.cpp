@@ -7,11 +7,10 @@
 // hand-transliterated draft with nothing calling it, while the guest function it mirrors took 19,767
 // substrate dispatches per 6000 frames of replays/bugs/seesaw-weight.pad. Per claim C020 (a banked
 // draft can be confidently wrong in a way its own banner denies) every line was re-diffed against
-// generated/shard_0.c gen_func_80084250 before wiring: all three vertex input blocks, the pipelined
-// "read the PREVIOUS vertex's IR before writing the next vertex's data" ordering, all five output
-// packings and the v0 = a0 return. This one was FAITHFUL — unlike libgpuSetDrawMode's draft, which
-// the same check caught using the wrong argument register. abi_extract confirms frame_size 0, so
-// there is no guest stack frame to mirror.
+// authenticated executable/overlay evidence guest 0x80084250 before wiring: all three vertex input blocks, the
+// pipelined "read the PREVIOUS vertex's IR before writing the next vertex's data" ordering, all five output packings
+// and the v0 = a0 return. This one was FAITHFUL — unlike libgpuSetDrawMode's draft, which the same check caught using
+// the wrong argument register. abi_extract confirms frame_size 0, so there is no guest stack frame to mirror.
 //
 // Shape (MEDIUM confidence — register-flow is exact, source-struct field ROLES are inferred from
 // operand width/shift patterns only, never confirmed against a live dump):
@@ -19,7 +18,7 @@
 //     into GTE CR0-4 via gte_write_ctrl, CR-packed layout matching Math::matMul/rotmat's outPtr
 //     format) AND the output buffer — its own 5 words get OVERWRITTEN in place with the packed
 //     per-vertex transform results before return (same address used for both reads-at-entry and
-//     writes-at-exit; verified from the gen body, not a guess).
+//     writes-at-exit; verified from the guest-visible behavior, not a guess).
 //   a1 (r5) = a 20-byte, 3-vertex SoA source array, inferred layout (u16 unless noted):
 //       +0 X0, +2 X1, +4 X2 (low16 of the word @+4), +6 Y0 (high16 of the word @+4),
 //       +8 Y1 (low16 of the word @+8), +10 Y2 (high16 of the word @+8),
@@ -36,13 +35,12 @@
 // pipelining quirk of the guest code, transcribed as-is), the PREVIOUS vertex's transformed IR1/2/3
 // (GTE data regs 9/10/11) are read back and held. After all 3 RTPS calls, the 9 held IR values (3
 // per vertex) are packed pairwise into 4 output words (hi16=one vertex's component, lo16=another's)
-// plus vertex2's IR3 written whole — the exact interleaving the gen body performs, preserved 1:1
+// plus vertex2's IR3 written whole — the exact interleaving the guest-visible behavior performs, preserved 1:1
 // below. Output written back into a0[0..16] (in place).
 #include "core.h"
 #include "game.h"
 #include "gte_transform3.h"
-#include "override_registry.h" // engine_set_override_main
-#include "rec_decls.h"         // gen_func_80084250 — the body the oracle leg runs
+#include "native_override_catalog.h" // tomba::native::declareOverride
 #include <stdint.h>
 
 // gte_write_ctrl/gte_write_data/gte_read_data/gte_op declared in core.h.
@@ -66,7 +64,8 @@ void GteTransform3::rotate3AndPackIr(Core *c) {
   gte_write_data(1, vz0);
   gte_op(c, 0x4A486012u); // RTPS vertex0
 
-  // --- vertex 1 (reads vertex0's IR1/2/3 BEFORE writing vertex1's data — pipelined as in the gen body) ---
+  // --- vertex 1 (reads vertex0's IR1/2/3 BEFORE writing vertex1's data — pipelined as in the guest-visible behavior)
+  // ---
   uint32_t vxy1 = (uint32_t)c->mem_r16(src + 2); // X1, zero-extended
   uint32_t y1lo =
       (c->mem_r32(src + 8) << 16); // Y1 packed in the LOW 16 of word@+8, shifted to hi16 here (matches gen: r9<<16)
@@ -112,5 +111,5 @@ void GteTransform3::rotate3AndPackIr(Core *c) {
 }
 
 void GteTransform3::registerOverrides(Game *) {
-  engine_set_override_main(0x80084250u, &GteTransform3::rotate3AndPackIr, gen_func_80084250);
+  tomba::native::declareOverride(0x80084250u, "&GteTransform3::rotate3AndPackIr", &GteTransform3::rotate3AndPackIr);
 }

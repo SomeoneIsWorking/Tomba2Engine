@@ -20,17 +20,17 @@
 //   state 2 -> return (idle)
 //   state 3 -> FUN_8007a624 (despawn)
 //
-// Per-type data table it READS from guest RAM (NOT hardcoded — read live with mem_r*, exactly as the recomp
-// body does):
+// Per-type data table it READS from guest RAM (NOT hardcoded — read live with mem_r*, exactly as the guest instruction
+// path body does):
 //   TD @0x8014AA38  struct[(s1[3]*2 + node[3])*8]: lhu@0 -> node[0x2e], lhu@2 -> node[0x32], lhu@4 ->
 //                   node[0x36]  (the SAME table the sibling 0x80138FC8 reads in its JT1 case 2)
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + node/global memory writes owned native; every
-// sub-behavior CALL stays a reachable PSX leaf via rec_dispatch (NO recursion). NO GTE, NO render packets
-// here. RE'd 1:1 from disas 0x801395C0..0x80139834 (epilogue jr ra @0x80139830). It WRITES guest node state
-// the still-recomp content reads -> content-INTERFACE: gated byte-exact (full RAM+scratchpad A/B vs
-// rec_super_call). The idle/active field path is exercised by the gate; the scene-driven sub-states are
-// faithfully transcribed and verify when a scene drives them (same caveat as the sibling orchestrators).
+// sub-behavior CALL stays a reachable PSX leaf via typed runtime address dispatch (NO recursion). NO GTE, NO render
+// packets here. RE'd 1:1 from disas 0x801395C0..0x80139834 (epilogue jr ra @0x80139830). It WRITES guest node state the
+// still-guest content reads -> content-INTERFACE: gated byte-exact (full RAM+scratchpad A/B vs original guest-body
+// call). The idle/active field path is exercised by the gate; the scene-driven sub-states are faithfully transcribed
+// and verify when a scene drives them (same caveat as the sibling orchestrators).
 
 #include "cfg.h"
 #include "core.h"
@@ -43,8 +43,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -184,12 +182,12 @@ void beh_sibling_angle_track(Core *c) {
   int32_t v1 = (int32_t)(prod >> 12);                  // 801397EC sra v1,0xc  (mflo >> 12)
   uint16_t n32 = c->mem_r16(s1 + 0x32);                // 801397E4 lhu v0, 0x32(s1)
   int32_t newv = (int32_t)(int16_t)n32 + v1 - 0x60;    // 801397F0 addu ; 801397F4 -0x60
-  // GOTCHA: node[0x32] store is the DELAY SLOT of jal 0x8007778c (0x801397F8); the recomp stores
+  // GOTCHA: node[0x32] store is the DELAY SLOT of jal 0x8007778c (0x801397F8); the guest instruction path stores
   // newv (computed above) BEFORE the call runs. Keep that ordering here too — the cull body reads
   // posY (obj+0x32) so the write must land first.
   c->mem_w16(obj + 0x32, (uint16_t)newv); // 801397FC sh v0, 0x32(s2)  (delay slot)
   if (Actor(c, obj).boundsCull() == 0) {
-    return; // FUN_8007778C native (was rec_dispatch)
+    return; // FUN_8007778C native (was typed runtime address dispatch)
   }
   c->r[4] = obj;
   eng(c).graphicsBind.renderUpdate(); // 80139808 jal 0x800517f8 (render; a0=s2 delay)

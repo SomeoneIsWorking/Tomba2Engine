@@ -4,7 +4,7 @@ kind: claim
 status: holds
 created: 2026-08-21
 tags: render,house
-depends: psxport.pin, external/psxport/runtime/recomp/render_queue.cpp#RenderQueue::resolveKeyOrderFaces, external/psxport/runtime/recomp/ot_lifo_depth.cpp#rq_apply_ot_lifo_depths
+depends: psxport.pin, external/psxport/runtime/psx/render_queue.cpp#RenderQueue::resolveKeyOrderFaces, external/psxport/runtime/psx/ot_lifo_depth.cpp#rq_apply_ot_lifo_depths
 ---
 
 ## Claim

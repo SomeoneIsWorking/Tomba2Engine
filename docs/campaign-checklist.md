@@ -20,7 +20,7 @@ Only EXERCISED functions; SBS-full is the gate. (node_xform, sequencer, actor_to
 - [ ] Continue the register-literal-dense files (see `codemap`/grep for raw hex-poke density).
 
 ## Phase 3 — fallthrough-for-already-native  ☐ NEXT
-A native exists but the guest address is NOT override-registered, so rec_dispatch/guest_leaf callers
+A native exists but the guest address is NOT override-registered, so typed runtime address dispatch/typed guest call callers
 run the EMULATED substrate while direct callers run the port (a split). Register + MIRROR_VERIFY gate.
 - [x] `codemap.py --substrate-fallthrough` — precise detector (dispatch-target only). 97 authoritative candidates.
 - [x] Engine::animTick (0x8004190C) — MV 27969 passes, 0-diff. Native-ized (RegisterEngineAnimLeafOverrides).
@@ -61,6 +61,6 @@ more freely, test different scenes, try to trigger a dialogue").
 ## Working rules
 - Oracle IS the gate: MIRROR_VERIFY=<addr> (byte-compare vs substrate) for a wired override; SBS-full
   0-diff for the faithful path. Cite the pass count / frame reached in every done-claim.
-- Register overrides via EngineOverrides + psx_fallback-gated shard_set_override (core B stays pure).
+- Register overrides via EngineOverrides + the retired alternate-execution flag-gated tomba::native::declareOverride (core B stays pure).
 - `codemap.py --conflicts` clean after every phase-1/3 change (no new dual-ownership).
 - Commit + push each landed unit; keep this checklist updated in the same commit.

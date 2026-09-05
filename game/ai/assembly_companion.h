@@ -18,13 +18,13 @@
 // one-at-a-time channel into the field camera, and this family is one of its only two writers in the
 // A00 overlay (the other is its own sibling leaf, guest 0x80137198). The guest addresses it as
 // `lui v0, 0x800C` + a signed -0x7DF displacement, which is why it reads as `+ (uint32_t)-2015` in
-// generated/ov_a00_shard_*.c — grep either form and land here.
+// authenticated executable/overlay evidence — grep either form and land here.
 //
 // WHAT READS IT, and therefore what it MEANS: CutsceneCamera::pitch (guest FUN_8006D654,
 // game/camera/cutscene_camera.cpp) switches its height target on this byte in the default arm of its
 // selector — 0 = the ordinary follow height, 1 = the target pulled 200 units DOWN, anything else =
 // the raised/offset variants. Two more A00 functions read it as a plain "is a mode held" flag:
-// ov_a00_gen_8010DBE4 and ov_a00_gen_8010CF90 both force a per-node halfword at +0x26 to -600 while
+// overlay guest 0x8010DBE4 and overlay guest 0x8010CF90 both force a per-node halfword at +0x26 to -600 while
 // it is non-zero instead of deriving it from the clock at scratchpad 0x1F800160. (What that +0x26
 // field then FEEDS is not established — do not build on it. Neither of those two functions is
 // natively owned yet.)
@@ -48,7 +48,7 @@ public:
 
   // --- how this node comes into existence, which is where every field meaning below comes from ----
   // The assembly calls SubstateEdgeLeaves::spawnInnerDispatchChild (0x8013892C) once its role byte is
-  // < 3 — from its state-0 init (ov_a00_gen_8012ED84 ← FUN_8012EB54) and again from the OPN-overlay
+  // < 3 — from its state-0 init (overlay guest 0x8012ED84 ← FUN_8012EB54) and again from the OPN-overlay
   // assembly hook 0x8018C820. That spawner goes through Placement::spawnWithParent
   // (game/world/placement.cpp, guest FUN_80072DDC) with (parent, 3, 4, 10), and THAT is what writes
   // `newNode+0x10 = parent` — the store making parent() below a fact rather than a guess. The spawner
@@ -91,7 +91,7 @@ public:
 
   // --- the companion's own RIG: a table of sub-part records it owns and poses every visible frame -
   // partCount (+0x08, u8): how many sub-parts the rig has. Written by the state-0 init
-  //   ov_a00_gen_80136F08 as `node[8] = *(u8*)(0x8014A9A4 + role)` — the per-role part-count table
+  //   overlay guest 0x80136F08 as `node[8] = *(u8*)(0x8014A9A4 + role)` — the per-role part-count table
   //   already described on role() above (6, 9, 10, 9 for roles 0..3) — and mirrored into node[9]
   //   immediately after. game/render/node_xform.cpp's Node lens calls the same pair
   //   childCount(0x08)/childCountGuard(0x09), which is what NodeXform's transform loops bound on.

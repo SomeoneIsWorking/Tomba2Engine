@@ -18,4 +18,4 @@ endforeach()
 
 set_target_properties(
   menu_bg_export dump_all_seq render_all_seq render_one
-  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/scratch/bin")
+  PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/build/bin")

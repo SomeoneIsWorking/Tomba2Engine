@@ -4,49 +4,21 @@
 // neighbor-walk (FUN_80047CBC), the resolve loop (FUN_800498C8), and the per-step origin/index setup
 // (FUN_8004798C). Pure control flow over scratchpad + object/grid memory — NO GTE, NO render packets.
 // Diagnostic A/B gates (listscan/gridsetup/gridquery/gridresolve/gridstep) are REPL channels,
-// unchanged. The dispatched grid callees stay reachable by address (rec_dispatch).
+// unchanged. The dispatched grid callees stay reachable by address (typed runtime address dispatch).
 #include "collision.h"
 #include "cfg.h"
 #include "core.h"
 #include "core/engine.h"
+#include "execution_services.h"
 #include "game_ctx.h"
-#include "override_registry.h" // overrides::install — the one native-override registry
+#include "guest_call.h"
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
-// --- field-collision leaf cluster wiring (FUN_80045810/48034/48134/48360/49760) ---
-// The five leaves read/write the shared GridRay scratchpad struct at base 0x1F800000; they are
-// installed by guest address into the ONE override registry so every caller (substrate included)
-// reaches the native method. gen bodies are the oracle leg (SBS core B).
-extern void shard_set_override(uint32_t, void (*)(Core *));
-extern void gen_func_80045810(Core *);
-extern void gen_func_80048034(Core *);
-extern void gen_func_80048134(Core *);
-extern void gen_func_80048360(Core *);
-extern void gen_func_80049760(Core *);
-extern void gen_func_8004766C(Core *);
-// snapObjectToTerrain's five guest sub-calls, reached through the shard dispatch thunks so the ONE
-// override registry picks the right leg: FUN_80047778 is still substrate; the other four are owned
-// right here (gridSetup / gridQuery / slopeLocalB / floorPick) and resolve to those natives.
-void func_80047778(Core *); // path-sector clamp + companion-coord recompute (substrate)
-void func_80049968(Core *); // -> Collision::gridSetup
-void func_80047CBC(Core *); // -> Collision::gridQuery
-void func_80048134(Core *); // -> Collision::slopeLocalB
-void func_80048034(Core *); // -> Collision::floorPick
-// flatNormal's guest sub-calls: ratan2 / rcos / rsin trig leaves (generated/shard_disp.c).
-// 0x80085690 (ratan2) and 0x80083E80 (rsin) are themselves owned by Trig via the same registry, so
-// these func_X(c) sites route to native on the port leg and gen on the oracle leg automatically.
-void func_80085690(Core *);
-void func_80083F50(Core *);
-void func_80083E80(Core *);
-
-// GridRay — the shared collision scratchpad struct (base 0x1F800000). Byte offsets of the fields the
-// field-collision leaves touch. Substituting these named constants for the raw gen offset literals is
-// a value-identical rename: it changes only the address expression text, never a store's width/order,
-// so the port stays byte-faithful (tools/port_check.py gates it).
+// GridRay names the shared collision scratchpad fields. Native owners and JIT-executed
+// guest collision routines use this same memory contract.
 namespace {
 constexpr uint32_t GR = 0x1F800000u; // GridRay scratchpad base (gen spells it `8064u << 16`)
 enum : uint32_t {
@@ -256,7 +228,7 @@ struct ProbeActor {
   }
 };
 
-// Guest stack-frame slot offsets for the 32-byte frame FUN_8004766C opens (tools/abi_extract.py
+// Guest stack-frame slot offsets for the 32-byte frame FUN_8004766C opens (tools/binary ABI evidence
 // --contract 8004766C). The port MIRRORS this frame — see snapObjectToTerrain.
 enum : uint32_t {
   FR_S0 = 16, // sp+0x10  s0 (r16)
@@ -301,7 +273,10 @@ void Collision::listScan(uint32_t obj) {
     }
   }
   if (s_v) {
-    rec_super_call(c, 0x80031780u); // memory untouched above -> oracle writes
+    psx::cpu::callOriginalToReturn(*c,
+                                   0x80031780u,
+                                   psx::cpu::ExecutionBudget::currentTurn(*c),
+                                   __func__); // memory untouched above -> oracle writes
     uint32_t r52 = c->mem_r32(a0 + 52), r56 = c->mem_r32(a0 + 56);
     static long ng = 0, nb = 0;
     if (r52 != n52 || r56 != n56) {
@@ -339,7 +314,7 @@ void Collision::gridSetup(uint32_t layer) {
   uint32_t d8 = rec + (uint32_t)c->mem_r16(rec + 16) * 2;
   uint32_t dc = rec + (uint32_t)c->mem_r16(rec + 18) * 2;
   if (s_v) {
-    rec_super_call(c, 0x80049968u);
+    psx::cpu::callOriginalToReturn(*c, 0x80049968u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     static long ng = 0, nb = 0;
     uint32_t o_cc = c->mem_r32(0x1F8001CCu), o_d0 = c->mem_r32(0x1F8001D0u), o_d4 = c->mem_r32(0x1F8001D4u),
              o_d8 = c->mem_r32(0x1F8001D8u), o_dc = c->mem_r32(0x1F8001DCu);
@@ -536,7 +511,7 @@ int Collision::gridQuery() {
     after[a - LO] = c->mem_r8(a);
     c->mem_w8(a, snap[a - LO]);
   } // capture+restore
-  rec_super_call(c, 0x80047CBCu);
+  psx::cpu::callOriginalToReturn(*c, 0x80047CBCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   uint32_t oracle = c->r[2];
   int firstoff = -1;
   for (uint32_t a = LO; a < HI; a++) {
@@ -570,7 +545,7 @@ int Collision::gridQuery() {
 //   reload v1' = w[0x1F8001E0]; if (h[v1'] & 0x4000) != 0 -> LOOP (descend further)
 //   else -> return 1
 // Pure control flow over scratchpad + object memory; ONE object write (obj+42); NO GTE, NO render
-// packets. The three callees stay PSX via rec_dispatch (the two grid leaves honor their own owned
+// packets. The three callees stay PSX via typed runtime address dispatch (the two grid leaves honor their own owned
 // override identically in the dispatched path). Return: 0 only when the query returns 0; otherwise 1.
 static uint32_t grid_resolve_498c8(Core *c, uint32_t obj) {
   Collision &col = eng(c).collision;
@@ -606,8 +581,8 @@ int Collision::gridResolve(uint32_t obj) {
     c->r[2] = (uint32_t)r;
     return r;
   }
-  // Full RAM+scratchpad A/B vs rec_super_call. The native path runs first, its writes are snapshotted
-  // and rolled back, then the recomp body runs and we diff. The dispatched callees (incl. the deep
+  // Full RAM+scratchpad A/B vs original guest-body call. The native path runs first, its writes are snapshotted
+  // and rolled back, then the guest instruction path runs and we diff. The dispatched callees (incl. the deep
   // FUN_8004798C tree) run in BOTH passes; FUN_800498C8's own 32-byte stack frame [sp-32, sp) is dead
   // below sp on return (gen saves regs there; native never touches the guest stack) -> excluded.
   static uint8_t *ram0 = (uint8_t *)malloc(0x200000);
@@ -623,7 +598,7 @@ int Collision::gridResolve(uint32_t obj) {
   memcpy(c->ram, ram0, 0x200000);
   memcpy(c->scratch, spad0, 0x400);
   memcpy(c->r, regs0, sizeof regs0);
-  rec_super_call(c, 0x800498C8u);
+  psx::cpu::callOriginalToReturn(*c, 0x800498C8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   uint32_t v0_o = c->r[2];
   uint32_t sp = regs0[29] & 0x1FFFFFu, flo = (sp >= 0x800) ? sp - 0x800 : 0;
   int ro = -1;
@@ -669,7 +644,7 @@ int Collision::gridResolve(uint32_t obj) {
 //     recompute 0x1BC) else X branch (clamp 0x1BC into [0x1AA, 0x1AA+0x1AE], recompute 0x1C0).
 //   recompute writes the OTHER coord = cellbase + (((clamped - cellbase2) * pitch) >> 14) (signed mult,
 //   low word). NB the >>14 is an arithmetic shift of the 32-bit low product (sra).
-// `gridstep` gate = full RAM+scratchpad A/B vs rec_super_call (the two dispatched callees run in BOTH
+// `gridstep` gate = full RAM+scratchpad A/B vs original guest-body call (the two dispatched callees run in BOTH
 // passes; this fn's own [sp-24, sp) stack frame + the callees' frames below sp differ harmlessly, so the
 // gate excludes [sp-0x800, sp) — same family rationale as gridresolve/scriptvm).
 static void grid_step_4798c(Core *c, uint32_t obj) {
@@ -680,7 +655,7 @@ static void grid_step_4798c(Core *c, uint32_t obj) {
   uint32_t gid = c->mem_r8(SP + 0x1FE);
   if (v1 != gid) {
     c->r[4] = v1;
-    rec_dispatch(c, 0x80048eccu);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80048eccu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   }
   // ---- block 2: select range (Z if h[0x1AE] u< h[0x1B0], else X), test, maybe re-resolve ----
   uint32_t aE = c->mem_r16(SP + 0x1AE); // h[0x1AE] (a1)
@@ -696,7 +671,7 @@ static void grid_step_4798c(Core *c, uint32_t obj) {
   if (test != 0) {
     c->r[4] = obj;
     c->r[5] = 1;
-    rec_dispatch(c, 0x80048fc4u);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80048fc4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   }
   // ---- block 3: clamp the in-range coord, then recompute the other from it ----
   uint32_t lo = c->mem_r16(SP + 0x1AE), hi = c->mem_r16(SP + 0x1B0);
@@ -765,7 +740,7 @@ void Collision::gridStep(uint32_t obj) {
   memcpy(c->ram, ram0, 0x200000);
   memcpy(c->scratch, spad0, 0x400);
   memcpy(c->r, regs0, sizeof regs0);
-  rec_super_call(c, 0x8004798Cu);
+  psx::cpu::callOriginalToReturn(*c, 0x8004798Cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   uint32_t sp = regs0[29] & 0x1FFFFFu, flo = (sp >= 0x800) ? sp - 0x800 : 0;
   int ro = -1;
   for (uint32_t a = 0; a < 0x200000; a++) {
@@ -790,883 +765,6 @@ void Collision::gridStep(uint32_t obj) {
     cfg_logi("gridstep", "%ld matches", ng);
   }
 }
-
-// ============================================================================================
-// FIELD-COLLISION LEAF CLUSTER — five leaves over the shared GridRay scratchpad struct.
-// Each body is a byte-faithful transcription of its gen oracle (same register machine, same
-// statement order, same store widths), with the scratchpad base + field offsets renamed to the
-// GR* constants above. tools/port_check.py gates equivalence; SBS gates byte-parity on core B.
-// ============================================================================================
-
-// FUN_80045810 — Collision::lineCross. Per-line WALL intersection: computes the crossing
-// coordinate GR_CROSS (0x1A4) from the current line record (GR_LINE_CUR = 0x1EC) fields [1..3]
-// scaled by the slope-local X (GR_LOCAL_X). The upper half updates the crossing/span bookkeeping
-// (GR_CROSS_Z, GR_SPAN) and latches the chosen line record into GR_BEST_LINE. Leaf; no frame.
-// ORACLE: gen_func_80045810
-void Collision::lineCross(uint32_t flag) {
-  Core *c = this->core;
-  c->r[4] = flag;
-  c->r[6] = c->r[4] + c->r[0];
-  c->r[2] = GR;
-  c->r[2] = c->mem_r32((c->r[2] + GR_CELL_REC));
-  c->r[7] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)0));
-  c->r[9] = (uint32_t)c->mem_r16((c->r[7] + GR_CROSS));
-  c->r[2] = c->r[2] & 8u;
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[10] = c->r[5] + c->r[0];
-    if (_t) {
-      goto L_80045868;
-    }
-  }
-  c->r[2] = GR;
-  c->r[4] = c->mem_r32((c->r[2] + GR_LINE_CUR));
-  c->r[2] = GR;
-  c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + GR_LOCAL_X));
-  c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + (uint32_t)4));
-  {
-    int64_t _p = (int64_t)(int32_t)c->r[3] * (int64_t)(int32_t)c->r[2];
-    c->lo = (uint32_t)_p;
-    c->hi = (uint32_t)((uint64_t)_p >> 32);
-  }
-  c->r[2] = (uint32_t)c->mem_r16((c->r[4] + (uint32_t)2));
-  c->r[11] = c->lo;
-  c->r[3] = (uint32_t)((int32_t)c->r[11] >> 6);
-  c->r[2] = c->r[2] + c->r[3];
-  c->mem_w16((c->r[7] + GR_CROSS), (uint16_t)c->r[2]);
-  goto L_800458D8;
-L_80045868:;
-  c->r[2] = GR;
-  c->r[4] = GR;
-  c->r[3] = c->r[6] << 16;
-  c->r[3] = (uint32_t)((int32_t)c->r[3] >> 16);
-  c->r[5] = c->mem_r32((c->r[2] + GR_LINE_CUR));
-  c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + GR_LOCAL_X));
-  c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[5] + (uint32_t)4));
-  c->r[2] = c->r[2] - c->r[3];
-  {
-    int64_t _p = (int64_t)(int32_t)c->r[4] * (int64_t)(int32_t)c->r[2];
-    c->lo = (uint32_t)_p;
-    c->hi = (uint32_t)((uint64_t)_p >> 32);
-  }
-  c->r[2] = c->r[6] ^ 63u;
-  c->r[3] = c->lo;
-  c->r[2] = c->r[2] << 16;
-  c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
-  cpu_div(c, c->r[3], c->r[2]);
-  {
-    int _t = (c->r[2] != c->r[0]);
-    if (_t) {
-      goto L_800458AC;
-    }
-  }
-  rec_break(c, 7168u);
-L_800458AC:;
-  c->r[1] = c->r[0] + (uint32_t)-1;
-  {
-    int _t = (c->r[2] != c->r[1]);
-    c->r[1] = (uint32_t)32768u << 16;
-    if (_t) {
-      goto L_800458C4;
-    }
-  }
-  {
-    int _t = (c->r[3] != c->r[1]);
-    if (_t) {
-      goto L_800458C4;
-    }
-  }
-  rec_break(c, 6144u);
-L_800458C4:;
-  c->r[2] = c->lo;
-  c->r[3] = (uint32_t)c->mem_r16((c->r[5] + (uint32_t)2));
-  c->r[3] = c->r[3] + c->r[2];
-  c->mem_w16((c->r[7] + GR_CROSS), (uint16_t)c->r[3]);
-L_800458D8:;
-  c->r[3] = GR;
-  c->r[8] = GR;
-  c->r[5] = (uint32_t)(int16_t)c->mem_r16((c->r[8] + GR_CROSS));
-  c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[3] + GR_PROBE_Y));
-  c->r[7] = (uint32_t)c->mem_r16((c->r[3] + GR_PROBE_Y));
-  c->r[6] = (uint32_t)c->mem_r16((c->r[8] + GR_CROSS));
-  c->r[2] = c->r[5] + (uint32_t)128;
-  c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[4]);
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[2] = (uint32_t)((int32_t)c->r[4] < (int32_t)c->r[5]);
-    if (_t) {
-      goto L_80045960;
-    }
-  }
-  {
-    int _t = (c->r[10] == c->r[0]);
-    c->r[2] = c->r[0] + (uint32_t)1;
-    if (_t) {
-      goto L_8004594C;
-    }
-  }
-  c->r[4] = GR;
-  c->r[3] = GR;
-  c->r[5] = c->mem_r32((c->r[3] + GR_LINE_CUR));
-  c->r[3] = c->r[6] - c->r[7];
-  c->mem_w16((c->r[4] + GR_SPAN), (uint16_t)c->r[3]);
-  c->r[3] = GR;
-  c->r[4] = (uint32_t)c->mem_r16((c->r[5] + (uint32_t)0));
-  c->r[5] = (uint32_t)c->mem_r16((c->r[5] + (uint32_t)6));
-  c->r[6] = GR;
-  c->mem_w16((c->r[3] + GR_CROSS_Z), (uint16_t)c->r[4]);
-  c->r[4] = GR;
-  c->r[3] = c->r[5] << (c->r[2] & 31);
-  c->r[4] = c->mem_r32((c->r[4] + GR_LINE_ARRAY));
-L_8004593C:;
-  c->r[3] = c->r[3] + c->r[5];
-  c->r[4] = c->r[4] + c->r[3];
-  c->mem_w32((c->r[6] + GR_BEST_LINE), c->r[4]);
-  return;
-L_8004594C:;
-  c->r[2] = c->r[0] + c->r[0];
-  c->r[3] = GR;
-  c->mem_w16((c->r[8] + GR_CROSS), (uint16_t)c->r[9]);
-  c->mem_w16((c->r[3] + GR_CROSS_Z), (uint16_t)c->r[0]);
-  return;
-L_80045960:;
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[2] = c->r[0] + (uint32_t)-1;
-    if (_t) {
-      goto L_80045988;
-    }
-  }
-  c->r[3] = GR;
-  c->r[6] = GR;
-  c->r[3] = c->mem_r32((c->r[3] + GR_LINE_CUR));
-  c->r[4] = GR;
-  c->r[5] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)6));
-  c->r[4] = c->mem_r32((c->r[4] + GR_LINE_ARRAY));
-  c->r[3] = c->r[5] << 1;
-  goto L_8004593C;
-L_80045988:;
-  c->r[2] = c->r[0] + (uint32_t)1;
-  c->r[4] = GR;
-  c->r[3] = GR;
-  c->r[5] = c->mem_r32((c->r[3] + GR_LINE_CUR));
-  c->r[3] = c->r[6] - c->r[7];
-  c->mem_w16((c->r[4] + GR_SPAN), (uint16_t)c->r[3]);
-  c->r[3] = GR;
-  c->r[4] = (uint32_t)c->mem_r16((c->r[5] + (uint32_t)0));
-  c->r[5] = (uint32_t)c->mem_r16((c->r[5] + (uint32_t)6));
-  c->r[6] = GR;
-  c->mem_w16((c->r[3] + GR_CROSS_Z), (uint16_t)c->r[4]);
-  c->r[4] = GR;
-  c->r[3] = c->r[5] << (c->r[2] & 31);
-  c->r[4] = c->mem_r32((c->r[4] + GR_LINE_ARRAY));
-  c->r[3] = c->r[3] + c->r[5];
-  c->r[4] = c->r[4] + c->r[3];
-  c->mem_w32((c->r[6] + GR_BEST_LINE), c->r[4]);
-  return;
-}
-
-// FUN_80048034 — Collision::floorPick. Finds the lowest floor line above the probe: iterates the
-// current cell's line list (cursor GR_LINE_CUR built from the cell record GR_CELL_REC over the line
-// table GR_LINE_TABLE), tracking the line whose top edge (record fields [1]+[2]) sits just below the
-// probe, and latches its record address into GR_BEST_LINE (via the line array GR_LINE_ARRAY).
-// Leaf; no frame.
-// ORACLE: gen_func_80048034
-void Collision::floorPick() {
-  Core *c = this->core;
-  c->r[8] = c->r[0] + (uint32_t)1;
-  c->r[2] = GR;
-  c->r[5] = GR;
-  c->r[4] = c->mem_r32((c->r[2] + GR_CELL_REC));
-  c->r[2] = GR;
-  c->r[2] = c->mem_r32((c->r[2] + GR_LINE_TABLE));
-  c->r[3] = (uint32_t)c->mem_r16((c->r[4] + (uint32_t)2));
-  c->r[10] = (uint32_t)c->mem_r16((c->r[4] + (uint32_t)4));
-  c->r[3] = c->r[3] << 3;
-  c->r[2] = c->r[2] + c->r[3];
-  c->mem_w32((c->r[5] + GR_LINE_CUR), c->r[2]);
-  c->r[2] = c->r[10] & 65535u;
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[6] = c->r[0] + c->r[0];
-    if (_t) {
-      goto L_8004812C;
-    }
-  }
-  c->r[9] = c->r[5] + c->r[0];
-  c->r[11] = GR;
-  c->r[2] = GR;
-  c->r[12] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + GR_PROBE_Y));
-  c->r[2] = GR;
-  c->r[7] = c->mem_r32((c->r[2] + GR_LINE_ARRAY));
-L_80048084:;
-  c->r[5] = c->mem_r32((c->r[9] + GR_LINE_CUR));
-  c->r[2] = (uint32_t)c->mem_r16((c->r[5] + (uint32_t)0));
-  c->r[2] = c->r[2] & 1u;
-  {
-    int _t = (c->r[2] == c->r[0]);
-    if (_t) {
-      goto L_8004810C;
-    }
-  }
-  c->r[3] = (uint32_t)c->mem_r16((c->r[5] + (uint32_t)2));
-  c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[5] + (uint32_t)4));
-  c->r[4] = (uint32_t)c->mem_r16((c->r[5] + (uint32_t)4));
-  {
-    int _t = ((int32_t)c->r[2] <= 0);
-    c->r[2] = c->r[3] << 16;
-    if (_t) {
-      goto L_800480BC;
-    }
-  }
-  c->r[3] = c->r[3] + c->r[4];
-  c->r[2] = c->r[3] << 16;
-L_800480BC:;
-  c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
-  c->r[2] = c->r[2] + (uint32_t)128;
-  c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[12]);
-  {
-    int _t = (c->r[2] == c->r[0]);
-    if (_t) {
-      goto L_800480F4;
-    }
-  }
-  {
-    int _t = (c->r[8] == c->r[0]);
-    if (_t) {
-      goto L_8004812C;
-    }
-  }
-  c->r[3] = (uint32_t)c->mem_r16((c->r[5] + (uint32_t)6));
-  c->r[2] = c->r[3] << 1;
-  c->r[2] = c->r[2] + c->r[3];
-  c->r[2] = c->r[7] + c->r[2];
-  c->mem_w32((c->r[11] + GR_BEST_LINE), c->r[2]);
-  return;
-L_800480F4:;
-  c->r[3] = (uint32_t)c->mem_r16((c->r[5] + (uint32_t)6));
-  c->r[8] = c->r[0] + c->r[0];
-  c->r[2] = c->r[3] << 1;
-  c->r[2] = c->r[2] + c->r[3];
-  c->r[2] = c->r[7] + c->r[2];
-  c->mem_w32((c->r[11] + GR_BEST_LINE), c->r[2]);
-L_8004810C:;
-  c->r[2] = c->mem_r32((c->r[9] + GR_LINE_CUR));
-  c->r[6] = c->r[6] + (uint32_t)1;
-  c->r[2] = c->r[2] + (uint32_t)8;
-  c->mem_w32((c->r[9] + GR_LINE_CUR), c->r[2]);
-  c->r[2] = c->r[10] & 65535u;
-  c->r[2] = (uint32_t)((int32_t)c->r[6] < (int32_t)c->r[2]);
-  {
-    int _t = (c->r[2] != c->r[0]);
-    if (_t) {
-      goto L_80048084;
-    }
-  }
-L_8004812C:;
-  return;
-}
-
-// FUN_80048134 — Collision::slopeLocalB. Slope-local delta (variant B): folds the probe
-// (GR_PROBE_X/GR_PROBE_Z minus cell origin GR_CELL_ORG_X/GR_CELL_ORG_Z, & 0x3F) through the map
-// cell's orientation code (record field [0] low bits) into the slope-local coords GR_LOCAL_X /
-// GR_LOCAL_Z. Leaf; no frame.
-// ORACLE: gen_func_80048134
-void Collision::slopeLocalB() {
-  Core *c = this->core;
-  c->r[2] = GR;
-  c->r[3] = GR;
-  c->r[6] = GR;
-  c->r[4] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + GR_PROBE_X));
-  c->r[3] = (uint32_t)c->mem_r16((c->r[3] + GR_CELL_ORG_X));
-  c->r[4] = c->mem_r32((c->r[4] + GR_CELL_REC));
-  c->r[2] = c->r[2] - c->r[3];
-  c->r[5] = c->r[2] & 63u;
-  c->r[2] = GR;
-  c->r[3] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + GR_PROBE_Z));
-  c->r[3] = (uint32_t)c->mem_r16((c->r[3] + GR_CELL_ORG_Z));
-  c->r[10] = (uint32_t)c->mem_r16((c->r[4] + (uint32_t)0));
-  c->r[7] = GR;
-  c->mem_w16((c->r[6] + GR_LOCAL_X), (uint16_t)c->r[5]);
-  c->r[2] = c->r[2] - c->r[3];
-  c->r[4] = c->r[2] & 63u;
-  c->r[3] = c->r[10] & 3u;
-  c->r[2] = c->r[0] + (uint32_t)2;
-  {
-    int _t = (c->r[3] == c->r[2]);
-    c->mem_w16((c->r[7] + GR_LOCAL_Z), (uint16_t)c->r[4]);
-    if (_t) {
-      goto L_800481BC;
-    }
-  }
-  c->r[2] = (uint32_t)((int32_t)c->r[3] < 3);
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[2] = c->r[0] + (uint32_t)1;
-    if (_t) {
-      goto L_800481A8;
-    }
-  }
-  {
-    int _t = (c->r[3] == c->r[2]);
-    c->r[2] = c->r[10] & 4u;
-    if (_t) {
-      goto L_800481D0;
-    }
-  }
-  goto L_800481DC;
-L_800481A8:;
-  c->r[2] = c->r[0] + (uint32_t)3;
-  {
-    int _t = (c->r[3] == c->r[2]);
-    c->r[2] = c->r[10] & 4u;
-    if (_t) {
-      goto L_800481C8;
-    }
-  }
-  goto L_800481DC;
-L_800481BC:;
-  c->r[2] = c->r[5] ^ 63u;
-  c->mem_w16((c->r[6] + GR_LOCAL_X), (uint16_t)c->r[2]);
-  goto L_800481D8;
-L_800481C8:;
-  c->r[2] = c->r[5] ^ 63u;
-  c->mem_w16((c->r[6] + GR_LOCAL_X), (uint16_t)c->r[2]);
-L_800481D0:;
-  c->r[2] = c->r[4] ^ 63u;
-  c->mem_w16((c->r[7] + GR_LOCAL_Z), (uint16_t)c->r[2]);
-L_800481D8:;
-  c->r[2] = c->r[10] & 4u;
-L_800481DC:;
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[4] = GR;
-    if (_t) {
-      goto L_800481F8;
-    }
-  }
-  c->r[3] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[3] + GR_LOCAL_Z));
-  c->r[5] = (uint32_t)c->mem_r16((c->r[4] + GR_LOCAL_X));
-  c->mem_w16((c->r[4] + GR_LOCAL_X), (uint16_t)c->r[2]);
-  c->mem_w16((c->r[3] + GR_LOCAL_Z), (uint16_t)c->r[5]);
-L_800481F8:;
-  c->r[2] = GR;
-  c->r[2] = c->mem_r32((c->r[2] + GR_CELL_REC));
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)6));
-  c->r[6] = c->r[2] >> 8;
-  c->r[7] = c->r[2] & 255u;
-  c->r[2] = c->r[10] & 8u;
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[8] = c->r[7] + c->r[0];
-    if (_t) {
-      goto L_80048254;
-    }
-  }
-  c->r[4] = GR;
-  c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + GR_LOCAL_X));
-  c->r[2] = c->r[6] - c->r[8];
-  {
-    int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[3];
-    c->lo = (uint32_t)_p;
-    c->hi = (uint32_t)((uint64_t)_p >> 32);
-  }
-  c->mem_w16((c->r[4] + GR_LOCAL_X), (uint16_t)c->r[0]);
-  c->r[4] = GR;
-  c->r[3] = (uint32_t)c->mem_r16((c->r[4] + GR_LOCAL_Z));
-  c->r[11] = c->lo;
-  c->r[2] = (uint32_t)((int32_t)c->r[11] >> 6);
-  c->r[2] = c->r[7] + c->r[2];
-  c->r[3] = c->r[3] - c->r[2];
-  c->mem_w16((c->r[4] + GR_LOCAL_Z), (uint16_t)c->r[3]);
-  goto L_800482B8;
-L_80048254:;
-  c->r[9] = GR;
-  c->r[5] = (uint32_t)(int16_t)c->mem_r16((c->r[9] + GR_LOCAL_X));
-  c->r[4] = c->r[8] & 65535u;
-  c->r[3] = c->r[6] & 65535u;
-  c->r[2] = c->r[5] - c->r[4];
-  {
-    int64_t _p = (int64_t)(int32_t)c->r[3] * (int64_t)(int32_t)c->r[2];
-    c->lo = (uint32_t)_p;
-    c->hi = (uint32_t)((uint64_t)_p >> 32);
-  }
-  c->r[2] = c->lo;
-  c->r[3] = c->r[7] ^ 63u;
-  cpu_div(c, c->r[2], c->r[3]);
-  {
-    int _t = (c->r[3] != c->r[0]);
-    if (_t) {
-      goto L_80048288;
-    }
-  }
-  rec_break(c, 7168u);
-L_80048288:;
-  c->r[1] = c->r[0] + (uint32_t)-1;
-  {
-    int _t = (c->r[3] != c->r[1]);
-    c->r[1] = (uint32_t)32768u << 16;
-    if (_t) {
-      goto L_800482A0;
-    }
-  }
-  {
-    int _t = (c->r[2] != c->r[1]);
-    if (_t) {
-      goto L_800482A0;
-    }
-  }
-  rec_break(c, 6144u);
-L_800482A0:;
-  c->r[3] = c->lo;
-  c->r[4] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[4] + GR_LOCAL_Z));
-  c->mem_w16((c->r[9] + GR_LOCAL_X), (uint16_t)c->r[0]);
-  c->r[2] = c->r[2] - c->r[3];
-  c->mem_w16((c->r[4] + GR_LOCAL_Z), (uint16_t)c->r[2]);
-L_800482B8:;
-  c->r[2] = c->r[10] & 4u;
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[4] = GR;
-    if (_t) {
-      goto L_800482D8;
-    }
-  }
-  c->r[3] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[3] + GR_LOCAL_Z));
-  c->r[5] = (uint32_t)c->mem_r16((c->r[4] + GR_LOCAL_X));
-  c->mem_w16((c->r[4] + GR_LOCAL_X), (uint16_t)c->r[2]);
-  c->mem_w16((c->r[3] + GR_LOCAL_Z), (uint16_t)c->r[5]);
-L_800482D8:;
-  c->r[4] = c->r[10] & 3u;
-  c->r[2] = c->r[0] + (uint32_t)1;
-  {
-    int _t = (c->r[4] == c->r[2]);
-    c->r[2] = (uint32_t)((int32_t)c->r[4] < 2);
-    if (_t) {
-      goto L_80048334;
-    }
-  }
-  {
-    int _t = (c->r[2] == c->r[0]);
-    if (_t) {
-      goto L_80048300;
-    }
-  }
-  {
-    int _t = (c->r[4] == c->r[0]);
-    c->r[4] = GR;
-    if (_t) {
-      goto L_80048314;
-    }
-  }
-  return;
-L_80048300:;
-  c->r[2] = c->r[0] + (uint32_t)2;
-  {
-    int _t = (c->r[4] == c->r[2]);
-    c->r[3] = GR;
-    if (_t) {
-      goto L_8004834C;
-    }
-  }
-  return;
-L_80048314:;
-  c->r[5] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[4] + GR_LOCAL_X));
-  c->r[3] = (uint32_t)c->mem_r16((c->r[5] + GR_LOCAL_Z));
-  c->r[2] = c->r[0] - c->r[2];
-  c->r[3] = c->r[0] - c->r[3];
-  c->mem_w16((c->r[4] + GR_LOCAL_X), (uint16_t)c->r[2]);
-  c->mem_w16((c->r[5] + GR_LOCAL_Z), (uint16_t)c->r[3]);
-  return;
-L_80048334:;
-  c->r[3] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[3] + GR_LOCAL_X));
-  c->r[2] = c->r[0] - c->r[2];
-  c->mem_w16((c->r[3] + GR_LOCAL_X), (uint16_t)c->r[2]);
-  return;
-L_8004834C:;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[3] + GR_LOCAL_Z));
-  c->r[2] = c->r[0] - c->r[2];
-  c->mem_w16((c->r[3] + GR_LOCAL_Z), (uint16_t)c->r[2]);
-  return;
-}
-
-// FUN_80048360 — Collision::slopeLocalAdvance. Same orientation fold as slopeLocalB, then ADVANCES
-// the probe (GR_PROBE_X/GR_PROBE_Z) by the local step and re-folds. Leaf; no frame.
-// ORACLE: gen_func_80048360
-void Collision::slopeLocalAdvance() {
-  Core *c = this->core;
-  c->r[2] = GR;
-  c->r[3] = GR;
-  c->r[7] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + GR_PROBE_X));
-  c->r[3] = (uint32_t)c->mem_r16((c->r[3] + GR_CELL_ORG_X));
-  c->r[6] = GR;
-  c->r[2] = c->r[2] - c->r[3];
-  c->r[5] = c->r[2] & 63u;
-  c->r[2] = GR;
-  c->r[3] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + GR_PROBE_Z));
-  c->r[3] = (uint32_t)c->mem_r16((c->r[3] + GR_CELL_ORG_Z));
-  c->r[12] = c->r[5] + c->r[0];
-  c->mem_w16((c->r[7] + GR_LOCAL_X), (uint16_t)c->r[5]);
-  c->r[2] = c->r[2] - c->r[3];
-  c->r[4] = c->r[2] & 63u;
-  c->r[2] = GR;
-  c->r[2] = c->mem_r32((c->r[2] + GR_CELL_REC));
-  c->mem_w16((c->r[6] + GR_LOCAL_Z), (uint16_t)c->r[4]);
-  c->r[10] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)0));
-  c->r[2] = c->r[0] + (uint32_t)2;
-  c->r[3] = c->r[10] & 3u;
-  {
-    int _t = (c->r[3] == c->r[2]);
-    c->r[13] = c->r[4] + c->r[0];
-    if (_t) {
-      goto L_800483F0;
-    }
-  }
-  c->r[2] = (uint32_t)((int32_t)c->r[3] < 3);
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[2] = c->r[0] + (uint32_t)1;
-    if (_t) {
-      goto L_800483DC;
-    }
-  }
-  {
-    int _t = (c->r[3] == c->r[2]);
-    c->r[2] = c->r[10] & 4u;
-    if (_t) {
-      goto L_80048404;
-    }
-  }
-  goto L_80048410;
-L_800483DC:;
-  c->r[2] = c->r[0] + (uint32_t)3;
-  {
-    int _t = (c->r[3] == c->r[2]);
-    c->r[2] = c->r[10] & 4u;
-    if (_t) {
-      goto L_800483FC;
-    }
-  }
-  goto L_80048410;
-L_800483F0:;
-  c->r[2] = c->r[5] ^ 63u;
-  c->mem_w16((c->r[7] + GR_LOCAL_X), (uint16_t)c->r[2]);
-  goto L_8004840C;
-L_800483FC:;
-  c->r[2] = c->r[5] ^ 63u;
-  c->mem_w16((c->r[7] + GR_LOCAL_X), (uint16_t)c->r[2]);
-L_80048404:;
-  c->r[2] = c->r[4] ^ 63u;
-  c->mem_w16((c->r[6] + GR_LOCAL_Z), (uint16_t)c->r[2]);
-L_8004840C:;
-  c->r[2] = c->r[10] & 4u;
-L_80048410:;
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[4] = GR;
-    if (_t) {
-      goto L_8004842C;
-    }
-  }
-  c->r[3] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[3] + GR_LOCAL_Z));
-  c->r[5] = (uint32_t)c->mem_r16((c->r[4] + GR_LOCAL_X));
-  c->mem_w16((c->r[4] + GR_LOCAL_X), (uint16_t)c->r[2]);
-  c->mem_w16((c->r[3] + GR_LOCAL_Z), (uint16_t)c->r[5]);
-L_8004842C:;
-  c->r[2] = GR;
-  c->r[2] = c->mem_r32((c->r[2] + GR_CELL_REC));
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)6));
-  c->r[6] = c->r[2] >> 8;
-  c->r[7] = c->r[2] & 255u;
-  c->r[2] = c->r[10] & 8u;
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[11] = c->r[7] + c->r[0];
-    if (_t) {
-      goto L_80048488;
-    }
-  }
-  c->r[4] = GR;
-  c->r[3] = (uint32_t)(int16_t)c->mem_r16((c->r[4] + GR_LOCAL_X));
-  c->r[2] = c->r[6] - c->r[11];
-  {
-    int64_t _p = (int64_t)(int32_t)c->r[2] * (int64_t)(int32_t)c->r[3];
-    c->lo = (uint32_t)_p;
-    c->hi = (uint32_t)((uint64_t)_p >> 32);
-  }
-  c->mem_w16((c->r[4] + GR_LOCAL_X), (uint16_t)c->r[0]);
-  c->r[4] = GR;
-  c->r[3] = (uint32_t)c->mem_r16((c->r[4] + GR_LOCAL_Z));
-  c->r[14] = c->lo;
-  c->r[2] = (uint32_t)((int32_t)c->r[14] >> 6);
-  c->r[2] = c->r[7] + c->r[2];
-  c->r[3] = c->r[3] - c->r[2];
-  c->mem_w16((c->r[4] + GR_LOCAL_Z), (uint16_t)c->r[3]);
-  goto L_800484EC;
-L_80048488:;
-  c->r[8] = GR;
-  c->r[5] = (uint32_t)(int16_t)c->mem_r16((c->r[8] + GR_LOCAL_X));
-  c->r[4] = c->r[11] & 65535u;
-  c->r[3] = c->r[6] & 65535u;
-  c->r[2] = c->r[5] - c->r[4];
-  {
-    int64_t _p = (int64_t)(int32_t)c->r[3] * (int64_t)(int32_t)c->r[2];
-    c->lo = (uint32_t)_p;
-    c->hi = (uint32_t)((uint64_t)_p >> 32);
-  }
-  c->r[4] = c->lo;
-  c->r[3] = c->r[7] ^ 63u;
-  cpu_div(c, c->r[4], c->r[3]);
-  {
-    int _t = (c->r[3] != c->r[0]);
-    if (_t) {
-      goto L_800484BC;
-    }
-  }
-  rec_break(c, 7168u);
-L_800484BC:;
-  c->r[1] = c->r[0] + (uint32_t)-1;
-  {
-    int _t = (c->r[3] != c->r[1]);
-    c->r[1] = (uint32_t)32768u << 16;
-    if (_t) {
-      goto L_800484D4;
-    }
-  }
-  {
-    int _t = (c->r[4] != c->r[1]);
-    if (_t) {
-      goto L_800484D4;
-    }
-  }
-  rec_break(c, 6144u);
-L_800484D4:;
-  c->r[3] = c->lo;
-  c->r[4] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[4] + GR_LOCAL_Z));
-  c->mem_w16((c->r[8] + GR_LOCAL_X), (uint16_t)c->r[0]);
-  c->r[2] = c->r[2] - c->r[3];
-  c->mem_w16((c->r[4] + GR_LOCAL_Z), (uint16_t)c->r[2]);
-L_800484EC:;
-  c->r[2] = c->r[10] & 4u;
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[4] = GR;
-    if (_t) {
-      goto L_8004850C;
-    }
-  }
-  c->r[3] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[3] + GR_LOCAL_Z));
-  c->r[5] = (uint32_t)c->mem_r16((c->r[4] + GR_LOCAL_X));
-  c->mem_w16((c->r[4] + GR_LOCAL_X), (uint16_t)c->r[2]);
-  c->mem_w16((c->r[3] + GR_LOCAL_Z), (uint16_t)c->r[5]);
-L_8004850C:;
-  c->r[3] = c->r[10] & 3u;
-  c->r[2] = c->r[0] + (uint32_t)1;
-  {
-    int _t = (c->r[3] == c->r[2]);
-    c->r[2] = (uint32_t)((int32_t)c->r[3] < 2);
-    if (_t) {
-      goto L_80048568;
-    }
-  }
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[2] = c->r[0] + (uint32_t)2;
-    if (_t) {
-      goto L_80048534;
-    }
-  }
-  {
-    int _t = (c->r[3] == c->r[0]);
-    c->r[6] = GR;
-    if (_t) {
-      goto L_80048544;
-    }
-  }
-  c->r[8] = GR;
-  goto L_8004859C;
-L_80048534:;
-  {
-    int _t = (c->r[3] == c->r[2]);
-    c->r[6] = GR;
-    if (_t) {
-      goto L_80048580;
-    }
-  }
-  c->r[8] = GR;
-  goto L_8004859C;
-L_80048544:;
-  c->r[4] = GR;
-  c->r[5] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[4] + GR_LOCAL_X));
-  c->r[3] = (uint32_t)c->mem_r16((c->r[5] + GR_LOCAL_Z));
-  c->r[2] = c->r[0] - c->r[2];
-  c->r[3] = c->r[0] - c->r[3];
-  c->mem_w16((c->r[4] + GR_LOCAL_X), (uint16_t)c->r[2]);
-  c->mem_w16((c->r[5] + GR_LOCAL_Z), (uint16_t)c->r[3]);
-  goto L_80048594;
-L_80048568:;
-  c->r[3] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[3] + GR_LOCAL_X));
-  c->r[2] = c->r[0] - c->r[2];
-  c->mem_w16((c->r[3] + GR_LOCAL_X), (uint16_t)c->r[2]);
-  goto L_80048594;
-L_80048580:;
-  c->r[3] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[3] + GR_LOCAL_Z));
-  c->r[2] = c->r[0] - c->r[2];
-  c->mem_w16((c->r[3] + GR_LOCAL_Z), (uint16_t)c->r[2]);
-L_80048594:;
-  c->r[6] = GR;
-  c->r[8] = GR;
-L_8004859C:;
-  c->r[7] = GR;
-  c->r[9] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[6] + GR_PROBE_X));
-  c->r[4] = (uint32_t)c->mem_r16((c->r[8] + GR_LOCAL_X));
-  c->r[3] = (uint32_t)c->mem_r16((c->r[7] + GR_PROBE_Z));
-  c->r[5] = (uint32_t)c->mem_r16((c->r[9] + GR_LOCAL_Z));
-  c->r[2] = c->r[2] + c->r[4];
-  c->r[3] = c->r[3] + c->r[5];
-  c->r[4] = c->r[12] + c->r[4];
-  c->r[5] = c->r[13] + c->r[5];
-  c->mem_w16((c->r[7] + GR_PROBE_Z), (uint16_t)c->r[3]);
-  c->r[3] = c->r[10] & 3u;
-  c->mem_w16((c->r[6] + GR_PROBE_X), (uint16_t)c->r[2]);
-  c->r[2] = c->r[0] + (uint32_t)2;
-  c->mem_w16((c->r[8] + GR_LOCAL_X), (uint16_t)c->r[4]);
-  {
-    int _t = (c->r[3] == c->r[2]);
-    c->mem_w16((c->r[9] + GR_LOCAL_Z), (uint16_t)c->r[5]);
-    if (_t) {
-      goto L_80048610;
-    }
-  }
-  c->r[2] = (uint32_t)((int32_t)c->r[3] < 3);
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[2] = c->r[0] + (uint32_t)1;
-    if (_t) {
-      goto L_800485FC;
-    }
-  }
-  {
-    int _t = (c->r[3] == c->r[2]);
-    c->r[2] = c->r[10] & 4u;
-    if (_t) {
-      goto L_80048624;
-    }
-  }
-  goto L_80048630;
-L_800485FC:;
-  c->r[2] = c->r[0] + (uint32_t)3;
-  {
-    int _t = (c->r[3] == c->r[2]);
-    c->r[2] = c->r[10] & 4u;
-    if (_t) {
-      goto L_8004861C;
-    }
-  }
-  goto L_80048630;
-L_80048610:;
-  c->r[2] = c->r[4] ^ 63u;
-  c->mem_w16((c->r[8] + GR_LOCAL_X), (uint16_t)c->r[2]);
-  goto L_8004862C;
-L_8004861C:;
-  c->r[2] = c->r[4] ^ 63u;
-  c->mem_w16((c->r[8] + GR_LOCAL_X), (uint16_t)c->r[2]);
-L_80048624:;
-  c->r[2] = c->r[5] ^ 63u;
-  c->mem_w16((c->r[9] + GR_LOCAL_Z), (uint16_t)c->r[2]);
-L_8004862C:;
-  c->r[2] = c->r[10] & 4u;
-L_80048630:;
-  {
-    int _t = (c->r[2] == c->r[0]);
-    c->r[4] = GR;
-    if (_t) {
-      goto L_8004864C;
-    }
-  }
-  c->r[3] = GR;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[3] + GR_LOCAL_Z));
-  c->r[5] = (uint32_t)c->mem_r16((c->r[4] + GR_LOCAL_X));
-  c->mem_w16((c->r[4] + GR_LOCAL_X), (uint16_t)c->r[2]);
-  c->mem_w16((c->r[3] + GR_LOCAL_Z), (uint16_t)c->r[5]);
-L_8004864C:;
-  c->r[2] = c->r[11] + c->r[0];
-  return;
-}
-
-// FUN_80049760 — Collision::flatNormal. GR_NORMAL_ANGLE (0x1A0) = ratan2 of the segment endpoints
-// (GR_SEG_X1-GR_SEG_X0, GR_SEG_Z1-GR_SEG_Z0); then stores rcos(angle)>>4 / rsin(angle)>>4 into the
-// probe object at +0x48 / +0x4C. READY-FRAME leaf: the gen body descends sp by 32 and spills the
-// callee-saved regs ra/s2/s1/s0 (r31/r18/r17/r16) at sp+28/+24/+20/+16 with their LIVE incoming
-// values, restoring them before return — the native port mirrors that guest stack frame exactly
-// (see docs/faithful-execution.md, game/world/object_table.cpp dispatchFaithful).
-// ORACLE: gen_func_80049760
-void Collision::flatNormal(uint32_t obj) {
-  Core *c = this->core;
-  c->r[4] = obj;
-  c->r[29] = c->r[29] + (uint32_t)-32;             // addiu sp,-0x20 — descend the guest frame
-  c->mem_w32((c->r[29] + (uint32_t)24), c->r[18]); // sw s2,0x18(sp) — LIVE incoming s2
-  c->r[18] = c->r[4] + c->r[0];
-  c->r[2] = GR;
-  c->r[3] = GR;
-  c->r[5] = GR;
-  c->r[6] = GR;
-  c->r[7] = (uint32_t)c->mem_r16((c->r[2] + GR_SEG_Z1));
-  c->r[4] = (uint32_t)c->mem_r16((c->r[3] + GR_SEG_Z0));
-  c->r[2] = (uint32_t)c->mem_r16((c->r[5] + GR_SEG_X1));
-  c->r[5] = (uint32_t)c->mem_r16((c->r[6] + GR_SEG_X0));
-  c->mem_w32((c->r[29] + (uint32_t)28), c->r[31]); // sw ra,0x1c(sp)
-  c->mem_w32((c->r[29] + (uint32_t)20), c->r[17]); // sw s1,0x14(sp) — LIVE incoming s1
-  c->mem_w32((c->r[29] + (uint32_t)16), c->r[16]); // sw s0,0x10(sp) — LIVE incoming s0
-  c->r[4] = c->r[7] - c->r[4];
-  c->r[31] = 0x800497A4u;
-  c->r[5] = c->r[2] - c->r[5];
-  func_80085690(c); // ratan2(dz, dx)
-  c->r[4] = c->r[2] & 4095u;
-  c->r[17] = GR;
-  c->r[31] = 0x800497B4u;
-  c->mem_w16((c->r[17] + GR_NORMAL_ANGLE), (uint16_t)c->r[4]);
-  func_80083F50(c); // rcos(angle)
-  c->r[4] = (uint32_t)(int16_t)c->mem_r16((c->r[17] + GR_NORMAL_ANGLE));
-  c->r[31] = 0x800497C0u;
-  c->r[16] = c->r[2] + c->r[0];
-  func_80083E80(c); // rsin(angle)
-  c->r[3] = GR;
-  c->r[16] = (uint32_t)((int32_t)c->r[16] >> 4);
-  c->mem_w16((c->r[3] + GR_NORMAL_HI), (uint16_t)c->r[0]);
-  c->r[3] = (uint32_t)c->mem_r16((c->r[17] + GR_NORMAL_ANGLE));
-  c->r[2] = (uint32_t)((int32_t)c->r[2] >> 4);
-  c->mem_w16((c->r[18] + ACT_NORMAL_COS), (uint16_t)c->r[16]);
-  c->mem_w16((c->r[18] + ACT_NORMAL_SIN), (uint16_t)c->r[2]);
-  c->r[31] = c->mem_r32((c->r[29] + (uint32_t)28)); // lw ra,0x1c(sp)
-  c->r[18] = c->mem_r32((c->r[29] + (uint32_t)24)); // lw s2,0x18(sp)
-  c->r[16] = c->mem_r32((c->r[29] + (uint32_t)16)); // lw s0,0x10(sp)
-  c->r[3] = c->r[0] - c->r[3];
-  c->r[3] = c->r[3] & 4095u;
-  c->mem_w16((c->r[17] + GR_NORMAL_ANGLE), (uint16_t)c->r[3]);
-  c->r[17] = c->mem_r32((c->r[29] + (uint32_t)20)); // lw s1,0x14(sp)
-  c->r[29] = c->r[29] + (uint32_t)32;
-  return; // addiu sp,0x20 — ascend the guest frame
-}
-
-// ============================================================================================
 
 // FUN_8004766C — Collision::snapObjectToTerrain. THE object-level entry point of the grid family:
 // "put this actor down on the ground where it is standing."
@@ -1695,7 +793,7 @@ void Collision::flatNormal(uint32_t obj) {
 //     freshly positioned node and always paired with FUN_80048750: beh_sine_motion_sfx
 //     (node[0x29]=0, node[0]|=1, FUN_8004766C(node), FUN_80048750(node)), beh_pad_child_linker,
 //     beh_seaside_prox_substate::subB, beh_a08_scene_actor state-0 case-0xA, actor_zoned_attacker.
-//   * The sibling. Ghidra headless (tools/decomp.sh, scratch/decomp/grid_766c.c) shows FUN_80048750
+//   * The sibling. Ghidra headless (the Ghidra evidence workflow, scratch/decomp/grid_766c.c) shows FUN_80048750
 //     is this function with the same seed + same resolve loop, but a different tail: it computes the
 //     surface NORMAL of the picked line (ratan2/sqrt into 0x1F8001A0/A2). So the pair is
 //     "snap onto the ground" + "read the ground's slope" — which is exactly what a spawn init needs.
@@ -1708,13 +806,13 @@ void Collision::flatNormal(uint32_t obj) {
 //     control flow over scratchpad + object memory (checked against game/core/libapi_intr.cpp's
 //     banner criteria before porting).
 //
-// READY-FRAME function: the gen body descends sp by 32 and spills s0/s1/ra/s2 (r16/r17/r31/r18) at
+// READY-FRAME function: the guest-visible behavior descends sp by 32 and spills s0/s1/ra/s2 (r16/r17/r31/r18) at
 // sp+16/+20/+28/+24 with their LIVE incoming values, restoring them before return. The port MIRRORS
 // that guest frame exactly — the spilled bytes are guest state that SBS compares (see
 // docs/faithful-execution.md and Collision::flatNormal above). The five `c->r[31] = 0x800476..u`
 // stores are the guest return-address constants the callees spill into their OWN frames, so they
-// stay literals (that is also what tools/port_check.py matches on).
-// ORACLE: gen_func_8004766C
+// stay literals (that is also what tools/dynamic differential evidence matches on).
+// ORACLE: guest 0x8004766C
 uint32_t Collision::snapObjectToTerrain(uint32_t obj) {
   Core *c = this->core;
   GridRay gr{c};
@@ -1733,7 +831,7 @@ uint32_t Collision::snapObjectToTerrain(uint32_t obj) {
   // --- 1. seed the shared probe from the actor's world position ---
   // NB the STORES below are spelled as explicit guest-memory writes against the named GR_* offsets
   // rather than through GridRay's setters, matching the other five gated methods in this file:
-  // tools/port_check.py compares the method body's guest-store sequence TEXTUALLY, so a store hidden
+  // tools/dynamic differential evidence compares the method body's guest-store sequence TEXTUALLY, so a store hidden
   // behind a lens setter is invisible to it and the method fails the gate for a reason that has
   // nothing to do with its behaviour. Reads stay on the lens. (Tooling limitation, reported with
   // this port — not a code smell.)
@@ -1747,17 +845,19 @@ uint32_t Collision::snapObjectToTerrain(uint32_t obj) {
     // --- 2. clamp the probe onto the actor's current path sector ---
     c->r[31] = 0x800476B4u; // ra for FUN_80047778's own frame
     c->r[4] = obj;
-    func_80047778(c);
+    psx::cpu::dispatchGuestToReturn0(*c, 0x80047778u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     const uint32_t clampStatus = c->r[2];
 
     // --- 3. load that sector's cell rows, then find the cell under the probe ---
     c->r[4] = act.sectorId(); // a0 = sector id (re-read: step 2 may move it)
     c->r[31] = 0x800476C0u;   // ra for FUN_80049968
     c->r[18] = clampStatus;   // s2 holds the status across both calls
-    func_80049968(c);         // Collision::gridSetup(sectorId)
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80049968u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // Collision::gridSetup(sectorId)
     stepStatus = clampStatus;
     c->r[31] = 0x800476C8u; // ra for FUN_80047CBC
-    func_80047CBC(c);       // Collision::gridQuery()
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80047CBCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // Collision::gridQuery()
     if (c->r[2] == 0) {
       break; // off grid — actor position stays untouched
     }
@@ -1780,9 +880,11 @@ uint32_t Collision::snapObjectToTerrain(uint32_t obj) {
   if (onGrid) {
     // --- 5. fold the probe into slope-local deltas, then pick the floor line under it ---
     c->r[31] = 0x8004771Cu; // ra for FUN_80048134
-    func_80048134(c);       // Collision::slopeLocalB()
-    c->r[31] = 0x80047724u; // ra for FUN_80048034
-    func_80048034(c);       // Collision::floorPick()
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80048134u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // guest slope-local delta
+    c->r[31] = 0x80047724u;                                                     // ra for FUN_80048034
+    psx::cpu::dispatchGuestToReturn0(
+        *c, 0x80048034u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // guest floor selection
 
     // --- 6. displace the probe by the slope-local correction; publish it to probe AND actor ---
     const uint16_t snappedX = (uint16_t)(gr.probeX_u() + gr.localX_u());
@@ -1803,39 +905,10 @@ uint32_t Collision::snapObjectToTerrain(uint32_t obj) {
 }
 
 // eov_* wrappers — guest-ABI adapters (args in c->r[4..], return in c->r[2]). One per leaf.
-static void eov_collisionLineCross(Core *c) {
-  eng(c).collision.lineCross(c->r[4]);
-}
-static void eov_collisionFloorPick(Core *c) {
-  eng(c).collision.floorPick();
-}
-static void eov_collisionSlopeLocalB(Core *c) {
-  eng(c).collision.slopeLocalB();
-}
-static void eov_collisionSlopeLocalAdvance(Core *c) {
-  eng(c).collision.slopeLocalAdvance();
-}
-static void eov_collisionFlatNormal(Core *c) {
-  eng(c).collision.flatNormal(c->r[4]);
-}
 static void eov_collisionSnapObjectToTerrain(Core *c) {
   c->r[2] = eng(c).collision.snapObjectToTerrain(c->r[4]);
 }
 
 void Collision::registerOverrides() {
-  using overrides::install;
-  install(0x80045810u, "Collision::lineCross", eov_collisionLineCross, gen_func_80045810, shard_set_override);
-  install(0x80048034u, "Collision::floorPick", eov_collisionFloorPick, gen_func_80048034, shard_set_override);
-  install(0x80048134u, "Collision::slopeLocalB", eov_collisionSlopeLocalB, gen_func_80048134, shard_set_override);
-  install(0x80048360u,
-          "Collision::slopeLocalAdvance",
-          eov_collisionSlopeLocalAdvance,
-          gen_func_80048360,
-          shard_set_override);
-  install(0x80049760u, "Collision::flatNormal", eov_collisionFlatNormal, gen_func_80049760, shard_set_override);
-  install(0x8004766Cu,
-          "Collision::snapObjectToTerrain",
-          eov_collisionSnapObjectToTerrain,
-          gen_func_8004766C,
-          shard_set_override);
+  tomba::native::declareOverride(0x8004766Cu, "Collision::snapObjectToTerrain", eov_collisionSnapObjectToTerrain);
 }

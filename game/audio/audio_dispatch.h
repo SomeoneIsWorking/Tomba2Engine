@@ -64,12 +64,12 @@ public:
   // selectStateRemap(slot): guest FUN_80075024. Maps slot→state index (19 if slot==5 else 20), runs
   //   dispatch3Way(stateIdx, 1), publishes stateIdx to the state-index byte 0x1F80023B and clears the
   //   text/audio state byte 0x800BE22B. READY-FRAME leaf (mirrors the guest stack frame). ORACLE:
-  //   gen_func_80075024.
+  //   guest 0x80075024.
   void selectStateRemap(uint8_t slot);
 
   // publishStateFade(idx): guest FUN_80075070. Publishes idx to the state-index byte 0x1F80023B, sets
   //   the text/audio state byte 0x800BE22B = 1, then runs the audio fade-target setter FUN_80075CEC(0)
-  //   (substrate). READY-FRAME leaf (mirrors the guest stack frame). ORACLE: gen_func_80075070.
+  //   (substrate). READY-FRAME leaf (mirrors the guest stack frame). ORACLE: guest 0x80075070.
   void publishStateFade(uint8_t idx);
 
   // registerOverrides(): install selectStateRemap / publishStateFade by guest address into the ONE

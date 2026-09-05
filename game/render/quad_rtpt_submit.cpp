@@ -1,20 +1,20 @@
 // game/render/quad_rtpt_submit.cpp — see quad_rtpt_submit.h. Faithful substrate-mirror bodies of
-// FUN_8003B054 and FUN_8003B320, RE'd instruction-by-instruction from the recompiler's own
-// translation (generated/shard_3.c gen_func_8003B054, generated/shard_6.c gen_func_8003B320 —
-// ground truth per CLAUDE.md for GTE-bearing code; Ghidra's COP2 decompile of FUN_8003B320 renders
+// FUN_8003B054 and FUN_8003B320, RE'd instruction-by-instruction from the recorded binary evidence's
+// translation (authenticated executable/overlay evidence guest 0x8003B054, authenticated executable/overlay evidence
+// guest 0x8003B320 — ground truth per CLAUDE.md for GTE-bearing code; Ghidra's COP2 decompile of FUN_8003B320 renders
 // the GTE data-register writes as synthetic setCopReg/getCopReg/copFunction "bus" pseudo-calls that
 // do not resolve to plain register indices, so it was cross-checked against, not relied on, for the
 // GTE portion — FUN_8003B054 has no GTE so Ghidra's decompile of it was already reliable and is
 // reproduced 1:1 below).
 //
-// WIRED + SBS-gated 2026-07-08. Two bugs found by re-diffing the draft against gen_func_8003B320
+// WIRED + SBS-gated 2026-07-08. Two bugs found by re-diffing the draft against guest 0x8003B320
 // and fixed here:
 //   (1) the on-screen test was `&&` (ALL 4 corners in range) — ground truth is `||` (ANY corner in
 //       range; it jumps to "keep" the instant one corner passes, only drops if all 4 fail), same
 //       convention as OverlayGt3Gt4/OverlayGroundGt3Gt4's "any1"/"any2" gates.
 //   (2) the real `addiu sp,-16` guest stack frame (pure scratch: FLAG/z0/otz working values) was
 //       not mirrored at all — fixed per CLAUDE.md's "MIRROR THE GUEST STACK" directive.
-// Also added the NCLIP call gen_func_8003B320 performs between RTPT and the 4th-corner RTPS —
+// Also added the NCLIP call guest 0x8003B320 performs between RTPT and the 4th-corner RTPS —
 // its only output (MAC0) is provably clobbered by the RTPS flag store before ever being read, so
 // it has zero effect on any surviving register/RAM byte, but it's a real executed op and this
 // leaf's contract is op-exact transcription, not "rebuild for observable result" (that pc_render
@@ -23,6 +23,7 @@
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
+#include "native_override_catalog.h"
 #include "render_internal.h" // cur_render_node — the diagnostic identity of the emitting object
 #include "render_queue.h"    // RenderQueue::emitOrQueue + RQ_WORLD/RQ_OM_DEPTH
 #include <cstdint>
@@ -37,7 +38,7 @@
 // applies a small "-1" shrink to specific BYTES of the 4 written u16s (idx1: low byte of all 4;
 // idx2: high byte of all 4; idx3: both bytes of all 4) — idx 0 does no byte adjustment and writes
 // all 4 fields as FULL 32-bit words (src's next word, not just its low u16) with an early return
-// that SKIPS the shared +0xE/+0x16 tail (traced exactly from gen_func_8003B054's control flow —
+// that SKIPS the shared +0xE/+0x16 tail (traced exactly from guest 0x8003B054's control flow —
 // this asymmetry is real, not an RE artifact: idx0 is qualitatively different from 1/2/3).
 void QuadRtptSubmit::rotateQuadCorners(Core *c) {
   const uint32_t dst = c->r[4];         // a0
@@ -61,7 +62,7 @@ void QuadRtptSubmit::rotateQuadCorners(Core *c) {
     c->mem_w32(dst + 0x14, c->mem_r32(src + 4));
     c->mem_w16(dst + 0x1C, c->mem_r16(src + 8));
     c->mem_w16(dst + 0x24, c->mem_r16(src + 12));
-    return; // idx==0 skips the shared tail below — faithful to gen_func_8003B054
+    return; // idx==0 skips the shared tail below — faithful to guest 0x8003B054
   } else if (idx == 2) {
     c->mem_w16(dst + 0x0C, c->mem_r16(src + 8));
     c->mem_w16(dst + 0x14, c->mem_r16(src + 12));
@@ -80,7 +81,7 @@ void QuadRtptSubmit::rotateQuadCorners(Core *c) {
     c->mem_w16(dst + 0x1C, c->mem_r16(src + 4));
     c->mem_w16(dst + 0x24, c->mem_r16(src + 0));
     // both bytes of each of the 4 corners -1 (two independent byte-decrements each, NOT a u16 -=1 —
-    // matches gen_func_8003B054's per-byte store order exactly, borrow behaviour included).
+    // matches guest 0x8003B054's per-byte store order exactly, borrow behaviour included).
     c->mem_w8(dst + 0x0C, (uint8_t)(c->mem_r8(dst + 0x0C) - 1));
     c->mem_w8(dst + 0x0D, (uint8_t)(c->mem_r8(dst + 0x0D) - 1));
     c->mem_w8(dst + 0x14, (uint8_t)(c->mem_r8(dst + 0x14) - 1));
@@ -100,13 +101,13 @@ void QuadRtptSubmit::rotateQuadCorners(Core *c) {
 // FUN_8003B320 — project a quad through an already-composed GTE transform (RTPT the first 3
 // corners, RTPS the 4th) and, if it survives the on-screen + OT-range gates, bump-copy the
 // pre-built 10-word packet record into the packet pool and link it into the OT bucket for its
-// depth. Traced from gen_func_8003B320 (generated/shard_6.c) — same gte_op idiom as the already-
+// depth. Traced from guest 0x8003B320 (authenticated executable/overlay evidence) — same gte_op idiom as the already-
 // owned OverlayGt3Gt4::gt3/gt4 (game/render/overlay_gt3gt4.cpp), which this mirrors closely: RTPT
 // via 0x4A280030, an intervening NCLIP via 0x4B400006 (see below), RTPS via 0x4A180001, AVSZ4 via
 // 0x4B68002E, OTZ-bucket compute identical to overlay_gt_otz_index (z>>10 exponent-shift index,
 // valid range [4,0x7ff]).
 //
-// NCLIP: gen_func_8003B320 calls it between the RTPT and the VXY3/RTPS setup, storing its MAC0
+// NCLIP: guest 0x8003B320 calls it between the RTPT and the VXY3/RTPS setup, storing its MAC0
 // result (data reg 24) to the same 4-byte FLAG scratch slot the RTPT/RTPS flag checks use — but
 // that slot is unconditionally overwritten by the POST-RTPS flag store before anything ever reads
 // it back (traced instruction-by-instruction: no branch, no other read, in between). So the call
@@ -201,7 +202,7 @@ void QuadRtptSubmit::submitQuad(Core *c) {
   // on-screen test: ANY of the 4 corners' SX in [0,320) (unsigned 16-bit compare — a negative/
   // wrapped coordinate fails), then ANY corner's SY in [0,240) — an OR gate, not AND (FIX
   // 2026-07-08: a prior draft used && here, dropping quads the substrate keeps whenever fewer
-  // than all 4 corners were on-screen; ground truth gen_func_8003B320 jumps to "keep" the instant
+  // than all 4 corners were on-screen; ground truth guest 0x8003B320 jumps to "keep" the instant
   // one corner passes, same "any1"/"any2" convention as OverlayGt3Gt4/OverlayGroundGt3Gt4).
   auto sx = [&](uint32_t off) {
     return (uint16_t)c->mem_r16(out + off);
@@ -254,16 +255,13 @@ void QuadRtptSubmit::submitQuad(Core *c) {
   pop(); // ascend the real 16-byte frame
 }
 
-// Wiring (frontier, 2026-07-08): both leaves are reached only via direct C calls the recompiler
-// generates (`func_8003B054(c)`/`func_8003B320(c)`), which always route through the recompiler's
-// own process-global g_override[] table. engine_set_override_main (runtime/recomp/override_registry.h)
-// installs into the ONE process-global override registry, which runs gen_func_* on the oracle leg
-// (core B) and the native handler everywhere else — NOT a raw shard_set_override, since these are
-// engine/game natives and the oracle must run the pure recompiled body.
+// Wiring (frontier, 2026-07-08): both leaves are reached only via direct C calls the recorded binary evidence
+// generates (`guest 0x8003B054(c)`/`guest 0x8003B320(c)`), which always route through the recorded binary evidence's
+// own per-Core image-qualified runtime dispatcher table. tomba::native::declareOverride
+// (runtime/psx/override_registry.h) installs into the ONE process-global override registry, which runs original guest
+// instructions on the oracle leg (core B) and the native handler everywhere else — NOT a raw
+// tomba::native::declareOverride, since these are engine/game natives and the oracle must run the pure guest body.
 void QuadRtptSubmit::registerOverrides(Game *) {
-  extern void gen_func_8003B054(Core *);
-  extern void gen_func_8003B320(Core *);
-  extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
-  engine_set_override_main(0x8003B054u, &QuadRtptSubmit::rotateQuadCorners, gen_func_8003B054);
-  engine_set_override_main(0x8003B320u, &QuadRtptSubmit::submitQuad, gen_func_8003B320);
+  tomba::native::declareOverride(0x8003B054u, "&QuadRtptSubmit::rotateQuadCorners", &QuadRtptSubmit::rotateQuadCorners);
+  tomba::native::declareOverride(0x8003B320u, "&QuadRtptSubmit::submitQuad", &QuadRtptSubmit::submitQuad);
 }

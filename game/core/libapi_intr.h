@@ -9,7 +9,7 @@
 // a hardware IRQ our no-IRQ runtime never raises, and which therefore must be replaced rather than
 // reproduced. SetIntrMask does not spin: it is a plain load-store through that table, so the native
 // body is a faithful mirror and goes through the ordinary override registry like any other leaf,
-// oracle-gated so core B keeps running the recompiled body.
+// oracle-gated so core B keeps running the guest body.
 #pragma once
 struct Core;
 class Game;

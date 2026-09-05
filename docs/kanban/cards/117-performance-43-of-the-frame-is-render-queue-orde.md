@@ -27,7 +27,7 @@ MEASUREMENT: 2,000 frames of replays/bugs/ingame-item-menu.pad, PSXPORT_RENDER_P
 
 TWO FINDINGS:
 
-1. ~43% OF THE FRAME IS RENDER-QUEUE ORDERING. rq_ord_at + rq_face_extent + rq_faces_in_contest + resolveKeyOrderFaces = 18.81 + 16.18 + 6.39 + 1.32 = 42.70%. Not rasterization, not the recompiled game code, not the GTE — the SORT. rq_faces_in_contest being a pairwise predicate alongside rq_face_extent suggests an O(n^2) contest over queue items, which would explain why it dominates a scene with only a few hundred prims. NOT YET CONFIRMED as O(n^2) — that is the next measurement (prim count vs time, two scenes of different complexity), and it must be measured before anyone optimises.
+1. ~43% OF THE FRAME IS RENDER-QUEUE ORDERING. rq_ord_at + rq_face_extent + rq_faces_in_contest + resolveKeyOrderFaces = 18.81 + 16.18 + 6.39 + 1.32 = 42.70%. Not rasterization, not the guest game code, not the GTE — the SORT. rq_faces_in_contest being a pairwise predicate alongside rq_face_extent suggests an O(n^2) contest over queue items, which would explain why it dominates a scene with only a few hundred prims. NOT YET CONFIRMED as O(n^2) — that is the next measurement (prim count vs time, two scenes of different complexity), and it must be measured before anyone optimises.
 
 2. ~9% IS A DIAGNOSTIC. OtAttr::resolveClaimedFrame 6.66% + OtAttr::trackStoreSlow 2.48% = 9.14%. CLAUDE.md exempts diagnostics from the no-stamping rule and says they stay — correctly, they answer questions the picture cannot. But nine percent of every frame on a NORMAL run is a real cost, and 'trackStoreSlow' names itself. Worth checking whether it can be gated to runs that ask for attribution, without losing the always-on property that makes it useful.
 

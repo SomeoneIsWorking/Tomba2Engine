@@ -4,10 +4,10 @@
 //
 // These six functions are SUB-BEHAVIOR callees of the already-native
 // game/ai/beh_id_compare_motion_dispatch.cpp (FUN_80145230, guest 0x8014xxxx OVERLAY area). That
-// caller reaches them all via `rec_dispatch(c, addr)` (never a direct substrate jal), so installing
+// caller reaches them all via `typed runtime address dispatch(c, addr)` (never a direct substrate jal), so installing
 // each guest address in the shared override registry with no setter is sufficient — no
-// `shard_set_override` / g_override[] dual-registration is needed here (unlike ActorReward, whose
-// sole caller is substrate and calls by a direct C function pointer).
+// `tomba::native::declareOverride` / image-qualified runtime dispatcher dual-registration is needed here (unlike
+// ActorReward, whose sole caller is substrate and calls by a direct C function pointer).
 #pragma once
 struct Core;
 class Game;
@@ -21,7 +21,7 @@ public:
   static void approachAndFace(Core *c);        // FUN_80144928(node) -> v0
   static void idleTick(Core *c);               // FUN_80144B50(node)
 
-  // Install all six guest addresses in the shared override registry so rec_dispatch(c, addr) from
+  // Install all six guest addresses in the shared override registry so typed runtime address dispatch(c, addr) from
   // the (native) caller lands here, traced via the `dispatch` debug channel.
   // FUN_80145C78 — classify (u8 record+0x2A, s16 record+0x36) into a {0,1,2} zone band. Named for
   // the mechanism only; see the implementation banner for why "phaseZone" was rejected.

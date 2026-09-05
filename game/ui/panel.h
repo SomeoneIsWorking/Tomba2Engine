@@ -7,18 +7,18 @@
 //
 // TAP ARCHITECTURE (engine-overrides directive, same shape as ScreenFade::installLeafTap in
 // game/render/screen_fade.cpp/.h — read that first): each guest builder gets an override installed
-// via `engine_set_override_main(addr, tap, gen_func_addr)`. A tap (a) captures the guest-ABI args
-// from c->r[4..7] at entry, (b) calls the ORIGINAL gen_func_XXXX(c) so every guest byte (packet
+// via tomba::native::declareOverride. A tap (a) captures the guest-ABI args
+// from c->r[4..7] at entry, (b) calls the ORIGINAL the cited guest instructions(c) so every guest byte (packet
 // pool, OT, stack) stays byte-exact — SBS core B never sees this table (oracle-gated thunk), so it
 // keeps running pure gen — then (c) pushes the equivalent native quads to `c->game->activeRq()`,
-// gated on `c->game->oracle || c->rsub.mode.psxRender()` so pc_render stays a READ-ONLY overlay
+// gated on `c->rsub.mode.psxRender()` so pc_render stays a read-only overlay
 // (host memory only, zero guest writes, zero c->r[] writes beyond what gen already left).
 //
-// NESTING: gen_func_8005019C's guest body calls panelFill through the WRAPPER `func_8004FFB4`
-// (the g_override[]-checking dispatch thunk), not gen_func_8004FFB4 directly (confirmed by grepping
-// generated/shard_3.c — the panelBuild body's 5 call sites all say `func_8004FFB4(c)`). So once
-// panelFill's tap is installed, panelBuild's gen call automatically nests through it and the 5 fills
-// are pushed by the panelFill tap — panelBuild's own tap only needs to push its 4 corner sprites.
+// NESTING: guest 0x8005019C's guest body calls panelFill through the WRAPPER `guest 0x8004FFB4`
+// (the image-qualified runtime dispatcher-checking dispatch thunk), not guest 0x8004FFB4 directly (confirmed by
+// grepping authenticated executable/overlay evidence — the panelBuild body's 5 call sites all say `guest
+// 0x8004FFB4(c)`). So once panelFill's tap is installed, panelBuild's gen call automatically nests through it and the 5
+// fills are pushed by the panelFill tap — panelBuild's own tap only needs to push its 4 corner sprites.
 #pragma once
 #include <cstdint>
 class Core;

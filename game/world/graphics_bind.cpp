@@ -2,10 +2,11 @@
 #include "graphics_bind.h"
 #include "cfg.h"
 #include "core.h"
-#include "game.h" // c->game->verify — the shared A/B verify scaffold
+#include "game.h"
 #include "game_ctx.h"
-#include "gte_math.h"          // Math::rotmat — libgte RotMatrix (native, static)
-#include "override_registry.h" // overrides::install — the one native-override registry
+#include "gte_math.h" // Math::rotmat — libgte RotMatrix (native, static)
+#include "guest_call.h"
+#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -58,7 +59,8 @@ uint32_t GraphicsBind::recordInitBody(Core *c) {
   c->mem_w16(obj + 0xbc, 0x1000);
   c->mem_w16(obj + 0xba, 0x1000);
   c->mem_w16(obj + 0xb8, 0x1000);
-  uint32_t rec = recordAllocBody(c); // native (was rec_dispatch(0x8007AAE8u); recordAllocBody defined above)
+  uint32_t rec =
+      recordAllocBody(c); // native (was typed runtime address dispatch(0x8007AAE8u); recordAllocBody defined above)
   c->mem_w32(obj + 0xc0, rec);
   c->mem_w16(rec + 6, 0xffff); // -1
   c->mem_w16(rec + 0, 0);
@@ -70,7 +72,7 @@ uint32_t GraphicsBind::recordInitBody(Core *c) {
   c->mem_w16(rec + 0x38, 0x1000);
   c->mem_w16(rec + 0x3a, 0x1000);
   c->mem_w16(rec + 0x3c, 0x1000);
-  eng(c).graphicsBind.installSceneRecord(rec, a1, a2); // FUN_80051B04 inlined here in the recomp
+  eng(c).graphicsBind.installSceneRecord(rec, a1, a2); // FUN_80051B04 inlined here in the guest instruction path
   return 0;
 }
 void GraphicsBind::recordAlloc() {
@@ -90,18 +92,19 @@ void GraphicsBind::recordAlloc() {
              (int)c->mem_r16s(0x800ED098u),
              c->mem_r32(0x801fe00c));
   }
-  c->game->verify.run(
-      &GraphicsBind::recordAllocBody, 0x8007AAE8u, "recallocverify", c->game->verify.on("recallocverify"));
+  gctx(c)->verification.run(
+      &GraphicsBind::recordAllocBody, 0x8007AAE8u, "recallocverify", gctx(c)->verification.on("recallocverify"));
 }
 void GraphicsBind::recordInit() {
   Core *c = core;
-  c->game->verify.run(&GraphicsBind::recordInitBody, 0x80051B70u, "recinitverify", c->game->verify.on("recinitverify"));
+  gctx(c)->verification.run(
+      &GraphicsBind::recordInitBody, 0x80051B70u, "recinitverify", gctx(c)->verification.on("recinitverify"));
 }
 
 // FUN_80051B04 — two-level scene-data-table pointer resolve. Pure address arithmetic, no branches.
 // RE'd verbatim from disas 0x80051B04..0x80051B30. Reads the sceneData table root at 0x800ECF58
 // (same table Spawn::sceneEntity reads at offset +8 = table[2]), then indexes by classArg + itemArg
-// and stashes (base + off) at rec[+0x40]. The recomp's FUN_80051B70 (recordInit) inlines the same
+// and stashes (base + off) at rec[+0x40]. The guest instruction path's FUN_80051B70 (recordInit) inlines the same
 // body at its tail — the extraction dedupes.
 void GraphicsBind::installSceneRecord(uint32_t rec, uint32_t classArg, uint32_t itemArg) {
   Core *c = core;
@@ -112,15 +115,15 @@ void GraphicsBind::installSceneRecord(uint32_t rec, uint32_t classArg, uint32_t 
 
 // FUN_800517F8 — per-object RENDER-STATE UPDATE: build the object's transform, then snapshot its int16
 // world position into the 32-bit render-position fields. RE'd from disas 0x800517F8 / cross-checked
-// against generated/shard_6.c gen_func_800517F8 (ground truth for the frame shape):
+// against authenticated executable/overlay evidence guest 0x800517F8 (ground truth for the frame shape):
 //   addiu sp,-0x18; spill s0(obj)=sp+16, ra=sp+20            // FRAMED -- was missing here, see below
 //   FUN_80085480(obj+0x54, obj+0x98);          ra=0x80051814u  // transform/matrix build (kept content)
 //   obj[+0xac] = (s32)(s16)obj[+0x2e]; obj[+0xb0] = (s32)(s16)obj[+0x32]; obj[+0xb4] = (s32)(s16)obj[+0x36];
 //   FUN_80051300(obj);                          ra=0x80051834u  // downstream render setup (kept content)
-// The two callees stay PSX via rec_dispatch; we own the control flow + the position snapshot.
+// The two callees stay PSX via typed runtime address dispatch; we own the control flow + the position snapshot.
 //
 // REGISTER FAITHFULNESS (2026-07-08 fix): this function's own frame was missing entirely -- the
-// nested NodeXform::propagateRotmat() call (FUN_80051300, reached via rec_dispatch(c,0x80051300u))
+// nested NodeXform::propagateRotmat() call (FUN_80051300, reached via typed runtime address dispatch(c,0x80051300u))
 // spills whatever is CURRENTLY in c->r[16]/c->r[31] into ITS OWN frame at entry. Without this
 // function descending its own real 24-byte frame and holding the CALLER's live r16/ra at +16/+20
 // for the duration of the call, propagateRotmat's spill captures stale/wrong bytes -- a real,
@@ -141,7 +144,7 @@ uint32_t GraphicsBind::renderUpdateBody(Core *c) {
   c->mem_w32(obj + 0xb4, (uint32_t)c->mem_r16s(obj + 0x36));
   c->r[4] = obj;
   c->r[31] = 0x80051834u;
-  rec_dispatch(c, 0x80051300u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x80051300u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   uint32_t ret = c->r[2];
 
   c->r[31] = c->mem_r32(c->r[29] + 20);
@@ -151,8 +154,8 @@ uint32_t GraphicsBind::renderUpdateBody(Core *c) {
 }
 void GraphicsBind::renderUpdate() {
   Core *c = core;
-  c->game->verify.run(
-      &GraphicsBind::renderUpdateBody, 0x800517F8u, "rendupdverify", c->game->verify.on("rendupdverify"));
+  gctx(c)->verification.run(
+      &GraphicsBind::renderUpdateBody, 0x800517F8u, "rendupdverify", gctx(c)->verification.on("rendupdverify"));
 }
 
 // FUN_80077B38 — set an object's GEOMETRY-BLOCK pointer from a table. RE'd from disas 0x80077B38 (leaf):
@@ -163,11 +166,12 @@ uint32_t GraphicsBind::setGeomBody(Core *c) {
   uint32_t cnt = (uint32_t)(c->mem_r16(ent + 2) & 0x3fffu);
   c->mem_w32(obj + 0x38, ent);
   c->mem_w16(obj + 0x0e, (uint16_t)cnt);
-  return cnt; // incidental v0 the recomp leaves (callers treat this void)
+  return cnt; // incidental v0 the guest instruction path leaves (callers treat this void)
 }
 void GraphicsBind::setGeom() {
   Core *c = core;
-  c->game->verify.run(&GraphicsBind::setGeomBody, 0x80077B38u, "setgeomverify", c->game->verify.on("setgeomverify"));
+  gctx(c)->verification.run(
+      &GraphicsBind::setGeomBody, 0x80077B38u, "setgeomverify", gctx(c)->verification.on("setgeomverify"));
 }
 
 // FUN_8006CBD0 — copy a 6-halfword TRANSFORM BLOCK from a1 into the scratchpad camera/transform block
@@ -187,8 +191,8 @@ uint32_t GraphicsBind::setXformBlkBody(Core *c) {
 }
 void GraphicsBind::setXformBlk() {
   Core *c = core;
-  c->game->verify.run(
-      &GraphicsBind::setXformBlkBody, 0x8006CBD0u, "setxblkverify", c->game->verify.on("setxblkverify"));
+  gctx(c)->verification.run(
+      &GraphicsBind::setXformBlkBody, 0x8006CBD0u, "setxblkverify", gctx(c)->verification.on("setxblkverify"));
 }
 
 // FUN_8004BD64 — per-object POSITION-COMPOSE + render-state refresh. RE'd from disas 0x8004BD64
@@ -198,8 +202,8 @@ void GraphicsBind::setXformBlk() {
 //   mode 2: obj[+0x2e/32/36] = srcB[+0x2c/30/34] + t0[+0/2/4]
 //   (other mode: no position write)
 //   if ((obj[+0x28] & 0x7f) != 0) FUN_800517F8(obj);                     // refresh render-state (owned)
-// v0 the recomp incidentally leaves = the last full (un-truncated) computed value (or 0x800517F8's return
-// if the tail ran); we mirror it so the A/B v0 compare holds.
+// v0 the guest instruction path incidentally leaves = the last full (un-truncated) computed value (or 0x800517F8's
+// return if the tail ran); we mirror it so the A/B v0 compare holds.
 uint32_t GraphicsBind::posComposeBody(Core *c) {
   uint32_t obj = c->r[4], mode = c->r[5] & 0xffu, srcA = c->r[6], srcB = c->r[7];
   uint32_t t0 = c->mem_r32(c->r[29] + 0x10);
@@ -230,19 +234,19 @@ uint32_t GraphicsBind::posComposeBody(Core *c) {
 }
 void GraphicsBind::posCompose() {
   Core *c = core;
-  c->game->verify.run(
-      &GraphicsBind::posComposeBody, 0x8004BD64u, "poscomposeverify", c->game->verify.on("poscomposeverify"));
+  gctx(c)->verification.run(
+      &GraphicsBind::posComposeBody, 0x8004BD64u, "poscomposeverify", gctx(c)->verification.on("poscomposeverify"));
 }
 
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
 // UNWIRED DRAFT (2026-07-08 wide-RE wave, region 0x80050000-0x8005FFFF). Not registered anywhere
-// (no overrides::install, no shard_set_override), not SBS-gated — dead code until a frontier pass
-// wires + verifies it.
+// (no tomba::native::declareOverride, no tomba::native::declareOverride), not SBS-gated — dead code until a frontier
+// pass wires + verifies it.
 // ═════════════════════════════════════════════════════════════════════════════════════════════════
 
-// FUN_800519E0 — RE'd from generated/shard_1.c gen_func_800519E0 (48-byte frame: r16/r17/r18/r19/
+// FUN_800519E0 — RE'd from authenticated executable/overlay evidence guest 0x800519E0 (48-byte frame: r16/r17/r18/r19/
 // r20/r21/r22 + ra spilled at +16/+20/+24/+28/+32/+36/+40/+44). The ONLY call inside the body is to
-// recordAllocBody (FUN_8007AAE8, already native + frameless — confirmed via generated/shard_4.c:
+// recordAllocBody (FUN_8007AAE8, already native + frameless — confirmed via authenticated executable/overlay evidence:
 // no r29 change, no branches), so this function's OWN guest-stack push/pop has no register-
 // faithfulness consequence for a nested callee (unlike NodeXform::propagate/propagateRotmat) — but
 // the push/pop of the CALLER's own live r16-r22/ra into guest RAM for the duration of this call is
@@ -261,7 +265,7 @@ void GraphicsBind::posCompose() {
 //   return 0;
 namespace {
 // -48: +16 r16, +20 r17, +24 r18, +28 r19, +32 r20, +36 r21, +40 r22, +44 ra (recordArrayInit
-// 0x800519E0, confirmed against generated/shard_1.c gen_func_800519E0).
+// 0x800519E0, confirmed against authenticated executable/overlay evidence guest 0x800519E0).
 struct RecordArrayInitFrame {
   Core *c;
   uint32_t s16, s17, s18, s19, s20, s21, s22, sra;
@@ -325,14 +329,12 @@ uint32_t GraphicsBind::recordArrayInit(uint32_t obj, uint32_t count, uint32_t sc
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // Wiring — recordArrayInit only (see graphics_bind.h for why this one leaf uses the standard
-// overrides::install + shard_set_override wiring instead of the c->game->verify.run() A/B gate the
-// rest of this class uses). Direct same-shard callers confirmed via generated/shard_0.c,
-// generated/shard_3.c, generated/shard_7.c; overlay rec_dispatch callers confirmed via
-// game/ai/beh_a06_scripted_actor.cpp, beh_sop_intro_lifted.cpp, beh_sop_intro_pilot.cpp,
+// tomba::native::declareOverride + tomba::native::declareOverride wiring instead of the c->game->verify.run() A/B gate
+// the rest of this class uses). Direct same-shard callers confirmed via authenticated executable/overlay evidence,
+// authenticated executable/overlay evidence, authenticated executable/overlay evidence; overlay typed runtime address
+// dispatch callers confirmed via game/ai/beh_a06_scripted_actor.cpp, beh_sop_intro_lifted.cpp, beh_sop_intro_pilot.cpp,
 // beh_sop_intro_narration.cpp, actor_zoned_attacker.cpp, beh_variant_actor_sm.cpp,
 // beh_id_routed_dispatch.cpp, beh_flagbit_timer_machine.cpp.
-extern void gen_func_800519E0(Core *);
-extern void shard_set_override(uint32_t, void (*)(Core *));
 namespace {
 void eov_recordArrayInit(Core *c) {
   c->r[2] = eng(c).graphicsBind.recordArrayInit(c->r[4], c->r[5], c->r[6], c->r[7]);
@@ -340,6 +342,5 @@ void eov_recordArrayInit(Core *c) {
 } // namespace
 
 void GraphicsBind::registerOverrides(Game * /*game*/) {
-  overrides::install(
-      0x800519E0u, "GraphicsBind::recordArrayInit", eov_recordArrayInit, gen_func_800519E0, shard_set_override);
+  tomba::native::declareOverride(0x800519E0u, "GraphicsBind::recordArrayInit", eov_recordArrayInit);
 }

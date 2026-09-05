@@ -23,17 +23,17 @@
 //   JT1 @0x80109F5C (state-1, node[3]): {8013931c, 801393f8, 80139414, 8013947c, 80139578, 80139580}
 //
 // Per-type data tables it READS from guest RAM (NOT hardcoded — read live with mem_r*, exactly as the
-// recomp body does, so they stay correct if the overlay is reloaded with different data):
+// guest instruction path does, so they stay correct if the overlay is reloaded with different data):
 //   TA @0x8014A9A8  lbu[node3]            (a2 to FUN_80051b70)
 //   TB @0x8014A9B0  lbu[node3]            (-> node[0x2a]; 0 => skip the TC seed + JT0 block)
 //   TC @0x8014A9B8  struct[node3], 12-byte stride: lh@0, lhu@2, lh@4, lbu@6, lhu@8, lhu@0xa
 //   TD @0x8014AA38  struct[(s1n3*2 + node3)*8]: lhu@0/@2/@4  (s1 = node[0x10] ptr) — read in JT1 case 2
 //
 // Ownership model (identical to the siblings): CONTROL FLOW + node/global memory writes owned native;
-// every sub-behavior CALL stays a reachable PSX leaf via rec_dispatch (NO recursion into them). NO GTE,
-// NO render packets here. RE'd 1:1 from disas 0x80138FC8..0x801395BC (epilogue jr ra @0x801395B8; the next
-// function has its own prologue at 0x801395C0). It WRITES guest node state the still-recomp content reads
-// -> content-INTERFACE: gated byte-exact (full RAM+scratchpad A/B vs rec_super_call). The idle/active field
+// every sub-behavior CALL stays a reachable PSX leaf via typed runtime address dispatch (NO recursion into them). NO
+// GTE, NO render packets here. RE'd 1:1 from disas 0x80138FC8..0x801395BC (epilogue jr ra @0x801395B8; the next
+// function has its own prologue at 0x801395C0). It WRITES guest node state the still-guest content reads
+// -> content-INTERFACE: gated byte-exact (full RAM+scratchpad A/B vs original guest-body call). The idle/active field
 // path is exercised by the gate; the input/scene-driven sub-states are faithfully transcribed and verify
 // when a scene drives them (same caveat as the sibling orchestrators) — see Report.
 
@@ -42,14 +42,13 @@
 #include "game_ctx.h"
 #include "graphics_bind.h" // ov_obj_record_init
 #include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-#include "object/actor.h"  // Actor::boundsCull (FUN_8007778C native)
-#include "render/cull.h"   // Cull::enqueueByClass (FUN_8007703C)
-#include "spawn.h"         // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
+#include "guest_call.h"
+#include "object/actor.h" // Actor::boundsCull (FUN_8007778C native)
+#include "render/cull.h"  // Cull::enqueueByClass (FUN_8007703C)
+#include "spawn.h"        // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-void rec_super_call(Core *, uint32_t);
-void rec_dispatch(Core *, uint32_t);
 
 namespace {
 
@@ -252,7 +251,8 @@ void beh_typed_jumptable_pair(Core *c) {
         if (s5 == 2) {
         jt1_0_eq2:
           // ---- 0x801393b8: node[5] == 2 ----
-          c->r[2] = (uint32_t)eng(c).sceneTransition.stepSwapWaiter(obj); // was rec_dispatch 0x80073328
+          c->r[2] =
+              (uint32_t)eng(c).sceneTransition.stepSwapWaiter(obj); // was typed runtime address dispatch 0x80073328
           if (c->r[2] == 0) {
             break; // 801393C0 beqz v0 -> 0x80139580 (tail)
           }
@@ -282,14 +282,16 @@ void beh_typed_jumptable_pair(Core *c) {
     }
 
     case 1: {                                           // jt1[1] = 0x801393f8
-      (void)eng(c).sceneTransition.stepSwapWaiter(obj); // was rec_dispatch 0x80073328 (v0 discarded)
-      eng(c).spawn.tickLinkedOverlay(obj, 0x45);        // 80139400/04/08 was rec_dispatch(0x800735F4u, a1=0x45)
-      break;                                            // 8013940C j 0x80139580
+      (void)eng(c).sceneTransition.stepSwapWaiter(obj); // was typed runtime address dispatch 0x80073328 (v0 discarded)
+      eng(c).spawn.tickLinkedOverlay(obj,
+                                     0x45); // 80139400/04/08 was typed runtime address dispatch(0x800735F4u, a1=0x45)
+      break;                                // 8013940C j 0x80139580
     }
 
     case 2: {                                           // jt1[2] = 0x80139414
-      (void)eng(c).sceneTransition.stepSwapWaiter(obj); // was rec_dispatch 0x80073328 (v0 discarded)
-      eng(c).spawn.tickLinkedOverlay(obj, 0x46);        // 8013941C/20/24 was rec_dispatch(0x800735F4u, a1=0x46)
+      (void)eng(c).sceneTransition.stepSwapWaiter(obj); // was typed runtime address dispatch 0x80073328 (v0 discarded)
+      eng(c).spawn.tickLinkedOverlay(obj,
+                                     0x46); // 8013941C/20/24 was typed runtime address dispatch(0x800735F4u, a1=0x46)
       // 0x800c0000 - 0x7ec = 0x800BF814 ; v0 = lw & 0xffff0000 ; compare to 0x02010000
       uint32_t g = c->mem_r32(0x800BF814u) & 0xFFFF0000u; // 8013942C lw v0 ; 80139434 and v0,v1(0xffff0000)
       if (g != 0x02010000u) {                             // 80139438 lui v1,0x201 ; 8013943C bne -> 0x80139470
@@ -323,8 +325,9 @@ void beh_typed_jumptable_pair(Core *c) {
           // FUN_80054198(0x800E7E80) — SceneTransition::clearSwapBlock (native)
           eng(c).sceneTransition.clearSwapBlock(0x800E7E80u);
           c->r[4] = 0x6d;
-          c->r[5] = 0x41;                   // 80139518 a0=0x6d ; 80139520 a1=0x41
-          rec_dispatch(c, 0x8004ED94u);     // 8013951C jal 0x8004ed94
+          c->r[5] = 0x41; // 80139518 a0=0x6d ; 80139520 a1=0x41
+          psx::cpu::dispatchGuestToReturn0(
+              *c, 0x8004ED94u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 8013951C jal 0x8004ed94
           eng(c).sfx.trigger(0x19, 0, 0xF); // 8013952C jal 0x80074590 (native)
           break;                            // 80139534 j 0x80139580
         }
@@ -347,8 +350,9 @@ void beh_typed_jumptable_pair(Core *c) {
         if (s5 == 2) { // 801394A4 beq v1,2 -> 0x80139568 ; else tail
           // ---- 0x80139568 ----
           c->r[4] = obj;
-          rec_dispatch(c, 0x80138B04u); // 80139568 jal 0x80138b04 (a0=s0)
-          break;                        // 80139570 j 0x80139580
+          psx::cpu::dispatchGuestToReturn0(
+              *c, 0x80138B04u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 80139568 jal 0x80138b04 (a0=s0)
+          break;                                                                      // 80139570 j 0x80139580
         }
         break; // 801394AC j 0x80139580
       }
@@ -365,8 +369,9 @@ void beh_typed_jumptable_pair(Core *c) {
 
     case 4: // jt1[4] = 0x80139578
       c->r[4] = obj;
-      rec_dispatch(c, 0x80138C70u); // 80139578 jal 0x80138c70 (a0=s0)
-      break;                        // (no j; falls into tail @0x80139580)
+      psx::cpu::dispatchGuestToReturn0(
+          *c, 0x80138C70u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // 80139578 jal 0x80138c70 (a0=s0)
+      break;                                                                      // (no j; falls into tail @0x80139580)
 
     case 5: // jt1[5] = 0x80139580 (== tail; no-op)
       break;

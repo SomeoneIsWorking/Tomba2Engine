@@ -285,7 +285,7 @@ def find_repos(root):
 
 class Index:
     """basename -> [(repo, relpath)] over every tracked file in every repo, for resolving the bare
-    file names claims actually use ("gpu_vk.cpp", not "external/psxport/runtime/recomp/gpu_vk.cpp")."""
+    file names claims actually use ("gpu_vk.cpp", not "external/psxport/runtime/psx/gpu_vk.cpp")."""
 
     def __init__(self, root):
         self.root, self.repos, self.by_base, self.by_rel, self.files = root, find_repos(root), {}, {}, 0
@@ -490,7 +490,7 @@ BARE_SYM = re.compile(r"\b([A-Za-z_][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+)\b")
 
 def bare_symbols(body):
     """Underscored identifiers — the shape function names take in this corpus (crt0_setup,
-    render_geom, func_80016500, cd_queue_push). Deliberately narrow: CamelCase and single words
+    render_geom, guest 0x80016500, cd_queue_push). Deliberately narrow: CamelCase and single words
     produce far too many prose false hits to be worth the greps."""
     return {s for s in BARE_SYM.findall(body)
             if len(s) > 5 and s.lower() not in STOP_SYM and not s.endswith("_")}
@@ -1102,7 +1102,7 @@ def main():
                          "'if the reference renderer shares the fault, this number proves nothing'")
     ca.add_argument("--depends", action="append", metavar="PATH[#SYMBOL]",
                     help="the code this claim's evidence rests on, e.g. "
-                         "runtime/recomp/gpu_vk.cpp#render_geom. Makes rot mechanically detectable "
+                         "runtime/psx/gpu_vk.cpp#render_geom. Makes rot mechanically detectable "
                          "by `claim check`; without it the claim is INVISIBLE to that check.")
     ca.set_defaults(fn=cmd_claim_add)
     cl = c.add_parser("list"); cl.add_argument("--stale", action="store_true")

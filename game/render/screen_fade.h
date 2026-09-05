@@ -27,12 +27,12 @@
 //   The native renderer reads this class's members via `get()` to draw the fade.
 //
 //   `set()` / `applyLeafCall()` are host-state-only: they update the C++ members and write nothing
-//   to guest RAM, in BOTH native_sync modes. The guest packet-pool + scratchpad writes of FUN_8007e9c8
-//   fire only where a still-substrate caller runs the recomp body directly.
+//   to guest RAM. The guest packet-pool + scratchpad writes of FUN_8007e9c8
+//   fire only where a still-substrate caller runs the guest instruction path directly.
 //
-//   Still-recomp fade callers reach this class through installLeafTap() — a shard-level override on
+//   Still-guest instruction path fade callers reach this class through installLeafTap() — a shard-level override on
 //   FUN_8007e9c8 (sanctioned leaf-engine global ownership, CLAUDE.md engine-overrides directive) that
-//   runs the original gen body for byte-exact guest state and mirrors the args into the host frame
+//   runs the original guest-visible behavior for byte-exact guest state and mirrors the args into the host frame
 //   state. Before the tap (pre-2026-07-16), substrate callers ran gen directly and the class never
 //   saw them — the fisherman-cutscene fade-in (#63) presented at full brightness because its ramp
 //   only existed as guest OT packets.
@@ -79,7 +79,7 @@ public:
   // touch the held fully-faded state — that persists across admin frames.
   void frameStart();
 
-  // Set the fade for THIS FRAME. Host-state-only: no guest-RAM writes in either native_sync mode
+  // Set the fade for THIS FRAME. Host-state-only: no guest-RAM writes
   // (`otSlot` is accepted for the guest-ABI shape but unused). Last call wins for this frame; a
   // caller that needs the fade held across multiple frames must call this every one of them
   // (matches PSX: OT slot 4 is rebuilt fresh each frame, so an unwritten frame renders no rect).
@@ -102,8 +102,8 @@ public:
   State get() const;
 
   // Global ownership of the FUN_8007e9c8 leaf (engine-overrides directive): installs an oracle-gated
-  // shard override that runs the original gen body (guest state byte-exact) and mirrors the args into
-  // this class — so STATIC gen-to-gen fade callers (invisible to rec_dispatch) also feed get().
+  // shard override that runs the original guest-visible behavior (guest state byte-exact) and mirrors the args into
+  // this class — so STATIC gen-to-gen fade callers (invisible to typed runtime address dispatch) also feed get().
   // Idempotent; called from Game setup alongside the other *_install() wirings.
   static void installLeafTap();
 

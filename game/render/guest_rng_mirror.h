@@ -24,7 +24,7 @@
 //     walk may run before or after this producer within a frame, so "the guest's value at this
 //     point" is not even well defined from here.
 //
-// The step and the draw are the guest's own, read off gen_func_8009A450 rather than assumed:
+// The step and the draw are the guest's own, read off guest 0x8009A450 rather than assumed:
 //   seed = seed * 0x41C64E6D + 12345          (the classic LCG constants)
 //   draw = (seed >> 16) & 0x7FFF              LOGICAL shift, masked to 15 bits -> [0, 32767]
 // Note the draw is NOT a signed high half — it is unsigned and 15-bit, so every value is positive.

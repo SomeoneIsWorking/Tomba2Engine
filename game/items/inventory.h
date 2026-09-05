@@ -3,7 +3,7 @@
 // PROPER OOP: an instance per Core (embedded as `Core::inventory`). Callers use it as
 // `inv(c).give(type, amount)` — the natural PC-game shape. The FUN_xxx entry-shape
 // wrappers (Core*, args in r[4]/r[5]) remain as static class entrypoints for the
-// `invverify` A/B gate and any still-recomp-shaped caller (repl.cpp `give_only` etc.).
+// `invverify` A/B gate and any still-guest-shaped caller (repl.cpp `give_only` etc.).
 //
 // State lives in guest memory in the save/state block at 0x800BF870 (memcard-serialized —
 // see inventory.cpp for the field layout). No per-instance C++ state beyond the Core
@@ -17,7 +17,7 @@ public:
   // Back-pointer set once by Core's constructor (same pattern as ScreenFade::core).
   Core *core = nullptr;
 
-  // REENTRANCY GUARD for the `invverify` A/B gate: while a gate's rec_super_call interprets a
+  // REENTRANCY GUARD for the `invverify` A/B gate: while a gate's original guest-body call interprets a
   // WRAPPER body, its inner `jal 0x8004D338` re-enters the entry — a nested gate would corrupt
   // the outer snapshot/roll-back. Nonzero while inside a gate (was file-scope s_in_gate).
   int inGate = 0;
@@ -32,7 +32,7 @@ public:
   void giveAndFlag(uint32_t type, uint32_t amount); // FUN_8004D4C4 — add + flag emit
 
   // FUN_xxx entry-shape statics (Core*, args in r[4]/r[5]). These carry the `invverify`
-  // A/B gate; still-recomp-shaped callers (repl.cpp / any leftover rec_dispatch wire)
+  // A/B gate; still-guest-shaped callers (repl.cpp / any leftover typed runtime address dispatch wire)
   // reach the native path through these.
   static void addEntry(Core *c);         // FUN_8004D338
   static void giveEntry(Core *c);        // FUN_8004D4F4

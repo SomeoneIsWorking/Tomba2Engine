@@ -6,10 +6,10 @@
 #include "mathlib.h"
 #include "cfg.h"
 #include "core.h"
-#include "game.h" // c->game->verify — the shared A/B verify scaffold
+#include "game.h"
 #include "game_ctx.h"
+#include "guest_call.h"
 #include <stdio.h>
-void rec_super_call(Core *, uint32_t);
 
 // FUN_8009A450 (the platform PRNG) is owned by `Rng::next` (game/math/rng.cpp) — same LCG
 // (state*0x41C64E6D + 12345 at 0x80105EE8, returns (state>>16)&0x7FFF), called as `rngOf(c).next()`.
@@ -25,7 +25,7 @@ void rec_super_call(Core *, uint32_t);
 // Pure function over a guest bitmap — exact native reimpl. `bitverify` (lazy gate) A/B's v0.
 uint32_t Bit::test7EC(int32_t idx, uint32_t sel) {
   Core *c = this->core;
-  int v = c->game->verify.on("bitverify");
+  int v = gctx(c)->verification.on("bitverify");
   int q = (idx >= 0) ? idx : (idx + 7);
   int a2 = q >> 3;          // idx/8 toward zero
   int a3 = idx - (a2 << 3); // idx%8
@@ -35,8 +35,8 @@ uint32_t Bit::test7EC(int32_t idx, uint32_t sel) {
   if (v) {
     c->r[4] = (uint32_t)idx;
     c->r[5] = sel; // taxi-in for the still-taxi verify super-call
-    rec_super_call(c, 0x8004D7ECu);
-    VerifyHarness::Check &chk = c->game->verify.check("bitverify");
+    psx::cpu::callOriginalToReturn(*c, 0x8004D7ECu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+    tomba::VerificationCounter &chk = gctx(c)->verification.bit;
     long &ng = chk.nMatch, &nb = chk.nMismatch;
     if ((uint32_t)c->r[2] != mine) {
       if (nb++ < 20) {
@@ -55,7 +55,7 @@ uint32_t Bit::test7EC(int32_t idx, uint32_t sel) {
 // Shares the `bitverify` gate with test7EC.
 uint32_t Bit::test868(int32_t idx) {
   Core *c = this->core;
-  int v = c->game->verify.on("bitverify");
+  int v = gctx(c)->verification.on("bitverify");
   int q = (idx >= 0) ? idx : (idx + 7);
   int a2 = q >> 3;                     // idx/8 toward zero
   int a3 = idx - (a2 << 3);            // idx%8
@@ -64,8 +64,8 @@ uint32_t Bit::test868(int32_t idx) {
   uint32_t mine = (uint32_t)byte & (1u << ((uint32_t)(int32_t)(int16_t)a3 & 31u));
   if (v) {
     c->r[4] = (uint32_t)idx; // taxi-in for the still-taxi verify super-call
-    rec_super_call(c, 0x8004D868u);
-    VerifyHarness::Check &chk = c->game->verify.check("bitverify868");
+    psx::cpu::callOriginalToReturn(*c, 0x8004D868u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+    tomba::VerificationCounter &chk = gctx(c)->verification.bit868;
     long &ng = chk.nMatch, &nb = chk.nMismatch;
     if ((uint32_t)c->r[2] != mine) {
       if (nb++ < 20) {

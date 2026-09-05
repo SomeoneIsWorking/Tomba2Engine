@@ -40,7 +40,7 @@ constexpr uint32_t kSemiBit = 0x40000000u;
 
 // ── the writer's ordering-table arithmetic, in the game's own constants ────────────────────────────
 // AVSZ4 forms the quad's ordering key as `(ZSF4 * (sz0+sz1+sz2+sz3)) >> 12`, and the game's own
-// projection init (gen_func_80083FF8: ZSF3 = 341, ZSF4 = 256, H = 1000, DQA = -4194, DQB = 320<<16)
+// projection init (guest 0x80083FF8: ZSF3 = 341, ZSF4 = 256, H = 1000, DQA = -4194, DQB = 320<<16)
 // makes ZSF4 exactly 256 — so the key is the MEAN of the four view depths divided by four, and one
 // unit of the caller's sort bias is therefore FOUR units of view depth. That factor is derived from
 // the game's authored constant, not read back out of a GTE control register.
@@ -51,7 +51,7 @@ constexpr int32_t kViewPerOtUnit = 4;
 constexpr int32_t kBucketMin = 4;
 constexpr int32_t kBucketSpan = 2044;
 
-// The writer's bucket compression, transcribed from gen_func_80027768 including its behaviour on a
+// The writer's bucket compression, transcribed from guest 0x80027768 including its behaviour on a
 // negative key (the caller's bias can drive it below zero, and the guest lets the shifts run anyway
 // and then rejects the result).
 int32_t otBucketOf(int32_t key) {
@@ -222,7 +222,7 @@ int Render::meshQuadRecordsEmit(uint32_t mesh, const MeshQuadStyle &style, const
     const int v[4] = {
         (int)((w0 >> 8) & 0xFFu), (int)((w1 >> 8) & 0xFFu), (int)((w2 >> 8) & 0xFFu), (int)((w2 >> 24) & 0xFFu)};
     // CLUT, plus the writer's a1 CLUT-ROW bias. The guest adds `a1 << 22` to word0 BEFORE building the
-    // packet (gen_func_80027768; see docs/re/impact-plume-288ac.md §3-4), and bit 22 is bit 6 of this
+    // packet (guest 0x80027768; see docs/re/impact-plume-288ac.md §3-4), and bit 22 is bit 6 of this
     // `>> 16` field — the CLUT's low 6 bits are its X and the bits above are its Y, so a1 selects a
     // different palette ROW. Adding at bit 22 cannot carry into bits below 16, so doing it after the
     // shift is exact rather than an approximation: (w0 + (a1<<22)) >> 16 == (w0 >> 16) + (a1 << 6).

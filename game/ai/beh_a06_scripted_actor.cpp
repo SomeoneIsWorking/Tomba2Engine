@@ -19,7 +19,7 @@
 //
 // RE'd from Ghidra decomp of the three chain fns (scratch/decomp/a06_scripted_actor.c) with hand-
 // disas spot-checks of the raw MIPS at 0x8013AA14 / 0x80139C84 / 0x80139A28. Substrate leaves the
-// port keeps reachable via rec_dispatch (each one a small standalone leaf, safe to promote one at
+// port keeps reachable via typed runtime address dispatch (each one a small standalone leaf, safe to promote one at
 // a time):
 //
 //   0x800519E0 — asset-load / init leaf (returns 0 on OK)
@@ -42,11 +42,10 @@
 #include "core/engine.h"
 #include "game_ctx.h"
 #include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "guest_call.h"
 #include "object/behavior_dispatch.h"
 #include "scene/script_interp.h"
 #include <cstdint>
-
-extern "C" void rec_dispatch(Core *c, uint32_t addr);
 
 namespace {
 
@@ -107,20 +106,20 @@ constexpr uint32_t O_D_C4 = 0xC4u; // parent-obj ptr (used for variant-4 SFX cue
 // Small helper for "call substrate leaf with (a0=obj)" pattern that recurs throughout.
 inline void callObj1(Core *c, uint32_t obj, uint32_t addr) {
   c->r[4] = obj;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 // "(a0, a1)" leaf call.
 inline void call2(Core *c, uint32_t a0, uint32_t a1, uint32_t addr) {
   c->r[4] = a0;
   c->r[5] = a1;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 // "(a0, a1, a2)" leaf call.
 inline void call3(Core *c, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t addr) {
   c->r[4] = a0;
   c->r[5] = a1;
   c->r[6] = a2;
-  rec_dispatch(c, addr);
+  psx::cpu::dispatchGuestToReturn0(*c, addr, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 
 // FUN_800519E0(obj, 0xf, *(u32)0x800ECFA4, &DAT_80141E90) — asset-load init. Returns 0 on OK.
@@ -129,7 +128,7 @@ uint32_t assetInit(Core *c, uint32_t obj) {
   c->r[5] = 0xFu;
   c->r[6] = c->mem_r32(G_ECFA4);
   c->r[7] = DATA_80141E90;
-  rec_dispatch(c, 0x800519E0u);
+  psx::cpu::dispatchGuestToReturn0(*c, 0x800519E0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   return c->r[2];
 }
 

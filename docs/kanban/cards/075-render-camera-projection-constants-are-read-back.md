@@ -92,8 +92,8 @@ because each one would have sent the next session down a narrower path than the 
    needed, but for a different reason than the card gives — see 3.
 
 3. **There were THREE writers of the projection, not two.** Besides `Engine::initDisplay` and
-   `Pool::finalViewInit`, the substrate calls the setters directly (`func_800846D0` in shard_3/
-   shard_7, `func_800846F0` in shard_0/shard_3/shard_5), AND `native_step_frame` re-asserts CR24
+   `Pool::finalViewInit`, the substrate calls the setters directly (`guest 0x800846D0` in shard_3/
+   shard_7, `guest 0x800846F0` in shard_0/shard_3/shard_5), AND `native_step_frame` re-asserts CR24
    every frame under widescreen because the window is created lazily. Capturing only at the two
    named callers would have left the GTE moving without the port's copy — the exact desync the
    change removes. All three now go through the one implementation.

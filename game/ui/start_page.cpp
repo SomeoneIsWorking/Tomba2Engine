@@ -4,11 +4,10 @@
 #include "cfg.h" // `startpage` diagnostic channel
 #include "core.h"
 #include "engine.h"
-#include "game_ctx.h"     // eng(c)
+#include "game_ctx.h" // eng(c)
+#include "guest_call.h"
+#include "native_override_catalog.h"
 #include "render_queue.h" // RQ_OVERLAY
-
-extern void gen_func_8007EAE4(Core *);
-extern void engine_set_override_main(uint32_t, OverrideFn, OverrideFn);
 
 void StartPage::drawCollected(Core *c) {
   for (int i : capture.paintOrder()) {
@@ -34,7 +33,7 @@ void StartPage::drawCollected(Core *c) {
 namespace {
 
 // FUN_8007EAE4 — the in-game START page drawer. Scope wrapper: it owns no guest state of its own,
-// so the guest half is the untouched gen body.
+// so the guest half is the untouched guest-visible behavior.
 void pageDraw(Core *c) {
   StartPage &page = eng(c).startPage;
   const bool outer = !page.capture.capturing();
@@ -42,7 +41,10 @@ void pageDraw(Core *c) {
     page.capture.clear();
   }
   page.capture.begin();
-  gen_func_8007EAE4(c); // byte-exact: the option strings + the chrome's packet emission
+  psx::cpu::callOriginalToReturn(*c,
+                                 0x8007EAE4u,
+                                 psx::cpu::ExecutionBudget::currentTurn(*c),
+                                 __func__); // byte-exact: the option strings + the chrome's packet emission
   if (!outer) {
     return;
   }
@@ -58,5 +60,5 @@ void StartPage::install() {
     return;
   }
   done = true;
-  engine_set_override_main(0x8007EAE4u, pageDraw, gen_func_8007EAE4);
+  tomba::native::declareOverride(0x8007EAE4u, "pageDraw", pageDraw);
 }
