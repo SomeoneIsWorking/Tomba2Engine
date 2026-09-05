@@ -32,7 +32,7 @@ in `codemap.md`.
 | S016 | Tomba! 2 movies play correctly | partial | S001, S003 | G001 |
 | S017 | Tomba! 2 area and scene transitions work throughout the game | partial | S001, S003 | G001 |
 | S018 | Both titles have removed their offline guest-source product paths | verified | — | G001, G003 |
-| S019 | Linux x86-64 asset-free native/Lightrec CI builds and tests the repository | partial | — | G001, G003 |
+| S019 | Linux x86-64 asset-free native/Lightrec CI builds and tests the repository | verified | — | G001, G003 |
 | S020 | Windows x86-64 native/Lightrec CI builds and tests the repository | missing | — | G001, G003 |
 | S021 | macOS x86-64 and arm64 native/Lightrec CI builds and tests the repository | missing | — | G001, G003 |
 | S022 | Android arm64-v8a native/Lightrec CI assembles and tests the repository | missing | — | G001, G003 |
@@ -233,7 +233,7 @@ issue 0005 and is not implied by successful provisioning or runtime image-genera
 Representative gameplay through Lightrec remains unverified. The only permitted alternate execution
 is the shared bounded automatic fallback described in `migration.md`.
 
-### S019 — Linux x86-64 CI: partial
+### S019 — Linux x86-64 CI: verified
 
 The asset-free workflow checks out full history without persisted credentials, restores exact
 psxport and Lightrec revisions, configures with Clang and Ninja, builds the native product and test
@@ -255,14 +255,14 @@ removal. The production catalog test checks an unrelated image colliding at the
 same address; the retired-boundary selftest rejects exact audited output paths
 and removed registrations without treating historical evidence as executable code.
 
-Hosted run 33961852299 at `748717a` builds both products and passes 20/21 CTests.
-Its C++ policy check correctly rejects an outdated actor source cap: the final
-comment formatting shortened the file from 1,453 to 1,452 lines without lowering
-the cap. The cap is corrected to 1,452 and checked locally against both the stale
-negative and exact-size positive cases through the production policy checker.
-
-Gap: a subsequent hosted run must pass the complete gate, including clang-tidy
-and the linked execution-boundary check that the first run did not reach.
+Evidence: hosted [run 33962696109](https://github.com/SomeoneIsWorking/Tomba2Engine/actions/runs/33962696109)
+at `e897d1416771926628ee268e9ed1763c1d960055` passes its sole job,
+`Linux x86-64 native/Lightrec contract`: GNU lightning passes 135/135 tests with
+zero skips or failures, both title products build, and the repository passes all
+21 CTests, including C++ policy and clang-tidy. The execution-boundary checker
+passes its clean and three negative cases, then checks the linked products.
+This verifies the Linux asset-free CI contract only; it does not qualify gameplay
+or resolve the second-frame DrawSync failure tracked by S001 and issue 0007.
 
 ### S020 — Windows x86-64 CI: missing
 
