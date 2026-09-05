@@ -30,8 +30,9 @@ must invalidate every translated path that captured the old decision.
 ## Break-first boundary
 
 Both titles' generators, generated corpora, emission-only seeds, offline dispatchers and registries,
-offline-translation build rules, and generated-symbol tests were removed before Lightrec integration. They are not
-a frozen fallback or an oracle and must not be recreated. Measured binary and runtime evidence remains;
+offline-translation build rules, and generated-symbol tests are absent from the migrated product.
+The final provenance audit also removed generated drafts previously retained inside native-source files.
+None is a frozen fallback or an oracle and none may be recreated. Measured binary and runtime evidence remains;
 new comparisons use an independent emulator or hardware, a separately built test-only interpreter,
 and the Lightrec product itself.
 

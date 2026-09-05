@@ -107,7 +107,7 @@ if(BUILD_TESTING)
 
   set(TOMBA_CPP_POLICY_CAPS
       game/core/engine.cpp=4375
-      game/player/actor_tomba.cpp=1453
+      game/player/actor_tomba.cpp=1452
       game/audio/sequencer.cpp=2796
       game/ai/actor_zoned_attacker.cpp=1535
       game/scene/demo.h=87

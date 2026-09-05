@@ -255,7 +255,14 @@ removal. The production catalog test checks an unrelated image colliding at the
 same address; the retired-boundary selftest rejects exact audited output paths
 and removed registrations without treating historical evidence as executable code.
 
-Gap: the workflow has not yet completed successfully on a hosted Linux runner at this revision.
+Hosted run 33961852299 at `748717a` builds both products and passes 20/21 CTests.
+Its C++ policy check correctly rejects an outdated actor source cap: the final
+comment formatting shortened the file from 1,453 to 1,452 lines without lowering
+the cap. The cap is corrected to 1,452 and checked locally against both the stale
+negative and exact-size positive cases through the production policy checker.
+
+Gap: a subsequent hosted run must pass the complete gate, including clang-tidy
+and the linked execution-boundary check that the first run did not reach.
 
 ### S020 — Windows x86-64 CI: missing
 
