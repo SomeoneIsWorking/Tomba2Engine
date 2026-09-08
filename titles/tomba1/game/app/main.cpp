@@ -3,6 +3,7 @@
 #include "frame_loop_shell.h"
 #include "game.h"
 #include "hw_bind.h"
+#include "psx_exe_image.h"
 #include "render_mode.h"
 #include "stream_field_turn.h"
 #include "tomba1_runtime.h"
@@ -18,9 +19,6 @@ void mdec_init();
 void spu_init();
 void watchdog_init();
 }
-
-void gte_init();
-void load_exe(const char *path, Core *core);
 
 namespace {
 

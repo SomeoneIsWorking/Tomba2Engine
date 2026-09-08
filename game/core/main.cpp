@@ -6,8 +6,10 @@
 #include "core.h"
 #include "fs_util.h" // Fs::exists — MAIN.EXE presence probe for self-provisioning below
 #include "game.h"
+#include "hw_bind.h"
 #include "lightrec_executor.h"
 #include "platform_hle.h" // class PlatformHle — HW-sync HLE table (VSync/CdSync/MDEC/ChangeThread)
+#include "psx_exe_image.h"
 #include "tomba_runtime.h"
 #include <lucent/log.h>
 #include <stdio.h>
@@ -20,8 +22,6 @@ void watchdog_init(void);
 void mdec_init(void);
 void spu_init(void);
 }
-
-void load_exe(const char *path, Core *c); // runtime/psx/boot.cpp (framework)
 
 int main(int argc, char **argv) {
   if (argc > 1 && (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0)) {
@@ -59,7 +59,6 @@ int main(int argc, char **argv) {
   void card_overrides_init(Game *);
   void threads_init(Core *);
   void threads_register_overrides(void);
-  void gte_init(void);
   gte_init();                        // GTE (COP2) coprocessor, lifted from Beetle
   mdec_init();                       // MDEC video decoder (FMV), lifted from Beetle
   spu_init();                        // SPU audio core, lifted from Beetle

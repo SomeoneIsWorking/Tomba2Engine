@@ -502,7 +502,8 @@ void Render::gpuDmaQueueSync() {
   constexpr uint32_t R3_NORMAL = 1024u << 16; // 0x04000000
 
   if (mode == 0) {
-    psx::cpu::dispatchGuestToReturn0(*c, FN_GPU_TIMEOUT_ARM, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+    psx::cpu::dispatchGuestToReturn0(
+        *c, FN_GPU_TIMEOUT_ARM, psx::cpu::ExecutionBudget::currentTurn(*c), "gpuDmaQueueSync -> gpuTimeoutArm");
     for (;;) {
       uint32_t head = c->mem_r32(RING_HEAD);
       uint32_t tail = c->mem_r32(RING_TAIL);
@@ -510,8 +511,10 @@ void Render::gpuDmaQueueSync() {
         // L_80083384: not empty -> drain once, timeout-check, retry. FN_DRAIN spills ra —
         // mirror gen's r31 (0x8008338C).
         c->r[31] = 0x8008338Cu;
-        psx::cpu::dispatchGuestToReturn0(*c, FN_DRAIN, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-        psx::cpu::dispatchGuestToReturn0(*c, FN_GPU_TIMEOUT_CHK, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+        psx::cpu::dispatchGuestToReturn0(
+            *c, FN_DRAIN, psx::cpu::ExecutionBudget::currentTurn(*c), "gpuDmaQueueSync -> gpuDmaQueueDrain");
+        psx::cpu::dispatchGuestToReturn0(
+            *c, FN_GPU_TIMEOUT_CHK, psx::cpu::ExecutionBudget::currentTurn(*c), "gpuDmaQueueSync -> gpuTimeoutCheck");
         if (c->r[2] != 0) {
           epilogue((uint32_t)-1, c->mem_r32(0x800A5AC8u));
           return;
@@ -523,7 +526,7 @@ void Render::gpuDmaQueueSync() {
         uint32_t stateWord = c->mem_r32(c->mem_r32(GPU_DMA_STATE_PTR));
         if ((stateWord & GPU_DMA_BUSY_BIT) != 0) {
           psx::cpu::dispatchGuestToReturn0(
-              *c, FN_GPU_TIMEOUT_CHK, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+              *c, FN_GPU_TIMEOUT_CHK, psx::cpu::ExecutionBudget::currentTurn(*c), "gpuDmaQueueSync -> gpuTimeoutCheck");
           if (c->r[2] != 0) {
             epilogue((uint32_t)-1, c->mem_r32(0x800A5AC8u));
             return;
@@ -534,7 +537,7 @@ void Render::gpuDmaQueueSync() {
         uint32_t readyBit = readyWord & GPU_DMA_READY_BIT;
         if (readyBit == 0) {
           psx::cpu::dispatchGuestToReturn0(
-              *c, FN_GPU_TIMEOUT_CHK, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+              *c, FN_GPU_TIMEOUT_CHK, psx::cpu::ExecutionBudget::currentTurn(*c), "gpuDmaQueueSync -> gpuTimeoutCheck");
           if (c->r[2] != 0) {
             epilogue((uint32_t)-1, c->mem_r32(0x800A5AC8u));
             return;
@@ -564,7 +567,8 @@ void Render::gpuDmaQueueSync() {
   // FN_DRAIN spills ra — mirror gen's r31 (0x80083444).
   if (depth != 0) {
     c->r[31] = 0x80083444u;
-    psx::cpu::dispatchGuestToReturn0(*c, FN_DRAIN, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+    psx::cpu::dispatchGuestToReturn0(
+        *c, FN_DRAIN, psx::cpu::ExecutionBudget::currentTurn(*c), "gpuDmaQueueSync -> gpuDmaQueueDrain");
   }
 
   uint32_t stateWord = c->mem_r32(c->mem_r32(GPU_DMA_STATE_PTR));

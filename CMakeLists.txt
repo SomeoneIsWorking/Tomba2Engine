@@ -81,6 +81,13 @@ if(BUILD_TESTING)
   target_link_libraries(test_native_override_catalog PRIVATE psxport)
   add_test(NAME tomba_native_override_catalog COMMAND test_native_override_catalog)
 
+  add_executable(test_gpu_timeout_dispatch
+      tests/test_gpu_timeout_dispatch.cpp game/core/game_config.cpp)
+  target_include_directories(test_gpu_timeout_dispatch PRIVATE game/core)
+  target_link_libraries(test_gpu_timeout_dispatch PRIVATE psxport)
+  add_test(NAME tomba_gpu_timeout_dispatch COMMAND test_gpu_timeout_dispatch)
+
+
   add_executable(test_scene_kind tests/test_scene_kind.cpp game/render/scene_kind.cpp)
   target_include_directories(test_scene_kind PRIVATE game/render)
   add_test(NAME tomba_scene_kind COMMAND test_scene_kind)

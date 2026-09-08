@@ -40,13 +40,15 @@ in `codemap.md`.
 ## Current focus
 
 S001 is the current focus. The break-first removal is complete and the shared per-`Core` Lightrec
-executor is pinned at psxport `eb5f23a8b3506f8853b3cfadcedc024cd90818a0`. Issue 0005 must now
+executor is pinned at psxport `a5a796521668cf078e150808cc1fc4616d1f31d6`. Issue 0005 must now
 prove one resident and one colliding-overlay override plus scoped original calls through the shipping
 dispatcher. Tomba! 2 then regains its recorded free-roam frontier and passes representative gameplay.
 Tomba! 1 remains deferred until that complete gate. Issue 0006's supported-syscall
 continuation is resolved: the real-image product crosses native initialization
 and completes its first native frame at the DEMO stage.
-Issue 0007 now blocks the second native frame at the GPU queue call boundary.
+Issue 0007 is resolved at its execution boundary: the integrated real-title run
+completes both native frames with zero fallback. Representative gameplay remains
+unverified; the direct observation does not qualify UI resources.
 
 ## Capability details
 
@@ -70,17 +72,15 @@ range captured at the two boot-load boundaries. Runtime-load authentication and
 overlay-specific activation/binding remain missing; a generation token is not an
 authenticated title identity.
 
-Observed startup: issue 0006 records the supported-syscall fix and a clean
-real-image one-frame run through the boot prefix, START.BIN load, and DEMO stage.
-After the complete generated-body removal, its normal-exit shared telemetry
-reports 174 executor calls, 18,012 executed blocks and 128,794 executed
-instructions, with zero fallback blocks/instructions
-and zero entries for every reported fallback/refusal reason. The declared bound
-is one fallback block per execution. This report does not expose translated-block
-creation, cache-hit/miss, or invalidation totals, so those remain unmeasured.
-This checkpoint does not establish gameplay conformance. Issue 0007 records the
-Blocker: the second frame exhausts its guest-call budget inside native
-`gpuDmaQueueSync`, at reported guest PC `0x80044E54`.
+Observed startup: issue 0006 records the supported-syscall fix; issue 0007 records
+preserved guest-task lifetime across JIT budgets and the integrated real-image
+run completing native frames 0 and 1 at DEMO. The final canonical title verifier
+passes all 22 tests and execution-boundary checks. The two-frame run has nonzero
+translated execution and zero fallback; exact denominators and its missing UI
+resource-path limitation are recorded in issue 0007. This checkpoint does not
+establish gameplay conformance, UI fidelity, or restoration of the recorded
+free-roam frontier. Authenticated resident/overlay original calls and broader
+gameplay qualification remain open.
 
 ### S002 — Independent Tomba! 2 comparison: partial
 
