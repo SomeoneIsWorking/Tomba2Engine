@@ -6,7 +6,7 @@ symptom: The planned Lightrec product has no shipping proof that resident and co
 state_items: S001
 tags: tomba2,dynarec,lightrec,overrides,overlays
 created: 2026-09-04
-updated: 2026-09-05
+updated: 2026-09-08
 ---
 
 ## Required discriminator
@@ -36,10 +36,45 @@ resident text range; only the two resident-load lifecycle points acquire that
 token. It cannot adopt another active image merely because an address matches.
 
 This preserves the boot reload contract but uses a synthetic resident image.
-Exact-content authentication remains missing: the provisioner currently checks
-image sizes, not a content manifest, and an image-generation token establishes
-residency rather than authenticity. Overlay-specific image activation and native
-declaration ownership are not wired; after generated-body removal, 55 of 254
+Launch-time image authentication is now owned by `tools/tomba2_provision.py` and
+`config/tomba2-images.json`, described below. An image-generation token still
+establishes residency rather than authenticity at the runtime loading boundary.
+Overlay-specific image activation and native declaration ownership are not wired; after generated-body removal, 55 of 254
 declarations remain inactive and 199 bind to the resident image. Real resident
 original-call evidence and two authenticated colliding
 overlays remain required.
+
+
+## Launch-time image authentication
+
+The provisioner previously accepted any same-size executable or overlay and skipped
+extraction when a cache file existed. A valid cache could therefore hide selection
+of an unrelated disc, while later streaming still used that disc.
+
+`config/tomba2-images.json` owns the 30 supported runtime-image sizes and SHA-256
+fingerprints. Provisioning extracts the selected disc's complete set into private
+staging, authenticates every image, then publishes validated files with atomic
+per-file replacement. Publication is not an all-files transaction: every previously
+valid image must match the same immutable manifest, so partial publication cannot
+mix valid revisions. Publication errors still refuse launch, and repair of an
+invalid cache can remain incomplete. A missing image, changed byte, or extraction failure refuses
+launch before changing any published file. Every invocation reads the selected
+disc again; corrupt cache files can be replaced from the authenticated source.
+The manifest contains fingerprints only, never game bytes. MAIN.EXE's retained
+input has the independent historical C044 MD5 `31f07b2bee1fbb685cbc4c0afecc6f89`.
+
+Verified 2026-09-08: `uv run --frozen python tests/test_tomba2_provision.py` passes
+10/10 focused regressions:
+correct resident/overlay outputs, wrong size, oversized input with a stale size
+report and one bounded read, same-size corruption, wrong selected
+disc hidden by cache, late-overlay failure without early publication, corrupt-cache
+repair, empty-manifest refusal, and extraction-failure cleanup. Fresh extraction from the user-supplied Tomba! 2 USA disc matched all 30/30
+manifest entries (3,993,565 bytes); post-publication validation also matched 30/30.
+Qualification used a separate scratch output and the existing `discdump`, leaving
+normal runtime inputs unchanged. The 12/12 launcher tests also pass, including
+launching the binary from the same toolchain-specific build directory just built.
+The former launcher incorrectly executed `build/bin/tomba2_port` instead.
+
+This covers launcher provisioning. Direct executable loading and CD-loaded overlay
+activation still need runtime authentication and complete image-aware native binding.
+It does not complete this issue's original-call or representative-gameplay proof.

@@ -10,9 +10,9 @@ Tomba! 2 representative gameplay is complete.
 ### T2-00 — Preserve authenticated title and overlay identity
 - status: re-partial
 - deps:
-- evidence: Existing binary/run evidence identifies `SCUS_944.54` and the recorded resident/overlay behaviors. C044 records an independently checked MAIN.EXE digest; address-collision evidence identifies `0x801113B4` in A03 and A0B with different entry shapes. The current provisioner checks sizes only.
+- evidence: Existing binary/run evidence identifies `SCUS_944.54` and the recorded resident/overlay behaviors. C044 records an independently checked MAIN.EXE digest; address-collision evidence identifies `0x801113B4` in A03 and A0B with different entry shapes. The launcher provisioner now owns a size/SHA-256 manifest; its original-disc qualification and remaining runtime boundary are recorded in issue 0005.
 - where: title provisioning metadata; binary-backed findings; user-supplied disc outside Git
-- gap: Enforce exact-content identity in provisioning and product loading; historical binary evidence and runtime generation tokens are not an authenticated input manifest. See issue 0005.
+- gap: Enforce exact-content identity in product loading; historical binary evidence and runtime generation tokens are not an authenticated input manifest. See issue 0005.
 
 ### T2-01 — Execute authenticated images through psxport Lightrec
 - status: re-partial

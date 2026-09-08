@@ -256,10 +256,10 @@ class RunLauncherTest(unittest.TestCase):
                 ],
                 commands,
             )
-            self.assertEqual(launched[0], str(root / "build/bin/tomba2_port"))
+            self.assertEqual(launched[0], str(game_build / "bin/tomba2_port"))
             self.assertEqual(
                 launched[1],
-                [str(root / "build/bin/tomba2_port"), "scratch/bin/tomba2/MAIN.EXE"],
+                [str(game_build / "bin/tomba2_port"), "scratch/bin/tomba2/MAIN.EXE"],
             )
             self.assertEqual(launched[2]["PSXPORT_ASSET_DIR"], "external/psxport")
             self.assertEqual(launched[2]["PSXPORT_TOMBA2_DISC"], "./game.chd")

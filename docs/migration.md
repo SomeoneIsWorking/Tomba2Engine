@@ -27,6 +27,10 @@ scoped original call disables only that one override for the duration of the cal
 original guest body through Lightrec. Loading or replacing executable bytes and changing an override
 must invalidate every translated path that captured the old decision.
 
+WebAssembly is part of the migration release contract: each migrated title must also provide a
+browser-capable runtime path sharing the same dynarec-first execution boundary and bounded fallback
+accounting. A web host remains blocked until representative gameplay and telemetry gates include it.
+
 ## Break-first boundary
 
 Both titles' generators, generated corpora, emission-only seeds, offline dispatchers and registries,

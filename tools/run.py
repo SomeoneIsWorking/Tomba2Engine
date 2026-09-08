@@ -536,7 +536,9 @@ def main(arguments: Sequence[str] | None = None, *, root: Path = ROOT) -> int:
         env["PSXPORT_DEBUG_SERVER"] = env.get("PSXPORT_DEBUG_SERVER") or "1"
         env["PSXPORT_NO_TERRAIN"] = env.get("PSXPORT_NO_TERRAIN") or "0"
         env["PSXPORT_TOMBA2_DISC"] = disc
-        executable = root / "build/bin/tomba2_port"
+        executable = game_build / "bin" / (
+            "tomba2_port.exe" if platform.system() == "Windows" else "tomba2_port"
+        )
         exec_program(str(executable), [str(executable), str(main_exe)], env, root)
     except LauncherError as exc:
         print(f"{RED}[run] error:{RESET} {exc}", file=sys.stderr)

@@ -66,7 +66,7 @@ Bounded fallback telemetry must name each reason, remain below the declared thre
 from gameplay-conformance and performance evidence.
 Issue 0005 is the first discriminator.
 Resident declarations are now restricted to the explicit resident token and text
-range captured at the two boot-load boundaries. Exact-content authentication and
+range captured at the two boot-load boundaries. Runtime-load authentication and
 overlay-specific activation/binding remain missing; a generation token is not an
 authenticated title identity.
 
@@ -228,8 +228,9 @@ Evidence: both emitted guest-source trees are absent; the root and Tomba! 1 gene
 emission-only seeds, offline registries, guest-source CMake manifests, and generation-only
 selftests were removed together. Both launchers provision user-supplied executable/overlay inputs
 without emitting guest source, and both CMake graphs build native/Lightrec product executables.
-Tomba! 2 currently validates input sizes only; exact-content authentication remains missing in
-issue 0005 and is not implied by successful provisioning or runtime image-generation binding.
+Tomba! 2 launcher provisioning has an exact-content manifest and staged validation
+owner qualified against all 30 original-disc images (issue 0005). Runtime-load
+authentication remains open and is not implied by runtime image-generation binding.
 Representative gameplay through Lightrec remains unverified. The only permitted alternate execution
 is the shared bounded automatic fallback described in `migration.md`.
 

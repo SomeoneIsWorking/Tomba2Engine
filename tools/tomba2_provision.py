@@ -4,47 +4,36 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import pathlib
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable, Mapping, Sequence
+from typing import NamedTuple
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / "scratch/bin/tomba2"
 DEFAULT_OVERLAYS = ROOT / "scratch/bin/overlays"
 
-IMAGE_SIZES: Mapping[str, int] = {
-    "MAIN.EXE": 716_800,
-    "SCUS_944.54": 167_936,
-    "BIN/START.BIN": 1_648,
-    "BIN/DEMO.BIN": 5_372,
-    "BIN/GAME.BIN": 11_636,
-    "BIN/SOP.BIN": 17_660,
-    "BIN/OPN.BIN": 13_596,
-    "BIN/CRD.BIN": 25_060,
-    "BIN/A00.BIN": 285_096,
-    "BIN/A01.BIN": 202_460,
-    "BIN/A02.BIN": 201_004,
-    "BIN/A03.BIN": 78_444,
-    "BIN/A04.BIN": 250_788,
-    "BIN/A05.BIN": 234_164,
-    "BIN/A06.BIN": 284_348,
-    "BIN/A07.BIN": 229_720,
-    "BIN/A08.BIN": 266_124,
-    "BIN/A09.BIN": 22_125,
-    "BIN/A0A.BIN": 126_520,
-    "BIN/A0B.BIN": 115_560,
-    "BIN/A0C.BIN": 123_328,
-    "BIN/A0D.BIN": 119_592,
-    "BIN/A0E.BIN": 124_656,
-    "BIN/A0F.BIN": 135_500,
-    "BIN/A0G.BIN": 17_980,
-    "BIN/A0H.BIN": 14_016,
-    "BIN/A0I.BIN": 15_152,
-    "BIN/A0J.BIN": 19_068,
-    "BIN/A0K.BIN": 93_380,
-    "BIN/A0L.BIN": 74_832,
-}
+MANIFEST = ROOT / "config/tomba2-images.json"
+
+
+class ImageIdentity(NamedTuple):
+    size: int
+    sha256: str
+
+
+def load_images(path: pathlib.Path = MANIFEST) -> Mapping[str, ImageIdentity]:
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    return {
+        name: ImageIdentity(item["size"], item["sha256"])
+        for name, item in manifest["images"].items()
+    }
+
+
+IMAGES = load_images()
 
 
 class ProvisionError(RuntimeError):
@@ -58,15 +47,24 @@ def destination_for(
     return overlay_root / name if disc_path.startswith("BIN/") else executable_root / name
 
 
-def validate_image(path: pathlib.Path, disc_path: str, expected_size: int) -> None:
+def validate_image(path: pathlib.Path, disc_path: str, identity: ImageIdentity) -> None:
     try:
-        actual_size = path.stat().st_size
+        with path.open("rb") as source:
+            data = source.read(identity.size + 1)
     except OSError as exc:
         raise ProvisionError(f"cannot inspect extracted {disc_path}: {exc}") from exc
-    if actual_size != expected_size:
+    if len(data) != identity.size:
+        actual_size = f"more than {identity.size}" if len(data) > identity.size else str(len(data))
         raise ProvisionError(
-            f"{disc_path} is {actual_size} bytes; expected {expected_size} for the selected title"
+            f"{disc_path} is {actual_size} bytes; expected {identity.size} for the selected title"
         )
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != identity.sha256:
+        raise ProvisionError(
+            f"{disc_path} SHA-256 {digest} does not match supported Tomba! 2 USA "
+            f"image {identity.sha256}"
+        )
+
 
 
 def extract_image(
@@ -94,7 +92,7 @@ def provision(
     executable_root: pathlib.Path = DEFAULT_OUTPUT,
     overlay_root: pathlib.Path = DEFAULT_OVERLAYS,
     *,
-    images: Mapping[str, int] = IMAGE_SIZES,
+    images: Mapping[str, ImageIdentity] = IMAGES,
     extractor: Callable[[pathlib.Path, pathlib.Path, str, pathlib.Path], None] = extract_image,
 ) -> tuple[pathlib.Path, ...]:
     if not disc.is_file():
@@ -102,13 +100,40 @@ def provision(
     if not discdump.is_file():
         raise ProvisionError(f"discdump executable does not exist: {discdump}")
 
+    if not images:
+        raise ProvisionError("runtime-image manifest is empty; cannot authenticate the selected disc")
+
+    # Re-extract from the selected disc even when cached files exist. Otherwise a
+    # valid cache can authenticate an unrelated disc whose streaming assets differ.
+    staging = executable_root / ".provisioning"
+    try:
+        executable_root.mkdir(parents=True, exist_ok=True)
+        staging.mkdir()
+    except OSError as exc:
+        raise ProvisionError(f"cannot acquire provisioning staging directory {staging}: {exc}") from exc
+
     outputs: list[pathlib.Path] = []
-    for disc_path, expected_size in images.items():
-        destination = destination_for(disc_path, executable_root, overlay_root)
-        if not destination.is_file():
-            extractor(discdump, disc, disc_path, destination)
-        validate_image(destination, disc_path, expected_size)
-        outputs.append(destination)
+    staged: list[pathlib.Path] = []
+    try:
+        for disc_path, identity in images.items():
+            candidate = destination_for(disc_path, staging, staging / "overlays")
+            extractor(discdump, disc, disc_path, candidate)
+            validate_image(candidate, disc_path, identity)
+            staged.append(candidate)
+            outputs.append(destination_for(disc_path, executable_root, overlay_root))
+
+        # No published image changes until the complete selected set is authenticated.
+        # Publication is atomic per file, not across the set. Every previously
+        # valid image has this same immutable manifest identity, so interruption
+        # cannot mix valid revisions. A publication error still refuses launch;
+        # repairing an invalid cache may remain incomplete until the next run.
+        for candidate, destination in zip(staged, outputs, strict=True):
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            candidate.replace(destination)
+    except OSError as exc:
+        raise ProvisionError(f"cannot provision runtime images: {exc}") from exc
+    finally:
+        shutil.rmtree(staging)
     return tuple(outputs)
 
 
@@ -126,7 +151,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     except ProvisionError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 1
-    print(f"PROVISIONED: {len(outputs)}/{len(IMAGE_SIZES)} runtime images")
+    print(f"AUTHENTICATED AND PROVISIONED: {len(outputs)}/{len(IMAGES)} runtime images")
     return 0
 
 
