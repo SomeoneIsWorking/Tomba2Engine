@@ -8,8 +8,10 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from psxport_sync import CANONICAL_VERIFY_BUILD, check_build_pin
+
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_BUILD = ROOT / "build/ci"
+DEFAULT_BUILD = Path(CANONICAL_VERIFY_BUILD)
 PSXPORT = (ROOT / "external/psxport").resolve()
 sys.path.insert(0, str(PSXPORT / "tools"))
 
@@ -21,7 +23,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     parser.add_argument("--build", type=Path, default=DEFAULT_BUILD)
     args = parser.parse_args(arguments)
     build = args.build.resolve()
-    return run_consumer_verification(
+    result = run_consumer_verification(
         ConsumerVerifyConfig(
             name="Tomba native/Lightrec products",
             root=ROOT,
@@ -38,6 +40,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             python=Path(sys.executable),
         )
     )
+    return result if result != 0 else check_build_pin(build)
 
 
 if __name__ == "__main__":

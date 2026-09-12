@@ -209,6 +209,7 @@ set(GAME_SRC
   game/core/engine.cpp
   game/scene/sop.cpp
   game/scene/demo.cpp
+  game/scene/demo_load_machine.cpp
   game/camera/cutscene_camera.cpp
   game/math/gte_math.cpp
   game/math/wide_re_gte_transform3.cpp

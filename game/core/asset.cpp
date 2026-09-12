@@ -253,6 +253,7 @@ void Asset::loadTexgroup() {
   c->r[16] = HDR;                                                             // s0 = header base (live for spills)
   uint32_t h0 = c->mem_r32(HDR + 0), h1 = c->mem_r32(HDR + 4);
   c->r[4] = 0x8018A000u;
+  tomba::native::retireOverlay(*c, eng(c).activeAreaOverlay);
   c->r[5] = c->mem_r32(0x800BE0F8u) + (h0 >> 11);
   c->r[6] = h1 - h0;
   c->r[31] = 0x80045008u;
@@ -332,6 +333,7 @@ void Asset::preloadTexgroup(uint32_t mode, uint32_t set) {
   }
   c->game->cd.loadFile(0x800EF478u, hdr_sector, 2048); // 1. 2KB header
   uint32_t h0 = c->mem_r32(0x800EF478u), h1 = c->mem_r32(0x800EF47Cu);
+  tomba::native::retireOverlay(*c, eng(c).activeAreaOverlay);
   c->game->cd.loadFile(0x8018A000u, c->mem_r32(0x800BE0F8u) + (h0 >> 11), h1 - h0); // 2. compressed archive
   unpackGroup(0x8018A000u, 0x1FD000u); // 3. decompress + VRAM upload (native)
   for (uint32_t i = 0; i < 42; i++) {  // 4. per-set metadata table
@@ -542,8 +544,7 @@ void Asset::areaDataLoadAsTask() {
   c->r[31] = 0x800453DCu;
   psx::cpu::dispatchGuestToReturn0(
       *c, 0x80045080u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // area descriptor load
-  const uint32_t modeSize = c->mem_r32(0x800be134u + area * 8u);
-  tomba::native::activateAreaOverlay(*c, eng(c).activeModeOverlay, area, modeSize);
+  tomba::native::activateModeOverlay(*c, eng(c).activeModeOverlay, area + 3u);
   c->r[4] = c->mem_r8(0x800BF870u);
   c->r[5] = c->mem_r32(0x1F80022Cu);
   c->r[31] = 0x800453F0u;
@@ -560,12 +561,14 @@ void Asset::areaDataLoadAsTask() {
   c->r[5] += c->r[7];
   c->mem_w32(0x800A3EC8u, lo >> 11);
   c->r[31] = 0x80045430u;
+  tomba::native::retireOverlay(*c, eng(c).activeAreaOverlay);
   psx::cpu::dispatchGuestToReturn0(
       *c, 0x8001DC40u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // CD read: DAT payload -> 0x8018A000
   if (c->mem_r8(0x800BF89Cu) == 2) {
     c->r[4] = 0;
     c->r[31] = 0x80045448u;
     psx::cpu::dispatchGuestToReturn0(*c, 0x80045558u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+    tomba::native::activateAreaSlotOverlay(*c, eng(c).activeAreaOverlay, 0u);
   }
   loadDescriptorChunk(((uint32_t)c->mem_r16(0x800BF89Eu) & 15u) << 1, 47); // FUN_80045258
   {                                                                        // relocation table -> module pointer table

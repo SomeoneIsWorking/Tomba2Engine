@@ -151,15 +151,7 @@ void bindOverlay(Core &core,
                inactive);
 }
 
-psx::cpu::ImageIdentity activateOverlay(Core &core,
-                                        std::optional<psx::cpu::ImageIdentity> &active,
-                                        std::string_view imageName,
-                                        GuestAddressRange text) {
-  if (imageName.empty() || !text.valid() || text.end > 0x00200000u) {
-    lucent::error(
-        "tomba-native", "refused invalid overlay image '{}' range [{:08X}, {:08X})", imageName, text.begin, text.end);
-    std::abort();
-  }
+void retireOverlay(Core &core, std::optional<psx::cpu::ImageIdentity> &active) {
   if (active) {
     for (const Declaration &entry : declarations()) {
       core.nativeDispatcher().remove({*active, entry.address});
@@ -169,7 +161,20 @@ psx::cpu::ImageIdentity activateOverlay(Core &core,
           "tomba-native", "active overlay image {}:{} disappeared before replacement", active->id, active->generation);
       std::abort();
     }
+    active.reset();
   }
+}
+
+psx::cpu::ImageIdentity activateOverlay(Core &core,
+                                        std::optional<psx::cpu::ImageIdentity> &active,
+                                        std::string_view imageName,
+                                        GuestAddressRange text) {
+  if (imageName.empty() || !text.valid() || text.end > 0x00200000u) {
+    lucent::error(
+        "tomba-native", "refused invalid overlay image '{}' range [{:08X}, {:08X})", imageName, text.begin, text.end);
+    std::abort();
+  }
+  retireOverlay(core, active);
 
   std::uint64_t contentIdentity = 1469598103934665603ull;
   for (std::uint32_t address = text.begin; address < text.end; ++address) {
@@ -193,16 +198,37 @@ std::string overlayNameForArea(std::uint32_t area) {
   return name;
 }
 
-psx::cpu::ImageIdentity activateAreaOverlay(Core &core,
-                                            std::optional<psx::cpu::ImageIdentity> &active,
-                                            std::uint32_t area,
-                                            std::uint32_t size) {
+psx::cpu::ImageIdentity
+activateModeOverlay(Core &core, std::optional<psx::cpu::ImageIdentity> &active, std::uint32_t fileIndex) {
   constexpr std::uint32_t kModeSlot = 0x00108F9Cu;
-  if (size == 0u || size > 0x00200000u - kModeSlot) {
-    lucent::error("tomba-native", "refused invalid area {} overlay size {}", area, size);
+  constexpr std::uint32_t kFileTable = 0x800BE118u;
+  if (fileIndex < 2u || fileIndex > 24u) {
+    lucent::error("tomba-native", "file index {} is outside the SOP/A00..A0L MODE image set", fileIndex);
     std::abort();
   }
-  return activateOverlay(core, active, overlayNameForArea(area), {kModeSlot, kModeSlot + size});
+  const std::uint32_t size = core.mem_r32(kFileTable + fileIndex * 8u + 4u);
+  if (size == 0u || size > 0x00200000u - kModeSlot) {
+    lucent::error("tomba-native", "refused invalid MODE file {} overlay size {}", fileIndex, size);
+    std::abort();
+  }
+  const std::string name = fileIndex == 2u ? "SOP" : overlayNameForArea(fileIndex - 3u);
+  return activateOverlay(core, active, name, {kModeSlot, kModeSlot + size});
+}
+
+psx::cpu::ImageIdentity
+activateAreaSlotOverlay(Core &core, std::optional<psx::cpu::ImageIdentity> &active, std::uint32_t fileIndex) {
+  constexpr std::uint32_t kAreaSlot = 0x0018A000u;
+  constexpr std::uint32_t kFileTable = 0x800BE118u;
+  if (fileIndex > 1u) {
+    lucent::error("tomba-native", "file index {} is outside the OPN/CRD AREA image set", fileIndex);
+    std::abort();
+  }
+  const std::uint32_t size = core.mem_r32(kFileTable + fileIndex * 8u + 4u);
+  if (size == 0u || size > 0x00200000u - kAreaSlot) {
+    lucent::error("tomba-native", "refused invalid AREA file {} overlay size {}", fileIndex, size);
+    std::abort();
+  }
+  return activateOverlay(core, active, fileIndex == 0u ? "OPN" : "CRD", {kAreaSlot, kAreaSlot + size});
 }
 
 } // namespace tomba::native

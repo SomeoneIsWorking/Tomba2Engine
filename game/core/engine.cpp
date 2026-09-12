@@ -56,6 +56,7 @@
 // (g_render_psx + g_dualview both retired 2026-07-02 — reach as
 // c->rsub.mode.psxRender() / dualview())
 #include "game.h"
+#include "level_load.h"              // START/DEMO/GAME stage image residency and loader
 #include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include <lucent/log.h>              // Engine::devTeleportApply's `tp` line
 static inline void d0(Core *c, uint32_t fn) {
@@ -3785,30 +3786,9 @@ void Engine::frameStartTickFaithful() {
 //   FUN_80052078 : FUN_800450bc(task+0xc, 0); task.state=3; task[0x6f]=0; a few
 //   libgpu/BIOS resets. FUN_800450bc : FUN_8001db8c(0x80106228, LBA, size) [=
 //   cd_loadfile]; entry = STAGE_ENTRY[0]
-//                  (0x8010649c); task+0xc = task+0x10 = entry.
+//                  (0x8010649c); task+0xc = entry, task+0x10 = caller gp.
 // The per-stage {LBA,size} table lives at 0x800be1e0 (stride 8); the
 // stage-entry table at 0x800a3ecc.
-static const uint32_t STAGE_ENTRY_TBL = 0x800a3ecc; // [0]=0x8010649c [1]=0x801062e4 [2]=0x8010637c
-static const uint32_t STAGE_FILE_TBL = 0x800be1e0;  // {LBA,size} per stage, stride 8
-
-// FUN_800450bc: load the stage overlay (if any) and point the task's restart
-// entry at the stage code.
-static void native_load_overlay(Core *c, uint32_t taskfields, uint32_t stage) {
-  uint32_t entry;
-  if (stage == 3) {
-    entry = c->mem_r32(STAGE_ENTRY_TBL + 3 * 4); // stage 3 is already resident: no overlay load
-  } else {
-    uint32_t lba = c->mem_r32(STAGE_FILE_TBL + stage * 8);
-    uint32_t size = c->mem_r32(STAGE_FILE_TBL + stage * 8 + 4);
-    c->game->cd.loadFile(0x80106228, lba, size); // = FUN_8001db8c / cd_loadfile
-    // FUN_80051f80(1) cooperative yield is a no-op with the native scheduler —
-    // skipped.
-    entry = c->mem_r32(STAGE_ENTRY_TBL + stage * 4);
-  }
-  c->mem_w32(taskfields, entry);     // task+0xc = restart PC
-  c->mem_w32(taskfields + 4, entry); // task+0x10
-}
-
 // FUN_80052078: switch task 0 to the given stage (load overlay + reset the
 // display/BIOS bits). Public entry: called by DEMO's LEAVE-to-GAME substate
 // (demo.cpp s5), by task0Bootstrap after the START.BIN file-table build, by
@@ -3818,7 +3798,7 @@ static void native_load_overlay(Core *c, uint32_t taskfields, uint32_t stage) {
 void Engine::startStage(uint32_t stage) {
   Core *c = core;
   uint32_t task = c->mem_r32(0x1f800138); // current task (= task 0, 0x801fe000)
-  native_load_overlay(c, task + 0xc, stage);
+  tomba::stage::loadOverlay(*c, activeStageOverlay, task + 0xc, stage);
   c->mem_w16(task, 3); // task state = 3 (active)
   c->mem_w8(task + 0x6f, 0);
   psx::cpu::dispatchGuestToReturn0(
@@ -3842,8 +3822,8 @@ void Engine::task0Bootstrap() {
     cfg_loge("native_boot", "FATAL: cannot resolve \\BIN\\START.BIN on disc");
     return;
   }
-  c->mem_w32(STAGE_FILE_TBL, lba);      // 0x800be1e0 = START.BIN LBA
-  c->mem_w32(STAGE_FILE_TBL + 4, size); // 0x800be1e4 = START.BIN size
+  c->mem_w32(tomba::stage::kFileTable, lba);      // 0x800be1e0 = START.BIN LBA
+  c->mem_w32(tomba::stage::kFileTable + 4, size); // 0x800be1e4 = START.BIN size
   cfg_logi("native_boot", "START.BIN resolved: LBA %u, %u bytes", lba, size);
   startStage(0);
 }

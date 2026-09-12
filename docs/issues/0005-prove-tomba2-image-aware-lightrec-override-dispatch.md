@@ -46,6 +46,51 @@ The catalog test proves two declarations at one numeric address (A03/A0B) remain
 activation, dispatch, original-call, and wrong-image cases. The test uses synthetic image bytes;
 real resident original-call evidence and two authenticated colliding overlays remain required.
 
+## Stage slot dispatch frontier, 2026-09-12
+
+A Clang product built from `4fe4e20` and the pinned Lightrec framework loaded the authenticated
+disc, initialized native systems, and entered the DEMO stage. The 350-frame headless auto-drive
+observation reached logged frames 0–3, then `Demo::s2` called `0x8010696C` and the shipping
+dispatcher refused it with `ambiguous code-image identity` after zero guest cycles. The root cause
+is that the stage loader copied START/DEMO/GAME code into their shared `0x80106228` slot without
+publishing an image generation. The earlier MODE activation covered only A00–A0L.
+
+The stage loader now owns its active token per `Engine`, activates the loaded code after the
+synchronous CD read, retires the prior stage on replacement, and binds the two DEMO sub-machine
+declarations only to the DEMO image. The dead parallel stage-loader body was replaced by this
+single live owner. The production catalog and Lightrec dispatcher pass 20 focused checks,
+including START→DEMO→GAME dispatch, DEMO scoped original call, wrong-stage rejection, and
+invalidation. The task's second context word is the caller's `gp` returned by resident
+`FUN_80080930`, not another entry PC; the live loader now preserves this distinct value and
+the production catalog checks the resident-stage write with unequal entry/`gp` fixtures.
+The authentic rerun passed the former frame-3 fault, entered GAME at frame 25,
+and reached SOP's area-load body at frame 27. Its next call to guest `0x8010A8D4` faulted
+before any guest cycle because `SOP.BIN` had been loaded into the MODE slot during DEMO s0
+without publishing an image generation. The normal DEMO loader now activates SOP immediately
+after that synchronous read. The same index-based MODE activation owner reads the guest
+descriptor size for SOP (index 2) and A00–A0L (indices 3–24), so an area replacement retires
+SOP and its compiled blocks. Synthetic SOP→A03 replacement, scoped original calls, and
+invalidation pass. The original A03/A0B
+real-image discriminator remains open.
+
+The next authentic rerun bound SOP at DEMO frame 1, passed its former `0x8010A8D4` fault,
+completed the opening intro, and bound A00 at GAME frame 113. At frame 115 the first field
+tick entered `ActorTomba::frameTick`'s scripted branch and called `0x8018BD30`; dispatch again
+refused an unqualified image after zero guest cycles. The extracted OPN.BIN has a real function
+prologue at offset `0x1D30`, exactly this address from its `0x8018A000` load base. The
+`bf89c==2` transition branch calls `FUN_80045558(0)` to load OPN after the raw area-data read,
+but the AREA slot had no executable generation. The title now activates OPN on that completed
+load and CRD on the front-end load, and retires AREA identity before texture/raw-data writes
+reuse the same slot. Synthetic OPN→CRD dispatch, original-call, invalidation, and raw-data
+retirement checks cover the catalog path. The focused test passes 25/25 checks, including
+the distinct task entry/`gp` write. A corrected-loader authentic 350-frame headless auto-drive
+rerun bound OPN after A00 at frame 113, crossed the former
+frame-115 fault, reported free-roam at frame 216, and exited cleanly at the cap. Lightrec
+reported 82,741 executor calls, 1,688,706 executed blocks, 19,726,370 executed instructions,
+and zero fallback/refused-fallback blocks. This is a real-image load and finite execution
+observation, not an independent oracle or representative interactive gameplay. The next exact
+title discriminator is the authenticated A03/A0B colliding-address native/original-call case.
+
 
 ## Launch-time image authentication
 

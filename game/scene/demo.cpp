@@ -37,18 +37,19 @@
 #include "cfg.h"
 #include "core.h"
 #include "core/asset.h" // class Asset — preloadTexgroup (static, area-load sync)
+#include "demo_load_machine.h"
 #include "game.h"
 #include "game_ctx.h"
 #include "guest_call.h"
 #include "guest_resume.h"
-#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include "native_override_catalog.h" // DEMO image-scoped native declarations
 #include "scheduler.h"               // native_task_spawn (FUN_80051F14 port) — Slip #4 s0 spawn
 #include "world/placement.h"         // ov_place_objects (FUN_80072A78)
 #include "world/pool.h"              // ov_pool_init_run (FUN_8007B18C) + siblings
 #include <stdio.h>
 #include <stdlib.h>
 
-static const uint32_t SM_PTR = 0x1f800138u;
+static const uint32_t SM_PTR = tomba::demo::kStatePtr;
 static const uint32_t TAIL_CF2C = 0x80106650u; // jal 0x8001cf2c (engine update) -> attract render -> yield
 static const uint32_t TAIL_REND = 0x80106658u; // jal 0x80075a80 (attract render) -> yield
 static const uint32_t TAIL_NONE = 0x80106670u; // frame-ctr++ -> yield (no render)
@@ -320,8 +321,8 @@ void ov_demoS2SubMachine(Core *c) {
 } // namespace
 
 void Demo::registerOverrides(Game * /*game*/) {
-  tomba::native::declareOverride(0x80106AC4u, "Demo::s3SubMachine", ov_demoS3SubMachine);
-  tomba::native::declareOverride(0x8010696Cu, "Demo::s2SubMachine", ov_demoS2SubMachine);
+  tomba::native::declareOverlayOverride("DEMO", 0x80106AC4u, "Demo::s3SubMachine", ov_demoS3SubMachine);
+  tomba::native::declareOverlayOverride("DEMO", 0x8010696Cu, "Demo::s2SubMachine", ov_demoS2SubMachine);
 }
 
 // s6 0x801065EC — page sub-machine 0x8007b45c(); if sm[0x50]==3 fire the commit pair 0x80106824(1,1)
@@ -670,6 +671,7 @@ void Demo::s0PreYield() {
   {
     uint32_t tab = 0x800be118u + 2u * 8u;
     c->game->cd.dc40Sync(0x80108f9cu, c->mem_r32(tab), c->mem_r32(tab + 4));
+    tomba::native::activateModeOverlay(*c, eng(c).activeModeOverlay, 2u);
   }
   c->mem_w8(0x801fe0deu, 2);
   c->mem_w8(0x801fe0ddu, 0);
@@ -827,61 +829,14 @@ static void demo_frame_s5(Core *c) {
 // replay the opening movie). All transition paths run TAIL_CF2C
 // (engine update 0x8001cf2c + attract render 0x80075a80); stay-path runs TAIL_REND only.
 //
-// The load sub-machine 0x8007bf20 is reimplemented native+SYNC (load_machine_s4 below): its case-0 disc
+// The load sub-machine 0x8007bf20 is reimplemented native+SYNC (tomba::demo::stepLoadMachine): its case-0 disc
 // load (FUN_80045558(1) = the async indexed reader FUN_8001dc40 to 0x8018a000 — the LOAD-MENU overlay)
 // would spin forever in our no-IRQ runtime, exactly like the s0 loaders. We do that read SYNC (cd_dc40
 // + mark 0x1f80019b done), then typed runtime address dispatch the resident UI driver FUN_8007be18 (which calls the
 // just-loaded overlay's slot browser FUN_8018fa88/fbcc). The memcard reads inside the browser are
 // already sync+instant via the BIOS B0/A0 card HLE (memcard.cpp), so the browser does not yield.
-static void load_machine_s4(Core *c) {
-  uint8_t st = c->mem_r8(0x800bf84au);
-  uint32_t sm;
-  switch (st) {
-  case 0:
-    psx::cpu::dispatchGuestToReturn0(
-        *c, 0x8001cf2cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // engine update
-    { // FUN_80045558(1) = FUN_80045080(0x8018a000, idx=1) = FUN_8001dc40(dest, lba, size) — SYNC read
-      uint32_t tab = 0x800be118u + 1u * 8u; // indexed file table, stride 8 {lba,size}
-      c->game->cd.dc40Sync(0x8018a000u, c->mem_r32(tab), c->mem_r32(tab + 4));
-    }
-    c->mem_w8(0x1f80019bu, 1); // mark the load complete (case 3 reads this)
-    c->mem_w8(0x800bf84au, 1);
-    c->r[4] = 0x0c;
-    c->r[5] = 1;
-    psx::cpu::dispatchGuestToReturn0(
-        *c, 0x800750d8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // FUN_800750d8(0xc, 1): page open
-    break;
-  case 1:
-    c->r[4] = 0;
-    psx::cpu::dispatchGuestToReturn0(
-        *c, 0x8007be18u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // overlay slot browser (param2==0 path)
-    sm = c->mem_r32(SM_PTR);
-    if (c->mem_r16(sm + 0x50) > 1) {
-      c->mem_w8(0x800bf84au, 3); // user picked/cancelled -> poll done
-    }
-    break;
-  case 2: // (param2==0 skips this; sync = always done)
-    c->mem_w8(0x800bf84au, 3);
-    break;
-  case 3:
-    if (c->mem_r8(0x1f80019bu) != 0) {
-      c->mem_w8(0x800bf84au, 4);
-    }
-    break;
-  case 4:
-    c->r[4] = 0;
-    psx::cpu::dispatchGuestToReturn0(
-        *c, 0x8007be18u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // run the chosen action (sets sm[0x6b])
-    c->mem_w8(0x800bf84au, 0);
-    break;
-  default:
-    c->mem_w8(0x800bf84au, 0);
-    break;
-  }
-}
-
 static void demo_frame_s4(Core *c) {
-  load_machine_s4(c); // = jal 0x8007bf20(0,0), native+sync
+  tomba::demo::stepLoadMachine(*c); // = jal 0x8007bf20(0,0), native+sync
   uint32_t sm = c->mem_r32(SM_PTR);
   uint8_t s6b = c->mem_r8(sm + 0x6b);
   if (s6b == 1) {

@@ -403,7 +403,10 @@ def load_installs():
     with no address-bearing definition remains discoverable because its declaration is the binding
     authority."""
     sym2addrs = {}
-    reg = re.compile(r'tomba::native::declareOverride\s*\(\s*0x([0-9A-Fa-f]{8})u?\s*,\s*"([^"]+)"')
+    reg = re.compile(
+        r'tomba::native::declare(?:Overlay)?Override\s*\(\s*(?:"[^"]+"\s*,\s*)?'
+        r'0x([0-9A-Fa-f]{8})u?\s*,\s*"([^"]+)"'
+    )
     for path in collect_files():
         try:
             txt = open(path, encoding="utf-8", errors="replace").read()
@@ -445,7 +448,8 @@ def load_installs():
 # FUN_80027768", which FILE_HEADER_ADDR_RE ("ownership of FUN_xxxx") does not match. Indexing the
 # declaration site fixes it without special-casing the file.
 INSTALL_SITE_RE = re.compile(
-    r'\b(tomba::native::declareOverride)\s*\(\s*0x([0-9A-Fa-f]{8})u?\s*,\s*'
+    r'\b(tomba::native::declare(?:Overlay)?Override)\s*\(\s*(?:"[^"]+"\s*,\s*)?'
+    r'0x([0-9A-Fa-f]{8})u?\s*,\s*'
     r'"([^"]*)"\s*,\s*&?([A-Za-z_][\w:]*(?:<[^;()<>]*>)?)?'
 )
 
@@ -897,7 +901,8 @@ def build(natives, files):
         for m in re.finditer(r'\binstall\s*\(\s*(?:0x[0-9A-Fa-f]+u?|\w+)\s*,\s*"[^"]*"\s*,\s*&?([A-Za-z_][\w:]*)', txt):
             registry_wired.add(m.group(1).split('::')[-1] if '::' not in m.group(1) else m.group(1))
         for m in re.finditer(
-            r'\b(?:tomba::native::)?declareOverride\s*\(\s*(?:0x[0-9A-Fa-f]+u?|\w+)\s*,'
+            r'\b(?:tomba::native::)?declare(?:Overlay)?Override\s*\(\s*(?:"[^"]+"\s*,\s*)?'
+            r'(?:0x[0-9A-Fa-f]+u?|\w+)\s*,'
             r'\s*"[^"]*"\s*,\s*&?([A-Za-z_][\w:]*)',
             txt,
         ):
@@ -1233,11 +1238,17 @@ def selftest():
           f"({len(sites)} installed addresses, {len(unresolved)} unresolved)")
     if unresolved:
         fails.append("addresses with a live install that --addr cannot resolve: " + ", ".join("0x"+x for x in unresolved))
+    overlay_sites = [s for s in sites.get("8010696C", [])
+                     if s["file"] == "game/scene/demo.cpp" and s["name"] == "Demo::s2SubMachine"
+                     and s["idiom"] == "tomba::native::declareOverlayOverride"]
+    print(f"  [{'ok ' if overlay_sites else 'FAIL'}] DEMO image-qualified declaration is indexed at its site")
+    if not overlay_sites:
+        fails.append("DEMO 0x8010696C image-qualified declaration disappeared from the site index")
     for f in fails:
         print("FAIL: " + f)
     print(f"\n{len(SELFTEST_POSITIVE)} positive case(s), {len(SELFTEST_NEGATIVE)} negative control(s), "
           f"{len(SHAPES)} shape(s) censused ({len(SELFTEST_UNEXEMPLIFIED)} declared unexemplified: "
-          f"{', '.join(SELFTEST_UNEXEMPLIFIED) or 'none'}), 6 invariant(s) — {len(fails)} failure(s).")
+          f"{', '.join(SELFTEST_UNEXEMPLIFIED) or 'none'}), 7 invariant(s) — {len(fails)} failure(s).")
     return 1 if fails else 0
 
 

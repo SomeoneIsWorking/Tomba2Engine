@@ -71,22 +71,17 @@ Resident declarations are restricted to the explicit resident token and text ran
 two boot-load boundaries. MODE overlays now use the same generation-qualified binding contract;
 the remaining gap is authenticating and exercising the complete title load route on real data.
 
-Observed startup: issue 0006 records the supported-syscall fix; issue 0007 records
-preserved guest-task lifetime across JIT budgets and the integrated real-image
-run completing native frames 0 and 1 at DEMO. The final canonical title verifier
-passes all 22 tests and execution-boundary checks. The two-frame run has nonzero
-translated execution and zero fallback; exact denominators and its missing UI
-resource-path limitation are recorded in issue 0007. This checkpoint does not
-establish gameplay conformance, UI fidelity, or restoration of the recorded
-free-roam frontier. Authenticated resident/overlay original calls and broader
-gameplay qualification remain open.
-
-The image-aware override catalog now qualifies native registrations by the active resident or
-named MODE overlay image generation. Area loads retire the previous MODE image, hash and activate
-the exact A00..A0L byte range, then bind only declarations owned by that image. Focused catalog
-coverage passes 11 checks, including colliding A03/A0B addresses, replacement generations, and
-resident isolation. This is a runtime residency milestone; the real free-roam gate still needs
-the authenticated overlay route and complete gameplay evidence.
+On main `4fe4e20`, the canonical title verifier passed 22 tests and execution-boundary checks;
+issue 0007 holds the two-frame real-image Lightrec/fallback denominators. Current work qualifies
+native dispatch by resident, stage, MODE, and AREA image generations. Authentic local runs passed
+the former DEMO frame-3 and SOP frame-27 identity faults, completed the intro, and loaded A00 at
+GAME frame 113. The next run stopped at frame 115 on OPN code in the shared `0x8018A000`
+AREA/data slot without an image generation. After OPN/CRD activation and retirement before
+raw-data reuse, 25 focused catalog checks pass. An authentic 350-frame run with the corrected
+stage task entry/`gp` loader bound OPN, crossed frame 115, reported free-roam at frame 216,
+and exited with 1,688,706 translated
+blocks and zero fallback blocks. The authentic A03/A0B native/original-call discriminator,
+independent comparison, and representative interactive gameplay remain open (issue 0005).
 
 ### S002 — Independent Tomba! 2 comparison: partial
 

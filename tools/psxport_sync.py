@@ -43,7 +43,7 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LINK = os.path.join(REPO, "external", "psxport")
 PIN = os.path.join(REPO, "psxport.pin")
-RESOLVED = os.path.join(REPO, "build", "psxport_resolved.txt")
+CANONICAL_VERIFY_BUILD = os.path.join(REPO, "build", "ci")
 DEFAULT_URL = "https://github.com/SomeoneIsWorking/psxport.git"
 
 # Where a shared clone lives, in preference order. $PSX wins so a differently-laid-out workspace works.
@@ -123,13 +123,13 @@ def dirty(path):
 
 def report(args):
     kind, target = describe_link()
-    url, pin = read_pin()
+    _, pin = read_pin()
     sha = head_of(target) if kind in ("symlink", "clone") else None
     print(f"[psxport] external/psxport : {kind}" + (f" -> {target}" if kind == "symlink" else ""))
     print(f"[psxport] framework HEAD   : {sha or '(none)'}"
           + ("  +dirty" if sha and dirty(target) else ""))
     print(f"[psxport] recorded pin     : {pin or '(no psxport.pin)'}")
-    built = read_resolved()
+    built = read_resolved(args.build)
     if built:
         print(f"[psxport] last build used  : {built[1]}  (from {built[0]})")
     if sha and pin:
@@ -143,12 +143,13 @@ def report(args):
     return 0
 
 
-def read_resolved():
-    """(dir, sha) the last cmake configure resolved, or None. Written by CMakeLists."""
-    if not os.path.isfile(RESOLVED):
+def read_resolved(build):
+    """(dir, sha) the selected CMake configure resolved, or None. Written by CMakeLists."""
+    receipt = os.path.join(build, "psxport_resolved.txt")
+    if not os.path.isfile(receipt):
         return None
     d = s = None
-    for line in open(RESOLVED):
+    for line in open(receipt):
         k, _, v = line.partition("=")
         if k.strip() == "dir":
             d = v.strip()
@@ -245,24 +246,30 @@ def do_bump(args):
 
 def do_check(args):
     """The precommit check: what you BUILT against must be what this repo RECORDS."""
-    url, pin = read_pin()
+    return check_build_pin(args.build)
+
+
+def check_build_pin(build):
+    """Refuse unless this exact CMake build's framework receipt matches the recorded pin."""
+    _, pin = read_pin()
     if not pin:
         print("[psxport] REFUSED: no psxport.pin — this check asserted NOTHING.")
         return 2
-    built = read_resolved()
+    built = read_resolved(build)
     if not built:
-        print(f"[psxport] check: no build/psxport_resolved.txt — this tree has not been configured, so "
-              f"there is nothing to compare the pin against. Asserting nothing (pin {pin[:8]}).")
-        return 0
+        print(f"[psxport] REFUSED: no usable psxport_resolved.txt in {build}; "
+              f"nothing can be compared with pin {pin[:8]}.")
+        return 2
     bdir, bsha = built
     if bsha == pin:
-        print(f"[psxport] check OK — built against {bsha[:8]}, which is the recorded pin.")
+        print(f"[psxport] check OK — {build} was built against {bsha[:8]}, which is the recorded pin.")
         return 0
     print(f"[psxport] check FAILED — you built against {bsha[:8]} (from {bdir}) but this repo records "
           f"{pin[:8]}.")
     print(f"[psxport]   A fresh clone would build a DIFFERENT framework than you just tested. That is "
           f"how this tree once recorded a pin whose GameHooks lacked a field the game used.")
-    print(f"[psxport]   Fix:  python3 tools/psxport_sync.py --bump")
+    print("[psxport]   Fix: reconfigure and verify this build against the recorded pin, "
+          "or bump the pin only after verifying a different published framework commit.")
     return 1
 
 
@@ -276,6 +283,8 @@ def main():
     g.add_argument("--bump", action="store_true", help="record the framework you are building against")
     g.add_argument("--check", action="store_true", help="fail if the built framework is not the pin")
     ap.add_argument("--force", action="store_true", help="allow --link to replace a real clone")
+    ap.add_argument("--build", default=CANONICAL_VERIFY_BUILD,
+                    help="CMake build directory whose framework receipt to inspect (default: build/ci)")
     args = ap.parse_args()
     if args.link:  return do_link(args)
     if args.clone: return do_clone(args)

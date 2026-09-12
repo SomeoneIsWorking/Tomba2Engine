@@ -29,7 +29,7 @@
 #include "core/asset.h"               // Engine owns the Asset loader subsystem
 #include "demo.h"                     // Engine owns the Demo front-end MENU stage machine
 #include "math/mathlib.h"             // Engine owns the Bit game-flag bitmap subsystem
-#include "native_override_catalog.h"  // MODE overlay image residency and scoped native bindings
+#include "native_override_catalog.h"  // overlay image residency and scoped native bindings
 #include "object/animation.h"         // Engine owns the Animation per-object VM stepper
 #include "object/behavior_dispatch.h" // Engine owns the per-object BehaviorDispatch subsystem
 #include "object_list.h"              // Engine owns the ObjectList entity-list walkers
@@ -135,9 +135,13 @@ public:
   Font font;                               // boot-time font / text init subsystem (guest FUN_80075130)
   Animation animation;                     // per-object animation-VM stepper       (guest FUN_80076D68)
   Asset asset;                             // asset loader — LZ + texgroup + VRAM upload + boot preload
+  // START, DEMO, and GAME reuse the stage-code slot independently of MODE.
+  std::optional<psx::cpu::ImageIdentity> activeStageOverlay;
   // The fixed MODE slot holds one A00..A0L code image at a time. Keep its image token per Core so
   // replacing an area retires the old address-qualified native registrations before binding the new one.
   std::optional<psx::cpu::ImageIdentity> activeModeOverlay;
+  // OPN/CRD code shares 0x8018A000 with raw area and texture staging data.
+  std::optional<psx::cpu::ImageIdentity> activeAreaOverlay;
   MusicCoord musicCoord;                     // dialog ↔ ingame-music coordination (instant-CD-safe PC mod)
   Collision collision;                       // collision-grid family (list-scan + grid
                                              // setup/query/resolve/step)
@@ -383,7 +387,7 @@ public:
   void task0Bootstrap();
 
   // startStage(stage): FUN_80052078 — switch task 0 to the given stage. Loads
-  // the stage overlay (native_load_overlay), sets task state=3, hits the three
+  // the stage overlay through tomba::stage::loadOverlay, sets task state=3, hits the three
   // BIOS EnterCS/B0F-reset/ExitCS leaves, then yields the scheduler. Public
   // wrapper (was the free fn `demo_start_stage(Core*, uint32_t)`) plus the
   // previous file-scope `native_start_stage` helper. Also the tail of

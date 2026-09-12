@@ -76,8 +76,10 @@ include(titles/tomba1/cmake/tomba1_port.cmake)
 
 if(BUILD_TESTING)
   add_executable(test_native_override_catalog
-      tests/test_native_override_catalog.cpp game/core/native_override_catalog.cpp)
-  target_include_directories(test_native_override_catalog PRIVATE game/core)
+      tests/test_native_override_catalog.cpp
+      game/core/native_override_catalog.cpp
+      game/scene/level_load.cpp)
+  target_include_directories(test_native_override_catalog PRIVATE game/core game/scene)
   target_link_libraries(test_native_override_catalog PRIVATE psxport)
   add_test(NAME tomba_native_override_catalog COMMAND test_native_override_catalog)
 
@@ -113,7 +115,7 @@ if(BUILD_TESTING)
   add_test(NAME tomba_cube_text_banner_policy COMMAND test_cube_text_banner_policy)
 
   set(TOMBA_CPP_POLICY_CAPS
-      game/core/engine.cpp=4375
+      game/core/engine.cpp=4355
       game/player/actor_tomba.cpp=1452
       game/audio/sequencer.cpp=2796
       game/ai/actor_zoned_attacker.cpp=1535
@@ -138,6 +140,9 @@ if(BUILD_TESTING)
   add_test(
     NAME tomba2_provision_selftest
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_tomba2_provision.py")
+  add_test(
+    NAME tomba_psxport_pin_selftest
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_psxport_sync.py")
   add_test(
     NAME tomba_dynarec_boundary_selftest
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_dynarec_boundary.py" --selftest)

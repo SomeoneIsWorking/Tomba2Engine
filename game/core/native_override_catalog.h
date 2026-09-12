@@ -37,11 +37,18 @@ psx::cpu::ImageIdentity activateOverlay(Core &core,
                                         std::string_view imageName,
                                         GuestAddressRange text);
 
-// Publishes the field-code image loaded in the fixed MODE slot. The size comes from the same
-// authenticated GAME.BIN descriptor table used by FUN_80045080, so the active range covers exactly
-// the bytes read by the loader.
+// Retire a loaded code image before its slot is reused or returns to resident code.
+void retireOverlay(Core &core, std::optional<psx::cpu::ImageIdentity> &active);
+
+// Publishes an already-loaded image in the fixed MODE slot. File index 2 is SOP; indices 3..24
+// are A00..A0L. Read the size from FUN_80045080's own descriptor table after its load completes.
 psx::cpu::ImageIdentity
-activateAreaOverlay(Core &core, std::optional<psx::cpu::ImageIdentity> &active, std::uint32_t area, std::uint32_t size);
+activateModeOverlay(Core &core, std::optional<psx::cpu::ImageIdentity> &active, std::uint32_t fileIndex);
+
+// Publishes OPN (index 0) or CRD (index 1) after FUN_80045558 loads it at 0x8018A000.
+// The caller retires this token before that shared slot is reused for raw area or texture data.
+psx::cpu::ImageIdentity
+activateAreaSlotOverlay(Core &core, std::optional<psx::cpu::ImageIdentity> &active, std::uint32_t fileIndex);
 
 // The disc's 22 field-code files are named A00..A0L in area-index order.
 std::string overlayNameForArea(std::uint32_t area);
