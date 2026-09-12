@@ -68,6 +68,9 @@ collision semantics for these bounded paths. No shipping A03/A0B overlay overrid
 and no real game route reached `0x801113B4` under either overlay. The required resident native
 original-call comparison, reached overlay owner calls, exact runtime overlay-content
 authentication, and representative gameplay conformance remain open.
+On pinned psxport `4e8dcc0f`, the combined Clang asset-free gate passed 23/23 CTest cases,
+the execution-boundary scan, and the build-receipt pin check; the separate local real-byte
+probe also passed against that gate's binary.
 
 ## Stage slot dispatch frontier, 2026-09-12
 
