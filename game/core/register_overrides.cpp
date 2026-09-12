@@ -139,7 +139,7 @@ void register_engine_overrides(Game &owner) {
                                                // pump's arm-end (0x80118B10, area 0)
   SubstateEdgeLeaves::registerOverrides(game); // authored A00 child-oscillator loop (0x801316CC)
   CollisionResolve::registerOverrides(game);   // actor-vs-object cylinder collision resolve (0x80023D48)
-  LibapiIntr::registerOverrides(
+  tomba::LibapiIntr::registerOverrides(
       game); // libapi SetIntrMask (0x80085C9C) — I_MASK swap through libapi's hw-pointer table
   LibgpuDrawEnv::registerOverrides(
       game); // libgpu SetDrawEnv (0x80081FB0) — DRAWENV -> DR_ENV packet compiler, 2x/frame from PutDrawEnv/DrawOTagEnv

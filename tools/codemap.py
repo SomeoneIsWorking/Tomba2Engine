@@ -69,7 +69,7 @@ DEF_RE  = re.compile(r'^\s*(?:static\s+)?(?:inline\s+)?[\w:*&<>]+\s+((?:ov_|nati
 # PC-game-structure natives are C++ CLASS METHODS (e.g. `void Camera::lookAt()`), which take no Core*
 # param (they hold it as a member). Index those too; the owned guest FUN_/addr is read from a trailing
 # `// FUN_xxxx` on the def line or the comment block above (same association logic as free functions).
-METHOD_RE = re.compile(r'^\s*(?:static\s+)?(?:inline\s+)?[\w:*&<>]+\s+(\w+::\w+)\s*\(')
+METHOD_RE = re.compile(r'^\s*(?:static\s+)?(?:inline\s+)?[\w:*&<>]+\s+((?:\w+::)+\w+)\s*\(')
 # A SECOND class of native carries NO recognized prefix at all: a free function named
 # `<description>_<hexsuffix>` (grid_query_47cbc, child_spawn_40410, hitbox_build_3b220, ...) that
 # takes `Core*` exactly like an `ov_`/`native_` native and is tagged the same way (a `// FUN_xxxx —`
@@ -817,7 +817,8 @@ def build(natives, files):
     # audit were this exact false positive. The same "bare identifier used as a value, not a call" shape
     # also covers other pointer-table registrations (EngineOverrides::register_, PlatformHle::register_)
     # for symbols that already match one of these prefixes or the Class::method form.
-    qualified_re = re.compile(r'\b(ov_\w+|native_\w+|eng_\w+|beh_\w+|[A-Z][A-Za-z0-9_]*::[A-Za-z_]\w*)\b')
+    qualified_re = re.compile(
+        r'\b(ov_\w+|native_\w+|eng_\w+|beh_\w+|(?:[A-Za-z_]\w*::)*[A-Z][A-Za-z0-9_]*::[A-Za-z_]\w*)\b')
     # (2) instance-call syntax for METHOD natives: `.name(`, `->name(`, or bare `name(` all share the
     #     same trailing token — the callee's bare method name immediately before `(`. We can't see the
     #     receiver's static type without a real parser, so to avoid a common method name (e.g. `run`,
@@ -854,7 +855,7 @@ def build(natives, files):
     for s in sym_set:
         if "::" not in s:
             continue
-        cls, bare = s.split("::", 1)
+        cls, bare = s.rsplit("::", 1)
         if name_count.get(bare, 0) <= 1:
             continue  # handled by the unique bare-name path above
         segs = seg_re.findall(cls) or [cls]
@@ -1084,6 +1085,7 @@ SELFTEST_POSITIVE = [
     ("80077FB0", "game/math/gte_math.cpp",           "static eov_* guest-ABI shim, no tag", ""),
     ("8005019C", "game/ui/panel.cpp",                "anonymous-namespace tap", ""),
     ("8007E1B8", "game/render/ui_ft4_tap.cpp",       "single installer that the definition scan missed entirely", "consumers-claim-elsewhere"),
+    ("80086288", "game/core/libapi_intr.cpp",         "namespace-qualified class method keeps its guest ownership", ""),
 ]
 # A shape the scanner IMPLEMENTS but that no longer has a live example here, so no fixture can assert
 # it. Named rather than dropped: silence would read as "covered". The selftest prints the count with
@@ -1265,8 +1267,8 @@ def selftest_negative_controls():
     its message names the right cause. A control that merely asserts "fails" would pass for the wrong
     reason — a broken scanner fails everything."""
     import contextlib, io
-    global SELFTEST_POSITIVE, SELFTEST_UNEXEMPLIFIED, INSTALL_SITE_RE
-    saved = (SELFTEST_POSITIVE, SELFTEST_UNEXEMPLIFIED, INSTALL_SITE_RE)
+    global SELFTEST_POSITIVE, SELFTEST_UNEXEMPLIFIED, INSTALL_SITE_RE, METHOD_RE
+    saved = (SELFTEST_POSITIVE, SELFTEST_UNEXEMPLIFIED, INSTALL_SITE_RE, METHOD_RE)
     dead = "game/render/fx_mesh.cpp"   # deleted in abf3cf9 — the real rot, replayed
     controls = [
         ("ROTTED FIXTURE (exemplar file deleted)",
@@ -1276,6 +1278,10 @@ def selftest_negative_controls():
         ("SCANNER REGRESSION (declaration-site scan resolves nothing)",
          lambda: globals().__setitem__("INSTALL_SITE_RE", re.compile(r'(?!x)x()()()')),
          "has ZERO live examples in the tree"),
+        ("SCANNER REGRESSION (namespace-qualified method is invisible)",
+         lambda: globals().__setitem__("METHOD_RE", re.compile(
+             r'^\s*(?:static\s+)?(?:inline\s+)?[\w:*&<>]+\s+(\w+::\w+)\s*\(')),
+         "0x80086288: expected owner file"),
         ("FIXTURE DRIFT (pinned as a shape it is not an example of)",
          lambda: globals().__setitem__("SELFTEST_POSITIVE",
              [(a, f, w, "template-handler" if a == "8004FFB4" else s) for a, f, w, s in saved[0]]),
@@ -1288,7 +1294,7 @@ def selftest_negative_controls():
     print(f"NEGATIVE CONTROLS for --selftest: {len(controls)} deliberately-broken trees, each of which "
           f"MUST make it exit non-zero for the STATED reason.")
     for label, mutate, want in controls:
-        SELFTEST_POSITIVE, SELFTEST_UNEXEMPLIFIED, INSTALL_SITE_RE = saved
+        SELFTEST_POSITIVE, SELFTEST_UNEXEMPLIFIED, INSTALL_SITE_RE, METHOD_RE = saved
         mutate()
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
@@ -1301,7 +1307,7 @@ def selftest_negative_controls():
             bad += 1
             print("         --- its output ---\n" + "".join("         " + l + "\n"
                                                             for l in out.splitlines() if "FAIL" in l))
-    SELFTEST_POSITIVE, SELFTEST_UNEXEMPLIFIED, INSTALL_SITE_RE = saved
+    SELFTEST_POSITIVE, SELFTEST_UNEXEMPLIFIED, INSTALL_SITE_RE, METHOD_RE = saved
     print(f"\n{len(controls)} control(s), {bad} that did NOT fire. A control that does not fire means "
           f"--selftest is blind to that failure mode.")
     return 1 if bad else 0

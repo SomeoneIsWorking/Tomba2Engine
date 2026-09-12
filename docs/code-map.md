@@ -512,10 +512,10 @@ Totals: 796 native fns, 641 owned addresses, 790 LIVE / 6 ORPHAN. 241 override d
 | 0x800851F0 | LIVE | `Math::rotMatSoftYXZ` | game/math/gte_math.cpp:641 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x80085480 | LIVE | `Math::rotmat` | game/math/gte_math.cpp:380 |  |  |
 | 0x80085690 | LIVE | `Trig::ratan2` | game/math/trig.cpp:28 |  |  |
-| 0x80085C9C | LIVE | `LibapiIntr::setIntrMask` | game/core/libapi_intr.cpp:112 |  |  |
-| 0x80086230 | LIVE | `LibapiIntr::initVblankCallbacks` | game/core/libapi_intr.cpp:122 |  | FUN_0x80086230 — VBlank-callback subsystem init: clear the 8-slot VSyn… |
-| 0x80086288 | LIVE | `LibapiIntr::runVblankCallbacks` | game/core/libapi_intr.cpp:145 |  | FUN_0x80086288 — the VBlank handler itself: bump the tick counter, the… |
-| 0x80086320 | LIVE | `LibapiIntr::clearWords` | game/core/libapi_intr.cpp:175 |  | FUN_0x80086320 — the word-fill helper: writes N words of a constant. |
+| 0x80085C9C | LIVE | `tomba::LibapiIntr::setIntrMask` | game/core/libapi_intr.cpp:116 |  |  |
+| 0x80086230 | LIVE | `tomba::LibapiIntr::initVblankCallbacks` | game/core/libapi_intr.cpp:126 |  | FUN_0x80086230 — VBlank-callback subsystem init: clear the 8-slot VSyn… |
+| 0x80086288 | LIVE | `tomba::LibapiIntr::runVblankCallbacks` | game/core/libapi_intr.cpp:148 |  | FUN_0x80086288 — the VBlank handler itself: bump the tick counter, the… |
+| 0x80086320 | LIVE | `tomba::LibapiIntr::clearWords` | game/core/libapi_intr.cpp:177 |  | FUN_0x80086320 — the word-fill helper: writes N words of a constant. |
 | 0x80086604 | LIVE | `Engine::activeModeCtx` | game/scene/startup.cpp:337 |  | Engine::activeModeCtx. Accessor: returns the active mode/draw-env cont… |
 | 0x80086604 | LIVE | `ov_engineActiveModeCtx` | game/core/engine.cpp:4337 |  | installed via tomba::native::declareOverride() at game/core/engine.cpp… |
 | 0x80086620 | LIVE | `eng_init_mode_ctrl` | game/scene/startup.cpp:201 |  | engine MODE control: file-local helper (only called from Engine::initS… |

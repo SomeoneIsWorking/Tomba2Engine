@@ -22,7 +22,7 @@
 //
 // WHAT IT DOES, in game terms: once per vertical blank it bumps the libetc VSync tick counter the
 // whole game paces off (0x800ABDE0 — the very counter libetc's VSync(mode) returns, and the one
-// Timing::frameTick mirrors natively) and then runs every VSyncCallback the game has installed, by
+// TombaFrameDriver mirrors after the host field tick) and then runs every VSyncCallback the game has installed, by
 // walking libapi's 8-slot function-pointer table at 0x800ABDC0 and calling each non-null entry.
 // It is the "chain" half of the VSyncCallback API: register a callback -> it lands in a table slot
 // -> this handler is what actually calls it, every frame.
@@ -55,8 +55,8 @@
 // native body runs in exactly the same place with exactly the same reachability. Nothing here
 // needs replacing; it needs porting.
 //
-// TRAP, worth stating: the counter at 0x800ABDE0 has TWO writers in this port. Timing::frameTick()
-// STORES its own mirror there once per native frame, while this handler READ-MODIFY-WRITES it
+// TRAP, worth stating: the counter at 0x800ABDE0 has TWO writers in this port. TombaFrameDriver
+// STORES the host count there once per native frame, while this handler READ-MODIFY-WRITES it
 // (+1). That interleaving is pre-existing substrate behaviour and the port reproduces it exactly —
 // do not "fix" it here; a change would be a guest-state divergence, not a cleanup.
 //
@@ -109,9 +109,13 @@ constexpr uint32_t kRaInterruptCallback = 0x80086270u;
 constexpr uint32_t kRaCallbackSlot = 0x800862D0u;
 } // namespace
 
-void LibapiIntr::setIntrMask(Core *c) {
-  const uint32_t imaskPtr = c->mem_r32(kLibapiHwPtrTable);
-  const uint32_t previous = c->mem_r16(imaskPtr); // lhu — zero-extended, see the banner
+void tomba::LibapiIntr::mirrorHostVblank(Core &core, std::uint32_t hostCount) {
+  core.mem_w32(kVblankTickCount, hostCount);
+}
+
+void tomba::LibapiIntr::setIntrMask(Core *c) {
+  uint32_t imaskPtr = c->mem_r32(kLibapiHwPtrTable);
+  uint32_t previous = c->mem_r16(imaskPtr); // lhu — zero-extended, see the banner
   c->mem_w16(imaskPtr, (uint16_t)c->r[4]);
   c->r[2] = previous;
 }
@@ -119,9 +123,8 @@ void LibapiIntr::setIntrMask(Core *c) {
 // FUN_0x80086230 — VBlank-callback subsystem init: clear the 8-slot VSyncCallback table and its
 // tick counter, then install runVblankCallbacks() below as the IRQ-0 (VBLANK) handler.
 // ORACLE: guest 0x80086230
-void LibapiIntr::initVblankCallbacks(Core *c) {
-  static constexpr GuestFrameSpill kSpills[] = {{31 /*ra*/, 16}}; // -24, abi_extract-verified
-  GuestFrame<24, 1> frame(c, kSpills);
+void tomba::LibapiIntr::initVblankCallbacks(Core *c) {
+  GuestFrame<24, 1> frame(c, kInitVblankSpills); // -24, abi_extract-verified
 
   c->r[4] = kVsyncCallbackTable; // a0 for the clearWords() call below — set early, kept live
   c->mem_w32(c->mem_r32(kTimer1ModePtrSlot), kTimer1ModeHblankSource);
@@ -142,12 +145,11 @@ void LibapiIntr::initVblankCallbacks(Core *c) {
 // registered in the 8-slot table. See this file's second banner for the identification, the
 // PlatformHle determination and the LIVE-REGISTER note.
 // ORACLE: guest 0x80086288
-void LibapiIntr::runVblankCallbacks(Core *c) {
+void tomba::LibapiIntr::runVblankCallbacks(Core *c) {
   // Read before the frame descends sp, exactly as the guest-visible behavior does (lw into v0, then addiu sp).
-  const uint32_t ticks = c->mem_r32(kVblankTickCount);
+  uint32_t ticks = c->mem_r32(kVblankTickCount);
 
-  static constexpr GuestFrameSpill kSpills[] = {{17, 20}, {16, 16}, {31 /*ra*/, 24}};
-  GuestFrame<32, 3> frame(c, kSpills); // -32, abi_extract-verified (program order preserved)
+  GuestFrame<32, 3> frame(c, kRunVblankSpills); // -32, abi_extract-verified (program order preserved)
 
   GuestReg<17> slotIndex(c); // s1 — 0..7, live across every callback dispatch
   GuestReg<16> slotAddr(c);  // s0 — &table[slotIndex], live across every callback dispatch
@@ -172,7 +174,7 @@ void LibapiIntr::runVblankCallbacks(Core *c) {
 
 // FUN_0x80086320 — the word-fill helper: writes N words of a constant.
 // ORACLE: guest 0x80086320
-void LibapiIntr::clearWords(Core *c) {
+void tomba::LibapiIntr::clearWords(Core *c) {
   {
     int _t = (c->r[5] == c->r[0]);
     c->r[2] = c->r[5] + (uint32_t)-1;
@@ -195,11 +197,13 @@ L_8008633C:;
   return;
 }
 
-void LibapiIntr::registerOverrides(Game *) {
-  tomba::native::declareOverride(0x80085C9Cu, "&LibapiIntr::setIntrMask", &LibapiIntr::setIntrMask);
-  tomba::native::declareOverride(0x80086320u, "&LibapiIntr::clearWords", &LibapiIntr::clearWords);
-  tomba::native::declareOverride(0x80086230u, "&LibapiIntr::initVblankCallbacks", &LibapiIntr::initVblankCallbacks);
+void tomba::LibapiIntr::registerOverrides(Game *) {
+  tomba::native::declareOverride(0x80085C9Cu, "tomba::LibapiIntr::setIntrMask", &tomba::LibapiIntr::setIntrMask);
+  tomba::native::declareOverride(0x80086320u, "tomba::LibapiIntr::clearWords", &tomba::LibapiIntr::clearWords);
+  tomba::native::declareOverride(
+      0x80086230u, "tomba::LibapiIntr::initVblankCallbacks", &tomba::LibapiIntr::initVblankCallbacks);
   // Named install so PSXPORT_DEBUG=ovhit reports this one in game terms rather than as a bare
   // address — it is the hottest thing in this file (~2 hits per frame, forever).
-  tomba::native::declareOverride(kVblankHandler, "LibapiIntr::runVblankCallbacks", &LibapiIntr::runVblankCallbacks);
+  tomba::native::declareOverride(
+      kVblankHandler, "tomba::LibapiIntr::runVblankCallbacks", &tomba::LibapiIntr::runVblankCallbacks);
 }

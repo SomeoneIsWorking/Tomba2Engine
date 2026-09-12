@@ -8,6 +8,7 @@
 #include "gpu_vk.h"
 #include "guest_call.h"
 #include "hw_bind.h"
+#include "libapi_intr.h"
 #include "render.h"
 
 #include <cstdlib>
@@ -96,6 +97,7 @@ void TombaFrameDriver::stepFrame(Core &core, uint32_t frame) {
   game.timing.logicFrame = frame;
   game.perf.frameBegin();
   game.timing.frameTick();
+  LibapiIntr::mirrorHostVblank(core, game.timing.vblank);
   for (uint32_t eventClass : cfg.irqEventClasses) {
     game.hle.deliverEvent(eventClass, 0xffffffffu);
   }

@@ -11,11 +11,20 @@
 // body is a faithful mirror and goes through the ordinary override registry like any other leaf,
 // oracle-gated so core B keeps running the guest body.
 #pragma once
+#include "guest_abi.h"
+
+#include <cstdint>
 struct Core;
 class Game;
 
+namespace tomba {
+
 class LibapiIntr {
 public:
+  // Preserve Tomba! 2's measured libetc guest counter mirror at its native frame boundary.
+  // The shared Timing owner advances the host count but does not know this title's RAM address.
+  static void mirrorHostVblank(Core &core, std::uint32_t hostCount);
+
   // FUN_80085C9C — SetIntrMask(u16 mask) -> u16 previousMask. Reads the current 16-bit value at
   // *0x800ABDA8 (= I_MASK), stores the new one, returns the old, zero-extended.
   //
@@ -36,4 +45,10 @@ public:
   static void runVblankCallbacks(Core *c);
 
   static void registerOverrides(Game *game);
+
+private:
+  inline static constexpr GuestFrameSpill kInitVblankSpills[1] = {{31u, 16u}};
+  inline static constexpr GuestFrameSpill kRunVblankSpills[3] = {{17u, 20u}, {16u, 16u}, {31u, 24u}};
 };
+
+} // namespace tomba

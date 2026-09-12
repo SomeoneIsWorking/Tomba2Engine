@@ -96,6 +96,14 @@ if(BUILD_TESTING)
   target_link_libraries(test_gpu_timeout_dispatch PRIVATE psxport)
   add_test(NAME tomba_gpu_timeout_dispatch COMMAND test_gpu_timeout_dispatch)
 
+  add_executable(test_libapi_vblank_mirror
+      tests/test_libapi_vblank_mirror.cpp
+      game/core/libapi_intr.cpp
+      game/core/native_override_catalog.cpp)
+  target_include_directories(test_libapi_vblank_mirror PRIVATE game/core)
+  target_link_libraries(test_libapi_vblank_mirror PRIVATE psxport)
+  add_test(NAME tomba_libapi_vblank_mirror COMMAND test_libapi_vblank_mirror)
+
 
   add_executable(test_scene_kind tests/test_scene_kind.cpp game/render/scene_kind.cpp)
   target_include_directories(test_scene_kind PRIVATE game/render)
