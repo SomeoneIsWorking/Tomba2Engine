@@ -40,7 +40,7 @@ in `codemap.md`.
 ## Current focus
 
 S001 is the current focus. The break-first removal is complete and the shared per-`Core` Lightrec
-executor is pinned at psxport `a5a796521668cf078e150808cc1fc4616d1f31d6`. Issue 0005 must now
+executor is pinned at psxport `161cb1327c897ebb5305a8a51047221cfb7e4647`. Issue 0005 must now
 prove one resident and one colliding-overlay override plus scoped original calls through the shipping
 dispatcher. Tomba! 2 then regains its recorded free-roam frontier and passes representative gameplay.
 Tomba! 1 remains deferred until that complete gate. Issue 0006's supported-syscall
@@ -67,10 +67,9 @@ interactive gameplay with no guest instructions at source or interpreter-first g
 Bounded fallback telemetry must name each reason, remain below the declared threshold, and be excluded
 from gameplay-conformance and performance evidence.
 Issue 0005 is the first discriminator.
-Resident declarations are now restricted to the explicit resident token and text
-range captured at the two boot-load boundaries. Runtime-load authentication and
-overlay-specific activation/binding remain missing; a generation token is not an
-authenticated title identity.
+Resident declarations are restricted to the explicit resident token and text range captured at the
+two boot-load boundaries. MODE overlays now use the same generation-qualified binding contract;
+the remaining gap is authenticating and exercising the complete title load route on real data.
 
 Observed startup: issue 0006 records the supported-syscall fix; issue 0007 records
 preserved guest-task lifetime across JIT budgets and the integrated real-image
@@ -81,6 +80,13 @@ resource-path limitation are recorded in issue 0007. This checkpoint does not
 establish gameplay conformance, UI fidelity, or restoration of the recorded
 free-roam frontier. Authenticated resident/overlay original calls and broader
 gameplay qualification remain open.
+
+The image-aware override catalog now qualifies native registrations by the active resident or
+named MODE overlay image generation. Area loads retire the previous MODE image, hash and activate
+the exact A00..A0L byte range, then bind only declarations owned by that image. Focused catalog
+coverage passes 11 checks, including colliding A03/A0B addresses, replacement generations, and
+resident isolation. This is a runtime residency milestone; the real free-roam gate still needs
+the authenticated overlay route and complete gameplay evidence.
 
 ### S002 — Independent Tomba! 2 comparison: partial
 
