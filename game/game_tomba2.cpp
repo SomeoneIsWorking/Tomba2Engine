@@ -36,6 +36,7 @@
 #include "render/ui_ft4_tap.h"  // UiFt4Tap::install  — FUN_8007E1B8 shared FT4 leaf, one owner
 #include "screen_fade.h"        // ScreenFade::installLeafTap — FUN_8007E9C8 global fade-leaf ownership
 #include "script_vm.h"          // PC-native per-object script-VM subsystem
+#include "str.h"                // Resident string leaves
 #include "ui/options_page.h"    // OptionsPage::install — the five OPTIONS page builders + their backdrop
 #include "ui/panel.h"           // Panel::install — FUN_8004FFB4/8005019C global panel-leaf ownership
 #include "ui/pause_menu.h"      // PauseMenu::install — FUN_800346BC/8007E1B8 in-game menu chrome producer
@@ -232,18 +233,17 @@ void games_tomba2_init(void) {
   void gpu_putdrawenv_install();
   gpu_putdrawenv_install(); // FUN_800815D0 PutDrawEnv + 4 DRAWENV field-word builders
   void font_wide_re_install();
-  font_wide_re_install(); // FUN_80079374/80078CA8 Font::drawText/glyphEmit (hottest unowned leaves)
-  void str_wide_re_install();
-  str_wide_re_install();        // FUN_80079528 Str::length (generic strlen, hottest unowned leaf)
-  ScreenFade::installLeafTap(); // FUN_8007E9C8 fade leaf: guest-visible behavior + host-state mirror (fixes #63)
-  Panel::install();             // FUN_8004FFB4/8005019C/8007CC00 panel + dialog-glyph taps
-  PauseMenu::install();         // FUN_800346BC/8007E1B8 in-game pause/item menu chrome (#21)
-  StartPage::install();         // FUN_8007EAE4 in-game START page chrome (#35)
-  CardMenu::install();          // CRD-overlay FUN_8018FBCC card save/load menu chrome (#102)
-  OptionsPage::install();       // FUN_8007F104..F8F8 page scopes + FUN_8007FC24 backdrop (#38)
-  PauseMenu::install();         // FUN_800346BC in-game pause/item menu chrome scope (#21)
-  ScorePopup::install();        // FUN_80072520 score/AP-gem pickup popup scope (#18)
-  UiFt4Tap::install();          // FUN_8007E1B8 shared FT4 group leaf — ONE owner, fans out to both
+  font_wide_re_install();          // FUN_80079374/80078CA8 Font::drawText/glyphEmit (hottest unowned leaves)
+  tomba::Str::registerOverrides(); // FUN_80079528 Str::length (generic strlen, hottest unowned leaf)
+  ScreenFade::installLeafTap();    // FUN_8007E9C8 fade leaf: guest-visible behavior + host-state mirror (fixes #63)
+  Panel::install();                // FUN_8004FFB4/8005019C/8007CC00 panel + dialog-glyph taps
+  PauseMenu::install();            // FUN_800346BC/8007E1B8 in-game pause/item menu chrome (#21)
+  StartPage::install();            // FUN_8007EAE4 in-game START page chrome (#35)
+  CardMenu::install();             // CRD-overlay FUN_8018FBCC card save/load menu chrome (#102)
+  OptionsPage::install();          // FUN_8007F104..F8F8 page scopes + FUN_8007FC24 backdrop (#38)
+  PauseMenu::install();            // FUN_800346BC in-game pause/item menu chrome scope (#21)
+  ScorePopup::install();           // FUN_80072520 score/AP-gem pickup popup scope (#18)
+  UiFt4Tap::install();             // FUN_8007E1B8 shared FT4 group leaf — ONE owner, fans out to both
   // FUN_80027A4C scaled-sprite family (#12/#23) is now a NATIVE PRODUCER (Render::fxSpriteRender,
   // dispatched from the type-0x20 render walk) — no leaf tap; 0x80027A4C runs its plain guest-visible behavior.
   void pad_edge_fence_install();

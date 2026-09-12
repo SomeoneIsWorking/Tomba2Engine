@@ -1,18 +1,16 @@
-// game/core/str.h — PC-native generic guest-string utility leaves.
-//
-// WIDE-RE TIER DRAFT (2026-07-09) — UNWIRED / UNVERIFIED. No override registration, no SBS run.
-// Faithful hand-transcription of the guest body only; the wiring step (moving this to the
-// frontier tier) must diff it line-by-line against `guest 0x80079528` again before trusting it
-// (see docs/fleet-workflow.md §9).
-//
-// PROPER OOP: static leaf (no per-Core state needed — a pure guest-memory scan), called as
-// `Str::length(c, addr)`. Mirrors the pattern of `Font::measureLineWidth` (game/ui/font.h).
+// game/core/str.h — resident native string leaves with image-aware registration.
+// The leaves are stateless; guest memory and registers remain owned by the supplied Core.
 #pragma once
 #include <stdint.h>
 class Core;
 
+namespace tomba {
+
 class Str {
 public:
+  // Register the resident string leaves with the title's image-aware catalog.
+  static void registerOverrides();
+
   // length(c, addr): FUN_80079528 — plain NUL-terminated C-string length. One of the two hottest
   //   unowned leaves in the game (~4235 dispatches / 600 frames of free-roam) — a generic strlen()
   //   called from all over the overlay set (menu/UI/text/asset-name code), not subsystem-specific.
@@ -35,3 +33,5 @@ public:
   // FUN_0x8009A640 — byte compare, the sibling of copyBytes above. Guest-ABI entry point.
   static void compareBytes(Core *c);
 };
+
+} // namespace tomba

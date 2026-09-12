@@ -78,9 +78,18 @@ if(BUILD_TESTING)
   # Real-title evidence is local-only: CI has no licensed overlay images.
   add_executable(test_authentic_overlay_collision
       tests/test_authentic_overlay_collision.cpp
+      tests/authenticated_image.cpp
       game/core/native_override_catalog.cpp)
-  target_include_directories(test_authentic_overlay_collision PRIVATE game/core)
+  target_include_directories(test_authentic_overlay_collision PRIVATE game/core tests)
   target_link_libraries(test_authentic_overlay_collision PRIVATE psxport)
+
+  add_executable(test_authentic_resident_override
+      tests/test_authentic_resident_override.cpp
+      tests/authenticated_image.cpp
+      game/core/native_override_catalog.cpp
+      game/core/str.cpp)
+  target_include_directories(test_authentic_resident_override PRIVATE game/core tests)
+  target_link_libraries(test_authentic_resident_override PRIVATE psxport)
 
   add_executable(test_native_override_catalog
       tests/test_native_override_catalog.cpp

@@ -1,17 +1,13 @@
+#include "authenticated_image.h"
 #include "game.h"
 #include "game_runtime.h"
 #include "lightrec_executor.h"
 #include "native_override_catalog.h"
 
 #include <cstdint>
-#include <fstream>
-#include <iterator>
-#include <lucent/content.h>
 #include <lucent/log.h>
 #include <memory>
 #include <optional>
-#include <span>
-#include <string>
 #include <vector>
 
 namespace {
@@ -59,25 +55,6 @@ bool check(bool condition, const char *name) {
   return condition;
 }
 
-std::optional<std::vector<std::uint8_t>> readAuthenticated(const char *path, const char *expectedSha) {
-  std::ifstream input(path, std::ios::binary);
-  if (!input) {
-    lucent::error("real-overlay-test", "cannot open MODE image {}", path);
-    return std::nullopt;
-  }
-  std::vector<std::uint8_t> bytes(std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{});
-  if (input.bad() || bytes.empty() || bytes.size() > 0x200000u - (kModeSlot & 0x1fffffffu)) {
-    lucent::error("real-overlay-test", "cannot read bounded MODE image {}", path);
-    return std::nullopt;
-  }
-  const auto digest = lucent::content::sha256(std::as_bytes(std::span{bytes}));
-  if (lucent::content::sha256_hex(digest) != expectedSha) {
-    lucent::error("real-overlay-test", "{} does not match the manifest digest passed by the verifier", path);
-    return std::nullopt;
-  }
-  return bytes;
-}
-
 void copyMode(Core &core, const std::vector<std::uint8_t> &bytes, std::uint32_t fileIndex) {
   for (std::size_t index = 0; index < bytes.size(); ++index) {
     core.mem_w8(kModeSlot + static_cast<std::uint32_t>(index), bytes[index]);
@@ -98,8 +75,8 @@ int main(int argc, char **argv) {
     lucent::error("real-overlay-test", "expected A03 path/digest and A0B path/digest from the manifest verifier");
     return 2;
   }
-  const auto a03Bytes = readAuthenticated(argv[1], argv[2]);
-  const auto a0bBytes = readAuthenticated(argv[3], argv[4]);
+  const auto a03Bytes = tomba::test::readAuthenticatedImage(argv[1], argv[2], 0x200000u - (kModeSlot & 0x1fffffffu));
+  const auto a0bBytes = tomba::test::readAuthenticatedImage(argv[3], argv[4], 0x200000u - (kModeSlot & 0x1fffffffu));
   if (!a03Bytes || !a0bBytes) {
     return 2;
   }

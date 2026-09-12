@@ -72,6 +72,31 @@ On pinned psxport `4e8dcc0f`, the combined Clang asset-free gate passed 23/23 CT
 the execution-boundary scan, and the build-receipt pin check; the separate local real-byte
 probe also passed against that gate's binary.
 
+## Authenticated resident original-call probe, 2026-09-12
+
+`tools/verify_authentic_resident_override.py` checks local MAIN.EXE against the tracked USA
+manifest. The isolated Clang target then rechecks that exact buffer and maps it with the shipping
+`loadPsxExeImage` path. It registers the actual `tomba::Str::length` native owner at resident
+`0x80079528` through the title catalog, calls it through normal image-qualified dispatch, and
+calls the same authenticated guest body through scoped `callOriginal`. Both return `v0=v1=4`,
+advance `a0` to the terminator, and match all 32 GPRs plus return PC. This exposed a native
+wrapper defect: it previously left `a0` at the source pointer despite the guest loop advancing it.
+The wrapper now mirrors the observed guest mutation. A neighboring `jr ra` entry at
+`0x8007954C` and the exact entry after removing its native registration each run guest code
+without selecting the owner. The positive probe reports one native, one original, two guest
+negative-control returns, 9 translated blocks, 54 translated instructions, and zero fallback.
+The pre-existing A03/A0B authenticated probe still passes with 14 translated blocks, 161
+instructions, and zero fallback after sharing the exact-buffer authentication helper.
+The combined asset-free Clang gate on psxport `ff3709e7` passed 24/24 CTest cases, the product
+execution-boundary scan, and the build-receipt pin check. Both local real-byte probes passed
+against that same build, and a deliberately wrong resident digest refused with exit 2 before
+mapping any image.
+
+This is real MAIN.EXE byte and shipping owner/dispatcher evidence in an isolated fixture. It does
+not establish that a retail Tomba! 2 route reached `Str::length`, nor a reached original-call
+comparison inside gameplay. The A03/A0B owners remain diagnostic fixtures, and runtime
+overlay-content authentication and representative gameplay are still open.
+
 ## Stage slot dispatch frontier, 2026-09-12
 
 A Clang product built from `4fe4e20` and the pinned Lightrec framework loaded the authenticated

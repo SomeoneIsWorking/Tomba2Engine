@@ -24,9 +24,9 @@ Tomba! 2 representative gameplay is complete.
 ### T2-02 — Prove a resident native override and original call
 - status: in-progress
 - deps: T2-01
-- evidence: Production catalog tests exercise resident generation binding, scoped original calls, and a different-image collision negative through Lightrec. Real startup reaches native owners; real resident original-call comparison remains open in issue 0005.
+- evidence: Production catalog tests exercise resident generation binding, scoped original calls, and a different-image collision negative through Lightrec. An isolated authenticated MAIN.EXE probe now exercises the shipping `Str::length` native owner, its scoped original guest body, and wrong-address/disabled negatives with 9 translated blocks and zero fallback; issue 0005 owns the full result.
 - where: title-native owner in `game/`; shared image-aware override/original-call dispatcher in `external/psxport/`
-- gap: Exercise native dispatch, a scoped original guest-body call through Lightrec, normal return, and wrong-address/disabled-override negative cases.
+- gap: Reach this native owner on a real game route and compare the resident original call there; the isolated real-byte fixture does not prove retail reach.
 
 ### T2-03 — Prove colliding-overlay override and original calls
 - status: in-progress

@@ -40,7 +40,7 @@ in `codemap.md`.
 ## Current focus
 
 S001 is the current focus. The break-first removal is complete and the shared per-`Core` Lightrec
-executor is pinned at psxport `161cb1327c897ebb5305a8a51047221cfb7e4647`. Issue 0005 must now
+executor is pinned at psxport `ff3709e74b24d21de4f3dcdcd402de8c33d57df7`. Issue 0005 must now
 prove one resident and one colliding-overlay override plus scoped original calls through the shipping
 dispatcher. Tomba! 2 then regains its recorded free-roam frontier and passes representative gameplay.
 Tomba! 1 remains deferred until that complete gate. Issue 0006's supported-syscall
@@ -61,7 +61,7 @@ game tasks, render submission, diagnostics, and exactly one presentation fence.
 
 Missing capability: prove that all remaining guest instructions route through the shared Lightrec
 executor with nonzero translated execution, image-generation invalidation, a resident native/original
-call, and a colliding-overlay native/original call. Existing binary evidence identifies `0x801113B4`
+call reached in gameplay, and a colliding-overlay native/original call reached in gameplay. Existing binary evidence identifies `0x801113B4`
 in A03 and A0B with different entry shapes. Then reach the recorded frontier and pass representative
 interactive gameplay with no guest instructions at source or interpreter-first gameplay selector.
 Bounded fallback telemetry must name each reason, remain below the declared threshold, and be excluded
@@ -81,7 +81,9 @@ raw-data reuse, 25 focused catalog checks pass. An authentic 350-frame run with 
 stage task entry/`gp` loader bound OPN, crossed frame 115, reported free-roam at frame 216,
 and exited with 1,688,706 translated
 blocks and zero fallback blocks. The authentic A03/A0B native/original-call discriminator,
-independent comparison, and representative interactive gameplay remain open (issue 0005).
+retail reach of the resident owner/original-call path, independent comparison, and representative
+interactive gameplay remain open (issue 0005). The isolated authenticated resident-byte probe is
+recorded in that issue.
 
 ### S002 — Independent Tomba! 2 comparison: partial
 
