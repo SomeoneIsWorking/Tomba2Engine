@@ -31,9 +31,9 @@ Tomba! 2 representative gameplay is complete.
 ### T2-03 — Prove colliding-overlay override and original calls
 - status: in-progress
 - deps: T2-02
-- evidence: Binary evidence establishes that numeric address `0x801113B4` belongs to different entry shapes in A03 and A0B; address-only dispatch is therefore invalid. The title now activates the loaded A00–A0L MODE image through both area-loader paths, and `tomba_native_override_catalog` proves scoped A03/A0B declarations, original calls, retirement of the prior image, and a wrong-image negative through the shipping dispatcher.
+- evidence: Binary evidence establishes that numeric address `0x801113B4` belongs to different entry shapes in A03 and A0B; address-only dispatch is therefore invalid. The title activates loaded A00–A0L MODE images through both area-loader paths. A local diagnostic with manifest-authenticated A03/A0B bytes proves two bounded Lightrec original returns, image-scoped fixture selection, retirement, and a wrong-image guest negative (14 translated blocks, zero fallback); issue 0005 records the exact branches and limits.
 - where: overlay-authentication owner and shared runtime dispatcher; title-owned override selected by complete image identity
-- gap: Repeat the discriminator with the user-supplied authenticated A03/A0B overlay bytes and real reached calls, including measured translated-block invalidation. Synthetic coverage does not establish title conformance or representative gameplay.
+- gap: No production A03/A0B native owner is declared and no real game route has reached this collision under both overlays. Runtime overlay-content authentication, reached owner/original-call comparison, and representative gameplay remain open; the diagnostic fixture does not establish title conformance.
 
 ### T2-04 — Re-establish the current boot-to-free-roam frontier
 - status: todo

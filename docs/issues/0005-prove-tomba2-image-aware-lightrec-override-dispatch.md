@@ -6,7 +6,7 @@ symptom: The planned Lightrec product has no shipping proof that resident and co
 state_items: S001
 tags: tomba2,dynarec,lightrec,overrides,overlays
 created: 2026-09-04
-updated: 2026-09-08
+updated: 2026-09-12
 ---
 
 ## Required discriminator
@@ -43,8 +43,31 @@ The title now owns an image-scoped MODE overlay lifecycle: both faithful and nor
 activate the authenticated A00–A0L image after loading its fixed MODE slot, retire the previous
 image's native entries, and bind only declarations for the active image and loaded text range.
 The catalog test proves two declarations at one numeric address (A03/A0B) remain isolated across
-activation, dispatch, original-call, and wrong-image cases. The test uses synthetic image bytes;
-real resident original-call evidence and two authenticated colliding overlays remain required.
+activation, dispatch, original-call, and wrong-image cases. That catalog test uses synthetic image
+bytes; the authenticated but still diagnostic collision probe is recorded below.
+
+## Authenticated A03/A0B collision probe, 2026-09-12
+
+`tools/verify_authentic_overlay_collision.py` validates the local A03.BIN and A0B.BIN against the
+tracked USA image manifest, then runs the isolated Clang-built
+`test_authentic_overlay_collision` target. Its declarations at the real shared entry
+`0x801113B4` are **diagnostic fixtures**, not native producers in the shipping title. The test
+copies each authenticated body into the title's MODE slot and uses the production
+`activateModeOverlay`, normal dispatcher, and scoped Lightrec original-call path. A03's real
+wrapper and callee return through the binary's pool-capacity exit; A0B's different real body
+decrements a timer and advances node state 1→2. Replacement removes the A03 native entry,
+guest byte writes invalidate translations, and a forced unrelated image token at the same address
+executes the A0B guest body without selecting either native fixture. Wrong digest and missing
+overlay inputs both refuse before execution.
+
+The positive probe reported 2/2 diagnostic native calls, 2/2 original guest returns, 14
+translated blocks, 161 translated instructions, 115,561 A0B-load invalidation notifications,
+and 0 fallback blocks. Those notifications are 115,560 byte writes plus one descriptor write
+through the guest-memory API, not a count of distinct stale blocks. This proves authenticated
+collision semantics for these bounded paths. No shipping A03/A0B overlay override is declared,
+and no real game route reached `0x801113B4` under either overlay. The required resident native
+original-call comparison, reached overlay owner calls, exact runtime overlay-content
+authentication, and representative gameplay conformance remain open.
 
 ## Stage slot dispatch frontier, 2026-09-12
 
