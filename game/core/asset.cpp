@@ -7,8 +7,10 @@
 #include "asset.h"
 #include "cfg.h"
 #include "core.h"
-#include "game.h"       // c->game->hle.deliverEvent — Hle subsystem lives on Game
+#include "game.h" // c->game->hle.deliverEvent — Hle subsystem lives on Game
+#include "game_ctx.h"
 #include "guest_call.h" // rc1-4 guest-call helpers (used by the preload chain below)
+#include "native_override_catalog.h"
 #include <stdio.h>
 #include <stdlib.h>
 // gpu_native_load_image is declared in core.h (the native CPU->VRAM upload).
@@ -540,6 +542,8 @@ void Asset::areaDataLoadAsTask() {
   c->r[31] = 0x800453DCu;
   psx::cpu::dispatchGuestToReturn0(
       *c, 0x80045080u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // area descriptor load
+  const uint32_t modeSize = c->mem_r32(0x800be134u + area * 8u);
+  tomba::native::activateAreaOverlay(*c, eng(c).activeModeOverlay, area, modeSize);
   c->r[4] = c->mem_r8(0x800BF870u);
   c->r[5] = c->mem_r32(0x1F80022Cu);
   c->r[31] = 0x800453F0u;

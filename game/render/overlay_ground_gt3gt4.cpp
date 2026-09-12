@@ -484,7 +484,8 @@ void OverlayGroundGt3Gt4::entityLoop(Core *c) {
 // override registry, which runs ordinary A00 overlay guest bodies on the oracle leg (core B) and the native handler
 // everywhere else — NOT a raw image-qualified A00 native registration.
 void OverlayGroundGt3Gt4::registerOverrides(Game *) {
-  tomba::native::declareOverride(0x8013FB88u, "&OverlayGroundGt3Gt4::gt3", &OverlayGroundGt3Gt4::gt3);
-  tomba::native::declareOverride(0x8013FE58u, "&OverlayGroundGt3Gt4::gt4", &OverlayGroundGt3Gt4::gt4);
-  tomba::native::declareOverride(0x801401B8u, "&OverlayGroundGt3Gt4::entityLoop", &OverlayGroundGt3Gt4::entityLoop);
+  tomba::native::declareOverlayOverride("A00", 0x8013FB88u, "&OverlayGroundGt3Gt4::gt3", &OverlayGroundGt3Gt4::gt3);
+  tomba::native::declareOverlayOverride("A00", 0x8013FE58u, "&OverlayGroundGt3Gt4::gt4", &OverlayGroundGt3Gt4::gt4);
+  tomba::native::declareOverlayOverride(
+      "A00", 0x801401B8u, "&OverlayGroundGt3Gt4::entityLoop", &OverlayGroundGt3Gt4::entityLoop);
 }

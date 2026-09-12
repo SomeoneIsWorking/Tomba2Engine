@@ -397,5 +397,5 @@ void WidescreenMarginQuad::emit(Core *c) {
 }
 
 void WidescreenMarginQuad::registerOverrides(Game *) {
-  tomba::native::declareOverride(0x8013CDD4u, "&WidescreenMarginQuad::emit", &WidescreenMarginQuad::emit);
+  tomba::native::declareOverlayOverride("A00", 0x8013CDD4u, "&WidescreenMarginQuad::emit", &WidescreenMarginQuad::emit);
 }

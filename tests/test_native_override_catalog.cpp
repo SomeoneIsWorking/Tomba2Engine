@@ -34,6 +34,16 @@ void nativeOwner(Core *core) {
   core->r[2] = 41u;
 }
 
+void nativeA03(Core *core) {
+  ++nativeCalls;
+  core->r[2] = 43u;
+}
+
+void nativeA0B(Core *core) {
+  ++nativeCalls;
+  core->r[2] = 47u;
+}
+
 int failed = 0;
 int checked = 0;
 
@@ -57,6 +67,8 @@ int main() {
   core.mem_w32(kEntry + 8u, 0u);
   const auto first = core.imageCatalog().activate("resident", kResidentText, 1u);
   tomba::native::declareOverride(kEntry, "native-owner", nativeOwner);
+  tomba::native::declareOverlayOverride("A03", kEntry, "a03-owner", nativeA03);
+  tomba::native::declareOverlayOverride("A0B", kEntry, "a0b-owner", nativeA0B);
   tomba::native::bindResident(core, first, kResidentText);
   const auto budget = psx::cpu::ExecutionBudget::fromCycles(1000u);
   core.r[31] = kReturn;
@@ -81,12 +93,32 @@ int main() {
   check(result.returned() && core.r[2] == 5u && nativeCalls == 2,
         "scoped original executes guest instructions without native recursion");
 
+  std::optional<psx::cpu::ImageIdentity> activeOverlay;
+  const auto a03 = tomba::native::activateOverlay(core, activeOverlay, "A03", kResidentText);
+  core.r[31] = kReturn;
+  result = psx::cpu::dispatchGuest(core, kEntry, budget);
+  check(result.returned() && core.r[2] == 43u && nativeCalls == 3 && core.nativeDispatcher().isInstalled({a03, kEntry}),
+        "A03 overlay selects only its image-scoped owner at the colliding address");
+  core.r[31] = kReturn;
+  result = psx::cpu::callOriginal(core, psx::cpu::NativeKey{a03, kEntry}, budget);
+  check(result.returned() && core.r[2] == 5u && nativeCalls == 3, "A03 scoped original reaches the overlay guest body");
+
+  core.mem_w32(kEntry, 0x2402000bu); // A0B has a different guest body at the same address.
+  const auto a0b = tomba::native::activateOverlay(core, activeOverlay, "A0B", kResidentText);
+  core.r[31] = kReturn;
+  result = psx::cpu::dispatchGuest(core, kEntry, budget);
+  check(result.returned() && core.r[2] == 47u && nativeCalls == 4 &&
+            core.nativeDispatcher().isInstalled({a0b, kEntry}) && core.currentImageIdentity(kEntry) == a0b,
+        "A0B replacement retires A03 residency and selects its own owner");
+  check(!core.nativeDispatcher().isInstalled({a03, kEntry}),
+        "A03 native registrations are removed when its MODE residency is retired");
+
   core.mem_w32(kEntry, 0x24020009u); // different image: addiu v0, zero, 9
   const auto other = core.imageCatalog().activate("different-image", kResidentText, 2u);
   tomba::native::bindResident(core, second, kResidentText);
   core.r[31] = kReturn;
   result = psx::cpu::dispatchGuest(core, kEntry, budget);
-  check(result.returned() && core.r[2] == 9u && nativeCalls == 2 &&
+  check(result.returned() && core.r[2] == 9u && nativeCalls == 4 &&
             !core.nativeDispatcher().isInstalled({other, kEntry}),
         "colliding image stays JIT and cannot acquire a resident native declaration");
   const auto &counters = core.lightrecExecutor().counters();

@@ -378,11 +378,7 @@ void OverlayGt3Gt4::gt4(Core *c) {
 }
 
 void OverlayGt3Gt4::registerOverrides(Game *) {
-  // tomba::native::declareOverride (runtime/psx/override_registry.h) installs into the ONE process-global
-  // override registry, which runs ordinary A00 overlay guest bodies on the oracle leg (core B) and the native handler
-  // everywhere else — NOT a raw image-qualified A00 native registration, since these are engine/game natives and the
-  // oracle must run the pure guest body.
-  tomba::native::declareOverride(0x80146478u, "&OverlayGt3Gt4::submitBlock", &OverlayGt3Gt4::submitBlock);
-  tomba::native::declareOverride(0x801465ECu, "&OverlayGt3Gt4::gt3", &OverlayGt3Gt4::gt3);
-  tomba::native::declareOverride(0x801467BCu, "&OverlayGt3Gt4::gt4", &OverlayGt3Gt4::gt4);
+  tomba::native::declareOverlayOverride("A00", 0x80146478u, "&OverlayGt3Gt4::submitBlock", &OverlayGt3Gt4::submitBlock);
+  tomba::native::declareOverlayOverride("A00", 0x801465ECu, "&OverlayGt3Gt4::gt3", &OverlayGt3Gt4::gt3);
+  tomba::native::declareOverlayOverride("A00", 0x801467BCu, "&OverlayGt3Gt4::gt4", &OverlayGt3Gt4::gt4);
 }

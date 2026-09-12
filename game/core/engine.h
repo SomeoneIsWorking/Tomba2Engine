@@ -29,6 +29,7 @@
 #include "core/asset.h"               // Engine owns the Asset loader subsystem
 #include "demo.h"                     // Engine owns the Demo front-end MENU stage machine
 #include "math/mathlib.h"             // Engine owns the Bit game-flag bitmap subsystem
+#include "native_override_catalog.h"  // MODE overlay image residency and scoped native bindings
 #include "object/animation.h"         // Engine owns the Animation per-object VM stepper
 #include "object/behavior_dispatch.h" // Engine owns the per-object BehaviorDispatch subsystem
 #include "object_list.h"              // Engine owns the ObjectList entity-list walkers
@@ -54,6 +55,7 @@
 #include "world/placement.h"          // Engine owns the Placement field-object driver
 #include "world/pool.h"               // Engine owns the Pool per-area init subsystem
 #include "world/spawn.h"              // Engine owns the Spawn entity-spawn/despawn subsystem
+#include <optional>
 class Core;
 
 class Engine {
@@ -115,24 +117,27 @@ public:
   // ── Scene subsystem instances owned by Engine
   // ───────────────────────────────────── Callers reach them as
   // `eng(c).sceneTransition.method(args)`.
-  SceneTransition sceneTransition;           // area-mask trigger + sub-scene swap handshake
-  TransitionState3 transitionState3;         // mid-transition entity walker (guest FUN_8007B04C)
-  ObjectList objectList;                     // per-frame entity-list walkers (guest FUN_8007A904 /
-                                             // FUN_80069B28)
-  Array8Dispatch array8Dispatch;             // 8-slot fixed array dispatcher   (guest FUN_80026368)
-  ObjectTable objectTable;                   // 40-slot fixed object table       (guest FUN_80026C88)
-  Demo demo;                                 // front-end DEMO / MENU stage machine (docs/engine_re.md)
-  Sop sop;                                   // SOP intro-cutscene FIELD stage machine (guest 0x80109450)
-  BgSceneTransitionSm bgSceneTransitionSm;   // BG scene-transition fade manager
-                                             // (guest FUN_8002655C)
-  ParallaxBg parallaxBg;                     // SOP parallax-BG state machine (guest FUN_8010BFFC)
-  Pool pool;                                 // per-area object-pool + control-block init (world subsystem)
-  Placement placement;                       // field object-placement driver (guest FUN_80072A78/DDC)
-  GraphicsBind graphicsBind;                 // per-object render-bind subsystem (guest
-                                             // FUN_8007AAE8 et al.)
-  Font font;                                 // boot-time font / text init subsystem (guest FUN_80075130)
-  Animation animation;                       // per-object animation-VM stepper       (guest FUN_80076D68)
-  Asset asset;                               // asset loader — LZ + texgroup + VRAM upload + boot preload
+  SceneTransition sceneTransition;         // area-mask trigger + sub-scene swap handshake
+  TransitionState3 transitionState3;       // mid-transition entity walker (guest FUN_8007B04C)
+  ObjectList objectList;                   // per-frame entity-list walkers (guest FUN_8007A904 /
+                                           // FUN_80069B28)
+  Array8Dispatch array8Dispatch;           // 8-slot fixed array dispatcher   (guest FUN_80026368)
+  ObjectTable objectTable;                 // 40-slot fixed object table       (guest FUN_80026C88)
+  Demo demo;                               // front-end DEMO / MENU stage machine (docs/engine_re.md)
+  Sop sop;                                 // SOP intro-cutscene FIELD stage machine (guest 0x80109450)
+  BgSceneTransitionSm bgSceneTransitionSm; // BG scene-transition fade manager
+                                           // (guest FUN_8002655C)
+  ParallaxBg parallaxBg;                   // SOP parallax-BG state machine (guest FUN_8010BFFC)
+  Pool pool;                               // per-area object-pool + control-block init (world subsystem)
+  Placement placement;                     // field object-placement driver (guest FUN_80072A78/DDC)
+  GraphicsBind graphicsBind;               // per-object render-bind subsystem (guest
+                                           // FUN_8007AAE8 et al.)
+  Font font;                               // boot-time font / text init subsystem (guest FUN_80075130)
+  Animation animation;                     // per-object animation-VM stepper       (guest FUN_80076D68)
+  Asset asset;                             // asset loader — LZ + texgroup + VRAM upload + boot preload
+  // The fixed MODE slot holds one A00..A0L code image at a time. Keep its image token per Core so
+  // replacing an area retires the old address-qualified native registrations before binding the new one.
+  std::optional<psx::cpu::ImageIdentity> activeModeOverlay;
   MusicCoord musicCoord;                     // dialog ↔ ingame-music coordination (instant-CD-safe PC mod)
   Collision collision;                       // collision-grid family (list-scan + grid
                                              // setup/query/resolve/step)

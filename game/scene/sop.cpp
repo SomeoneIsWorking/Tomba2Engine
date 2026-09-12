@@ -25,6 +25,7 @@
 #include "core.h"
 #include "game_ctx.h"
 #include "guest_call.h"
+#include "native_override_catalog.h"
 
 namespace {
 // The guest's per-area handler table and the area selector byte that indexes
@@ -233,6 +234,10 @@ void Sop::transitionAreaLoad() {
   // (sm[0x6e]+3)&0xff) loads the next-area file (its return is discarded).
   c->mem_w8(0x800bf870u, s6e);
   d2(c, 0x80045080u, 0x80108f9cu, (uint32_t)((s6e + 3) & 0xff));
+  // FUN_80045080 has now populated the fixed MODE slot with the selected A00..A0L code image.
+  // Publish that exact byte range before any overlay function pointer can be dispatched.
+  const uint32_t modeSize = c->mem_r32(0x800be134u + static_cast<uint32_t>(s6e) * 8u);
+  tomba::native::activateAreaOverlay(*c, eng(c).activeModeOverlay, s6e, modeSize);
   // FUN_8007566c(*0x800bf870, *0x1f80022c)   — area BGM/asset trigger
   d2(c, 0x8007566cu, c->mem_r8(0x800bf870u), c->mem_r32(0x1f80022cu));
   eng(c).asset.loadTexgroup(); // 0x80044F58 — native (sync texgroup load)

@@ -381,6 +381,6 @@ void TileGridLayer::emit(Core *c) {
 }
 
 void TileGridLayer::registerOverrides(Game *) {
-  tomba::native::declareOverride(0x8011534Cu, "&TileGridLayer::scrollStep", &TileGridLayer::scrollStep);
-  tomba::native::declareOverride(0x80115598u, "&TileGridLayer::emit", &TileGridLayer::emit);
+  tomba::native::declareOverlayOverride("A00", 0x8011534Cu, "&TileGridLayer::scrollStep", &TileGridLayer::scrollStep);
+  tomba::native::declareOverlayOverride("A00", 0x80115598u, "&TileGridLayer::emit", &TileGridLayer::emit);
 }
