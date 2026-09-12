@@ -1,12 +1,5 @@
 # Tomba Engine repository authority
 
-**Unlabeled content is machine convention, revisable by any session. USER lines are verbatim dated
-quotes and only those.**
-
-> USER, 2026-06-14: *"new direction — port to PC, no PSX emulation, no PSX BIOS."*
->
-> USER, 2026-06-14: *"make the game itself do PC native rendering instead of PSX emulated rendering."*
-
 ## Product direction
 
 This repository contains two isolated native/dynarec ports. Title-owned C++ subsystems and overrides
