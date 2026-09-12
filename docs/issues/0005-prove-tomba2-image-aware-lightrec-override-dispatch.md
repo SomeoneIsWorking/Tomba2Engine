@@ -39,10 +39,12 @@ This preserves the boot reload contract but uses a synthetic resident image.
 Launch-time image authentication is now owned by `tools/tomba2_provision.py` and
 `config/tomba2-images.json`, described below. An image-generation token still
 establishes residency rather than authenticity at the runtime loading boundary.
-Overlay-specific image activation and native declaration ownership are not wired; after generated-body removal, 55 of 254
-declarations remain inactive and 199 bind to the resident image. Real resident
-original-call evidence and two authenticated colliding
-overlays remain required.
+The title now owns an image-scoped MODE overlay lifecycle: both faithful and normal area loaders
+activate the authenticated A00–A0L image after loading its fixed MODE slot, retire the previous
+image's native entries, and bind only declarations for the active image and loaded text range.
+The catalog test proves two declarations at one numeric address (A03/A0B) remain isolated across
+activation, dispatch, original-call, and wrong-image cases. The test uses synthetic image bytes;
+real resident original-call evidence and two authenticated colliding overlays remain required.
 
 
 ## Launch-time image authentication
