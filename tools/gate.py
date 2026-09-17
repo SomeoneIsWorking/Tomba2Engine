@@ -39,11 +39,18 @@ import re
 import subprocess
 import sys
 import time
+from pathlib import Path
+
+from psxport_sync import CANONICAL_VERIFY_BUILD
+from run import resolve_disc
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BIN = os.path.join(REPO, 'scratch', 'bin', 'tomba2_port')
+# The product this gate drives is the canonical maintainer build (the same tree verify_ci.py
+# builds); the player build under build/player/<toolchain> belongs to run.sh.
+BIN = os.path.join(CANONICAL_VERIFY_BUILD, 'bin', 'tomba2_port')
 EXE = os.path.join(REPO, 'scratch', 'bin', 'tomba2', 'MAIN.EXE')
 LOGDIR = os.path.join(REPO, 'scratch', 'logs')
+PSXPORT = os.path.join(REPO, 'external', 'psxport')
 
 # Anything here in the output fails the gate. A guest instruction path MISS aborts the process by design, but it can
 # also appear in a line that scrolls past a watchdog kill, so it is matched as text too.
@@ -110,9 +117,13 @@ def run_gate(script: str, frames_hint: int, debug: str, watchdog: int,
                       f"belongs to the user). Extract it once, then re-run this gate.")
 
     env = dict(os.environ)
-    env['PSXPORT_VK_HEADLESS'] = '1'
-    env['PSXPORT_NOPACE'] = '1'
-    env['PSXPORT_NOAUDIO'] = '1'
+    # The one launch-environment policy (psxport tools/port/launch_environment.py) owns the
+    # headless/silent/unpaced knobs; the disc and asset directory follow run.py's resolution.
+    sys.path.insert(0, os.path.join(PSXPORT, 'tools'))
+    from port.launch_environment import agent_environment
+    env = agent_environment(env)
+    env['PSXPORT_ASSET_DIR'] = env.get('PSXPORT_ASSET_DIR') or PSXPORT
+    env['PSXPORT_TOMBA2_DISC'] = resolve_disc(None, Path(REPO), env)
     env['PSXPORT_REPL'] = '1'
     env['PSXPORT_WATCHDOG'] = str(watchdog)
     if debug:

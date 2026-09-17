@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 796 native fns, 641 owned addresses, 790 LIVE / 6 ORPHAN. 241 override declaration sites over 241 addresses.
+Totals: 798 native fns, 639 owned addresses, 792 LIVE / 6 ORPHAN. 241 override declaration sites over 241 addresses.
 
 **A row can come from a DEFINITION or from an INSTALL SITE.** An address whose handler is a file-local static in an anonymous namespace (no address in its name, no tag, no quoted registry name) has no findable definition — the `tomba::native::declareOverride` / `tomba::native::declareOverride*` call site is its only ownership record, and the file holding that call site is where you debug it from. Those rows say so in the summary column.
 
@@ -182,6 +182,7 @@ Totals: 796 native fns, 641 owned addresses, 790 LIVE / 6 ORPHAN. 241 override d
 | 0x80044BD4 | LIVE | `native_area_load_bd4` | game/core/engine.cpp:2103 |  | Native replacement for FUN_80044bd4(0x800452c0, area, mode, 1): seed t… |
 | 0x80044BD4 | LIVE | `Demo::s0PreYield` | game/scene/demo.cpp:665 |  |  |
 | 0x80044BD4 | LIVE | `Sop::transitionAreaEnter` | game/scene/sop.cpp:172 |  | Synchronous TRANSITION area-DATA load — replaces the cooperative |
+| 0x80044BD4 | LIVE | `StartBinStage::advanceWithBootPreload` | game/scene/start_bin_stage.cpp:74 |  | native_sync only — the pc_faithful body splits these writes across the… |
 | 0x80044D8C | LIVE | `Asset::lzDecompress` | game/core/asset.cpp:33 |  |  |
 | 0x80044E84 | LIVE | `Asset::unpackGroup` | game/core/asset.cpp:78 | 0x80080F6C | PC-owned texture-group unpacker — replaces guest FUN_80044E84 (0x80044… |
 | 0x80044E84 | LIVE | `Asset::unpackGroupFaithful` | game/core/asset.cpp:147 | 0x80080F6C 0x80081218 | FAITHFUL texture-group unpacker — FUN_80044E84 with full guest-stack d… |
@@ -199,7 +200,7 @@ Totals: 796 native fns, 641 owned addresses, 790 LIVE / 6 ORPHAN. 241 override d
 | 0x80047CBC | LIVE | `Collision::gridQuery` | game/player/collision.cpp:493 | 0x80047CBC |  |
 | 0x800498C8 | LIVE | `Collision::gridResolve` | game/player/collision.cpp:572 | 0x800498C8 |  |
 | 0x80049968 | LIVE | `Collision::gridSetup` | game/player/collision.cpp:301 | 0x80049968 | collision-grid ROW-POINTER setup. a0 = grid/layer index (&0xff). Reads… |
-| 0x800499E8 | LIVE | `Engine::task0Bootstrap` | game/core/engine.cpp:3818 |  | resolve \BIN\START.BIN natively, record its {LBA,size}, switch |
+| 0x800499E8 | LIVE | `Engine::task0Bootstrap` | game/core/engine.cpp:3810 |  | resolve \BIN\START.BIN natively, record its {LBA,size}, switch |
 | 0x80049A60 | LIVE | `ActorReward::smWindowScroll` | game/object/actor_sm_reward.cpp:174 |  | ActorReward::smWindowScroll(c) — FUN_80049A60(obj a0, side a1). Scroll… |
 | 0x80049E54 | LIVE | `ActorReward::smTallyTick` | game/object/actor_sm_reward.cpp:333 |  | ActorReward::smTallyTick(c) — FUN_80049E54(obj a0, step a1) -> v0. Tic… |
 | 0x8004A3D4 | LIVE | `ActorReward::smEventDispatch` | game/object/actor_sm_reward.cpp:389 |  | ActorReward::smEventDispatch(c) — FUN_8004A3D4(obj a0) -> v0. Mechanic… |
@@ -263,7 +264,7 @@ Totals: 796 native fns, 641 owned addresses, 790 LIVE / 6 ORPHAN. 241 override d
 | 0x80051C8C | LIVE | `NodeXform::buildAxis` | game/render/node_xform.cpp:465 |  | node-level sibling of build(): composes THIS node's own world matrix v… |
 | 0x80051D20 | LIVE | `NodeXform::worldPosFromComposed` | game/render/node_xform.cpp:601 |  | sibling of worldPosFromLocal() using node's COMPOSED world matrix and … |
 | 0x80051D90 | LIVE | `NodeXform::worldPosFromLocal` | game/render/node_xform.cpp:584 |  | RE'd from authenticated executable/overlay evidence guest 0x80051D90 (… |
-| 0x80052078 | LIVE | `Engine::startStage` | game/core/engine.cpp:3798 | 0x80080870 0x80080890 0x800808A0 | -- PC-native task-0 bootstrap: own the START.BIN resolve + stage-0 ove… |
+| 0x80052078 | LIVE | `Engine::startStage` | game/core/engine.cpp:3790 | 0x80080870 0x80080890 0x800808A0 | -- PC-native task-0 bootstrap: own the START.BIN resolve + stage-0 ove… |
 | 0x800520E0 | LIVE | `Engine::initSubsystems` | game/scene/startup.cpp:314 |  |  |
 | 0x8005229C | LIVE | `Engine::padFenceTail` | game/input/pad_edge_fence.cpp:145 | 0x80087AEC 0x80087E2C 0x80087EAC | Override wrapper + install (guest ABI is all-implicit — the fence take… |
 | 0x8005229C | LIVE | `ov_padFenceTail` | game/input/pad_edge_fence.cpp:351 |  |  |
@@ -400,7 +401,7 @@ Totals: 796 native fns, 641 owned addresses, 790 LIVE / 6 ORPHAN. 241 override d
 | 0x800782F0 | LIVE | `SceneTransition::areaMaskTrigger` | game/scene/scene_transition.cpp:28 | 0x800782F0 |  |
 | 0x800783DC | LIVE | `Pool::setupViewScroll` | game/world/pool.cpp:215 |  | per-area VIEW/SCROLL setup. Calls a leaf (0x80048D3C), builds the view… |
 | 0x80078610 | LIVE | `Pool::finalViewInit` | game/world/pool.cpp:295 |  | final per-area view init: zero two control blocks, seed fixed view par… |
-| 0x80078824 | LIVE | `Engine::setAreaStartPos` | game/core/engine.cpp:4304 |  | Engine::setAreaStartPos. Loads the player's per-area spawn |
+| 0x80078824 | LIVE | `Engine::setAreaStartPos` | game/core/engine.cpp:3839 |  | Engine::setAreaStartPos. Loads the player's per-area spawn |
 | 0x800788AC | LIVE | `Engine::padEdgeFence` | game/input/pad_edge_fence.cpp:51 |  | per-frame input-edge fence. See the file header above for the full RE … |
 | 0x800788AC | LIVE | `ov_padEdgeFence` | game/input/pad_edge_fence.cpp:348 |  |  |
 | 0x80078988 | LIVE | `Font::iconGlyphEmit` | game/ui/font.cpp:841 |  | iconGlyphEmit — FUN_80078988, the SJIS/token ICON-GLYPH string emitter… |
@@ -411,7 +412,7 @@ Totals: 796 native fns, 641 owned addresses, 790 LIVE / 6 ORPHAN. 241 override d
 | 0x80079374 | LIVE | `Font::drawText` | game/ui/font.cpp:245 |  | WIDE-RE TIER DRAFT (2026-07-09), UNWIRED/UNVERIFIED. See header doc fo… |
 | 0x80079374 | LIVE | `ov_drawText` | game/ui/font.cpp:695 |  | ov_drawText: extracts drawText's typed args from the guest ABI registe… |
 | 0x80079528 | LIVE | `Str::length` | game/core/str.cpp:16 |  | strlen. RE (tools/disas.py 0x80079528 --all 20, cross-checked against |
-| 0x80079528 | LIVE | `ov_strLength` | game/core/str.cpp:63 |  |  |
+| 0x80079528 | LIVE | `ov_strLength` | game/core/str.cpp:57 |  |  |
 | 0x800796DC | LIVE | `Pool::resetControlBlock` | game/world/pool.cpp:23 |  | zero the 104-byte control block at 0x800BF808, seed two bytes, clear ~… |
 | 0x800798F8 | LIVE | `Pool::initTypedPools` | game/world/pool.cpp:81 |  | the 5 typed object pools + list-head init. See pool.h for the pool tab… |
 | 0x80079C3C | LIVE | `Spawn::spawnLinkStamp` | game/world/spawn.cpp:69 |  | Link `node` into active list `list` at position `mode` relative to `re… |
@@ -470,7 +471,7 @@ Totals: 796 native fns, 641 owned addresses, 790 LIVE / 6 ORPHAN. 241 override d
 | 0x80081218 | LIVE | `Asset::uploadImage` | game/core/asset.cpp:311 |  | DO NOT REGISTER 0x80081218 IN THE OVERRIDE REGISTRY. It surfaces near … |
 | 0x80081458 | LIVE | `Render::clearOTagR` | game/render/wide_re_libgpu_leaves.cpp:153 |  | guest 0x80081458 (0x80081458) — ClearOTagR(OT, entries). VERIFIED & WI… |
 | 0x80081458 | LIVE | `ov_clearOTagR` | game/render/wide_re_libgpu_leaves.cpp:225 |  |  |
-| 0x80081560 | LIVE | `Engine::drawOTag` | game/game_tomba2.cpp:138 |  | Native ownership of DrawOTag (libgpu FUN_80081560, the per-frame draw … |
+| 0x80081560 | LIVE | `Engine::drawOTag` | game/game_tomba2.cpp:139 |  | Native ownership of DrawOTag (libgpu FUN_80081560, the per-frame draw … |
 | 0x800815D0 | LIVE | `nativePutDrawEnv` | game/render/wide_re_gpu_putdrawenv.cpp:265 |  | nativePutDrawEnv (0x800815D0) — libgpu PutDrawEnv(drawEnvPtr). DRAFT. … |
 | 0x80081CF8 | LIVE | `buildDrawAreaRect` | game/render/hud_gauge_emitter.cpp:151 |  | ----------------------------------------------------------------------… |
 | 0x80081CF8 | LIVE | `emitDrawAreaAndLink` | game/render/hud_gauge_emitter.cpp:163 |  | Emit the DR_AREA packet built from the sp+rectOff rect into the packet… |
@@ -517,19 +518,21 @@ Totals: 796 native fns, 641 owned addresses, 790 LIVE / 6 ORPHAN. 241 override d
 | 0x80086288 | LIVE | `tomba::LibapiIntr::runVblankCallbacks` | game/core/libapi_intr.cpp:148 |  | FUN_0x80086288 — the VBlank handler itself: bump the tick counter, the… |
 | 0x80086320 | LIVE | `tomba::LibapiIntr::clearWords` | game/core/libapi_intr.cpp:177 |  | FUN_0x80086320 — the word-fill helper: writes N words of a constant. |
 | 0x80086604 | LIVE | `Engine::activeModeCtx` | game/scene/startup.cpp:337 |  | Engine::activeModeCtx. Accessor: returns the active mode/draw-env cont… |
-| 0x80086604 | LIVE | `ov_engineActiveModeCtx` | game/core/engine.cpp:4337 |  | installed via tomba::native::declareOverride() at game/core/engine.cpp… |
+| 0x80086604 | LIVE | `ov_engineActiveModeCtx` | game/core/engine.cpp:3872 |  | installed via tomba::native::declareOverride() at game/core/engine.cpp… |
 | 0x80086620 | LIVE | `eng_init_mode_ctrl` | game/scene/startup.cpp:201 |  | engine MODE control: file-local helper (only called from Engine::initS… |
 | 0x80086738 | LIVE | `Engine::installModeHandlers` | game/scene/startup.cpp:346 |  | Engine::installModeHandlers. Installs the mode handler table at 0x8010… |
-| 0x80086738 | LIVE | `ov_engineInstallModeHandlers` | game/core/engine.cpp:4340 |  | installed via tomba::native::declareOverride() at game/core/engine.cpp… |
+| 0x80086738 | LIVE | `ov_engineInstallModeHandlers` | game/core/engine.cpp:3875 |  | installed via tomba::native::declareOverride() at game/core/engine.cpp… |
 | 0x80086764 | LIVE | `Engine::runModeEnter` | game/scene/startup.cpp:364 |  | Engine::runModeEnter. If both bit0 flags in the mode ctx (*0x800ABE98)… |
-| 0x80086764 | LIVE | `ov_engineRunModeEnter` | game/core/engine.cpp:4343 |  | installed via tomba::native::declareOverride() at game/core/engine.cpp… |
+| 0x80086764 | LIVE | `ov_engineRunModeEnter` | game/core/engine.cpp:3878 |  | installed via tomba::native::declareOverride() at game/core/engine.cpp… |
 | 0x80087A60 | LIVE | `Engine::initInput` | game/scene/startup.cpp:236 | 0x80080890 0x800808A0 0x80085B10 0x800873F0 0x80087400 | a thin wrapper that just calls FUN_80086970; owned as initInput(). |
 | 0x80088B00 | LIVE | `Engine::initAlloc` | game/scene/startup.cpp:269 | 0x80086738 0x80089160 0x8009A340 | engine ALLOCATOR / dispatch-table init. `s1` / `s2` are the struct-spa… |
 | 0x8008913C | LIVE | `Engine::allocRecordForSelector` | game/scene/startup.cpp:42 |  | returns the base of record[0] or record[1] of the 240-byte-stride, 2-e… |
 | 0x8008913C | LIVE | `ov_allocRecordForSelector` | game/scene/startup.cpp:387 |  |  |
 | 0x8008A110 | LIVE | `LibcdNative::posToInt` | game/cd/libcd_native.cpp:34 |  |  |
 | 0x8008B8F0 | LIVE | `LibcdNative::searchFile` | game/cd/libcd_native.cpp:23 |  |  |
+| 0x8008BBE8 | LIVE | `LibcdDirCache::newMedia` | game/cd/libcd_dir_cache.cpp:26 |  |  |
 | 0x8008BBE8 | LIVE | `LibcdNative::newMedia` | game/cd/libcd_native.cpp:12 |  |  |
+| 0x8008BF50 | LIVE | `LibcdDirCache::cacheFile` | game/cd/libcd_dir_cache.cpp:68 |  |  |
 | 0x8008BF50 | LIVE | `LibcdNative::cacheFile` | game/cd/libcd_native.cpp:17 |  |  |
 | 0x80090160 | LIVE | `Sequencer::channelStreamAccumulate` | game/audio/sequencer.cpp:1612 |  | channelStreamAccumulate — true leaf (no stack frame). Faithful to gues… |
 | 0x800909C0 | LIVE | `Sequencer::frameTick` | game/audio/sequencer.cpp:138 |  | libsnd per-VBlank tick wrapper. WIDE-RE DRAFT, UNWIRED (see header). |
@@ -558,8 +561,8 @@ Totals: 796 native fns, 641 owned addresses, 790 LIVE / 6 ORPHAN. 241 override d
 | 0x80099478 | LIVE | `bav_lock_ready` | game/ui/bav_loader.cpp:80 |  | -- lock helpers (FUN_80099478 / FUN_80099450), inlined --- |
 | 0x800998E4 | LIVE | `AreaSlots::classifySlotStates` | game/world/area_slots.cpp:336 |  | ORACLE: guest 0x800998E4 |
 | 0x8009A3E0 | LIVE | `Str::copyBytes` | game/core/str.cpp:37 |  | memcpy(dst, src, n). RE from authenticated executable/overlay evidence… |
-| 0x8009A3E0 | LIVE | `ov_copyBytes` | game/core/str.cpp:77 |  |  |
-| 0x8009A640 | LIVE | `Str::compareBytes` | game/core/str.cpp:84 |  | FUN_0x8009A640 — byte compare, sibling of the memcpy already owned her… |
+| 0x8009A3E0 | LIVE | `ov_copyBytes` | game/core/str.cpp:72 |  |  |
+| 0x8009A640 | LIVE | `Str::compareBytes` | game/core/str.cpp:79 |  | FUN_0x8009A640 — byte compare, sibling of the memcpy already owned her… |
 | 0x800A33C8 | LIVE | `tbl_strp` | game/ai/beh_cube_text_spawn.cpp:45 |  | string-table entry pointer: mem32(0x800a33c8 + (node[0x60]*3 << 2) + 4… |
 | 0x800A6490 | LIVE | `MeshQuads::trig` | game/render/mesh_quads.cpp:87 |  |  |
 | 0x800BE224 | LIVE | `MusicCoord::musicFadeIn` | game/audio/music_coord.cpp:48 |  | PC-added helper (NOT a port of any FUN_XXXX): snap the game's CD-volum… |
@@ -569,7 +572,6 @@ Totals: 796 native fns, 641 owned addresses, 790 LIVE / 6 ORPHAN. 241 override d
 | 0x800EE489 | LIVE | `Cull::cullFarMult` | game/render/cull.cpp:100 |  | pc_faithful/native_sync split (2026-07-03): pc_faithful (native_sync=f… |
 | 0x800F2418 | LIVE | `Render::areaCacheTrustTick` | game/render/render_walk.cpp:467 |  | AREA-SCOPED CACHE trust latches (see render.h mSceneTableTrusted/mBack… |
 | 0x800F2624 | LIVE | `Render::terrainRenderAll` | game/render/submit.cpp:808 |  | terrainRenderAll: the terrain-node enumeration (moved from render_walk… |
-| 0x80104368 | LIVE | `cdlibcd_read_into_scratch` | game/core/engine.cpp:3941 |  | Read one 2048 B disc sector into a local buffer AND into the guest-RAM |
 | 0x801062E4 | LIVE | `Render::renderAttract` | game/render/render_attract.cpp:92 |  | #6 DEMO/TITLE ATTRACT (stage 0x801062E4, sm[0x48]==7): the live 3D fie… |
 | 0x801062E4 | LIVE | `Render::renderTitle` | game/render/render_walk.cpp:214 |  | #2 DEMO/TITLE front-end (stage 0x801062E4). Substate s2 (sm[0x48]==2) … |
 | 0x801062E4 | LIVE | `Render::titleNative` | game/render/render_walk.cpp:398 |  | titleNative — see render.h. Read-only producer for the DEMO/title fron… |
@@ -583,14 +585,13 @@ Totals: 796 native fns, 641 owned addresses, 790 LIVE / 6 ORPHAN. 241 override d
 | 0x8010641C | LIVE | `Demo::s1` | game/scene/demo.cpp:75 | 0x80106F80 | s1 0x8010641C — wait/advance: v0 = inner menu input machine 0x80106f80… |
 | 0x80106464 | LIVE | `Demo::s2` | game/scene/demo.cpp:97 | 0x8001CF2C 0x8010696C | s2 0x80106464 — sub-machine v0 = 0x8010696c(). Outcome 1 -> go to s7 (… |
 | 0x80106478 | LIVE | `Engine::areaLoadState` | game/core/engine.cpp:244 | 0x8001CF2C 0x8004D8B0 0x80078824 0x8007BF20 0x8007E8DC 0x8007ED5C … | Engine::areaLoadState — native ownership of FUN_80106478 (the |
-| 0x8010649C | LIVE | `native_stage0_sm` | game/core/engine.cpp:3864 |  | Stage-0 START.BIN state machine (overlay 0x80106728), PC-native. guest… |
 | 0x8010649C | LIVE | `Render::renderStartBoot` | game/render/render_walk.cpp:206 |  | #1 START.BIN boot (0x8010649C): the loader shows a black screen (empty… |
+| 0x8010649C | LIVE | `StartBinStage::runFaithful` | game/scene/start_bin_stage.cpp:114 |  | The COMPLETE overlay guest 0x8010649C task body. Frame: sp -= 456; Loa… |
 | 0x801064E8 | LIVE | `Demo::s3` | game/scene/demo.cpp:135 | 0x800750D8 0x80106AC4 | s3 0x801064E8 — sub-machine v0 = 0x80106ac4() (mirror of 0x8010696c). … |
 | 0x80106580 | LIVE | `demo_frame_s4` | game/scene/demo.cpp:838 |  | Substate s4 (0x80106580) — LOAD GAME. The body runs the load sub-machi… |
 | 0x801065DC | LIVE | `demo_frame_s5` | game/scene/demo.cpp:821 |  | Substate s5 (0x801065DC) — LEAVE DEMO: the body is `jal 0x80052078(2)`… |
 | 0x801065EC | LIVE | `Demo::s6` | game/scene/demo.cpp:331 | 0x8007B45C 0x80106690 0x80106824 | s6 0x801065EC — page sub-machine 0x8007b45c(); if sm[0x50]==3 fire the… |
 | 0x80106690 | LIVE | `Render::menuChrome` | game/render/render_walk.cpp:325 |  | menuChrome — see render.h. The black backdrop + the 2 logo sprites (FU… |
-| 0x80106728 | LIVE | `native_stage0_sm` | game/core/engine.cpp:3864 |  | Stage-0 START.BIN state machine (overlay 0x80106728), PC-native. guest… |
 | 0x80106824 | LIVE | `Render::optionsPageNative` | game/render/render_options.cpp:204 |  | optionsPageNative — see render.h. The page ITSELF is produced at its g… |
 | 0x80106824 | LIVE | `Render::menuItemsAndCursor` | game/render/render_walk.cpp:376 |  | menuItemsAndCursor — see render.h. Reproduces FUN_80106824(param1, par… |
 | 0x80106824 | LIVE | `Render::s3MenuNative` | game/render/render_walk.cpp:408 |  | s3MenuNative — see render.h. The page-1 menu (sm[0x48]==3, reached by … |
@@ -808,14 +809,13 @@ Owned by a DIFFERENT mechanism than the table above: `PlatformHle` (`external/ps
 | 0x80080F6C | `syncComplete` | `drawSync` |
 | 0x800834A0 | `gpuTimeoutArm` | `gpuTimeoutArm` |
 | 0x800834D4 | `syncComplete` | `gpuTimeoutCheck` |
-| 0x80085900 | `frameBoundary` | `vsyncTrap` |
 | 0x8008A96C | `cdReadSync` | `cdReadSync` |
 | 0x8008B2D8 | `syncComplete` | `cdInitHandshake` |
 | 0x8008B4B8 | `syncComplete` | `cdDataSync` |
 | 0x8009CAEC | `syncComplete` | `decDctInSync` |
 | 0x8009CB80 | `syncComplete` | `decDctOutSync` |
 
-10 PlatformHle-owned address(es).
+9 PlatformHle-owned address(es).
 
 ## Deliberately ABSENT — do NOT port from this map alone (`docs/port-map.md`)
 

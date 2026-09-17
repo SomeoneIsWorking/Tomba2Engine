@@ -362,22 +362,11 @@ public:
   //   function `ov_draw_otag` in game_tomba2.cpp.
   void drawOTag(uint32_t otHead);
 
-  // startBinStage: task-0's START.BIN file-table builder — dispatches to the
-  // native_sync shortcut or the pc_faithful hand-port of overlay guest 0x8010649C.
-  // See the two helper methods below.
+  // startBinStage / startBinStageFaithful: the two stage-0 START.BIN task bodies, one per
+  // execution model. Both run StartBinStage (game/scene/start_bin_stage.h); the native body
+  // returns and Engine performs the stage swap to DEMO, the faithful body never returns (its
+  // guest stage-swap arm parks the fiber until the stanza cancels it).
   void startBinStage();
-  // startBinStageNative: native_sync=true collapsed shortcut. Native VRAM
-  // upload (bypasses libgs), the libcd dir cache populated by cdlibcd_*
-  // end-state (bypasses libcd), native ISO9660 file lookups, inline
-  // asset.preloadTexgroup, task-1 slot closed with no body ever running.
-  void startBinStageNative();
-  // startBinStageFaithful: native_sync=false byte-exact port — the COMPLETE
-  // overlay guest 0x8010649C task body, run on a PcScheduler fiber
-  // (runStage0FiberStanza). Guest-frame locals (sp-=456, CdlFILE records at
-  // sp+16+i*24), live s-reg discipline, libcd file-table build via LibcdNative,
-  // SM loop suspending inside PcScheduler::spawnAndWait/yieldPrim each frame.
-  // Never returns — ends parked in the FUN_80052078 stage swap (the stanza
-  // cancels the fiber).
   void startBinStageFaithful();
 
   // task0Bootstrap: the boot-init entry that (a) resolves \BIN\START.BIN

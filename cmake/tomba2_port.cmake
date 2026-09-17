@@ -34,6 +34,7 @@ endif()
 # ---- game source list (game/* only — the framework moved to cmake/psxport.cmake) --------------
 set(GAME_SRC
   game/game_tomba2.cpp
+  game/cd/libcd_dir_cache.cpp
   game/cd/libcd_native.cpp
   game/core/asset.cpp
   game/core/auto_drive.cpp
@@ -191,6 +192,7 @@ set(GAME_SRC
   game/ui/options_page.cpp
   game/ui/ui_group_capture.cpp
   game/scene/level_load.cpp
+  game/scene/start_bin_stage.cpp
   game/object/behavior_dispatch.cpp
   game/render/submit.cpp
   game/render/node_xform.cpp
