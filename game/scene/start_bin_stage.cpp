@@ -35,9 +35,6 @@ constexpr XaFile kXaFiles[] = {
 constexpr uint32_t kNotFoundFmt = 0x80106454u; // "Not found file name %s"
 constexpr uint32_t kGuestPrintf = 0x8009A730u;
 
-void dispatch(Core &c, uint32_t fn, const char *who) {
-  psx::cpu::dispatchGuestToReturn0(c, fn, psx::cpu::ExecutionBudget::currentTurn(c), who);
-}
 } // namespace
 
 bool StartBinStage::resolveViaIso9660(uint32_t name_ptr, uint32_t *lba, uint32_t *size) {
@@ -134,10 +131,10 @@ void StartBinStage::runFaithful() {
   c.r[4] = S + 400;
   c.r[5] = kLoadImageSrc;
   c.r[31] = 0x801064E8u;
-  dispatch(c, 0x80081218u, __func__); // libgs LoadImage
+  psx::cpu::callGuestNow(c, __func__, 0x80081218u); // libgs LoadImage
   c.r[4] = 0;
   c.r[31] = 0x801064F0u;
-  dispatch(c, 0x80080F6Cu, __func__); // DrawSync(0)
+  psx::cpu::callGuestNow(c, __func__, 0x80080F6Cu); // DrawSync(0)
 
   // Three CdSearchFile loops. Loop registers live in the guest s-regs (r16=CdlFILE ptr,
   // r17=name-table ptr, r18=dest ptr, r19=index, r20=i*24) because CdSearchFile's prologue spills
@@ -157,7 +154,7 @@ void StartBinStage::runFaithful() {
         c.r[4] = kNotFoundFmt;
         c.r[5] = c.mem_r32(c.r[17]);
         c.r[31] = table.raPrintf;
-        dispatch(c, kGuestPrintf, __func__);
+        psx::cpu::callGuestNow(c, __func__, kGuestPrintf);
       }
       c.r[18] += 8;
       c.r[17] += 4;
@@ -176,7 +173,7 @@ void StartBinStage::runFaithful() {
       c.r[4] = kNotFoundFmt;
       c.r[5] = c.r[17];
       c.r[31] = xa.raPrintf;
-      dispatch(c, kGuestPrintf, __func__);
+      psx::cpu::callGuestNow(c, __func__, kGuestPrintf);
     }
   }
   cfg_logi("start.bin", "pc_faithful file table built via libcd (fiber body)");
@@ -217,7 +214,7 @@ void StartBinStage::runFaithful() {
     case 3: // L_801067DC: stage swap to DEMO — parks the fiber; the stanza cancels on entry rewrite
       c.r[4] = 1;
       c.r[31] = 0x801067E4u;
-      dispatch(c, 0x80052078u, __func__);
+      psx::cpu::callGuestNow(c, __func__, 0x80052078u);
       break;
     default:
       break;

@@ -22,27 +22,6 @@
 #include "guest_call.h"
 #include "render.h" // class Render — methods live here
 #include <stdio.h>
-#include <stdlib.h>
-
-// DIAG skippass: PSXPORT_SKIPPASS=0xADDR skips that one typed runtime address dispatch'd render pass, to attribute a
-// prim to the pass producing it. NOTE: useless for PERSISTENT packets (built once at scene-load, re-walked from the OT
-// every frame) — skipping the pass mid-run can't un-link an already-built packet; use PSXPORT_WWATCH on the packet
-// address to find the real builder instead (later-237).
-static inline void d0(Core *c, uint32_t fn) {
-  static uint32_t skip = 0xFFFFFFFFu;
-  if (skip == 0xFFFFFFFFu) {
-    const char *s = cfg_str("PSXPORT_SKIPPASS");
-    skip = s ? (uint32_t)strtoul(s, 0, 0) : 0;
-  }
-  if (skip && fn == skip) {
-    return;
-  }
-  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-}
-static inline void d1(Core *c, uint32_t fn, uint32_t a0) {
-  c->r[4] = a0;
-  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-}
 
 // RENDER-PATH COMPARE SWITCH (diagnostic, user 2026-06-24). When set, the FIELD render runs entirely as
 // the PSX guest instruction path (typed runtime address dispatch the orchestrator) instead of the native world-coord
@@ -72,11 +51,11 @@ void Render::frame() {
       cfg_logf("rfprobe", "ov_render_frame run #%d", n);
     }
   }
-  d0(c, 0x8003f9a8u);
+  psx::cpu::callGuestNow(*c, __func__, 0x8003f9a8u);
 }
 
 // 0x8003fa44 — mid-transition render orchestrator twin (reduced pass set). Same rule: substrate always.
 void Render::frameX() {
   Core *c = mCore;
-  d0(c, 0x8003fa44u);
+  psx::cpu::callGuestNow(*c, __func__, 0x8003fa44u);
 }

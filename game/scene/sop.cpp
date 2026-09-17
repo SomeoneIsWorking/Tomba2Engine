@@ -44,18 +44,14 @@ constexpr uint32_t kAreaByte = 0x800BF870u;
 
 // dispatch a still-guest leaf with up to 3 args set (helpers for the
 // SOP/transition machines).
-static void d0(Core *c, uint32_t fn);
 // (ov_bg_scene_transition_sm moved to BgSceneTransitionSm::step —
 // eng(c).bgSceneTransitionSm.step())
-#include "render/screen_fade.h" // class ScreenFade — the single fade driver
-static void d1(Core *c, uint32_t fn, uint32_t a0);
-static void d2(Core *c, uint32_t fn, uint32_t a0, uint32_t a1);
 #include "camera/cutscene_camera.h" // class CutsceneCamera — SOP/BG cutscene camera (0x8006E3B0)
 #include "core/asset.h"             // class Asset — unpackGroup / loadTexgroup (static)
+#include "render/screen_fade.h"     // class ScreenFade — the single fade driver
 #include "world/graphics_bind.h"    // ov_obj_set_xformblk (FUN_8006CBD0)
 #include "world/pool.h"             // ov_pool_init_run (FUN_8007B18C)
 #include "world/spawn.h"            // class Spawn (eng(c).spawn.dispatch)
-static void d3(Core *c, uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2);
 
 // Named guest-RAM addresses used by the SOP field-mode subsystem. Kept
 // file-local — these are SOP-specific handles, not engine-wide primitives.
@@ -222,8 +218,7 @@ void Sop::transitionAreaLoad() {
     }
   }
   // --- MAIN LOAD PATH (0x80045350+) ---
-  d0(c,
-     0x8001cf2cu); // kill slot-2 task / settle CD (sync; settle-wait dropped)
+  psx::cpu::callGuestNow(*c, __func__, 0x8001cf2cu); // kill slot-2 task / settle CD (sync; settle-wait dropped)
   sm = c->mem_r32(0x1f800138u);
   c->mem_w8(sm + 0x6d, 2); // sm[0x6d] = 2
   uint8_t s6e = c->mem_r8(sm + 0x6e);
@@ -234,12 +229,12 @@ void Sop::transitionAreaLoad() {
   // sm[0x6e], NOT the FUN_80045080 return); then FUN_80045080(0x80108f9c,
   // (sm[0x6e]+3)&0xff) loads the next-area file (its return is discarded).
   c->mem_w8(0x800bf870u, s6e);
-  d2(c, 0x80045080u, 0x80108f9cu, (uint32_t)((s6e + 3) & 0xff));
+  psx::cpu::callGuestNow(*c, __func__, 0x80045080u, 0x80108f9cu, (uint32_t)((s6e + 3) & 0xff));
   // FUN_80045080 has now populated the fixed MODE slot with the selected A00..A0L code image.
   // Publish that exact byte range before any overlay function pointer can be dispatched.
   tomba::native::activateModeOverlay(*c, eng(c).activeModeOverlay, static_cast<uint32_t>(s6e) + 3u);
   // FUN_8007566c(*0x800bf870, *0x1f80022c)   — area BGM/asset trigger
-  d2(c, 0x8007566cu, c->mem_r8(0x800bf870u), c->mem_r32(0x1f80022cu));
+  psx::cpu::callGuestNow(*c, __func__, 0x8007566cu, c->mem_r8(0x800bf870u), c->mem_r32(0x1f80022cu));
   eng(c).asset.loadTexgroup(); // 0x80044F58 — native (sync texgroup load)
   // FUN_8001dc40(0x8018a000, *0x800be100 + (*0x800ef480>>11), *0x800ef484 -
   // *0x800ef480);
@@ -247,10 +242,11 @@ void Sop::transitionAreaLoad() {
   uint32_t l = c->mem_r32(0x800ef480u);
   c->mem_w32(0x800a3ec8u, l >> 11);
   tomba::native::retireOverlay(*c, eng(c).activeAreaOverlay);
-  d3(c, 0x8001dc40u, 0x8018a000u, c->mem_r32(0x800be100u) + (l >> 11), c->mem_r32(0x800ef484u) - l);
+  psx::cpu::callGuestNow(
+      *c, __func__, 0x8001dc40u, 0x8018a000u, c->mem_r32(0x800be100u) + (l >> 11), c->mem_r32(0x800ef484u) - l);
   // if (*0x800bf89c == 2) FUN_80045558(0)
   if (c->mem_r8(0x800bf89cu) == 2) {
-    d1(c, 0x80045558u, 0);
+    psx::cpu::callGuestNow(*c, __func__, 0x80045558u, 0);
     tomba::native::activateAreaSlotOverlay(*c, eng(c).activeAreaOverlay, 0u);
   }
   // FUN_80045258((*0x800bf89e & 0xf)<<1, 47)   — collision grid
@@ -281,25 +277,6 @@ void Sop::transitionAreaLoad() {
            "bf870=%u",
            count,
            (unsigned)c->mem_r8(0x800bf870u));
-}
-
-static void d0(Core *c, uint32_t fn) {
-  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-}
-static void d1(Core *c, uint32_t fn, uint32_t a0) {
-  c->r[4] = a0;
-  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-}
-static void d2(Core *c, uint32_t fn, uint32_t a0, uint32_t a1) {
-  c->r[4] = a0;
-  c->r[5] = a1;
-  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-}
-static void d3(Core *c, uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2) {
-  c->r[4] = a0;
-  c->r[5] = a1;
-  c->r[6] = a2;
-  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 
 // sceneGridGather — native port of guest FUN_8010A3AC (Ghidra decomp
@@ -580,10 +557,10 @@ void Sop::fieldUpdate() {
       // Engine.
       eng(c).parallaxBg.step();
     }
-    d1(c, 0x80109FE0u, 0x800F2418u);
-    d0(c, 0x8003C048u);
+    psx::cpu::callGuestNow(*c, __func__, 0x80109FE0u, 0x800F2418u);
+    psx::cpu::callGuestNow(*c, __func__, 0x8003C048u);
     if (bgVisible) {
-      d1(c, 0x8010c26cu, PARALLAX_BG_SM);
+      psx::cpu::callGuestNow(*c, __func__, 0x8010c26cu, PARALLAX_BG_SM);
     }
     c->mem_w8(IN_FIELD_UPDATE, 0);
   }
@@ -592,7 +569,7 @@ void Sop::fieldUpdate() {
   sm = c->mem_r32(TASK_SM_PTR);
   uint16_t s52 = c->mem_r16(sm + 0x52);
   if (s52 == 1) {
-    d0(c, 0x8010c79cu); // end-of-area scroller
+    psx::cpu::callGuestNow(*c, __func__, 0x8010c79cu); // end-of-area scroller
     if (c->r[2] == 0) {
       return; // still running -> stay
     }
@@ -621,12 +598,12 @@ void Sop::fieldMode() {
   case 0: { // LOAD — complete host-owned synchronous work in this invocation.
     fade(c).set(ScreenFade::SUBTRACTIVE, 0xff, 0xff, 0xff);
     c->game->pcSched.completeSyncWait(sm, /*flag=*/3);
-    eng(c).sop.areaLoad();           // INLINE sync load (replaces FUN_80044bd4) ->
-                                     // 1f80019b=1
-    eng(c).pool.init();              // 0x8007B18C — native (via LIVE gated entry)
-    eng(c).pool.resetControlBlock(); // 0x800796DC — native (via LIVE gated entry)
-    eng(c).pool.finalViewInit();     // 0x80078610 — native (via LIVE gated entry)
-    d1(c, 0x8010a8d4u, 0x800f2418u); // SOP bg-ptr setup
+    eng(c).sop.areaLoad();                                          // INLINE sync load (replaces FUN_80044bd4) ->
+                                                                    // 1f80019b=1
+    eng(c).pool.init();                                             // 0x8007B18C — native (via LIVE gated entry)
+    eng(c).pool.resetControlBlock();                                // 0x800796DC — native (via LIVE gated entry)
+    eng(c).pool.finalViewInit();                                    // 0x80078610 — native (via LIVE gated entry)
+    psx::cpu::callGuestNow(*c, __func__, 0x8010a8d4u, 0x800f2418u); // SOP bg-ptr setup
     // 3 scene objects: spawn + stamp fields from the SOP overlay tables
     // @0x8010c98c (stride 12).
     for (int i = 0; i < 3; i++) {
@@ -715,8 +692,8 @@ void Sop::fieldMode() {
     fieldUpdate();
     break;
   }
-  case 4: {             // RESET -> next area
-    d0(c, 0x8001cf2cu); // kill load task slot 2 (settle CD)
+  case 4: {                                            // RESET -> next area
+    psx::cpu::callGuestNow(*c, __func__, 0x8001cf2cu); // kill load task slot 2 (settle CD)
     c->mem_w8(0x1f800137u, 0);
     int16_t s4c = c->mem_r16s(sm + 0x4c);
     c->mem_w16(sm + 0x4e, 0);

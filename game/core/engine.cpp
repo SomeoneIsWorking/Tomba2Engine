@@ -59,24 +59,6 @@
 #include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include "scene/start_bin_stage.h"   // class StartBinStage — task-0 START.BIN file-table builder
 #include <lucent/log.h>              // Engine::devTeleportApply's `tp` line
-static inline void d0(Core *c, uint32_t fn) {
-  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-}
-static inline void d1(Core *c, uint32_t fn, uint32_t a0) {
-  c->r[4] = a0;
-  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-}
-static inline void d2(Core *c, uint32_t fn, uint32_t a0, uint32_t a1) {
-  c->r[4] = a0;
-  c->r[5] = a1;
-  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-}
-static inline void d3(Core *c, uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2) {
-  c->r[4] = a0;
-  c->r[5] = a1;
-  c->r[6] = a2;
-  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-}
 
 // TaskSm — typed lens over the GAME task-state-machine record at *0x1F800138
 // (guest addresses documented at the top of this file: sm[0x48] top state,
@@ -491,10 +473,9 @@ void Engine::areaLoadState() {
 // engine_fade_set) then falls through to FUN_801084F8 (menu draw + cursor/page
 // nav, still guest instruction path). This is NOT the reference per-node fade SM (no ramp
 // counter, no node state) — own JUST this page's shape here; the other 11 pages
-// + the dispatcher's bounds-check/table jump stay guest instruction path via d0(c, 0x8010810cu)
-// (own-caller-before-callee: the caller (ov_field_frame et al.) is already
-// native, but the callee's other pages are unexplored, so full transcription is
-// out of scope).
+// + the dispatcher's bounds-check/table jump stay guest instruction path via psx::cpu::callGuestNow(*c, __func__,
+// 0x8010810cu) (own-caller-before-callee: the caller (ov_field_frame et al.) is already native, but the callee's other
+// pages are unexplored, so full transcription is out of scope).
 void Engine::submitPage810c() {
   Core *c = core;
   uint32_t task = c->mem_r32(0x1F800138u);
@@ -509,7 +490,7 @@ void Engine::submitPage810c() {
                                      __func__); // still guest instruction path: menu draw + cursor/page transitions
     return;
   }
-  d0(c, 0x8010810cu);
+  psx::cpu::callGuestNow(*c, __func__, 0x8010810cu);
 }
 
 // pc_faithful mirror of overlay guest 0x8010810C's page-1 (pause-menu dim) branch.
@@ -555,8 +536,8 @@ void Engine::submitPage810cFaithful() {
     c->r[29] += 32;
     return;
   }
-  d0(c, 0x8010810cu); // other pages: full substrate re-derive (own frame +
-                      // dispatch)
+  psx::cpu::callGuestNow(*c, __func__, 0x8010810cu); // other pages: full substrate re-derive (own frame +
+                                                     // dispatch)
 }
 // (ov_objwalk moved to ObjectList::walkAll — eng(c).objectList.walkAll())
 // (ov_disp_26c88 moved to ObjectTable::dispatch —
@@ -693,7 +674,7 @@ void Engine::submode0() {
 // 0x800bf816==0 && (0x800e7e68 & 0x0c00)); phases 3/20 do neither. Always ends
 // with 0x80077b5c. All leaf callees stay substrate; only the control flow is
 // native. Faithful to the guest instruction path; a direct child of ov_field_frame (was
-// `d0(c, 0x80025588)`).
+// `psx::cpu::callGuestNow(*c, __func__, 0x80025588)`).
 void Engine::sceneEventFifo() {
   Core *c = core;
   // strict replay check on this fork FAILED at 0x801FE954 (a leaf's own stack spill slot)
@@ -727,18 +708,18 @@ void Engine::sceneEventFifo() {
     uint32_t head = c->mem_r32(0x800ecf58u);
     c->mem_w8(0x800bfa5cu, 0);
     c->mem_w32(B + 0x3c, head);
-    d1(c, 0x80024e00u, B);
+    psx::cpu::callGuestNow(*c, __func__, 0x80024e00u, B);
     // fall through into the active body
   } else if (st != 1) {
     return; // st >= 2: guest jumps straight to the epilogue
   }
   if (c->mem_r8(B + 0x14) == 0 && c->mem_r8(B + 0x15) != 0) {
-    d2(c, 0x80040aa4u, c->mem_r8(B + 0x16), c->mem_r8(B + 0x1c));
+    psx::cpu::callGuestNow(*c, __func__, 0x80040aa4u, c->mem_r8(B + 0x16), c->mem_r8(B + 0x1c));
     uint8_t kind = c->mem_r8(B + 0x1c);
     if (kind == 0) {
-      d1(c, 0x80074bf8u, 2);
+      psx::cpu::callGuestNow(*c, __func__, 0x80074bf8u, 2);
     } else if (kind == 1) {
-      d1(c, 0x80074bf8u, 3);
+      psx::cpu::callGuestNow(*c, __func__, 0x80074bf8u, 3);
     }
     int n = (int)c->mem_r8(B + 0x15) - 1; // shift the FIFO down by one (drop entry 0)
     for (int i = 0; i < n; i++) {
@@ -748,7 +729,7 @@ void Engine::sceneEventFifo() {
     c->mem_w8(B + 0x15, (uint8_t)(c->mem_r8(B + 0x15) - 1));
     c->mem_w8(B + 0x14, (uint8_t)(c->mem_r8(B + 0x14) + 1));
   }
-  d1(c, 0x80024f18u, B);
+  psx::cpu::callGuestNow(*c, __func__, 0x80024f18u, B);
   uint8_t phase = c->mem_r8(0x800bf870u);
   if (phase == 3 || phase == 20) {
     // neither the light-toggle nor 0x800251f0
@@ -757,9 +738,9 @@ void Engine::sceneEventFifo() {
       c->mem_w8(B + 8, (uint8_t)(1 - c->mem_r8(B + 8)));
     }
   } else {
-    d1(c, 0x800251f0u, B);
+    psx::cpu::callGuestNow(*c, __func__, 0x800251f0u, B);
   }
-  d1(c, 0x80077b5cu, B);
+  psx::cpu::callGuestNow(*c, __func__, 0x80077b5cu, B);
 }
 
 // pc_faithful field EVENT/COMMAND-QUEUE state machine — mirror of
@@ -807,7 +788,7 @@ void Engine::sceneEventFifoFaithful() {
     c->mem_w8(0x800bfa5cu, 0);
     c->mem_w32(B + 0x3c, head);
     c->r[31] = 0x800255E0u;
-    d1(c, 0x80024e00u, B);
+    psx::cpu::callGuestNow(*c, __func__, 0x80024e00u, B);
     // fall through into the active body
   } else if (st != 1) {
     c->r[31] = c->mem_r32(sp + 24);
@@ -818,13 +799,13 @@ void Engine::sceneEventFifoFaithful() {
   }
   if (c->mem_r8(B + 0x14) == 0 && c->mem_r8(B + 0x15) != 0) {
     c->r[31] = 0x80025610u;
-    d2(c, 0x80040aa4u, c->mem_r8(B + 0x16), c->mem_r8(B + 0x1c));
+    psx::cpu::callGuestNow(*c, __func__, 0x80040aa4u, c->mem_r8(B + 0x16), c->mem_r8(B + 0x1c));
     uint8_t kind = c->mem_r8(B + 0x1c);
     c->r[31] = 0x80025630u;
     if (kind == 0) {
-      d1(c, 0x80074bf8u, 2);
+      psx::cpu::callGuestNow(*c, __func__, 0x80074bf8u, 2);
     } else if (kind == 1) {
-      d1(c, 0x80074bf8u, 3);
+      psx::cpu::callGuestNow(*c, __func__, 0x80074bf8u, 3);
     }
     int n = (int)c->mem_r8(B + 0x15) - 1; // shift the FIFO down by one (drop entry 0)
     for (int i = 0; i < n; i++) {
@@ -835,7 +816,7 @@ void Engine::sceneEventFifoFaithful() {
     c->mem_w8(B + 0x14, (uint8_t)(c->mem_r8(B + 0x14) + 1));
   }
   c->r[31] = 0x8002569Cu;
-  d1(c, 0x80024f18u, B);
+  psx::cpu::callGuestNow(*c, __func__, 0x80024f18u, B);
   uint8_t phase = c->mem_r8(0x800bf870u);
   if (phase == 3 || phase == 20) {
     // neither the light-toggle nor 0x800251f0
@@ -845,10 +826,10 @@ void Engine::sceneEventFifoFaithful() {
     }
   } else {
     c->r[31] = 0x80025728u;
-    d1(c, 0x800251f0u, B);
+    psx::cpu::callGuestNow(*c, __func__, 0x800251f0u, B);
   }
   c->r[31] = 0x80025730u;
-  d1(c, 0x80077b5cu, B);
+  psx::cpu::callGuestNow(*c, __func__, 0x80077b5cu, B);
   c->r[31] = c->mem_r32(sp + 24);
   c->r[17] = c->mem_r32(sp + 20);
   c->r[16] = c->mem_r32(sp + 16);
@@ -863,7 +844,7 @@ void Engine::sceneEventFifoFaithful() {
 // the sub-state, set bit0 of flag byte @0x800bf822 when (base[1]!=0 ||
 // base[0x0a]!=0) else clear it. phase>=2 is a no-op. Leaf callees stay
 // substrate. Faithful to the guest instruction path; a direct child of ov_field_frame (was
-// `d0(c, 0x8004fe84)`).
+// `psx::cpu::callGuestNow(*c, __func__, 0x8004fe84)`).
 void Engine::sceneRenderListBuilder() {
   Core *c = core;
   // sceneRenderListBuilderFaithful dispatches through typed runtime address dispatch to substrate
@@ -890,16 +871,16 @@ void Engine::sceneRenderListBuilder() {
   }
   switch (c->mem_r8(B + 1)) {
   case 0:
-    d1(c, 0x8004f430u, B);
+    psx::cpu::callGuestNow(*c, __func__, 0x8004f430u, B);
     break;
   case 1:
-    d1(c, 0x8004f474u, B);
+    psx::cpu::callGuestNow(*c, __func__, 0x8004f474u, B);
     break;
   case 2:
-    d1(c, 0x8004f514u, B);
+    psx::cpu::callGuestNow(*c, __func__, 0x8004f514u, B);
     break;
   case 3:
-    d1(c, 0x8004f6d0u, B);
+    psx::cpu::callGuestNow(*c, __func__, 0x8004f6d0u, B);
     break;
   default:
     break; // sub >= 4: no sub-handler (guest j 8004ff60)
@@ -1817,7 +1798,7 @@ void Engine::fieldRun() {
     if (c->mem_r8(0x800bf89cu) == 2) {
       c->mem_w16(sm + 0x4e, 9);
     } else if (c->mem_r8(0x800bf870u) == 8) {
-      d0(c, 0x80114b90u);
+      psx::cpu::callGuestNow(*c, __func__, 0x80114b90u);
     }
     // HALFWORD read, matching gen (overlay guest 0x80106B98: `mem_r16((r4 +
     // -1936))`) and the faithful mirror above. It was `mem_r32(...) == 0x15`,
@@ -1828,7 +1809,7 @@ void Engine::fieldRun() {
       c->mem_w16(sm + 0x4e, 0xb);
       return;
     }
-    eng(c).pool.selectStateIndex(c->mem_r8(0x800bf870u)); // OWNED native — replaces d1(0x80074f24, area)
+    eng(c).pool.selectStateIndex(c->mem_r8(0x800bf870u)); // OWNED native — replaces the guest call 0x80074f24(area)
     break;
   case 2:
     eng(c).gStateMutate(0x800E7E80u,
@@ -1839,7 +1820,7 @@ void Engine::fieldRun() {
   case 3:
     eng(c).audioDispatch.settleField(); // native — was typed runtime address dispatch 0x80074BC4
     if (c->mem_r8(0x800bf870u) == 8) {
-      d0(c, 0x80114b90u);
+      psx::cpu::callGuestNow(*c, __func__, 0x80114b90u);
     }
     sm = c->mem_r32(0x1f800138u);
     c->mem_w16(sm + 0x4a, 2);
@@ -1848,7 +1829,7 @@ void Engine::fieldRun() {
     eng(c).modeStateArm.arm(); // native — was typed runtime address dispatch 0x8005082C(0,0,0)
     break;
   case 4:
-    d0(c, 0x8006c7c4u);
+    psx::cpu::callGuestNow(*c, __func__, 0x8006c7c4u);
     eng(c).modeStateArm.armFromAreaTable(); // native — was typed runtime address dispatch
                                             // 0x800508A8
     c->mem_w16(c->mem_r32(0x1f800138u) + 0x4e, 1);
@@ -1877,7 +1858,7 @@ void Engine::fieldRun() {
         c->mem_w16(sm + 0x4e, 0);
       } else {
         if (c->mem_r8(0x1f800236u) > 4) {
-          d1(c, 0x80050894u, 0); // LAB_80106fac join
+          psx::cpu::callGuestNow(*c, __func__, 0x80050894u, 0); // LAB_80106fac join
         }
         sm = c->mem_r32(0x1f800138u);
         c->mem_w16(sm + 0x4a, 1);
@@ -1889,7 +1870,7 @@ void Engine::fieldRun() {
   }
   case 5:
     if (c->mem_r8(0x800bf870u) == 7) {
-      d0(c, 0x801128bcu);
+      psx::cpu::callGuestNow(*c, __func__, 0x801128bcu);
       eng(c).modeStateArm.armFromAreaTable();
     }
     c->mem_w16(c->mem_r32(0x1f800138u) + 0x4e, 1);
@@ -1911,12 +1892,12 @@ void Engine::fieldRun() {
     c->mem_w8(0x800bf870u, (uint8_t)(v & 0xff));
     c->mem_w8(0x800bf871u, (uint8_t)((v >> 8) & 0xff));
     if (c->mem_r8(0x800bf839u) == 7) {
-      d0(c, 0x80114b90u);
+      psx::cpu::callGuestNow(*c, __func__, 0x80114b90u);
       c->mem_w8(0x800bf839u, 3);
     }
     sm = c->mem_r32(0x1f800138u);
     if (c->mem_r8(0x800bf839u) == 3) {
-      d0(c, 0x8005245cu);
+      psx::cpu::callGuestNow(*c, __func__, 0x8005245cu);
       sm = c->mem_r32(0x1f800138u);
       c->mem_w16(sm + 0x48, 2);
       c->mem_w16(sm + 0x4a, 1);
@@ -1932,7 +1913,7 @@ void Engine::fieldRun() {
     break;
   }
   case 7: {
-    d1(c, 0x80045580u, 1);
+    psx::cpu::callGuestNow(*c, __func__, 0x80045580u, 1);
     if (c->r[2] == 0) {
       return;
     }
@@ -1975,14 +1956,14 @@ void Engine::fieldRun() {
     c->mem_w8(sm + 0x6e, nv);
     if (nv == 0) {
       c->mem_w16(sm + 0x4e, 7);
-      d0(c, 0x8001cf2cu);
+      psx::cpu::callGuestNow(*c, __func__, 0x8001cf2cu);
       // NOTE: no persistent hold_black on fade-out exit — see sop.cpp state 3
       // note (regression 2026-07-01).
     }
     break;
   }
   case 0xb:
-    fade(c).sequence(0x800e8008u); // OWNED native — replaces d1(0x8010957c,
+    fade(c).sequence(0x800e8008u); // OWNED native — replaces the guest call 0x8010957c(
                                    // node) (a0l fade sequencer)
     break;
   default:
@@ -2061,7 +2042,7 @@ void Engine::fieldFrameX() {
   if (c->mem_r8(0x1f800136u) == 0) { // not paused: reduced gameplay update
     eng(c).frameStartTick();
     eng(c).objectList.walkAux();
-    d0(c, 0x80026368u);
+    psx::cpu::callGuestNow(*c, __func__, 0x80026368u);
     eng(c).transitionState3.walkOnce(); // 0x80059d28/0x80069b28/0x8007b04c NATIVE
     eng(c).sceneEventFifo();
     eng(c).sceneRenderListBuilder();
@@ -2124,10 +2105,10 @@ void Engine::transitionMain() {
   switch (st) {
   case 0:
     c->mem_w8(0x1f800234u, 1);
-    d0(c, 0x8007a810u);
-    d0(c, 0x800798f8u);
-    d0(c, 0x8007b0f0u);
-    d0(c, 0x801079acu); // scene teardown
+    psx::cpu::callGuestNow(*c, __func__, 0x8007a810u);
+    psx::cpu::callGuestNow(*c, __func__, 0x800798f8u);
+    psx::cpu::callGuestNow(*c, __func__, 0x8007b0f0u);
+    psx::cpu::callGuestNow(*c, __func__, 0x801079acu); // scene teardown
     sm = c->mem_r32(0x1f800138u);
     c->mem_w8(sm + 0x6b, 0x1f);
     c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
@@ -2163,12 +2144,12 @@ void Engine::transitionMain() {
     c->mem_w8(sm + 0x6b, v);
     if (v == 0) {
       c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
-      d1(c, 0x80050894u, 0);
+      psx::cpu::callGuestNow(*c, __func__, 0x80050894u, 0);
     }
     break;
   }
   case 4: // done -> back to the field area machine
-    d0(c, 0x80074e48u);
+    psx::cpu::callGuestNow(*c, __func__, 0x80074e48u);
     sm = c->mem_r32(0x1f800138u);
     c->mem_w16(sm + 0x48, 2);
     c->mem_w16(sm + 0x4a, 1);
@@ -2178,10 +2159,10 @@ void Engine::transitionMain() {
   default:
     return;
   }
-  d0(c, 0x80059c60u);
-  d0(c, 0x8006ef38u);
-  d0(c, 0x8007b008u);
-  d0(c, 0x8003fa1cu); // per-frame update (fade frames)
+  psx::cpu::callGuestNow(*c, __func__, 0x80059c60u);
+  psx::cpu::callGuestNow(*c, __func__, 0x8006ef38u);
+  psx::cpu::callGuestNow(*c, __func__, 0x8007b008u);
+  psx::cpu::callGuestNow(*c, __func__, 0x8003fa1cu); // per-frame update (fade frames)
 }
 
 // FUN_80107d3c — transition variant (sm[0x4c]==5/6). sm[0x4e]: 0 load, 1 effect
@@ -2191,7 +2172,7 @@ void Engine::transitionD3c() {
   uint32_t sm = c->mem_r32(0x1f800138u);
   uint16_t st = c->mem_r16(sm + 0x4e);
   if (st == 1) {
-    d0(c, 0x8003fb84u);
+    psx::cpu::callGuestNow(*c, __func__, 0x8003fb84u);
     c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
   } else if (st == 0) {
     c->mem_w8(0x1f800234u, 1);
@@ -2200,7 +2181,7 @@ void Engine::transitionD3c() {
                          0); // FUN_80044bd4(0x800452c0,bf870,0,1)
   } else if (st == 2) {
     if (c->mem_r8(0x1f80019bu) == 0) {
-      d0(c, 0x8003ea88u);
+      psx::cpu::callGuestNow(*c, __func__, 0x8003ea88u);
     } else {
       c->mem_w16(sm + 0x48, 2);
       c->mem_w16(sm + 0x4a, 1);
@@ -2217,19 +2198,19 @@ void Engine::transitionE20() {
   uint32_t sm = c->mem_r32(0x1f800138u);
   uint16_t st = c->mem_r16(sm + 0x4e);
   if (st == 1) {
-    d0(c, 0x8003e264u);
+    psx::cpu::callGuestNow(*c, __func__, 0x8003e264u);
     c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
   } else if (st == 0) {
-    d1(c, 0x80074bf8u, 9);
-    d0(c, 0x8003e264u);
+    psx::cpu::callGuestNow(*c, __func__, 0x80074bf8u, 9);
+    psx::cpu::callGuestNow(*c, __func__, 0x8003e264u);
     c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
     c->mem_w8(0x1f800234u, 1);
     native_area_load_bd4(c, c->mem_r8(0x800bf870u),
                          0); // FUN_80044bd4(0x800452c0,bf870,0,1)
   } else if (st == 2) {
-    d0(c, 0x8003e894u); // always runs, then checks the flag
+    psx::cpu::callGuestNow(*c, __func__, 0x8003e894u); // always runs, then checks the flag
     if (c->mem_r8(0x1f80019bu) != 0) {
-      d0(c, 0x80074e48u);
+      psx::cpu::callGuestNow(*c, __func__, 0x80074e48u);
       c->mem_w16(sm + 0x48, 2);
       c->mem_w16(sm + 0x4a, 1);
       c->mem_w16(sm + 0x4c, 1);
@@ -2250,51 +2231,51 @@ void Engine::transitionF3c() {
   uint16_t st = c->mem_r16(sm + 0x4e);
   switch (st) {
   case 0:
-    d1(c, 0x80074bf8u, 9);
-    d0(c, 0x8003e264u);
+    psx::cpu::callGuestNow(*c, __func__, 0x80074bf8u, 9);
+    psx::cpu::callGuestNow(*c, __func__, 0x8003e264u);
     c->mem_w8(0x1f800234u, 1);
     c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
     // FUN_80044bd4(0x80044f58, (DAT_1f800240+0x1a)&0xff, 0): spawn
     // ov_load_texgroup (sync) -> run inline.
     c->mem_w8(0x1f80019bu, 0);
-    d1(c, 0x80044f58u, (uint32_t)((c->mem_r32(0x1f800240u) + 0x1a) & 0xff));
+    psx::cpu::callGuestNow(*c, __func__, 0x80044f58u, (uint32_t)((c->mem_r32(0x1f800240u) + 0x1a) & 0xff));
     c->mem_w8(0x1f80019bu, 1);
     break;
   case 1:
   case 5:
-    d0(c, 0x8003e264u);
+    psx::cpu::callGuestNow(*c, __func__, 0x8003e264u);
     c->mem_w16(sm + 0x4e,
                (uint16_t)(c->mem_r16(sm + 0x4e) + 1)); // LAB_8010809c
     break;
   case 2:
-    d0(c, 0x8003e894u);
+    psx::cpu::callGuestNow(*c, __func__, 0x8003e894u);
     if (c->mem_r8(0x1f80019bu) != 0) {
       c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
-      d0(c, 0x80074e48u);
+      psx::cpu::callGuestNow(*c, __func__, 0x80074e48u);
       eng(c).audioDispatch.zoneTransitionSetup(9); // native, FUN_8001D71C
-      d0(c, 0x8003fb94u);
+      psx::cpu::callGuestNow(*c, __func__, 0x8003fb94u);
     }
     break;
   case 3:
-    d0(c, 0x8003ebe0u);
+    psx::cpu::callGuestNow(*c, __func__, 0x8003ebe0u);
     if (c->r[2] == 0) {
       return; // still running -> stay
     }
-    d0(c, 0x8001cf2cu);
+    psx::cpu::callGuestNow(*c, __func__, 0x8001cf2cu);
     c->mem_w16(sm + 0x4e,
                (uint16_t)(c->mem_r16(sm + 0x4e) + 1)); // LAB_8010809c
     break;
   case 4:
-    d1(c, 0x80074bf8u, 8);
-    d0(c, 0x8003e264u);
+    psx::cpu::callGuestNow(*c, __func__, 0x80074bf8u, 8);
+    psx::cpu::callGuestNow(*c, __func__, 0x8003e264u);
     c->mem_w16(sm + 0x4e, (uint16_t)(c->mem_r16(sm + 0x4e) + 1));
     native_area_load_bd4(c, c->mem_r8(0x800bf870u),
                          0); // FUN_80044bd4(0x800452c0,bf870,0,1)
     break;
   case 6:
-    d0(c, 0x8003e894u);
+    psx::cpu::callGuestNow(*c, __func__, 0x8003e894u);
     if (c->mem_r8(0x1f80019bu) != 0) {
-      d0(c, 0x80074e48u);
+      psx::cpu::callGuestNow(*c, __func__, 0x80074e48u);
       c->mem_w16(sm + 0x48, 2);
       c->mem_w16(sm + 0x4a, 1);
       c->mem_w16(sm + 0x4c, 1);
@@ -2795,7 +2776,7 @@ void Engine::fieldRunX() {
     // task cannot suspend (kanban #50).
     c->r[31] = 0x80107108u;
     psx::cpu::dispatchGuestToReturn0(*c, 0x8006c77cu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-    d3(c, 0x8005082cu, 0, 0, 0); // input reset
+    psx::cpu::callGuestNow(*c, __func__, 0x8005082cu, 0, 0, 0); // input reset
     // fall through to state 1
   }
   eng(c).fieldFrameX();              // 0x80108be4 per-frame (state 1, 0x80107118)
@@ -2833,7 +2814,7 @@ void Engine::fieldRunX() {
     return;
   }
   if (c->mem_r8(0x1f800236u) >= 5) {
-    d1(c, 0x80050894u, 0); // 0x801071f0
+    psx::cpu::callGuestNow(*c, __func__, 0x80050894u, 0); // 0x801071f0
   }
   sm = c->mem_r32(0x1f800138u);
   c->mem_w16(sm + 0x4a, 1);
