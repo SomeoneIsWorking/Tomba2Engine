@@ -1,15 +1,14 @@
 // objlist_walk.cpp — SUBSTRATE MIRROR for the 4 still-substrate OBJECT-LIST WALKERS reached from the
 // field draw dispatcher FUN_8003F9A8 (docs/findings/render.md "0x8003F9A8 474-prim attribution
-// resolved"): FUN_8003BB50, FUN_8003BCF4 (+ its shared-tail split FUN_8003BED8), FUN_8003BF00,
+// resolved"): FUN_8003BB50, FUN_8003BCF4, FUN_8003BF00,
 // FUN_8003EEC0. Everything BELOW them (FUN_8003CCA4/C2D4/C464 = Render::perObjRenderDispatch/
 // billboardCompose1/billboardCompose2) is already native — these 4 are the last unowned hop between
 // the field dispatcher and that already-owned chain, so the 474 prims the otattr shadow stack was
 // mis-crediting to FUN_8003F9A8 attribute correctly once these are owned.
 //
 // RE method: authenticated executable/overlay evidence (the recorded guest instruction listing) is ground truth, used
-// DIRECTLY (not Ghidra's pseudo-C, which — for FUN_8003BCF4 specifically — mis-portrays a genuine cross-function
-// tail-call-continuation split as an ordinary single-function do-while loop; see the FUN_8003BCF4/
-// FUN_8003BED8 banner below for the full account). Cross-checked against scratch/decomp/otattr_subs.c
+// DIRECTLY (Ghidra's pseudo-C reads FUN_8003BCF4's jump table as a set of functions; it is a set of labels
+// inside one loop — see the FUN_8003BCF4 banner below). Cross-checked against scratch/decomp/otattr_subs.c
 // (Ghidra headless dump) for the case-value semantics, which the recorded binary evidence's switch tables (read
 // as REAL indirect jump-table data at each function's fixed table address) independently confirm.
 // All 5 addresses confirmed unowned via tools/codemap.py before porting.
@@ -31,24 +30,19 @@
 //   mem_w16/mem_r32/mem_w32 at the literal scratchpad offsets; no magic constants, every offset is the
 //   literal `authenticated executable/overlay evidence` operand).
 //
-// FUN_8003BCF4 / FUN_8003BED8 — genuine two-function split, NOT flattened into one native loop:
-//   guest 0x8003BCF4 processes ONLY the walk's FIRST live-and-in-range object, then either (a) hands
-//   off to guest 0x8003BED8 (a plain C call — `guest 0x8003BED8(c); return;`) to continue the walk over
-//   the REST of the list, or (b) typed runtime address dispatch's the resolved table target directly and returns
-//   immediately WITHOUT popping its own 40-byte guest frame. Many OTHER still-substrate leaves this
-//   table can resolve to (e.g. guest 0x8003BEA4/8003BEB4, authenticated executable/overlay evidence/shard_5.c)
-//   themselves end by calling `guest 0x8003BED8(c)` — i.e. FUN_8003BED8 is an independently guest-reachable "continue
-//   the walk" trampoline, not private plumbing FUN_8003BCF4 alone uses. So it MUST be owned at its OWN address too: any
-//   still-substrate leaf that tail-calls into it needs to land on the SAME native continuation, not a copy.
-//   FUN_8003BED8's own body only pops the shared 40-byte frame at the point the walk's remaining count reaches 0 (or a
-//   recognized dispatch, which — like FUN_8003BCF4's own recognized-case arm — returns immediately without popping,
-//   trusting the target to eventually re-enter FUN_8003BED8 to keep going and pop when the list is finally exhausted).
-//   The two native methods below reproduce this exactly: objListWalk2 does a MANUAL (non-RAII) frame push and never
-//   pops it itself; objListWalk2Continue does the manual pop, and ONLY there. Both read/write the
-//   walk's live loop state (list cursor r18, remaining count r17, table base r20) through c->r[] itself
-//   — never a C++ local — so the register-faithfulness a still-substrate leaf's own prologue spill
-//   depends on (same class of bug as perobj_dispatch.cpp's CmdListFrame banner / f62 residual) survives
-//   the native<->substrate boundary in either direction.
+// FUN_8003BCF4 — ONE function, ONE loop. Ghidra's pseudo-C and an earlier port both read the 33-entry
+//   table at 0x80014CB0 as pointing at FUNCTIONS; it points at LABELS. Every target is inside this body
+//   (0x8003BDAC..0x8003BEC8: one to five instructions, `move a0,s0` + one leaf call, then `j 0x8003bed8`)
+//   or is the loop-continue label 0x8003BED8 itself (`bnez s1, loop; epilogue; jr ra`). The whole RAM
+//   image holds exactly 11 jumps to 0x8003BED8, all `j` (never `jal`), all inside 0x8003BDAC..0x8003BEAC,
+//   and no jump to the loop head 0x8003BD6C at all — so nothing outside this function ever enters the
+//   tail, and the tail must NOT be a native override: an override "returns" to its entry r31, and for a
+//   `j`-entered label that r31 is the stub's own `j` (set by the stub's preceding `jal`), so the tail was
+//   re-entered AFTER its epilogue had popped the frame and walked the caller's garbage s1/s2 —
+//   hut-entry-alt.pad f459, UNMAPPED read8 @0x01000001 with r17=0x1F7FFFF6, r18=0x29, ra=0x8003F9E8.
+//   The loop state (r16=object, r17=remaining, r18=cursor, r19=0x800C0000, r20=table) lives in c->r[]
+//   itself, never a C++ local: the leaves this loop reaches spill those callee-saved registers as their
+//   caller state, so a stale value would reach guest RAM (perobj_dispatch.cpp's CmdListFrame banner).
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
@@ -243,14 +237,12 @@ epilogue:
 }
 
 // ===================================================================================================
-// FUN_8003BCF4 (Render::objListWalk2) — processes only the FIRST live/in-range object; hands the rest
-// of the walk off to objListWalk2Continue (see the file banner). MANUAL (non-RAII) frame push: the
-// pop happens in objListWalk2Continue, possibly several typed runtime address dispatch hops later.
+// FUN_8003BCF4 (Render::objListWalk2) — no args (guest ABI). See the file banner: the table targets are
+// labels in this body, reproduced as the switch arms below with the exact r31 each stub's `jal` leaves.
 // ORACLE: guest 0x8003BCF4
 void Render::objListWalk2() {
   Core *c = mCore;
-  // Real -40 guest frame (RE: guest 0x8003BCF4 prologue) — spills r16/r17/r18/r19/r20/ra. Pushed here,
-  // popped ONLY by objListWalk2Continue (see banner) — never in this function.
+  // Real -40 guest frame (RE: guest 0x8003BCF4 prologue) — spills r16/r17/r18/r19/r20/ra.
   const uint32_t s16 = c->r[16], s17 = c->r[17], s18 = c->r[18], s19 = c->r[19], s20 = c->r[20], sra = c->r[31];
   c->r[29] -= 40;
   c->mem_w32(c->r[29] + 36, sra);
@@ -268,84 +260,139 @@ void Render::objListWalk2() {
     c->mem_w16(W2_CNT_B, oldCnt);
     c->mem_w32(W2_PTR_B, oldPtr);
   }
-  // Live loop state lives in c->r[] itself (register-faithfulness — objListWalk2Continue and every
-  // still-substrate leaf this table can resolve to reads/spills these as real registers, not a C++
-  // local): r16=current object pointer, r17=remaining count, r18=list cursor pointer, r20=table base
-  // (constant, set once here). CRITICAL: unlike objListWalk1/3/4's case handlers (which explicitly set
-  // c->r[4]=object before every call), guest 0x8003BCF4/BED8's typed runtime address dispatch NEVER sets r4 —
-  // dispatched targets (e.g. guest 0x8003BEA4, `c->r[4] = c->r[16] + c->r[0]; guest 0x8003C464(c); ...`) read the
-  // object pointer straight out of r16. Keeping it only in a C++ local here (not c->r[16]) was a real
-  // bug: those still-substrate leaves picked up whatever STALE value happened to be in c->r[16] instead
-  // — found via a bisected SBS-full run (BB50/BF00/EEC0 alone: 0-diff; BCF4/BED8 alone: ~27KB/frame
-  // packet-pool divergence from f180 on).
   c->r[17] = (uint32_t)(int16_t)c->mem_r16(W2_CNT_B);
   c->r[18] = c->mem_r32(W2_PTR_B);
-  c->r[19] = 0x800C0000u; // RE'd: gen sets this loop-invariant constant too (unused by this function's
-                          // own body but callee-save-live for downstream substrate leaves).
+  if (c->r[17] == 0u) {
+    goto epilogue;
+  }
+  c->r[19] = 0x800C0000u; // s3: the area-overlay arms read the mode byte as `lbu v1,-0x790(s3)` (0x800BF870)
   c->r[20] = W2_TABLE;
 
-  if (c->r[17] == 0u) {
-    objListWalk2Continue();
-    return;
-  } // count already 0: BED8 pops immediately
-  c->r[16] = c->mem_r32(c->r[18]);
-  c->r[18] += 4;
-  c->r[17]--;
-  const uint32_t cmd = c->r[16];
-  if (c->mem_r8(cmd + 1) == 0u) {
-    objListWalk2Continue();
-    return;
-  }
-  const uint32_t type = c->mem_r8(cmd + 0xB);
-  if (type >= 33u) {
-    objListWalk2Continue();
-    return;
-  }
-  const uint32_t target = c->mem_r32(c->r[20] + type * 4u);
-  psx::cpu::dispatchGuestToReturn0(
-      *c,
-      target,
-      psx::cpu::ExecutionBudget::currentTurn(*c),
-      __func__); // NOTE: on return, the walk is fully consumed and the shared frame already
-                 // popped (target's own tail eventually reaches objListWalk2Continue).
-}
-
-// FUN_8003BED8 (Render::objListWalk2Continue) — the walk's shared "process the rest of the list, pop
-// the shared frame when done" tail. Independently guest-reachable (see file banner): several other
-// still-substrate leaves the type table can resolve to end by calling guest 0x8003BED8(c) directly.
-// ORACLE: guest 0x8003BED8
-void Render::objListWalk2Continue() {
-  Core *c = mCore;
-  for (;;) {
-    if (c->r[17] == 0u) {
-      c->r[31] = c->mem_r32(c->r[29] + 36);
-      c->r[20] = c->mem_r32(c->r[29] + 32);
-      c->r[19] = c->mem_r32(c->r[29] + 28);
-      c->r[18] = c->mem_r32(c->r[29] + 24);
-      c->r[17] = c->mem_r32(c->r[29] + 20);
-      c->r[16] = c->mem_r32(c->r[29] + 16);
-      c->r[29] += 40;
-      return;
-    }
+  while (c->r[17] != 0u) {
     c->r[16] = c->mem_r32(c->r[18]);
     c->r[18] += 4;
     c->r[17]--;
-    const uint32_t cmd = c->r[16]; // register-faithfulness: see objListWalk2's banner — dispatched
-                                   // targets read the object pointer from r16, never r4.
+    const uint32_t cmd = c->r[16];
     if (c->mem_r8(cmd + 1) == 0u) {
-      continue; // skip: loop
+      continue;
     }
     const uint32_t type = c->mem_r8(cmd + 0xB);
     if (type >= 33u) {
-      continue; // out of range: loop
+      continue;
     }
     const uint32_t target = c->mem_r32(c->r[20] + type * 4u);
-    psx::cpu::dispatchGuestToReturn0(*c,
-                                     target,
-                                     psx::cpu::ExecutionBudget::currentTurn(*c),
-                                     __func__); // recognized: dispatch and return WITHOUT popping — target's own tail
-    return; // will re-enter objListWalk2Continue (via guest 0x8003BED8) to keep going.
+    switch (target) {
+    case 0x8003BDACu: // the mesh flush
+      c->r[31] = 0x8003BDB4u;
+      c->r[4] = cmd;
+      perObjRenderDispatch();
+      break;
+    case 0x8003BDBCu: { // area-overlay renderer chosen by the mode byte
+      const uint32_t mode = c->mem_r8(c->r[19] - 0x790u);
+      if (mode == 0u) {
+        c->r[31] = 0x8003BDD4u;
+        c->r[4] = cmd;
+        psx::cpu::dispatchGuestToReturn0(*c, 0x801341E8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+      } else if (mode == 6u) {
+        c->r[31] = 0x8003BDECu;
+        c->r[4] = cmd;
+        psx::cpu::dispatchGuestToReturn0(*c, 0x80123C14u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+      }
+      break;
+    }
+    case 0x8003BDF4u: { // area-overlay renderer chosen by the mode byte
+      const uint32_t mode = c->mem_r8(c->r[19] - 0x790u);
+      uint32_t leaf = 0u, ra = 0u;
+      switch (mode) {
+      case 1u:
+        leaf = 0x80129114u;
+        ra = 0x8003BE0Cu;
+        break;
+      case 6u:
+        leaf = 0x80120D2Cu;
+        ra = 0x8003BE24u;
+        break;
+      case 7u:
+        leaf = 0x8011AD44u;
+        ra = 0x8003BE3Cu;
+        break;
+      case 0xAu:
+        leaf = 0x80115338u;
+        ra = 0x8003BE54u;
+        break;
+      case 0xFu:
+        leaf = 0x80117984u;
+        ra = 0x8003BE6Cu;
+        break;
+      default:
+        break;
+      }
+      if (leaf != 0u) {
+        c->r[31] = ra;
+        c->r[4] = cmd;
+        psx::cpu::dispatchGuestToReturn0(*c, leaf, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+      }
+      break;
+    }
+    case 0x8003BE74u:
+      c->r[31] = 0x8003BE7Cu;
+      c->r[4] = cmd;
+      psx::cpu::dispatchGuestToReturn0(*c, 0x80136748u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+      break;
+    case 0x8003BE84u:
+      c->r[31] = 0x8003BE8Cu;
+      c->r[4] = cmd;
+      billboardCompose1();
+      break;
+    case 0x8003BE94u: { // vtable +0x7C, then falls into the billboardCompose2 arm
+      const uint32_t vt = c->mem_r32(cmd + 0x7Cu);
+      c->r[31] = 0x8003BEA4u;
+      c->r[4] = cmd;
+      psx::cpu::dispatchGuestToReturn0(*c, vt, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+    }
+      [[fallthrough]];
+    case 0x8003BEA4u:
+      c->r[31] = 0x8003BEACu;
+      c->r[4] = cmd;
+      billboardCompose2();
+      break;
+    case 0x8003BEB4u: // billboardCompose1, then falls into the vtable +0x7C arm
+      c->r[31] = 0x8003BEBCu;
+      c->r[4] = cmd;
+      billboardCompose1();
+      [[fallthrough]];
+    case 0x8003BEBCu: {
+      const uint32_t vt = c->mem_r32(cmd + 0x7Cu);
+      c->r[31] = 0x8003BED8u;
+      c->r[4] = cmd;
+      psx::cpu::dispatchGuestToReturn0(*c, vt, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+      break;
+    }
+    case 0x8003BEC8u: { // vtable +0x18 (the type-0x20 custom-render fn)
+      const uint32_t vt = c->mem_r32(cmd + 0x18u);
+      c->r[31] = 0x8003BED8u;
+      c->r[4] = cmd;
+      psx::cpu::dispatchGuestToReturn0(*c, vt, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+      break;
+    }
+    case 0x8003BED8u:
+      break; // loop-continue table entry: nothing is drawn
+    default:
+      // Defensive mirror of the guest's `jr v0` to a target outside this body — a full RETURN bypassing
+      // the frame epilogue. Never hit by live game data: the live 33-slot table only ever holds the
+      // labels above.
+      psx::cpu::dispatchGuestToReturn0(*c, target, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+      return;
+    }
   }
+epilogue:
+  c->r[31] = c->mem_r32(c->r[29] + 36);
+  c->r[20] = c->mem_r32(c->r[29] + 32);
+  c->r[19] = c->mem_r32(c->r[29] + 28);
+  c->r[18] = c->mem_r32(c->r[29] + 24);
+  c->r[17] = c->mem_r32(c->r[29] + 20);
+  c->r[16] = c->mem_r32(c->r[29] + 16);
+  c->r[29] += 40;
 }
 
 // ===================================================================================================
@@ -550,33 +597,11 @@ void ov_objListWalk1(Core *c) {
 void ov_objListWalk2(Core *c) {
   rend(c)->objListWalk2();
 }
-void ov_objListWalk2Continue(Core *c) {
-  rend(c)->objListWalk2Continue();
-}
 void ov_objListWalk3(Core *c) {
   rend(c)->objListWalk3();
 }
 void ov_objListWalk4(Core *c) {
   rend(c)->objListWalk4();
-}
-
-// 0x8003BDAC — jump-table case 0/15 of the object-type table at 0x80014CB0. NOT A FUNCTION: four
-// instructions that run INSIDE objListWalk2's 40-byte frame, pushed by objListWalk2 and popped by
-// objListWalk2Continue. It therefore touches neither sp nor any frame — wrapping it in one would
-// shift every downstream callee's sp-relative scratch. 11,435 substrate dispatches per 6000 frames.
-//
-// The ra constant is load-bearing and unconditional: entry r31 is NOT live-in here. It is the
-// caller-of-objListWalk2's ra only on the FIRST type-0/15 object of a walk; thereafter it holds
-// 0x8003BDB4 restored by perObjRenderDispatch's own epilogue, or whatever a preceding sibling case
-// left. So it is written every time rather than relied upon — a point established by the adversarial
-// verify pass over the RE spec, which had claimed entry r31 was the caller's ra.
-// ORACLE: guest 0x8003BDAC
-void ov_objListWalk2Case0(Core *c) {
-  c->r[31] = 0x8003BDB4u;
-  c->r[4] = c->r[16] + c->r[0];
-  psx::cpu::dispatchGuestToReturn0(*c, 0x8003CCA4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-  psx::cpu::dispatchGuestToReturn0(*c, 0x8003BED8u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-  return;
 }
 } // namespace
 
@@ -591,8 +616,6 @@ void objlist_walk_install() {
   done = true;
   tomba::native::declareOverride(0x8003BB50u, "ov_objListWalk1", ov_objListWalk1);
   tomba::native::declareOverride(0x8003BCF4u, "ov_objListWalk2", ov_objListWalk2);
-  tomba::native::declareOverride(0x8003BED8u, "ov_objListWalk2Continue", ov_objListWalk2Continue);
   tomba::native::declareOverride(0x8003BF00u, "ov_objListWalk3", ov_objListWalk3);
   tomba::native::declareOverride(0x8003EEC0u, "ov_objListWalk4", ov_objListWalk4);
-  tomba::native::declareOverride(0x8003BDACu, "ov_objListWalk2Case0", ov_objListWalk2Case0);
 }

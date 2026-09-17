@@ -926,11 +926,10 @@ public:
   // (called as plain the cited guest address(c), matching gen), or a per-object vtable slot (typed runtime address
   // dispatch, per CLAUDE.md — never dropped). See game/render/objlist_walk.cpp for the full RE (per-function scratchpad
   // cursor layout, jump-table addresses, case-label maps).
-  void objListWalk1();         // FUN_8003BB50 — list @0x800F2410, cursor 0x1F80013C/146
-  void objListWalk2();         // FUN_8003BCF4 — list @0x800F26C8, cursor 0x1F800148/152 (1st entry only)
-  void objListWalk2Continue(); // FUN_8003BED8 — shared tail: continues objListWalk2's SAME guest frame
-  void objListWalk3();         // FUN_8003BF00 — list @0x800F2738 (positional array), cursor 0x1F800154/15E
-  void objListWalk4();         // FUN_8003EEC0 — list head *0x800F2738 (linked via node+0x24 "next")
+  void objListWalk1(); // FUN_8003BB50 — list @0x800F2410, cursor 0x1F80013C/146
+  void objListWalk2(); // FUN_8003BCF4 — list @0x800F26C8, cursor 0x1F800148/152
+  void objListWalk3(); // FUN_8003BF00 — list @0x800F2738 (positional array), cursor 0x1F800154/15E
+  void objListWalk4(); // FUN_8003EEC0 — list head *0x800F2738 (linked via node+0x24 "next")
 
 private:
   // Native POLY_GT3/GT4 submitters (guest-ABI bodies: rec/otbase/count in r4/r5/r6).

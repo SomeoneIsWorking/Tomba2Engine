@@ -83,7 +83,10 @@ and exited with 1,688,706 translated
 blocks and zero fallback blocks. The authentic A03/A0B native/original-call discriminator,
 retail reach of the resident owner/original-call path, independent comparison, and representative
 interactive gameplay remain open (issue 0005). The isolated authenticated resident-byte probe is
-recorded in that issue.
+recorded in that issue. On 2026-09-17 `replays/scene-transitions/hut-entry-alt.pad` ran 900 frames
+through the hut-interior transition under Lightrec once the object-list walker stopped overriding
+labels inside its own body (`docs/findings/render.md`, walker section); the 400-frame boot gate and
+the 24-test verifier pass on the same build.
 
 ### S002 — Independent Tomba! 2 comparison: partial
 

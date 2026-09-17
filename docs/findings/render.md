@@ -3180,14 +3180,19 @@ draft was already byte-faithful.
 
 ### RESOLVED — 4 walkers OWNED native (2026-07-15, game/render/objlist_walk.cpp)
 
-- **status:** all 4 walkers (+ the FUN_8003BED8 shared-tail split of BCF4) ported as `Render::
-  objListWalk1..4` + `objListWalk2Continue`, wired via `tomba::native::declareOverride` (oracle-gated; core B
-  stays pure gen). SBS-full AUTONAV 300s = **0-diff through f21390** (0 sbs-div, 0 differ checkpoints).
+- **status:** all 4 walkers ported as `Render::objListWalk1..4`, wired via `tomba::native::declareOverride`
+  (oracle-gated; core B stays pure gen). SBS-full AUTONAV 300s = **0-diff through f21390** (0 sbs-div, 0
+  differ checkpoints) — measured on the earlier two-function BCF4 port, before the 2026-09-17 rewrite below.
 - **walker map:** BB50=objListWalk1 (-40 frame, spills r16/17/18/19/ra; list@0x800F2410, cursor
   0x1F80013C/146, table 0x80014A70, 144-entry); BCF4=objListWalk2 (-40, r16..r20/ra; @0x800F26C8,
-  0x1F800148/152, table 0x80014CB0, 33-entry) — MANUAL frame push, pop deferred to objListWalk2Continue
-  (=FUN_8003BED8, an independently guest-reachable "continue the walk" trampoline that OTHER substrate
-  leaves tail-call, so owned at its own address); BF00=objListWalk3 (-32, r16/17/18/ra; @0x800F2738,
+  0x1F800148/152, table 0x80014CB0, 33-entry) — one loop with an ordinary frame: every table target is a
+  LABEL inside FUN_8003BCF4's body, each ending in `j 0x8003bed8` (11 `j` sites in RAM, zero `jal`s, none
+  outside 0x8003BDAC..0x8003BEAC). **2026-09-17:** the earlier port split the tail 0x8003BED8 and the
+  case-0 label 0x8003BDAC into their own native overrides; under Lightrec an override entered by `j`
+  resumes at its entry r31, which for those stubs is the stub's own `j`, so the tail re-ran after its
+  epilogue had popped the frame (hut-entry-alt.pad f459: UNMAPPED read8 @0x01000001, r17=0x1F7FFFF6,
+  r18=0x29). Labels are never overrides now; the arms are switch cases in objListWalk2 (walk1's shape).
+  Evidence: hut-entry-alt.pad PASS through f900 and the boot gate; BF00=objListWalk3 (-32, r16/17/18/ra; @0x800F2738,
   0x1F800154/15E, table 0x80014D38, 32-entry); EEC0=objListWalk4 (-32, r16/17/18/ra; node+0x24-linked
   chain head *0x800F2738, table 0x80015000, 33-entry). Case-0/0xF → perObjRenderDispatch; per-object
   vtable slots (cmd+0x7C / cmd+0x18 / cmd+0x24 / cmd+0x7C) → typed runtime address dispatch (never dropped).
@@ -3211,9 +3216,8 @@ draft was already byte-faithful.
 - **render:** default free-roam + fps60=1 shot PIXEL-IDENTICAL to forced-gen baseline (md5 match, 0/230415
   byte diffs) — no visual regression (expected: walkers write only guest RAM, mirrored byte-exact).
 - **port_check caveat:** reports FAIL on all 4 (coarse call-sequence normalizer) — owned sibling methods
-  (perObjRenderDispatch/billboardCompose1/2) appear as unmappable `None` targets not `the cited guest address`, and
-  objListWalk2's frame-close lives in the split-off objListWalk2Continue. Same known limitation as
-  perobj_dispatch.cpp::cmdListDispatch. SBS-full 0-diff is the authoritative equivalence gate.
+  (perObjRenderDispatch/billboardCompose1/2) appear as unmappable `None` targets not `the cited guest address`.
+  Same known limitation as perobj_dispatch.cpp::cmdListDispatch. SBS-full 0-diff is the authoritative equivalence gate.
 
 ## 0x8013CDD4 port — ambiguity SETTLED (2026-07-14): load-bearing field reuse, port unblocked
 

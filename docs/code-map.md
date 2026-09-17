@@ -10,7 +10,7 @@ syntax (`obj.method(...)`, `ptr->method(...)`, bare in-class `method(...)`). **O
 native exists but no call site of any of those forms was found anywhere in the tree — it
 is genuinely dead code until something calls it.
 
-Totals: 798 native fns, 639 owned addresses, 792 LIVE / 6 ORPHAN. 241 override declaration sites over 241 addresses.
+Totals: 795 native fns, 637 owned addresses, 789 LIVE / 6 ORPHAN. 239 override declaration sites over 239 addresses.
 
 **A row can come from a DEFINITION or from an INSTALL SITE.** An address whose handler is a file-local static in an anonymous namespace (no address in its name, no tag, no quoted registry name) has no findable definition — the `tomba::native::declareOverride` / `tomba::native::declareOverride*` call site is its only ownership record, and the file holding that call site is where you debug it from. Those rows say so in the summary column.
 
@@ -98,15 +98,12 @@ Totals: 798 native fns, 639 owned addresses, 792 LIVE / 6 ORPHAN. 241 override d
 | 0x8003B320 | LIVE | `QuadRtptSubmit::submitQuad` | game/render/quad_rtpt_submit.cpp:134 |  | ──────────────────────────────────────────────────────────────────────… |
 | 0x8003B704 | LIVE | `Render::beamNodeReached` | game/render/fx_beam.cpp:131 |  | beamNodeReached — which of FUN_8003EEC0's arms this node takes, read f… |
 | 0x8003B704 | LIVE | `Render::beamQuadRender` | game/render/fx_beam.cpp:149 |  | beamQuadRender — FUN_8003B704's picture. Read-only; emits world quads … |
-| 0x8003BB50 | LIVE | `Render::objListWalk1` | game/render/objlist_walk.cpp:102 | 0x8002AE0C 0x8003C5F8 0x8003C788 0x80122974 | ======================================================================… |
-| 0x8003BB50 | LIVE | `ov_objListWalk1` | game/render/objlist_walk.cpp:547 |  |  |
-| 0x8003BCF4 | LIVE | `Render::objListWalk2` | game/render/objlist_walk.cpp:250 |  | ======================================================================… |
-| 0x8003BCF4 | LIVE | `ov_objListWalk2` | game/render/objlist_walk.cpp:550 |  |  |
-| 0x8003BDAC | LIVE | `ov_objListWalk2Case0` | game/render/objlist_walk.cpp:574 | 0x8003BED8 0x8003CCA4 | jump-table case 0/15 of the object-type table at 0x80014CB0. NOT A FUN… |
-| 0x8003BED8 | LIVE | `Render::objListWalk2Continue` | game/render/objlist_walk.cpp:317 |  | (Render::objListWalk2Continue) — the walk's shared "process the rest o… |
-| 0x8003BED8 | LIVE | `ov_objListWalk2Continue` | game/render/objlist_walk.cpp:553 |  |  |
-| 0x8003BF00 | LIVE | `Render::objListWalk3` | game/render/objlist_walk.cpp:354 | 0x8003C5F8 0x8003C788 0x8004CC88 0x8010FC70 | ======================================================================… |
-| 0x8003BF00 | LIVE | `ov_objListWalk3` | game/render/objlist_walk.cpp:556 |  |  |
+| 0x8003BB50 | LIVE | `Render::objListWalk1` | game/render/objlist_walk.cpp:96 | 0x8002AE0C 0x8003C5F8 0x8003C788 0x80122974 | ======================================================================… |
+| 0x8003BB50 | LIVE | `ov_objListWalk1` | game/render/objlist_walk.cpp:594 |  |  |
+| 0x8003BCF4 | LIVE | `Render::objListWalk2` | game/render/objlist_walk.cpp:243 | 0x80123C14 0x801341E8 0x80136748 | ======================================================================… |
+| 0x8003BCF4 | LIVE | `ov_objListWalk2` | game/render/objlist_walk.cpp:597 |  |  |
+| 0x8003BF00 | LIVE | `Render::objListWalk3` | game/render/objlist_walk.cpp:401 | 0x8003C5F8 0x8003C788 0x8004CC88 0x8010FC70 | ======================================================================… |
+| 0x8003BF00 | LIVE | `ov_objListWalk3` | game/render/objlist_walk.cpp:600 |  |  |
 | 0x8003C048 | LIVE | `Render::renderWalk` | game/render/render_walk_dispatch.cpp:155 | 0x80039F4C 0x8003C5F8 0x8003C788 0x8003EF9C 0x8003F174 0x800726D4 … |  |
 | 0x8003C048 | LIVE | `ov_renderWalk` | game/render/render_walk_dispatch.cpp:285 |  |  |
 | 0x8003C2D4 | LIVE | `Render::billboardCompose1` | game/render/perobj_billboard.cpp:476 |  |  |
@@ -128,8 +125,8 @@ Totals: 798 native fns, 639 owned addresses, 792 LIVE / 6 ORPHAN. 241 override d
 | 0x8003D0BC | LIVE | `ov_overlayTypeDispatch` | game/render/overlay_type_dispatch.cpp:173 |  |  |
 | 0x8003D584 | LIVE | `Render::effectColorAdd` | game/render/effect_mod.cpp:208 |  | modulate each colour channel by the node's per-channel amount, rather … |
 | 0x8003DF04 | LIVE | `Render::backdropTilemapDrawer` | game/render/backdrop.cpp:28 |  | ======================================================================… |
-| 0x8003EEC0 | LIVE | `Render::objListWalk4` | game/render/objlist_walk.cpp:456 | 0x8003B704 | ======================================================================… |
-| 0x8003EEC0 | LIVE | `ov_objListWalk4` | game/render/objlist_walk.cpp:559 |  |  |
+| 0x8003EEC0 | LIVE | `Render::objListWalk4` | game/render/objlist_walk.cpp:503 | 0x8003B704 | ======================================================================… |
+| 0x8003EEC0 | LIVE | `ov_objListWalk4` | game/render/objlist_walk.cpp:603 |  |  |
 | 0x8003EF9C | LIVE | `Render::composeTintGate` | game/render/compose_tint_gate.cpp:48 | 0x8003D584 0x8003F07C | ORACLE: guest 0x8003EF9C |
 | 0x8003F07C | LIVE | `Render::sharedTransformWalk` | game/render/subpart_walk_shared.cpp:38 | 0x8003F698 | ORACLE: guest 0x8003F07C |
 | 0x8003F174 | LIVE | `Render::subPartWalk` | game/render/subpart_walk.cpp:45 | 0x8003F698 | ORACLE: guest 0x8003F174 |

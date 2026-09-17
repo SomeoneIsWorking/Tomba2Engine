@@ -294,24 +294,36 @@ def cmd_boot(args) -> int:
                     args.expect_stage, args.expect_sm48)
 
 
-def cmd_replay(args) -> int:
-    pad = args.pad if os.path.isabs(args.pad) else os.path.join(REPO, args.pad)
+def replay_environment(pad_arg: str) -> dict | None:
+    """The pad-replay knob for a recorded pad path (repo-relative or absolute); None when it is missing.
+
+    A replay whose knob name is wrong degrades to a PLAIN RUN — same frame count, same green, no input.
+    The gate's unknown-knob line is what caught exactly that (PSXPORT_SBS_PAD_REPLAY did not exist), so
+    an unaccepted knob is a hard failure rather than a pass over no input.
+    """
+    pad = pad_arg if os.path.isabs(pad_arg) else os.path.join(REPO, pad_arg)
     if not os.path.isfile(pad):
-        return refuse(f"replay {pad} does not exist — NOTHING WAS RUN.")
+        refuse(f"replay {pad} does not exist — NOTHING WAS RUN.")
+        return None
+    return {'PSXPORT_PAD_REPLAY': pad}
+
+
+def cmd_replay(args) -> int:
+    env = replay_environment(args.pad)
+    if env is None:
+        return 2
     script = f"newgame\nrun {args.frames}\nquit\n"
-    # A replay whose knob name is wrong degrades to a PLAIN RUN — same frame count, same green, no input.
-    # The gate's unknown-knob line is what caught exactly that (PSXPORT_SBS_PAD_REPLAY did not exist), so
-    # `replay` treats an unaccepted knob as a hard failure rather than reporting a pass over no input.
-    rc = run_gate(script, args.frames, args.debug, args.watchdog, args.expect_frame,
-                  {'PSXPORT_PAD_REPLAY': pad}, 'replay')
-    return rc
+    return run_gate(script, args.frames, args.debug, args.watchdog, args.expect_frame, env, 'replay')
 
 
 def cmd_run(args) -> int:
     if not args.script:
         return refuse("--script is empty — NOTHING WAS RUN.")
+    env = replay_environment(args.replay) if args.replay else {}
+    if env is None:
+        return 2
     return run_gate(args.script if args.script.endswith('\n') else args.script + '\n',
-                    0, args.debug, args.watchdog, args.expect_frame, {}, 'run')
+                    0, args.debug, args.watchdog, args.expect_frame, env, 'run')
 
 
 def main() -> int:
@@ -337,6 +349,7 @@ def main() -> int:
     r.set_defaults(fn=cmd_replay)
     x = sub.add_parser('run', help='drive an arbitrary REPL script')
     x.add_argument('--script', required=True)
+    x.add_argument('--replay', default='', help='drive the script under this recorded pad replay')
     x.set_defaults(fn=cmd_run)
     args = ap.parse_args()
     return args.fn(args)
