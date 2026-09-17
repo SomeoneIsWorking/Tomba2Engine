@@ -246,8 +246,7 @@ void Sop::transitionAreaLoad() {
       *c, __func__, 0x8001dc40u, 0x8018a000u, c->mem_r32(0x800be100u) + (l >> 11), c->mem_r32(0x800ef484u) - l);
   // if (*0x800bf89c == 2) FUN_80045558(0)
   if (c->mem_r8(0x800bf89cu) == 2) {
-    psx::cpu::callGuestNow(*c, __func__, 0x80045558u, 0);
-    tomba::native::activateAreaSlotOverlay(*c, eng(c).activeAreaOverlay, 0u);
+    tomba::native::loadAreaSlotFile(*c, eng(c).activeAreaOverlay, 0u); // = FUN_80045558(0): OPN
   }
   // FUN_80045258((*0x800bf89e & 0xf)<<1, 47)   — collision grid
   eng(c).asset.loadDescriptorChunk((uint32_t)((c->mem_r16(0x800bf89eu) & 0xf) << 1), 47);

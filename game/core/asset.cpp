@@ -565,10 +565,8 @@ void Asset::areaDataLoadAsTask() {
   psx::cpu::dispatchGuestToReturn0(
       *c, 0x8001DC40u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // CD read: DAT payload -> 0x8018A000
   if (c->mem_r8(0x800BF89Cu) == 2) {
-    c->r[4] = 0;
     c->r[31] = 0x80045448u;
-    psx::cpu::dispatchGuestToReturn0(*c, 0x80045558u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-    tomba::native::activateAreaSlotOverlay(*c, eng(c).activeAreaOverlay, 0u);
+    tomba::native::loadAreaSlotFile(*c, eng(c).activeAreaOverlay, 0u); // = FUN_80045558(0): OPN
   }
   loadDescriptorChunk(((uint32_t)c->mem_r16(0x800BF89Eu) & 15u) << 1, 47); // FUN_80045258
   {                                                                        // relocation table -> module pointer table
@@ -625,4 +623,15 @@ void Asset::loadDescriptorChunk(uint32_t descIdx, uint32_t slot) { // FUN_800452
   uint32_t off0 = c->mem_r32(0x800FB170u + descIdx * 4u);
   uint32_t off1 = c->mem_r32(0x800FB170u + (descIdx + 1u) * 4u);
   c->game->cd.dc40Sync(dest, c->mem_r32(0x800BE100u) + (off0 >> 11), off1 - off0);
+}
+
+// FUN_80045558(idx): load indexed file idx (0 = OPN, 1 = CRD) into the shared AREA slot. The one
+// native owner also publishes the loaded code image, which the guest page code that calls this
+// leaf (the pause-menu card page, then the CRD slot browser at 0x8018FA88) cannot do itself.
+static void ov_loadAreaSlotFile(Core *c) {
+  c->r[2] = tomba::native::loadAreaSlotFile(*c, eng(c).activeAreaOverlay, c->r[4] & 0xFFu);
+}
+
+void Asset::registerOverrides() {
+  tomba::native::declareOverride(0x80045558u, "Asset::loadAreaSlotFile", ov_loadAreaSlotFile);
 }

@@ -1,11 +1,13 @@
 #include "native_override_catalog.h"
 
 #include "core.h"
+#include "game.h" // Cd::dc40Sync — the synchronous indexed-file reader
 
 #include <algorithm>
 #include <cstdlib>
 #include <lucent/log.h>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace tomba::native {
@@ -215,20 +217,41 @@ activateModeOverlay(Core &core, std::optional<psx::cpu::ImageIdentity> &active, 
   return activateOverlay(core, active, name, {kModeSlot, kModeSlot + size});
 }
 
-psx::cpu::ImageIdentity
-activateAreaSlotOverlay(Core &core, std::optional<psx::cpu::ImageIdentity> &active, std::uint32_t fileIndex) {
-  constexpr std::uint32_t kAreaSlot = 0x0018A000u;
-  constexpr std::uint32_t kFileTable = 0x800BE118u;
+namespace {
+
+inline constexpr std::uint32_t kAreaSlot = 0x0018A000u;
+inline constexpr std::uint32_t kAreaFileTable = 0x800BE118u; // indexed file table, stride 8 {lba, size}
+
+// The {lba, size} descriptor of AREA-slot file `fileIndex`, refusing anything but OPN/CRD or a size
+// the slot cannot hold.
+std::pair<std::uint32_t, std::uint32_t> areaSlotFileDescriptor(Core &core, std::uint32_t fileIndex) {
   if (fileIndex > 1u) {
     lucent::error("tomba-native", "file index {} is outside the OPN/CRD AREA image set", fileIndex);
     std::abort();
   }
-  const std::uint32_t size = core.mem_r32(kFileTable + fileIndex * 8u + 4u);
+  const std::uint32_t lba = core.mem_r32(kAreaFileTable + fileIndex * 8u);
+  const std::uint32_t size = core.mem_r32(kAreaFileTable + fileIndex * 8u + 4u);
   if (size == 0u || size > 0x00200000u - kAreaSlot) {
     lucent::error("tomba-native", "refused invalid AREA file {} overlay size {}", fileIndex, size);
     std::abort();
   }
+  return {lba, size};
+}
+
+} // namespace
+
+psx::cpu::ImageIdentity
+activateAreaSlotOverlay(Core &core, std::optional<psx::cpu::ImageIdentity> &active, std::uint32_t fileIndex) {
+  const auto [lba, size] = areaSlotFileDescriptor(core, fileIndex);
   return activateOverlay(core, active, fileIndex == 0u ? "OPN" : "CRD", {kAreaSlot, kAreaSlot + size});
+}
+
+std::uint32_t loadAreaSlotFile(Core &core, std::optional<psx::cpu::ImageIdentity> &active, std::uint32_t fileIndex) {
+  const auto [lba, size] = areaSlotFileDescriptor(core, fileIndex);
+  retireOverlay(core, active);
+  core.game->cd.dc40Sync(0x80000000u | kAreaSlot, lba, size);
+  activateAreaSlotOverlay(core, active, fileIndex);
+  return size;
 }
 
 } // namespace tomba::native

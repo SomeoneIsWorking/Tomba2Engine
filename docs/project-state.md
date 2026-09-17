@@ -86,7 +86,10 @@ interactive gameplay remain open (issue 0005). The isolated authenticated reside
 recorded in that issue. On 2026-09-17 `replays/scene-transitions/hut-entry-alt.pad` ran 900 frames
 through the hut-interior transition under Lightrec once the object-list walker stopped overriding
 labels inside its own body (`docs/findings/render.md`, walker section); the 400-frame boot gate and
-the 24-test verifier pass on the same build.
+the 24-test verifier pass on the same build. On 2026-09-18 all 22 recorded replays under `replays/`
+ran 900 frames each once the resident indexed loader FUN_80045558 became the one native owner of
+AREA-slot (0x8018A000) code-image residency, which the pause-menu card page reaches from guest code
+(`replays/bugs/machinery-cutscene.pad` had faulted at the CRD slot browser with no active image).
 
 ### S002 — Independent Tomba! 2 comparison: partial
 

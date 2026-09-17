@@ -45,10 +45,15 @@ void retireOverlay(Core &core, std::optional<psx::cpu::ImageIdentity> &active);
 psx::cpu::ImageIdentity
 activateModeOverlay(Core &core, std::optional<psx::cpu::ImageIdentity> &active, std::uint32_t fileIndex);
 
-// Publishes OPN (index 0) or CRD (index 1) after FUN_80045558 loads it at 0x8018A000.
+// Publishes OPN (index 0) or CRD (index 1) already loaded at 0x8018A000.
 // The caller retires this token before that shared slot is reused for raw area or texture data.
 psx::cpu::ImageIdentity
 activateAreaSlotOverlay(Core &core, std::optional<psx::cpu::ImageIdentity> &active, std::uint32_t fileIndex);
+
+// The native owner of guest FUN_80045558(idx) for every caller: retires whatever image the shared
+// AREA slot at 0x8018A000 holds, reads indexed file `fileIndex` (0 = OPN, 1 = CRD) into it
+// synchronously, and publishes the loaded code image. Returns the loaded size, FUN_80045558's v0.
+std::uint32_t loadAreaSlotFile(Core &core, std::optional<psx::cpu::ImageIdentity> &active, std::uint32_t fileIndex);
 
 // The disc's 22 field-code files are named A00..A0L in area-index order.
 std::string overlayNameForArea(std::uint32_t area);

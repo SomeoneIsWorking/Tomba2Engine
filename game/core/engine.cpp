@@ -57,6 +57,7 @@
 #include "game.h"
 #include "level_load.h"              // START/DEMO/GAME stage image residency and loader
 #include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include "scene/card_load_machine.h" // tomba::scene::stepCardLoadMachine — card LOAD/SAVE page owner
 #include "scene/start_bin_stage.h"   // class StartBinStage — task-0 START.BIN file-table builder
 #include <lucent/log.h>              // Engine::devTeleportApply's `tp` line
 
@@ -211,8 +212,9 @@ void Engine::stageResumeInit() {
 // own the "Save"/"Continue"/"Load data"/"Quit game" strings) gated entirely on
 // pad-edge bits (0x4000 confirm, 0x10/0x40/0x2000 cursor/cancel) with SFX cues
 // via eng(c).sfx.trigger; state 6 just advances sm[0x4a] to 4 (hands off to the
-// next running sub-mode, itself substrate); states 7/8 are the QUIT-CONFIRM Y/N
-// dialog (FUN_8007BF20, its own DAT_800bf84a-keyed SM) — on accept, state 7
+// next running sub-mode, itself substrate); states 7/8 are the memory-card LOAD /
+// SAVE pages (FUN_8007BF20, its own DAT_800bf84a-keyed SM, owned natively by
+// tomba::scene::stepCardLoadMachine) — on accept, state 7
 // calls reloadEntityPool() (was FUN_8007B3F4) and returns to sm[0x4a]==1 (back
 // to the FIELD area machine), i.e. "confirm quit-to-title" unwinds to the
 // SOP/field bridge, it does not spawn anything either. Rules out the last
@@ -400,12 +402,7 @@ void Engine::areaLoadState() {
     sm.setS4e(0);
     break;
   case 7: {
-    c->r[4] = 0;
-    c->r[5] = 1;
-    psx::cpu::dispatchGuestToReturn0(*c,
-                                     0x8007BF20u,
-                                     psx::cpu::ExecutionBudget::currentTurn(*c),
-                                     __func__); // QUIT-confirm Y/N dialog SM (substrate)
+    tomba::scene::stepCardLoadMachine(*c, 0u, 1u); // = jal 0x8007BF20(0,1): LOAD page, native+sync
     uint8_t result = sm.f6b();
     if (result == 7) {
       reloadEntityPool(); // native — was FUN_8007B3F4()
@@ -423,12 +420,7 @@ void Engine::areaLoadState() {
     break;
   }
   case 8: {
-    c->r[4] = 0x81;
-    c->r[5] = 1;
-    psx::cpu::dispatchGuestToReturn0(*c,
-                                     0x8007BF20u,
-                                     psx::cpu::ExecutionBudget::currentTurn(*c),
-                                     __func__); // QUIT-confirm Y/N dialog SM (substrate)
+    tomba::scene::stepCardLoadMachine(*c, 0x81u, 1u); // = jal 0x8007BF20(0x81,1): SAVE page, native+sync
     uint8_t result = sm.f6b();
     if (result == 9) {
       sm.setF6b(0);

@@ -235,6 +235,7 @@ void games_tomba2_init(void) {
   void font_wide_re_install();
   font_wide_re_install();          // FUN_80079374/80078CA8 Font::drawText/glyphEmit (hottest unowned leaves)
   tomba::Str::registerOverrides(); // FUN_80079528 Str::length (generic strlen, hottest unowned leaf)
+  Asset::registerOverrides();      // FUN_80045558 indexed load into the AREA slot + code-image publish
   ScreenFade::installLeafTap();    // FUN_8007E9C8 fade leaf: guest-visible behavior + host-state mirror (fixes #63)
   Panel::install();                // FUN_8004FFB4/8005019C/8007CC00 panel + dialog-glyph taps
   PauseMenu::install();            // FUN_800346BC/8007E1B8 in-game pause/item menu chrome (#21)

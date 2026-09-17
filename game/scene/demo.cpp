@@ -34,10 +34,10 @@
 // REGISTER VALUES from the root prologue (the body comparisons use them): s2reg=1, s1reg=2, s3reg=3.
 // (Disasm: 0x8010633c addiu s2,zero,1 · 0x80106340 addiu s1,zero,2 · 0x80106344 addiu s3,zero,3.)
 
+#include "card_load_machine.h"
 #include "cfg.h"
 #include "core.h"
 #include "core/asset.h" // class Asset — preloadTexgroup (static, area-load sync)
-#include "demo_load_machine.h"
 #include "game.h"
 #include "game_ctx.h"
 #include "guest_call.h"
@@ -49,7 +49,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-static const uint32_t SM_PTR = tomba::demo::kStatePtr;
+static const uint32_t SM_PTR = tomba::scene::kStatePtr;
 static const uint32_t TAIL_CF2C = 0x80106650u; // jal 0x8001cf2c (engine update) -> attract render -> yield
 static const uint32_t TAIL_REND = 0x80106658u; // jal 0x80075a80 (attract render) -> yield
 static const uint32_t TAIL_NONE = 0x80106670u; // frame-ctr++ -> yield (no render)
@@ -829,14 +829,15 @@ static void demo_frame_s5(Core *c) {
 // replay the opening movie). All transition paths run TAIL_CF2C
 // (engine update 0x8001cf2c + attract render 0x80075a80); stay-path runs TAIL_REND only.
 //
-// The load sub-machine 0x8007bf20 is reimplemented native+SYNC (tomba::demo::stepLoadMachine): its case-0 disc
-// load (FUN_80045558(1) = the async indexed reader FUN_8001dc40 to 0x8018a000 — the LOAD-MENU overlay)
-// would spin forever in our no-IRQ runtime, exactly like the s0 loaders. We do that read SYNC (cd_dc40
+// The load sub-machine 0x8007bf20 is reimplemented native+SYNC (tomba::scene::stepCardLoadMachine, shared with the
+// pause-menu pages): its case-0 disc load (FUN_80045558(1) = the async indexed reader FUN_8001dc40 to 0x8018a000 — the
+// LOAD-MENU overlay) would spin forever in our no-IRQ runtime, exactly like the s0 loaders. We do that read SYNC
+// (cd_dc40
 // + mark 0x1f80019b done), then typed runtime address dispatch the resident UI driver FUN_8007be18 (which calls the
 // just-loaded overlay's slot browser FUN_8018fa88/fbcc). The memcard reads inside the browser are
 // already sync+instant via the BIOS B0/A0 card HLE (memcard.cpp), so the browser does not yield.
 static void demo_frame_s4(Core *c) {
-  tomba::demo::stepLoadMachine(*c); // = jal 0x8007bf20(0,0), native+sync
+  tomba::scene::stepCardLoadMachine(*c, 0u, 0u); // = jal 0x8007bf20(0,0), native+sync
   uint32_t sm = c->mem_r32(SM_PTR);
   uint8_t s6b = c->mem_r8(sm + 0x6b);
   if (s6b == 1) {

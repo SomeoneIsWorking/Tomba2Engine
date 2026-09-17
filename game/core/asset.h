@@ -21,6 +21,11 @@ class Core;
 
 class Asset {
 public:
+  // registerOverrides(): installs the resident native owner of FUN_80045558 (indexed file load into
+  // the shared AREA slot) so every guest caller, including the pause-menu card page, publishes the
+  // loaded OPN/CRD code image through tomba::native::loadAreaSlotFile.
+  static void registerOverrides();
+
   Core *core = nullptr;
 
   // lzDecompress(desc, dst, src, srclen): FUN_80044D8C — the LZ image decompressor. Returns
