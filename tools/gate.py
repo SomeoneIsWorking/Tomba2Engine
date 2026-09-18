@@ -51,6 +51,8 @@ BIN = os.path.join(CANONICAL_VERIFY_BUILD, 'bin', 'tomba2_port')
 EXE = os.path.join(REPO, 'scratch', 'bin', 'tomba2', 'MAIN.EXE')
 LOGDIR = os.path.join(REPO, 'scratch', 'logs')
 PSXPORT = os.path.join(REPO, 'external', 'psxport')
+sys.path.insert(0, os.path.join(PSXPORT, 'tools', 'oracle'))
+from compare import binary_identity  # noqa: E402  (the framework's one binary-identity owner)
 
 # Anything here in the output fails the gate. A guest instruction path MISS aborts the process by design, but it can
 # also appear in a line that scrolls past a watchdog kill, so it is matched as text too.
@@ -83,21 +85,6 @@ ENV_AUDIT_RE = re.compile(r'env audit AT EXIT[^\n]*')
 # PSXPORT_REPL, PSXPORT_PAD_REPLAY). The framework's own exit audit is explicitly labelled
 # "everything that was going to be read has been" — that is the number to gate on.
 AUDIT_UNKNOWN_RE = re.compile(r'env audit AT EXIT[^\n]*?(\d+) UNKNOWN')
-
-
-def _binary_identity() -> dict:
-    """md5 + mtime of the binary about to run. md5 because mtime alone cannot tell a rebuild of the same
-    sources from a rebuild of different ones, and a producer claim's whole provenance rests on it."""
-    import hashlib
-    h = hashlib.md5()
-    try:
-        with open(BIN, 'rb') as f:
-            for chunk in iter(lambda: f.read(1 << 20), b''):
-                h.update(chunk)
-        return {'md5': h.hexdigest(),
-                'mtime': time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(os.path.getmtime(BIN)))}
-    except OSError as e:
-        return {'md5': f'UNREADABLE({e.__class__.__name__})', 'mtime': ''}
 
 
 def refuse(msg: str) -> int:
@@ -149,7 +136,7 @@ def run_gate(script: str, frames_hint: int, debug: str, watchdog: int,
     # build the run never executed. So the identity is captured BEFORE the launch and re-checked AFTER,
     # and a swap mid-run is recorded as a MISMATCH so the leg is disqualified rather than trusted.
     # `tools/producers.py stale` reads this file; without it, that tool can only fall back to mtime order.
-    bin_id = _binary_identity()
+    bin_id = binary_identity(Path(BIN))
     obs_dir = env.get('PSXPORT_PRODUCERS_DIR')
     runs_before: set[str] = set()
     if obs_dir:
@@ -175,7 +162,7 @@ def run_gate(script: str, frames_hint: int, debug: str, watchdog: int,
     with open(logpath, 'w') as f:
         f.write(out)
 
-    after = _binary_identity()
+    after = binary_identity(Path(BIN))
     swapped = after['md5'] != bin_id['md5']
     if obs_dir:
         now = {f for f in os.listdir(os.path.join(REPO, obs_dir))

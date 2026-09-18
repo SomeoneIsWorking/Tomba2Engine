@@ -14,7 +14,7 @@
 - **status:** RESOLVED — 405/405 per-frame checkpoints match through free-roam walking and jumping; selftest detects a seeded byte
 - **cause:** a VBlank is half a game frame on the console, the two cores sample at different phases of the frame, and libpad delivers a pad change one frame after the gate VBlank polls it
 - **fix:** game-frame barrier on the dwell counter, one-hold-ahead console playback with decisive pad words, console-first settle pads, phase-only bytes informational/excluded
-- **refs:** tools/oracle_compare.py, tools/oracle_tomba2.py, tools/oracle_cores.py, docs/project-state.md S002/S007
+- **refs:** tools/oracle_compare.py, tools/oracle_tomba2.py, external/psxport/tools/oracle/compare.py, docs/project-state.md S002/S007
 
 `tools/oracle_compare.py` drives the product (`PSXPORT_REPL=1`, `tools/gate.py native_environment`)
 and `external/psxport/tools/oracle/console.py` (Beetle, authentic SCPH-1001, same disc) to three
