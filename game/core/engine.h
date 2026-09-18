@@ -39,6 +39,7 @@
 #include "player/collision.h"         // Engine owns the Collision grid-family subsystem
 #include "render/cull.h"              // Engine owns the Cull visibility subsystem
 #include "render/score_popup.h"       // Engine owns the ScorePopup AP-gem popup display producer (#18)
+#include "scene/field_transition.h"   // Engine owns the FieldTransition sub-scene/door/area FADE machine
 #include "scene/mode_state_arm.h"     // Engine owns the ModeStateArm arm-primitive pair
 #include "scene/scene_events.h"       // Engine owns the SceneEvents arm subsystem (FUN_80040B48)
 #include "scene/script_interp.h"      // Engine owns the ScriptInterp cutscene-script dispatcher
@@ -125,6 +126,8 @@ public:
   ObjectTable objectTable;                 // 40-slot fixed object table       (guest FUN_80026C88)
   Demo demo;                               // front-end DEMO / MENU stage machine (docs/engine_re.md)
   Sop sop;                                 // SOP intro-cutscene FIELD stage machine (guest 0x80109450)
+  FieldTransition fieldTransition;         // sm[0x4a]==5 sub-scene/door/area FADE transition
+                                           // machine (guest FUN_80108A60 + workers)
   BgSceneTransitionSm bgSceneTransitionSm; // BG scene-transition fade manager
                                            // (guest FUN_8002655C)
   ParallaxBg parallaxBg;                   // SOP parallax-BG state machine (guest FUN_8010BFFC)
@@ -266,32 +269,6 @@ public:
   // (0x8003FA44) instead of mRender->frame() (0x8003F9A8). No dualviewSnapshot
   // here either — render-underneath guest writes ARE faithful state.
   void fieldFrameXFaithful();
-
-  // fieldTransition + its 4 workers: the sm[0x4a]==5 sub-scene / door / area
-  // FADE transition machine (guest FUN_80108A60 + FUN_80107xxx workers).
-  // fieldTransition dispatches on sm[0x4c] into one of the 4 workers or the
-  // "done -> return to field" epilogue. Formerly the ov_field_transition /
-  // ov_transition_main / ov_transition_d3c / ov_transition_e20 /
-  // ov_transition_f3c free statics in engine.cpp.
-  void fieldTransition();
-  void transitionMain();
-  void transitionD3c();
-  void transitionE20();
-  void transitionF3c();
-  // *Faithful: pc_faithful mirrors of overlay guest 0x80108A60 + the 4
-  // overlay guest 0x80107xxx workers — guest frame + jal-site ra discipline per
-  // worker, and (the one real behavior fix) the state-0 loader call in every
-  // worker now routes through typed runtime address dispatch(c, 0x80044BD4u) — the literal guest
-  // scheduler primitive, wired via the global override registry to
-  // PcScheduler::spawnAndWait — instead of the native_area_load_bd4() sync
-  // bypass the native_sync bodies use. THESE MIRRORS CAN YIELD (spawnAndWait
-  // parks the fiber), so the fork below calls them directly rather than through
-  // strict replay check.
-  void fieldTransitionFaithful();
-  void transitionMainFaithful();
-  void transitionD3cFaithful();
-  void transitionE20Faithful();
-  void transitionF3cFaithful();
 
   // fieldRun / fieldRunX: the sm[0x4c]==2 field RUNNING sub-machine on sm[0x4e]
   // (guest FUN_80106B98) and its mid-transition twin (0x801070B4, sm[0x4c]==3).

@@ -139,7 +139,7 @@ if(BUILD_TESTING)
   add_test(NAME tomba_cube_text_banner_policy COMMAND test_cube_text_banner_policy)
 
   set(TOMBA_CPP_POLICY_CAPS
-      game/core/engine.cpp=3863
+      game/core/engine.cpp=3251
       game/player/actor_tomba.cpp=1452
       game/audio/sequencer.cpp=2796
       game/ai/actor_zoned_attacker.cpp=1535

@@ -209,6 +209,7 @@ set(GAME_SRC
   game/render/render_options.cpp        # pc_render producer: DEMO/title options page (s48==6)
   game/render/render_attract.cpp        # pc_render producer: DEMO/title attract 3D field (s48==7)
   game/core/engine.cpp
+  game/scene/field_transition.cpp
   game/scene/sop.cpp
   game/scene/demo.cpp
   game/scene/card_load_machine.cpp

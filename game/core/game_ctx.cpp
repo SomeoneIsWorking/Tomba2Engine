@@ -21,6 +21,7 @@ void *createTombaContext(Core &core) {
   ctx->engine.objectTable.core = c;          // Engine-owned 40-slot object-table dispatcher
   ctx->engine.demo.core = c;                 // Engine-owned front-end DEMO / MENU stage
   ctx->engine.sop.core = c;                  // Engine-owned SOP intro-cutscene FIELD stage
+  ctx->engine.fieldTransition.core = c;      // Engine-owned sub-scene/door/area FADE transition
   ctx->engine.bgSceneTransitionSm.core = c;  // Engine-owned BG scene-transition fade manager
   ctx->engine.parallaxBg.core = c;           // Engine-owned SOP parallax-BG state machine
   ctx->engine.pool.core = c;                 // Engine-owned per-area init subsystem
