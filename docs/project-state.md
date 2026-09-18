@@ -175,9 +175,17 @@ still shows the full-width field at f1090; and the oracle still reports 405/405 
 CTest cases, the C++ policy check over 412 first-party files, the execution-boundary scan and the
 build-receipt pin check on psxport `18e8d184`.
 
-Gap: only the seaside field and the menu/options pages above are covered by captures. Other areas, the
-memory-card pages, cutscenes, culling at the wide edges, and HUD anchors in every remaining scene kind
-are unverified on the product.
+Three more scene kinds were captured at 16:9 on 2026-09-19 and look right, so wide-edge culling is no
+longer wholly unverified. The hut interior (`replays/scene-transitions/hut-entry-door-freeze.pad`
+f1150) keeps its vertical field and widens horizontally: the left wall, a ceiling beam and the whole
+vegetable barrel that 4:3 cuts off all become visible, at unchanged object proportions. The black
+beyond the room's right side is authored, not a culling gap — it is black in the 4:3 capture too. The
+cliff/village field (`replays/bugs/cliff-fisherman-missing.pad` f300) and the water-pump field
+(`replays/bugs/weapon-charge-starburst.pad` f670) both fill the full canvas with coherent world
+geometry to both edges. All three pass `reaches`, `widescreen` and `fps60`.
+
+Gap: the memory-card pages, cutscenes, and HUD anchors in every remaining scene kind are still
+uncaptured, and no area beyond these four has been looked at.
 
 ### S006 — Tomba! 2 interpolation: partial
 
@@ -192,9 +200,17 @@ anything moved as 75.0% BETWEEN (lerped), 0.2% STALE, and 2.2% AHEAD; the AHEAD 
 Tomba's own sprite, whose walk-cycle frame flips cannot be blended and take the newer frame. RAM
 parity with the console reference holds with fps60 on (S002).
 
-Gap: the stale 0.2% (worst tile 10 of 209 moving triples at 224,96) is not attributed to a layer;
-every layer still named stepped, snapped, cold, or unverified in the render inventory remains so, and
-only the seaside field has been dumped.
+A second scene kind is now dumped. The hut interior at 16:9 with fps60 on
+(`replays/scene-transitions/hut-entry-door-freeze.pad`, `PSXPORT_FPS60_DUMP_FROM=1080`, 120 triples,
+16-pixel tiles) classifies 87.3% of tiles STATIC, 12.0% BETWEEN, 0.4% STALE and 0.4% AHEAD — of the
+6,185 tiles where anything moved, 94.2% are lerped, 3.0% stale and 2.8% ahead. That is materially
+worse than the seaside field's stale share, and it is concentrated: tiles (112,160) and (144,160) are
+stale in 21 of the 96 triples in which they moved, with (96,160), (80,96), (240,48) and (224,64)
+next.
+
+Gap: neither the seaside 0.2% nor the interior 3.0% is attributed to a layer, and the interior
+cluster above is the sharpest lead yet for doing so. Every layer named stepped, snapped, cold, or
+unverified in the render inventory remains so, and only these two scene kinds have been dumped.
 
 ### S007 — Tomba! 2 input: partial
 
