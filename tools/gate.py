@@ -105,6 +105,26 @@ def refuse(msg: str) -> int:
     return 2
 
 
+def native_environment(watchdog: int, debug: str = '', extra_env: dict | None = None) -> dict:
+    """The one headless REPL launch environment for the built tomba2_port binary.
+
+    The launch-environment policy (psxport tools/port/launch_environment.py) owns the
+    headless/silent/unpaced knobs; the disc and asset directory follow run.py's resolution.
+    Every agent driver of the product (this gate, tools/oracle_compare.py) builds its
+    environment here so they cannot drift apart."""
+    sys.path.insert(0, os.path.join(PSXPORT, 'tools'))
+    from port.launch_environment import agent_environment
+    env = agent_environment(dict(os.environ))
+    env['PSXPORT_ASSET_DIR'] = env.get('PSXPORT_ASSET_DIR') or PSXPORT
+    env['PSXPORT_TOMBA2_DISC'] = resolve_disc(None, Path(REPO), env)
+    env['PSXPORT_REPL'] = '1'
+    env['PSXPORT_WATCHDOG'] = str(watchdog)
+    if debug:
+        env['PSXPORT_DEBUG'] = debug
+    env.update(extra_env or {})
+    return env
+
+
 def run_gate(script: str, frames_hint: int, debug: str, watchdog: int,
              expect_frame: int, extra_env: dict, label: str,
              expect_stage: str = '', expect_sm48: str = '') -> int:
@@ -116,19 +136,7 @@ def run_gate(script: str, frames_hint: int, debug: str, watchdog: int,
                       f"the disc; it is not this tool's job to extract it (that is run.sh's, and run.sh "
                       f"belongs to the user). Extract it once, then re-run this gate.")
 
-    env = dict(os.environ)
-    # The one launch-environment policy (psxport tools/port/launch_environment.py) owns the
-    # headless/silent/unpaced knobs; the disc and asset directory follow run.py's resolution.
-    sys.path.insert(0, os.path.join(PSXPORT, 'tools'))
-    from port.launch_environment import agent_environment
-    env = agent_environment(env)
-    env['PSXPORT_ASSET_DIR'] = env.get('PSXPORT_ASSET_DIR') or PSXPORT
-    env['PSXPORT_TOMBA2_DISC'] = resolve_disc(None, Path(REPO), env)
-    env['PSXPORT_REPL'] = '1'
-    env['PSXPORT_WATCHDOG'] = str(watchdog)
-    if debug:
-        env['PSXPORT_DEBUG'] = debug
-    env.update(extra_env)
+    env = native_environment(watchdog, debug, extra_env)
 
     os.makedirs(LOGDIR, exist_ok=True)
     stamp = time.strftime('%Y%m%d-%H%M%S')

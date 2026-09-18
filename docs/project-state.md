@@ -93,13 +93,21 @@ AREA-slot (0x8018A000) code-image residency, which the pause-menu card page reac
 
 ### S002 — Independent Tomba! 2 comparison: partial
 
-The old same-project byte comparator could detect a forced difference but was not an independent
-oracle. Issue 0004 also records that the advertised dual-view PSX pane is refused because the shared
-SDL_GPU backend does not yet own multiple targets.
+`tools/oracle_compare.py --frame-step 1` (2026-09-18) compares the Lightrec product against
+PSXPort's Beetle full-console reference (authentic SCPH-1001, the same disc, an independent
+implementation) at title-declared checkpoints: GAME stage, seaside field, free roam, then a known
+per-frame schedule of walking left and right and jumping. 405/405 checkpoints match on every
+decisive range — task-0 stage entry, the six state-machine halfwords, area index, Tomba's position
+and motion, and the three pad words the game read — plus his whole 0x184-byte G block; 244 distinct
+positions were compared. `--selftest` seeds one position byte and the comparator reports exactly
+that range. The measured barrier, pad-delivery, and exclusion facts are in `docs/findings/tooling.md`
+"Oracle comparison". Issue 0004 still records that the dual-view PSX pane is refused because the
+shared SDL_GPU backend does not yet own multiple targets.
 
-Gap: compare the Lightrec product's relevant state and devices against a trusted emulator, hardware,
-binary evidence, or a diagnostic interpreter run across representative gameplay. A green
-same-implementation comparison or a boot-only result is insufficient.
+Gap: the comparison covers main RAM only (no VRAM, SPU, or CD device state; the console cannot read
+the scratchpad), one area, and ~400 frames of free roam. The console reaches free roam 29 frames
+later than the product after an otherwise identical Start-skip of the opening cutscene; which side is
+right is unmeasured.
 
 ### S003 — Native Tomba! 2 behavior ownership: partial
 
@@ -153,7 +161,11 @@ to the Lightrec product.
 The native input subsystem and deterministic replay/control surfaces exist and can reach controlled
 game flow.
 
-Gap: no current native/Lightrec product run demonstrates player-driven representative gameplay.
+Under Lightrec the product walks Tomba left and right and jumps in the seaside field from held pad
+input for 402 scheduled frames, and the independent reference agrees frame by frame (S002).
+
+Gap: player-driven gameplay is demonstrated for one area and ~400 frames; other areas, longer
+sessions, menus, and combat are not yet driven this way.
 
 ### S008 — Tomba! 1 executable/disc provenance: verified
 

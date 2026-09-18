@@ -1,5 +1,53 @@
 # Findings — tooling / debug server / harness
 
+## Oracle comparison of the Lightrec product against the Beetle full-console reference (2026-09-18)
+
+- **symptom:** S002 had no independent oracle; the first comparator runs "diverged" on frame phase, BIOS handles, and pad delivery rather than on game behavior
+- **status:** RESOLVED — 405/405 per-frame checkpoints match through free-roam walking and jumping; selftest detects a seeded byte
+- **cause:** a VBlank is half a game frame on the console, the two cores sample at different phases of the frame, and libpad delivers a pad change one frame after the gate VBlank polls it
+- **fix:** game-frame barrier on the dwell counter, one-hold-ahead console playback with decisive pad words, console-first settle pads, phase-only bytes informational/excluded
+- **refs:** tools/oracle_compare.py, tools/oracle_tomba2.py, tools/oracle_cores.py, docs/project-state.md S002/S007
+
+`tools/oracle_compare.py` drives the product (`PSXPORT_REPL=1`, `tools/gate.py native_environment`)
+and `external/psxport/tools/oracle/console.py` (Beetle, authentic SCPH-1001, same disc) to three
+title-declared checkpoints — GAME stage, field, free roam — then feeds both a known per-frame button
+schedule and compares the declared main-RAM ranges (`tools/oracle_tomba2.py DECLARED`) after every
+frame (`--frame-step 1`). Result on 2026-09-18: 405/405 checkpoints MATCH across boot → field → free
+roam → 402 scheduled frames of walking left and right and jumping (244 distinct player positions,
+identical pad words every frame). `--selftest` seeds one player-position byte and the comparator
+reports exactly that range. Mechanism facts the tool depends on, each measured before it was coded:
+
+- **A game frame is not a VBlank.** The field gates on 2 VBlanks (`GameConfig.paceQuota`); the dwell
+  counter `0x800E809C` alternates 0/1 per VBlank on the console. `advance()` steps the console by
+  VBlank until the counter resets, then until task 0 is no longer state 4 (running) AND one non-gate
+  VBlank has passed, so the barrier is always the VBlank before the next gate. A one-VBlank barrier
+  drifted the console half a frame behind per step and "diverged" at the first moving frame.
+- **task0 state byte is frame-phase, not semantics.** The product samples after the buffer swap (task
+  0 re-armed to 2 by `FUN_800506D0`); the console samples inside the vblank gate spin (still 1).
+  Informational only. task0 +4..+0xB are BIOS thread/event handles and differ by construction
+  (native HLE threads); excluded.
+- **Console pad delivery is one game frame late, deterministically.** libpad's transfer started at
+  the gate VBlank completes after the frame fence `FUN_800788AC` reads the pad, so a hold applied at
+  the barrier is read by the frame after next. With the barrier pinned as above this is exact;
+  `Playback` therefore drives the console one hold ahead and the product in-frame, and the pad words
+  `0x800ECF54/0x800E7E68/0x800F23A4` are DECISIVE ranges so a delivery mismatch fails by name before
+  any downstream range. Before pinning, delivery flipped between 0 and 1 frames with the park phase.
+- **Reactive drives commit the console's arrival-frame pad before seeing the arrival**, so every
+  checkpoint drives the console first, parks one settle frame past the transition, and hands the pad
+  its arrival frame read to the product's arrival frame (`_drive` settle). Without this the GAME-stage
+  checkpoint differed in pad words only.
+- **The field's opening is a Start-skippable cutscene, not free roam.** sm[0x4e]==9 is Tomba's landing
+  and the fisherman's dialogue and ignores Left/Right; Start (6 of every 40 frames, the product's
+  auto-skip cadence) ends it and sm[0x4e]==1 is the pad-owned state. Walking right from the landing
+  spot re-enters the fisherman's dialogue; the schedule walks left first.
+- **Open observation, not a divergence:** after the field checkpoint the console needs 67 game frames
+  to reach free roam where the product needs 38 (earlier runs 105 vs 77) although both park in
+  byte-identical declared state. The Start-skip's fade/CD path is ~29 frames longer on the console;
+  unmeasured which side is right — the product's HLE CD returns immediately.
+- Not covered: VRAM/SPU/CD device state, the scratchpad (the console exposes main RAM only), areas
+  beyond the seaside field, and anything after ~400 frames of free roam. Extend `GAMEPLAY` or add a
+  checkpoint predicate rather than a second comparator.
+
 ## The shipping launcher enforced the maintainer verification compiler and escaped the locked Python environment (2026-08-24)
 
 - **Cause:** `tools/run.py` treated the Clang-only maintainer evidence rule as a player compatibility
