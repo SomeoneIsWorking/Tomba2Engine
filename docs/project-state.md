@@ -104,6 +104,11 @@ that range. The measured barrier, pad-delivery, and exclusion facts are in `docs
 "Oracle comparison". Issue 0004 still records that the dual-view PSX pane is refused because the
 shared SDL_GPU backend does not yet own multiple targets.
 
+Re-measured 2026-09-18 on `shared/lightrec` `3fddb23` (psxport `fea6a7da`), which changes translated
+code wherever a statically false branch carries a delay-slot load: the default 13-checkpoint run
+matches on every decisive range with zero divergence, so the fix does not disturb this title's
+conformance. The repository gate passes 24/24 on that pin.
+
 Gap: the comparison covers main RAM only (no VRAM, SPU, or CD device state; the console cannot read
 the scratchpad), one area, and ~400 frames of free roam. The console reaches free roam 29 frames
 later than the product after an otherwise identical Start-skip of the opening cutscene; which side is
