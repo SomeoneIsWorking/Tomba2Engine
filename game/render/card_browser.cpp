@@ -35,42 +35,17 @@
 #include "game.h"
 #include "render.h"
 #include "render_queue.h"
+#include "wide_page_fill.h"
 
 // renderCardBrowser — see render.h. Read-only native producer for the DEMO/title Load-Game memory-card
 // browser (sm[0x48]==4). Backdrop gradient + slot cursor; the card-screen TEXT arrives from the global
 // font glyph tap during s4 execution. Called from Render::renderTitle under its DisplayPassGuard.
 void Render::renderCardBrowser() {
   Core *c = mCore;
-  // WIDESCREEN PILLARBOX: a flat-black full-screen fill (all vertex colours equal → it STRETCHES to the
-  // wide FB, painting the side margins black) behind the 4:3 gradient below (which is non-flat → it
-  // CENTERS instead of stretching). Without this the pillarbox bars would show stale VRAM. 4:3: no-op.
-  {
-    int xs[4] = {0, 320, 0, 320}, ys[4] = {0, 0, 240, 240}, z[4] = {0, 0, 0, 0};
-    unsigned char k[4] = {0, 0, 0, 0};
-    c->game->activeRq().push2dQuad(RQ_BACKGROUND,
-                                   /*order_2d_fg=*/0,
-                                   xs,
-                                   ys,
-                                   z,
-                                   z,
-                                   k,
-                                   k,
-                                   k,
-                                   0,
-                                   0,
-                                   /*mode=*/3,
-                                   /*raw=*/0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   1023,
-                                   511);
-  }
+  // WIDESCREEN: the browser is an opaque full-screen page, so the widened canvas beside its authored
+  // 4:3 art must not show the title picture behind it. WidePageFill owns that fill for every
+  // full-screen page in the title; this file used to carry a private copy of the same quad.
+  tomba::render::WidePageFill::pushBehindPage(*c, c->game->activeRq(), RQ_BACKGROUND, /*order2dFg=*/0);
   // BACKDROP — reproduce FUN_8007fc24: opaque full-screen dark-blue vertical gradient (per-vertex color).
   // Screen-space fill (no display offset, exactly like Render::menuChrome's backdrop quad).
   {

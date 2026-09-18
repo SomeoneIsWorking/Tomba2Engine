@@ -53,6 +53,7 @@
 #include "game_ctx.h"
 #include "render.h"
 #include "render_queue.h"
+#include "wide_page_fill.h"
 #include <stdint.h>
 
 static constexpr uint32_t kTaskSmPtr = 0x1F800138u; // scratchpad *-> current task state machine
@@ -71,51 +72,20 @@ static constexpr int kScreenAdjustPage = 3;         // sm[0x50] value of the "Sc
 // page's own chrome, so seq order inside the layer keeps it behind the cursor.
 void Render::optionsBackdrop() {
   Core *c = mCore;
-  // WIDESCREEN PILLARBOX: flat-black full-screen fill (equal vertex colours → STRETCHES to fill the wide
-  // FB, blacking the side margins) behind the 4:3 gradient below (non-flat → CENTERS, not stretched). 4:3: no-op.
-  {
-    int xs[4] = {0, 320, 0, 320}, ys[4] = {0, 0, 240, 240}, z[4] = {0, 0, 0, 0};
-    unsigned char k[4] = {0, 0, 0, 0};
-    // Producer DB: a PC-ONLY row of its own. This quad has NO guest counterpart, so it must not sit in
-    // the guest-keyed scope below — inside it, it would add one native prim against the guest's one and
-    // make a faithful producer read 2-vs-1 in the one column the DB exists to compare. It used to be
-    // left undeclared for that reason; now that native attribution is 100%, undeclared would mean
-    // "a guest producer nobody wrote down", which this is not.
-    ProducerScope pillarboxScope(&c->rsub.producerScope, pc_producer("pc/options-pillarbox"));
-    c->game->activeRq().push2dQuad(RQ_OVERLAY,
-                                   /*order_2d_fg=*/1,
-                                   xs,
-                                   ys,
-                                   z,
-                                   z,
-                                   k,
-                                   k,
-                                   k,
-                                   0,
-                                   0,
-                                   /*mode=*/3,
-                                   /*raw=*/0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   1023,
-                                   511);
-  }
+  // WIDESCREEN: the page is opaque and full-screen, so the widened canvas beside it must not show
+  // the live field. WidePageFill owns that fill for every full-screen page in the title; this file
+  // used to carry a private copy of it on RQ_OVERLAY, where the framework's flat-untextured stretch
+  // never applies, so the quad was centred inside the page and painted no margin at all.
+  tomba::render::WidePageFill::pushBehindPage(*c, c->game->activeRq(), RQ_OVERLAY, /*order2dFg=*/1);
   {
     // Producer DB, native leg. Keyed on the guest options backdrop this block reproduces (codemap:
     // 0x8007FC24 -> Render::optionsBackdrop, this function).
     //
-    // THE SCOPE STARTS HERE, NOT AT THE TOP OF THE FUNCTION, AND THAT IS THE WHOLE POINT. The pillarbox
+    // THE SCOPE STARTS HERE, NOT AT THE TOP OF THE FUNCTION, AND THAT IS THE WHOLE POINT. The wide-canvas
     // fill above is a WIDESCREEN PC ENHANCEMENT with no guest counterpart; inside this scope it would add
     // exactly one native prim against the guest's one, so the row would read 2-vs-1 in the very column
     // the DB exists to compare — a fabricated discrepancy in a producer that is actually faithful. It
-    // stays outside, and since producer_scope.h grew pc_producer() it carries its own PC-only row
-    // rather than being undeclared.
+    // stays outside, and WidePageFill opens its own PC-only row for it.
     ProducerScope backdropScope(&c->rsub.producerScope, 0x8007FC24u, "optionsBackdrop");
     int xs[4] = {0, 320, 0, 320};
     int ys[4] = {0, 0, 240, 240};

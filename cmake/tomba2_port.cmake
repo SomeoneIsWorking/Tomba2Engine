@@ -205,6 +205,7 @@ set(GAME_SRC
   game/render/scene_kind.cpp
   game/render/scene_kind_runtime.cpp
   game/render/render_hut_interior.cpp   # pc_render producer: hut/door authored sub-scene (objects-only)
+  game/render/wide_page_fill.cpp        # widescreen: the canvas fill behind an opaque full-screen 2D page
   game/render/card_browser.cpp          # pc_render producer: DEMO/title Load-Game card browser (s48==4)
   game/render/render_options.cpp        # pc_render producer: DEMO/title options page (s48==6)
   game/render/render_attract.cpp        # pc_render producer: DEMO/title attract 3D field (s48==7)

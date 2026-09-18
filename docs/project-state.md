@@ -40,7 +40,8 @@ in `codemap.md`.
 ## Current focus
 
 S001 is the current focus. The break-first removal is complete and the shared per-`Core` Lightrec
-executor is pinned at psxport `ff3709e74b24d21de4f3dcdcd402de8c33d57df7`. Issue 0005 must now
+executor is pinned at psxport `18e8d18417ae9dce539f7284eff46c0f4d44a319`, which is also the
+commit `build/psxport_resolved.txt` records for the verified build. Issue 0005 must now
 prove one resident and one colliding-overlay override plus scoped original calls through the shipping
 dispatcher. Tomba! 2 then regains its recorded free-roam frontier and passes representative gameplay.
 Tomba! 1 remains deferred until that complete gate. Issue 0006's supported-syscall
@@ -157,8 +158,26 @@ the 4:3 picture cannot see — at unchanged object proportions, with the in-game
 centered. With `aspect=1` and `fps60=1` the product still matches the Beetle console reference on
 405/405 oracle checkpoints (S002), so presentation writes nothing into guest state.
 
-Gap: only the seaside field is covered by captures; other areas, the menus' 2D layout, culling at
-the wide edges, and HUD anchors in every scene kind are unverified on the product.
+Menus were the first part of that gap to be closed, and closing it found a defect (issue #122 on the
+kanban). Every opaque full-screen 2D page is authored 320 wide, so at 16:9 it covered only the 4:3
+middle and the live field reappeared in both side margins behind a hard vertical edge: measured on the
+pause/item menu (`replays/bugs/ingame-item-menu.pad` f1120), the in-game Select Options page
+(`replays/bugs/ingame-options-page.pad` f1160) and the front-end one
+(`replays/bugs/title-options-page.pad` f1027). Two call sites already carried a private copy of a
+"pillarbox" quad, and the copy in `Render::optionsBackdrop` could never work: the framework spreads a
+flat untextured fill on `RQ_BACKGROUND` only, and that page must draw on `RQ_OVERLAY` because it is
+raised over a live field frame. `game/render/wide_page_fill.*` now owns that fill once for the title,
+states the geometry in wide-final coordinates instead of relying on a material heuristic, and emits
+nothing at 4:3. All three pages are solid to the canvas edges at 16:9; their 4:3 captures are
+byte-identical to the pre-fix run; the in-game START page, which composites over the field on purpose,
+still shows the full-width field at f1090; and the oracle still reports 405/405 checkpoints MATCH with
+`aspect=1` and `fps60=1`, zero divergences (S002). The combined asset-free Clang gate passed 24/24
+CTest cases, the C++ policy check over 412 first-party files, the execution-boundary scan and the
+build-receipt pin check on psxport `18e8d184`.
+
+Gap: only the seaside field and the menu/options pages above are covered by captures. Other areas, the
+memory-card pages, cutscenes, culling at the wide edges, and HUD anchors in every remaining scene kind
+are unverified on the product.
 
 ### S006 — Tomba! 2 interpolation: partial
 

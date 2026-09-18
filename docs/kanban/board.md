@@ -13,7 +13,7 @@
 - **#36 dev-warp: cold cross-area warp self-destructs ~50 frames later, and ids >=22 are accepted but are not areas**  `bug,tooling`
 - **#37 areas 16/17/18 hang under cold warp — behaviour loop in guest 0x80040558**  `bug`
 - **#40 RmlUi warp selector is unverified on screen — no window in the agent environment**  `verification`
-- **#46 historical guest-entry miss 0x80028E64 latent (label not emitted as entry) — NOT reproduced on current main**  `bug,guest instruction path`
+- **#46 historical guest-entry miss 0x80028E64 latent (label not emitted as entry) — NOT reproduced on current main**  `bug,guest,instruction,path`
 - **#52 No A06/A08 cutscene replay exists — 11 beh_* script handlers are unreachable for A/B**  `verification`
 - **#53 Dust PUFF MESH layer is ported-unverified — never observed on screen (ring state 2/3 unreached)**  `verification,render`
 - **#54 Bucket's supporting POLE/ROPE invisible before pickup, visible after — state-gated missing producer**  `render,bug` — 📎 docs/reference/issues/issue54_bucket_pole_missing.png
@@ -25,7 +25,7 @@
 - **#70 DEMO transition: object cmd geomblk points at texture data, emitter submits ~125k garbage quads**  ``
 - **#80 Widescreen margin re-include is DEAD CODE — Cull::objectCull has no caller**  `bug,render,tooling`
 - **#81 psx_render (non-oracle) backdrop tiles: 4-px bright-cyan band at each tile's right edge in the RQ_BACKGROUND path**  `render,psxport`
-- **#84 Replay library cannot exercise the two PC-ONLY producers (pc/widescreen-margin, pc/options-pillarbox)**  `producers`
+- **#84 Replay library cannot exercise the two PC-ONLY producers (pc/widescreen-margin, pc/wide-page-fill)**  `producers`
 - **#91 Producer claim set is append-only with NO provenance — a claim fossilises when a producer's key moves**  `bug,producers,psxport,instrument`
 - **#92 PSXPORT_ENH is ENV-ONLY and off the CVar ladder — cfg_enh() cannot satisfy the USER's CVars ruling, so the first pc_enh consumer had to duplicate its suppression**  `psxport,config,debt,enhancements`
 - **#97 Tether producer is dispatched by TYPE byte with no queue/head gate**  `render,bug`
@@ -51,12 +51,12 @@
 - **#77 Camera blocked by geometry vanilla does not show — 2 spots, stage GAME (USER)**  `bug,render`
 - **#103 Cutscene machinery + fisherman + bridge ropes invisible under pc_render (area 0, live)**  `render,bug`
 
-## DONE (79)
+## DONE (80)
 - **#1 Jumping over an item picks it up — pickup triggers without touch contact**  `bug,pc-skip`
 - **#3 RmlUi not working**  `ui`
 - **#4 Widescreen-from-boot corrupts objects (flower/gem, attack weapon)**  `render`
 - **#5 Save-sign inspect SOFTLOCKS with pc_skip ON**  `bug,pc-skip`
-- **#6 Load-Game browser (DEMO s48==4) aborts: typed runtime address dispatch miss 0x8018FA88**  `bug,guest instruction path`
+- **#6 Load-Game browser (DEMO s48==4) aborts: typed runtime address dispatch miss 0x8018FA88**  `bug,guest,instruction,path`
 - **#7 DEMO OPTIONS sub-pages (Messages/Sound/Screen adjust/Controls) had no pc_render producer — SIGABRT two presses from the title**  `render`
 - **#8 Water-pump seesaw: Tomba's weight doesn't pull it down when grabbed while climbing (pc_skip ON)**  `bug,pc-skip`
 - **#11 Barrel top face renders BLACK on the blue side (red side correct)**  `bug,render`
@@ -71,10 +71,10 @@
 - **#21 Triangle menu renders fully transparent — its opaque background is missing**  `render` — 📎 docs/reference/issues/issue21_triangle_menu_reference.png
 - **#22 Health wheel native blend and AddPrim order differ from the PSX**  `render`
 - **#23 Roof flames do not lerp at fps60 while the burning-rope flame does**  `render,fps60` — 📎 docs/reference/issues/issue23_flame_no_lerp.png
-- **#24 Area 22 aborts on entry: typed runtime address dispatch miss 0x80109200**  `bug,guest instruction path`
+- **#24 Area 22 aborts on entry: typed runtime address dispatch miss 0x80109200**  `bug,guest,instruction,path`
 - **#25 pc_render area sweep: 24 of 32 areas sampled clean, coverage recorded**  `render`
 - **#26 Ghost pig boss fight (area 12): ceiling beam band renders warped/displaced under pc_render**  `render`
-- **#27 guest instruction path: misread jump-table base blocked four areas (10/11/13/14) — FIXED**  `guest instruction path`
+- **#27 guest instruction path: misread jump-table base blocked four areas (10/11/13/14) — FIXED**  `guest,instruction,path`
 - **#28 Dialog box background draws OVER its own text — dual ownership of 0x8004FFB4**  `bug,render`
 - **#29 Hut interior: wall decorations z-fight with the wall behind them**  `bug,render`
 - **#30 Jumping over an item picks it up again — REGRESSION of #1**  `bug,pc-skip`
@@ -131,3 +131,4 @@
 - **#115 Adopt clang + clang-format, drop extern C, drop beetle**  ``
 - **#116 Beetle oracle violates GPU.sl_zero_reached — NDEBUG hides it in every normal build**  ``
 - **#119 SBS oracle booted the wrong render path and cleared software VRAM during pane readback**  `oracle,tooling`
+- **#122 Opaque full-screen 2D pages keep a 4:3 extent in widescreen — the live field shows in both margins**  `render,widescreen,ui`

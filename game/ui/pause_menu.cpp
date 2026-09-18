@@ -9,7 +9,8 @@
 #include "game_ctx.h" // eng(c) / rend(c)
 #include "guest_call.h"
 #include "native_override_catalog.h"
-#include "render.h"       // Render::emitUiFt4 / emitUiSprites
+#include "render.h" // Render::emitUiFt4 / emitUiSprites
+#include "render/wide_page_fill.h"
 #include "render_queue.h" // RQ_OVERLAY
 #include "screen_fade.h"  // ScreenFade — the global present-time fade this page's dim must NOT reach
 
@@ -114,6 +115,12 @@ void PauseMenu::drawCollected() {
   // while the pause menu is up the guest submits NO world geometry at all (all 421 packets that
   // frame come from the menu controller), so without it pc_render's field pass showed through
   // around the panel edges.
+  // WIDESCREEN: that guest tile is authored 320 wide, so at 16:9 it blacks out only the 4:3 middle and
+  // the live field reappears in both side margins, cut off by a hard vertical edge at each end of the
+  // menu (measured at replays/bugs/ingame-item-menu.pad f1120, 2026-09-19). The guest quad stays
+  // exactly as the guest built it — widening it would make a faithful producer draw geometry the guest
+  // never submitted — and WidePageFill covers the canvas behind it. No-op at 4:3.
+  tomba::render::WidePageFill::pushBehindPage(*c, c->game->activeRq(), RQ_OVERLAY, /*order2dFg=*/1);
   pushScreenQuad(0x00, /*semi=*/0, /*blend=*/0);
 
   bool dimDone = false;
