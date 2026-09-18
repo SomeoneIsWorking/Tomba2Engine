@@ -75,8 +75,4 @@ void registerStreamFieldTurn(Core &core) {
   psx::cpu::registerHostTurn(core, serviceStreamHostTurn, FIELD_RATE_NTSC_MILLIHZ);
 }
 
-void noteNativeFieldDelivered(Core &core) {
-  psx::cpu::notifyDisplayField(core);
-}
-
 } // namespace tomba1

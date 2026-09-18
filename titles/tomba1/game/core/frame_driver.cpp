@@ -194,7 +194,6 @@ void Tomba1FrameDriver::finishMainIteration(Core &core, std::uint32_t fields) {
   for (std::uint32_t field = 0; field < fields; ++field) {
     game_.hle.deliverEvent(kVblankEventClass, kVblankEventSpec);
     game_.spu_audio.frame();
-    noteNativeFieldDelivered(core);
   }
 
   if (core.mem_r16(kDrawSyncBeforeVblank) == 0u) {

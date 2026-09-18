@@ -20,6 +20,5 @@ private:
 
 void registerStreamFieldTurn(Core &core);
 void serviceStreamHostTurn(Core *core);
-void noteNativeFieldDelivered(Core &core);
 
 } // namespace tomba1
