@@ -1,5 +1,13 @@
 # Findings — tooling / debug server / harness
 
+## Picture tools were unrunnable through the locked launcher: Pillow was never declared (2026-09-18)
+
+- **symptom:** `uv run --frozen python tools/fps60_check.py` exits "needs Pillow (pip install pillow)"; the same for perceptual.py, frames.py, ab_motion.py
+- **status:** RESOLVED — `pillow` is declared in pyproject.toml and uv.lock
+- **cause:** the picture tools import PIL but the project's locked environment declared no dependencies at all, so they only ever ran against whatever system interpreter happened to have Pillow
+- **fix:** declare the dependency in the lock; never `pip install` around the launcher
+- **refs:** pyproject.toml, uv.lock, docs/project-state.md S006
+
 ## Oracle comparison of the Lightrec product against the Beetle full-console reference (2026-09-18)
 
 - **symptom:** S002 had no independent oracle; the first comparator runs "diverged" on frame phase, BIOS handles, and pad delivery rather than on game behavior

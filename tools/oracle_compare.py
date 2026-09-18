@@ -117,8 +117,11 @@ def run(args) -> int:
     if not os.path.isfile(gate.BIN) or not os.path.isfile(gate.EXE):
         print(f"REFUSED: {gate.BIN} or {gate.EXE} is missing; build the product first", file=sys.stderr)
         return 2
-    disc = Path(gate.native_environment(args.watchdog)["PSXPORT_TOMBA2_DISC"])
+    product_env = dict(pair.split("=", 1) for pair in args.product_env)
+    environment = gate.native_environment(args.watchdog, extra_env=product_env)
+    disc = Path(environment["PSXPORT_TOMBA2_DISC"])
     report = {"binary": gate._binary_identity(), "disc": str(disc), "bios": str(args.bios),
+              "product_env": product_env,
               "declared": [{"range": d.name, "address": f"0x{d.address:08X}", "bytes": d.size,
                             "decisive": d.decisive} for d in title.DECLARED],
               "excluded": title.EXCLUDED, "checkpoints": [], "complete": False}
@@ -126,8 +129,7 @@ def run(args) -> int:
     native = console = None
     exit_code = 1
     try:
-        native = NativeReplSession(gate.BIN, gate.EXE, gate.native_environment(args.watchdog),
-                                   gate.REPO, OUT_DIR / "native.log")
+        native = NativeReplSession(gate.BIN, gate.EXE, environment, gate.REPO, OUT_DIR / "native.log")
         console = ConsoleSession(PSXPORT, disc, args.bios, args.region, OUT_DIR / "console.log")
         report["console_manifest"] = console.manifest
         # The console is driven first at every checkpoint: its arrival frame fixes the settle pad
@@ -176,6 +178,9 @@ def main() -> int:
     parser.add_argument("--region", default="na")
     parser.add_argument("--budget", type=int, default=6000, help="frame budget per checkpoint per core")
     parser.add_argument("--watchdog", type=int, default=3600, help="product watchdog seconds")
+    parser.add_argument("--product-env", action="append", default=[], metavar="K=V",
+                        help="extra environment for the product only, e.g. PSXPORT_FPS60=1 or a "
+                             "PSXPORT_SETTINGS file with aspect=1; presentation must not change guest RAM")
     parser.add_argument("--frame-step", type=int, default=0,
                         help="compare every N frames inside a gameplay segment (0 = once per segment)")
     parser.add_argument("--selftest", action="store_true", help="validate the comparator with a seeded divergence")

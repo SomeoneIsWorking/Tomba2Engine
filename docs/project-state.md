@@ -143,18 +143,34 @@ Recorded controlled runs produced a 960-pixel-wide gameplay picture with additio
 The title compositor preserves the authored central title picture while filling the side
 canvas, and issue 0003 records its focused evidence.
 
-Gap: matched 4:3/wide controls plus representative scene, culling,
-edge-visibility, and HUD-anchor coverage remain. These gates must ultimately run on the Lightrec
-product.
+On the Lightrec product (2026-09-18, `external/psxport/tools/port/looks_right.py --repository .
+--replay replays/bugs/walk-dust-puff.pad --frames 520 --shot-at 250,400,500` with
+`PSXPORT_AUTO_SKIP=1`): the 4:3 and 16:9 runs both reach 520 frames with no failure marks, the wide
+frame differs from the 4:3 frame, and the seaside free-roam captures show a genuinely wider field of
+view — the log fence and water on the left and a second ice block and the bridge on the right that
+the 4:3 picture cannot see — at unchanged object proportions, with the in-game message box still
+centered. With `aspect=1` and `fps60=1` the product still matches the Beetle console reference on
+405/405 oracle checkpoints (S002), so presentation writes nothing into guest state.
+
+Gap: only the seaside field is covered by captures; other areas, the menus' 2D layout, culling at
+the wide edges, and HUD anchors in every scene kind are unverified on the product.
 
 ### S006 — Tomba! 2 interpolation: partial
 
 The title owns prior/current camera, object, backdrop, and effect presentation state. Recorded still
 captures show coherent output, but still images do not prove temporal smoothness.
 
-Gap: representative moving-camera, object, and effect cadence remains unverified, including every
-layer still named stepped, snapped, cold, or unverified in the render inventory. Final proof belongs
-to the Lightrec product.
+On the Lightrec product (2026-09-18): the looks-right fps60 leg over the 520-frame free-roam walk
+reports 492,600 interpolated prims across 505 extra presents (no duplicate frames), and
+`tools/fps60_check.py` over 220 real/interp/real triples captured with `PSXPORT_DEBUG=fps60dump`
+from frame 300 (moving camera, walking Tomba, water and effects) classifies the 16-pixel tiles where
+anything moved as 75.0% BETWEEN (lerped), 0.2% STALE, and 2.2% AHEAD; the AHEAD tiles cluster on
+Tomba's own sprite, whose walk-cycle frame flips cannot be blended and take the newer frame. RAM
+parity with the console reference holds with fps60 on (S002).
+
+Gap: the stale 0.2% (worst tile 10 of 209 moving triples at 224,96) is not attributed to a layer;
+every layer still named stepped, snapped, cold, or unverified in the render inventory remains so, and
+only the seaside field has been dumped.
 
 ### S007 — Tomba! 2 input: partial
 
