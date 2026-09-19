@@ -664,6 +664,19 @@ void Render::gt3gt4(uint32_t geomblk, uint32_t otbase) { // used by render_walk.
                   (uint64_t)gt3_count * kGt3RecBytes + (uint64_t)gt4_count * kGt4RecBytes,
                   geomblk);
   }
+  // Every gt3gt4 call, with its declared counts. The garbage-geomblk check above only fires when the
+  // records run PAST guest RAM; a block that declares an in-RAM but absurd count passes it silently.
+  // Measured 2026-09-19 (issue 0011): on replays/bugs/machinery-cutscene.pad every ordinary frame
+  // flushes at most 2,043 prims, then one frame exceeds the 65,536 queue cap with zero out-of-RAM
+  // hits over 17,333 keyord lines. This line is what separates "one call with an absurd count" from
+  // "many calls replaying the same block" without guessing between them.
+  lucent::debug("gt3gt4",
+                "f{} node={:08X} geomblk={:08X} gt3={} gt4={}",
+                c->game->gpu.s_frame,
+                c->rsub.diag.currentNode(),
+                geomblk,
+                gt3_count,
+                gt4_count);
   c->r[4] = geomblk + 16;
   c->r[5] = otbase;
   c->r[6] = counts & 0xFFFFu;

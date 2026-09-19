@@ -1,6 +1,6 @@
 ---
 id: 11
-title: The machinery cutscene overflows the render queue at frame 2940, at BOTH aspects
+title: The cutscene keeps submitting after the queue stops being flushed, so prims accumulate to the cap
 status: open
 symptom: replays/bugs/machinery-cutscene.pad aborts with "render queue full (65536 items)" at tomba-frame 2940; reproduced at aspect=0 and aspect=1 with identical attribution
 state_items: S005
@@ -57,6 +57,43 @@ psxport `10071776..534ee67e` is two commits, both diagnostics (`looks_right`, th
 neither of which touches submission. **Do not treat "it used to pass at 4:3" as established** until
 that is measured.
 
+## ROOT CAUSE (measured 2026-09-19): the queue is never consumed, so frames accumulate
+
+The 65,536 prims are not one frame's geometry. They are roughly a thousand frames' geometry, pushed
+into a queue that stopped being flushed.
+
+- The last `rqattr` flush attribution is **gpu-frame f1936**. The overflow is at tomba-frame 2940,
+  and the `gt3gt4` census shows submission still running at **gpu-frame f2958** — about 1,022 gpu
+  frames after the last flush.
+- Every flush that DID happen on this route carried at most **2,043 prims**. The failing queue holds
+  32x that, with no intermediate values: the growth is not gradual, it is an absence of resets.
+- The failing frame itself makes only **13 `gt3gt4` calls declaring 221 faces total**. It cannot
+  account for 64,792 world prims. It is merely the frame that happened to cross the cap.
+- The largest geomblk anywhere on the route declares **441** faces (166 gt3 + 275 gt4), so no single
+  call has an absurd count.
+- The garbage-geomblk check fired **0 times over a 17,333-line denominator**, so the counts are real.
+
+`RenderQueue::push()` resets the queue lazily on the first push after `consumed` is set, and
+`flush()` is what sets it. Accumulation therefore requires pushes to continue while `flush()` never
+runs — which is exactly what the two counters show.
+
+That also explains every earlier observation at once: the repeats (29,343) are a largely static scene
+re-submitted on successive frames, producing bit-identical geometry; the single dominant node is one
+submission phase repeating; and the 4:3/16:9 attributions are identical because accumulation has
+nothing to do with aspect.
+
+## Why submission outlives the flush
+
+`game/game_tomba2.cpp:194` calls `rq.flush(c)` at the end of the drawOTag path, after
+`Render::renderScene()`. The overflow backtrace does NOT come through that path — it is
+`Engine::fieldFrame` -> `Render::frame` -> (guest) -> `Render::cmdListDispatch` -> `Render::gt3gt4`,
+the substrate render orchestrator running during guest execution. So this route has a submitter that
+keeps feeding the queue while the presentation boundary that drains it is not reached.
+
+psxport `gpu_native.cpp:3854` already carries a flush for "the GUEST-DRIVEN path only", added
+because `rq_flush` lived solely in `Engine::drawOTag`. Whether that boundary is reached on this
+route, and why drawOTag stops during this cutscene, is the next thing to measure.
+
 ## What is not yet known
 
 - What `cmdListDispatch` is iterating at this frame. 36,169 distinct faces from one submission phase
@@ -69,12 +106,17 @@ that is measured.
 
 ## Next step
 
-Report, at the overflow, the `count` and `rec` passed to each `Render::gt3gt4` call this frame and
-how many times it was called. That distinguishes "one call with an absurd count" from "many calls
-replaying the same block" without guessing.
+Find why the presentation/flush boundary stops after gpu-frame f1936 on this route while the
+substrate submitter keeps running. Two concrete questions, in order:
 
-Do NOT raise `RQ_MAX`. The attribution says UNDECIDED, and the distinct count alone is 250x a normal
-frame — a capacity number chosen to fit this frame would be sized from a defect.
+1. Does `Engine::drawOTag` stop being called, or is it called and `flush()` returning early on
+   `consumed`? The `rqflush` channel answers this directly — it logs inside `flush()` past the
+   `consumed` early-out, so silence there separates "not called" from "called and skipped".
+2. If drawOTag genuinely stops, is the guest-driven flush at psxport `gpu_native.cpp:3854` the
+   boundary that should cover this route, and why is it not reached?
+
+Do NOT raise `RQ_MAX`. It is not a capacity problem: a correctly drained queue on this route peaks
+at 2,043 prims, 3% of the cap.
 
 ## Consequence
 
