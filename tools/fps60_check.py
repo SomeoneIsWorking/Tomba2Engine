@@ -11,15 +11,23 @@ motion the eye only reports "something judders". This walks the real/interp/real
                      ^ where is it actually?
 
 For every 16x16 tile it classifies the interp pixel block as:
-  STALE   — identical to real(N-1) while real(N) differs there  (the object did not move at all:
-            not lerped, drawn from the previous frame verbatim)
-  AHEAD   — identical to real(N) while real(N-1) differs        (snapped to the new frame early)
+  STALE   — identical to real(N-1) while real(N) differs there  (drawn at the previous endpoint)
+  AHEAD   — identical to real(N) while real(N-1) differs        (drawn at the next endpoint)
   BETWEEN — differs from both, which is what a lerped prim looks like
   STATIC  — all three agree (nothing moving here; not evidence either way)
 
-A correct fps60 frame is BETWEEN wherever anything moved. A block of STALE tiles that persists
-across several triples IS the bug report: that screen region contains an object drawn at the old
-position while the rest of the scene advanced.
+STALE ALONE IS NOT A BUG REPORT, and reading it as one cost a session. When the true motion between
+the two real frames is under a pixel, the rasterizer at t=0.5 has to land on one side or the other,
+and a tile that lands on an endpoint is correct output, not a prim that failed to lerp. So this also
+measures, per tile, the best integer translation that aligns real(N-1) onto real(N):
+
+  STALE/AHEAD with a shift of >= 1px   an object that MOVED and was drawn at an endpoint anyway —
+                                       the real defect, and the only one worth chasing
+  STALE/AHEAD with a shift of 0px      sub-pixel change (dither, shading, a texel-sampling edge)
+                                       quantised onto an endpoint — expected
+
+Measured 2026-09-19 on Tomba! 2's hut interior, 120 triples: all 105 STALE and all 110 AHEAD tiles
+had a 0px shift, so that scene has no interpolation failure left at this granularity.
 
 USAGE
   PSXPORT_DEBUG=fps60dump ... ./build/bin/tomba2_port ...     # capture (cap 600 files)
@@ -34,7 +42,7 @@ import argparse, os, re, sys
 from collections import defaultdict
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageChops, ImageStat
 except ImportError:
     sys.exit("fps60_check: needs Pillow (pip install pillow)")
 
@@ -58,6 +66,26 @@ def triples(frames):
         a, b, c = frames[i], frames[i + 1], frames[i + 2]
         if a[1] == "real" and b[1] == "interp" and c[1] == "real":
             yield a, b, c
+
+
+def best_shift(pa, pc, tx, ty, tile, radius=2):
+    """The integer (dx,dy) that best aligns pa's tile onto pc's, and how far that is.
+
+    A tile that is STALE because its object genuinely moved shows a non-zero shift; a tile that is
+    STALE because a sub-pixel change quantised onto an endpoint shows zero. Offsets that would leave
+    the image are skipped rather than clamped, so an edge tile cannot be scored against a repeated
+    border column."""
+    reference = pc.crop((tx, ty, tx + tile, ty + tile))
+    best, best_distance = 0, None
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            box = (tx + dx, ty + dy, tx + dx + tile, ty + dy + tile)
+            if box[0] < 0 or box[1] < 0 or box[2] > pa.width or box[3] > pa.height:
+                continue
+            distance = sum(ImageStat.Stat(ImageChops.difference(pa.crop(box), reference)).mean)
+            if best_distance is None or distance < best_distance:
+                best_distance, best = distance, max(abs(dx), abs(dy))
+    return best
 
 
 def classify(pa, pb, pc, w, h, tile):
@@ -95,6 +123,8 @@ def main():
 
     stale_hits = defaultdict(int)   # tile -> how many triples it was STALE in
     ahead_hits = defaultdict(int)
+    # STALE/AHEAD split by whether the content actually translated between the two real frames.
+    endpoint_shifts = {"STALE": defaultdict(int), "AHEAD": defaultdict(int)}
     moved_hits = defaultdict(int)   # tile -> how many triples anything moved there at all
     n_triples = totals = 0
     counts = defaultdict(int)
@@ -118,6 +148,8 @@ def main():
                 stale_hits[tile] += 1
             elif verdict == "AHEAD":
                 ahead_hits[tile] += 1
+            if verdict in endpoint_shifts:
+                endpoint_shifts[verdict][best_shift(ia, ic, tile[0], tile[1], args.tile)] += 1
         if args.triple:
             print(f"tile map for {os.path.basename(b[2])} ({w}x{h}, tile={args.tile}):")
             sym = {"STATIC": ".", "BETWEEN": "-", "STALE": "S", "AHEAD": "A"}
@@ -141,8 +173,28 @@ def main():
 
     report("STALE", stale_hits, "everything that moved was interpolated")
     report("AHEAD", ahead_hits, "nothing snapped early")
-    print("\nSTALE = the interp frame is pixel-identical to the PREVIOUS real frame there while the "
-          "NEXT real frame differs: that object was drawn at the old position, i.e. it did not lerp.")
+
+    # The number that decides whether any of the above is a defect at all.
+    print("\nendpoint tiles by how far their content actually translated between the two real "
+          "frames:")
+    moved_endpoint = 0
+    for verdict in ("STALE", "AHEAD"):
+        shifts = endpoint_shifts[verdict]
+        total = sum(shifts.values())
+        if not total:
+            print(f"  {verdict:<6} none")
+            continue
+        parts = " ".join(f"{px}px:{n}" for px, n in sorted(shifts.items()))
+        moved = total - shifts.get(0, 0)
+        moved_endpoint += moved
+        print(f"  {verdict:<6} {total:5d} tile(s): {parts}   -> {moved} that MOVED and still "
+              f"landed on an endpoint")
+    if moved_endpoint == 0:
+        print("  every endpoint tile had a 0px shift: sub-pixel change quantised onto one side, "
+              "which is correct output. No interpolation failure at this tile size.")
+    else:
+        print(f"  {moved_endpoint} tile(s) translated by a whole pixel or more and were still drawn "
+              f"at an endpoint. THAT is the defect; the 0px ones are not.")
 
 
 if __name__ == "__main__":

@@ -227,16 +227,34 @@ credits an entity only where nothing smaller drew there:
 | `0x800E7E80` | Tomba's actor/view base | 1,240 | 22 | 14 | 2.8% |
 | `0x800FDA60` | interior object, unidentified | 3,057 | 30 | 23 | 1.7% |
 
-The room object is the outlier by a factor of four, and it is static in world space: its screen
-motion is entirely camera. That points the remaining error at the interior sub-scene's camera
-interpolation rather than at per-object state, and it reverses the earlier reading that the cluster
-was Tomba's own sprite. Separately, across all 1,197 dumped fences no entity's extent was ever
-identical to its previous frame's while the current frame's differed, so nothing is frozen
-wholesale; whatever remains is finer than entity position.
+That table is a ranking of exposure, not of defects. `tools/fps60_check.py` now also measures, for
+every tile it did not call STATIC, the best whole-pixel translation that aligns real frame N-1 onto
+real frame N, so "the object is at an endpoint" can be separated from "the object did not move":
 
-Gap: the room object's 13.8% is not yet traced to a specific camera or transform input, the seaside
-scene has not been re-attributed with the same instrument, and only these two scene kinds have been
-dumped. Every layer named stepped, snapped, cold, or unverified in the render inventory remains so.
+| verdict | tiles | mean shift | distribution |
+|---|---|---|---|
+| BETWEEN | 6,232 | 0.06 px | 0px 5,951 · 1px 222 · 2px 38 · 3px 9 · 4px 12 |
+| STALE | 105 | 0.00 px | 0px 105 |
+| AHEAD | 110 | 0.00 px | 0px 110 |
+
+**Not one stale or ahead tile's content translated by a whole pixel.** A stale verdict requires the
+two real frames to differ, so those tiles changed without moving a pixel: the change is sub-pixel,
+and a t=0.5 sample of it quantises onto one side or the other. That is correct output, not a failed
+lerp. The hut interior therefore has no attributable interpolation failure left at 16-pixel
+granularity, and the room object leads the table above because it is the largest and slowest-moving
+surface in the scene and so owns the most sub-pixel tiles — not because its camera input is wrong.
+This supersedes the earlier reading of that 13.8%. Separately, across all 1,197 dumped fences no
+entity's extent was ever identical to its previous frame's while the current frame's differed, so
+nothing is frozen wholesale either.
+
+The check is an instrument, not a rationalisation: fed a synthetic triple whose square really
+translates 6 px with the interpolated frame drawn at the old position, it reports `2px:4` and names
+those tiles the defect.
+
+Gap: the seaside scene has not been re-attributed with the same instrument, only these two scene
+kinds have been dumped, and a 16-pixel tile cannot see an error smaller than itself — a sub-pixel
+residual would need a per-prim vertex comparison to bound. Every layer named stepped, snapped, cold,
+or unverified in the render inventory remains so.
 
 ### S007 — Tomba! 2 input: partial
 
