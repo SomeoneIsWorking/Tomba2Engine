@@ -4,7 +4,7 @@
     uv run --frozen python tools/widescreen_check.py
 
 Drives the product to one settled free-roam state twice -- once at 4:3, once at 16:9 -- and hands
-the two captures to psxport's widescreen analyser, which owns the question because it is
+the two captures to psxport's widescreen_pair, which owns the question because it is
 title-neutral. This tool owns only how Tomba! 2 reaches a comparable state.
 
 WHY THE STATE ORACLE DOES NOT ANSWER THIS. tools/oracle_compare.py reports 34/34 checkpoints
@@ -16,7 +16,6 @@ the extra area against. So the product is asked about itself.
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 from pathlib import Path
@@ -24,10 +23,10 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parent
 REPO = TOOLS.parent
 sys.path.insert(0, str(TOOLS))
-sys.path.insert(0, str(REPO / "external" / "psxport" / "tools" / "oracle"))
+sys.path.insert(0, str(REPO / "external" / "psxport" / "tools" / "port"))
 
 import gate  # noqa: E402  (tools/gate.py owns the product launch environment)
-import widescreen  # noqa: E402
+import widescreen_pair  # noqa: E402
 
 OUT_DIR = REPO / "scratch" / "widescreen"
 # Settled free roam: past the prologue and past the area fade, with no input held, so the two runs
@@ -73,18 +72,11 @@ def main() -> int:
     for name, body in ASPECTS.items():
         captures[name] = capture(name, body)
         print(f"[widescreen] {name}: {announced_geometry(name)}")
-    try:
-        result = widescreen.analyse(captures["narrow"], captures["wide"], OUT_DIR)
-    except widescreen.Unanswerable as refusal:
-        print(f"[widescreen] REFUSED: {refusal}", file=sys.stderr)
-        return 2
-    widescreen.announce(result)
-    report = OUT_DIR / "widescreen.json"
-    report.write_text(json.dumps(result.report(), indent=2))
-    print(f"[widescreen] report: {report}")
-    print("[widescreen] NEITHER NUMBER SAYS THE EXTRA GEOMETRY IS CORRECT — no 16:9 reference "
-          "exists to say that.")
-    return 0 if result.extends else 1
+    code = widescreen_pair.report(str(captures["narrow"]), str(captures["wide"]))
+    print("[widescreen] NO NUMBER ABOVE SAYS THE EXTRA GEOMETRY IS CORRECT — no 16:9 reference "
+          "exists to say that. They say the original picture survived unresampled, the new area "
+          "holds scene, and it joins the old one continuously.")
+    return code
 
 
 if __name__ == "__main__":

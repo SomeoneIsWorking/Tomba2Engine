@@ -168,15 +168,26 @@ state at all 34 checkpoints**, with each arm's configuration recorded in its own
 `--selftest` seeds a byte at `0x800E7EAC` and it is detected. The wider 405-checkpoint route has not
 been run both ways, so the differential is established at this route's depth only.
 
-2026-09-20: widescreen RENDER correctness is now measured here too, not only state parity.
-`tools/widescreen_check.py` drives one settled free-roam state at 4:3 and at 16:9 and compares the
-product with itself, over psxport's title-neutral analyser: 320 -> 428, the central 320 columns
-**byte-identical** (0/76800 a different colour), both 54px margins 99.2% and 100% non-black with 171
-and 139 distinct colours and 0/53 repeated columns. The same analyser reads 53.91% in the centre for
-a nearest-neighbour stretch and repeats every column for a smeared margin, and it measured 2.17% on
-Spyro's centre, so the zero here is a result and not an instrument that never fires. This does not
-establish that the extra geometry is correct -- no 16:9 reference exists -- but it does establish
-that the picture is extended rather than resampled.
+2026-09-20: widescreen RENDER behaviour is now measured here too, not only state parity.
+`tools/widescreen_check.py` drives one settled free-roam state at 4:3 and at 16:9 and hands both
+captures to psxport's title-neutral `widescreen_pair.py`, which asks three things of the pair and
+answers all three on this title:
+
+- the ORIGINAL picture survived, unresampled and centred: **0.00 mean absolute error at dx=+54**,
+  the predicted offset, against 40.89 at the next best offset and 100.46 for the stretch
+  hypothesis. 320 -> 428.
+- the NEW area holds scene: the 54px margins are 99.2% and 100% non-black, with 171 and 139
+  distinct colours and 0 of 53 repeated columns, so neither is black, flat, or the edge column
+  smeared outward.
+- the new area was drawn by the SAME widened frustum: the joins at x=53 and x=373 differ from the
+  columns beside them by **0.56x and 0.82x**, against a limit of 2.0x. Drawing the same margins six
+  rows off -- one cheap way to be a different projection -- reads 2.37x and 2.30x on this exact
+  frame, so the check can say both answers here and not only in its fixtures.
+
+This does not establish that the extra geometry is CORRECT; no 16:9 reference exists for a PSX
+title and nothing available can settle that. It establishes that the picture is extended rather
+than resampled, that the extension contains world, and that the world does not break where the
+extension meets it.
 
 2026-09-20, CORRECTION: `aspect=3` is ASPECT_AUTO, which resolves to the SINK's aspect, and an agent
 run is headless. So BOTH arms of that differential rendered at the 4:3 width: it is a valid fps60
