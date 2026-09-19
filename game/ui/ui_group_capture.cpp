@@ -65,17 +65,23 @@ void UiGroupCapture::route(Core *c, const UiGroupArgs &a) {
     return;
   }
   // A group that reaches here is DROPPED — no page scope is raised and the scene is not the one
-  // classified scope that emits directly. Say so. The picture consequence is a piece of chrome the
-  // guest linked into its ordering table and the product never draws, and the only trace it leaves
-  // otherwise is a gap in a screenshot nobody is looking at. Reported with the scene that failed to
-  // claim it, because "which scope should own this" is the question a drop always raises.
+  // classified scope that emits directly. Say so, with the guest caller and the scene that failed to
+  // claim it, because "which page should own this" is the question a drop always raises.
+  //
+  // A DROP IS NOT AUTOMATICALLY A DEFECT. Some chrome is drawn natively from game state by an
+  // independent producer — the field HUD and the dialog box are named above — and for those,
+  // ignoring the guest's group emission is correct. So this is a lead, not a verdict: check the
+  // picture before calling one of these missing. It is reported because the alternative, which is
+  // what this was, is a branch that says nothing at all and hides a producer that never ran
+  // (issues 0013, 0014, 0015).
   lucent::debug("uigroup",
-                "DROPPED group template {} at ({},{}) bucket {} — no page scope raised, scene {} does "
-                "not claim it",
+                "DROPPED group template {:08X} at ({},{}) bucket {} ra {:08X} — no page scope raised, "
+                "scene {} does not claim it",
                 a.templPtr,
                 a.x,
                 a.y,
                 a.otBucket,
+                c->r[31], // the guest caller: which emitter wanted this, i.e. which page should own it
                 (int)rend(c)->classifyScene());
 }
 
@@ -195,16 +201,24 @@ int UiGroupCapture::drawAll(Core *c, const char *channel, int layer) {
   return drawn;
 }
 
-bool UiGroupCapture::runGuestController(Core *c, std::uint32_t address, const char *who) {
+bool UiGroupCapture::beginScope() {
   const bool outer = !capturing();
   if (outer) {
     clear();
   }
   begin();
-  psx::cpu::callOriginalToReturn(*c, address, psx::cpu::ExecutionBudget::currentTurn(*c), who);
-  if (!outer) {
-    return false;
+  return outer;
+}
+
+bool UiGroupCapture::endScope(bool outer) {
+  if (outer) {
+    end();
   }
-  end();
-  return true;
+  return outer;
+}
+
+bool UiGroupCapture::runGuestController(Core *c, std::uint32_t address, const char *who) {
+  const bool outer = beginScope();
+  psx::cpu::callOriginalToReturn(*c, address, psx::cpu::ExecutionBudget::currentTurn(*c), who);
+  return endScope(outer);
 }

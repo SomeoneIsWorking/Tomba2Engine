@@ -83,10 +83,26 @@ void bindResident(Core &core, psx::cpu::ImageIdentity resident, GuestAddressRang
   std::size_t installed = 0;
   std::size_t retained = 0;
   std::size_t inactive = 0;
+  std::size_t unreachable = 0;
   for (const Declaration &entry : declarations()) {
+    // A RESIDENT declaration outside the resident text range can never install, in any generation:
+    // the address belongs to an overlay slot and only declareOverlayOverride can reach it. Folding
+    // that into the `inactive` count is how CardMenu's producer sat dead from the day it was
+    // written — declared with the resident form at 0x8018FBCC, never installed, never run, its whole
+    // page silently dropped (issue 0014). It is always a mistake, so it is refused by name.
+    if (entry.imageName.empty() && !residentText.containsPhysical(entry.address)) {
+      lucent::error("tomba-native",
+                    "UNREACHABLE: '{}' is declared as a RESIDENT override at 0x{:08X}, outside the "
+                    "resident text range. That address is in an overlay slot, so only "
+                    "declareOverlayOverride with the owning image name can reach it: this declaration "
+                    "can never install and its native behaviour never runs.",
+                    entry.name,
+                    entry.address);
+      ++unreachable;
+      continue;
+    }
     const auto identity = core.currentImageIdentity(entry.address);
-    if (!entry.imageName.empty() || !residentText.containsPhysical(entry.address) || !identity ||
-        *identity != resident) {
+    if (!entry.imageName.empty() || !identity || *identity != resident) {
       ++inactive;
       continue;
     }
@@ -106,6 +122,17 @@ void bindResident(Core &core, psx::cpu::ImageIdentity resident, GuestAddressRang
     }
     ++installed;
   }
+  // `unreachable` is NOT an abort, and that is a deliberate, temporary position. Every one of these
+  // is a native owner that has never run — CardMenu's whole card-menu producer and the bridge-rope
+  // producer were both found this way, each dead since the day it was written, each hiding inside
+  // the anonymous `inactive` count. Converting the rest needs per-address evidence of WHICH overlay
+  // image owns each one, which is issue 0015; guessing an image name would install an override
+  // against the wrong body. So this names every offender, every run, with a total. When the list is
+  // empty this becomes the abort it should be — an unreachable declaration is always a mistake.
+  lucent::error("tomba-native",
+                "{} native override declaration(s) can NEVER install — see the UNREACHABLE lines above "
+                "(issue 0015). Their native behaviour is absent from the product.",
+                unreachable);
   lucent::info("tomba-native",
                "bound resident image generation: declarations={} installed={} retained={} inactive={}",
                declarations().size(),

@@ -128,4 +128,17 @@ public:
   // instead of being filed back into the list they are draining. A nested entry returns FALSE and
   // leaves the scope up for its outer owner.
   bool runGuestController(Core *c, std::uint32_t address, const char *who);
+
+  // beginScope()/endScope(): the same scope around a call this class cannot make itself — a handler
+  // dispatched from a guest table, say, whose address is only known at run time. Returns, and takes
+  // back, whether this entry is the OUTERMOST one:
+  //
+  //     const bool outer = page.capture.beginScope();
+  //     psx::cpu::dispatchGuestToReturn0(...);
+  //     if (page.capture.endScope(outer)) { page.drawCollected(c); }
+  //
+  // runGuestController is these two with a fixed-address call between them; there is one
+  // implementation of the nesting rule and these are it.
+  bool beginScope();
+  bool endScope(bool outer);
 };

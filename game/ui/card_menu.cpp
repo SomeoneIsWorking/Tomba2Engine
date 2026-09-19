@@ -38,5 +38,11 @@ void CardMenu::install() {
     return;
   }
   done = true;
-  tomba::native::declareOverride(0x8018FBCCu, "CardMenu::cardFrame", cardFrame);
+  // AN OVERLAY ADDRESS NEEDS AN OVERLAY DECLARATION. This was `declareOverride` — the RESIDENT form
+  // — for as long as the class existed, and bindResident skips every declaration whose address is
+  // outside the resident text range. 0x8018FBCC is in the AREA slot that OPN and CRD share, so this
+  // override was never installed and this producer never ran once. Measured on
+  // replays/bugs/save-card-pages.pad: the "cardmenu" channel is silent for all 2,400 frames while
+  // 26,290 of the card pages' own chrome groups are routed with no scope raised and dropped.
+  tomba::native::declareOverlayOverride("CRD", 0x8018FBCCu, "CardMenu::cardFrame", cardFrame);
 }

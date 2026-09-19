@@ -284,5 +284,10 @@ void ov_ropeStrip(Core *c) {
 } // namespace
 
 void fx_rope_strip_install() {
-  tomba::native::declareOverride(0x801365C4u, "ov_ropeStrip", ov_ropeStrip);
+  // A00, not resident: this file's own RE banner says "overlay guest 0x801365C4", and the sibling A00
+  // producers next door (overlay_gt3gt4.cpp, tile_grid_layer.cpp) all declare it that way. As a
+  // resident declaration it was outside the resident text range and never installed once — so the
+  // bridge ropes this producer was written for (kanban #103) stayed missing after it landed. Caught
+  // by the refusal bindResident now makes instead of counting it inactive (issue 0014).
+  tomba::native::declareOverlayOverride("A00", 0x801365C4u, "ov_ropeStrip", ov_ropeStrip);
 }
