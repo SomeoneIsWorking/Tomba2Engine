@@ -51,6 +51,11 @@ BIN = os.path.join(CANONICAL_VERIFY_BUILD, 'bin', 'tomba2_port')
 EXE = os.path.join(REPO, 'scratch', 'bin', 'tomba2', 'MAIN.EXE')
 LOGDIR = os.path.join(REPO, 'scratch', 'logs')
 PSXPORT = os.path.join(REPO, 'external', 'psxport')
+
+# The enhancement configuration every agent run of this port is gated under. It is passed to
+# psxport's agent_environment rather than left to the product's working-directory discovery, which
+# would otherwise configure a gate from the operator's untracked psxport_settings.ini.
+SHIPPING_SETTINGS = os.path.join(REPO, 'tools', 'shipping_settings.ini')
 sys.path.insert(0, os.path.join(PSXPORT, 'tools', 'oracle'))
 from compare import binary_identity  # noqa: E402  (the framework's one binary-identity owner)
 
@@ -101,7 +106,7 @@ def native_environment(watchdog: int, debug: str = '', extra_env: dict | None = 
     environment here so they cannot drift apart."""
     sys.path.insert(0, os.path.join(PSXPORT, 'tools'))
     from port.launch_environment import agent_environment
-    env = agent_environment(dict(os.environ))
+    env = agent_environment(dict(os.environ), SHIPPING_SETTINGS)
     env['PSXPORT_ASSET_DIR'] = env.get('PSXPORT_ASSET_DIR') or PSXPORT
     env['PSXPORT_TOMBA2_DISC'] = resolve_disc(None, Path(REPO), env)
     env['PSXPORT_REPL'] = '1'

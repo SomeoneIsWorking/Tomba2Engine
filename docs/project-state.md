@@ -159,6 +159,21 @@ the 4:3 picture cannot see — at unchanged object proportions, with the in-game
 centered. With `aspect=1` and `fps60=1` the product still matches the Beetle console reference on
 405/405 oracle checkpoints (S002), so presentation writes nothing into guest state.
 
+That is a one-sided result: it shows the enhanced product agreeing with the console, not that the
+enhancements changed nothing. The differential was measured on 2026-09-19, on the default route
+rather than the 405-checkpoint one: `tools/oracle_compare.py` against a tracked `aspect=0 fps60=0`
+file and against `tools/shipping_settings.ini` (`aspect=3 fps60=1`) produces **byte-identical guest
+state at all 34 checkpoints**, with each arm's configuration recorded in its own report by psxport's
+`product_settings` field rather than inferred from a log. The comparator was validated first:
+`--selftest` seeds a byte at `0x800E7EAC` and it is detected. The wider 405-checkpoint route has not
+been run both ways, so the differential is established at this route's depth only.
+
+Configuration is no longer discovered. Until 2026-09-19 `gate.native_environment` never set
+`PSXPORT_SETTINGS`, so every agent run of this port was configured by whichever untracked
+`psxport_settings.ini` sat in the repository root — the same defect found in Spyro, and the reason a
+baseline arm could not previously be expressed. psxport `2d44c0b4` makes `agent_environment` refuse
+without a tracked settings file, and this port passes `tools/shipping_settings.ini`.
+
 That pass is now PROVEN to have run with the enhancements live, which it previously was not.
 Until psxport `d37adcce` the `[wide] native picture:` line existed only in Spyro, so a Tomba! 2
 oracle leg could show the settings file arriving and nothing at all about whether the picture
