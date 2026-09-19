@@ -253,8 +253,11 @@ those tiles the defect.
 
 Gap: the seaside scene has not been re-attributed with the same instrument, only these two scene
 kinds have been dumped, and a 16-pixel tile cannot see an error smaller than itself — a sub-pixel
-residual would need a per-prim vertex comparison to bound. Every layer named stepped, snapped, cold,
-or unverified in the render inventory remains so.
+residual would need a per-prim vertex comparison to bound. Separately, issue 0009 records a real
+difference between the two presentation paths that tile attribution cannot see: the real frame and
+the interpolated frame apply different modulus policies to the backdrop scroll, harmless on the X
+axis because the drawer's period equals the X modulus, unresolved on Y because it does not. Every
+layer named stepped, snapped, cold, or unverified in the render inventory remains so.
 
 ### S007 — Tomba! 2 input: partial
 

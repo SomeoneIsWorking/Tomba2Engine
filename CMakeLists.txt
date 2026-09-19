@@ -114,6 +114,10 @@ if(BUILD_TESTING)
   add_test(NAME tomba_libapi_vblank_mirror COMMAND test_libapi_vblank_mirror)
 
 
+  add_executable(test_parallax_scroll tests/test_parallax_scroll.cpp)
+  target_include_directories(test_parallax_scroll PRIVATE game/scene "${PSXPORT_DIR}/tests")
+  add_test(NAME tomba_parallax_scroll COMMAND test_parallax_scroll)
+
   add_executable(test_scene_kind tests/test_scene_kind.cpp game/render/scene_kind.cpp)
   target_include_directories(test_scene_kind PRIVATE game/render)
   add_test(NAME tomba_scene_kind COMMAND test_scene_kind)

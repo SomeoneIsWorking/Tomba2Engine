@@ -15,30 +15,10 @@
 #include "core.h"
 #include "fps60.h" // Fps60 — the override struct fields
 #include "game.h"
-#include "game_ctx.h" // rend(c) — the game's Render umbrella accessor
-#include "render.h"   // Render::worldVoidBeat/fieldAreaInit/terrainRenderAll/fieldEntityRender/backdropRender/...
-#include <math.h>
-
-// wrapLerp — copy of the framework helper (fps60.cpp): shortest-signed-path lerp across a [0,mod) wrap
-// (ParallaxBg::step's wrapMod). A naive prev+(cur-prev)*t sweeps the long way around a wrap boundary.
-static int wrapLerp(int prev, int cur, int mod, float t) {
-  if (mod <= 0) {
-    return prev + (int)lroundf((float)(cur - prev) * t);
-  }
-  int diff = cur - prev;
-  if (diff > mod / 2) {
-    diff -= mod;
-  }
-  if (diff < -mod / 2) {
-    diff += mod;
-  }
-  int v = prev + (int)lroundf((float)diff * t);
-  v %= mod;
-  if (v < 0) {
-    v += mod;
-  }
-  return v;
-}
+#include "game_ctx.h"        // rend(c) / eng(c) — the game's Render and engine object graphs
+#include "parallax_bg.h"     // ParallaxBg — owns the SM address and the scroll wrap moduli
+#include "parallax_scroll.h" // tomba::parallax::shortestPathLerp — the scroll-domain owner
+#include "render.h" // Render::worldVoidBeat/fieldAreaInit/terrainRenderAll/fieldEntityRender/backdropRender/...
 
 void tomba_fps60_world_pass(Core *c, float t) {
   Fps60 &f = fps60(*c->game);
@@ -62,14 +42,16 @@ void tomba_fps60_world_pass(Core *c, float t) {
   }
   // BACKDROP (game-logic scroll, LAYER-TRANSFORM lerp — not camera-projected): mirrors sceneNative's own
   // gate (mBackdropTrusted && the resident drawer is the shared tilemap routine — seaside + areas 10/11,
-  // kanban #42). The wrap moduli (t4+0x30/+0x32) are static per-area config, safe to re-read directly here.
+  // kanban #42). The wrap moduli are static per-area config, read from their owner (ParallaxBg), and the
+  // lerp is the scroll domain's own (parallax_scroll.h) — NOT the reduction ParallaxBg::step applies to a
+  // real frame, which is a different function on purpose. See that header.
   int bgVAdd;
   if (!voidBeat && !hutInterior && rend(c)->mBackdropTrusted && rend(c)->backdropTilemapDrawer(bgVAdd)) {
-    int modX = c->mem_r16(0x800ed018u + 0x30u), modY = c->mem_r16(0x800ed018u + 0x32u);
-    f.mBgOverride.scrollX = wrapLerp(f.mBgPrev.scrollX, f.mBgCur.scrollX, modX, t);
-    f.mBgOverride.scrollY = wrapLerp(f.mBgPrev.scrollY, f.mBgCur.scrollY, modY, t);
+    const ParallaxBg &bg = eng(c).parallaxBg;
+    f.mBgOverride.scrollX = tomba::parallax::shortestPathLerp(f.mBgPrev.scrollX, f.mBgCur.scrollX, bg.scrollModX(), t);
+    f.mBgOverride.scrollY = tomba::parallax::shortestPathLerp(f.mBgPrev.scrollY, f.mBgCur.scrollY, bg.scrollModY(), t);
     f.mBgOverrideOn = true;
-    rend(c)->backdropRender(0x800ed018u);
+    rend(c)->backdropRender(ParallaxBg::SM_ADDR);
     f.mBgOverrideOn = false;
   }
   // Area 21's reached variant-1/early-phase branch is the four-quad gradient helper and returns before

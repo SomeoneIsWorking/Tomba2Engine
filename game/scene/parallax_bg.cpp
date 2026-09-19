@@ -1,13 +1,16 @@
 // ParallaxBg::step — the per-frame body of guest FUN_8010BFFC. See parallax_bg.h for the SM
-// layout + purpose. Ghidra decomp: scratch/decomp/sop_bg_chain.c.
+// layout + purpose. (A Ghidra decomp of the SOP BG chain was once kept at
+// scratch/decomp/sop_bg_chain.c; scratch is disposable and it is gone. Re-derive from the SOP
+// overlay if this body is ever in doubt.)
 //
-// Faithful to the guest instruction path; the state-1 wrap loops are the guest instruction path's over-then-rollback
-// pattern
-// (`while (v < 0) v += mod;  v -= mod;`), and the underflow test on the SM+0x38 counter mirrors
-// the MIPS `sll 24 ; blez` idiom as a signed-byte `<= 0`.
+// Faithful to the guest instruction path: the state-1 wrap reduction lives in parallax_scroll.h as
+// tomba::parallax::guestReduce, which documents why it is deliberately NOT a wrap into [0, mod).
+// The underflow test on the SM+0x38 counter mirrors the MIPS `sll 24 ; blez` idiom as a signed-byte
+// `<= 0`.
 
 #include "parallax_bg.h"
 #include "core.h"
+#include "parallax_scroll.h"
 
 namespace {
 
@@ -20,26 +23,6 @@ constexpr uint32_t ANIM_COUNTER_0 = 0x8010D390u;
 constexpr uint32_t ANIM_COUNTER_1 = 0x8010D391u;
 constexpr uint32_t ANIM_COUNTER_2 = 0x8010D392u;
 
-// Wrap `v` into [0, mod). Faithful to the guest instruction path's over-then-rollback loops (a normal `v % mod`
-// would produce the same bytes for the values we see; kept explicit for byte-exact fidelity).
-inline int32_t wrapMod(int32_t v, int32_t mod) {
-  if (v < 0) {
-    v += mod;
-    while (v < 0) {
-      v += mod;
-    }
-    v -= mod;
-  }
-  if (mod <= v) {
-    v -= mod;
-    while (mod <= v) {
-      v -= mod;
-    }
-    v += mod;
-  }
-  return v;
-}
-
 } // namespace
 
 void ParallaxBg::step() {
@@ -51,18 +34,16 @@ void ParallaxBg::step() {
     // ---- RUNNING ---------------------------------------------------------------------------
     const int32_t yaw = (int32_t)c->mem_r16s(YAW_ADDR);
     const int32_t pitch = (int32_t)c->mem_r16s(PITCH_ADDR);
-    const uint16_t sX = c->mem_r16(sm + 0x2Cu);   // X scroll speed (×yaw   >>12)
-    const uint16_t sY = c->mem_r16(sm + 0x2Eu);   // Y scroll speed (×pitch >>12)
-    const uint16_t modX = c->mem_r16(sm + 0x30u); // X wrap modulus (grid_w × 16)
-    const uint16_t modY = c->mem_r16(sm + 0x32u); // Y wrap modulus ((grid_h×0x8e8)/0x90)
+    const uint16_t sX = c->mem_r16(sm + 0x2Cu); // X scroll speed (×yaw   >>12)
+    const uint16_t sY = c->mem_r16(sm + 0x2Eu); // Y scroll speed (×pitch >>12)
     const uint8_t tileH = c->mem_r8(sm + 0x11u);
 
     const int32_t tileW = (int32_t)(int16_t)c->mem_r16(sm + 0x2Cu);
     int32_t x = ((tileW + 0x140) >> 1) - ((yaw * (int32_t)(uint32_t)sX) >> 12);
     int32_t y = ((pitch * (int32_t)(uint32_t)sY) >> 12) + (int32_t)(uint32_t)tileH * 8 - 0x20;
 
-    x = wrapMod(x, (int32_t)(uint32_t)modX);
-    y = wrapMod(y, (int32_t)(uint32_t)modY);
+    x = tomba::parallax::guestReduce(x, scrollModX());
+    y = tomba::parallax::guestReduce(y, scrollModY());
 
     // Counter tick — signed-byte underflow → SM[3] = 1 (frame settled).
     const uint8_t cnt1 = (uint8_t)(c->mem_r8(sm + 0x38u) - 1);
@@ -127,4 +108,12 @@ void ParallaxBg::step() {
   }
 
   // state >= 2: no-op (guest instruction path: falls through the compound test `bVar2 < 2 && bVar2 == 0` false).
+}
+
+int32_t ParallaxBg::scrollModX() const {
+  return (int32_t)(uint32_t)core->mem_r16(SM_ADDR + SCROLL_MOD_X_OFF);
+}
+
+int32_t ParallaxBg::scrollModY() const {
+  return (int32_t)(uint32_t)core->mem_r16(SM_ADDR + SCROLL_MOD_Y_OFF);
 }

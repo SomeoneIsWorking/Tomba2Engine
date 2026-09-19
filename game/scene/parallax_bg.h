@@ -38,4 +38,15 @@ public:
   // Per-field-frame tick. Guarded by the SOP scene-beat != 5 check at the call site
   // (Sop::fieldUpdate) — for beat 5 (narration void) BG isn't visible so the caller skips this.
   void step();
+
+  // The scroll wrap moduli, stamped once at INIT and unchanged while running: X = grid_w*16,
+  // Y = (grid_h*0x8E8)/0x90. Note Y is NOT grid_h*16, so the two axes do not share a period.
+  // Exposed because the interpolated present needs the same two values to interpolate a scroll
+  // offset across the wrap, and reading SM offsets from a renderer put this layout in two places.
+  int32_t scrollModX() const;
+  int32_t scrollModY() const;
+
+private:
+  static constexpr uint32_t SCROLL_MOD_X_OFF = 0x30u;
+  static constexpr uint32_t SCROLL_MOD_Y_OFF = 0x32u;
 };
