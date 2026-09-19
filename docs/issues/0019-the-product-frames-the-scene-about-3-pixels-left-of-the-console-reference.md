@@ -38,6 +38,12 @@ Note the camera's world position is assembled into the scratchpad (0x1F8000D2/D6
 reference cannot read scratchpad, so "the camera ranges agree" means the mode and the three angles
 agree — not the composed position. Ruling the composed position in or out is part of this work.
 
+The 320x240-vs-320x224 height difference is NOT part of it and is not a defect: the title declares
+`GameConfig::guestDisplayHeight = 224` and a native render path deliberately presents more rows than a
+console scans out, on a recorded decision (`display_scanout.h`, USER 2026-08-19: "PC is fine, oracle
+isn't"). The oracle crops the product to the count it reports and the reference to its own active
+area, and the two then agree independently.
+
 ## CORRECTED the same day: it is the VIEWPORT ORIGIN, not the camera
 
 The section above reasoned that because the camera state agrees in RAM, the offset must enter where
@@ -61,10 +67,38 @@ the player's feet. A camera position or rotation difference moves near content f
 content — that is parallax, and it is the whole reason the two bands were measured separately. There
 is none. The offset is a rigid translation of the finished image.
 
-So this is a DISPLAY/VIEWPORT ORIGIN difference, and comparing composed camera transforms would have
-been time spent on a boundary the measurement had already cleared. Issue 0020 (the product presents
-240 lines, the reference 224) is now the likely shared cause rather than a footnote, and the two
-should be worked together.
+### That conclusion was OVER-CLAIMED, corrected within the hour
+
+The paragraph that stood here said this proved a display/viewport origin difference and cleared the
+camera. Two things are wrong with that.
+
+**A uniform shift rules out camera TRANSLATION, not camera ROTATION.** Parallax is what a camera
+moving sideways produces. A camera that YAWS a fraction of a degree shifts the whole image by nearly
+the same amount at every depth — which is exactly the uniform signature measured. So the parallax test
+narrowed the candidates and did not pick one.
+
+**"The camera agrees in RAM" is not established either.** The declared `camera.mode` and
+`camera.angles` agree, but they are the mode byte and three angle halfwords. The camera's composed
+look/position state is assembled into the SCRATCHPAD (S+0, S+6, S+8, and the world readout at
+0x1F8000D2/D6/DA), and the console reference cannot read scratchpad at all. The follow accumulators
+(cam[0x0c/0x14/0x18/0x24/0x28/0x34]) are not in the declared set either. So the camera is unobserved
+where it matters, not observed-and-equal.
+
+**And the offset is not frame-constant**, which a fixed viewport origin would be:
+
+```
+free_roam   (near-black)  best dx=-1 dy=+0   24.64% -> 23.88%   (improvement 0.76pt: a flat minimum)
+played-180f (lit)         best dx=-3 dy=+1   85.78% -> 65.38%   (improvement 20.4pt: decisive)
+```
+
+The dark frame has almost no features and its minimum is too flat to carry weight on its own, so this
+is suggestive rather than conclusive. But it points the other way from a fixed origin: `played-180f`
+is 180 frames of camera-following after free_roam, which is room for a small yaw difference to
+accumulate, and drift is what a growing offset would look like.
+
+**The open question is therefore: is the offset constant across the route, or does it grow?** Constant
+means viewport/display origin (work it with 0020). Growing means the camera diverges during play,
+and the first thing to fix is that the oracle cannot see the camera state that matters.
 
 ## Not the whole story
 
@@ -78,8 +112,13 @@ identical either way.)
 
 ## Next
 
-1. Work this with issue 0020. Read the guest's GP1 display-start (0x05) and display-range (0x06/0x07)
-   writes on both cores at a settled frame and compare them with where each side actually places the
-   image. A rigid 3-left/1-down translation should fall straight out of those registers.
-2. Do NOT start by comparing composed camera transforms. The per-region result above rules the camera
-   out as the cause of this offset.
+1. Measure the offset at several points along the route (play 60 / 120 / 240). Constant vs growing
+   separates viewport origin from camera drift, and nothing else should be built until it is known.
+2. If constant: read the guest's GP1 display-start (0x05) and display-range (0x06/0x07) writes on both
+   cores and compare them with where each side places the image. Note the product HLEs the guest's
+   display setup and never writes GP1(07) — `external/psxport/runtime/psx/display_scanout.h` is the
+   authority on how the presented and scanned counts are resolved.
+3. If growing: the declared camera set is the defect to fix first. It admits a frame as comparable
+   while the quantity that decides framing is invisible to it. The composed camera lives in scratchpad
+   that the reference cannot read, so this needs a main-RAM camera quantity, or an explicit statement
+   in the title that camera framing is outside what this oracle can gate.
