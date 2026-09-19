@@ -27,13 +27,24 @@ measures, per tile, the best integer translation that aligns real(N-1) onto real
                                        quantised onto an endpoint — expected
 
 Measured 2026-09-19 on Tomba! 2's hut interior, 120 triples: all 105 STALE and all 110 AHEAD tiles
-had a 0px shift, so that scene has no interpolation failure left at this granularity.
+had a 0px shift, so that scene has no interpolation failure left at this granularity. The opening
+cutscene, 299 triples, is the other answer: 1,547 endpoint tiles moved a whole pixel or more.
+
+WHOSE tiles those are is the next question, and --seq answers it. Given an fps60seq log from the
+SAME run, every moving tile is credited to the smallest run covering it (smallest, because the
+full-screen sky fill covers everything drawn in front of it). That turned the cutscene's 1,547 into
+one line: 1,471 of them belong to LAYER-2 VERBATIM runs — content no native producer reconstructs,
+so the interpolated present replays it from the previous queue and it can only ever sit on an
+endpoint. TIER1 entities own 73.
 
 USAGE
   PSXPORT_DEBUG=fps60dump ... ./build/bin/tomba2_port ...     # capture (cap 600 files)
+  PSXPORT_DEBUG=fps60seq  ... ./build/bin/tomba2_port ...     # the owner log, same replay
   tools/fps60_check.py                                          # walk scratch/framedump/
   tools/fps60_check.py --dir scratch/framedump --tile 16 --top 12
+  tools/fps60_check.py --dir scratch/framedump --seq scratch/seq.log    # with owners
   tools/fps60_check.py --triple f001234                         # one triple, with a tile map
+  tools/fps60_check.py --selftest                               # the attribution's own fixtures
 
 Filenames come from Fps60::dumpPresent: scratch/framedump/f<fence>_<seq>_<real|interp>.png.
 Needs Pillow (already used elsewhere in tools/).
@@ -50,12 +61,12 @@ NAME_RE = re.compile(r'^f(\d+)_(\d+)_(real|interp)\.png$')
 
 
 def load_frames(d):
-    """Ordered [(seq, kind, path)] — seq is the dump counter, which is the true present order."""
+    """Ordered [(seq, kind, path, fence)] — seq is the dump counter, the true present order."""
     out = []
     for fn in os.listdir(d):
         m = NAME_RE.match(fn)
         if m:
-            out.append((int(m.group(2)), m.group(3), os.path.join(d, fn)))
+            out.append((int(m.group(2)), m.group(3), os.path.join(d, fn), int(m.group(1))))
     out.sort()
     return out
 
@@ -88,6 +99,97 @@ def best_shift(pa, pc, tx, ty, tile, radius=2):
     return best
 
 
+SEQ_FENCE_RE = re.compile(r'\[fps60seq\] f(\d+) t=')
+SEQ_RUN_RE = re.compile(
+    r'rqcur layer=(\d+) (TIER1|verbatim)\s+n=(\d+) seq=\[\S+\] producer=([0-9A-F]+) '
+    r'node0=([0-9A-F]+) x=\[(-?\d+)\.\.(-?\d+)\) y=\[(-?\d+)\.\.(-?\d+)\)')
+
+
+def load_sequence_runs(path):
+    """{fence: [run]} from a PSXPORT_DEBUG=fps60seq log.
+
+    A run is (area, owned, node, layer, x0, x1, y0, y1). Area is precomputed because every
+    lookup wants the SMALLEST covering run: crediting a tile to whatever run happens to come first
+    credits the full-screen sky fill for everything drawn in front of it."""
+    runs, fence = defaultdict(list), None
+    for line in open(path, errors="replace"):
+        m = SEQ_FENCE_RE.search(line)
+        if m:
+            fence = int(m.group(1))
+            continue
+        m = SEQ_RUN_RE.search(line)
+        if m and fence is not None:
+            x0, x1, y0, y1 = (int(m.group(i)) for i in (6, 7, 8, 9))
+            entry = (max(0, (x1 - x0)) * max(0, (y1 - y0)), m.group(2) == "TIER1",
+                     m.group(5), int(m.group(1)), x0, x1, y0, y1)
+            if entry not in runs[fence]:
+                runs[fence].append(entry)
+    return runs
+
+
+def owner_of(runs, tx, ty, tile):
+    """The smallest run covering this tile, or None when no run does."""
+    best = None
+    for run in runs:
+        area, _owned, _node, _layer, x0, x1, y0, y1 = run
+        if tx < x1 and x0 < tx + tile and ty < y1 and y0 < ty + tile:
+            if best is None or area < best[0]:
+                best = run
+    return best
+
+
+def selftest():
+    """Prove the attribution can say every answer it is capable of printing.
+
+    The failure this guards is silent: owner_of returning the FIRST covering run instead of the
+    smallest credits the full-screen sky fill for everything drawn in front of it, and every row but
+    one goes to zero without anything looking wrong."""
+    log = ("[fps60seq] f7 t=0.500 captured n=3\n"
+           "  rqcur layer=2 verbatim  n=2 seq=[0..1] producer=00000000 node0=00000000 "
+           "x=[-320..641) y=[0..241)\n"
+           "  rqcur layer=1 TIER1     n=9 seq=[2..10] producer=0000ABCD node0=800E7E80 "
+           "x=[100..140) y=[100..140)\n"
+           "[fps60seq] f8 t=0.500 captured n=0\n")
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".log", delete=False) as fh:
+        fh.write(log)
+        path = fh.name
+    try:
+        runs = load_sequence_runs(path)
+    finally:
+        os.unlink(path)
+
+    failures = []
+    def check(name, got, want):
+        if got != want:
+            failures.append(f"  {name}: got {got!r}, want {want!r}")
+
+    # f8 has a marker but no runs, so it gets no entry at all: a fence the log never described and
+    # a fence the log described as empty are the same answer to "who drew here", and both must land
+    # in the (no run) row rather than being credited to a neighbouring fence.
+    check("fences with runs", sorted(runs), [7])
+    check("runs at f7", len(runs[7]), 2)
+
+    # inside the small run: the SMALL one must win even though the big one also covers it
+    inside = owner_of(runs[7], 112, 112, 16)
+    check("small run wins where both cover", (inside[1], inside[2]), (True, "800E7E80"))
+    # outside it, only the full-screen run covers
+    outside = owner_of(runs[7], 16, 200, 16)
+    check("big run owns what only it covers", (outside[1], outside[2]), (False, "00000000"))
+    # a fence with no runs attributes nothing — the branch that prints "(no run)"
+    check("no owner when no run covers", owner_of(runs.get(8, ()), 16, 16, 16), None)
+    # and a tile outside every run in a populated fence is also unowned
+    check("no owner above the full-screen run", owner_of(runs[7], 16, 300, 16), None)
+
+    if failures:
+        print("fps60_check selftest: FAIL")
+        print("\n".join(failures))
+        return 1
+    print("fps60_check selftest: PASS (5 checks: fence parsing, smallest-run wins, "
+          "big-run-only, empty fence, out-of-range tile)")
+    return 0
+
+
 def classify(pa, pb, pc, w, h, tile):
     """Per-tile verdict counts + the tile grid. pa/pc real, pb interp."""
     grid = {}
@@ -112,7 +214,14 @@ def main():
     ap.add_argument("--tile", type=int, default=16)
     ap.add_argument("--top", type=int, default=12, help="how many worst regions to print")
     ap.add_argument("--triple", help="analyse only the triple starting at this fence/seq prefix")
+    ap.add_argument("--seq", help="an fps60seq log for the same run: credits every MOVED endpoint "
+                                  "tile to the smallest run covering it, so the defect has an owner")
+    ap.add_argument("--selftest", action="store_true",
+                    help="check the attribution against fixtures with a known answer")
     args = ap.parse_args()
+
+    if args.selftest:
+        return selftest()
 
     if not os.path.isdir(args.dir):
         sys.exit(f"fps60_check: no capture dir {args.dir} — run with PSXPORT_DEBUG=fps60dump first")
@@ -128,6 +237,11 @@ def main():
     moved_hits = defaultdict(int)   # tile -> how many triples anything moved there at all
     n_triples = totals = 0
     counts = defaultdict(int)
+    sequence_runs = load_sequence_runs(args.seq) if args.seq else None
+    # owner -> [moved-endpoint tiles, 0px-endpoint tiles, lerped tiles]
+    by_owner = defaultdict(lambda: [0, 0, 0])
+    unattributed = [0, 0]  # moved-endpoint, lerped
+    uncovered_fences = set()  # dump fences the fps60seq log never described
 
     for a, b, c in triples(frames):
         if args.triple and args.triple not in os.path.basename(a[2]):
@@ -148,8 +262,19 @@ def main():
                 stale_hits[tile] += 1
             elif verdict == "AHEAD":
                 ahead_hits[tile] += 1
+            shift = None
             if verdict in endpoint_shifts:
-                endpoint_shifts[verdict][best_shift(ia, ic, tile[0], tile[1], args.tile)] += 1
+                shift = best_shift(ia, ic, tile[0], tile[1], args.tile)
+                endpoint_shifts[verdict][shift] += 1
+            if sequence_runs is not None and verdict != "STATIC":
+                if c[3] not in sequence_runs:
+                    uncovered_fences.add(c[3])
+                run = owner_of(sequence_runs.get(c[3], ()), tile[0], tile[1], args.tile)
+                if run is None:
+                    unattributed[0 if (shift or 0) >= 1 else 1] += 1
+                else:
+                    slot = 0 if (shift is not None and shift >= 1) else (1 if shift is not None else 2)
+                    by_owner[("TIER1" if run[1] else "verbatim", run[3], run[2])][slot] += 1
         if args.triple:
             print(f"tile map for {os.path.basename(b[2])} ({w}x{h}, tile={args.tile}):")
             sym = {"STATIC": ".", "BETWEEN": "-", "STALE": "S", "AHEAD": "A"}
@@ -189,6 +314,29 @@ def main():
         moved_endpoint += moved
         print(f"  {verdict:<6} {total:5d} tile(s): {parts}   -> {moved} that MOVED and still "
               f"landed on an endpoint")
+    if sequence_runs is not None:
+        if not sequence_runs:
+            sys.exit(f"fps60_check: {args.seq} holds no fps60seq runs — was PSXPORT_DEBUG=fps60seq "
+                     f"set for that run?")
+        print(f"\nowners of the moving tiles ({len(sequence_runs)} fence(s) in {args.seq}), "
+              f"credited to the smallest covering run:")
+        print(f"  {'ownership':<10} {'layer':>5} {'node':<10} {'lerped':>8} {'endpoint':>9} "
+              f"{'of those,':>10}")
+        print(f"  {'':<10} {'':>5} {'':<10} {'':>8} {'':>9} {'MOVED':>10}")
+        if uncovered_fences:
+            print(f"  WARNING: {len(uncovered_fences)} of the {n_triples} triple(s) name a fence "
+                  f"the log never described\n  (first: f{min(uncovered_fences)}) — their tiles are "
+                  f"all in the (no run) row. Is this the same run?")
+        rows = sorted(by_owner.items(), key=lambda kv: -(kv[1][0]))
+        for (ownership, layer, node), (moved, still, lerped) in rows:
+            print(f"  {ownership:<10} {layer:5d} {node:<10} {lerped:8d} {moved + still:9d} "
+                  f"{moved:10d}")
+        print(f"  {'(no run)':<10} {'':>5} {'':<10} {unattributed[1]:8d} {unattributed[0]:9d} "
+              f"{unattributed[0]:10d}")
+        print("  a MOVED endpoint tile is content that translated a whole pixel or more between the "
+              "two real\n  frames and was still drawn at one of them. Those are the defects; the "
+              "rest of the endpoint\n  column is sub-pixel quantisation and is correct output.")
+
     if moved_endpoint == 0:
         print("  every endpoint tile had a 0px shift: sub-pixel change quantised onto one side, "
               "which is correct output. No interpolation failure at this tile size.")
@@ -198,4 +346,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

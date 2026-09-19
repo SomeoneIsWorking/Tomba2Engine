@@ -251,13 +251,39 @@ The check is an instrument, not a rationalisation: fed a synthetic triple whose 
 translates 6 px with the interpolated frame drawn at the old position, it reports `2px:4` and names
 those tiles the defect.
 
-Gap: the seaside scene has not been re-attributed with the same instrument, only these two scene
-kinds have been dumped, and a 16-pixel tile cannot see an error smaller than itself — a sub-pixel
-residual would need a per-prim vertex comparison to bound. Separately, issue 0009 records a real
-difference between the two presentation paths that tile attribution cannot see: the real frame and
-the interpolated frame apply different modulus policies to the backdrop scroll, harmless on the X
-axis because the drawer's period equals the X modulus, unresolved on Y because it does not. Every
-layer named stepped, snapped, cold, or unverified in the render inventory remains so.
+A third scene kind — the opening cutscene, where the flower creature swallows Tomba on the tree —
+is the other answer, and it is the first measured interpolation failure in this title. Captured
+2026-09-19 at 4:3 with fps60 on (`replays/bugs/cliff-fisherman-missing.pad`, fences 300-599, 299
+triples, 16-pixel tiles): 24.1% STATIC, 72.3% BETWEEN, 0.4% STALE, 3.2% AHEAD. Unlike the hut, the
+shift measurement does not clear it — **1,547 endpoint tiles translated a whole pixel or more and
+were still drawn at an endpoint**.
+
+`tools/fps60_check.py --seq` now credits each moving tile to the smallest run covering it, which
+names the cause in one line:
+
+| ownership | layer | node | lerped | endpoint | of those, moved |
+|---|---|---|---|---|---|
+| verbatim | 2 | — | 47,570 | 2,841 | **1,471** |
+| TIER1 | 1 | `0x800EDDA0` | 10,043 | 44 | 44 |
+| TIER1 | 1 | `0x800E7E80` | 5,737 | 140 | 29 |
+| verbatim | 3 | — | 839 | 177 | 3 |
+| TIER1 | 1 | four other nodes | 686 | 0 | 0 |
+
+**95.1% of the defect is layer-2 verbatim content.** No native producer reconstructs it, so the
+interpolated present replays it from the previous queue, where it can only ever sit on an endpoint.
+This is not an interpolation bug: it is the unported-producer gap
+(`docs/unported-render-inventory.md`) showing up as judder, and it will not close by changing the
+lerp. It is also why the hut interior looked clean — there, every moving tile was TIER1-owned.
+
+Gap: the seaside FIELD has still not been dumped; the replay named above is in the opening cutscene
+for its first 600 fences. Only three scene kinds are measured. A 16-pixel tile cannot see an error
+smaller than itself, so a sub-pixel residual would need a per-prim vertex comparison to bound. The
+layer-2 verbatim owners are not yet resolved to individual producers, because every verbatim run
+shares node 0. Separately, issue 0009 records a difference tile attribution cannot see at all: the
+real frame and the interpolated frame apply different modulus policies to the backdrop scroll,
+harmless on the X axis because the drawer's period equals the X modulus, unresolved on Y because it
+does not. Every layer named stepped, snapped, cold, or unverified in the render inventory remains
+so.
 
 ### S007 — Tomba! 2 input: partial
 

@@ -172,6 +172,9 @@ if(BUILD_TESTING)
     NAME tomba_psxport_pin_selftest
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_psxport_sync.py")
   add_test(
+    NAME tomba_fps60_check_selftest
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/fps60_check.py" --selftest)
+  add_test(
     NAME tomba_dynarec_boundary_selftest
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_dynarec_boundary.py" --selftest)
   add_test(
