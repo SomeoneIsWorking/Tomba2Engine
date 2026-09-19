@@ -258,48 +258,58 @@ triples, 16-pixel tiles): 24.1% STATIC, 72.3% BETWEEN, 0.4% STALE, 3.2% AHEAD. U
 shift measurement does not clear it — **1,547 endpoint tiles translated a whole pixel or more and
 were still drawn at an endpoint**.
 
-`external/psxport/tools/port/fps60_check.py --seq` now credits each moving tile to the smallest run covering it, which
-names the cause in one line:
+**The two owner tables that stood here are withdrawn (2026-09-19).** They credited each moving tile
+to the smallest `fps60seq` run covering it, and said 1,471 of the cutscene's 1,547 defects (95.1%)
+and 1,328 of the FIELD route's 1,545 (86%) were layer-2 verbatim content. That attribution required
+run extents and captured pixels to describe the same place, and they do not: a run's extent comes
+from `RqItem` screen vertices in the renderer's own space while the capture is the VRAM display
+region. This title's widest run spans 961 px against a 320 px frame.
 
-| ownership | layer | node | lerped | endpoint | of those, moved |
-|---|---|---|---|---|---|
-| verbatim | 2 | — | 47,570 | 2,841 | **1,471** |
-| TIER1 | 1 | `0x800EDDA0` | 10,043 | 44 | 44 |
-| TIER1 | 1 | `0x800E7E80` | 5,737 | 140 | 29 |
-| verbatim | 3 | — | 839 | 177 | 3 |
-| TIER1 | 1 | four other nodes | 686 | 0 | 0 |
+Coverage reported 100% throughout and could not have done otherwise, because every frame holds a
+screen-sized fill and a misaligned fill still covers every tile. The check that fails is whether
+being inside a run predicts motion at all, with fills excluded: re-measured over 709 fences a tile
+inside a specific run is **1.25x** as likely to have moved as one inside none, which is chance.
+`fps60_check.py` now refuses the table rather than printing it (psxport 6a019811, psxport issue
+0120).
 
-**95.1% of the defect is layer-2 verbatim content.** No native producer reconstructs it, so the
-interpolated present replays it from the previous queue, where it can only ever sit on an endpoint.
-This is not an interpolation bug: it is the unported-producer gap
-(`docs/unported-render-inventory.md`) showing up as judder, and it will not close by changing the
-lerp. It is also why the hut interior looked clean — there, every moving tile was TIER1-owned.
+What survives is everything measured from the images alone: the cutscene's 1,547 and the FIELD
+route's 1,545 moved endpoint tiles are real, as is the hut interior's clean result. What producer
+owns them is not established, and the conclusion that the cause is specifically LAYER-2 verbatim
+content no longer has evidence behind it.
 
-The same replay's FIELD gameplay (fences 1400-1699, Tomba climbing the vine beside the hut, 299
-triples) reproduces that result independently: 1,545 moved endpoint tiles, of which **1,328 (86%)
-are layer-2 verbatim**. Two scene kinds, two captures, one cause.
+The split into two defects that followed from those tables — a large unported-producer one and a
+smaller `0x800EDDA0` interpolation one with 184 moved endpoint tiles — went with them. Both figures
+came from the same attribution.
 
-| ownership | layer | node | lerped | endpoint | of those, moved |
-|---|---|---|---|---|---|
-| verbatim | 2 | — | 54,490 | 3,043 | **1,328** |
-| TIER1 | 1 | `0x800EDDA0` | 22,838 | 386 | **184** |
-| TIER1 | 1 | `0x800EDC90` | 1,329 | 91 | 30 |
-| verbatim | 3 | — | 667 | 163 | 3 |
-| TIER1 | 1 | four other nodes | 915 | 7 | 0 |
+The earlier note that the two coordinate spaces "coincide" here because every `gpu_shot` line
+reports `320x240 @ 0,0` was wrong, and is worth keeping as a warning. A matching display origin only
+means no OFFSET is needed; it says nothing about scale, and the scale does not match. Tomba! 2 needs
+no offset and still scores 1.25x, which is why an identical origin looked like agreement and was
+not. Capturing both channels in one run is still right, for the separate reason that a run and a
+dump from different runs are not the same frames.
 
-Two separate defects fall out of it. The large one is the unported producers above. The smaller one
-is real interpolation failure in reconstructed content: entity `0x800EDDA0` has 184 moved endpoint
-tiles here against 44 in the cutscene, so a TIER1 entity that IS being interpolated still lands on
-an endpoint in the field. That one is in scope for the lerp and is not explained by missing
-producers.
+What Spyro 1 and Tomba! 2 have in common is now the interesting part, and it is established without
+attribution. Forcing the interpolation factor to its previous endpoint (`PSXPORT_FPS60_TFORCE=0`)
+over the same replay separates content that is interpolated from content that is not, using only the
+captured images:
 
-Both captures above were taken as two separate runs, one per debug channel, which the analysis now
-warns about: a run's extent is in the buffer the queue drew into, while the dump is the VRAM display
-region, so a double-buffered title needs the display origin from the same log to line them up. It is
-safe here and only here — all 1,200 `gpu_shot` lines across both captures report `320x240 @ 0,0`, so
-Tomba! 2 never moves its display origin and the two spaces coincide. Spyro 1 alternates 0,0 and
-0,240 every present and had to be corrected (its S020). Capture both channels in one run from now
-on.
+| | moved to the PREVIOUS endpoint | moved to the NEXT endpoint |
+|---|---|---|
+| t = 0.5 (product) | 255 | 2,259 |
+| t = 0.0 (forced) | 28,308 | 1,811 |
+
+28,053 tiles moved when `t` moved. At least **1,811 of the 2,259 forward-snapping tiles, 80%, did
+not**, so they are not being interpolated at all: the in-between present draws them where the NEXT
+real frame will show them, a whole frame early. That is the same result Spyro 1 gives, where the
+invariant share is 99%. The remaining 448 are tiles that changed class between the two runs, which
+is what a tile holding both interpolated and uninterpolated content does, so 80% is a floor rather
+than an estimate.
+
+This matters because it survives the withdrawn attribution. The mechanism is in
+`Fps60::presentPass`: both presents of a fence run over the same captured queue and replace only
+what a scene source owns, so anything with no native producer is drawn at the current update's
+position in both. Closing it means reconstructing more producers. Which ones is the part that still
+needs psxport issue 0120.
 
 The field capture also answers what draws the sky here: nothing of ours. The backdrop, terrain and
 scene-table sentinels (`0xFFFF0001`-`0xFFFF0003`) appear **zero times** in 1,731 dumped fences, so
@@ -309,12 +319,14 @@ outside the seaside and areas 10/11, and it means issue 0009's open Y-modulus qu
 reachable in this scene at all.
 
 Gap: three scene kinds are measured, all from one replay. A 16-pixel tile cannot see an error
-smaller than itself, so a sub-pixel residual would need a per-prim vertex comparison to bound. The
-layer-2 verbatim owners are not yet resolved to individual producers, because every verbatim run
-shares node 0 — resolving them needs the framework to carry an identity on OT-walk-classified
-items. `0x800EDDA0`'s 184 is not yet traced to an input. Issue 0009 remains open and now needs a
-scene where the native backdrop actually draws. Every layer named stepped, snapped, cold, or
-unverified in the render inventory remains so.
+smaller than itself, so a sub-pixel residual would need a per-prim vertex comparison to bound. Which
+producers own the measured defects is not established at all while psxport issue 0120 is open, so
+the next step here is that issue rather than another capture; carrying an identity on
+OT-walk-classified items is necessary but not sufficient, because the extents would still be in a
+different space from the pixels. Running the forced-interpolation-factor experiment on this title
+needs no attribution and would say whether its defect is the same forward snap Spyro 1 measured.
+Issue 0009 remains open and now needs a scene where the native backdrop actually draws. Every layer
+named stepped, snapped, cold, or unverified in the render inventory remains so.
 
 ### S007 — Tomba! 2 input: partial
 
