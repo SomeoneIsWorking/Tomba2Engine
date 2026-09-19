@@ -138,6 +138,11 @@ int gpu_vk_wide_engine(Core *); // gpu_vk.c — genuine engine-wide active (PSXP
 // This is the engine's draw submission, owned. (g_render_psx retired — now Render::mode.)
 void Engine::drawOTag(uint32_t otHead) { // called directly from TombaFrameDriver (PC-driven); NOT an override
   Core *c = this->core;
+  // Entry, BEFORE either mode branch. This is the only draw kick that reaches rq.flush(), so whether it
+  // runs is the difference between "the queue was drained and refilled" and "prims accumulated until the
+  // cap" (issue 0011). The `rqflush` line inside flush() sits past its `consumed` early-out, so silence
+  // there cannot tell "never called" from "called and skipped"; this line can.
+  lucent::debug("drawotag", "f{} drawOTag otHead={:08X}", c->game->gpu.s_frame, otHead);
   // #7/#11 finish: while the DEMO/title front-end is still LOADING its assets (sub-SM task0+0x48 < 2, the
   // s4a load ramp), the title composites its menu/font over whatever VRAM the FMV/SCEA splash left — so the
   // SCEA text / FMV last-frame show through (the one-time hand-off clear can't cover the multi-frame ramp).

@@ -67,7 +67,19 @@ void preparePrimarySingleBuffer(Core &core, const GameConfig &cfg, uint32_t envp
 }
 
 void submitFrame(Core &core, const GameConfig &cfg, uint32_t envp) {
-  if (core.mem_r16(0x1f80019cu) != 0) {
+  const std::uint16_t suppress = core.mem_r16(0x1f80019cu);
+  if (suppress != 0) {
+    // StrPlayer suppression (0x1F80019C: 0 = show this stream frame, 2 = swap, 3 = stay). Returning
+    // here skips the draw kick, and Engine::drawOTag is the only caller of rq.flush() — so the queue
+    // frame never ends while guest execution keeps submitting into it, and push()'s lazy reset never
+    // fires because nothing marked the frame over. Measured (issue 0011): the machinery cutscene
+    // holds at state 3 for 1,016 consecutive frames, the queue reaches RQ_MAX and aborts. End the
+    // queue frame anyway. The prims are dead either way — "stay" presents nothing new and takes no
+    // capture — so no picture changes, and the invariant that a queue frame lasts one FRAME rather
+    // than one PRESENTATION is restored. Report the skip too: a frame that drew nothing is exactly
+    // what an otherwise unexplained overflow needs to know.
+    lucent::debug("drawotag", "f{} submitFrame SKIPPED — 0x1F80019C = {}", core.game->gpu.s_frame, suppress);
+    core.game->rq.mark_consumed();
     return;
   }
 
