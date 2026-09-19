@@ -168,6 +168,17 @@ state at all 34 checkpoints**, with each arm's configuration recorded in its own
 `--selftest` seeds a byte at `0x800E7EAC` and it is detected. The wider 405-checkpoint route has not
 been run both ways, so the differential is established at this route's depth only.
 
+2026-09-20, CORRECTION: `aspect=3` is ASPECT_AUTO, which resolves to the SINK's aspect, and an agent
+run is headless. So BOTH arms of that differential rendered at the 4:3 width: it is a valid fps60
+result and says nothing about widescreen. psxport's `runtime/psx/picture_announce.h` had already
+recorded this title announcing `aspect=3 wide_engine=1 native_width=320 render_width=320` against
+`render_width=428` at aspect=1, and says to read `render_width` rather than `wide_engine` for this
+exact reason. `tools/shipping_settings.ini` now names `aspect=1`. Re-run with widescreen genuinely
+engaged, the product log announcing `render_width=428`: **34 checkpoints, 0 decisive divergences,
+complete**, `product_settings` recording `aspect=1 fps60=1`. That is this title's widescreen
+state-parity claim, evidenced for the first time; it is not a statement about what the additional
+horizontal area contains. Spyro's docs/issues/0130 carries the full measurement.
+
 Configuration is no longer discovered. Until 2026-09-19 `gate.native_environment` never set
 `PSXPORT_SETTINGS`, so every agent run of this port was configured by whichever untracked
 `psxport_settings.ini` sat in the repository root — the same defect found in Spyro, and the reason a
