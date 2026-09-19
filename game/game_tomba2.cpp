@@ -80,16 +80,16 @@ void Engine::frameUpdate() {
                       // (TombaFrameDriver calls it directly), so the teleport no longer depends on
                       // which camera mode, stage or exec leg the run happens to be in — see
                       // engine.h's mCamTpPending banner for what that dependency measured.
-  // perf phase 0 = PADFENCE, and it brackets exactly the one call below. It was named "LOGIC" and
-  // described as "all guest interpreter work + render submit", which stopped being true when
-  // 0x800788AC became natively owned (Engine::padEdgeFence) and the per-frame game work moved to
-  // PcScheduler. A ~0.00 ms phase called LOGIC reads as "the game is free"; see gpu_perf.cpp.
-  c->game->perf.phaseBegin(0);
+  // Phase::PadFence brackets exactly the one call below. It was once named LOGIC and described as
+  // "all guest interpreter work + render submit", which stopped being true when 0x800788AC became
+  // natively owned (Engine::padEdgeFence) and the per-frame game work moved to PcScheduler, which
+  // Phase::GameLogic brackets. A ~0.00 ms phase called LOGIC reads as "the game is free".
+  c->game->perf.phaseBegin(GpuPerf::Phase::PadFence);
   psx::cpu::dispatchGuestToReturn0(*c,
                                    0x800788ACu,
                                    psx::cpu::ExecutionBudget::currentTurn(*c),
                                    __func__); // real per-frame state update (still-PSX leaf)
-  c->game->perf.phaseEnd(0);
+  c->game->perf.phaseEnd(GpuPerf::Phase::PadFence);
   // Per-VBLANK audio work. On hardware the libsnd sequencer ticks once per VBlank IRQ (60 Hz NTSC)
   // and the SPU plays in realtime. One ov_frame_update is one *logic frame*, which on hardware spans
   // DAT_1f800235 (=quota) VBlanks (=2 => Tomba2's 30 fps). So the per-vblank work — the sequencer
@@ -107,8 +107,8 @@ void Engine::frameUpdate() {
   }
   uint32_t seqfn = c->mem_r32(SEQ_FUNC_PTR);
   const bool seq_ok = (seqfn & 0x1FFFFFFFu) >= 0x10000u && (seqfn & 0x1FFFFFFFu) < 0x200000u;
-  c->game->perf.phaseBegin(1);      // perf: AUDIO = per-vblank sequencer tick + SPU advance
-  for (int v = 0; v < quota; v++) { // once per VBlank this logic frame spans
+  c->game->perf.phaseBegin(GpuPerf::Phase::Audio); // per-vblank sequencer tick + SPU advance
+  for (int v = 0; v < quota; v++) {                // once per VBlank this logic frame spans
     if (seq_ok) {
       psx::cpu::dispatchGuestToReturn0(*c,
                                        SEQ_TICK_WRAPPER,
@@ -119,7 +119,7 @@ void Engine::frameUpdate() {
   }
   // (native field-BGM director REMOVED — it played a HARDCODED song over everything from the menu on.
   //  Music is the guest libsnd path above; no native music engine, no hardcoded song.)
-  c->game->perf.phaseEnd(1);
+  c->game->perf.phaseEnd(GpuPerf::Phase::Audio);
   c->mem_w16(DISPLAY_COUNTER, c->mem_r8(VBLANK_QUOTA)); // satisfy the pacing dwell immediately
 }
 

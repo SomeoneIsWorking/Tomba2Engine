@@ -110,16 +110,16 @@ void TombaFrameDriver::stepFrame(Core &core, uint32_t frame) {
   // The pending capture is consumed before any producer begins this frame. Engine::frameUpdate owns
   // Tomba's pad-edge and per-VBlank audio work; this driver owns the one presentation fence.
   eng(&core).frameUpdate();
-  game.perf.phaseBegin(2);
+  game.perf.phaseBegin(GpuPerf::Phase::Present);
   game.presentation.commit(&core, 0, game.temporalPresentation.get());
-  game.perf.phaseEnd(2);
+  game.perf.phaseEnd(GpuPerf::Phase::Present);
 
   rend(&core)->bbFrameReset();
   applyArmedStandaloneWarp(core, frame);
   game.cd.audioTrace("post");
-  game.perf.phaseBegin(3);
+  game.perf.phaseBegin(GpuPerf::Phase::GameLogic);
   game.pcSched.step();
-  game.perf.phaseEnd(3);
+  game.perf.phaseEnd(GpuPerf::Phase::GameLogic);
 
   eng(&core).musicCoord.tick();
   game.cd.audioTrace("coord");
