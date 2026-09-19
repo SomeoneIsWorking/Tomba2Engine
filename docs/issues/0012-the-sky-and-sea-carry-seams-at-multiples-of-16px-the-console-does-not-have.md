@@ -1,8 +1,8 @@
 ---
 id: 12
-title: The presented picture does not match the console — sky seams every 16 px and the world drawn 7 px high
+title: The product's sky and sea carry seams at exact multiples of 16 px that the console does not have
 status: open
-symptom: 70,958 of 76,800 pixels differ (92.39%) between the product's presented frame and the Beetle console reference's at the same state, with identical guest RAM; a user reported the save menu "not being like the oracle"
+symptom: over a correctly aligned 320x224 comparison the product's sky shows brightness discontinuities at columns 16, 80, 96, 112, 128, 144, 160 where the console's sit only on content edges; a user reported the save menu "not being like the oracle"
 state_items: S004, S005
 tags: render,picture,oracle,widescreen
 created: 2026-09-19
@@ -45,18 +45,41 @@ over the same band sit at 19-25, 155-158 and 240-249, which are real content edg
 palm), 36 of them. A regular 16-pixel period is not content; it is the tiling the backdrop is drawn
 with, showing its seams.
 
-### 2. The world is drawn 7 pixels high
+### 2. RETRACTED — "the world is drawn 7 pixels high" was my own misalignment
 
-The land/horizon boundary — the first strongly-green row — is at **row 87 in the product and row 94
-on the reference**. The best whole-frame integer translation is (0, +3), which reduces the mean
-absolute difference from 105.3 to 78.4 and does not remove it, so this is not a pure translation of
-the whole picture: the world geometry is offset while the 2D content is not.
+The first version of this issue reported a second defect: the land/horizon boundary at row 87 in the
+product against row 94 on the reference, over a 92.39% whole-frame difference. That was wrong, and
+the correction is worth keeping because the mistake is easy to repeat.
 
-## Why neither is a widescreen or interpolation defect
+The native render path deliberately presents MORE rows than the console scanned out. This title
+declares `guestDisplayHeight = 224` in `game/core/game_config.cpp` and the framework keeps drawing
+the framework's 240-line default, on a decision already recorded in `psxport
+runtime/psx/gpu_native.cpp` (USER 2026-08-19: "PC is fine, oracle isn't"). Comparing a 240-row
+product frame against a 240-row reference frame carrying 8 black rows top and bottom therefore
+measures a difference nobody considers a defect, and it accounts for the whole apparent offset: the
+fit was `native_row = console_content_row * 1.008 - 8.5`, which is unit scale and the reference's
+own top border, not a projection error.
 
-Both were measured with enhancements OFF, at 320x240 against a 320x240 reference. They are in the
-4:3 base picture. Widescreen coverage (S005) and interpolation (S006) sit on top of this and cannot
-be judged sound while the picture underneath them differs from the console by 92%.
+With the product cropped to the rows it itself reports as scanned (`guest_scan=` on the shot reply,
+from the GPU state) and the reference asked for its own active area (`crop_overscan=smart`, which
+publishes 320x224 and so agrees with the declared 224 independently), the comparison is 320x224 on
+both sides and:
+
+```
+[picture] played-400f: 33786/71680 pixels differ (47.13%), 280/280 tiles touched — spread
+```
+
+mean absolute difference 24.7/765, **median 0**, 44,239 of 71,680 pixels within 8, and no whole-pixel
+shift improves it. Most of the picture matches exactly. 4,528 pixels (6.3%) differ by more than 96,
+concentrated in the ground, and those are not yet attributed.
+
+The alignment is taken from what each core reports about itself, never from fitting the two pictures
+to each other — a fitted offset would have been the tool finding the answer that made it pass.
+
+## Why this is not a widescreen or interpolation defect
+
+It was measured with enhancements OFF, at 320x224 against a 320x224 reference, so it is in the 4:3
+base picture. Widescreen coverage (S005) and interpolation (S006) sit on top of it.
 
 ## What is NOT established
 
