@@ -141,4 +141,21 @@ public:
   // implementation of the nesting rule and these are it.
   bool beginScope();
   bool endScope(bool outer);
+
+  // extendTiledBackdrop(): an authored full-screen page that TILES its background covers only the
+  // 4:3 middle of a widened canvas, and the live world shows through the two margins behind a hard
+  // vertical edge. Measured 2026-09-19 on the in-game memory-card page at 16:9, which is the same
+  // defect S005 records for the Options and pause pages.
+  //
+  // The continuation is the page's OWN art: the same template it tiled, at the same pitch it used,
+  // repeated outward until the canvas is covered. Nothing is stretched, nothing is sampled from the
+  // frame, and no colour constant is measured off a screenshot — the tiles come from the items the
+  // guest itself submitted this frame, so the margin is the page's background by construction.
+  //
+  // It REFUSES rather than guessing. The page's backmost group bucket must be one regular grid: one
+  // template, at least two distinct columns and rows, and a single uniform column pitch. Anything
+  // else leaves the margins alone and says why on `channel` — extending a page whose backmost bucket
+  // is not a background would tile the wrong art across the screen. No-op at 4:3, where there is no
+  // margin. Returns the number of tiles emitted.
+  int extendTiledBackdrop(Core *c, const char *channel, int layer) const;
 };

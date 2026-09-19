@@ -6,12 +6,14 @@
 #include "engine.h"
 #include "game.h"
 #include "game_ctx.h" // eng(c) / rend(c)
+#include "gpu_vk.h"   // gpu_vk_native_w — the authored 4:3 width the margins extend beyond
 #include "guest_call.h"
 #include "options_page.h"
 #include "panel.h" // Panel::pushFill / pushCorners — the ONE panel geometry
 #include "pause_menu.h"
 #include "producer_scope.h"
 #include "render.h" // Render::emitUiFt4 / emitUiSprites + rsub.mode.psxRender() gate
+#include "render/page_backdrop.h"
 #include "render_queue.h"
 #include "save_prompt.h"
 #include "start_page.h"
@@ -170,7 +172,104 @@ void UiGroupCapture::emit(Core *c, const PageChromeItem &it, int layer) const {
   }
 }
 
+int UiGroupCapture::extendTiledBackdrop(Core *c, const char *channel, int layer) const {
+  using tomba::render::PageBackdrop;
+  if (!PageBackdrop::widened(*c)) {
+    return 0; // 4:3: the page's own art is already the whole picture
+  }
+
+  // The backmost group bucket is the page's background: paintOrder walks buckets descending, so the
+  // highest bucket is drawn first and everything else lands on top of it.
+  int backmost = -1;
+  for (const PageChromeItem &it : mItems) {
+    if (it.kind == PageChromeItem::Kind::Group) {
+      backmost = std::max(backmost, static_cast<int>(it.otBucket));
+    }
+  }
+  if (backmost < 0) {
+    lucent::debug(channel, "tiled backdrop: no group items this frame, margins left alone");
+    return 0;
+  }
+
+  std::vector<const PageChromeItem *> cells;
+  for (const PageChromeItem &it : mItems) {
+    if (it.kind == PageChromeItem::Kind::Group && static_cast<int>(it.otBucket) == backmost) {
+      cells.push_back(&it);
+    }
+  }
+
+  std::vector<int> columns, rows;
+  for (const PageChromeItem *cell : cells) {
+    if (cell->group.templPtr != cells.front()->group.templPtr) {
+      lucent::debug(channel,
+                    "tiled backdrop REFUSED: bucket {} mixes templates {:08X} and {:08X}, so it is not "
+                    "one background — margins left alone",
+                    backmost,
+                    cells.front()->group.templPtr,
+                    cell->group.templPtr);
+      return 0;
+    }
+    columns.push_back(cell->group.x);
+    rows.push_back(cell->group.y);
+  }
+  std::sort(columns.begin(), columns.end());
+  columns.erase(std::unique(columns.begin(), columns.end()), columns.end());
+  std::sort(rows.begin(), rows.end());
+  rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
+
+  if (columns.size() < 2 || rows.size() < 2) {
+    lucent::debug(channel,
+                  "tiled backdrop REFUSED: bucket {} is {}x{}, not a grid ({} cell(s)) — margins left "
+                  "alone",
+                  backmost,
+                  columns.size(),
+                  rows.size(),
+                  cells.size());
+    return 0;
+  }
+  const int pitch = columns[1] - columns[0];
+  for (std::size_t i = 1; i < columns.size(); ++i) {
+    if (columns[i] - columns[i - 1] != pitch) {
+      lucent::debug(channel,
+                    "tiled backdrop REFUSED: column pitch is not uniform ({} then {}) — margins left "
+                    "alone",
+                    pitch,
+                    columns[i] - columns[i - 1]);
+      return 0;
+    }
+  }
+
+  // The widened canvas is centred on the authored 4:3 picture, so each margin is half the gain.
+  const int margin = (PageBackdrop::canvasWidth(*c) - gpu_vk_native_w(c)) / 2;
+  int emitted = 0;
+  for (const PageChromeItem *cell : cells) {
+    if (cell->group.x != columns.front() && cell->group.x != columns.back()) {
+      continue; // interior columns have nothing to extend towards
+    }
+    const int direction = (cell->group.x == columns.front()) ? -pitch : pitch;
+    const int limit = (direction < 0) ? -margin : gpu_vk_native_w(c) + margin;
+    PageChromeItem tile = *cell;
+    for (tile.group.x += direction; (direction < 0) ? (tile.group.x + pitch > limit) : (tile.group.x < limit);
+         tile.group.x += direction) {
+      emit(c, tile, layer);
+      ++emitted;
+    }
+  }
+  lucent::debug(channel,
+                "tiled backdrop: {} tile(s) into {}px margins, from a {}x{} grid of template {:08X} at "
+                "pitch {} on bucket {}",
+                emitted,
+                margin,
+                columns.size(),
+                rows.size(),
+                cells.front()->group.templPtr,
+                pitch,
+                backmost);
+  return emitted;
+}
+
 int UiGroupCapture::drawAll(Core *c, const char *channel, int layer) {
+  extendTiledBackdrop(c, channel, layer);
   int drawn = 0, panels = 0;
   for (int i : paintOrder()) {
     const PageChromeItem &it = mItems[i];
