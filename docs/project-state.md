@@ -195,7 +195,7 @@ captures show coherent output, but still images do not prove temporal smoothness
 
 On the Lightrec product (2026-09-18): the looks-right fps60 leg over the 520-frame free-roam walk
 reports 492,600 interpolated prims across 505 extra presents (no duplicate frames), and
-`tools/fps60_check.py` over 220 real/interp/real triples captured with `PSXPORT_DEBUG=fps60dump`
+`external/psxport/tools/port/fps60_check.py` over 220 real/interp/real triples captured with `PSXPORT_DEBUG=fps60dump`
 from frame 300 (moving camera, walking Tomba, water and effects) classifies the 16-pixel tiles where
 anything moved as 75.0% BETWEEN (lerped), 0.2% STALE, and 2.2% AHEAD; the AHEAD tiles cluster on
 Tomba's own sprite, whose walk-cycle frame flips cannot be blended and take the newer frame. RAM
@@ -227,7 +227,7 @@ credits an entity only where nothing smaller drew there:
 | `0x800E7E80` | Tomba's actor/view base | 1,240 | 22 | 14 | 2.8% |
 | `0x800FDA60` | interior object, unidentified | 3,057 | 30 | 23 | 1.7% |
 
-That table is a ranking of exposure, not of defects. `tools/fps60_check.py` now also measures, for
+That table is a ranking of exposure, not of defects. `external/psxport/tools/port/fps60_check.py` now also measures, for
 every tile it did not call STATIC, the best whole-pixel translation that aligns real frame N-1 onto
 real frame N, so "the object is at an endpoint" can be separated from "the object did not move":
 
@@ -258,7 +258,7 @@ triples, 16-pixel tiles): 24.1% STATIC, 72.3% BETWEEN, 0.4% STALE, 3.2% AHEAD. U
 shift measurement does not clear it — **1,547 endpoint tiles translated a whole pixel or more and
 were still drawn at an endpoint**.
 
-`tools/fps60_check.py --seq` now credits each moving tile to the smallest run covering it, which
+`external/psxport/tools/port/fps60_check.py --seq` now credits each moving tile to the smallest run covering it, which
 names the cause in one line:
 
 | ownership | layer | node | lerped | endpoint | of those, moved |

@@ -45,7 +45,7 @@ naming, which is done.
 
 A REPL probe was attempted and did not reach a field scene: the run stayed in the DEMO/attract
 sequencer and `run 300` advanced only 90 frames. The measurement needs the replay harness
-(`replays/`, the same route `tools/fps60_check.py` uses), sampling `SM+0x2A` against `SM+0x32` over
+(`replays/`, the same route `external/psxport/tools/port/fps60_check.py` uses), sampling `SM+0x2A` against `SM+0x32` over
 a scene with a tilemap backdrop and vertical camera motion — the seaside field.
 
 ## What has been done

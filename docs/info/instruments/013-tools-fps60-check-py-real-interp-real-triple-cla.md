@@ -7,7 +7,7 @@ created: 2026-07-28
 
 ## Instrument
 
-tools/fps60_check.py — real/interp/real triple classifier over an fps60dump capture
+external/psxport/tools/port/fps60_check.py — real/interp/real triple classifier over an fps60dump capture
 
 ## Validated by
 

@@ -4407,7 +4407,7 @@ real neighbour by ~1 px — that residual is the camera lerp alone). Key off `Fp
   region shows a flying seagull on the reference and nothing under pc_render. The object exists on
   both legs — identical 46-handler sets, node 0x800FD118 / handler 0x8011D988 `beh_actor_move_sm`
   moving on both — so it is a pure render gap, not a spawn or exec gap.
-- **`tools/fps60_check.py` — is the in-between frame actually in between?** Walks the real/interp/real
+- **`external/psxport/tools/port/fps60_check.py` — is the in-between frame actually in between?** Walks the real/interp/real
   triples `PSXPORT_DEBUG=fps60dump` writes and classifies each tile STATIC / BETWEEN / STALE / AHEAD.
   STALE (interp pixel-identical to the PREVIOUS real frame while the NEXT one differs) is the
   "did not lerp" signature, per-region.
