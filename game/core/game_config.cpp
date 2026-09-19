@@ -222,6 +222,13 @@ static const GameConfig g_tomba_config = {
     // framework default 240 and showed 16 rows below the bottom bar that no console scans out.
     .guestDisplayHeight = 224,
 
+    // The two overlapping fade drivers the `debug fadewatch` state tap dumps (2026-07-01, "garbage
+    // during fade"). They were hardcoded inside the framework's gpu_vk_present until 2026-09-19,
+    // where they were read on every title that turned the channel on; they are Tomba! 2 facts and
+    // belong here. bg_scene_transition_sm's struct base, and the scratchpad word holding
+    // ov_sop_field_mode's outer state machine.
+    .fadewatchDriverStruct = 0x80100400u,
+    .fadewatchFieldModeSmPtr = 0x1f800138u,
 };
 
 const GameConfig &tomba::legacy::measuredConfig = g_tomba_config;

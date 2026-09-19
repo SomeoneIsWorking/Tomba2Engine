@@ -159,6 +159,30 @@ the 4:3 picture cannot see — at unchanged object proportions, with the in-game
 centered. With `aspect=1` and `fps60=1` the product still matches the Beetle console reference on
 405/405 oracle checkpoints (S002), so presentation writes nothing into guest state.
 
+That pass is now PROVEN to have run with the enhancements live, which it previously was not.
+Until psxport `d37adcce` the `[wide] native picture:` line existed only in Spyro, so a Tomba! 2
+oracle leg could show the settings file arriving and nothing at all about whether the picture
+widened — and a settings file that is silently ignored passes every checkpoint. Four legs on
+2026-09-19, each 405 checkpoints / 3,240 decisive range comparisons / **0 divergences**, complete:
+
+| leg | product env | the product's own log |
+|---|---|---|
+| baseline | — | `aspect=3 wide_engine=1 native_width=320 render_width=320` |
+| 60fps | `PSXPORT_FPS60=1` | `[fps60] TRUE per-object interpolated 60fps ON (source: env)` |
+| widescreen | `PSXPORT_SETTINGS=<aspect=1>` | `aspect=1 wide_engine=1 native_width=320 render_width=428` |
+| both | both of the above | both lines above, in one run |
+
+The baseline is the negative control and it is not 4:3: this title's persisted settings carry
+`aspect=3` (ASPECT_AUTO), which on a headless 4:3 sink resolves to `render_width=320` — no extra
+coverage. So `wide_engine` alone does not answer "did it widen"; the 320 vs 428 render width does.
+The comparator was shown the other answer first: `--selftest` seeded a byte at 0x800E7EAC and the
+run DETECTED it.
+
+This establishes that neither enhancement perturbs guest state the oracle observes. It is not
+evidence that the extra horizontal pixels or the interpolated midpoint frames look right — the
+comparator reads guest memory at checkpoints and never samples the extra presents. The capture
+evidence above, and S006's tile classification, remain the only evidence about the pictures.
+
 Menus were the first part of that gap to be closed, and closing it found a defect (issue #122 on the
 kanban). Every opaque full-screen 2D page is authored 320 wide, so at 16:9 it covered only the 4:3
 middle and the live field reappeared in both side margins behind a hard vertical edge: measured on the
