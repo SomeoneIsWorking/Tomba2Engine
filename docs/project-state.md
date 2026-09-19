@@ -293,6 +293,14 @@ tiles here against 44 in the cutscene, so a TIER1 entity that IS being interpola
 an endpoint in the field. That one is in scope for the lerp and is not explained by missing
 producers.
 
+Both captures above were taken as two separate runs, one per debug channel, which the analysis now
+warns about: a run's extent is in the buffer the queue drew into, while the dump is the VRAM display
+region, so a double-buffered title needs the display origin from the same log to line them up. It is
+safe here and only here — all 1,200 `gpu_shot` lines across both captures report `320x240 @ 0,0`, so
+Tomba! 2 never moves its display origin and the two spaces coincide. Spyro 1 alternates 0,0 and
+0,240 every present and had to be corrected (its S020). Capture both channels in one run from now
+on.
+
 The field capture also answers what draws the sky here: nothing of ours. The backdrop, terrain and
 scene-table sentinels (`0xFFFF0001`-`0xFFFF0003`) appear **zero times** in 1,731 dumped fences, so
 the native backdrop tilemap producer never runs in this area and the whole top of the screen is
