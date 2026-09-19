@@ -47,6 +47,50 @@ window would stop the right band being drawn at all, regressing the widescreen c
 admit a prim without depending on a guest-visible byte, which is a producer-ownership change, not
 a threshold change.
 
+## What the shipping source proves without any run
+
+`game/render/quad_rtpt_submit.cpp` is the clearest of the three, because what follows its `xmax`
+gate is not drawing -- it is guest allocation:
+
+```cpp
+  const uint16_t xmax = (uint16_t)tomba2::wide_window::drawRight(c);   // 320 at 4:3, 428 at 16:9
+  bool xok = sx(8) < xmax || sx(16) < xmax || sx(24) < xmax || sx(32) < xmax;
+  if (!xok) { pop(); return; }
+  ...
+  uint32_t pool = c->mem_r32(POOL_PTR);        // 0x800BF544 — the GUEST packet pool pointer
+  uint32_t otbase = c->mem_r32(OT_BASE_PTR);   // 0x800ED8C8 — the GUEST ordering table
+  c->mem_w32(pool, old_head | (9u << 24));     // writes the guest packet
+  c->mem_w32(slot, pool);                      // relinks the guest OT bucket
+  for (...) c->mem_w32(dstw, c->mem_r32(out + off));
+  c->mem_w32(POOL_PTR, pool + 40);             // advances the guest allocator
+```
+
+So a quad whose four corners all sit in `[320, 428)` is admitted at 16:9 and rejected at 4:3, and
+admission consumes a 40-byte slot of the guest's own packet pool, relinks a guest OT bucket, and
+advances the guest allocator. The extra widescreen geometry is not drawn beside the guest's picture;
+it is drawn INTO the guest's own structures. That is why the Spyro fix does not transfer: there the
+guest byte and the draw were separable, here the guest write IS the admission.
+
+## A probe that did not work, so nobody repeats it
+
+Read the guest pool pointer at both aspects through the debug server, same binary, same scenario
+(`pause; step 600`), only `PSXPORT_SETTINGS` differing:
+
+| run | `0x800BF544` |
+|---|---|
+| 4:3 | `0x000C8848` |
+| 16:9 | `0x000C7E50` |
+| 4:3 again | `0x000C803C` |
+
+The two 4:3 runs differ by `0x80C`, the same order as the `0x9F8` between the aspects. The pool
+pointer is a per-frame bump allocator and `step N` does not land at a fixed point within the frame,
+so this reads a different phase every run. It measures nothing about widescreen and it is recorded
+here only so the next attempt starts somewhere else.
+
+A valid probe has to sample at a FIXED point in the frame -- immediately after the draw kick, before
+the pool resets -- or count admitted prims per aspect at the producer itself rather than reading the
+allocator afterwards.
+
 ## Discriminator
 
 Run the RAM oracle with the product leg at 16:9 against a 4:3 console leg over a route that puts
