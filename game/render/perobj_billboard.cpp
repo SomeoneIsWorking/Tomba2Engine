@@ -72,6 +72,7 @@
 #include "proj_params.h" // ProjParams::pzToOrd — billboardsRender depth normalize
 #include "render.h"
 #include "render_internal.h" // withObjScope / cur_render_node
+#include "wide_window.h"
 #include <cmath>
 #include <lucent/log.h> // `bbrot` — the node-rotation rebuild instrument (see BbObjectRot)
 // original guest-instruction fallbacks for the test-only substrate gate. The image-qualified runtime dispatcher is a
@@ -786,8 +787,7 @@ void Render::billboardEmit() {
       // genuine engine-wide FOV (OFX=nw/2, already a sanctioned wide-mode guest deviation; SBS legs
       // run 4:3 so byte-exactness is untouched) the screen extends to the wide width — the stock 320
       // gate was culling this class out of the right wide band.
-      int gpu_vk_wide_engine(Core *), gpu_vk_wide_engine_w(Core *);
-      const uint32_t xmax = gpu_vk_wide_engine(c) ? (uint32_t)gpu_vk_wide_engine_w(c) : 320u;
+      const uint32_t xmax = (uint32_t)tomba2::wide_window::drawRight(c);
       bool onX = (uint32_t)c->mem_r16(BUF + 8) < xmax || (uint32_t)c->mem_r16(BUF + 16) < xmax ||
                  (uint32_t)c->mem_r16(BUF + 24) < xmax || (uint32_t)c->mem_r16(BUF + 32) < xmax;
       if (!onX) {

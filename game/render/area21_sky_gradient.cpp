@@ -5,6 +5,7 @@
 // untextured gouraud quads whose Y origin follows the camera pitch. The guest helper remains responsible
 // for its packet-pool and OT writes; this read-only display producer rebuilds only the picture.
 #include "area21_sky_gradient_policy.h"
+#include "wide_window.h"
 
 #include "core.h"
 #include "game.h"
@@ -52,11 +53,7 @@ void Render::area21SkyGradientRender(float t) {
       mArea21SkyPitchPrev + (int)std::lround((double)(mArea21SkyPitchCur - mArea21SkyPitchPrev) * (double)t);
   const auto bands = Area21SkyGradientPolicy::bands((int16_t)pitch);
 
-  int width = 320;
-  int gpu_vk_wide_engine(Core *), gpu_vk_wide_engine_w(Core *);
-  if (gpu_vk_wide_engine(c)) {
-    width = gpu_vk_wide_engine_w(c);
-  }
+  const int width = tomba2::wide_window::drawRight(c);
 
   RenderQueue &rq = c->game->activeRq();
   RenderQueue::Space2dScope wideFinal(rq, RQ_2D_WIDE_FINAL);

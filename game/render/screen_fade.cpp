@@ -7,6 +7,7 @@
 #include "guest_call.h"
 #include "native_override_catalog.h"
 #include "producer_scope.h" // ProducerScope — graphics-producer DB, native leg
+#include "wide_window.h"
 #include <cstdio>
 #include <cstdlib>
 #include <execinfo.h>
@@ -268,10 +269,9 @@ void Render::fadeTileRender(uint32_t node) {
   const unsigned char v = (unsigned char)level;
   cfg_logf("fade", "fadeTile node=%08X level=%d %s", node, (int)level, level == 255 ? "opaque" : "semi");
 
-  int gpu_vk_wide_engine(Core *), gpu_vk_wide_engine_w(Core *);
-  const int wide_w = gpu_vk_wide_engine(c) ? gpu_vk_wide_engine_w(c) : 320;
-  const int margin = (wide_w - 320) / 2;
-  const int xL = -margin, xR = 320 + margin; // + the queue's centering margin => [0, wide_w)
+  const int margin = tomba2::wide_window::centeringMargin(c);
+  const int xL = -margin,
+            xR = tomba2::wide_window::kGuestWidth + margin; // + the queue's centering margin => [0, wide_w)
 
   int xs[4] = {xL, xR, xL, xR};
   int ys[4] = {0, 0, 240, 240};

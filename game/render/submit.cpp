@@ -36,6 +36,7 @@
 #include "render_internal.h" // shared render internals (withObjScope, wq_* helpers)
 #include "render_queue.h"    // RQ_BACKGROUND + RenderQueue::push2dQuad — native backdrop tilemap path
 #include "trig.h"            // class Trig — libgte rsin/rcos
+#include "wide_window.h"
 #include <lucent/log.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,9 +52,8 @@
 // screen to the wide width (428@16:9), so geometry projected into the [320,wide) right band is ON-screen
 // and MUST NOT be dropped — widen the threshold to the wide width. THIS is why the right-side terrain was
 // missing in wide: the engine's own submit culled it to 4:3. (Vertical 240 cull unchanged.) later-119.
-int gpu_vk_wide_engine(Core *), gpu_vk_wide_engine_w(Core *);
 static int submit_xmax(Core *c) {
-  return gpu_vk_wide_engine(c) ? gpu_vk_wide_engine_w(c) : 320;
+  return tomba2::wide_window::drawRight(c);
 }
 
 // PSXPORT_DEBUG=geomblk — geometry-record CAPTURE probe. Dumps the RAW primitive records of every geomblk

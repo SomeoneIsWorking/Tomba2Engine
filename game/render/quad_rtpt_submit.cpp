@@ -26,6 +26,7 @@
 #include "native_override_catalog.h"
 #include "render_internal.h" // cur_render_node — the diagnostic identity of the emitting object
 #include "render_queue.h"    // RenderQueue::emitOrQueue + RQ_WORLD/RQ_OM_DEPTH
+#include "wide_window.h"
 #include <cstdint>
 #include <cstdio>
 #include <lucent/log.h>
@@ -209,8 +210,7 @@ void QuadRtptSubmit::submitQuad(Core *c) {
   };
   // xmax: 320 stock; the wide width under the genuine engine-wide FOV (submit.cpp submit_xmax
   // precedent — right-band content was culled out of widescreen; SBS legs run 4:3, unaffected).
-  int gpu_vk_wide_engine(Core *), gpu_vk_wide_engine_w(Core *);
-  const uint16_t xmax = gpu_vk_wide_engine(c) ? (uint16_t)gpu_vk_wide_engine_w(c) : 320;
+  const uint16_t xmax = (uint16_t)tomba2::wide_window::drawRight(c);
   bool xok = sx(8) < xmax || sx(16) < xmax || sx(24) < xmax || sx(32) < xmax;
   if (!xok) {
     pop();

@@ -200,6 +200,7 @@ set(GAME_SRC
   game/render/projection.cpp
   game/render/render_frame.cpp
   game/render/cine_bars.cpp
+  game/render/wide_window.cpp
   game/render/narration_swirl.cpp
   game/render/render_walk.cpp
   game/render/title_wide_composition.cpp

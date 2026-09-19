@@ -35,10 +35,8 @@
 #include "native_override_catalog.h"
 #include "render.h"
 #include "render_internal.h" // withObjScope / cur_render_node
+#include "wide_window.h"
 #include <stdint.h>
-
-int gpu_vk_wide_engine(Core *);   // gpu_vk.cpp — genuine engine-wide FOV active
-int gpu_vk_wide_engine_w(Core *); // gpu_vk.cpp — the wide screen width (nw)
 
 namespace {
 constexpr uint32_t PKT_POOL_PTR = 0x800BF544u; // packet-pool bump-allocator write pointer
@@ -136,7 +134,7 @@ void textLabelBody(Core *c) {
           return (uint32_t)c->mem_r16(pk + off);
         };
         // xmax widened under the engine-wide FOV (submit_xmax precedent; SBS legs run 4:3).
-        const uint32_t xmax = gpu_vk_wide_engine(c) ? (uint32_t)gpu_vk_wide_engine_w(c) : 320u;
+        const uint32_t xmax = (uint32_t)tomba2::wide_window::drawRight(c);
         const bool xok = sx(8) < xmax || sx(16) < xmax || sx(24) < xmax || sx(32) < xmax;
         const bool yok = sx(10) < 240u || sx(18) < 240u || sx(26) < 240u || sx(34) < 240u;
         if (xok && yok) {

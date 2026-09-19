@@ -130,8 +130,6 @@ void Engine::frameUpdate() {
 // PSXPORT_OBJLOG=1: dump every object the cull dispatcher visits (addr + type@+0xc +
 // pos@+0x2e/32/36). Empirically maps the active-object pool/list for the native entity
 // manager (Phase 1) — more reliable than static-tracing the overlay handler dispatch.
-int gpu_vk_wide_engine(Core *); // gpu_vk.c — genuine engine-wide active (PSXPORT_WIDE_ENGINE && aspect!=4:3)
-
 // Native ownership of DrawOTag (libgpu FUN_80081560, the per-frame draw kick): the guest instruction path just
 // programs the GPU linked-list DMA to walk the ordering table at a0 — which our renderer already does
 // natively in gpu_dma2_linked_list (walk OT -> decode each primitive -> rasterize). Overriding it routes

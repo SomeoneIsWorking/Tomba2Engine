@@ -24,10 +24,7 @@
 #include "producer_scope.h" // ProducerScope — graphics-producer DB, native leg
 #include "render.h"
 #include "render_queue.h"
-
-// Wide-render-target width (428 @16:9, 560 @21:9, 320 @4:3); ofx used elsewhere. Declared in gpu_vk.cpp.
-int gpu_vk_wide_engine(Core *c);
-int gpu_vk_wide_engine_w(Core *c);
+#include "wide_window.h"
 
 // cineBarsRender — emit the cinematic letterbox as a native full-width overlay. Emits nothing when no
 // letterbox is armed. Call from any cutscene-capable scene.
@@ -79,8 +76,7 @@ void Render::cineBarsRender() {
   // Full-width span: draw far beyond any aspect's extent and let the target/draw-area clip trim it. The
   // 2D origin sits at the 4:3 left edge with the wide content extending both ways, so cover -X..+X wide
   // enough for the widest target (wide_w up to VRAM_W). ±((wide_w-320)/2 + 320) always spans it.
-  const int wide_w = gpu_vk_wide_engine(c) ? gpu_vk_wide_engine_w(c) : 320;
-  const int margin = (wide_w - 320) / 2;
+  const int margin = tomba2::wide_window::centeringMargin(c);
   const int xL = -margin - 320, xR = 320 + margin + 320; // generous overdraw; clipped to the target
   const int oy = c->game->gpu.s_off_y;
 
