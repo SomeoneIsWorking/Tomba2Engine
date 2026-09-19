@@ -209,8 +209,23 @@ cliff/village field (`replays/bugs/cliff-fisherman-missing.pad` f300) and the wa
 (`replays/bugs/weapon-charge-starburst.pad` f670) both fill the full canvas with coherent world
 geometry to both edges. All three pass `reaches`, `widescreen` and `fps60`.
 
-Gap: the memory-card pages, cutscenes, and HUD anchors in every remaining scene kind are still
-uncaptured, and no area beyond these four has been looked at.
+Three 2D scene kinds were captured on 2026-09-19 (`replays/bugs/ingame-item-menu.pad` f1110,
+`title-options-page.pad` f1110, `ingame-options-page.pad` f1150), and they are the reason this item
+is not closer to done than it was. All three reach their frames with no failure marks, and all three
+draw their page at a **4:3 extent inside the 16:9 target** — measured drawn aspect 1.333 -> 1.335 for
+both options pages and 1.420 -> 1.420 for the item menu, against 1.333 -> 1.784 for the 3D world
+scene in the same run. On a real 16:9 display that is black pillars either side of every full-screen
+page. Issue 0010 holds the measurements and the reason it must not be fixed by stretching.
+
+Interpolation is clear of it: with `PSXPORT_FPS60=1` the real frames of that route are byte-identical
+to the 4:3 leg at both f1000 (3D) and f1110 (menu) — 0 of 691,200 pixels differ — while the same run
+emitted 615,338 interpolated prims over 1,091 extra presents.
+
+Gap: the three 2D pages above do not widen (issue 0010). The memory-card pages, cutscenes, and HUD
+anchors in every remaining scene kind are still uncaptured, and no area beyond these four has been
+looked at. Note that `looks_right.py`'s `widescreen` check PASSED all three non-widening pages — it
+asks only whether the PNGs differ — so earlier "widescreen PASS" lines in this document do not by
+themselves establish that a scene gained coverage; only the `coverage` measurement does.
 
 ### S006 — Tomba! 2 interpolation: partial
 
