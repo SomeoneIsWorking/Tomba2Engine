@@ -36,7 +36,10 @@ def main() -> int:
     parser = picture.picture_parser(__doc__, DEFAULT_BIOS)
     parser.add_argument("--watchdog", type=int, default=3600, help="product watchdog seconds")
     args = parser.parse_args()
-    environment = gate.native_environment(args.watchdog, extra_env=compare.product_env(args))
+    # Not tools/shipping_settings.ini: the picture question needs 4:3 and no interpolation, and
+    # picture.py owns that configuration because it is the comparator's requirement, not Tomba! 2's.
+    environment = gate.native_environment(args.watchdog, extra_env=compare.product_env(args),
+                                          settings=str(picture.REFERENCE_SETTINGS))
     product = compare.Product(Path(gate.BIN), Path(gate.EXE), environment, REPO,
                               Path(environment["PSXPORT_TOMBA2_DISC"]))
     return picture.run(title, product, args, OUT_DIR)

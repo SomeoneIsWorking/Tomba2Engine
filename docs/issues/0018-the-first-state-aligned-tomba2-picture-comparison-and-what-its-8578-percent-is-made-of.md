@@ -234,3 +234,14 @@ Tomba! 2 rendering evidence that survives a real state guard.
 2. With registration resolved, re-measure; whatever remains is the shading question, and it needs a
    located comparison (one surface, one material) rather than a whole-frame percentage.
 3. The product presents 240 lines where the reference presents 224. Separate question, own issue.
+
+
+## 2026-09-20 — this was measured at a stopping point that no longer exists
+
+psxport `bb217d0f` changed `advance_to_presented` to require a scene rather than the first non-blank
+frame, so this checkpoint now fires ~20 game frames later, past the fade's dark phase. The frame
+this issue's 85.78% describes is not the frame the tool photographs today, and its "mean luminance
+and per-channel means match, so it is not brightness" is a statement about the old one. At the new
+stopping point the product IS measurably brighter, by a modal +16, and that turns out to be residual
+fade rather than a renderer defect. See docs/issues/0020, which carries both measurements and the
+falsification; do not read the two as contradicting each other.

@@ -97,16 +97,21 @@ def refuse(msg: str) -> int:
     return 2
 
 
-def native_environment(watchdog: int, debug: str = '', extra_env: dict | None = None) -> dict:
+def native_environment(watchdog: int, debug: str = '', extra_env: dict | None = None,
+                       settings: str | None = None) -> dict:
     """The one headless REPL launch environment for the built tomba2_port binary.
 
     The launch-environment policy (psxport tools/port/launch_environment.py) owns the
     headless/silent/unpaced knobs; the disc and asset directory follow run.py's resolution.
     Every agent driver of the product (this gate, tools/oracle_compare.py) builds its
-    environment here so they cannot drift apart."""
+    environment here so they cannot drift apart.
+
+    `settings` names the tracked .ini the run is gated with, defaulting to the shipping one. The
+    picture oracle passes psxport's reference settings instead: it photographs the product against
+    a 4:3 console, and a widescreen frame is a different SIZE, which the comparison refuses."""
     sys.path.insert(0, os.path.join(PSXPORT, 'tools'))
     from port.launch_environment import agent_environment
-    env = agent_environment(dict(os.environ), SHIPPING_SETTINGS)
+    env = agent_environment(dict(os.environ), settings or SHIPPING_SETTINGS)
     env['PSXPORT_ASSET_DIR'] = env.get('PSXPORT_ASSET_DIR') or PSXPORT
     env['PSXPORT_TOMBA2_DISC'] = resolve_disc(None, Path(REPO), env)
     env['PSXPORT_REPL'] = '1'
