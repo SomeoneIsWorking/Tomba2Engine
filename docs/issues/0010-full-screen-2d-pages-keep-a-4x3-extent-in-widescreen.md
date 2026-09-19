@@ -81,7 +81,36 @@ Widening this must not scale the page horizontally or stretch the final image. T
 is the element that should extend to the wide extent; the authored text and cursor stay at their
 authored positions relative to the page's centre.
 
-## Open
+## Mechanism (determined 2026-09-19, not guessed)
 
-Which owner draws that background fill, and whether the same fill serves the other full-screen 2D
-pages (save/memory-card, Screen adjust, Controls). Not yet identified.
+The framework already knows how to fill a widened screen with a background, and the page is missing
+exactly one input to it.
+
+`rq_2d_xform` (psxport `runtime/psx/render_queue.cpp`) resolves every 2D submission to one of two
+transforms: `stretch` (spread across the wide framebuffer, `num=ww den=native_w`) or `shift` (centre
+by the margin). A page that is centred rather than stretched is what produces the black pillars, and
+the selection happens upstream, in the OT walk:
+
+    int fill = !is3d && (node_is_bg(s_cur_node) || fade_full);   // gpu_native.cpp:1420
+
+`node_is_bg` is **provenance, not coverage**, and deliberately so — psxport #38 records that using
+the screen-coverage heuristic here bled a mis-tagged backdrop to the widescreen edges. It answers
+true only for OT nodes inside a span that some drawer REGISTERED this frame through
+`gpu_bg_range_add(core, lo, hi)`, and today the only caller is the field's own background override
+(`submit.cpp ov_bg_tilemap`), which draws the sky/sea tilemap.
+
+The options page's background is drawn by ordinary guest menu code. Nothing registers its span, so
+`node_is_bg` is false, `fill` is 0, and `rq_2d_xform` centres it. That is the whole cause.
+
+## Next step
+
+RE the guest drawer that fills the options-page background, to learn which OT node or packet-pool
+span its quads occupy, then have Tomba! 2 register that span with `gpu_bg_range_add` the way the
+field backdrop does. No new framework mechanism is needed and none should be added: the stretch path
+already exists and is already tested (`tests/test_rq_widen_2d.cpp`).
+
+Two things must be established by that RE rather than assumed: whether one drawer serves all the
+full-screen pages (title options, in-game options, and the still-uncaptured save/memory-card, Screen
+adjust and Controls pages), and whether registering the span widens ONLY the background fill and
+leaves the authored text and cursor at their authored positions. Widening the text with it would be
+the stretch this issue forbids.
