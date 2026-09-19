@@ -168,6 +168,16 @@ state at all 34 checkpoints**, with each arm's configuration recorded in its own
 `--selftest` seeds a byte at `0x800E7EAC` and it is detected. The wider 405-checkpoint route has not
 been run both ways, so the differential is established at this route's depth only.
 
+2026-09-20: widescreen RENDER correctness is now measured here too, not only state parity.
+`tools/widescreen_check.py` drives one settled free-roam state at 4:3 and at 16:9 and compares the
+product with itself, over psxport's title-neutral analyser: 320 -> 428, the central 320 columns
+**byte-identical** (0/76800 a different colour), both 54px margins 99.2% and 100% non-black with 171
+and 139 distinct colours and 0/53 repeated columns. The same analyser reads 53.91% in the centre for
+a nearest-neighbour stretch and repeats every column for a smeared margin, and it measured 2.17% on
+Spyro's centre, so the zero here is a result and not an instrument that never fires. This does not
+establish that the extra geometry is correct -- no 16:9 reference exists -- but it does establish
+that the picture is extended rather than resampled.
+
 2026-09-20, CORRECTION: `aspect=3` is ASPECT_AUTO, which resolves to the SINK's aspect, and an agent
 run is headless. So BOTH arms of that differential rendered at the 4:3 width: it is a valid fps60
 result and says nothing about widescreen. psxport's `runtime/psx/picture_announce.h` had already

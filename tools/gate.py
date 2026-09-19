@@ -124,7 +124,7 @@ def native_environment(watchdog: int, debug: str = '', extra_env: dict | None = 
 
 def run_gate(script: str, frames_hint: int, debug: str, watchdog: int,
              expect_frame: int, extra_env: dict, label: str,
-             expect_stage: str = '', expect_sm48: str = '') -> int:
+             expect_stage: str = '', expect_sm48: str = '', settings: str | None = None) -> int:
     if not os.path.isfile(BIN):
         return refuse(f"{BIN} does not exist — NOTHING WAS RUN. Build first: "
                       f"cmake --build build --target tomba2_port -j$(nproc). Do not read this as a pass.")
@@ -133,7 +133,7 @@ def run_gate(script: str, frames_hint: int, debug: str, watchdog: int,
                       f"the disc; it is not this tool's job to extract it (that is run.sh's, and run.sh "
                       f"belongs to the user). Extract it once, then re-run this gate.")
 
-    env = native_environment(watchdog, debug, extra_env)
+    env = native_environment(watchdog, debug, extra_env, settings)
 
     os.makedirs(LOGDIR, exist_ok=True)
     stamp = time.strftime('%Y%m%d-%H%M%S')
