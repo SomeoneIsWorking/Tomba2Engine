@@ -68,8 +68,21 @@ excluded = {
 
 # Representative free-roam input after the third checkpoint: held buttons and game-frame counts.
 # The first segment repeats the released pad the checkpoint parked with (Playback's precondition).
-# Tomba walks left away from the landing spot, back right (short of the fisherman, whose dialogue
-# would take the pad), then jumps standing and while walking.
+#
+# A recorded .pad replay CANNOT be used here, which is worth stating because it is the obvious idea.
+# `runtime/psx/pad_input.h` records that replays are "only valid from boot" — they are one mask per
+# pad-service frame from reset — while this schedule starts at a checkpoint the driver reached with
+# its own input, and the console reference is stepped by VBlank and realigned to the guest's vblank
+# gate every frame. There is no frame mapping between the two that survives a boot loader running
+# across gates, and a wrong mapping would feed the two cores different input and report it as a
+# product divergence.
+#
+# So the route is scripted, and its length and variety are the coverage. Tomba walks left away from
+# the landing spot and back right (short of the fisherman, whose dialogue would take the pad),
+# jumps standing and while walking, crouches, uses the attack and the jump-attack, walks the far
+# side of the clearing, and opens and closes the in-game item menu -- which is the only segment that
+# leaves free roam, and is included for exactly that reason: a menu is a different task and a
+# different leaf machine, and comparing it exercises code the walk cannot reach.
 gameplay = (
     (frozenset(), 30),
     (frozenset({"left"}), 60),
@@ -80,6 +93,31 @@ gameplay = (
     (frozenset(), 60),
     (frozenset({"left", "cross"}), 6),
     (frozenset({"left"}), 60),
+    (frozenset(), 30),
+    # --- extended 2026-09-19: the 402-frame route above stayed within a few steps of the landing
+    # spot and never left free roam, so it could not have seen a menu, an attack, or a crouch.
+    (frozenset({"down"}), 30),
+    (frozenset(), 20),
+    (frozenset({"square"}), 8),
+    (frozenset(), 40),
+    (frozenset({"right"}), 120),
+    (frozenset({"right", "cross"}), 8),
+    (frozenset({"right"}), 40),
+    (frozenset(), 30),
+    (frozenset({"circle"}), 8),
+    (frozenset(), 40),
+    (frozenset({"left"}), 120),
+    (frozenset(), 40),
+    (frozenset({"cross"}), 8),
+    (frozenset({"square"}), 8),
+    (frozenset(), 60),
+    # The item menu: open, dwell, close. Triangle is the in-game menu button (replays/bugs/
+    # ingame-item-menu.pad).
+    (frozenset({"triangle"}), 8),
+    (frozenset(), 90),
+    (frozenset({"triangle"}), 8),
+    (frozenset(), 90),
+    (frozenset({"right"}), 60),
     (frozenset(), 30),
 )
 

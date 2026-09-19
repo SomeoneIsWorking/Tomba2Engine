@@ -100,6 +100,21 @@ def main():
     ap.add_argument("--keep-log", default=None)
     args = ap.parse_args()
 
+    if args.path == "native":
+        print(
+            "REFUSED: this tool compares the GUEST GPU COMMAND FEED rasterised into emulated "
+            "VRAM, and the native path does not produce the picture that way — its producers "
+            "draw through the host renderer, so both VRAM dumps come back blank.\n"
+            "Measured 2026-09-19 on save-card-pages f1690/1740/1800/1870: ours drew 0 prim(s), "
+            "beetle dispatched 0, both display rects 0.0% non-black, and this tool printed "
+            "'differing 0/524288 (0.00%)' — a zero between two blank pictures, reported as a "
+            "pass. That is what this refusal replaces.\n"
+            "To compare the SHIPPING native picture against the console, compare the PRESENTED "
+            "frames: external/psxport/tools/oracle/picture.py.",
+            file=sys.stderr,
+        )
+        return 2
+
     if not BIN.exists():
         print(
             f"REFUSED: {BIN} does not exist — build tomba2_port first", file=sys.stderr
@@ -246,12 +261,25 @@ def main():
         dw, dh, dx, dy = 320, 240, 0, 0
         print("  NOTE: no display-rect line in the log; assuming 320x240 @ (0,0)")
     print(f"  display rect {dw}x{dh} @ ({dx},{dy}) — what the guest says is on screen:")
+    stats = {}
     for name, buf in (("ours", ours), ("beetle", beetle)):
-        s = rect_stats(buf, dx, dy, dw, dh)
+        stats[name] = rect_stats(buf, dx, dy, dw, dh)
+        st = stats[name]
         print(
-            f"    {name:7s} non-black {s['nz']}/{s['tot']} ({100 * s['nz'] / s['tot']:.1f}%)"
-            f"   mean RGB ({s['mean'][0]:.2f}, {s['mean'][1]:.2f}, {s['mean'][2]:.2f})"
+            f"    {name:7s} non-black {st['nz']}/{st['tot']} ({100 * st['nz'] / st['tot']:.1f}%)"
+            f"   mean RGB ({st['mean'][0]:.2f}, {st['mean'][1]:.2f}, {st['mean'][2]:.2f})"
         )
+    # A zero difference between two pictures that are both blank is the uniform-output tell, not a
+    # match. Refuse it wherever it arises rather than only on the path known to cause it, because
+    # the next cause will not be that path.
+    if not args.selftest and stats["ours"]["nz"] == 0 and stats["beetle"]["nz"] == 0:
+        print(
+            f"REFUSED: both display rects are entirely black at f{args.frame}, so there was no "
+            f"picture to compare and the 0.00% above is not evidence of a match. Either the frame "
+            f"draws nothing or the picture is not produced through the guest command feed.",
+            file=sys.stderr,
+        )
+        return 2
 
     if args.selftest:
         ok = d > 0
