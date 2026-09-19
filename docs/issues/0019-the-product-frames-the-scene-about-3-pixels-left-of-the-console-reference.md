@@ -122,3 +122,81 @@ identical either way.)
    while the quantity that decides framing is invisible to it. The composed camera lives in scratchpad
    that the reference cannot read, so this needs a main-RAM camera quantity, or an explicit statement
    in the title that camera framing is outside what this oracle can gate.
+
+
+---
+
+## RESOLVED as to cause-location, 2026-09-19: it is downstream of the camera OBJECT
+
+Both hypotheses above are now falsified by measurement, and the search has a direction.
+
+### The offset is erratic, so it is neither a fixed origin nor drift
+
+Four points along the title's own scripted route, each a separate run, full-resolution offset search:
+
+```
+frames  best dx,dy    as-compared   after offset   improvement
+  60    dx=+11 dy=+0     80.64%       66.44%       14.20pt
+  120   dx= +0 dy=+0     43.92%       43.92%        0.00pt
+  180   dx= -3 dy=+1     85.78%       65.38%       20.41pt
+  240   dx= +1 dy=+0     63.71%       60.58%        3.13pt
+```
+
+A fixed viewport/display origin would be CONSTANT. Steady camera drift would be MONOTONE. This is
+neither: it swings +11, 0, -3, +1 and the difference swings 43.92% to 85.78%. The cores fall in and
+out of agreement — at 120 frames they agree to the pixel on registration and the difference is nearly
+half what it is either side.
+
+### The camera object is byte-identical the whole way
+
+Reading all 144 bytes of the camera object at CAM_OBJ on BOTH cores, at free_roam and at 30/60/120/
+180/240 frames along the same route:
+
+```
+free_roam    camera object: all 144 bytes EQUAL
+played 30f   camera object: all 144 bytes EQUAL
+played 60f   camera object: all 144 bytes EQUAL
+played 120f  camera object: all 144 bytes EQUAL
+played 180f  camera object: all 144 bytes EQUAL
+played 240f  camera object: all 144 bytes EQUAL
+```
+
+**That reading is only worth anything because the same probe was pointed at a range that must differ.**
+At TASK0+0x00, 16 bytes, it reports `+00: native 02 console 01`, `+02: native 00 console 01`,
+`+04: native 00 console 01` at every sample — the excluded scheduler-phase byte and the BIOS thread/
+event handles, exactly the known divergences. The probe can print the other answer.
+
+This is now permanent rather than private: `camera.object` (CAM_OBJ, 0x90) is declared and
+picture-decisive, on the same pattern as `player.G` — the named sub-ranges give the precise message
+and the block catches everything else. It earns its place in the shipping instrument immediately, by
+naming a real divergence at two checkpoints:
+
+```
+game_stage: REFUSED — ... camera.object (+58: native 00 console E1), camera.angles (+0: ...)
+field:      REFUSED — ... camera.object (+00: native 01 console 00), camera.mode (+0: ...)
+```
+
+and staying silent at free_roam and played-240f, which is what the probe found.
+
+### So where the difference enters
+
+The camera OBJECT is the input state and it is identical. The composed camera — the view basis and
+look position — is assembled into the SCRATCHPAD (S+0, S+6, S+8; world readout 0x1F8000D2/D6/DA), and
+the two cores compute it by different code: the product runs the native `CutsceneCamera`, the
+reference runs the guest instruction path. **Identical inputs, two implementations, so a differing
+output is the expected failure, not a surprising one.** An erratic per-frame offset is what a small
+arithmetic divergence in a smoothing/accumulator pipeline looks like.
+
+This also explains why it cannot be gated: the console reference cannot read scratchpad, so no
+declared range will ever catch it. The comparison must be made on the product side, against guest
+execution.
+
+### Next
+
+1. Use the instrument that already exists for exactly this: `PSXPORT_DEBUG=camverify` /
+   `cam_snap_follow`, which verifies `CutsceneCamera` per call against the guest-execution reference
+   (`game/camera/cutscene_camera.cpp` header). Run it along this route, not only on the SOP scene.
+2. Whatever it names is the defect. If it reports agreement along the whole route, the difference is
+   downstream of the camera entirely and the next owner is the renderer.
+3. Only then return to 0018's residual. A per-frame framing difference of up to 11 pixels is
+   contaminating every whole-frame percentage in that issue.

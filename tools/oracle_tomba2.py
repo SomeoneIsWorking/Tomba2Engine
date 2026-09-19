@@ -62,6 +62,11 @@ declared = (
     # the look point (cam[0x6c/0x6e/0x70] -> rcos/rsin), so between them they decide where the scene
     # is seen from. The camera's world position is not here: it is assembled into the scratchpad
     # (0x1F8000D2/D6/DA, docs/areas.md), which the console reference cannot read at all.
+    # The whole camera object, on the same pattern as player.G above: a named sub-range gives the
+    # precise message, the block catches everything else. Measured 2026-09-19 equal on both cores at
+    # free_roam and at 30/60/120/180/240 frames along the scripted route, while the picture
+    # differed -- which is what moved the search downstream of it (docs/issues/0019).
+    DeclaredRange("camera.object", CAM_OBJ, 0x90, False),
     DeclaredRange("camera.mode", CAM_OBJ + 0x64, 1, False),
     DeclaredRange("camera.angles", CAM_OBJ + 0x6C, 6, False),
     # The fade sequencer's own state: outer state at +2 (0 init, 1 running), running substep at +3,
@@ -93,7 +98,8 @@ declared = (
 # offset between the cores the way Spyro 1's does, so this does not start failing RAM runs that
 # passed before. If a measurement later shows they agree exactly, they can be promoted.
 picture_decisive = tuple(r.name for r in declared if r.decisive) + (
-    "camera.mode", "camera.angles", "fade.sequencer", "fade.level", "fade.field_ramp",
+    "camera.object", "camera.mode", "camera.angles",
+    "fade.sequencer", "fade.level", "fade.field_ramp",
 )
 
 excluded = {
