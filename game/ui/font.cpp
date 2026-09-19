@@ -26,7 +26,10 @@
 #include "native_override_catalog.h"
 #include "render.h"       // Render::mode.psxRender() gate
 #include "render_queue.h" // RenderQueue::push2dQuad + RQ_HUD
+#include <format>
+#include <lucent/log.h>
 #include <stdint.h>
+#include <string>
 
 namespace {
 // Font-bank engine-state bytes (own leaves FUN_800963a0/FUN_80096370).
@@ -350,6 +353,41 @@ void Font::glyphQueuePush(Core *c) {
                                  1023,
                                  511);
 }
+
+namespace {
+// Census (channel "textemit"). Reports EVERY call with the string it was handed, because the
+// question this answers is which producer draws a given piece of text — and an absent call is the
+// answer as often as a present one. The bytes are printed raw: control bytes 0x01..0x04 are the
+// icon-glyph arms, and seeing one here but no matching iconGlyphEmit call is a live defect.
+void reportTextEmit(Core *c, const char *producer, int x, int y) {
+  if (!lucent::channel_on("textemit")) {
+    return; // the reporter's own early-out: reading and formatting the guest string is the cost here,
+            // not the log call, and every text draw in the game comes through this path
+  }
+  const uint32_t string = c->r[7];
+  std::string bytes, text;
+  for (uint32_t i = 0; i < 48u; ++i) {
+    const uint8_t byte = c->mem_r8(string + i);
+    if (byte == 0) {
+      break;
+    }
+    bytes += std::format("{:02x}", byte);
+    text += (byte >= 0x20 && byte < 0x7F) ? (char)byte : '.';
+  }
+  lucent::debug("textemit",
+                "f{} {} at ({},{}) colour {} ra {:08x} str {:08x} = [{}] {}",
+                c->game->gpu.s_frame,
+                producer,
+                x,
+                y,
+                c->mem_r32(c->r[29] + 16u),
+                c->r[31],
+                string,
+                text,
+                bytes);
+}
+
+} // namespace
 
 void Font::glyphEmit(Core *c) {
   uint32_t sp0 = c->r[29];
@@ -693,6 +731,7 @@ namespace {
 // (a0..a2 = x,y,w; a3 = str; caller's stack[+16] = color -- matches guest 0x80079374's own read of
 // sp+48 AFTER its own sp-=32, i.e. the SAME physical slot read here BEFORE any descent).
 void ov_drawText(Core *c) {
+  reportTextEmit(c, "drawText", (int32_t)c->r[4], (int32_t)c->r[5]);
   int32_t x = (int32_t)c->r[4];
   int32_t y = (int32_t)c->r[5];
   int32_t w = (int32_t)c->r[6];
@@ -864,6 +903,13 @@ void Font::iconGlyphEmit(Core *c) {
   otBaseRegister = 0x800F0000u;
   bucketOffset = bucket * 4u;
 
+  // Census (channel "iconglyph"). A token that misses the table becomes kNoGlyph and only advances
+  // the cursor — it draws NOTHING while the text around it still lays out correctly. That failure is
+  // invisible in the picture except as a gap, so the miss count and its token bytes are reported
+  // whether or not anything was drawn: a call that emitted zero glyphs is the interesting case here,
+  // not the boring one.
+  int tokensSeen = 0, glyphsEmitted = 0, tokensMissed = 0;
+
   IconScratch glyph{c};
   glyph.setCommand(0x75u);
   glyph.setPosition(originX, originY);
@@ -899,8 +945,11 @@ void Font::iconGlyphEmit(Core *c) {
     cursor += 2u;
     c->r[6] = rawCode;
     const uint32_t code = rawCode & 0xFFFFu;
+    ++tokensSeen;
 
     if (code == kNoGlyph) {
+      ++tokensMissed;
+      lucent::debug("iconglyph", "  token {:04x} MISSED the table -> advance-only, nothing drawn", pair);
       glyph.setX(glyph.x() + 8);
       continue;
     }
@@ -913,12 +962,23 @@ void Font::iconGlyphEmit(Core *c) {
     glyph.setUv((code & 31u) << 3, ((code & 0xFFFu) >> 5) << 3);
     emitGuestIconSprite(c, savedBucket);
     queueHostIconSprite(c, glyph);
+    ++glyphsEmitted;
+    lucent::debug("iconglyph",
+                  "  token {:04x} -> code {:04x} at ({},{}) uv ({},{}) clut {:04x}",
+                  pair,
+                  code,
+                  glyph.x(),
+                  glyph.y(),
+                  (code & 31u) << 3,
+                  ((code & 0xFFFu) >> 5) << 3,
+                  glyph.clut());
     glyph.setX(glyph.x() + 8);
 
     if (code & 0x8000u) {
       glyph.setUv((code & 0x1000u) ? 64 : 56, 64);
       emitGuestIconSprite(c, savedBucket);
       queueHostIconSprite(c, glyph);
+      ++glyphsEmitted;
       glyph.setX(glyph.x() + 5);
     }
   }
@@ -938,6 +998,17 @@ void Font::iconGlyphEmit(Core *c) {
   c->mem_w32(drawModePacket, c->mem_r32(otSlot) | kDrawModePacketTag);
   c->mem_w32(otSlot, drawModePacket);
   c->mem_w32(kPacketPoolPtr, drawModePacket + 12u);
+
+  lucent::debug("iconglyph",
+                "f{} iconGlyphEmit at ({},{}) size {} bucket {}: {} token(s), {} glyph(s) emitted, {} missed",
+                c->game->gpu.s_frame,
+                originX,
+                originY,
+                sizeClass,
+                bucket,
+                tokensSeen,
+                glyphsEmitted,
+                tokensMissed);
 
   c->r[3] = (uint32_t)(int32_t)glyph.x();
   c->r[2] = (uint32_t)((int32_t)glyph.x() - originX);

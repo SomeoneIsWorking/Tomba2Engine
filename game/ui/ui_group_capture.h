@@ -108,4 +108,24 @@ public:
   // RQ_HUD, so chrome can never paint over its own text: the bug #64 / kanban #28 lesson recorded in
   // game/ui/panel.cpp).
   void emit(Core *c, const PageChromeItem &it, int layer) const;
+
+  // drawAll(): the whole collected list, in the guest's paint order, at one layer, reported on
+  // `channel` WITH ITS COUNT — a page that filed NOTHING is the state this mechanism exists to fix
+  // (a missing backdrop, a missing button prompt), and it must not read the same as one that drew.
+  // Returns the number drawn. Clears the list.
+  //
+  // Every page that just drains its list uses this one: StartPage, OptionsPage, CardMenu and
+  // SavePrompt each had their own copy of the same loop, three of them logging through a different
+  // logger than the fourth. PauseMenu keeps its own drain because it decides per item whether the
+  // subtractive dim has been reached — that is page policy, not the shared loop.
+  int drawAll(Core *c, const char *channel, int layer);
+
+  // runGuestController(): raise this page's scope for the duration of one guest controller call, so
+  // everything that controller links into its ordering table is filed here.
+  //
+  // Returns TRUE when this entry is the OUTERMOST one — the entry that owns the frame's list and
+  // must drain it — with the scope already lowered, so the drain's own panel pushes draw inline
+  // instead of being filed back into the list they are draining. A nested entry returns FALSE and
+  // leaves the scope up for its outer owner.
+  bool runGuestController(Core *c, std::uint32_t address, const char *who);
 };

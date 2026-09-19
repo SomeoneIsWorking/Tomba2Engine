@@ -462,6 +462,16 @@ Ranked here because the user sees them as missing graphics, but the fix is not "
 
 ### R7 — 2D layer residuals
 
+**A chrome group with no page scope is DROPPED, and that is a bigger gap than any single unported
+producer on this list.** `UiGroupCapture::route` files a 2D group under whichever page scope is
+raised and discards it when none is; until 2026-09-19 it discarded in silence. The first run of its
+negative report on ONE replay (`replays/bugs/save-card-pages.pad`, 2,400 frames) counted **36,635
+dropped groups**. The save prompt's Cross and Circle (issue 0013) were 2,830 of them and are now
+drawn; **33,805 remain**, dominated by a 35-cell backdrop grid (issue 0014). Anything measured
+"missing" from a menu or overlay screen below should be checked against `PSXPORT_DEBUG=uigroup`
+FIRST: an owned, working producer whose output no scope claims looks exactly like an unported one.
+
+
 `field-2D layer (#3b)` is ported-unverified as a whole. Its former special-character icon gap is
 closed: `Font::iconGlyphEmit` now owns `FUN_80078988`'s guest state/packet emission and RQ_HUD picture
 with one token walk. The remaining work is the gauge firing drive and a USER eyeball of the whole 2D

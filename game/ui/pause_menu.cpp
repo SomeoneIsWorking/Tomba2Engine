@@ -169,20 +169,10 @@ namespace {
 // so the guest half is the untouched guest-visible behavior.
 void menuTick(Core *c) {
   PauseMenu &menu = eng(c).pauseMenu;
-  const bool outer = !menu.capture.capturing();
-  if (outer) {
-    menu.capture.clear();
+  // byte-exact: the whole menu state machine + its packet emission
+  if (menu.capture.runGuestController(c, 0x800346BCu, __func__)) {
+    menu.drawCollected();
   }
-  menu.capture.begin();
-  psx::cpu::callOriginalToReturn(*c,
-                                 0x800346BCu,
-                                 psx::cpu::ExecutionBudget::currentTurn(*c),
-                                 __func__); // byte-exact: the whole menu state machine + its packet emission
-  if (!outer) {
-    return;
-  }
-  menu.capture.end();
-  menu.drawCollected();
 }
 
 } // namespace

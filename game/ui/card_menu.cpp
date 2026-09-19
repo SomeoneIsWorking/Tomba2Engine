@@ -16,33 +16,7 @@ void CardMenu::drawCollected(Core *c) {
   // paintOrder alone decides the stacking and this producer chooses nothing. Measured on the
   // save-slot page: the backdrop grid is the only thing in bucket 6 and lands behind everything;
   // badge, prompts, save icon and panels share bucket 5 and stack by the guest's LIFO within it.
-  int drawn = 0, panels = 0;
-  for (int i : capture.paintOrder()) {
-    const PageChromeItem &it = capture.mItems[i];
-    lucent::debug("cardmenu",
-                  "{} bucket={:3} templ={:08X} at ({},{}) attr={:02X} clutSemi={:04X}",
-                  it.kind != PageChromeItem::Kind::Group ? "PANEL"
-                  : it.group.sprite                      ? "SPR"
-                                                         : "FT4",
-                  it.otBucket,
-                  it.group.templPtr,
-                  it.group.x,
-                  it.group.y,
-                  it.group.attrByte,
-                  it.group.clutSemi);
-    capture.emit(c, it, RQ_OVERLAY);
-    drawn++;
-    panels += (it.kind != PageChromeItem::Kind::Group);
-  }
-  // The denominator, not just the hits: a card screen that filed NOTHING is the state this producer
-  // exists to fix, and it must not read the same as one that drew.
-  lucent::debug("cardmenu",
-                "frame drew {} item(s) — {} panel(s), {} group(s){}",
-                drawn,
-                panels,
-                drawn - panels,
-                drawn ? "" : " — NOTHING was filed under the card scope this frame");
-  capture.clear();
+  capture.drawAll(c, "cardmenu", RQ_OVERLAY);
 }
 
 namespace {
@@ -51,17 +25,9 @@ namespace {
 // wrapper: it owns no guest state of its own, so the guest half executes dynamically.
 void cardFrame(Core *c) {
   CardMenu &page = eng(c).cardMenu;
-  const bool outer = !page.capture.capturing();
-  if (outer) {
-    page.capture.clear();
+  if (page.capture.runGuestController(c, 0x8018FBCCu, __func__)) {
+    page.drawCollected(c);
   }
-  page.capture.begin();
-  psx::cpu::callOriginalToReturn(*c, 0x8018FBCCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-  if (!outer) {
-    return;
-  }
-  page.capture.end();
-  page.drawCollected(c);
 }
 
 } // namespace

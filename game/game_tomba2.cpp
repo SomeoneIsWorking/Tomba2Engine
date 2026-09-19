@@ -41,6 +41,7 @@
 #include "ui/panel.h"           // Panel::install — FUN_8004FFB4/8005019C global panel-leaf ownership
 #include "ui/pause_menu.h"      // PauseMenu::install — FUN_800346BC/8007E1B8 in-game menu chrome producer
 #include "ui/pause_menu.h"      // PauseMenu::install — FUN_800346BC in-game menu chrome producer
+#include "ui/save_prompt.h"     // SavePrompt::install — FUN_800738B0 in-field save prompt chrome
 #include "ui/start_page.h"      // StartPage::install — FUN_8007EAE4 in-game START page chrome producer
 #include <stdio.h>
 #include <stdlib.h>
@@ -246,6 +247,7 @@ void games_tomba2_init(void) {
   PauseMenu::install();            // FUN_800346BC/8007E1B8 in-game pause/item menu chrome (#21)
   StartPage::install();            // FUN_8007EAE4 in-game START page chrome (#35)
   CardMenu::install();             // CRD-overlay FUN_8018FBCC card save/load menu chrome (#102)
+  SavePrompt::install();           // FUN_800738B0 in-field save prompt chrome — issue 0013
   OptionsPage::install();          // FUN_8007F104..F8F8 page scopes + FUN_8007FC24 backdrop (#38)
   PauseMenu::install();            // FUN_800346BC in-game pause/item menu chrome scope (#21)
   ScorePopup::install();           // FUN_80072520 score/AP-gem pickup popup scope (#18)

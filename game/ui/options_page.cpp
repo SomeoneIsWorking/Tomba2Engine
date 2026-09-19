@@ -91,23 +91,7 @@ void OptionsPage::drawCollected(Core *c) {
       const Box &b = mBoxes[i];
       rend(c)->optionsSolidBox(b.x, b.y, b.w, b.h, b.flags);
     }
-    for (int i : capture.paintOrder()) {
-      const PageChromeItem &it = capture.mItems[i];
-      cfg_logf("optionspage",
-               "%s bucket=%3u templ=%08X at (%d,%d) wh=(%d,%d) attr=%02X clutSemi=%04X",
-               it.kind != PageChromeItem::Kind::Group ? "PANEL"
-               : it.group.sprite                      ? "SPR"
-                                                      : "FT4",
-               it.otBucket,
-               it.group.templPtr,
-               it.group.x,
-               it.group.y,
-               it.group.wOv,
-               it.group.hOv,
-               it.group.attrByte,
-               it.group.clutSemi);
-      capture.emit(c, it, RQ_OVERLAY);
-    }
+    capture.drawAll(c, "optionspage", RQ_OVERLAY);
   }
   mBackdrop = false;
   mBoxes.clear();
@@ -120,19 +104,13 @@ namespace {
 // then draw what the frame collected.
 template <std::uint32_t Address> void pageScope(Core *c) {
   OptionsPage &page = eng(c).optionsPage;
-  const bool outer = !page.capture.capturing();
-  if (outer) {
-    page.capture.clear();
+  if (!page.capture.capturing()) { // the page's OWN per-frame state, reset by the outermost entry
     page.mBoxes.clear();
     page.mBackdrop = false;
   }
-  page.capture.begin();
-  psx::cpu::callOriginalToReturn(*c, Address, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-  if (!outer) {
-    return;
+  if (page.capture.runGuestController(c, Address, __func__)) {
+    page.drawCollected(c);
   }
-  page.capture.end();
-  page.drawCollected(c);
 }
 
 // FUN_8007FC24 — the shared backdrop emitter. The guest half is the port above; nothing else.

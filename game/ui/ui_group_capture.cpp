@@ -6,14 +6,17 @@
 #include "engine.h"
 #include "game.h"
 #include "game_ctx.h" // eng(c) / rend(c)
+#include "guest_call.h"
 #include "options_page.h"
 #include "panel.h" // Panel::pushFill / pushCorners — the ONE panel geometry
 #include "pause_menu.h"
 #include "producer_scope.h"
 #include "render.h" // Render::emitUiFt4 / emitUiSprites + rsub.mode.psxRender() gate
 #include "render_queue.h"
+#include "save_prompt.h"
 #include "start_page.h"
 #include <algorithm>
+#include <lucent/log.h>
 #include <numeric>
 
 namespace {
@@ -37,6 +40,9 @@ UiGroupCapture *raisedScope(Core *c) {
   if (e.cardMenu.capture.capturing()) {
     return &e.cardMenu.capture;
   }
+  if (e.savePrompt.capture.capturing()) {
+    return &e.savePrompt.capture;
+  }
   return nullptr;
 }
 } // namespace
@@ -56,7 +62,21 @@ void UiGroupCapture::route(Core *c, const UiGroupArgs &a) {
     item.group = a;
     ProducerScope scope(&c->rsub.producerScope, 0x8007E6DCu, "saveContinueMenuGroup");
     UiGroupCapture{}.emit(c, item, RQ_OVERLAY);
+    return;
   }
+  // A group that reaches here is DROPPED — no page scope is raised and the scene is not the one
+  // classified scope that emits directly. Say so. The picture consequence is a piece of chrome the
+  // guest linked into its ordering table and the product never draws, and the only trace it leaves
+  // otherwise is a gap in a screenshot nobody is looking at. Reported with the scene that failed to
+  // claim it, because "which scope should own this" is the question a drop always raises.
+  lucent::debug("uigroup",
+                "DROPPED group template {} at ({},{}) bucket {} — no page scope raised, scene {} does "
+                "not claim it",
+                a.templPtr,
+                a.x,
+                a.y,
+                a.otBucket,
+                (int)rend(c)->classifyScene());
 }
 
 bool UiGroupCapture::routePanelFill(Core *c, uint32_t rectPtr, int32_t uvIndex, uint16_t attr, int32_t otBucket) {
@@ -142,4 +162,49 @@ void UiGroupCapture::emit(Core *c, const PageChromeItem &it, int layer) const {
     Panel::pushCornersAt(c, it.rx, it.ry, it.rw, it.rh, it.attr, it.shadow);
     return;
   }
+}
+
+int UiGroupCapture::drawAll(Core *c, const char *channel, int layer) {
+  int drawn = 0, panels = 0;
+  for (int i : paintOrder()) {
+    const PageChromeItem &it = mItems[i];
+    lucent::debug(channel,
+                  "{} bucket={:3} templ={:08X} at ({},{}) wh=({},{}) attr={:02X} clutSemi={:04X}",
+                  it.kind != PageChromeItem::Kind::Group ? "PANEL"
+                  : it.group.sprite                      ? "SPR"
+                                                         : "FT4",
+                  it.otBucket,
+                  it.group.templPtr,
+                  it.group.x,
+                  it.group.y,
+                  it.group.wOv,
+                  it.group.hOv,
+                  it.group.attrByte,
+                  it.group.clutSemi);
+    emit(c, it, layer);
+    ++drawn;
+    panels += (it.kind != PageChromeItem::Kind::Group);
+  }
+  lucent::debug(channel,
+                "frame drew {} item(s) — {} panel(s), {} group(s){}",
+                drawn,
+                panels,
+                drawn - panels,
+                drawn ? "" : " — NOTHING was filed under this page's scope this frame");
+  clear();
+  return drawn;
+}
+
+bool UiGroupCapture::runGuestController(Core *c, std::uint32_t address, const char *who) {
+  const bool outer = !capturing();
+  if (outer) {
+    clear();
+  }
+  begin();
+  psx::cpu::callOriginalToReturn(*c, address, psx::cpu::ExecutionBudget::currentTurn(*c), who);
+  if (!outer) {
+    return false;
+  }
+  end();
+  return true;
 }

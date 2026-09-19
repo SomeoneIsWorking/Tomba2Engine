@@ -189,6 +189,7 @@ set(GAME_SRC
   game/ui/pause_menu.cpp
   game/ui/start_page.cpp
   game/ui/card_menu.cpp
+  game/ui/save_prompt.cpp
   game/ui/options_page.cpp
   game/ui/ui_group_capture.cpp
   game/scene/level_load.cpp
