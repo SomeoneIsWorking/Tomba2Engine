@@ -14,14 +14,27 @@ USAGE:
   tools/pad_decode.py <file.pad> --keys       # print an SBS_KEYS="FROM-TO:BTN,..." string
   tools/pad_decode.py --keys-from "220-254:right,255-435:up" --out route.pad --frames 500
                                               # build a .pad from an SBS_KEYS-style spec
+  tools/pad_decode.py --keys-from "1700-1707:cross" --base <recorded.pad> --frames 2200
+                                              # EXTEND a recorded route: the base's frames
+                                              # are kept byte-for-byte and the spec's
+                                              # frame numbers are absolute
+
+A combined press is emitted as one range PER BUTTON (`233-236:up,233-236:circle`), because
+--keys-from ANDs overlapping ranges. `--keys` therefore round-trips losslessly; it used to drop
+every combined press silently, which is why routes rebuilt from it desynced.
 
 Pad bit layout (active-low: a PRESSED button CLEARS its bit; neutral frame = 0xFFFF). LITTLE-ENDIAN
 uint16 per frame (verified against the replay library — LE yields ~76% neutral frames, BE ~0%)."""
 import sys, struct
 
+# The complete SCPH digital-pad word. The shoulder and stick bits were missing here until a
+# round-trip over the whole replay library hit mask 0xFEFF (L2 held) in long-session-many-bugs.pad
+# and could not name it; an incomplete table makes a rebuilt route drop input silently.
 BTN = {0x0010: "up", 0x0040: "down", 0x0080: "left", 0x0020: "right",
        0x4000: "cross", 0x2000: "circle", 0x8000: "square", 0x1000: "triangle",
-       0x0008: "start", 0x0001: "select"}
+       0x0008: "start", 0x0001: "select",
+       0x0100: "l2", 0x0200: "r2", 0x0400: "l1", 0x0800: "r1",
+       0x0002: "l3", 0x0004: "r3"}
 NAME2BIT = {v: k for k, v in BTN.items()}
 
 
@@ -43,10 +56,27 @@ def timeline(masks):
     return runs
 
 
-def build_pad(spec, nframes):
+def keys_spec(runs):
+    """Render timeline runs as an SBS_KEYS spec. A combined press becomes one range per button, so
+    build_pad's AND-overlap reproduces it exactly. An undecodable mask is REFUSED, never dropped —
+    a spec that silently omits input produces a route that desyncs and looks like a game bug."""
+    parts = []
+    for first, last, buttons in runs:
+        if buttons.startswith("0x"):
+            raise SystemExit(f"f{first}-{last}: mask {buttons} has no known button bits; "
+                             f"refusing to emit a spec that would silently drop it")
+        for name in buttons.split("+"):
+            parts.append(f"{first}-{last}:{name}")
+    return ",".join(parts)
+
+
+def build_pad(spec, nframes, base=b""):
     """spec = 'FROM-TO:BTN,...' -> bytes of nframes little-endian masks (0xFFFF neutral, bit cleared
     for each active button in its range). Multiple ranges may overlap (ANDs the bits)."""
-    masks = [0xFFFF] * nframes
+    prefix = [struct.unpack_from("<H", base, i * 2)[0] for i in range(len(base) // 2)]
+    if len(prefix) > nframes:
+        raise SystemExit(f"--base has {len(prefix)} frames, more than the requested {nframes}")
+    masks = prefix + [0xFFFF] * (nframes - len(prefix))
     for part in spec.split(","):
         part = part.strip()
         if not part:
@@ -67,8 +97,12 @@ def main():
         spec = a[a.index("--keys-from") + 1]
         out = a[a.index("--out") + 1] if "--out" in a else "route.pad"
         nframes = int(a[a.index("--frames") + 1]) if "--frames" in a else 600
-        open(out, "wb").write(build_pad(spec, nframes))
-        print(f"wrote {out}: {nframes} frames from spec {spec!r}")
+        base_path = a[a.index("--base") + 1] if "--base" in a else None
+        base = open(base_path, "rb").read() if base_path else b""
+        open(out, "wb").write(build_pad(spec, nframes, base))
+        kept = len(base) // 2
+        origin = f", keeping {kept} frame(s) of {base_path} byte-for-byte" if kept else ""
+        print(f"wrote {out}: {nframes} frames from spec {spec!r}{origin}")
         return
     if not a or a[0].startswith("--"):
         print(__doc__)
@@ -76,7 +110,7 @@ def main():
     path = a[0]
     runs = timeline(decode(path))
     if "--keys" in a:
-        print(",".join(f"{f}-{t}:{b}" for f, t, b in runs if b in NAME2BIT))
+        print(keys_spec(runs))
     else:
         print(f"{path}: {len(decode(path))} frames")
         for f, t, b in runs:
