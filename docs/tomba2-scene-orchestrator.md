@@ -13,8 +13,8 @@
 
 
 Reverse engineered 2026-06-13 with the psxport RE tooling (write-watchpoint
-`PSXPORT_WATCHW`, RAM-diff scene enumeration, `tools/disasm.py`, frame capture
-`tools/frames.py`). All addresses are KSEG0 virtual; the boot EXE `SCUS_944.54`
+`PSXPORT_WATCHW`, RAM-diff scene enumeration, `tools/disasm.py`, and the frame
+capture tool of the day). All addresses are KSEG0 virtual; the boot EXE `SCUS_944.54`
 is resident at `0x80010000` (size `0x69000`), so this code never overlay-swaps.
 
 This replaces the **falsified** earlier note that "`0x800253EC` is the intro
@@ -218,6 +218,6 @@ the documented terminal conclusion of the job-VM investigation.
   CD-load callers of the dwell counter, in single runs.
 - `PSXPORT_POKE="frame:addr=val;A..B:addr=val"` — poke RAM at a frame/range to
   test a hypothesis.
-- `PSXPORT_FRAMEDUMP` + `tools/frames.py` — exact-frame PNG capture / contact
-  sheet to correlate state with what's on screen.
+- `tools/gate.py run --script "... shot <path>"` — exact-frame PNG capture to
+  correlate state with what's on screen.
 - `tools/disasm.py <ramdump> <start> <end>` — MIPS disassembly of a RAM dump.

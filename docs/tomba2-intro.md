@@ -13,8 +13,8 @@ copy-paste); the real Tomba2 EXE is 0x28800, spanning 0x80010000–0x80038800.
 
 ## Verified intro timeline (headless, instant CD default, no input)
 
-Captured with `tools/frames.py` (contact sheet) — see
-`scratch/screenshots/introseq/sheet_native.png`:
+Captured in 2026-06 as a contact sheet; re-capture with
+`uv run --frozen python tools/gate.py run --script "newgame; run N; shot <path>"`:
 
 | frames        | screen | nature |
 |---------------|--------|--------|
@@ -253,7 +253,7 @@ overlay; dump RAM at f1000 = scratch/bin/tomba2/ram_f1000.bin) to find the
   to a PPM on demand while driving via `-repl`. VideoCb caches the last frame
   (tightly packed) into `g_last_fb`. This is the interactive analogue of
   `PSXPORT_FRAMEDUMP` and is what made the skippability tests above possible.
-- Reused: `tools/frames.py` (contact sheets), `PSXPORT_WATCHW`, `PSXPORT_PCCOV`,
+- Reused: `tools/gate.py run` + the REPL's `shot` (per-frame PNGs), `PSXPORT_WATCHW`, `PSXPORT_PCCOV`,
   `PSXPORT_RAMDUMP`, `tools/disasm.py`. KEY: dump RAM **during the logo phase**
   (f400/f1000), not during the FMV — the FMV stream overwrites the intro driver code
   at 0x80011xxx/0x80018xxx.
