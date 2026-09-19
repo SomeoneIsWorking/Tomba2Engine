@@ -10,7 +10,8 @@
 #include "guest_call.h"
 #include "native_override_catalog.h"
 #include "render.h" // Render::emitUiFt4 / emitUiSprites
-#include "render/wide_page_fill.h"
+#include "render/page_backdrop.h"
+#include "render/page_gradient.h"
 #include "render_queue.h" // RQ_OVERLAY
 #include "screen_fade.h"  // ScreenFade — the global present-time fade this page's dim must NOT reach
 
@@ -119,8 +120,11 @@ void PauseMenu::drawCollected() {
   // the live field reappears in both side margins, cut off by a hard vertical edge at each end of the
   // menu (measured at replays/bugs/ingame-item-menu.pad f1120, 2026-09-19). The guest quad stays
   // exactly as the guest built it — widening it would make a faithful producer draw geometry the guest
-  // never submitted — and WidePageFill covers the canvas behind it. No-op at 4:3.
-  tomba::render::WidePageFill::pushBehindPage(*c, c->game->activeRq(), RQ_OVERLAY, /*order2dFg=*/1);
+  // never submitted — and PageBackdrop continues the page's own edge colour into the margins. This
+  // page is authored uniform black, so those margins are black: a consequence of what the page IS,
+  // not a fill chosen for every page. No-op at 4:3.
+  tomba::render::PageBackdrop::pushMargins(
+      *c, c->game->activeRq(), RQ_OVERLAY, /*order2dFg=*/1, tomba::render::PageGradient::pauseMenu());
   pushScreenQuad(0x00, /*semi=*/0, /*blend=*/0);
 
   bool dimDone = false;

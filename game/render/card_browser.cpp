@@ -33,9 +33,10 @@
 // slot-select sub-state (dump the 0x8018a000 overlay live and RE FUN_8018fa88/fbcc to pin the flag).
 #include "core.h"
 #include "game.h"
+#include "page_backdrop.h"
+#include "page_gradient.h"
 #include "render.h"
 #include "render_queue.h"
-#include "wide_page_fill.h"
 
 // renderCardBrowser — see render.h. Read-only native producer for the DEMO/title Load-Game memory-card
 // browser (sm[0x48]==4). Backdrop gradient + slot cursor; the card-screen TEXT arrives from the global
@@ -43,42 +44,14 @@
 void Render::renderCardBrowser() {
   Core *c = mCore;
   // WIDESCREEN: the browser is an opaque full-screen page, so the widened canvas beside its authored
-  // 4:3 art must not show the title picture behind it. WidePageFill owns that fill for every
-  // full-screen page in the title; this file used to carry a private copy of the same quad.
-  tomba::render::WidePageFill::pushBehindPage(*c, c->game->activeRq(), RQ_BACKGROUND, /*order2dFg=*/0);
-  // BACKDROP — reproduce FUN_8007fc24: opaque full-screen dark-blue vertical gradient (per-vertex color).
-  // Screen-space fill (no display offset, exactly like Render::menuChrome's backdrop quad).
-  {
-    int xs[4] = {0, 320, 0, 320};
-    int ys[4] = {0, 0, 240, 240};
-    int uv[4] = {0, 0, 0, 0};
-    unsigned char rz[4] = {0, 0, 0, 0};             // R = 0 on every vertex
-    unsigned char gz[4] = {0, 0, 0, 0};             // G = 0 on every vertex
-    unsigned char bs[4] = {0x46, 0x46, 0x46, 0x10}; // B: TL,TR,BL bright, BR darker (the gradient)
-    c->game->activeRq().push2dQuad(RQ_BACKGROUND,
-                                   /*order_2d_fg=*/0,
-                                   xs,
-                                   ys,
-                                   uv,
-                                   uv,
-                                   rz,
-                                   gz,
-                                   bs,
-                                   /*tp_x=*/0,
-                                   /*tp_y=*/0,
-                                   /*mode=*/3,
-                                   /*raw=*/0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   0,
-                                   1023,
-                                   511);
-  }
+  // 4:3 art must not show the title picture behind it. PageBackdrop continues the page's own edge
+  // colour into those margins; this file used to carry a private copy of the same black quad.
+  const tomba::render::PageGradient &page = tomba::render::PageGradient::optionsPage();
+  tomba::render::PageBackdrop::pushMargins(*c, c->game->activeRq(), RQ_BACKGROUND, /*order2dFg=*/0, page);
+  // BACKDROP — reproduce FUN_8007fc24: opaque full-screen dark-blue gradient (per-vertex color), the
+  // same authored gradient Render::optionsBackdrop draws. Screen-space fill (no display offset,
+  // exactly like Render::menuChrome's backdrop quad).
+  tomba::render::PageBackdrop::pushAuthored(*c, c->game->activeRq(), RQ_BACKGROUND, /*order2dFg=*/0, page);
   // CURSOR — reproduce FUN_8007e998(44, slotY[sel]+4) with the resident cursor template 0x98 (raw/bright).
   static const int SLOTY[2] = {96, 128};      // FUN_8007f250 auStack_20 = {0x60, 0x80}
   const int sel = c->mem_r8(0x800BF808u) & 1; // highlight/selection index (0 or 1)

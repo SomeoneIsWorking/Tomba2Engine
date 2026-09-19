@@ -1,7 +1,7 @@
 ---
 id: 10
 title: Full-screen 2D pages keep a 4:3 extent in widescreen, so the options page has black pillars
-status: open
+status: resolved
 symptom: at aspect=1 every full-screen 2D page measured so far is drawn 320 wide inside a 428-wide target, so it fills the height and 74.8% of the width; the looks-right widescreen check passes them all because the PNG "differs from 4:3", which pure rescaling also satisfies
 state_items: S005
 tags: tomba2,widescreen,2d,ui,instrument
@@ -81,36 +81,102 @@ Widening this must not scale the page horizontally or stretch the final image. T
 is the element that should extend to the wide extent; the authored text and cursor stay at their
 authored positions relative to the page's centre.
 
-## Mechanism (determined 2026-09-19, not guessed)
+## Mechanism — the first account was WRONG in two load-bearing ways
 
-The framework already knows how to fill a widened screen with a background, and the page is missing
-exactly one input to it.
+This issue originally pinned the cause on the framework OT walk: `fill = !is3d && (node_is_bg(...) ||
+fade_full)` in `gpu_native.cpp`, with `node_is_bg` answering true only for spans a drawer registered
+through `gpu_bg_range_add`, and the next step was to have Tomba! 2 register the options-page span
+"the way the field backdrop does". Both halves are false, and acting on them would have produced
+nothing.
 
-`rq_2d_xform` (psxport `runtime/psx/render_queue.cpp`) resolves every 2D submission to one of two
-transforms: `stretch` (spread across the wide framebuffer, `num=ww den=native_w`) or `shift` (centre
-by the margin). A page that is centred rather than stretched is what produces the black pillars, and
-the selection happens upstream, in the OT walk:
+**`gpu_bg_range_add` has no callers at all.** Not in psxport, not in any game in the workspace. The
+named exemplar — "the field's own background override (`submit.cpp ov_bg_tilemap`)" — does not
+exist; `gpu_native.cpp` itself calls that packet-span provenance "dead" and records that the texpage
+path (`gpu_bg_texpage_set`) replaced it. So `node_is_bg` can never return 1 today, and there was no
+working caller to copy.
 
-    int fill = !is3d && (node_is_bg(s_cur_node) || fade_full);   // gpu_native.cpp:1420
+**That code does not run for this page anyway.** Measured 2026-09-19: the product logs
+`render path = native — geometry from PC-NATIVE producers`. `PSXPORT_PRIMDUMP=1110` was set for a
+whole run over `replays/bugs/title-options-page.pad` and the config audit reported
+`UNKNOWN knob PSXPORT_PRIMDUMP was set for this whole run and NOTHING ever read it` — the guest OT
+walk never executes for these pages, because the title's own native producers draw them. The `fill`
+selection, `node_is_bg`, and `rq_2d_xform`'s stretch branch are all downstream of a path this page
+never takes.
 
-`node_is_bg` is **provenance, not coverage**, and deliberately so — psxport #38 records that using
-the screen-coverage heuristic here bled a mis-tagged backdrop to the widescreen edges. It answers
-true only for OT nodes inside a span that some drawer REGISTERED this frame through
-`gpu_bg_range_add(core, lo, hi)`, and today the only caller is the field's own background override
-(`submit.cpp ov_bg_tilemap`), which draws the sky/sea tilemap.
+The page is drawn by `Render::optionsBackdrop` (options family) and `Render::renderCardBrowser`
+(memory-card page), and the pause/item menu by `PauseMenu`. The real cause is simply that each
+authored its background at the guest's 320-wide extent and nothing owned what the widened canvas
+shows beside it.
 
-The options page's background is drawn by ordinary guest menu code. Nothing registers its span, so
-`node_is_bg` is false, `fill` is 0, and `rq_2d_xform` centres it. That is the whole cause.
+## What the margin actually needed, and why it is not a stretch
 
-## Next step
+The page background is not texture art — it is ONE untextured Gouraud quad. Guest `FUN_8007FC24`
+draws (0,0)-(320,240) with per-vertex blue TL/TR/BL = `0x46` and BR = `0x10`; the pause/item menu's
+is the guest's GP0 `0x60` tile, uniform black. Both are therefore extendable deterministically.
 
-RE the guest drawer that fills the options-page background, to learn which OT node or packet-pool
-span its quads occupy, then have Tomba! 2 register that span with `gpu_bg_range_add` the way the
-field backdrop does. No new framework mechanism is needed and none should be added: the stretch path
-already exists and is already tested (`tests/test_rq_widen_2d.cpp`).
+Extending them by widening the quad would be the stretch this issue forbids: spreading the gradient
+across 428 columns moves the authored bottom-right darkening to a different screen position and
+changes the page INSIDE the 4:3 region. The answer is a CLAMP-CONTINUATION — each margin band
+carries the colour the authored gradient already has at the edge it touches, held constant outward.
+The left edge is (TL, BL) and the right edge is (TR, BR), so the left band is flat `0x46` and the
+right band carries the same `0x46` -> `0x10` fall the page's right edge has. Nothing is invented: the
+value at a margin column is the value the authored gradient defines at the boundary.
 
-Two things must be established by that RE rather than assumed: whether one drawer serves all the
-full-screen pages (title options, in-game options, and the still-uncaptured save/memory-card, Screen
-adjust and Controls pages), and whether registering the span widens ONLY the background fill and
-leaves the authored text and cursor at their authored positions. Widening the text with it would be
-the stretch this issue forbids.
+## Fix
+
+`game/render/page_gradient.{h,cpp}` owns each authored page gradient ONCE — `PageGradient::optionsPage()`
+for `FUN_8007FC24` and `PageGradient::pauseMenu()` for the menu's black tile — plus `pageMarginBands`,
+the band rule as pure arithmetic (no `Core`, no queue, no globals) so it is tested hermetically the
+way the framework tests `rq_2d_xform`. `game/render/page_backdrop.{h,cpp}` draws them:
+`PageBackdrop::pushAuthored` for the page itself and `PageBackdrop::pushMargins` for the margins.
+
+This also removed a duplication the previous fix left standing: `render_options.cpp` and
+`card_browser.cpp` each carried their own copy of the same 22-argument quad push AND their own copy
+of the same corner colours, for the same guest function. The superseded `wide_page_fill.{h,cpp}` is
+deleted — its black canvas quad is gone, and black now appears only where a page is authored black,
+as a consequence of that page's own colour rather than a fill chosen for every page.
+
+## Evidence
+
+Measured on `build/ci/bin/tomba2_port` at psxport `a1537b73`, via
+`external/psxport/tools/port/looks_right.py`, with `PSXPORT_AUTO_SKIP=1`. The pre-change build was
+rebuilt from a stash to produce the negative control rather than quoting the earlier numbers:
+
+| scene | before | after |
+|---|---|---|
+| title options page (`title-options-page.pad` f1110) | 1.333 -> 1.335 NO GAIN | 1.333 -> **1.784** WIDER |
+| in-game options page (`ingame-options-page.pad` f1160) | 1.333 -> 1.335 NO GAIN | 1.333 -> **1.784** WIDER |
+| item menu (`ingame-item-menu.pad` f1120) | 1.420 -> 1.420 | 1.420 -> 1.420 |
+
+16:9 is 428/240 = 1.783, so the two options pages now draw to the full canvas. The item menu's
+reading is unchanged BY DESIGN and is not a remaining defect: its page is authored black, its margins
+are therefore black, and `drawn_extent` measures non-black pixels — the tool's own documented blind
+spot. Its capture shows a bordered parchment window centred on black with no field showing through,
+which this issue already recorded as the correct treatment for a window.
+
+- **Seam continuity, measured not eyeballed.** On the 16:9 title-options capture the maximum
+  adjacent-column mean-colour delta is **0.00** at the left seam (x=121) and **0.18** at the right
+  (x=839), against **13.32** elsewhere in the picture (the text). The bands abut the centred page
+  with no visible join.
+- **4:3 is byte-identical.** `sha256 f70be71b2059408c821744b0abbb998d24331f40cf25221a9c7ee50d9fa0f5ef`
+  for the 4:3 leg of both the pre-change and post-change builds. The margin rule returns zero bands
+  at 4:3, so no extra prim enters a 4:3 frame.
+- **Oracle.** `tools/oracle_compare.py --frame-step 1` with `PSXPORT_FPS60=1` and a settings file
+  carrying `aspect=1`: **405/405 checkpoints, 3,240 decisive range comparisons, 0 divergences**,
+  `complete: true`. `--selftest` seeded a byte at `0x800E7EAC` and the comparator DETECTED it, so the
+  zero is a measurement rather than a silent pass.
+- **The rule's own test shows both answers.** `tests/test_page_gradient.cpp` (ctest
+  `tomba_page_gradient`) asserts the 4:3 negative first, the band geometry, the continuation colours,
+  and the impossible-input refusals. Seeding the exact defect it exists to prevent — the right band
+  taking the LEFT edge's colour — made it fail with
+  `FAIL: the right band's bottom continues BR — got (0,0,70) want (0,0,16)`; restoring gave a file
+  byte-identical to the pre-seed original.
+- **Repository gate.** `tools/verify_ci.py`: 26/26 ctest cases, C++ policy over 417 first-party
+  files, execution boundary clean, psxport pin `a1537b73` matching the build.
+
+## Still open
+
+The Screen-adjust page (page 3) and the Controls page (page 4) are not captured by any replay, so
+they are unmeasured. Screen adjust deliberately draws NO backdrop and composites over the live title
+picture, so it is expected to need no margins; Controls uses the same `FUN_8007FC24` backdrop and
+should already be covered by `Render::optionsBackdrop`. Neither is claimed here.

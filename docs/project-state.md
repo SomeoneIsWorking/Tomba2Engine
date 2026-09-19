@@ -191,14 +191,39 @@ pause/item menu (`replays/bugs/ingame-item-menu.pad` f1120), the in-game Select 
 (`replays/bugs/title-options-page.pad` f1027). Two call sites already carried a private copy of a
 "pillarbox" quad, and the copy in `Render::optionsBackdrop` could never work: the framework spreads a
 flat untextured fill on `RQ_BACKGROUND` only, and that page must draw on `RQ_OVERLAY` because it is
-raised over a live field frame. `game/render/wide_page_fill.*` now owns that fill once for the title,
-states the geometry in wide-final coordinates instead of relying on a material heuristic, and emits
-nothing at 4:3. All three pages are solid to the canvas edges at 16:9; their 4:3 captures are
-byte-identical to the pre-fix run; the in-game START page, which composites over the field on purpose,
-still shows the full-width field at f1090; and the oracle still reports 405/405 checkpoints MATCH with
-`aspect=1` and `fps60=1`, zero divergences (S002). The combined asset-free Clang gate passed 24/24
-CTest cases, the C++ policy check over 412 first-party files, the execution-boundary scan and the
-build-receipt pin check on psxport `18e8d184`.
+raised over a live field frame. A first fix covered the margin with one canvas-wide BLACK
+quad, which closed that hole and opened another: the options pages then drew a dark-blue page inside
+black pillars. Measured 2026-09-19 (issue 0010), that page's drawn aspect went 1.333 -> 1.335 in a
+16:9 target — the same 320-wide page rescaled, zero horizontal gain — and the `widescreen` check
+passed it because the PNG merely DIFFERS from the 4:3 one.
+
+That is now fixed at the cause. The page background is not texture art but one untextured Gouraud
+quad (guest `FUN_8007FC24`, per-vertex blue TL/TR/BL `0x46`, BR `0x10`; the item menu's is the
+guest's black `0x60` tile), so the margin is a deterministic CLAMP-CONTINUATION of the page's own
+edge — the left band flat `0x46`, the right band carrying the same `0x46` -> `0x10` fall the page's
+right edge has. It is not a stretch: widening the quad would move the authored bottom-right darkening
+and change the page inside the 4:3 region. `game/render/page_gradient.*` owns each authored gradient
+once plus the band rule as pure arithmetic (hermetically tested, ctest `tomba_page_gradient`), and
+`game/render/page_backdrop.*` draws the page and its margins; the superseded `wide_page_fill.*` is
+deleted, along with the duplicate authored-gradient literal and 22-argument quad push that
+`render_options.cpp` and `card_browser.cpp` had each carried for the same guest function.
+
+Both options pages now measure **1.333 -> 1.784** WIDER (16:9 is 428/240 = 1.783), against a
+pre-change build rebuilt from a stash that reproduced 1.333 -> 1.335 NO GAIN. The item menu still
+reads 1.420 -> 1.420 BY DESIGN: it is authored black, so its margins are black and `drawn_extent`
+measures non-black pixels; its capture is a bordered parchment window centred on black with no field
+showing through, which issue 0010 already recorded as correct for a window. Seam continuity is
+measured, not eyeballed: the maximum adjacent-column mean-colour delta is 0.00 at the left seam and
+0.18 at the right, against 13.32 elsewhere in the picture. The 4:3 leg is byte-identical across the
+change (`sha256 f70be71b...`), because the rule returns zero bands at 4:3. The in-game START page,
+which composites over the field on purpose, still shows the full-width field at f1090. The oracle
+still reports 405/405 checkpoints and 3,240 decisive range comparisons MATCH with `aspect=1` and
+`fps60=1`, zero divergences, `complete: true`, with `--selftest` detecting a seeded byte at
+`0x800E7EAC` (S002). The combined asset-free Clang gate passed 26/26 CTest cases, the C++ policy
+check over 417 first-party files, the execution-boundary scan and the build-receipt pin check on
+psxport `a1537b73`.
+
+Not claimed: the Screen-adjust and Controls pages are reached by no replay and are unmeasured.
 
 Three more scene kinds were captured at 16:9 on 2026-09-19 and look right, so wide-edge culling is no
 longer wholly unverified. The hut interior (`replays/scene-transitions/hut-entry-door-freeze.pad`
@@ -210,20 +235,20 @@ cliff/village field (`replays/bugs/cliff-fisherman-missing.pad` f300) and the wa
 geometry to both edges. All three pass `reaches`, `widescreen` and `fps60`.
 
 Three 2D scene kinds were captured on 2026-09-19 (`replays/bugs/ingame-item-menu.pad` f1110,
-`title-options-page.pad` f1110, `ingame-options-page.pad` f1150), and they are the reason this item
-is not closer to done than it was. All three reach their frames with no failure marks, and all three
-draw their page at a **4:3 extent inside the 16:9 target** — measured drawn aspect 1.333 -> 1.335 for
-both options pages and 1.420 -> 1.420 for the item menu, against 1.333 -> 1.784 for the 3D world
-scene in the same run. On a real 16:9 display that is black pillars either side of every full-screen
-page. Issue 0010 holds the measurements and the reason it must not be fixed by stretching.
+`title-options-page.pad` f1110, `ingame-options-page.pad` f1150). All three originally drew their
+page at a **4:3 extent inside the 16:9 target** — drawn aspect 1.333 -> 1.335 for both options pages
+and 1.420 -> 1.420 for the item menu, against 1.333 -> 1.784 for the 3D world scene in the same run —
+which on a real 16:9 display is black pillars either side of every full-screen page. The two options
+pages now measure 1.333 -> 1.784; the item menu is correct centred on black (see above). Issue 0010
+holds the measurements, the corrected mechanism, and the reason it must not be fixed by stretching.
 
 Interpolation is clear of it: with `PSXPORT_FPS60=1` the real frames of that route are byte-identical
 to the 4:3 leg at both f1000 (3D) and f1110 (menu) — 0 of 691,200 pixels differ — while the same run
 emitted 615,338 interpolated prims over 1,091 extra presents.
 
-Gap: the three 2D pages above do not widen (issue 0010). The memory-card pages, cutscenes, and HUD
-anchors in every remaining scene kind are still uncaptured, and no area beyond these four has been
-looked at. Note that `looks_right.py`'s `widescreen` check PASSED all three non-widening pages — it
+Gap: the memory-card pages, cutscenes, and HUD anchors in every remaining scene kind are still
+uncaptured, and no area beyond these four has been looked at. The Options family's Screen-adjust and
+Controls pages are reached by no replay and are unmeasured. Note that `looks_right.py`'s `widescreen` check PASSED all three non-widening pages — it
 asks only whether the PNGs differ — so earlier "widescreen PASS" lines in this document do not by
 themselves establish that a scene gained coverage; only the `coverage` measurement does.
 

@@ -51,9 +51,10 @@
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
+#include "page_backdrop.h"
+#include "page_gradient.h"
 #include "render.h"
 #include "render_queue.h"
-#include "wide_page_fill.h"
 #include <stdint.h>
 
 static constexpr uint32_t kTaskSmPtr = 0x1F800138u; // scratchpad *-> current task state machine
@@ -72,50 +73,24 @@ static constexpr int kScreenAdjustPage = 3;         // sm[0x50] value of the "Sc
 // page's own chrome, so seq order inside the layer keeps it behind the cursor.
 void Render::optionsBackdrop() {
   Core *c = mCore;
+  const tomba::render::PageGradient &page = tomba::render::PageGradient::optionsPage();
   // WIDESCREEN: the page is opaque and full-screen, so the widened canvas beside it must not show
-  // the live field. WidePageFill owns that fill for every full-screen page in the title; this file
-  // used to carry a private copy of it on RQ_OVERLAY, where the framework's flat-untextured stretch
-  // never applies, so the quad was centred inside the page and painted no margin at all.
-  tomba::render::WidePageFill::pushBehindPage(*c, c->game->activeRq(), RQ_OVERLAY, /*order2dFg=*/1);
+  // the live field. PageBackdrop continues the page's own edge colour into those margins; this file
+  // used to carry a private copy of a black pillarbox quad on RQ_OVERLAY, where the framework's
+  // flat-untextured stretch never applies, so the quad was centred inside the page and painted no
+  // margin at all.
+  //
+  // THE MARGINS ARE PUSHED OUTSIDE THE PRODUCER SCOPE BELOW, AND THAT IS THE WHOLE POINT. They are a
+  // WIDESCREEN PC ENHANCEMENT with no guest counterpart; inside the scope they would add native
+  // prims against the guest's one, so the row would read 3-vs-1 in the very column the DB exists to
+  // compare — a fabricated discrepancy in a producer that is actually faithful. PageBackdrop opens
+  // its own PC-only row for them.
+  tomba::render::PageBackdrop::pushMargins(*c, c->game->activeRq(), RQ_OVERLAY, /*order2dFg=*/1, page);
   {
     // Producer DB, native leg. Keyed on the guest options backdrop this block reproduces (codemap:
     // 0x8007FC24 -> Render::optionsBackdrop, this function).
-    //
-    // THE SCOPE STARTS HERE, NOT AT THE TOP OF THE FUNCTION, AND THAT IS THE WHOLE POINT. The wide-canvas
-    // fill above is a WIDESCREEN PC ENHANCEMENT with no guest counterpart; inside this scope it would add
-    // exactly one native prim against the guest's one, so the row would read 2-vs-1 in the very column
-    // the DB exists to compare — a fabricated discrepancy in a producer that is actually faithful. It
-    // stays outside, and WidePageFill opens its own PC-only row for it.
     ProducerScope backdropScope(&c->rsub.producerScope, 0x8007FC24u, "optionsBackdrop");
-    int xs[4] = {0, 320, 0, 320};
-    int ys[4] = {0, 0, 240, 240};
-    int uv[4] = {0, 0, 0, 0};
-    unsigned char rr[4] = {0, 0, 0, 0};
-    unsigned char gg[4] = {0, 0, 0, 0};
-    unsigned char bb[4] = {70, 70, 70, 16};
-    c->game->activeRq().push2dQuad(RQ_OVERLAY,
-                                   /*order_2d_fg=*/1,
-                                   xs,
-                                   ys,
-                                   uv,
-                                   uv,
-                                   rr,
-                                   gg,
-                                   bb,
-                                   /*tp_x=*/0,
-                                   /*tp_y=*/0,
-                                   /*mode=*/3,
-                                   /*raw=*/0,
-                                   /*clut_x=*/0,
-                                   /*clut_y=*/0,
-                                   /*tw_mx=*/0,
-                                   /*tw_my=*/0,
-                                   /*tw_ox=*/0,
-                                   /*tw_oy=*/0,
-                                   /*da_x0=*/0,
-                                   /*da_y0=*/0,
-                                   /*da_x1=*/1023,
-                                   /*da_y1=*/511);
+    tomba::render::PageBackdrop::pushAuthored(*c, c->game->activeRq(), RQ_OVERLAY, /*order2dFg=*/1, page);
   }
 }
 

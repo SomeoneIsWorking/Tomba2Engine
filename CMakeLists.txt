@@ -142,6 +142,10 @@ if(BUILD_TESTING)
   target_include_directories(test_cube_text_banner_policy PRIVATE game/render)
   add_test(NAME tomba_cube_text_banner_policy COMMAND test_cube_text_banner_policy)
 
+  add_executable(test_page_gradient tests/test_page_gradient.cpp game/render/page_gradient.cpp)
+  target_include_directories(test_page_gradient PRIVATE game/render)
+  add_test(NAME tomba_page_gradient COMMAND test_page_gradient)
+
   set(TOMBA_CPP_POLICY_CAPS
       game/core/engine.cpp=3251
       game/player/actor_tomba.cpp=1452
