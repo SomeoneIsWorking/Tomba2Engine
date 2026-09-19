@@ -30,8 +30,9 @@
 #include "lighting.h"        // PER-AREA light registry (sun / lava+torch); selected per frame in Render::shadeSelect
 #include "mods.h" // Mods (game->mods) — live PC-native lighting params (engine-native shading, not a deferred pass)
 #include "mtx.h"  // class Mtx — libgte helpers (identity, diagonal, ...)
-#include "producer_scope.h"  // ProducerScope — graphics-producer DB, native leg
-#include "render.h"          // class Render — Render::fieldEntityRender lives here
+#include "producer_scope.h" // ProducerScope — graphics-producer DB, native leg
+#include "render.h"         // class Render — Render::fieldEntityRender lives here
+#include "render/ot_key_ord_policy.h"
 #include "render_internal.h" // shared render internals (withObjScope, wq_* helpers)
 #include "render_queue.h"    // RQ_BACKGROUND + RenderQueue::push2dQuad — native backdrop tilemap path
 #include "trig.h"            // class Trig — libgte rsin/rcos
@@ -263,7 +264,8 @@ static SortKey game_sort_key(Core *c, const ProjVtx *p, int nv, uint32_t code, i
 // resolveKeyOrder can snap a face onto a value that still sits at its real distance band. The guest's
 // compression is monotone nondecreasing in otz, so its inverse is recovered by binary search (no closed
 // form is safe: sub-bucket shifts can land keys in compression gaps where a per-band inverse is
-// non-monotone). Then the AVSZ4 scale maps otz back to an average view-Z: otz = zsf4*4*avg_sz >> 12
+// non-monotone -- see ot_key_ord_policy.h, which is where that case is now handled rather than
+// merely noted). Then the AVSZ4 scale maps otz back to an average view-Z: otz = zsf4*4*avg_sz >> 12
 // => avg_sz = otz * 4096 / (4*zsf4). One canonical inversion (the quad-average policy, the dominant
 // emitter) keeps the map strictly monotone across ALL keyed faces, which is the only property the
 // ORDER resolution needs.
@@ -272,20 +274,15 @@ static float key_to_ord(int key) {
   if (zsf <= 0) {
     return 0.0f;
   }
-  auto fwd = [](int32_t otz) {
-    int32_t b = otz >> 10;
-    return (otz >> (b & 31)) + (b << 9);
-  };
-  int lo = 0, hi = 65535;
-  while (lo < hi) {
-    int mid = (lo + hi) >> 1;
-    if (fwd(mid) < key) {
-      lo = mid + 1;
-    } else {
-      hi = mid;
-    }
-  }
-  float avg_sz = (float)lo * 4096.0f / (4.0f * (float)zsf);
+  // The inverse is CONTINUOUS (ot_key_ord_policy.h). The plain "smallest otz that reaches this key"
+  // search this used to do is not injective: the guest's compression skips keys 1792..1919, and it
+  // sent all 128 of them plus key 1920 to otz 3072, so they shared one ord. The framework requires
+  // this map to be strictly monotone and aborts otherwise -- measured, Tomba! 2 died at frame 2700
+  // on both aspect settings with "OT key->ord is not strictly monotone at key 1920". The comment
+  // that used to sit here claimed one canonical inversion "keeps the map strictly monotone across
+  // ALL keyed faces"; it does not, and the sub-bucket shift it warned about in the next breath is
+  // exactly what puts a key in the gap.
+  const float avg_sz = (float)(tomba2::ot_key_ord::otzForKey(key) * 4096.0 / (4.0 * (double)zsf));
   return proj_pz_to_ord(avg_sz);
 }
 

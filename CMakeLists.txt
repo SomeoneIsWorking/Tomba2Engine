@@ -118,6 +118,10 @@ if(BUILD_TESTING)
   target_include_directories(test_parallax_scroll PRIVATE game/scene "${PSXPORT_DIR}/tests")
   add_test(NAME tomba_parallax_scroll COMMAND test_parallax_scroll)
 
+  add_executable(test_ot_key_ord_policy tests/test_ot_key_ord_policy.cpp)
+  target_include_directories(test_ot_key_ord_policy PRIVATE game)
+  add_test(NAME tomba_ot_key_ord_policy COMMAND test_ot_key_ord_policy)
+
   add_executable(test_scene_kind tests/test_scene_kind.cpp game/render/scene_kind.cpp)
   target_include_directories(test_scene_kind PRIVATE game/render)
   add_test(NAME tomba_scene_kind COMMAND test_scene_kind)

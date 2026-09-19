@@ -283,6 +283,33 @@ unmeasured. Note that `looks_right.py`'s `widescreen` check PASSED all three non
 asks only whether the PNGs differ — so earlier "widescreen PASS" lines in this document do not by
 themselves establish that a scene gained coverage; only the `coverage` measurement does.
 
+Measured 2026-09-19 on psxport `077f5d0c`, the first evidence that separates *widening* from
+*stretching* rather than reading drawn aspect. `external/psxport/tools/port/widescreen_pair.py`
+compares the 320-wide and 428-wide captures of the same frame two ways: as a pure horizontal
+translation of the narrow picture into the wide one, and as a uniform horizontal stretch. Three
+frames of the free-roam route, all `wide_engine=1`:
+
+| frame | best translation residual | dx | stretch residual | verdict |
+|---|---|---|---|---|
+| f900 | 0.06 | +54 | 112.73 | WIDENED |
+| f1800 | 0.44 | +54 | 181.40 | WIDENED |
+| f2700 | 0.01 | +54 | 65.19 | WIDENED |
+
+`dx = +54` is exactly `(428 - 320) / 2` at every frame: the 4:3 picture sits unchanged in the middle
+of the wide one and the extra area is rendered, not interpolated from it. The stretch hypothesis is
+worse by 150x to 6500x, so this is not final-image scaling.
+
+f2700 could not be captured at all until the same day. The product died with
+`FATAL: OT key->ord is not strictly monotone at key 1920`, exit 139, at BOTH aspects — so this was
+never widescreen-specific. Cause: the guest OT-key compression `(otz >> band) + (band << 9)` skips
+exactly 128 admitted keys in one run, 1792..1919, and the port's plain search inverted every one of
+those 130 keys (the gap plus 1920) to the same otz 3072, which the monotonicity assertion then
+caught. `game/render/ot_key_ord_policy.h` now owns the inversion and interpolates across a skipped
+run, giving all 130 distinct float32 ords at zsf 1000 and 2048.
+`tests/test_ot_key_ord_policy.cpp` holds the four checks, including the negative that shows the old
+plain search collapsing 1792..1920 onto otz 3072. After the fix: `aspect=0 exit=0
+monotone-fatal=0`, `aspect=1 exit=0 monotone-fatal=0`, both PNGs written.
+
 ### S006 — Tomba! 2 interpolation: partial
 
 The title owns prior/current camera, object, backdrop, and effect presentation state. Recorded still
