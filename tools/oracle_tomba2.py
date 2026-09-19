@@ -37,6 +37,13 @@ PAD_PRESSED = 0x800E7E68         # ... buttons newly pressed this frame
 PAD_RELEASED = 0x800F23A4        # ... buttons newly released this frame
 TASK_RUNNING = 4                 # task slot state while the scheduler is inside that task's logic
 
+# The resident camera object (game/camera/cutscene_camera.h CAM_OBJ). The guest OVERLOADS this one
+# block: the per-frame camera driver 0x8006EC44 hardcodes it as the camera, and the GAME-overlay fade
+# sequencer 0x8010957C is handed the same address as its node (game/render/screen_fade.h `sequence`,
+# called from Engine::fieldRun's sm[0x4e]==0xb branch). So the camera and the screen fade's ramp share
+# a base, which is why one constant serves both groups below.
+CAM_OBJ = 0x800E8008
+
 declared = (
     DeclaredRange("task0.state", TASK0, 2, False),  # frame-phase dependent, see excluded
     DeclaredRange("task0.entry", TASK0_ENTRY, 4, True),
@@ -50,6 +57,43 @@ declared = (
     DeclaredRange("pad.current", PAD_CURRENT, 4, True),
     DeclaredRange("pad.pressed", PAD_PRESSED, 4, True),
     DeclaredRange("pad.released", PAD_RELEASED, 4, True),
+    # --- What the PICTURE needs and the RAM comparison does not; see picture_decisive below. ---
+    # The camera's mode byte drives an 18-entry dispatch (cam[0x64]&0x3F) and its three angles place
+    # the look point (cam[0x6c/0x6e/0x70] -> rcos/rsin), so between them they decide where the scene
+    # is seen from. The camera's world position is not here: it is assembled into the scratchpad
+    # (0x1F8000D2/D6/DA, docs/areas.md), which the console reference cannot read at all.
+    DeclaredRange("camera.mode", CAM_OBJ + 0x64, 1, False),
+    DeclaredRange("camera.angles", CAM_OBJ + 0x6C, 6, False),
+    # The fade sequencer's own state: outer state at +2 (0 init, 1 running), running substep at +3,
+    # the step-2 delay counter at +104 and the RAMP LEVEL 0..31 at +106. The level is the field that
+    # separates two frames of the same scene at different brightness, and it is the reason this group
+    # exists (docs/issues/0018). The PRODUCT's frame-scoped fade colour is deliberately host memory
+    # and not guest RAM (game/render/screen_fade.h), so the ramp level is the only fade quantity the
+    # two cores can be compared on -- the composited result is a picture question, not a RAM one.
+    DeclaredRange("fade.sequencer", CAM_OBJ + 0x02, 2, False),
+    DeclaredRange("fade.level", CAM_OBJ + 0x68, 4, False),
+    # The FIELD's own fade ramp, which is a different fade from the sequencer above and is the one
+    # that runs on area entry and exit: Engine::fieldRun case 9 arms it to 31 and case 10 counts it
+    # down to 0, driving the leaf at 0x8007E9C8 with (level * -8) replicated into R/G/B
+    # (game/core/engine.cpp:1721-1738). The guest reaches it through a scratchpad pointer
+    # (`sm = mem_r32(0x1F800138)`), which the console reference cannot read; the fixed base is the
+    # same 0x801FE000 the state_machine range above is expressed against.
+    DeclaredRange("fade.field_ramp", TASK0 + 0x6E, 1, False),
+)
+
+# The ranges that must agree before a PIXEL COUNT means anything. Not the same question as the RAM
+# set: `decisive` asks "may the simulation differ here", and a camera angle or a fade level can leave
+# the game behaving identically while moving every pixel on screen. Without this, compare.py falls
+# back to the RAM set -- which is what produced this title's first picture number, free_roam at
+# 17664/71680 (24.64%) on 2026-09-19, from two frames of the same scene at different fade brightness.
+# That number ranked nothing (docs/issues/0018).
+#
+# These four are informational for the RAM comparison and decisive only here, which is a deliberately
+# narrow claim: nothing has yet measured whether the camera or the fade carries a standing timing
+# offset between the cores the way Spyro 1's does, so this does not start failing RAM runs that
+# passed before. If a measurement later shows they agree exactly, they can be promoted.
+picture_decisive = tuple(r.name for r in declared if r.decisive) + (
+    "camera.mode", "camera.angles", "fade.sequencer", "fade.level", "fade.field_ramp",
 )
 
 excluded = {
