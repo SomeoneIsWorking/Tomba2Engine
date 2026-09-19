@@ -275,15 +275,38 @@ This is not an interpolation bug: it is the unported-producer gap
 (`docs/unported-render-inventory.md`) showing up as judder, and it will not close by changing the
 lerp. It is also why the hut interior looked clean — there, every moving tile was TIER1-owned.
 
-Gap: the seaside FIELD has still not been dumped; the replay named above is in the opening cutscene
-for its first 600 fences. Only three scene kinds are measured. A 16-pixel tile cannot see an error
+The same replay's FIELD gameplay (fences 1400-1699, Tomba climbing the vine beside the hut, 299
+triples) reproduces that result independently: 1,545 moved endpoint tiles, of which **1,328 (86%)
+are layer-2 verbatim**. Two scene kinds, two captures, one cause.
+
+| ownership | layer | node | lerped | endpoint | of those, moved |
+|---|---|---|---|---|---|
+| verbatim | 2 | — | 54,490 | 3,043 | **1,328** |
+| TIER1 | 1 | `0x800EDDA0` | 22,838 | 386 | **184** |
+| TIER1 | 1 | `0x800EDC90` | 1,329 | 91 | 30 |
+| verbatim | 3 | — | 667 | 163 | 3 |
+| TIER1 | 1 | four other nodes | 915 | 7 | 0 |
+
+Two separate defects fall out of it. The large one is the unported producers above. The smaller one
+is real interpolation failure in reconstructed content: entity `0x800EDDA0` has 184 moved endpoint
+tiles here against 44 in the cutscene, so a TIER1 entity that IS being interpolated still lands on
+an endpoint in the field. That one is in scope for the lerp and is not explained by missing
+producers.
+
+The field capture also answers what draws the sky here: nothing of ours. The backdrop, terrain and
+scene-table sentinels (`0xFFFF0001`-`0xFFFF0003`) appear **zero times** in 1,731 dumped fences, so
+the native backdrop tilemap producer never runs in this area and the whole top of the screen is
+verbatim guest output. That is consistent with `Render::backdropTilemapDrawer` resolving false
+outside the seaside and areas 10/11, and it means issue 0009's open Y-modulus question is not
+reachable in this scene at all.
+
+Gap: three scene kinds are measured, all from one replay. A 16-pixel tile cannot see an error
 smaller than itself, so a sub-pixel residual would need a per-prim vertex comparison to bound. The
 layer-2 verbatim owners are not yet resolved to individual producers, because every verbatim run
-shares node 0. Separately, issue 0009 records a difference tile attribution cannot see at all: the
-real frame and the interpolated frame apply different modulus policies to the backdrop scroll,
-harmless on the X axis because the drawer's period equals the X modulus, unresolved on Y because it
-does not. Every layer named stepped, snapped, cold, or unverified in the render inventory remains
-so.
+shares node 0 — resolving them needs the framework to carry an identity on OT-walk-classified
+items. `0x800EDDA0`'s 184 is not yet traced to an input. Issue 0009 remains open and now needs a
+scene where the native backdrop actually draws. Every layer named stepped, snapped, cold, or
+unverified in the render inventory remains so.
 
 ### S007 — Tomba! 2 input: partial
 
