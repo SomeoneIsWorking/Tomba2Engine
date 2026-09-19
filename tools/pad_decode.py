@@ -25,17 +25,16 @@ every combined press silently, which is why routes rebuilt from it desynced.
 
 Pad bit layout (active-low: a PRESSED button CLEARS its bit; neutral frame = 0xFFFF). LITTLE-ENDIAN
 uint16 per frame (verified against the replay library — LE yields ~76% neutral frames, BE ~0%)."""
-import sys, struct
+import os, sys, struct
 
-# The complete SCPH digital-pad word. The shoulder and stick bits were missing here until a
-# round-trip over the whole replay library hit mask 0xFEFF (L2 held) in long-session-many-bugs.pad
-# and could not name it; an incomplete table makes a rebuilt route drop input silently.
-BTN = {0x0010: "up", 0x0040: "down", 0x0080: "left", 0x0020: "right",
-       0x4000: "cross", 0x2000: "circle", 0x8000: "square", 0x1000: "triangle",
-       0x0008: "start", 0x0001: "select",
-       0x0100: "l2", 0x0200: "r2", 0x0400: "l1", 0x0800: "r1",
-       0x0002: "l3", 0x0004: "r3"}
-NAME2BIT = {v: k for k, v in BTN.items()}
+# The complete SCPH digital-pad word lives in the framework, with the .pad format that uses it:
+# external/psxport/tools/psx_pad.py. It was duplicated here, and the shoulder and stick bits were
+# missing from this copy until a round-trip over the whole replay library hit mask 0xFEFF (L2 held)
+# in long-session-many-bugs.pad and could not name it. An incomplete copy of a bit table makes a
+# rebuilt route drop input silently, which is why there is now exactly one.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "..", "external", "psxport", "tools"))
+from psx_pad import BITS_TO_NAME as BTN, PSX_BUTTON_BITS as NAME2BIT  # noqa: E402
 
 
 def decode(path):
