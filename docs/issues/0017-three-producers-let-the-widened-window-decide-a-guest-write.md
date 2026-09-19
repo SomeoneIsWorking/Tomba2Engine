@@ -1,13 +1,47 @@
 ---
 id: 17
 title: Three producers let the widened window decide a write back into guest memory
-status: open
-symptom: perobj_billboard, text_label and quad_rtpt_submit gate a guest-memory write on a right-edge test whose threshold is the WIDE render width, so turning widescreen on changes what the guest believes; both oracle legs run 4:3, so nothing compares the configuration in which it happens
+status: invalid
+symptom: FILED IN ERROR — the three producers' widened right-edge gates gate only per-frame presentation (guest stack scratch, packet-pool packets, OT links), not persistent guest state; there is no guest-belief defect here
 state_items: S005
 tags: widescreen,guest-write,oracle-coverage
 created: 2026-09-19
 updated: 2026-09-19
 ---
+
+## INVALID — this was filed in error, and here is the disproof
+
+I filed this by pattern-matching Spyro 1's particle defect (its issue 0124), where both particle
+producers wrote a visibility byte back into the guest's own PARTICLE RECORD, so widescreen changed
+state the simulation carries between frames. That was a real defect. This is not the same thing, and
+I did not check the write targets before claiming it was.
+
+What the three widened gates actually gate:
+
+| producer | claimed target | ACTUAL target |
+|---|---|---|
+| `perobj_billboard.cpp` | "the record's `mem_w32(FR(56), ...)`" | `FR(off)` is `c->r[29] + off` — the GUEST STACK POINTER. FR(56) is a stack local, scratch inside one call. The unconditional depth write at :782 is also BEFORE the gate, not after it as I wrote. |
+| `text_label.cpp` | a guest write | `pk` is the packet at the pool tail; the code byte and tpage/clut go into that packet, and `PKT_POOL_PTR` is bumped past it |
+| `quad_rtpt_submit.cpp` | guest packet pool + OT | correct as to WHERE, wrong as to what it means — see below |
+
+The packet pool at `0x800BF544` is a per-frame bump allocator the guest resets every frame, and the
+ordering table is the frame's display list. Measured: three samples of the pool pointer after 600
+stepped frames all sit inside a 2.5 KB band (`0x000C7E50`..`0x000C8848`). An allocator that were
+never reset would be megabytes further on after 600 frames at tens of packets each.
+
+So admitting more geometry in the `[320, 428)` band puts more packets in this frame's display list
+and links more OT buckets. That is not widescreen deciding what the guest believes — it is what
+drawing more geometry on a PSX consists of. The OT bucket is also where layering correctly lives
+(the standing rule that a screen's layering IS the guest OT bucket, not a host layer to guess at),
+so moving this geometry to a host-side queue would be the actual violation.
+
+Nothing here needs fixing, and the "sanctioned wide-mode guest deviation" comments at those sites
+are accurate. The real remaining exposure is capacity, not belief: more admitted prims mean more
+pool and OT pressure at 16:9, which is the failure mode issue 0011 already hit from another
+direction (a queue frame that never ended, 65,536 prims). That is worth a bound, and it is a
+different issue from this one.
+
+
 
 ## What is wrong
 

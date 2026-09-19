@@ -4,8 +4,9 @@
 // 320` for themselves, and two of them then re-derived `(that - 320) / 2` a second time. That is
 // one policy -- how wide is the picture this port is composing -- written six times, and it is the
 // exact shape that let Spyro's paired actor be the one producer that forgot it (Spyro issue 0124).
-// Three of the six gate a WRITE BACK INTO GUEST MEMORY on the answer, so the policy is not only a
-// drawing detail; see issue 0017.
+// Three of the six also gate how much geometry enters the frame's display list, which is a capacity
+// question at 16:9 rather than a correctness one -- issue 0017 checked whether it was a guest-state
+// deviation and found it is not.
 //
 // Every one of the six also declared the two framework entry points locally instead of including
 // their owning header. The declarations live in `gpu_vk.h`; this module is the only place in the

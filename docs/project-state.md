@@ -283,12 +283,10 @@ unmeasured. Note that `looks_right.py`'s `widescreen` check PASSED all three non
 asks only whether the PNGs differ — so earlier "widescreen PASS" lines in this document do not by
 themselves establish that a scene gained coverage; only the `coverage` measurement does.
 
-Gap, recorded 2026-09-19 as issue 0017: three producers (`perobj_billboard`, `text_label`,
-`quad_rtpt_submit`) gate a write back into guest memory on the WIDE right-edge threshold, so at 16:9
-a prim in the [320, 428) band gets a guest packet written that 4:3 does not write. Both oracle legs
-run 4:3, so no comparison stands in the configuration where that happens — "byte-exact" here is a
-statement about a configuration the deviation is absent from. Measured as a real defect on Spyro 1
-the same day (its issue 0124); unmeasured here.
+Issue 0017 raised a widescreen guest-write concern at three producers and was closed INVALID on
+the same day: their widened gates reach only per-frame presentation (guest stack scratch, packet-
+pool packets, OT links), never persistent guest state. The pool is a per-frame bump allocator,
+measured bounded inside 2.5 KB after 600 frames.
 
 Measured 2026-09-19 on psxport `077f5d0c`, the first evidence that separates *widening* from
 *stretching* rather than reading drawn aspect. `external/psxport/tools/port/widescreen_pair.py`
