@@ -246,9 +246,26 @@ Interpolation is clear of it: with `PSXPORT_FPS60=1` the real frames of that rou
 to the 4:3 leg at both f1000 (3D) and f1110 (menu) — 0 of 691,200 pixels differ — while the same run
 emitted 615,338 interpolated prims over 1,091 extra presents.
 
-Gap: the memory-card pages, cutscenes, and HUD anchors in every remaining scene kind are still
-uncaptured, and no area beyond these four has been looked at. The Options family's Screen-adjust and
-Controls pages are reached by no replay and are unmeasured. Note that `looks_right.py`'s `widescreen` check PASSED all three non-widening pages — it
+The memory-card scene kind was captured on 2026-09-19 on psxport `10071776`, over
+`replays/bugs/save-card-pages.pad` (2400 fields, no AUTO_SKIP), and it is correct. Every frame of
+the save round trip measures drawn aspect **1.333 -> 1.784**, the 16:9 target (428/240 = 1.783):
+the "Save? Yes/No" dialog over the 3D world (f1690), "Select slot / MEMORY CARD slot 1 / slot 2"
+(f1740), the card file list (f1800), "01 NEW" + "OK to save? Yes/No" (f1870), and free-roam after
+the round trip (f2300). The run reported 5/5 shots with no failure marks and 992,240 interpolated
+prims over 2,384 extra presents.
+
+Looked at, not only measured: the 16:9 captures show more world at both edges (open sea to the
+left, further terrain to the right), glyphs at unchanged proportions, and every dialog box, button
+prompt and card panel displaced by exactly one margin — that is, the authored 4:3 group stays
+centred, which is what `RQ_2D_AUTHORED_4_3` is supposed to do. The card panels keep their authored
+width in native pixels (~274 of 320 and of 428), so nothing is stretched. This is the scene kind
+`Render::renderCardBrowser` and the save dialogs share with the options pages through
+`PageBackdrop`, so the issue 0010 mechanism is confirmed on a second family.
+
+Gap: cutscenes and HUD anchors in the still-uncaptured scene kinds, and no area beyond these five
+has been looked at. The Options family's Screen-adjust and Controls pages are reached by no replay
+and are unmeasured. `replays/bugs/machinery-cutscene.pad` reaches an area-0 cutscene at ~pad frame
+30150 and is the obvious next coverage route, at roughly 30k fields per aspect leg. Note that `looks_right.py`'s `widescreen` check PASSED all three non-widening pages — it
 asks only whether the PNGs differ — so earlier "widescreen PASS" lines in this document do not by
 themselves establish that a scene gained coverage; only the `coverage` measurement does.
 

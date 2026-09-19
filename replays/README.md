@@ -100,6 +100,16 @@ Once the recorded sequence ends, input falls through to the host (so `run N` aft
   slot, and a third opens "OK to save?". Reproduced the memory-card device-table crash (the port
   aborted on an unmapped read from FUN_80080940's device walk) and now covers the whole save round
   trip plus every card screen's chrome.
+- `bugs/save-card-pages.pad` — 2400 frames. NOT a hand capture: built from
+  `bugs/save-confirm-crash.pad` with `tools/pad_decode.py --base`, which keeps that route's 1673
+  frames byte-for-byte and appends three Cross taps (f1700-1707, f1760-1767, f1820-1827). Those are
+  the three the save-confirm entry describes reaching by REPL, so this drives the whole save round
+  trip headlessly: "Save? Yes/No" (~f1690), "Select slot / MEMORY CARD slot 1 / slot 2" (~f1740),
+  the "01 NEW" file list and "OK to save? Yes/No" (~f1870), and back to free-roam (~f2300). Do NOT
+  add `PSXPORT_AUTO_SKIP` — the base replays from boot through the opening FMV and desyncs without
+  it. This is the widescreen coverage route for the memory-card scene kind (project state S005);
+  all five of those frames measure drawn aspect 1.333 -> 1.784.
+
 - `bugs/save-prompt-black-screen.pad` — 12500 frames, cut from a live debug-server session
   (`padrec save`) on top of `bugs/bucket-softlock.pad`, so it replays from boot: it closes the
   bucket-pickup dialog with CIRCLE, walks east, and DIES, landing in the GAME OVER / CONTINUE
