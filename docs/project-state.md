@@ -40,8 +40,9 @@ in `codemap.md`.
 ## Current focus
 
 S001 is the current focus. The break-first removal is complete and the shared per-`Core` Lightrec
-executor is pinned at psxport `18e8d18417ae9dce539f7284eff46c0f4d44a319`, which is also the
-commit `build/psxport_resolved.txt` records for the verified build. Issue 0005 must now
+executor is pinned at psxport `f5d32d97`, which is also the commit
+`build/psxport_resolved.txt` records for the verified build (`tools/verify_ci.py`, 24 of 24 tests,
+execution boundary clean, 2026-09-19). Issue 0005 must now
 prove one resident and one colliding-overlay override plus scoped original calls through the shipping
 dispatcher. Tomba! 2 then regains its recorded free-roam frontier and passes representative gameplay.
 Tomba! 1 remains deferred until that complete gate. Issue 0006's supported-syscall
@@ -208,9 +209,34 @@ worse than the seaside field's stale share, and it is concentrated: tiles (112,1
 stale in 21 of the 96 triples in which they moved, with (96,160), (80,96), (240,48) and (224,64)
 next.
 
-Gap: neither the seaside 0.2% nor the interior 3.0% is attributed to a layer, and the interior
-cluster above is the sharpest lead yet for doing so. Every layer named stepped, snapped, cold, or
-unverified in the render inventory remains so, and only these two scene kinds have been dumped.
+Re-measured 2026-09-19 on psxport `f5d32d97` at 16:9 with fps60 on, same replay and 120 triples:
+86.7% STATIC, 12.8% BETWEEN, 0.2% STALE, 0.2% AHEAD. Of the 6,447 tiles where anything moved, 96.7%
+are lerped, 1.6% stale and 1.7% ahead, against 94.2/3.0/2.8 before — the residual roughly halved.
+
+That residual is now attributed rather than guessed. The `fps60seq` dump groups a captured frame by
+entity node and reports each run's screen extent, so a stale tile can be looked up by coordinate.
+All 105 stale and all 110 ahead tile occurrences are covered by a run, and every owner is a layer-1
+reconstructed (TIER1) entity: **no verbatim producer owns a single moving tile in this scene**, so
+the residual is not a missing producer. Crediting each tile to the smallest run covering it, which
+credits an entity only where nothing smaller drew there:
+
+| entity node | what it is | lerped | stale | ahead | snapped to an endpoint |
+|---|---|---|---|---|---|
+| `0x800FD850` | the hut room object | 392 | 28 | 35 | **13.8%** |
+| `0x800FD958` | interior object, unidentified | 1,543 | 25 | 38 | 3.9% |
+| `0x800E7E80` | Tomba's actor/view base | 1,240 | 22 | 14 | 2.8% |
+| `0x800FDA60` | interior object, unidentified | 3,057 | 30 | 23 | 1.7% |
+
+The room object is the outlier by a factor of four, and it is static in world space: its screen
+motion is entirely camera. That points the remaining error at the interior sub-scene's camera
+interpolation rather than at per-object state, and it reverses the earlier reading that the cluster
+was Tomba's own sprite. Separately, across all 1,197 dumped fences no entity's extent was ever
+identical to its previous frame's while the current frame's differed, so nothing is frozen
+wholesale; whatever remains is finer than entity position.
+
+Gap: the room object's 13.8% is not yet traced to a specific camera or transform input, the seaside
+scene has not been re-attributed with the same instrument, and only these two scene kinds have been
+dumped. Every layer named stepped, snapped, cold, or unverified in the render inventory remains so.
 
 ### S007 — Tomba! 2 input: partial
 
