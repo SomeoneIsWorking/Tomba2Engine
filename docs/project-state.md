@@ -262,10 +262,24 @@ width in native pixels (~274 of 320 and of 428), so nothing is stretched. This i
 `Render::renderCardBrowser` and the save dialogs share with the options pages through
 `PageBackdrop`, so the issue 0010 mechanism is confirmed on a second family.
 
-Gap: cutscenes and HUD anchors in the still-uncaptured scene kinds, and no area beyond these five
-has been looked at. The Options family's Screen-adjust and Controls pages are reached by no replay
-and are unmeasured. `replays/bugs/machinery-cutscene.pad` reaches an area-0 cutscene at ~pad frame
-30150 and is the obvious next coverage route, at roughly 30k fields per aspect leg. Note that `looks_right.py`'s `widescreen` check PASSED all three non-widening pages — it
+The area-0 machinery cutscene was captured on 2026-09-19 on psxport `59fc724c`, over the full
+`replays/bugs/machinery-cutscene.pad` (30,400 fields per leg, shots at 30160/30200/30280/30360), and
+it widens: drawn aspect **1.333 -> 1.784**, the 16:9 target, with 4/4 shots and no failure marks.
+The fps60 leg over the same route reports 20,877,044 interpolated prims across 30,384 extra
+presents.
+
+That route could not be run at all until the same day. It aborted at field 2,940 with "render queue
+full (65536 items)" at BOTH aspects, and the two things I first said about that were wrong and were
+falsified rather than quietly dropped. It is not widescreen-specific: the overflow attribution is
+byte-for-byte identical at 4:3 and 16:9. It is not runaway re-submission: 36,193 of the 65,536 prims
+are geometrically distinct. The cause was a queue frame that never ended — `submitFrame` returns
+early while the StrPlayer holds 0x1F80019C non-zero, and the draw kick it skips is the only caller
+of `rq.flush()`, so 1,016 consecutive suppressed frames accumulated prims to the cap. Fixed in
+`7350ebd` by ending the queue frame on the suppressed path; `RQ_MAX` is unchanged. See issue 0011.
+
+Gap: HUD anchors in the still-uncaptured scene kinds, and no area beyond these six has been looked
+at. The Options family's Screen-adjust and Controls pages are reached by no replay and are
+unmeasured. Note that `looks_right.py`'s `widescreen` check PASSED all three non-widening pages — it
 asks only whether the PNGs differ — so earlier "widescreen PASS" lines in this document do not by
 themselves establish that a scene gained coverage; only the `coverage` measurement does.
 

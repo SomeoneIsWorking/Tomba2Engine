@@ -1,7 +1,7 @@
 ---
 id: 11
 title: The cutscene keeps submitting after the queue stops being flushed, so prims accumulate to the cap
-status: open
+status: fixed
 symptom: replays/bugs/machinery-cutscene.pad aborts with "render queue full (65536 items)" at tomba-frame 2940; reproduced at aspect=0 and aspect=1 with identical attribution
 state_items: S005
 tags: render,render-queue,cutscene,widescreen,fps60
@@ -122,3 +122,39 @@ at 2,043 prims, 3% of the cap.
 
 S005's remaining cutscene coverage measurement is blocked: neither aspect completes this route, so
 the 16:9/4:3 drawn-aspect comparison cannot be taken at frames 30160-30360.
+
+## Fixed (2026-09-19, `7350ebd`)
+
+`submitFrame` now calls `rq.mark_consumed()` on the suppressed path before returning. That is the
+signal the queue already had for "this frame is over"; it simply had one caller, `Engine::drawOTag`,
+which a suppressed frame never reaches. The invariant restored is that a queue frame lasts one
+FRAME, not one PRESENTATION.
+
+No picture changes. State 3 is "stay": nothing new is presented and no capture is taken, so the
+prims that now end with their frame were never going to be drawn.
+
+`RQ_MAX` is unchanged, and must stay unchanged. Raising it would have hidden a queue frame that
+never ends behind a larger number, and the next long suppressed stretch would have reached the new
+cap the same way.
+
+### Evidence
+
+The full 30,400-field route, which before this could not be run past field 2,940:
+
+```
+[looks-right] reaches      PASS — 4/4 shot(s) captured, failure marks: none
+[looks-right] widescreen   PASS — f30160 PNG differs from 4:3
+[looks-right] coverage     WIDER — drawn aspect 1.333 -> 1.784
+[looks-right] fps60        PASS — 20877044 interpolated prim(s) over 30384 extra present(s)
+```
+
+`grep -c "render queue full"` is 0 in all three leg logs.
+
+### What is NOT established by that
+
+The oracle route (`tools/oracle_compare.py`) reaches free roam in the opening seaside field and
+compares 405 checkpoints per-frame; it never reaches the machinery cutscene. So this fix has a gate
+behind it and not an independent-reference comparison. The three oracle legs run on 2026-09-19 —
+enhancements off, `aspect=1`, and `PSXPORT_FPS60=1` — are 405/405 with 0 divergences each, which
+establishes that neither enhancement perturbs guest state on the route the oracle does cover, and
+says nothing about this one. Extending the oracle to a recorded-pad route is the open follow-up.
