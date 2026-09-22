@@ -516,6 +516,33 @@ interpolate is correct. The other 66 are continuous.
 At fences 60 and 70 the in-between present is **byte-identical to the next real frame at both the
 product factor and at t=0**, on endpoints 0.67 and 2.36 apart.
 
+**Found and fixed the same day (issue 0021), and the first reading of it was wrong.** It was not the
+cutscene's geometry: reconstruction was running at 233.7 prims per in-between present, and a new
+per-present census of `Fps60::projObj` says **98.1% of its object resolutions lerped from a real
+previous endpoint** (gameplay: 99.9%). What changed between those real frames was not geometry —
+classifying the per-pixel deltas, 89-100% of the opening's changed pixels moved by ONE uniform level
+step across 7-262 distinct deltas, against 22-35% across 8,427-12,116 deltas in gameplay. Nothing
+was moving; a global level was, 8 of 255 per logic frame.
+
+The cause is that **a screen fade is a present-time composite with no endpoints.** Nothing in the
+captured frame carries it and no producer reconstructs it, so both presents read the title's current
+level and composited the same one. Every other lerped input already had a prev/cur pair; the fade
+had none. `psxport::fade::resolve` now owns how two fade endpoints resolve at a factor (returning
+the current state across a fade-MODE change, which is a discontinuity rather than a ramp), `Fps60`
+rolls the endpoints once per logic frame at the top of `present_vk` — not in `frame_commit`, which
+this title's frame driver bypasses — and every path that composites or captures a PRESENTED frame
+uses the resolved value while the SBS readback keeps the guest-exact current read.
+
+| fences 1..307, 247 triples | responded to t | did NOT respond | wholly unresponsive, continuous |
+|---|---|---|---|
+| before | 64.66% | 30.21% | **66 triples** |
+| after | **93.37%** | 4.68% | **0** |
+
+The blast radius is measured, not asserted: over the same replay, **all 307 real frames are
+byte-identical before and after**, 98 of 293 in-between frames changed, and gameplay's numbers are
+unchanged to the pixel. Oracle compare with widescreen and fps60 on: 34/34 checkpoints MATCH, from a
+comparator whose selftest detects a seeded byte.
+
 Accumulating the gameplay residue over all 300 triples rather than one, 26,707 of 102,720 pixels are
 unresponsive at least once and the worst is unresponsive in 37 of 300. It lands on the animated
 water surface, the swaying foliage, and the circular gauge at the top left — content whose frames
