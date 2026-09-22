@@ -492,14 +492,41 @@ verbatim guest output. That is consistent with `Render::backdropTilemapDrawer` r
 outside the seaside and areas 10/11, and it means issue 0009's open Y-modulus question is not
 reachable in this scene at all.
 
-Gap: three scene kinds are measured, all from one replay. A 16-pixel tile cannot see an error
+**Where that snap lives is now known, per pixel and per triple (2026-09-22).** The tile-level
+forced-factor table above is superseded by `external/psxport/tools/port/fps60_check.py --forced`,
+which asks the same question of every pixel instead of every 16-pixel tile and reports it per
+triple. A tile holding both interpolated and uninterpolated content had to be counted twice, which
+is why the figure above could only be stated as a floor; a pixel cannot. `replays/bugs/
+walk-dust-puff.pad`, `aspect=1 fps60=1`, 428x240, all shared real frames byte-identical between the
+two runs, so the factor was the only thing that changed:
+
+| capture | triples | responded to t | did NOT respond | neither |
+|---|---|---|---|---|
+| fences 1..307 (boot, opening cutscene) | 247 | 64.66% | 30.21% | 5.13% |
+| fences 600..900 (`PSXPORT_FPS60_DUMP_FROM=600`, gameplay) | 299 | **96.35%** | 2.19% | 1.46% |
+
+Those are two behaviours, and reporting them as one 30% would have been the error this measurement
+exists to avoid. Per triple, gameplay has 143 of 299 triples at or under 1% unresponsive, a median
+of 1.19%, and **no wholly unresponsive triple**; its residue concentrates in the lower right (row
+bands 8..11 hold 72.6%, column bands 9..11 hold 68.9%), so it is specific content rather than a
+picture that does not interpolate. The opening has 71 of 247 triples at 99%+, in fence runs
+`51..85, 92..125, 127, 129` — and only 5 of those 71 are across a discontinuity, where refusing to
+interpolate is correct. The other 66 are continuous.
+
+At fences 60 and 70 the in-between present is **byte-identical to the next real frame at both the
+product factor and at t=0**, on endpoints 0.67 and 2.36 apart. That is not a sub-pixel quantisation
+onto an endpoint and not a cut. Issue 0021 carries it.
+
+So the forward snap is not distributed across this title's gameplay; gameplay interpolates at 96.4%
+of changed pixels and the opening cutscene does not interpolate at all. The remaining gameplay 2.19%
+and the cutscene are separate questions with separate evidence, and neither needs psxport issue 0120.
+
+Gap: four scene kinds are measured, all from one replay. A 16-pixel tile cannot see an error
 smaller than itself, so a sub-pixel residual would need a per-prim vertex comparison to bound. Which
 producers own the measured defects is not established at all while psxport issue 0120 is open, so
 the next step here is that issue rather than another capture; carrying an identity on
 OT-walk-classified items is necessary but not sufficient, because the extents would still be in a
-different space from the pixels. Running the forced-interpolation-factor experiment on this title
-needs no attribution and would say whether its defect is the same forward snap Spyro 1 measured.
-Issue 0009 remains open and now needs a scene where the native backdrop actually draws. Every layer
+different space from the pixels. Issue 0009 remains open and now needs a scene where the native backdrop actually draws. Every layer
 named stepped, snapped, cold, or unverified in the render inventory remains so.
 
 ### S007 — Tomba! 2 input: partial
