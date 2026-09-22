@@ -514,7 +514,15 @@ picture that does not interpolate. The opening has 71 of 247 triples at 99%+, in
 interpolate is correct. The other 66 are continuous.
 
 At fences 60 and 70 the in-between present is **byte-identical to the next real frame at both the
-product factor and at t=0**, on endpoints 0.67 and 2.36 apart. That is not a sub-pixel quantisation
+product factor and at t=0**, on endpoints 0.67 and 2.36 apart.
+
+Accumulating the gameplay residue over all 300 triples rather than one, 26,707 of 102,720 pixels are
+unresponsive at least once and the worst is unresponsive in 37 of 300. It lands on the animated
+water surface, the swaying foliage, and the circular gauge at the top left — content whose frames
+FLIP rather than move, which cannot be blended and correctly takes the newer frame. That is the same
+reading S006 already records for Tomba's own walk-cycle sprite. It is a candidate explanation for the
+2.19%, not a measurement of it: nothing here ties a pixel to a producer, and doing so is still
+psxport issue 0120's question. That is not a sub-pixel quantisation
 onto an endpoint and not a cut. Issue 0021 carries it.
 
 So the forward snap is not distributed across this title's gameplay; gameplay interpolates at 96.4%
