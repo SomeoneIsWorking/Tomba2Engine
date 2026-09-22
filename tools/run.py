@@ -531,7 +531,7 @@ def main(arguments: Sequence[str] | None = None, *, root: Path = ROOT) -> int:
         say("launching Tomba! 2 (native PC port)…")
         policy_root = psxport if psxport.is_absolute() else root / psxport
         policy = runpy.run_path(str(policy_root / "tools/port/launch_environment.py"))
-        env = policy["player_environment"](env)
+        env = policy["player_environment"](env, product="tomba2")
         env["PSXPORT_ASSET_DIR"] = env.get("PSXPORT_ASSET_DIR") or str(psxport)
         env["PSXPORT_DEBUG_SERVER"] = env.get("PSXPORT_DEBUG_SERVER") or "1"
         env["PSXPORT_NO_TERRAIN"] = env.get("PSXPORT_NO_TERRAIN") or "0"

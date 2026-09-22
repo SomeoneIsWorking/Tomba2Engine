@@ -211,7 +211,10 @@ class RunLauncherTest(unittest.TestCase):
                 launched.extend([program, argv, env])
                 raise run.LauncherError("exec intercepted")
 
-            def player_environment(_: dict[str, str]) -> dict[str, str]:
+            # `product` is required by the shared policy and names the title's run log; a stub
+            # that accepted anything would let the launcher stop passing it without failing here.
+            def player_environment(_: dict[str, str], *, product: str) -> dict[str, str]:
+                self.assertEqual(product, "tomba2")
                 return {"PSXPORT_VK_WINDOW": "1"}
 
             with (
