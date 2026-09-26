@@ -28,6 +28,74 @@ Do NOT use the attract demo to judge the native render path.
 Verify you're in free-roam (not the menu/cutscene) before rendering: object-list head 0x800FB168 != 0 AND the
 cutscene flag `*(0x1F800137)` == 0.
 
+## ⭐ PLAY IT FOR REAL — `tools/live_play.py`: reach gameplay with PAD input, over the live endpoint
+`PSXPORT_AUTO_SKIP=1` above is the PRODUCT's own auto-driver (an env knob, no pad). This is the other
+thing: the product runs at full speed and this tool PLAYS it over psxport's live debug server — a pad
+edge spanning real presented frames, guest state sampled while the picture keeps updating, screenshots
+of what is actually on screen. It is the only way to see a defect that needs the game RUNNING (a
+producer that refuses after 20s of play, a picture that goes black while walking) rather than a state
+parked at a barrier.
+
+```
+uv run --frozen python tools/live_play.py                      # canonical build (tools/gate.py's)
+uv run --frozen python tools/live_play.py --binary build/bin/tomba2_port   # a build whose endpoint has `guest`
+uv run --frozen python tools/live_play.py --hold right --seconds 10 --port 5983
+```
+
+Launch env comes from `tools/gate.py` (so it cannot drift from every other agent driver); it adds only
+`PSXPORT_DEBUG_SERVER=<this run's port>` and pops `PSXPORT_REPL`. The protocol is
+`external/psxport/tools/dbgclient.py`'s `LiveClient`; the product is killed by the PID it launched.
+**WHICH BUTTON A SCREEN WANTS IS `tools/title_prompts.py`**, shared with `tools/oracle_tomba2.py`, so the
+live route and the two-core comparison cannot answer different prompts. Artifacts:
+`scratch/live/{live_play.log,gameplay.ppm,gameplay_after_hold.ppm}`.
+
+Measured 2026-09-27, two runs of the same tool, one per build tree:
+| | `build/ci` (pin `2f8b8959`) | `build/` (framework HEAD `95b3dcb5`) |
+|---|---|---|
+| frames to free roam / menu answers / observations | 602 / 5 / 13 | 343 / 8 / 15 |
+| player position over an 8s `right` hold (16.16) | 4122.613 → 6000.285 | 4044.836 → 6000.285 |
+| screenshot | 428x240 P6, 308175 B, content CHANGED across the hold (same byte size) | same |
+| guest work DURING the hold window | not askable on this binary | 34.3M instructions, 2.78M blocks executed |
+| `guest` at exit | **not implemented by that binary** → the tool REFUSES | 3839824 executed blocks of 5325 translated, 45870182 instructions, 221296 calls, 271019 host dispatches, 3834499 hits / 5327 misses, 30662354 invalidations, 0 faults, fallback 0 by every reason |
+| widescreen | `[wide] aspect=1 wide_engine=1 native_width=320 render_width=428` | same |
+
+FOUR THINGS THIS COST TO LEARN, all of which the tool now encodes:
+
+1. **THE ENDPOINT'S COMMAND SET IS THE BINARY'S, not the framework's.** `build/ci` (configured against the
+   recorded `psxport.pin`) answers `? guest (try 'help')` while its own `help` text lists `guest`. So the
+   tool treats a `?`-prefixed or empty reply as a REFUSAL naming the binary — never as zeros — and prints
+   the binary's md5/mtime and the framework commit its tree resolved (`build/<tree>/psxport_resolved.txt`),
+   because two trees here are configured against two different framework commits. Rebuild `build/ci`, or
+   drive `build/`, before treating a zero as a measurement.
+2. **A PRESS IN THE FIRST FRAMES OF A SCREEN IS DROPPED, and pressing blindly CANCELS.** The title is
+   two pages (docs/tomba2-newgame.md §1) and `game/scene/demo.cpp`'s own s3 handler routes a third
+   outcome back to the title. 97 presses spread over 40000 presented frames — every one inside the first
+   few frames of the screen it was answering — never once entered the game, alternating title ↔ main menu
+   for the whole run. 2 presses 100+ frames apart walked the same binary to free roam. Hence `--settle`
+   (in observations, default 1: never press in the observation right after the screen changed) and at most
+   one press per observation. The ORACLE keeps its blind per-frame cadence untouched: it steps one game
+   frame at a time from boot and resolves the title inside 25 frames.
+3. **ONE ROUND TRIP PER DECISION, because the title's accept window is NARROWER THAN A ROUND TRIP.** A
+   command is serviced once per presented frame and a round trip costs 50 ms idle and ~200 presented
+   frames while the attract demo streams overlays. Spending two round trips per decision (observation +
+   frame counter) halved the presses that fit inside one screen and tripled the wall clock: the same
+   route measured 14448 frames / 35 presses with two, and 452 and 602 frames / 6 and 5 presses with one
+   (two runs). The frame counter is still read every 8 observations to police the budget, and the run
+   PRINTS frames-per-observation so the settle claim is checkable (43-92 in the title phase).
+4. **THERE IS NO READABLE GUEST GAME-TICK COUNTER ON THIS ENDPOINT.** `padrec` counts pad SERVICE frames,
+   measured at exactly 1.00 per presented frame, so it is the input clock and not a game tick;
+   `0x1F800160` is a world coordinate the native pool writes (game/world/pool.cpp) and `0x1F80017C` is
+   read only as a blink phase (game/render/field_hud.cpp), advancing ~2000 per presented frame. So the
+   tool reports presented frames AND the dynarec's own `executed_instructions`/`executed_blocks` DELTA
+   across the hold window as the guest's work.
+
+
+`*(0x1F800137)` is NOT an attract-vs-real separator in this port, contradicting docs/tomba2-newgame.md
+§3: the tool sampled it in BOTH phases and got `{0, 1}` each time (it still means "cutscene active", which
+is how game/core/auto_drive.cpp uses it, and `==0` is still the free-roam condition). Free roam itself is
+gated on the state machine (`sm[0x4a]==1, sm[0x4c]==2, sm[0x4e]==1`), the same predicate the oracle
+comparison checkpoints on.
+
 ## ⭐ THE EFFECT SANDBOX — `tools/sandbox.py`: spawn an effect, move the camera, step time, capture
 USER 2026-08-04: *"tbh I wish we had a test app where we could test these things like spawn an effect
 etc"*. This is that. It is **not a separate test binary** — a second executable would carry its own

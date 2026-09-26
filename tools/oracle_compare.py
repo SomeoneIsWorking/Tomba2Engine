@@ -5,8 +5,10 @@ reference at title-owned state checkpoints (psxport docs/oracle.md, tools/oracle
     uv run --frozen python tools/oracle_compare.py --bios ../SCPH1001.BIN
     uv run --frozen python tools/oracle_compare.py --bios ../SCPH1001.BIN --selftest
 
-The title policy lives in tools/oracle_tomba2.py; the product launch environment comes from
-tools/gate.py so every agent driver of the product builds it in one place.
+The title policy lives in tools/oracle_tomba2.py — which takes the route's DECISIONS (which button a
+screen wants, at what cadence) from tools/title_prompts.py, the module tools/live_play.py asks too — and
+the product launch environment comes from tools/gate.py so every agent driver of the product builds it in
+one place.
 """
 
 from __future__ import annotations

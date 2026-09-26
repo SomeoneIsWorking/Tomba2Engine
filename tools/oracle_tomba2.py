@@ -3,17 +3,21 @@
 checkpoint predicates, declared state, exclusions, the game-frame barrier and the input policy.
 
 Every predicate reads main RAM only, because the console reference cannot read the scratchpad.
+
+WHICH BUTTON A SCREEN WANTS IS NOT HERE. The route's decisions — the button per leg, its duty cycle,
+and the guest state that ends the leg — live in tools/title_prompts.py, which tools/live_play.py
+asks too, because they are title knowledge rather than comparison knowledge. This module keeps the
+transport: how one core is stepped, what a settle pad is, and what the two cores are compared on.
 """
 
 from __future__ import annotations
-
-from dataclasses import dataclass
 
 from compare import (
     Checkpoint,
     CoreSession,
     DeclaredRange,
     Driver,
+    Pattern,
     SelftestSeed,
     Settle,
     released,
@@ -22,15 +26,23 @@ from compare import (
     u32,
 )
 from compare_cores import CoreError
+from title_prompts import (
+    GAMEPLAY_ROUTE,
+    PLAYER_G,
+    PLAYER_POSITION,
+    STATE_MACHINE,
+    STATE_MACHINE_BYTES,
+    TASK0,
+    TASK0_ENTRY,
+    Screen,
+    Step,
+)
 
 name = "Tomba! 2 (SCUS_944.54)"
 
-STAGE_GAME = 0x8010637C          # task 0 entry while the GAME stage runs
-TASK0 = 0x801FE000               # task table entry 0 (state u16 at +0, stage entry u32 at +0x0C)
-TASK0_ENTRY = TASK0 + 0x0C
-STATE_MACHINE = 0x801FE048       # sm[0x48..0x52]: six halfwords (outer 48/4a/4c, leaf 4e/50/52)
+# The addresses the ROUTE reads are title_prompts' (see the module docstring). What is left here is
+# what only the comparison needs.
 AREA_INDEX = 0x800BF870
-PLAYER_G = 0x800E7E80            # Tomba's master G block (0x184 bytes, game/player/actor_tomba.h)
 DWELL_COUNTER = 0x800E809C       # VBlanks since the main loop last passed its vblank gate (GameConfig)
 PAD_CURRENT = 0x800ECF54         # frame fence FUN_800788AC: this frame's pad word (docs/engine_re.md)
 PAD_PRESSED = 0x800E7E68         # ... buttons newly pressed this frame
@@ -49,7 +61,7 @@ declared = (
     DeclaredRange("task0.entry", TASK0_ENTRY, 4, True),
     DeclaredRange("state_machine", STATE_MACHINE, 12, True),
     DeclaredRange("area_index", AREA_INDEX, 1, True),
-    DeclaredRange("player.position", PLAYER_G + 0x2C, 12, True),   # 16.16 X/Y/Z
+    DeclaredRange("player.position", PLAYER_POSITION, 12, True),     # 16.16 X/Y/Z
     DeclaredRange("player.motion", PLAYER_G + 0x44, 10, True),     # dir/speed pairs
     DeclaredRange("player.G", PLAYER_G, 0x184, False),
     # The pad words are what each core's game actually read; a mismatch there is an input-delivery
@@ -171,7 +183,7 @@ gameplay = (
     (frozenset(), 30),
 )
 
-selftest = SelftestSeed(PLAYER_G + 0x2C, "player.position", 0)
+selftest = SelftestSeed(PLAYER_POSITION, "player.position", 0)
 
 
 
@@ -182,35 +194,8 @@ def lookahead(core: CoreSession) -> int:
     return 1 if core.reference else 0
 
 
-def state_machine_view(raw: bytes) -> dict[str, int]:
-    names = ("48", "4a", "4c", "4e", "50", "52")
-    return {name: int.from_bytes(raw[i * 2:i * 2 + 2], "little") for i, name in enumerate(names)}
-
-
-@dataclass(frozen=True)
-class Observation:
-    """What one frame of main RAM says about progress."""
-    stage_entry: int
-    sm: dict[str, int]
-
-    @property
-    def in_game_stage(self) -> bool:
-        return self.stage_entry == STAGE_GAME
-
-    @property
-    def in_field(self) -> bool:
-        """The field runs: outer machine sm[0x4a]==1 with the area machine at sm[0x4c]==2."""
-        return self.in_game_stage and self.sm["4a"] == 1 and self.sm["4c"] == 2
-
-    @property
-    def in_free_roam(self) -> bool:
-        """The player has the pad: the field's leaf machine sm[0x4e] is 1. The opening cutscene
-        (Tomba's landing and the fisherman's dialogue) runs it at 9 and ignores the pad."""
-        return self.in_field and self.sm["4e"] == 1
-
-
-def observe(core: CoreSession) -> Observation:
-    return Observation(u32(core, TASK0_ENTRY), state_machine_view(core.read(STATE_MACHINE, 12)))
+def observe(core: CoreSession) -> Screen:
+    return Screen.from_bytes(u32(core, TASK0_ENTRY), core.read(STATE_MACHINE, STATE_MACHINE_BYTES))
 
 
 def summary(core: CoreSession) -> dict:
@@ -242,25 +227,35 @@ def advance(core: CoreSession, frames: int, strict: bool = False) -> None:
                                 f"1-VBlank frame cannot be aligned with the product's frame count")
 
 
+def _pattern(step: Step) -> Pattern:
+    """One title_prompts step as a per-game-frame input pattern for the two-core transport. A step
+    with no button becomes `released`, which is an instruction and not an absence of one."""
+    return released if step.button is None else tap(step.button, step.period, step.width)
+
+
 def reach_game(driver: Driver, core: CoreSession, budget: int, settle: Settle) -> tuple[int, frozenset[str]]:
-    """Tap Cross for 6 of every 12 frames until task 0 runs the GAME stage (the product REPL's own
-    `newgame` policy, expressed here so both cores receive the same input)."""
-    return driver.drive(core, budget, lambda seen: seen.in_game_stage, tap("cross", 12), "GAME stage", settle)
+    """Confirm the title's two menu pages (6 of every 12 frames) until task 0 runs the GAME stage —
+    title_prompts' first leg, which is the product REPL's own `newgame` policy expressed once so
+    both cores receive the same input."""
+    step = GAMEPLAY_ROUTE[0]
+    return driver.drive(core, budget, step.reached, _pattern(step), step.name, settle)
 
 
 def reach_field(driver: Driver, core: CoreSession, budget: int, settle: Settle) -> tuple[int, frozenset[str]]:
-    """Skip the intro with Start (6 of every 24 frames) until the outer machine leaves it
-    (sm[0x4a]!=0), then wait, without input, for the field to run. The settle pad belongs to the
-    Start phase; the waiting phase always settles on a released pad."""
-    used, settle = driver.drive(core, budget, lambda seen: seen.sm["4a"] != 0, tap("start", 24), "intro skipped", settle)
-    waited, _ = driver.drive(core, budget - used, lambda seen: seen.in_field, released, "field", frozenset())
+    """Skip the intro with Start until the outer machine leaves it (sm[0x4a]!=0), then wait, without
+    input, for the field to run. The settle pad belongs to the Start phase; the waiting phase always
+    settles on a released pad."""
+    intro, field = GAMEPLAY_ROUTE[1], GAMEPLAY_ROUTE[2]
+    used, settle = driver.drive(core, budget, intro.reached, _pattern(intro), intro.name, settle)
+    waited, _ = driver.drive(core, budget - used, field.reached, _pattern(field), field.name, frozenset())
     return used + waited, settle
 
 
 def reach_free_roam(driver: Driver, core: CoreSession, budget: int, settle: Settle) -> tuple[int, frozenset[str]]:
-    """Skip the field's opening cutscene with Start (6 of every 40 frames, the product's own
-    auto-skip cadence) until the leaf machine hands the pad to the player."""
-    return driver.drive(core, budget, lambda seen: seen.in_free_roam, tap("start", 40), "free roam", settle)
+    """Skip the field's opening cutscene with Start (the product's own auto-skip cadence) until the
+    leaf machine hands the pad to the player."""
+    step = GAMEPLAY_ROUTE[3]
+    return driver.drive(core, budget, step.reached, _pattern(step), step.name, settle)
 
 
 checkpoints = (
