@@ -57,6 +57,7 @@
 #include "cfg.h"
 #include "core.h"
 #include "game.h"
+#include "horizontal_visibility_cull.h"
 #include "native_override_catalog.h"
 #include <cstdint>
 
@@ -193,10 +194,16 @@ void OverlayGroundGt3Gt4::gt3(Core *c) {
     c->mem_w32(pool + 20, gte_read_data(13)); // SXY1
     c->mem_w32(pool + 32, gte_read_data(14)); // SXY2
 
-    if (!((c->mem_r16(pool + 8) < 320) || (c->mem_r16(pool + 20) < 320) || (c->mem_r16(pool + 32) < 320))) {
-      continue;
-    }
-    if (!((c->mem_r16(pool + 10) < 240) || (c->mem_r16(pool + 22) < 240) || (c->mem_r16(pool + 34) < 240))) {
+    // The recovered screen-edge cull, triangle form: OR over the three corners on each axis, the two
+    // axes AND-ed, every compare UNSIGNED so a negative projected coordinate fails it. The bound comes
+    // from the window the port draws into (see horizontal_visibility_cull.h for the census that
+    // established that no guest owner derives one); at 4:3 this is the literal 320/240 it replaced,
+    // bit for bit. The vertical half of the bound is a constant because widening OFX at unchanged OFY
+    // and H leaves the vertical field of view alone.
+    const tomba2::horizontal_cull::Visibility visible = tomba2::horizontal_cull::forDrawWindow(c);
+    const std::uint32_t sx[3] = {c->mem_r16(pool + 8), c->mem_r16(pool + 20), c->mem_r16(pool + 32)};
+    const std::uint32_t sy[3] = {c->mem_r16(pool + 10), c->mem_r16(pool + 22), c->mem_r16(pool + 34)};
+    if (!visible.keeps(sx, sy, 3, tomba2::horizontal_cull::Domain::Packed16)) {
       continue;
     }
 
@@ -338,12 +345,15 @@ void OverlayGroundGt3Gt4::gt4(Core *c) {
     }
     c->mem_w32(pool + 44, gte_read_data(14)); // SXY3
 
-    if (!((c->mem_r16(pool + 8) < 320) || (c->mem_r16(pool + 20) < 320) || (c->mem_r16(pool + 32) < 320) ||
-          (c->mem_r16(pool + 44) < 320))) {
-      continue;
-    }
-    if (!((c->mem_r16(pool + 10) < 240) || (c->mem_r16(pool + 22) < 240) || (c->mem_r16(pool + 34) < 240) ||
-          (c->mem_r16(pool + 46) < 240))) {
+    // The same recovered predicate in its quad form: four corners, OR over corners per axis, the axes
+    // AND-ed, compares unsigned. Bound from the draw window, not a literal — see the triangle site
+    // above and horizontal_visibility_cull.h for why that is the same decision at 4:3.
+    const tomba2::horizontal_cull::Visibility visible = tomba2::horizontal_cull::forDrawWindow(c);
+    const std::uint32_t sx[4] = {
+        c->mem_r16(pool + 8), c->mem_r16(pool + 20), c->mem_r16(pool + 32), c->mem_r16(pool + 44)};
+    const std::uint32_t sy[4] = {
+        c->mem_r16(pool + 10), c->mem_r16(pool + 22), c->mem_r16(pool + 34), c->mem_r16(pool + 46)};
+    if (!visible.keeps(sx, sy, 4, tomba2::horizontal_cull::Domain::Packed16)) {
       continue;
     }
 

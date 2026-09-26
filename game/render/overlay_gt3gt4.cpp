@@ -28,6 +28,7 @@
 #include "core.h"
 #include "game.h"
 #include "guest_call.h"
+#include "horizontal_visibility_cull.h"
 #include "native_override_catalog.h" // tomba::native::declareOverride — declared, not locally extern'd
 #include <stdio.h>
 
@@ -212,17 +213,33 @@ void OverlayGt3Gt4::gt3(Core *c) {
     c->mem_w32(pool + 32, gte_read_data(14)); // SXY2
     int32_t sxy0 = (int32_t)gte_read_data(12), sxy1 = (int32_t)gte_read_data(13), sxy2 = (int32_t)gte_read_data(14);
 
-    // frustum reject: unsigned-compare the packed SXY words against 240<<16, then (after <<16
-    // each) against 320<<16 — the guest instruction path's own screen-bound test, reproduced literally.
-    uint32_t t240 = 240u << 16;
-    bool any1 = ((uint32_t)sxy0 < t240) || ((uint32_t)sxy1 < t240) || ((uint32_t)sxy2 < t240);
-    if (!any1) {
+    // Frustum reject, the recovered predicate: unsigned-compare the packed SXY words against the
+    // frame HEIGHT, then (after <<16 each) against the draw WIDTH — an OR over corners on each axis,
+    // the two axes AND-ed. The guest instruction path's own screen-bound test, at 0x8003B438 for the
+    // quad form.
+    //
+    // WHAT CHANGED. The horizontal bound was a literal 320. The census
+    // (tests/horizontal_cull_census.py) found 70 structurally distinct culling owners across the 29
+    // authenticated images and NOT ONE derives its bound from the guest's own draw environment, so a
+    // literal is narrow by construction the moment the frustum is widened, and this site was dropping
+    // the ground in the new right band. The bound now comes from the window the port draws into; at
+    // 4:3 that is 320 and the decision is bit-identical to the literal it replaces.
+    //
+    // The vertical bound STAYS kGuestFrameHeight, and that is a fact about the projection rather than
+    // a leftover: the publication is guest 0x800509B4, which sets OFX/OFY = 160/120 and H = 350, and
+    // widening OFX at unchanged OFY and H leaves the vertical field of view alone. The frame is 2*OFY
+    // tall at every canvas width, so 240 is the height and only the width moves.
+    const tomba2::horizontal_cull::Visibility visible = tomba2::horizontal_cull::forDrawWindow(c);
+    const std::uint32_t height16 = static_cast<std::uint32_t>(tomba2::horizontal_cull::kGuestFrameHeight) << 16;
+    if (!((static_cast<std::uint32_t>(sxy0) < height16) || (static_cast<std::uint32_t>(sxy1) < height16) ||
+          (static_cast<std::uint32_t>(sxy2) < height16))) {
       continue;
     }
-    uint32_t t320 = 320u << 16;
-    uint32_t s0s = (uint32_t)sxy0 << 16, s1s = (uint32_t)sxy1 << 16, s2s = (uint32_t)sxy2 << 16;
-    bool any2 = (s0s < t320) || (s1s < t320) || (s2s < t320);
-    if (!any2) {
+    const std::uint32_t width16 = static_cast<std::uint32_t>(visible.drawRight()) << 16;
+    const std::uint32_t x0s = static_cast<std::uint32_t>(sxy0) << 16;
+    const std::uint32_t x1s = static_cast<std::uint32_t>(sxy1) << 16;
+    const std::uint32_t x2s = static_cast<std::uint32_t>(sxy2) << 16;
+    if (!((x0s < width16) || (x1s < width16) || (x2s < width16))) {
       continue;
     }
 

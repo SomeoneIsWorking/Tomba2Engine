@@ -32,6 +32,7 @@
 #include "core.h"
 #include "fx_node.h" // FxNode — the walk-owned header lens this controller extends
 #include "game.h"
+#include "horizontal_visibility_cull.h"
 #include "projection.h" // EObjXform
 #include "render.h"
 #include "render_internal.h" // ObjScope / proj_pz_to_ord
@@ -136,11 +137,20 @@ void Render::fxDotFieldRender(uint32_t node) {
     // GATE 1 is the guest's GTE FLAG test (overflow / saturation anywhere in the transform). The
     // meaningful case for a float producer is a point at or behind the near plane; the rest of the
     // flag's bits are saturation states this path cannot reach.
-    // GATE 2 is the guest's own screen clip, read UNSIGNED so a negative X fails: 0 <= SX < 320.
-    // There is NO Y test — that asymmetry is the guest's, and it is kept.
+    // GATE 2 is the guest's own screen clip, read UNSIGNED so a negative X fails: 0 <= SX < width.
+    // There is NO Y test — that asymmetry is the guest's, and it is kept, so this is the X axis of the
+    // shared owner rather than its full predicate.
+    //
+    // WHAT CHANGED. The bound was a literal 320, so the haze stopped at the 4:3 edge while the world
+    // around it kept going into the wide band: dots that vanilla culls are exactly the ones the margin
+    // should have gained. The bound now comes from the window the port draws into. At 4:3 it is 320 and
+    // the decision is identical.
+    const tomba2::horizontal_cull::Visibility visible = tomba2::horizontal_cull::forDrawWindow(c);
     if (pv.sz > 0) {
       const int sx = (int)pv.px, sy = (int)pv.py;
-      if (sx >= 0 && sx < 320) {
+      const std::uint32_t sxUnsigned = static_cast<std::uint32_t>(sx);
+      if (tomba2::horizontal_cull::insideAxis(
+              sxUnsigned, visible.drawRight(), tomba2::horizontal_cull::Domain::Packed16)) {
         const int sz = (pv.sz < kDotNearSz) ? 2 : 1; // the only depth cue the effect has
         const float ord = proj_pz_to_ord(pv.pz);
         const int xs[4] = {sx, sx + sz, sx, sx + sz};

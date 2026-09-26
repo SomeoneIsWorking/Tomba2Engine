@@ -150,6 +150,32 @@ if(BUILD_TESTING)
   target_include_directories(test_page_gradient PRIVATE game/render)
   add_test(NAME tomba_page_gradient COMMAND test_page_gradient)
 
+  # The horizontal visibility cull, recovered from 29 authenticated images (see
+  # game/render/horizontal_visibility_cull.h). 4:3 identity is a SWEEP over the predicate's whole
+  # domain, not a sample, and the site->slack table is pinned rather than restated.
+  add_executable(test_horizontal_visibility_cull tests/test_horizontal_visibility_cull.cpp)
+  target_include_directories(test_horizontal_visibility_cull PRIVATE game/render)
+  add_test(NAME tomba_horizontal_visibility_cull COMMAND test_horizontal_visibility_cull)
+
+  # The horizontal-cull BINARY CENSUS, through `uv run --frozen` rather than ${Python3_EXECUTABLE}: the
+  # scanner imports capstone, a declared dependency of THIS project's locked environment
+  # (pyproject.toml), and CMake's Python3 here is the system interpreter, which has none. A test that
+  # only passes on the developer's shell is not a gate. SKIP_RETURN_CODE 77 is what the census exits
+  # with when the provisioned images are absent, so a fresh clone without a disc SKIPS instead of
+  # failing -- while a PRESENT image that fails to authenticate is a hard failure, which is the whole
+  # point of authenticating.
+  find_program(TOMBA_UV_EXECUTABLE uv)
+  if(TOMBA_UV_EXECUTABLE)
+    add_test(NAME tomba_horizontal_cull_selfcheck
+             COMMAND ${TOMBA_UV_EXECUTABLE} run --frozen python
+                     ${CMAKE_SOURCE_DIR}/tests/horizontal_cull_census.py --selfcheck)
+    set_tests_properties(tomba_horizontal_cull_selfcheck PROPERTIES SKIP_RETURN_CODE 77)
+    add_test(NAME tomba_horizontal_cull_census
+             COMMAND ${TOMBA_UV_EXECUTABLE} run --frozen python
+                     ${CMAKE_SOURCE_DIR}/tests/horizontal_cull_census.py --bodies)
+    set_tests_properties(tomba_horizontal_cull_census PROPERTIES SKIP_RETURN_CODE 77)
+  endif()
+
   set(TOMBA_CPP_POLICY_CAPS
       game/core/engine.cpp=3251
       game/player/actor_tomba.cpp=1452
