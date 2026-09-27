@@ -125,7 +125,7 @@ int main() {
 
   // ---- accounting, with denominators -------------------------------------------------------
   const std::uint32_t framesBefore = cadence->logicFrames();
-  const std::uint32_t fieldsBefore = cadence->vblanksAdvanced();
+  const std::uint32_t fieldsBefore = cadence->vblanksSpent();
   cadence->beginLogicFrame();
   check(cadence->logicFrames() == framesBefore + 1u, "beginLogicFrame did not count the frame");
   check(cadence->vblanksThisLogicFrame() == 0u, "a fresh logic frame reported fields it had not spent");
@@ -135,7 +135,7 @@ int main() {
   guestIncrementsCounter(*core);
   cadence->consumeVblank();
   check(cadence->vblanksThisLogicFrame() == 2u, "the frame's own field count is wrong");
-  check(cadence->vblanksAdvanced() == fieldsBefore + 2u, "the running field total is wrong");
+  check(cadence->vblanksSpent() == fieldsBefore + 2u, "the running field total is wrong");
   check(cadence->unaccountedVblanks() == 2u, "fields spent before the per-field work must read unaccounted");
   cadence->accountVblankWork();
   check(cadence->unaccountedVblanks() == 0u, "accounting the per-field work did not clear the residue");

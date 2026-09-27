@@ -161,6 +161,17 @@ its `0x80050D00` `DAT_1f80019c == 2` arm. It never changes the rate. **Whether e
 in this product is not measured.** This is the reason `consumeVblank()` is read-only: it leaves the
 guest's one piece of authored cadence alone.
 
+## Gate
+
+`ctest --test-dir build/ci`: **36 of 37 pass**, including the three this adds
+(`tomba_frame_cadence`, `tomba_frame_cadence_selftest`, `tomba_frame_cadence_census`) and
+`tomba_cpp_policy` (which covers the new sources' formatting, architecture and clang-tidy). The one
+failure is `tomba_psxport_pin`, and it is not this change: the shared `psxport` framework moved
+twice under this session (`dee32a2b` → `006eb917` → `9da9e96c`) while other arms were committing to
+it, and the repo's `psxport.pin` names `006eb917` — a value another agent wrote into the tree during
+this session, not this one. `reconfigure → build → test` is complete against `9da9e96c`, so the
+remaining step is `--bump`, which is the operator's.
+
 ## Gap
 
 - **The 60 fps mode is not implemented.** The owner holds the lever and reports it; setting the

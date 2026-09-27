@@ -201,14 +201,18 @@ _DEST_FROM_RT = frozenset(
 def _define_site(word: int) -> int:
     """The register this instruction writes, or -1 when unknown / writes none."""
     op = word >> 26
-    if op == 0x00:  # SPECIAL: only the R-type shift/move forms this matcher needs to model
-        rd = (word >> 11) & 0x1F
-        funct = word & 0x3F
-        return rd if funct in (0x00, 0x02, 0x03, 0x04, 0x06, 0x08, 0x0A, 0x0C, 0x0D, 0x10, 0x12) else -1
+    if op == 0x00:  # SPECIAL
+        return (word >> 11) & 0x1F if (word & 0x3F) in _SPECIAL_WRITES_RD else -1
     if op in _DEST_FROM_RT:
         return (word >> 16) & 0x1F
     return -1
 
+
+# SPECIAL sub-opcodes that write rd unconditionally. Conditional moves (MOVZ 0x0A, MOVN 0x0B) and
+# the ones that write nothing (JR 0x08, JALR 0x09, SYSCALL 0x0C, BREAK 0x0D, MTHI 0x12) are left out
+# on purpose: claiming a redefinition that did not happen would needlessly downgrade a real
+# reference to a candidate, and an unmodelled word is treated as "defines nothing" downstream.
+_SPECIAL_WRITES_RD = frozenset({0x00, 0x02, 0x03, 0x04, 0x06, 0x10})  # SLL SRL SRA SLLV SRLV MFHI
 
 # MIPS o32: $s0-$s7 (r16-r23) survive a call. That is an ABI guarantee, not an assumption about
 # this image, so a `jal` is only a barrier to the backward walk when the base register is one the
@@ -236,10 +240,15 @@ def _form_target(text: bytes, index: int, base_reg: int, offset: int, target: in
         prior = struct.unpack_from("<I", text, prior_index * 4)[0]
         op = prior >> 26
         rt = (prior >> 16) & 0x1F
-        if op == 0x03:  # jal
+        # Both call forms. `jalr` matters as much as `jal` for a caller-saved base register and
+        # is easy to miss, because it is SPECIAL (opcode 0), not J-type — treating only `jal` as a
+        # barrier would let the walk cross a call that rewrote the register and then report a
+        # `lui` from before it as proof.
+        is_call = op == 0x03 or (op == 0x00 and (prior & 0x3F) == 0x09)
+        if is_call:
             if base_reg not in CALLEE_SAVED:
                 return "candidate", (
-                    f"a `jal` at +0x{prior_index * 4:06X} is inside the traced window and r{base_reg} "
+                    f"a call at +0x{prior_index * 4:06X} is inside the traced window and r{base_reg} "
                     f"is caller-saved, so it may have been rewritten"
                 )
             crossed_call = True
@@ -482,9 +491,62 @@ def selftest() -> int:
         print("FAIL selftest ambiguous: two quota stores were accepted as one")
         failures += 1
 
+    # ---- the address-former's call barrier, both call forms --------------------------------
+    # A `jalr` is SPECIAL (opcode 0, funct 0x09), not J-type, so a walker that only recognises
+    # `jal` crosses a call that may have rewritten a CALLER-SAVED base register and then reports
+    # the pre-call `lui` as proof. These three cases are what that hole looked like from the
+    # outside: each builds the same lui/load pair with a different thing between them.
+    def formulate(middle: int) -> tuple[str, str]:
+        body = bytearray(0x2000)
+        struct.pack_into("<I", body, SELFTEST_IMAGE_OFFSET + 0x00, 0x3C03800F)  # lui v1,0x800F
+        if middle:
+            struct.pack_into("<I", body, SELFTEST_IMAGE_OFFSET + 0x04, middle)
+        struct.pack_into("<I", body, SELFTEST_IMAGE_OFFSET + 0x08, 0xA462809C)  # sh v0,-0x7f64(v1)
+        index = (SELFTEST_IMAGE_OFFSET + 0x08) // 4
+        return _form_target(bytes(body), index, 3, -0x7F64, DWELL_COUNTER_ADDRESS, BACKWARD_WINDOW)
+
+    # Both words are taken verbatim from this image's own disassembly, so the fixtures encode what
+    # the encoder actually produced: `jal 0x80081458` and `jalr v0` (SPECIAL, funct 0x09).
+    jal = 0x0C020516
+    jalr = 0x0040F809
+
+    role, why = formulate(0)
+    if role != "target":
+        print(f"FAIL selftest barrier: an unobstructed lui/load pair was not a target ({why})")
+        failures += 1
+
+    role, why = formulate(jal)
+    if role != "candidate" or "caller-saved" not in why:
+        print(f"FAIL selftest barrier jal: a jal across a caller-saved base was {role!r} ({why})")
+        failures += 1
+
+    role, why = formulate(jalr)
+    if role != "candidate" or "caller-saved" not in why:
+        print(f"FAIL selftest barrier jalr: a jalr across a caller-saved base was {role!r} ({why})")
+        failures += 1
+
+    # The same call with a CALLEE-SAVED base must still resolve, because o32 says a call cannot
+    # touch $s0-$s7. That is the resident image's own $s6 case at 0x80050CCC.
+    body = bytearray(0x2000)
+    struct.pack_into("<I", body, SELFTEST_IMAGE_OFFSET + 0x00, 0x3C16800F)  # lui s6,0x800F
+    struct.pack_into("<I", body, SELFTEST_IMAGE_OFFSET + 0x04, jal)
+    struct.pack_into("<I", body, SELFTEST_IMAGE_OFFSET + 0x08, 0xA6C0809C)  # sh zero,-0x7f64(s6)
+    role, why = _form_target(
+        bytes(body),
+        (SELFTEST_IMAGE_OFFSET + 0x08) // 4,
+        22,
+        -0x7F64,
+        DWELL_COUNTER_ADDRESS,
+        BACKWARD_WINDOW,
+    )
+    if role != "target" or "crossing a call" not in why:
+        print(f"FAIL selftest callee-saved: a call across $s6 was {role!r} ({why})")
+        failures += 1
+
     if failures == 0:
-        print("frame_cadence_census --selftest: 7 checks passed "
-              "(positive, negative, distinctness, ordering, untraceable, store-located, ambiguous)")
+        print("frame_cadence_census --selftest: 11 checks passed "
+              "(positive, negative, distinctness, ordering, untraceable, store-located, ambiguous, "
+              "form-unobstructed, form-jal, form-jalr, form-callee-saved)")
     return 1 if failures else 0
 
 

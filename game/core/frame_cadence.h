@@ -93,9 +93,11 @@ class Core;
 
 namespace tomba {
 
-// One concept: how many display fields one Tomba! 2 logic frame spans, and the guest's own
-// dwell counter that expresses it. Composed into the frame transaction by TombaFrameDriver and
-// consulted by Engine's per-field work, so the decision has exactly one home.
+// One concept: how many display fields one Tomba! 2 logic frame spans, and the gate's own
+// comparison against the guest's dwell counter. It OWNS the decision and it REPORTS on the guest's
+// halfword; it does not write that halfword except for the per-frame reset the guest itself makes.
+// Composed into the frame transaction by TombaFrameDriver and consulted by Engine's per-field work,
+// so the decision has exactly one home.
 class FrameCadence {
 public:
   // Back-pointer, wired once where every other Engine-owned subsystem is wired
@@ -157,21 +159,21 @@ public:
   [[nodiscard]] std::uint32_t logicFrames() const {
     return logicFrames_;
   }
-  [[nodiscard]] std::uint32_t vblanksAdvanced() const {
-    return vblanksAdvanced_;
+  [[nodiscard]] std::uint32_t vblanksSpent() const {
+    return vblanksSpent_;
   }
-  // Display fields this logic frame advanced, and how many of them were advanced OUTSIDE the
-  // per-field work. The second must stay 0 for every frame: a non-zero value means a logic frame
-  // claimed display time no scheduled work happened on.
+  // Display fields this logic frame spent, and how many were spent OUTSIDE the per-field work. The
+  // second must stay 0 for every frame: a non-zero value means a logic frame claimed display time
+  // no scheduled work happened on.
   [[nodiscard]] std::uint32_t vblanksThisLogicFrame() const {
-    return vblanksAdvanced_ - frameVblankBase_;
+    return vblanksSpent_ - frameVblankBase_;
   }
   [[nodiscard]] std::uint32_t unaccountedVblanks() const {
-    return vblanksAdvanced_ - accountedVblanks_;
+    return vblanksSpent_ - accountedVblanks_;
   }
   // Called once the per-field work for every field advanced so far has been done.
   void accountVblankWork() {
-    accountedVblanks_ = vblanksAdvanced_;
+    accountedVblanks_ = vblanksSpent_;
   }
 
 private:
@@ -179,7 +181,7 @@ private:
 
   std::uint8_t vblanksPerLogicFrame_ = kRetailVblanksPerLogicFrame;
   std::uint32_t logicFrames_ = 0;
-  std::uint32_t vblanksAdvanced_ = 0;
+  std::uint32_t vblanksSpent_ = 0;
   std::uint32_t frameVblankBase_ = 0;
   std::uint32_t accountedVblanks_ = 0;
 };

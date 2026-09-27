@@ -35,8 +35,8 @@ void FrameCadence::beginLogicFrame() {
   Core &c = host();
   c.mem_w16(kDwellCounterAddress, 0);
   ++logicFrames_;
-  frameVblankBase_ = vblanksAdvanced_;
-  accountedVblanks_ = vblanksAdvanced_;
+  frameVblankBase_ = vblanksSpent_;
+  accountedVblanks_ = vblanksSpent_;
 }
 
 std::uint16_t FrameCadence::consumeVblank() {
@@ -44,7 +44,7 @@ std::uint16_t FrameCadence::consumeVblank() {
   // callback slot 4) advances it, and in this product it runs through the port's own sequencer tick
   // — see the header. Reading it here and reporting what the guest left is the point: the port
   // observes the guest's cadence mechanism instead of standing in for it.
-  ++vblanksAdvanced_;
+  ++vblanksSpent_;
   return host().mem_r16(kDwellCounterAddress);
 }
 

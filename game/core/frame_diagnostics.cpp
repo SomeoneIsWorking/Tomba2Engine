@@ -195,7 +195,7 @@ void FrameDiagnostics::afterFrame(Core &core, uint32_t frame) {
                  cadence.dwellCounter(),
                  cadence.gateOpen() ? "OPEN" : "SHUT",
                  cadence.logicFrames(),
-                 cadence.vblanksAdvanced(),
+                 cadence.vblanksSpent(),
                  cadence.unaccountedVblanks());
   }
 }
