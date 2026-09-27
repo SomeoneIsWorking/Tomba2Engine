@@ -82,14 +82,41 @@ struct PacketReplay {
   int y1 = -0x7FFFFFFF;
 };
 
+// WHY THIS ABORTS RATHER THAN SUBMITTING ANYWAY. The replay reconstructs the native submission from the
+// guest's own GT4 packets, and its depth buffer is read back out of `ProjPrim` — a cache of per-vertex
+// depths recorded when the RENDERER executes a packet. If those depths are not there, the submission
+// would be built from depths that are not the ones the guest produced, which is a wrong PICTURE rather
+// than a missing effect. A wrong picture that looks right is the one failure this project will not ship,
+// so the replay refuses loudly instead.
+//
+// WHAT THE COUNTS DO AND DO NOT DISTINGUISH, because the original message could not tell a reader which
+// of three very different causes they were looking at, and all three are consistent with it:
+//   * every vertex missed  -> the depths for these packet read addresses were never RECORDED, which is
+//     what happens if the guest writer appends to the packet pool without the renderer's `gp0_exec`
+//     recording as it goes. Nothing about this replay can fix that; the recording has to.
+//   * some went stale     -> the addresses resolved into a pool slot one generation old, whose depth
+//     belongs to a recycled packet.
+//   * the counts are right but the arithmetic is not (`hits != packets * 4`) -> the packet walk and the
+//     replay disagree about how many vertices exist, which is a walk bug rather than a depth bug.
+// The `expected` field below states the arithmetic, so a reader can place their numbers on one of those
+// three rows instead of guessing.
 [[noreturn]] void missingGuestDepth(const PacketReplay &replay) {
+  const long expected = static_cast<long>(replay.packets) * 4L;
   lucent::error("gtefallback",
-                "FUN_{:08X} water-jet packet depth mismatch: packets={} hits={} misses={} stale={}",
+                "FUN_{:08X} water-jet packet depth mismatch: packets={} expected_hits={} hits={} "
+                "misses={} stale={}",
                 kWriterAddr,
                 replay.packets,
+                expected,
                 replay.depthHits,
                 replay.depthMisses,
                 replay.depthStale);
+  lucent::error("gtefallback",
+                "REFUSING to submit: the depths for these packets are not the ones the guest produced, "
+                "so a submission now would be a wrong PICTURE rather than a missing effect. ProjPrim "
+                "records a depth when the RENDERER executes a packet (gp0_exec); if this guest writer "
+                "appends to the pool without that path running, the depths were never recorded and no "
+                "amount of replaying will produce them. See docs/issues for the water-jet depth owner.");
   std::abort();
 }
 
@@ -174,7 +201,15 @@ PacketReplay replayGuestGt4Span(Core *c, uint32_t before, uint32_t after) {
 
 // FUN_80027768 — untouched guest packed-mesh writer plus one scoped packet-span replay. Calls made by
 // the landed impact-plume, charge-starburst, terrain, and every unresolved controller run only the
-// authenticated executable/overlay evidence because WaterJetScope is absent.
+// authenticated executable/overlay evidence when this scope is not raised for them.
+//
+// CORRECTION 2026-09-27: this comment used to say "because WaterJetScope is absent", which was FALSE and
+// would have sent a reader looking for a missing class. `WaterJetScope` is right here, and
+// `waterJetControllerTap` establishes it around its call of the original controller, which is the only
+// route by which this writer is reached with the scope up. The scope is thread-local and Core-checked
+// (`activeFor`), so callers that reach `FUN_80027768` by any other route — a different controller, an
+// overlay loaded without the A00 owner, a direct call — correctly take the early return below. What is
+// absent is not the scope but the DEPTH ACCOUNTING this replay depends on; see `missingGuestDepth`.
 void waterJetWriterTap(Core *c) {
   const uint32_t model = c->r[4];
   const uint32_t clutRow = c->r[5];
