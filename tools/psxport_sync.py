@@ -1,39 +1,31 @@
 #!/usr/bin/env python3
-"""psxport_sync.py — resolve `external/psxport`, and keep the recorded pin honest.
+"""psxport_sync.py — THE CANONICAL COPY. Do not edit this in a port; edit it here.
 
-WHY THIS REPLACED THE SUBMODULE (2026-08-16). The framework used to be a git submodule. Two incidents
-in one day came directly from that mechanism:
+WHY A CANONICAL SOURCE EXISTS
+-----------------------------
+Every port ships its own copy of this file, because a port must build from a bare clone of ITSELF and
+cannot depend on the workspace. That is deliberate and correct. The cost is that the copies drift, and
+the drift was not hypothetical:
 
-  * The tree was BUILT against psxport 25dd7826 while RECORDING a1c53d7c, so a bare clone did not
-    compile — the game's hook table named a field the pinned framework did not have. Nothing noticed,
-    because a submodule working tree and its recorded gitlink drift silently.
-  * "Fixing" that drift by syncing to the recorded pin is what pulled a broken beetle GTE commit into
-    the working build, which had already broken PSXPORT_ORACLE=1 in every 3D scene for two days. That
-    commit had been made on a DETACHED HEAD inside the submodule — which is the default state of a
-    submodule checkout, and is how it was never reviewed.
+  - MEASURED 2026-09-27: the ten copies had TEN DISTINCT HASHES and 298–322 lines each.
+  - The staleness guard was MISSING FROM SEVEN OF THE TEN, and where it was missing the check answered
+    `check OK` on input a guarded copy refused. Same input, opposite answers, and the wrong one is a pass.
+  - Only ONE of the ten had a `--build` flag, so the live pin check that actually calls this function
+    could not be registered in the other nine.
+  - Only ONE had the `do_bump` fix, so the other nine could still record a framework commit the tree was
+    never built against — which is the original incident this whole mechanism exists to prevent.
 
-Also, `git submodule update --recursive` simply FAILS on this tree: beetle-psx has a URL-less nested
-gitlink (`deps/lightning/gnulib`) that git itself cannot resolve.
+The obligation to keep the copies in step was real, and the check for that obligation was ITSELF
+duplicated, which is why the guard could go missing from seven of them unnoticed. This file plus
+`tools/check_port_pin_tools.py` is that check, made mechanical: it compares every port's copy against
+this one and fails on drift, and `--install` makes the copies identical again.
 
-WHAT REPLACED IT. `external/psxport` is no longer tracked. It is either
+The check is a registered gate, not a habit. See `tools/check_port_pin_tools.py --selftest`.
 
-  * a SYMLINK to the workspace's shared framework clone (the local default — every port then runs off
-    one writable checkout, so an edit is live everywhere immediately), or
-  * a real CLONE checked out at the pin (fresh machine, CI, or anyone cloning this repo alone).
-
-The PATH does not change, so all 151 files that reference `external/psxport/...` keep working, and
-`PSXPORT_DIR` still defaults to it.
-
-WHAT THE PIN IS FOR. `psxport.pin` records the framework commit this game was built and verified
-against. Ports are deliberately NOT all on framework HEAD — measured 2026-08-16, six ports spanned 55
-commits of framework history — because with one maintainer, pins are what let one port be worked on
-daily while the others sit untouched. Dropping them would have broken all six the moment that beetle
-GTE commit landed. The pin is provenance and the fresh-clone fallback; it is not what you build against
-day to day.
-
-Exit codes: 0 ok · 1 the check failed (drift, or a pin a fresh clone could not use) · 2 refused,
-because the tool could not assert anything.
+`REPO` is derived from this file's own location, so the text runs unchanged from any port's `tools/`.
+The canonical copy in psxport is never executed as a port tool; it is only compared and copied.
 """
+
 import argparse
 import os
 import re

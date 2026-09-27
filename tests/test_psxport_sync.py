@@ -26,9 +26,23 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+# Point at THIS repo's canonical copy, not at a port's. The ports each keep their own copy of both
+# files and are independently testable, which is the point of shipping them; but the canonical text is
+# authored and gated HERE, so a behaviour change must be caught here first.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import psxport_sync  # noqa: E402
-import verify_ci  # noqa: E402
+
+# `verify_ci` is PORT-SIDE: it is each port's CI driver, not a framework tool, so it does not exist here.
+# The two cases that exercise the check THROUGH the verifier therefore belong to the port's copy of this
+# file, which keeps all fourteen. Skipping them is stated, not silent, and the reason is asserted below so
+# the skip cannot rot into a pass.
+try:
+    import verify_ci  # noqa: E402
+
+    VERIFIER_REASON = ""
+except ModuleNotFoundError as exc:  # pragma: no cover - depends on the tree this file runs in
+    verify_ci = None
+    VERIFIER_REASON = f"no port-side verify_ci in this tree ({exc.name})"
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "pin selftest",
@@ -152,6 +166,19 @@ class PinCheckTests(_PinFixture, unittest.TestCase):
     # verify_ci runs the same check, so the guard has to be exercised through it too: a verifier
     # that called an older or different check would otherwise keep passing after the guard landed.
 
+    def test_the_verifier_skip_is_stated_and_attributable(self) -> None:
+        """A skip must name what is missing, so it cannot silently become a pass.
+
+        Twelve of the fourteen cases run here. The other two need a port's `verify_ci`, which does not
+        exist in the framework, and the port's own copy of this file runs all fourteen. If this repo ever
+        grows a `verify_ci`, the skip must disappear rather than linger.
+        """
+        if verify_ci is None:
+            self.assertIn("verify_ci", VERIFIER_REASON)
+        else:
+            self.assertEqual(VERIFIER_REASON, "")
+
+    @unittest.skipUnless(verify_ci is not None, "verify_ci is port-side; see VERIFIER_REASON")
     def run_verifier(self) -> tuple[int, str]:
         import contextlib
         import io
