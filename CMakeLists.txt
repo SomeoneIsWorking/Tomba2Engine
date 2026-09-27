@@ -143,6 +143,13 @@ if(BUILD_TESTING)
   # game dependency and must pass on a fresh clone with no disc provisioned.
   find_program(TOMBA_UV_CADENCE_UV uv)
   if(TOMBA_UV_CADENCE_UV)
+    # The interpolation verdict rule, as a test. Registered because the number it judges is the one
+    # the oracle CANNOT see: an in-between never advances guest state, so a leg that reconstructs
+    # nothing still compares clean. Without a gate on the rule, "0 unequal at fps60=1" is a claim
+    # about a flag rather than about a pipeline.
+    add_test(NAME tomba_fps60_interp_selftest
+             COMMAND ${TOMBA_UV_CADENCE_UV} run --frozen python
+                     ${CMAKE_SOURCE_DIR}/tools/probe_fps60_interp.py --selftest)
     add_test(NAME tomba_frame_cadence_selftest
              COMMAND ${TOMBA_UV_CADENCE_UV} run --frozen python
                      ${CMAKE_SOURCE_DIR}/tools/frame_cadence_census.py --selftest)

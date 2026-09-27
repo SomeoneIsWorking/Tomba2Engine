@@ -389,6 +389,13 @@ class Session:
             ask(self.client, f"press {button}")
             self.presses += 1
         before_frame = self.frame()
+        # Sampled on the SAME connection as before_frame, so the delta is one window and not a
+        # subtraction of two unrelated observations. This is the number that decides whether an
+        # fps60 leg is interpolating or merely carrying the flag: `frames()` was defined and
+        # documented, and nothing called it, so a lerp claim rested on an oracle 0-unequal that a
+        # leg interpolating nothing would also produce -- because an in-between never advances guest
+        # state, so the oracle cannot see interpolation either way.
+        split_before = self.frames()
         before_pad = self.pad_frames()
         before_guest = self.guest_counters() or {}
         before_position = self.player_position()
@@ -402,10 +409,21 @@ class Session:
             ask(self.client, f"release {button}")
             self.presses += 1
         after_guest = self.guest_counters() or {}
+        split_after = self.frames()
+        # Whether the interpolation path was even ARMED on this leg, asked of the product rather
+        # than assumed from the settings file. A diagnostic that says "the mode is on but nothing
+        # was reconstructed" when the mode is OFF is asserting something false, and this leg exists
+        # precisely to be the one where interp=0 is the CORRECT reading -- so the two cases have to be
+        # told apart or the control reports itself as a defect.
+        cvar_fps60 = effective_configuration(self.client).get("knobs", {}).get("PSXPORT_FPS60")
         return {
             "buttons": buttons,
             "seconds": round(time.monotonic() - started, 2),
             "presented_frames": self.frame() - before_frame,
+            "presented_split": {
+                key: split_after[key] - split_before[key] for key in ("frame", "interp", "total")
+            },
+            "fps60_armed": cvar_fps60,
             "pad_frames": self.pad_frames() - before_pad,
             "samples": samples,
             "position_before": before_position,
@@ -592,6 +610,18 @@ def main() -> int:
     parser.add_argument("--hold", nargs="*", default=["right"], metavar="BUTTON",
                         help="buttons to hold once gameplay is reached (default: right)")
     parser.add_argument("--seconds", type=float, default=8.0, help="how long to hold them")
+    parser.add_argument(
+        "--settings",
+        type=Path,
+        default=None,
+        metavar="FILE.INI",
+        help="the tracked settings file to launch under. WITHOUT THIS the run is pinned to "
+        "tools/shipping_settings.ini (aspect=1, fps60=1) and there is no way to run a 4:3 or "
+        "30fps-only leg from this tool -- setting the PSXPORT_SETTINGS environment variable does "
+        "NOT work, because gate.native_environment's `settings` argument overrides the "
+        "environment. An instrument that cannot produce the other answer cannot tell an "
+        "interpolating leg from a flag-carrying one.",
+    )
     parser.add_argument("--settle", type=int, default=1, metavar="POLLS",
                         help="observations to let a screen settle before answering it (default 1; a "
                              "poll is 55-124 presented frames measured, and the title's own verified "
@@ -621,7 +651,7 @@ def main() -> int:
           f"mtime {identity['mtime']}, framework {resolved_framework(build_tree)}")
     print(f"[live] boot image: {display_path(Path(gate.EXE))}")
 
-    process = launch(arguments.port, binary, LOG)
+    process = launch(arguments.port, binary, LOG, settings=arguments.settings)
     client: LiveClient | None = None
     try:
         client = connect(arguments.port, arguments.connect_timeout, LOG)
@@ -650,6 +680,23 @@ def main() -> int:
                   f"frames (the port's input clock, measured here at "
                   f"{held['pad_frames'] / max(1, held['presented_frames']):.2f} per presented frame — "
                   f"so it is NOT a game tick), {held['samples']} frame samples read while it ran")
+            split = held["presented_split"]
+            if split["total"] > 0:
+                share = 100.0 * split["interp"] / split["total"]
+                print(f"[live]   presentation split over the window: real={split['frame']} "
+                      f"interp={split['interp']} total={split['total']} -- {share:.1f}% of the "
+                      f"pictures on screen were reconstructed, not simulated")
+                if split["interp"] <= 0 and str(held["fps60_armed"]).lower() in ("true", "1"):
+                    print(f"[live]   FINDING: 0 interpolated frames while PSXPORT_FPS60 is ON. The "
+                          f"mode is enabled but nothing was reconstructed, so any oracle agreement "
+                          f"on this leg is VACUOUS for the interpolation claim -- an in-between never "
+                          f"advances guest state, so the comparator cannot see interpolation either "
+                          f"way.")
+                elif split["interp"] <= 0:
+                    print(f"[live]   control leg: 0 interpolated frames with PSXPORT_FPS60 "
+                          f"{held['fps60_armed']!r}, which is the CORRECT reading -- it is what "
+                          f"makes the armed leg's count mean something rather than being a constant "
+                          f"this counter always prints.")
             if held["guest_after"]:
                 print(f"[live]   guest work during the window: "
                       f"{held['guest_after'].get('executed_instructions', 0) - held['guest_before'].get('executed_instructions', 0)}"
