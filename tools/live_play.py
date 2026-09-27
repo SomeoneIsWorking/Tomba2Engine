@@ -149,14 +149,22 @@ def binary_identity(path: Path) -> dict[str, str]:
     return identity(path)
 
 
-def launch(port: int, binary: Path, log: Path) -> subprocess.Popen:
+def launch(port: int, binary: Path, log: Path,
+           settings: Path | None = None) -> subprocess.Popen:
     """The product, headless and silent and unpaced, with the live endpoint on this run's own port.
 
     `gate.native_environment` is the one launch policy in this repository; it also names the tracked
     settings file, which is what keeps an agent run from being configured by whichever untracked
     psxport_settings.ini happens to sit beside the binary.
+
+    `settings` overrides WHICH tracked file that policy names, and exists because a MEASUREMENT sometimes
+    needs the other configuration: the 60fps cadence claim is only readable against a leg with the feature
+    OFF, and that leg is a different tracked file rather than a patched default. Reading a boot log line to
+    decide which configuration ran is not good enough either — the picture's mode can change after boot —
+    so the caller asks the configuration owner over the endpoint afterwards.
     """
-    environment = gate.native_environment(watchdog=3600)
+    # `native_environment` types `settings` as a str; a Path is friendlier at a call site.
+    environment = gate.native_environment(watchdog=3600, settings=str(settings) if settings else None)
     environment.pop("PSXPORT_REPL", None)
     environment["PSXPORT_DEBUG_SERVER"] = str(port)
     environment["PSXPORT_LOG_FILE"] = str(log)
@@ -208,7 +216,33 @@ class Session:
 
     # ---- observation -------------------------------------------------------------------------
     def frame(self) -> int:
+        """REAL presented frames. This is the real-present counter and nothing else.
+
+        An interpolated 60fps in-between reaches the screen WITHOUT advancing it, so a cadence question
+        read off this number measures 30 Hz on a product genuinely presenting 60. Measured 2026-09-27 on
+        Spyro 1: `frame` reported 1.006 frames per guest update while the same run emitted 3,915
+        in-betweens. Use `frames()` for a cadence claim and this only to wait for a real frame boundary."""
         return int(ask(self.client, "frame").split("frame=")[1].split()[0])
+
+    def frames(self) -> dict:
+        """ALL presented frames, split by kind: real, in-between, and their sum.
+
+        The sum is the number a "is this presenting at 60 Hz" question wants, and the split is what says
+        whether the extra frames are interpolated presentations or something else entirely. REFUSES when
+        the endpoint carries no `total=`, so a stale binary cannot answer the question quietly — which is
+        the same trap as a stale binary looking exactly like a product that measures nothing."""
+        reply = ask(self.client, "frame")
+        found = {}
+        for token in reply.split():
+            for key in ("frame", "interp", "total"):
+                if token.startswith(key + "="):
+                    found[key] = int(token.split("=", 1)[1])
+        if "total" not in found:
+            raise RuntimeError(
+                f"the endpoint's `frame` reply carries no `total=` counter, so this binary cannot answer "
+                f"a presentation-cadence question: {reply.strip()!r}"
+            )
+        return found
 
     def observe(self) -> tuple[title_prompts.Screen, int]:
         """The whole task-0 slot in ONE command, decoded by title_prompts: the stage entry, the six
