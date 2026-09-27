@@ -27,6 +27,7 @@
 #include "audio/sfx.h"       // Engine owns the Sfx trigger subsystem (FUN_80074590)
 #include "bg_scene_transition_sm.h"   // Engine owns the BG scene-transition fade manager
 #include "core/asset.h"               // Engine owns the Asset loader subsystem
+#include "core/frame_cadence.h"       // Engine owns FrameCadence — the one frame-rate decision
 #include "demo.h"                     // Engine owns the Demo front-end MENU stage machine
 #include "math/mathlib.h"             // Engine owns the Bit game-flag bitmap subsystem
 #include "native_override_catalog.h"  // overlay image residency and scoped native bindings
@@ -65,6 +66,22 @@ public:
   // Back-pointer set once by Core's constructor (same pattern as
   // ScreenFade::core).
   Core *core = nullptr;
+
+  // The ONE owner of "how many display fields does one logic frame span", and of the guest's
+  // own dwell counter that expresses it. Tomba! 2's frame-rate lever is a guest byte the engine's
+  // main loop compares against a vblank-ticked counter
+  // (`do {} while (DAT_800e809c < DAT_1f800235)` at 0x80050CC8..0x80050CF4), and the guest writes
+  // that byte exactly once, at boot, from a literal compiled into the instruction word. This
+  // class holds the decision and publishes it through the guest's own field, so the number the
+  // per-frame work is driven by and the number the engine reads are the same number.
+  // Full recovery, instruction words included: game/core/frame_cadence.h.
+  tomba::FrameCadence cadence_;
+  tomba::FrameCadence &cadence() {
+    return cadence_;
+  }
+  const tomba::FrameCadence &cadence() const {
+    return cadence_;
+  }
 
   // One-shot debug PLAYER teleport (REPL / debug-server `tp X Y Z`).
   // CutsceneCamera is instantiated per-call so its own members can't persist
@@ -555,7 +572,10 @@ public:
   // control block, the allocator + dispatch table, mode ctrl, input, and the
   // orchestrator that sequences them. Called via eng(c).initX() from
   // native_boot.
-  void initFrameState(); // FUN_80050A0C — vblank + double-buffer pacing state
+  void initFrameState(); // FUN_80050A0C — vblank + double-buffer pacing state.
+                         // The frame-rate decision itself is NOT a literal here: it belongs to
+                         // cadence() below, which publishes it into the guest's own quota byte
+                         // (0x1F800235) the way FUN_80050A0C's single `sb` does.
   void initDisplay();    // FUN_800509B4 — GTE projection CRs + display H
   void initCamera();     // FUN_80050A80 — camera scratchpad matrices + state
   // FUN_80051794 (identity 3x3 rot + zero translation) is owned by

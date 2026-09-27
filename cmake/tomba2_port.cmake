@@ -39,6 +39,7 @@ set(GAME_SRC
   game/core/asset.cpp
   game/core/auto_drive.cpp
   game/core/dev_warp.cpp
+  game/core/frame_cadence.cpp
   game/core/frame_diagnostics.cpp
   game/core/frame_driver.cpp
   game/core/libapi_intr.cpp

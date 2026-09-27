@@ -2,6 +2,8 @@
 
 #include "cfg.h"
 #include "core.h"
+#include "engine.h"
+#include "game_ctx.h"
 
 #include <lucent/log.h>
 
@@ -174,6 +176,27 @@ void FrameDiagnostics::afterFrame(Core &core, uint32_t frame) {
                  core.mem_r16(kTaskBase + kTaskStride),
                  core.mem_r16(kTaskBase + 2u * kTaskStride),
                  core.mem_r8(0x1f800135u));
+  }
+
+  // The frame-rate decision and the guest's own answer to it, so a reader sees the cadence rather
+  // than inferring it. `spent/quota` is what the port spent this frame against the decision;
+  // `dwell` is the GUEST's counter, which its own vsync callback advances and which decides the
+  // gate; `unaccounted` must be 0, because a non-zero value means the logic frame claimed display
+  // time no work was scheduled on. Same 30-frame stride as the line above, so it costs nothing
+  // when nobody asked for it.
+  if (frame < 10 || (frame % 30u) == 0) {
+    const FrameCadence &cadence = eng(&core).cadence();
+    lucent::info("tomba-frame",
+                 "  cadence f{}: spent {}/{} fields, guest dwell counter {} -> gate {}, "
+                 "frames={} fields spent total={} unaccounted={}",
+                 frame,
+                 cadence.vblanksThisLogicFrame(),
+                 cadence.vblanksPerLogicFrame(),
+                 cadence.dwellCounter(),
+                 cadence.gateOpen() ? "OPEN" : "SHUT",
+                 cadence.logicFrames(),
+                 cadence.vblanksAdvanced(),
+                 cadence.unaccountedVblanks());
   }
 }
 

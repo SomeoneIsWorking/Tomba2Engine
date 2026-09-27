@@ -1,20 +1,32 @@
 // Tomba!2-specific native overrides (per-game tier). Generic mechanisms live in timing.c /
 // cd_override.c; this file holds glue tied to MAIN.EXE's own addresses.
 //
-// VBlank pacing: port the dwell to PC (don't dwell)
-// ------------------------------------------------
-// The StrPlayer main loop FUN_80050b08 paces each displayed frame with a busy-wait at
-// 0x80050CE4:  DAT_800e809c = 0;  ... ;  do {} while (DAT_800e809c < DAT_1f800235);
-// On hardware the VBlank IRQ bumps DAT_800e809c (0x800E809C, u16) until it reaches the
-// per-frame quota DAT_1f800235 (scratchpad u8, =2 => the engine's 30 fps logic rate). This
-// is pure frame-rate pacing. In a PC port frame pacing belongs to the host present loop, not
-// a self-spinning counter, and we deliver no preemptive VBlank IRQ — so we make the loop NOT
-// dwell: FUN_800788ac is the per-frame state update called exactly once per iteration (its
-// only caller is the loop, right after the counter reset and before the dwell), so after its
-// real body we set the display counter to the quota the dwell tests => the dwell falls
-// through on its first check. This is exactly the state the real VBlank handler would have
-// produced (the cb at 0x800506B4 only increments that counter), computed directly.
-// (When a host present loop exists it will pace frames; this just removes the busy-wait.)
+// VBlank pacing: the port owns the engine's own frame-rate lever (don't dwell)
+// ------------------------------------------------------------------------
+// The StrPlayer main loop FUN_80050b08 paces each displayed frame with a busy-wait inside its
+// loop body, at 0x80050CC8..0x80050CF4:
+//     DAT_800e809c = 0;  FUN_800788AC();  FUN_80051e60();  DrawSync(0);
+//     do {} while (DAT_800e809c < DAT_1f800235);
+// On hardware the VBlank IRQ bumps DAT_800e809c (0x800E809C, u16) until it reaches the per-frame
+// quota DAT_1f800235 (scratchpad u8, =2 => the engine's 30 fps logic rate). A census of the
+// authenticated resident image finds exactly two references to that byte in the whole text: the
+// one store, whose literal is compiled into the instruction word `li v0,0x2`, and the gate's one
+// load. The guest therefore has no runtime 30/60 switch at all — the decision is the port's.
+//
+// `FrameCadence` (game/core/frame_cadence.h) holds that decision, publishes it into the guest's
+// own quota byte through the same single store FUN_80050a0c makes, and advances the guest's
+// dwell counter once per consumed display field. THIS PRODUCT NEVER EXECUTES THE GATE: psxport
+// calls GameRuntime::bootInit, which runs FUN_80050b08's init prefix and then hands iteration to
+// TombaFrameDriver, and 0x80050CC8 is a label inside that body rather than a function entry, so
+// it is not a legal override key in the first place. What the port can own is the gate's state,
+// and that is what FrameCadence owns. Nothing here simulates an interrupt: the per-field work
+// (libsnd sequencer tick + the SPU's 1/60 s advance) runs once per field this logic frame spans,
+// which is the same work and the same count the vsync callback's slot-4 callback would have
+// triggered. The previous code here ASSIGNED the quota to the dwell counter to "satisfy the
+// dwell"; with the gate not executing, and the counter's only other reader being the vsync
+// callback the port never raises, that store was unreachable by anything — the counter is now
+// counted, which ends each logic frame at the same value for a stated reason.
+
 #include "animation.h" // PC-native per-object animation-VM subsystem
 #include "asset.h"     // PC-native asset-loading subsystem (extracted from this file)
 #include "cfg.h"
@@ -49,8 +61,10 @@
 // g_fps60_on retired — read g_mods.fps60 (mods.h)
 // SpuAudio methods are called via c->game->spu_audio (owner: Game, see runtime/psx/spu_audio.h).
 
-#define DISPLAY_COUNTER 0x800E809Cu // DAT_800e809c (u16) — the dwell's vblank counter
-#define VBLANK_QUOTA 0x1F800235u    // DAT_1f800235 (u8)  — vblanks per displayed frame
+// Both guest frame-rate fields are owned by tomba::FrameCadence (game/core/frame_cadence.h):
+// kQuotaAddress 0x1F800235 (u8, the gate's threshold) and kDwellCounterAddress 0x800E809C
+// (u16, the dwell counter its vsync callback increments). There are deliberately no address
+// macros for them here: a second copy of a measured address is how the two started to drift.
 
 // libsnd music-sequencer tick (RE: docs/journal.md later-53; SsSetTickMode = FUN_80090750).
 // Tomba2 sequences its in-game/menu BGM with the libsnd sequencer, ticked from the VBlank IRQ
@@ -92,24 +106,30 @@ void Engine::frameUpdate() {
                                    __func__); // real per-frame state update (still-PSX leaf)
   c->game->perf.phaseEnd(GpuPerf::Phase::PadFence);
   // Per-VBLANK audio work. On hardware the libsnd sequencer ticks once per VBlank IRQ (60 Hz NTSC)
-  // and the SPU plays in realtime. One ov_frame_update is one *logic frame*, which on hardware spans
-  // DAT_1f800235 (=quota) VBlanks (=2 => Tomba2's 30 fps). So the per-vblank work — the sequencer
-  // tick AND the SPU's 1/60 s field advance (spu_audio_frame) — must run `quota` times per logic
-  // frame to stay at the hardware 60 Hz rate in real time. later-54 ran BOTH once (matching each
-  // other but at half real-time); windowed that plays audio at HALF tempo — the user heard the
-  // menu-cursor tick too slow (the headless WAV hid it: its timeline is field-count, not wall-clock,
-  // so 1 tick/1 field there is still 60:60 = correct-sounding). Running both quota× fixes real-time
-  // playback and keeps the WAV's tick:field ratio unchanged (just a longer, more correct duration).
+  // and the SPU plays in realtime. One logic frame is however many display fields the engine's own
+  // frame-rate decision says it spans — DAT_1F800235, the byte FUN_80050b08's gate compares its
+  // vblank-ticked dwell counter against. The PORT owns that decision now (FrameCadence,
+  // game/core/frame_cadence.h) rather than re-reading a literal back out of guest memory the port
+  // itself wrote; the decision is published into that same guest byte, so this loop and anything
+  // reading the field are driven by one number. Retail is 2 fields per logic frame, Tomba! 2's
+  // 30 fps logic rate, so the per-vblank work runs twice per logic frame and stays at the
+  // hardware 60 Hz rate in real time. later-54 ran BOTH once (matching each other but at half
+  // real-time); windowed that plays audio at HALF tempo — the user heard the menu-cursor tick too
+  // slow (the headless WAV hid it: its timeline is field-count, not wall-clock, so 1 tick/1 field
+  // there is still 60:60 = correct-sounding). Running both quota× fixes real-time playback and
+  // keeps the WAV's tick:field ratio unchanged (just a longer, more correct duration).
   // Sequencer guard: pointer initialized + sane code address (never call through null pre-SsStart).
-  // Adaptive: a true-60fps scene (quota=1) ticks once.
-  int quota = c->mem_r8(VBLANK_QUOTA);
-  if (quota < 1) {
-    quota = 1;
-  }
+  // A decision of 1 field per logic frame — the guest's own 60 fps lever — ticks once.
+  const int quota = cadence().vblanksPerLogicFrame();
   uint32_t seqfn = c->mem_r32(SEQ_FUNC_PTR);
   const bool seq_ok = (seqfn & 0x1FFFFFFFu) >= 0x10000u && (seqfn & 0x1FFFFFFFu) < 0x200000u;
   c->game->perf.phaseBegin(GpuPerf::Phase::Audio); // per-vblank sequencer tick + SPU advance
   for (int v = 0; v < quota; v++) {                // once per VBlank this logic frame spans
+    // Count the field, and let the GUEST advance its own dwell counter: the sequencer tick below
+    // reaches runVblankCallbacks, whose vsync-callback slot 4 is the game's LAB_800506b4, and that
+    // body is what performs `DAT_800e809c += 1`. The port does not write the counter — see
+    // game/core/frame_cadence.h, which records why a revision that did was wrong.
+    cadence().consumeVblank();
     if (seq_ok) {
       psx::cpu::dispatchGuestToReturn0(*c,
                                        SEQ_TICK_WRAPPER,
@@ -118,10 +138,10 @@ void Engine::frameUpdate() {
     }
     c->game->spu_audio.frame(); // advance SPU one 1/60 s field + feed device
   }
+  cadence().accountVblankWork();
   // (native field-BGM director REMOVED — it played a HARDCODED song over everything from the menu on.
   //  Music is the guest libsnd path above; no native music engine, no hardcoded song.)
   c->game->perf.phaseEnd(GpuPerf::Phase::Audio);
-  c->mem_w16(DISPLAY_COUNTER, c->mem_r8(VBLANK_QUOTA)); // satisfy the pacing dwell immediately
 }
 
 // fps60 object tag: the universal per-object cull/LOD dispatcher (a0 = object*, once per logic

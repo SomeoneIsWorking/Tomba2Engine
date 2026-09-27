@@ -110,6 +110,11 @@ void TombaFrameDriver::stepFrame(Core &core, uint32_t frame) {
   game.perf.frameBegin();
   game.timing.frameTick();
   LibapiIntr::mirrorHostVblank(core, game.timing.vblank);
+  // The engine's own frame-rate transaction opens here: zero the guest's dwell counter (what
+  // FUN_80050b08 does at 0x80050C8C at the top of its pass) so the per-field work later in this
+  // frame counts against this frame and not the last one. FrameCadence owns the decision; the
+  // frame driver only sequences it. The one check that matters is at the bottom.
+  eng(&core).cadence().beginLogicFrame();
   for (uint32_t eventClass : cfg.irqEventClasses) {
     game.hle.deliverEvent(eventClass, 0xffffffffu);
   }
@@ -139,6 +144,12 @@ void TombaFrameDriver::stepFrame(Core &core, uint32_t frame) {
   game.pcSched.tickSleepCountdown();
   submitFrame(core, cfg, envp);
   game.perf.frameEnd();
+  // Close the frame's cadence transaction, once per frame, with the counts named. This reports on
+  // the GUEST's own mechanism, not on the port's: the guest's vsync callback (LAB_800506B4) is what
+  // advances the dwell counter, and a frame that ends with it short of the quota means the engine's
+  // gate would still be shut. Saying so every frame is the point — a cadence that drifts silently
+  // is the defect FrameCadence exists to prevent.
+  eng(&core).cadence().endLogicFrame(frame);
   diagnostics_.afterFrame(core, frame);
   autoDrive_.afterFrame(core, frame);
 }

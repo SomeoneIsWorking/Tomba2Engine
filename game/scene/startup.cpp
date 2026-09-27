@@ -57,10 +57,16 @@ L_80089154:;
 
 void Engine::initFrameState() {
   Core *c = this->core;
-  c->mem_w16(0x800E809C, 0); // vblank counter (sh)
-  c->mem_w8(0x1F800235, 2);  // frame-rate divisor / vblank pacing target
-  c->mem_w8(0x1F800135, 0);  // double-buffer parity
-  c->mem_w8(0x1F80019C, 0);  // buffer-swap mode flag
+  // FUN_80050A0C stores DAT_1F800235 from a literal `li v0,0x2` (word 0x24020002) and zeroes the
+  // vblank counter. The frame-rate DECISION is FrameCadence's, not this function's: it is the
+  // port's to hold, and publishing it here puts the port's number in the guest's own field
+  // through the same single byte store. Before this, the literal `2` lived in three homes — here,
+  // game_config.cpp's `paceQuota`, and the per-frame read in Engine::frameUpdate — and nothing
+  // connected them to the image.
+  cadence_.publish();
+  c->mem_w16(tomba::FrameCadence::kDwellCounterAddress, 0); // vblank counter (sh)
+  c->mem_w8(0x1F800135, 0);                                 // double-buffer parity
+  c->mem_w8(0x1F80019C, 0);                                 // buffer-swap mode flag
   c->mem_w8(0x1F80023B, 0);
   c->mem_w8(0x1F800233, 0);
   c->mem_w8(0x1F800236, 0);

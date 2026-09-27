@@ -15,6 +15,7 @@
 // guest addresses one slot sideways — and a renamed or removed field becomes a compile error rather
 // than a wrong address that boots and diverges. Fields left unset are value-initialised to zero,
 // which is the framework's documented "this game has no such primitive".
+#include "frame_cadence.h"
 #include "game_iface.h"
 #include "legacy_game_interface.h"
 
@@ -67,7 +68,7 @@ static const GameConfig g_tomba_config = {
     .packetPoolBase = 0x800bfe68u,
     .packetPoolStride = 0x00014000u,
     .otBasePtr = 0x800ed8c8u,
-    .dwellCounter = 0x800e809cu,
+    .dwellCounter = tomba::FrameCadence::kDwellCounterAddress,
     .poolPtrCur = 0x800bf544u,
     .poolPtrLast = 0x800bf4f4u,
     .clearOtagR = 0x80081458u,
@@ -182,13 +183,15 @@ static const GameConfig g_tomba_config = {
     // require the flat GameConfig view and must not become a second policy authority.
     .preserveVramBackdrop = 0u,
 
-    // Vblanks one gpu_pace_frame call represents. 2 = the engine's 30fps base cadence.
-    // Was read from scratchpad 0x1F800235 — this engine's OWN field, but a magic address in the
-    // framework, and ordinary working memory for every other port (it silently mistimed Spyro and
-    // Spider-Man). That fallback is deleted; state it here instead.
-    // NOTE: if this engine legitimately VARIES that byte per frame (slowdown frames), a constant is
+    // Display fields one gpu_pace_frame call represents — the same fact as
+    // tomba::FrameCadence::kRetailVblanksPerLogicFrame (game/core/frame_cadence.h), which now owns
+    // the decision and publishes it into the guest's own quota byte at 0x1F800235. This stays a
+    // static initializer because it feeds the framework's flat config view, so it cannot call a
+    // per-Core owner; tools/frame_cadence_census.py --check is what keeps the two equal, reading
+    // the literal out of MAIN.EXE and diffing it against the value FrameCadence declares.
+    // NOTE: if the engine legitimately VARIES that byte per frame (slowdown frames), a constant is
     // wrong and it needs a narrow typed cadence interface, not another legacy callback.
-    .paceQuota = 2u,
+    .paceQuota = tomba::FrameCadence::kRetailVblanksPerLogicFrame,
     // crt0 stack-top bias, MEASURED by psxport tools/crt0_extract over this game's own boot
     // executable (MAIN.EXE, entry 0x800896E0). `declared = 1` is mandatory: crt0_plan REFUSES a boot when it is 0,
     // because 0 is a REAL measured answer for some crt0s and so cannot double as "unset".

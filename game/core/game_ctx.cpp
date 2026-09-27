@@ -14,6 +14,7 @@ void *createTombaContext(Core &core) {
   // Wire up owned subsystems' back-pointers so their methods can reach this Core's guest memory.
   ctx->screenFade.core = c;
   ctx->engine.core = c;
+  ctx->engine.cadence().core = c;            // Engine-owned frame-rate decision + guest dwell counter
   ctx->engine.sceneTransition.core = c;      // Engine-owned scene subsystem
   ctx->engine.transitionState3.core = c;     // Engine-owned mid-transition walker
   ctx->engine.objectList.core = c;           // Engine-owned entity-list walkers

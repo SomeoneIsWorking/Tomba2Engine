@@ -128,6 +128,37 @@ if(BUILD_TESTING)
   target_link_libraries(test_libapi_vblank_mirror PRIVATE psxport)
   add_test(NAME tomba_libapi_vblank_mirror COMMAND test_libapi_vblank_mirror)
 
+  # The frame-cadence owner (game/core/frame_cadence.h). The gate's own `sltu`, the incrementer's
+  # read-modify-write, the u16 wrap, and the accounting denominators. Its measured constants are
+  # held to the image by the census below, which is a separate gate on purpose: this one proves the
+  # owner behaves, that one proves the owner is describing Tomba! 2.
+  add_executable(test_frame_cadence
+      tests/test_frame_cadence.cpp
+      game/core/frame_cadence.cpp)
+  target_include_directories(test_frame_cadence PRIVATE game/core)
+  target_link_libraries(test_frame_cadence PRIVATE psxport)
+  add_test(NAME tomba_frame_cadence COMMAND test_frame_cadence)
+
+  # The census's own fixtures, through `uv run --frozen` because it is a project tool. It has no
+  # game dependency and must pass on a fresh clone with no disc provisioned.
+  find_program(TOMBA_UV_CADENCE_UV uv)
+  if(TOMBA_UV_CADENCE_UV)
+    add_test(NAME tomba_frame_cadence_selftest
+             COMMAND ${TOMBA_UV_CADENCE_UV} run --frozen python
+                     ${CMAKE_SOURCE_DIR}/tools/frame_cadence_census.py --selftest)
+    # --check needs the authenticated image, so it SKIPS (77) without one and FAILS with one that
+    # disagrees with what game/core/frame_cadence.h ships. Both paths are absolute because CTest
+    # runs from the build directory, where a repo-relative one would resolve to nothing and the
+    # tool would report a missing image — which is a SKIP, so the gate would look green while
+    # checking nothing.
+    add_test(NAME tomba_frame_cadence_census
+             COMMAND ${TOMBA_UV_CADENCE_UV} run --frozen python
+                     ${CMAKE_SOURCE_DIR}/tools/frame_cadence_census.py --check
+                     --exe ${CMAKE_SOURCE_DIR}/scratch/bin/tomba2/MAIN.EXE
+                     --header ${CMAKE_SOURCE_DIR}/game/core/frame_cadence.h)
+    set_tests_properties(tomba_frame_cadence_census PROPERTIES SKIP_RETURN_CODE 77)
+  endif()
+
 
   add_executable(test_parallax_scroll tests/test_parallax_scroll.cpp)
   target_include_directories(test_parallax_scroll PRIVATE game/scene "${PSXPORT_DIR}/tests")
