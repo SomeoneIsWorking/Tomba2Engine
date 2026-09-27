@@ -206,6 +206,7 @@ set(GAME_SRC
   game/render/wide_window.cpp
   game/render/narration_swirl.cpp
   game/render/render_walk.cpp
+  game/render/render_menu_chrome.cpp       # pc_render producer: DEMO/title front-end menu picture
   game/render/title_wide_composition.cpp
   game/render/scene_kind.cpp
   game/render/scene_kind_runtime.cpp

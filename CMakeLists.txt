@@ -275,6 +275,14 @@ if(BUILD_TESTING)
   add_test(
     NAME tomba_native_frame_contract
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_native_frame_contract.py")
+  # The band measure's own discriminator. It is registered rather than left to a manual run because
+  # its FIRST version reported a band on an almost-empty page (it compared each row against the
+  # picture's MEDIAN row, and a page whose median is 0 makes every non-empty row a "band"), and a
+  # measure that can only answer "yes" is not a measure. The negative cases are the ones that hold it
+  # to that.
+  add_test(
+    NAME tomba_aspect_pair_selftest
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/aspect_pair.py" --selftest)
   # THE CONVERSION GATE for issue 0015, and the check that makes a batch conversion safe rather than a
   # guess: it cross-checks EVERY overlay-form declaration against the authenticated MODE images and
   # exits 1 on any mismatch, so a declaration naming an image that cannot install it is a BUILD failure

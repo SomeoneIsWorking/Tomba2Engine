@@ -531,19 +531,23 @@ void Render::fieldHudWeaponStrip() {
 // ---- FUN_80025D98 — the HUD dispatcher gate (transcribed 1:1) -----------------------------------
 void Render::fieldHudRender() {
   Core *c = mCore;
-  // While the in-game pause/item menu is up the guest replaces the whole frame with menu chrome —
-  // no world, no HUD (measured: all 421 ordering-table packets that frame come from the menu
-  // controller FUN_800346BC). PauseMenu is the native producer for that frame; the field HUD stands
-  // down, exactly as the guest's own HUD dispatcher does.
-  if (eng(c).pauseMenu.upThisFrame()) {
-    return;
-  }
-  // THE GUEST'S OWN GATE (kanban #38). This dispatcher lives inside the world render orchestrator
-  // 0x8003F9A8, which Engine::fieldFrame runs only while the PAUSE LEVEL is < 2 — so at level 2 the
-  // frame carries no world and no HUD at all. The in-game OPTIONS page raises the level to 2 (probed
-  // 0x1F800136 == 2 on Select Options / Messages / Sound / Controls, and == 1 on Screen adjust, which
-  // is why that one page does composite over the live field). Without this the weapon strip painted
-  // over the page's footer — the last 306 px of the #38 diff.
+  // The in-game pause/item menu no longer needs a stand-down HERE. This dispatcher used to return
+  // early on `pauseMenu.upThisFrame()` while the rest of the field walk carried on drawing; the pause
+  // menu owns the WHOLE frame that tick (the guest replaces it — all 421 ordering-table packets come
+  // from the menu controller FUN_800346BC), so the correct scope was the walk, and Render::renderField
+  // now returns before reaching this function on exactly that predicate. A stand-down on one producer
+  // out of several left every RQ_OVERLAY/RQ_HUD producer in that walk free to paint over the page,
+  // because the queue orders by (layer, submission seq) and the walk submits after the guest's menu
+  // emission. See the gate and its ordering argument on renderField.
+  //
+  // THE GUEST'S OWN GATE (kanban #38) — a DIFFERENT rule, and this one still stands. This dispatcher
+  // lives inside the world render orchestrator 0x8003F9A8, which Engine::fieldFrame runs only while the
+  // PAUSE LEVEL is < 2 — so at level 2 the frame carries no HUD at all. The in-game OPTIONS page raises
+  // the level to 2 (probed 0x1F800136 == 2 on Select Options / Messages / Sound / Controls, and == 1 on
+  // Screen adjust, which is why that one page does composite over the live field). Without this the
+  // weapon strip painted over the page's footer — the last 306 px of the #38 diff. That page is NOT the
+  // pause/item menu: `upThisFrame()` is never set for it, so this walk still runs and this gate is what
+  // stops the HUD.
   if (c->mem_r8(kPauseLevel) >= 2) {
     return;
   }
