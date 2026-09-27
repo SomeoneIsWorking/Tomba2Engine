@@ -1,5 +1,6 @@
 #include "frame_driver.h"
 
+#include "context.h"
 #include "core.h"
 #include "execution_control.h"
 #include "game.h"
@@ -246,6 +247,11 @@ void Tomba1FrameDriver::stepFrame(Core &core, std::uint32_t frame) {
     std::abort();
   }
   finishMainIteration(core, fields);
+  // The aspect is a live player setting, and 0x80016B04 states the guest's projection centre exactly
+  // once per image, so a run that changed aspect after boot would otherwise widen only the host
+  // canvas around an un-widened guest frustum. The owner re-latches here and re-asserts the centre
+  // only when it actually differs, so a 4:3 run still writes exactly what 0x80016B04 wrote.
+  context(core).widescreen.synchronizePresentation(core);
   game_.presentation.commit(&core, static_cast<int>(fields), game_.temporalPresentation.get());
   ++completedFrames_;
 }

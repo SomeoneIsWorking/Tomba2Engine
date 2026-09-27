@@ -1,5 +1,6 @@
 #include "cfg.h"
 #include "core.h"
+#include "dbg_server.h"
 #include "frame_loop_shell.h"
 #include "game.h"
 #include "hw_bind.h"
@@ -9,6 +10,7 @@
 #include "tomba1_runtime.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <lucent/log.h>
 #include <memory>
@@ -24,6 +26,24 @@ namespace {
 
 constexpr const char *kDefaultExecutable = "scratch/bin/tomba1/SCUS_942.36";
 constexpr const char *kDiscEnvironmentKey = "PSXPORT_TOMBA1_DISC";
+
+// The unattended-run frame cap, read from PSXPORT_NATIVE_FRAMES. 0 means "no cap", which is the
+// right answer for a windowed or client-driven run. This is a TITLE-side read of a launch
+// argument, not configuration the product subsystem owns: `DbgServer::attach` is what decides
+// whether that cap actually applies, and this only supplies the requested value.
+int nativeFrameCap() {
+  const char *value = cfg_str("PSXPORT_NATIVE_FRAMES");
+  if (!value || !*value) {
+    return 0;
+  }
+  char *end = nullptr;
+  const long parsed = std::strtol(value, &end, 0);
+  if (end == value || parsed <= 0 || parsed > 1000000L) {
+    lucent::error("boot", "PSXPORT_NATIVE_FRAMES={} is not a frame count in 1..1000000", value);
+    return 2;
+  }
+  return static_cast<int>(parsed);
+}
 
 bool isHelpRequest(int argc, char **argv) {
   return argc == 2 && (std::string_view(argv[1]) == "-h" || std::string_view(argv[1]) == "--help");
@@ -85,7 +105,24 @@ int main(int argc, char **argv) {
 
   FrameLoopShell shell;
   shell.prepareProduct(*game);
-  for (std::uint32_t frame = 0;; ++frame) {
+  // The product's control channel, always open on loopback. This title composes its own frame loop
+  // rather than entering the framework's `native_boot` spine, so the channel has to be attached here:
+  // without it a headless run has no way to be driven or captured at a chosen game state, which is
+  // what a matched 4:3/wide comparison needs. It stays open under ./run.sh and under the bare
+  // executable, so the player's own session is probeable too; the env var only moves the port.
+  //
+  // `attach` also answers the frame cap this loop owes, and answering it is not optional: 0 means
+  // "until quit", which is right for a client-driven or windowed run and wrong for an unattended
+  // headless one that would otherwise never return. The framework owns that decision, so this reads
+  // its answer instead of repeating the policy.
+  const int frameCap = game->dbg_server.attach(core, nativeFrameCap());
+  for (std::uint32_t frame = 0; frameCap == 0 || static_cast<int>(frame) < frameCap; ++frame) {
+    // The pause policy lives in the framework because a frozen game must not advance; this title's
+    // loop owes the same behaviour, and a second copy of "what a pause does" would be free to
+    // disagree with the other boot spines.
+    game->dbg_server.honourPause(core);
     shell.step(*core, frame);
+    game->dbg_server.service(core);
   }
+  return 0;
 }

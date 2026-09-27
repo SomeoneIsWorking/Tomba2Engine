@@ -21,13 +21,16 @@ add_custom_target(tomba1_scaffold DEPENDS psxport)
 add_library(
   tomba1_runtime STATIC
   "${TOMBA1_ROOT}/game/core/cd_native_startup.cpp"
+  "${TOMBA1_ROOT}/game/core/context.cpp"
   "${TOMBA1_ROOT}/game/core/frame_driver.cpp"
   "${TOMBA1_ROOT}/game/core/native_boot.cpp"
   "${TOMBA1_ROOT}/game/core/stream_field_turn.cpp"
   "${TOMBA1_ROOT}/game/core/sync_native.cpp"
-  "${TOMBA1_ROOT}/game/core/tomba1_runtime.cpp")
+  "${TOMBA1_ROOT}/game/core/tomba1_runtime.cpp"
+  "${TOMBA1_ROOT}/game/render/widescreen_projection.cpp")
 set_target_properties(tomba1_runtime PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
-target_include_directories(tomba1_runtime PUBLIC "${TOMBA1_ROOT}/game/core")
+target_include_directories(
+  tomba1_runtime PUBLIC "${TOMBA1_ROOT}/game/core" "${TOMBA1_ROOT}/game/render")
 target_link_libraries(tomba1_runtime PUBLIC psxport)
 
 add_executable(tomba1_port "${TOMBA1_ROOT}/game/app/main.cpp")
@@ -47,6 +50,14 @@ if(BUILD_TESTING)
     tomba1_stream_field_turn_test PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
   target_link_libraries(tomba1_stream_field_turn_test PRIVATE tomba1_runtime)
   add_test(NAME tomba1_stream_field_turn COMMAND tomba1_stream_field_turn_test)
+
+  add_executable(
+    tomba1_widescreen_projection_test
+    "${TOMBA1_ROOT}/tests/test_widescreen_projection.cpp")
+  set_target_properties(
+    tomba1_widescreen_projection_test PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+  target_link_libraries(tomba1_widescreen_projection_test PRIVATE tomba1_runtime)
+  add_test(NAME tomba1_widescreen_projection COMMAND tomba1_widescreen_projection_test)
 endif()
 
 add_custom_target(

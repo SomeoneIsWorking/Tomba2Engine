@@ -1,6 +1,7 @@
 #include "tomba1_runtime.h"
 
 #include "cd_native_startup.h"
+#include "context.h"
 #include "core.h"
 #include "dynarec_capabilities.h"
 #include "frame_driver.h"
@@ -41,11 +42,13 @@ const GuestCdStreamCallbackLayout kCdStreamCallbackLayout{
     .readyCallbackPointer = kCdReadyCallbackPointer,
 };
 
-void *Tomba1Runtime::createContext(Core &) {
-  return nullptr;
+void *Tomba1Runtime::createContext(Core &core) {
+  return new Context(core);
 }
 
-void Tomba1Runtime::destroyContext(void *) {}
+void Tomba1Runtime::destroyContext(void *context) {
+  delete static_cast<Context *>(context);
+}
 
 void Tomba1Runtime::registerOverrides(Game &game) {
   const auto install = [&game](std::uint32_t address, std::string_view name, psx::cpu::NativeFunction function) {
@@ -62,7 +65,8 @@ void Tomba1Runtime::registerOverrides(Game &game) {
       install(0x800172C4u, "Tomba1FrameDriver::restartOverride", Tomba1FrameDriver::restartOverride) &&
       install(0x80061480u, "gpuTimeoutBeginOverride", gpuTimeoutBeginOverride) &&
       install(0x800614B4u, "gpuTimeoutExpiredOverride", gpuTimeoutExpiredOverride) &&
-      install(kDmaCallbackEntry, "dmaCallbackOverride", dmaCallbackOverride);
+      install(kDmaCallbackEntry, "dmaCallbackOverride", dmaCallbackOverride) &&
+      install(widescreen::kSetDefDrawEnv, "tomba1-wide::SetDefDrawEnv", widescreen::drawEnvironmentOverride);
   if (!installed) {
     lucent::error("tomba1-runtime", "native override registration refused");
     std::abort();
@@ -99,6 +103,10 @@ RenderCapabilities Tomba1Runtime::renderCapabilities() const {
 
 bool Tomba1Runtime::guestVramIsPicture(const Game &) const {
   return true;
+}
+
+const GuestWidescreenProjection *Tomba1Runtime::guestWidescreenProjection() const {
+  return &widescreenPolicy_;
 }
 
 psx::cpu::ExecutionResult Tomba1Runtime::dispatchUntilExit(Core &core, std::uint32_t address) const {

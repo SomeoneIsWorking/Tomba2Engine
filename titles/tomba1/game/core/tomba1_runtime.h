@@ -2,6 +2,7 @@
 
 #include "execution_exit.h"
 #include "game_runtime.h"
+#include "widescreen_projection.h"
 
 #include <cstdint>
 #include <memory>
@@ -23,12 +24,17 @@ public:
   const GuestCdStreamCallbackLayout *guestCdStreamCallbackLayout() const override;
   RenderCapabilities renderCapabilities() const override;
   bool guestVramIsPicture(const Game &game) const override;
+  const GuestWidescreenProjection *guestWidescreenProjection() const override;
 
   psx::cpu::ExecutionResult dispatchUntilExit(Core &core, std::uint32_t address) const;
 
 private:
   static const GuestProgramImage programImage_;
   static const GuestPadBufferLayout padBufferLayout_;
+
+  // Process-lifetime because it is stateless: it names the selected aspect and holds no plan. The
+  // plan itself is per-Core, on `Context::widescreen`.
+  widescreen::ProjectionPolicy widescreenPolicy_;
 };
 
 } // namespace tomba1
