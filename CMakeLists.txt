@@ -220,6 +220,21 @@ if(BUILD_TESTING)
   add_test(
     NAME tomba_psxport_pin_selftest
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_psxport_sync.py")
+  # THE LIVE CHECK, and it is a different test from the selftest above.
+  #
+  # MEASURED 2026-09-27: every port's "pin test" was a selftest of the check FUNCTION, run against a
+  # temporary fixture. `tomba_psxport_pin_selftest` can pass 14/14 while this repository's actual
+  # `psxport.pin` names a framework commit nothing here was built against, because the selftest never
+  # reads the real pin or the real receipt. A gate that cannot fail on the thing it gates is not a gate,
+  # and that is why all ten ports showed green while four of their pins were demonstrably stale.
+  #
+  # This test runs the real function against the real pin and the real receipt, and it points
+  # `--build` at THIS build directory — the one CTest is running in, which was configured moments ago, so
+  # its receipt is current by construction and the staleness guard cannot fire spuriously.
+  add_test(
+    NAME tomba_psxport_pin
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/psxport_sync.py"
+            --check --build "${CMAKE_BINARY_DIR}")
   add_test(
     NAME tomba_dynarec_boundary_selftest
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_dynarec_boundary.py" --selftest)

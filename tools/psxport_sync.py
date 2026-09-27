@@ -149,7 +149,12 @@ def read_resolved(build):
     if not os.path.isfile(receipt):
         return None
     d = s = None
-    for line in open(receipt):
+    # Closed explicitly. A bare `for line in open(...)` leaves the handle to the garbage collector,
+    # which is invisible in normal use but shows up as a ResourceWarning the moment a test reads
+    # real receipts repeatedly — the selftest does, and it found this.
+    with open(receipt, encoding="utf-8") as handle:
+        lines = handle.readlines()
+    for line in lines:
         k, _, v = line.partition("=")
         if k.strip() == "dir":
             d = v.strip()
@@ -223,24 +228,52 @@ def do_auto(args):
 
 
 def do_bump(args):
+    """Record the framework commit THIS BUILD resolved -- not the framework's current HEAD.
+
+    WHY THIS IS NOT `head_of(target)`. It used to be. Recording HEAD means the pin names whatever the
+    framework is at when you run the bump, which is unrelated to what this tree was compiled and tested
+    against, and it makes the documented order `reconfigure -> build -> test -> --bump` a convention that
+    nothing enforces: `--bump` alone, with no build at all, would record a commit this tree has never
+    seen. That is not hypothetical. This repo shipped built against psxport `25dd7826` while recording
+    `a1c53d7c`, so a bare clone named a framework whose `GameHooks` lacked a field the game used, and
+    nothing noticed because a submodule working tree and its recorded gitlink drift silently. The pin
+    existed to make that failure loud, and the bump was the one step that could re-create it.
+
+    So a bump reads the same receipt, applies the same staleness guard, and selects the same build as
+    `--check`, which makes the two agree by construction rather than by two people remembering an order.
+    """
     kind, target = describe_link()
-    sha = head_of(target)
-    if not sha:
-        print("[psxport] REFUSED: external/psxport has no resolvable HEAD — nothing to record.")
+    built = read_resolved(args.build)
+    if not built:
+        print(f"[psxport] REFUSED: no usable psxport_resolved.txt in {args.build}; nothing was configured "
+              f"there, so there is nothing to record. Reconfigure and build FIRST, then bump -- a pin "
+              f"records a verification, and no build is no verification.")
         return 2
-    if dirty(target):
-        print("[psxport] REFUSED: the framework checkout is DIRTY. Recording a pin now would name a "
-              "commit that does not describe what you built. Commit the framework first.")
+    bdir, bsha = built
+    # The build must have resolved the tree this repo LINKS, or the receipt describes a framework this
+    # port is not actually consuming.
+    if kind in ("symlink", "clone") and os.path.realpath(bdir) != os.path.realpath(target):
+        print(f"[psxport] REFUSED: {args.build} was configured against {bdir}, but external/psxport "
+              f"points at {target}. Bumping would record a framework this port does not consume.")
+        return 1
+    # The same guard --check applies: a receipt that is already stale is not a verification.
+    current = head_of(bdir)
+    if current != bsha or dirty(bdir):
+        print(f"[psxport] REFUSED: {args.build}'s receipt is stale -- framework {bdir} is dirty or "
+              f"changed since configure (configured {bsha}, current {current}). Reconfigure, rebuild "
+              f"and retest, then bump.")
         return 1
     url, old = read_pin()
-    remote_has, rc = git(["branch", "-r", "--contains", sha], target)
+    remote_has, rc = git(["branch", "-r", "--contains", bsha], bdir)
     if rc != 0 or not remote_has.strip():
-        print(f"[psxport] REFUSED: {sha[:8]} is not on any remote branch. Recording it would leave a "
-              f"pin that a fresh clone cannot fetch — which is exactly how this repo shipped a tree "
+        print(f"[psxport] REFUSED: {bsha[:8]} is not on any remote branch. Recording it would leave a "
+              f"pin that a fresh clone cannot fetch -- which is exactly how this repo shipped a tree "
               f"that did not build standalone. Push the framework first.")
         return 1
-    write_pin(url or DEFAULT_URL, sha)
-    print(f"[psxport] pin {(old or '(none)')[:8]} -> {sha[:8]}")
+    write_pin(url or DEFAULT_URL, bsha)
+    print(f"[psxport] pin {(old or '(none)')[:8]} -> {bsha[:8]}")
+    print(f"[psxport]   recorded from {args.build}'s receipt -- the commit that build resolved -- not "
+          f"from the framework's current HEAD.")
     return 0
 
 
