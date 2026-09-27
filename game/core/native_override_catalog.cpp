@@ -122,17 +122,25 @@ void bindResident(Core &core, psx::cpu::ImageIdentity resident, GuestAddressRang
     }
     ++installed;
   }
-  // `unreachable` is NOT an abort, and that is a deliberate, temporary position. Every one of these
-  // is a native owner that has never run — CardMenu's whole card-menu producer and the bridge-rope
-  // producer were both found this way, each dead since the day it was written, each hiding inside
-  // the anonymous `inactive` count. Converting the rest needs per-address evidence of WHICH overlay
-  // image owns each one, which is issue 0015; guessing an image name would install an override
-  // against the wrong body. So this names every offender, every run, with a total. When the list is
-  // empty this becomes the abort it should be — an unreachable declaration is always a mistake.
-  lucent::error("tomba-native",
-                "{} native override declaration(s) can NEVER install — see the UNREACHABLE lines above "
-                "(issue 0015). Their native behaviour is absent from the product.",
-                unreachable);
+  // A resident declaration outside the resident text range can NEVER install, in any generation: the
+  // address belongs to an overlay slot, and only declareOverlayOverride with the owning image name can
+  // reach it. So the count is now the abort it should be rather than a log line (issue 0015). It was
+  // non-fatal only while conversions were outstanding and an abort would have taken down a product
+  // that runs; the list reached zero when the last ten were converted, and this refuses from here.
+  //
+  // The refusal is deliberately NOT the build-time gate. `tools/overlay_owner_map.py --census` (the
+  // ctest tomba_overlay_owner_census) already cross-checks every declaration against the
+  // authenticated MODE images and exits 1 on a mismatch, which is a refusal over CODE with no product
+  // running. This one is the backstop for the case the census cannot see: a resident-form declaration
+  // at an address the census has no image for, including AREA-slot addresses outside the MODE set.
+  // When the two ever disagree, the census is the thing that is wrong, not this abort.
+  if (unreachable != 0) {
+    lucent::error("tomba-native",
+                  "{} native override declaration(s) can NEVER install — see the UNREACHABLE lines above "
+                  "(issue 0015). Their native behaviour is absent from the product.",
+                  unreachable);
+    std::abort();
+  }
   lucent::info("tomba-native",
                "bound resident image generation: declarations={} installed={} retained={} inactive={}",
                declarations().size(),

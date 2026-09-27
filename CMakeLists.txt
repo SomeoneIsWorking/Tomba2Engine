@@ -99,6 +99,21 @@ if(BUILD_TESTING)
   target_link_libraries(test_native_override_catalog PRIVATE psxport)
   add_test(NAME tomba_native_override_catalog COMMAND test_native_override_catalog)
 
+  # DEATH TEST for the issue-0015 abort. `bindResident` now refuses, by aborting, on any resident-form
+  # declaration outside the resident text range — the defect that silently kept 42 native owners out
+  # of the product. The census above keeps that list empty over the real catalog; this covers the
+  # decision itself, which no build-time scan can make, and an untested fatal path is one nobody dares
+  # change. The test forks and asserts the child died by SIGABRT, because ctest does not invert
+  # WILL_FAIL for a signalled child.
+  add_executable(test_native_override_unreachable_abort
+      tests/test_native_override_unreachable_abort.cpp
+      game/core/native_override_catalog.cpp
+      game/scene/level_load.cpp)
+  target_include_directories(test_native_override_unreachable_abort PRIVATE game/core game/scene)
+  target_link_libraries(test_native_override_unreachable_abort PRIVATE psxport)
+  add_test(NAME tomba_native_override_unreachable_abort
+           COMMAND test_native_override_unreachable_abort)
+
   add_executable(test_gpu_timeout_dispatch
       tests/test_gpu_timeout_dispatch.cpp game/core/game_config.cpp)
   target_include_directories(test_gpu_timeout_dispatch PRIVATE game/core)

@@ -740,13 +740,15 @@ L_801244E0:;
 }
 
 void ReleaseTriggerMotion::registerOverrides() {
-  // 0x80124328 STAYS IN THE RESIDENT FORM: the tool's extent heuristic reports no image owning it, and
-  // that verdict is not trustworthy for a leaf (see issue 0015), so the address must be settled before
-  // the declaration is bound to an identity. The other six are A00, from the image: of 23 authenticated
-  // MODE images only A00 holds a function at each address, and each is inside A00's loaded text range.
-  {
-    tomba::native::declareOverride(0x80124328u, "ReleaseTriggerMotion::xSweepCycle", eov_xSweepCycle);
-  }
+  // All seven are A00, from the image: of 23 authenticated MODE images only A00 holds a function at
+  // each address, and each is inside A00's loaded text range.
+  //
+  // 0x80124328 is the leaf that needed the tool's entry rule widened (issue 0015): it is a jump-table
+  // dispatcher on node[6] that never touches $sp, so it has no stack-allocating prologue and the old
+  // rule read that as "no image owns this address". It sits exactly 8 bytes after a `jr $ra` in A00
+  // and in no other image, which is the tool's second recognised entry shape. That verdict came off
+  // the tool, so it is the same evidence standard as the other thirty-two, not a disassembly read.
+  tomba::native::declareOverlayOverride("A00", 0x80124328u, "ReleaseTriggerMotion::xSweepCycle", eov_xSweepCycle);
   tomba::native::declareOverlayOverride("A00", 0x80123E9Cu, "ReleaseTriggerMotion::hoverBobCycle", eov_hoverBobCycle);
   tomba::native::declareOverlayOverride(
       "A00", 0x801241BCu, "ReleaseTriggerMotion::leaderFollowSync", eov_leaderFollowSync);

@@ -275,13 +275,19 @@ void ov_behSpawnToyType2_80127510(Core *c) {
 } // namespace
 
 void RegisterBehToySpawnFamilyOverrides(Game * /*game*/) {
-  // 0x80127420 and 0x801274BC STAY IN THE RESIDENT FORM: the tool's extent heuristic reports no image
-  // owning them, and that verdict is not trustworthy for a leaf (see issue 0015). The other three are
-  // A00, from the image: of 23 authenticated MODE images only A00 holds a function at each address, and
-  // each is inside A00's loaded text range. The file banner already places this whole band in the A00
-  // gameplay overlay; the image confirms it for these three.
-  tomba::native::declareOverride(0x80127420u, "beh_arm_countdown_if_linked_ready", ov_behArmCountdown80127420);
-  tomba::native::declareOverride(0x801274BCu, "beh_distance_band_predicate", ov_behDistanceBand801274bc);
+  // All five are A00, from the image: of 23 authenticated MODE images only A00 holds a function at
+  // each address, and each is inside A00's loaded text range. The file banner already places this
+  // whole band in the A00 gameplay overlay; the image confirms it.
+  //
+  // 0x80127420 and 0x801274BC were the two the tool could not place until its entry rule was widened
+  // (issue 0015). They are MIPS LEAVES -- neither touches $sp -- so neither has a stack-allocating
+  // prologue, and the old rule read that as "no image owns this address". Both sit exactly 8 bytes
+  // after a `jr $ra` in A00 and in no other image, which is the second recognised entry shape
+  // (`tools/overlay_owner_map.py`, ENTRY_AFTER_EPILOGUE). That verdict came off the tool, not off a
+  // reading of the disassembly, so it is the same evidence standard as the other thirty-two.
+  tomba::native::declareOverlayOverride(
+      "A00", 0x80127420u, "beh_arm_countdown_if_linked_ready", ov_behArmCountdown80127420);
+  tomba::native::declareOverlayOverride("A00", 0x801274BCu, "beh_distance_band_predicate", ov_behDistanceBand801274bc);
   tomba::native::declareOverlayOverride("A00", 0x80127720u, "beh_spawn_toy_child_type5", ov_behSpawnToyType5_80127720);
   tomba::native::declareOverlayOverride("A00", 0x8012763Cu, "beh_spawn_toy_child_type4", ov_behSpawnToyType4_8012763c);
   tomba::native::declareOverlayOverride("A00", 0x80127510u, "beh_spawn_toy_child_type2", ov_behSpawnToyType2_80127510);

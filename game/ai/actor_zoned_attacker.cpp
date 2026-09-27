@@ -1473,16 +1473,16 @@ switchD_caseD_8:
 }
 
 // FUN_80145C78 (ActorZonedAttacker::zoneClassify) moved to actor_zoned_attacker_zone_classify.cpp:
-// this file is at its 1535-line cpp-policy cap and could not host the issue-0015 declaration
-// conversion below without exceeding it. See that file for the body and its own naming rationale.
+// this file sits at its cpp-policy cap and could not host the body. Its DECLARATION is here, below.
 
 void ActorZonedAttacker::registerOverrides(Game * /*game*/) {
-  tomba::native::declareOverride(FN_80145C78, "ActorZonedAttacker::zoneClassify", &ActorZonedAttacker::zoneClassify);
-  tomba::native::declareOverride(0x80140544u, "ActorZonedAttacker::typeInit", ActorZonedAttacker::typeInit);
-  // The A00-scoped five: of 23 authenticated MODE images only A00 holds a function at each address.
-  // 0x80140544 and 0x80145C78 stay RESIDENT — no image is established as owning them, and the extent
-  // heuristic that says so is unreliable for a leaf or a split prologue (docs/issues/0015, which also
-  // carries the per-address image evidence this file has no line budget to repeat).
+  // All seven are A00: of 23 authenticated MODE images only A00 holds a function at each address.
+  // 0x80145C78 (a leaf) and 0x80140544 (a split prologue) lack the `addiu $sp,$sp,-N` entry the tool
+  // used to require; its second entry shape placed them. docs/issues/0015.
+  tomba::native::declareOverlayOverride(
+      "A00", FN_80145C78, "ActorZonedAttacker::zoneClassify", &ActorZonedAttacker::zoneClassify);
+  tomba::native::declareOverlayOverride(
+      "A00", 0x80140544u, "ActorZonedAttacker::typeInit", ActorZonedAttacker::typeInit);
   tomba::native::declareOverlayOverride(
       "A00", FN_8014047C, "ActorZonedAttacker::gateCheck", ActorZonedAttacker::gateCheck);
   tomba::native::declareOverlayOverride(

@@ -556,15 +556,20 @@ void sopLiftedSubtick(Core *c) { // FUN_8010B588
 
 // ===================================================================================================
 // FUN_8010BEAC — beh_orbit_spark_effect. CONFIDENCE: state-machine shape + field writes HIGH (direct
-// Ghidra transcription). OWNERSHIP CONTEXT UNCONFIRMED: this address has exactly one xref in ram_sop.bin
-// and it is NOT a `jal`/`j` call site — it is a raw 4-byte DATA reference at 0x800A22B8, inside a small
-// MAIN.EXE-RESIDENT table (adjacent entries include 0x8010BF54, also SOP-overlay-local) that looks like
-// a per-object-TYPE handler table (same shape as the class-indexed tables Spawn::dispatch's 5 variants
-// use), not SOP-scene state. That means this is most likely a GENERIC reusable "orbiting spark" particle
-// TYPE handler reachable from anywhere via the normal spawn/type-dispatch mechanism, not exclusive to
-// the SOP intro — the actual spawner/table owner was not traced this pass (deferred; a future pass
-// should Ghidra-xref 0x800A22B8 itself, or entity_walk.py-scan for the handler pointer, to find who
-// installs it on a node's +0x1C).
+// Ghidra transcription). OWNERSHIP: SOP, settled 2026-09-27 by the bytes rather than by this comment —
+// see RegisterSopIntroEventOverrides below for the full reachability argument. This address has
+// exactly one xref in ram_sop.bin and it is NOT a `jal`/`j` call site — it is a raw 4-byte DATA
+// reference at 0x800A2AB8 (NOT 0x800A22B8: an earlier pass of this comment had that address 0x800
+// too low), inside a small MAIN.EXE-RESIDENT table whose next entry is 0x8010BF54, also
+// SOP-overlay-local. In SOP those two consecutive entries are two consecutive DISTINCT functions; in
+// A0E, which holds a different 73-word body at 0x8010BEAC, that body runs straight through 0x8010BF54.
+// The table looks like a per-object-TYPE handler table (same shape as the class-indexed tables
+// Spawn::dispatch's 5 variants use), so this is most likely a GENERIC reusable "orbiting spark"
+// particle TYPE handler reachable from anywhere via the normal spawn/type-dispatch mechanism, not
+// exclusive to the SOP intro. Because the table is RESIDENT and the address is an overlay-slot
+// address, the handler only has the right meaning while SOP is the loaded MODE image; who installs
+// it on a node's +0x1C is still untraced (a future pass should Ghidra-xref 0x800A2AB8 itself, or
+// entity_walk.py-scan for the handler pointer).
 //
 //   state 0: -> state 1; node+0x48=0x400 (facing/scale?), node+0x4A=0, node+0x4C(u32)=0, node+0x50=0.
 //   states 0(after init)/1: node+1=1 (active flag); node+0x4E -= 0x20 (short, orbit phase decrement);
@@ -658,20 +663,45 @@ void ov_behOrbitSparkEffect(Core *c) {
 } // namespace
 
 void RegisterSopIntroEventOverrides(Game * /*game*/) {
-  // Reached only via typed runtime address dispatch (animation-event fn-ptr table / node+0x1C dispatch) — no direct
-  // intra-shard call site, so setter omitted.
+  // THE FOUR CONTESTED ADDRESSES, RESOLVED BY CALLER REACHABILITY (issue 0015, 2026-09-27).
   //
-  // FOUR OF THESE ADDRESSES ARE CONTESTED and stay in the RESIDENT form on purpose (issue 0015):
-  // tools/overlay_owner_map.py --unreachable finds MORE THAN ONE authenticated MODE image holding a
-  // DIFFERENT function body at 0x8010AF60 (SOP and A0F, 70 words each), 0x8010B078 (A00 137 words,
-  // A0F 71, SOP 41), 0x8010B44C (A0E 42 words, SOP 19) and 0x8010BEAC (A0E 73 words, SOP 42). A guest
-  // address alone does not identify PSX code -- every MODE overlay loads at 0x80108F9C, so the same
-  // numeric address is a different function in each image that has one there. Naming the wrong image
-  // would install a native owner over a different body, which is worse than not installing it.
-  tomba::native::declareOverride(0x8010AF60u, "sopBeatAdvanceWalk", ov_sopBeatAdvanceWalk);
-  tomba::native::declareOverride(0x8010B078u, "sopBeatAdvanceNarration", ov_sopBeatAdvanceNarration);
-  tomba::native::declareOverride(0x8010BEACu, "beh_orbit_spark_effect", ov_behOrbitSparkEffect);
-  tomba::native::declareOverride(0x8010B44Cu, "sopIntroEffectSpawn", ov_sopIntroEffectSpawn);
+  // `tools/overlay_owner_map.py` found MORE THAN ONE authenticated MODE image holding a DIFFERENT
+  // function body at each of these, so no image argument could pick between them: 0x8010AF60
+  // (SOP and A0F, 70 words each), 0x8010B078 (A00 137, A0F 71, SOP 41), 0x8010B44C (A0E 42, SOP 19)
+  // and 0x8010BEAC (A0E 73, SOP 42). Every MODE overlay loads at 0x80108F9C, so the same numeric
+  // address is a different function in each image that holds one there, and naming the wrong image
+  // would install a native owner over a different body. What decided them is a fact ABOUT THE
+  // IMAGES: whether any code in the image reaches the address.
+  //
+  //   0x8010AF60  SOP holds a LITERAL DATA WORD at 0x8010CA7C, an op-0x3E call-fnptr slot in the
+  //               pilot's cutscene SCRIPT (the 0x18-stride {u32 op/arg, u32 fnptr, u32 op/arg, u32}
+  //               table at 0x8010CA60..0x8010CAC8, whose sibling op-0x3E entries are 0x8010AE9C and
+  //               0x8010B498). A0F, holding the other body, references the address NOWHERE: no
+  //               jal/j, no jalr over a formed constant, no literal word. A05 has a `bne` at
+  //               0x8010AEB8 aimed here, but that address is a SHARED EPILOGUE TAIL in A05
+  //               (`lw $ra,0x28($sp)` .. `jr $ra`), not an entry -- a branch, not a call.
+  //   0x8010B078  SOP holds a literal data word at 0x8010CA94, the next op-0x3E slot in that same
+  //               script table. A00 and A0F reference it nowhere.
+  //   0x8010B44C  SOP CONTAINS A DIRECT CALL: `jal 0x8010b44c` at 0x8010BB60, in a real
+  //               instruction stream (delay slot `sb $v1,5($s0)`). A0E references it nowhere. A06's
+  //               `bne` at 0x8010B434 aims at a shared tail block, not an entry.
+  //   0x8010BEAC  NO MODE IMAGE CALLS IT, so the per-overlay test is a null and that is a real
+  //               finding rather than a gap: it is reached from a MAIN.EXE-RESIDENT function-pointer
+  //               table at 0x800A2AB8/0x800A2ABC, which holds the CONSECUTIVE pair 0x8010BEAC,
+  //               0x8010BF54. In SOP that pair is two consecutive DISTINCT functions -- 0x8010BEAC
+  //               restores ra and returns at 0x8010BF4C, and 0x8010BF54 opens a new one
+  //               (`addiu $sp,$sp,-0x30; sw $s0,0x18($sp); move $s0,$a0`). In A0E 0x8010BEAC's
+  //               body runs straight THROUGH 0x8010BF54, where the instruction is `lw $v0,($s0)`
+  //               mid-way through a 12-byte-stride loop, so the pair would resolve to one function
+  //               and then to its middle. Only SOP makes the table coherent. A0A's `beq` at
+  //               0x8010BE00 aims at a shared tail, not an entry.
+  //
+  // So all four are SOP-scoped, which is also what the file's own provenance (transcribed from
+  // ram_sop.bin) said -- but here that agreement is a confirmation, not the evidence.
+  tomba::native::declareOverlayOverride("SOP", 0x8010AF60u, "sopBeatAdvanceWalk", ov_sopBeatAdvanceWalk);
+  tomba::native::declareOverlayOverride("SOP", 0x8010B078u, "sopBeatAdvanceNarration", ov_sopBeatAdvanceNarration);
+  tomba::native::declareOverlayOverride("SOP", 0x8010BEACu, "beh_orbit_spark_effect", ov_behOrbitSparkEffect);
+  tomba::native::declareOverlayOverride("SOP", 0x8010B44Cu, "sopIntroEffectSpawn", ov_sopIntroEffectSpawn);
   // Direct intra-shard call sites (SOP overlay the cited guest address(c), bypass typed runtime address dispatch) ->
   // the SOP-scoped declaration installs the thunk so those callers reach native too.
   //

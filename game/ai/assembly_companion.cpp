@@ -293,11 +293,20 @@ void AssemblyCompanion::composeRigAndApplyPartScales(Core *c) {
 }
 
 void AssemblyCompanion::registerOverrides() {
-  // 0x80138A64 STAYS IN THE RESIDENT FORM: the tool's extent heuristic reports no image owning it, and
-  // that verdict is not trustworthy for a leaf (see issue 0015). 0x801389C8 is A00, from the image: of
-  // 23 authenticated MODE images only A00 holds a function there (39 words), inside A00's text range.
-  tomba::native::declareOverride(
-      0x80138A64u, "AssemblyCompanion::endCamHoldAndRearmOnStroke", &AssemblyCompanion::endCamHoldAndRearmOnStroke);
+  // Both are A00, from the image: of 23 authenticated MODE images only A00 holds a function at each
+  // address (40 and 39 words), each inside A00's loaded text range.
+  //
+  // 0x80138A64 is a leaf -- `lh $v0,0x6a($a0)` and no $sp touch -- so it has no stack-allocating
+  // prologue, and the tool's old entry rule read that as "no image owns this address" (issue 0015).
+  // It sits exactly 8 bytes after a `jr $ra` in A00 and in no other image, the tool's second
+  // recognised entry shape. Note the entry rule was widened, not the address moved: the preceding
+  // function really does restore `$ra` and return at 0x80138A60 (`addiu sp,sp,0x38` in its delay
+  // slot), and 0x80138A64 does open a different function, which is what this file's own TRUE EXTENT
+  // note above already recorded.
+  tomba::native::declareOverlayOverride("A00",
+                                        0x80138A64u,
+                                        "AssemblyCompanion::endCamHoldAndRearmOnStroke",
+                                        &AssemblyCompanion::endCamHoldAndRearmOnStroke);
   tomba::native::declareOverlayOverride("A00",
                                         0x801389C8u,
                                         "AssemblyCompanion::composeRigAndApplyPartScales",

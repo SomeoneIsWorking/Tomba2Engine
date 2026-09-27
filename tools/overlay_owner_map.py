@@ -26,13 +26,24 @@ prints the per-image install count the product's own `bindOverlay` will reach. I
 tells a conversion from a guess, and it exits 1 when a declaration names an image that does not hold
 the function there.
 
-KNOWN LIMIT OF THE "no owner" VERDICT (measured 2026-09-27, issue 0015). Function detection requires a
-stack-allocating prologue, so a MIPS LEAF -- one that never touches $sp -- reads as "no image owns
-this address" even when the image holds the function. All five of the addresses issue 0015 lists as
-unowned are exactly that case in A00, verified by disassembly (`0x80127420` and `0x801274BC` are
-leaves; `0x80140544` allocates its frame two instructions in, after a `lui`/`lh` pair). The verdict is
-therefore a false negative about a FUNCTION SHAPE, not about which image holds the bytes, and it must
-not be read as "this address is not code". See issue 0015.
+KNOWN LIMITS OF THE "no owner" VERDICT, both measured 2026-09-27 on issue 0015.
+
+1. FUNCTION SHAPE, since FIXED. Detection once required a stack-allocating prologue, so a MIPS LEAF --
+   one that never touches $sp -- and a split prologue that allocates after a leading `lui`/`lh` read
+   as "no image owns this address" even when the image holds the function. `entry_shapes` now also
+   accepts an address 8 bytes after a `jr $ra` epilogue pair, which is what released issue 0015's
+   remaining six. Widening the rule needed its own guard: a `jr $ra` can be a mid-function EARLY
+   RETURN, so an entry whose body branches back below itself is refused as a `continuation`. A
+   verdict that rests on the looser shape is printed with the shape that admitted it.
+
+2. CALLER REACHABILITY, NOT DECIDED HERE, and not decidable here. Two images can hold different
+   functions at one address, and grouping by body digest then reports the address CONTESTED rather
+   than picking. Which of the holders is the real definition is a question about who CALLS the
+   address, and the answer lives in the images (a `jal`/`j`, a `jalr` over a formed constant, or a
+   function-pointer data entry) and sometimes in the resident image rather than in any overlay.
+   `tools/disasm_overlay.py` over the authenticated `.BIN` is the instrument. Note that a CONDITIONAL
+   BRANCH is not a call: these overlays share epilogue and tail blocks across functions, so a `beq`
+   can land mid-body of a function that starts earlier.
 """
 
 from __future__ import annotations
@@ -80,6 +91,55 @@ PROLOGUE_MASK = 0xFFFF0000
 STACK_ALLOCATE = 0x27BD0000  # addiu $sp, $sp, -N
 WALK_LIMIT = 4096  # instructions; a MODE function far shorter than its image
 
+# A MIPS function ENTRY has TWO shapes in these overlays, both measured on authenticated images
+# (issue 0015, 2026-09-27). An entry is the address if EITHER holds:
+#
+#   1. STACK PROLOGUE -- `addiu $sp, $sp, -N` at the address. The common case.
+#   2. AFTER A `jr $ra` EPILOGUE PAIR -- `jr $ra` EPILOGUE_PAIR_OFFSET bytes before the address,
+#      with its delay slot in between. A MIPS LEAF never touches $sp, and a function whose frame
+#      is allocated a few instructions in has no shape-1 prologue; both still follow some other
+#      function's return, so shape 2 holds for them.
+#
+# Shape 2 is what the six addresses issue 0015 could not place were missing. Requiring only shape 1
+# made the verdict a false negative about FUNCTION SHAPE rather than about which image holds the
+# bytes, and it fired on three declarations that had been shipping and installing all along. All
+# six now resolve in A00, which is the only one of the 23 images where `jr $ra` sits 8 bytes before
+# each of them; the four contested addresses are unaffected, because no image has a `jr $ra` there.
+EPILOGUE_PAIR_OFFSET = 8
+
+ENTRY_STACK_PROLOGUE = "stack prologue"
+ENTRY_AFTER_EPILOGUE = "after jr $ra epilogue pair"
+
+# Shape 2 has one false-positive mode, measured 2026-09-27: the `jr $ra` 8 bytes back is an EARLY
+# RETURN inside a function that continues after it, so the bytes at the address are a loop body or
+# a tail merge, not a new function. A01 at `0x801241BC` is exactly that -- `beqz $v0, 0x801241a0` at
+# `0x801241C8` branches back BELOW the address that shape 2 would have admitted. Without this guard
+# the widened rule made one ALREADY-CONVERTED declaration (`ReleaseTriggerMotion::leaderFollowSync`,
+# A00) read as contested, on a false positive.
+#
+# A conditional branch below its own entry is impossible in a well-formed function: branches are
+# PC-relative, and `jal`/`j` are unconditional transfers to a callee or a tail rather than branches.
+# So a back-edge out of the walked body, landing below the entry, PROVES the admitting `jr $ra` and
+# the bytes at the entry are the same function. This is decidable from the image, and it is why the
+# rule refuses rather than hedging: an entry this shape cannot vouch for is reported as a
+# continuation, never counted as a holder.
+BACK_EDGE_OPCODES = frozenset({0x01, 0x04, 0x05, 0x06, 0x07})  # regimm, beq, bne, blez, bgtz
+
+
+def conditional_target(instruction: int, at: int) -> int | None:
+    """The target of a CONDITIONAL PC-relative branch at `at`, or None if it is not one.
+
+    `j`/`jal`/`bgezal`-style unconditional transfers are excluded on purpose: a function body calls
+    and tail-jumps to lower addresses all the time, so only a conditional back-edge carries the
+    meaning this rule needs.
+    """
+    if (instruction >> 26) not in BACK_EDGE_OPCODES:
+        return None
+    immediate = instruction & 0xFFFF
+    if immediate & 0x8000:
+        immediate -= 0x10000
+    return MODE_SLOT + at + 4 + (immediate << 2)
+
 
 class Refusal(Exception):
     """A condition that must stop the tool rather than shrink its answer."""
@@ -92,6 +152,7 @@ class Body:
     image: str
     words: int
     digest: str
+    entry: tuple[str, ...] = ()  # which entry shape(s) admitted it; never guessed
 
 
 @dataclass
@@ -101,11 +162,13 @@ class Address:
     address: int
     bodies: list[Body] = field(default_factory=list)
     short: list[str] = field(default_factory=list)  # image ends before the offset
-    not_a_function: list[str] = field(default_factory=list)  # no stack-allocating prologue
+    not_a_function: list[str] = field(default_factory=list)  # no recognised function entry
+    continuation: list[str] = field(default_factory=list)  # continues a function that returned
     runaway: list[str] = field(default_factory=list)  # no return within the walk limit
 
     def examined(self) -> int:
-        return len(self.bodies) + len(self.short) + len(self.not_a_function) + len(self.runaway)
+        return (len(self.bodies) + len(self.short) + len(self.not_a_function)
+                + len(self.continuation) + len(self.runaway))
 
     def groups(self) -> dict[str, list[str]]:
         out: dict[str, list[str]] = {}
@@ -141,24 +204,56 @@ def authenticate(directory: Path, manifest: dict, names: list[str]) -> dict[str,
     return images
 
 
-def body_at(data: bytes, offset: int) -> tuple[int, str] | str:
+def word(data: bytes, offset: int) -> int:
+    return int.from_bytes(data[offset : offset + 4], "little")
+
+
+def entry_shapes(data: bytes, offset: int) -> tuple[str, ...]:
+    """Which entry shapes hold at `offset` in THIS image. Empty means "not a function entry".
+
+    Both shapes are decided from the image's own bytes, and both are named in the answer, so a
+    verdict that rests on the looser shape 2 is visible as such rather than reading like the
+    stack-prologue verdict the first thirty-two conversions were held to.
+    """
+    shapes: list[str] = []
+    if offset + 4 <= len(data) and (word(data, offset) & PROLOGUE_MASK) == STACK_ALLOCATE:
+        shapes.append(ENTRY_STACK_PROLOGUE)
+    if offset >= EPILOGUE_PAIR_OFFSET and word(data, offset - EPILOGUE_PAIR_OFFSET) == RETURN_TO_CALLER:
+        shapes.append(ENTRY_AFTER_EPILOGUE)
+    return tuple(shapes)
+
+
+def body_at(data: bytes, offset: int) -> tuple[int, str, tuple[str, ...]] | str:
     """The function starting at `offset`, or why this image has none there.
 
-    A MIPS function in these overlays opens by allocating stack and closes on `jr $ra` plus its
-    delay slot. Both ends are required: a word that merely disassembles is not a function, and a
-    walk that never returns is reporting on data rather than code.
+    A MIPS function in these overlays opens at a recognised ENTRY (either shape, `entry_shapes`)
+    and closes on `jr $ra` plus its delay slot. Both ends are still required: a word that merely
+    disassembles is not a function, and a walk that never returns is reporting on data rather than
+    code. Widening the entry rule is not allowed to weaken the closing rule, because that is what
+    keeps a `jr $ra` byte pattern inside a data region from reading as a function.
+
+    An entry admitted only by shape 2 is additionally refused if its body branches back below the
+    entry, which would mean it continues a function that already returned (see
+    `conditional_target`).
     """
     if offset + 4 > len(data):
         return "short"
-    if (int.from_bytes(data[offset : offset + 4], "little") & PROLOGUE_MASK) != STACK_ALLOCATE:
+    shapes = entry_shapes(data, offset)
+    if not shapes:
         return "not_a_function"
     for index in range(WALK_LIMIT):
         at = offset + index * 4
         if at + 8 > len(data):
             return "runaway"
-        if int.from_bytes(data[at : at + 4], "little") == RETURN_TO_CALLER:
+        instruction = word(data, at)
+        if instruction == RETURN_TO_CALLER:
             words = index + 2  # the return and its delay slot
-            return words, hashlib.sha256(data[offset : offset + words * 4]).hexdigest()
+            if ENTRY_AFTER_EPILOGUE in shapes:
+                for back in range(offset, at, 4):
+                    target = conditional_target(word(data, back), back)
+                    if target is not None and target < MODE_SLOT + offset:
+                        return "continuation"
+            return words, hashlib.sha256(data[offset : offset + words * 4]).hexdigest(), shapes
     return "runaway"
 
 
@@ -173,11 +268,13 @@ def examine(address: int, images: dict[str, bytes]) -> Address:
             out.short.append(name)
         elif result == "not_a_function":
             out.not_a_function.append(name)
+        elif result == "continuation":
+            out.continuation.append(name)
         elif result == "runaway":
             out.runaway.append(name)
         else:
-            words, digest = result
-            out.bodies.append(Body(name, words, digest))
+            words, digest, shapes = result
+            out.bodies.append(Body(name, words, digest, shapes))
     return out
 
 
@@ -187,11 +284,15 @@ def report(found: Address) -> None:
     if not groups:
         print("           NO IMAGE OWNS THIS ADDRESS — no function body in any of them")
     for digest, names in sorted(groups.items(), key=lambda item: (-len(item[1]), item[1][0])):
-        words = next(body.words for body in found.bodies if body.digest == digest)
-        print(f"           {digest[:12]}  {words:4d} words  {', '.join(names)}")
+        members = [body for body in found.bodies if body.digest == digest]
+        words = members[0].words
+        shapes = sorted({shape for body in members for shape in body.entry})
+        print(f"           {digest[:12]}  {words:4d} words  {', '.join(names)}  "
+              f"[entry: {', '.join(shapes)}]")
     for label, names in (
         ("image ends before this offset", found.short),
-        ("no function prologue here", found.not_a_function),
+        ("no function entry here", found.not_a_function),
+        ("continues a function that already returned (a back-edge below the entry)", found.continuation),
         ("no return within the walk limit", found.runaway),
     ):
         if names:
@@ -293,7 +394,8 @@ def summarise(offenders: list[tuple[int, str, Path]], images: dict[str, bytes]) 
             f"{address:08X} {name}")
     print(f"\n[owner] of {len(offenders)} unreachable declarations:")
     print(f"[owner]   {len(decided)} have exactly one image holding a function there")
-    print(f"[owner]   {len(contested)} have more than one, so the owner's own provenance decides")
+    print(f"[owner]   {len(contested)} have more than one, so CALLER REACHABILITY in the images decides "
+          f"— not this tool, and not the source's provenance")
     print(f"[owner]   {len(orphan)} have none at all — the address is not a MODE function")
     for label, rows in (("contested", contested), ("no owner", orphan)):
         for row in rows:
@@ -316,10 +418,11 @@ def census(declarations: list[tuple[int, str, str, Path]], images: dict[str, byt
     count the product will reach, and it is the number a conversion must move.
 
     `image_holds_the_function` is a STRONGER question than the product asks, and its negative is not a
-    product failure: it is whether a stack-allocating prologue starts at the address, which a MIPS leaf
-    or a split prologue does not have. Three declarations already shipping in this tree read 0 there
-    and install anyway. So a row with no prologue is reported as a SHAPE note with the word at the
-    offset, and only an out-of-range address fails.
+    product failure: it is whether a recognised function ENTRY starts at the address (either shape
+    `entry_shapes` admits, not just a stack-allocating prologue). Three declarations already shipping
+    in this tree read 0 under the stack-prologue shape alone and install regardless. So a row with
+    no recognised entry is reported as a SHAPE note with the word at the offset, and only an
+    out-of-range address fails.
     """
     failures: list[str] = []
     notes: list[str] = []
@@ -330,27 +433,33 @@ def census(declarations: list[tuple[int, str, str, Path]], images: dict[str, byt
             continue
         size = len(images[name])
         in_range = [row for row in rows if MODE_SLOT <= row[0] < MODE_SLOT + size]
-        shaped = 0
+        held = 0
+        by_shape: dict[str, int] = {}
         for row in in_range:
-            holders = {image for group in examine(row[0], images).groups().values() for image in group}
-            if name in holders:
-                shaped += 1
+            found = examine(row[0], images)
+            bodies = [body for body in found.bodies if body.image == name]
+            if bodies:
+                held += 1
+                for shape in bodies[0].entry:
+                    by_shape[shape] = by_shape.get(shape, 0) + 1
             else:
+                holders = {image for group in found.groups().values() for image in group}
                 offset = row[0] - MODE_SLOT
-                word = int.from_bytes(images[name][offset : offset + 4], "little")
-                verdict = ", ".join(sorted(holders)) if holders else "no stack-allocating prologue"
+                first = word(images[name], offset)
+                verdict = ", ".join(sorted(holders)) if holders else "no recognised function entry"
                 notes.append(f"{row[0]:08X} {row[2]}  {name} installs it anyway; "
-                             f"no stack-allocating prologue at the entry (word 0x{word:08X}, {verdict})")
+                             f"no recognised function entry at the offset (word 0x{first:08X}, {verdict})")
         for row in rows:
             if not (MODE_SLOT <= row[0] < MODE_SLOT + size):
                 failures.append(f"{row[0]:08X} {row[2]}  outside {name}'s loaded text range "
                                 f"[{MODE_SLOT:08X}, {MODE_SLOT + size:08X}) — it can never install")
+        shapes = ", ".join(f"{count} by {shape}" for shape, count in sorted(by_shape.items()))
         print(f"[census]   {name}: declared={len(rows):3d} in_text_range={len(in_range):3d} "
-              f"stack_prologue_at_entry={shaped:3d}")
+              f"image_holds_the_function={held:3d}  ({shapes})")
     print(f"[census] {len(failures)} declaration(s) that can never install:")
     for row in failures:
         print(f"[census]   {row}")
-    print(f"[census] {len(notes)} declaration(s) with no stack-allocating prologue at the entry "
+    print(f"[census] {len(notes)} declaration(s) with no recognised function entry at the offset "
           f"(installed anyway; function-shape note, not a failure):")
     for row in notes:
         print(f"[census]   {row}")
