@@ -261,6 +261,24 @@ def check_build_pin(build):
               f"nothing can be compared with pin {pin[:8]}.")
         return 2
     bdir, bsha = built
+    # THE STALENESS GUARD, and it is the whole point of this check. `bsha` is what CMake recorded at
+    # CONFIGURE time, so a plain `cmake --build` never refreshes it. Without comparing it against the
+    # framework's CURRENT head, a tree rebuilt against newer framework code still reports the OLD commit,
+    # matches its pin, and passes -- so a fresh clone would build a different framework than the one just
+    # tested, which is the single failure the pin exists to prevent.
+    #
+    # MEASURED 2026-09-27: this guard is present in 3 of the 10 copies of this file and was absent from the
+    # other 7, and the difference is observable. With `psxport_resolved.txt` naming a repo's own recorded
+    # pin while the shared framework sits eight commits later, a guarded copy refuses --
+    #   "check FAILED -- framework .../psxport is dirty or changed since configure (configured 436c3762,
+    #    current ba48b103)" -- and an unguarded one on the same input answers "check OK -- built against
+    # e0485d33, which is the recorded pin." Same input, opposite answers, and the wrong one is a pass.
+    current = head_of(bdir)
+    if current != bsha or dirty(bdir):
+        print(f"[psxport] check FAILED — framework {bdir} is dirty or changed since configure "
+              f"(configured {bsha}, current {current}). Rebuild from a reconfigure before trusting this "
+              f"tree's pin, or bump the pin to what you actually built and tested.")
+        return 1
     if bsha == pin:
         print(f"[psxport] check OK — {build} was built against {bsha[:8]}, which is the recorded pin.")
         return 0
