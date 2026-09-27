@@ -95,6 +95,45 @@ and `0x8011xxxx`-`0x8014xxxx` in the AREA slot that A00/A0B and friends share, w
 | `0x80144B50` | `ActorZonedAttacker::idleTick` |
 | `0x80145C78` | `ActorZonedAttacker::zoneClassify` |
 
+## MEASURED 2026-09-27: the owning image is now established for 33 of 38, from the images themselves
+
+`tools/overlay_owner_map.py` answers step 1 of the plan below without inferring anything from
+neighbours. It authenticates every MODE image (SOP and A00..A0L) against the tracked manifest
+`config/tomba2-images.json`, and because every MODE image loads at the same base, file offset X is
+address BASE+X in whichever image is active. So it groups the images by the function body they actually
+hold at the address, and **every image is accounted for on every address** -- those whose file ends
+before the offset, those with no function prologue there, and those that hold a body are each named.
+
+Of the 38 unreachable declarations (`bindResident` counted 42 before; four have since moved):
+
+| verdict | count | what it means |
+|---|---|---|
+| exactly one image holds a function there | **29** | the owning image is determinate; the conversion needs no judgement |
+| more than one image, bodies differ | **4** | contested -- the owner's own provenance must decide |
+| no image holds a function there | **5** | the address is not a MODE function at all, so the declaration itself is wrong |
+
+The contested four, with the collisions made concrete:
+
+| address | owner | images holding a body there |
+|---|---|---|
+| `0x8010AF60` | `sopBeatAdvanceWalk` | **SOP and A0F**, 70 words each, DIFFERENT bodies |
+| `0x8010B078` | `sopBeatAdvanceNarration` | **A00, A0F and SOP** -- 137, 71 and 41 words |
+| `0x8010B44C` | `sopIntroEffectSpawn` | contested |
+| `0x8010BEAC` | `beh_orbit_spark_effect` | contested |
+
+This is the same collision `0x801113B4` in A03 and A0B demonstrated before the tool existed, and it is
+why the issue is explicit that guessing is worse than leaving an owner alone: a declaration bound to the
+wrong image installs a native owner over a **different function body**. `0x8010AF60` is a 70-word
+function in SOP and a *different* 70-word function in A0F.
+
+The five with no owner anywhere are a DIFFERENT defect from the other 33 and must not be converted:
+`0x80124328 ReleaseTriggerMotion::xSweepCycle`, `0x80127420 beh_arm_countdown_if_linked_ready`,
+`0x801274BC beh_distance_band_predicate`, `0x80138A64 AssemblyCompanion::endCamHoldAndRearmOnStroke`,
+`0x80140544 ActorZonedAttacker::typeInit`. The address is not a MODE function in any authenticated
+image, so either the address is wrong or the body is resident rather than overlaid. Converting these
+would bind a native owner to whatever happens to live there, which is the exact failure the issue
+warns about.
+
 ## Why this is not an abort yet
 
 An unreachable declaration is always a mistake and `bindResident` should refuse it. It does not,
@@ -103,12 +142,17 @@ owning images are not yet established. The refusal lands with the last conversio
 
 ## Next step
 
-1. Establish each address's owning image from the overlay load map, not by inference from
-   neighbours. `activateOverlay` and the AREA-slot descriptor table are the ground truth.
-2. Convert in batches by image, verifying after each batch that the install count rises by exactly
-   the number converted — a conversion that does not raise it is an image name that does not match.
+1. ~~Establish each address's owning image from the overlay load map, not by inference from
+   neighbours.~~ **DONE for 33 of 38** by `tools/overlay_owner_map.py --unreachable`, measured above.
+   Remaining: decide the 4 contested by the owner's own provenance (the `sop`-named ones are SOP; the
+   `beh_` one needs its behaviour module), and determine whether the 5 unowned addresses are
+   mis-addressed or resident.
+2. Convert the 29 determinate owners in batches by image, verifying after each batch that the install
+   count rises by exactly the number converted — a conversion that does not raise it is an image name
+   that does not match.
 3. Each converted owner then needs its own picture check: an override that finally installs is a
-   behaviour change, not a no-op.
+   behaviour change, not a no-op. That is the expensive half, and the reason a mechanical conversion is
+   not the same as a finished fix.
 4. When the list is empty, make the report the abort it should be.
 
 ## Related
