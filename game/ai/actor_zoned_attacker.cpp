@@ -1472,64 +1472,25 @@ switchD_caseD_8:
   goto switchD_caseD_2;
 }
 
-// FUN_80145C78 — classifies (u8 at record+0x2A, s16 at record+0x36) into a {0,1,2} zone band.
-// 7,504 substrate dispatches per 6000 replay frames. Its only caller in the whole image is
-// FUN_8014047C, which this file already owns as ActorZonedAttacker::gateCheck.
-//
-// NAMED FOR THE MECHANISM ONLY. The RE proposed "phaseZone"; the adversarial verify pass rejected
-// that, because the body proves the classification but proves nothing about the byte being a story
-// phase — that reading comes from a comment elsewhere, not from here. zoneClassify says what is
-// demonstrable and stops.
-// ORACLE: overlay guest 0x80145C78
-void ActorZonedAttacker::zoneClassify(Core *c) {
-  c->r[2] = (uint32_t)((int32_t)c->r[4] < 4);
-  {
-    int _t = (c->r[2] == c->r[0]);
-    if (_t) {
-      goto L_80145C98;
-    }
-  }
-  c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[5] + (uint32_t)10));
-  c->r[2] = (uint32_t)((int32_t)c->r[2] < 4700);
-  c->r[2] = c->r[2] ^ 1u;
-  return;
-L_80145C98:;
-  c->r[2] = c->r[0] + (uint32_t)7;
-  {
-    int _t = (c->r[4] == c->r[2]);
-    c->r[3] = c->r[4] + (uint32_t)-4;
-    if (_t) {
-      goto L_80145CB8;
-    }
-  }
-  c->r[3] = (uint32_t)(c->r[3] < (uint32_t)8);
-  {
-    int _t = (c->r[3] != c->r[0]);
-    c->r[2] = c->r[0] + (uint32_t)1;
-    if (_t) {
-      goto L_80145CC8;
-    }
-  }
-  c->r[2] = c->r[0] + (uint32_t)2;
-  return;
-L_80145CB8:;
-  c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[5] + (uint32_t)10));
-  c->r[2] = (uint32_t)((int32_t)c->r[2] < 4700);
-  c->r[2] = c->r[2] ^ 1u;
-L_80145CC8:;
-  return;
-  return;
-}
+// FUN_80145C78 (ActorZonedAttacker::zoneClassify) moved to actor_zoned_attacker_zone_classify.cpp:
+// this file is at its 1535-line cpp-policy cap and could not host the issue-0015 declaration
+// conversion below without exceeding it. See that file for the body and its own naming rationale.
 
 void ActorZonedAttacker::registerOverrides(Game * /*game*/) {
   tomba::native::declareOverride(FN_80145C78, "ActorZonedAttacker::zoneClassify", &ActorZonedAttacker::zoneClassify);
-  tomba::native::declareOverride(FN_8014047C, "ActorZonedAttacker::gateCheck", ActorZonedAttacker::gateCheck);
   tomba::native::declareOverride(0x80140544u, "ActorZonedAttacker::typeInit", ActorZonedAttacker::typeInit);
-  tomba::native::declareOverride(
-      FN_801409C0, "ActorZonedAttacker::pickAttackByRange", ActorZonedAttacker::pickAttackByRange);
-  tomba::native::declareOverride(
-      0x80143A00u, "ActorZonedAttacker::defaultSubStateMachine", ActorZonedAttacker::defaultSubStateMachine);
-  tomba::native::declareOverride(
-      0x80144928u, "ActorZonedAttacker::approachAndFace", ActorZonedAttacker::approachAndFace);
-  tomba::native::declareOverride(0x80144B50u, "ActorZonedAttacker::idleTick", ActorZonedAttacker::idleTick);
+  // The A00-scoped five: of 23 authenticated MODE images only A00 holds a function at each address.
+  // 0x80140544 and 0x80145C78 stay RESIDENT — no image is established as owning them, and the extent
+  // heuristic that says so is unreliable for a leaf or a split prologue (docs/issues/0015, which also
+  // carries the per-address image evidence this file has no line budget to repeat).
+  tomba::native::declareOverlayOverride(
+      "A00", FN_8014047C, "ActorZonedAttacker::gateCheck", ActorZonedAttacker::gateCheck);
+  tomba::native::declareOverlayOverride(
+      "A00", FN_801409C0, "ActorZonedAttacker::pickAttackByRange", ActorZonedAttacker::pickAttackByRange);
+  tomba::native::declareOverlayOverride(
+      "A00", 0x80143A00u, "ActorZonedAttacker::defaultSubStateMachine", ActorZonedAttacker::defaultSubStateMachine);
+  tomba::native::declareOverlayOverride(
+      "A00", 0x80144928u, "ActorZonedAttacker::approachAndFace", ActorZonedAttacker::approachAndFace);
+  tomba::native::declareOverlayOverride(
+      "A00", 0x80144B50u, "ActorZonedAttacker::idleTick", ActorZonedAttacker::idleTick);
 }

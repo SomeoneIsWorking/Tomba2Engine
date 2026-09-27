@@ -180,7 +180,7 @@ if(BUILD_TESTING)
       game/core/engine.cpp=3251
       game/player/actor_tomba.cpp=1452
       game/audio/sequencer.cpp=2796
-      game/ai/actor_zoned_attacker.cpp=1535
+      game/ai/actor_zoned_attacker.cpp=1496
       game/scene/demo.h=87
       game/camera/cutscene_camera.cpp=1552
       game/scene/script_interp.cpp=1317)
@@ -214,4 +214,19 @@ if(BUILD_TESTING)
   add_test(
     NAME tomba_native_frame_contract
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_native_frame_contract.py")
+  # THE CONVERSION GATE for issue 0015, and the check that makes a batch conversion safe rather than a
+  # guess: it cross-checks EVERY overlay-form declaration against the authenticated MODE images and
+  # exits 1 on any mismatch, so a declaration naming an image that cannot install it is a BUILD failure
+  # instead of a behaviour that is silently absent from the product.
+  #
+  # 32 native owners were dead for exactly this reason — declared at overlay addresses with the
+  # resident form, so `bindResident` could never install them. The census's counts were validated
+  # against a recorded pre-change product run (`bound overlay 'A00' ... installed=10`), and this test
+  # keeps that agreement honest on every build: SOP 3/3 and A00 39/39 declared and in range.
+  #
+  # It reads the extracted overlay images under scratch/bin/overlays, which are PROVISIONED INPUTS, so
+  # this test refuses rather than passing vacuously when they are absent.
+  add_test(
+    NAME tomba_overlay_owner_census
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/overlay_owner_map.py" --census)
 endif()

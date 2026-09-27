@@ -205,6 +205,8 @@ void ActorObjectContact::resolveHitOrProximity(Core *c) {
 }
 
 void ActorObjectContact::registerOverrides() {
-  tomba::native::declareOverride(
-      0x8010E258u, "ActorObjectContact::resolveHitOrProximity", &ActorObjectContact::resolveHitOrProximity);
+  // A00, from the image: of 23 authenticated MODE images only A00 holds a function at 0x8010E258
+  // (108 words), and the address is inside A00's loaded text range.
+  tomba::native::declareOverlayOverride(
+      "A00", 0x8010E258u, "ActorObjectContact::resolveHitOrProximity", &ActorObjectContact::resolveHitOrProximity);
 }

@@ -133,8 +133,9 @@ void register_engine_overrides(Game &owner) {
   TiltFollower::registerOverrides();           // pitch at half the owner sub-part's tilt (0x80125FE0)
   SwaySchedule::registerOverrides();           // rocking rate winds down over the area-0 event
                                                // sequence, then the per-type sway (0x8012D27C)
-  AssemblyCompanion::registerOverrides();      // idle tick (0x80138A64) + rig pose (0x801389C8) of the
-                                               // companion a field assembly spawns
+  AssemblyCompanion::registerOverrides();      // rig pose (0x801389C8, A00-scoped) of the companion a
+                                               // field assembly spawns; idle tick (0x80138A64) stays
+                                               // resident — its owning image is undecided (issue 0015)
   AssemblyRider::registerOverrides();          // per-frame tick of the rider perched on a seaside
                                                // pump's arm-end (0x80118B10, area 0)
   SubstateEdgeLeaves::registerOverrides(game); // authored A00 child-oscillator loop (0x801316CC)
@@ -154,8 +155,11 @@ void register_engine_overrides(Game &owner) {
   eng(c).script.registerOverrides();                  // cutscene-script opcodes 05/06/34/36/31
                                                       // (0x80042090/800420AC/80042E10/80043108/80041468)
   RegisterSopIntroEventOverrides(game);               // SOP intro-cutscene sub-tick/sub-motion/timer cluster
-                                        // (0x8010AF60/8010B078/8010B11C/8010B2D4/8010B44C/8010BEAC — sopLiftedSubtick
-                                        // 0x8010B588 deliberately unwired, docs/findings/ai.md)
+                                        // (0x8010AF60/8010B078/8010B11C/8010B2D4/8010B44C/8010BEAC/8010B588).
+                                        // 0x8010B11C/8010B2D4/8010B588 are SOP-scoped by the IMAGE
+                                        // (docs/issues/0015); the other four stay in the resident form
+                                        // because more than one authenticated image holds a DIFFERENT
+                                        // body at each of those addresses.
   Demo::registerOverrides(game); // main-menu title cursor sub-machine (0x80106AC4) — the r16/r17
   // register-liveness gap that blocked this wire (docs/findings/ai.md "Demo::s3SubMachine r16
   // register-liveness SBS divergence") is FIXED (2026-07-10): s3SubMachine's own port was missing the

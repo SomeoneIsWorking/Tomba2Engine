@@ -148,10 +148,15 @@ void bindOverlay(Core &core,
   std::size_t installed = 0;
   std::size_t retained = 0;
   std::size_t inactive = 0;
+  std::size_t declaredForImage = 0;
   for (const Declaration &entry : declarations()) {
+    if (entry.imageName != imageName) {
+      ++inactive;
+      continue;
+    }
+    ++declaredForImage;
     const auto identity = core.currentImageIdentity(entry.address);
-    if (entry.imageName != imageName || !overlayText.containsPhysical(entry.address) || !identity ||
-        *identity != overlay) {
+    if (!overlayText.containsPhysical(entry.address) || !identity || *identity != overlay) {
       ++inactive;
       continue;
     }
@@ -171,13 +176,29 @@ void bindOverlay(Core &core,
     }
     ++installed;
   }
+  // `declared` is the DENOMINATOR: without it `installed` cannot be read. A declaration that names this
+  // image but does not install is the failure issue 0015 was about — a name that does not own its
+  // address, or an address outside the image's loaded text — and `inactive` alone cannot show it,
+  // because `inactive` also counts every declaration belonging to a DIFFERENT image. Naming the
+  // declared count is what makes "installed=39 declared=39" a verdict rather than a coincidence.
   lucent::info("tomba-native",
-               "bound overlay '{}' generation: declarations={} installed={} retained={} inactive={}",
+               "bound overlay '{}' generation: declarations={} declared_for_image={} installed={} "
+               "retained={} inactive={}",
                imageName,
                declarations().size(),
+               declaredForImage,
                installed,
                retained,
                inactive);
+  if (installed + retained < declaredForImage) {
+    lucent::error("tomba-native",
+                  "OVERLAY '{}' published {} declaration(s) but installed {}: {} of them name this image "
+                  "and could not bind, so their native behaviour is absent while the guest body runs",
+                  imageName,
+                  declaredForImage,
+                  installed + retained,
+                  declaredForImage - installed - retained);
+  }
 }
 
 void retireOverlay(Core &core, std::optional<psx::cpu::ImageIdentity> &active) {

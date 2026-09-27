@@ -214,5 +214,9 @@ void SwaySchedule::advanceRateThenSway(Core *c) {
 }
 
 void SwaySchedule::registerOverrides() {
-  tomba::native::declareOverride(0x8012D27Cu, "SwaySchedule::advanceRateThenSway", &SwaySchedule::advanceRateThenSway);
+  // A00, from the image: of 23 authenticated MODE images only A00 holds a function at 0x8012D27C
+  // (98 words), and the address is inside A00's loaded text range. This is the MODULE note above,
+  // applied.
+  tomba::native::declareOverlayOverride(
+      "A00", 0x8012D27Cu, "SwaySchedule::advanceRateThenSway", &SwaySchedule::advanceRateThenSway);
 }

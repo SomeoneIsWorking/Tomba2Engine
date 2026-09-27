@@ -660,13 +660,27 @@ void ov_behOrbitSparkEffect(Core *c) {
 void RegisterSopIntroEventOverrides(Game * /*game*/) {
   // Reached only via typed runtime address dispatch (animation-event fn-ptr table / node+0x1C dispatch) — no direct
   // intra-shard call site, so setter omitted.
+  //
+  // FOUR OF THESE ADDRESSES ARE CONTESTED and stay in the RESIDENT form on purpose (issue 0015):
+  // tools/overlay_owner_map.py --unreachable finds MORE THAN ONE authenticated MODE image holding a
+  // DIFFERENT function body at 0x8010AF60 (SOP and A0F, 70 words each), 0x8010B078 (A00 137 words,
+  // A0F 71, SOP 41), 0x8010B44C (A0E 42 words, SOP 19) and 0x8010BEAC (A0E 73 words, SOP 42). A guest
+  // address alone does not identify PSX code -- every MODE overlay loads at 0x80108F9C, so the same
+  // numeric address is a different function in each image that has one there. Naming the wrong image
+  // would install a native owner over a different body, which is worse than not installing it.
   tomba::native::declareOverride(0x8010AF60u, "sopBeatAdvanceWalk", ov_sopBeatAdvanceWalk);
   tomba::native::declareOverride(0x8010B078u, "sopBeatAdvanceNarration", ov_sopBeatAdvanceNarration);
-  tomba::native::declareOverride(0x8010B2D4u, "sopIntroEffectTick", ov_sopIntroEffectTick);
   tomba::native::declareOverride(0x8010BEACu, "beh_orbit_spark_effect", ov_behOrbitSparkEffect);
-  // Direct intra-shard call sites (SOP overlay the cited guest address(c), bypass typed runtime address dispatch) ->
-  // SOP tomba::native::declareOverride installs the thunk so those callers reach native too.
-  tomba::native::declareOverride(0x8010B11Cu, "sopOrbitPathStep", ov_sopOrbitPathStep);
   tomba::native::declareOverride(0x8010B44Cu, "sopIntroEffectSpawn", ov_sopIntroEffectSpawn);
-  tomba::native::declareOverride(0x8010B588u, "sopLiftedSubtick", ov_sopLiftedSubtick);
+  // Direct intra-shard call sites (SOP overlay the cited guest address(c), bypass typed runtime address dispatch) ->
+  // the SOP-scoped declaration installs the thunk so those callers reach native too.
+  //
+  // SOP, ESTABLISHED FROM THE IMAGE, NOT FROM THE NAME: these three are the only addresses in this
+  // cluster that exactly ONE authenticated MODE image holds a function at, and it is SOP in all three
+  // (tools/overlay_owner_map.py, 23 images examined per address). They are the same 0x8010A000-0x8010CFFF
+  // SOP band the file banner names, and every one of them is a STACK-ALLOCATING entry, so the verdict
+  // does not rest on the prologue-shape exception the tool documents for leaf entries.
+  tomba::native::declareOverlayOverride("SOP", 0x8010B11Cu, "sopOrbitPathStep", ov_sopOrbitPathStep);
+  tomba::native::declareOverlayOverride("SOP", 0x8010B2D4u, "sopIntroEffectTick", ov_sopIntroEffectTick);
+  tomba::native::declareOverlayOverride("SOP", 0x8010B588u, "sopLiftedSubtick", ov_sopLiftedSubtick);
 }

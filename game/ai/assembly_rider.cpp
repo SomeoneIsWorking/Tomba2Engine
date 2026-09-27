@@ -319,6 +319,9 @@ tail:
 }
 
 void AssemblyRider::registerOverrides() {
-  tomba::native::declareOverride(
-      0x80118B10u, "AssemblyRider::rideSlotAndReactToStroke", &AssemblyRider::rideSlotAndReactToStroke);
+  // A00, from the image: of 23 authenticated MODE images only A00 holds a function at 0x80118B10
+  // (168 words), and the address is inside A00's loaded text range. This is the MODULE note above,
+  // applied: the body is A00-only, so the declaration carries the A00 identity.
+  tomba::native::declareOverlayOverride(
+      "A00", 0x80118B10u, "AssemblyRider::rideSlotAndReactToStroke", &AssemblyRider::rideSlotAndReactToStroke);
 }

@@ -332,5 +332,8 @@ void ov_actorMeleeEngage(Core *c) {
 } // namespace
 
 void ActorMeleeEngage::registerOverrides(Game * /*game*/) {
-  tomba::native::declareOverride(0x80112188u, "ActorMeleeEngage::doIt", ov_actorMeleeEngage);
+  // A00, from the image: of 23 authenticated MODE images only A00 holds a function at 0x80112188
+  // (281 words), and the address is inside A00's loaded text range. The address is NOT resident, so the
+  // resident form could never install this and the guest body ran instead (issue 0015).
+  tomba::native::declareOverlayOverride("A00", 0x80112188u, "ActorMeleeEngage::doIt", ov_actorMeleeEngage);
 }

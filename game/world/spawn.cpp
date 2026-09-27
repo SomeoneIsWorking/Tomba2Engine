@@ -679,10 +679,15 @@ static void eov_spawnEffectChild(Core *c) {
 }
 
 void Spawn::registerTypedChildOverrides() {
-  tomba::native::declareOverride(0x801360F4u, "Spawn::spawnQuadRecordChild", eov_spawnQuadRecordChild);
-  tomba::native::declareOverride(0x80139838u, "Spawn::spawnSiblingAngleChild", eov_spawnSiblingAngleChild);
-  tomba::native::declareOverride(0x8013AC34u, "Spawn::spawnChildTrigChild", eov_spawnChildTrigChild);
-  tomba::native::declareOverride(0x8013A730u, "Spawn::spawnLiftPlatformChild", eov_spawnLiftPlatformChild);
+  // The four typed-child wrappers are A00, from the image: of 23 authenticated MODE images only A00
+  // holds a function at each address, and each is inside A00's loaded text range. 0x80031558 is
+  // MAIN.EXE-resident and stays in the resident form.
+  tomba::native::declareOverlayOverride("A00", 0x801360F4u, "Spawn::spawnQuadRecordChild", eov_spawnQuadRecordChild);
+  tomba::native::declareOverlayOverride(
+      "A00", 0x80139838u, "Spawn::spawnSiblingAngleChild", eov_spawnSiblingAngleChild);
+  tomba::native::declareOverlayOverride("A00", 0x8013AC34u, "Spawn::spawnChildTrigChild", eov_spawnChildTrigChild);
+  tomba::native::declareOverlayOverride(
+      "A00", 0x8013A730u, "Spawn::spawnLiftPlatformChild", eov_spawnLiftPlatformChild);
   tomba::native::declareOverride(0x80031558u, "Spawn::spawnEffectChild", eov_spawnEffectChild);
 }
 

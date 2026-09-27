@@ -293,8 +293,13 @@ void AssemblyCompanion::composeRigAndApplyPartScales(Core *c) {
 }
 
 void AssemblyCompanion::registerOverrides() {
+  // 0x80138A64 STAYS IN THE RESIDENT FORM: the tool's extent heuristic reports no image owning it, and
+  // that verdict is not trustworthy for a leaf (see issue 0015). 0x801389C8 is A00, from the image: of
+  // 23 authenticated MODE images only A00 holds a function there (39 words), inside A00's text range.
   tomba::native::declareOverride(
       0x80138A64u, "AssemblyCompanion::endCamHoldAndRearmOnStroke", &AssemblyCompanion::endCamHoldAndRearmOnStroke);
-  tomba::native::declareOverride(
-      0x801389C8u, "AssemblyCompanion::composeRigAndApplyPartScales", &AssemblyCompanion::composeRigAndApplyPartScales);
+  tomba::native::declareOverlayOverride("A00",
+                                        0x801389C8u,
+                                        "AssemblyCompanion::composeRigAndApplyPartScales",
+                                        &AssemblyCompanion::composeRigAndApplyPartScales);
 }

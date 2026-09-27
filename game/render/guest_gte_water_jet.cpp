@@ -224,5 +224,8 @@ void waterJetControllerTap(Core *c) {
 
 void guest_gte_water_jet_install() {
   tomba::native::declareOverride(kWriterAddr, "waterJetWriterTap", waterJetWriterTap);
-  tomba::native::declareOverride(kControllerAddr, "waterJetControllerTap", waterJetControllerTap);
+  // The controller is A00, from the image: of 23 authenticated MODE images only A00 holds a function at
+  // 0x8013D454, and the address is inside A00's loaded text range. Declared through a named constant,
+  // which is why the source scan could not see it until it learned to resolve one.
+  tomba::native::declareOverlayOverride("A00", kControllerAddr, "waterJetControllerTap", waterJetControllerTap);
 }

@@ -168,6 +168,9 @@ void RopeSwing::swingTickAndBendSegments(Core *c) {
 }
 
 void RopeSwing::registerOverrides() {
-  tomba::native::declareOverride(
-      0x801281B8u, "RopeSwing::swingTickAndBendSegments", &RopeSwing::swingTickAndBendSegments);
+  // A00, from the image: of 23 authenticated MODE images only A00 holds a function at 0x801281B8
+  // (84 words), and the address is inside A00's loaded text range. This is the MODULE note above,
+  // applied.
+  tomba::native::declareOverlayOverride(
+      "A00", 0x801281B8u, "RopeSwing::swingTickAndBendSegments", &RopeSwing::swingTickAndBendSegments);
 }

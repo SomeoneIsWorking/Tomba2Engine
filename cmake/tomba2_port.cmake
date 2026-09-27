@@ -104,6 +104,7 @@ set(GAME_SRC
   game/ai/beh_cull_substate_orchestrator.cpp
   game/ai/beh_id_compare_motion_dispatch.cpp
   game/ai/actor_zoned_attacker.cpp
+  game/ai/actor_zoned_attacker_zone_classify.cpp
   game/ai/attack_orbit_substate.cpp
   game/ai/actor_melee_engage.cpp
   game/ai/beh_actor_tomba_proximity_combat.cpp

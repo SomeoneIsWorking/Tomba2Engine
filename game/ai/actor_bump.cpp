@@ -189,5 +189,8 @@ void ActorBump::respondToContact(Core *c) {
 }
 
 void ActorBump::registerOverrides() {
-  tomba::native::declareOverride(0x8010EA80u, "ActorBump::respondToContact", &ActorBump::respondToContact);
+  // A00, from the image: of 23 authenticated MODE images only A00 holds a function at 0x8010EA80
+  // (118 words), and the address is inside A00's loaded text range.
+  tomba::native::declareOverlayOverride(
+      "A00", 0x8010EA80u, "ActorBump::respondToContact", &ActorBump::respondToContact);
 }

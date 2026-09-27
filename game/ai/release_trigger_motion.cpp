@@ -740,13 +740,21 @@ L_801244E0:;
 }
 
 void ReleaseTriggerMotion::registerOverrides() {
+  // 0x80124328 STAYS IN THE RESIDENT FORM: the tool's extent heuristic reports no image owning it, and
+  // that verdict is not trustworthy for a leaf (see issue 0015), so the address must be settled before
+  // the declaration is bound to an identity. The other six are A00, from the image: of 23 authenticated
+  // MODE images only A00 holds a function at each address, and each is inside A00's loaded text range.
   {
     tomba::native::declareOverride(0x80124328u, "ReleaseTriggerMotion::xSweepCycle", eov_xSweepCycle);
   }
-  tomba::native::declareOverride(0x80123E9Cu, "ReleaseTriggerMotion::hoverBobCycle", eov_hoverBobCycle);
-  tomba::native::declareOverride(0x801241BCu, "ReleaseTriggerMotion::leaderFollowSync", eov_leaderFollowSync);
-  tomba::native::declareOverride(0x801244E8u, "ReleaseTriggerMotion::driftReposition", eov_driftReposition);
-  tomba::native::declareOverride(0x801246B4u, "ReleaseTriggerMotion::arcSwoopMotion", eov_arcSwoopMotion);
-  tomba::native::declareOverride(0x801249D4u, "ReleaseTriggerMotion::doubleArcMotion", eov_doubleArcMotion);
-  tomba::native::declareOverride(0x80124C6Cu, "ReleaseTriggerMotion::circleOrbitMotion", eov_circleOrbitMotion);
+  tomba::native::declareOverlayOverride("A00", 0x80123E9Cu, "ReleaseTriggerMotion::hoverBobCycle", eov_hoverBobCycle);
+  tomba::native::declareOverlayOverride(
+      "A00", 0x801241BCu, "ReleaseTriggerMotion::leaderFollowSync", eov_leaderFollowSync);
+  tomba::native::declareOverlayOverride(
+      "A00", 0x801244E8u, "ReleaseTriggerMotion::driftReposition", eov_driftReposition);
+  tomba::native::declareOverlayOverride("A00", 0x801246B4u, "ReleaseTriggerMotion::arcSwoopMotion", eov_arcSwoopMotion);
+  tomba::native::declareOverlayOverride(
+      "A00", 0x801249D4u, "ReleaseTriggerMotion::doubleArcMotion", eov_doubleArcMotion);
+  tomba::native::declareOverlayOverride(
+      "A00", 0x80124C6Cu, "ReleaseTriggerMotion::circleOrbitMotion", eov_circleOrbitMotion);
 }
