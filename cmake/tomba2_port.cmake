@@ -69,6 +69,7 @@ set(GAME_SRC
   game/world/spawn.cpp
   game/scene/scene_events.cpp
   game/scene/script_interp.cpp
+  game/scene/script_opcode.cpp
   game/audio/sfx.cpp
   game/audio/audio_dispatch.cpp
   game/audio/sequencer.cpp
@@ -217,6 +218,12 @@ set(GAME_SRC
   game/render/render_options.cpp        # pc_render producer: DEMO/title options page (s48==6)
   game/render/render_attract.cpp        # pc_render producer: DEMO/title attract 3D field (s48==7)
   game/core/engine.cpp
+  game/core/engine_task_machine.cpp
+  game/core/engine_state_dispatch.cpp
+  game/core/engine_field_run.cpp
+  game/core/engine_scene_frame.cpp
+  game/core/engine_object_leaves.cpp
+  game/core/engine_frame_ticks.cpp
   game/scene/field_transition.cpp
   game/scene/sop.cpp
   game/scene/demo.cpp

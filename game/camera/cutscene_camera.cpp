@@ -6,12 +6,15 @@
 // (PSXPORT_DEBUG=camverify) and by the oracle UNIT TEST over every method incl. the driver
 // (game/camera/cutscene_camera_selftest.cpp).
 #include "cutscene_camera.h"
+#include "camera/camera_mode.h"
 #include "cfg.h"
 #include "game.h" // c->game->verify — the shared A/B verify scaffold (camverify)
 #include "game_ctx.h"
+#include "guest_abi.h" // GuestFrame — the guest stack frame contract, spelled once          // the driver mode table, the render-mode floors, the shake states
 #include "guest_call.h"
 #include "mtx.h"
 #include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include "scene/script_globals.h"    // the status byte the shore floor branches on
 #include "trig.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -427,62 +430,69 @@ void CutsceneCamera::angleStep() { // FUN_8006E010
   }
 }
 
-// ── yFloor (camera-Y floor clamp, per render mode) ───────────────────────────────────────────────
 void CutsceneCamera::yFloor() { // FUN_8006C80C
-  uint8_t mode1 = r8(0x800BF870u);
-  uint32_t idx = (uint32_t)(uint8_t)(mode1 - 1);
-  if (idx >= 13) {
-    return;
+  // The render mode selects a FLOOR the camera height is not allowed below. Five of the thirteen
+  // render modes have one and eight have none; the thresholds are per mode, not global, and two of
+  // them are conditional on a second byte. They are spelled as named constants here because the
+  // numbers are the whole content of this function and a reader could not otherwise tell a floor from
+  // a comparison bound: note that several of them DIFFER by one from the value they are compared
+  // against, and the difference is the guest's own (a `>=` against a `>` bound), not a typo.
+  const uint8_t renderMode = r8(tomba::camera::kRenderModeByte);
+  const uint32_t index = static_cast<uint32_t>(static_cast<uint8_t>(renderMode - 1u));
+  if (index > tomba::camera::kHighestFloorRenderModeIndex) {
+    return; // render modes 1 and 14 and above have no floor
   }
-  const uint32_t YA = 0x1F8000E2u;
-  int32_t Y = (int16_t)r16(YA);
-  switch (idx) {
-  case 0:
-    if (Y < -10140) {
-      w16(YA, (uint16_t)(int16_t)-10140);
+  const uint32_t kCameraHeight = 0x1F8000E2u;
+  const int32_t height = static_cast<int16_t>(r16(kCameraHeight));
+
+  // Clamp the camera height to `floor`, but only when it is already strictly below it. The `!(y <
+  // bound)` shape of the guest's own tests is preserved: it is a "clamp unless already at or above
+  // the bound" test, which is NOT the same as "clamp when below" for a height exactly on the bound.
+  auto clampTo = [&](int32_t floorValue) {
+    if (height < floorValue) {
+      w16(kCameraHeight, static_cast<uint16_t>(static_cast<int16_t>(floorValue)));
     }
+  };
+  // The same clamp, written the guest's other way round: raise to `floor` unless already strictly
+  // below the lower bound. Used where the floor is only reachable from a distance.
+  auto raiseUnlessBelow = [&](int32_t lowerBound, int32_t floorValue) {
+    if (!(height < lowerBound)) {
+      w16(kCameraHeight, static_cast<uint16_t>(static_cast<int16_t>(floorValue)));
+    }
+  };
+
+  switch (index) {
+  case tomba::camera::kFloorRenderModeIndex: // render mode 1
+    clampTo(tomba::camera::kFloorRenderMode1);
     break;
-  case 3: {
-    if (r8(0x800BF871u) == 7) {
-      if ((int16_t)r16(0x800E7EB6u) < 6800) {
-        if (Y < -7299) {
-          if (!(Y < -6499)) {
-            w16(YA, (uint16_t)(int16_t)-6500);
-          }
+  case tomba::camera::kFloorSeaRenderModeIndex: // render mode 4: two floors, chosen by a second byte
+    if (r8(0x800BF871u) == tomba::camera::kSeaSubAreaSeven) {
+      if (static_cast<int16_t>(r16(0x800E7EB6u)) < tomba::camera::kSeaDistanceBound) {
+        if (height < tomba::camera::kSeaFloorLow) {
+          raiseUnlessBelow(tomba::camera::kSeaFloorLowPlusOne, tomba::camera::kSeaFloorNear);
         } else {
-          w16(YA, (uint16_t)(int16_t)-7300);
+          w16(kCameraHeight, static_cast<uint16_t>(static_cast<int16_t>(tomba::camera::kSeaFloorLow)));
         }
       }
     } else {
-      if (!(Y < -6599)) {
-        w16(YA, (uint16_t)(int16_t)-6600);
-      }
+      raiseUnlessBelow(tomba::camera::kSeaFloorHighBound, tomba::camera::kSeaFloorHigh);
     }
     break;
-  }
-  case 5:
-    if (r8(0x1F800207u) == 14) {
-      if (Y < -7200) {
-        w16(YA, (uint16_t)(int16_t)-7200);
-      }
+  case tomba::camera::kFloorShoreRenderModeIndex: // render mode 6: two floors, chosen by the status byte
+    if (r8(tomba::scene::script_globals::kStatusByteMirror) == tomba::camera::kShoreSubAreaFourteen) {
+      clampTo(tomba::camera::kShoreFloorNear);
     } else {
-      if (Y < -9200) {
-        w16(YA, (uint16_t)(int16_t)-9200);
-      }
+      clampTo(tomba::camera::kShoreFloorFar);
     }
     break;
-  case 9:
-    if (Y < -2160) {
-      w16(YA, (uint16_t)(int16_t)-2160);
-    }
+  case tomba::camera::kFloorNightRenderModeIndex: // render mode 10
+    clampTo(tomba::camera::kFloorRenderMode10);
     break;
-  case 12:
-    if (!(Y < -1399)) {
-      w16(YA, (uint16_t)(int16_t)-1400);
-    }
+  case tomba::camera::kFloorFinalRenderModeIndex: // render mode 13
+    raiseUnlessBelow(tomba::camera::kFloorRenderMode13Bound, tomba::camera::kFloorRenderMode13);
     break;
   default:
-    break;
+    break; // the other eight render modes impose no floor
   }
 }
 
@@ -720,18 +730,9 @@ void CutsceneCamera::lookAt() { // FUN_8006D02C
   // this body (isqrt 0x80077FB0, MR_init 0x80051794, ratan2 0x80085690, MulMatrix0 0x80084250,
   // applyMatrixLV 0x80084470, CopyMatrix 0x800847B0) is frameless per abi_extract, so the own frame is
   // the whole stack footprint.
-  c->r[29] -= 56;
-  const uint32_t fsp = c->r[29];
-  c->mem_w32(fsp + 16, c->r[16]);
-  c->mem_w32(fsp + 20, c->r[17]);
-  c->mem_w32(fsp + 24, c->r[18]);
-  c->mem_w32(fsp + 28, c->r[19]);
-  c->mem_w32(fsp + 32, c->r[20]);
-  c->mem_w32(fsp + 36, c->r[21]);
-  c->mem_w32(fsp + 40, c->r[22]);
-  c->mem_w32(fsp + 44, c->r[23]);
-  c->mem_w32(fsp + 48, c->r[30]);
-  c->mem_w32(fsp + 52, c->r[31]);
+  static constexpr GuestFrameSpill kSpills[] = {
+      {16, 16}, {17, 20}, {18, 24}, {19, 28}, {20, 32}, {21, 36}, {22, 40}, {23, 44}, {30, 48}, {31, 52}};
+  GuestFrame<56, 10> frame(c, kSpills);
   int32_t dX = (int16_t)r16(S + 14) - (int16_t)r16(S + 2);
   int32_t dZ = (int16_t)r16(S + 22) - (int16_t)r16(S + 10);
   int32_t dY = (int16_t)r16(S + 18) - (int16_t)r16(S + 6);
@@ -778,17 +779,6 @@ void CutsceneCamera::lookAt() { // FUN_8006D02C
   w16(0x1F8000C4u, (uint16_t)(0u - (uint32_t)r16(S + 10)));
   mathOf(c).applyMatrixLV((uint32_t)M, 0x1F8000C0u, 0x1F80010Cu); // FUN_80084470 (native)
   call(LA_COPYMAT, (int32_t)M, (int32_t)(S + 72));
-  c->r[16] = c->mem_r32(fsp + 16);
-  c->r[17] = c->mem_r32(fsp + 20);
-  c->r[18] = c->mem_r32(fsp + 24);
-  c->r[19] = c->mem_r32(fsp + 28);
-  c->r[20] = c->mem_r32(fsp + 32);
-  c->r[21] = c->mem_r32(fsp + 36);
-  c->r[22] = c->mem_r32(fsp + 40);
-  c->r[23] = c->mem_r32(fsp + 44);
-  c->r[30] = c->mem_r32(fsp + 48);
-  c->r[31] = c->mem_r32(fsp + 52);
-  c->r[29] = fsp + 56;
 }
 
 // ── orchestrators (per-frame camera modes) ───────────────────────────────────────────────────────
@@ -805,11 +795,8 @@ void CutsceneCamera::snapFollow(uint32_t target) { // FUN_8006E3B0
   // stack bytes byte-match on the SBS-compared leg (reached via the orbitTick override, which preloads
   // r16/r17/r31 with the gen's values at its 0x8006EFE0 jal site). snapAccXZ/snapAccY (0x8006D934/
   // 0x8006D950) are frameless; lookAt mirrors its own 56-byte frame and spills the r16/r17/r31 set here.
-  c->r[29] -= 32;
-  const uint32_t fsp = c->r[29];
-  c->mem_w32(fsp + 16, c->r[16]);
-  c->mem_w32(fsp + 20, c->r[17]);
-  c->mem_w32(fsp + 24, c->r[31]);
+  static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {17, 20}, {31, 24}};
+  GuestFrame<32, 3> frame(c, kSpills);
   c->r[16] = cam_;
   c->r[17] = target;
 
@@ -817,11 +804,6 @@ void CutsceneCamera::snapFollow(uint32_t target) { // FUN_8006E3B0
   snapAccY(target);
   c->r[31] = 0x8006E3E0u; // gen jal-site for lookAt (spilled by lookAt's frame)
   lookAt();
-
-  c->r[16] = c->mem_r32(fsp + 16);
-  c->r[17] = c->mem_r32(fsp + 20);
-  c->r[31] = c->mem_r32(fsp + 24);
-  c->r[29] = fsp + 32;
 }
 void CutsceneCamera::snapFollowA(uint32_t target) { // FUN_8006E294 (driver mode 2 + init post-check)
   snapAccXZ(target);
@@ -883,189 +865,195 @@ void CutsceneCamera::trackFollow(uint32_t target) { // FUN_8006E228
   lookAt();
 }
 
-// ── post-mode TAIL (0x8006C988) — the camera SHAKE state machine ───────────────────────────────────
-// cam[0x76] is the shake state, driven by external code (0 = idle, no-op). Two families:
-//   * 3-axis free-running shake: 1 (capture anchor, ->2) -> 2 (jitter X/Y/Z around the anchor every frame,
-//     fx id 129, stays at 2) -> 3 (external code sets this to stop: restore the exact anchor, ->0).
-//   * Y-only shake, three variants sharing the same shape (capture-then-jitter):
-//       4->5: free-running (like 1->2, but Y-only, fx id 241, stays at 5 until externally reset).
-//       6->7, 8->9: ONE-SHOT pulses (states 6/8 fall straight into 7/9's jitter in the SAME frame — that's
-//       the guest control flow, not a bug); 7/9 abort (->0, no jitter) if cam[0x64] is busy, else
-//       jitter once (±32 for 7, ±16 for 9) and always end at state 0.
+// ── post-mode TAIL — the camera SHAKE state machine ────────────────────────────────────────────────
+// Runs every frame after every mode. The state byte is cam[0x76], written by EXTERNAL code and read
+// here; the states themselves are named in camera_mode.h, and the two families are:
+//
+//   three-axis free-running — capture the look position once, then jitter X/Y/Z around it on every
+//     frame until external code asks to stop, at which point the anchor is restored EXACTLY and the
+//     camera goes idle.
+//   height-only — the same shape, three variants: one free-running, and two ONE-SHOT pulses that fire
+//     in the frame they are set and always end at idle. The pulse's begin states fall straight into
+//     their jitter arm in the same frame; that is the guest's own control flow, not a bug, which is
+//     why the two are separate states rather than one state with a flag.
+//
+// The three jitter arms are NOT the same arm with different parameters, and are deliberately not
+// written as one: the free-running arm moves all THREE axes, drawing a 5-bit jitter for X and Z and a
+// 4-bit one for Y (Y jitters half as far), while the height arms move Y ONLY. Unifying them would
+// make the height shakes move the camera sideways, which is a different camera.
+//
+// A one-shot pulse ABORTS without jittering when the busy byte is set, rather than queueing itself
+// for later. That is a drop, not a deferral, and it is the guest's behaviour.
 void CutsceneCamera::shakeTail() { // FUN_8006C988
-  uint8_t state = camR8(0x76);
-  if (state >= 10) {
-    return;
+  using State = tomba::camera::CameraShakeState;
+  using namespace tomba::camera;
+  const uint8_t state = camR8(0x76);
+  if (state > kHighestShakeState) {
+    return; // not a shake state: external code wrote something this tail does not interpret
   }
-  switch (state) {
-  case 1:
-    camW16(0x86, r16(S + 0x02));
-    camW16(0x88, r16(S + 0x06));
-    camW8(0x76, 2);
-    camW16(0x8a, r16(S + 0x0a));
+  // One draw from the shared RNG, masked to `bits` and taken as the jitter offset.
+  const auto drawJitter = [&](uint32_t bits) {
+    return static_cast<int32_t>(rngOf(c).next() & bits);
+  };
+  // The two height-only jitters, which differ only in amplitude, mask and effect id. These two ARE
+  // the same arm, so they are one arm — unlike the axis arm above, which moves three coordinates.
+  const auto jitterHeightOnly = [&](int32_t amplitude, uint32_t mask, uint32_t effectId) {
+    w16(S + 0x06, static_cast<uint16_t>(static_cast<int32_t>(camR16(kShakeAnchorY)) - amplitude + drawJitter(mask)));
+    call(SHAKE_FX, 0, 0, static_cast<int32_t>(effectId), static_cast<int32_t>(kShakeEffectPriority));
+  };
+  switch (static_cast<State>(state)) {
+  case State::kCaptureAxes:
+    camW16(kShakeAnchorX, r16(S + 0x02));
+    camW16(kShakeAnchorY, r16(S + 0x06));
+    camW8(0x76, static_cast<uint8_t>(State::kJitterAxes));
+    camW16(kShakeAnchorZ, r16(S + 0x0a));
     break;
-  case 2: {
-    int32_t rx = rngOf(c).next() & 0x1f;
-    w16(S + 0x02, (uint16_t)((int32_t)camR16(0x86) - 16 + rx));
-    int32_t rz = rngOf(c).next() & 0x1f;
-    w16(S + 0x0a, (uint16_t)((int32_t)camR16(0x8a) - 16 + rz));
-    int32_t ry = rngOf(c).next() & 0xf;
-    w16(S + 0x06, (uint16_t)((int32_t)camR16(0x88) - 8 + ry));
-    call(SHAKE_FX, 0, 0, 129, 2);
-    break;
-  }
-  case 3:
-    w16(S + 0x02, camR16(0x86));
-    w16(S + 0x06, camR16(0x88));
-    w16(S + 0x0a, camR16(0x8a));
-    camW8(0x76, 0);
-    break;
-  case 4:
-    camW16(0x88, r16(S + 0x06));
-    camW8(0x76, 5);
-    break;
-  case 5: {
-    int32_t r = rngOf(c).next() & 0x3f;
-    w16(S + 0x06, (uint16_t)((int32_t)camR16(0x88) - 32 + r));
-    call(SHAKE_FX, 0, 0, 241, 2);
+  case State::kJitterAxes: {
+    // Three draws, in the guest's order: X, then Z, then Y. Y takes half the amplitude and half the
+    // mask of the other two, which is why it is not simply a third call to the same expression.
+    const int32_t jitterX = drawJitter(kShakeMaskNarrow);
+    w16(S + 0x02, static_cast<uint16_t>(static_cast<int32_t>(camR16(kShakeAnchorX)) - kShakeXAmplitude + jitterX));
+    const int32_t jitterZ = drawJitter(kShakeMaskNarrow);
+    w16(S + 0x0a, static_cast<uint16_t>(static_cast<int32_t>(camR16(kShakeAnchorZ)) - kShakeXAmplitude + jitterZ));
+    const int32_t jitterY = drawJitter(kShakeMaskNarrow >> 1);
+    w16(S + 0x06, static_cast<uint16_t>(static_cast<int32_t>(camR16(kShakeAnchorY)) - kShakeYAmplitude + jitterY));
+    call(SHAKE_FX, 0, 0, static_cast<int32_t>(kShakeEffectAxes), static_cast<int32_t>(kShakeEffectPriority));
     break;
   }
-  case 6:
-    camW16(0x88, r16(S + 0x06));
-    camW8(0x76, 7);
+  case State::kRestoreAxes:
+    w16(S + 0x02, camR16(kShakeAnchorX));
+    w16(S + 0x06, camR16(kShakeAnchorY));
+    w16(S + 0x0a, camR16(kShakeAnchorZ));
+    camW8(0x76, static_cast<uint8_t>(State::kIdle));
+    break;
+  case State::kCaptureHeight:
+    camW16(kShakeAnchorY, r16(S + 0x06));
+    camW8(0x76, static_cast<uint8_t>(State::kJitterHeight));
+    break;
+  case State::kJitterHeight:
+    jitterHeightOnly(kShakeHeightAmplitude, kShakeMaskWide, kShakeEffectHeight);
+    break;
+  case State::kPulseHeightBegin:
+    camW16(kShakeAnchorY, r16(S + 0x06));
+    camW8(0x76, static_cast<uint8_t>(State::kPulseHeight));
     [[fallthrough]];
-  case 7:
-    if (camR8(0x64) != 0) {
-      camW8(0x76, 0);
+  case State::kPulseHeight:
+    if (camR8(kShakeBusyByte) != 0) {
+      camW8(0x76, static_cast<uint8_t>(State::kIdle));
       break;
     }
-    {
-      int32_t r = rngOf(c).next() & 0x3f;
-      w16(S + 0x06, (uint16_t)((int32_t)camR16(0x88) - 32 + r));
-      call(SHAKE_FX, 0, 0, 129, 2);
-    }
-    camW8(0x76, 0);
+    jitterHeightOnly(kShakeHeightAmplitude, kShakeMaskWide, kShakeEffectAxes);
+    camW8(0x76, static_cast<uint8_t>(State::kIdle));
     break;
-  case 8:
-    camW16(0x88, r16(S + 0x06));
-    camW8(0x76, 9);
+  case State::kPulseHeightSmallBegin:
+    camW16(kShakeAnchorY, r16(S + 0x06));
+    camW8(0x76, static_cast<uint8_t>(State::kPulseHeightSmall));
     [[fallthrough]];
-  case 9:
-    if (camR8(0x64) != 0) {
-      camW8(0x76, 0);
+  case State::kPulseHeightSmall:
+    if (camR8(kShakeBusyByte) != 0) {
+      camW8(0x76, static_cast<uint8_t>(State::kIdle));
       break;
     }
-    {
-      int32_t r = rngOf(c).next() & 0x1f;
-      w16(S + 0x06, (uint16_t)((int32_t)camR16(0x88) - 16 + r));
-      call(SHAKE_FX, 0, 0, 129, 2);
-    }
-    camW8(0x76, 0);
+    jitterHeightOnly(kShakeHeightSmallAmplitude, kShakeMaskNarrow, kShakeEffectAxes);
+    camW8(0x76, static_cast<uint8_t>(State::kIdle));
     break;
-  default:
+  case State::kIdle:
     break;
   }
 }
 
-// ── driver + init (the camera dispatcher) ─────────────────────────────────────────────────────────
-// Still-unowned resident camera LEAVES reached by the mode dispatch / init (a1-taking follow variants and
-// the init sub-fns). Kept substrate until they're rebuilt as methods — contiguous top-down ownership owns
-// the CALLER (update/init) first, its unowned children run via the substrate (0-diff, same as trackFollow).
-// FIELD OVERLAY handlers reached by some modes / render sub-modes: they live in loaded \BIN\*.BIN overlays,
-// not resident MAIN, so they dispatch through the overlay router. (In the oracle unit test no overlay is
-// loaded, so these modes MISS and are skipped — same class as the yFloor recorded binary evidence gap.)
-static constexpr uint32_t OV_RENDER_RM2_M0 = 0x80115F58u, OV_RENDER_RM7_M0 = 0x80112DECu,
-                          OV_RENDER_RM20_M0 = 0x8010AD0Cu;
-static constexpr uint32_t OV_RENDER_RM2_M1 = 0x80116918u, OV_RENDER_RM7_M1 = 0x80113660u,
-                          OV_RENDER_RM20_M1 = 0x8010B2F0u;
-static constexpr uint32_t OV_MODE9 = 0x8018B924u;        // mode 9  field-overlay camera handler
-static constexpr uint32_t OV_A00_CAM = 0x8010D89Cu;      // mode 10 A00 scripted-camera state machine
-static constexpr uint32_t OV_MODE17 = 0x80111AB4u;       // mode 17 field-overlay handler
-static constexpr uint32_t RENDER_FP_TABLE = 0x800A4AA0u; // mode 0 render-mode → fn-pointer table (resident data)
+// ── the MODE dispatch ────────────────────────────────────────────────────────────────────────────
+// Eighteen modes, one policy: `tomba/camera/camera_mode.h` names them all and says what each one
+// follows, and the table below is reached through it rather than through a second 18-arm switch.
+// The three render modes with a dedicated overlay prologue are looked up rather than tested, and the
+// two dispatchers below (native and guest-faithful) are the only two places the table is read.
+namespace {
+using tomba::camera::CameraMode;
+using tomba::camera::FollowTarget;
+using tomba::camera::RenderModePrologue;
+
+// The render-mode-keyed prologue for one of the two modes that have one, or nullptr when this render
+// mode has no dedicated overlay and the mode's own follow runs instead.
+const RenderModePrologue *prologueFor(uint8_t renderMode) {
+  for (const RenderModePrologue &row : tomba::camera::kRenderModePrologues) {
+    if (row.renderMode == renderMode) {
+      return &row;
+    }
+  }
+  return nullptr;
+}
+} // namespace
 
 void CutsceneCamera::dispatchMode(uint8_t mode) {
-  switch (mode) {
-  case 0: { // main follow, gated, then a render-mode-keyed handler
-    uint8_t rm = r8(0x800BF870u);
-    if (rm == 7) {
-      sub(OV_RENDER_RM7_M0);
-      break;
-    } else if (rm == 2) {
-      sub(OV_RENDER_RM2_M0);
-      break;
-    } else if (rm == 20) {
-      sub(OV_RENDER_RM20_M0);
+  switch (static_cast<CameraMode>(mode)) {
+  case CameraMode::kMainFollow: {
+    const uint8_t rm = r8(tomba::camera::kRenderModeByte);
+    if (const RenderModePrologue *prologue = prologueFor(rm)) {
+      sub(prologue->forMainFollow);
       break;
     }
     if (!(camR8(0x64) & 0x80)) {
       mainFollow();
       rotBuild();
     }
-    sub(r32(RENDER_FP_TABLE + (uint32_t)rm * 4)); // indirect render fn (field overlay)
+    // Then whichever handler the resident render-mode table holds for this render mode.
+    sub(r32(tomba::camera::kRenderModeFunctionTable + static_cast<uint32_t>(rm) * 4u));
     break;
   }
-  case 1: { // track follow, with the same render-mode-keyed overlay prologue
-    uint8_t rm = r8(0x800BF870u);
-    if (rm == 7) {
-      sub(OV_RENDER_RM7_M1);
-      break;
-    } else if (rm == 2) {
-      sub(OV_RENDER_RM2_M1);
-      break;
-    } else if (rm == 20) {
-      sub(OV_RENDER_RM20_M1);
+  case CameraMode::kTrackFollow: {
+    const uint8_t rm = r8(tomba::camera::kRenderModeByte);
+    if (const RenderModePrologue *prologue = prologueFor(rm)) {
+      sub(prologue->forTrackFollow);
       break;
     }
     trackFollow(cam_ + 0x38);
     break;
   }
-  case 2:
+  case CameraMode::kSnapFollowScriptedA:
     snapFollowA(cam_ + 0x38);
     break;
-  case 3:
+  case CameraMode::kPitchFollow:
     pitchFollow(cam_ + 0x38);
     break;
-  case 4:
+  case CameraMode::kSnapFollowScriptedB:
     snapFollowB(cam_ + 0x38);
     break;
-  case 5:
+  case CameraMode::kSnapFollowMaster:
     snapFollow(G + 0x2c);
-    break; // snap to MASTER position
-  case 6:
+    break; // snap to the master position
+  case CameraMode::kFreezeAtMasterHeight:
     camW8(0x64, 0);
     camW32(0x0c, r32(G + 0x30));
-    break; // freeze: cam[0x0c] = master Y
-  case 7:
-  case 14:
+    break; // cam[+0x0c] = the master's Y
+  case CameraMode::kSnapFollowSelf:
+  case CameraMode::kSnapFollowSelfAlias:
     snapFollow(cam_ + 0x38);
     break;
-  case 8:
+  case CameraMode::kSimpleFollowSelf:
     simpleFollow(cam_ + 0x38);
     break;
-  case 9:
-    sub(OV_MODE9);
+  case CameraMode::kFieldOverlay9:
+    sub(tomba::camera::guestEntryFor(CameraMode::kFieldOverlay9));
     break;
-  case 10:
-    sub(OV_A00_CAM);
+  case CameraMode::kAreaOverlayScripted:
+    sub(tomba::camera::guestEntryFor(CameraMode::kAreaOverlayScripted));
     break;
-  case 11:
-  case 12:
+  case CameraMode::kReset:
+  case CameraMode::kForceModeByte:
     camW8(0x64, 0);
     camW8(2, 0);
     camW8(3, 0);
-    break; // reset
-  case 13:
-    camW8(0x64, 6);
+    break; // reset the mode byte and the two sub-state bytes
+  case CameraMode::kForceModeSix:
+    camW8(0x64, tomba::camera::kForceModeSixValue);
     break;
-  case 15:
+  case CameraMode::kSimpleFollowMaster:
     simpleFollow(G + 0x2c);
     break;
-  case 16: /* tail only */
-    break;
-  case 17:
-    sub(OV_MODE17);
-    break;
-  default:
+  case CameraMode::kTailOnly:
+    break; // no body; the driver still runs its post-mode tail
+  case CameraMode::kFieldOverlay17:
+    sub(tomba::camera::guestEntryFor(CameraMode::kFieldOverlay17));
     break;
   }
 }
@@ -1077,13 +1065,8 @@ void CutsceneCamera::initPlace() { // FUN_8006E918 (init: place the camera X/Z b
   // r16/r17/r31 with the gen's values at its 0x8006EA60 jal site). rcos (0x80083F50) is frameless; rsin
   // is NOT (24-byte frame, ra@+16 — the reason Trig left it unregistered, trig.cpp), so the gen's rsin
   // call is reproduced through the substrate with its jal-site ra (0x8006E9C0) preloaded.
-  c->r[29] -= 40;
-  const uint32_t fsp = c->r[29];
-  c->mem_w32(fsp + 16, c->r[16]);
-  c->mem_w32(fsp + 20, c->r[17]);
-  c->mem_w32(fsp + 24, c->r[18]);
-  c->mem_w32(fsp + 28, c->r[19]);
-  c->mem_w32(fsp + 32, c->r[31]);
+  static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {17, 20}, {18, 24}, {19, 28}, {31, 32}};
+  GuestFrame<40, 5> frame(c, kSpills);
   int32_t g140 = (int16_t)r16(G + 0x140);
   uint16_t cam56 = camR16(0x56);
   // s0: cam[0x56], negated unless the scene heading G+0x140 already equals the target heading G+0x56.
@@ -1095,12 +1078,6 @@ void CutsceneCamera::initPlace() { // FUN_8006E918 (init: place the camera X/Z b
   c->r[31] = 0x8006E9C0u; // gen jal-site for rsin (spilled by rsin's own 24-byte frame)
   int32_t cz = (int32_t)(uint16_t)r16(G + 0x36) - (mlo(call(T2_RSIN_SUB, angle), s1) >> 12);
   w16(S + 0x0a, (uint16_t)cz);
-  c->r[16] = c->mem_r32(fsp + 16);
-  c->r[17] = c->mem_r32(fsp + 20);
-  c->r[18] = c->mem_r32(fsp + 24);
-  c->r[19] = c->mem_r32(fsp + 28);
-  c->r[31] = c->mem_r32(fsp + 32);
-  c->r[29] = fsp + 40;
 }
 void CutsceneCamera::initSeedGrp(uint32_t src) { // FUN_8006CBA8 (writes the FIXED driver cam @0x800E8008)
   w16(CAM_OBJ + 0x3a, r16(src + 2));
@@ -1157,11 +1134,8 @@ void CutsceneCamera::restoreMode() { // FUN_8006E1E4
 // nested call, e.g. lookAt's LA_ISQRT typed runtime address dispatch, can clobber the shared Core::r[] register
 // file, so the restore is a real requirement, not a formality).
 void CutsceneCamera::snapToMasterOffsetY200() { // FUN_8006EA00
-  c->r[29] -= 32;
-  const uint32_t sp = c->r[29];
-  c->mem_w32(sp + 16, c->r[16]);
-  c->mem_w32(sp + 20, c->r[17]);
-  c->mem_w32(sp + 24, c->r[31]);
+  static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {17, 20}, {31, 24}};
+  GuestFrame<32, 3> frame(c, kSpills);
   c->r[16] = CAM_OBJ;     // gen: s0 = 0x800E8008 (spilled by initPlace's/lookAt's frames)
   c->r[17] = CAM_OBJ + 8; // gen: s1 = 0x800E8010 (ditto)
   // cam[8]/[0xc]/[0x10] are a 32-bit (X,Y,Z) staging triple (same shape trackXZ/trackY/snapAccXZ/snapAccY
@@ -1176,10 +1150,6 @@ void CutsceneCamera::snapToMasterOffsetY200() { // FUN_8006EA00
   initPlace();
   c->r[31] = 0x8006EA68u; // gen jal-site for lookAt (spilled by lookAt's frame)
   lookAt();
-  c->r[31] = c->mem_r32(sp + 24);
-  c->r[17] = c->mem_r32(sp + 20);
-  c->r[16] = c->mem_r32(sp + 16);
-  c->r[29] = sp + 32;
 }
 // FUN_8006EF38 pushes the same shape of 32-byte frame (r29-=32, s0/s1/ra spilled at +16/+20/+24)
 // UNCONDITIONALLY — even on the early-return path (the gen's branch-delay-slot spill runs before
@@ -1188,11 +1158,8 @@ void CutsceneCamera::snapToMasterOffsetY200() { // FUN_8006EA00
 // snapToMasterOffsetY200 above (own frame + gen s0/s1 register values + per-jal-site ra constants
 // for the frame-pushing callees rsin/snapFollow/lookAt); see that method's comment for the rationale.
 void CutsceneCamera::orbitTick() { // FUN_8006EF38
-  c->r[29] -= 32;
-  const uint32_t sp = c->r[29];
-  c->mem_w32(sp + 16, c->r[16]);
-  c->mem_w32(sp + 20, c->r[17]);
-  c->mem_w32(sp + 24, c->r[31]);
+  static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {17, 20}, {31, 24}};
+  GuestFrame<32, 3> frame(c, kSpills);
   if ((uint8_t)(r8(0x1F800236u) - 3) < 2) { // only during render-timing window {3,4}
     int32_t angle = (int16_t)camR16(0x70);
     int32_t rc = trigOf(c).rcos(angle);    // 0x80083F50 — frameless, native ok
@@ -1207,10 +1174,6 @@ void CutsceneCamera::orbitTick() { // FUN_8006EF38
     c->r[31] = 0x8006EFE0u;     // gen jal-site for snapFollow (spilled by its frame)
     snapFollow(CAM_OBJ + 0x38); // snap the camera's own position accumulators to the fixed orbit center
   }
-  c->r[31] = c->mem_r32(sp + 24);
-  c->r[17] = c->mem_r32(sp + 20);
-  c->r[16] = c->mem_r32(sp + 16);
-  c->r[29] = sp + 32;
 }
 
 void CutsceneCamera::update() { // FUN_8006EC44 (resident per-frame camera driver; cam obj @0x800E8008)
@@ -1257,11 +1220,9 @@ void CutsceneCamera::update() { // FUN_8006EC44 (resident per-frame camera drive
 // table at 0x80016A44 (18 uint32 entries, read from scratch/bin/tomba2/MAIN.EXE @ file offset 0x7244).
 void CutsceneCamera::updateFaithful() { // FUN_8006EC44
   uint8_t outer = camR8(0);
-  c->r[29] -= 24;
-  const uint32_t sp = c->r[29];
-  c->mem_w32(sp + 16, c->r[16]); // spill caller's live s0
-  c->r[16] = CAM_OBJ;            // s0 = CAM_OBJ (0x800E8008, hardcoded in the gen)
-  c->mem_w32(sp + 20, c->r[31]); // spill caller's live ra (jal-site set by the caller)
+  static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {31, 20}};
+  GuestFrame<24, 2> frame(c, kSpills);
+  c->r[16] = CAM_OBJ; // s0 = CAM_OBJ (0x800E8008, hardcoded in the gen)
 
   if (outer == 0) {
     c->mem_w8(c->r[16] + 0, 1);
@@ -1295,153 +1256,99 @@ void CutsceneCamera::updateFaithful() { // FUN_8006EC44
     psx::cpu::dispatchGuestToReturn0(
         *c, 0x8006C988u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // shakeTail FUN_8006C988(cam)
   }
-epilogue:
-  c->r[31] = c->mem_r32(sp + 20);
-  c->r[16] = c->mem_r32(sp + 16);
-  c->r[29] = sp + 24;
+epilogue:; // GuestFrame's destructor restores r16/ra and ascends sp on every path
 }
 
+// The guest-faithful mirror of the mode dispatch: the SAME eighteen modes and the SAME policy, read
+// from the same table, reached through guest addresses instead of native calls. What differs from
+// `dispatchMode` above is only that each callee is dispatched with the guest's own return constant
+// armed in `ra` first, so the frame bytes a downstream still-guest leaf spills are the ones the
+// reference wrote. That per-arm constant is the ONLY thing this function owns; the policy — which
+// mode does what, and which render modes get the overlay prologue — is `camera_mode.h`'s.
 void CutsceneCamera::dispatchModeFaithful(uint8_t mode) {
-  switch (mode) {
-  case 0: {
-    uint8_t rm = c->mem_r8(0x800BF870u);
-    if (rm == 7) {
-      c->r[31] = 0x8006ED48u;
-      c->r[4] = c->r[16];
-      psx::cpu::dispatchGuestToReturn0(*c, OV_RENDER_RM7_M0, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-      return;
-    }
-    if (rm == 20) {
-      c->r[31] = 0x8006ED58u;
-      c->r[4] = c->r[16];
-      psx::cpu::dispatchGuestToReturn0(*c, OV_RENDER_RM20_M0, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-      return;
-    }
-    if (rm == 2) {
-      c->r[31] = 0x8006ED38u;
-      c->r[4] = c->r[16];
-      psx::cpu::dispatchGuestToReturn0(*c, OV_RENDER_RM2_M0, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+  // The guest's own call shape for this table: a0 = the camera object, and for the follow modes
+  // a1 = the follow target. `kFollowsCameraSelf` and `kFollowsMaster` differ only in which address
+  // goes in a1, so the descriptor decides that rather than each arm repeating it. The camera object
+  // is read from c->r[16] — the frame `updateFaithful` set — and NOT from this instance's `cam_`,
+  // because the guest's mode dispatch passes the object the driver was handed and the two are not
+  // necessarily the same base.
+  const tomba::camera::ModeDescriptor *const descriptor = tomba::camera::descriptorFor(static_cast<CameraMode>(mode));
+  const uint32_t followTarget =
+      (descriptor != nullptr && descriptor->follows == FollowTarget::kFollowsMaster) ? G + 0x2cu : c->r[16] + 56u;
+
+  switch (static_cast<CameraMode>(mode)) {
+  case CameraMode::kMainFollow: {
+    const uint8_t rm = c->mem_r8(tomba::camera::kRenderModeByte);
+    if (const RenderModePrologue *prologue = prologueFor(rm)) {
+      subFaithfulAtReturn(prologue->forMainFollow, prologue->mainFollowReturn);
       return;
     }
     if (!(c->mem_r8(c->r[16] + 100) & 0x80)) {
-      c->r[31] = 0x8006ED7Cu;
-      c->r[4] = c->r[16];
-      psx::cpu::dispatchGuestToReturn0(
-          *c, 0x8006E0F0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // mainFollow(cam)
-      c->r[31] = 0x8006ED84u;
-      c->r[4] = c->r[16];
-      psx::cpu::dispatchGuestToReturn0(
-          *c, 0x8006E464u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // rotBuild(cam)
+      subFaithfulAtReturn(0x8006E0F0u, 0x8006ED7Cu); // mainFollow(cam)
+      subFaithfulAtReturn(0x8006E464u, 0x8006ED84u); // rotBuild(cam)
     }
-    rm = c->mem_r8(0x800BF870u);
-    uint32_t fn = c->mem_r32(RENDER_FP_TABLE + (uint32_t)rm * 4);
-    c->r[31] = 0x8006EDACu;
-    c->r[4] = c->r[16];
-    psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+    // The render mode is re-read here, as the guest does: the follow above may have changed it.
+    const uint8_t rmAfter = c->mem_r8(tomba::camera::kRenderModeByte);
+    subFaithfulAtReturn(c->mem_r32(tomba::camera::kRenderModeFunctionTable + static_cast<uint32_t>(rmAfter) * 4u),
+                        0x8006EDACu);
     return;
   }
-  case 1: {
-    uint8_t rm = c->mem_r8(0x800BF870u);
-    if (rm == 7) {
-      c->r[31] = 0x8006EDFCu;
-      c->r[4] = c->r[16];
-      psx::cpu::dispatchGuestToReturn0(*c, OV_RENDER_RM7_M1, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+  case CameraMode::kTrackFollow: {
+    const uint8_t rm = c->mem_r8(tomba::camera::kRenderModeByte);
+    if (const RenderModePrologue *prologue = prologueFor(rm)) {
+      subFaithfulAtReturn(prologue->forTrackFollow, prologue->trackFollowReturn);
       return;
     }
-    if (rm == 20) {
-      c->r[31] = 0x8006EE1Cu;
-      c->r[4] = c->r[16];
-      psx::cpu::dispatchGuestToReturn0(*c, OV_RENDER_RM20_M1, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-      return;
-    }
-    if (rm == 2) {
-      c->r[31] = 0x8006EE0Cu;
-      c->r[4] = c->r[16];
-      psx::cpu::dispatchGuestToReturn0(*c, OV_RENDER_RM2_M1, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-      return;
-    }
-    c->r[31] = 0x8006EE2Cu;
-    c->r[4] = c->r[16];
-    c->r[5] = c->r[16] + 56;
-    psx::cpu::dispatchGuestToReturn0(
-        *c, 0x8006E228u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__); // trackFollow(cam, cam+56)
+    subFaithfulAtReturn(0x8006E228u, 0x8006EE2Cu, followTarget); // trackFollow
     return;
   }
-  case 2:
-    c->r[31] = 0x8006EE40u;
-    c->r[4] = c->r[16];
-    c->r[5] = c->r[16] + 56;
-    psx::cpu::dispatchGuestToReturn0(*c, 0x8006E294u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-    return; // snapFollowA(cam, cam+56)
-  case 3:
-    c->r[31] = 0x8006EE54u;
-    c->r[4] = c->r[16];
-    c->r[5] = c->r[16] + 56;
-    psx::cpu::dispatchGuestToReturn0(*c, 0x8006E360u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-    return; // pitchFollow(cam, cam+56)
-  case 4:
-    c->r[31] = 0x8006EE68u;
-    c->r[4] = c->r[16];
-    c->r[5] = c->r[16] + 56;
-    psx::cpu::dispatchGuestToReturn0(*c, 0x8006E2FCu, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-    return; // snapFollowB(cam, cam+56)
-  case 5:
-    c->r[31] = 0x8006EE80u;
-    c->r[4] = c->r[16];
-    c->r[5] = G + 0x2c;
-    psx::cpu::dispatchGuestToReturn0(*c, 0x8006E3B0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-    return; // snapFollow(cam, MASTER_X)
-  case 6:
+  case CameraMode::kSnapFollowScriptedA:
+    subFaithfulAtReturn(0x8006E294u, 0x8006EE40u, followTarget); // snapFollowA
+    return;
+  case CameraMode::kPitchFollow:
+    subFaithfulAtReturn(0x8006E360u, 0x8006EE54u, followTarget); // pitchFollow
+    return;
+  case CameraMode::kSnapFollowScriptedB:
+    subFaithfulAtReturn(0x8006E2FCu, 0x8006EE68u, followTarget); // snapFollowB
+    return;
+  case CameraMode::kSnapFollowMaster:
+    subFaithfulAtReturn(0x8006E3B0u, 0x8006EE80u, followTarget); // snapFollow
+    return;
+  case CameraMode::kFreezeAtMasterHeight:
     c->mem_w8(c->r[16] + 100, 0);
     c->mem_w32(c->r[16] + 12, c->mem_r32(G + 0x30));
     return;
-  case 7:
-  case 14:
-    c->r[31] = 0x8006EEF8u;
-    c->r[4] = c->r[16];
-    c->r[5] = c->r[16] + 56;
-    psx::cpu::dispatchGuestToReturn0(*c, 0x8006E3B0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-    return; // snapFollow(cam, cam+56)
-  case 8:
-    c->r[31] = 0x8006EEA8u;
-    c->r[4] = c->r[16];
-    c->r[5] = c->r[16] + 56;
-    psx::cpu::dispatchGuestToReturn0(*c, 0x8006E3F4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-    return; // simpleFollow(cam, cam+56)
-  case 9:
-    c->r[31] = 0x8006EEB8u;
-    c->r[4] = c->r[16];
-    psx::cpu::dispatchGuestToReturn0(*c, OV_MODE9, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+  case CameraMode::kSnapFollowSelf:
+  case CameraMode::kSnapFollowSelfAlias:
+    subFaithfulAtReturn(0x8006E3B0u, 0x8006EEF8u, followTarget); // snapFollow
     return;
-  case 10:
-    c->r[31] = 0x8006EEC8u;
-    c->r[4] = c->r[16];
-    psx::cpu::dispatchGuestToReturn0(*c, OV_A00_CAM, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+  case CameraMode::kSimpleFollowSelf:
+    subFaithfulAtReturn(0x8006E3F4u, 0x8006EEA8u, followTarget); // simpleFollow
     return;
-  case 11:
-  case 12:
+  case CameraMode::kFieldOverlay9:
+    subFaithfulAtReturn(tomba::camera::guestEntryFor(CameraMode::kFieldOverlay9), 0x8006EEB8u);
+    return;
+  case CameraMode::kAreaOverlayScripted:
+    subFaithfulAtReturn(tomba::camera::guestEntryFor(CameraMode::kAreaOverlayScripted), 0x8006EEC8u);
+    return;
+  case CameraMode::kReset:
+  case CameraMode::kForceModeByte:
     c->mem_w8(c->r[16] + 100, 0);
     c->mem_w8(c->r[16] + 2, 0);
     c->mem_w8(c->r[16] + 3, 0);
     return;
-  case 13:
-    c->mem_w8(c->r[16] + 100, 6);
+  case CameraMode::kForceModeSix:
+    c->mem_w8(c->r[16] + 100, tomba::camera::kForceModeSixValue);
     return;
-  case 15:
-    c->r[31] = 0x8006EF10u;
-    c->r[4] = c->r[16];
-    c->r[5] = G + 0x2c;
-    psx::cpu::dispatchGuestToReturn0(*c, 0x8006E3F4u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-    return; // simpleFollow(cam, MASTER_X)
-  case 16:
-    return; // tail only (falls through to shakeTail in updateFaithful, same as the gen's L_8006EF20 fallthrough)
-  case 17:
-    c->r[31] = 0x8006EF20u;
-    c->r[4] = c->r[16];
-    psx::cpu::dispatchGuestToReturn0(*c, OV_MODE17, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+  case CameraMode::kSimpleFollowMaster:
+    subFaithfulAtReturn(0x8006E3F4u, 0x8006EF10u, followTarget); // simpleFollow
     return;
-  default:
-    return; // unreachable: mode<18 and the 18-entry table's values are all enumerated above
+  case CameraMode::kTailOnly:
+    // No body. The driver's post-mode tail still runs, exactly as the guest's fallthrough does.
+    return;
+  case CameraMode::kFieldOverlay17:
+    subFaithfulAtReturn(tomba::camera::guestEntryFor(CameraMode::kFieldOverlay17), 0x8006EF20u);
+    return;
   }
 }
 

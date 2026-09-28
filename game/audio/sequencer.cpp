@@ -16,6 +16,7 @@
 // this pass does not second-guess it.
 
 #include "audio/sequencer.h"
+#include "audio/libsnd_globals.h" // the sound driver's cluster: one named offset per word
 #include "core.h"
 #include "execution_services.h"
 #include "game.h" // strict replay check / VerifyHarness (frameTick trampoline strict gate)
@@ -26,41 +27,16 @@
 #include "native_override_catalog.h" // tomba::native::declareOverride
 #include <cstdio>
 
-#define SEQ_USER_CB 0x800AC430u // DAT_800ac430 — optional user callback fn-ptr
-#define SEQ_TICK_FN 0x800AC42Cu // DAT_800ac42c — *SsSeqCalled fn-ptr (0x80090BD0 today)
-
-// SsSeqCalled cluster globals (base 32784u<<16 = 0x80100000; offsets are the exact decimal
-// immediates in authenticated executable/overlay evidence's guest 0x80090BD0 — see sequencer.h header note on the
-// earlier pass's incorrect 0x8010CCxx/0x80109Exx transcription).
-#define SEQ_REENTRY_FLAG 0x80104C24u // guard: 1 while SsSeqCalled is running (re-entry no-op)
-#define SEQ_ACTIVE_MASK 0x80104C28u  // bit i set => sequence i is active
-#define SEQ_PTR_ARRAY 0x80104C30u    // 4-byte-stride array of per-sequence channel-table bases
-#define SEQ_COUNT 0x801054B0u        // s16 — number of sequence slots (loop bound, <=7 seen live)
-#define SEQ_CHAN_COUNT 0x801054B2u   // s16 — number of channels per sequence (<=15 seen live)
-#define SEQ_PREP_FN 0x800931C0u      // one-shot prep call before the seq loop (input_dispatch_931c0)
-
-#define CH_FLAGS 152u // per-channel record: bitfield tested/cleared by SsSeqCalled + leaves
-#define CH_STRIDE 176u
-
-// 2026-07-10 wave — globals touched by the bit4/5/6/7/2 leaves (all same 0x80100000 base as the
-// SEQ_* cluster above; offsets are the exact decimal immediates in each guest-visible behavior, see sequencer.h
-// header for the per-leaf confidence notes).
-#define SEQ_KEYSCAN_VOICE_MASK 0x800AC3F4u // 32779u<<16-15372 — hw voice-active bitmask (SPU)
-#define SEQ_KEYSCAN_COUNT 0x80105CECu      // s8  @ +23788 — channelKeyEventScan() loop bound
-#define SEQ_KEYSCAN_TABLE 0x801054D8u      // s16 @ +21720, stride 56 — per-voice pitch table
-#define SEQ_KEYSCAN_MATCH                                                                                              \
-  0x80105D10u                           // u16 @ +23824 — scratch: matched VOICE INDEX (i), not
-                                        // the pitch value (RE correction, see channelKeyEventScan)
-#define SEQ_KEYMERGE_STATUS 21733u      // u8  offset into the stride-56 voice table (cleared)
-#define SEQ_KON_LO 0x80105BF0u          // u16 @ +23536 — KON-style armed-mask low word
-#define SEQ_KON_HI 0x80105BF2u          // u16 @ +23538 — KON-style armed-mask high word
-#define SEQ_ACTIVE_VOICE_LO 0x801054B8u // u16 @ +21688 — active-voice mask low word
-#define SEQ_ACTIVE_VOICE_HI 0x801054BAu // u16 @ +21690 — active-voice mask high word
-#define SEQ_VOLSNAP_SCRATCH 0x80105D0Cu // u16 @ +23820 — channelVolumeSnapshot() dead-write scratch
-
 // cpu_div / rec_break already declared in core.h (included above).
 
 namespace {
+using namespace tomba::audio;
+
+// The per-CHANNEL record's own two fields this file's lens names. The record is a DIFFERENT struct
+// from the sound driver's global cluster above: it is the per-(sequence, channel) state block, 176
+// bytes, reached through the sequence's own table pointer rather than through a fixed base.
+constexpr uint32_t CH_FLAGS = 152u;
+constexpr uint32_t CH_STRIDE = 176u;
 
 // Sign-extend a raw register/arg value the way the guest-visible behavior's `sll rX,16 / sra rX,16` idiom does
 // at every seq/chan-index use — replaces the repeated `(int32_t)(int16_t)(uint16_t)v` cast chain.
@@ -76,14 +52,14 @@ inline uint32_t chStride(int32_t chan) {
   return (uint32_t)(chan * 11) << 4;
 }
 
-// SEQ_PTR_ARRAY[seq] slot address. Gen computes the 4-byte-stride index via `(seq<<16)>>14`,
+// libsnd::kSeqPtrArray[seq] slot address. Gen computes the 4-byte-stride index via `(seq<<16)>>14`,
 // which nets out to `sext16(seq) * 4` (shift by 16 sign-extends the low half; shifting right by
 // 14 instead of 16 supplies the implicit *4 stride in one instruction) — named per that meaning.
 inline uint32_t seqPtrSlot(uint32_t seqRaw) {
-  return SEQ_PTR_ARRAY + (uint32_t)(sext16(seqRaw) << 2);
+  return libsnd::kSeqPtrArray + (uint32_t)(sext16(seqRaw) << 2);
 }
 
-// Typed lens over a per-channel record (base = *SEQ_PTR_ARRAY[seq] + chStride(chan), stride
+// Typed lens over a per-channel record (base = *libsnd::kSeqPtrArray[seq] + chStride(chan), stride
 // CH_STRIDE=176). Same guest addresses as the raw `channelBase + 0xNN` reads/writes this file used
 // before — named per the field's confirmed role (see sequencer.h header for the RE writeup each
 // field's offset traces back to). Fields used by exactly one function stay inline `mem_rXX` calls
@@ -143,12 +119,12 @@ void Sequencer::frameTick() {
   // libsnd cb-slot base it reads +0/-4 from) and keeps it LIVE across both dispatches -- callees
   // that spill r16 must see that value, not the caller's stale one.
   GuestReg<16> r16(c);
-  r16 = SEQ_USER_CB;
-  uint32_t cb = c->mem_r32(SEQ_USER_CB);
+  r16 = libsnd::kUserCallback;
+  uint32_t cb = c->mem_r32(libsnd::kUserCallback);
   if (cb != 0u) {
     tomba::guest::dispatchJalToReturn(*c, cb, 0x800909ECu);
   }
-  uint32_t seq = c->mem_r32(SEQ_TICK_FN);
+  uint32_t seq = c->mem_r32(libsnd::kSeqTickFn);
   tomba::guest::dispatchJalToReturn(*c, seq, 0x800909FCu);
 }
 
@@ -240,29 +216,29 @@ void Sequencer::seqChannelDispatch() {
   static constexpr GuestFrameSpill kSpills[] = {
       {31, 52}, {30, 48}, {23, 44}, {22, 40}, {21, 36}, {20, 32}, {19, 28}, {18, 24}, {17, 20}, {16, 16}};
   GuestFrame<56, 10> frame(c, kSpills);
-  c->r[2] = c->mem_r32(SEQ_REENTRY_FLAG);
+  c->r[2] = c->mem_r32(libsnd::kSeqReentryFlag);
   c->r[3] = 1u;
   if (c->r[2] == c->r[3]) {
     goto L_80090E10;
   }
-  c->mem_w32(SEQ_REENTRY_FLAG, c->r[3]);
+  c->mem_w32(libsnd::kSeqReentryFlag, c->r[3]);
   c->r[31] = 0x80090C1Cu;
   c->r[23] = 0u;
   psx::cpu::dispatchGuestToReturn0(*c,
-                                   SEQ_PREP_FN,
+                                   libsnd::kSeqPrepFn,
                                    psx::cpu::ExecutionBudget::currentTurn(*c),
                                    __func__); // 0x800931C0 input_dispatch_931c0 — still-unwired by us
-  c->r[2] = (uint32_t)c->mem_r16s(SEQ_COUNT);
+  c->r[2] = (uint32_t)c->mem_r16s(libsnd::kSeqCount);
   {
     int _t = ((int32_t)c->r[2] <= 0);
     if (_t) {
       goto L_80090E08;
     }
   }
-  c->r[30] = SEQ_PTR_ARRAY;
+  c->r[30] = libsnd::kSeqPtrArray;
 L_80090C38:
   c->r[2] = 1u;
-  c->r[3] = c->mem_r32(SEQ_ACTIVE_MASK);
+  c->r[3] = c->mem_r32(libsnd::kSeqActiveMask);
   c->r[2] = c->r[2] << (c->r[23] & 31u);
   c->r[3] = c->r[3] & c->r[2];
   {
@@ -271,7 +247,7 @@ L_80090C38:
       goto L_80090DF0;
     }
   }
-  c->r[2] = (uint32_t)c->mem_r16s(SEQ_CHAN_COUNT);
+  c->r[2] = (uint32_t)c->mem_r16s(libsnd::kSeqChanCount);
   {
     int _t = ((int32_t)c->r[2] <= 0);
     c->r[22] = 0u;
@@ -428,7 +404,7 @@ L_80090D98:
 L_80090DD0:
   c->r[2] = 1u << 16;
   c->r[19] = c->r[19] + c->r[2];
-  c->r[2] = (uint32_t)c->mem_r16s(SEQ_CHAN_COUNT);
+  c->r[2] = (uint32_t)c->mem_r16s(libsnd::kSeqChanCount);
   c->r[22] = c->r[22] + 1u;
   c->r[2] = (uint32_t)((int32_t)c->r[22] < (int32_t)c->r[2]);
   {
@@ -439,7 +415,7 @@ L_80090DD0:
     }
   }
 L_80090DF0:
-  c->r[2] = (uint32_t)c->mem_r16s(SEQ_COUNT);
+  c->r[2] = (uint32_t)c->mem_r16s(libsnd::kSeqCount);
   c->r[23] = c->r[23] + 1u;
   c->r[2] = (uint32_t)((int32_t)c->r[23] < (int32_t)c->r[2]);
   {
@@ -450,7 +426,7 @@ L_80090DF0:
     }
   }
 L_80090E08:
-  c->mem_w32(SEQ_REENTRY_FLAG, 0u);
+  c->mem_w32(libsnd::kSeqReentryFlag, 0u);
 L_80090E10:; // GuestFrame's destructor restores r16..r23/r30/r31 + ascends sp here, both exit paths.
 }
 
@@ -464,7 +440,7 @@ L_80090E10:; // GuestFrame's destructor restores r16..r23/r30/r31 + ascends sp h
 // a shard-grouping artifact like others documented in this file — not ported). ABI: a0(r4)=combined
 // (seq | chan<<8, low 16 bits meaningful), a1(r5)=&outL, a2(r6)=&outR. Reads channelBase+88/+90
 // (u16 each) into *outL/*outR. Also has a genuine but functionally dead side-effect: it stamps the
-// raw combined arg to a scratch global (SEQ_VOLSNAP_SCRATCH) that the guest-visible behavior itself never reads
+// raw combined arg to a scratch global (libsnd::kUnnamedWord23464) that the guest-visible behavior itself never reads
 // back with effect (the reload 2 lines later is discarded, part of the same dead tail).
 void Sequencer::channelVolumeSnapshot() {
   Core *c = core;
@@ -476,9 +452,9 @@ void Sequencer::channelVolumeSnapshot() {
   // sign-extension on the seq half — unlike seqPtrSlot()'s sext16(seqRaw), which is for the plain
   // s16 seq arg other leaves take. Different packing, kept separate rather than force-fit one helper.
   uint32_t seqLow = combined & 0xFFu;
-  uint32_t seqBasePtr = c->mem_r32(SEQ_PTR_ARRAY + (seqLow << 2));
+  uint32_t seqBasePtr = c->mem_r32(libsnd::kSeqPtrArray + (seqLow << 2));
 
-  c->mem_w16(SEQ_VOLSNAP_SCRATCH, (uint16_t)combined); // dead write, mirrored for fidelity
+  c->mem_w16(libsnd::kUnnamedWord23464, (uint16_t)combined); // dead write, mirrored for fidelity
 
   int32_t chan = (int32_t)((int32_t)(combined & 0xFF00u) >> 8);
   ChannelRecord ch{c, seqBasePtr + chStride(chan)};
@@ -488,14 +464,14 @@ void Sequencer::channelVolumeSnapshot() {
 }
 
 // 0x80094B50 channelKeyRegisterMerge — true leaf (no stack frame). Faithful to guest 0x80094B50
-// (authenticated executable/overlay evidence). No ABI args — reads its input from SEQ_KEYSCAN_MATCH (the scratch
-// value channelKeyEventScan() just stamped there). Builds a KON-style 1-bit-set lo/hi word pair
-// from the match value (0-15 -> lo bit, 16-31 -> hi bit), clears a per-voice status byte in the
-// stride-56 voice table, ORs the new bit into the KON lo/hi words, and clears the SAME bit from the
-// active-voice lo/hi mask (classic "arm this voice for key-on, drop it from the active set" idiom).
+// (authenticated executable/overlay evidence). No ABI args — reads its input from libsnd::kPerVoiceDispatchLo (the
+// scratch value channelKeyEventScan() just stamped there). Builds a KON-style 1-bit-set lo/hi word pair from the match
+// value (0-15 -> lo bit, 16-31 -> hi bit), clears a per-voice status byte in the stride-56 voice table, ORs the new bit
+// into the KON lo/hi words, and clears the SAME bit from the active-voice lo/hi mask (classic "arm this voice for
+// key-on, drop it from the active set" idiom).
 void Sequencer::channelKeyRegisterMerge() {
   Core *c = core;
-  uint32_t value = c->mem_r16(SEQ_KEYSCAN_MATCH);
+  uint32_t value = c->mem_r16(libsnd::kPerVoiceDispatchLo);
 
   uint32_t bitLo = 0, bitHi = 0;
   if (value < 16u) {
@@ -506,23 +482,23 @@ void Sequencer::channelKeyRegisterMerge() {
 
   uint32_t tableOff = (uint32_t)(value * 7u) << 3; // value*56 (stride-56 idiom, same as key-scan table)
   uint32_t tableBase = 0x80100000u + tableOff;
-  c->mem_w8(tableBase + SEQ_KEYMERGE_STATUS, 0u);
+  c->mem_w8(tableBase + libsnd::kPerVoiceConsumedFlag, 0u);
   c->mem_w16(tableBase + 21708u, 0u);
   c->mem_w16(tableBase + 21704u, 0u);
 
-  uint32_t konLo = c->mem_r16(SEQ_KON_LO) | bitLo;
-  c->mem_w16(SEQ_KON_LO, (uint16_t)konLo);
-  uint32_t activeLo = c->mem_r16(SEQ_ACTIVE_VOICE_LO) & ~konLo;
-  c->mem_w16(SEQ_ACTIVE_VOICE_LO, (uint16_t)activeLo);
+  uint32_t konLo = c->mem_r16(libsnd::kKonArmedMaskLo) | bitLo;
+  c->mem_w16(libsnd::kKonArmedMaskLo, (uint16_t)konLo);
+  uint32_t activeLo = c->mem_r16(libsnd::kActiveVoiceMaskLo) & ~konLo;
+  c->mem_w16(libsnd::kActiveVoiceMaskLo, (uint16_t)activeLo);
   // gen publishes v1 (r3) = ~(KON_LO | bitLo) — its final r3 after `r3 = ~(r0|r3)` (r0≡0).
   // The prior draft left r3 stale (MIRROR_VERIFY: native=0x0D substrate=0xFFFFFFFE) because the
   // C rewrite computed konLo as a local but never wrote the ~konLo result the caller reads in v1.
   c->r[3] = ~konLo;
 
-  uint32_t konHi = c->mem_r16(SEQ_KON_HI) | bitHi;
-  c->mem_w16(SEQ_KON_HI, (uint16_t)konHi);
-  uint32_t activeHi = c->mem_r16(SEQ_ACTIVE_VOICE_HI) & ~konHi;
-  c->mem_w16(SEQ_ACTIVE_VOICE_HI, (uint16_t)activeHi);
+  uint32_t konHi = c->mem_r16(libsnd::kKonArmedMaskHi) | bitHi;
+  c->mem_w16(libsnd::kKonArmedMaskHi, (uint16_t)konHi);
+  uint32_t activeHi = c->mem_r16(libsnd::kActiveVoiceMaskHi) & ~konHi;
+  c->mem_w16(libsnd::kActiveVoiceMaskHi, (uint16_t)activeHi);
 }
 
 // 0x80095B90 channelKeyEventScan — stack frame present (sp-32, spill ra/s16/s17/s18). Faithful to
@@ -531,12 +507,12 @@ void Sequencer::channelKeyRegisterMerge() {
 // role of the hw-voice-bitmask scan is inherited-uncertain from the prior wave's note on this
 // address (never independently confirmed against a live SPU dump); the CONTROL FLOW transcription
 // below is exact. Scans voices 0..SEQ_KEYSCAN_COUNT-1: skip any voice whose bit is set in the hw
-// voice-active bitmask (SEQ_KEYSCAN_VOICE_MASK); for the rest, compare the per-voice pitch table
-// entry (SEQ_KEYSCAN_TABLE, stride 56) against the target; on a match, stamp the value to
-// SEQ_KEYSCAN_MATCH and call channelKeyRegisterMerge().
+// voice-active bitmask (libsnd::kHardwareVoiceActive); for the rest, compare the per-voice pitch table
+// entry (libsnd::kPerVoiceTable, stride 56) against the target; on a match, stamp the value to
+// libsnd::kPerVoiceDispatchLo and call channelKeyRegisterMerge().
 void Sequencer::channelKeyEventScan() {
   Core *c = core;
-  int8_t count = (int8_t)c->mem_r8(SEQ_KEYSCAN_COUNT);
+  int8_t count = (int8_t)c->mem_r8(libsnd::kSpuKeyScanCount);
   // FIX: gen spills s0(r16) here -- prior draft omitted it entirely.
   static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {31, 28}, {18, 24}, {17, 20}}; // -32
   GuestFrame<32, 4> frame(c, kSpills);
@@ -544,13 +520,13 @@ void Sequencer::channelKeyEventScan() {
   r16 = 0u;
   if (count > 0) {
     int32_t target = sext16(c->r[4]);
-    for (int32_t i = 0; i < (int32_t)(int8_t)c->mem_r8(SEQ_KEYSCAN_COUNT); i++) {
+    for (int32_t i = 0; i < (int32_t)(int8_t)c->mem_r8(libsnd::kSpuKeyScanCount); i++) {
       uint32_t voiceBit = 1u << (uint32_t)(i & 31);
-      if ((c->mem_r32(SEQ_KEYSCAN_VOICE_MASK) & voiceBit) != 0u) {
+      if ((c->mem_r32(libsnd::kHardwareVoiceActive) & voiceBit) != 0u) {
         continue; // voice busy, skip
       }
       uint32_t tableOff = (uint32_t)(i * 7) << 3; // i*56
-      int32_t tableVal = (int32_t)(int16_t)c->mem_r16(SEQ_KEYSCAN_TABLE + tableOff);
+      int32_t tableVal = (int32_t)(int16_t)c->mem_r16(libsnd::kPerVoiceTable + tableOff);
       if (tableVal != target) {
         continue;
       }
@@ -561,7 +537,7 @@ void Sequencer::channelKeyEventScan() {
       // channelKeyRegisterMerge()'s downstream KON-bit/table-offset math (it reads this same value
       // back as `value*56`, the SAME stride channelKeyEventScan just used for `i*56` -- only
       // consistent if the stamped value is the voice index).
-      c->mem_w16(SEQ_KEYSCAN_MATCH, (uint16_t)(uint32_t)i);
+      c->mem_w16(libsnd::kPerVoiceDispatchLo, (uint16_t)(uint32_t)i);
       c->r[31] = 0x80095C0Cu; // FIX: gen sets the real return-site const before the jal
       channelKeyRegisterMerge();
     }
@@ -599,7 +575,7 @@ void Sequencer::channelPitchSlideTick() {
       {21, 44}, {31, 48}, {20, 40}, {19, 36}, {18, 32}, {17, 28}, {16, 24}}; // -56
   GuestFrame<56, 7> frame(c, kSpills);
   c->r[2] = c->r[4] << 16;
-  c->r[3] = SEQ_PTR_ARRAY;
+  c->r[3] = libsnd::kSeqPtrArray;
   c->r[2] = (uint32_t)((int32_t)c->r[2] >> 14);
   c->r[8] = c->r[2] + c->r[3];
   c->r[3] = c->r[5] << 16;
@@ -783,7 +759,7 @@ L_80091010:
 void Sequencer::channelEnvelopeRampTick() {
   Core *c = core;
   c->r[2] = c->r[4] << 16;
-  c->r[3] = SEQ_PTR_ARRAY;
+  c->r[3] = libsnd::kSeqPtrArray;
   c->r[2] = (uint32_t)((int32_t)c->r[2] >> 14);
   c->r[9] = c->r[2] + c->r[3];
   c->r[3] = c->r[5] << 16;
@@ -943,7 +919,7 @@ L_8009220C:
   } // still ramping, not at target -- leave bits set
 L_80092230:
   c->r[6] = c->r[6] << 16;
-  c->r[2] = SEQ_PTR_ARRAY;
+  c->r[2] = libsnd::kSeqPtrArray;
   c->r[6] = (uint32_t)((int32_t)c->r[6] >> 14);
   c->r[6] = c->r[6] + c->r[2];
   c->r[2] = c->r[5] << 16;
@@ -975,7 +951,7 @@ L_80092284:
 //
 // Mostly linear (unlike its siblings above): clears flags bits {0,1,3,10} (values 1/2/8/1024) via
 // 4 separate read-modify-write ops the guest-visible behavior re-derives channelBase for independently (it never
-// caches the pointer across them) -- since nothing between these ops can mutate SEQ_PTR_ARRAY[seq]
+// caches the pointer across them) -- since nothing between these ops can mutate libsnd::kSeqPtrArray[seq]
 // or `chan`, every re-derivation lands on the SAME address as the initial one, so this port reuses
 // the single `channelBase` local rather than re-deriving 4 more times (byte-identical result, per
 // this file's convention of only mirroring a fresh re-deref when a leaf call could have mutated the
@@ -1154,7 +1130,7 @@ void Sequencer::channelVoiceRegisterWrite() {
   c->r[2] = c->r[2] << 2;
   c->r[2] = c->r[2] - c->r[3];
   c->r[3] = 0x80100000u + c->r[7];
-  c->r[3] = c->mem_r32(c->r[3] + 19504u); // SEQ_PTR_ARRAY-relative, matches chBase() convention
+  c->r[3] = c->mem_r32(c->r[3] + 19504u); // libsnd::kSeqPtrArray-relative, matches chBase() convention
   c->r[2] = c->r[2] << 4;
   c->r[17] = c->r[3] + c->r[2]; // channelBase
   c->mem_w16(c->r[17] + 88u, (uint16_t)c->r[5]);
@@ -1182,7 +1158,7 @@ L_800955B0:
   }
   c->mem_w16(c->r[17] + 90u, (uint16_t)c->r[2]);
 L_800955C8:
-  c->r[2] = (uint32_t)(int8_t)c->mem_r8(0x80100000u + 23788u); // SEQ_KEYSCAN_COUNT
+  c->r[2] = (uint32_t)(int8_t)c->mem_r8(0x80100000u + 23788u); // libsnd::kSpuKeyScanCount
   {
     int _t = ((int32_t)c->r[2] <= 0);
     c->r[18] = c->r[0] + c->r[0];
@@ -1199,7 +1175,7 @@ L_800955C8:
 L_80095604:
   c->r[4] = (uint32_t)((int32_t)c->r[2] >> 16); // voice index i
   c->r[2] = c->r[0] + 1u;
-  c->r[3] = c->mem_r32(SEQ_KEYSCAN_VOICE_MASK);
+  c->r[3] = c->mem_r32(libsnd::kHardwareVoiceActive);
   c->r[2] = c->r[2] << (c->r[4] & 31u);
   c->r[3] = c->r[3] & c->r[2];
   {
@@ -1211,7 +1187,7 @@ L_80095604:
   }
   c->r[2] = c->r[4] << 3;
   c->r[2] = c->r[2] - c->r[4];
-  c->r[16] = c->r[2] << 3; // voice*56 (record base, SEQ_KEYSCAN_TABLE-8)
+  c->r[16] = c->r[2] << 3; // voice*56 (record base, libsnd::kPerVoiceTable-8)
   c->r[3] = 0x80100000u + c->r[16];
   c->r[3] = (uint32_t)(int16_t)c->mem_r16(c->r[3] + 21720u);
   c->r[2] = c->r[22] << 16;
@@ -1578,7 +1554,7 @@ L_800959A4: {
 L_80095A44:
   c->r[18] = c->r[2] + c->r[0];
   c->r[2] = c->r[2] << 16;
-  c->r[3] = (uint32_t)(int8_t)c->mem_r8(0x80100000u + 23788u); // SEQ_KEYSCAN_COUNT
+  c->r[3] = (uint32_t)(int8_t)c->mem_r8(0x80100000u + 23788u); // libsnd::kSpuKeyScanCount
   c->r[2] = (uint32_t)((int32_t)c->r[2] >> 16);
   c->r[2] = (uint32_t)((int32_t)c->r[2] < (int32_t)c->r[3]);
   {
@@ -1928,10 +1904,10 @@ L_80092644:; // return value already in r2 (0 on success, -1 on guard fail)
 
 // 0x80094150 voiceAllocateOrSteal — true leaf (no stack frame). Faithful to guest 0x80094150
 // (authenticated executable/overlay evidence). No ABI args — scans the SPU voice/note-request table (SEQ+21706.. stride
-// 56, SEQ_KEYSCAN_COUNT voices, hw-active mask at SEQ_KEYSCAN_VOICE_MASK) to pick a free-or-LRU voice to (re)allocate,
-// bumps the chosen voice's counter and clears its status fields, and returns the chosen voice index in r2 (v0). RE role
-// per docs/engine_re.md §"SPU voice-request table": LRU voice-steal alloc (mis-filed under input; belongs to audio).
-// Register-literal — dense multi-label scan. ORACLE: guest 0x80094150
+// 56, libsnd::kSpuKeyScanCount voices, hw-active mask at libsnd::kHardwareVoiceActive) to pick a free-or-LRU voice to
+// (re)allocate, bumps the chosen voice's counter and clears its status fields, and returns the chosen voice index in r2
+// (v0). RE role per docs/engine_re.md §"SPU voice-request table": LRU voice-steal alloc (mis-filed under input; belongs
+// to audio). Register-literal — dense multi-label scan. ORACLE: guest 0x80094150
 void Sequencer::voiceAllocateOrSteal() {
   Core *c = core;
   c->r[11] = c->r[0] + 99u;
@@ -2370,30 +2346,40 @@ static void nat_channelNotePeriodCompute(Core *c) {
 // ORACLE: guest 0x800931C0
 void Sequencer::voiceStateFlush() {
   Core *c = core;
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23468));
+  using namespace tomba::audio;
+  // The guest's 120-byte frame, descending sp by 120 and spilling s0..s7 and ra at +80..+112. The
+  // slot numbers are the guest's own; naming them says WHICH callee-save register each one holds,
+  // which is the only way a reader can tell why a body still writes to s1 twenty lines after the
+  // prologue. r1 is the guest's assembler-at, not callee-saved, and is spilled at +16..+76 by the
+  // body itself.
+  static constexpr uint32_t kSpillSlot0 = 16, kSpillSlot1 = 20, kSpillSlot2 = 24, kSpillSlot3 = 26, kSpillSlot4 = 36,
+                            kSpillSlot5 = 44, kSpillSlot6 = 74, kSpillSlot7 = 76;
+  static constexpr uint32_t kSpillS0 = 80, kSpillS1 = 84, kSpillS2 = 88, kSpillS3 = 92, kSpillS4 = 96, kSpillS5 = 100,
+                            kSpillS6 = 104, kSpillS7 = 108, kSpillRa = 112;
+  c->r[2] = libsnd::kBase;
+  c->r[2] = c->mem_r32((c->r[2] + libsnd::kVoiceCursor));
   c->r[29] = c->r[29] + (uint32_t)-120;
-  c->mem_w32((c->r[29] + (uint32_t)80), c->r[16]);
-  c->mem_w32((c->r[29] + (uint32_t)112), c->r[31]);
-  c->mem_w32((c->r[29] + (uint32_t)108), c->r[23]);
-  c->mem_w32((c->r[29] + (uint32_t)104), c->r[22]);
-  c->mem_w32((c->r[29] + (uint32_t)100), c->r[21]);
-  c->mem_w32((c->r[29] + (uint32_t)96), c->r[20]);
-  c->mem_w32((c->r[29] + (uint32_t)92), c->r[19]);
-  c->mem_w32((c->r[29] + (uint32_t)88), c->r[18]);
-  c->mem_w32((c->r[29] + (uint32_t)84), c->r[17]);
+  c->mem_w32((c->r[29] + kSpillS0), c->r[16]);
+  c->mem_w32((c->r[29] + kSpillRa), c->r[31]);
+  c->mem_w32((c->r[29] + kSpillS7), c->r[23]);
+  c->mem_w32((c->r[29] + kSpillS6), c->r[22]);
+  c->mem_w32((c->r[29] + kSpillS5), c->r[21]);
+  c->mem_w32((c->r[29] + kSpillS4), c->r[20]);
+  c->mem_w32((c->r[29] + kSpillS3), c->r[19]);
+  c->mem_w32((c->r[29] + kSpillS2), c->r[18]);
+  c->mem_w32((c->r[29] + kSpillS1), c->r[17]);
   c->r[2] = c->r[2] + (uint32_t)1;
   c->r[2] = c->r[2] & 15u;
-  c->r[1] = (uint32_t)32784u << 16;
-  c->mem_w32((c->r[1] + (uint32_t)23468), c->r[2]);
+  c->r[1] = libsnd::kBase;
+  c->mem_w32((c->r[1] + libsnd::kVoiceCursor), c->r[2]);
   c->r[2] = c->r[2] << 2;
-  c->r[1] = (uint32_t)32784u << 16;
+  c->r[1] = libsnd::kBase;
   c->r[1] = c->r[1] + c->r[2];
-  c->mem_w32((c->r[1] + (uint32_t)23472), c->r[0]);
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
-  c->r[3] = (uint32_t)32784u << 16;
-  c->r[3] = c->r[3] + (uint32_t)23472;
+  c->mem_w32((c->r[1] + libsnd::kVoiceStateTable), c->r[0]);
+  c->r[2] = libsnd::kBase;
+  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + libsnd::kSpuKeyScanCount));
+  c->r[3] = libsnd::kBase;
+  c->r[3] = c->r[3] + libsnd::kVoiceStateTable;
   {
     int _t = ((int32_t)c->r[2] <= 0);
     c->r[16] = c->r[0] + c->r[0];
@@ -2403,17 +2389,17 @@ void Sequencer::voiceStateFlush() {
   }
   c->r[20] = c->r[3] + c->r[0];
   c->r[19] = c->r[0] + (uint32_t)1;
-  c->r[18] = (uint32_t)32784u << 16;
-  c->r[18] = c->r[18] + (uint32_t)21710;
+  c->r[18] = libsnd::kBase;
+  c->r[18] = c->r[18] + libsnd::kPerVoiceTable;
   c->r[17] = c->r[0] + c->r[0];
 L_8009323C:;
   c->r[4] = c->r[16] + c->r[0];
   c->r[31] = 0x80093248u;
   c->r[5] = c->r[18] + c->r[0];
   psx::cpu::dispatchGuestToReturn0(*c, 0x8009A1D0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = libsnd::kBase;
   c->r[2] = c->r[2] + c->r[17];
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21710));
+  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + libsnd::kPerVoiceTable));
   {
     int _t = (c->r[2] != c->r[0]);
     c->r[4] = c->r[19] << (c->r[16] & 31);
@@ -2421,8 +2407,8 @@ L_8009323C:;
       goto L_80093284;
     }
   }
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23468));
+  c->r[2] = libsnd::kBase;
+  c->r[2] = c->mem_r32((c->r[2] + libsnd::kVoiceCursor));
   c->r[2] = c->r[2] << 2;
   c->r[2] = c->r[2] + c->r[20];
   c->r[3] = c->mem_r32((c->r[2] + (uint32_t)0));
@@ -2430,8 +2416,8 @@ L_8009323C:;
   c->mem_w32((c->r[2] + (uint32_t)0), c->r[3]);
 L_80093284:;
   c->r[18] = c->r[18] + (uint32_t)56;
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
+  c->r[2] = libsnd::kBase;
+  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + libsnd::kSpuKeyScanCount));
   c->r[16] = c->r[16] + (uint32_t)1;
   c->r[2] = (uint32_t)((int32_t)c->r[16] < (int32_t)c->r[2]);
   {
@@ -2442,8 +2428,8 @@ L_80093284:;
     }
   }
 L_800932A0:;
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23848));
+  c->r[2] = libsnd::kBase;
+  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + libsnd::kToneCursor));
   {
     int _t = (c->r[2] != c->r[0]);
     c->r[16] = c->r[0] + c->r[0];
@@ -2452,8 +2438,8 @@ L_800932A0:;
     }
   }
   c->r[18] = c->r[0] + (uint32_t)-1;
-  c->r[3] = (uint32_t)32784u << 16;
-  c->r[3] = c->r[3] + (uint32_t)23472;
+  c->r[3] = libsnd::kBase;
+  c->r[3] = c->r[3] + libsnd::kVoiceStateTable;
 L_800932C0:;
   c->r[2] = c->mem_r32((c->r[3] + (uint32_t)0));
   c->r[16] = c->r[16] + (uint32_t)1;
@@ -2466,8 +2452,8 @@ L_800932C0:;
       goto L_800932C0;
     }
   }
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
+  c->r[2] = libsnd::kBase;
+  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + libsnd::kSpuKeyScanCount));
   {
     int _t = ((int32_t)c->r[2] <= 0);
     c->r[16] = c->r[0] + c->r[0];
@@ -2477,8 +2463,8 @@ L_800932C0:;
   }
   c->r[19] = c->r[0] + (uint32_t)1;
   c->r[20] = c->r[0] + (uint32_t)2;
-  c->r[17] = (uint32_t)32784u << 16;
-  c->r[17] = c->r[17] + (uint32_t)21733;
+  c->r[17] = libsnd::kBase;
+  c->r[17] = c->r[17] + libsnd::kPerVoiceConsumedFlag;
 L_800932FC:;
   c->r[5] = c->r[19] << (c->r[16] & 31);
   c->r[2] = c->r[18] & c->r[5];
@@ -2518,8 +2504,8 @@ L_80093330:;
 L_8009334C:;
   c->mem_w8((c->r[17] + (uint32_t)0), (uint8_t)c->r[0]);
 L_80093350:;
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + (uint32_t)23788));
+  c->r[2] = libsnd::kBase;
+  c->r[2] = (uint32_t)(int8_t)c->mem_r8((c->r[2] + libsnd::kSpuKeyScanCount));
   c->r[16] = c->r[16] + (uint32_t)1;
   c->r[2] = (uint32_t)((int32_t)c->r[16] < (int32_t)c->r[2]);
   {
@@ -2532,50 +2518,50 @@ L_80093350:;
 L_80093368:;
   c->r[16] = c->r[0] + c->r[0];
 L_8009336C:;
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)23536));
-  c->r[3] = (uint32_t)32784u << 16;
-  c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)21688));
+  c->r[2] = libsnd::kBase;
+  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + libsnd::kKonArmedMaskLo));
+  c->r[3] = libsnd::kBase;
+  c->r[3] = (uint32_t)c->mem_r16((c->r[3] + libsnd::kActiveVoiceMaskLo));
   c->r[2] = ~(c->r[0] | c->r[2]);
   c->r[3] = c->r[3] & c->r[2];
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)23538));
+  c->r[2] = libsnd::kBase;
+  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + libsnd::kKonArmedMaskHi));
   c->r[17] = c->r[0] + c->r[0];
-  c->r[1] = (uint32_t)32784u << 16;
-  c->mem_w16((c->r[1] + (uint32_t)21688), (uint16_t)c->r[3]);
-  c->r[3] = (uint32_t)32784u << 16;
-  c->r[3] = (uint32_t)c->mem_r16((c->r[3] + (uint32_t)21690));
+  c->r[1] = libsnd::kBase;
+  c->mem_w16((c->r[1] + libsnd::kActiveVoiceMaskLo), (uint16_t)c->r[3]);
+  c->r[3] = libsnd::kBase;
+  c->r[3] = (uint32_t)c->mem_r16((c->r[3] + libsnd::kActiveVoiceMaskHi));
   c->r[2] = ~(c->r[0] | c->r[2]);
   c->r[3] = c->r[3] & c->r[2];
-  c->r[1] = (uint32_t)32784u << 16;
-  c->mem_w16((c->r[1] + (uint32_t)21690), (uint16_t)c->r[3]);
+  c->r[1] = libsnd::kBase;
+  c->mem_w16((c->r[1] + libsnd::kActiveVoiceMaskHi), (uint16_t)c->r[3]);
 L_800933B0:;
-  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = libsnd::kBase;
   c->r[2] = c->r[2] + c->r[17];
-  c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)21734));
+  c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + libsnd::kUnnamedHalfword21734));
   {
     int _t = (c->r[2] == c->r[0]);
     if (_t) {
       goto L_800933DC;
     }
   }
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23464));
+  c->r[2] = libsnd::kBase;
+  c->r[2] = c->mem_r32((c->r[2] + libsnd::kUnnamedWord23464));
   c->r[31] = 0x800933DCu;
   c->r[4] = c->r[16] + c->r[0];
   psx::cpu::dispatchGuestToReturn0(*c, c->r[2], psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 L_800933DC:;
-  c->r[2] = (uint32_t)32784u << 16;
+  c->r[2] = libsnd::kBase;
   c->r[2] = c->r[2] + c->r[17];
-  c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + (uint32_t)21746));
+  c->r[2] = (uint32_t)(int16_t)c->mem_r16((c->r[2] + libsnd::kPerVoiceDispatchLo));
   {
     int _t = (c->r[2] == c->r[0]);
     if (_t) {
       goto L_80093408;
     }
   }
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = c->mem_r32((c->r[2] + (uint32_t)23072));
+  c->r[2] = libsnd::kBase;
+  c->r[2] = c->mem_r32((c->r[2] + libsnd::kUnnamedWord23072));
   c->r[31] = 0x80093408u;
   c->r[4] = c->r[16] + c->r[0];
   psx::cpu::dispatchGuestToReturn0(*c, c->r[2], psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
@@ -2590,10 +2576,10 @@ L_80093408:;
     }
   }
   c->r[16] = c->r[0] + c->r[0];
-  c->r[17] = (uint32_t)32784u << 16;
-  c->r[17] = c->r[17] + (uint32_t)23048;
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = c->r[2] + (uint32_t)23080;
+  c->r[17] = libsnd::kBase;
+  c->r[17] = c->r[17] + libsnd::kToneBlockBase;
+  c->r[2] = libsnd::kBase;
+  c->r[2] = c->r[2] + libsnd::kUnnamedWord23080;
   c->r[23] = c->r[2] + (uint32_t)10;
   c->r[22] = c->r[2] + (uint32_t)8;
   c->r[21] = c->r[2] + (uint32_t)6;
@@ -2603,8 +2589,8 @@ L_80093408:;
 L_80093444:;
   c->r[2] = c->r[0] + (uint32_t)1;
   c->r[2] = c->r[2] << (c->r[16] & 31);
-  c->mem_w32((c->r[29] + (uint32_t)20), c->r[0]);
-  c->mem_w32((c->r[29] + (uint32_t)16), c->r[2]);
+  c->mem_w32((c->r[29] + kSpillSlot1), c->r[0]);
+  c->mem_w32((c->r[29] + kSpillSlot0), c->r[2]);
   c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
   c->r[2] = c->r[2] & 1u;
   {
@@ -2614,11 +2600,11 @@ L_80093444:;
       goto L_80093484;
     }
   }
-  c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
+  c->mem_w32((c->r[29] + kSpillSlot1), c->r[2]);
   c->r[2] = (uint32_t)c->mem_r16((c->r[18] + (uint32_t)0));
-  c->mem_w16((c->r[29] + (uint32_t)24), (uint16_t)c->r[2]);
+  c->mem_w16((c->r[29] + kSpillSlot2), (uint16_t)c->r[2]);
   c->r[2] = (uint32_t)c->mem_r16((c->r[19] + (uint32_t)0));
-  c->mem_w16((c->r[29] + (uint32_t)26), (uint16_t)c->r[2]);
+  c->mem_w16((c->r[29] + kSpillSlot3), (uint16_t)c->r[2]);
 L_80093484:;
   c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
   c->r[2] = c->r[2] & 4u;
@@ -2628,11 +2614,11 @@ L_80093484:;
       goto L_800934B4;
     }
   }
-  c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
+  c->r[2] = c->mem_r32((c->r[29] + kSpillSlot1));
   c->r[2] = c->r[2] | 16u;
-  c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
+  c->mem_w32((c->r[29] + kSpillSlot1), c->r[2]);
   c->r[2] = (uint32_t)c->mem_r16((c->r[20] + (uint32_t)0));
-  c->mem_w16((c->r[29] + (uint32_t)36), (uint16_t)c->r[2]);
+  c->mem_w16((c->r[29] + kSpillSlot4), (uint16_t)c->r[2]);
 L_800934B4:;
   c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
   c->r[2] = c->r[2] & 8u;
@@ -2642,12 +2628,12 @@ L_800934B4:;
       goto L_800934E8;
     }
   }
-  c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
+  c->r[2] = c->mem_r32((c->r[29] + kSpillSlot1));
   c->r[2] = c->r[2] | 128u;
-  c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
+  c->mem_w32((c->r[29] + kSpillSlot1), c->r[2]);
   c->r[2] = (uint32_t)c->mem_r16((c->r[21] + (uint32_t)0));
   c->r[2] = c->r[2] << 3;
-  c->mem_w32((c->r[29] + (uint32_t)44), c->r[2]);
+  c->mem_w32((c->r[29] + kSpillSlot5), c->r[2]);
 L_800934E8:;
   c->r[2] = (uint32_t)c->mem_r8((c->r[17] + (uint32_t)0));
   c->r[2] = c->r[2] & 16u;
@@ -2658,15 +2644,15 @@ L_800934E8:;
       goto L_80093524;
     }
   }
-  c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
+  c->r[2] = c->mem_r32((c->r[29] + kSpillSlot1));
   c->r[2] = c->r[2] | c->r[3];
-  c->mem_w32((c->r[29] + (uint32_t)20), c->r[2]);
+  c->mem_w32((c->r[29] + kSpillSlot1), c->r[2]);
   c->r[2] = (uint32_t)c->mem_r16((c->r[22] + (uint32_t)0));
-  c->mem_w16((c->r[29] + (uint32_t)74), (uint16_t)c->r[2]);
+  c->mem_w16((c->r[29] + kSpillSlot6), (uint16_t)c->r[2]);
   c->r[2] = (uint32_t)c->mem_r16((c->r[23] + (uint32_t)0));
-  c->mem_w16((c->r[29] + (uint32_t)76), (uint16_t)c->r[2]);
+  c->mem_w16((c->r[29] + kSpillSlot7), (uint16_t)c->r[2]);
 L_80093524:;
-  c->r[2] = c->mem_r32((c->r[29] + (uint32_t)20));
+  c->r[2] = c->mem_r32((c->r[29] + kSpillSlot1));
   {
     int _t = (c->r[2] == c->r[0]);
     if (_t) {
@@ -2694,62 +2680,62 @@ L_8009353C:;
     }
   }
   c->r[4] = c->r[0] + c->r[0];
-  c->r[5] = (uint32_t)32784u << 16;
-  c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)23538));
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)23536));
+  c->r[5] = libsnd::kBase;
+  c->r[5] = (uint32_t)c->mem_r8((c->r[5] + libsnd::kKonArmedMaskHi));
+  c->r[2] = libsnd::kBase;
+  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + libsnd::kKonArmedMaskLo));
   c->r[5] = c->r[5] << 16;
   c->r[31] = 0x80093588u;
   c->r[5] = c->r[5] | c->r[2];
   psx::cpu::dispatchGuestToReturn0(*c, 0x80098F90u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[4] = c->r[0] + (uint32_t)1;
-  c->r[5] = (uint32_t)32784u << 16;
-  c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21690));
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21688));
+  c->r[5] = libsnd::kBase;
+  c->r[5] = (uint32_t)c->mem_r8((c->r[5] + libsnd::kActiveVoiceMaskHi));
+  c->r[2] = libsnd::kBase;
+  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + libsnd::kActiveVoiceMaskLo));
   c->r[5] = c->r[5] << 16;
   c->r[31] = 0x800935A8u;
   c->r[5] = c->r[5] | c->r[2];
   psx::cpu::dispatchGuestToReturn0(*c, 0x80098F90u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[4] = c->r[0] + (uint32_t)8;
-  c->r[5] = (uint32_t)32784u << 16;
-  c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21694));
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21692));
+  c->r[5] = libsnd::kBase;
+  c->r[5] = (uint32_t)c->mem_r8((c->r[5] + libsnd::kPerVoicePitchHi));
+  c->r[2] = libsnd::kBase;
+  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + libsnd::kPerVoicePitchLo));
   c->r[5] = c->r[5] << 16;
   c->r[31] = 0x800935C8u;
   c->r[5] = c->r[5] | c->r[2];
   psx::cpu::dispatchGuestToReturn0(*c, 0x80098DB0u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[4] = c->r[0] + (uint32_t)8;
-  c->r[5] = (uint32_t)32784u << 16;
-  c->r[5] = (uint32_t)c->mem_r8((c->r[5] + (uint32_t)21698));
-  c->r[2] = (uint32_t)32784u << 16;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + (uint32_t)21696));
+  c->r[5] = libsnd::kBase;
+  c->r[5] = (uint32_t)c->mem_r8((c->r[5] + libsnd::kPerVoiceLevelHi));
+  c->r[2] = libsnd::kBase;
+  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + libsnd::kPerVoiceLevelLo));
   c->r[5] = c->r[5] << 16;
   c->r[31] = 0x800935E8u;
   c->r[5] = c->r[5] | c->r[2];
   psx::cpu::dispatchGuestToReturn0(*c, 0x80097E10u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-  c->r[1] = (uint32_t)32784u << 16;
-  c->mem_w16((c->r[1] + (uint32_t)23536), (uint16_t)c->r[0]);
-  c->r[1] = (uint32_t)32784u << 16;
-  c->mem_w16((c->r[1] + (uint32_t)23538), (uint16_t)c->r[0]);
-  c->r[1] = (uint32_t)32784u << 16;
-  c->mem_w16((c->r[1] + (uint32_t)21688), (uint16_t)c->r[0]);
-  c->r[1] = (uint32_t)32784u << 16;
-  c->mem_w16((c->r[1] + (uint32_t)21690), (uint16_t)c->r[0]);
-  c->r[1] = (uint32_t)32784u << 16;
-  c->mem_w16((c->r[1] + (uint32_t)21696), (uint16_t)c->r[0]);
-  c->r[1] = (uint32_t)32784u << 16;
-  c->mem_w16((c->r[1] + (uint32_t)21698), (uint16_t)c->r[0]);
-  c->r[31] = c->mem_r32((c->r[29] + (uint32_t)112));
-  c->r[23] = c->mem_r32((c->r[29] + (uint32_t)108));
-  c->r[22] = c->mem_r32((c->r[29] + (uint32_t)104));
-  c->r[21] = c->mem_r32((c->r[29] + (uint32_t)100));
-  c->r[20] = c->mem_r32((c->r[29] + (uint32_t)96));
-  c->r[19] = c->mem_r32((c->r[29] + (uint32_t)92));
-  c->r[18] = c->mem_r32((c->r[29] + (uint32_t)88));
-  c->r[17] = c->mem_r32((c->r[29] + (uint32_t)84));
-  c->r[16] = c->mem_r32((c->r[29] + (uint32_t)80));
+  c->r[1] = libsnd::kBase;
+  c->mem_w16((c->r[1] + libsnd::kKonArmedMaskLo), (uint16_t)c->r[0]);
+  c->r[1] = libsnd::kBase;
+  c->mem_w16((c->r[1] + libsnd::kKonArmedMaskHi), (uint16_t)c->r[0]);
+  c->r[1] = libsnd::kBase;
+  c->mem_w16((c->r[1] + libsnd::kActiveVoiceMaskLo), (uint16_t)c->r[0]);
+  c->r[1] = libsnd::kBase;
+  c->mem_w16((c->r[1] + libsnd::kActiveVoiceMaskHi), (uint16_t)c->r[0]);
+  c->r[1] = libsnd::kBase;
+  c->mem_w16((c->r[1] + libsnd::kPerVoiceLevelLo), (uint16_t)c->r[0]);
+  c->r[1] = libsnd::kBase;
+  c->mem_w16((c->r[1] + libsnd::kPerVoiceLevelHi), (uint16_t)c->r[0]);
+  c->r[31] = c->mem_r32((c->r[29] + kSpillRa));
+  c->r[23] = c->mem_r32((c->r[29] + kSpillS7));
+  c->r[22] = c->mem_r32((c->r[29] + kSpillS6));
+  c->r[21] = c->mem_r32((c->r[29] + kSpillS5));
+  c->r[20] = c->mem_r32((c->r[29] + kSpillS4));
+  c->r[19] = c->mem_r32((c->r[29] + kSpillS3));
+  c->r[18] = c->mem_r32((c->r[29] + kSpillS2));
+  c->r[17] = c->mem_r32((c->r[29] + kSpillS1));
+  c->r[16] = c->mem_r32((c->r[29] + kSpillS0));
   c->r[29] = c->r[29] + (uint32_t)120;
   return;
 }

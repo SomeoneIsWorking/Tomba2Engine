@@ -10,6 +10,18 @@
 // 0x80149CDC that drive cutscene fades via op 0x03E "call fnptr"). See docs/findings/scene.md
 // "Cutscene SCRIPT INTERPRETER" for the full RE.
 //
+// WHERE THE BYTECODE IS DESCRIBED. This header is the interpreter's API; the three things a caller
+// needs to read its code are owned elsewhere, one per kind, so no use site spells a guest field as
+// hex:
+//   scene/script_opcode.h   — the bytecode vocabulary: the entry's flag bits, the seven owned opcode
+//                             ids, what each handler RETURN does to guest state, how the cursor
+//                             moves, and the guest return addresses each arm arms.
+//   scene/script_object.h   — `ScriptObject`, a typed lens over the driven object's block. The
+//                             method table below reads `progress()`, `phase()`, `argA()`, not
+//                             `mem_r8(obj + 0x70)`.
+//   scene/script_globals.h  — the fixed scratchpad and resident addresses that are not object
+//                             fields, each with its provenance and its "not established" note.
+////
 // ENTRY FORMAT — 8 bytes: { u16 opcodeWord, u16 argA, u16 argB, u16 argC }.
 //   If opcodeWord bit 0x2000 is set → the entry is 16 bytes (extra { u16 x 4 } block at offset +8).
 //   The OPCODE ID is `opcodeWord & 0x07FF` (low 11 bits). The top 5 bits are FLAGS: 0x0800 = cond,
@@ -27,20 +39,22 @@
 // `beh_*` in that table runs native; unregistered addresses fall through to `typed runtime address dispatch` (the
 // substrate leaf). This is the top-down doctrine — no revived `tomba::native::declareOverride`.
 //
-// OBJECT LAYOUT (the fields this interpreter reads/writes on the driven object) — same shape the
-// guest code uses, so a scriptPtr installed by substrate is picked up correctly here and vice
-// versa:
+// OBJECT LAYOUT (the fields this interpreter reads/writes on the driven object). Owned by
+// `ScriptObject` in game/scene/script_object.h, which is the single place the block's shape and
+// every field's width, sign and role are written down. The short form:
 //   +0x10  u32  runtime scratch (init clears)
-//   +0x46  u8   0xFF marker set at init
-//   +0x64..+0x6A  4x u16  extended-entry block (loaded when opcode bit 0x2000 set)
+//   +0x46  u8   0xFF marker set at init; the SAME offset is an animation mode to other owners
+//   +0x64..+0x6A  4x u16  extended-entry block (loaded when the entry's flag says it has one)
 //   +0x6C  u32  current script pointer (advances as the interpreter walks)
 //   +0x70  s8   loop guard / progress counter (step exits when <= 0)
-//   +0x71  u8   flag byte (bit 1 = paused, bit 2 = 0x4000-flag)
-//   +0x72  u16  argA of current entry
-//   +0x74  u16  argB of current entry (low half of fnptr for op 0x03E)
-//   +0x76  u16  argC of current entry (high half of fnptr for op 0x03E)
-//   +0x78  u8   init clears
-//   +0x7C  u32  script's tableA (secondary table pointer, set at init)
+//   +0x71  u8   flag byte (bit 0 paused, bit 1 init's valid-entry state, bit 2 the opcode's bit 2)
+//   +0x72  u16  argA of the current entry
+//   +0x74  u16  argB of the current entry (low half of fnptr for op 0x03E)
+//   +0x76  u16  argC of the current entry (high half of fnptr for op 0x03E)
+//   +0x78  u8   the per-opcode phase byte (init clears)
+//   +0x7C  u32  the script's secondary table pointer, set at init
+//   +0x2E/+0x32/+0x36 i16  the generic actor position the movement opcodes borrow
+//   +0x56 i16  the facing angle the turning opcodes step toward
 #pragma once
 #include <cstdint>
 struct Core;

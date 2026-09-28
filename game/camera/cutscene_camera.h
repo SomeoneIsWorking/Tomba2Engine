@@ -186,6 +186,32 @@ private:
     c->r[5] = a1;
     psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   }
+  // The same call with the guest's OWN return constant armed in `ra` first, which is what the
+  // guest-faithful dispatch needs: a body that pushes a frame writes that address into guest stack
+  // bytes, so the value has to be the one the reference wrote and not this core's stale return.
+  // `sub` above is this with the constant left alone; both are the one guest-call convention, not two.
+  void subAtReturn(uint32_t fn, uint32_t returnAddress) {
+    c->r[31] = returnAddress;
+    sub(fn);
+  }
+  void subAtReturn(uint32_t fn, uint32_t returnAddress, uint32_t a1) {
+    c->r[31] = returnAddress;
+    sub(fn, a1);
+  }
+  // The faithful arm that passes the CAMERA OBJECT it was handed rather than this instance's `cam_`.
+  // `updateFaithful` hardcodes the camera object in `c->r[16]`, and its dispatch runs inside that
+  // frame, so a0 is that value and not the base this instance was constructed with.
+  void subFaithfulAtReturn(uint32_t fn, uint32_t returnAddress) {
+    c->r[31] = returnAddress;
+    c->r[4] = c->r[16];
+    psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+  }
+  void subFaithfulAtReturn(uint32_t fn, uint32_t returnAddress, uint32_t a1) {
+    c->r[31] = returnAddress;
+    c->r[4] = c->r[16];
+    c->r[5] = a1;
+    psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
+  }
   // update()'s MODE-byte (cam[0x64]&0x3F) dispatch — split out to keep update() readable.
   void dispatchMode(uint8_t mode);
   // pc_faithful mirror of dispatchMode(), driven by updateFaithful(): same 18-entry mode table (cases

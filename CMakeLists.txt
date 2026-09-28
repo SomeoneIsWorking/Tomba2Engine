@@ -229,14 +229,46 @@ if(BUILD_TESTING)
     set_tests_properties(tomba_horizontal_cull_census PROPERTIES SKIP_RETURN_CODE 77)
   endif()
 
+  # The camera driver's mode table: the eighteen driver modes, the render-mode prologue that two of
+  # them share, the per-render-mode height floors, and the ten shake states. This table replaced TWO
+  # 18-arm switches — one native, one guest-faithful — that could have drifted apart silently. The
+  # six distinct (mode, render mode) return constants are the load-bearing part: a body that pushes a
+  # frame writes them into guest stack bytes, so collapsing them to one per mode is a behaviour change.
+  add_executable(test_camera_mode_table tests/test_camera_mode_table.cpp)
+  target_include_directories(test_camera_mode_table PRIVATE game game/camera)
+  add_test(NAME tomba_camera_mode_table COMMAND test_camera_mode_table)
+
+  # The cutscene script interpreter's three vocabulary owners: ScriptObject (the driven object's
+  # block), the bytecode vocabulary (opcode ids, entry flags, handler returns, cursor moves), and
+  # the fixed guest globals. Each makes a decision the raw accessors left to the reader — a field's
+  # width and sign, an opcode's id mask, a name this repository has NOT read out of the image — and
+  # each of those can be wrong in a way that still runs, which is what these assertions are for.
+  # The claim-gate address assertion in particular pins the value the wide RE got 0x60 wrong.
+  add_executable(test_script_interp_vocabulary
+      tests/test_script_interp_vocabulary.cpp
+      game/scene/script_opcode.cpp)
+  target_include_directories(test_script_interp_vocabulary PRIVATE game)
+  target_link_libraries(test_script_interp_vocabulary PRIVATE psxport)
+  add_test(NAME tomba_script_interp_vocabulary COMMAND test_script_interp_vocabulary)
+
+  # Shrink-only legacy caps, all ratcheted down on 2026-09-28.
+  #
+  # `game/scene/script_interp.cpp` LEFT this list: it was 1317 and the cutscene script interpreter's
+  # three vocabulary owners (game/scene/script_object.h, script_opcode.h, script_globals.h) took it to
+  # 1196, which is under the 1200 default and needs no cap. A file under the default does not belong in
+  # the legacy list — leaving it would be the same "keeps a cap it no longer needs" the gate prevents.
+  #
+  # `game/core/engine.cpp` LEFT this list too: it was 3251, the largest single file in the repository.
+  # `Engine` is still ONE class and game/core/engine.h is still its single declaration — the 47 method
+  # bodies moved to six sibling translation units split by the level of the guest's own state machine
+  # they serve, with no method body changed. engine.cpp is now the banner and the includes, and every
+  # new file is under the 1200 default.
   set(TOMBA_CPP_POLICY_CAPS
-      game/core/engine.cpp=3251
       game/player/actor_tomba.cpp=1452
-      game/audio/sequencer.cpp=2796
+      game/audio/sequencer.cpp=2782
       game/ai/actor_zoned_attacker.cpp=1496
       game/scene/demo.h=87
-      game/camera/cutscene_camera.cpp=1552
-      game/scene/script_interp.cpp=1317)
+      game/camera/cutscene_camera.cpp=1459)
   set(TOMBA_CPP_POLICY_ARGS)
   foreach(cap IN LISTS TOMBA_CPP_POLICY_CAPS)
     list(APPEND TOMBA_CPP_POLICY_ARGS --cap "${cap}")
