@@ -56,11 +56,43 @@ produce a count describing the slot's lifetime, which is not the quantity the bo
   the bound's four-times headroom is computed from.
 - Gate: `ctest --test-dir build`, **41 of 41 passed** at psxport pin `2832a959`.
 
-**Not yet shown: the bound's own red case.** The register report on a wedged guest is reachable and
-compiled, but no run has yet been made to hit `kMaxBudgetResumesPerCall`, so "a spin still fails
-with the register file" is a property of the code path and not a measured outcome. The mutation that
-would settle it — making `resumeAcrossField` unconditional and confirming the title then fails at
-the bound instead of hanging — has not been run, and is the next thing to do on this issue.
+## The bound's red case, MEASURED — by lowering the bound, not by inventing a spin
+
+A guest that never reaches its yield must fail **loudly and in bounded time**, with the state that
+hit the bound. That was asserted by the code and not shown by any run. It is now shown, on the real
+long call rather than a synthetic one, by temporarily setting `kMaxBudgetResumesPerCall = 1` and
+running the product against the operator's disc (`PSXPORT_TOMBA1_DISC`, 400 fields). The bound of 1
+is deliberate and is the whole point: the decompress needs about seven fields, so it cannot pass a
+bound of 1, and the run therefore exercises the failure path on genuine work.
+
+    [tomba1-frame] guest task 2 used its whole field budget at 0x8005B78C (564484 cycles)
+                  and resumes on field 1 of 1 for this call
+    [tomba1-frame:error] guest task 2 spent 2 consecutive display fields without reaching its
+                  cooperative yield; last resume 0x8005B78C after 564490 cycles — the task record
+                  was re-armed 1 time beyond the 1 allowed for one call, so this is a guest call
+                  that makes no progress, not one that is merely long
+    [tomba1-frame:error] guest task 2 exited with budget-exhausted at 0x8005B78C after 564490 of
+                  564480 budget cycles: cycle budget exhausted
+    [tomba1-frame:error]   guest-regs zero=0x00000000 at=0x800A0000 v0=0x00000011
+    [tomba1-frame:error]   guest-regs v1=0x800B9526 a0=0x800B957E a1=0x800B967D
+    [tomba1-frame:error]   guest-regs a2=0x000000A7 a3=0xFFFFFFFF t0=0x8009E424
+    ... 32 registers in all, three per line, named by PSX ABI number
+
+So the property holds: **the driver stops, names the resume address, and prints the whole register
+file, instead of resuming forever.** The process ends through the abort path (exit 139), which is
+the intended "loud" ending rather than a hang.
+
+**The registers are consistent with the decompress and not with a spin**, which is worth stating
+because it is the difference between "the bound works" and "the bound works on a real call":
+`at = 0x800A0000` is a RAM base, `a0`/`a1`/`v1` (`0x800B957E`, `0x800B967D`, `0x800B9526`) are three
+RAM pointers, and `a2 = 0xA7` is a small count — a routine copying decoded output, holding three
+pointers into the output area. A spin would show one loop counter and a constant frame.
+
+**What this does NOT show:** that the shipping bound of 32 is the right number. It shows the bound is
+*reachable, enforced, and reported*. Whether 32 is correctly derived from the seven-field measurement
+is still the arithmetic in the section above, and 32 remains unexercised by a run because the real
+call finishes in about seven.
+
 
 ## Not claimed
 
