@@ -23,7 +23,7 @@ in `codemap.md`.
 | S007 | Tomba! 2 accepts native player input through representative gameplay | partial | S001, S003 | G001 |
 | S008 | Tomba! 1 selected executable and disc provenance are established | verified | — | G003 |
 | S009 | Tomba! 1 identity, isolation, and independent startup evidence exist | verified | S008 | G003 |
-| S010 | Tomba! 1 reaches representative gameplay as a native/Lightrec product | missing | S008, S009 | G003 |
+| S010 | Tomba! 1 reaches representative gameplay as a native/Lightrec product | blocked | S008, S009 | G003 |
 | S011 | Tomba! 1 true widescreen works in the actual product | missing | S010 | G004 |
 | S012 | Tomba! 1 and Tomba! 2 game-engine implementations are isolated | verified | — | G003 |
 | S013 | Tomba! 1 exposes widescreen only and no unrelated enhancement modes | verified | S012 | G004 |
