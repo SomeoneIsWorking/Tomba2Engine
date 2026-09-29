@@ -26,8 +26,6 @@ public:
   bool guestVramIsPicture(const Game &game) const override;
   const GuestWidescreenProjection *guestWidescreenProjection() const override;
 
-  psx::cpu::ExecutionResult dispatchUntilExit(Core &core, std::uint32_t address) const;
-
 private:
   static const GuestProgramImage programImage_;
   static const GuestPadBufferLayout padBufferLayout_;

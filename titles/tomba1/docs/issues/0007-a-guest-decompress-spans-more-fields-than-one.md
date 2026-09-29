@@ -7,6 +7,7 @@ state_items: S004
 tags: tomba1,execution,budget,frame-driver
 created: 2026-09-29
 updated: 2026-09-29
+regression: ctest tomba1_guest_task_budget_resume (`titles/tomba1/tests/test_guest_task_budget_resume.cpp`)
 ---
 
 ## Symptom
@@ -35,7 +36,8 @@ rather than protection from one.
 ## Fix
 
 `Tomba1FrameDriver::resumeAcrossField` resumes the task slot on the following field instead of
-aborting, bounded by `kMaxBudgetResumesPerCall = 32`.
+aborting, bounded by `kMaxBudgetResumesPerCall = 32`. (Both now live in `GuestTaskSlots`; see
+"Where the owner lives" below.)
 
 **The bound is derived, not tuned.** 32 is roughly four times the longest measured call (seven
 fields), which is the headroom a diagnostic wants, and far below the ~2,000 fields a real spin loop
@@ -92,6 +94,73 @@ pointers into the output area. A spin would show one loop counter and a constant
 *reachable, enforced, and reported*. Whether 32 is correctly derived from the seven-field measurement
 is still the arithmetic in the section above, and 32 remains unexercised by a run because the real
 call finishes in about seven.
+
+## CLOSED 2026-09-29 — the synthetic guest-spin regression, and what it measured
+
+The gap this file left open is now a registered test: `ctest tomba1_guest_task_budget_resume`
+(`titles/tomba1/tests/test_guest_task_budget_resume.cpp`). It runs the SHIPPING scheduler against
+synthetic guests on the real dynarec over real field budgets, so it needs no disc, is deterministic,
+and takes about a second. Measured output from this machine:
+
+    call 1: 3 display fields, entry cell 1, count cell 0
+    call 2: 3 display fields, entry cell 2, count cell 0
+    spin case: 36 fields returned (35 re-armed runnable), cooperative yield on field 3
+    [tomba1-frame:error] guest task 0 spent 33 consecutive display fields without reaching its
+                  cooperative yield; last resume 0x80017560 after 564480 cycles — the task record was
+                  re-armed 32 times beyond the 32 allowed for one call, so this is a guest call that
+                  makes no progress, not one that is merely long
+
+**36 is `3 + 1 + 32`, and that arithmetic is the finding.** The spin guest yields on field 3, so the
+count that reaches the bound is the one belonging to the call AFTER that yield, and the refusal lands
+exactly 32 fields later. A count that survived the yield would have refused on field 32 instead. So
+the bound is now exercised at its SHIPPING value, per unbroken call, in a way the disc-backed run
+could not reach — the real call finishes in about seven and never approaches it.
+
+**Where the owner lives.** Making this testable without a disc meant the task table had to be
+reachable without the boot prefix, and the boot prefix is authenticated-image work. The table, the
+three guest leaves, the saved R3000 context per slot, the resume policy and the exit report were
+therefore EXTRACTED out of `Tomba1FrameDriver` into `GuestTaskSlots`
+(`titles/tomba1/game/core/guest_task_slots.*`), which the frame driver composes once per frame. No
+behaviour changed, and the measured address facts (the table at `0x801FD800`, the three leaves at
+`0x80017154`/`0x800171D4`/`0x800172C4`) moved into that header, so `Tomba1Runtime`'s binding list
+and the test read one copy.
+
+**MUTATION-SENSITIVITY, measured.** Eleven of twelve deliberate mutations of the decision logic turn
+this test red; the twelfth is recorded below rather than hidden.
+
+| mutation | result |
+|---|---|
+| bound lowered to 1 (this file's own red case) | RED — the three-field call is refused |
+| bound raised to 64 | RED — the derived value 32 is asserted, not just the relationship |
+| bound compared `>=` instead of `>` | RED — refusal lands one field early |
+| resume count not cleared by the cooperative yield | RED — refusal lands on field 32, not 36 |
+| resume re-enters from the recorded entry, not the exit PC | RED — the guest entry runs once per field |
+| a budget exit is never resumed (the pre-fix abort) | RED |
+| the refusal is silent (state not reported) | RED — no register file in the report |
+| a refused call is resumed anyway | RED — no SIGABRT, the field cap is reached instead |
+| the record is left marked running, not re-armed runnable | RED |
+| the yield leaves the record runnable, not waiting | RED |
+| the slot dispatches on a budget that is not one display field | RED — the call no longer spans fields |
+| `createTask` keeps the previous call's resume count | **GREEN — and it cannot be otherwise** |
+
+**The twelfth is a real result, not a gap in the test.** Every path that leaves a slot's
+`budgetResumes` non-zero ends the process — a refusal aborts, a returned guest aborts — so a fresh
+task start is always reached with the counter already zero and nothing can observe that reset. It is
+kept because the counter's SCOPE is that decision, and the line now says so at the code rather than
+leaving a reader to assume a test covers it.
+
+**WHAT THE TEST STILL DOES NOT SHOW.** It says nothing about whether 32 is the right number for
+Tomba! 1's real decompress, because a synthetic countdown is not that decompress; it shows the
+policy is correct and the bound is enforced and reported at its shipping value. The arithmetic that
+chose 32 is still the arithmetic in the section above, and the test asserts both the number and the
+relationship it was derived from (at least four times the measured seven fields, and far below the
+~2,000 a spin would need).
+
+**A R3000 RULE THIS COST, recorded because it looks like a product bug and is not one.** The first
+version of the countdown guest wrote its entry counter with `lw $t1, 0($t0)` immediately followed by
+`addiu $t1, $t1, 1`. The load-delay slot is not modelled, so the addiu read the PREVIOUS value of
+`$t1` and the counter came out unchanged — a synthetic guest that trips over the architecture's own
+rule and looks exactly like a scheduler that restarted the call.
 
 
 ## Not claimed

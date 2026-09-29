@@ -7,6 +7,7 @@
 #include "frame_driver.h"
 #include "game.h"
 #include "guest_cd_stream_callback_layout.h"
+#include "guest_task_slots.h"
 #include "native_boot.h"
 #include "native_dispatch.h"
 #include "sync_native.h"
@@ -60,9 +61,9 @@ void Tomba1Runtime::registerOverrides(Game &game) {
     return game.core.nativeDispatcher().install({{*identity, address}, name, function});
   };
   const bool installed =
-      install(0x80017154u, "Tomba1FrameDriver::startOverride", Tomba1FrameDriver::startOverride) &&
-      install(0x800171D4u, "Tomba1FrameDriver::yieldOverride", Tomba1FrameDriver::yieldOverride) &&
-      install(0x800172C4u, "Tomba1FrameDriver::restartOverride", Tomba1FrameDriver::restartOverride) &&
+      install(kTaskStartEntry, "GuestTaskSlots::startOverride", GuestTaskSlots::startOverride) &&
+      install(kTaskYieldEntry, "GuestTaskSlots::yieldOverride", GuestTaskSlots::yieldOverride) &&
+      install(kTaskRestartEntry, "GuestTaskSlots::restartOverride", GuestTaskSlots::restartOverride) &&
       install(0x80061480u, "gpuTimeoutBeginOverride", gpuTimeoutBeginOverride) &&
       install(0x800614B4u, "gpuTimeoutExpiredOverride", gpuTimeoutExpiredOverride) &&
       install(kDmaCallbackEntry, "dmaCallbackOverride", dmaCallbackOverride) &&
@@ -107,10 +108,6 @@ bool Tomba1Runtime::guestVramIsPicture(const Game &) const {
 
 const GuestWidescreenProjection *Tomba1Runtime::guestWidescreenProjection() const {
   return &widescreenPolicy_;
-}
-
-psx::cpu::ExecutionResult Tomba1Runtime::dispatchUntilExit(Core &core, std::uint32_t address) const {
-  return psx::cpu::dispatchGuestUntilExit(core, address, psx::cpu::ExecutionBudget::currentTurn(core));
 }
 
 } // namespace tomba1
