@@ -10,7 +10,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 # PSXPORT_DIR — WHERE THE FRAMEWORK SOURCE COMES FROM. Defaults to external/psxport, which is NOT a
 # git submodule any more: it is a symlink to the workspace's shared framework clone (local — so a
 # framework edit is live in every port at once), or a private clone at psxport.pin (fresh machine, CI,
-# or anyone cloning this repo alone). tools/psxport_sync.py --auto establishes whichever applies, and
+# or anyone cloning this repo alone). tools/psxport_fetch.py --auto establishes whichever applies, and
 # run.sh calls it. The PATH is unchanged, so every reference to external/psxport/... still works.
 #
 # Point it at the workspace's framework DEV CLONE to build this game against in-progress framework

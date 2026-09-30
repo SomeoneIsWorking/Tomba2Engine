@@ -346,7 +346,7 @@ def framework_status(psxport: Path, root: Path, explicit: bool) -> str:
 
 def sync_framework(root: Path, env: dict[str, str]) -> Path:
     run_checked(
-        [sys.executable, "tools/psxport_sync.py", "--auto"],
+        [sys.executable, "tools/psxport_fetch.py", "--auto"],
         root=root,
         error="could not resolve external/psxport",
         env=env,
