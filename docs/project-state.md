@@ -36,6 +36,8 @@ in `codemap.md`.
 | S020 | Windows x86-64 native/Lightrec CI builds and tests the repository | missing | — | G001, G003 |
 | S021 | macOS x86-64 and arm64 native/Lightrec CI builds and tests the repository | missing | — | G001, G003 |
 | S022 | Android arm64-v8a native/Lightrec CI assembles and tests the repository | missing | — | G001, G003 |
+| S023 | Tomba! 2: load operations complete without loading-only waits or presentation; logos cancel through the recovered route | missing | S001 | G005 |
+| S024 | Tomba! 1: load operations complete without loading-only waits or presentation; logos cancel through the recovered route | missing | S010 | G005 |
 
 ## Current focus
 
@@ -717,3 +719,17 @@ Required capability: a hosted Android arm64-v8a job that assembles and inspects 
 There is no Android application, Gradle/NDK composition, shared `android-port` consumption, touch
 layer, SAF setup flow, or arm64-v8a Lightrec product test in this repository. Android CI must assemble
 and inspect a real APK; a desktop cross-compile or metadata check would not establish support.
+
+### S023 — Tomba! 2 loading removal
+
+Missing. No load operation has been censused or classified for Tomba! 2. Gap: enumerate its load
+issuers and the wait and presentation each drives, then complete each through the title's own load
+mechanics without its loading-only wait, with payload and terminal state compared against retail
+and the absence of loading presentation captured.
+
+### S024 — Tomba! 1 loading removal
+
+Missing. No load operation has been censused or classified for Tomba! 1. Gap: enumerate its load
+issuers and the wait and presentation each drives, then complete each through the title's own load
+mechanics without its loading-only wait, with payload and terminal state compared against retail
+and the absence of loading presentation captured.

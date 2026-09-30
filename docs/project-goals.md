@@ -90,3 +90,21 @@ title-native-renderer, native-producer, native-depth, 60fps, or native-rendering
 post-projection data. The shared `psxport` renderer remains the platform presentation owner.
 
 **Contributing state items.** S011, S013.
+
+## G005 — Loading removal
+
+Remove storage latency and loading-only waits from every load the game performs, without changing
+unrelated scripted timing or faking completion. Loading runs asynchronously and the product goes
+straight to the next real presentation.
+
+Success requires each measured load operation to deliver the same payload and terminal state as
+retail while omitting its loading-only presentation. Logo screens accept Start/Cross through the
+title's recovered cancellation route (or a purpose-built skip establishing the same lifecycle,
+resource, and state invariants). Authored transition cutscenes are presentation, not loading, and
+remain. Tomba! 2's area transition is an authored cutscene, not a loading screen: it stays, with a five-second minimum and the same Start/Cross cancellation route.
+
+Faster simulation, bypassed lifecycle callbacks, written phase/timer/scene words, and presentation
+tricks that hide a wait are not implementations of this goal. Loading removal is suppressed under
+oracle comparison.
+
+Contributing state: S023, S024.
