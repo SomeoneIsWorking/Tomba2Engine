@@ -40,8 +40,7 @@
 // THERE IS A SECOND WRITER FAMILY, OUTSIDE THE RESIDENT IMAGE. The six sites above are every
 // reference in MAIN.EXE, and they are not every reference in the game. Scanning the 28 provisioned
 // overlay images for the same address-forming idiom finds it in two of them, at byte-identical
-// looking code (file offsets, load bases not established — see tools/frame_cadence_census.py, which
-// reports these as what they are):
+// looking code (file offsets and load bases not established), reported here as what they are:
 //
 //   A0L.BIN +0x0099AC  0xA062019C  sb    v0,0x19C(v1)   ; DAT_1f80019C = 2  (StrPlayer "swap")
 //   A0L.BIN +0x0099B8  0xA462809C  sh    v0,-0x7f64(v1) ; DAT_800e809c = 1
@@ -66,8 +65,8 @@
 // on a 60 Hz vblank, so the guest's own 60 fps mode is this byte equal to 1. That is why the
 // port owns the byte rather than reimplementing a cadence around the loop.
 //
-// THE QUOTA IS A BOOT-TIME CONSTANT. A census of every reference in the resident text
-// (tools/frame_cadence_census.py) finds exactly TWO sites for 0x1F800235 in the whole image:
+// THE QUOTA IS A BOOT-TIME CONSTANT. A scan of every reference in the resident text
+// finds exactly TWO sites for 0x1F800235 in the whole image:
 //
 //   80050A1C  24020002  li    v0,0x2           ; addiu v0,zero,2
 //   80050A20  A0620235  sb    v0,0x235(v1)      ; the ONLY store, inside FUN_80050a0c
@@ -104,8 +103,7 @@ public:
   // (game/core/game_ctx.cpp createTombaContext), so no call has to thread a Core through.
   Core *core = nullptr;
 
-  // ---- measured guest facts (see the banner; gated against the image by
-  // ---- tools/frame_cadence_census.py --check) --------------------------------------------
+  // ---- measured guest facts (see the banner; each is read off MAIN.EXE) -------------------
   // The quota byte: FUN_80050b08's gate threshold, stored by `sb v0,0x235(v1)`.
   static constexpr std::uint32_t kQuotaAddress = 0x1F800235u;
   // The dwell counter: a u16, stored by `sh`/`lhu` at offset -0x7f64 from a 0x800F0000 base.

@@ -665,7 +665,7 @@ void ov_behOrbitSparkEffect(Core *c) {
 void RegisterSopIntroEventOverrides(Game * /*game*/) {
   // THE FOUR CONTESTED ADDRESSES, RESOLVED BY CALLER REACHABILITY (issue 0015, 2026-09-27).
   //
-  // `tools/overlay_owner_map.py` found MORE THAN ONE authenticated MODE image holding a DIFFERENT
+  // An authenticated-image scan found MORE THAN ONE authenticated MODE image holding a DIFFERENT
   // function body at each of these, so no image argument could pick between them: 0x8010AF60
   // (SOP and A0F, 70 words each), 0x8010B078 (A00 137, A0F 71, SOP 41), 0x8010B44C (A0E 42, SOP 19)
   // and 0x8010BEAC (A0E 73, SOP 42). Every MODE overlay loads at 0x80108F9C, so the same numeric
@@ -707,9 +707,9 @@ void RegisterSopIntroEventOverrides(Game * /*game*/) {
   //
   // SOP, ESTABLISHED FROM THE IMAGE, NOT FROM THE NAME: these three are the only addresses in this
   // cluster that exactly ONE authenticated MODE image holds a function at, and it is SOP in all three
-  // (tools/overlay_owner_map.py, 23 images examined per address). They are the same 0x8010A000-0x8010CFFF
+  // (23 authenticated MODE images examined per address). They are the same 0x8010A000-0x8010CFFF
   // SOP band the file banner names, and every one of them is a STACK-ALLOCATING entry, so the verdict
-  // does not rest on the prologue-shape exception the tool documents for leaf entries.
+  // does not rest on the prologue-shape exception for leaf entries.
   tomba::native::declareOverlayOverride("SOP", 0x8010B11Cu, "sopOrbitPathStep", ov_sopOrbitPathStep);
   tomba::native::declareOverlayOverride("SOP", 0x8010B2D4u, "sopIntroEffectTick", ov_sopIntroEffectTick);
   tomba::native::declareOverlayOverride("SOP", 0x8010B588u, "sopLiftedSubtick", ov_sopLiftedSubtick);

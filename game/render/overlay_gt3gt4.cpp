@@ -218,9 +218,9 @@ void OverlayGt3Gt4::gt3(Core *c) {
     // the two axes AND-ed. The guest instruction path's own screen-bound test, at 0x8003B438 for the
     // quad form.
     //
-    // WHAT CHANGED. The horizontal bound was a literal 320. The census
-    // (tests/horizontal_cull_census.py) found 70 structurally distinct culling owners across the 29
-    // authenticated images and NOT ONE derives its bound from the guest's own draw environment, so a
+    // WHAT CHANGED. The horizontal bound was a literal 320. A scan of all 29 authenticated images
+    // found 70 structurally distinct culling owners and NOT ONE derives its bound from the guest's
+    // own draw environment, so a
     // literal is narrow by construction the moment the frustum is widened, and this site was dropping
     // the ground in the new right band. The bound now comes from the window the port draws into; at
     // 4:3 that is 320 and the decision is bit-identical to the literal it replaces.

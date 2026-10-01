@@ -3,11 +3,11 @@
 //
 // WHY THIS FILE EXISTS. A widened picture is only as wide as the narrowest bound that decides what may
 // appear in the new margin, and the workspace discriminator WIDENED BUT ... MARGIN IS NOT COVERAGE is
-// exactly that failure. Tomba! 2 had no census of its own, so nobody could say how many bounds there
+// exactly that failure. Tomba! 2 had no survey of its own, so nobody could say how many bounds there
 // were, which of them were literals, and which of them the port had actually widened. This is that
-// census's result, as code.
+// survey's result, as code.
 //
-// THE RECOVERED PREDICATE. tests/horizontal_cull_census.py scanned all 29 authenticated code images
+// THE RECOVERED PREDICATE. A scan of all 29 authenticated code images
 // (3,823,581 B, 955,895 words; 520,754 words — 54.5% — attributed to a walked function body by
 // control-flow reachability from a prologue) for frame-derived constants, and grouped the hits by the
 // body containing them. 125 body instances, in 96 structurally distinct bodies, make a compare
@@ -85,7 +85,7 @@ namespace tomba2::horizontal_cull {
 inline constexpr int kGuestFrameWidth = 320;
 inline constexpr int kGuestFrameHeight = 240;
 
-// Corner counts the census found. 3 is the triangle submitter's form, 4 the quad's; both are the same
+// Corner counts the scan found. 3 is the triangle submitter's form, 4 the quad's; both are the same
 // predicate over a different number of corners, which is why count is data and not a shape.
 inline constexpr int kTriangleCorners = 3;
 inline constexpr int kQuadCorners = 4;

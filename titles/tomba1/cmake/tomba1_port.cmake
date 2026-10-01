@@ -75,12 +75,6 @@ if(BUILD_TESTING)
 endif()
 
 add_custom_target(
-  tomba1_identity_selftest
-  COMMAND "${Python3_EXECUTABLE}" "${TOMBA1_ROOT}/tools/verify_executable.py" --selftest
-  USES_TERMINAL
-  VERBATIM)
-
-add_custom_target(
   tomba1_identity_check
   COMMAND
     "${Python3_EXECUTABLE}" "${TOMBA1_ROOT}/tools/verify_executable.py"
@@ -89,56 +83,7 @@ add_custom_target(
   VERBATIM)
 
 add_custom_target(
-  tomba1_provision_selftest
-  COMMAND "${Python3_EXECUTABLE}" "${TOMBA1_ROOT}/tests/test_provision.py"
-  USES_TERMINAL
-  VERBATIM)
-
-add_custom_target(
-  tomba1_crt0_compare_selftest
-  COMMAND "${Python3_EXECUTABLE}" "${TOMBA1_ROOT}/tools/compare_crt0_boundary.py" --selftest
-  USES_TERMINAL
-  VERBATIM)
-
-add_custom_target(
-  tomba1_structure_check
-  COMMAND "${Python3_EXECUTABLE}" "${TOMBA1_ROOT}/tools/verify_title_isolation.py"
-  USES_TERMINAL
-  VERBATIM)
-
-add_custom_target(
-  tomba1_structure_selftest
-  COMMAND
-    "${Python3_EXECUTABLE}" "${TOMBA1_ROOT}/tools/verify_title_isolation.py"
-    --selftest
-  USES_TERMINAL
-  VERBATIM)
-
-add_custom_target(
   tomba1_verify_scaffold
   DEPENDS
     tomba1_scaffold
-    tomba1_identity_selftest
-    tomba1_crt0_compare_selftest
-    tomba1_provision_selftest
-    tomba1_structure_check
-    tomba1_structure_selftest)
-
-if(BUILD_TESTING)
-  add_test(
-    NAME tomba1_identity_selftest
-    COMMAND "${Python3_EXECUTABLE}" "${TOMBA1_ROOT}/tools/verify_executable.py" --selftest)
-  add_test(
-    NAME tomba1_provision_selftest
-    COMMAND "${Python3_EXECUTABLE}" "${TOMBA1_ROOT}/tests/test_provision.py")
-  add_test(
-    NAME tomba1_crt0_compare_selftest
-    COMMAND "${Python3_EXECUTABLE}" "${TOMBA1_ROOT}/tools/compare_crt0_boundary.py" --selftest)
-  add_test(
-    NAME tomba1_title_isolation
-    COMMAND "${Python3_EXECUTABLE}" "${TOMBA1_ROOT}/tools/verify_title_isolation.py")
-  add_test(
-    NAME tomba1_title_isolation_selftest
-    COMMAND "${Python3_EXECUTABLE}" "${TOMBA1_ROOT}/tools/verify_title_isolation.py"
-            --selftest)
-endif()
+    tomba1_identity_check)

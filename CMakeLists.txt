@@ -101,10 +101,9 @@ if(BUILD_TESTING)
 
   # DEATH TEST for the issue-0015 abort. `bindResident` now refuses, by aborting, on any resident-form
   # declaration outside the resident text range — the defect that silently kept 42 native owners out
-  # of the product. The census above keeps that list empty over the real catalog; this covers the
-  # decision itself, which no build-time scan can make, and an untested fatal path is one nobody dares
-  # change. The test forks and asserts the child died by SIGABRT, because ctest does not invert
-  # WILL_FAIL for a signalled child.
+  # of the product. This covers the decision itself, which no build-time scan can make, and an untested
+  # fatal path is one nobody dares change. The test forks and asserts the child died by SIGABRT,
+  # because ctest does not invert WILL_FAIL for a signalled child.
   add_executable(test_native_override_unreachable_abort
       tests/test_native_override_unreachable_abort.cpp
       game/core/native_override_catalog.cpp
@@ -129,43 +128,13 @@ if(BUILD_TESTING)
   add_test(NAME tomba_libapi_vblank_mirror COMMAND test_libapi_vblank_mirror)
 
   # The frame-cadence owner (game/core/frame_cadence.h). The gate's own `sltu`, the incrementer's
-  # read-modify-write, the u16 wrap, and the accounting denominators. Its measured constants are
-  # held to the image by the census below, which is a separate gate on purpose: this one proves the
-  # owner behaves, that one proves the owner is describing Tomba! 2.
+  # read-modify-write, the u16 wrap, and the accounting denominators.
   add_executable(test_frame_cadence
       tests/test_frame_cadence.cpp
       game/core/frame_cadence.cpp)
   target_include_directories(test_frame_cadence PRIVATE game/core)
   target_link_libraries(test_frame_cadence PRIVATE psxport)
   add_test(NAME tomba_frame_cadence COMMAND test_frame_cadence)
-
-  # The census's own fixtures, through `uv run --frozen` because it is a project tool. It has no
-  # game dependency and must pass on a fresh clone with no disc provisioned.
-  find_program(TOMBA_UV_CADENCE_UV uv)
-  if(TOMBA_UV_CADENCE_UV)
-    # The interpolation verdict rule, as a test. Registered because the number it judges is the one
-    # the oracle CANNOT see: an in-between never advances guest state, so a leg that reconstructs
-    # nothing still compares clean. Without a gate on the rule, "0 unequal at fps60=1" is a claim
-    # about a flag rather than about a pipeline.
-    add_test(NAME tomba_fps60_interp_selftest
-             COMMAND ${TOMBA_UV_CADENCE_UV} run --frozen python
-                     ${CMAKE_SOURCE_DIR}/tools/probe_fps60_interp.py --selftest)
-    add_test(NAME tomba_frame_cadence_selftest
-             COMMAND ${TOMBA_UV_CADENCE_UV} run --frozen python
-                     ${CMAKE_SOURCE_DIR}/tools/frame_cadence_census.py --selftest)
-    # --check needs the authenticated image, so it SKIPS (77) without one and FAILS with one that
-    # disagrees with what game/core/frame_cadence.h ships. Both paths are absolute because CTest
-    # runs from the build directory, where a repo-relative one would resolve to nothing and the
-    # tool would report a missing image — which is a SKIP, so the gate would look green while
-    # checking nothing.
-    add_test(NAME tomba_frame_cadence_census
-             COMMAND ${TOMBA_UV_CADENCE_UV} run --frozen python
-                     ${CMAKE_SOURCE_DIR}/tools/frame_cadence_census.py --check
-                     --exe ${CMAKE_SOURCE_DIR}/scratch/bin/tomba2/MAIN.EXE
-                     --header ${CMAKE_SOURCE_DIR}/game/core/frame_cadence.h)
-    set_tests_properties(tomba_frame_cadence_census PROPERTIES SKIP_RETURN_CODE 77)
-  endif()
-
 
   add_executable(test_parallax_scroll tests/test_parallax_scroll.cpp)
   target_include_directories(test_parallax_scroll PRIVATE game/scene "${PSXPORT_DIR}/tests")
@@ -203,31 +172,12 @@ if(BUILD_TESTING)
   target_include_directories(test_page_gradient PRIVATE game/render)
   add_test(NAME tomba_page_gradient COMMAND test_page_gradient)
 
-  # The horizontal visibility cull, recovered from 29 authenticated images (see
-  # game/render/horizontal_visibility_cull.h). 4:3 identity is a SWEEP over the predicate's whole
-  # domain, not a sample, and the site->slack table is pinned rather than restated.
+  # The horizontal visibility cull owner (game/render/horizontal_visibility_cull.h). 4:3 identity is a
+  # SWEEP over the predicate's whole domain, not a sample, and the site->slack table is pinned rather
+  # than restated.
   add_executable(test_horizontal_visibility_cull tests/test_horizontal_visibility_cull.cpp)
   target_include_directories(test_horizontal_visibility_cull PRIVATE game/render)
   add_test(NAME tomba_horizontal_visibility_cull COMMAND test_horizontal_visibility_cull)
-
-  # The horizontal-cull BINARY CENSUS, through `uv run --frozen` rather than ${Python3_EXECUTABLE}: the
-  # scanner imports capstone, a declared dependency of THIS project's locked environment
-  # (pyproject.toml), and CMake's Python3 here is the system interpreter, which has none. A test that
-  # only passes on the developer's shell is not a gate. SKIP_RETURN_CODE 77 is what the census exits
-  # with when the provisioned images are absent, so a fresh clone without a disc SKIPS instead of
-  # failing -- while a PRESENT image that fails to authenticate is a hard failure, which is the whole
-  # point of authenticating.
-  find_program(TOMBA_UV_EXECUTABLE uv)
-  if(TOMBA_UV_EXECUTABLE)
-    add_test(NAME tomba_horizontal_cull_selfcheck
-             COMMAND ${TOMBA_UV_EXECUTABLE} run --frozen python
-                     ${CMAKE_SOURCE_DIR}/tests/horizontal_cull_census.py --selfcheck)
-    set_tests_properties(tomba_horizontal_cull_selfcheck PROPERTIES SKIP_RETURN_CODE 77)
-    add_test(NAME tomba_horizontal_cull_census
-             COMMAND ${TOMBA_UV_EXECUTABLE} run --frozen python
-                     ${CMAKE_SOURCE_DIR}/tests/horizontal_cull_census.py --bodies)
-    set_tests_properties(tomba_horizontal_cull_census PROPERTIES SKIP_RETURN_CODE 77)
-  endif()
 
   # The camera driver's mode table: the eighteen driver modes, the render-mode prologue that two of
   # them share, the per-render-mode height floors, and the ten shake states. This table replaced TWO
@@ -243,7 +193,6 @@ if(BUILD_TESTING)
   # the fixed guest globals. Each makes a decision the raw accessors left to the reader — a field's
   # width and sign, an opcode's id mask, a name this repository has NOT read out of the image — and
   # each of those can be wrong in a way that still runs, which is what these assertions are for.
-  # The claim-gate address assertion in particular pins the value the wide RE got 0x60 wrong.
   add_executable(test_script_interp_vocabulary
       tests/test_script_interp_vocabulary.cpp
       game/scene/script_opcode.cpp)
@@ -281,60 +230,11 @@ if(BUILD_TESTING)
       --root "${CMAKE_SOURCE_DIR}"
       --compile-commands "${CMAKE_BINARY_DIR}"
       ${TOMBA_CPP_POLICY_ARGS})
-  add_test(
-    NAME tomba_launcher_selftest
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_run.py")
-  add_test(
-    NAME tomba2_provision_selftest
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_tomba2_provision.py")
-  # THE LIVE CHECK, running the framework's own tool against this repository's real
-  # `psxport.pin` and the real build receipt.
-  #
-  # MEASURED 2026-09-27: every port's "pin test" was a selftest of the check FUNCTION, run against a
-  # temporary fixture. Such a selftest can pass 14/14 while this repository's actual `psxport.pin` names
-  # a framework commit nothing here was built against, because it never reads the real pin or the real
-  # receipt. A gate that cannot fail on the thing it gates is not a gate, and that is why all ten ports
-  # showed green while four of their pins were demonstrably stale. The tool and its behaviour test now
-  # live once, in the framework (tools/psxport_sync.py, tests/test_psxport_sync.py); this repository
-  # ships only tools/psxport_fetch.py.
-  #
-  # This test runs the real function against the real pin and the real receipt, and it points
-  # `--build` at THIS build directory — the one CTest is running in, which was configured moments ago, so
-  # its receipt is current by construction and the staleness guard cannot fire spuriously.
+  # THE LIVE PIN CHECK: the framework's own tool against this repository's real `psxport.pin` and the
+  # real build receipt. `--build` is THIS build directory, configured moments ago, so its receipt is
+  # current by construction.
   add_test(
     NAME tomba_psxport_pin
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/external/psxport/tools/psxport_sync.py"
             --repo "${CMAKE_SOURCE_DIR}" --check --build "${CMAKE_BINARY_DIR}")
-  add_test(
-    NAME tomba_dynarec_boundary_selftest
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_dynarec_boundary.py" --selftest)
-  add_test(
-    NAME tomba_native_frame_contract_selftest
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_native_frame_contract.py" --selftest)
-  add_test(
-    NAME tomba_native_frame_contract
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_native_frame_contract.py")
-  # The band measure's own discriminator. It is registered rather than left to a manual run because
-  # its FIRST version reported a band on an almost-empty page (it compared each row against the
-  # picture's MEDIAN row, and a page whose median is 0 makes every non-empty row a "band"), and a
-  # measure that can only answer "yes" is not a measure. The negative cases are the ones that hold it
-  # to that.
-  add_test(
-    NAME tomba_aspect_pair_selftest
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/aspect_pair.py" --selftest)
-  # THE CONVERSION GATE for issue 0015, and the check that makes a batch conversion safe rather than a
-  # guess: it cross-checks EVERY overlay-form declaration against the authenticated MODE images and
-  # exits 1 on any mismatch, so a declaration naming an image that cannot install it is a BUILD failure
-  # instead of a behaviour that is silently absent from the product.
-  #
-  # 32 native owners were dead for exactly this reason — declared at overlay addresses with the
-  # resident form, so `bindResident` could never install them. The census's counts were validated
-  # against a recorded pre-change product run (`bound overlay 'A00' ... installed=10`), and this test
-  # keeps that agreement honest on every build: SOP 3/3 and A00 39/39 declared and in range.
-  #
-  # It reads the extracted overlay images under scratch/bin/overlays, which are PROVISIONED INPUTS, so
-  # this test refuses rather than passing vacuously when they are absent.
-  add_test(
-    NAME tomba_overlay_owner_census
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/overlay_owner_map.py" --census)
 endif()

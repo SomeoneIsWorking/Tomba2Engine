@@ -187,8 +187,7 @@ static const GameConfig g_tomba_config = {
     // tomba::FrameCadence::kRetailVblanksPerLogicFrame (game/core/frame_cadence.h), which now owns
     // the decision and publishes it into the guest's own quota byte at 0x1F800235. This stays a
     // static initializer because it feeds the framework's flat config view, so it cannot call a
-    // per-Core owner; tools/frame_cadence_census.py --check is what keeps the two equal, reading
-    // the literal out of MAIN.EXE and diffing it against the value FrameCadence declares.
+    // per-Core owner; both values are read out of MAIN.EXE and must stay equal.
     // NOTE: if the engine legitimately VARIES that byte per frame (slowdown frames), a constant is
     // wrong and it needs a narrow typed cadence interface, not another legacy callback.
     .paceQuota = tomba::FrameCadence::kRetailVblanksPerLogicFrame,

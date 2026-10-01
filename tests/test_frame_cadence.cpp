@@ -2,8 +2,8 @@
 //
 // WHAT IS UNDER TEST: tomba::FrameCadence, the owner of "how many display fields one Tomba! 2
 // logic frame spans" and of the observation of the guest's own dwell counter. The recovery and the
-// instruction words are in game/core/frame_cadence.h; tools/frame_cadence_census.py is what holds
-// the constants to the image. This test is about the OWNER's behaviour on top of them.
+// instruction words are in game/core/frame_cadence.h, each read off MAIN.EXE.
+// This test is about the OWNER's behaviour on top of them.
 //
 // Every case here is a case that WOULD fail. The gate's own `sltu` at 0x80050CD8 is reproduced as
 // a truth table over the counter. The central case is the one this class exists to get right: the

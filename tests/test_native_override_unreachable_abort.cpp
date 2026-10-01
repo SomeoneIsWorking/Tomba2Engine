@@ -1,11 +1,9 @@
 // NEGATIVE COVERAGE for the issue-0015 abort: `bindResident` must REFUSE, by aborting the process,
 // when a declaration uses the resident form at an address outside the resident text range.
 //
-// The census (`tools/overlay_owner_map.py --census`, ctest tomba_overlay_owner_census) is the gate
-// that keeps that list empty over the real catalog. This test covers the half the census cannot see
-// and that only the product's own binder can decide: a resident-form declaration at an address no
-// MODE image covers, including AREA-slot addresses. Without it the abort is untested, and an untested
-// fatal path is one nobody dares change.
+// This test covers the decision itself, which only the product's own binder can make: a resident-form
+// declaration at an address no MODE image covers, including AREA-slot addresses. Without it the abort
+// is untested, and an untested fatal path is one nobody dares change.
 //
 // The refusal is `std::abort()` in the product, and it stays that way: an unreachable declaration
 // means the process is running a catalog it does not understand, which is not a recoverable state.

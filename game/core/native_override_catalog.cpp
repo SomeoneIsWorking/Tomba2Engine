@@ -128,12 +128,9 @@ void bindResident(Core &core, psx::cpu::ImageIdentity resident, GuestAddressRang
   // non-fatal only while conversions were outstanding and an abort would have taken down a product
   // that runs; the list reached zero when the last ten were converted, and this refuses from here.
   //
-  // The refusal is deliberately NOT the build-time gate. `tools/overlay_owner_map.py --census` (the
-  // ctest tomba_overlay_owner_census) already cross-checks every declaration against the
-  // authenticated MODE images and exits 1 on a mismatch, which is a refusal over CODE with no product
-  // running. This one is the backstop for the case the census cannot see: a resident-form declaration
-  // at an address the census has no image for, including AREA-slot addresses outside the MODE set.
-  // When the two ever disagree, the census is the thing that is wrong, not this abort.
+  // The refusal is the backstop for a resident-form declaration at an address no overlay image owns,
+  // including AREA-slot addresses outside the MODE set. `bindResident` cannot install such a
+  // declaration, so its native behaviour is simply absent from the product.
   if (unreachable != 0) {
     lucent::error("tomba-native",
                   "{} native override declaration(s) can NEVER install — see the UNREACHABLE lines above "

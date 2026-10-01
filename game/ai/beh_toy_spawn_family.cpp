@@ -283,7 +283,7 @@ void RegisterBehToySpawnFamilyOverrides(Game * /*game*/) {
   // (issue 0015). They are MIPS LEAVES -- neither touches $sp -- so neither has a stack-allocating
   // prologue, and the old rule read that as "no image owns this address". Both sit exactly 8 bytes
   // after a `jr $ra` in A00 and in no other image, which is the second recognised entry shape
-  // (`tools/overlay_owner_map.py`, ENTRY_AFTER_EPILOGUE). That verdict came off the tool, not off a
+  // (ENTRY_AFTER_EPILOGUE). That verdict came off an authenticated-image scan, not off a
   // reading of the disassembly, so it is the same evidence standard as the other thirty-two.
   tomba::native::declareOverlayOverride(
       "A00", 0x80127420u, "beh_arm_countdown_if_linked_ready", ov_behArmCountdown80127420);

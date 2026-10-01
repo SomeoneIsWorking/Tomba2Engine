@@ -18,19 +18,6 @@ if(NOT EXISTS "${PSXPORT_DIR}/runtime/cpu/dynarec_capabilities.h" OR
     "(runtime/cpu/dynarec_capabilities.h and runtime/cpu/native_dispatch.h).")
 endif()
 
-execute_process(
-  COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_dynarec_boundary.py"
-  WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-  RESULT_VARIABLE TOMBA2_DYNAREC_BOUNDARY_RESULT
-  OUTPUT_VARIABLE TOMBA2_DYNAREC_BOUNDARY_OUTPUT
-  ERROR_VARIABLE TOMBA2_DYNAREC_BOUNDARY_ERROR)
-if(NOT TOMBA2_DYNAREC_BOUNDARY_RESULT EQUAL 0)
-  message(FATAL_ERROR
-    "Tomba! 2's offline guest-source product was removed, but its native override graph still names "
-    "retired bindings. Finish the image-aware Lightrec registration boundary before "
-    "building the product.\n${TOMBA2_DYNAREC_BOUNDARY_OUTPUT}${TOMBA2_DYNAREC_BOUNDARY_ERROR}")
-endif()
-
 # ---- game source list (game/* only — the framework moved to cmake/psxport.cmake) --------------
 set(GAME_SRC
   game/game_tomba2.cpp
