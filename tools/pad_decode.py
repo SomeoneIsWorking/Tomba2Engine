@@ -6,8 +6,7 @@ GENERATE a scripted route for headless SBS driving.
 
 Why: the replays ARE working input sequences to reach a scene. Decoding one shows exactly what it
 presses (e.g. hut-entry = boot taps, then walk RIGHT to the door, then hold UP to enter). Combined
-with the movement calibration in docs/driving-the-game.md ("Driving by position feedback"), you can
-author your own routes to any reachable target without live capture.
+you can author your own routes to any reachable target without live capture.
 
 USAGE:
   tools/pad_decode.py <file.pad>              # print the button-press timeline (collapsed runs)

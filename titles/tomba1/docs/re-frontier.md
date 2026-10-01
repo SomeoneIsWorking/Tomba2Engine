@@ -17,7 +17,7 @@ executable-grounded startup and CD facts while introducing the shared Lightrec p
 - status: re-verified
 - deps: T1-00
 - evidence: C002/I002. `tools/provision.py` resolves explicit argument, `PSXPORT_TOMBA1_DISC`, `.env`, then exactly one root CHD; requires exactly one `SYSTEM.CNF` boot declaration naming root `SCUS_942.36`; and publishes only after 15/15 executable agreement. Positive and negative cases distinguish agreement from missing, ambiguous, malformed, wrong-target, and altered input.
-- where: `tools/provision.py`; `tests/test_provision.py`; user-supplied disc; untracked runtime input
+- where: `tools/provision.py`; user-supplied disc; untracked runtime input
 - gap: None for the selected USA disc.
 
 ### T1-02 — Recover CRT0 and startup semantics

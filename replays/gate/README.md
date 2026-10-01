@@ -1,17 +1,15 @@
 # SBS coverage-gate routes (`*.sbskeys`)
 
 A `.sbskeys` file is a `PSXPORT_SBS_KEYS` string: comma-separated `from-to:button` frame
-ranges, mirrored to BOTH SBS cores. It exists to solve the coverage problem in
-docs/findings/sbs.md — a boot-only SBS run reaches only ~236/411 owned addresses (~57%),
-so ~43% of the port is never byte-compared. A driven route walks the gate into gameplay,
-where the interesting natives run.
+ranges, mirrored to BOTH SBS cores. It exists to solve a coverage problem: a boot-only SBS run reaches only ~236/411 owned
+addresses (~57%), so ~43% of the port is never byte-compared. A driven route walks the gate
+into gameplay, where the interesting natives run.
 
 **Why a KEYS string and not a `.pad`:** SBS core A is hard-wired `pc_skip=false`, but every
 `./run.sh` capture in `replays/*.pad` is `pc_skip=true`. The two boot cadences differ, so a
 frame-indexed `.pad` lands its inputs at the wrong moments under SBS and does NOT reproduce
 the route (it can lower coverage — measured 230 < 236). A KEYS route is authored against
-SBS's own frame axis, so it is valid by construction. See docs/findings/sbs.md
-"COVERAGE-limited".
+SBS's own frame axis, so it is valid by construction.
 
 ## Run a gate route
 

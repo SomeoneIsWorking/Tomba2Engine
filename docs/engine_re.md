@@ -724,7 +724,7 @@ Ghidra's COP2 decompile of this band renders GTE data-register writes as synthet
 `setCopReg`/`getCopReg`/`copFunction` "bus" pseudo-calls, unreliable for exact register indices).
 Codemap-confirmed unowned except `0x80031780`/`0x800310F4`/`0x8003116C`/`0x800312D4`/`0x80032A44`/
 `0x80032A84`/`0x80036DFC`/`0x8003A790`/`0x8003A9A0`/`0x8003ABE4`/`0x8003AD48` (already owned, skipped)
-and `0x8003B220` (owned — `game/player/hitbox.cpp`, see above; NOT reflected in `tools/codemap.py`'s
+and `0x8003B220` (owned — `game/player/hitbox.cpp`, see above; NOT reflected in `docs/code-map.md`'s
 address index yet — a workflow gap worth fixing, noted but not fixed this session). The band is NOT
 a single subsystem — it's at least four distinct clusters:
 
@@ -1042,7 +1042,7 @@ than a new class. WIRED since (CutsceneCamera::registerOverrides — all 5 on En
 
 ### 0x8006xxxx band — structural map (2026-07-08 RE-ahead pass; NOT ported, mapping only)
 Full-band Ghidra decomp confirms TWO distinct subsystems share this address range (163 fns total, 128 still
-unowned as of this pass — see `tools/codemap.py --addr` per-address, and the CutsceneCamera note above for
+unowned as of this pass — see `docs/code-map.md` per-address, and the CutsceneCamera note above for
 the 5 that got drafted):
 - **0x80060064–0x800674F4ish — Tomba's PLAYER-ACTION state machine.** `param_1`=`G` (Tomba's own node,
   `0x800E7E80`, same block `ActorTomba` already owns pieces of — confirmed via shared field offsets G+0x145/
@@ -1849,7 +1849,7 @@ local scratch artifacts (gitignored), not committed — regenerate via `the Ghid
 main_ram <out.c> list <addrs...>` against the `main_ram` Ghidra project.
 ## A00-overlay region map 0x80125000–0x8014E944 (WIDE-RE session, UNWIRED/UNVERIFIED drafts)
 Scope: the upper half of the A00 gameplay overlay (AI/spawn/render-leaf band; a sibling session
-owns 0x80108000–0x80125000). Method: `tools/codemap.py` cross-referenced against every top-level
+owns 0x80108000–0x80125000). Method: `docs/code-map.md` cross-referenced against every top-level
 `A00 overlay the cited guest instructions` definition in `authenticated executable/overlay evidence{0,1}.c` (the recorded binary evidence's register-
 accurate translation of a fresh recompile off the real disc — the project's preferred RE source
 for GTE-heavy leaves, since Ghidra's COP2 decompilation garbles GTE register indices into
@@ -1906,7 +1906,7 @@ shape from address adjacency + size distribution (`ordinary A00 overlay guest bo
   AI/behavior LEAVES already reached (but not yet ported) from the owned orchestrators in this
   band — `beh_substate_edge_orchestrator` (deps 0x8012E8A8/ED84/F494/F5B4/FD88/80130524…) and
   `beh_cull_substate_orchestrator` (deps 0x8013272C/80132954/80132A88/80132D58/80132EDC/80133184…).
-  `tools/codemap.py --addr <hex>` on any of these prints `depended-on by: beh_*` — start there,
+  `docs/code-map.md` on any of these prints `depended-on by: beh_*` — start there,
   these are the highest-value next targets (their caller is already native, so owning the leaf
   finishes the chain).
 - **0x80134000–0x80145FFF (~110 addrs):** mixed AI state-machine leaves adjoining the owned
@@ -1921,7 +1921,7 @@ shape from address adjacency + size distribution (`ordinary A00 overlay guest bo
   (likely another per-scene mode-table variant or a margin/UI GTE path), don't guess from shape
   alone.
 - Full candidate list (all 290, pre-session): `scratch/logs/unowned_range.txt` in this session's
-  worktree (not committed — regenerate via `tools/codemap.py --addr` swept over
+  worktree (not committed — regenerate via `docs/code-map.md` swept over
   `ordinary A00 overlay guest bodies`/`A00 overlay guest entries` addresses in `authenticated executable/overlay evidence{0,1}.c` for 0x80125000–
   0x8014E944).
 ===========================================================================================
@@ -2132,18 +2132,17 @@ confidence, most self-contained cluster in the region:
   dedicated Ghidra pass + cross-reference against any already-owned UI/dialog class before porting.
   **UPDATE (2026-07-08, wide-RE, worktree agent-a53f252288693983d): `FUN_8007C0D0` and
   `FUN_8007D0D0` themselves DRAFTED** (UNWIRED/UNVERIFIED, compiles) as `DialogTextStream::
-  advanceByte`/`applyRenderMode` in `game/ui/dialog_text_stream.{h,cpp}` -- see docs/findings/ui.md
-  for the full trace, including a recorded boundary ambiguity finding (an 0xF8/0xF9 table read looks like
+  advanceByte`/`applyRenderMode` in `game/ui/dialog_text_stream.{h,cpp}`, including a recorded
+  boundary ambiguity (an 0xF8/0xF9 table read looks like
   a real indirect call but is actually a local jump table, same shape as `FUN_8007D0D0`'s). The
   surrounding cluster (`FUN_8007D14C`/`FUN_8007D208`/`FUN_8007D594`/`FUN_8007C940` -- the box's own
   state machine, position/size layout, and the glyph-POSITION-list builder) remains mapped-not-drafted;
-  see docs/findings/ui.md for per-function notes and the recommended next-pass order.
+  each still needs its own RE pass before it is drafted.
   **CORRECTION (2026-07-14, bug #34 RE):** `FUN_8007C940` is NOT "the actual glyph-blit walker" --
   it builds the intermediate glyph-position list (scratchpad counter 0x1F800000+382); the glyph blits
   go through `FUN_80078CA8` (native Font::glyphEmit), and the PANEL packets are emitted by
   `FUN_8007D594`'s shared tail -> `FUN_8007CC00` (border tiles 0x65, consuming that position list) +
-  `FUN_8005019C` (corner sprites + 5x `FUN_8004FFB4` FT4 fills). Full chain: docs/findings/ui.md
-  "Dialog text-box PANEL emitter chain".
+  `FUN_8005019C` (corner sprites + 5x `FUN_8004FFB4` FT4 fills). Full chain: `FUN_8007D594` -> `FUN_8007CC00` -> `FUN_8005019C`.
 - **0x8007EAE4-0x8007FDB0 -- PAUSE/QUIT MENU construction.** Confirmed via literal string pointers:
   `FUN_8007EAE4` builds the in-game pause menu ("Options"/"Load data"/"Quit game" via
   `PTR_s_Options_800a2854` etc.), `FUN_8007EE74`/`FUN_8007EF60` build "Continue"/"Load data"/
@@ -2156,8 +2155,7 @@ confidence, most self-contained cluster in the region:
   drafted** -- also identified `FUN_8007ED5C` (Save-confirm), `FUN_8007F104`/`f250`/`f498`/`f73c`/
   `f8f8`/`fc24` (the Options sub-page family reached from `FUN_8007F104`'s top-level 4-item list;
   DEAD when `game/ui/menu.cpp`'s PC-native options overlay is active, but still unowned/reachable),
-  `FUN_8007F078` (shared "Return"/"Exit" footer). See docs/findings/ui.md for the full family map
-  and why this cluster was deliberately NOT drafted this session (the 3 shared layout helpers
+  `FUN_8007F078` (shared "Return"/"Exit" footer). The cluster was deliberately NOT drafted (the 3 shared layout helpers
   `FUN_80079374`/`FUN_800793C4`/`FUN_8007E998` need their own RE pass first -- drafting the
   screen builders against a misunderstood shared-helper contract would bank untrustworthy code).
 - **0x80070724-0x80070E60 -- small scratchpad-resident control-byte cluster.** Reads/writes fields
@@ -2196,8 +2194,7 @@ Ghidra (`authenticated executable/overlay evidence` project, `the Ghidra evidenc
 disas.py walk" / "generated C is ground truth over Ghidra for register-level shape" rule — this
 caught a real Ghidra mislabel (see `NodeXform::buildFromChild` below).
 
-Of 152 `guest 0x8005xxxx` symbols in the region, 112 had no native owner (`tools/codemap.py
---addr`); the rest were `PcScheduler`/`NodeXform`/`Engine`/`ActorTomba`/AI-handler leaves already
+Of 152 `guest 0x8005xxxx` symbols in the region, 112 had no native owner (`docs/code-map.md`); the rest were `PcScheduler`/`NodeXform`/`Engine`/`ActorTomba`/AI-handler leaves already
 owned by prior sessions (native_boot_run, startup.cpp init chain, scene_transition.cpp,
 level_load.cpp, actor_melee_engage.cpp, release_trigger_motion.cpp, beh_jumptable_release_trigger,
 beh_camera_target_follow — see docs/code-map.md for the full list at these addresses).
@@ -2291,7 +2288,7 @@ drafted functions).
 ## Wide-RE survey: 0x80090000-0x8009FFFF (2026-07-08, worktree agent-a207c9725f2c28d79)
 
 Region assignment for this session. 194 `func_8009xxxx` symbols appear in `authenticated executable/overlay evidence`.
-Already-owned/known coming in (per `tools/codemap.py`, `runtime/psx/sync_overrides.cpp`,
+Already-owned/known coming in (per `docs/code-map.md`, `runtime/psx/sync_overrides.cpp`,
 `runtime/psx/native_boot.cpp`, `runtime/psx/interp.cpp` debug taps): `input_dispatch_931c0`
 (0x800931C0), `Font::bank2Store`/`bankSelect` (0x80096370/0x800963A0), `bav_lock_ready`/`bav_lock_set`
 (0x80099450/0x80099478), `rand_lcg` (0x8009A450), `DecDCTinSync`/`DecDCToutSync` HLE (0x8009CAEC/
@@ -2383,7 +2380,7 @@ anything calls into this range at runtime it's itself a sign of a wrong branch t
 
 Session scope: enumerate still-substrate addresses in the 0x80126000-0x8013FFFF band, RE + draft a
 tractable cluster, map the rest. Ground truth: `authenticated executable/overlay evidence{0,1}.c` (`A00 overlay the cited guest instructions`
-symbols). `tools/codemap.py` regenerated (`docs/code-map.md`) after this session's drafts landed —
+symbols). `docs/code-map.md` regenerated (`docs/code-map.md`) after this session's drafts landed —
 449 addresses tracked, 24 ORPHAN (includes this session's 5 new drafts, correctly unwired).
 
 ### Drafted: the "toy/child spawner" cluster, 0x80126040-0x80127798 (19 functions)
@@ -2770,7 +2767,7 @@ details and the bugs caught during hand-tracing.
   (`i==2`/`i==3&&obj[0x60]&2` "attach" vs. all-other "parent lookup") both feeding the SAME shared
   tail as `NodeXform::propagate`'s SIBLING case: `p = obj[0xC0+4*child[6]]`; accumulate
   `child[0x2C/30/34] += p[0x2C/30/34]`. One callee (`0x80084A80`) has no native owner
-  (`tools/codemap.py` confirms). HIGHEST CONFIDENCE of the 7 drafts — cross-checked structurally
+  (`docs/code-map.md` confirms). HIGHEST CONFIDENCE of the 7 drafts — cross-checked structurally
   against the 3 existing `NodeXform` propagate variants (`propagate`/`propagateAxis`/
   `propagateRotmat`) which share the exact child-table-walk + matMul/applyMatlv shape.
 - **`0x8012F494`** (64 ln) — node[5]==0 sub-state. Bumps `obj[6]` via the unowned counter-advance
@@ -3017,7 +3014,7 @@ partially already surveyed above under "region-8005").
 
 Band: unowned hot leaves 0x80086288(1254) 0x80090BD0(1254) 0x800909C0(1254) 0x8008913C(627)
 0x80099490(581) 0x800998E4(579) 0x8009A420(521), free-roam dispatch count. All confirmed unowned
-via `tools/codemap.py --addr`. This region sits right at the psyq libc/libsnd block boundary
+via `docs/code-map.md`. This region sits right at the psyq libc/libsnd block boundary
 (0x8009A450 = `rand`, already owned as `prng`).
 
 ### Drafted (UNWIRED, compiles+links)
@@ -3047,8 +3044,7 @@ via `tools/codemap.py --addr`. This region sits right at the psyq libc/libsnd bl
     0x4000 too high. They are `0x800ABDC0`/`0x800ABDE0` (`32779<<16` MINUS 16960 / 16928).
 
 - **0x800909C0 → `Sequencer::frameTick()`** (new: game/audio/sequencer.h/.cpp). libsnd's per-VBlank
-  TICK WRAPPER, installed by `SsSetTickMode` (docs/journal.md 2026-06-15 "later 54" — already
-  RE'd there: tick mode `DAT_800ac424=5`, `*SsSeqCalled` ptr `DAT_800ac42c=0x80090BD0`, optional
+  TICK WRAPPER, installed by `SsSetTickMode` (tick mode `DAT_800ac424=5`, `*SsSeqCalled` ptr `DAT_800ac42c=0x80090BD0`, optional
   user-cb `DAT_800ac430=0x80086288`). 1:1 with `guest 0x800909C0` (authenticated executable/overlay evidence): if
   the user-cb slot is non-null, dispatch it; unconditionally dispatch `*SsSeqCalled`. Confidence:
   HIGH (2 straight-line dispatches, addresses match the journal's prior live-RAM-dump RE exactly).
@@ -3567,7 +3563,7 @@ state) — the owner-pointer's (obj+0x38) semantics and the exact SFX ids passed
 not traced this pass.
 
 **Verification status.** Compiles and links clean (`cmake -S . -B build2 && cmake --build build2
---target tomba2_port`, zero errors/warnings touching `script_interp.cpp`). `tools/codemap.py --addr`
+--target tomba2_port`, zero errors/warnings touching `script_interp.cpp`). `docs/code-map.md`
 confirms all five addresses (`0x80043108`, `0x80041468`, `0x80041438`, `0x80042EA4`, `0x8004139C`)
 now resolve to LIVE native owners with zero remaining unowned callees in this specific cluster
 (op36's `0x80084080` sqrt leaf and both functions' `0x80085690` ratan2 leaf remain still-substrate,
@@ -3644,7 +3640,7 @@ ORPHAN (`game/math/wide_re_gte_transform3.cpp:41`, ownership status NOT LIVE —
 wiring pass, unrelated to this one).
 
 **Verification status.** Both compile+link clean (`cmake -S . -B build2 && cmake --build build2
---target tomba2_port`, zero errors/warnings touching `actor_tomba.cpp`). `tools/codemap.py --addr`
+--target tomba2_port`, zero errors/warnings touching `actor_tomba.cpp`). `docs/code-map.md`
 confirms `0x80058648`→`ActorTomba::enterOuterState0` and `0x800597AC`→`ActorTomba::
 matrixComposeAttached` now resolve LIVE. UNWIRED: frameTick's own `typed runtime address dispatch` call sites for
 both addresses still reach the substrate (unchanged) — wiring + the mandatory line-by-line
@@ -3716,7 +3712,7 @@ clearSwapBlock`, already-native) confirming both dispatchers are variants of the
 state-machine, consistent with the existing "normal vs underwater" hypothesis in this file's
 "Mapped-only families" section.
 
-**Ownership check** (`tools/codemap.py --addr`, this session, sampled — the tool is slow per-call
+**Ownership check** (`docs/code-map.md`, this session, sampled — the tool is slow per-call
 so not every one of the ~55 distinct targets was individually re-checked, but every address
 checked, plus every one independently documented in this file's existing "Mapped-only families"
 section, is confirmed unowned): `0x800531DC`, `0x80053D90` — unowned. `0x80054198` — OWNED
@@ -3741,7 +3737,7 @@ known template families are down.
 
 ### 2026-07-10 wide-RE pass — the `60064-65374` cluster triaged: 6 drafted, 4 mapped (still deep)
 
-All 10 addresses confirmed unowned (`tools/codemap.py --addr`, this session) and, per a
+All 10 addresses confirmed unowned (`docs/code-map.md`, this session) and, per a
 cross-shard grep, appear ONLY as the dispatcher registration in `authenticated executable/overlay evidence` — no
 other emitted C references them by constant, consistent with being reached exclusively through
 table A/B's runtime `.rodata` case-target arrays (never a compiled call site). Every one of the
@@ -3823,7 +3819,7 @@ before drafting their case bodies.
 
 ### 2026-07-10 wide-RE pass #2 — the 4 mapped-not-drafted leftovers, resolved
 
-All 4 confirmed unowned (`tools/codemap.py --addr`, this session) before drafting; all 4 now
+All 4 confirmed unowned (`docs/code-map.md`, this session) before drafting; all 4 now
 `LIVE` in `docs/code-map.md` as `ActorTomba::` methods in `game/player/actor_tomba.{h,cpp}` —
 FAITHFUL DRAFTS, UNWIRED (no `EngineOverrides`/`tomba::native::declareOverride` registration, no SBS run),
 compile+link clean (`cmake -S . -B build2 && cmake --build build2 --target tomba2_port`, zero
@@ -4002,7 +3998,7 @@ four are DO-NOT-PORT (data / epilogue artifact / continuation / kept-substrate).
 - **0x80086970** — `Engine::initInput` (game/scene/startup.cpp:173). ALREADY OWNED. Input-subsystem
   bring-up (7-call init, pad descriptor poke, engine-ready gate 0x800abe70). 24-byte frame — existing
   port does NOT reproduce it (dead scratch, boot RAM verified identical, later-184). **codemap GAP:
-  register in tools/codemap.py.**
+  register in `docs/code-map.md`.**
 - **0x80089160** — `Engine::installHandlerTable` (game/core/engine.cpp). ready-leaf → READY NOW.
   Three fn-ptr stores into 0x800ABE50 table (80089194/800895E8/800892A4). Leaf, no callees. Called
   from Engine::initAlloc.

@@ -103,6 +103,5 @@ untracked runtime inputs.
 - [`docs/codemap.md`](docs/codemap.md): subsystem ownership and placement
 - [`titles/tomba1/docs/re-frontier.md`](titles/tomba1/docs/re-frontier.md): Tomba! 1's independent chain
 
-Behavioral and address evidence remains in `docs/findings/`, `docs/info/`, and the title-local
-equivalents. Retained historical findings are evidence, not an executable source corpus; new analysis
-starts from the executable, overlays, and independent runtime observation.
+Open defects live in [`docs/issues/`](docs/issues/). New analysis starts from the executable, the
+overlays, and independent runtime observation.

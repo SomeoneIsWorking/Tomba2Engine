@@ -15,7 +15,7 @@ ovhit 0x80023D48 native=7397 oracle=7397 and 0x8002423C native=1949 oracle=1949.
 
 Why it matters: **29,869 substrate dispatches per 6000 frames** of `replays/bugs/seesaw-weight.pad`
 — the busiest remaining unowned function in the game once the PlatformHle-owned entries are
-discounted (see instrument I024).
+discounted (`docs/code-map.md`).
 
 ## Signature
 
@@ -84,7 +84,7 @@ writes is precisely the one the `func_XXXX` wrappers exist to preserve (see THE 
 port therefore keeps r16..r23/r30 and the per-call-site argument registers on the register file and
 folds only `r2/r3/r8/r9` plus dead `r4/r5` intermediates into named locals.
 
-## Field map (as used here — offsets are role-specific, per docs/findings/object.md)
+## Field map (as used here — offsets are role-specific per object type)
 
 * actor: `+0x2E` X, `+0x32` Y, `+0x36` Z (X/Z as u16, Y also written as 16.16 at `+0x30`),
   `+0x56` angle, `+0x7C` sample radius, `+0x7E` Y bias, `+0x80`/`+0x82` height band,

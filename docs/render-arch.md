@@ -1,7 +1,7 @@
 # Render & present architecture — read before touching graphics/VK
 
 How a frame gets from GP0 commands to the screen, the VK renderer, depth, and how to run headless.
-Pairs with `gfx-debug.md` (the debug workflow) and `config.md` (flags). VK is THE renderer; there is
+VK is THE renderer; there is
 ONE render behavior (native per-pixel depth always on, no oracle to diff against).
 
 ## The GP0 → screen path
@@ -57,7 +57,7 @@ ONE render behavior (native per-pixel depth always on, no oracle to diff against
     resolution), the one case whose correct answer IS paint order. Span (unit × prim count ≈ 1e-3) sits an
     order of magnitude below genuine world separations (~4.5e-3), so real occlusion is unchanged; host-only
     so SBS stays 0-diff. Resolves ~87% of true ties at the safe magnitude — full coverage needs shared
-    per-object depth for detail prims (deferred). See docs/findings/render.md + `PSXPORT_ZFIGHT`/`ZBIAS`.
+    per-object depth for detail prims (deferred). See `PSXPORT_ZFIGHT`/`ZBIAS`.
 
 ## SSAO / LIGHT — PC-native deferred shading (one post pass)
 **Enabled via the F1 imgui overlay (g_mods), default OFF, persisted to `psxport_settings.ini`
@@ -113,7 +113,7 @@ There is no oracle and no diff tooling; you verify by running the PC game and ob
   `press`/`release`/`tap <btn>`, `r`/`rw`/`w` (memory), `dumpram <path>` (+ `.spad` scratchpad sidecar),
   `debug <chans|all>` (enable diagnostic channels at runtime), `stage`, `regs`, `seq`, `quit`. The live
   TCP debug server (`PSXPORT_DEBUG_SERVER=1`, `external/psxport/tools/dbgclient.py`) has the same commands plus
-  scene/provat/vkvram for inspecting a windowed run. See `docs/driving-the-game.md`.
+  scene/provat/vkvram for inspecting a windowed run (`tools/live_play.py`, `tools/drive_to_grab.py`).
 - **Workflow:** inspect the live PC game — REPL/debug-server state + scene dump + the user eyeballing a
   build. The engine OWNS its render; there is nothing PSX to diff against. Principle still holds: don't
   conclude from a cherry-picked still — verify on the running game.

@@ -16,7 +16,7 @@ needed). Raw listings: `801401B8.disas.txt`, `80115300.disas.txt` (covers 0x8011
 
 ## (a) 0x801401B8 boundary + verdict: ALREADY OWNED, and NOT a sprite drawer
 
-`tools/codemap.py --addr 801401B8` returns `OverlayGroundGt3Gt4::entityLoop` (LIVE,
+`docs/code-map.md` returns `OverlayGroundGt3Gt4::entityLoop` (LIVE,
 `game/render/overlay_ground_gt3gt4.cpp:363`), wired via `A00 tomba::native::declareOverride`, SBS-gated. The live
 disassembly (`801401B8.disas.txt` lines 2-65, function ends at `80140298`/`801402b4` jr ra) matches
 the existing port instruction-for-instruction:
@@ -188,7 +188,7 @@ To port this as a `Render::` class method (paired guest-byte-exact + host-queue 
 5. **Not yet RE'd, needed before porting**: the `0x800158e0` driver function's 4-way state dispatch
    (0/1/2/3) that decides WHEN this emitter runs across frames, and the `0x80083de0` OT-splice
    helper's exact semantics (a shared primitive likely already used elsewhere — check
-   `tools/codemap.py --addr 80083de0` before re-deriving it).
+   `docs/code-map.md` before re-deriving it).
 
 ## (g) Shared-template verdict: 0x801401B8 vs 0x80115364/80115598 — DIFFERENT, not a shared template
 

@@ -109,11 +109,7 @@ show additional world content. Stretching or cropping does not qualify.
 
 ## Evidence and workflow
 
-At task start run one information brief and consult the appropriate frontier:
-
-```sh
-uv run --frozen python tools/info.py brief <terms>
-```
+Consult the appropriate authority before work:
 
 - `docs/project-goals.md`: durable outcomes and success conditions.
 - `docs/project-state.md`: verified/partial/blocked/missing capability inventory and current focus.
@@ -121,9 +117,7 @@ uv run --frozen python tools/info.py brief <terms>
 - `docs/re-frontier.md` and `titles/tomba1/docs/re-frontier.md`: ordered RE dependencies.
 - `docs/codemap.md`: subsystem placement. `docs/code-map.md` is the specialized Tomba! 2 address
   ownership index.
-- `docs/issues/`, title-local issues, `docs/findings/`, and `docs/info/`: atomic work and evidence.
-- `docs/unported-render-inventory.md`: missing Tomba! 2 picture producers.
-- `docs/areas.md`: grounded area indices and reachability.
+- `docs/issues/` and title-local issues: atomic open work.
 
 A diagnostic must report how much it scanned and prove both positive and negative answers. Absence of
 a symptom is not evidence without reachability. Validate tools against a case that must differ.

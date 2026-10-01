@@ -1,8 +1,8 @@
 # Code map — guest address → PC-native owner
 
-> EMITTED by `tools/codemap.py` — do not edit by hand; rerun the tool.
+> Hand-maintained guest-address to native-owner index. Keep it in step when an owner lands.
 
-Before reimplementing any `FUN_xxxx`, look it up here (or `tools/codemap.py --addr <hex>`).
+Before reimplementing any `FUN_xxxx`, look it up here, or grep the `tomba::native::declareOverride*` call sites.
 A native may exist already. **LIVE** = reachable by a real call from either a native_boot
 dispatch root or ordinary (non-native-tagged) game/engine code — free-function syntax
 (`ov_foo(...)`), qualified static syntax (`Class::method(...)`), or C++ instance-call
@@ -14,7 +14,7 @@ Totals: 793 native fns, 639 owned addresses, 787 LIVE / 6 ORPHAN. 241 override d
 
 **A row can come from a DEFINITION or from an INSTALL SITE.** An address whose handler is a file-local static in an anonymous namespace (no address in its name, no tag, no quoted registry name) has no findable definition — the `tomba::native::declareOverride` / `tomba::native::declareOverride*` call site is its only ownership record, and the file holding that call site is where you debug it from. Those rows say so in the summary column.
 
-**Cross-check `docs/port-map.md` before porting anything.** This map answers WHERE code lives; it cannot answer whether a layer should exist. Layers whose producer was DELETED ON PURPOSE (the no-tap rule) look identical here to unported ones. `--addr <hex>` performs the cross-reference; the section at the end of this file lists every deliberately-absent step.
+**This map answers WHERE code lives; it cannot answer whether a layer should exist.** Layers whose producer was DELETED ON PURPOSE (the no-tap rule) look identical here to unported ones.
 
 | addr | status | symbol | file:line | depends-on (still-PSX) | summary |
 |------|--------|--------|-----------|------------------------|---------|
@@ -810,12 +810,3 @@ Owned by a DIFFERENT mechanism than the table above: `PlatformHle` (`external/ps
 | 0x8009CB80 | `syncComplete` | `decDctOutSync` |
 
 9 PlatformHle-owned address(es).
-
-## Deliberately ABSENT — do NOT port from this map alone (`docs/port-map.md`)
-
-Cross-referenced against 57 `docs/port-map.md` steps; 2 carry an explicit `absent:` field. A step here means the layer's PICTURE was removed by decision (usually PROTOCOL.md's absolute no-tap rule). Its entry function may still be natively OWNED above — the producer exists, it just no longer draws — so an owner row is NOT evidence the layer is present. Read the step's `notes` in the port map before touching any of it.
-
-| port-map step | status | why it is absent | guest addrs | owner files |
-|---------------|--------|------------------|-------------|-------------|
-| `render-producer-effect-mesh-family` | todo | the effect-mesh PICTURE was deleted 2026-08-04 with the GTE-register taps (commit abf3cf9 removed game/render/fx_mesh.cpp/.h, mesh_emit_tap.cpp, swing_fx.cpp/.h). Those producers re-derived quads host-side from the transform the substrate controller had just composed into GTE CR0-7. Deleting them was CORRECT. Four controller-state replacements are live; sixteen native controller producers remain absent. One of those pictures, the `0x8013D454` water-jet mesh, is visible through the explicit `render-fallback-water-jet-guest-gte` hack; fifteen producer-less pictures still have no route. Do not widen that fallback to get the rest back. | 0x80027768 | — |
-| `render-producer-submitquad-classes` | todo | the PICTURE for the two REMAINING caller classes (a00-overlay flame/rope emitter, case-188 particles) was DELETED 2026-08-04, not left unported — its GTE-register tap is banned by PROTOCOL.md (USER, absolute). Rebuild ONLY as a native producer reading each emitter's own world state. | 0x8003B320 | — |
