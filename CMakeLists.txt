@@ -30,10 +30,10 @@ if(NOT EXISTS "${PSXPORT_DIR}/cmake/psxport.cmake")
 endif()
 message(STATUS "psxport framework: ${PSXPORT_DIR}")
 
-# RECORD WHAT THIS CONFIGURE RESOLVED, so `tools/psxport_sync.py --check` can compare the framework you
+# RECORD WHAT THIS CONFIGURE RESOLVED, so `external/psxport/tools/psxport_sync.py --check` can compare the framework you
 # actually BUILT against with the one psxport.pin RECORDS. The framework is no longer a git submodule
 # (external/psxport is a symlink to the workspace's shared clone, or a private clone at the pin — see
-# tools/psxport_sync.py); the pin is provenance, and this file is what keeps it honest. Measured
+# tools/psxport_fetch.py); the pin is provenance, and this file is what keeps it honest. Measured
 # 2026-08-16: this tree was once built against one framework commit while recording another, so a bare
 # clone did not compile, and nothing noticed.
 execute_process(COMMAND git -C "${PSXPORT_DIR}" rev-parse HEAD
@@ -287,24 +287,24 @@ if(BUILD_TESTING)
   add_test(
     NAME tomba2_provision_selftest
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_tomba2_provision.py")
-  add_test(
-    NAME tomba_psxport_pin_selftest
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/test_psxport_sync.py")
-  # THE LIVE CHECK, and it is a different test from the selftest above.
+  # THE LIVE CHECK, running the framework's own tool against this repository's real
+  # `psxport.pin` and the real build receipt.
   #
   # MEASURED 2026-09-27: every port's "pin test" was a selftest of the check FUNCTION, run against a
-  # temporary fixture. `tomba_psxport_pin_selftest` can pass 14/14 while this repository's actual
-  # `psxport.pin` names a framework commit nothing here was built against, because the selftest never
-  # reads the real pin or the real receipt. A gate that cannot fail on the thing it gates is not a gate,
-  # and that is why all ten ports showed green while four of their pins were demonstrably stale.
+  # temporary fixture. Such a selftest can pass 14/14 while this repository's actual `psxport.pin` names
+  # a framework commit nothing here was built against, because it never reads the real pin or the real
+  # receipt. A gate that cannot fail on the thing it gates is not a gate, and that is why all ten ports
+  # showed green while four of their pins were demonstrably stale. The tool and its behaviour test now
+  # live once, in the framework (tools/psxport_sync.py, tests/test_psxport_sync.py); this repository
+  # ships only tools/psxport_fetch.py.
   #
   # This test runs the real function against the real pin and the real receipt, and it points
   # `--build` at THIS build directory — the one CTest is running in, which was configured moments ago, so
   # its receipt is current by construction and the staleness guard cannot fire spuriously.
   add_test(
     NAME tomba_psxport_pin
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/psxport_sync.py"
-            --check --build "${CMAKE_BINARY_DIR}")
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/external/psxport/tools/psxport_sync.py"
+            --repo "${CMAKE_SOURCE_DIR}" --check --build "${CMAKE_BINARY_DIR}")
   add_test(
     NAME tomba_dynarec_boundary_selftest
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tools/verify_dynarec_boundary.py" --selftest)

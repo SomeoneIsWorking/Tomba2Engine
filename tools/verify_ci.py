@@ -8,14 +8,21 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from psxport_sync import CANONICAL_VERIFY_BUILD, check_build_pin
-
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_BUILD = Path(CANONICAL_VERIFY_BUILD)
+# The pin tool is owned by the pinned framework, not by this repository: the only pin tool shipped
+# here is tools/psxport_fetch.py. This insertion must precede the import below, and uses the same
+# external/psxport/tools resolution as the rest of this file.
 PSXPORT = (ROOT / "external/psxport").resolve()
 sys.path.insert(0, str(PSXPORT / "tools"))
 
-from port.consumer_verify import ConsumerVerifyConfig, run_consumer_verification
+from port.consumer_verify import ConsumerVerifyConfig, run_consumer_verification  # noqa: E402
+from psxport_sync import check_build_pin  # noqa: E402  (the framework's own pin tool)
+
+# This repository's canonical maintainer build directory: the same default the framework's pin tool
+# uses for --build. It is a property of THIS repository's layout, so it is owned here rather than
+# imported from the pin tool.
+CANONICAL_VERIFY_BUILD = ROOT / "build" / "ci"
+DEFAULT_BUILD = Path(CANONICAL_VERIFY_BUILD)
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
@@ -40,7 +47,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             python=Path(sys.executable),
         )
     )
-    return result if result != 0 else check_build_pin(build)
+    return result if result != 0 else check_build_pin(PSXPORT, ROOT / "psxport.pin", build)
 
 
 if __name__ == "__main__":

@@ -41,16 +41,26 @@ import sys
 import time
 from pathlib import Path
 
-from psxport_sync import CANONICAL_VERIFY_BUILD
-from run import resolve_disc
-
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The pin tool is owned by the pinned framework, not by this repository: the only pin tool shipped
+# here is tools/psxport_fetch.py, and the check, the report and the bump are run out of the fetched
+# checkout. This insertion must precede the import below, and uses the same external/psxport/tools
+# resolution as every other framework import in this file.
+PSXPORT = os.path.join(REPO, 'external', 'psxport')
+sys.path.insert(0, os.path.join(PSXPORT, 'tools'))
+
+# This repository's canonical maintainer build directory: the same tree verify_ci.py builds and the
+# same default the framework's pin tool uses for --build. It is a property of THIS repository's
+# layout, so it is owned here rather than imported from the pin tool.
+CANONICAL_VERIFY_BUILD = os.path.join(REPO, 'build', 'ci')
+
+from run import resolve_disc  # noqa: E402
+
 # The product this gate drives is the canonical maintainer build (the same tree verify_ci.py
 # builds); the player build under build/player/<toolchain> belongs to run.sh.
 BIN = os.path.join(CANONICAL_VERIFY_BUILD, 'bin', 'tomba2_port')
 EXE = os.path.join(REPO, 'scratch', 'bin', 'tomba2', 'MAIN.EXE')
 LOGDIR = os.path.join(REPO, 'scratch', 'logs')
-PSXPORT = os.path.join(REPO, 'external', 'psxport')
 
 # The enhancement configuration every agent run of this port is gated under. It is passed to
 # psxport's agent_environment rather than left to the product's working-directory discovery, which
