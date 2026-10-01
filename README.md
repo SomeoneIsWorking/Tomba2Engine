@@ -66,8 +66,8 @@ boundary. Set `PSXPORT_LIGHTREC_DIR` and `PSXPORT_LIGHTNING_PREFIX` to the exact
 maintained dependencies; the workflow records and provisions their revisions.
 `--build build/<name>` selects an isolated build whose products live in its own
 `bin/` directory. That is the whole gate: build, the product unit tests, the
-clang-format/clang-tidy/cpp-policy check, the execution-boundary check, and the live
-`psxport.pin` check. Representative gameplay and image-qualified override verification
+clang-format/clang-tidy/cpp-policy check and the execution-boundary check. Representative gameplay and
+image-qualified override verification
 remain open ([issue 0005](docs/issues/0005-prove-tomba2-image-aware-lightrec-override-dispatch.md)).
 
 ## Historical presentation captures

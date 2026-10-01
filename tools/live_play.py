@@ -123,21 +123,20 @@ def display_path(path: Path) -> str:
 
 
 def resolved_framework(build: Path) -> str:
-    """Which framework commit the build tree resolved when CMake configured it.
+    """Which framework checkout the build tree resolved.
 
-    Printed because it decides what the numbers below DESCRIBE. Two trees in this repository are
-    configured against two different framework commits (the recorded pin and the dev clone), and a
-    play-through's evidence belongs to the framework that produced it — a run whose numbers are
-    later read as describing framework HEAD when it described the pin is exactly the mistake
-    `psxport.pin` exists to prevent.
+    Printed because it decides what the numbers below DESCRIBE. A build can be configured against a
+    different framework checkout than another tree in this repository (this repository's
+    `external/psxport` versus an explicit PSXPORT_DIR), and a play-through's evidence belongs to the
+    framework that produced it.
     """
-    resolved = build / "psxport_resolved.txt"
+    resolved = build / "CMakeCache.txt"
     if not resolved.is_file():
-        return "(this build tree records no psxport_resolved.txt)"
-    fields = {key.strip(): value.strip() for key, value in
-              (line.split("=", 1) for line in
-               resolved.read_text(encoding="utf-8", errors="replace").splitlines() if "=" in line)}
-    return f"{fields.get('commit', '?')[:12]} ({fields.get('dir', '?')})"
+        return "(this build tree has no CMakeCache.txt)"
+    for line in resolved.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("PSXPORT_DIR:"):
+            return line.split("=", 1)[1].strip()
+    return "(this build tree records no PSXPORT_DIR)"
 
 
 def binary_identity(path: Path) -> dict[str, str]:

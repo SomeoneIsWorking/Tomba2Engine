@@ -42,16 +42,14 @@ import time
 from pathlib import Path
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# The pin tool is owned by the pinned framework, not by this repository: the only pin tool shipped
-# here is tools/psxport_fetch.py, and the check, the report and the bump are run out of the fetched
-# checkout. This insertion must precede the import below, and uses the same external/psxport/tools
-# resolution as every other framework import in this file.
+# The framework's own tools live in the checkout tools/psxport_fetch.py resolved. This insertion
+# precedes the import below and uses the same external/psxport/tools resolution as every other
+# framework import in this file.
 PSXPORT = os.path.join(REPO, 'external', 'psxport')
 sys.path.insert(0, os.path.join(PSXPORT, 'tools'))
 
-# This repository's canonical maintainer build directory: the same tree verify_ci.py builds and the
-# same default the framework's pin tool uses for --build. It is a property of THIS repository's
-# layout, so it is owned here rather than imported from the pin tool.
+# This repository's canonical maintainer build directory: the same tree verify_ci.py builds. It is a
+# property of THIS repository's layout, so it is owned here.
 CANONICAL_VERIFY_BUILD = os.path.join(REPO, 'build', 'ci')
 
 from run import resolve_disc  # noqa: E402

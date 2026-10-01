@@ -4,7 +4,8 @@ Baseline: the unmodified PlayStation releases of *Tomba!* and *Tomba! 2*, and th
 pre-migration native/offline-translated hybrid. Every user-visible delta from that baseline is one of
 the capability rows below (widescreen = S005/S011, 60 fps interpolation = S006, loading removal =
 S023/S024, game-state picture = S004). Epic intent is in `project-goals.md`, migration order in
-`migration.md`, atomic work in `issues/`, placement in `codemap.md`.
+`migration.md`, atomic work in `issues/`, placement in `codemap.md`, and which reverse-engineering
+steps are ground-truth-ready and which are not in `re-frontier.md`.
 
 Current focus: S001 — issue 0005 must prove one resident and one colliding-overlay override, each
 scoped back into the original guest body, before the recorded gameplay frontier is restored.
@@ -29,7 +30,7 @@ scoped back into the original guest body, before the recorded gameplay frontier 
 | S016 | Tomba! 2 movies play correctly | partial | FMV/CD owners exist with pre-migration coverage; unobserved on the Lightrec product. |
 | S017 | Tomba! 2 area and scene transitions work throughout the game | partial | Title-to-gameplay transition recorded; representative transitions unverified (card `kanban-108`). |
 | S018 | Both titles removed their offline guest-source product paths | verified | No emitted guest source, generator, static dispatch or generation-only selftest remains; both CMake graphs build native/Lightrec products. |
-| S019 | Linux x86-64 asset-free native/Lightrec CI builds and tests the repository | verified | Hosted `Linux x86-64 native/Lightrec contract` job runs `tools/verify_ci.py` (build + product tests + clang-format/tidy/cpp policy + pin check). |
+| S019 | Linux x86-64 asset-free native/Lightrec CI builds and tests the repository | verified | Hosted `Linux x86-64 native/Lightrec contract` job runs `tools/verify_ci.py` (build + product tests + clang-format/tidy/cpp policy). |
 | S020 | Windows x86-64 native/Lightrec CI builds and tests the repository | missing | No Windows product composition or hosted build; CMake graph and psxport presentation unproven there. |
 | S021 | macOS x86-64 and arm64 native/Lightrec CI builds and tests the repository | missing | No hosted macOS build; executable-memory publication, icache coherence, ABI and SDL presentation unqualified on arm64. |
 | S022 | Android arm64-v8a native/Lightrec CI assembles and tests the repository | missing | No application, Gradle/NDK composition, `android-port` consumption, touch layer or SAF setup here. |

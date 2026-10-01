@@ -31,7 +31,7 @@ jobs:
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
         with:
           version: "0.10.12"
-      - name: Fetch the framework revision recorded in psxport.pin
+      - name: Resolve the framework
         run: uv run --frozen python tools/psxport_fetch.py
       - name: Provision the shared pinned Linux build inputs
         uses: ./external/psxport/.github/actions/setup-linux

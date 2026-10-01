@@ -8,14 +8,13 @@ include(CTest)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 # PSXPORT_DIR — WHERE THE FRAMEWORK SOURCE COMES FROM. Defaults to external/psxport, which is NOT a
-# git submodule any more: it is a symlink to the workspace's shared framework clone (local — so a
-# framework edit is live in every port at once), or a private clone at psxport.pin (fresh machine, CI,
-# or anyone cloning this repo alone). tools/psxport_fetch.py --auto establishes whichever applies, and
-# run.sh calls it. The PATH is unchanged, so every reference to external/psxport/... still works.
+# git submodule any more: it is a relative symlink to the workspace's live framework checkout (local —
+# so a framework edit is live in every port at once), or a clone of psxport main where there is no
+# sibling checkout (fresh machine, CI, or anyone cloning this repo alone).
+# tools/psxport_fetch.py --auto establishes whichever applies, and run.sh calls it. The PATH is
+# unchanged, so every reference to external/psxport/... still works.
 #
-# Point it at the workspace's framework DEV CLONE to build this game against in-progress framework
-# work WITHOUT editing the submodule (see the workspace's coord/PROTOCOL.md — the submodule is a
-# read-only pinned consumer; framework edits happen in one place):
+# Point it at another framework checkout to build this game against in-progress framework work:
 #
 #   cmake -S . -B build -DPSXPORT_DIR=$HOME/repo/psx/psxport
 #
@@ -26,26 +25,9 @@ set(PSXPORT_DIR "${CMAKE_SOURCE_DIR}/external/psxport" CACHE PATH
     "psxport framework source directory (default: the external/psxport submodule)")
 if(NOT EXISTS "${PSXPORT_DIR}/cmake/psxport.cmake")
   message(FATAL_ERROR "PSXPORT_DIR=${PSXPORT_DIR} has no cmake/psxport.cmake — "
-                      "run `git submodule update --init --recursive`, or point PSXPORT_DIR at a psxport checkout.")
+                      "run `python3 tools/psxport_fetch.py --auto`, or point PSXPORT_DIR at a psxport checkout.")
 endif()
 message(STATUS "psxport framework: ${PSXPORT_DIR}")
-
-# RECORD WHAT THIS CONFIGURE RESOLVED, so `external/psxport/tools/psxport_sync.py --check` can compare the framework you
-# actually BUILT against with the one psxport.pin RECORDS. The framework is no longer a git submodule
-# (external/psxport is a symlink to the workspace's shared clone, or a private clone at the pin — see
-# tools/psxport_fetch.py); the pin is provenance, and this file is what keeps it honest. Measured
-# 2026-08-16: this tree was once built against one framework commit while recording another, so a bare
-# clone did not compile, and nothing noticed.
-execute_process(COMMAND git -C "${PSXPORT_DIR}" rev-parse HEAD
-                OUTPUT_VARIABLE PSXPORT_RESOLVED_SHA OUTPUT_STRIP_TRAILING_WHITESPACE
-                ERROR_QUIET RESULT_VARIABLE _psxport_rev_rc)
-if(NOT _psxport_rev_rc EQUAL 0)
-  set(PSXPORT_RESOLVED_SHA "unknown")   # honest: never silently record a plausible-looking sha
-endif()
-file(WRITE "${CMAKE_BINARY_DIR}/psxport_resolved.txt"
-     "dir = ${PSXPORT_DIR}\ncommit = ${PSXPORT_RESOLVED_SHA}\n")
-message(STATUS "psxport commit: ${PSXPORT_RESOLVED_SHA}")
-
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -230,11 +212,4 @@ if(BUILD_TESTING)
       --root "${CMAKE_SOURCE_DIR}"
       --compile-commands "${CMAKE_BINARY_DIR}"
       ${TOMBA_CPP_POLICY_ARGS})
-  # THE LIVE PIN CHECK: the framework's own tool against this repository's real `psxport.pin` and the
-  # real build receipt. `--build` is THIS build directory, configured moments ago, so its receipt is
-  # current by construction.
-  add_test(
-    NAME tomba_psxport_pin
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/external/psxport/tools/psxport_sync.py"
-            --repo "${CMAKE_SOURCE_DIR}" --check --build "${CMAKE_BINARY_DIR}")
 endif()
