@@ -907,11 +907,11 @@ void Render::fieldObjectsRender() {
           c->rsub.stats.snObjs++;
           rend(c)->propQuadRender(n);
         } else if (rfn == 0x8013D454u && c->mem_r32(0x8013D454u) == 0x27BDFFB8u) {
-          // The water jet's SPRITE branch. Its MESH branch remains unported after the banned
-          // fx_mesh guest-time tap was deleted; the two branches are mutually exclusive on
-          // (s16)node+0x60, so this producer returns immediately for the mesh case.
+          // The WATER JET, both of its branches. (s16)node+0x60 is zero or not, which is exactly how
+          // the guest splits them, so one producer draws the sprite half and the packed-mesh half.
+          // Overlay-resident, so addiu sp,-72 is the residency signature. See fx_water_jet.cpp.
           c->rsub.stats.snObjs++;
-          rend(c)->waterJetSpriteRender(n);
+          rend(c)->waterJetRender(n);
         } else if (rfn == 0x8013ED08u && c->mem_r32(0x8013ED08u) == 0x27BDFFE8u) {
           // A00's SINGLE RIGID EFFECT MESH: FUN_8013ED08 composes node position/angles/three scale
           // bytes, explicitly publishes identity depth cue, then calls the shared packed-mesh writer.

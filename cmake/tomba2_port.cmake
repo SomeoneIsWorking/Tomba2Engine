@@ -258,7 +258,7 @@ set(GAME_SRC
   game/render/fx_rigid_mesh.cpp
   game/render/fx_swing.cpp
   game/render/prop_quad.cpp
-  game/render/guest_gte_water_jet.cpp
+  game/render/fx_water_jet.cpp
   game/render/mesh_quads.cpp
   game/render/effect_lerp.cpp
   game/render/field_hud.cpp

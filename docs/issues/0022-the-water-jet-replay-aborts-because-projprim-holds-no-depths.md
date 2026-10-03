@@ -1,90 +1,50 @@
 ---
 id: 22
-title: The water-jet replay aborts because ProjPrim holds no depths for guest-written packets, and the file's own comment blamed a class that is present
-status: open
-symptom: the A00 water-jet path reaches missingGuestDepth and aborts the product mid-play
-state_items: S011
-tags: tomba2,render,water-jet,depth,gte,fallback
+title: The water-jet replay aborted because ProjPrim held no depths for guest-written packets
+status: closed
+symptom: the A00 water-jet path reached missingGuestDepth and aborted the product mid-play
+state_items: S004, S011
+tags: tomba2,render,water-jet,depth,gte
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-10-03
+closed: 2026-10-03
 ---
 
-## What is measured, and what is only read
+## Cause, as measured
 
-**Read from the image and the product source, not from a run — no product run was possible this session**
-(the single product slot was held by the Spyro 1 level-dispatch investigation), so nothing here is a
-runtime measurement and the cause below is a hypothesis with its discriminating test named.
+The abort was never a depth bug to be fixed in place — it was the fallback announcing, correctly, that
+it could not reproduce the guest's depths, and the fallback has since been deleted.
 
-## The mechanism
+`FUN_80027768`'s depths come from `ProjPrim`, which records a per-vertex depth when the RENDERER
+executes a packet (`gp0_exec`). The water-jet writer is a *guest* writer appending to the packet pool,
+so those read addresses were never recorded, every lookup missed, and the replay's 4/4 check refused —
+correctly. A run printed the counts that place it on that row of the three: `packets=2
+expected_hits=8 hits=0 misses=2 stale=0` — every vertex missed, nothing went stale, so the arithmetic
+was never in question.
 
-`FUN_80027768` is the guest's packed-mesh writer and is owned by `waterJetWriterTap`, which calls the
-original and then — only when `WaterJetScope::activeFor(c)` and not `psxRender()` — replays the guest's
-GT4 packet span through `gpu_dma2_block` to reconstruct a native submission. The replay's depths come from
-`ProjPrim`, and the replay refuses unless every vertex resolved:
+## Fix
 
-```cpp
-if (result.depthHits != static_cast<long>(result.packets) * 4L || result.depthMisses != 0 ||
-    result.depthStale != 0) {
-  missingGuestDepth(result);
-}
+`Render::waterJetMeshRender` in `game/render/fx_water_jet.cpp` builds the jet from the node's own
+controller state, so there are no guest packets and no depths to reproduce: the anchor at
+node+0x2E/0x32/0x36, the signed mode at node+0x60 (which indexes the packed record-list table at
+0x8010A058 and selects the branch), the uniform scale byte `(s16)node+0x62 >> 4`, the Euler angles at
+node+0x54, and the writer's literal arguments (clut row 0, sort bias -250, U scroll 0). It composes
+through `projComposeObjectHost` and emits through the existing `meshQuadRecordsEmit`, so the jet also
+interpolates under the lerped camera. `guest_gte_water_jet.cpp` — the scope, the replay and the depth
+check — is deleted.
+
+The check was never widened or relaxed; it went away with the code that owned it.
+
+## Evidence
+
+Same headless route as issue 0026. A 2500-frame run of the seaside field with `PSXPORT_DEBUG=waterjetmesh`:
+
+```
+rc=0, zero FAULT lines, fallback_blocks=0 fallback_instructions=0
+[waterjetmesh] f1116 t=1.00 node=800FF928 mode=1 mesh=8014B1B8 pos=(8080.0,-1559.0,5439.0)
+               ang=(0,-193,0) scale=52 quads=2 screen=[92.1,40.0]..[131.3,83.6] interp=host
 ```
 
-So the abort is not a crash in the ordinary sense: it is the fallback announcing that it **cannot
-reproduce the guest's depths**, and declining to submit a picture built from depths that are not the
-guest's. That refusal is correct and stays. A submission here would be a wrong picture rather than a
-missing effect, and a wrong picture that looks right is the one failure this project will not ship.
-
-## The likely cause, and why
-
-`ProjPrim` records a per-vertex depth when the **renderer executes a packet** — `gp0_exec` is the recording
-path (`runtime/psx/proj_prim.h`: "the renderer's gp0_exec looks up the depth at each read address", with
-`setPz` doing the recording). The water-jet writer is a *guest* writer appending to the packet pool. If it
-appends without the renderer's `gp0_exec` running over those packets, the depths for those read addresses
-were never recorded, every lookup misses, and the abort fires on the first water jet — which is what a
-fallback that "replays packets to recover their depths" structurally cannot do.
-
-**This is a hypothesis, and it is falsifiable in one run:** if `misses` equals `packets * 4` (every vertex
-missed), the depths were never recorded and this is it. If `stale` is non-zero the addresses resolved into
-a recycled pool slot instead. If `hits == expected` but the comparison still fired, the arithmetic or the
-walk disagrees about the vertex count and it is a packet-walk bug. The abort message now prints
-`expected_hits` alongside the counts precisely so those three can be told apart from the log.
-
-## The comment that was wrong, and what it cost
-
-`guest_gte_water_jet.cpp` said of this path:
-
-> …only the authenticated executable/overlay evidence because WaterJetScope is absent.
-
-**That was false.** `WaterJetScope` is declared in that same file, and `waterJetControllerTap` establishes
-it around its call of the original controller — the only route by which the writer is reached with the
-scope up. The class is not absent; what is absent is the depth accounting. A reader who believed the
-comment would have gone looking for a missing class rather than for a depth-recording gap, and the
-comment was load-bearing enough that this issue was nearly filed as "the scope was never wired up".
-
-Corrected in place, with the correction and its reason kept next to the code.
-
-## The proper fix, and what is explicitly not it
-
-**Fix the recording, not the check.** Either guest-written packets go through the renderer's packet
-execution path so their depths are recorded, or the water-jet owner runs the guest writer inside a scope
-that already holds the depths and stops replaying for depths at all. The second is the better shape and is
-the one the file's own design was reaching for.
-
-**Not a fix:** relaxing the comparison, defaulting the depth, or skipping the submission. Each of those
-converts "we cannot reproduce this" into a picture built from depths that are not the guest's — the
-outcome the abort exists to prevent.
-
-## Also decided here, and why the A/B was not landed
-
-An uncommitted A/B in the tree swapped the controller's overlay-scoped declaration for the resident form at
-the same address, with a comment predicting the abort would disappear. **That prediction was never
-measured**, and landing it would have been committing an unmeasured experimental revert as a fix. The tree
-was restored to the committed declaration. If the conversion of `waterJetControllerTap` turns out to be the
-cause, the honest action is to revert that conversion as a deliberate whole-feature decision — not to leave
-a speculative A/B in the tree, and not to weaken the depth check.
-
-## Next step
-
-One product run, with the abort's own counters as the measurement: reach the water jet, and read
-`packets` / `expected_hits` / `hits` / `misses` / `stale` from the log. That single line places the defect
-on one of the three rows above and names the fix.
+All five non-zero modes of the table (1..5) draw across f874..f1164, each on both the real and the
+interpolated present. The captured frame at the logged bbox shows the translucent white jet plume
+rising out of the sea with the water visible through it.

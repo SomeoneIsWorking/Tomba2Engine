@@ -281,19 +281,10 @@ constexpr uint32_t kAltScale = 0x60u;  // packed 8.8 pair: scaleY (hi16) | scale
 constexpr uint32_t kAltScript = 0x64u; // -> current animation-script byte (bit 7 = loop marker)
 constexpr uint32_t kAltTable = 0x6Cu;  // table of per-animation-frame record lists
 
-// FUN_8013D454's sprite branch. The controller has two modes on (s16)node+0x60: non-zero draws the
-// water jet's MESH through FUN_80027768, zero draws this sprite.
-// THE MESH BRANCH HAS NO PRODUCER. It used to be reached by a SCOPE in game/render/fx_mesh.cpp, which
-// was deleted with the GTE-register render taps on 2026-08-05 (commit abf3cf9) — correctly, it was a
-// tap. Nothing replaced it, so under pc_render the jet's mesh is honestly absent. Tracked as port-map
-// step `render-producer-effect-mesh-family`; do NOT restore a scope to get the picture back.
-constexpr uint32_t kJetMode = 0x60u;           // (s16) 0 selects the sprite branch
-constexpr uint32_t kJetScale = 0x62u;          // u16 uniform scale numerator, applied >> 8
-constexpr uint32_t kJetModelTab = 0x8010A058u; // 6 record-list pointers; the sprite branch takes [0]
-constexpr int kJetDqa = 4;                     // this one programs 4, not the family's usual 6
-constexpr int kJetBias = -64;
+// FUN_8013D454, the water jet, is NOT here: both of its branches live together in
+// game/render/fx_water_jet.cpp.
 
-// FUN_8012D9E8's sprite tail (see the producer for why each of these is a field, not a constant).
+// FUN_8012D9E8's SPRITE TAIL.
 constexpr uint32_t kRotTailAnchor = 0x60u;       // packed VX|VY here, VZ at +0x64
 constexpr uint32_t kRotTailScale = 0x70u;        // s16 uniform scale numerator, applied >> 11
 constexpr uint32_t kRotTailIndex = 0x40u;        // model index = the SIGNED HIGH BYTE of this s16
@@ -707,29 +698,6 @@ void Render::fxAltAnimSpriteRender(uint32_t node) {
   a.rec0 = c->mem_r32(table + frame * 4u);
   a.numerX = (uint16_t)sc;
   a.numerY = (uint16_t)(sc >> 16);
-  altSpriteEmit(a);
-}
-
-// FUN_8013D454's SPRITE branch — the water jet's other half. The mesh branch (non-zero node+0x60,
-// drawn through FUN_80027768) has NO producer since the fx_mesh.cpp tap was deleted 2026-08-05
-// (abf3cf9); this owns the zero branch, which emits through FUN_800328EC. The two branches are
-// mutually exclusive, so there is no double-draw — and with the mesh branch unowned, this is the
-// only half of the jet that draws at all under pc_render.
-void Render::waterJetSpriteRender(uint32_t node) {
-  Core *c = mCore;
-  if ((int16_t)c->mem_r16(node + kJetMode) != 0) {
-    return; // the mesh branch: not ours
-  }
-  const uint32_t numer = (uint16_t)c->mem_r16(node + kJetScale);
-  AltSprite a;
-  a.node = node;
-  a.anchorX = kAltAnchorX;
-  a.dqa = kJetDqa;
-  a.gateBias = kJetBias;
-  a.depthBias = kJetBias;
-  a.rec0 = c->mem_r32(kJetModelTab);
-  a.numerX = numer;
-  a.numerY = numer;
   altSpriteEmit(a);
 }
 

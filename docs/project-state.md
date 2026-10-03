@@ -12,10 +12,10 @@ scoped back into the original guest body, before the recorded gameplay frontier 
 
 | ID | Capability | State | Evidence or gap |
 |---|---|---|---|
-| S001 | Tomba! 2 reaches representative gameplay as a native/Lightrec product | blocked | Headless launch boots the logo FMV into the title screen and presents it (`shot` capture, zero fallback, issue 0026 closed); representative gameplay unverified (issue 0005). |
+| S001 | Tomba! 2 reaches representative gameplay as a native/Lightrec product | blocked | Headless launch runs 2500 frames of the seaside field with zero faults and zero Lightrec fallback, past the f870 water-jet abort (issues 0026 and 0022/kanban-120 closed); representative gameplay unverified (issue 0005). |
 | S002 | Tomba! 2 behaviour compared independently against the original | partial | `tools/oracle_compare.py` compares 34 title-owned RAM checkpoints against the Beetle reference, and `tools/picture_oracle.py` the presented picture; known picture deltas are tracked in `issues/0019`. |
 | S003 | Tomba! 2 game behaviour owned by readable native subsystems | partial | Native owners exist across `game/`; 42 declared-at-overlay-address overrides that never installed are fixed and refused by abort (issue 0015, closed). |
-| S004 | Tomba! 2 picture produced completely from game-owned scene state | partial | `renderpath psx` still needs the substrate path for some producers; guest-GTE producers remain in the item menu (issue 111 card). |
+| S004 | Tomba! 2 picture produced completely from game-owned scene state | partial | `renderpath psx` still needs the substrate path for some producers; guest-GTE producers remain in the item menu (issue 111 card). The water jet's mesh branch is native and interpolating again (kanban-120, issue 0022). |
 | S005 | Tomba! 2 true widescreen covers world visibility and 2D layout | partial | `aspect=1 wide_engine=1 native_width=320 render_width=428`; sky/sea seams at 16 px multiples and the 3-px picture shift are still open (`issues/0012`, `issues/0019`). |
 | S006 | Tomba! 2 interpolation covers moving camera, objects and effects | partial | Per-object interpolated 60 fps on; real-vs-interp splits still leave stale/ahead entities (issue 0009 open). |
 | S007 | Tomba! 2 accepts native player input through representative gameplay | partial | Held pad input walks and jumps Tomba in the seaside field for 402 frames with the reference agreeing; other areas, menus and combat undriven. |

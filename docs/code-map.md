@@ -54,7 +54,7 @@ Totals: 793 native fns, 639 owned addresses, 787 LIVE / 6 ORPHAN. 241 override d
 | 0x80026C88 | LIVE | `ObjectTable::dispatch` | game/world/object_table.cpp:139 | 0x80026C88 |  |
 | 0x80026C88 | LIVE | `ObjectTable::dispatchFaithful` | game/world/object_table.cpp:218 |  | ObjectTable::dispatchFaithful — byte-mirror of guest 0x80026C88 (authe… |
 | 0x80027254 | LIVE | `ObjectTable::handler27254` | game/world/object_table.cpp:43 |  |  |
-| 0x80027768 | LIVE | `waterJetWriterTap` | game/render/guest_gte_water_jet.cpp:178 | 0x80027768 | untouched guest packed-mesh writer plus one scoped packet-span replay.… |
+| 0x80027768 | SUBSTRATE | — | — | 0x80027768 | The shared packed-mesh writer. Its display-side record walk is `Render::meshQuadRecordsEmit` (game/render/mesh_quads.cpp); no producer overrides it — the former `waterJetWriterTap` replay fallback was deleted with kanban-120. |
 | 0x80027A4C | LIVE | `Render::fxSpriteRender` | game/render/fx_sprite.cpp:391 |  | The node's own render fn IS the emitter for every plain member of the … |
 | 0x80027CB4 | LIVE | `FxSpriteAnchored::emitUniformScale` | game/render/fx_sprite_anchored.cpp:246 |  | GUEST_ADDRESS: 80027CB4 authenticated executable/overlay evidence |
 | 0x80027E5C | LIVE | `FxSpriteAnchored::emitByteScale` | game/render/fx_sprite_anchored.cpp:327 |  | GUEST_ADDRESS: 80027E5C authenticated executable/overlay evidence |
@@ -766,7 +766,7 @@ Totals: 793 native fns, 639 owned addresses, 787 LIVE / 6 ORPHAN. 241 override d
 | 0x8013C9C0 | LIVE | `beh_scatter_ramp_machine` | game/ai/beh_scatter_ramp_machine.cpp:49 |  |  |
 | 0x8013CDD4 | LIVE | `Render::propQuadRender` | game/render/prop_quad.cpp:42 |  |  |
 | 0x8013CDD4 | LIVE | `WidescreenMarginQuad::emit` | game/render/widescreen_margin_quad.cpp:180 |  |  |
-| 0x8013D454 | LIVE | `Render::waterJetSpriteRender` | game/render/fx_sprite.cpp:718 |  | 's SPRITE branch — the water jet's other half. The mesh branch (non-ze… |
+| 0x8013D454 | LIVE | `Render::waterJetRender` | game/render/fx_water_jet.cpp:196 |  | The water jet's BOTH branches, which `(s16)node+0x60` makes mutually exclusive: zero emits the FUN_800328EC sprite, non-zero emits the packed mesh (record list from the table at 0x8010A058 indexed by the mode itself, uniform scale from `(s16)node+0x62>>4`, angles at node+0x54, sort bias -250). |
 | 0x8013DD34 | LIVE | `Render::worldLineDraw` | game/render/fx_line.cpp:222 |  | THE rope leaf: a stroke between two world points, drawn as the project… |
 | 0x8013DD48 | ORPHAN | `sub8013DD48` | game/ai/beh_a08_scene_actor.cpp:172 | 0x80072DDC | (objAnim, subId) — allocate a spawner obj and hook its handler. |
 | 0x8013E08C | LIVE | `Render::shockwaveRingRender` | game/render/fx_line.cpp:375 |  | the expanding SHOCKWAVE RING. Ported 2026-07-28; it was surfaced by |

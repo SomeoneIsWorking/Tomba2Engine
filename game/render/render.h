@@ -376,7 +376,6 @@ public:
   // them was dispatched, so nothing reached the picture.
   //   altSpriteEmit          — the shared tail: project the anchor, gate, emit the model list.
   //   fxAltAnimSpriteRender  — FUN_8012E868, the animation-script member.
-  //   waterJetSpriteRender   — FUN_8013D454's sprite branch (its mesh branch remains unported).
   // One emission of the family, as data. Every field is something a controller genuinely varies —
   // FUN_8012D9E8 alone differs in the anchor offset, the scale shift, and (separately) the gate bias
   // and the depth bias, so a positional argument list stopped being readable at four callers.
@@ -395,8 +394,13 @@ public:
   };
   void altSpriteEmit(const AltSprite &a);
   void fxAltAnimSpriteRender(uint32_t node);
-  void waterJetSpriteRender(uint32_t node);
   void fxRotSpriteTailRender(uint32_t node);
+  // FUN_8013D454 (A00, the water jet) is ONE controller with two branches the node's own signed mode
+  // word selects, so both live in game/render/fx_water_jet.cpp rather than one here and one there.
+  void waterJetRender(uint32_t node);
+  void waterJetMeshRender(uint32_t node);   // non-zero mode: the packed-mesh branch
+  void waterJetSpriteRender(uint32_t node); // mode zero: FUN_800328EC's four-corner sprite
+
   // fxCuedSpriteRender (FUN_80113768, A0A/area 10): the family member that DRIVES the writer's depth
   // cue (IR0 = node[7] << 5, far colour black) instead of programming the identity, and shifts MAC0
   // before scaling rather than after. Found by the 22-area nofx sweep. Body in fx_sprite.cpp.

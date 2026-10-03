@@ -2527,6 +2527,31 @@ Adjacent `FUN_8013D828` is not equivalent: it writes signed `IR0 = 4096-node[0x5
 far-colour CR21-23. Its native port is blocked on identifying the persistent intended far-colour
 publisher; black, inherited GTE readback, and forced identity cue are all ungrounded alternatives.
 
+### A00 `FUN_8013D454` — the water jet, two branches on one mode word (2026-10-03)
+
+Ground truth: the 78 instruction words of `A00.BIN` at the MODE slot (0x80108F9C), read directly.
+The body copies 24 bytes from `0x8010A058` to `sp+0x10`, reads the world anchor as three SEPARATE
+s16s (`node+0x2E`, `0x32`, `0x36`), the signed mode `node+0x60` and the scale word `node+0x62`, then
+branches on `mode == 0`.
+
+The mesh branch is `FUN_800318A0(&anchor, &scaleBytes, node+0x54)` followed by
+`FUN_80027768(*(u32*)(0x8010A058 + mode*4), 0, -250, 0)`. Two facts the transfer does not show:
+the guest writes ONE byte to all three of `FUN_800318A0`'s scale slots, so the jet's column scales are
+uniform, and that byte is `(s16)node+0x62 >> 4` — not the `>> 8` the zero branch applies to the same
+word as a scale numerator. The record table holds six 36-byte-record packed meshes; all five non-zero
+modes reach one, and modes 1 and 2 are the same translucent two-quad jet strip at two heights.
+
+Native owner: `Render::waterJetMeshRender` (`game/render/fx_water_jet.cpp`), dispatched beside the
+zero branch's sprite through `Render::waterJetRender` behind the A00 residency signature
+`0x27BDFFB8`. It replaces the bounded guest-GTE packet replay that carried the 2026-08-21
+non-interpolation authorization (kanban-120); that fallback is deleted, and with it the two overrides
+on `0x80027768` and `0x8013D454`.
+
+Unlike `FUN_8013ED08` this controller does NOT publish IR0, so the guest inherits the depth-cue factor
+the previous display producer left at `0x1F800090`. The producer takes the identity (`depthCue = 0`),
+which cannot be wrong about an unmeasured value but is not a measurement; a non-zero inherited IR0
+would tint the jet by the surface it passes over. That is the open question on kanban-120.
+
 ## Region `0x800527C8-0x8005FB54` follow-up wave (2026-07-08, wide-RE tier, UNWIRED) — the
 ## ActorTomba "G-block" physics/AI region, dispatcher-first pass
 
