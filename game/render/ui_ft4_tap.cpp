@@ -1,8 +1,8 @@
 // UiFt4Tap — implementation. See ui_ft4_tap.h for why this address has exactly one owner.
 #include "ui_ft4_tap.h"
 #include "core.h"
+#include "core/overrides/native_override_catalog.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "pause_menu.h"  // PauseMenu::collect  — FUN_800346BC scope (kanban #21)
 #include "score_popup.h" // ScorePopup::collect — FUN_80072520 scope (kanban #18)
 #include "ui/ui_group_capture.h"

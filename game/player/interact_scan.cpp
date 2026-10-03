@@ -24,9 +24,9 @@
 // It also publishes the VERB at 0x800BF840 — which activation just happened — chosen by object type:
 // 0x84 for the sign/plaque family (types 0x0E/0x0F/0x39), 0x85 for everything else it accepts.
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h"
-#include "native_override_catalog.h"
 #include "object/actor.h"
 #include <cstdint>
 

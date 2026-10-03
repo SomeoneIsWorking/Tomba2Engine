@@ -3,10 +3,10 @@
 #include "ui_group_capture.h"
 #include "card_menu.h"
 #include "core.h"
-#include "engine.h"
+#include "core/engine/engine.h"
+#include "core/entry/game_ctx.h" // eng(c) / rend(c)
 #include "game.h"
-#include "game_ctx.h" // eng(c) / rend(c)
-#include "gpu_vk.h"   // gpu_vk_native_w — the authored 4:3 width the margins extend beyond
+#include "gpu_vk.h" // gpu_vk_native_w — the authored 4:3 width the margins extend beyond
 #include "guest_call.h"
 #include "options_page.h"
 #include "panel.h" // Panel::pushFill / pushCorners — the ONE panel geometry

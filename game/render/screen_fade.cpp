@@ -2,10 +2,10 @@
 #include "screen_fade.h"
 #include "cfg.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "producer_scope.h" // ProducerScope — graphics-producer DB, native leg
 #include "wide_window.h"
 #include <cstdio>
@@ -110,7 +110,7 @@ void ScreenFade::installLeafTap() {
 // (fade LEVEL 0..31) / node+104 (step-2 delay counter). Two still-substrate leaves: the
 // per-frame helper 0x8010CC68 (returns a "ready-to-advance" boolean in v0) and the init poke
 // 0x8010D030 (per-node overlay init). See engine.h for the caller (fieldRun sm[0x4e]==0xb).
-#include "core/engine.h" // Engine::zoneTransitionSetup (native)
+#include "core/engine/engine.h" // Engine::zoneTransitionSetup (native)
 void ScreenFade::sequence(uint32_t node) {
   Core *c = core;
   const uint8_t outer = c->mem_r8(node + 2);

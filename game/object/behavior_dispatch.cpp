@@ -13,9 +13,9 @@
 #include "behavior_dispatch.h"
 #include "cfg.h" // Fps60::current_object (was g_current_object)
 #include "core.h"
-#include "core/engine.h" // class Engine (for Core::engine)
+#include "core/engine/engine.h" // class Engine (for Core::engine)
+#include "core/entry/game_ctx.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
 #include <cstdint>
 #include <cstdio>

@@ -5,7 +5,7 @@
 // substrate table used by the other native walkers (ObjectList / Array8Dispatch).
 #include "transition_state3.h"
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
 #include "tomba2_types.h" // T2_OBJLIST_HEAD_1/2, T2OBJ_HANDLER/NEXT/RENDER_FLAG
 
 void TransitionState3::walkOnce() {

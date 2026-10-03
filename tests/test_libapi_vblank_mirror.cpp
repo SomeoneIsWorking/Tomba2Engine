@@ -1,5 +1,5 @@
 #include "core.h"
-#include "libapi_intr.h"
+#include "core/hle/libapi_intr.h"
 #include "timing.h"
 
 #include <cstdint>

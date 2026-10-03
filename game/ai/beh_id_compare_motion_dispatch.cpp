@@ -32,7 +32,7 @@
 #include "animation.h" // Animation::step (FUN_80076D68)
 #include "cfg.h"
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
 #include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 #include "guest_call.h"
 #include "render/cull.h"   // Cull::cullWrapperFlag2 (FUN_800777FC)

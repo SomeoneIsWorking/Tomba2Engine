@@ -61,23 +61,23 @@ if(BUILD_TESTING)
   add_executable(test_authentic_overlay_collision
       tests/test_authentic_overlay_collision.cpp
       tests/authenticated_image.cpp
-      game/core/native_override_catalog.cpp)
-  target_include_directories(test_authentic_overlay_collision PRIVATE game/core tests)
+      game/core/overrides/native_override_catalog.cpp)
+  target_include_directories(test_authentic_overlay_collision PRIVATE game game/core tests)
   target_link_libraries(test_authentic_overlay_collision PRIVATE psxport)
 
   add_executable(test_authentic_resident_override
       tests/test_authentic_resident_override.cpp
       tests/authenticated_image.cpp
-      game/core/native_override_catalog.cpp
-      game/core/str.cpp)
-  target_include_directories(test_authentic_resident_override PRIVATE game/core tests)
+      game/core/overrides/native_override_catalog.cpp
+      game/core/assets/str.cpp)
+  target_include_directories(test_authentic_resident_override PRIVATE game game/core tests)
   target_link_libraries(test_authentic_resident_override PRIVATE psxport)
 
   add_executable(test_native_override_catalog
       tests/test_native_override_catalog.cpp
-      game/core/native_override_catalog.cpp
+      game/core/overrides/native_override_catalog.cpp
       game/scene/level_load.cpp)
-  target_include_directories(test_native_override_catalog PRIVATE game/core game/scene)
+  target_include_directories(test_native_override_catalog PRIVATE game game/core game/scene)
   target_link_libraries(test_native_override_catalog PRIVATE psxport)
   add_test(NAME tomba_native_override_catalog COMMAND test_native_override_catalog)
 
@@ -88,38 +88,38 @@ if(BUILD_TESTING)
   # because ctest does not invert WILL_FAIL for a signalled child.
   add_executable(test_native_override_unreachable_abort
       tests/test_native_override_unreachable_abort.cpp
-      game/core/native_override_catalog.cpp
+      game/core/overrides/native_override_catalog.cpp
       game/scene/level_load.cpp)
-  target_include_directories(test_native_override_unreachable_abort PRIVATE game/core game/scene)
+  target_include_directories(test_native_override_unreachable_abort PRIVATE game game/core game/scene)
   target_link_libraries(test_native_override_unreachable_abort PRIVATE psxport)
   add_test(NAME tomba_native_override_unreachable_abort
            COMMAND test_native_override_unreachable_abort)
 
   add_executable(test_gpu_timeout_dispatch
-      tests/test_gpu_timeout_dispatch.cpp game/core/game_config.cpp)
-  target_include_directories(test_gpu_timeout_dispatch PRIVATE game/core)
+      tests/test_gpu_timeout_dispatch.cpp game/core/entry/game_config.cpp)
+  target_include_directories(test_gpu_timeout_dispatch PRIVATE game game/core)
   target_link_libraries(test_gpu_timeout_dispatch PRIVATE psxport)
   add_test(NAME tomba_gpu_timeout_dispatch COMMAND test_gpu_timeout_dispatch)
 
   add_executable(test_libapi_vblank_mirror
       tests/test_libapi_vblank_mirror.cpp
-      game/core/libapi_intr.cpp
-      game/core/native_override_catalog.cpp)
-  target_include_directories(test_libapi_vblank_mirror PRIVATE game/core)
+      game/core/hle/libapi_intr.cpp
+      game/core/overrides/native_override_catalog.cpp)
+  target_include_directories(test_libapi_vblank_mirror PRIVATE game game/core)
   target_link_libraries(test_libapi_vblank_mirror PRIVATE psxport)
   add_test(NAME tomba_libapi_vblank_mirror COMMAND test_libapi_vblank_mirror)
 
-  # The frame-cadence owner (game/core/frame_cadence.h). The gate's own `sltu`, the incrementer's
+  # The frame-cadence owner (game/core/frame/frame_cadence.h). The gate's own `sltu`, the incrementer's
   # read-modify-write, the u16 wrap, and the accounting denominators.
   add_executable(test_frame_cadence
       tests/test_frame_cadence.cpp
-      game/core/frame_cadence.cpp)
-  target_include_directories(test_frame_cadence PRIVATE game/core)
+      game/core/frame/frame_cadence.cpp)
+  target_include_directories(test_frame_cadence PRIVATE game game/core)
   target_link_libraries(test_frame_cadence PRIVATE psxport)
   add_test(NAME tomba_frame_cadence COMMAND test_frame_cadence)
 
   add_executable(test_parallax_scroll tests/test_parallax_scroll.cpp)
-  target_include_directories(test_parallax_scroll PRIVATE game/scene "${PSXPORT_DIR}/tests")
+  target_include_directories(test_parallax_scroll PRIVATE game game/scene "${PSXPORT_DIR}/tests")
   add_test(NAME tomba_parallax_scroll COMMAND test_parallax_scroll)
 
   add_executable(test_ot_key_ord_policy tests/test_ot_key_ord_policy.cpp)
@@ -189,8 +189,8 @@ if(BUILD_TESTING)
   # 1196, which is under the 1200 default and needs no cap. A file under the default does not belong in
   # the legacy list — leaving it would be the same "keeps a cap it no longer needs" the gate prevents.
   #
-  # `game/core/engine.cpp` LEFT this list too: it was 3251, the largest single file in the repository.
-  # `Engine` is still ONE class and game/core/engine.h is still its single declaration — the 47 method
+  # `game/core/engine/engine.cpp` LEFT this list too: it was 3251, the largest single file in the repository.
+  # `Engine` is still ONE class and game/core/engine/engine.h is still its single declaration — the 47 method
   # bodies moved to six sibling translation units split by the level of the guest's own state machine
   # they serve, with no method body changed. engine.cpp is now the banner and the includes, and every
   # new file is under the 1200 default.
@@ -211,8 +211,11 @@ if(BUILD_TESTING)
   # per-item-kind leaves the two walks dispatch into, one method per guest item kind. The G-block lens
   # and the address vocabulary every Tomba owner shares moved to `game/player/tomba_state.h`, and
   # ActorTomba itself is now `tomba::player::ActorTomba`. actor_tomba.cpp is under the 1200 default.
-  set(TOMBA_CPP_POLICY_CAPS
-      game/scene/demo.h=87)
+  # `game/scene/demo.h` LEFT this list too. The caps are legacy EXCEPTIONS to the 1200-line default
+  # (check_caps only compares line counts), so an 87-line header under one bought nothing but an
+  # obligation: the gate fails a capped file that shrinks, demanding a ratchet on every edit. Demo
+  # is one cohesive owner (the DEMO / front-end MENU substate machine) and belongs at the default.
+  set(TOMBA_CPP_POLICY_CAPS)
   set(TOMBA_CPP_POLICY_ARGS)
   foreach(cap IN LISTS TOMBA_CPP_POLICY_CAPS)
     list(APPEND TOMBA_CPP_POLICY_ARGS --cap "${cap}")

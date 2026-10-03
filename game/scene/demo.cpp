@@ -37,15 +37,15 @@
 #include "card_load_machine.h"
 #include "cfg.h"
 #include "core.h"
-#include "core/asset.h" // class Asset — preloadTexgroup (static, area-load sync)
+#include "core/assets/asset.h" // class Asset — preloadTexgroup (static, area-load sync)
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_resume.h"
+#include "core/overrides/native_override_catalog.h" // DEMO image-scoped native declarations
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
-#include "guest_resume.h"
-#include "native_override_catalog.h" // DEMO image-scoped native declarations
-#include "scheduler.h"               // native_task_spawn (FUN_80051F14 port) — Slip #4 s0 spawn
-#include "world/placement.h"         // ov_place_objects (FUN_80072A78)
-#include "world/pool.h"              // ov_pool_init_run (FUN_8007B18C) + siblings
+#include "scheduler.h"       // native_task_spawn (FUN_80051F14 port) — Slip #4 s0 spawn
+#include "world/placement.h" // ov_place_objects (FUN_80072A78)
+#include "world/pool.h"      // ov_pool_init_run (FUN_8007B18C) + siblings
 #include <stdio.h>
 #include <stdlib.h>
 

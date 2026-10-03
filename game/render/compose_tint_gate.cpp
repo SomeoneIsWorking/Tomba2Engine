@@ -24,9 +24,9 @@
 // node[+0x0B] == 0x0F is passed through to the emitter as a bool. It is a sub-type flag; what it
 // selects lives inside FUN_8003F07C, which is not ported yet, so it is forwarded rather than named.
 #include "core.h"
-#include "game_ctx.h" // rend(c) — the Render instance
+#include "core/entry/game_ctx.h" // rend(c) — the Render instance
+#include "core/overrides/native_override_catalog.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "render.h"
 
 // Render::effectColorAdd, which already owns this address

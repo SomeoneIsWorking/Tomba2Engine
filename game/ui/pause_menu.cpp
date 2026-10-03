@@ -4,11 +4,11 @@
 #include "pause_menu.h"
 #include "cfg.h" // `pausemenu` diagnostic channel
 #include "core.h"
-#include "engine.h"
+#include "core/engine/engine.h"
+#include "core/entry/game_ctx.h" // eng(c) / rend(c)
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h" // eng(c) / rend(c)
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "render.h" // Render::emitUiFt4 / emitUiSprites
 #include "render/page_backdrop.h"
 #include "render/page_gradient.h"

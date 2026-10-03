@@ -35,10 +35,10 @@
 //     shared epilogue.
 //   - epilogue (L_8003D22C): restore r31 from sp+16, sp += 24, return.
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "render.h"
 #include <cstdint>
 // guest 0x8003D0BC fallback for the oracle-gated thunk — see render_walk_dispatch.cpp's identical

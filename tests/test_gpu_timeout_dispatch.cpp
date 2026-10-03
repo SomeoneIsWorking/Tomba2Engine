@@ -1,9 +1,9 @@
+#include "core/entry/title_facts.h"
 #include "execution_control.h"
 #include "game.h"
 #include "game_runtime.h"
 #include "guest_call.h"
 #include "legacy_game_config.h"
-#include "legacy_game_interface.h"
 #include "lightrec_executor.h"
 #include "scheduler.h"
 
@@ -26,7 +26,7 @@ struct NestedObservation {
 class Runtime final : public GameRuntime {
 public:
   Runtime() {
-    bindLegacyInterface(&tomba::legacy::measuredConfig, nullptr);
+    bindLegacyInterface(&tomba::title::measuredConfig(), nullptr);
   }
   void *createContext(Core &) override {
     return &nested;
@@ -110,9 +110,9 @@ int main() {
   auto game = std::make_unique<Game>();
   Core &core = game->core;
   Checks checks;
-  const auto &hle = tomba::legacy::measuredConfig.hle;
+  const auto &hle = tomba::title::measuredConfig().hle;
   const auto budget = psx::cpu::ExecutionBudget::fromCycles(1);
-  checks.require(core.cfg == &tomba::legacy::measuredConfig, "Core uses the production title facts");
+  checks.require(core.cfg == &tomba::title::measuredConfig(), "Core uses the production title facts");
   checks.require(game->platform_hle.lookup(hle.gpuTimeoutArm) == nullptr,
                  "timeout service is absent before the production installation boundary");
   game->platform_hle.initBuiltins();

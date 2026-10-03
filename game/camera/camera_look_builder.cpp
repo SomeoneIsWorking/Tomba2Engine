@@ -5,7 +5,7 @@
 
 #include "camera/camera_guest_math.h"
 #include "camera/cutscene_camera.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
 #include "guest_call.h"
 #include "trig.h"
 

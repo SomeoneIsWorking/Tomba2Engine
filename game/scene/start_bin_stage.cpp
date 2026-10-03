@@ -4,7 +4,7 @@
 #include "cd/libcd_native.h"    // class LibcdNative — pc_faithful guest libcd chain
 #include "cfg.h"
 #include "core.h"
-#include "core/asset.h"
+#include "core/assets/asset.h"
 #include "disc.h" // disc_find_file — native ISO9660 resolver
 #include "game.h" // Game::disc, Game::pcSched
 #include "guest_call.h"

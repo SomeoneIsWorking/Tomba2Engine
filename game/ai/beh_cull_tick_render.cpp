@@ -25,10 +25,10 @@
 
 #include "cfg.h"
 #include "core.h"
-#include "game_ctx.h"
-#include "graphics_bind.h" // ov_obj_record_init
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
+#include "graphics_bind.h"            // ov_obj_record_init
 #include "guest_abi.h"
-#include "guest_jal.h"    // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 #include "object/actor.h" // Actor::boundsCull (FUN_8007778C native)
 #include "spawn.h"        // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>

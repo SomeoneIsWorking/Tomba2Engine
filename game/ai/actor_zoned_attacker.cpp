@@ -8,11 +8,11 @@
 
 #include "ai/zoned_attacker_abi.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_abi.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "object/actor.h"
 #include "spawn.h"
 

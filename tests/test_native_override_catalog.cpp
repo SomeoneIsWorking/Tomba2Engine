@@ -1,8 +1,8 @@
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
 #include "game_runtime.h"
 #include "level_load.h"
 #include "lightrec_executor.h"
-#include "native_override_catalog.h"
 
 #include <lucent/log.h>
 #include <memory>

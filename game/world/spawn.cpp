@@ -44,10 +44,10 @@
 #include "spawn.h"
 #include "cfg.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry       // c->game->verify — the shared A/B verify scaffold
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
-#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry       // c->game->verify — the shared A/B verify scaffold
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

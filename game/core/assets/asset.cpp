@@ -4,13 +4,13 @@
 // chain. The CD read + the task terminal-yield stay the retained platform/content mechanism (called
 // via typed runtime address dispatch, not transcribed). See asset.h — instance-with-back-pointer subsystem, methods
 // take typed args directly (no MIPS taxi c->r[4..7] marshal).
-#include "asset.h"
+#include "assets/asset.h"
 #include "cfg.h"
 #include "core.h"
-#include "game.h" // c->game->hle.deliverEvent — Hle subsystem lives on Game
-#include "game_ctx.h"
+#include "entry/game_ctx.h"
+#include "game.h"       // c->game->hle.deliverEvent — Hle subsystem lives on Game
 #include "guest_call.h" // rc1-4 guest-call helpers (used by the preload chain below)
-#include "native_override_catalog.h"
+#include "overrides/native_override_catalog.h"
 #include <stdio.h>
 #include <stdlib.h>
 // gpu_native_load_image is declared in core.h (the native CPU->VRAM upload).

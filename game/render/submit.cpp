@@ -22,9 +22,9 @@
 // render/mesh_draw.cpp) is the CLAUDE.md-mandated eventual replacement for this file.
 #include "cfg.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
 #include "fps60.h"
-#include "game.h" // Fps60::current_object (was g_current_object)
-#include "game_ctx.h"
+#include "game.h"            // Fps60::current_object (was g_current_object)
 #include "gte_math.h"        // Math:: — GTE-transform cluster (matMul/applyMatlv/rotX/Y/Z/rotmat, static)
 #include "guest_face_gate.h" // the four gates the REAL game runs on every face before drawing it
 #include "lighting.h"        // PER-AREA light registry (sun / lava+torch); selected per frame in Render::shadeSelect

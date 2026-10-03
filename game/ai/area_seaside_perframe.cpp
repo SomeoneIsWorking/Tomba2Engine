@@ -38,8 +38,8 @@
 #include "behaviors.h"
 #include "cfg.h"
 #include "core.h"
-#include "core/engine.h"
-#include "game_ctx.h"
+#include "core/engine/engine.h"
+#include "core/entry/game_ctx.h"
 #include "guest_call.h"
 #include "player/actor_tomba.h" // eng(c).actorTomba.interactWalk (FUN_80022760)
 

@@ -5,7 +5,7 @@
 // back-pointer wiring below moved VERBATIM out of Core::Core() (runtime/psx/core.cpp) when the
 // 9 game subsystems were pulled OFF Core into TombaCtx — each `this` there is `c` here, each member
 // prefixed with `ctx->`. No wiring line was dropped.
-#include "game_ctx.h"
+#include "entry/game_ctx.h"
 
 void *createTombaContext(Core &core) {
   Core *c = &core;

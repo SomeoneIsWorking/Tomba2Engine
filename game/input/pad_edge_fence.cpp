@@ -32,10 +32,10 @@
 // the one-frame-delayed "previous sample" — that structural role is solid regardless of what
 // produces the sample. FUN_800524B4 and FUN_8005229C themselves stay un-owned (typed runtime address dispatch).
 #include "core.h"
-#include "core/engine.h"
-#include "game_ctx.h"
+#include "core/engine/engine.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 
 #define CUR_PREV_BASE 0x800ECF54u   // +0 = cur (u16), +2 = prev (u16)
 #define POLL_FLAG 0x1F80019Au       // scratchpad u8 — gates queue-pop vs FUN_800524B4(0) path

@@ -47,10 +47,10 @@
 //   scratchpad byte guarded by case 1 of the orchestrator, unrelated to this file's obj fields).
 #include "cfg.h"
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "math/gte_math.h" // Math::rotmat/matMul/applyMatlv/applyMatrixLV/rotY/rotZ (mathOf(c))
 #include "math/mtx.h"      // Mtx::identity (mtxOf(c))
-#include "native_override_catalog.h"
 #include <stdint.h>
 
 namespace {

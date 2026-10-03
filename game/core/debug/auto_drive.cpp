@@ -1,4 +1,4 @@
-#include "auto_drive.h"
+#include "debug/auto_drive.h"
 
 #include "cfg.h"
 #include "core.h"

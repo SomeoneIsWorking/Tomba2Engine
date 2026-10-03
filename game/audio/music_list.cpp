@@ -5,8 +5,8 @@
 // vabOff from the container's VAB offset table. `game->native_music.play()` drives the shared
 // synth from those offsets.
 #include "music_list.h"
-#include "game.h"     // core->game->disc — the native disc backend lives on the framework Game
-#include "game_ctx.h" // gctx(core)->native_music — the sibling player on the game aggregate
+#include "core/entry/game_ctx.h" // gctx(core)->native_music — the sibling player on the game aggregate
+#include "game.h"                // core->game->disc — the native disc backend lives on the framework Game
 #include "native_music.h"
 
 #include <cstdint>

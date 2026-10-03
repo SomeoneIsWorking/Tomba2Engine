@@ -37,10 +37,10 @@
 // cursor, packet pool, OT).
 #include "cfg.h"
 #include "core.h"
+#include "core/entry/game_ctx.h" // trigOf(c) — the native Trig helpers
 #include "effect_lerp.h"
 #include "fps60.h"
 #include "game.h"
-#include "game_ctx.h" // trigOf(c) — the native Trig helpers
 #include "mesh_quads.h"
 #include "render.h"
 #include "render_internal.h" // ObjScope / proj_pz_to_ord

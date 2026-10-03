@@ -23,10 +23,10 @@
 
 #include "cfg.h"
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h"
 #include "graphics_bind.h" // ov_obj_set_geom
 #include "guest_abi.h"
-#include "guest_jal.h"
 #include "inventory.h" // class Inventory — inv(c).giveAndFlag (FUN_8004D4C4)
 #include "spawn.h"     // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>

@@ -21,9 +21,9 @@
 // rule does not apply to this render-UNDERNEATH substrate mirror).
 #include "quad_rtpt_submit.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h"
-#include "native_override_catalog.h"
 #include "render_internal.h" // cur_render_node — the diagnostic identity of the emitting object
 #include "render_queue.h"    // RenderQueue::emitOrQueue + RQ_WORLD/RQ_OM_DEPTH
 #include "wide_window.h"

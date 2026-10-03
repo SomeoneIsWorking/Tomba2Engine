@@ -44,9 +44,9 @@
 #include "fx_sprite.h" // SpriteAnchor — the family's shared scale / OT-gate / depth-cue relations
 #include "cfg.h"
 #include "core.h"
+#include "core/entry/game_ctx.h" // trigOf(c)
 #include "effect_lerp.h"
 #include "game.h"
-#include "game_ctx.h"   // trigOf(c)
 #include "mesh_quads.h" // host-side Math::rotmat / trig for the rotated ring member
 #include "render.h"
 #include "render_internal.h" // ObjScope / cur_render_node / proj_pz_to_ord

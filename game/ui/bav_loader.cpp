@@ -58,8 +58,8 @@
 // VERIFY: `bavload` full RAM+scratchpad A/B vs original guest-body call (below). 0-diff is the gate.
 #include "cfg.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
 #include <stdio.h>
 #include <stdlib.h>

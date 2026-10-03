@@ -26,8 +26,8 @@
 //   0x800708B4  = sound-command mode (used by FUN_8013AFD8)
 
 #include "core.h"
-#include "core/engine.h"
-#include "game_ctx.h"
+#include "core/engine/engine.h"
+#include "core/entry/game_ctx.h"
 #include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 #include "guest_call.h"
 #include "render/screen_fade.h"

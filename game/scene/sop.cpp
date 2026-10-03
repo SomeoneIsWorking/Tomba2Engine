@@ -23,9 +23,9 @@
 
 #include "actor_tomba.h" // class ActorTomba — G_ADDR, the Tomba G-block every per-area handler takes in a0
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 
 namespace {
 // The guest's per-area handler table and the area selector byte that indexes
@@ -47,7 +47,7 @@ constexpr uint32_t kAreaByte = 0x800BF870u;
 // (ov_bg_scene_transition_sm moved to BgSceneTransitionSm::step —
 // eng(c).bgSceneTransitionSm.step())
 #include "camera/cutscene_camera.h" // class CutsceneCamera — SOP/BG cutscene camera (0x8006E3B0)
-#include "core/asset.h"             // class Asset — unpackGroup / loadTexgroup (static)
+#include "core/assets/asset.h"      // class Asset — unpackGroup / loadTexgroup (static)
 #include "render/screen_fade.h"     // class ScreenFade — the single fade driver
 #include "world/graphics_bind.h"    // ov_obj_set_xformblk (FUN_8006CBD0)
 #include "world/pool.h"             // ov_pool_init_run (FUN_8007B18C)

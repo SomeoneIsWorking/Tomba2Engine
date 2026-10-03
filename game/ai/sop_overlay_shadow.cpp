@@ -46,8 +46,8 @@
 
 #include "cfg.h"
 #include "core.h"
-#include "core/engine.h" // eng(c).spawn
-#include "game_ctx.h"
+#include "core/engine/engine.h" // eng(c).spawn
+#include "core/entry/game_ctx.h"
 #include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 #include "spawn.h"     // Spawn::dispatch / despawn (FUN_8007A980 / FUN_8007A624, native)
 

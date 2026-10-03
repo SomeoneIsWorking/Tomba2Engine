@@ -2,9 +2,9 @@
 #include "panel.h"
 #include "cfg.h" // cfg_logf panelq probe
 #include "core.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "render.h"           // Render::mode.psxRender() gate
 #include "render_queue.h"     // RenderQueue::push2dQuad / emitOrQueue + RQ_HUD / RQ_OM_2D_FG
 #include "ui_group_capture.h" // UiGroupCapture::routePanel* — a raised page owns its own panels

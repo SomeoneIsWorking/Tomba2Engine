@@ -49,8 +49,8 @@
 // the menu template tables) and emit host-only quads into the render queue (the caller wraps them in a
 // DisplayPassGuard). No gte_op / OT / GP0 packet reading anywhere.
 #include "core.h"
+#include "core/entry/game_ctx.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "page_backdrop.h"
 #include "page_gradient.h"
 #include "render.h"

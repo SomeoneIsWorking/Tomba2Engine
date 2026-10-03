@@ -11,18 +11,18 @@
 // nothing is redeclared here.
 #include "c_subsys.h" // disc_findFile — the native ISO9660 resolver
 #include "core.h"
-#include "core/asset.h" // class Asset
-#include "core/engine.h"
-#include "core/guest_jal.h"    // tomba::guest::dispatchJalToReturn — the guest call convention
-#include "core/guest_resume.h" // requestGuestContinuation
-#include "core/task_sm.h"      // TaskSm — the typed lens over the task record, owned in one header
-#include "game.h"              // Game — the per-Core product the Engine drives
-#include "game_ctx.h"
+#include "core/assets/asset.h" // class Asset
+#include "core/engine/engine.h"
+#include "core/engine/task_sm.h"         // TaskSm — the typed lens over the task record, owned in one header
+#include "core/overrides/guest_jal.h"    // tomba::guest::dispatchJalToReturn — the guest call convention
+#include "core/overrides/guest_resume.h" // requestGuestContinuation
+#include "entry/game_ctx.h"
+#include "game.h" // Game — the per-Core product the Engine drives
 #include "guest_abi.h"
 #include "guest_call.h"
 #include "level_load.h"
 #include "math/rng.h" // class Rng
-#include "native_override_catalog.h"
+#include "overrides/native_override_catalog.h"
 #include "placement.h" // ov_placeObjects
 #include "pool.h"      // ov_poolInitRun
 #include "render.h"

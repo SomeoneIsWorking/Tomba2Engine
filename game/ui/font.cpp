@@ -19,11 +19,11 @@
 #include "ui/font.h"
 #include "cfg.h" // cfg_logf fontq probe
 #include "core.h"
+#include "core/overrides/guest_jal.h" // GuestFrame/guest_fn — ABI vocabulary (2026-07-15 readability pass)
+#include "core/overrides/native_override_catalog.h"
 #include "game.h" // Game::activeRq — glyphQueuePush's dual-emit target
 #include "guest_abi.h"
 #include "guest_call.h"
-#include "guest_jal.h" // GuestFrame/guest_fn — ABI vocabulary (2026-07-15 readability pass)
-#include "native_override_catalog.h"
 #include "render.h"       // Render::mode.psxRender() gate
 #include "render_queue.h" // RenderQueue::push2dQuad + RQ_HUD
 #include <format>

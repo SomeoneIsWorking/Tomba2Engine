@@ -8,11 +8,11 @@
 // convention as game/ai/actor_melee_engage.cpp, to avoid a hex/decimal transcription mismatch.
 #include "melee_proximity.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
 #include "math/trig.h"
-#include "native_override_catalog.h"
 
 int32_t MeleeProximity::isAtApproachAnchor(uint32_t self, uint32_t other) { // FUN_8001F9DC — UNWIRED draft
   Core *c = core;

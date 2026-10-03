@@ -27,14 +27,14 @@
 #include "sop_intro_events.h"
 #include "cfg.h"
 #include "core.h"
-#include "core/engine.h" // eng(c).spawn / eng(c).placement / eng(c).script
+#include "core/engine/engine.h" // eng(c).spawn / eng(c).placement / eng(c).script
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
-#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
-#include "render/render.h"           // rend(c)->mNodeXform.buildWithOffset (FUN_800518FC)
-#include "spawn.h"                   // Spawn::dispatch/despawn (native)
-#include "world/placement.h"         // Placement::spawnWithParent (native, FUN_80072DDC)
+#include "render/render.h"   // rend(c)->mNodeXform.buildWithOffset (FUN_800518FC)
+#include "spawn.h"           // Spawn::dispatch/despawn (native)
+#include "world/placement.h" // Placement::spawnWithParent (native, FUN_80072DDC)
 
 namespace {
 constexpr uint32_t SCENE_BEAT = 0x800BF9B4u; // shared SOP scene-beat byte (docs/engine_re.md)

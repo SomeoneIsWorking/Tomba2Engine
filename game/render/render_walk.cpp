@@ -12,11 +12,11 @@
 // file. Shared helpers (withObjScope/cur_render_node) live in render_internal.h.
 #include "cfg.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
 #include "cube_text_banner.h"
 #include "cull.h" // Cull::submittedThisFrame — the PUSH-TIME submission record
 #include "fps60.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "gpu_vk.h" // gpu_seen3d_this_frame — declared by the framework, never locally
 #include "mods.h"
 #include "object_highlight_policy.h"

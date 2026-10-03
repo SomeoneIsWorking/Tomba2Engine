@@ -1,8 +1,8 @@
 #include "authenticated_image.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
 #include "game_runtime.h"
 #include "lightrec_executor.h"
-#include "native_override_catalog.h"
 
 #include <cstdint>
 #include <lucent/log.h>

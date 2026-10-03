@@ -148,9 +148,9 @@
 #include "tile_grid_layer.h"
 #include "cfg.h"
 #include "core.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "render.h"
 #include "render_queue.h"
 #include <cstdint>

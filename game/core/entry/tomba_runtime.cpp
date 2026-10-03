@@ -1,21 +1,21 @@
-#include "tomba_runtime.h"
+#include "entry/tomba_runtime.h"
 
 #include "core.h"
-#include "engine.h"
-#include "frame_driver.h"
+#include "engine/engine.h"
+#include "entry/game_ctx.h"
+#include "frame/frame_driver.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
-#include "legacy_game_interface.h"
-#include "native_override_catalog.h"
-#include "register_overrides.h"
+#include "overrides/native_override_catalog.h"
+#include "overrides/register_overrides.h"
+#include "title_facts.h"
 
 #include <cstdlib>
 #include <lucent/log.h>
 
 namespace tomba {
 
-TombaRuntime::TombaRuntime() : LegacyGameRuntimeAdapter(legacy::measuredConfig, legacy::compatibilityHooks) {}
+TombaRuntime::TombaRuntime() : LegacyGameRuntimeAdapter(title::measuredConfig(), title::hooks()) {}
 
 void *TombaRuntime::createContext(Core &core) {
   return createTombaContext(core);

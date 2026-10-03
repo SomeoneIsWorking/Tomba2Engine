@@ -258,7 +258,7 @@ class Session:
 
         This is the PORT's input clock, and it is NOT a game tick: measured over a hold window it
         advances exactly once per presented frame, because the pad is serviced once per presented
-        frame (game/core/frame_driver.cpp). It is reported because that measurement is what says so,
+        frame (game/core/frame/frame_driver.cpp). It is reported because that measurement is what says so,
         and because "the guest's input clock and the presented clock are the same clock" is a fact a
         reader would otherwise have to take on trust. The two scratchpad words that look like guest
         tick counters are not: 0x1F800160 is a world coordinate the native pool writes

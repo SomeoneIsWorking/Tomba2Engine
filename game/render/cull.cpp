@@ -8,12 +8,12 @@
 #include "cull.h"
 #include "cfg.h"
 #include "core.h"
-#include "game.h" // Fps60::current_object
-#include "game_ctx.h"
-#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
-#include "queue_dispatch.h"          // the guest's own class->queue->per-type routing (kanban #77)
-#include "render.h"                  // rend(c)->margin (widescreen margin collect)
-#include <lucent/log.h>              // `cullpush` push-time submission census (kanban #77)
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include "game.h"                                   // Fps60::current_object
+#include "queue_dispatch.h"                         // the guest's own class->queue->per-type routing (kanban #77)
+#include "render.h"                                 // rend(c)->margin (widescreen margin collect)
+#include <lucent/log.h>                             // `cullpush` push-time submission census (kanban #77)
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

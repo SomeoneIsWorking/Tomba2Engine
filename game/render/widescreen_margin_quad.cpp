@@ -13,11 +13,11 @@
 // part of the byte-exact state SBS compares — no write here is optional or "residual".
 #include "widescreen_margin_quad.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_abi.h"
-#include "guest_jal.h"
-#include "native_override_catalog.h"
 #include <cstdint>
 #include <lucent/log.h>
 

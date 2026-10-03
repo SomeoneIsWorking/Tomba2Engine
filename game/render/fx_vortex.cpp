@@ -36,10 +36,10 @@
 // between the two presents) while never writing guest memory.
 #include "cfg.h"
 #include "core.h"
-#include "fps60.h"     // Fps60::mObjOverrideOn — which present pass this is (diagnostic only)
-#include "fx_sprite.h" // SpriteAnchor
+#include "core/entry/game_ctx.h" // trigOf(c) / rngOf(c)
+#include "fps60.h"               // Fps60::mObjOverrideOn — which present pass this is (diagnostic only)
+#include "fx_sprite.h"           // SpriteAnchor
 #include "game.h"
-#include "game_ctx.h" // trigOf(c) / rngOf(c)
 #include "render.h"
 #include "render_internal.h" // ObjScope / proj_pz_to_ord / proj_near_pz
 #include "render_queue.h"

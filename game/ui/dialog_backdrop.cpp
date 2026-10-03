@@ -30,8 +30,8 @@
 //   0x80  -> link into the FAR ot bucket (0x7FF) instead of the near one (1), i.e. draw behind
 //   0x7F  -> any of these set means "no fill colour" (black); all clear means the panel blue.
 #include "core.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "native_override_catalog.h"
 #include "ui/options_page.h" // OptionsPage::noteBox — the Screen-adjust page's boxes (#38)
 #include "ui/panel.h"
 

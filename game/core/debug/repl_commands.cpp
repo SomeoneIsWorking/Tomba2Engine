@@ -8,8 +8,8 @@
 #include "audio/music_list.h" // class MusicList — `musictest`
 #include "cfg.h"
 #include "core.h"
-#include "engine.h"   // game-owned entity lists + behavior registry for `ents`
-#include "game_ctx.h" // inv(c) Inventory + gctx(c)->music_list MusicList
+#include "engine/engine.h"  // game-owned entity lists + behavior registry for `ents`
+#include "entry/game_ctx.h" // inv(c) Inventory + gctx(c)->music_list MusicList
 #include "game_iface.h"
 #include "guest_call.h" // rc0/rc1/rc3 — typed runtime address dispatch of the Tomba BGM / libsnd-seq guest leaves
 #include <cctype>

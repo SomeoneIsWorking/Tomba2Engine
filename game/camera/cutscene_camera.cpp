@@ -8,13 +8,13 @@
 #include "camera/camera_look_builder.h"
 #include "camera/camera_mode.h"
 #include "cfg.h"
-#include "game.h" // c->game->verify — the shared A/B verify scaffold (camverify)
-#include "game_ctx.h"
-#include "guest_abi.h" // GuestFrame — the guest stack frame contract, spelled once
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include "game.h"                                   // c->game->verify — the shared A/B verify scaffold (camverify)
+#include "guest_abi.h"                              // GuestFrame — the guest stack frame contract, spelled once
 #include "guest_call.h"
 #include "mtx.h"
-#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
-#include "scene/script_globals.h"    // the status byte the shore floor branches on
+#include "scene/script_globals.h" // the status byte the shore floor branches on
 #include "trig.h"
 
 #include <cstdint>

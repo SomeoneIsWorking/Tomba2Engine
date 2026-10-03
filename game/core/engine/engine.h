@@ -25,39 +25,39 @@
 #include "audio/music_coord.h"         // Engine owns the MusicCoord dialog↔music coordination
 #include "audio/sequencer.h" // Engine owns the Sequencer libsnd tick wrapper (FUN_800909C0, wide-RE draft, unwired)
 #include "audio/sfx.h"       // Engine owns the Sfx trigger subsystem (FUN_80074590)
-#include "bg_scene_transition_sm.h"   // Engine owns the BG scene-transition fade manager
-#include "core/asset.h"               // Engine owns the Asset loader subsystem
-#include "core/frame_cadence.h"       // Engine owns FrameCadence — the one frame-rate decision
-#include "demo.h"                     // Engine owns the Demo front-end MENU stage machine
-#include "math/mathlib.h"             // Engine owns the Bit game-flag bitmap subsystem
-#include "native_override_catalog.h"  // overlay image residency and scoped native bindings
-#include "object/animation.h"         // Engine owns the Animation per-object VM stepper
-#include "object/behavior_dispatch.h" // Engine owns the per-object BehaviorDispatch subsystem
-#include "object_list.h"              // Engine owns the ObjectList entity-list walkers
-#include "object_table.h"             // Engine owns the ObjectTable 40-slot dispatcher
-#include "parallax_bg.h"              // Engine owns the SOP parallax-BG state machine
-#include "player/actor_tomba.h"       // Engine owns Tomba's per-frame logic + growth/movement
-#include "player/collision.h"         // Engine owns the Collision grid-family subsystem
-#include "render/cull.h"              // Engine owns the Cull visibility subsystem
-#include "render/score_popup.h"       // Engine owns the ScorePopup AP-gem popup display producer (#18)
-#include "scene/field_transition.h"   // Engine owns the FieldTransition sub-scene/door/area FADE machine
-#include "scene/mode_state_arm.h"     // Engine owns the ModeStateArm arm-primitive pair
-#include "scene/scene_events.h"       // Engine owns the SceneEvents arm subsystem (FUN_80040B48)
-#include "scene/script_interp.h"      // Engine owns the ScriptInterp cutscene-script dispatcher
-#include "scene_transition.h"         // Engine owns the SceneTransition subsystem instance
-#include "sop.h"                      // Engine owns the Sop intro-cutscene field stage machine
-#include "transition_state3.h"        // Engine owns the TransitionState3 walker instance
-#include "ui/card_menu.h"             // Engine owns the CardMenu save/load browser producer (#102)
-#include "ui/font.h"                  // Engine owns the Font boot-time init subsystem
-#include "ui/options_page.h"          // Engine owns the OptionsPage five-page producer (#38 / #7)
-#include "ui/pause_menu.h"            // Engine owns the PauseMenu in-game menu display producer (#21)
-#include "ui/save_prompt.h"           // Engine owns the in-field save prompt chrome producer (issue 0013)
-#include "ui/start_page.h"            // Engine owns the StartPage in-game START page producer (#35)
-#include "world/area_slots.h"         // Engine owns the AreaSlots slot-table state machine
-#include "world/graphics_bind.h"      // Engine owns the GraphicsBind object render-bind subsystem
-#include "world/placement.h"          // Engine owns the Placement field-object driver
-#include "world/pool.h"               // Engine owns the Pool per-area init subsystem
-#include "world/spawn.h"              // Engine owns the Spawn entity-spawn/despawn subsystem
+#include "bg_scene_transition_sm.h"            // Engine owns the BG scene-transition fade manager
+#include "core/assets/asset.h"                 // Engine owns the Asset loader subsystem
+#include "core/frame/frame_cadence.h"          // Engine owns FrameCadence — the one frame-rate decision
+#include "demo.h"                              // Engine owns the Demo front-end MENU stage machine
+#include "math/mathlib.h"                      // Engine owns the Bit game-flag bitmap subsystem
+#include "object/animation.h"                  // Engine owns the Animation per-object VM stepper
+#include "object/behavior_dispatch.h"          // Engine owns the per-object BehaviorDispatch subsystem
+#include "object_list.h"                       // Engine owns the ObjectList entity-list walkers
+#include "object_table.h"                      // Engine owns the ObjectTable 40-slot dispatcher
+#include "overrides/native_override_catalog.h" // overlay image residency and scoped native bindings
+#include "parallax_bg.h"                       // Engine owns the SOP parallax-BG state machine
+#include "player/actor_tomba.h"                // Engine owns Tomba's per-frame logic + growth/movement
+#include "player/collision.h"                  // Engine owns the Collision grid-family subsystem
+#include "render/cull.h"                       // Engine owns the Cull visibility subsystem
+#include "render/score_popup.h"                // Engine owns the ScorePopup AP-gem popup display producer (#18)
+#include "scene/field_transition.h"            // Engine owns the FieldTransition sub-scene/door/area FADE machine
+#include "scene/mode_state_arm.h"              // Engine owns the ModeStateArm arm-primitive pair
+#include "scene/scene_events.h"                // Engine owns the SceneEvents arm subsystem (FUN_80040B48)
+#include "scene/script_interp.h"               // Engine owns the ScriptInterp cutscene-script dispatcher
+#include "scene_transition.h"                  // Engine owns the SceneTransition subsystem instance
+#include "sop.h"                               // Engine owns the Sop intro-cutscene field stage machine
+#include "transition_state3.h"                 // Engine owns the TransitionState3 walker instance
+#include "ui/card_menu.h"                      // Engine owns the CardMenu save/load browser producer (#102)
+#include "ui/font.h"                           // Engine owns the Font boot-time init subsystem
+#include "ui/options_page.h"                   // Engine owns the OptionsPage five-page producer (#38 / #7)
+#include "ui/pause_menu.h"                     // Engine owns the PauseMenu in-game menu display producer (#21)
+#include "ui/save_prompt.h"                    // Engine owns the in-field save prompt chrome producer (issue 0013)
+#include "ui/start_page.h"                     // Engine owns the StartPage in-game START page producer (#35)
+#include "world/area_slots.h"                  // Engine owns the AreaSlots slot-table state machine
+#include "world/graphics_bind.h"               // Engine owns the GraphicsBind object render-bind subsystem
+#include "world/placement.h"                   // Engine owns the Placement field-object driver
+#include "world/pool.h"                        // Engine owns the Pool per-area init subsystem
+#include "world/spawn.h"                       // Engine owns the Spawn entity-spawn/despawn subsystem
 #include <optional>
 class Core;
 

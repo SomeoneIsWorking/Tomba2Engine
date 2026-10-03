@@ -46,10 +46,10 @@
 //   - epilogue: restore r31/r19/r18/r17/r16 from their spill slots, sp += 112, return.
 #include "cfg.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "render.h"
 #include "render_internal.h" // withObjScope (dbg_node identity for the RCASE_DEFAULT custom renderer)
 #include <stdio.h>

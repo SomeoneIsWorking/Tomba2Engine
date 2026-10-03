@@ -39,11 +39,11 @@
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 #include "world/collision_resolve.h"
 #include "core.h"
+#include "core/overrides/guest_jal.h"               // GuestFrame / GuestReg / guest_call / guest_mult
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride
 #include "game.h"
 #include "guest_abi.h"
 #include "guest_call.h"
-#include "guest_jal.h"               // GuestFrame / GuestReg / guest_call / guest_mult
-#include "native_override_catalog.h" // tomba::native::declareOverride
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────
 // FIELD NAMES for the three records this function walks. r17/r22/r30 hold actor/other/anchor for the

@@ -23,10 +23,10 @@
 #include "animation.h" // Animation::step (FUN_80076D68)
 #include "cfg.h"
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h"
 #include "guest_abi.h"
 #include "guest_call.h"
-#include "guest_jal.h"
 #include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>

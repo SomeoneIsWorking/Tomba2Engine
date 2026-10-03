@@ -1,8 +1,8 @@
 #include "level_load.h"
 
 #include "core.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "native_override_catalog.h"
 
 #include <array>
 #include <cstdlib>

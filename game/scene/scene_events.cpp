@@ -7,11 +7,11 @@
 #include "scene/scene_events.h"
 #include "cfg.h"
 #include "core.h"
-#include "core/engine.h"
+#include "core/engine/engine.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include "game.h"
-#include "game_ctx.h"
-#include "guest_abi.h"               // GuestFrame — mirror the guest stack frame (CLAUDE.md)
-#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 #include "scene/scene_flags.h"
 
 // Guest-address constants (see scene_events.h for the full state map).

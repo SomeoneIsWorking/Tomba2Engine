@@ -1,7 +1,7 @@
 #pragma once
 
-#include "auto_drive.h"
-#include "frame_diagnostics.h"
+#include "debug/auto_drive.h"
+#include "frame/frame_diagnostics.h"
 #include "game_runtime.h"
 
 class Game;

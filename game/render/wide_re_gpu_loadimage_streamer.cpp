@@ -106,9 +106,9 @@
 // alone. A wiring pass should grep for other readers of GPU_DMA_ARG0/ARG1/STATE before trusting the
 // async path is fully understood.
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "render.h"
 #include <stdint.h>
 

@@ -27,9 +27,9 @@
 // writes ONLY the host render queue. DisplayPassGuard aborts on any guest write. No GTE compose, no
 // gte_op, no OT/GP0 packet reading — the picture is rebuilt from object data with real depth.
 #include "core.h"
+#include "core/entry/game_ctx.h" // rend(c)
 #include "fps60.h"
 #include "game.h"
-#include "game_ctx.h" // rend(c)
 #include "render.h"
 
 // #4 HUT/DOOR INTERIOR (task-sm[0x4c]==3): OBJECTS-ONLY reduced world. See file banner.

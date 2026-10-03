@@ -3,11 +3,11 @@
 #include "options_page.h"
 #include "cfg.h" // `optionspage` diagnostic channel
 #include "core.h"
-#include "engine.h"
+#include "core/engine/engine.h"
+#include "core/entry/game_ctx.h" // eng(c) / rend(c)
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h" // eng(c) / rend(c)
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "render.h"       // Render::optionsBackdrop / optionsSolidBox + the psxRender() gate
 #include "render_queue.h" // RQ_OVERLAY
 

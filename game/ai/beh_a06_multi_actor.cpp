@@ -33,9 +33,9 @@
 // via a PSX OT.
 
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h"
 #include "guest_abi.h"
-#include "guest_jal.h"
 #include "render/screen_fade.h"
 #include "spawn.h"
 #include <cstdint>

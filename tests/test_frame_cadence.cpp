@@ -15,7 +15,7 @@
 // to prevent. The last block is the 60 fps arithmetic: one field per logic frame is what the
 // threshold has to hold for, and the owner already publishes and reports that one number.
 #include "core.h"
-#include "frame_cadence.h"
+#include "core/frame/frame_cadence.h"
 
 #include <cstdint>
 #include <cstdio>

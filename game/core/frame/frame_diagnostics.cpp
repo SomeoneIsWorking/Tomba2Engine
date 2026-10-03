@@ -1,10 +1,10 @@
-#include "frame_diagnostics.h"
+#include "frame/frame_diagnostics.h"
 
 #include "audio/libsnd_globals.h" // kSeqTickFn / the tick descriptor's slots
 #include "cfg.h"
 #include "core.h"
-#include "engine.h"
-#include "game_ctx.h"
+#include "engine/engine.h"
+#include "entry/game_ctx.h"
 
 #include <lucent/log.h>
 

@@ -41,9 +41,9 @@
 // is what its state actually says — the same stance BbRec particles already take.
 #include "cube_text_banner.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
 #include "fps60.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "producer_scope.h" // ProducerScope — graphics-producer DB, native leg
 #include "proj_params.h"    // ProjParams::pzToOrd
 #include "render.h"

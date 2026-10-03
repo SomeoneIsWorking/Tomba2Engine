@@ -28,7 +28,7 @@
 
 #include "cfg.h"
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
 #include "graphics_bind.h" // ov_obj_set_geom
 #include "guest_call.h"
 #include "rng.h"   // class Rng (via rngOf(c).next())

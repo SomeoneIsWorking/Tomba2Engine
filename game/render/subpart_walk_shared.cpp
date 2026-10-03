@@ -19,8 +19,8 @@
 // bottom, and `node[+8] == 0` draws nothing however large `node[+9]` is. Note also that this function
 // checks `node[+8]` BEFORE loading the transform at all, so an empty node costs nothing.
 #include "core.h"
+#include "core/overrides/native_override_catalog.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "render.h"
 
 namespace {

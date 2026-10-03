@@ -39,11 +39,11 @@
 #include "hud_gauge_emitter.h"
 #include "cfg.h" // cfg_logf gaugeq probe
 #include "core.h"
+#include "core/overrides/guest_jal.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
 #include "guest_abi.h"
 #include "guest_call.h"
-#include "guest_jal.h"
-#include "native_override_catalog.h"
 #include "producer_scope.h" // ProducerScope — graphics-producer DB, native leg
 #include "render.h"         // Render::mode.psxRender() — gaugeTextRowTap's read-only overlay gate
 #include "render_queue.h"   // RenderQueue::push2dQuad + RQ_HUD — the tap's host half

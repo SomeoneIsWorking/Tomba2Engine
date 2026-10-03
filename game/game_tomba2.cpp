@@ -28,28 +28,28 @@
 // counted, which ends each logic frame at the same value for a stated reason.
 
 #include "animation.h"            // PC-native per-object animation-VM subsystem
-#include "asset.h"                // PC-native asset-loading subsystem (extracted from this file)
 #include "audio/libsnd_globals.h" // kSeqTickFn — the tick slot the wrapper below dispatches
 #include "cfg.h"
 #include "collision.h" // PC-native collision-grid subsystem
 #include "core.h"
-#include "core/engine.h" // class Engine — this file defines Engine::frameUpdate / Engine::drawOTag
-#include "cull.h"        // PC-native visibility cull / LOD subsystem
-#include "entity.h"      // PC-native per-object entity state-machine subsystem
+#include "core/assets/asset.h"  // PC-native asset-loading subsystem (extracted from this file)
+#include "core/assets/str.h"    // Resident string leaves
+#include "core/engine/engine.h" // class Engine — this file defines Engine::frameUpdate / Engine::drawOTag
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
+#include "cull.h"   // PC-native visibility cull / LOD subsystem
+#include "entity.h" // PC-native per-object entity state-machine subsystem
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
 #include "margin_render.h"
-#include "mathlib.h" // PC-native math/PRNG leaf primitives (rand, trig LUTs, bit-test)
-#include "menu.h"    // PC-native in-game Options menu subsystem
-#include "mods.h"    // g_mods (fps60 persisted with the other user settings)
-#include "native_override_catalog.h"
+#include "mathlib.h"            // PC-native math/PRNG leaf primitives (rand, trig LUTs, bit-test)
+#include "menu.h"               // PC-native in-game Options menu subsystem
+#include "mods.h"               // g_mods (fps60 persisted with the other user settings)
 #include "render.h"             // class Render — rend(c)->sceneNative()
 #include "render/score_popup.h" // ScorePopup::install — FUN_80072520 AP-gem popup producer (#18)
 #include "render/ui_ft4_tap.h"  // UiFt4Tap::install  — FUN_8007E1B8 shared FT4 leaf, one owner
 #include "screen_fade.h"        // ScreenFade::installLeafTap — FUN_8007E9C8 global fade-leaf ownership
 #include "script_vm.h"          // PC-native per-object script-VM subsystem
-#include "str.h"                // Resident string leaves
 #include "ui/options_page.h"    // OptionsPage::install — the five OPTIONS page builders + their backdrop
 #include "ui/panel.h"           // Panel::install — FUN_8004FFB4/8005019C global panel-leaf ownership
 #include "ui/pause_menu.h"      // PauseMenu::install — FUN_800346BC/8007E1B8 in-game menu chrome producer

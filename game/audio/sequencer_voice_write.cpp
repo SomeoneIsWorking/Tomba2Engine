@@ -7,13 +7,13 @@
 #include "audio/libsnd_globals.h"
 #include "audio/sequencer_record.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h"
+#include "core/overrides/native_override_catalog.h"
 #include "execution_services.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_abi.h"
 #include "guest_call.h"
-#include "guest_jal.h"
-#include "native_override_catalog.h"
 
 namespace tomba::audio {
 using namespace tomba::audio::record;

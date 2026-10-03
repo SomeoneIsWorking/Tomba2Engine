@@ -53,10 +53,10 @@
 // mirrored through ClearRectScratch rather than held in C locals.
 #include "libgpu_draw_env.h"
 #include "core.h"
+#include "core/overrides/guest_jal.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
 #include "guest_abi.h"
-#include "guest_jal.h"
-#include "native_override_catalog.h"
 
 namespace {
 // libgpu's framebuffer clip limits, read by this function and by the 0xE3/0xE4 word builders.

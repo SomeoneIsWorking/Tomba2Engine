@@ -29,12 +29,12 @@
 #include "bg_scene_transition_sm.h"
 #include "cfg.h"
 #include "core.h"
-#include "core/engine.h"
+#include "core/engine/engine.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
-#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
-#include "render/screen_fade.h"      // class ScreenFade — the single fade driver
+#include "render/screen_fade.h" // class ScreenFade — the single fade driver
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

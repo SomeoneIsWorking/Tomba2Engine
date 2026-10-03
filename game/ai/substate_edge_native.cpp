@@ -3,8 +3,8 @@
 #include "substate_edge_native.h"
 #include "assembly_node.h"
 #include "core.h"
+#include "core/overrides/native_override_catalog.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 
 namespace {
 constexpr uint32_t kOscFrame = 32;

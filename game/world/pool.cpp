@@ -8,7 +8,7 @@
 
 #include "pool.h"
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
 #include "guest_call.h"
 #include "mtx.h"       // class Mtx — libgte helpers (identity)
 #include "placement.h" // Placement::spawnWithParent (FUN_80072DDC)

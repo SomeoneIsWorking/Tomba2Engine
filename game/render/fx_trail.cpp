@@ -29,9 +29,9 @@
 // guest allocating, and this producer allocates nothing.
 #include "cfg.h"
 #include "core.h"
-#include "fx_node.h" // FxNode — the walk-owned header lens this controller extends
+#include "core/entry/game_ctx.h" // trigOf(c)
+#include "fx_node.h"             // FxNode — the walk-owned header lens this controller extends
 #include "game.h"
-#include "game_ctx.h" // trigOf(c)
 #include "render.h"
 #include "render_internal.h" // ObjScope
 #include "render_queue.h"

@@ -23,24 +23,24 @@ set(GAME_SRC
   game/game_tomba2.cpp
   game/cd/libcd_dir_cache.cpp
   game/cd/libcd_native.cpp
-  game/core/asset.cpp
-  game/core/auto_drive.cpp
-  game/core/dev_warp.cpp
-  game/core/frame_cadence.cpp
-  game/core/frame_diagnostics.cpp
-  game/core/frame_driver.cpp
-  game/core/libapi_intr.cpp
-  game/core/native_override_catalog.cpp
-  game/core/game_config.cpp
-  game/core/game_ctx.cpp
-  game/core/game_hooks.cpp
-  game/core/tomba_runtime.cpp
-  game/core/main.cpp                # process entry point (P1.7c: main() is game-side)
+  game/core/assets/asset.cpp
+  game/core/debug/auto_drive.cpp
+  game/core/debug/dev_warp.cpp
+  game/core/frame/frame_cadence.cpp
+  game/core/frame/frame_diagnostics.cpp
+  game/core/frame/frame_driver.cpp
+  game/core/hle/libapi_intr.cpp
+  game/core/overrides/native_override_catalog.cpp
+  game/core/entry/game_config.cpp
+  game/core/entry/game_ctx.cpp
+  game/core/entry/game_hooks.cpp
+  game/core/entry/tomba_runtime.cpp
+  game/core/entry/main.cpp          # process entry point (P1.7c: main() is game-side)
   game/render/fps60_worldpass.cpp   # TRANSITIONAL fps60 world-pass hook body (P1.7c)
-  game/core/dev_areas.cpp
-  game/core/repl_commands.cpp
-  game/core/register_overrides.cpp
-  game/core/str.cpp
+  game/core/debug/dev_areas.cpp
+  game/core/debug/repl_commands.cpp
+  game/core/overrides/register_overrides.cpp
+  game/core/assets/str.cpp
   game/math/mathlib.cpp
   game/math/rng.cpp
   game/math/mtx.cpp
@@ -56,6 +56,7 @@ set(GAME_SRC
   game/world/spawn.cpp
   game/scene/scene_events.cpp
   game/scene/script_interp.cpp
+  game/scene/script_interp_entry.cpp
   game/scene/script_opcode.cpp
   game/audio/sfx.cpp
   game/audio/audio_dispatch.cpp
@@ -212,13 +213,13 @@ set(GAME_SRC
   game/render/card_browser.cpp          # pc_render producer: DEMO/title Load-Game card browser (s48==4)
   game/render/render_options.cpp        # pc_render producer: DEMO/title options page (s48==6)
   game/render/render_attract.cpp        # pc_render producer: DEMO/title attract 3D field (s48==7)
-  game/core/engine.cpp
-  game/core/engine_task_machine.cpp
-  game/core/engine_state_dispatch.cpp
-  game/core/engine_field_run.cpp
-  game/core/engine_scene_frame.cpp
-  game/core/engine_object_leaves.cpp
-  game/core/engine_frame_ticks.cpp
+  game/core/engine/engine.cpp
+  game/core/engine/engine_task_machine.cpp
+  game/core/engine/engine_state_dispatch.cpp
+  game/core/engine/engine_field_run.cpp
+  game/core/engine/engine_scene_frame.cpp
+  game/core/engine/engine_object_leaves.cpp
+  game/core/engine/engine_frame_ticks.cpp
   game/scene/field_transition.cpp
   game/scene/sop.cpp
   game/scene/demo.cpp

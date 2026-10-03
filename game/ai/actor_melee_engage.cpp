@@ -18,11 +18,11 @@
 // comment alone.
 #include "actor_melee_engage.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
 #include "math/trig.h"
-#include "native_override_catalog.h"
 
 // Still-substrate leaves this session did not chase (see .h banner). typed runtime address dispatch already declared
 // by core.h.

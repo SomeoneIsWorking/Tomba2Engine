@@ -9,9 +9,9 @@
 
 #include "audio/sfx.h"
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include "guest_call.h"
-#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 
 void Sfx::trigger(int id, int pan, int pitchBend) {
   Core *c = core;

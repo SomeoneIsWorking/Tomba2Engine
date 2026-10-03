@@ -32,10 +32,10 @@
 
 #include "cfg.h"
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h"
 #include "graphics_bind.h" // ov_obj_render_update (FUN_800517F8)
 #include "guest_abi.h"
-#include "guest_jal.h"
 #include "spawn.h" // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>
 #include <stdlib.h>

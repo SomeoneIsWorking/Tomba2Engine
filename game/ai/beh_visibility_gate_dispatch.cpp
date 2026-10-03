@@ -28,7 +28,7 @@
 
 #include "cfg.h"
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
 #include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 #include "guest_call.h"
 #include "object/actor.h" // Actor::boundsCull (FUN_8007778C native)

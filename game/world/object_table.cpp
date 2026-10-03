@@ -3,9 +3,9 @@
 #include "object_table.h"
 #include "cfg.h"
 #include "core.h"
-#include "core/engine.h" // eng(c).animation etc (not needed here but consistent)
+#include "core/engine/engine.h" // eng(c).animation etc (not needed here but consistent)
+#include "core/entry/game_ctx.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
 #include <stdint.h>
 #include <stdio.h>

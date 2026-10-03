@@ -56,9 +56,9 @@
 #include "overlay_ground_gt3gt4.h"
 #include "cfg.h"
 #include "core.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
 #include "horizontal_visibility_cull.h"
-#include "native_override_catalog.h"
 #include <cstdint>
 
 // -- packet-pool bump allocator (SAME process-global pointer the field pair uses — one shared

@@ -30,7 +30,7 @@ pages confirm with Cross. So a single press advances one page, and the route has
 before the GAME stage latches — a cadence of one press every 12 frames delivers both confirms
 inside the ~25 frames the product's own REPL `newgame` policy takes (measured: GAME at frame 25,
 tools/gate.py `boot`). Holding one press until the stage changed would confirm page 1 and then sit
-there. The same cadence, in the same numbers, is what `game/core/auto_drive.cpp` ships in C++ for
+there. The same cadence, in the same numbers, is what `game/core/debug/auto_drive.cpp` ships in C++ for
 `PSXPORT_AUTO_SKIP`/REPL `newgame`; that is the product owner of the policy and this module is the
 driver-side statement of it, deliberately kept in step with it.
 
@@ -49,10 +49,10 @@ from pathlib import Path
 
 # ---- guest state, each with the source that owns it ---------------------------------------------
 # The cooperative-task table's slot 0. `game/tomba2_types.h` names the base (T2_TASK_TABLE) and the
-# slot stride; `game/core/auto_drive.cpp` reads the stage entry at +0x0C out of the same slot.
+# slot stride; `game/core/debug/auto_drive.cpp` reads the stage entry at +0x0C out of the same slot.
 TASK0 = 0x801FE000
 TASK0_ENTRY = TASK0 + 0x0C
-# Offsets inside the task-0 slot, as game/core/frame_diagnostics.cpp and game/core/auto_drive.cpp
+# Offsets inside the task-0 slot, as game/core/frame/frame_diagnostics.cpp and game/core/debug/auto_drive.cpp
 # address them. They are here rather than in a driver because they are the layout of one guest
 # object, and a driver that re-derives them is a driver that can disagree with the C++ that writes
 # them. One read of TASK0..TASK0+TASK0_PROBE_BYTES therefore answers "which screen is this" in a
@@ -62,10 +62,10 @@ STATE_MACHINE_OFFSET = 0x48
 CURSOR_OFFSET = 0x68
 TASK0_PROBE_BYTES = 0x6C
 # The six halfword state machine at task0+0x48, decoded exactly as
-# `game/core/frame_diagnostics.cpp` prints it: outer 48/4a/4c, leaf 4e/50/52.
+# `game/core/frame/frame_diagnostics.cpp` prints it: outer 48/4a/4c, leaf 4e/50/52.
 STATE_MACHINE = TASK0 + STATE_MACHINE_OFFSET
 STATE_MACHINE_BYTES = 12
-# The GAME stage's task entry. game/core/game_config.cpp: `.stageGame = 0x8010637cu`.
+# The GAME stage's task entry. game/core/entry/game_config.cpp: `.stageGame = 0x8010637cu`.
 STAGE_GAME = 0x8010637C
 # Tomba's master G block, owned by `game/player/actor_tomba.h` as `ActorTomba::G_ADDR`, with the
 # 16.16 X/Y/Z position at +0x2C per its `velocityIntegrate` contract.
@@ -99,10 +99,10 @@ def screen_from_task0(block: bytes) -> tuple[Screen, int]:
 # Where each address above is owned, for verify_address_owners(). (owner file, the literal to find.)
 ADDRESS_OWNERS: dict[str, tuple[str, str]] = {
     "TASK0": ("game/tomba2_types.h", "0x801FE000"),
-    "STAGE_GAME": ("game/core/game_config.cpp", "0x8010637cu"),
+    "STAGE_GAME": ("game/core/entry/game_config.cpp", "0x8010637cu"),
     "PLAYER_G": ("game/player/actor_tomba.h", "0x800E7E80"),
     "GUEST_FRAME_COUNTER": ("game/render/field_hud.cpp", "0x1F80017C"),
-    "ATTRACT_FLAG": ("game/core/auto_drive.cpp", "0x1f800137"),
+    "ATTRACT_FLAG": ("game/core/debug/auto_drive.cpp", "0x1f800137"),
 }
 
 
@@ -137,7 +137,7 @@ class Screen:
     @property
     def left_intro(self) -> bool:
         """The opening has handed the outer machine off: sm[0x4a] left 0. Start is the game's own
-        skip for it (game/core/auto_drive.cpp SkipCutscene), so the route presses Start until this
+        skip for it (game/core/debug/auto_drive.cpp SkipCutscene), so the route presses Start until this
         is true rather than guessing how long the intro runs."""
         return self.sm["4a"] != 0
 

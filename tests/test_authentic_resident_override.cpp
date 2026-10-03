@@ -1,10 +1,10 @@
 #include "authenticated_image.h"
+#include "core/assets/str.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
 #include "game_runtime.h"
 #include "lightrec_executor.h"
-#include "native_override_catalog.h"
 #include "psx_exe_image.h"
-#include "str.h"
 
 #include <array>
 #include <lucent/log.h>

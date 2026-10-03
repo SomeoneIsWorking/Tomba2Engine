@@ -14,10 +14,10 @@
 // into one and stop matching the guest's operation sequence, so they stay side by side.
 #include "placed_prop_sm.h"
 #include "core.h"
+#include "core/overrides/guest_jal.h" // GuestFrame / GuestReg / guest_call / guest_dispatch
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
 #include "guest_abi.h"
-#include "guest_jal.h" // GuestFrame / GuestReg / guest_call / guest_dispatch
-#include "native_override_catalog.h"
 
 // Resident MAIN.EXE callees. Declared here (not inline in the body — CLAUDE.md) so guest_call can
 // take their address; every one of them routes through its own override thunk.

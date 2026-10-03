@@ -45,9 +45,9 @@
 //     graph. 0x80082734 turned out NOT to be part of this cluster (a separate, larger LoadImage-style
 //     FIFO streamer) — still MAPPED only, see the new file's header.
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride — declared, not locally extern'd
 #include "guest_call.h"
-#include "native_override_catalog.h" // tomba::native::declareOverride — declared, not locally extern'd
 #include "render.h"
 #include <stdint.h>
 

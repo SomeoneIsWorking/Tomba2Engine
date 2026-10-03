@@ -3,9 +3,9 @@
 // more.
 #include "save_prompt.h"
 #include "core.h"
-#include "engine.h"
-#include "game_ctx.h" // eng(c)
-#include "native_override_catalog.h"
+#include "core/engine/engine.h"
+#include "core/entry/game_ctx.h" // eng(c)
+#include "core/overrides/native_override_catalog.h"
 #include "render_queue.h" // RQ_OVERLAY
 
 void SavePrompt::drawCollected(Core *c) {

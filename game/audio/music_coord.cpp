@@ -15,12 +15,12 @@
 #include "c_subsys.h"
 #include "cfg.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h"               // GuestFrame — voiceMixTick mirrors FUN_80075824's 32-byte frame
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_abi.h"
-#include "guest_jal.h"               // GuestFrame — voiceMixTick mirrors FUN_80075824's 32-byte frame
-#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
-#include <lucent/log.h>              // `coord` diagnostic channel
+#include <lucent/log.h> // `coord` diagnostic channel
 #include <stdio.h>
 #include <stdlib.h> // atoi (PSXPORT_FIELD_SONG)
 #include <string.h> // memcmp (fieldBgmDirector bundle validation)

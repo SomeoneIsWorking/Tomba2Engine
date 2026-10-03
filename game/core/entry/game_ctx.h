@@ -19,8 +19,8 @@
 // Core), so THIS game header pulls their definitions directly (core.h no longer does).
 #include "audio/music_list.h"   // MusicList — Sound Test catalogue + area BGM driver (game-owned)
 #include "audio/native_music.h" // NativeMusic — in-game real-time SEP/VAB music player (game-owned)
-#include "core/engine.h"
-#include "core/verification_counters.h"
+#include "core/debug/verification_counters.h"
+#include "core/engine/engine.h"
 #include "items/inventory.h"
 #include "math/gte_math.h"
 #include "math/mtx.h"

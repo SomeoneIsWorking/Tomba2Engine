@@ -36,8 +36,8 @@
 //   0x8013DD48  = sub-obj dispatcher (called from cutsceneDirector state 4/5/6)
 
 #include "core.h"
-#include "core/engine.h"
-#include "game_ctx.h"
+#include "core/engine/engine.h"
+#include "core/entry/game_ctx.h"
 #include "guest_abi.h" // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 #include "guest_call.h"
 #include "render/screen_fade.h"

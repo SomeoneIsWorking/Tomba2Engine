@@ -9,12 +9,12 @@
 #include "actor_tomba.h"
 
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_abi.h"
 #include "guest_call.h"
-#include "guest_jal.h"
-#include "native_override_catalog.h"
 #include "player/tomba_state.h"
 
 #include <cstdint>

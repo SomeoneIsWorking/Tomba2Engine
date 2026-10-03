@@ -26,10 +26,10 @@
 #include "overlay_gt3gt4.h"
 #include "cfg.h"
 #include "core.h"
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride — declared, not locally extern'd
 #include "game.h"
 #include "guest_call.h"
 #include "horizontal_visibility_cull.h"
-#include "native_override_catalog.h" // tomba::native::declareOverride — declared, not locally extern'd
 #include <stdio.h>
 
 #define PKT_POOL_PTR                                                                                                   \

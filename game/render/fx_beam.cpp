@@ -60,8 +60,8 @@
 // empty; `routed=0` means no node asked for a beam; `emitted=0` means the producer declined. Those
 // are three different findings and the channel is built so they cannot be confused.
 #include "core.h"
+#include "core/entry/game_ctx.h" // trigOf(c)
 #include "game.h"
-#include "game_ctx.h"    // trigOf(c)
 #include "proj_params.h" // proj_pz_to_ord
 #include "projection.h"
 #include "render.h"

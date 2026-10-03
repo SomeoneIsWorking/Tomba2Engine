@@ -11,10 +11,10 @@
 // process can be observed — this test FORKS, and the parent asserts the child was killed by SIGABRT.
 // Testing the signal rather than a non-zero exit is also the stronger claim: it distinguishes the
 // refusal from bindResident quietly returning.
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
 #include "game_runtime.h"
 #include "lightrec_executor.h"
-#include "native_override_catalog.h"
 
 #include <lucent/log.h>
 #include <sys/wait.h>

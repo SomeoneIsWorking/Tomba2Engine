@@ -28,11 +28,11 @@
 // kanban #71's vibration, and it is deleted.
 #include "cfg.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h" // GuestFrame / GuestFrameSpill / guest_call
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_abi.h"
-#include "guest_jal.h" // GuestFrame / GuestFrameSpill / guest_call
-#include "native_override_catalog.h"
 #include "render.h"
 #include "render_internal.h" // withObjScope / cur_render_node
 #include "wide_window.h"

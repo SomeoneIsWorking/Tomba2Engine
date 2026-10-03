@@ -42,8 +42,8 @@
 #include "inventory.h"
 #include "cfg.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
 #include <stdio.h>
 #include <stdlib.h>

@@ -37,7 +37,7 @@
 #include "camera/cutscene_camera.h" // CutsceneCamera::runInitSeedGrp (was typed runtime address dispatch 0x8006CBA8)
 #include "cfg.h"
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
 #include "graphics_bind.h" // ov_obj_record_init
 #include "guest_abi.h"     // GuestFrame — mirror the guest stack frame (CLAUDE.md)
 #include "guest_call.h"

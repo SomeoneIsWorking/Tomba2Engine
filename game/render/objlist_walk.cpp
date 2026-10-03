@@ -44,10 +44,10 @@
 //   itself, never a C++ local: the leaves this loop reaches spill those callee-saved registers as their
 //   caller state, so a stale value would reach guest RAM (perobj_dispatch.cpp's CmdListFrame banner).
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "render.h"
 #include <cstdint>
 // original guest instructions fallbacks for the oracle-gated thunk — SBS core B (the pure oracle) must keep running the

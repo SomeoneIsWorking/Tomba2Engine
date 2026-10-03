@@ -3,10 +3,10 @@
 #include "start_page.h"
 #include "cfg.h" // `startpage` diagnostic channel
 #include "core.h"
-#include "engine.h"
-#include "game_ctx.h" // eng(c)
+#include "core/engine/engine.h"
+#include "core/entry/game_ctx.h" // eng(c)
+#include "core/overrides/native_override_catalog.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "render_queue.h" // RQ_OVERLAY
 
 void StartPage::drawCollected(Core *c) {

@@ -20,29 +20,42 @@ chains are described in `external/psxport/docs/codemap.md`. Nothing under it is 
 
 ## `game/` — Tomba! 2
 
-One `Engine` per `Core`, reached through the `TombaCtx` aggregate (`game/core/game_ctx.h`) with the
+One `Engine` per `Core`, reached through the `TombaCtx` aggregate (`game/core/entry/game_ctx.h`) with the
 `eng()`, `rend()`, `fade()`, `rngOf()`, `trigOf()`, `mathOf()`, `mtxOf()`, `inv()`, `saveMenuOf()`
 accessors. Guest state lives in `Core::mem_*`; the guest register file is `Core::r[]`.
 
 ### `game/core/` — application composition, the frame turn, and the override catalog
 
+Split by concept. Each subdirectory owns one kind of work; the class owners did not change, only
+where their bodies live.
+
+| Subdirectory | Owns |
+|---|---|
+| `entry/` | Process entry and the title's own facts: `main`, `TombaRuntime`, the `TombaCtx` aggregate, the measured `GameConfig` table, and the `GameHooks` table. |
+| `engine/` | The stage driver `Engine` and its seven parts: field run, frame ticks, task machine, object leaves, state dispatch, scene frame, and the `TaskSm` lens. |
+| `frame/` | The per-frame turn: `TombaFrameDriver`'s transaction, the frame-rate decision (`FrameCadence`), and the after-frame probes (`FrameDiagnostics`). |
+| `overrides/` | The one native-override declaration catalog and registration, plus the guest call conventions (`guest_jal`, `guest_resume`). |
+| `debug/` | Developer control: dev warp, dev areas, `AutoDrive`, the title's REPL commands, and `VerificationCounters`. |
+| `hle/` | `LibapiIntr` — the guest's libapi interrupt-mask primitives. |
+| `assets/` | `Asset` (LZ/texgroup/VRAM/stage preload) and `Str` (resident string leaves). |
+
 | Class | Responsibility |
 |---|---|
 | `Game` (global; from psxport) | The framework's per-session aggregate: `Pad`, `Cd`, `Fmv`, `DbgServer`, `presentation`, `runtime`, `frameDriver`. |
-| `TombaCtx` | The title's opaque per-`Core` subsystem aggregate; created by `createTombaContext`, reached from the framework as `Core::gameCtx`. |
-| `TombaRuntime` | The one `GameRuntime`: boot (`bootInit`), the frame driver, the title's REPL commands, renderer capability and temporal policy. |
-| `TombaFrameDriver` | The single finite per-frame transaction (`stepFrame`): input, timing, task scheduling, native rendering, exactly one presentation fence. |
-| `Engine` | The game's stage driver: field run, frame ticks, task machine, object leaves, state dispatch, `frameUpdate`, `drawOTag`. |
-| `FrameCadence` | The one owner of the frame-rate decision, published into the guest's own quota byte. |
-| `FrameDiagnostics` | Per-frame title state probes and counters reported after the frame. |
-| `AutoDrive` | Title-aware stage/area automation applied at the frame boundary. |
-| `LibapiIntr` | libapi interrupt-mask primitives; mirrors the host VBlank count to the guest word at the title frame boundary. |
-| `Asset` | LZ decompress, texture-group unpack, CPU→VRAM upload, and the stage preload chain. |
-| `Str` | The resident native string leaves, registered image-aware. |
-| `tomba::native::declareOverride` / `declareOverlayOverride` / `bindResident` / `activateOverlay` / `activateModeOverlay` / `activateAreaSlotOverlay` / `retireOverlay` / `loadAreaSlotFile` | The one native-override declaration catalog; a declaration is keyed by image identity plus guest address, never by address alone. |
-| `TombaConfig` (`game_config.cpp`) | The measured Tomba! 2 compatibility facts (guest addresses and sizes) the frame driver requires. |
-| `VerificationCounters` | Title-owned verification tallies surfaced through the diagnostics channel. |
-| `tomba::scene::stepCardLoadMachine` (`dev_warp.h`, `task_sm.h`) | Dev warp arming, and the generic task state-machine vocabulary. |
+| `TombaCtx` (`entry/game_ctx.{h,cpp}`) | The title's opaque per-`Core` subsystem aggregate; created by `createTombaContext`, reached from the framework as `Core::gameCtx`. |
+| `TombaRuntime` (`entry/tomba_runtime.{h,cpp}`) | The one `GameRuntime`: boot (`bootInit`), the frame driver, the title's REPL commands, renderer capability and temporal policy. |
+| `tomba::title::measuredConfig()` / `hooks()` (`entry/title_facts.h`) | The measured Tomba!2 facts and the hook table, reachable by name from `TombaRuntime` and the tests. Replaces the deleted `tomba::legacy` shim, which psxport never named. |
+| `TombaFrameDriver` (`frame/frame_driver.{h,cpp}`) | The single finite per-frame transaction (`stepFrame`): input, timing, task scheduling, native rendering, exactly one presentation fence. |
+| `Engine` (`engine/engine.{h,cpp}` and `engine_*.cpp`) | The game's stage driver: field run, frame ticks, task machine, object leaves, state dispatch, `frameUpdate`, `drawOTag`. |
+| `FrameCadence` (`frame/frame_cadence.{h,cpp}`) | The one owner of the frame-rate decision, published into the guest's own quota byte. |
+| `FrameDiagnostics` (`frame/frame_diagnostics.{h,cpp}`) | Per-frame title state probes and counters reported after the frame. |
+| `AutoDrive` (`debug/auto_drive.{h,cpp}`) | Title-aware stage/area automation applied at the frame boundary. |
+| `LibapiIntr` (`hle/libapi_intr.{h,cpp}`) | libapi interrupt-mask primitives; mirrors the host VBlank count to the guest word at the title frame boundary. |
+| `Asset` / `Str` (`assets/`) | LZ decompress, texture-group unpack, CPU→VRAM upload, the stage preload chain; and the resident native string leaves, registered image-aware. |
+| `tomba::native::declareOverride` / `declareOverlayOverride` / `bindResident` / `activateOverlay` / `activateModeOverlay` / `activateAreaSlotOverlay` / `retireOverlay` / `loadAreaSlotFile` (`overrides/native_override_catalog.*`) | The one native-override declaration catalog; a declaration is keyed by image identity plus guest address, never by address alone. |
+| `TombaConfig` (`entry/game_config.cpp`) | The measured Tomba! 2 compatibility facts (guest addresses and sizes) the frame driver requires. |
+| `VerificationCounters` (`debug/verification_counters.h`) | Title-owned verification tallies surfaced through the diagnostics channel. |
+| `tomba::scene::stepCardLoadMachine` (`debug/dev_warp.h`, `engine/task_sm.h`) | Dev warp arming, and the generic task state-machine vocabulary. |
 
 ### `game/input/`
 `Engine::padEdgeFence` — the port of `FUN_800788AC`, the pad-edge fence that keeps one edge from
@@ -219,11 +232,11 @@ Each chain names the class and method at every hop.
 ```text
 psxport FrameLoopShell::step
   → binds the per-Core process globals (gte/projprim/spu/mdec/xa) once per session
-  → tomba::TombaFrameDriver::stepFrame            game/core/frame_driver.cpp
-      → Engine::cadence().beginLogicFrame         game/core/frame_cadence.cpp
+  → tomba::TombaFrameDriver::stepFrame            frame/frame_driver.cpp
+      → Engine::cadence().beginLogicFrame         frame/frame_cadence.cpp
       → Game::hle.deliverEvent                    (psxport)
       → Pad::serviceFrame                         (psxport; writes the guest pad packet)
-      → Engine::frameUpdate                       game/core/engine_frame_ticks.cpp
+      → Engine::frameUpdate                       engine/engine_frame_ticks.cpp
           → the guest task machine, native object leaves, native scene state
       → Game::presentation.commit                 (psxport; exactly one fence)
       → TombaFrameDriver's submitFrame            guest DrawSync + PutDrawEnv + Engine::drawOTag
@@ -265,7 +278,7 @@ mask. Engine per-VBlank pad edges are `Engine::frameUpdate`'s work.
 ### Guest draw → presentation
 
 ```text
-Engine::drawOTag                             game/core/engine.cpp
+Engine::drawOTag                             engine/engine.cpp
   → Render's producers                       game/render/*.cpp — native scene/UI passes, each reading
                                                the owning game state
       → GuestQueueDispatch                   the guest's three cull render queues
@@ -318,9 +331,9 @@ lucent::http::Server                         (psxport) — the loopback listener
   → psx::dbg::DbgServer                      runtime/psx/dbg_server.* — the command surface
       → framework commands                   (psxport) — memory, input, screenshot, render toggles
       → GameRuntime::replCommand → tomba::TombaRuntime::replCommand
-          → game/core/repl_commands.cpp       the title's commands, which reach Tomba! 2 classes and
+          → debug/repl_commands.cpp       the title's commands, which reach Tomba! 2 classes and
                                                guest layouts without the framework naming either
-      → Debug warp / area selection          game/core/dev_warp.* and game/core/dev_areas.cpp — a
+      → Debug warp / area selection          debug/dev_warp.* and debug/dev_areas.cpp — a
                                                request is armed and the frame driver applies it at a
                                                frame boundary through the game's own transition and
                                                load owners
@@ -348,9 +361,9 @@ never a Tomba! 2 address, overlay assumption, owner or renderer policy.
 |---|---|
 | Lightrec decode/emission, CPU synchronization, bounded exits, image generations, invalidation, generic override/original-call dispatch, host input, CD/GPU/SPU/MDEC services, the frame loop shell, movies, presentation | shared `external/psxport` |
 | A Tomba! 2 guest address, gameplay rule, object, scene, native producer, or override selection | the `game/` subsystem that owns that responsibility |
-| Tomba! 2 per-frame input, timing, scheduler, render order, or the presentation boundary | `game/core/frame_driver.cpp` |
-| Tomba! 2 libetc VBlank guest address and callback write order | `game/core/libapi_intr.*`, sequenced by the frame driver |
-| Tomba! 2 stage-aware automation, guest-layout probes, title-specific REPL inspection | `game/core/auto_drive.*`, `game/core/frame_diagnostics.*`, `game/core/repl_commands.cpp` |
+| Tomba! 2 per-frame input, timing, scheduler, render order, or the presentation boundary | `frame/frame_driver.cpp` |
+| Tomba! 2 libetc VBlank guest address and callback write order | `hle/libapi_intr.*`, sequenced by the frame driver |
+| Tomba! 2 stage-aware automation, guest-layout probes, title-specific REPL inspection | `debug/auto_drive.*`, `frame/frame_diagnostics.*`, `debug/repl_commands.cpp` |
 | A Tomba! 1 guest address, runtime, gameplay rule, projection or layout policy | the matching `titles/tomba1/game/` subsystem |
 | Offline guest-code emission, generated registries, interpreter-first gameplay selection | nowhere; these have no target owner |
 | Epic intent | `docs/project-goals.md` |

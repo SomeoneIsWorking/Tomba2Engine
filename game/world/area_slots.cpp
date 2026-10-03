@@ -4,10 +4,10 @@
 #include "world/area_slots.h"
 #include "cfg.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
-#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include <cstdio>
 
 // FUN_800998E4's own table and encoding — named here rather than repeated as literals. See

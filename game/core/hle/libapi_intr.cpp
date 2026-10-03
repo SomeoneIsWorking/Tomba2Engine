@@ -65,12 +65,12 @@
 // callback that spills its caller's callee-saved registers must spill the cursor/index the
 // substrate would have spilled, not whatever the previous native code parked there. Hence
 // GuestReg<16>/<17> rather than a `for (int i...)`.
-#include "libapi_intr.h"
+#include "hle/libapi_intr.h"
 #include "core.h"
 #include "game.h"
 #include "guest_abi.h"
-#include "guest_jal.h" // GuestFrame / GuestReg / guest_dispatch — the ABI vocabulary
-#include "native_override_catalog.h"
+#include "overrides/guest_jal.h" // GuestFrame / GuestReg / guest_dispatch — the ABI vocabulary
+#include "overrides/native_override_catalog.h"
 // guest call boundaries so each keeps its own guest frame
 
 namespace {

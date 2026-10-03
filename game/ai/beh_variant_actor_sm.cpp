@@ -26,9 +26,9 @@
 
 #include "cfg.h"
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h"
 #include "guest_abi.h"
-#include "guest_jal.h"
 #include "render/cull.h" // Cull::enqueueQueueA (FUN_80077E7C)
 #include "spawn.h"       // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>

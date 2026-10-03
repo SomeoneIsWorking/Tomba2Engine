@@ -5,17 +5,17 @@
 // TombaRuntime separately binds resident declarations to each Core's explicit resident image token
 // after loading, including the final boot reload. PSXPort's per-Core dispatcher then selects a native
 // handler or executes the guest body through Lightrec. Declaring an overlay handler does not activate it.
-#include "register_overrides.h"
+#include "overrides/register_overrides.h"
 #include "actor_bump.h"           // class ActorBump — bump response (0x8010EA80)
 #include "actor_object_contact.h" // class ActorObjectContact — hit / proximity contact (0x8010E258)
 #include "actor_targeting.h"      // class ActorTargeting — acquire a target (0x8001FAE0)
 #include "assembly_companion.h"   // class AssemblyCompanion — assembly companion idle tick (0x80138A64)
 #include "core.h"
-#include "engine.h"
+#include "engine/engine.h"
+#include "entry/game_ctx.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "mtx.h" // class Mtx — libgte matrix leaves (MR_init identity, 0x80051794)
-#include "native_override_catalog.h"
+#include "overrides/native_override_catalog.h"
 #include "placed_prop_sm.h"       // class PlacedPropSm — placed scene-prop behaviour (0x80040558)
 #include "rope_swing.h"           // class RopeSwing — hanging rope swing + segment bend (0x801281B8)
 #include "sway_schedule.h"        // class SwaySchedule — rocking-rate schedule + sway tick (0x8012D27C)
@@ -34,8 +34,8 @@
 #include "fx_sprite_swarm.h"       // class FxSpriteSwarm — per-particle sprite emitter (0x800281EC)
 #include "graphics_bind.h"         // class GraphicsBind — object render-bind subsystem (recordArrayInit)
 #include "gte_transform3.h"        // class GteTransform3 — GTE 3-vertex rotate+pack (0x80084250)
+#include "hle/libapi_intr.h"       // class LibapiIntr — kernel interrupt-mask primitives (0x80085C9C)
 #include "hud_gauge_emitter.h"     // class HudGaugeEmitter — self-contained HUD gauge emitter (0x8004FD30/0x8004FB4C)
-#include "libapi_intr.h"           // class LibapiIntr — kernel interrupt-mask primitives (0x80085C9C)
 #include "libgpu_draw_env.h"       // class LibgpuDrawEnv — libgpu SetDrawEnv (0x80081FB0)
 #include "math/trig.h"             // class Trig — rsin/ratan2/angleCmp override wiring
 #include "melee_proximity.h"       // class MeleeProximity — melee-proximity/approach-anchor leaf

@@ -38,9 +38,9 @@
 // plus vertex2's IR3 written whole — the exact interleaving the guest-visible behavior performs, preserved 1:1
 // below. Output written back into a0[0..16] (in place).
 #include "core.h"
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride
 #include "game.h"
 #include "gte_transform3.h"
-#include "native_override_catalog.h" // tomba::native::declareOverride
 #include <stdint.h>
 
 // gte_write_ctrl/gte_write_data/gte_read_data/gte_op declared in core.h.

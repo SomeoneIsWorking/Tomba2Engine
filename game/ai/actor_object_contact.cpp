@@ -54,9 +54,9 @@
 #include "actor_object_contact.h"
 
 #include "core.h"
+#include "core/overrides/guest_jal.h"
+#include "core/overrides/native_override_catalog.h"
 #include "guest_abi.h"
-#include "guest_jal.h"
-#include "native_override_catalog.h"
 
 namespace {
 

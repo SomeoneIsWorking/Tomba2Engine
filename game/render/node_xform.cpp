@@ -16,13 +16,13 @@
 #include "node_xform.h"
 #include "actor_tomba.h" // tomba::player::ActorTomba::G_ADDR — buildFromChild's parent-table base (UNWIRED draft)
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h" // GuestFrame/GuestReg/guest_fn — ABI vocabulary (2026-07-14 readability pass)
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include "game.h"
-#include "game_ctx.h"
 #include "gte_math.h" // Math::rotmat, Math::matMul (static)
 #include "guest_abi.h"
-#include "guest_jal.h"               // GuestFrame/GuestReg/guest_fn — ABI vocabulary (2026-07-14 readability pass)
-#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
-#include "render.h"                  // full Render definition — rend(c)->mNodeXform
+#include "render.h" // full Render definition — rend(c)->mNodeXform
 
 // Override wiring (see registerOverrides below): 0x80051300/0x80051464/0x800517BC (+ copyMatrixBlock/
 // buildFromChild/buildWithOffset) have a direct same-module `a direct guest-address call` caller (confirmed via

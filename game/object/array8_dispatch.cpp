@@ -1,8 +1,8 @@
 // Array8Dispatch::tick — see array8_dispatch.h. Faithful port of guest FUN_80026368.
 #include "array8_dispatch.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
 #include "game.h"
-#include "game_ctx.h"
 
 void Array8Dispatch::tick() {
   Core *c = core;

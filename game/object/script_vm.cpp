@@ -7,7 +7,7 @@
 #include "script_vm.h"
 #include "cfg.h"
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
 #include "guest_call.h"
 #include "mathlib.h"     // Bit::test7EC / test868 (FUN_8004D7EC / FUN_8004D868)
 #include "render/cull.h" // Cull::cullWrap77acc / installSceneRecord

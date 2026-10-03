@@ -20,11 +20,11 @@
 // The guest tests both, and it tests [+8] first, so a node with [+8] == 0 draws nothing even if [+9]
 // is large. Collapsing them into one loop bound would change behaviour for any node where they differ.
 #include "core.h"
+#include "core/entry/game_ctx.h" // rend()
+#include "core/overrides/native_override_catalog.h"
 #include "cube_text_banner.h" // the one native producer that owns a sub-part node's picture
 #include "game.h"
-#include "game_ctx.h" // rend()
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "render.h"
 
 // gte_write_ctrl is declared in core.h (uint32_t, uint32_t) — included above

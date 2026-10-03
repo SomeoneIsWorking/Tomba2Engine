@@ -7,10 +7,10 @@
 #include "player/actor_interaction.h"
 
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h"
 #include "guest_abi.h"
 #include "guest_call.h"
-#include "guest_jal.h"
 #include "player/actor_tomba.h"
 #include "player/tomba_state.h"
 #include "trig.h"

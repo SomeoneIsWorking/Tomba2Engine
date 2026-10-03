@@ -86,8 +86,8 @@
 //   Confidence: HIGH on the 6-word header path (every field cross-validated against the 4 already-
 //   drafted-here leaves' call sites); LOW on the FillRect tail's field semantics.
 #include "core.h"
+#include "core/overrides/native_override_catalog.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include <stdint.h>
 
 namespace {

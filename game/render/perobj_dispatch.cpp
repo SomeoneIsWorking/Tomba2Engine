@@ -54,13 +54,13 @@
 // emitter).
 #include "cfg.h"
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h" // GuestFrame/guest_dispatch — perModeDispatch's demo migration (docs/port-framework.md)
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "gpu_native_internal.h" // gpu_frame_no — declared THERE, never re-declared here
 #include "guest_abi.h"
 #include "guest_call.h"
-#include "guest_jal.h" // GuestFrame/guest_dispatch — perModeDispatch's demo migration (docs/port-framework.md)
-#include "native_override_catalog.h"
 #include "producer_scope.h" // ProducerScope — graphics-producer DB, native leg
 #include "render.h"
 #include "render_internal.h" // render_field_native_active (REDIRECT below)

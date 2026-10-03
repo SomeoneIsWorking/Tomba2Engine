@@ -1,7 +1,7 @@
 // game/core/str.cpp — see str.h. WIRED (2026-07-10 verify pass, docs/fleet-workflow.md §9).
-#include "str.h"
+#include "assets/str.h"
 #include "core.h"
-#include "native_override_catalog.h"
+#include "overrides/native_override_catalog.h"
 
 namespace tomba {
 

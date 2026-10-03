@@ -112,9 +112,9 @@
 // against a live VRAM-transfer dump). Left for a dedicated follow-up pass — do not fold it into this
 // cluster's wiring without RE'ing it on its own terms first.
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "render.h"
 #include <stdint.h>
 

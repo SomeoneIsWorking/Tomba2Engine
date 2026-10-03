@@ -26,9 +26,9 @@
 // (the same field-frame scope FUN_8003F9A8 owns on the guest side).
 #include "cfg.h"
 #include "core.h"
-#include "engine.h"
+#include "core/engine/engine.h"
+#include "core/entry/game_ctx.h" // eng(c) — PauseMenu frame gate
 #include "game.h"
-#include "game_ctx.h"        // eng(c) — PauseMenu frame gate
 #include "producer_scope.h"  // ProducerScope — graphics-producer DB, native leg
 #include "render_internal.h" // render_queue.h / cur_render_node / render.h
 

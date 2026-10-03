@@ -4,14 +4,14 @@
 // directly owns context lifecycle, boot, and override registration; those slots stay null so the
 // callback bag cannot become a second authority.
 #include "core.h"
-#include "dev_warp.h"
-#include "engine.h"
+#include "debug/dev_warp.h"
+#include "engine/engine.h"
+#include "entry/game_ctx.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "game_iface.h"
-#include "legacy_game_interface.h"
 #include "render.h"             // Render umbrella — tomba_renderBbFrameReset calls rend(c)->bbFrameReset()
 #include "render/screen_fade.h" // ScreenFade — tomba_renderFadeState mirrors get() into a framework FadeState
+#include "title_facts.h"
 #include <string.h>
 
 // tomba_renderFadeState — mirror the game's per-frame ScreenFade into the
@@ -238,4 +238,6 @@ static const GameHooks g_tomba_hooks = {
     .fps60ReadSceneCam = tomba_fps60ReadSceneCam,
 };
 
-const GameHooks &tomba::legacy::compatibilityHooks = g_tomba_hooks;
+const GameHooks &tomba::title::hooks() {
+  return g_tomba_hooks;
+}

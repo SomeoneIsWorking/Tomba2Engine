@@ -17,10 +17,10 @@
 
 #include "cfg.h"
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/guest_jal.h"
 #include "guest_abi.h"
 #include "guest_call.h"
-#include "guest_jal.h"
 #include "object/actor.h" // Actor::boundsCull (FUN_8007778C — thin wrapper native)
 #include "spawn.h"        // class Spawn (eng(c).spawn.despawn / dispatch / spawnAndInit)
 #include <stdio.h>

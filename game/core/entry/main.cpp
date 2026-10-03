@@ -4,13 +4,13 @@
 // is reached through inheritance; the framework provides no main().
 #include "cfg.h"
 #include "core.h"
+#include "entry/tomba_runtime.h"
 #include "fs_util.h" // Fs::exists — MAIN.EXE presence probe for self-provisioning below
 #include "game.h"
 #include "hw_bind.h"
 #include "lightrec_executor.h"
 #include "platform_hle.h" // class PlatformHle — HW-sync HLE table (VSync/CdSync/MDEC/ChangeThread)
 #include "psx_exe_image.h"
-#include "tomba_runtime.h"
 #include <lucent/log.h>
 #include <stdio.h>
 #include <stdlib.h>

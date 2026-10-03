@@ -20,10 +20,10 @@
 // runtime address dispatch, so the registry intercepts it regardless of which object stamped the pointer.
 #include "beh_actor_tomba_proximity_combat.h"
 #include "core.h"
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include "game.h"
 #include "guest_abi.h" // GuestFrameSpill — named spill-table vocabulary only, see below
 #include "guest_call.h"
-#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 
 // READABILITY PASS (2026-07-15, code-quality pilot — see game/render/node_xform.cpp /
 // game/audio/sequencer.cpp for the recipe): this file's own banner (top of file) already flags the

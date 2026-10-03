@@ -15,9 +15,9 @@
 // guest addresses one slot sideways — and a renamed or removed field becomes a compile error rather
 // than a wrong address that boots and diverges. Fields left unset are value-initialised to zero,
 // which is the framework's documented "this game has no such primitive".
-#include "frame_cadence.h"
+#include "frame/frame_cadence.h"
 #include "game_iface.h"
-#include "legacy_game_interface.h"
+#include "title_facts.h"
 
 // Task entry PCs, verbatim from the literals psxport's pc_scheduler.cpp used to carry. Values unchanged:
 // this is a MOVE of a declaration, not a re-measurement, so the port's scheduling must be identical and
@@ -233,4 +233,6 @@ static const GameConfig g_tomba_config = {
     .fadewatchFieldModeSmPtr = 0x1f800138u,
 };
 
-const GameConfig &tomba::legacy::measuredConfig = g_tomba_config;
+const GameConfig &tomba::title::measuredConfig() {
+  return g_tomba_config;
+}

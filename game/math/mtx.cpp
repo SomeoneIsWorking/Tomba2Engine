@@ -1,7 +1,7 @@
 #include "mtx.h"
 #include "core.h"
-#include "game_ctx.h"                // mtxOf(c) — the per-Core Mtx instance
-#include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
+#include "core/entry/game_ctx.h"                    // mtxOf(c) — the per-Core Mtx instance
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 
 void Mtx::identity(uint32_t addr) {
   Core *c = this->core;

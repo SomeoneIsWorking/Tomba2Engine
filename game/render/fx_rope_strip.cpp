@@ -73,11 +73,11 @@
 // queue. `tiles=N emitted=0` is a real, distinguishable finding (every tile rejected behind the
 // camera) and reads differently from the producer never being called at all, which prints nothing.
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "gpu_native_internal.h" // gpu_frame_no — declared THERE, never re-declared here
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "proj_params.h" // proj_pz_to_ord
 #include "projection.h"
 #include "render.h"

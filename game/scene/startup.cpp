@@ -15,11 +15,11 @@
 // `eng(c).initFrameState()` etc. Was the free functions eng_init_* — promoted with the class-instance
 // arc (no Core arg on the method surface; reach Core via `this->core`).
 #include "core.h"
-#include "engine.h"
-#include "game_ctx.h"
+#include "core/engine/engine.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "gpu_vk.h" // gpu_vk_wide_engine / _ofx — the widescreen projection centre
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "proj_params.h" // libgte_set_geom_offset / _screen — SetGeomOffset / SetGeomScreen
 #include <stdint.h>
 

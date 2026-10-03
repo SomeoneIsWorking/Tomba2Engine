@@ -2,10 +2,10 @@
 // the measurement that identified the missing layers, and why this page is a scope and nothing more.
 #include "card_menu.h"
 #include "core.h"
-#include "engine.h"
-#include "game_ctx.h" // eng(c)
+#include "core/engine/engine.h"
+#include "core/entry/game_ctx.h" // eng(c)
+#include "core/overrides/native_override_catalog.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "render_queue.h" // RQ_OVERLAY
 #include <lucent/log.h>
 

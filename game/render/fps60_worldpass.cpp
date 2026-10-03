@@ -13,9 +13,9 @@
 // tier1Render); this body is only the gate reads + the world-pass draws, plus the backdrop wrap-lerp that
 // writes the framework Fps60's (public) bg-override state that Render::backdropRender reads back.
 #include "core.h"
-#include "fps60.h" // Fps60 — the override struct fields
+#include "core/entry/game_ctx.h" // rend(c) / eng(c) — the game's Render and engine object graphs
+#include "fps60.h"               // Fps60 — the override struct fields
 #include "game.h"
-#include "game_ctx.h"        // rend(c) / eng(c) — the game's Render and engine object graphs
 #include "parallax_bg.h"     // ParallaxBg — owns the SM address and the scroll wrap moduli
 #include "parallax_scroll.h" // tomba::parallax::shortestPathLerp — the scroll-domain owner
 #include "render.h" // Render::worldVoidBeat/fieldAreaInit/terrainRenderAll/fieldEntityRender/backdropRender/...

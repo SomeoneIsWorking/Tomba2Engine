@@ -1,4 +1,4 @@
-#include "native_override_catalog.h"
+#include "overrides/native_override_catalog.h"
 
 #include "core.h"
 #include "game.h" // Cd::dc40Sync — the synchronous indexed-file reader

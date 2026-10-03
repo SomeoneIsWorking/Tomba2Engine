@@ -17,7 +17,7 @@
 // it). Do NOT define fields speculatively — only when a handler's RE actually resolved the semantic.
 #pragma once
 #include "core.h"
-#include "game_ctx.h"
+#include "core/entry/game_ctx.h"
 #include <cstdint>
 
 class Actor {

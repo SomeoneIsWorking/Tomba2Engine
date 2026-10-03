@@ -16,7 +16,7 @@
 // So an unnamed area shows as "Area N" here rather than a guess. See docs/areas.md; add a row there in
 // the same commit as a name added below.
 #include "core.h"
-#include "engine.h"
+#include "engine/engine.h"
 #include "game.h"
 
 namespace {

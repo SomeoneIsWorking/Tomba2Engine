@@ -64,11 +64,11 @@
 //      (*0x800ED8C8 + depth*4) — the identical packet-chain mechanism perobj_dispatch.cpp's
 //      cmdListDispatch/perModeDispatch already documents.
 #include "core.h"
+#include "core/entry/game_ctx.h"
+#include "core/overrides/native_override_catalog.h"
 #include "fps60.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "proj_params.h" // ProjParams::pzToOrd — billboardsRender depth normalize
 #include "render.h"
 #include "render_internal.h" // withObjScope / cur_render_node

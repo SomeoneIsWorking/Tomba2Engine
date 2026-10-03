@@ -1,7 +1,7 @@
-#include "dev_warp.h"
+#include "debug/dev_warp.h"
 
 #include "core.h"
-#include "game_ctx.h"
+#include "entry/game_ctx.h"
 
 #include <cstdint>
 

@@ -79,10 +79,10 @@
 // stay in the register file, because a callee may spill its caller's callee-saved registers.
 #include "obj_model_view.h"
 #include "core.h"
+#include "core/overrides/guest_jal.h"               // GuestFrame / GuestReg / guest_call
+#include "core/overrides/native_override_catalog.h" // tomba::native::declareOverride
 #include "game.h"
 #include "guest_abi.h"
-#include "guest_jal.h"               // GuestFrame / GuestReg / guest_call
-#include "native_override_catalog.h" // tomba::native::declareOverride
 #include <cstdint>
 
 namespace {

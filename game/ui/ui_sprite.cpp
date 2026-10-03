@@ -24,8 +24,8 @@
 // theirs, restore and unwind. Not doing so would hand the emitter pointers into the wrong place.
 #include "ui/ui_sprite.h"
 #include "core.h"
+#include "core/overrides/native_override_catalog.h"
 #include "guest_call.h"
-#include "native_override_catalog.h"
 #include "score_popup.h"
 #include "ui/pause_menu.h"
 #include "ui/ui_group_capture.h"

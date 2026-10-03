@@ -60,9 +60,9 @@
 // Read-only: guest memory is only read.
 #include "cfg.h"
 #include "core.h"
-#include "fx_sprite.h" // SpriteAnchor — the shared baseScale / otKeyInRange relations
+#include "core/entry/game_ctx.h" // trigOf() — the per-Core Trig instance
+#include "fx_sprite.h"           // SpriteAnchor — the shared baseScale / otKeyInRange relations
 #include "game.h"
-#include "game_ctx.h" // trigOf() — the per-Core Trig instance
 #include "render.h"
 #include "render_internal.h" // ObjScope / proj_pz_to_ord
 #include "render_queue.h"

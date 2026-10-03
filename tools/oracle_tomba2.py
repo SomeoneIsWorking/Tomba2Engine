@@ -92,7 +92,7 @@ declared = (
     # The FIELD's own fade ramp, which is a different fade from the sequencer above and is the one
     # that runs on area entry and exit: Engine::fieldRun case 9 arms it to 31 and case 10 counts it
     # down to 0, driving the leaf at 0x8007E9C8 with (level * -8) replicated into R/G/B
-    # (game/core/engine.cpp:1721-1738). The guest reaches it through a scratchpad pointer
+    # (game/core/engine/engine.cpp:1721-1738). The guest reaches it through a scratchpad pointer
     # (`sm = mem_r32(0x1F800138)`), which the console reference cannot read; the fixed base is the
     # same 0x801FE000 the state_machine range above is expressed against.
     DeclaredRange("fade.field_ramp", TASK0 + 0x6E, 1, False),

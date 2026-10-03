@@ -23,8 +23,8 @@
 // the picture is what matters here, not a byte match.
 #include "margin_render.h"
 #include "cfg.h"
+#include "core/entry/game_ctx.h"
 #include "game.h"
-#include "game_ctx.h"
 #include "producer_scope.h" // ProducerScope + pc_producer — graphics-producer DB
 #include "projection.h"
 #include "render.h"
