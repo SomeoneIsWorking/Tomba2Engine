@@ -45,6 +45,9 @@ confirms NewGame/StartGame on a cold boot, which writes nothing.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
+
+from collections.abc import Iterator
 from pathlib import Path
 
 # ---- guest state, each with the source that owns it ---------------------------------------------
@@ -96,13 +99,16 @@ def screen_from_task0(block: bytes) -> tuple[Screen, int]:
         raise ValueError(f"task-0 probe needs {TASK0_PROBE_BYTES} bytes, got {len(block)}")
     return Screen.from_task0_block(block), block[CURSOR_OFFSET]
 
-# Where each address above is owned, for verify_address_owners(). (owner file, the literal to find.)
-ADDRESS_OWNERS: dict[str, tuple[str, str]] = {
-    "TASK0": ("game/tomba2_types.h", "0x801FE000"),
-    "STAGE_GAME": ("game/core/entry/game_config.cpp", "0x8010637cu"),
-    "PLAYER_G": ("game/player/actor_tomba.h", "0x800E7E80"),
-    "GUEST_FRAME_COUNTER": ("game/render/field_hud.cpp", "0x1F80017C"),
-    "ATTRACT_FLAG": ("game/core/debug/auto_drive.cpp", "0x1f800137"),
+# The literal each address above is written as in this repository. Deliberately NOT a source PATH:
+# a path couples this check to where an owner lives, so moving a file between concept directories
+# would report a disagreement about a constant that never moved. verify_address_owners() resolves the
+# literal across the first-party tree instead and reports which sources declare it.
+ADDRESS_OWNERS: dict[str, str] = {
+    "TASK0": "0x801FE000",
+    "STAGE_GAME": "0x8010637cu",
+    "PLAYER_G": "0x800E7E80",
+    "GUEST_FRAME_COUNTER": "0x1F80017C",
+    "ATTRACT_FLAG": "0x1f800137",
 }
 
 
@@ -190,26 +196,78 @@ GAMEPLAY_ROUTE: tuple[Step, ...] = (
 )
 
 
-def verify_address_owners(root: Path) -> tuple[int, int, list[str]]:
-    """Re-read the source that owns each address and report how many still agree.
+# Directories that hold vendored, generated, or built code rather than this repository's own C++.
+_NOT_OWNED = ("build", "scratch", "external", ".git")
+
+
+def first_party_sources(root: Path) -> Iterator[Path]:
+    """Every first-party C++ source under the repository, laid out however the owners choose."""
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.suffix not in (".cpp", ".h", ".hpp", ".c"):
+            continue
+        if any(part in _NOT_OWNED for part in path.relative_to(root).parts):
+            continue
+        yield path
+
+
+# A declaration of the literal, not any mention of it: the name being bound, then `=`, then the
+# address. A comment or a string that happens to contain the digits is not the owner declaring it.
+# A NAME bound to the literal: `constexpr uint32_t kTickWord = 0x1F80017Cu;`,
+# `const uint32_t S0 = 0x800E7E80u;`, or a designated initialiser `.taskTableBase = 0x801fe000u,`.
+# Comment lines are excluded, so prose that mentions an address is not an owner declaring it.
+_DECLARES_ADDRESS = re.compile(
+    r"([A-Za-z_][A-Za-z0-9_]*)\s*=\s*[^;]*?" + r"LITERAL")
+
+
+def declaring_symbols(root: Path, literal: str) -> list[str]:
+    """Every `NAME = <address>` binding of `literal` in the first-party sources, as `path:NAME`.
+
+    Resolution is by VALUE, so an owner may live in any directory; what must hold is that the address
+    is still BOUND to a name in this repository. Requiring a binding rather than any occurrence is
+    what keeps a renamed constant, a moved file, and an incidental mention three different things.
+    """
+    pattern = re.compile(_DECLARES_ADDRESS.pattern.replace("LITERAL", re.escape(literal)), re.IGNORECASE)
+    found: list[str] = []
+    for path in first_party_sources(root):
+        relative = path.relative_to(root)
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            stripped = line.strip()
+            if literal.lower() not in stripped.lower() or stripped.startswith("//"):
+                continue
+            match = pattern.search(stripped)
+            if match:
+                found.append(f"{relative}:{match.group(1)}")
+    return found
+
+
+def verify_address_owners(root: Path) -> tuple[int, int, list[str], dict[str, list[str]]]:
+    """Re-read the title sources and report how many still bind each address this tool reads.
 
     A tool that reads guest memory at a hard-coded address is one edit away from reading the wrong
     place, and a wrong address reads plausible zeros — the failure mode that looks like a game that
-    is merely not responding. So the constants are checked against their owners, with a denominator:
-    (matched, scanned, disagreements). It reads text, so it can only disagree about a constant that
-    was moved; it cannot prove the address means what it says, which is what the run's own evidence
-    is for.
+    is merely not responding. So the constants are checked against the tree, with a denominator:
+    (matched, scanned, disagreements).
+
+    Resolution is by VALUE across every first-party source, not by a recorded file path: the owner
+    of an address is allowed to move between concept directories, and a move is not a disagreement
+    about the address. A disagreement means the address is bound to no name in this repository any
+    more, which is the only thing worth refusing a run over. It reads text, so it cannot prove the
+    address means what it says; that is what the run's own evidence is for.
     """
     matched = 0
     disagreements: list[str] = []
-    for name, (relative, literal) in ADDRESS_OWNERS.items():
-        source = root / relative
-        if not source.is_file():
-            disagreements.append(f"{name}: {relative} is missing")
-            continue
-        text = source.read_text(encoding="utf-8", errors="replace").lower()
-        if literal.lower() in text:
+    owners_by_name: dict[str, list[str]] = {}
+    for name, literal in ADDRESS_OWNERS.items():
+        owners = declaring_symbols(root, literal)
+        owners_by_name[name] = owners
+        if owners:
             matched += 1
         else:
-            disagreements.append(f"{name}: {relative} no longer declares {literal}")
-    return matched, len(ADDRESS_OWNERS), disagreements
+            disagreements.append(f"{name}: no first-party source binds {literal} to a name any more")
+    return matched, len(ADDRESS_OWNERS), disagreements, owners_by_name
+
+

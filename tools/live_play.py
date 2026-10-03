@@ -633,15 +633,17 @@ def main() -> int:
     parser.add_argument("--shot", type=Path, default=OUT_DIR / "gameplay.ppm")
     arguments = parser.parse_args()
 
-    matched, scanned, disagreements = title_prompts.verify_address_owners(REPO)
-    print(f"[live] guest-address owners: {matched} of {scanned} source(s) still declare the address "
-          f"this tool reads")
+    matched, scanned, disagreements, owners_by_name = title_prompts.verify_address_owners(REPO)
+    print(f"[live] guest-address owners: {matched} of {scanned} address(es) this tool reads are still "
+          f"bound to a name in the first-party sources (resolved by value, not by file path)")
+    for name, owners in owners_by_name.items():
+        shown = ", ".join(owners[:3]) + (f" (+{len(owners) - 3} more)" if len(owners) > 3 else "")
+        print(f"[live]   {name}: {shown}")
     for disagreement in disagreements:
         print(f"[live]   {disagreement}")
     if disagreements:
-        raise Refusal("REFUSED: a guest address this tool reads is no longer declared by the source "
-                      "that owns it. Read the disagreement above and the cited file before trusting "
-                      "any number below.")
+        raise Refusal("REFUSED: a guest address this tool reads is no longer declared anywhere in this "
+                      "repository. Read the disagreement above before trusting any number below.")
 
     binary = arguments.binary if arguments.binary.is_absolute() else REPO / arguments.binary
     identity = binary_identity(binary)

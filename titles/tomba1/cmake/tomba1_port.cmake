@@ -20,21 +20,28 @@ add_custom_target(tomba1_scaffold DEPENDS psxport)
 
 add_library(
   tomba1_runtime STATIC
-  "${TOMBA1_ROOT}/game/core/cd_native_startup.cpp"
-  "${TOMBA1_ROOT}/game/core/context.cpp"
-  "${TOMBA1_ROOT}/game/core/frame_driver.cpp"
-  "${TOMBA1_ROOT}/game/core/guest_task_slots.cpp"
-  "${TOMBA1_ROOT}/game/core/native_boot.cpp"
-  "${TOMBA1_ROOT}/game/core/stream_field_turn.cpp"
-  "${TOMBA1_ROOT}/game/core/sync_native.cpp"
-  "${TOMBA1_ROOT}/game/core/tomba1_runtime.cpp"
+  "${TOMBA1_ROOT}/game/core/boot/cd_native_startup.cpp"
+  "${TOMBA1_ROOT}/game/core/entry/context.cpp"
+  "${TOMBA1_ROOT}/game/core/frame/frame_driver.cpp"
+  "${TOMBA1_ROOT}/game/core/task/guest_task_slots.cpp"
+  "${TOMBA1_ROOT}/game/core/boot/native_boot.cpp"
+  "${TOMBA1_ROOT}/game/core/frame/stream_field_turn.cpp"
+  "${TOMBA1_ROOT}/game/core/boot/sync_native.cpp"
+  "${TOMBA1_ROOT}/game/core/entry/tomba1_runtime.cpp"
   "${TOMBA1_ROOT}/game/render/widescreen_projection.cpp")
 set_target_properties(tomba1_runtime PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+# One include root per CONCEPT directory, so every owner and every test keeps naming its sibling
+# header bare. `game/render` is Tomba! 1's rendering owner and stays beside the core concepts.
 target_include_directories(
-  tomba1_runtime PUBLIC "${TOMBA1_ROOT}/game/core" "${TOMBA1_ROOT}/game/render")
+  tomba1_runtime
+  PUBLIC "${TOMBA1_ROOT}/game/core/entry"
+         "${TOMBA1_ROOT}/game/core/frame"
+         "${TOMBA1_ROOT}/game/core/boot"
+         "${TOMBA1_ROOT}/game/core/task"
+         "${TOMBA1_ROOT}/game/render")
 target_link_libraries(tomba1_runtime PUBLIC psxport)
 
-add_executable(tomba1_port "${TOMBA1_ROOT}/game/app/main.cpp")
+add_executable(tomba1_port "${TOMBA1_ROOT}/game/core/entry/main.cpp")
 set_target_properties(
   tomba1_port
   PROPERTIES

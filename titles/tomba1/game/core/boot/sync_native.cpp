@@ -105,34 +105,43 @@ void resetTimedOutGpuQueue(Core &core) {
 
 } // namespace
 
+namespace {
+
+// Tomba! 1's HLE table, built once at static-initialisation time from the constants above and the six
+// handlers this file owns. A namespace-scope const, NOT a function-local static: the policy forbids
+// those, and returning a reference to a function-local aggregate would dangle the moment the frame
+// returned. Nothing here depends on a Core, so initialising at load is also simply correct.
+const PlatformHlePlan kPlatformHlePlan = [] {
+  PlatformHlePlan value{};
+  value.setGeomScreen = kSetGeomScreen;
+  value.cdReadAddress = kCdRead;
+  value.cdReadSyncAddress = kCdReadSync;
+  value.vsyncAddress = kVSyncEntry;
+  value.bindings[0] = {kCdSync, cdSyncOverride};
+  value.bindings[1] = {kCdSyncInternalEntry, cdSyncOverride};
+  value.bindings[2] = {kCdReady, cdReadyOverride};
+  value.bindings[3] = {kCdControl, cdControlOverride};
+  value.bindings[4] = {kCdControlF, cdControlFOverride};
+  // The title WIDENS this projection, so it owns the body rather than leaving it to the
+  // framework's standard handler. The guest's own libgpu SetDefDrawEnv is installed in
+  // Tomba1Runtime::registerOverrides instead: PlatformHle's builtin table covers the two libgte
+  // projection leaves and the stock library services, and a guest libgpu rectangle constructor is
+  // none of those.
+  value.bindings[5] = {kSetGeomOffset, publishProjectionOverride};
+  value.bindingCount = 6;
+  value.windowLo[0] = kLibCdEntry;
+  value.windowHi[0] = kLibCdEnd;
+  value.windowLo[1] = kVSyncEntry;
+  value.windowHi[1] = kVSyncEnd;
+  value.windowLo[2] = kLibGteEntry;
+  value.windowHi[2] = kLibGteEnd;
+  return value;
+}();
+
+} // namespace
+
 const PlatformHlePlan &platformHlePlan() {
-  static const PlatformHlePlan plan = [] {
-    PlatformHlePlan value{};
-    value.setGeomScreen = kSetGeomScreen;
-    value.cdReadAddress = kCdRead;
-    value.cdReadSyncAddress = kCdReadSync;
-    value.vsyncAddress = kVSyncEntry;
-    value.bindings[0] = {kCdSync, cdSyncOverride};
-    value.bindings[1] = {kCdSyncInternalEntry, cdSyncOverride};
-    value.bindings[2] = {kCdReady, cdReadyOverride};
-    value.bindings[3] = {kCdControl, cdControlOverride};
-    value.bindings[4] = {kCdControlF, cdControlFOverride};
-    // The title WIDENS this projection, so it owns the body rather than leaving it to the
-    // framework's standard handler. The guest's own libgpu SetDefDrawEnv is installed in
-    // Tomba1Runtime::registerOverrides instead: PlatformHle's builtin table covers the two libgte
-    // projection leaves and the stock library services, and a guest libgpu rectangle constructor is
-    // none of those.
-    value.bindings[5] = {kSetGeomOffset, publishProjectionOverride};
-    value.bindingCount = 6;
-    value.windowLo[0] = kLibCdEntry;
-    value.windowHi[0] = kLibCdEnd;
-    value.windowLo[1] = kVSyncEntry;
-    value.windowHi[1] = kVSyncEnd;
-    value.windowLo[2] = kLibGteEntry;
-    value.windowHi[2] = kLibGteEnd;
-    return value;
-  }();
-  return plan;
+  return kPlatformHlePlan;
 }
 
 void dmaCallbackOverride(Core *core) {

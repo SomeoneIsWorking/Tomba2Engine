@@ -17,3 +17,12 @@ title work.
 | S005 | True widescreen works in the running Tomba! 1 product | missing | Grounded facts kept: `SetGeomOffset` `0x80063A34`, `SetGeomScreen` `0x80063A54`, init `0x80016AF4` publishes centre `(160,112)` and `H=544`, display construction `0x80016C4C` uses 320x224 rectangles, resident `0x8002D784` later reasserts `H`. Gap: loaded-code projection contributions, visual-vs-gameplay culling, wide draw-buffer placement and authored 2D anchors — then proof against a controlled 4:3 run. Depends on S004. |
 | S006 | Tomba! 1 remains engine-isolated and exposes only widescreen | verified | `titles/tomba1/enhancement_scope.json` is `{"widescreen": true}`; the title surface rejects 60 fps, temporal history, native rendering and lerp options. |
 | S007 | The Tomba! 1 offline guest-source product path is removed | verified | No generator, emitted guest source, emission-only seed or generation-only selftest remains; `titles/tomba1/tools/run.py` provisions the authenticated disc and builds the native/Lightrec product only. |
+
+## Structure pass
+
+`titles/tomba1/game/core/` is split by concept into `entry/` (process entry, per-Core `Context`,
+`Tomba1Runtime`), `boot/` (native boot prefix, synchronous CD startup, platform HLE/DMA sync plan),
+`frame/` (finite frame transaction, stream field turn) and `task/` (guest task table, bounded
+cross-field resume); `game/app/` folded into `entry/`. `game/render/` is unchanged. No owner, class or
+behavior changed. `platformHlePlan()` no longer holds its table in a function-local `static`; it is a
+namespace-scope `const` in an anonymous namespace.

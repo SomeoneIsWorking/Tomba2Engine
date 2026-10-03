@@ -23,7 +23,7 @@ gameplay through Lightrec.
 ## Title boundary
 
 - Tomba! 1 source lives below `titles/tomba1/game/` and must not compile or include root `game/`.
-- `game/app/main.cpp` composes owners only. Runtime behavior belongs in `game/core/`; widescreen
+- `game/core/entry/main.cpp` composes owners only. Runtime behavior belongs in `game/core/`; widescreen
   projection and layout belong in `game/render/`.
 - Disc images and extracted executables remain untracked. `tools/provision.py` resolves explicit
   argument, `PSXPORT_TOMBA1_DISC`, `.env`, then exactly one repository-root CHD, and publishes only
