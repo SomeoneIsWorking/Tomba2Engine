@@ -228,13 +228,10 @@ public:
   // `ov_game_submode1` free functions in engine.cpp.
   void submode0();
   void submode1();
-  // submode1Faithful: pc_faithful mirror of overlay guest 0x801088D8 — guest frame
-  // + jal-site ras; case 0 dispatches the REAL 0x80044BD4 spawn-and-wait of the
-  // area-DATA loader 0x800452C0 (Asset::areaDataLoadAsTask on the task-1
-  // fiber), parking the stage fiber organically. This retires the pre-fiber
-  // Slip #3/#5 cadence simulation. native_sync completes the owned load in this
-  // invocation; the faithful diagnostic retains the generated wait cadence.
-  void submode1Faithful();
+  // submode1Case0Native: case 0 of the walkable-field area machine — the owned
+  // area-DATA load. It completes through the same seam FUN_80044BD4 uses (flag-2 RNG stamp)
+  // and then runs the load synchronously, so no wait frame or loading-screen service exists
+  // after host work returns.
   void submode1Case0Native();
 
   // sm[0x48] state handlers (0=area INIT, 1=area RESUME-INIT, 2=RUNNING
@@ -304,7 +301,7 @@ public:
   // (mid-transition running sub-machine, sm[0x4c]==3, sm[0x4e] states
   // 0/1/2/other). Guest frame (sp-24, ra@+16) + jal-site ras at every
   // dispatch/native-call boundary, matching the reference shape of
-  // Engine::fieldRunFaithful / Engine::submode1Faithful.
+  // Engine::fieldRunFaithful.
   void fieldRunXFaithful();
 
   // submitPage810c: the sm[task+0x6b]==1 page-1 (pause-menu dim) fade branch of

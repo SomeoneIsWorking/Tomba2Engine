@@ -461,7 +461,7 @@ Totals: 793 native fns, 639 owned addresses, 787 LIVE / 6 ORPHAN. 241 override d
 | 0x8007FCC8 | LIVE | `Panel::pushDialogBackdrop` | game/ui/dialog_backdrop.cpp:56 |  | ORACLE: guest 0x8007FCC8 |
 | 0x8007FCC8 | LIVE | `ov_push_dialog_backdrop` | game/ui/dialog_backdrop.cpp:90 |  | Guest-ABI entry: x/y/w/h in r4-r7, mode off the caller's stack (see th… |
 | 0x8007FCC8 | LIVE | `OptionsPage::noteBox` | game/ui/options_page.cpp:74 |  |  |
-| 0x8007FD54 | LIVE | `LoadingText::draw` | game/ui/loading_text.cpp:32 | 0x80079374 | The guest body: blink the palette, draw the string. `mode` (5th arg of… |
+| 0x8007FD54 | DEAD | — | — | 0x80079374 | The blinking "Loading....." card. Deleted 2026-10-03 with `game/ui/loading_text.*`: its ONLY caller is the `jal` at 0x80044C98, inside `FUN_80044BD4`'s wait loop, and that loop has no reachable native call site — all 22 guest call sites are guest images of load paths the port already runs synchronously. See `docs/issues/kanban-009-...`. |
 | 0x8007FDB0 | LIVE | `Render::submitPolyGt3Native` | game/render/submit.cpp:298 |  | guest 0x8007FDB0 — POLY_GT3 (gouraud-textured triangle) submit. |
 | 0x80080114 | LIVE | `Render::submitPolyGt4Native` | game/render/submit.cpp:454 |  | guest 0x8008007C — POLY_GT4 (gouraud-textured quad) submit, PC-NATIVE. |
 | 0x800803DC | LIVE | `Render::gt3gt4` | game/render/submit.cpp:641 |  |  |

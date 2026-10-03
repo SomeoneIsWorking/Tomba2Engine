@@ -60,7 +60,6 @@ void RegisterBehActorTombaProximityCombatOverride(
 
 void interact_scan_install();         // game/player/interact_scan.cpp — guest FUN_80024794
 void dialog_backdrop_install();       // game/ui/dialog_backdrop.cpp — guest FUN_8007FCC8 (box backdrop)
-void loading_text_install();          // game/ui/loading_text.cpp — guest FUN_8007FD54 ("Loading.....")
 void ui_sprite_install();             // game/ui/ui_sprite.cpp — guest FUN_8007E8DC / FUN_8007E998
 void compose_tint_gate_install();     // game/render/compose_tint_gate.cpp — guest FUN_8003EF9C
 void subpart_walk_install();          // game/render/subpart_walk.cpp — guest FUN_8003F174
@@ -70,7 +69,6 @@ void register_engine_overrides(Game &owner) {
   Game *const game = &owner;
   interact_scan_install();         // interaction scanner: promotes an in-range object to ACTIVATED
   dialog_backdrop_install();       // message-box backdrop rect — LIVE on the dialog path
-  loading_text_install();          // "Loading....." blinker (RE'd; no fork — see kanban #9)
   ui_sprite_install();             // 2D sprite entry points, LIVE on the dialog path
   compose_tint_gate_install();     // per-type render gate (render frontier)
   subpart_walk_install();          // sub-part walker (render frontier — last of the per-type list)

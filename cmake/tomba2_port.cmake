@@ -165,7 +165,6 @@ set(GAME_SRC
   game/ui/menu.cpp
   game/ui/ui_sprite_compose.cpp
   game/ui/ui_sprite.cpp
-  game/ui/loading_text.cpp
   game/ui/panel_fill.cpp
   game/ui/dialog_backdrop.cpp
   game/ui/dialog_text_stream.cpp
