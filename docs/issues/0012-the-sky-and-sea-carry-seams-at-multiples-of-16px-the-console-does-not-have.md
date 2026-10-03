@@ -52,7 +52,7 @@ product against row 94 on the reference, over a 92.39% whole-frame difference. T
 the correction is worth keeping because the mistake is easy to repeat.
 
 The native render path deliberately presents MORE rows than the console scanned out. This title
-declares `guestDisplayHeight = 224` in `game/core/game_config.cpp` and the framework keeps drawing
+declares `guestDisplayHeight = 224` in `game/core/entry/game_config.cpp` and the framework keeps drawing
 the framework's 240-line default, on a decision already recorded in `psxport
 runtime/psx/gpu_native.cpp` (USER 2026-08-19: "PC is fine, oracle isn't"). Comparing a 240-row
 product frame against a 240-row reference frame carrying 8 black rows top and bottom therefore

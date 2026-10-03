@@ -20,9 +20,5 @@ title work.
 
 ## Structure pass
 
-`titles/tomba1/game/core/` is split by concept into `entry/` (process entry, per-Core `Context`,
-`Tomba1Runtime`), `boot/` (native boot prefix, synchronous CD startup, platform HLE/DMA sync plan),
-`frame/` (finite frame transaction, stream field turn) and `task/` (guest task table, bounded
-cross-field resume); `game/app/` folded into `entry/`. `game/render/` is unchanged. No owner, class or
-behavior changed. `platformHlePlan()` no longer holds its table in a function-local `static`; it is a
-namespace-scope `const` in an anonymous namespace.
+`titles/tomba1/game/core/` is split by concept into `entry/ boot/ frame/ task/` (`game/app/` folded
+into `entry/`); `platformHlePlan()` no longer holds its table in a function-local `static`.

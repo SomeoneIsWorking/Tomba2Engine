@@ -55,7 +55,8 @@ where their bodies live.
 | `tomba::native::declareOverride` / `declareOverlayOverride` / `bindResident` / `activateOverlay` / `activateModeOverlay` / `activateAreaSlotOverlay` / `retireOverlay` / `loadAreaSlotFile` (`overrides/native_override_catalog.*`) | The one native-override declaration catalog; a declaration is keyed by image identity plus guest address, never by address alone. |
 | `TombaConfig` (`entry/game_config.cpp`) | The measured Tomba! 2 compatibility facts (guest addresses and sizes) the frame driver requires. |
 | `VerificationCounters` (`debug/verification_counters.h`) | Title-owned verification tallies surfaced through the diagnostics channel. |
-| `tomba::scene::stepCardLoadMachine` (`debug/dev_warp.h`, `engine/task_sm.h`) | Dev warp arming, and the generic task state-machine vocabulary. |
+| `tomba::applyColdWarp` (`debug/dev_warp.h`) | Dev warp arming: the control-channel request applied at a frame boundary through the engine's own transition owners. |
+| `StepReturn` (`engine/task_sm.h`) | The generic task state-machine vocabulary the engine's per-state dispatch is written against. |
 
 ### `game/input/`
 `Engine::padEdgeFence` — the port of `FUN_800788AC`, the pad-edge fence that keeps one edge from

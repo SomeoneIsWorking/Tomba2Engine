@@ -2310,7 +2310,7 @@ which are game logic:
   or version byte isn't 1 — `FUN_8009a730` is a printf-style debug-string emitter, not game text),
   `0x80090560`/`0x80090598`→`0x800905e0`=**SsSeqPlay**, `0x80090BD0`=**SsSeqCalled** (per-frame tick,
   already tapped as `PSXPORT_DEBUG=seqtick` in interp.cpp and `PSXPORT_DEBUG=seq` in
-  `game/core/frame_diagnostics.cpp`), `0x80091050`/
+  `game/core/frame/frame_diagnostics.cpp`), `0x80091050`/
   `0x80091120`/`0x8009121C`/`0x80091460`=SEP (Sequence Event Point) track-step/event dispatcher,
   `0x80091AF0`=**SsSeqStop**, `0x80091F50`=**SsSeqSetVol** (already used by `repl.cpp`'s `mute`/`bgm`
   commands), `0x800939A0`=voice **keyon** (already tapped `PSXPORT_DEBUG=keyon`), `0x80090E40`=tempo/
@@ -3045,7 +3045,7 @@ via `docs/code-map.md`. This region sits right at the psyq libc/libsnd block bou
 ### Drafted (UNWIRED, compiles+links)
 
 - **0x80086288 → `LibapiIntr::runVblankCallbacks()`** — WIRED + VERIFIED 2026-07-30, in the GAME
-  repo (`game/core/libapi_intr.cpp`, alongside its own installer 0x80086230 and the word-fill helper
+  repo (`game/core/hle/libapi_intr.cpp`, alongside its own installer 0x80086230 and the word-fill helper
   0x80086320). libapi's VBlank INTERRUPT HANDLER: bump the libetc VSync tick counter
   (`0x800ABDE0`), then walk the 8-slot VSyncCallback fn-ptr table (`0x800ABDC0`) and call every
   non-null entry.
@@ -3407,8 +3407,9 @@ each function's file-header comment for the exact import+decomp commands).
 - **0x8010AF60 → `sopBeatAdvanceWalk`**, **0x8010B078 → `sopBeatAdvanceNarration`** — HIGH confidence
   on the transcription (both are clean 2-4 state timer sequencers that stamp SCENE_BEAT and call
   already-native Engine::walkStart / GraphicsBind::setXformBlk), but the TRIGGER MECHANISM IS INFERRED,
-  not confirmed: `tools/ghidra_xrefs.py` found ZERO static `jal`/`j` call sites to either address in
-  `ram_sop.bin`. Both addresses instead appear as raw 4-byte DATA at 0x8010CA7C / 0x8010CA94, inside a
+  not confirmed: a reference search over `ram_sop.bin` found ZERO static `jal`/`j` call sites to
+  either address (run the framework Ghidra tool, `external/psxport/tools/decomp_pipeline.py
+  --image ram_sop.bin --refs <addr>`). Both addresses instead appear as raw 4-byte DATA at 0x8010CA7C / 0x8010CA94, inside a
   small table (0x8010CA60-0x8010CAAC, `{u16, addr32, u32, u32}`-shaped entries every 0x18 bytes) that
   also holds 0x8010AE9C (the sop_overlay_shadow cluster) — i.e. this looks like a per-KEYFRAME
   ANIMATION-EVENT callback table near the pilot's own anim data (0x8010CA28), consulted via an indirect

@@ -88,7 +88,7 @@ Call sites moved to the one owner:
   `voiceStateFlush` now read the constant that matches their own kind of access.
 * `game/game_tomba2.cpp` — the boot guard's `SEQ_FUNC_PTR` literal is gone; it reads
   `libsnd::kSeqTickFn`, the same word the wrapper dispatches.
-* `game/core/frame_diagnostics.cpp` — the seq-debug line reports `libsnd::kTickMode` /
+* `game/core/frame/frame_diagnostics.cpp` — the seq-debug line reports `libsnd::kTickMode` /
   `libsnd::kSeqTickFn` instead of two more literals.
 
 ## Evidence

@@ -48,9 +48,8 @@ bytes; the authenticated but still diagnostic collision probe is recorded below.
 
 ## Authenticated A03/A0B collision probe, 2026-09-12
 
-`tools/verify_authentic_overlay_collision.py` validates the local A03.BIN and A0B.BIN against the
-tracked USA image manifest, then runs the isolated Clang-built
-`test_authentic_overlay_collision` target. Its declarations at the real shared entry
+The CTest target `test_authentic_overlay_collision` validates the local A03.BIN and A0B.BIN
+against the tracked USA image manifest and runs the collision itself. Its declarations at the real shared entry
 `0x801113B4` are **diagnostic fixtures**, not native producers in the shipping title. The test
 copies each authenticated body into the title's MODE slot and uses the production
 `activateModeOverlay`, normal dispatcher, and scoped Lightrec original-call path. A03's real
@@ -74,8 +73,8 @@ probe also passed against that gate's binary.
 
 ## Authenticated resident original-call probe, 2026-09-12
 
-`tools/verify_authentic_resident_override.py` checks local MAIN.EXE against the tracked USA
-manifest. The isolated Clang target then rechecks that exact buffer and maps it with the shipping
+The CTest target `test_authentic_resident_override` checks local MAIN.EXE against the tracked USA
+manifest, then rechecks that exact buffer and maps it with the shipping
 `loadPsxExeImage` path. It registers the actual `tomba::Str::length` native owner at resident
 `0x80079528` through the title catalog, calls it through normal image-qualified dispatch, and
 calls the same authenticated guest body through scoped `callOriginal`. Both return `v0=v1=4`,

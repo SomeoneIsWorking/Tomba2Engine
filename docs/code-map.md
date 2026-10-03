@@ -795,7 +795,7 @@ Totals: 793 native fns, 639 owned addresses, 787 LIVE / 6 ORPHAN. 241 override d
 
 ## PlatformHle-owned (BIOS / hardware-sync primitives — NOT porting targets)
 
-Owned by a DIFFERENT mechanism than the table above: `PlatformHle` (`external/psxport/runtime/psx/platform_hle.cpp`), wired from the addresses this game states in `GameConfig::hle` (`game/core/game_config.cpp`). No native def exists for these, so the scanner above cannot see them — grepping only that table reports them as unowned. The guest body NEVER runs; installing an override on one is a double-install.
+Owned by a DIFFERENT mechanism than the table above: `PlatformHle` (`external/psxport/runtime/psx/platform_hle.cpp`), wired from the addresses this game states in `GameConfig::hle` (`game/core/entry/game_config.cpp`). No native def exists for these, so the scanner above cannot see them — grepping only that table reports them as unowned. The guest body NEVER runs; installing an override on one is a double-install.
 
 | addr | handler | GameConfig::hle field |
 |------|---------|-----------------------|

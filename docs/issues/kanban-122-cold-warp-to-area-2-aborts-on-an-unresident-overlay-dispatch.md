@@ -5,7 +5,7 @@ status: open
 labels: [bug, field]
 ---
 
-`tomba::applyColdWarp` (`game/core/dev_warp.cpp`) loads the destination area synchronously and then
+`tomba::applyColdWarp` (`game/core/debug/dev_warp.cpp`) loads the destination area synchronously and then
 writes `sm[0x4c] = 0x80108F60[area]` and returns to the field area machine. For area 1 the machine
 runs; for area 2 the next field reaches `Engine::submode1` case 4/5/6, which dispatches the guest
 overlay entry `0x80107230` / `0x8010766C` / `0x80107790`, and that dispatch aborts:

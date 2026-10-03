@@ -244,7 +244,8 @@ void ObjectTable::dispatchFaithful() {
       // native shortcut here (as the native_sync=true `body()` lambda above intentionally does) is
       // what caused the 0x80106B98 strict-mirror-verify FAILURE (12+ diffs at 0x801FE8xx / v0 /
       // v1): this call is reached from ObjectTable::dispatch()'s own strict replay check, but that check is
-      // a no-op while nested inside an outer strictCheck (no nesting, verify_harness.h), so the
+      // a no-op while nested inside an outer strictCheck (the verify harness that enforced no
+      // nesting has since been removed), so the
       // divergence went uncaught here and only surfaced at the outermost fieldRunFaithful check.
       psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
     }
