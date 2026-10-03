@@ -1,5 +1,6 @@
 #include "frame_diagnostics.h"
 
+#include "audio/libsnd_globals.h" // kSeqTickFn / the tick descriptor's slots
 #include "cfg.h"
 #include "core.h"
 #include "engine.h"
@@ -38,8 +39,8 @@ void FrameDiagnostics::afterFrame(Core &core, uint32_t frame) {
                   frame,
                   core.mem_r16s(0x801054b0u),
                   core.mem_r32(0x80104c28u) & 0xffffu,
-                  core.mem_r8(0x800ac424u),
-                  core.mem_r32(0x800ac42cu),
+                  core.mem_r8(tomba::audio::libsnd::kTickMode),
+                  core.mem_r32(tomba::audio::libsnd::kSeqTickFn),
                   core.mem_r32(kTaskBase + kTaskEntry));
     seqLast_ = seqState;
   }

@@ -196,7 +196,7 @@ if(BUILD_TESTING)
   # new file is under the 1200 default.
   set(TOMBA_CPP_POLICY_CAPS
       game/player/actor_tomba.cpp=1452
-      game/audio/sequencer.cpp=2782
+      game/audio/sequencer.cpp=2768
       game/ai/actor_zoned_attacker.cpp=1496
       game/scene/demo.h=87
       game/camera/cutscene_camera.cpp=1459)

@@ -12,7 +12,7 @@ scoped back into the original guest body, before the recorded gameplay frontier 
 
 | ID | Capability | State | Evidence or gap |
 |---|---|---|---|
-| S001 | Tomba! 2 reaches representative gameplay as a native/Lightrec product | blocked | Real-image product crosses native init and completes both native frames at the DEMO stage with zero fallback; representative gameplay unverified (issue 0005). |
+| S001 | Tomba! 2 reaches representative gameplay as a native/Lightrec product | blocked | Headless launch boots the logo FMV into the title screen and presents it (`shot` capture, zero fallback, issue 0026 closed); representative gameplay unverified (issue 0005). |
 | S002 | Tomba! 2 behaviour compared independently against the original | partial | `tools/oracle_compare.py` compares 34 title-owned RAM checkpoints against the Beetle reference, and `tools/picture_oracle.py` the presented picture; known picture deltas are tracked in `issues/0019`. |
 | S003 | Tomba! 2 game behaviour owned by readable native subsystems | partial | Native owners exist across `game/`; 42 declared-at-overlay-address overrides that never installed are fixed and refused by abort (issue 0015, closed). |
 | S004 | Tomba! 2 picture produced completely from game-owned scene state | partial | `renderpath psx` still needs the substrate path for some producers; guest-GTE producers remain in the item menu (issue 111 card). |
@@ -25,7 +25,7 @@ scoped back into the original guest body, before the recorded gameplay frontier 
 | S011 | Tomba! 1 true widescreen works in the actual product | missing | `titles/tomba1/game/render/widescreen_projection.cpp` exists; no product run yet (depends on S010). |
 | S012 | Tomba! 1 and Tomba! 2 game-engine implementations are isolated | verified | Tomba! 1 owners live only under `titles/tomba1/` and import no root `game/` source. |
 | S013 | Tomba! 1 exposes widescreen only, no unrelated enhancement modes | verified | `titles/tomba1/enhancement_scope.json` is `{"widescreen": true}`; the title surface rejects 60 fps, native rendering and lerp. |
-| S014 | Tomba! 2 sound effects and music work throughout the game | partial | Native audio and CD/XA owners exist; not observed through representative Lightrec gameplay. |
+| S014 | Tomba! 2 sound effects and music work throughout the game | partial | Native audio and CD/XA owners exist; the per-vblank sequencer tick runs again on the slots its own trampoline reads (issue 0026), but not yet observed through representative Lightrec gameplay. |
 | S015 | Tomba! 2 saves, reloads and survives a full restart | partial | Save and menu owners exist; no product run proves save → restart → reload. |
 | S016 | Tomba! 2 movies play correctly | partial | FMV/CD owners exist with pre-migration coverage; unobserved on the Lightrec product. |
 | S017 | Tomba! 2 area and scene transitions work throughout the game | partial | Title-to-gameplay transition recorded; representative transitions unverified (card `kanban-108`). |

@@ -27,8 +27,9 @@
 // callback the port never raises, that store was unreachable by anything — the counter is now
 // counted, which ends each logic frame at the same value for a stated reason.
 
-#include "animation.h" // PC-native per-object animation-VM subsystem
-#include "asset.h"     // PC-native asset-loading subsystem (extracted from this file)
+#include "animation.h"            // PC-native per-object animation-VM subsystem
+#include "asset.h"                // PC-native asset-loading subsystem (extracted from this file)
+#include "audio/libsnd_globals.h" // kSeqTickFn — the tick slot the wrapper below dispatches
 #include "cfg.h"
 #include "collision.h" // PC-native collision-grid subsystem
 #include "core.h"
@@ -80,9 +81,13 @@
 // FUN_800909c0 to its `jr ra` and returns. Caller-saved regs it clobbers are dead across the
 // FUN_800788ac call site by MIPS convention, so this is safe to run right after the super-call.
 #define SEQ_TICK_WRAPPER 0x800909C0u // FUN_800909c0: per-vblank libsnd tick (user cb + SsSeqCalled)
-#define SEQ_FUNC_PTR 0x800AC42Cu     // DAT_800ac42c: SsSeqCalled pointer (0 until SsStart inits)
+// The slot the wrapper dispatches UNCONDITIONALLY, read from the one owner (libsnd_globals.h) and
+// not spelled here: a second copy of a measured address is how the boot guard and the tick drifted
+// onto different pages in the first place (issue 0026), and this guard only means anything while it
+// tests the SAME word the dispatch reads.
 
-#include "gpu_perf.h" // per-frame CPU phase profiler (REPL `debug perf`), default off
+#include "audio/libsnd_globals.h" // kSeqTickFn — the tick slot the wrapper below dispatches
+#include "gpu_perf.h"             // per-frame CPU phase profiler (REPL `debug perf`), default off
 
 // Per-frame engine tick. Called DIRECTLY (a plain C call) from TombaFrameDriver —
 // this is the PC-driven game loop's update/audio body. It runs the still-PSX per-frame update leaf and
@@ -121,7 +126,7 @@ void Engine::frameUpdate() {
   // Sequencer guard: pointer initialized + sane code address (never call through null pre-SsStart).
   // A decision of 1 field per logic frame — the guest's own 60 fps lever — ticks once.
   const int quota = cadence().vblanksPerLogicFrame();
-  uint32_t seqfn = c->mem_r32(SEQ_FUNC_PTR);
+  uint32_t seqfn = c->mem_r32(tomba::audio::libsnd::kSeqTickFn);
   const bool seq_ok = (seqfn & 0x1FFFFFFFu) >= 0x10000u && (seqfn & 0x1FFFFFFFu) < 0x200000u;
   c->game->perf.phaseBegin(GpuPerf::Phase::Audio); // per-vblank sequencer tick + SPU advance
   for (int v = 0; v < quota; v++) {                // once per VBlank this logic frame spans

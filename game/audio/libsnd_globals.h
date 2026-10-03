@@ -34,19 +34,77 @@ constexpr uint32_t addr(uint32_t offset) {
   return kBase + offset;
 }
 
-// ---- SsSeqCalled's own cluster (the sequence scheduler's globals) -------------------------------
+// TWO KINDS OF ADDRESS LIVE IN THE SOUND DRIVER, AND THIS HEADER KEEPS THEM APART.
 //
-// Names confirmed by the driver's own reading of the guest: each is a global the sequence scheduler
-// or one of its leaves reads, writes, or bounds a loop with.
+//   * CLUSTER OFFSETS (the `u` constants below) are immediates: a call site adds them to `kBase`.
+//   * ABSOLUTE ADDRESSES (the `0x...` constants) are whole guest addresses the guest forms with its
+//     own `lui`/`addiu`, and are read and written as they stand.
+//
+// THE FIRST VERSION OF THIS HEADER HAD ONLY THE FIRST KIND, and expressed an absolute address as a
+// cluster offset anyway — `70448u` for `0x800AC430`, which is not a slot in the cluster at all but a
+// word in whatever overlay currently occupies that page. Every constant below therefore states, in
+// its comment, the ADDRESS the decimal evaluates to, and the two kinds are in separate sections: a
+// decimal that disagrees with its own comment is a defect, not a style.
 
-inline constexpr uint32_t kSeqReentryFlag = 21668u; // 0x801054BC — set while the tick is running
-inline constexpr uint32_t kSeqActiveMask = 21672u;  // 0x801054C8 — bit i set => sequence i is active
-inline constexpr uint32_t kSeqPtrArray = 21680u;    // 0x801054D0 — 4-byte-stride per-sequence tables
-inline constexpr uint32_t kSeqCount = 21712u;       // 0x801054F0 — s16 sequence slots
-inline constexpr uint32_t kSeqChanCount = 21714u;   // 0x801054F2 — s16 channels per sequence
-inline constexpr uint32_t kUserCallback = 70448u;   // 0x8010ACC0 — the optional user callback slot
-inline constexpr uint32_t kSeqTickFn = 70444u;      // 0x8010ACBC — the *SsSeqCalled function slot
-inline constexpr uint32_t kSeqPrepFn = 46144u;      // 0x800931C0 — the one-shot pre-loop call
+// ---- ABSOLUTE: SsSeqCalled's own globals (the sequence scheduler) --------------------------------
+//
+// 0x80104Cxx is a page of the executable's data the scheduler reads as whole words, NOT cluster
+// members; the cluster proper starts at 0x80105000. Values from the pre-rename source, which is the
+// gated behaviour this header has to reproduce.
+
+inline constexpr uint32_t kSeqReentryFlag = 0x80104C24u; // set while the tick is running
+inline constexpr uint32_t kSeqActiveMask = 0x80104C28u;  // bit i set => sequence i is active
+inline constexpr uint32_t kSeqPtrArray = 0x80104C30u;    // 4-byte-stride per-sequence channel tables
+inline constexpr uint32_t kSeqCount = 0x801054B0u;       // s16 sequence slots
+inline constexpr uint32_t kSeqChanCount = 0x801054B2u;   // s16 channels per sequence
+inline constexpr uint32_t kSeqPrepFn = 0x800931C0u;      // the one-shot pre-loop call (a code address)
+
+// ---- ABSOLUTE: the per-VBlank tick TRAMPOLINE's two dispatch slots ------------------------------
+//
+// THE TICK DESCRIPTOR (0x800AC424..0x800AC430) lives in the executable's own data, well below the
+// 0x80100000 cluster, so `addr()` does not apply to it and the slots are published here as the
+// absolute guest addresses they are.
+//
+// WHAT IS IN THEM, read live from the product's guest memory and out of MAIN.EXE's own data:
+//
+//   0x800AC42C  DAT_800ac42c  the *SsSeqCalled function pointer. The IMAGE ships it already
+//                             initialised to 0x80090BD0 (SsSeqCalled itself), which is why the
+//                             trampoline calls it with no null test: the slot is live code from the
+//                             first frame, so the boot tick is safe to run.
+//   0x800AC430  DAT_800ac430  the optional per-vblank user callback, 0 until SsSetTickMode installs
+//                             one. A live read during a run shows 0x80086288 — this port's
+//                             LibapiIntr::runVblankCallbacks — which is exactly the shape the
+//                             trampoline has: call the user callback if installed, then call
+//                             SsSeqCalled.
+//
+// Both are the ones `Engine::frameUpdate`'s boot guard must test (game/game_tomba2.cpp), because a
+// guard that reads a DIFFERENT slot than the dispatch is not a guard (issue 0026).
+inline constexpr uint32_t kUserCallback = 0x800AC430u; // DAT_800ac430 — the optional user callback slot
+inline constexpr uint32_t kSeqTickFn = 0x800AC42Cu;    // DAT_800ac42c — the *SsSeqCalled function slot
+inline constexpr uint32_t kTickMode = 0x800AC424u;     // DAT_800ac424 — SsSetTickMode's mode word
+
+// ---- ABSOLUTE: the key-event scan's own words --------------------------------------------------
+//
+// These four are NOT cluster members and have no offset form: each is a whole address the guest
+// forms itself. They are near neighbours of the cluster, which is exactly why they were mistaken
+// for offsets — 0x80105D0C and 0x80105D10 are one page below the cluster and read like the
+// cluster's own tail.
+
+inline constexpr uint32_t kHardwareVoiceActive = 0x800AC3F4u;   // u32 — the SPU's own active-voice bitmask
+inline constexpr uint32_t kKeyScanPitchTable = 0x801054D8u;     // s16, stride 56 — the per-voice pitch table
+inline constexpr uint32_t kVolumeSnapshotScratch = 0x80105D0Cu; // u16 — channelVolumeSnapshot's dead write
+inline constexpr uint32_t kKeyScanMatch = 0x80105D10u;          // u16 — the matched VOICE INDEX
+
+// ---- ABSOLUTE: the two KON-style mask pairs -----------------------------------------------------
+//
+// Published as addresses rather than offsets because half their call sites add them to `kBase` and
+// half use them whole; that is only correct because `kBase + 23536` and `0x80105BF0` are the same
+// number, which is a trap rather than a fact. The call sites now use the address everywhere.
+
+inline constexpr uint32_t kKonArmedMaskLo = 0x80105BF0u;    // u16 — armed-voice mask, low word
+inline constexpr uint32_t kKonArmedMaskHi = 0x80105BF2u;    // u16 — armed-voice mask, high word
+inline constexpr uint32_t kActiveVoiceMaskLo = 0x801054B8u; // u16 — active-voice mask, low word
+inline constexpr uint32_t kActiveVoiceMaskHi = 0x801054BAu; // u16 — active-voice mask, high word
 
 // ---- the per-VOICE table (stride 56) and the per-voice words the flush reads --------------------
 //
@@ -55,31 +113,20 @@ inline constexpr uint32_t kSeqPrepFn = 46144u;      // 0x800931C0 — the one-sh
 // pair and packs them into the SPU register write, so the pairs are named for the register they
 // become rather than for a role nobody has traced.
 
-inline constexpr uint32_t kPerVoiceTable = 21710u;       // 0x801054CE — the stride-56 record array
-inline constexpr uint32_t kPerVoiceStride = 56u;         // bytes per record
-inline constexpr uint32_t kVoiceCountLimit = 15u;        // the flush's own `i < 15` loop bound
-inline constexpr uint32_t kToneCountLimit = 24u;         // the tone block's own `i < 24` loop bound
-inline constexpr uint32_t kPerVoicePitchLo = 21692u;     // 0x801054D4 — low 16 bits of the pitch word
-inline constexpr uint32_t kPerVoicePitchHi = 21694u;     // 0x801054D6 — its high byte
-inline constexpr uint32_t kPerVoiceLevelLo = 21696u;     // 0x801054D8
-inline constexpr uint32_t kPerVoiceLevelHi = 21698u;     // 0x801054DA
-inline constexpr uint32_t kActiveVoiceMaskLo = 21688u;   // 0x801054D0
-inline constexpr uint32_t kActiveVoiceMaskHi = 21690u;   // 0x801054D2
-inline constexpr uint32_t kHardwareVoiceActive = 21694u; // 0x801054D6 — the SPU's own active bitmask
+inline constexpr uint32_t kPerVoiceTable = 21710u;      // 0x801054CE — the stride-56 record array
+inline constexpr uint32_t kPerVoiceStride = 56u;        // bytes per record
+inline constexpr uint32_t kVoiceCountLimit = 15u;       // the flush's own `i < 15` loop bound
+inline constexpr uint32_t kToneCountLimit = 24u;        // the tone block's own `i < 24` loop bound
+inline constexpr uint32_t kPerVoicePitchLo = 21692u;    // 0x801054BC — low 16 bits of the pitch word
+inline constexpr uint32_t kPerVoicePitchHi = 21694u;    // 0x801054BE — its high byte
+inline constexpr uint32_t kPerVoiceLevelLo = 21696u;    // 0x801054C0
+inline constexpr uint32_t kPerVoiceLevelHi = 21698u;    // 0x801054C2
+inline constexpr uint32_t kPerVoiceDispatchLo = 21746u; // 0x801054F2 — s16
+inline constexpr uint32_t kPerVoiceDispatchHi = 21748u; // 0x801054F4 — s16
 
 // A per-record byte the flush CLEARS and never reads back. The flush writes 0 here as part of
 // clearing a record it has just consumed, so the name says what is written, not what the byte means.
-inline constexpr uint32_t kPerVoiceConsumedFlag = 21733u; // 0x801054E1
-
-// A 16-bit field in the same stride-56 table the flush tests and, on some records, dispatches
-// through as a function pointer. The dispatch is confirmed; WHAT the table is for is not.
-inline constexpr uint32_t kPerVoiceDispatchLo = 21746u; // 0x801054EE
-inline constexpr uint32_t kPerVoiceDispatchHi = 21748u; // 0x801054F0
-
-// ---- the KON-style armed mask and the scratch words ----------------------------------------------
-
-inline constexpr uint32_t kKonArmedMaskLo = 23536u; // 0x80105BF0
-inline constexpr uint32_t kKonArmedMaskHi = 23538u; // 0x80105BF2
+inline constexpr uint32_t kPerVoiceConsumedFlag = 21733u; // 0x801054E5
 
 // ---- the three small loop-bound / cursor words the flush reads ----------------------------------
 //
@@ -89,13 +136,13 @@ inline constexpr uint32_t kKonArmedMaskHi = 23538u; // 0x80105BF2
 
 inline constexpr uint32_t kVoiceCursor = 23468u;          // 0x80105BAC — incremented then masked to 4 bits
 inline constexpr uint32_t kVoiceStateTable = 23472u;      // 0x80105BB0 — the 15-entry active-record array
-inline constexpr uint32_t kSpuKeyScanCount = 23788u;      // 0x80105CCC — s8, bounds the key-scan pass
-inline constexpr uint32_t kToneCursor = 23848u;           // 0x80105D08 — bounds the tone pass
-inline constexpr uint32_t kToneBlockBase = 23048u;        // 0x801059F8 — the 24-entry tone block
-inline constexpr uint32_t kUnnamedWord23072 = 23072u;     // 0x80105A10 — see the note below
-inline constexpr uint32_t kUnnamedWord23080 = 23080u;     // 0x80105A18 — see the note below
+inline constexpr uint32_t kSpuKeyScanCount = 23788u;      // 0x80105CEC — s8, bounds the key-scan pass
+inline constexpr uint32_t kToneCursor = 23848u;           // 0x80105D28 — bounds the tone pass
+inline constexpr uint32_t kToneBlockBase = 23048u;        // 0x80105A08 — the 24-entry tone block
+inline constexpr uint32_t kUnnamedWord23072 = 23072u;     // 0x80105A20 — see the note below
+inline constexpr uint32_t kUnnamedWord23080 = 23080u;     // 0x80105A28 — see the note below
 inline constexpr uint32_t kUnnamedWord23464 = 23464u;     // 0x80105BA8 — see the note below
-inline constexpr uint32_t kUnnamedHalfword21734 = 21734u; // 0x801054E2 — see the note below
+inline constexpr uint32_t kUnnamedHalfword21734 = 21734u; // 0x801054E6 — see the note below
 
 // THE FOUR `kUnnamed` WORDS, and the one `kUnnamedHalfword`, stated once.
 //

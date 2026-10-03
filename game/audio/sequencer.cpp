@@ -440,8 +440,8 @@ L_80090E10:; // GuestFrame's destructor restores r16..r23/r30/r31 + ascends sp h
 // a shard-grouping artifact like others documented in this file — not ported). ABI: a0(r4)=combined
 // (seq | chan<<8, low 16 bits meaningful), a1(r5)=&outL, a2(r6)=&outR. Reads channelBase+88/+90
 // (u16 each) into *outL/*outR. Also has a genuine but functionally dead side-effect: it stamps the
-// raw combined arg to a scratch global (libsnd::kUnnamedWord23464) that the guest-visible behavior itself never reads
-// back with effect (the reload 2 lines later is discarded, part of the same dead tail).
+// raw combined arg to a scratch global (libsnd::kVolumeSnapshotScratch) that the guest-visible behavior itself never
+// reads back with effect (the reload 2 lines later is discarded, part of the same dead tail).
 void Sequencer::channelVolumeSnapshot() {
   Core *c = core;
   uint32_t combined = c->r[4];
@@ -454,7 +454,7 @@ void Sequencer::channelVolumeSnapshot() {
   uint32_t seqLow = combined & 0xFFu;
   uint32_t seqBasePtr = c->mem_r32(libsnd::kSeqPtrArray + (seqLow << 2));
 
-  c->mem_w16(libsnd::kUnnamedWord23464, (uint16_t)combined); // dead write, mirrored for fidelity
+  c->mem_w16(libsnd::kVolumeSnapshotScratch, (uint16_t)combined); // dead write, mirrored for fidelity
 
   int32_t chan = (int32_t)((int32_t)(combined & 0xFF00u) >> 8);
   ChannelRecord ch{c, seqBasePtr + chStride(chan)};
@@ -464,14 +464,14 @@ void Sequencer::channelVolumeSnapshot() {
 }
 
 // 0x80094B50 channelKeyRegisterMerge — true leaf (no stack frame). Faithful to guest 0x80094B50
-// (authenticated executable/overlay evidence). No ABI args — reads its input from libsnd::kPerVoiceDispatchLo (the
+// (authenticated executable/overlay evidence). No ABI args — reads its input from libsnd::kKeyScanMatch (the
 // scratch value channelKeyEventScan() just stamped there). Builds a KON-style 1-bit-set lo/hi word pair from the match
 // value (0-15 -> lo bit, 16-31 -> hi bit), clears a per-voice status byte in the stride-56 voice table, ORs the new bit
 // into the KON lo/hi words, and clears the SAME bit from the active-voice lo/hi mask (classic "arm this voice for
 // key-on, drop it from the active set" idiom).
 void Sequencer::channelKeyRegisterMerge() {
   Core *c = core;
-  uint32_t value = c->mem_r16(libsnd::kPerVoiceDispatchLo);
+  uint32_t value = c->mem_r16(libsnd::kKeyScanMatch);
 
   uint32_t bitLo = 0, bitHi = 0;
   if (value < 16u) {
@@ -508,8 +508,8 @@ void Sequencer::channelKeyRegisterMerge() {
 // address (never independently confirmed against a live SPU dump); the CONTROL FLOW transcription
 // below is exact. Scans voices 0..SEQ_KEYSCAN_COUNT-1: skip any voice whose bit is set in the hw
 // voice-active bitmask (libsnd::kHardwareVoiceActive); for the rest, compare the per-voice pitch table
-// entry (libsnd::kPerVoiceTable, stride 56) against the target; on a match, stamp the value to
-// libsnd::kPerVoiceDispatchLo and call channelKeyRegisterMerge().
+// entry (libsnd::kKeyScanPitchTable, stride 56) against the target; on a match, stamp the value to
+// libsnd::kKeyScanMatch and call channelKeyRegisterMerge().
 void Sequencer::channelKeyEventScan() {
   Core *c = core;
   int8_t count = (int8_t)c->mem_r8(libsnd::kSpuKeyScanCount);
@@ -526,7 +526,7 @@ void Sequencer::channelKeyEventScan() {
         continue; // voice busy, skip
       }
       uint32_t tableOff = (uint32_t)(i * 7) << 3; // i*56
-      int32_t tableVal = (int32_t)(int16_t)c->mem_r16(libsnd::kPerVoiceTable + tableOff);
+      int32_t tableVal = (int32_t)(int16_t)c->mem_r16(libsnd::kKeyScanPitchTable + tableOff);
       if (tableVal != target) {
         continue;
       }
@@ -537,7 +537,7 @@ void Sequencer::channelKeyEventScan() {
       // channelKeyRegisterMerge()'s downstream KON-bit/table-offset math (it reads this same value
       // back as `value*56`, the SAME stride channelKeyEventScan just used for `i*56` -- only
       // consistent if the stamped value is the voice index).
-      c->mem_w16(libsnd::kPerVoiceDispatchLo, (uint16_t)(uint32_t)i);
+      c->mem_w16(libsnd::kKeyScanMatch, (uint16_t)(uint32_t)i);
       c->r[31] = 0x80095C0Cu; // FIX: gen sets the real return-site const before the jal
       channelKeyRegisterMerge();
     }
@@ -2518,23 +2518,17 @@ L_80093350:;
 L_80093368:;
   c->r[16] = c->r[0] + c->r[0];
 L_8009336C:;
-  c->r[2] = libsnd::kBase;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + libsnd::kKonArmedMaskLo));
-  c->r[3] = libsnd::kBase;
-  c->r[3] = (uint32_t)c->mem_r16((c->r[3] + libsnd::kActiveVoiceMaskLo));
+  c->r[2] = (uint32_t)c->mem_r16(libsnd::kKonArmedMaskLo);
+  c->r[3] = (uint32_t)c->mem_r16(libsnd::kActiveVoiceMaskLo);
   c->r[2] = ~(c->r[0] | c->r[2]);
   c->r[3] = c->r[3] & c->r[2];
-  c->r[2] = libsnd::kBase;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + libsnd::kKonArmedMaskHi));
+  c->r[2] = (uint32_t)c->mem_r16(libsnd::kKonArmedMaskHi);
   c->r[17] = c->r[0] + c->r[0];
-  c->r[1] = libsnd::kBase;
-  c->mem_w16((c->r[1] + libsnd::kActiveVoiceMaskLo), (uint16_t)c->r[3]);
-  c->r[3] = libsnd::kBase;
-  c->r[3] = (uint32_t)c->mem_r16((c->r[3] + libsnd::kActiveVoiceMaskHi));
+  c->mem_w16(libsnd::kActiveVoiceMaskLo, (uint16_t)c->r[3]);
+  c->r[3] = (uint32_t)c->mem_r16(libsnd::kActiveVoiceMaskHi);
   c->r[2] = ~(c->r[0] | c->r[2]);
   c->r[3] = c->r[3] & c->r[2];
-  c->r[1] = libsnd::kBase;
-  c->mem_w16((c->r[1] + libsnd::kActiveVoiceMaskHi), (uint16_t)c->r[3]);
+  c->mem_w16(libsnd::kActiveVoiceMaskHi, (uint16_t)c->r[3]);
 L_800933B0:;
   c->r[2] = libsnd::kBase;
   c->r[2] = c->r[2] + c->r[17];
@@ -2680,19 +2674,15 @@ L_8009353C:;
     }
   }
   c->r[4] = c->r[0] + c->r[0];
-  c->r[5] = libsnd::kBase;
-  c->r[5] = (uint32_t)c->mem_r8((c->r[5] + libsnd::kKonArmedMaskHi));
-  c->r[2] = libsnd::kBase;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + libsnd::kKonArmedMaskLo));
+  c->r[5] = (uint32_t)c->mem_r8(libsnd::kKonArmedMaskHi);
+  c->r[2] = (uint32_t)c->mem_r16(libsnd::kKonArmedMaskLo);
   c->r[5] = c->r[5] << 16;
   c->r[31] = 0x80093588u;
   c->r[5] = c->r[5] | c->r[2];
   psx::cpu::dispatchGuestToReturn0(*c, 0x80098F90u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
   c->r[4] = c->r[0] + (uint32_t)1;
-  c->r[5] = libsnd::kBase;
-  c->r[5] = (uint32_t)c->mem_r8((c->r[5] + libsnd::kActiveVoiceMaskHi));
-  c->r[2] = libsnd::kBase;
-  c->r[2] = (uint32_t)c->mem_r16((c->r[2] + libsnd::kActiveVoiceMaskLo));
+  c->r[5] = (uint32_t)c->mem_r8(libsnd::kActiveVoiceMaskHi);
+  c->r[2] = (uint32_t)c->mem_r16(libsnd::kActiveVoiceMaskLo);
   c->r[5] = c->r[5] << 16;
   c->r[31] = 0x800935A8u;
   c->r[5] = c->r[5] | c->r[2];
@@ -2715,14 +2705,10 @@ L_8009353C:;
   c->r[31] = 0x800935E8u;
   c->r[5] = c->r[5] | c->r[2];
   psx::cpu::dispatchGuestToReturn0(*c, 0x80097E10u, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-  c->r[1] = libsnd::kBase;
-  c->mem_w16((c->r[1] + libsnd::kKonArmedMaskLo), (uint16_t)c->r[0]);
-  c->r[1] = libsnd::kBase;
-  c->mem_w16((c->r[1] + libsnd::kKonArmedMaskHi), (uint16_t)c->r[0]);
-  c->r[1] = libsnd::kBase;
-  c->mem_w16((c->r[1] + libsnd::kActiveVoiceMaskLo), (uint16_t)c->r[0]);
-  c->r[1] = libsnd::kBase;
-  c->mem_w16((c->r[1] + libsnd::kActiveVoiceMaskHi), (uint16_t)c->r[0]);
+  c->mem_w16(libsnd::kKonArmedMaskLo, (uint16_t)c->r[0]);
+  c->mem_w16(libsnd::kKonArmedMaskHi, (uint16_t)c->r[0]);
+  c->mem_w16(libsnd::kActiveVoiceMaskLo, (uint16_t)c->r[0]);
+  c->mem_w16(libsnd::kActiveVoiceMaskHi, (uint16_t)c->r[0]);
   c->r[1] = libsnd::kBase;
   c->mem_w16((c->r[1] + libsnd::kPerVoiceLevelLo), (uint16_t)c->r[0]);
   c->r[1] = libsnd::kBase;
