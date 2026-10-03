@@ -77,15 +77,15 @@ void register_engine_overrides(Game &owner) {
   // The legacy C++-fiber scheduler bindings were intentionally removed. Yield-capable guest work
   // must resume from stored CPU context through typed executor exits; it cannot retain a generated
   // original body or suspend a native C++ stack.
-  mathOf(c).registerOverrides();               // GTE matMul/applyMatlv/applyMatrixLV/rotmat/rotX/Y/Z (0x80084110 etc.)
-  eng(c).animation.registerOverrides();        // loadFrame/advanceLinkChain/attach/applyFrame (0x80076904 etc.)
-  eng(c).areaSlots.registerOverrides();        // primeCountdown/updateCell (0x80074A38/0x8007496C)
-  eng(c).musicCoord.registerOverrides();       // setGain2 (0x80075D24)
-  ActorReward::registerOverrides(game);        // reward/tally window actor SM family
-  ActorZonedAttacker::registerOverrides(game); // 0x8014xxxx zoned-attacker sub-behavior cluster
-  eng(c).spawn.registerTypedChildOverrides();  // A00-overlay typed-child spawners
-  eng(c).releaseTriggerMotion.registerOverrides(); // release-trigger sub-motion cluster
-  OverlayGt3Gt4::registerOverrides(game);          // A00-overlay GT3/GT4 packet emitters (0x801465EC/801467BC)
+  mathOf(c).registerOverrides();         // GTE matMul/applyMatlv/applyMatrixLV/rotmat/rotX/Y/Z (0x80084110 etc.)
+  eng(c).animation.registerOverrides();  // loadFrame/advanceLinkChain/attach/applyFrame (0x80076904 etc.)
+  eng(c).areaSlots.registerOverrides();  // primeCountdown/updateCell (0x80074A38/0x8007496C)
+  eng(c).musicCoord.registerOverrides(); // setGain2 (0x80075D24)
+  ActorReward::registerOverrides(game);  // reward/tally window actor SM family
+  tomba::ai::ActorZonedAttacker::registerOverrides(game); // 0x8014xxxx zoned-attacker sub-behavior cluster
+  eng(c).spawn.registerTypedChildOverrides();             // A00-overlay typed-child spawners
+  eng(c).releaseTriggerMotion.registerOverrides();        // release-trigger sub-motion cluster
+  OverlayGt3Gt4::registerOverrides(game);                 // A00-overlay GT3/GT4 packet emitters (0x801465EC/801467BC)
   OverlayGroundGt3Gt4::registerOverrides(
       game); // A00-overlay GROUND/SCENE GT3/GT4 + entity loop (0x8013FB88/8013FE58/801401B8)
   TileGridLayer::registerOverrides(

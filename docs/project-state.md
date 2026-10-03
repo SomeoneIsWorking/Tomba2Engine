@@ -36,3 +36,11 @@ scoped back into the original guest body, before the recorded gameplay frontier 
 | S022 | Android arm64-v8a native/Lightrec CI assembles and tests the repository | missing | No application, Gradle/NDK composition, `android-port` consumption, touch layer or SAF setup here. |
 | S023 | Tomba! 2 loads complete without loading-only waits or presentation | partial | Every reachable load is synchronous and presents no card: boot preloads, attract item launch, GAME prologue first area, the in-field area transition and cold warps all complete inside the caller's own display field, and the "Loading....." card and `Engine::submode1Faithful` are deleted. The card's only caller was `FUN_80044BD4`'s wait loop, and all 22 of its guest call sites are guest images of load paths already owned natively, so an override there is unreachable and was not landed. The area-transition 5 s minimum/cancel is open: no writer of `FUN_80127798`'s `node[5]=3` is reachable. |
 | S024 | Tomba! 1 loads complete without loading-only waits or presentation | missing | No load operation classified for Tomba! 1. |
+
+Structure-only pass (no behaviour change): the `libsnd` sequencer split from one 2,768-line file into
+seven responsibility-named translation units (`Sequencer` stays one class, now in `tomba::audio`) and
+the A00 zoned-attacker cluster split from 1,496 lines into three (now `tomba::ai::ActorZonedAttacker`),
+with the shared per-channel lens and the guest ABI vocabulary each in one private header;
+`docs/codemap.md` rewritten with per-directory ownership and the per-frame ownership chains. Verified
+by code-line multiset equality against `HEAD` after the identifier remap, identical override-declaration
+sets, `ctest` 23/23, and a headless `tools/live_play.py` run reaching free roam with the player MOVED.

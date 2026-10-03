@@ -1,12 +1,5 @@
-// game/ai/actor_zoned_attacker_zone_classify.cpp — ActorZonedAttacker::zoneClassify (guest 0x80145C78).
-//
-// EXTRACTED 2026-09-27 from actor_zoned_attacker.cpp, which is at its 1535-line cpp-policy cap and
-// could not host the issue-0015 declaration conversion without exceeding it. The class stays one
-// owner; only the translation unit moved. zoneClassify was the separable member: it reads nothing but
-// its two register arguments, shares no file-local constant or helper with the rest of the cluster,
-// and is a `static` member, so moving its definition changes no linkage. The body below is otherwise
-// a VERBATIM move — same expressions, same literals, same register indices — because it is a
-// register-machine transcription whose register usage IS the behaviour.
+// game/ai/actor_zoned_attacker_zone_classify.cpp — ActorZonedAttacker::zoneClassify, the
+// zoned attacker's {0,1,2} zone-band classifier (guest 0x80145C78).
 #include "actor_zoned_attacker.h"
 
 #include "core.h"
@@ -22,6 +15,8 @@
 // phase — that reading comes from a comment elsewhere, not from here. zoneClassify says what is
 // demonstrable and stops.
 // ORACLE: overlay guest 0x80145C78
+namespace tomba::ai {
+
 void ActorZonedAttacker::zoneClassify(Core *c) {
   c->r[2] = (uint32_t)((int32_t)c->r[4] < 4);
   {
@@ -60,3 +55,5 @@ L_80145CB8:;
 L_80145CC8:;
   return;
 }
+
+} // namespace tomba::ai

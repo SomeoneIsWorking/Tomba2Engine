@@ -194,10 +194,14 @@ if(BUILD_TESTING)
   # bodies moved to six sibling translation units split by the level of the guest's own state machine
   # they serve, with no method body changed. engine.cpp is now the banner and the includes, and every
   # new file is under the 1200 default.
+  # `game/audio/sequencer.cpp` and `game/ai/actor_zoned_attacker.cpp` LEFT this list too: the
+  # sequencer's 2768 lines split into seven translation units by leaf responsibility (dispatch, channel
+  # flags, pitch/envelope ramps, voice writes, tone records, voice allocation, SPU voice state), and the
+  # zoned attacker's 1496 into three (entry points, sub-state machine, idle). Both classes stay one
+  # owner with one declaration header; only the translation units moved, and each group declares its own
+  # overrides from the file that owns those bodies.
   set(TOMBA_CPP_POLICY_CAPS
       game/player/actor_tomba.cpp=1452
-      game/audio/sequencer.cpp=2768
-      game/ai/actor_zoned_attacker.cpp=1496
       game/scene/demo.h=87
       game/camera/cutscene_camera.cpp=1459)
   set(TOMBA_CPP_POLICY_ARGS)

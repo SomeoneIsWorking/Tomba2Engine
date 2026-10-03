@@ -60,6 +60,12 @@ set(GAME_SRC
   game/audio/sfx.cpp
   game/audio/audio_dispatch.cpp
   game/audio/sequencer.cpp
+  game/audio/sequencer_channel_flags.cpp
+  game/audio/sequencer_pitch_envelope.cpp
+  game/audio/sequencer_voice_write.cpp
+  game/audio/sequencer_tone_records.cpp
+  game/audio/sequencer_voice_alloc.cpp
+  game/audio/sequencer_voice_state.cpp
   game/world/area_slots.cpp
   game/scene/mode_state_arm.cpp
   game/world/placement.cpp
@@ -93,6 +99,8 @@ set(GAME_SRC
   game/ai/beh_cull_substate_orchestrator.cpp
   game/ai/beh_id_compare_motion_dispatch.cpp
   game/ai/actor_zoned_attacker.cpp
+  game/ai/actor_zoned_attacker_substate.cpp
+  game/ai/actor_zoned_attacker_idle.cpp
   game/ai/actor_zoned_attacker_zone_classify.cpp
   game/ai/attack_orbit_substate.cpp
   game/ai/actor_melee_engage.cpp

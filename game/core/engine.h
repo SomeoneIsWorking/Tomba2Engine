@@ -174,8 +174,7 @@ public:
   Sfx sfx;                                   // sound-FX trigger dispatcher (FUN_80074590)
   AudioDispatch audioDispatch;               // field-audio dispatch/settle cluster
                                              // (FUN_800750D8 et al.)
-  Sequencer sequencer;                       // libsnd per-VBlank tick wrapper (FUN_800909C0, wide-RE
-                                             // draft, unwired)
+  tomba::audio::Sequencer sequencer;         // libsnd per-VBlank tick wrapper and channel leaves
   AreaSlots areaSlots;                       // area-slot table state machine (FUN_80075A80 / FUN_80074AF0)
   ModeStateArm modeStateArm;                 // mode-state arm primitive pair (FUN_8005082C /
                                              // FUN_800508A8)
