@@ -200,10 +200,19 @@ if(BUILD_TESTING)
   # zoned attacker's 1496 into three (entry points, sub-state machine, idle). Both classes stay one
   # owner with one declaration header; only the translation units moved, and each group declares its own
   # overrides from the file that owns those bodies.
+  # `game/camera/cutscene_camera.cpp` LEFT this list too: it was 1459, and the camera's look-point and
+  # heading construction — the yaw/distance fold, the scripted angle builders, the distance/zoom solver
+  # and the rotation builder, which `cutscene_camera.h` had already named "a cohesive future unit" —
+  # moved to `game/camera/camera_look_builder.{h,cpp}` as `tomba::camera::LookAngleBuilder`. The shared
+  # guest-memory view and the retained guest maths vocabulary each got their own header, so all three
+  # owners read and call the guest one way. cutscene_camera.cpp is now under the 1200 default.
+  # `game/player/actor_tomba.cpp` LEFT this list too: it was 1452, and "what touching an item means"
+  # moved to `game/player/actor_interaction.{h,cpp}` as `tomba::player::ActorInteraction` — the six
+  # per-item-kind leaves the two walks dispatch into, one method per guest item kind. The G-block lens
+  # and the address vocabulary every Tomba owner shares moved to `game/player/tomba_state.h`, and
+  # ActorTomba itself is now `tomba::player::ActorTomba`. actor_tomba.cpp is under the 1200 default.
   set(TOMBA_CPP_POLICY_CAPS
-      game/player/actor_tomba.cpp=1452
-      game/scene/demo.h=87
-      game/camera/cutscene_camera.cpp=1459)
+      game/scene/demo.h=87)
   set(TOMBA_CPP_POLICY_ARGS)
   foreach(cap IN LISTS TOMBA_CPP_POLICY_CAPS)
     list(APPEND TOMBA_CPP_POLICY_ARGS --cap "${cap}")

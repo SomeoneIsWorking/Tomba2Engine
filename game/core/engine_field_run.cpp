@@ -544,7 +544,7 @@ void Engine::fieldFrameXFaithful() {
     c->r[31] = 0x80108C60u;
     eng(c).modePerFrameDispatch();
     c->r[31] = 0x80108C68u;
-    CutsceneCamera(c, CutsceneCamera::CAM_OBJ).update();
+    tomba::camera::CutsceneCamera(c, tomba::camera::kCameraObject).update();
   }
   if (c->mem_r8(0x1f800136u) < 2) {
     c->r[31] = 0x80108C84u;
@@ -574,8 +574,9 @@ void Engine::fieldFrameX() {
     eng(c).sceneEventFifo();
     eng(c).sceneRenderListBuilder();
     eng(c).objectTable.dispatch();
-    eng(c).modePerFrameDispatch();                       // 25588/4fe84/26c88/22a80 NATIVE
-    CutsceneCamera(c, CutsceneCamera::CAM_OBJ).update(); // 0x8006ec44 NATIVE (CutsceneCamera::update)
+    eng(c).modePerFrameDispatch(); // 25588/4fe84/26c88/22a80 NATIVE
+    tomba::camera::CutsceneCamera(c, tomba::camera::kCameraObject)
+        .update(); // 0x8006ec44 NATIVE (CutsceneCamera::update)
   }
   if (c->mem_r8(0x1f800136u) < 2) {
     rend(c)->frameX(); // 0x8003fa44 — NATIVE render orchestrator twin

@@ -83,7 +83,9 @@ dispatch surface.
 
 | Class | Responsibility |
 |---|---|
-| `ActorTomba` | The Tomba actor: a named-field view over the master guest block plus its owned per-frame logic (interaction, growth, water, settle, transition gates). |
+| `tomba::player::ActorTomba` (`actor_tomba.{h,cpp}`) | The Tomba actor: a named-field view over the master guest block plus its owned per-frame logic — the G-block driver, the growth/motion/transition cascade, and the auxiliary-list walks that decide which item Tomba is standing on. |
+| `tomba::player::ActorInteraction` (`actor_interaction.{h,cpp}`) | What touching an item means: the proximity/type-4/sub-hitbox checks that pick a touched item, and one leaf per guest item kind (interact mode, type 8, type 7). `ActorTomba`'s walks dispatch into it; it reads the G block through its owner and calls back through `ActorTomba::growthYSnap`. |
+| `tomba_state.h` | The shared Tomba vocabulary both owners need: the G-block field lens (`TombaState`) and the guest addresses every Tomba subsystem keys off. |
 | `Collision` | The collision-grid subsystem. |
 | `tomba::targeting::ActorTargeting` | Whether the actor may acquire a target: near enough and in the right direction. |
 | `Hitbox`, `GridOffset` (`hitbox.h`, `grid_offset.h`) | The per-object 2D box/hitbox-corner builder, and the collision-grid offset resolution. |
@@ -140,7 +142,10 @@ entry point declared in `sequencer.h` and called from `Sequencer::registerOverri
 
 | Class | Responsibility |
 |---|---|
-| `CutsceneCamera` | The cutscene/free camera: follow modes, head/pitch/heading solve, distance and shake. |
+| `tomba::camera::CutsceneCamera` (`cutscene_camera.{h,cpp}`) | The cutscene/free camera: follow modes, head/pitch/heading solve, distance and shake, and the per-mode motion the look builder's points feed. |
+| `tomba::camera::LookAngleBuilder` (`camera_look_builder.{h,cpp}`) | The look-point/heading construction the camera solve is built from — yaw/distribution accumulation, the four point builders, the table joins, and the rotation/distance solve. A collaborator of `CutsceneCamera`, not part of it. |
+| `camera_state.h` | The camera guest-memory lens (`CameraState`): the master/scratch blocks and the camera object slot, shared by the camera owner and its look builder. |
+| `camera_guest_math.h` | The camera's shared guest math vocabulary — the fixed-point helpers and sign conventions every camera solve agrees on. |
 | `tomba::camera::ModeDescriptor` / `RenderModePrologue` (`camera_mode.h`) | The camera driver's mode table, in one place. |
 
 ### `game/cd/` — libcd's guest-visible CD surface
@@ -242,7 +247,10 @@ is no separate loading turn and no loading-only screen.
 psx::input::HostInput                        runtime/psx/host_input.*  — the SDL drain, key state,
                                                                     gamepads, and the keyboard gate
   → Pad::pollHostInput                       runtime/psx/pad_input.cpp — the ONE host pump; also the
-                                                                    P / '.' debug keys
+                                                                    P / '.' debug keys. It asks
+                                                                    gpu_vk_windowed()
+                                                                    (runtime/psx/gpu_vk.h) whether it
+                                                                    is windowed or headless first.
       → Pad::serviceFrame                    resolves host / forced / REPL / replay into Pad::buttons,
                                              samples edges, records or replays, and writes the guest
                                              packet through Pad::fillBuffer

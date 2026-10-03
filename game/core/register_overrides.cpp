@@ -103,13 +103,15 @@ void register_engine_overrides(Game &owner) {
   eng(c).bgSceneTransitionSm.registerOverrides(); // BG scene-transition opcode leaves (0x80042758/80042884)
   eng(c).audioDispatch.registerOverrides();       // field-audio BGM start/override leaves (0x80075024/80075070)
   eng(c).sfx.registerOverrides();                 // SFX trigger wrapper (0x80074810)
-  SceneEvents::registerOverrides(game);      // scene-event ARM FUN_80040B48 (sole owner; deduped from cube_text_ledger)
-  CubeTextLedger::registerOverrides(game);   // cube-text popup ledger deactivate/spawn (0x80040C00/80040AA4)
-  ActorTomba::registerOverrides(game);       // postInteractWalk sub-handlers (0x80020364/800205CC/800235A0/80022C78)
+  SceneEvents::registerOverrides(game);    // scene-event ARM FUN_80040B48 (sole owner; deduped from cube_text_ledger)
+  CubeTextLedger::registerOverrides(game); // cube-text popup ledger deactivate/spawn (0x80040C00/80040AA4)
+  tomba::player::ActorTomba::registerOverrides(
+      game);                                 // postInteractWalk sub-handlers (0x80020364/800205CC/800235A0/80022C78)
   ActorMeleeEngage::registerOverrides(game); // A00-overlay melee-engage/reposition/arm leaf (0x80112188)
   MeleeProximity::registerOverrides(game);   // melee-proximity/approach-anchor leaf (0x8001F9DC)
-  CutsceneCamera::registerOverrides(game);   // resetFollowAccum/pushMode/restoreMode/snapToMasterOffsetY200/orbitTick
-                                             // (0x8006E8F8/8006E1C0/8006E1E4/8006EA00/8006EF38)
+  tomba::camera::CutsceneCamera::registerOverrides(
+      game);                                // resetFollowAccum/pushMode/restoreMode/snapToMasterOffsetY200/orbitTick
+                                            // (0x8006E8F8/8006E1C0/8006E1E4/8006EA00/8006EF38)
   RegisterBehToySpawnFamilyOverrides(game); // toy/child spawner leaves (0x80127420/801274BC/80127720/8012763C/80127510)
   RegisterEngineAnimLeafOverrides(game);    // Engine::animTick/walkStart fallthrough native-ize (0x8004190C/80054D14)
   Trig::registerOverrides(game); // Trig::rsin/ratan2/angleCmp fallthrough native-ize (0x80083E80/80085690/80077768)

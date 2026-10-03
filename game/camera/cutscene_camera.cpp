@@ -1,65 +1,27 @@
-// class CutsceneCamera — the general FIELD / FOLLOW engine camera, PC-native (see cutscene_camera.h). It is
-// the free-roam camera as well as the SOP/cutscene one (RESOLVED later-293 — docs/findings/camera.md).
-// The arithmetic is the RE'd engine behaviour (docs/engine_re.md "CutsceneCamera"; later-173..176); this file
-// restructures it into methods over named state (no guest register convention). It is verified per-call
-// against the historical guest-execution reference on the live SOP scene via `cam_snap_follow`
-// (PSXPORT_DEBUG=camverify) and by the oracle UNIT TEST over every method incl. the driver
-// (game/camera/cutscene_camera_selftest.cpp).
-#include "cutscene_camera.h"
+// game/camera/cutscene_camera.cpp — the field/follow camera's per-frame driver, mode dispatch,
+// follow pipeline, view-matrix builder and shake tail. See cutscene_camera.h for the state model and
+// game/camera/camera_look_builder.h for where the camera decides what it looks at. The arithmetic is
+// the reverse-engineered engine behaviour (docs/engine_re.md, docs/findings/camera.md).
+#include "camera/cutscene_camera.h"
+
+#include "camera/camera_guest_math.h"
+#include "camera/camera_look_builder.h"
 #include "camera/camera_mode.h"
 #include "cfg.h"
 #include "game.h" // c->game->verify — the shared A/B verify scaffold (camverify)
 #include "game_ctx.h"
-#include "guest_abi.h" // GuestFrame — the guest stack frame contract, spelled once          // the driver mode table, the render-mode floors, the shake states
+#include "guest_abi.h" // GuestFrame — the guest stack frame contract, spelled once
 #include "guest_call.h"
 #include "mtx.h"
 #include "native_override_catalog.h" // tomba::native::declareOverride — the one native-override registry
 #include "scene/script_globals.h"    // the status byte the shore floor branches on
 #include "trig.h"
-#include <stdint.h>
+
+#include <cstdint>
 #include <stdio.h>
 #include <string.h>
 
-// Retained libgte helpers (a math library — kept substrate, not PSX hardware).
-// rsin (0x80083E80) and rcos (0x80083F50) are owned by class Trig (game/math/trig.h) — the class
-// methods Trig::rsin / Trig::rcos have superseded the T2_RSIN / T2_RCOS `call(...)` shims here.
-static constexpr uint32_t T2_ISQRT = 0x80084080u; // isqrt(x)      -> floor(sqrt)
-// ratan2 (0x80085690) is owned by class Trig (game/math/trig.h) — Trig::ratan2 superseded T2_RATAN2/LA_RATAN2.
-// angleCmp (0x80077768) is owned by class Trig — Trig::angleCmp superseded T2_ANGCMP.
-// rsin's SUBSTRATE entry (0x80083E80). Trig::rsin is the native for direct callers, but the guest body
-// pushes a 24-byte frame (spills ra@+16 — see trig.cpp "UNREGISTERED" note), so byte-exact contexts
-// (initPlace/orbitTick, reached on the SBS-compared leg via the snapToMasterOffsetY200/orbitTick
-// overrides) must run the substrate body with the gen's jal-site ra preloaded so the frame bytes match.
-static constexpr uint32_t T2_RSIN_SUB = 0x80083E80u;
-// lookAt's matrix helpers (NB its isqrt is a DIFFERENT entry from rotBuild's).
-static constexpr uint32_t LA_ISQRT = 0x80077FB0u;
-static constexpr uint32_t LA_MRINIT = 0x80051794u;  // MR_init (identity)
-static constexpr uint32_t LA_MULMAT = 0x80084250u;  // MulMatrix0(a0,a1)
-static constexpr uint32_t LA_COPYMAT = 0x800847B0u; // CopyMatrix(a0,a1)
-// shakeTail's helpers (a utility RNG + a sound/rumble-effect request queue — a library, kept substrate).
-static constexpr uint32_t SHAKE_RAND = 0x8009A450u; // PSX-style rand(): next = next*0x41c64e6d+12345
-static constexpr uint32_t SHAKE_FX = 0x800521F4u;   // queue a shake sound effect (a0,a1,id,pri)
-
-// clamp(delta, -maxStep, +maxStep) on sign-extended s16 (engine FUN_8006CE74).
-static inline int32_t cam_clamp(int16_t delta, int16_t maxStep) {
-  if (delta >= 0) {
-    return delta < maxStep ? delta : maxStep;
-  }
-  return delta < (int16_t)(-maxStep) ? (int16_t)(-maxStep) : delta;
-}
-// 32-bit mult-lo, matching the guest instruction path's exact truncating arithmetic.
-static inline int32_t mlo(int32_t a, int32_t b) {
-  return (int32_t)((uint32_t)a * (uint32_t)b);
-}
-
-int32_t CutsceneCamera::call(uint32_t fn, int32_t a0, int32_t a1, int32_t a2, int32_t a3) {
-  c->r[4] = (uint32_t)a0;
-  c->r[5] = (uint32_t)a1;
-  c->r[6] = (uint32_t)a2;
-  c->r[7] = (uint32_t)a3;
-  psx::cpu::dispatchGuestToReturn0(*c, fn, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
-  return (int32_t)c->r[2];
-}
+namespace tomba::camera {
 
 bool CutsceneCamera::followAxis(
     uint32_t accAddr, uint32_t tgt32Addr, uint16_t tgtInt, uint16_t curInt, int16_t maxStep) {
@@ -68,7 +30,7 @@ bool CutsceneCamera::followAxis(
     w32(accAddr, r32(tgt32Addr));
     return true;
   }
-  int32_t step = cam_clamp(delta, maxStep) << 13;
+  int32_t step = guestmath::clampStep(delta, maxStep) << 13;
   w32(accAddr, r32(accAddr) + (uint32_t)step);
   return false;
 }
@@ -78,311 +40,19 @@ bool CutsceneCamera::trackXZ(uint32_t target) { // FUN_8006D960
   // (The dev teleport used to be consumed here. It is Engine::devTeleportApply's now — this method
   // only runs in the follow-camera mode, so consuming it here made `tp` a no-op in every area whose
   // camera is in another mode. See engine.h's mCamTpPending banner for the measurement.)
-  bool snapX = followAxis(S + 0x0C, target + 0, r16(target + 2), r16(S + 0x0E), 6144);
-  bool snapZ = followAxis(S + 0x14, target + 8, r16(target + 10), r16(S + 0x16), 6144);
+  bool snapX = followAxis(kCamScratch + 0x0C, target + 0, r16(target + 2), r16(kCamScratch + 0x0E), 6144);
+  bool snapZ = followAxis(kCamScratch + 0x14, target + 8, r16(target + 10), r16(kCamScratch + 0x16), 6144);
   return snapX && snapZ;
 }
+
 bool CutsceneCamera::trackY(uint32_t target) { // FUN_8006DA54
-  return followAxis(S + 0x10, target + 4, r16(target + 6), r16(S + 0x12), 5632);
-}
-
-// ── rotBuild (special-camera rotation / look-at builder) ─────────────────────────────────────────
-void CutsceneCamera::yawDistAccumulate(int32_t dx, int32_t dz) {
-  int32_t yaw = (int16_t)trigOf(c).ratan2(-dz, dx);
-  int32_t dist = (int16_t)call(T2_ISQRT, dx * dx + dz * dz);
-  int32_t rc2 = trigOf(c).rcos(yaw);
-  w32(S + 0x00, r32(S + 0x00) + ((rc2 * dist) >> 1));
-  int32_t rs2 = trigOf(c).rsin(yaw);
-  w32(S + 0x08, r32(S + 0x08) - ((rs2 * dist) >> 1));
-  if (dist < 401) {
-    camW8(0x66, camR8(0x66) | 1);
-  }
-}
-void CutsceneCamera::lookatTail(int32_t theta, int32_t radius) {
-  int32_t rc = trigOf(c).rcos(theta);
-  int32_t lookX = (int32_t)r16(0x1F800160u) + ((rc * radius) >> 12);
-  int32_t rs = trigOf(c).rsin(theta);
-  int32_t lookZ = (int32_t)r16(0x1F800164u) - ((rs * radius) >> 12);
-  int32_t camZ = (int32_t)r16(S + 0x0A);
-  int32_t camX = (int32_t)r16(S + 0x02);
-  int32_t dz = (int16_t)(lookZ - camZ);
-  int32_t dx = (int16_t)(lookX - camX);
-  yawDistAccumulate(dx, dz);
-}
-
-// ── scripted-camera look-angle builders (0x8006DC38/DAD8/DF88/DEF0 — used by snapFollowA/B) ─────────
-void CutsceneCamera::posBuildA() { // FUN_8006DC38 — overwrite the X/Z look accumulators
-  int32_t P = mlo(trigOf(c).rcos((int16_t)camR16(0x6e)), (int16_t)camR16(0x6c)) >> 12;
-  int32_t x = (int32_t)(int16_t)r16(S + 0x0e) + (mlo(trigOf(c).rcos((int16_t)camR16(0x70)), P) >> 12);
-  int32_t cz = mlo(trigOf(c).rsin((int16_t)camR16(0x70)), P) >> 12;
-  w32(S + 0x00, (uint32_t)(x << 16));
-  int32_t z = (int32_t)(int16_t)r16(S + 0x16) - cz;
-  w32(S + 0x08, (uint32_t)(z << 16));
-  camW8(0x66, camR8(0x66) | 1);
-}
-void CutsceneCamera::posBuildB() { // FUN_8006DAD8 — place a look point then yaw/dist accumulate
-  int32_t P = (int16_t)(mlo(trigOf(c).rcos((int16_t)camR16(0x6e)), (int16_t)camR16(0x6c)) >> 12);
-  int32_t x = (int32_t)(uint16_t)r16(S + 0x0e) + (mlo(trigOf(c).rcos((int16_t)camR16(0x70)), P) >> 12);
-  int32_t cz = mlo(trigOf(c).rsin((int16_t)camR16(0x70)), P) >> 12;
-  int32_t dz = (int16_t)((int32_t)(uint16_t)r16(S + 0x16) - cz - (int32_t)(uint16_t)r16(S + 0x0a));
-  int32_t dx = (int16_t)(x - (int32_t)(uint16_t)r16(S + 0x02));
-  yawDistAccumulate(dx, dz);
-}
-void CutsceneCamera::headBuildA(uint32_t nonzero) { // FUN_8006DF88
-  if (nonzero == 0) {
-    int32_t off = (int32_t)(int16_t)camR16(0x26) - 320;
-    w16(S + 6, (uint16_t)((int32_t)r16(S + 0x12) + off));
-  } else {
-    int32_t step = mlo(trigOf(c).rsin((int16_t)camR16(0x6e)), (int16_t)camR16(0x6c)) >> 12;
-    w16(S + 6, (uint16_t)((int32_t)r16(S + 0x12) - step));
-  }
-  camW8(0x66, camR8(0x66) | 2);
-}
-void CutsceneCamera::headBuildB() { // FUN_8006DEF0
-  int32_t step = mlo(trigOf(c).rsin((int16_t)camR16(0x6e)), (int16_t)camR16(0x6c)) >> 12;
-  int32_t s6 = (int32_t)r16(S + 6);
-  int32_t s12 = (int32_t)r16(S + 0x12);
-  int32_t d = (s6 + step) - s12;
-  if ((uint16_t)(d + 10) < 21) { // |d| <= 10 -> snap
-    w16(S + 6, (uint16_t)(s12 - step));
-    camW8(0x66, camR8(0x66) | 2);
-  } else {
-    int32_t s = (int32_t)((uint32_t)d << 16) >> 3;
-    w32(S + 4, (uint32_t)((int32_t)r32(S + 4) - s));
-  }
-}
-void CutsceneCamera::joinE640(int32_t delta, int32_t radius) {
-  int32_t sum = (int32_t)r16(G + 0x140) + (int32_t)camR16(0x52) + delta;
-  uint16_t theta16 = (uint16_t)sum;
-  camW16(0x8C, theta16);
-  lookatTail((int16_t)theta16, radius);
-}
-static inline int32_t t1_e570(CutsceneCamera *self, Core *c, uint32_t G, uint32_t cam) {
-  int32_t g140 = c->mem_r16s(G + 0x140), g56 = c->mem_r16s(G + 0x56);
-  int32_t cam56 = (int32_t)c->mem_r16(cam + 0x56);
-  return (g140 == g56) ? cam56 : -cam56;
-}
-int32_t CutsceneCamera::table1Delta() {
-  uint8_t idx = r8(G + 0x164);
-  switch (idx) {
-  case 1:
-  case 9:
-  case 11: {
-    if (r32(G + 0x158) == 0) {
-      return t1_e570(this, c, G, cam_);
-    }
-    int32_t g140 = (int16_t)r16(G + 0x140), g56 = (int16_t)r16(G + 0x56);
-    int32_t cam56 = (int32_t)camR16(0x56);
-    return (g140 == g56) ? -cam56 : cam56; // inverted sense
-  }
-  case 3: {
-    if (camR8(0x77) != 0) {
-      return t1_e570(this, c, G, cam_);
-    }
-    if (r8(0x800BF870u) == 6) {
-      return t1_e570(this, c, G, cam_);
-    }
-    int32_t g140 = (int16_t)r16(G + 0x140), g56 = (int16_t)r16(G + 0x56);
-    int32_t cam56 = (int32_t)camR16(0x56);
-    int32_t g168 = (int32_t)r8(G + 0x168) << 6;
-    return (g140 != g56) ? (g168 - cam56) : (cam56 - g168);
-  }
-  default:
-    return t1_e570(this, c, G, cam_);
-  }
-}
-void CutsceneCamera::table2(int32_t radius) {
-  uint32_t a1 = r8(G + 0x61);
-  uint32_t idx2 = ((a1 & 0xff) >> 4) - 1; // unsigned; >=8 -> default
-  int32_t theta;
-  if (idx2 == 0) {
-    if (a1 & 1) {
-      theta = (int32_t)r16(0x1F800196u) + 512;
-    } else {
-      int32_t s196 = (int16_t)r16(0x1F800196u);
-      int32_t g140 = (int16_t)r16(G + 0x140);
-      int32_t d = ((s196 - g140) & 0xfff) >> 1;
-      theta = (int32_t)r16(0x1F800196u) + d;
-    }
-  } else if (idx2 == 1) {
-    if (a1 & 1) {
-      int32_t r =
-          Trig::angleCmp((int16_t)r16(G + 0x56), (int16_t)r16(G + 0x140), 0); // FUN_80077768(a,b,mode=0) -> native
-      theta = (int32_t)r16(G + 0x140) + (r == 0 ? 512 : 1536);
-    } else {
-      int32_t a = (int16_t)r16(0x1F800194u);
-      int32_t b = (int16_t)r16(0x1F800196u);
-      theta = (int32_t)r16(G + 0x140) + (a != b ? 512 : 1536);
-    }
-  } else if (idx2 == 2) {
-    int32_t vu = (int32_t)r16(0x1F800196u);
-    theta = vu + ((int16_t)vu / 2);
-  } else if (idx2 == 3) {
-    theta = (int32_t)r16(0x1F800196u) + 512;
-  } else if (idx2 == 7) {
-    theta = (int32_t)r16(G + 0x140) + 1024;
-  } else {
-    theta = (int32_t)r16(G + 0x140) + 512;
-  }
-  lookatTail(theta & 0xfff, radius);
-}
-void CutsceneCamera::rotBuild() { // FUN_8006E464
-  if (camR8(0x76)) {
-    return; // disabled this frame
-  }
-  uint32_t a1 = r8(G + 0x61);
-  uint32_t a0 = a1 & 0xff;
-  if (a0 != 0 && (camR8(0x72) & 0x80)) {
-    return;
-  }
-  int32_t negEE = -(int32_t)r16(0x1F8000EEu);
-  int32_t radius = (int16_t)negEE;
-  uint8_t c114 = camR8(0x72);
-  if (c114 & 0x40) {
-    lookatTail((int16_t)camR16(0x8C), radius);
-    return;
-  } // SHAPE A
-  if (a0 != 0 && (a1 & 1) == 0) {
-    table2(radius);
-    return;
-  }
-  if (r8(G + 0x17a)) {
-    joinE640(0, (int16_t)(negEE - 600));
-    return;
-  } // radius override
-  if (c114 & 2) {
-    int32_t delta = (c114 & 1) ? -(int32_t)camR16(0x56) : (int32_t)camR16(0x56);
-    joinE640(delta, radius);
-    return;
-  }
-  joinE640(table1Delta(), radius); // TABLE 1
-}
-
-// ── distSolve (distance/zoom solver) ─────────────────────────────────────────────────────────────
-void CutsceneCamera::distSolve() { // FUN_8006D2AC
-  // 1. settle timer cam[+0x22]
-  uint8_t g61 = r8(G + 0x61);
-  int16_t timer;
-  if (g61 & 0x80) {
-    timer = 0;
-  } else if (r8(G + 0x17a)) {
-    timer = 0;
-  } else if ((g61 & 0xff) == 0) {
-    timer = 240;
-  } else if (g61 & 1) {
-    timer = 240;
-  } else if (r8(0x800BF816u)) {
-    timer = 0;
-  } else {
-    timer = 240;
-  }
-  camW16(0x22, (uint16_t)timer);
-  uint8_t flags = camR8(0x72);
-  if (flags & 4) {
-    camW16(0x22, 0);
-  }
-  flags = camR8(0x72);
-
-  // 2. target planar point (tX,tZ in 16.16) + heading "mode" byte
-  int32_t tX, tZ, mode;
-  if (flags & 2) {
-    tX = (int32_t)r32(G + 0x2c);
-    tZ = (int32_t)r32(G + 0x34);
-    mode = flags & 1;
-  } else {
-    uint8_t idx = r8(G + 0x164);
-    uint8_t g147 = r8(G + 0x147);
-    if (idx >= 13) {
-      idx = 8;
-    }
-    switch (idx) {
-    case 2:
-    case 3: {
-      uint32_t p = r32(G + 0x10);
-      tX = (int32_t)(r32(p + 0x2c) << 16);
-      tZ = (int32_t)(r32(p + 0x34) << 16);
-      mode = g147;
-      break;
-    }
-    case 12: {
-      tX = (int32_t)(r16(0x1F800200u) << 16);
-      tZ = (int32_t)(r16(0x1F800204u) << 16);
-      mode = g147;
-      break;
-    }
-    case 7: {
-      tX = (int32_t)(r16(G + 0x14c) << 16);
-      tZ = (int32_t)(r16(G + 0x150) << 16);
-      mode = g147;
-      break;
-    }
-    case 8: {
-      tX = (int32_t)r32(G + 0x2c);
-      tZ = (int32_t)r32(G + 0x34);
-      mode = g147;
-      break;
-    }
-    default: {
-      tX = (int32_t)r32(G + 0x2c);
-      tZ = (int32_t)r32(G + 0x34);
-      mode = (r32(G + 0x158) == 0) ? (int32_t)g147 : (1 - (int32_t)g147);
-      break;
-    }
-    }
-  }
-
-  // 3. base heading + the look-point offset using the settle timer
-  int32_t baseAng = (int32_t)r16(G + 0x140);
-  if (mode & 0xff) {
-    baseAng += 2048;
-  }
-  int32_t s0a = (int16_t)(uint16_t)baseAng;
-  int32_t cam22 = (int16_t)camR16(0x22);
-  int32_t s2 = tX + (mlo(trigOf(c).rcos(s0a), cam22) << 4);
-  int32_t s1 = tZ - (mlo(trigOf(c).rsin(s0a), cam22) << 4);
-
-  int32_t g140s = (int16_t)r16(G + 0x140);
-  int32_t cam58 = (int32_t)camR32(0x58);
-  int32_t coordX = tX + (mlo(trigOf(c).rcos(g140s), cam58) >> 4);
-  int32_t coordZ = tZ - (mlo(trigOf(c).rsin(g140s), cam58) >> 4);
-  int32_t s2q = (s2 - coordX) >> 8;
-  int32_t s1q = (s1 - coordZ) >> 8;
-  int32_t s0d = call(T2_ISQRT, mlo(s2q, s2q) + mlo(s1q, s1q)) << 8;
-  int32_t ang = trigOf(c).ratan2(-s1q, s2q);
-  int32_t angd = (ang - (int32_t)r16(G + 0x140) - 1024) & 0xfff;
-
-  // 4. smooth cam[+0x14] toward the distance, accumulate into cam[+0x58], place camera X/Z
-  int32_t cam14;
-  int32_t cur = (int32_t)camR32(0x14);
-  if (0x140000 < s0d) {
-    if (angd < 2048) {
-      int32_t neg = -s0d;
-      if (cur < neg) {
-        cam14 = ((int32_t)0xffd80000 < neg) ? neg : (int32_t)0xffd80000;
-      } else {
-        cam14 = (cur > 0 ? 0 : cur) - 65536;
-      }
-    } else {
-      if (s0d < cur) {
-        cam14 = (0x0027ffff < s0d) ? 0x00280000 : s0d;
-      } else {
-        cam14 = (cur < 0 ? 0 : cur) + 65536;
-      }
-    }
-  } else {
-    cam14 = (angd < 2048) ? -s0d : s0d;
-  }
-  camW32(0x14, (uint32_t)cam14);
-  int32_t cam58n = cam58 + (cam14 >> 8);
-  camW32(0x58, (uint32_t)cam58n);
-  camW32(0x08, (uint32_t)(tX + (mlo(trigOf(c).rcos(g140s), cam58n) >> 4)));
-  camW32(0x10, (uint32_t)(tZ - (mlo(trigOf(c).rsin(g140s), cam58n) >> 4)));
+  return followAxis(kCamScratch + 0x10, target + 4, r16(target + 6), r16(kCamScratch + 0x12), 5632);
 }
 
 // ── angleStep ────────────────────────────────────────────────────────────────────────────────────
 void CutsceneCamera::angleStep() { // FUN_8006E010
   int32_t cur = (int32_t)camR32(0x34);
-  if (r8(G + 0x164) != 3) { // not mode 3: drive cam[+0x34] toward 0 by ±8
+  if (r8(kCamGlobal + 0x164) != 3) { // not mode 3: drive cam[+0x34] toward 0 by ±8
     if (cur <= 0) {
       int32_t r = cur + 8;
       camW32(0x34, (uint32_t)r);
@@ -398,7 +68,7 @@ void CutsceneCamera::angleStep() { // FUN_8006E010
     }
     return;
   }
-  uint8_t idx = r8(G + 0x168);
+  uint8_t idx = r8(kCamGlobal + 0x168);
   int32_t target;
   switch (idx >= 5 ? 4 : idx) {
   case 0:
@@ -498,25 +168,25 @@ void CutsceneCamera::yFloor() { // FUN_8006C80C
 
 // ── pitch (vertical-look height smoother) ────────────────────────────────────────────────────────
 void CutsceneCamera::pitch() { // FUN_8006D654
-  int32_t g30 = (int32_t)r32(G + 0x30);
-  int16_t g17e = (int16_t)r16(G + 0x17e);
+  int32_t g30 = (int32_t)r32(kCamGlobal + 0x30);
+  int16_t g17e = (int16_t)r16(kCamGlobal + 0x17e);
   int sign = (g17e & 0x8000) != 0;
 
   int32_t r5 = g30;
   int viaC8 = 0;
-  uint8_t idx = r8(G + 0x164);
+  uint8_t idx = r8(kCamGlobal + 0x164);
   if (idx >= 13) {
     idx = 7;
   }
   switch (idx) {
   case 2: {
-    uint32_t p = r32(G + 0x10);
+    uint32_t p = r32(kCamGlobal + 0x10);
     r5 = (int32_t)(r32(p + 0x30) << 16);
     viaC8 = 1;
     break;
   }
   case 3: {
-    uint32_t p = r32(G + 0x10);
+    uint32_t p = r32(kCamGlobal + 0x10);
     r5 = (int32_t)(r32(p + 0x30) << 16);
     break;
   }
@@ -534,7 +204,7 @@ void CutsceneCamera::pitch() { // FUN_8006D654
     break;
   default: {
     uint8_t m = r8(0x800BF821u);
-    uint8_t gm = r8(G + 0x145);
+    uint8_t gm = r8(kCamGlobal + 0x145);
     if (m == 1) {
       r5 = g30 - (200 << 16);
     } else if (m != 0) {
@@ -596,7 +266,7 @@ void CutsceneCamera::pitch() { // FUN_8006D654
       camW32(0x18, (uint32_t)r3);
     }
   } else {
-    uint8_t g145 = r8(G + 0x145);
+    uint8_t g145 = r8(kCamGlobal + 0x145);
     if (g145 != 0) {
       if (!(r3 < -(256 << 16))) {
         return;
@@ -634,7 +304,7 @@ void CutsceneCamera::heading() { // FUN_8006DCF4
   }
 
   int32_t off = 0;
-  uint8_t g61 = r8(G + 0x61);
+  uint8_t g61 = r8(kCamGlobal + 0x61);
   int useTable;
   if (g61 == 0) {
     useTable = 1;
@@ -646,30 +316,30 @@ void CutsceneCamera::heading() { // FUN_8006DCF4
   }
 
   if (useTable) {
-    uint8_t idx = r8(G + 0x164);
+    uint8_t idx = r8(kCamGlobal + 0x164);
     if (idx >= 13) {
       return;
     }
     switch (idx) {
     case 0:
     case 4: {
-      if (r8(G + 0x145) == 0) {
+      if (r8(kCamGlobal + 0x145) == 0) {
         off = 320;
         break;
       }
-      int32_t g4a_s = (int16_t)r16(G + 0x4a);
-      uint32_t r3v = (uint16_t)r16(G + 0x4a);
+      int32_t g4a_s = (int16_t)r16(kCamGlobal + 0x4a);
+      uint32_t r3v = (uint16_t)r16(kCamGlobal + 0x4a);
       if (g4a_s < 0) {
         r3v = (uint32_t)(0 - r3v);
       }
-      r3v += (r8(G + 0x165) == 0) ? (uint32_t)-14976 : (uint32_t)-16384;
+      r3v += (r8(kCamGlobal + 0x165) == 0) ? (uint32_t)-14976 : (uint32_t)-16384;
       int32_t s = (int32_t)((uint32_t)r3v << 16) >> 21;
       off = 320 - s;
       break;
     }
     case 1:
     case 11: {
-      uint32_t sub = r32(G + 0x158);
+      uint32_t sub = r32(kCamGlobal + 0x158);
       off = (r8(sub + 0xc) == 4 && r8(sub + 0x2) != 0) ? 1100 : 700;
       break;
     }
@@ -680,7 +350,7 @@ void CutsceneCamera::heading() { // FUN_8006DCF4
       off = 700;
       break;
     case 12: {
-      uint32_t diff = (uint32_t)(uint16_t)r16(G + 0x32) - (uint32_t)(uint16_t)r16(0x1F800202u);
+      uint32_t diff = (uint32_t)(uint16_t)r16(kCamGlobal + 0x32) - (uint32_t)(uint16_t)r16(0x1F800202u);
       off = ((int16_t)diff < 501) ? (int32_t)diff : 500;
       break;
     }
@@ -689,29 +359,29 @@ void CutsceneCamera::heading() { // FUN_8006DCF4
     }
   }
 
-  int32_t s06 = (uint16_t)r16(S + 6);
+  int32_t s06 = (uint16_t)r16(kCamScratch + 6);
   int32_t c26 = (uint16_t)camR16(0x26);
-  int32_t s12 = (uint16_t)r16(S + 0x12);
+  int32_t s12 = (uint16_t)r16(kCamScratch + 0x12);
   int32_t r5 = s06 + off - c26 - s12;
   if ((uint16_t)(r5 + 10) < 21) {
-    w16(S + 6, (uint16_t)(c26 + (s12 - off)));
+    w16(kCamScratch + 6, (uint16_t)(c26 + (s12 - off)));
     camW8(0x66, camR8(0x66) | 2);
   } else {
     int32_t step = (int32_t)((uint32_t)r5 << 16) >> 3;
-    w32(S + 4, (uint32_t)((int32_t)r32(S + 4) - step));
+    w32(kCamScratch + 4, (uint32_t)((int32_t)r32(kCamScratch + 4) - step));
   }
 
   uint8_t f = camR8(0x74);
   int cond = 0, active = 1;
   if (f & 2) {
-    cond = ((int16_t)r16(S + 6) < (int16_t)camR16(0x4a));
+    cond = ((int16_t)r16(kCamScratch + 6) < (int16_t)camR16(0x4a));
   } else if (f & 8) {
-    cond = ((int16_t)camR16(0x4a) < (int16_t)r16(S + 6));
+    cond = ((int16_t)camR16(0x4a) < (int16_t)r16(kCamScratch + 6));
   } else {
     active = 0;
   }
   if (active && !cond) {
-    w16(S + 6, (uint16_t)camR16(0x4a));
+    w16(kCamScratch + 6, (uint16_t)camR16(0x4a));
     camW8(0x66, camR8(0x66) | 2);
   }
 }
@@ -721,6 +391,7 @@ static inline int32_t cam_idiv(Core *c, int32_t num, int32_t den) {
   cpu_div(c, (uint32_t)num, (uint32_t)den);
   return (int32_t)c->lo;
 }
+
 void CutsceneCamera::lookAt() { // FUN_8006D02C
   // guest 0x8006D02C pushes a 56-byte guest frame (r29-=56, spills s0..s7/fp/ra at +16..+52, restored
   // symmetrically at the single exit — abi_extract 0x8006D02C). Mirrored relative to the CALLER's live
@@ -733,62 +404,64 @@ void CutsceneCamera::lookAt() { // FUN_8006D02C
   static constexpr GuestFrameSpill kSpills[] = {
       {16, 16}, {17, 20}, {18, 24}, {19, 28}, {20, 32}, {21, 36}, {22, 40}, {23, 44}, {30, 48}, {31, 52}};
   GuestFrame<56, 10> frame(c, kSpills);
-  int32_t dX = (int16_t)r16(S + 14) - (int16_t)r16(S + 2);
-  int32_t dZ = (int16_t)r16(S + 22) - (int16_t)r16(S + 10);
-  int32_t dY = (int16_t)r16(S + 18) - (int16_t)r16(S + 6);
+  int32_t dX = (int16_t)r16(kCamScratch + 14) - (int16_t)r16(kCamScratch + 2);
+  int32_t dZ = (int16_t)r16(kCamScratch + 22) - (int16_t)r16(kCamScratch + 10);
+  int32_t dY = (int16_t)r16(kCamScratch + 18) - (int16_t)r16(kCamScratch + 6);
   int32_t xz = dX * dX + dZ * dZ;
-  int32_t s18 = call(LA_ISQRT, xz + dY * dY) & 0xffff;
-  int32_t s19 = call(LA_ISQRT, xz) & 0xffff;
+  int32_t s18 = guestmath::call(*c, guestmath::kLookAtIsqrt, xz + dY * dY) & 0xffff;
+  int32_t s19 = guestmath::call(*c, guestmath::kLookAtIsqrt, xz) & 0xffff;
   camW32(0x5c, (uint32_t)s18);
   camW32(0x60, (uint32_t)s19);
 
   if (s18 != 0) {
-    mtxOf(c).identity(S + 40);
+    mtxOf(c).identity(kCamScratch + 40);
     int32_t sinp = cam_idiv(c, dY << 12, s18);
     int32_t cosp = cam_idiv(c, s19 << 12, s18);
     int32_t pitch = (int16_t)trigOf(c).ratan2(sinp, cosp);
-    w16(S + 32, (uint16_t)pitch);
-    w16(S + 48, (uint16_t)cosp);
-    w16(S + 56, (uint16_t)cosp);
-    w16(S + 50, (uint16_t)(-sinp));
-    w16(S + 54, (uint16_t)sinp);
+    w16(kCamScratch + 32, (uint16_t)pitch);
+    w16(kCamScratch + 48, (uint16_t)cosp);
+    w16(kCamScratch + 56, (uint16_t)cosp);
+    w16(kCamScratch + 50, (uint16_t)(-sinp));
+    w16(kCamScratch + 54, (uint16_t)sinp);
 
     if (s19 != 0) {
       int32_t a = cam_idiv(c, (-dX) << 12, s19);
       int32_t b = cam_idiv(c, dZ << 12, s19);
       int32_t yaw = (int16_t)trigOf(c).ratan2(a, b);
-      w16(S + 34, (uint16_t)yaw);
+      w16(kCamScratch + 34, (uint16_t)yaw);
       mtxOf(c).identity(0x1F800000u);
       w16(0x1F800000u, (uint16_t)b);
       w16(0x1F800004u, (uint16_t)a);
       w16(0x1F800010u, (uint16_t)b);
       w16(0x1F80000Cu, (uint16_t)(-a));
-      call(LA_MULMAT, (int32_t)(S + 40), 0x1F800000);
+      guestmath::call(*c, guestmath::kMulMatrix0, (int32_t)(kCamScratch + 40), 0x1F800000);
     }
   }
 
-  uint32_t M = S + 40;
-  uint16_t r104 = r16(S + 52);
-  uint16_t r106 = r16(S + 54);
-  uint16_t r108 = r16(S + 56);
-  w16(S + 24, r104);
-  w16(S + 26, r106);
-  w16(S + 28, r108);
-  w16(0x1F8000C0u, (uint16_t)(0u - (uint32_t)r16(S + 2)));
-  w16(0x1F8000C2u, (uint16_t)(0u - (uint32_t)r16(S + 6)));
-  w16(0x1F8000C4u, (uint16_t)(0u - (uint32_t)r16(S + 10)));
+  uint32_t M = kCamScratch + 40;
+  uint16_t r104 = r16(kCamScratch + 52);
+  uint16_t r106 = r16(kCamScratch + 54);
+  uint16_t r108 = r16(kCamScratch + 56);
+  w16(kCamScratch + 24, r104);
+  w16(kCamScratch + 26, r106);
+  w16(kCamScratch + 28, r108);
+  w16(0x1F8000C0u, (uint16_t)(0u - (uint32_t)r16(kCamScratch + 2)));
+  w16(0x1F8000C2u, (uint16_t)(0u - (uint32_t)r16(kCamScratch + 6)));
+  w16(0x1F8000C4u, (uint16_t)(0u - (uint32_t)r16(kCamScratch + 10)));
   mathOf(c).applyMatrixLV((uint32_t)M, 0x1F8000C0u, 0x1F80010Cu); // FUN_80084470 (native)
-  call(LA_COPYMAT, (int32_t)M, (int32_t)(S + 72));
+  guestmath::call(*c, guestmath::kCopyMatrix, (int32_t)M, (int32_t)(kCamScratch + 72));
 }
 
 // ── orchestrators (per-frame camera modes) ───────────────────────────────────────────────────────
 void CutsceneCamera::snapAccXZ(uint32_t target) { // FUN_8006D934
-  w32(S + 0x0C, r32(target + 0));                 // snap X accumulator
-  w32(S + 0x14, r32(target + 8));                 // snap Z accumulator
+  w32(kCamScratch + 0x0C, r32(target + 0));       // snap X accumulator
+  w32(kCamScratch + 0x14, r32(target + 8));       // snap Z accumulator
 }
+
 void CutsceneCamera::snapAccY(uint32_t target) { // FUN_8006D950
-  w32(S + 0x10, r32(target + 4));                // snap Y accumulator
+  w32(kCamScratch + 0x10, r32(target + 4));      // snap Y accumulator
 }
+
 void CutsceneCamera::snapFollow(uint32_t target) { // FUN_8006E3B0
   // guest 0x8006E3B0 pushes a 32-byte guest frame (r29-=32, spills s0@+16/s1@+20/ra@+24), then sets
   // s0=a0(cam) / s1=a1(target) for the body — abi_extract 0x8006E3B0. Mirrored with live values so the
@@ -805,37 +478,41 @@ void CutsceneCamera::snapFollow(uint32_t target) { // FUN_8006E3B0
   c->r[31] = 0x8006E3E0u; // gen jal-site for lookAt (spilled by lookAt's frame)
   lookAt();
 }
+
 void CutsceneCamera::snapFollowA(uint32_t target) { // FUN_8006E294 (driver mode 2 + init post-check)
   snapAccXZ(target);
   snapAccY(target);
   if (camR8(0x76) == 0) {
-    posBuildA();
-    headBuildA(1);
+    look_.posBuildA();
+    look_.headBuildA(1);
   } // scripted look-build A
   lookAt();
 }
+
 void CutsceneCamera::pitchFollow(uint32_t target) { // FUN_8006E360 (driver mode 3)
   pitch();
   snapAccXZ(target);
   snapAccY(target);
   lookAt();
 }
+
 void CutsceneCamera::snapFollowB(uint32_t target) { // FUN_8006E2FC (driver mode 4)
   snapAccXZ(target);
   snapAccY(target);
   if (camR8(0x76) == 0) {
-    posBuildB();
-    headBuildB();
+    look_.posBuildB();
+    look_.headBuildB();
   } // scripted look-build B
   lookAt();
 }
+
 void CutsceneCamera::mainFollow() { // FUN_8006E0F0
-  distSolve();
+  look_.distSolve();
   trackXZ(cam_ + 8);
   pitch();
   trackY(cam_ + 8);
   yFloor();
-  if (camR8(0x76) == 0 && r8(G + 0x17a) == 0) {
+  if (camR8(0x76) == 0 && r8(kCamGlobal + 0x17a) == 0) {
     heading();
   }
   lookAt();
@@ -843,8 +520,9 @@ void CutsceneCamera::mainFollow() { // FUN_8006E0F0
     angleStep();
   }
   int32_t acc = (int32_t)camR32(0x28) + (int32_t)camR32(0x34);
-  w32(S + 0x44, r32(S + 0x44) - (uint32_t)acc);
+  w32(kCamScratch + 0x44, r32(kCamScratch + 0x44) - (uint32_t)acc);
 }
+
 void CutsceneCamera::simpleFollow(uint32_t target) { // FUN_8006E3F4
   if (trackXZ(target)) {
     camW8(0x66, camR8(0x66) | 1);
@@ -854,13 +532,14 @@ void CutsceneCamera::simpleFollow(uint32_t target) { // FUN_8006E3F4
   }
   lookAt();
 }
+
 void CutsceneCamera::trackFollow(uint32_t target) { // FUN_8006E228
   trackXZ(target);
   trackY(target);
   camW16(0x0e, r16(0x1F8000E2u));
   if (camR8(0x76) == 0) {
-    posBuildB();
-    headBuildB();
+    look_.posBuildB();
+    look_.headBuildB();
   } // scripted look-build B (see snapFollowB — same pattern)
   lookAt();
 }
@@ -898,43 +577,53 @@ void CutsceneCamera::shakeTail() { // FUN_8006C988
   // The two height-only jitters, which differ only in amplitude, mask and effect id. These two ARE
   // the same arm, so they are one arm — unlike the axis arm above, which moves three coordinates.
   const auto jitterHeightOnly = [&](int32_t amplitude, uint32_t mask, uint32_t effectId) {
-    w16(S + 0x06, static_cast<uint16_t>(static_cast<int32_t>(camR16(kShakeAnchorY)) - amplitude + drawJitter(mask)));
-    call(SHAKE_FX, 0, 0, static_cast<int32_t>(effectId), static_cast<int32_t>(kShakeEffectPriority));
+    w16(kCamScratch + 0x06,
+        static_cast<uint16_t>(static_cast<int32_t>(camR16(kShakeAnchorY)) - amplitude + drawJitter(mask)));
+    guestmath::call(
+        *c, guestmath::kShakeFx, 0, 0, static_cast<int32_t>(effectId), static_cast<int32_t>(kShakeEffectPriority));
   };
   switch (static_cast<State>(state)) {
   case State::kCaptureAxes:
-    camW16(kShakeAnchorX, r16(S + 0x02));
-    camW16(kShakeAnchorY, r16(S + 0x06));
+    camW16(kShakeAnchorX, r16(kCamScratch + 0x02));
+    camW16(kShakeAnchorY, r16(kCamScratch + 0x06));
     camW8(0x76, static_cast<uint8_t>(State::kJitterAxes));
-    camW16(kShakeAnchorZ, r16(S + 0x0a));
+    camW16(kShakeAnchorZ, r16(kCamScratch + 0x0a));
     break;
   case State::kJitterAxes: {
     // Three draws, in the guest's order: X, then Z, then Y. Y takes half the amplitude and half the
     // mask of the other two, which is why it is not simply a third call to the same expression.
     const int32_t jitterX = drawJitter(kShakeMaskNarrow);
-    w16(S + 0x02, static_cast<uint16_t>(static_cast<int32_t>(camR16(kShakeAnchorX)) - kShakeXAmplitude + jitterX));
+    w16(kCamScratch + 0x02,
+        static_cast<uint16_t>(static_cast<int32_t>(camR16(kShakeAnchorX)) - kShakeXAmplitude + jitterX));
     const int32_t jitterZ = drawJitter(kShakeMaskNarrow);
-    w16(S + 0x0a, static_cast<uint16_t>(static_cast<int32_t>(camR16(kShakeAnchorZ)) - kShakeXAmplitude + jitterZ));
+    w16(kCamScratch + 0x0a,
+        static_cast<uint16_t>(static_cast<int32_t>(camR16(kShakeAnchorZ)) - kShakeXAmplitude + jitterZ));
     const int32_t jitterY = drawJitter(kShakeMaskNarrow >> 1);
-    w16(S + 0x06, static_cast<uint16_t>(static_cast<int32_t>(camR16(kShakeAnchorY)) - kShakeYAmplitude + jitterY));
-    call(SHAKE_FX, 0, 0, static_cast<int32_t>(kShakeEffectAxes), static_cast<int32_t>(kShakeEffectPriority));
+    w16(kCamScratch + 0x06,
+        static_cast<uint16_t>(static_cast<int32_t>(camR16(kShakeAnchorY)) - kShakeYAmplitude + jitterY));
+    guestmath::call(*c,
+                    guestmath::kShakeFx,
+                    0,
+                    0,
+                    static_cast<int32_t>(kShakeEffectAxes),
+                    static_cast<int32_t>(kShakeEffectPriority));
     break;
   }
   case State::kRestoreAxes:
-    w16(S + 0x02, camR16(kShakeAnchorX));
-    w16(S + 0x06, camR16(kShakeAnchorY));
-    w16(S + 0x0a, camR16(kShakeAnchorZ));
+    w16(kCamScratch + 0x02, camR16(kShakeAnchorX));
+    w16(kCamScratch + 0x06, camR16(kShakeAnchorY));
+    w16(kCamScratch + 0x0a, camR16(kShakeAnchorZ));
     camW8(0x76, static_cast<uint8_t>(State::kIdle));
     break;
   case State::kCaptureHeight:
-    camW16(kShakeAnchorY, r16(S + 0x06));
+    camW16(kShakeAnchorY, r16(kCamScratch + 0x06));
     camW8(0x76, static_cast<uint8_t>(State::kJitterHeight));
     break;
   case State::kJitterHeight:
     jitterHeightOnly(kShakeHeightAmplitude, kShakeMaskWide, kShakeEffectHeight);
     break;
   case State::kPulseHeightBegin:
-    camW16(kShakeAnchorY, r16(S + 0x06));
+    camW16(kShakeAnchorY, r16(kCamScratch + 0x06));
     camW8(0x76, static_cast<uint8_t>(State::kPulseHeight));
     [[fallthrough]];
   case State::kPulseHeight:
@@ -946,7 +635,7 @@ void CutsceneCamera::shakeTail() { // FUN_8006C988
     camW8(0x76, static_cast<uint8_t>(State::kIdle));
     break;
   case State::kPulseHeightSmallBegin:
-    camW16(kShakeAnchorY, r16(S + 0x06));
+    camW16(kShakeAnchorY, r16(kCamScratch + 0x06));
     camW8(0x76, static_cast<uint8_t>(State::kPulseHeightSmall));
     [[fallthrough]];
   case State::kPulseHeightSmall:
@@ -994,7 +683,7 @@ void CutsceneCamera::dispatchMode(uint8_t mode) {
     }
     if (!(camR8(0x64) & 0x80)) {
       mainFollow();
-      rotBuild();
+      look_.rotBuild();
     }
     // Then whichever handler the resident render-mode table holds for this render mode.
     sub(r32(tomba::camera::kRenderModeFunctionTable + static_cast<uint32_t>(rm) * 4u));
@@ -1019,11 +708,11 @@ void CutsceneCamera::dispatchMode(uint8_t mode) {
     snapFollowB(cam_ + 0x38);
     break;
   case CameraMode::kSnapFollowMaster:
-    snapFollow(G + 0x2c);
+    snapFollow(kCamGlobal + 0x2c);
     break; // snap to the master position
   case CameraMode::kFreezeAtMasterHeight:
     camW8(0x64, 0);
-    camW32(0x0c, r32(G + 0x30));
+    camW32(0x0c, r32(kCamGlobal + 0x30));
     break; // cam[+0x0c] = the master's Y
   case CameraMode::kSnapFollowSelf:
   case CameraMode::kSnapFollowSelfAlias:
@@ -1048,7 +737,7 @@ void CutsceneCamera::dispatchMode(uint8_t mode) {
     camW8(0x64, tomba::camera::kForceModeSixValue);
     break;
   case CameraMode::kSimpleFollowMaster:
-    simpleFollow(G + 0x2c);
+    simpleFollow(kCamGlobal + 0x2c);
     break;
   case CameraMode::kTailOnly:
     break; // no body; the driver still runs its post-mode tail
@@ -1067,22 +756,24 @@ void CutsceneCamera::initPlace() { // FUN_8006E918 (init: place the camera X/Z b
   // call is reproduced through the substrate with its jal-site ra (0x8006E9C0) preloaded.
   static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {17, 20}, {18, 24}, {19, 28}, {31, 32}};
   GuestFrame<40, 5> frame(c, kSpills);
-  int32_t g140 = (int16_t)r16(G + 0x140);
+  int32_t g140 = (int16_t)r16(kCamGlobal + 0x140);
   uint16_t cam56 = camR16(0x56);
-  // s0: cam[0x56], negated unless the scene heading G+0x140 already equals the target heading G+0x56.
-  int32_t s0 = (g140 == (int16_t)r16(G + 0x56)) ? (int16_t)cam56 : (int16_t)(uint16_t)(0u - (uint32_t)cam56);
+  // s0: cam[0x56], negated unless the scene heading kCamGlobal+0x140 already equals the target heading kCamGlobal+0x56.
+  int32_t s0 = (g140 == (int16_t)r16(kCamGlobal + 0x56)) ? (int16_t)cam56 : (int16_t)(uint16_t)(0u - (uint32_t)cam56);
   int32_t s1 = (int16_t)(uint16_t)(0u - (uint32_t)r16(0x1F8000EEu)); // -(radius) as int16
   int32_t angle = g140 + (int16_t)r16(cam_ + 0x52) + s0;
-  int32_t cx = (int32_t)(uint16_t)r16(G + 0x2e) + (mlo(trigOf(c).rcos(angle), s1) >> 12);
-  w16(S + 0x02, (uint16_t)cx);
+  int32_t cx = (int32_t)(uint16_t)r16(kCamGlobal + 0x2e) + (guestmath::mulLo(trigOf(c).rcos(angle), s1) >> 12);
+  w16(kCamScratch + 0x02, (uint16_t)cx);
   c->r[31] = 0x8006E9C0u; // gen jal-site for rsin (spilled by rsin's own 24-byte frame)
-  int32_t cz = (int32_t)(uint16_t)r16(G + 0x36) - (mlo(call(T2_RSIN_SUB, angle), s1) >> 12);
-  w16(S + 0x0a, (uint16_t)cz);
+  int32_t cz = (int32_t)(uint16_t)r16(kCamGlobal + 0x36) -
+               (guestmath::mulLo(guestmath::call(*c, guestmath::kRsinSubstrate, angle), s1) >> 12);
+  w16(kCamScratch + 0x0a, (uint16_t)cz);
 }
+
 void CutsceneCamera::initSeedGrp(uint32_t src) { // FUN_8006CBA8 (writes the FIXED driver cam @0x800E8008)
-  w16(CAM_OBJ + 0x3a, r16(src + 2));
-  w16(CAM_OBJ + 0x3e, r16(src + 6));
-  w16(CAM_OBJ + 0x42, r16(src + 10));
+  w16(kCameraObject + 0x3a, r16(src + 2));
+  w16(kCameraObject + 0x3e, r16(src + 6));
+  w16(kCameraObject + 0x42, r16(src + 10));
 }
 
 // ── Wiring pass (2026-07-08 frontier follow-up) ─────────────────────────────────────────────────
@@ -1091,20 +782,21 @@ void CutsceneCamera::initSeedGrp(uint32_t src) { // FUN_8006CBA8 (writes the FIX
 // which is instruction-exact ground truth per CLAUDE.md).
 //
 // REAL BUG found wiring this one (was drafted assuming camera-only semantics): the guest-visible behavior reads
-// its object base from a0 (c->r[4]), NOT a hardcoded CAM_OBJ constant like pushMode/restoreMode/
+// its object base from a0 (c->r[4]), NOT a hardcoded kCameraObject constant like pushMode/restoreMode/
 // snapToMasterOffsetY200/orbitTick below. Confirmed by its cross-module callers (authenticated executable/overlay
 // evidence ov_a00_shard_0.c..ov_a0k_shard_0.c etc.) — every one of them calls FUN_8006E8F8 with a0 = that overlay's OWN
 // actor-object pointer (e.g. `c->r[16]`, an A00-area actor base), not the camera object at 0x800E8008. So this leaf is
 // a generic "reset follow accumulator" applied to whatever object shares this field shape (0x24/0x28/0x56) — the camera
 // is just ONE caller (of many). The method itself is unaffected (it already takes its base from the instance's `cam_`,
 // which reads as "cam" only by naming convention); the fix lives entirely in the override-registry wiring below, which
-// constructs the instance from the LIVE a0 rather than hardcoding CAM_OBJ.
+// constructs the instance from the LIVE a0 rather than hardcoding kCameraObject.
 void CutsceneCamera::resetFollowAccum() { // FUN_8006E8F8
   camW32(0x24, 0);
   camW32(0x28, 0);
-  w16(S + 0x1e, (uint16_t)(int16_t)-1750);
+  w16(kCamScratch + 0x1e, (uint16_t)(int16_t)-1750);
   camW16(0x56, 256);
 }
+
 void CutsceneCamera::pushMode(uint8_t mode) { // FUN_8006E1C0
   camW8(0x67, camR8(0x64));                   // stash the current mode
   camW8(0x64, mode);
@@ -1112,45 +804,48 @@ void CutsceneCamera::pushMode(uint8_t mode) { // FUN_8006E1C0
   camW8(5, 0);
   camW8(6, 0);
 }
+
 void CutsceneCamera::restoreMode() { // FUN_8006E1E4
-  if (r8(G + 2) == 1) {
+  if (r8(kCamGlobal + 2) == 1) {
     camW8(0x64, 0);
-    camW32(0x0c, r32(MASTER_Y));
+    camW32(0x0c, r32(kMasterY));
     return;
   }
-  camW32(0x0c, r32(MASTER_Y));
+  camW32(0x0c, r32(kMasterY));
   camW8(0x64, camR8(0x67)); // restore the mode pushMode() stashed
 }
+
 // FUN_8006EA00 pushes a real 32-byte guest frame (r29-=32, s0/s1/ra spilled at +16/+20/+24,
 // restored symmetrically before every return) — confirmed against authenticated executable/overlay evidence
 // guest 0x8006EA00. Since this leaf is wired GLOBALLY (any typed runtime address dispatch(c, 0x8006EA00u) caller,
 // substrate context included, per the "MIRROR THE GUEST STACK" directive), the frame is mirrored
 // relative to the CALLER's live c->r[29] (not a fixed offset): spill the live s0/s1/ra so their
 // bytes land in guest RAM exactly where the substrate would leave them. The gen then loads
-// s0=CAM_OBJ / s1=CAM_OBJ+8 for the body — those register values MUST be reproduced here, because
+// s0=kCameraObject / s1=kCameraObject+8 for the body — those register values MUST be reproduced here, because
 // the frame-pushing callees (initPlace frame 40, lookAt frame 56 — mirrored in their own bodies)
 // spill s0/s1 into THEIR frames; likewise each frame-pushing callee gets r31 preloaded with the
 // gen's exact jal-site constant so its ra spill slot byte-matches. Restore before returning (a
-// nested call, e.g. lookAt's LA_ISQRT typed runtime address dispatch, can clobber the shared Core::r[] register
-// file, so the restore is a real requirement, not a formality).
+// nested call, e.g. lookAt's guestmath::kLookAtIsqrt typed runtime address dispatch, can clobber the shared Core::r[]
+// register file, so the restore is a real requirement, not a formality).
 void CutsceneCamera::snapToMasterOffsetY200() { // FUN_8006EA00
   static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {17, 20}, {31, 24}};
   GuestFrame<32, 3> frame(c, kSpills);
-  c->r[16] = CAM_OBJ;     // gen: s0 = 0x800E8008 (spilled by initPlace's/lookAt's frames)
-  c->r[17] = CAM_OBJ + 8; // gen: s1 = 0x800E8010 (ditto)
+  c->r[16] = kCameraObject;     // gen: s0 = 0x800E8008 (spilled by initPlace's/lookAt's frames)
+  c->r[17] = kCameraObject + 8; // gen: s1 = 0x800E8010 (ditto)
   // cam[8]/[0xc]/[0x10] are a 32-bit (X,Y,Z) staging triple (same shape trackXZ/trackY/snapAccXZ/snapAccY
   // read as `target`); only the HIGH (integer) half is written here — the low half keeps whatever was
   // already there, exactly like the guest (never "cleaned up").
-  w16(CAM_OBJ + 0x0e, (uint16_t)((int16_t)r16(MASTER_Y + 2) - 200)); // cam[0xc].hi = MASTER_Y.hi - 200
-  w16(CAM_OBJ + 0x0a, r16(MASTER_X + 2));                            // cam[8].hi   = MASTER_X.hi
-  w16(CAM_OBJ + 0x12, r16(MASTER_Z + 2));                            // cam[0x10].hi= MASTER_Z.hi
-  snapAccXZ(CAM_OBJ + 8);                                            // 0x8006D934 — frameless, no ra needed
-  snapAccY(CAM_OBJ + 8);                                             // 0x8006D950 — frameless
+  w16(kCameraObject + 0x0e, (uint16_t)((int16_t)r16(kMasterY + 2) - 200)); // cam[0xc].hi = kMasterY.hi - 200
+  w16(kCameraObject + 0x0a, r16(kMasterX + 2));                            // cam[8].hi   = kMasterX.hi
+  w16(kCameraObject + 0x12, r16(kMasterZ + 2));                            // cam[0x10].hi= kMasterZ.hi
+  snapAccXZ(kCameraObject + 8);                                            // 0x8006D934 — frameless, no ra needed
+  snapAccY(kCameraObject + 8);                                             // 0x8006D950 — frameless
   c->r[31] = 0x8006EA60u; // gen jal-site for initPlace (spilled by initPlace's frame) (spilled by initPlace's frame)
   initPlace();
   c->r[31] = 0x8006EA68u; // gen jal-site for lookAt (spilled by lookAt's frame)
   lookAt();
 }
+
 // FUN_8006EF38 pushes the same shape of 32-byte frame (r29-=32, s0/s1/ra spilled at +16/+20/+24)
 // UNCONDITIONALLY — even on the early-return path (the gen's branch-delay-slot spill runs before
 // the {3,4}-window check, and the early-return target is the same restore tail as the normal
@@ -1162,17 +857,18 @@ void CutsceneCamera::orbitTick() { // FUN_8006EF38
   GuestFrame<32, 3> frame(c, kSpills);
   if ((uint8_t)(r8(0x1F800236u) - 3) < 2) { // only during render-timing window {3,4}
     int32_t angle = (int16_t)camR16(0x70);
-    int32_t rc = trigOf(c).rcos(angle);    // 0x80083F50 — frameless, native ok
-    c->r[31] = 0x8006EF90u;                // gen jal-site for rsin (spilled by rsin's 24-byte frame)
-    int32_t rs = call(T2_RSIN_SUB, angle); // substrate rsin — its gen frame must land on the stack
-    w16(S + 0x02, (uint16_t)((int16_t)camR16(0x3a) + (int16_t)(mlo(rc, 500) >> 12)));
-    w16(S + 0x0a, (uint16_t)((int16_t)camR16(0x42) + (int16_t)(mlo(rs, 500) >> 12)));
+    int32_t rc = trigOf(c).rcos(angle); // 0x80083F50 — frameless, native ok
+    c->r[31] = 0x8006EF90u;             // gen jal-site for rsin (spilled by rsin's 24-byte frame)
+    int32_t rs =
+        guestmath::call(*c, guestmath::kRsinSubstrate, angle); // substrate rsin — its gen frame must land on the stack
+    w16(kCamScratch + 0x02, (uint16_t)((int16_t)camR16(0x3a) + (int16_t)(guestmath::mulLo(rc, 500) >> 12)));
+    w16(kCamScratch + 0x0a, (uint16_t)((int16_t)camR16(0x42) + (int16_t)(guestmath::mulLo(rs, 500) >> 12)));
     camW16(0x70, (uint16_t)(angle + 8));
-    // gen: s0 = rcos*500>>12 (kept live across the body), s1 = CAM_OBJ — spilled by snapFollow's frame.
-    c->r[16] = (uint32_t)(mlo(rc, 500) >> 12);
-    c->r[17] = CAM_OBJ;
-    c->r[31] = 0x8006EFE0u;     // gen jal-site for snapFollow (spilled by its frame)
-    snapFollow(CAM_OBJ + 0x38); // snap the camera's own position accumulators to the fixed orbit center
+    // gen: s0 = rcos*500>>12 (kept live across the body), s1 = kCameraObject — spilled by snapFollow's frame.
+    c->r[16] = (uint32_t)(guestmath::mulLo(rc, 500) >> 12);
+    c->r[17] = kCameraObject;
+    c->r[31] = 0x8006EFE0u;           // gen jal-site for snapFollow (spilled by its frame)
+    snapFollow(kCameraObject + 0x38); // snap the camera's own position accumulators to the fixed orbit center
   }
 }
 
@@ -1206,7 +902,7 @@ void CutsceneCamera::update() { // FUN_8006EC44 (resident per-frame camera drive
 // pc_faithful mirror of guest 0x8006EC44 (authenticated executable/overlay evidence). Guest frame: r29-=24,
 // s0(r16)@sp+16 spilled with the CALLER's live value (Engine::fieldFrameFaithful leaves r16=0x1F800000
 // there before calling), ra(r31)@sp+20 spilled with the caller's jal-site (0x80108B90u), s0 reassigned to
-// CAM_OBJ (hardcoded in the gen, independent of any cam_ this instance was constructed with) for the body,
+// kCameraObject (hardcoded in the gen, independent of any cam_ this instance was constructed with) for the body,
 // both restored and the frame deallocated on every exit path (including the two early-return/idle paths,
 // which skip shakeTail exactly like the gen's direct goto to the restore tail). Every callee gets r31 set
 // to the exact gen jal-site constant first, matching the reference-mirror style (Engine::fieldFrameFaithful
@@ -1215,14 +911,14 @@ void CutsceneCamera::update() { // FUN_8006EC44 (resident per-frame camera drive
 // override-registry entry exists for any of them, this falls straight through to the substrate gen_func body (same code
 // the oracle runs), NOT a call to the native sibling *methods* on this class (those exist for the native_sync path
 // only). Calling convention for the two-arg follow leaves (trackFollow/snapFollowA/pitchFollow/
-// snapFollowB/snapFollow/simpleFollow) is a0(r4)=cam, a1(r5)=cam+56 (or G+0x2C for the "snap-to-master"
+// snapFollowB/snapFollow/simpleFollow) is a0(r4)=cam, a1(r5)=cam+56 (or kCamGlobal+0x2C for the "snap-to-master"
 // variants of snapFollow/simpleFollow) — verified against the gen bodies AND the real mode-dispatch jump
 // table at 0x80016A44 (18 uint32 entries, read from scratch/bin/tomba2/MAIN.EXE @ file offset 0x7244).
 void CutsceneCamera::updateFaithful() { // FUN_8006EC44
   uint8_t outer = camR8(0);
   static constexpr GuestFrameSpill kSpills[] = {{16, 16}, {31, 20}};
   GuestFrame<24, 2> frame(c, kSpills);
-  c->r[16] = CAM_OBJ; // s0 = CAM_OBJ (0x800E8008, hardcoded in the gen)
+  c->r[16] = kCameraObject; // s0 = kCameraObject (0x800E8008, hardcoded in the gen)
 
   if (outer == 0) {
     c->mem_w8(c->r[16] + 0, 1);
@@ -1273,8 +969,9 @@ void CutsceneCamera::dispatchModeFaithful(uint8_t mode) {
   // because the guest's mode dispatch passes the object the driver was handed and the two are not
   // necessarily the same base.
   const tomba::camera::ModeDescriptor *const descriptor = tomba::camera::descriptorFor(static_cast<CameraMode>(mode));
-  const uint32_t followTarget =
-      (descriptor != nullptr && descriptor->follows == FollowTarget::kFollowsMaster) ? G + 0x2cu : c->r[16] + 56u;
+  const uint32_t followTarget = (descriptor != nullptr && descriptor->follows == FollowTarget::kFollowsMaster)
+                                    ? kCamGlobal + 0x2cu
+                                    : c->r[16] + 56u;
 
   switch (static_cast<CameraMode>(mode)) {
   case CameraMode::kMainFollow: {
@@ -1316,7 +1013,7 @@ void CutsceneCamera::dispatchModeFaithful(uint8_t mode) {
     return;
   case CameraMode::kFreezeAtMasterHeight:
     c->mem_w8(c->r[16] + 100, 0);
-    c->mem_w32(c->r[16] + 12, c->mem_r32(G + 0x30));
+    c->mem_w32(c->r[16] + 12, c->mem_r32(kCamGlobal + 0x30));
     return;
   case CameraMode::kSnapFollowSelf:
   case CameraMode::kSnapFollowSelfAlias:
@@ -1401,10 +1098,10 @@ void CutsceneCamera::init() { // FUN_8006EA7C (first-frame field reset + render-
 
   // post-check (0x8006EBA8): when render-timing byte 0x1F800236 is 5 or 6, seed a scripted follow.
   if ((uint8_t)(r8(0x1F800236u) - 5) < 2) {
-    initSeedGrp(G + 0x2c);
+    initSeedGrp(kCamGlobal + 0x2c);
     uint16_t d3e = camR16(0x3e);
     camW16(0x3e, (uint16_t)(d3e + 1000));
-    if (r8(G + 2) != 0) {
+    if (r8(kCamGlobal + 2) != 0) {
       return;
     }
     camW16(0x3e, (uint16_t)(d3e + 860));
@@ -1412,9 +1109,9 @@ void CutsceneCamera::init() { // FUN_8006EA7C (first-frame field reset + render-
     camW8(0x64, 15);
     camW16(0x6c, 1400);
     camW16(0x6e, 64);
-    camW16(0x70, (uint16_t)(r16(G + 0x140) + 1024));
+    camW16(0x70, (uint16_t)(r16(kCamGlobal + 0x140) + 1024));
     snapFollowA(cam_ + 0x38);
-    snapFollow(G + 0x2c);
+    snapFollow(kCamGlobal + 0x2c);
   }
 }
 
@@ -1431,21 +1128,21 @@ void CutsceneCamera::init() { // FUN_8006EA7C (first-frame field reset + render-
 // omitted).
 
 static void eov_resetFollowAccum(Core *c) {
-  // a0 (c->r[4]) IS the target object base here — NOT hardcoded CAM_OBJ (see the RE note above
+  // a0 (c->r[4]) IS the target object base here — NOT hardcoded kCameraObject (see the RE note above
   // resetFollowAccum's definition). Construct the instance from the live a0.
   CutsceneCamera(c, c->r[4]).resetFollowAccum();
 }
 static void eov_pushMode(Core *c) {
-  CutsceneCamera(c, CutsceneCamera::CAM_OBJ).pushMode((uint8_t)c->r[4]);
+  CutsceneCamera(c, kCameraObject).pushMode((uint8_t)c->r[4]);
 }
 static void eov_restoreMode(Core *c) {
-  CutsceneCamera(c, CutsceneCamera::CAM_OBJ).restoreMode();
+  CutsceneCamera(c, kCameraObject).restoreMode();
 }
 static void eov_snapToMasterOffsetY200(Core *c) {
-  CutsceneCamera(c, CutsceneCamera::CAM_OBJ).snapToMasterOffsetY200();
+  CutsceneCamera(c, kCameraObject).snapToMasterOffsetY200();
 }
 static void eov_orbitTick(Core *c) {
-  CutsceneCamera(c, CutsceneCamera::CAM_OBJ).orbitTick();
+  CutsceneCamera(c, kCameraObject).orbitTick();
 }
 
 void CutsceneCamera::registerOverrides(Game * /*game*/) {
@@ -1457,3 +1154,5 @@ void CutsceneCamera::registerOverrides(Game * /*game*/) {
   tomba::native::declareOverride(0x8006EA00u, "CutsceneCamera::snapToMasterOffsetY200", eov_snapToMasterOffsetY200);
   tomba::native::declareOverride(0x8006EF38u, "CutsceneCamera::orbitTick", eov_orbitTick);
 }
+
+} // namespace tomba::camera

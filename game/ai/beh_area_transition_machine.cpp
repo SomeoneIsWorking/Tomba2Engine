@@ -88,7 +88,8 @@ static void dat_tail(Core *c, uint32_t nd) { // @0x80127c9c (sub==3 only)
   c->r[29] = fsp;
   eng(c).graphicsBind.posCompose(); // FUN_8004bd64(node,0,*0x800e7f5c,same,&0x1f8000c0)
   c->r[29] = save;
-  CutsceneCamera(c, CutsceneCamera::CAM_OBJ).initSeedGrp(G_eac); // FUN_8006cba8(&DAT_800e7eac) — native
+  tomba::camera::CutsceneCamera(c, tomba::camera::kCameraObject)
+      .initSeedGrp(G_eac); // FUN_8006cba8(&DAT_800e7eac) — native
 }
 
 // node[6] phase machine (node[5]==3). Mutates node + DAT_800e* state; all cases converge to the DAT tail.

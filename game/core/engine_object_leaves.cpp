@@ -59,7 +59,7 @@ void Engine::fieldFrameFaithful() {
     c->r[31] = 0x80108B88u;
     eng(c).modePerFrameDispatch();
     c->r[31] = 0x80108B90u;
-    CutsceneCamera(c, CutsceneCamera::CAM_OBJ).update();
+    tomba::camera::CutsceneCamera(c, tomba::camera::kCameraObject).update();
     c->r[31] = 0x80108B98u;
     eng(c).sceneStateStep();
     c->r[31] = 0x80108BA0u;
@@ -102,14 +102,15 @@ void Engine::fieldFrame() {
     eng(c).array8Dispatch.tick();
     eng(c).objectList.walkAll(); // 0x80026368/0x8007a904 NATIVE
     eng(c).sceneEventFifo();
-    eng(c).sceneRenderListBuilder();                     // 0x80025588/0x8004fe84 NATIVE (Engine
-                                                         // methods)
-    eng(c).objectTable.dispatch();                       // 0x80026c88 NATIVE
-    eng(c).modePerFrameDispatch();                       // 0x80022a80 NATIVE
-                                                         // (Engine::modePerFrameDispatch)
-    CutsceneCamera(c, CutsceneCamera::CAM_OBJ).update(); // 0x8006ec44 NATIVE (CutsceneCamera::update)
-    eng(c).sceneStateStep();                             // 0x80050de4 NATIVE (Engine::sceneStateStep)
-    eng(c).areaModeDispatch();                           // 0x8001cac0 NATIVE (Engine::areaModeDispatch)
+    eng(c).sceneRenderListBuilder(); // 0x80025588/0x8004fe84 NATIVE (Engine
+                                     // methods)
+    eng(c).objectTable.dispatch();   // 0x80026c88 NATIVE
+    eng(c).modePerFrameDispatch();   // 0x80022a80 NATIVE
+                                     // (Engine::modePerFrameDispatch)
+    tomba::camera::CutsceneCamera(c, tomba::camera::kCameraObject)
+        .update();             // 0x8006ec44 NATIVE (CutsceneCamera::update)
+    eng(c).sceneStateStep();   // 0x80050de4 NATIVE (Engine::sceneStateStep)
+    eng(c).areaModeDispatch(); // 0x8001cac0 NATIVE (Engine::areaModeDispatch)
   }
   if (c->mem_r8(0x1f800136u) < 2) {
     rend(c)->frame(); // 0x8003f9a8 — substrate render orchestrator (ALWAYS

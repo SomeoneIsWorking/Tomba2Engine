@@ -20,7 +20,7 @@
 #include "gpu_vk.h" // gpu_seen3d_this_frame — declared by the framework, never locally
 #include "mods.h"
 #include "object_highlight_policy.h"
-#include "player/actor_tomba.h" // ActorTomba::G_ADDR — Tomba's node, outside the 3 generic entity lists
+#include "player/actor_tomba.h" // tomba::player::ActorTomba::G_ADDR — Tomba's node, outside the 3 generic entity lists
 #include "producer_scope.h"     // ProducerScope — graphics-producer DB, native leg
 #include "projection.h"         // EObjXform (per-object world-coord float projection; ops on Render)
 #include "queue_dispatch.h"     // the guest's own class->queue->per-type render routing (kanban #77)
@@ -1104,7 +1104,7 @@ void Render::fieldObjectsRender() {
   }
   lucent::debug("beamfx", "SUMMARY objListWalk4 live nodes inspected={} routed to FUN_8003B704={}", beamCand, beamHit);
   {
-    uint32_t g = ActorTomba::G_ADDR;
+    uint32_t g = tomba::player::ActorTomba::G_ADDR;
     if (c->mem_r8(g + 8) != 0 && c->mem_r8(g + 9) != 0) {
       c->rsub.stats.snObjs++;
       c->rsub.stats.snCmds += c->mem_r8(g + 8);

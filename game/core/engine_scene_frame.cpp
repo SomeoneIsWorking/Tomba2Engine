@@ -206,10 +206,10 @@ void Engine::devTeleportApply() {
   }
   Core *c = core;
   mCamTpPending = false;
-  c->mem_w32(CutsceneCamera::MASTER_X,
+  c->mem_w32(tomba::camera::kMasterX,
              (uint32_t)mCamTpX << 16); // 16.16 fixed; hi16 = world int
-  c->mem_w32(CutsceneCamera::MASTER_Y, (uint32_t)mCamTpY << 16);
-  c->mem_w32(CutsceneCamera::MASTER_Z, (uint32_t)mCamTpZ << 16);
-  c->mem_w32(CutsceneCamera::G + 0x44, 0); // master speed — land stopped
+  c->mem_w32(tomba::camera::kMasterY, (uint32_t)mCamTpY << 16);
+  c->mem_w32(tomba::camera::kMasterZ, (uint32_t)mCamTpZ << 16);
+  c->mem_w32(tomba::camera::kCamGlobal + 0x44, 0); // master speed — land stopped
   lucent::info("tp", "Tomba -> ({},{},{})", mCamTpX, mCamTpY, mCamTpZ);
 }

@@ -1,30 +1,32 @@
-// class ActorTomba — the PC-native Tomba actor: a NAMED-FIELD view + owned per-frame logic over
-// the master G block at 0x800E7E80.
+// game/player/actor_tomba.h — class ActorTomba: the PC-native Tomba actor.
 //
-// Verified this pass: **G IS TOMBA'S NODE**. He is not dispatched by walkAll / walkList2 /
-// walkAux — his state lives on the shared G block that pool_init sub-init FUN_8007A810 zeros
-// (0x184 bytes at 0x800E7E80..0x800E8004). Per-frame he ticks via the per-area callback
-// `Engine::modePerFrameDispatch` fires (seaside area 0 = `area_seaside_perframe`, which invokes
-// `ActorTomba::interactWalk`).
+// G IS TOMBA'S NODE — the master block at 0x800E7E80 that pool_init's sub-init FUN_8007A810 zeroes
+// (0x184 bytes). Tomba is not dispatched by walkAll / walkList2 / walkAux; his state lives on that
+// block, which the lens in game/player/tomba_state.h names. Per frame he ticks through the per-area
+// callback Engine::modePerFrameDispatch fires (seaside area 0 = area_seaside_perframe, which invokes
+// interactWalk).
 //
-// PROPER OOP: one instance per Core, embedded as `Core::engine::actorTomba`. Back-pointer wired
-// once by Core's constructor. Callers reach Tomba's methods through the object graph:
-//
-//     eng(c).actorTomba.interactWalk();          // per-frame aux-item interaction loop
-//     eng(c).actorTomba.growthStep(mode);        // grow (1) / shrink (0) transformation
-//     eng(c).actorTomba.velocityIntegrate(suppressY);  // move via dir*speed at G+0x44/48/4A/4C
-//
-// No `extern "C"` shim, no free function, no static, no Core-as-first-arg. Same shape as
-// SceneTransition, Sop, ObjectList, ParallaxBg, ScreenFade.
-//
-// The methods below preserve their pre-class doc-comments — see the .cpp for the full RE.
+// One instance per Core, embedded as `Core::engine::actorTomba`. What touching an item MEANS is
+// ActorInteraction (game/player/actor_interaction.{h,cpp}); this class owns the two walks that choose
+// which items to hand it, the G-block driver, growth, motion and the outer-transition/asset gating.
+// Addresses, field layouts and the per-cluster call graph are in docs/engine_re.md's "ActorTomba
+// G-block" section and docs/code-map.md.
 #pragma once
+
+#include "player/actor_interaction.h"
+
 #include <cstdint>
+
 class Core;
 class Game;
 
+namespace tomba::player {
+
 class ActorTomba {
 public:
+  ActorTomba() = default;
+
+  // The CPU whose guest memory every method reaches. Owned by Engine and wired once per Core.
   Core *core = nullptr;
 
   // Guest address of Tomba's node = the master G block.
@@ -92,7 +94,14 @@ public:
   //   water-mode 2. NO SFX. Ghidra decomp scratch/decomp/tomba_postframe_10e904.c.
   void postFrameWaterCheck();
 
-  // Wire stepModeInteract/type8Interact/type7Interact/growthYSnap/frameTick into the global
+  // growthYSnap() — guest FUN_80022C78, the water-splash leaf postFrameWaterCheck fires. A leaf with
+  //   no guest-stack frame: it resets Tomba's walk/collision latches and, on dry unfrozen land, re-snaps
+  //   G+0x32 by the growth offset 0x46/0x8C that growthStep's Y compensation uses, so the grow/shrink
+  //   transform settles onto his actual ground height. ActorInteraction::type8Interact reuses this
+  //   exact tail for the "just left a growth transition" case.
+  void growthYSnap();
+
+  // Wire the item-kind leaves, growthYSnap and frameTick into the global
   // override registry — postInteractWalk's own typed runtime address dispatch(c, LEAF_TYPE_*) call sites are the
   // ONLY reachers of the 4 interactWalk addresses, and the native frameStartTickFaithful's
   // typed runtime address dispatch(c, 0x8005950C) is the only core-A reacher of frameTick (the sole direct
@@ -120,72 +129,7 @@ private:
   static void gov_assetReady(Core *c);
   static void gov_mode0ActionGate(Core *c);
 
-  // Sub-handlers of interactWalk — kept private since the type-dispatch loop is the only caller.
-  void proximityCheck(uint32_t item);    // FUN_80022060
-  void type4GuardedCheck(uint32_t item); // FUN_80114E74
-  void subHitboxCheck(uint32_t item);    // FUN_80022190
-
-  // ----------------------------------------------------------------------------
-  // Sub-handlers of postInteractWalk (band 0x80020000-0x8002FFFF; RE'd + drafted 2026-07-08,
-  // UNWIRED — postInteractWalk's typed runtime address dispatch call sites for these 4 leaves are left in place;
-  // wiring is a future override-registry step, not done by this draft).
-  // ----------------------------------------------------------------------------
-
-  // stepModeInteract(item, mode) — guest FUN_80020364. postInteractWalk case 0xF/0x14/0x56
-  //   (mode=0) and case 0x2F (mode=2). Guest frame: addiu sp,-40 / spill s0,s1,s2,s3,ra.
-  //   Gate: return 0 if G+0x17E & 0x200 (paused). Else FUN_8001F40C(G,item,a2=1) (shared
-  //   proximity+step leaf, same one case-4's type4GuardedCheck-adjacent LEAF_TYPE_4_PROX_STEP
-  //   uses) — if result v0 < 0, no hit (return 0). If G+0x144==1 && v0<2 ("just transitioned"
-  //   state): when G+0x17E bit 0x8000 (grown) is CLEAR, call FUN_8001FDB4(item,1,0x10,0x20)
-  //   (alt-tag stamp) then return 1; when SET, call FUN_8001F054(G,item) and return 1 only if
-  //   (mode & 3) != 0, else fall through to return 1 with no call. Else (steady-state): if
-  //   (mode & 0x3F) != 0, rotate G/item apart along the FUN_8001F40C heading using
-  //   Trig::rsin/rcos(0x1F80009C-cached heading) scaled by (G+0x80 + item+0x80) — mirrors
-  //   proximityCheck's own trig-offset shape; which side moves depends on (mode & 0x7F)==1 vs
-  //   (G[0] & 4)==0. Then per (mode & 0x40)/(mode & 0x80) bit pattern: either a plain "return 2"
-  //   push-apart, a state-machine bump into G[5]=0x13 (returns 2 or 3), or (mode&0x40 set) an
-  //   announcer-cue + G-state stamp (0/2/3/6/0x172/0x173/0x2B) returning 4. Faithful draft from
-  //   authenticated executable/overlay evidence (ground truth) + Ghidra scratch/decomp/region_8002.c.
-  uint8_t stepModeInteract(uint32_t item, uint32_t mode);
-
-  // type8Interact(item) — guest FUN_800205CC. postInteractWalk case 8. Guest frame:
-  //   addiu sp,-32 / spill s0,s1,s2,ra (s1=G, s2=item — mapped from a0/a1 at entry). Gate:
-  //   if item[0]==5: fire FUN_8001F830() (a niladic substrate cue) when !(G+0x17E&0x200) and
-  //   G+0x78==0. Else if G+0x17E bit 0x8000 set: delegate whole-hog to FUN_8001EC3C(G,item)
-  //   (grown-state variant, fully substrate). Else: FUN_8001F40C(G,item,a2=0) proximity/step;
-  //   v0<0 -> no hit. If item[0]==1: on a "just-triggered" transition (G+0x144==1 && v0<2) push
-  //   item via FUN_8001FDB4(item,-2,3,0x1E); else (not paused) branch on (v0&1): even -> rotate
-  //   G onto item using the same rsin/rcos(heading)*[G+0x80,item+0x80] trig-offset shape as
-  //   proximityCheck, stamp G+0x60=1 and G+0x5F=Trig::angleCmp(heading,G+0x140,1)+2; odd (v0==1,
-  //   item[0x145]&1==0) -> reset G's walk-state fields (0x145/0x4A/0x4B/0x50/0x51/0x148=0,
-  //   0x29=1) and re-derive G+0x32 from item+0x84/0x32/0x2E, then (if G+0x78==0 and
-  //   DAT_800BF816==0) snap G+0x32 by ±0x46/±0x8C per the G+0x17E sign — the SAME growth-offset
-  //   snap `growthYSnap` performs, inlined here for the "just left growth transition" case.
-  //   Else (item[0]!=1 && !=5, gate !(G+0x17E&0x200) && (item[0x145]&1)==0): stamp item+0x29=1.
-  //   Faithful draft from authenticated executable/overlay evidence (ground truth) + Ghidra scratch/decomp/
-  //   region_8002.c.
-  void type8Interact(uint32_t item);
-
-  // type7Interact(item) — guest FUN_800235A0. postInteractWalk case 7. Guest frame:
-  //   addiu sp,-32 / spill s0,s1,ra (s0=G, s1=item). FUN_8001F40C(G,item,a2=1) proximity/step;
-  //   if v0 < 0, return 0 (no hit). Else pick a FUN_8001FF7C(G,item,mode,flag) call: mode is
-  //   always `item` (a1); flag is 4 when G+0x164==0x0C else 1 — matches postFrameWaterCheck's
-  //   own "0x0C special state" convention. Returns 1.
-  //   Faithful draft from authenticated executable/overlay evidence (ground truth, matches Ghidra 1:1).
-  uint8_t type7Interact(uint32_t item);
-
-  // growthYSnap() — guest FUN_80022C78 (= postFrameWaterCheck's LEAF_WATER_SPLASH). Leaf, no
-  //   guest-stack frame. Operates on G only (a0=G): stamp G+0x29=1, G+0x145=0, G+0x4A=0 (u16),
-  //   G+0x50=0 (u16), G+0x148=0 (walk/collision-frame reset — same fields type8Interact's
-  //   "just left growth" branch also clears). If G+0x78==0 (not frozen) AND DAT_800BF816==0
-  //   (dry land): read G+0x17E sign to pick the growth-offset constant (0x46 when grown/negative
-  //   flag, else 0x8C — the SAME constants growthStep's Y-compensation uses); if G+0x84 (u16)
-  //   already equals that constant, no-op; else re-snap G+0x32 = G+0x84 + (G+0x32 - constant).
-  //   Ties growthStep's grow/shrink transform to Tomba's actual on-ground Y after a growth-state
-  //   change settles. Faithful draft from authenticated executable/overlay evidence (ground truth, matches
-  //   Ghidra 1:1). CORRECTED 2026-07-08: the original draft had the 0x46/0x8C polarity swapped —
-  //   fixed by direct trace of guest 0x80022C78 (see actor_tomba.cpp).
-  void growthYSnap();
+  ActorInteraction interaction_{*this}; // what touching an item means; the walks dispatch into it
 
 public:
   // ----------------------------------------------------------------------------
@@ -308,3 +252,5 @@ private:
 
   void mode0ActionGate(); // FUN_8005A910 — selects the normal or swim guest handler.
 };
+
+} // namespace tomba::player

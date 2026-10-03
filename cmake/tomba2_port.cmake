@@ -160,6 +160,7 @@ set(GAME_SRC
   game/ai/area_seaside_perframe.cpp
   game/ai/beh_substate_edge_leaves.cpp
   game/player/actor_tomba.cpp
+  game/player/actor_interaction.cpp
   game/scene/bg_scene_transition_sm.cpp
   game/scene/parallax_bg.cpp
   game/scene/scene_transition.cpp
@@ -223,6 +224,7 @@ set(GAME_SRC
   game/scene/demo.cpp
   game/scene/card_load_machine.cpp
   game/camera/cutscene_camera.cpp
+  game/camera/camera_look_builder.cpp
   game/math/gte_math.cpp
   game/math/wide_re_gte_transform3.cpp
   game/render/wide_re_libgpu_leaves.cpp

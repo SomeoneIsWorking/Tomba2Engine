@@ -179,7 +179,7 @@ public:
   ModeStateArm modeStateArm;                 // mode-state arm primitive pair (FUN_8005082C /
                                              // FUN_800508A8)
   ScriptInterp script;                       // cutscene bytecode dispatcher (FUN_80041098 et al.)
-  ActorTomba actorTomba;                     // Tomba's per-frame logic + growth/movement over G block
+  tomba::player::ActorTomba actorTomba;      // Tomba's per-frame logic + growth/movement over G block
   AttackOrbitSubstate attackOrbit;           // A00 overlay: node[3]==0x80/0x81
                                              // sub-behaviors (FUN_80145AF0/801458E0)
   ReleaseTriggerMotion releaseTriggerMotion; // release-trigger sub-motion

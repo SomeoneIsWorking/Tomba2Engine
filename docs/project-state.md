@@ -44,3 +44,5 @@ with the shared per-channel lens and the guest ABI vocabulary each in one privat
 `docs/codemap.md` rewritten with per-directory ownership and the per-frame ownership chains. Verified
 by code-line multiset equality against `HEAD` after the identifier remap, identical override-declaration
 sets, `ctest` 23/23, and a headless `tools/live_play.py` run reaching free roam with the player MOVED.
+
+Second structure pass: `tomba::camera::LookAngleBuilder` and `tomba::player::ActorInteraction` extracted, so `cutscene_camera.cpp` and `actor_tomba.cpp` drop below the 1,200-line cap; verified by code-line equality with `HEAD`, 23/23 ctest and a live run reaching gameplay.

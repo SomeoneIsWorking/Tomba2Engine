@@ -177,7 +177,7 @@ void Sop::transitionAreaEnter() {
     return;
   }
   cfg_logf("stage", "[sop] AREA-ENTER: area %u -> handler 0x%08X", area, handler);
-  c->r[4] = ActorTomba::G_ADDR;
+  c->r[4] = tomba::player::ActorTomba::G_ADDR;
   psx::cpu::dispatchGuestToReturn0(*c, handler, psx::cpu::ExecutionBudget::currentTurn(*c), __func__);
 }
 
@@ -537,7 +537,7 @@ void Sop::fieldUpdate() {
       uint8_t sub = c->mem_r8(BG_LAYER_SUB);
       if (sub == 0) {
         // native CutsceneCamera (was 0x8006e3b0)
-        CutsceneCamera(c, BG_LAYER_STATE).snapFollow(BG_LAYER_TARGET);
+        tomba::camera::CutsceneCamera(c, BG_LAYER_STATE).snapFollow(BG_LAYER_TARGET);
       } else if (sub == 1) {
         c->mem_w8(BG_LAYER_SUB, 0);
       }
@@ -619,10 +619,10 @@ void Sop::fieldMode() {
     }
     c->r[4] = 0x800e8008u;
     c->r[5] = 0x8010c95cu;
-    eng(c).graphicsBind.setXformBlk();                      // BG xform setup — native (was 0x8006cbd0)
-    CutsceneCamera(c, 0x800e8008u).snapFollow(0x800e8040u); // BG init (native class CutsceneCamera; was
-                                                            // 0x8006e3b0)
-    sm = c->mem_r32(0x1f800138u);                           // (callees don't move sm, but reload defensively)
+    eng(c).graphicsBind.setXformBlk();                                     // BG xform setup — native (was 0x8006cbd0)
+    tomba::camera::CutsceneCamera(c, 0x800e8008u).snapFollow(0x800e8040u); // BG init (native class CutsceneCamera; was
+                                                                           // 0x8006e3b0)
+    sm = c->mem_r32(0x1f800138u); // (callees don't move sm, but reload defensively)
     c->mem_w16(sm + 0x50, 1);
     eng(c).pool.reset75240(); // 0x80075240 — native (via LIVE gated entry)
     c->mem_w16(sm + 0x60, 0x1e);

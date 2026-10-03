@@ -14,7 +14,7 @@
 // All 3 callees are already native (ov_rotmat, ov_mat_mul, ov_xform51128), so this is pure
 // scratchpad seeding + native-call orchestration. No typed runtime address dispatch needed.
 #include "node_xform.h"
-#include "actor_tomba.h" // ActorTomba::G_ADDR — buildFromChild's parent-table base (UNWIRED draft)
+#include "actor_tomba.h" // tomba::player::ActorTomba::G_ADDR — buildFromChild's parent-table base (UNWIRED draft)
 #include "core.h"
 #include "game.h"
 #include "game_ctx.h"
@@ -500,7 +500,7 @@ void NodeXform::copyMatrixBlock(uint32_t src, uint32_t dst) {
 
 // FUN_80051614 — RE'd from authenticated executable/overlay evidence guest 0x80051614 (ground truth; Ghidra's decompile
 // mislabeled the parent-table read as "(&DAT_800e7f40)[tableIdx]" — the generated C computes the
-// base as literal 0x800E7E80, which IS ActorTomba::G_ADDR, so this reads *(G_ADDR + tableIdx*4 +
+// base as literal 0x800E7E80, which IS tomba::player::ActorTomba::G_ADDR, so this reads *(G_ADDR + tableIdx*4 +
 // 0xC0): one of Tomba's own child-record slots, not a separate global table):
 //   parent = *(u32*)(G_ADDR + tableIdx*4 + 0xC0)
 //   mode==0:  M = rotmat(node.localEuler)                              [scratch kScrSrcMatrix]
@@ -530,7 +530,7 @@ void NodeXform::buildFromChild(uint32_t nodeAddr, uint32_t inVec, uint32_t table
   Core *c = core;
   GuestFrame<48, 7> frame(c, kBuildFromChildSpills);
   Node node{c, nodeAddr};
-  Node parent{c, c->mem_r32(ActorTomba::G_ADDR + tableIdx * 4u + 0xC0u)};
+  Node parent{c, c->mem_r32(tomba::player::ActorTomba::G_ADDR + tableIdx * 4u + 0xC0u)};
   GuestReg<16> r16(c);
   GuestReg<17> r17(c);
   GuestReg<18> r18(c);
